@@ -90,8 +90,8 @@ export type SeedCandidate = {
   topic: string | null;
   /** "crawl" (2026-07-03 R12/T0e): question-shaped titles/headings/FAQ
    *  questions read off the tenant's own site by the cold-start crawl -
-   *  the ONLY seed source a day-0 tenant has before GSC/Profound sync. */
-  source: "gsc" | "profound" | "crawl";
+   *  the ONLY seed source a day-0 tenant has before GSC sync. */
+  source: "gsc" | "crawl";
 };
 
 const QUESTION_SHAPE_RE = /^(what|how|why|when|where|who|which|is|are|does|do|can|should)\b|\?\s*$/i;
@@ -136,48 +136,21 @@ export async function loadGscQuestionSeeds(tenantId: string, limit = 200): Promi
   }
 }
 
-/** Existing Profound prompt texts already synced for this tenant (the
- *  profound_prompt_rows snapshot table). $0 read. Fail-soft to []. */
-export async function loadProfoundPromptTextSeeds(tenantId: string, limit = 200): Promise<SeedCandidate[]> {
-  try {
-    const sb = getSupabaseAdmin();
-    const { data, error } = await sb
-      .from("profound_prompt_rows")
-      .select("prompt, topic")
-      .eq("tenant_id", tenantId)
-      .limit(limit);
-    if (error || !data) return [];
-    const rows = data as Array<{ prompt: string | null; topic: string | null }>;
-    return rows
-      .filter((r) => Boolean(r.prompt?.trim()))
-      .map((r) => ({ text: r.prompt!.trim(), topic: r.topic ?? null, source: "profound" as const }));
-  } catch (e) {
-    log.warn("[tenant-question-library] profound prompt text seed load failed (fail-soft)", {
-      tenantId,
-      error: e instanceof Error ? e.message.slice(0, 120) : "?",
-    });
-    return [];
-  }
-}
-
 /** PURE: merge + dedupe + cap the seed candidates. Exported for unit tests.
- *  Crawl seeds (4th arg, additive 2026-07-03 R12/T0e) rank LAST: a question
- *  someone actually searched (GSC) or tracks (Profound) beats a heading the
- *  site merely wrote. */
+ *  Crawl seeds (3rd arg, additive 2026-07-03 R12/T0e) rank LAST: a question
+ *  someone actually searched (GSC) beats a heading the site merely wrote. */
 export function buildSeedCandidateSet(
   gscSeeds: readonly SeedCandidate[],
-  profoundSeeds: readonly SeedCandidate[],
   cap = SEED_CAP,
   crawlSeeds: readonly SeedCandidate[] = [],
 ): SeedCandidate[] {
   const seen = new Set<string>();
   const out: SeedCandidate[] = [];
-  // Profound texts first: they are known-real tracked questions for this
-  // tenant's topic; GSC question-shaped queries fill the remainder, then
-  // the site's own crawled question headings.
-  for (const c of [...profoundSeeds, ...gscSeeds, ...crawlSeeds]) {
-    // Never SEED the borrowed-account "Evaluate the Frontier Models company X" junk that a
-    // Profound import carries in - it must never re-enter a tenant's tracked prompts.
+  // GSC question-shaped queries first (real searched demand), then the site's
+  // own crawled question headings.
+  for (const c of [...gscSeeds, ...crawlSeeds]) {
+    // Never SEED the borrowed-account "Evaluate the Frontier Models company X"
+    // junk - it must never enter a tenant's tracked prompts.
     if (isBorrowedAccountSentinelPrompt(c.text)) continue;
     const key = normalizeForDedupe(c.text);
     if (!key || key.length < 8 || seen.has(key)) continue;
@@ -198,7 +171,7 @@ export type SeedTenantQuestionLibraryResult = {
 /**
  * Idempotent, tenant-scoped reseed: only writes when the tenant currently has
  * ZERO active tracked_prompts. Sources are things ALREADY in this tenant's
- * data (GSC question-shaped queries + synced Profound prompt texts) - no new
+ * data (GSC question-shaped queries + crawled question headings) - no new
  * external calls, no spend. Safe to call repeatedly; a non-empty library is a
  * no-op.
  */
@@ -207,18 +180,15 @@ export async function seedTenantQuestionLibraryIfEmpty(
   deps: {
     loadExisting?: (tenantId: string) => Promise<LibraryQuestionInput[]>;
     loadGsc?: (tenantId: string) => Promise<SeedCandidate[]>;
-    loadProfound?: (tenantId: string) => Promise<SeedCandidate[]>;
     /** 2026-07-03 R12/T0e: question-shaped lines from the tenant's own
-     *  crawled pages - the day-0 source when GSC/Profound are empty.
-     *  Optional and defaulting to none, so every existing caller is
-     *  byte-identical. */
+     *  crawled pages - the day-0 source when GSC is empty. Optional and
+     *  defaulting to none, so every existing caller is byte-identical. */
     loadCrawl?: (tenantId: string) => Promise<SeedCandidate[]>;
     now?: () => Date;
   } = {},
 ): Promise<SeedTenantQuestionLibraryResult> {
   const loadExisting = deps.loadExisting ?? loadTenantQuestionLibrary;
   const loadGsc = deps.loadGsc ?? loadGscQuestionSeeds;
-  const loadProfound = deps.loadProfound ?? loadProfoundPromptTextSeeds;
   const loadCrawl = deps.loadCrawl ?? (async () => [] as SeedCandidate[]);
   const now = deps.now ?? (() => new Date());
 
@@ -237,21 +207,20 @@ export async function seedTenantQuestionLibraryIfEmpty(
     };
   }
 
-  const [gscSeeds, profoundSeeds, crawlSeeds] = await Promise.all([
+  const [gscSeeds, crawlSeeds] = await Promise.all([
     loadGsc(trimmed).catch(() => [] as SeedCandidate[]),
-    loadProfound(trimmed).catch(() => [] as SeedCandidate[]),
     loadCrawl(trimmed).catch(() => [] as SeedCandidate[]),
   ]);
-  const candidates = buildSeedCandidateSet(gscSeeds, profoundSeeds, SEED_CAP, crawlSeeds);
+  const candidates = buildSeedCandidateSet(gscSeeds, SEED_CAP, crawlSeeds);
   if (candidates.length === 0) {
-    log.warn("[tenant-question-library] no seed sources available for empty tenant (GSC + Profound + crawl all empty)", {
+    log.warn("[tenant-question-library] no seed sources available for empty tenant (GSC + crawl all empty)", {
       tenantId: trimmed,
     });
     return {
       status: "no_seed_sources",
       existingCount: 0,
       inserted: 0,
-      detail: "no GSC question-shaped queries, synced Profound prompts, or crawled question headings to seed from",
+      detail: "no GSC question-shaped queries or crawled question headings to seed from",
     };
   }
 
@@ -283,14 +252,13 @@ export async function seedTenantQuestionLibraryIfEmpty(
       tenantId: trimmed,
       inserted: rows.length,
       gscSeeds: gscSeeds.length,
-      profoundSeeds: profoundSeeds.length,
       crawlSeeds: crawlSeeds.length,
     });
     return {
       status: "seeded",
       existingCount: 0,
       inserted: rows.length,
-      detail: `inserted ${rows.length} questions (gsc=${gscSeeds.length} candidates, profound=${profoundSeeds.length} candidates, crawl=${crawlSeeds.length} candidates)`,
+      detail: `inserted ${rows.length} questions (gsc=${gscSeeds.length} candidates, crawl=${crawlSeeds.length} candidates)`,
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message.slice(0, 200) : "?";

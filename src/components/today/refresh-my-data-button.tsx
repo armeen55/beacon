@@ -22,8 +22,8 @@ import {
  * line says exactly what it does ("Pulls the latest from every connected
  * source.").
  *
- * White-label: the action returns customer-safe labels ("AI answers", never
- * "Profound"); this component renders them verbatim.
+ * White-label: the action returns customer-safe labels (plain-English source
+ * names, never a vendor name); this component renders them verbatim.
  *
  * Renders nothing when no sources are connected (the strip already shows
  * Connect affordances in that state).

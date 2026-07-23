@@ -11,6 +11,21 @@ import {
 import { assertPaidCallAllowed } from "@/lib/cost/cost-breaker";
 import type { SerpSnapshot, SerpResult, SerpFeature } from "./serp-provider";
 import { rootDomain } from "./serp-provider";
+import {
+  dataForSeoRequest,
+  isDataForSeoConfigured,
+  isDryRun,
+  monthlyCapUsd,
+  resolveAuthB64,
+  DEFAULT_MONTHLY_CAP_USD,
+} from "../dataforseo/client";
+import type { DataForSeoEnv } from "../dataforseo/types";
+
+// The DataForSEO env contract + cap helpers live in ONE canonical place
+// (../dataforseo/client). Re-export them here so long-standing importers of this
+// reader keep resolving the same names against the unified boundary.
+export { isDataForSeoConfigured, isDryRun, monthlyCapUsd, resolveAuthB64, DEFAULT_MONTHLY_CAP_USD };
+export type { DataForSeoEnv };
 
 /**
  * dataforseo-serp (2026-06-25, Phase 3) — the SAFE live-SERP runner for DataForSEO.
@@ -32,8 +47,6 @@ import { rootDomain } from "./serp-provider";
 export const SERP_COST_USD = 0.003;
 const SERP_CACHE_STORE = "dataforseo-serp-cache";
 const SERP_CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
-// R14b: exported so /settings/how-i-decide's registry imports the live value.
-export const DEFAULT_MONTHLY_CAP_USD = 50;
 // Item 20 (2026-07-02): live/regular -> live/advanced. The regular endpoint returns
 // items ONLY for featured_snippet/organic/paid, so ai_overview never appeared in its
 // items (verified against 83 real cached Iranopedia snapshots: 0 ai_overview). The
@@ -60,53 +73,6 @@ export type SerpRunResult = {
   costUsd: number;
   detail: string;
 };
-
-export type DataForSeoEnv = {
-  login?: string;
-  password?: string;
-  /** Pre-encoded base64(login:password) — the "Base64 Format" string DataForSEO
-   *  shows in the dashboard. When present it's used verbatim, bypassing any
-   *  login/password assembly. Most robust auth path. */
-  authB64?: string;
-  provider?: string;
-  dryRun?: string;
-  monthlyCapUsd?: string;
-};
-
-function readEnv(env: NodeJS.ProcessEnv = process.env): DataForSeoEnv {
-  return {
-    login: env.DATAFORSEO_LOGIN,
-    password: env.DATAFORSEO_PASSWORD,
-    authB64: (env.DATAFORSEO_AUTH_B64 ?? "").trim().replace(/^Basic\s+/i, "") || undefined,
-    provider: env.BEACON_SERP_PROVIDER,
-    dryRun: env.DATAFORSEO_DRY_RUN,
-    monthlyCapUsd: env.DATAFORSEO_MONTHLY_CAP_USD,
-  };
-}
-
-/** The Basic-auth value to send: the dashboard base64 string if provided, else
- *  base64(login:password). Returns null when nothing usable is set. */
-export function resolveAuthB64(env: NodeJS.ProcessEnv = process.env): string | null {
-  const e = readEnv(env);
-  if (e.authB64) return e.authB64;
-  if (e.login && e.password) return Buffer.from(`${e.login}:${e.password}`).toString("base64");
-  return null;
-}
-
-/** Configured = provider selected AND a usable auth (base64 OR login+password). */
-export function isDataForSeoConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
-  return readEnv(env).provider === "dataforseo" && resolveAuthB64(env) !== null;
-}
-
-/** DRY-RUN is the DEFAULT. Only an explicit DATAFORSEO_DRY_RUN=false turns it off. */
-export function isDryRun(env: NodeJS.ProcessEnv = process.env): boolean {
-  return readEnv(env).dryRun !== "false";
-}
-
-export function monthlyCapUsd(env: NodeJS.ProcessEnv = process.env): number {
-  const raw = Number(readEnv(env).monthlyCapUsd);
-  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_MONTHLY_CAP_USD;
-}
 
 /** Build the planned call (endpoint + estimated cost) without performing it. */
 export function planSerpCall(
@@ -558,105 +524,91 @@ export async function runSerpQuery(
     }
   }
 
-  // (3) DRY-RUN (default) — return the PLAN, spend nothing.
-  if (isDryRun(deps.env)) {
-    log.info("[dataforseo-serp] DRY-RUN (no spend)", { query: q, estCostUsd: plan.estCostUsd, endpoint: plan.endpoint });
-    return { status: "dry_run", plan, snapshot: null, costUsd: 0, detail: `dry-run — would spend ~$${plan.estCostUsd}` };
-  }
-
-  // (3.5) GLOBAL cost breaker (N43) - the OUTER guard OVER the per-platform cap
-  // below. Reached ONLY on the paid path (cache hits + dry-runs already returned
-  // above), so it can never block free work. Belt-and-suspenders: it never
-  // loosens the per-platform monthly cap in (4); it only ever adds a refusal
-  // when the combined cross-lane spend has crossed the global ceiling.
-  const breaker = await deps.globalBreaker(deps.env, now, plan.estCostUsd).catch(() => ({
-    tripped: true,
-    reason: "global spend breaker unavailable, failing closed",
-  }));
-  if (breaker.tripped) {
-    log.warn("[dataforseo-serp] global cost breaker tripped — no call", { detail: breaker.reason });
-    return { status: "capped", plan, snapshot: null, costUsd: 0, detail: breaker.reason ?? "global monthly ceiling reached" };
-  }
-
-  // (4) hard monthly cap — FAIL-CLOSED (over cap or unknown spend = no call).
+  // (3) The canonical money gauntlet: dry-run (default) -> global breaker ->
+  // per-platform cap -> paid fetch -> record ACTUAL cost + provenance. One core
+  // (../dataforseo/client) governs EVERY DataForSEO endpoint; this reader owns
+  // only its cache (above), parsing, and history append (below).
   const tenantId = await deps.tenantId();
-  const cap = monthlyCapUsd(deps.env);
-  const spent = await deps.spentThisMonthUsd(tenantId, now).catch(() => null);
-  if (spent === null) {
-    log.warn("[dataforseo-serp] spend unknown — failing closed (no call)", { tenantId });
-    return { status: "capped", plan, snapshot: null, costUsd: 0, detail: "monthly spend unknown — failing closed" };
-  }
-  if (spent + plan.estCostUsd > cap) {
-    log.warn("[dataforseo-serp] monthly cap reached — no call", { tenantId, spent, cap });
-    return { status: "capped", plan, snapshot: null, costUsd: 0, detail: `cap reached (${spent.toFixed(3)}/${cap} USD this month)` };
-  }
-
-  // (5) the paid call.
-  try {
-    const auth = resolveAuthB64(deps.env) ?? "";
-    const res = await deps.fetchImpl(plan.endpoint, {
-      method: "POST",
-      headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
-      body: JSON.stringify([
-        { keyword: q, location_code: plan.locationCode, language_code: plan.languageCode, depth: opts.depth ?? 10 },
-      ]),
-    });
-    if (!res.ok) {
-      log.warn("[dataforseo-serp] non-2xx", { query: q, status: res.status });
-      return { status: "error", plan, snapshot: null, costUsd: 0, detail: `http ${res.status}` };
-    }
-    const body = await res.json();
-    const snapshot = parseDataForSeoSerp(q, body, now.toISOString());
-
-    // record spend (durable) + cache + structured ledger line.
-    await deps.recordSpend(tenantId, plan.estCostUsd).catch((err) =>
-      log.warn("[dataforseo-serp] durable spend write failed (non-fatal)", { error: String(err) }),
-    );
-    try {
-      const rows = (await deps.readCache()).filter((r) => r.key !== cacheKey(plan));
-      rows.push({ key: cacheKey(plan), snapshot, fetchedAt: now.toISOString() });
-      await deps.writeCache(rows);
-    } catch {
-      /* cache write failure is non-fatal */
-    }
-    // Item 17 - append-only history row riding this already-paid read ($0 marginal).
-    // Best-effort + fail-soft: NEVER fails the main read; runs ONLY on real "ok"
-    // (never on cache hits / dry-run / capped / error). Awaited behind a catch so
-    // serverless does not silently drop the write - the same posture as recordSpend.
-    try {
-      const tenantDomain = await deps.tenantDomain().catch(() => null);
-      await deps.appendHistory(
-        buildSerpHistoryRow({
-          tenantId,
-          query: q,
-          location: `${plan.locationCode}|${plan.languageCode}`,
-          snapshot,
-          tenantDomain,
-          capturedAt: now.toISOString(),
-          costUsd: plan.estCostUsd,
-          aiOverview: snapshot.aiOverview,
-          snippetOwner: snapshot.snippetOwner,
-          paaQuestions: snapshot.paaQuestions,
-        }),
-      );
-    } catch (err) {
-      log.warn("[dataforseo-serp] history append failed (non-fatal)", {
-        query: q,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-    log.info("[dataforseo-serp] LEDGER", {
+  const result = await dataForSeoRequest(
+    {
       tenantId,
-      query: q,
       endpoint: plan.endpoint,
+      payload: [
+        { keyword: q, location_code: plan.locationCode, language_code: plan.languageCode, depth: opts.depth ?? 10 },
+      ],
       estCostUsd: plan.estCostUsd,
-      results: snapshot.results.length,
-      features: snapshot.features.join(","),
-      cache: "miss",
-    });
-    return { status: "ok", plan, snapshot, costUsd: plan.estCostUsd, detail: `${snapshot.results.length} results` };
-  } catch (err) {
-    log.warn("[dataforseo-serp] fetch threw (non-fatal)", { query: q, error: err instanceof Error ? err.message : String(err) });
-    return { status: "error", plan, snapshot: null, costUsd: 0, detail: "fetch failed" };
+      location: plan.locationCode,
+      language: plan.languageCode,
+      payloadSummary: q,
+      perfDetail: "serp",
+      now,
+    },
+    {
+      env: deps.env,
+      spentThisMonthUsd: deps.spentThisMonthUsd,
+      recordSpend: deps.recordSpend,
+      fetchImpl: deps.fetchImpl,
+      globalBreaker: deps.globalBreaker,
+    },
+  );
+
+  switch (result.state) {
+    case "not_configured":
+      return { status: "disabled", plan, snapshot: null, costUsd: 0, detail: "DataForSEO not configured" };
+    case "dry_run":
+      log.info("[dataforseo-serp] DRY-RUN (no spend)", { query: q, estCostUsd: plan.estCostUsd, endpoint: plan.endpoint });
+      return { status: "dry_run", plan, snapshot: null, costUsd: 0, detail: result.detail };
+    case "capped":
+      log.warn("[dataforseo-serp] paid call held (cap/breaker)", { query: q, detail: result.detail });
+      return { status: "capped", plan, snapshot: null, costUsd: 0, detail: result.detail };
+    case "error":
+      log.warn("[dataforseo-serp] request error", { query: q, detail: result.detail });
+      return { status: "error", plan, snapshot: null, costUsd: 0, detail: result.detail };
+    case "ok": {
+      const snapshot = parseDataForSeoSerp(q, result.body, now.toISOString());
+      // Cache the parsed snapshot (spend already recorded by the client core).
+      try {
+        const rows = (await deps.readCache()).filter((r) => r.key !== cacheKey(plan));
+        rows.push({ key: cacheKey(plan), snapshot, fetchedAt: now.toISOString() });
+        await deps.writeCache(rows);
+      } catch {
+        /* cache write failure is non-fatal */
+      }
+      // Item 17 - append-only history row riding this already-paid read ($0 marginal).
+      // Best-effort + fail-soft: NEVER fails the main read; runs ONLY on real "ok".
+      try {
+        const tenantDomain = await deps.tenantDomain().catch(() => null);
+        await deps.appendHistory(
+          buildSerpHistoryRow({
+            tenantId,
+            query: q,
+            location: `${plan.locationCode}|${plan.languageCode}`,
+            snapshot,
+            tenantDomain,
+            capturedAt: now.toISOString(),
+            costUsd: result.costUsd,
+            aiOverview: snapshot.aiOverview,
+            snippetOwner: snapshot.snippetOwner,
+            paaQuestions: snapshot.paaQuestions,
+          }),
+        );
+      } catch (err) {
+        log.warn("[dataforseo-serp] history append failed (non-fatal)", {
+          query: q,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      log.info("[dataforseo-serp] LEDGER", {
+        tenantId,
+        query: q,
+        endpoint: plan.endpoint,
+        costUsd: result.costUsd,
+        idempotencyKey: result.idempotencyKey,
+        results: snapshot.results.length,
+        features: snapshot.features.join(","),
+        cache: "miss",
+      });
+      return { status: "ok", plan, snapshot, costUsd: result.costUsd, detail: `${snapshot.results.length} results` };
+    }
   }
 }

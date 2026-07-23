@@ -11,11 +11,10 @@
  * everywhere, so the same fact can never disagree with itself again.
  *
  * SCOPE: this registry lists the FOUR live connectors only. The stored-row
- * provider union in connector-store (google_gbp, yelp, callrail, profound, ...)
- * is deliberately WIDER for backward compatibility with historical token rows;
- * profound in particular stays in the type but is not a live registry entry
- * (its account was disconnected 2026-07-20). "Live" = shows a connect card, is
- * counted in the health rollup, and feeds a real surface.
+ * provider union in connector-store (google_gbp, yelp, callrail, ...) is
+ * deliberately WIDER for backward compatibility with historical token rows.
+ * "Live" = shows a connect card, is counted in the health rollup, and feeds a
+ * real surface.
  *
  * PURE + isomorphic: no `server-only`, no I/O, no React. Safe to import from
  * server components, client components, and vitest alike.
@@ -216,7 +215,7 @@ export const LIVE_CONNECTOR_IDS: readonly LiveConnectorId[] =
   CONNECTOR_REGISTRY.map((c) => c.id);
 
 /** Registry entry by connector-store provider id (undefined for a legacy/
- *  non-live provider such as profound/yelp/callrail/google_gbp). */
+ *  non-live provider such as yelp/callrail/google_gbp). */
 export function connectorById(id: string): ConnectorRegistryEntry | undefined {
   return CONNECTOR_REGISTRY.find((c) => c.id === id);
 }

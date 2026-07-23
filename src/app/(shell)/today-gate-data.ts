@@ -22,10 +22,10 @@ export type TodayV2GateData = {
 
 export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
   // "Demo mode" (→ the connect-prompt) ONLY when the tenant has NO CSV import
-  // AND no real data source connected. A GSC- (or GA4/SEMrush/Clarity/Profound/
-  // Wix-) connected tenant is operating on its own live data, so it sees its
-  // real command center — never the connect-prompt — even before its first CSV
-  // import or first reading. Mirrors the shell's hasRealConnector gate
+  // AND no real data source connected. A GSC- (or GA4/Clarity/Wix-) connected
+  // tenant is operating on its own live data, so it sees its real command
+  // center — never the connect-prompt — even before its first CSV import or
+  // first reading. Mirrors the shell's hasRealConnector gate
   // (layout.tsx) so the two never disagree. (2026-06-15 fix: GSC-connected
   // tenants were wrongly shown "Connect your data sources".)
   // These three reads are independent. This gate blocks Today's first useful

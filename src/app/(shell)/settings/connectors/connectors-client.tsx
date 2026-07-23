@@ -91,8 +91,8 @@ type Props = {
    *  Discover collections fix block on the Wix card. */
   wixUrlMapCount?: number;
   /** BUG 3 (2026-07-11), per-source refresh-ledger facts for the "last pulled /
-   *  data through / result" strip. Keyed by ledger source name (gsc/ga4/clarity/
-   *  profound). Computed server-side in page.tsx from latestRefreshBySource.
+   *  data through / result" strip. Keyed by ledger source name (gsc/ga4/
+   *  clarity). Computed server-side in page.tsx from latestRefreshBySource.
    *  Optional + self-hiding so pre-BUG3 render-test callers are unaffected. */
   refreshLedger?: RefreshLedgerFacts;
 };

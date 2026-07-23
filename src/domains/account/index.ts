@@ -45,9 +45,8 @@ export { runFirstLook, deriveNameFromDomain } from "./onboarding/url-first";
 // Onboarding: site-profile normalization
 export { normalizeSiteUrl } from "./onboarding/fetch-site-profile";
 
-// Onboarding: config derivation + first-scan dispatch
+// Onboarding: config derivation
 export { deriveAndPersistTenantConfig } from "./onboarding/launch-config";
-export { dispatchFirstScanForTenant } from "./onboarding/first-scan-dispatch";
 
 // Onboarding: first-audit scorecard
 export { composeFirstAuditScorecard } from "./onboarding/first-audit";

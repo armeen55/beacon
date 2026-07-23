@@ -1,7 +1,7 @@
 /**
  * Page Surgeon — assemble a real EvidencePacket for a page from the ACTUAL
- * signal loaders (GSC, Clarity, GA4, SEMrush) + the page snapshot crawl. Pure
- * I/O orchestration; never fabricates a metric (absent source → omitted, and
+ * signal loaders (GSC, Clarity, GA4) + the page snapshot crawl. Pure I/O
+ * orchestration; never fabricates a metric (absent source → omitted, and
  * recorded under sourcesConnectedButEmpty). Server-only.
  */
 
@@ -102,8 +102,8 @@ async function loadPageSurgeonContextUncached(
     if (!snapshotByCanon.has(c)) snapshotByCanon.set(c, s);
   }
 
-  // Competitor domains (market rivals): SEMrush domain-metrics removed Phase F.1.
-  // DataForSEO SERP winners are the replacement market layer (wired separately).
+  // Competitor domains (market rivals): DataForSEO SERP winners are the market
+  // layer (wired separately). Empty here until that layer feeds this context.
   const competitorDomains: string[] = [];
 
   // Meter the read so a large egress pull is visible, not silent.
@@ -155,7 +155,6 @@ export function assemblePacketForUrl(
   const gsc = ctx.gscByUrl.get(canonUrl);
   const clarity = ctx.clarityByUrl.get(canonUrl);
   const ga4 = ctx.ga4ByUrl.get(canonUrl);
-  // (SEMrush removed Phase F.1.)
 
   // GA4 "present" must mean real traffic, not just a zero-metric row so a
   // 0-session page is honestly "connected but empty".
@@ -167,7 +166,6 @@ export function assemblePacketForUrl(
   (hasGa4 ? present : empty).push("ga4");
   (clarity ? present : empty).push("clarity");
   (snap ? present : empty).push("crawl");
-  empty.push("profound"); // not connected yet
 
   const packet: EvidencePacket = {
     current: {
@@ -228,7 +226,6 @@ export function assemblePacketForUrl(
       scriptErrors: clarity.scriptErrors,
     };
   }
-  // (SEMrush packet population removed Phase F.1.)
   if (snap) {
     packet.crawl = {
       title: snap.title ?? null,

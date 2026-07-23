@@ -4,8 +4,7 @@ import { log } from "@/lib/logger";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { currentTenantId } from "@/lib/tenant-context";
 import { recordSpendSupabase, getTenantSpentThisMonthUsd } from "@/lib/cost/budget-ledger-supabase";
-import { perfCountExternal } from "@/lib/obs/perf-log";
-import { resolveAuthB64, isDataForSeoConfigured, isDryRun, monthlyCapUsd } from "./dataforseo-serp";
+import { dataForSeoRequest, isDataForSeoConfigured } from "../dataforseo/client";
 
 /**
  * dataforseo-keywords (2026-06-25, Sprint 4A) — the SAFE keyword-demand runner.
@@ -227,66 +226,65 @@ export async function runKeywordVolume(
     /* non-fatal */
   }
 
-  // (3) DRY-RUN (default) — return the plan, spend nothing.
-  if (isDryRun(deps.env)) {
-    log.info("[dataforseo-keywords] DRY-RUN (no spend)", { count: plan.keywords.length, estCostUsd: plan.estCostUsd });
-    return { status: "dry_run", plan, keywords: [], costUsd: 0, detail: `dry-run — would spend ~$${plan.estCostUsd}` };
-  }
-
-  // (4) hard monthly cap — FAIL-CLOSED.
+  // (3) The canonical money gauntlet: dry-run (default) -> global breaker ->
+  // shared per-platform cap -> paid fetch -> record ACTUAL cost + provenance.
+  // ONE core (../dataforseo/client) governs EVERY DataForSEO endpoint; this
+  // reader owns only its cache (above), parsing, and cache write (below).
   const tenantId = await deps.tenantId();
-  const cap = monthlyCapUsd(deps.env);
-  const spent = await deps.spentThisMonthUsd(tenantId, now).catch(() => null);
-  if (spent === null) {
-    log.warn("[dataforseo-keywords] spend unknown — failing closed", { tenantId });
-    return { status: "capped", plan, keywords: [], costUsd: 0, detail: "monthly spend unknown — failing closed" };
-  }
-  if (spent + plan.estCostUsd > cap) {
-    log.warn("[dataforseo-keywords] monthly cap reached — no call", { tenantId, spent, cap });
-    return { status: "capped", plan, keywords: [], costUsd: 0, detail: `cap reached (${spent.toFixed(3)}/${cap} USD this month)` };
-  }
-
-  // (5) the paid call.
-  try {
-    // W2-B - count the live DataForSEO keyword-volume call at its transport.
-    perfCountExternal("dataforseo", "keywords");
-    const auth = resolveAuthB64(deps.env) ?? "";
-    const res = await deps.fetchImpl(plan.endpoint, {
-      method: "POST",
-      headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
-      body: JSON.stringify([
-        { keywords: plan.keywords, location_code: plan.locationCode, language_code: plan.languageCode },
-      ]),
-    });
-    if (!res.ok) {
-      log.warn("[dataforseo-keywords] non-2xx", { status: res.status });
-      return { status: "error", plan, keywords: [], costUsd: 0, detail: `http ${res.status}` };
-    }
-    const body = await res.json();
-    const parsed = parseKeywordVolume(body, plan, now.toISOString());
-
-    await deps.recordSpend(tenantId, plan.estCostUsd).catch((err) =>
-      log.warn("[dataforseo-keywords] durable spend write failed (non-fatal)", { error: String(err) }),
-    );
-    try {
-      const rows = (await deps.readCache()).filter((r) => r.key !== cacheKey(plan));
-      rows.push({ key: cacheKey(plan), keywords: parsed, fetchedAt: now.toISOString() });
-      await deps.writeCache(rows);
-    } catch {
-      /* non-fatal */
-    }
-    log.info("[dataforseo-keywords] LEDGER", {
+  const result = await dataForSeoRequest(
+    {
       tenantId,
       endpoint: plan.endpoint,
-      requested: plan.keywords.length,
-      returned: parsed.length,
-      withVolume: parsed.filter((k) => k.searchVolume != null).length,
+      payload: [
+        { keywords: plan.keywords, location_code: plan.locationCode, language_code: plan.languageCode },
+      ],
       estCostUsd: plan.estCostUsd,
-      cache: "miss",
-    });
-    return { status: "ok", plan, keywords: parsed, costUsd: plan.estCostUsd, detail: `${parsed.length} keywords` };
-  } catch (err) {
-    log.warn("[dataforseo-keywords] fetch threw (non-fatal)", { error: err instanceof Error ? err.message : String(err) });
-    return { status: "error", plan, keywords: [], costUsd: 0, detail: "fetch failed" };
+      location: plan.locationCode,
+      language: plan.languageCode,
+      payloadSummary: `${plan.keywords.length} keywords`,
+      perfDetail: "keywords",
+      now,
+    },
+    {
+      env: deps.env,
+      spentThisMonthUsd: deps.spentThisMonthUsd,
+      recordSpend: deps.recordSpend,
+      fetchImpl: deps.fetchImpl,
+    },
+  );
+
+  switch (result.state) {
+    case "not_configured":
+      return { status: "disabled", plan, keywords: [], costUsd: 0, detail: "DataForSEO not configured" };
+    case "dry_run":
+      log.info("[dataforseo-keywords] DRY-RUN (no spend)", { count: plan.keywords.length, estCostUsd: plan.estCostUsd });
+      return { status: "dry_run", plan, keywords: [], costUsd: 0, detail: result.detail };
+    case "capped":
+      log.warn("[dataforseo-keywords] paid call held (cap/breaker)", { detail: result.detail });
+      return { status: "capped", plan, keywords: [], costUsd: 0, detail: result.detail };
+    case "error":
+      log.warn("[dataforseo-keywords] request error", { detail: result.detail });
+      return { status: "error", plan, keywords: [], costUsd: 0, detail: result.detail };
+    case "ok": {
+      const parsed = parseKeywordVolume(result.body, plan, now.toISOString());
+      try {
+        const rows = (await deps.readCache()).filter((r) => r.key !== cacheKey(plan));
+        rows.push({ key: cacheKey(plan), keywords: parsed, fetchedAt: now.toISOString() });
+        await deps.writeCache(rows);
+      } catch {
+        /* non-fatal */
+      }
+      log.info("[dataforseo-keywords] LEDGER", {
+        tenantId,
+        endpoint: plan.endpoint,
+        requested: plan.keywords.length,
+        returned: parsed.length,
+        withVolume: parsed.filter((k) => k.searchVolume != null).length,
+        costUsd: result.costUsd,
+        idempotencyKey: result.idempotencyKey,
+        cache: "miss",
+      });
+      return { status: "ok", plan, keywords: parsed, costUsd: result.costUsd, detail: `${parsed.length} keywords` };
+    }
   }
 }

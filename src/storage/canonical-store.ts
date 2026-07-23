@@ -17,15 +17,14 @@
  * Hot stores: loaded eagerly via json-store (small collections).
  * Cold stores: loaded on-demand via cold-store (large observation data).
  *
- * Shared filename: `.data/observation-runs.json` also receives website `ObservationRun`
- * rows from scan/verify. This module only ever treats the file as `ProfoundImportRun[]`
- * (json-store parse). Website runs are read via `SeedDataRepository.getObservationRuns()`
- * (`file-backend` merges typed rows + `scan-runs.json`, skipping Profound-shaped objects).
+ * Website crawl/verify `ObservationRun` rows are read via
+ * `SeedDataRepository.getObservationRuns()` (`file-backend` merges typed rows +
+ * `scan-runs.json`), a separate path from this module.
  *
  * Sprint 7 Phase 7.8e-2 (2026-04-26) — request-scope lift. Module-level
  * top-level `await readStore(...)` calls (which captured the env-resolved
  * tenant once at module init and froze it) are replaced with cached async
- * getters: `getTrackedPrompts`, `getTrackedEntities`, `getObservationRuns`,
+ * getters: `getTrackedPrompts`, `getTrackedEntities`,
  * `getPromptAnswerObservations`, `getDailyMetricSnapshots`.
  *
  * `React.cache` memoizes within one render tree; the process-level
@@ -51,7 +50,6 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
 import type { TrackedEntity } from "@/domains/evidence/ai-visibility/tracked-entities";
-import type { ProfoundImportRun } from "@/domains/evidence/ai-visibility/observation-runs";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
 
@@ -69,7 +67,6 @@ import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapsh
 type State = {
   trackedPrompts: TrackedPrompt[] | null;
   trackedEntities: TrackedEntity[] | null;
-  observationRuns: ProfoundImportRun[] | null;
   promptAnswerObservations: PromptAnswerObservation[] | null;
   dailyMetricSnapshots: DailyMetricSnapshot[] | null;
 };
@@ -78,7 +75,6 @@ function emptyState(): State {
   return {
     trackedPrompts: null,
     trackedEntities: null,
-    observationRuns: null,
     promptAnswerObservations: null,
     dailyMetricSnapshots: null,
   };
@@ -149,17 +145,15 @@ async function loadStateForTenant(): Promise<State> {
   const state = cached ?? emptyState();
   _byTenant.set(tenantId, state);
 
-  // Initial disk read for all 8 stores (ambient-routed to this tenant).
-  const [tp, te, or, pao, dms] = await Promise.all([
+  // Initial disk read for the canonical stores (ambient-routed to this tenant).
+  const [tp, te, pao, dms] = await Promise.all([
     readStore<TrackedPrompt>("tracked-prompts"),
     readStore<TrackedEntity>("tracked-entities"),
-    readStore<ProfoundImportRun>("observation-runs"),
     readStore<PromptAnswerObservation>("prompt-answer-observations"),
     readStore<DailyMetricSnapshot>("daily-metric-snapshots"),
   ]);
   state.trackedPrompts = tp;
   state.trackedEntities = te;
-  state.observationRuns = or;
   state.promptAnswerObservations = pao;
   state.dailyMetricSnapshots = dms;
 
@@ -237,12 +231,6 @@ export const getTrackedEntities = cache(async (): Promise<TrackedEntity[]> => {
   return (await ensureLoaded()).trackedEntities!;
 });
 
-export const getObservationRuns = cache(
-  async (): Promise<ProfoundImportRun[]> => {
-    return (await ensureLoaded()).observationRuns!;
-  },
-);
-
 export const getPromptAnswerObservations = cache(
   async (): Promise<PromptAnswerObservation[]> => {
     return (await ensureLoaded()).promptAnswerObservations!;
@@ -306,10 +294,6 @@ export async function persistTrackedEntities(tenantId: string): Promise<void> {
   const trackedEntities = await getTrackedEntities();
   await writeStore("tracked-entities", trackedEntities);
   await syncTrackedEntities(trackedEntities, tenantId);
-}
-
-export async function persistObservationRuns(): Promise<void> {
-  await writeStore("observation-runs", await getObservationRuns());
 }
 
 export async function persistObservations(tenantId: string): Promise<void> {

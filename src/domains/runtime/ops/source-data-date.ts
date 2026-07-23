@@ -6,7 +6,7 @@ import "server-only";
  * The newest data date each read source actually has stored, per tenant. The
  * refresh ledger records this AFTER a run so /settings/connectors can say "data
  * through <date>" honestly - and so a source that reports "synced" while its
- * freshest row is weeks old (the Profound silent-partial) is visible.
+ * freshest row is weeks old is visible.
  *
  * FAIL-SOFT BY CONTRACT: every reader returns null on any error, missing table,
  * or absent Supabase env (local dev / vitest). A latest-date read must never
@@ -51,8 +51,7 @@ async function newestDate(
 
 /**
  * Newest stored data date (YYYY-MM-DD) for one source + tenant, or null when
- * unknown. Profound spreads data across several row kinds; the citation rows are
- * its primary daily feed, so their newest date is the honest "data through".
+ * unknown.
  */
 export async function latestDataDateForSource(
   tenantId: string,
@@ -65,7 +64,5 @@ export async function latestDataDateForSource(
       return newestDate("ga4_url_traffic", tenantId);
     case "clarity":
       return newestDate("clarity_daily_url_metrics", tenantId);
-    case "profound":
-      return newestDate("profound_citation_rows", tenantId);
   }
 }

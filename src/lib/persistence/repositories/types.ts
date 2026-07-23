@@ -252,7 +252,6 @@ export interface TenantRepository {
   // (getProfoundImportRuns removed 2026-07-21, CORE 100K Lane O: the
   // Section 5 repeat-citation loader that consumed it was deleted in an
   // earlier campaign, leaving the whole read path caller-less. The
-  // `ProfoundImportRun` TYPE stays live in
-  // `@/domains/evidence/ai-visibility/observation-runs` — canonical-store still reads the
-  // mixed observation-runs file through it.)
+  // `ProfoundImportRun` type and its phantom import-run plumbing were fully
+  // deleted in Slice 2 with the retired provider architecture.)
 }

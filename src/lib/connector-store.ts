@@ -71,7 +71,6 @@ export type ConnectorProvider =
   | "yelp"
   | "callrail"
   | "wix"
-  | "profound"
   | "clarity";
 
 /** Google OAuth token shape (GSC, GBP, or GA4 — discriminated by provider). */
@@ -207,33 +206,6 @@ export type WixConnectorToken = {
 };
 
 /**
- * Profound API — bearer key (never sent to the client). Answer-engine
- * visibility: citations, sentiment, fanouts. Connect-cards slice
- * (2026-06-12): self-serve key paste; the nightly fetcher activates
- * the moment a key lands (dormant-honest until then).
- */
-export type ProfoundConnectorToken = {
-  provider: "profound";
-  api_key: string;
-  connected_at: string;
-  last_synced_at?: string;
-  disconnected_at?: string;
-  /**
-   * Topic-scoping (2026-06-24, operator-managed). When the tenant's AEO
-   * prompts live as ONE topic inside a shared/borrowed Profound workspace
-   * category (e.g. Iranopedia's prompts are one of 16 topics in a borrowed
-   * "Frontier Models" category), set these in the SAME payload as the api_key
-   * so the nightly sync scopes every report to the tenant's own topic instead
-   * of pulling the whole (unrelated) category. `topic_id`/`category_id` are
-   * Profound UUIDs; `topic_label` is a human label for surfaces. Optional —
-   * unset → sync pulls the full category (original behavior).
-   */
-  category_id?: string;
-  topic_id?: string;
-  topic_label?: string;
-};
-
-/**
  * Microsoft Clarity Data Export API — per-project bearer token (never
  * sent to the client). Hard platform limits: 10 requests/day, 1-3 day
  * lookback, no backfill — the nightly harvester budgets ONE pull/day
@@ -252,7 +224,6 @@ export type ConnectorToken =
   | YelpConnectorToken
   | CallRailConnectorToken
   | WixConnectorToken
-  | ProfoundConnectorToken
   | ClarityConnectorToken;
 
 export type ConnectorStatus = "connected" | "disconnected";
@@ -563,8 +534,8 @@ export type ConnectorHealthInfo = ConnectorInfo & {
 /**
  * Connected-but-no-data is more than this many days stale → soft hint. Wave 3A
  * reconciliation: this is a SYNC-age connection-liveness threshold ("is this connection
- * still alive"), DISTINCT from the per-source DATA-age SLA (gsc 3d, profound 21d, clarity
- * 7d) that decides whether a source's numbers are current. Both now live in ONE module
+ * still alive"), DISTINCT from the per-source DATA-age SLA (gsc 3d, clarity 7d)
+ * that decides whether a source's numbers are current. Both now live in ONE module
  * (src/domains/runtime/ops/source-freshness.ts): the data-age SLA is SOURCE_SLA, this liveness
  * threshold is CONNECTION_LIVENESS_STALE_DAYS, so the three old scattered constants
  * (this 14, the strip's 24h, golden-path's 2d) can never drift apart again.
@@ -765,9 +736,9 @@ export async function getConnectorHealth(
  * The read data-source connectors that, when ANY is connected, mean the
  * tenant is operating on its own LIVE data — not demo/sample content. Derived
  * from the ONE canonical connector registry (the four live connectors). Legacy
- * providers (google_gbp rides the gsc grant, CallRail/Yelp are auxiliary, and
- * profound was disconnected 2026-07-20) are not live sources, so they are not in
- * the registry and never count toward "this is a real tenant".
+ * providers (google_gbp rides the gsc grant, CallRail/Yelp are auxiliary) are
+ * not live sources, so they are not in the registry and never count toward
+ * "this is a real tenant".
  */
 const REAL_DATA_SOURCE_PROVIDERS: LiveConnectorId[] = CONNECTOR_REGISTRY.map(
   (c) => c.id,
@@ -943,9 +914,6 @@ type WixConnectorPatch = Partial<
     "api_key" | "site_id" | "last_synced_at" | "disconnected_at"
   >
 >;
-type ProfoundConnectorPatch = Partial<
-  Pick<ProfoundConnectorToken, "api_key" | "last_synced_at" | "disconnected_at">
->;
 type ClarityConnectorPatch = Partial<
   Pick<ClarityConnectorToken, "api_token" | "last_synced_at" | "disconnected_at">
 >;
@@ -971,11 +939,6 @@ export async function updateConnectorToken(
   tenantId?: string,
 ): Promise<void>;
 export async function updateConnectorToken(
-  provider: "profound",
-  patch: ProfoundConnectorPatch,
-  tenantId?: string,
-): Promise<void>;
-export async function updateConnectorToken(
   provider: "clarity",
   patch: ClarityConnectorPatch,
   tenantId?: string,
@@ -987,7 +950,6 @@ export async function updateConnectorToken(
     | YelpConnectorPatch
     | CallRailConnectorPatch
     | WixConnectorPatch
-    | ProfoundConnectorPatch
     | ClarityConnectorPatch,
   tenantId?: string,
 ): Promise<void> {

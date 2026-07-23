@@ -11,11 +11,11 @@
  *    byte-identical to the values pick-expectations.ts and the daily planner have
  *    always used, so every consumer that passes no tenant curve behaves EXACTLY
  *    as before (pinned by tests).
- *  - SEMRUSH_TOP5_CTR: the sourced positions-1-to-5 benchmark the gsc_low_ctr
- *    trigger calibrates against (Semrush Dec 2025). Kept as a NAMED, separate
- *    table because it is research-derived trigger calibration with citations,
- *    not a forecast assumption - but it now lives here so there is one file to
- *    read when asking "what CTR does Beacon assume".
+ *  - PUBLISHED_TOP5_CTR_BENCHMARK: the published positions-1-to-5 industry
+ *    benchmark the gsc_low_ctr trigger calibrates against. Kept as a NAMED,
+ *    separate table because it is research-derived trigger calibration, not a
+ *    forecast assumption - but it now lives here so there is one file to read
+ *    when asking "what CTR does Beacon assume".
  *  - fitTenantCtrCurve: fits a position-to-CTR curve from the tenant's OWN
  *    Search Console query aggregates (per-bucket median CTR with honest sample
  *    floors, brand queries excluded), interpolating thin buckets and falling
@@ -61,12 +61,11 @@ export function defaultExpectedCtrAt(position: number): number {
   return TAIL_21_PLUS;
 }
 
-/** Semrush (Dec 2025) per-position organic CTR benchmarks, positions 1-5 only
- *  (the band the source covers). This is the gsc_low_ctr trigger's calibration
- *  table (moved here from triggers/gsc-low-ctr.ts, which re-exports it) - a
- *  sourced benchmark for "is this page underperforming its rank", deliberately
- *  distinct from the forecast default above. */
-export const SEMRUSH_TOP5_CTR: Record<number, number> = {
+/** Published per-position organic CTR benchmarks, positions 1-5 only (the band
+ *  the source covers). This is the gsc_low_ctr trigger's calibration table - a
+ *  published industry benchmark for "is this page underperforming its rank",
+ *  deliberately distinct from the forecast default above. */
+export const PUBLISHED_TOP5_CTR_BENCHMARK: Record<number, number> = {
   1: 0.398,
   2: 0.187,
   3: 0.102,

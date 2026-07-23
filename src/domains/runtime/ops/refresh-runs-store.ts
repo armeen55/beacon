@@ -39,13 +39,13 @@ const STORE = "refresh-runs";
 const MAX_FILE_ROWS_PER_TENANT = 400;
 
 /** The read sources a refresh can pull. Wix is publish-only (never pulls). */
-export type RefreshSource = "gsc" | "ga4" | "clarity" | "profound";
+export type RefreshSource = "gsc" | "ga4" | "clarity";
 
 /** What kicked off the refresh. All three converge on recordRefreshRun. */
 export type RefreshTrigger = "cron" | "manual" | "on-use";
 
 /** Honest per-source outcome. `partial` = it claimed success but delivered no
- *  new data (the Profound silent-partial); `failed` = it did not sync. */
+ *  new data; `failed` = it did not sync. */
 export type RefreshResult = "ok" | "partial" | "failed";
 
 export type RefreshRunInput = {
@@ -132,13 +132,11 @@ export function buildRefreshRunRow(
  *
  * Every read-sync engine returns `{ synced: false, reason } | { synced: true,
  * ...counts }`. A not-synced result is `failed` with the engine's reason as the
- * failure category. A synced result is `ok` UNLESS it wrote zero rows: for
- * Profound, "synced today, 0 rows written" is the documented silent partial (the
- * token claims fresh while the newest data row is weeks old), so it records as
- * `partial` with a "no new data" reason instead of a clean success. GSC/GA4/
- * Clarity incremental pulls legitimately write 0 rows on a quiet night (nothing
- * new past the watermark), so a 0-row success there stays `ok` - the honest
- * staleness signal for those is `latest_data_date`, recorded separately.
+ * failure category. A synced result is `ok`. GSC/GA4/Clarity incremental pulls
+ * legitimately write 0 rows on a quiet night (nothing new past the watermark),
+ * so a 0-row success stays `ok` - the honest staleness signal is
+ * `latest_data_date`, recorded separately. (`partial` remains a valid result
+ * for historical ledger rows.)
  */
 export function classifyRefreshOutcome(
   source: RefreshSource,
@@ -162,34 +160,13 @@ export function classifyRefreshOutcome(
   }
 
   const rows = rowsPersistedOf(source, value);
-  if (source === "profound" && rows === 0) {
-    return { result: "partial", rowsPersisted: 0, failureCategory: "no new data" };
-  }
   return { result: "ok", rowsPersisted: rows, failureCategory: null };
 }
 
 /** Pull the rows-written count from an engine's success value. GSC/GA4/Clarity
- *  expose `rows_upserted`; Profound spreads its writes across five row kinds. */
-function rowsPersistedOf(source: RefreshSource, value: unknown): number | null {
+ *  all expose `rows_upserted`. */
+function rowsPersistedOf(_source: RefreshSource, value: unknown): number | null {
   const v = value as Record<string, unknown>;
-  if (source === "profound") {
-    const kinds = [
-      "citation_rows",
-      "visibility_rows",
-      "fanout_rows",
-      "bot_rows",
-      "referral_rows",
-    ];
-    let total = 0;
-    let sawOne = false;
-    for (const k of kinds) {
-      if (typeof v[k] === "number") {
-        total += v[k] as number;
-        sawOne = true;
-      }
-    }
-    return sawOne ? total : null;
-  }
   return typeof v.rows_upserted === "number" ? (v.rows_upserted as number) : null;
 }
 

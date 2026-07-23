@@ -94,12 +94,6 @@ export type ClarityEvidence = {
   quickbacks: number | null;
   scriptErrors: number | null;
 };
-export type ProfoundEvidence = {
-  aiVisibility: number | null;
-  citations: number | null;
-  promptClusters?: string[];
-  competitorMentions?: Array<{ competitor: string; share: number }>;
-};
 export type CrawlEvidence = {
   title: string | null;
   h1: string | null;
@@ -124,7 +118,6 @@ export type EvidencePacket = {
   gsc?: GscEvidence;
   ga4?: Ga4Evidence;
   clarity?: ClarityEvidence;
-  profound?: ProfoundEvidence;
   crawl?: CrawlEvidence;
   /** Sources with usable data for THIS page. */
   sourcesPresent: string[];

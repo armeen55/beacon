@@ -23,7 +23,6 @@ export const EvidenceRefSchema = z.object({
     "gsc",
     "ga4",
     "clarity",
-    "profound",
     "dataforseo",
     "competitor_teardown",
     "owned_snapshot",
@@ -236,8 +235,8 @@ export const ExperimentPlanSchema = z.object({
 });
 export type ExperimentPlan = z.infer<typeof ExperimentPlanSchema>;
 
-/** 8. AeoPromptBrief — the structured brief to WIN one AI prompt (Profound
- *  Question Intelligence). NOT a vague summary: a quotable direct answer + the
+/** 8. AeoPromptBrief — the structured brief to WIN one AI prompt (AEO question
+ *  intelligence). NOT a vague summary: a quotable direct answer + the
  *  fan-out sub-questions to cover + the facts/entities/sources/competitor-pages
  *  + the schema + internal links. Field names mirror the operator's spec. */
 export const AeoPromptBriefSchema = z.object({
@@ -578,7 +577,7 @@ export type LlmOutputSchemaName = keyof typeof LLM_OUTPUT_SCHEMAS;
  *     directly under the H1", "keep claims neutral") - never copy the operator
  *     publishes verbatim.
  *  `evidenceRefs.detail` stays SCANNED on purpose (unchanged): it is the
- *  model's own description of REAL grounding data (a GSC/GA4/Clarity/Profound/
+ *  model's own description of REAL grounding data (a GSC/GA4/Clarity/DataForSEO/
  *  ... signal Beacon already retrieved) - an invented number there means the
  *  model fabricated its OWN evidence, exactly the case this firewall exists to
  *  catch, not methodology the product asked it to write.

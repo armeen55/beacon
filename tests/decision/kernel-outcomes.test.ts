@@ -63,11 +63,11 @@ const VALID_CREATE_PAGE = {
   ],
   faqQuestions: ["What does Haft-Seen mean?", "When is the Haft-Seen table set?"],
   schemaTypes: ["Article", "FAQPage"],
-  evidenceRefs: [{ source: "profound", detail: "AI is asked what goes on the haft-seen table for nowruz" }],
+  evidenceRefs: [{ source: "dataforseo", detail: "AI is asked what goes on the haft-seen table for nowruz" }],
   confidence: "high",
   risks: ["describe the items qualitatively, not by count"],
   operatorSteps: ["Create a new page with this title and outline"],
-  proofPlan: { metrics: ["Profound citations"], windowsDays: [7, 14, 28], controls: "comparable topic pages" },
+  proofPlan: { metrics: ["AI citations"], windowsDays: [7, 14, 28], controls: "comparable topic pages" },
 };
 
 const EXISTING_INPUT: EvidenceInput = {

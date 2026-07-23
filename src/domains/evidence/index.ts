@@ -72,6 +72,23 @@ export type { KeywordDemand } from "./readers/dataforseo-keywords";
 export { readAllCachedKeywordDemand } from "./readers/dataforseo-keywords";
 export { loadNativeIntelForTenant } from "./readers/native-intel-loader";
 
+// Canonical DataForSEO boundary — the ONE seam every DataForSEO call flows
+// through. App-side code reads configuration state + the typed result vocabulary
+// here; it never touches an endpoint reader's internals or a raw fetch.
+export type {
+  DataForSeoResult,
+  DataForSeoProvenance,
+  DataForSeoRequestShape,
+  DataForSeoRequestArgs,
+} from "./dataforseo/types";
+export {
+  dataForSeoRequest,
+  dataForSeoIdempotencyKey,
+  isDataForSeoConfigured,
+  isDryRun,
+  monthlyCapUsd,
+} from "./dataforseo/client";
+
 // --- App/component surface re-exports (curated) ---
 
 // GSC scoreboard + weekly + fresh-tail + ingestion-gap surfaces

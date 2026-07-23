@@ -1,10 +1,10 @@
 /**
  * in-process-scan — Vercel-safe cold-start crawler (2026-06-23).
  *
- * WHY: the launch-time first scan (`dispatchFirstScanForTenant`) is INERT
- * without a GitHub PAT, and the only real scan path (`orchestrate-scan` →
- * `scripts/scan-owned-pages.ts`) spawns `npx tsx` and writes `.data/` — both
- * impossible on Vercel's read-only serverless runtime. The production
+ * WHY: this is the launch-time first scan. The legacy scan path
+ * (`orchestrate-scan` → `scripts/scan-owned-pages.ts`) spawns `npx tsx` and
+ * writes `.data/` — both impossible on Vercel's read-only serverless runtime,
+ * and external schedulers/workflows are an explicit non-goal. The production
  * recommendation path reads pages + snapshots FROM Supabase, which is only
  * ever populated by that scan dual-writing back. Net effect today: a brand-new
  * Vercel tenant who connects GSC/Wix sees ZERO recommendations until a nightly

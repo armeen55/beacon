@@ -1044,7 +1044,7 @@ const ANSWER_BLOCK_SYSTEM =
   '"answer" (one direct factual answer of 80-150 words an AI assistant could quote verbatim), ' +
   '"citationHook" (a short quotable phrase, or null), ' +
   '"sources" (array of {"url","title","domain","retrievedAt","claim","authority"}: cite 1-2 AUTHORITATIVE sources for the answer\'s claims, each with a real URL, its domain, the date you are citing it, and the specific claim it backs; leave "authority" as "unverified", the caller decides it), ' +
-  '"evidenceRefs" (array of {"source","detail"}, at least one, citing ONLY the grounding provided; source one of gsc|ga4|clarity|profound|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one, citing ONLY the grounding provided; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Ground everything ONLY in the brief/outline/questions provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. Cite 1-2 authoritative sources for any factual claim (a date, a count, a named fact). Never state one with no source. " +
@@ -1234,7 +1234,7 @@ export type AtomicEditStructuredInput = {
 const ATOMIC_EDIT_SYSTEM =
   "You improve ONE on-page field (a page title or meta description) for an encyclopedia / content site to better match the search intent and earn the click. " +
   'Return ONLY a JSON object: "field" (the field being edited), "before" (the exact current value, or null), "after" (the improved value), ' +
-  '"rationale" (one sentence), "evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
+  '"rationale" (one sentence), "evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Keep a title under ~60 characters and a meta description 120-160. Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes.";
@@ -1330,7 +1330,7 @@ export type CreatePageStructuredInput = {
   competitorPages: string[];
   /** Fan-out sub-questions / grounded section seeds. */
   fanoutQueries: string[];
-  /** Evidence the team established (GSC demand, profound prompt, etc.). */
+  /** Evidence the team established (GSC demand, a tracked AI prompt, etc.). */
   evidenceHints?: string[];
   /** Exact cached pages Beacon already found while researching this topic. The
    * model may cite only a page that supports its claim; the existing fetch and
@@ -1345,7 +1345,7 @@ const CREATE_PAGE_SYSTEM =
   '"outline" (3-16 H2 section headings, specific to the topic), "faqQuestions" (real questions a reader asks, from the grounding), ' +
   '"schemaTypes" (relevant schema.org types, e.g. Article, FAQPage — only if warranted), ' +
   '"sources" (array of 1-2 {"url","title","domain","retrievedAt","claim","authority"} authoritative sources backing factual opening claims; use a real exact URL from the provided candidates when it supports the claim, leave authority "unverified" for the caller), ' +
-  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (concrete build steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. " +
@@ -1423,7 +1423,7 @@ const CRO_FIX_SYSTEM =
   "You diagnose ONE on-page UX/conversion friction and prescribe a concrete fix for a content/encyclopedia site. " +
   'Return ONLY a JSON object: "frictionType" (one of dead_click|rage_click|cta_clarity|form_friction|intent_mismatch), ' +
   '"location" (where on the page — be specific), "fix" (a concrete, actionable change — what to inspect and change, not vague advice), ' +
-  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (concrete steps to inspect + fix), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Ground ONLY in the friction evidence provided — do NOT assert a cause you cannot see in the data (no fake certainty). Prefer a checklist of elements to inspect over prose. No marketing language. No em-dashes. Do NOT invent statistics.";
@@ -1458,7 +1458,7 @@ export async function draftCROFixStructured(
   });
 }
 
-// ── concrete drafter: AeoPromptBrief (Profound Question Intelligence) ──────────
+// ── concrete drafter: AeoPromptBrief (AEO question intelligence) ──────────────
 
 export type AeoPromptBriefInput = {
   /** The verbatim AI prompt to win. */
@@ -1471,7 +1471,7 @@ export type AeoPromptBriefInput = {
   ownCitedUrls: string[];
   /** Recommended move from the opportunity (answer_block | expand_page | …). */
   recommendedMove: string;
-  /** Profound theme tags / entities seen (grounding). */
+  /** Theme tags / entities seen (grounding). */
   tags?: string[];
 };
 
@@ -1486,11 +1486,11 @@ const AEO_PROMPT_BRIEF_SYSTEM =
   '"competitor_pages_to_beat" (array — the cited competitor pages/domains provided), ' +
   '"schema_recommendation" ("FAQPage"|"Article"|"ItemList"|"None"), ' +
   '"internal_links" (array of on-site link suggestions, or []), ' +
-  '"evidenceRefs" (array of {"source","detail"}, at least one; source one of gsc|ga4|clarity|profound|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps). ' +
   "Ground EVERYTHING only in the prompt, fan-out queries, and competitor pages provided. Do NOT invent statistics, dates, prices, rankings, or superlatives (put anything uncertain in facts_to_verify). No marketing language. No em-dashes.";
 
-/** Draft a schema-valid AeoPromptBrief for one Profound PromptOpportunity.
+/** Draft a schema-valid AeoPromptBrief for one AI-prompt opportunity.
  *  Capped + budgeted + firewalled; spends only when invoked. */
 export async function draftAeoPromptBrief(
   input: AeoPromptBriefInput,

@@ -60,7 +60,7 @@ export interface EvidenceInput {
   /** Everything that grounds a safe draft. All optional — the drafter + the
    *  validator degrade honestly when a field is absent. */
   evidence: {
-    /** Plain-English facts the team established (GSC demand, a profound prompt). */
+    /** Plain-English facts the team established (GSC demand, a tracked AI prompt). */
     hints?: string[];
     /** The target page's own stored body text — turns ON factual entailment. */
     pageBodyText?: string | null;

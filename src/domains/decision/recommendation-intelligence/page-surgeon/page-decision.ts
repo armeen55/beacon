@@ -52,7 +52,7 @@ export type AtomicChange = {
   faq_items?: Array<{ question: string; answer: string }> | null;
 };
 
-export type SourceName = "gsc" | "ga4" | "clarity" | "profound" | "crawl";
+export type SourceName = "gsc" | "ga4" | "clarity" | "crawl";
 export type SourceCoverage = {
   source: SourceName;
   used: boolean;
@@ -91,7 +91,6 @@ const ACTION_REQUIRED_SOURCE: Partial<Record<AtomicChangeType, SourceName>> = {
   ux_cta_fix: "clarity",
 };
 const CMS_FIELD_ACTIONS = new Set<AtomicChangeType>(["title", "meta", "h1", "schema", "image_alt"]);
-const AEO_ACTIONS = new Set<AtomicChangeType>(["intro_answer_block", "faq", "citation_source"]);
 const CONF_RANK: Record<EvidenceConfidence, number> = { needs_more_evidence: 0, low: 1, medium: 2, high: 3 };
 const minConf = (a: EvidenceConfidence, b: EvidenceConfidence): EvidenceConfidence =>
   CONF_RANK[a] <= CONF_RANK[b] ? a : b;
@@ -123,10 +122,10 @@ export function buildSourceCoverage(packet: EvidencePacket): SourceCoverage[] {
       return { source: s, used: true, detail: d };
     }
     if (empty.has(s))
-      return { source: s, used: false, detail: s === "profound" ? "not connected" : "connected but no rows pulled" };
+      return { source: s, used: false, detail: "connected but no rows pulled" };
     return { source: s, used: false, detail: "not connected" };
   };
-  return (["gsc", "crawl", "clarity", "ga4", "profound"] as SourceName[]).map(detail);
+  return (["gsc", "crawl", "clarity", "ga4"] as SourceName[]).map(detail);
 }
 
 /** True when GSC shows real demand the page is under-converting (a bottleneck
@@ -213,8 +212,8 @@ export function detectPageProblems(packet: EvidencePacket): PageProblems {
     (q) => q.impressions >= ZERO_CLICK_MIN_IMPR && q.position <= ZERO_CLICK_MAX_POS && q.ctr < ZERO_CLICK_MAX_CTR,
   );
 
-  // The unserved-cluster signal was sourced only from SEMrush keyword rows
-  // (removed Phase F.1). No first-party equivalent yet, so it never fires.
+  // The unserved-cluster signal has no first-party keyword source wired yet,
+  // so it never fires (DataForSEO Labs is the future source).
   const highValueUnservedCluster = false;
 
   const dead = packet.clarity?.deadClicks ?? 0;
@@ -281,8 +280,8 @@ function citesAbsentEvidence(change: AtomicChange, packet: EvidencePacket): stri
   const clauses = text.split(/(?<=[.!?;:])\s+|\n+|\s—\s|\s-\s/).filter((c) => c.trim().length > 0);
   const scan = clauses.length > 0 ? clauses : [text];
   const cites = (re: RegExp): boolean => scan.some((c) => re.test(c) && !ABSENCE.test(c));
-  // No keyword-research source is wired (SEMrush removed Phase F.1), so any cite
-  // of related/question keywords or competitor rankings is ungrounded → reject.
+  // No keyword-research source is wired yet, so any cite of related/question
+  // keywords or competitor rankings is ungrounded → reject.
   if (cites(/related (keyword|search|term)|relatedkeyword/))
     return "Insufficient evidence: cites related keywords, but none were pulled for this page.";
   if (cites(/question (keyword|phrase|form)|questionkeyword|phrase[_ ]question|people also ask/))
@@ -620,11 +619,7 @@ function gateChange(
   }
 
   let confCap: EvidenceConfidence | null = null;
-  let risk = change.risk;
-  if (AEO_ACTIONS.has(change.action) && !present.has("profound")) {
-    confCap = "low";
-    risk = `${risk} AI-citation impact is a hypothesis until Profound is connected.`.trim();
-  }
+  const risk = change.risk;
   // A change leaning on a tiny Clarity sample can't be high-confidence.
   if (p.claritySampleTiny && /clarity|dead click|rage click|quickback/i.test(`${change.evidence} ${change.hypothesis}`)) {
     confCap = minConf(confCap ?? "medium", "low");

@@ -1,46 +1,32 @@
 /**
  * question-universe (2026-07-01, master plan item 8) - PURE builder for the
- * nightly poll's question set. Item 4 polled only the top 25 prompt-library
- * questions; this merges in (1) the tenant's REAL Profound tracked prompts and
- * (2) the ranked fanout sub-queries AI engines actually expand those prompts
- * into, so the poll asks what real people ask, not just what we seeded.
+ * poll's question set. It merges the tenant's curated prompt library with the
+ * ranked fanout sub-queries AI engines actually expand those prompts into, so
+ * the poll asks what real people ask, not just what we seeded.
  *
  * COST DISCIPLINE: the combined set is deduped, junk-filtered, ranked and
  * CAPPED at NIGHTLY_PROMPT_CAP (25). The cap argument is CLAMPED to that
- * ceiling in code - callers cannot raise the nightly spend by passing a bigger
- * number. Ordering is stable and deterministic: library first (curated,
- * cache-continuous ids), then Profound prompts (volume desc, recency desc,
- * input order), then fanouts (weight desc, text asc).
+ * ceiling in code - callers cannot raise the spend by passing a bigger number.
+ * Ordering is stable and deterministic: library first (curated, cache-
+ * continuous ids), then fanouts (weight desc, text asc).
  *
- * Junk gate (narrow-reject, borrowed-account reality): the hackathon Profound
- * workspace seeds "Evaluate the Frontier Models company ChatGPT on ..." style
- * sentiment prompts inside the tenant topic. Those are about AI brands, not
- * the tenant, so they are excluded here even if the topic filter let them
- * through. The gate is deliberately narrow so real tenant questions are never
- * silently dropped. No I/O - fully unit-testable.
+ * Junk gate (narrow-reject, borrowed-account reality): a borrowed workspace can
+ * seed "Evaluate the Frontier Models company ChatGPT on ..." style sentiment
+ * prompts inside the tenant topic. Those are about AI brands, not the tenant,
+ * so they are excluded here even if the topic filter let them through. The gate
+ * is deliberately narrow so real tenant questions are never silently dropped.
+ * No I/O - fully unit-testable.
  */
 
 import { NIGHTLY_PROMPT_CAP } from "@/domains/evidence/readers/engine-types";
 
-export type QuestionSource = "library" | "profound" | "fanout";
+export type QuestionSource = "library" | "fanout";
 
 /** A prompt-library question (curated by the operator, always trusted). */
 export type LibraryQuestionInput = {
   id: string;
   prompt_text: string;
   topic?: string | null;
-};
-
-/** A Profound tracked prompt, already topic-scoped by the loader. */
-export type ProfoundQuestionInput = {
-  /** Stable id (the Profound prompt id). Used for cache + observation keys. */
-  id: string;
-  text: string;
-  topic?: string | null;
-  /** Optional ranking signal (e.g. answer volume in the window); higher first. */
-  volume?: number;
-  /** Optional recency signal (ISO date); newer first when volumes tie. */
-  lastSeenAt?: string | null;
 };
 
 /** A ranked fanout sub-query (what the engine actually searches for). */
@@ -111,7 +97,7 @@ function jaccard(a: ReadonlySet<string>, b: ReadonlySet<string>): number {
 export const NEAR_DUP_JACCARD = 0.8;
 
 // ---------------------------------------------------------------------------
-// Junk gate (applies to profound + fanout questions; library is curated)
+// Junk gate (applies to fanout questions; library is curated)
 // ---------------------------------------------------------------------------
 
 export type JunkReason = "too_short" | "brand_sentiment_template" | "off_topic_ai_brand";
@@ -121,8 +107,8 @@ export type JunkReason = "too_short" | "brand_sentiment_template" | "off_topic_a
 const BRAND_SENTIMENT_RE = /^\s*(evaluate|rate|assess|review)\b[^.?!]*\bcompany\b/i;
 
 /** Tenant-agnostic: is this the "Evaluate the Frontier Models company X" borrowed-account
- *  junk that a Profound import leaks into a tenant's tracked prompts? Exported so the
- *  prompt RUN path and the reseed SEED path both drop it, not just the question universe. */
+ *  junk that a borrowed-workspace import leaks into a tenant's tracked prompts? Exported so
+ *  the prompt RUN path and the reseed SEED path both drop it, not just the question universe. */
 export function isBorrowedAccountSentinelPrompt(text: string): boolean {
   return BRAND_SENTIMENT_RE.test(text);
 }
@@ -178,7 +164,6 @@ export function fanoutQuestionId(subQuery: string): string {
 
 export type BuildQuestionUniverseArgs = {
   libraryPrompts: readonly LibraryQuestionInput[];
-  profoundPrompts?: readonly ProfoundQuestionInput[];
   fanoutSeeds?: readonly FanoutQuestionInput[];
   /** Clamped to NIGHTLY_PROMPT_CAP - the nightly ceiling can NEVER be raised
    *  from a call site, only lowered. */
@@ -205,16 +190,7 @@ export function buildQuestionUniverse(args: BuildQuestionUniverseArgs): Question
     for (const tok of significantTokens(`${p.prompt_text} ${p.topic ?? ""}`)) relevancePool.add(tok);
   }
 
-  // Rank inside each source, then concatenate library -> profound -> fanout.
-  const profound = [...(args.profoundPrompts ?? [])]
-    .map((p, idx) => ({ p, idx }))
-    .sort(
-      (a, b) =>
-        (b.p.volume ?? 0) - (a.p.volume ?? 0) ||
-        (b.p.lastSeenAt ?? "").localeCompare(a.p.lastSeenAt ?? "") ||
-        a.idx - b.idx,
-    )
-    .map(({ p }) => p);
+  // Rank inside each source, then concatenate library -> fanout.
   const fanouts = [...(args.fanoutSeeds ?? [])].sort(
     (a, b) => b.weight - a.weight || a.subQuery.localeCompare(b.subQuery),
   );
@@ -225,10 +201,6 @@ export function buildQuestionUniverse(args: BuildQuestionUniverseArgs): Question
       q: { id: p.id, text: p.prompt_text, topic: p.topic ?? null, source: "library" as const },
       junkGated: false,
     })),
-    ...profound.map((p) => ({
-      q: { id: p.id, text: p.text, topic: p.topic ?? null, source: "profound" as const },
-      junkGated: true,
-    })),
     ...fanouts.map((f) => ({
       q: { id: fanoutQuestionId(f.subQuery), text: f.subQuery, topic: null, source: "fanout" as const },
       junkGated: true,
@@ -237,7 +209,7 @@ export function buildQuestionUniverse(args: BuildQuestionUniverseArgs): Question
 
   const accepted: Array<{ q: UniverseQuestion; norm: string; toks: Set<string> }> = [];
   const seenIds = new Set<string>();
-  const counts: Record<QuestionSource, number> = { library: 0, profound: 0, fanout: 0 };
+  const counts: Record<QuestionSource, number> = { library: 0, fanout: 0 };
   const dropped = { junk: 0, duplicate: 0, overCap: 0 };
 
   for (const { q, junkGated } of candidates) {

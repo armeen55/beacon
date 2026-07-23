@@ -220,12 +220,9 @@ export function scoreTitleCandidate(
     ),
   );
 
-  // — Sources not present for this tenant yet → unavailable (not faked).
-  dims.push(
-    packet.profound
-      ? D("aeo_serp_feature_fit", 0.5, ["profound"])
-      : D("aeo_serp_feature_fit", 0, [], false),
-  );
+  // — AEO/SERP-feature fit has no first-party source wired yet → unavailable
+  //   (not faked).
+  dims.push(D("aeo_serp_feature_fit", 0, [], false));
   dims.push(
     packet.ga4
       ? D("conversion_engagement_value", clamp01((packet.ga4.sessionKeyEventRate ?? 0) * 20), ["ga4"])

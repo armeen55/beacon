@@ -31,8 +31,15 @@ const REFRESH_SOURCE_LABEL: Record<RefreshSource, string> = {
   gsc: "Search Console",
   ga4: "Analytics",
   clarity: "Clarity",
-  profound: "AI answer tracking",
 };
+
+/** Plain label for a ledger row's source, or null for a historical row from
+ *  a retired source. Retired-source rows are skipped by loadRecentUpkeep: a
+ *  sentence like "I keep retrying" would be a false promise for a source that
+ *  no longer exists, and the row still ages out of the ledger naturally. */
+function refreshSourceLabel(source: string): string | null {
+  return REFRESH_SOURCE_LABEL[source as RefreshSource] ?? null;
+}
 
 function shortDateLabel(dateUtc: string): string {
   const ms = Date.parse(`${dateUtc}T00:00:00Z`);
@@ -46,8 +53,9 @@ function shortDateLabel(dateUtc: string): string {
 
 /** One plain first-person sentence per refresh outcome - the same voice the
  *  retired /activity page used. Exported for tests. */
-export function recentUpkeepSentence(row: RefreshRunRow): string {
-  const label = REFRESH_SOURCE_LABEL[row.source];
+export function recentUpkeepSentence(row: RefreshRunRow): string | null {
+  const label = refreshSourceLabel(row.source);
+  if (label === null) return null;
   const dataThrough = row.latest_data_date ? shortDateLabel(row.latest_data_date) : null;
   if (row.result === "failed") {
     return `The ${label} pull did not work. I keep retrying.`;
@@ -81,6 +89,8 @@ export async function loadRecentUpkeep(tenantId: string): Promise<RecentUpkeepEn
     if (typeof row.finished_at !== "string" || !Number.isFinite(Date.parse(row.finished_at))) {
       continue;
     }
+    // Historical row from a retired source: nothing honest to say about it.
+    if (refreshSourceLabel(row.source) === null) continue;
     const key = `${row.source}::${row.finished_at.slice(0, 10)}`;
     const existing = latestPerSourceDay.get(key);
     if (!existing || Date.parse(row.finished_at) > Date.parse(existing.finished_at)) {
@@ -94,7 +104,8 @@ export async function loadRecentUpkeep(tenantId: string): Promise<RecentUpkeepEn
       key: row.id,
       dateLabel: row.finished_at.slice(0, 10),
       sentence: recentUpkeepSentence(row),
-    }));
+    }))
+    .filter((e): e is RecentUpkeepEntry => e.sentence !== null);
 }
 
 /** Presentational: renders nothing when there is nothing to show yet (a brand

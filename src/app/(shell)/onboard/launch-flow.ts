@@ -33,7 +33,6 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { deriveAndPersistTenantConfig } from "@/domains/account";
-import { dispatchFirstScanForTenant } from "@/domains/account";
 import { runInProcessColdStartScan } from "@/domains/evidence";
 
 /**
@@ -150,17 +149,13 @@ export async function executeLaunchTransaction(args: {
   /** Injectable config persister. Defaults to the real minimal persister
    *  (name + domain + confirmed cities/competitors). Tests inject a stub. */
   persistConfig?: typeof deriveAndPersistTenantConfig;
-  /** Injectable launch-time first-scan dispatcher (inert without the
-   *  operator PAT; tenant-scoped; failure-soft). */
-  dispatchFirstScan?: typeof dispatchFirstScanForTenant;
-  /** Injectable Vercel-safe in-process cold-start crawler. FALLBACK when
-   *  GitHub dispatch is unavailable so a brand-new tenant still gets real
-   *  page inventory on first /today render. Failure-soft; bounded caps. */
+  /** Injectable Vercel-safe in-process cold-start crawler. This is the
+   *  approved visit-driven first scan: a brand-new tenant gets real page
+   *  inventory on first /today render. Failure-soft; bounded caps. */
   coldStartScan?: typeof runInProcessColdStartScan;
 }): Promise<LaunchTransactionOutcome> {
   const { admin, tenantId, now } = args;
   const persistConfig = args.persistConfig ?? deriveAndPersistTenantConfig;
-  const dispatchFirstScan = args.dispatchFirstScan ?? dispatchFirstScanForTenant;
   const coldStartScan = args.coldStartScan ?? runInProcessColdStartScan;
 
   // 1. Fetch tenant row.
@@ -306,44 +301,28 @@ export async function executeLaunchTransaction(args: {
     return { kind: "redirect", to: "/", reason: "race_lost" };
   }
 
-  // 7c. Success — atomic flip lit up. Kick the tenant-scoped first scan:
-  //     minutes-to-first-crawl instead of waiting for the nightly. Inert
-  //     without the operator PAT; failure-soft.
+  // 7c. Success — atomic flip lit up. Crawl the tenant's own domain in-process
+  //     (bounded, crawl-only, failure-soft) so the very first /today render has
+  //     real page inventory instead of waiting. This is the approved
+  //     visit-driven runtime; there is no scheduler or external workflow.
   try {
-    const scanDispatch = await dispatchFirstScan(tenant.id);
-    console.info(
-      `[onboard/launch] first-scan dispatch: ${scanDispatch.status}` +
-        (scanDispatch.status === "dispatch_failed"
-          ? ` (http ${scanDispatch.httpStatus}: ${scanDispatch.error.slice(0, 120)})`
-          : ""),
-    );
-    // Vercel fallback. GitHub dispatch is INERT without the operator PAT
-    // (the normal hosted case). Crawl the tenant's own domain in-process
-    // (bounded, crawl-only, failure-soft) so the very first /today render
-    // has real recommendations. Both "skipped (no PAT)" AND "dispatch_failed"
-    // leave the tenant with zero inventory, so both need the fallback.
-    if (
-      scanDispatch.status === "skipped_pat_not_configured" ||
-      scanDispatch.status === "dispatch_failed"
-    ) {
-      const scanDomain = (tenant.domain ?? "").trim();
-      if (scanDomain) {
-        const cold = await coldStartScan({ tenantId: tenant.id, domain: scanDomain });
-        console.info(
-          `[onboard/launch] in-process cold-start scan: ${cold.status} ` +
-            `(discovered=${cold.pagesDiscovered} crawled=${cold.pagesCrawled} ` +
-            `snapshots=${cold.snapshotsWritten} source=${cold.source} ${cold.durationMs}ms)` +
-            (cold.detail ? ` detail=${cold.detail}` : ""),
-        );
-      } else {
-        console.info(
-          "[onboard/launch] in-process cold-start scan skipped: no domain on tenant",
-        );
-      }
+    const scanDomain = (tenant.domain ?? "").trim();
+    if (scanDomain) {
+      const cold = await coldStartScan({ tenantId: tenant.id, domain: scanDomain });
+      console.info(
+        `[onboard/launch] in-process cold-start scan: ${cold.status} ` +
+          `(discovered=${cold.pagesDiscovered} crawled=${cold.pagesCrawled} ` +
+          `snapshots=${cold.snapshotsWritten} source=${cold.source} ${cold.durationMs}ms)` +
+          (cold.detail ? ` detail=${cold.detail}` : ""),
+      );
+    } else {
+      console.info(
+        "[onboard/launch] in-process cold-start scan skipped: no domain on tenant",
+      );
     }
   } catch (e) {
     console.error(
-      "[onboard/launch] first-scan dispatch/cold-start threw (launch unaffected):",
+      "[onboard/launch] cold-start scan threw (launch unaffected):",
       e instanceof Error ? e.message : e,
     );
   }
