@@ -20,7 +20,7 @@ import type { RobotsStateFile } from "@/domains/pages/robots-parser";
 import type { ObservationRun } from "@/domains/observations/types";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
-import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
+import type { RecommendedEditRow } from "@/domains/changes/recommended-edits-persistence";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";

@@ -29,8 +29,8 @@ import {
 } from "@/domains/drafts/draft-quality";
 import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/drafts/factual-entailment";
 import type { ClassifiableSource } from "@/domains/drafts/source-authority";
-import { looksLikePlaceholder } from "@/domains/recommendations/placeholder-detection";
-import { containsUuid } from "@/domains/recommendations/copy-sanitize";
+import { looksLikePlaceholder } from "./placeholder-detection";
+import { containsUuid } from "./copy-sanitize";
 import type { ChangeProposal, ProposalStatus } from "./contracts";
 
 /** Quality statuses that are HARD failures — never actionable, always rejected.

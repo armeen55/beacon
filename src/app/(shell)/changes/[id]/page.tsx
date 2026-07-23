@@ -7,8 +7,8 @@ import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
 } from "@/lib/perf-trace";
-import { loadProofLedgerPersisted } from "@/domains/proof-gsc/load-ledger";
-import { findProofForChange, proofResultHref } from "@/domains/proof-gsc/change-proof-link";
+import { loadProofLedgerPersisted } from "@/domains/proof-gsc";
+import { findProofForChange, proofResultHref } from "@/domains/proof-gsc";
 
 // Phase 1.6 (Sprint 1 follow-up, 2026-04-24): force dynamic render so every
 // request runs the fresh-repo-read pattern below. Matches /changes main list.

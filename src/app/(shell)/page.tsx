@@ -18,9 +18,9 @@ import { loadTodayV2GateData } from "./today-gate-data";
 import { loadTodayView } from "./today-view-data";
 import { currentTenantId } from "@/lib/tenant-context";
 import { ScoreboardSection } from "./scoreboard-section";
-import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
+import { loadProofLedgerCached } from "@/domains/proof-gsc";
 import { perfMark, perfStage } from "@/lib/obs/perf-log";
-import { shippedInLastDays } from "@/domains/proof-gsc/weekly-recap";
+import { shippedInLastDays } from "@/domains/proof-gsc";
 import { loadLifecycleCounts } from "./lifecycle-counts-data";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
@@ -32,10 +32,10 @@ import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/
 import { buildTodayCommand, commandAllowsCelebration } from "@/domains/today/today-command";
 import { TodayCommandCard } from "@/components/today/today-command-card";
 import { TodayProofStrip } from "@/components/today/today-proof-strip";
-import { verdictSchedule } from "@/domains/proof-gsc/verdict-schedule";
+import { verdictSchedule } from "@/domains/proof-gsc";
 import { buildScoreboard } from "@/domains/scoreboard/scoreboard";
 import { buildTodaySmokeAlarm } from "@/components/today/today-smoke-alarm";
-import { loadGscDecaySignalsForTenant } from "@/domains/evidence/readers/gsc-page-signals";
+import { loadGscDecaySignalsForTenant } from "@/domains/evidence";
 
 /**
  * Today `/` - the focused daily slice of the ONE canonical model (2026-07-01, Move 5).

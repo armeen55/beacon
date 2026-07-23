@@ -27,14 +27,14 @@ import {
   captureChangeMeta,
   measureRecord,
   defaultPacificShipDate,
-} from "@/domains/proof-gsc/measure-pass";
+} from "@/domains/proof-gsc";
 import {
   loadShippedChanges,
   upsertShippedChange,
   type ShippedChangeRecord,
-} from "@/domains/proof-gsc/shipped-change-store";
-import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
-import { readLedger } from "@/domains/proof-gsc/kernel";
+} from "@/domains/proof-gsc";
+import { readLastFinalizedDate } from "@/domains/proof-gsc";
+import { readLedger } from "@/domains/proof-gsc";
 import { writeResultsSurface } from "./results-surface-store";
 
 export type ProofLedgerActionResponse = { success: boolean; error?: string };

@@ -1,8 +1,8 @@
 import { Suspense } from "react";
 
 import { currentTenantId } from "@/lib/tenant-context";
-import { scheduleAutoMeasure } from "@/domains/proof-gsc/auto-measure-on-use";
-import { bundleReads, splitReads, type BundleRead, type KernelRead } from "@/domains/proof-gsc/kernel";
+import { scheduleAutoMeasure } from "@/domains/proof-gsc";
+import { bundleReads, splitReads, type BundleRead, type KernelRead } from "@/domains/proof-gsc";
 import { ledgerCheckedAgoLine, loadResultsLedgerSurface } from "./results-ledger-data";
 import { ResultCard } from "./results-ledger-card";
 import { RecomputeLedgerButton, RecordAnyPageForm } from "./proof-ledger-client";

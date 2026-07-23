@@ -1,0 +1,92 @@
+/**
+ * Measurement kernel (proof-gsc) — public facade.
+ *
+ * This kernel owns the honest measurement: reading GSC windows, evaluating a
+ * shipped change against its controls, and producing a verdict + ranking
+ * signal. This index is the ONLY surface `src/app` and the other kernels may
+ * import. Internal files (kernel math, measure-pass, gsc-window, the control
+ * resolution under ./internal) stay private.
+ */
+
+// Kernel: verdicts, reads, ranking signal
+export type {
+  KernelVerdict,
+  KernelMetric,
+  KernelConfidence,
+  WindowState,
+  KernelWindowRead,
+  KernelInput,
+  KernelRead,
+  BundleRead,
+  LedgerRecordLike,
+  ResultBand,
+} from "./kernel";
+export {
+  MIN_BASELINE_IMPRESSIONS,
+  MIN_CONTROLS,
+  GSC_LAG_DAYS,
+  MIN_RANKING_SAMPLES,
+  metricFor,
+  addDays,
+  evaluateWindows,
+  detectOverlaps,
+  verdictPhrase,
+  evaluateChange,
+  bundleReads,
+  rankingPriors,
+  toKernelInput,
+  readLedger,
+  bandOf,
+  splitReads,
+  windowStateLine,
+  learningVerdictOf,
+  readRecordsForLearning,
+  recordLearningVerdict,
+  loadKernelLedger,
+} from "./kernel";
+
+// Ledger loading
+export {
+  loadProofLedger,
+  loadProofLedgerPersisted,
+  loadProofLedgerCached,
+} from "./load-ledger";
+
+// Shipped-change store
+export type { ShippedChangeRecord } from "./shipped-change-store";
+export {
+  loadShippedChanges,
+  loadShippedChangesForTenant,
+  upsertShippedChange,
+} from "./shipped-change-store";
+
+// Weekly recap signal
+export type { RecapRow } from "./weekly-recap";
+export { shippedInLastDays } from "./weekly-recap";
+
+// Verdict schedule
+export type { VerdictScheduleRow, VerdictSchedule } from "./verdict-schedule";
+export { verdictSchedule } from "./verdict-schedule";
+
+// Change <-> proof linking (surface navigation)
+export { findProofForChange, proofResultHref } from "./change-proof-link";
+
+// GSC window reads
+export {
+  readCumulativeSince,
+  readLastFinalizedDate,
+  readWindowForPages,
+} from "./gsc-window";
+
+// On-use auto measurement scheduling
+export { scheduleAutoMeasure } from "./auto-measure-on-use";
+
+// Measure pass (record + measure + capture control meta)
+export {
+  defaultPacificShipDate,
+  pickProofMetric,
+  computeWindowLift,
+  measureRecord,
+  captureChangeMeta,
+  recordShippedChange,
+} from "./measure-pass";

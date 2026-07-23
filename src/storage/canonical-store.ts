@@ -26,8 +26,7 @@
  * top-level `await readStore(...)` calls (which captured the env-resolved
  * tenant once at module init and froze it) are replaced with cached async
  * getters: `getTrackedPrompts`, `getTrackedEntities`, `getObservationRuns`,
- * `getPromptAnswerObservations`, `getDailyMetricSnapshots`,
- * `getOutcomeEvents`, `getCandidateCauses`, `getEventDecisions`.
+ * `getPromptAnswerObservations`, `getDailyMetricSnapshots`.
  *
  * `React.cache` memoizes within one render tree; the process-level
  * per-tenant `_byTenant` state map preserves the mutate-array semantic
@@ -55,9 +54,6 @@ import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type { ProfoundImportRun } from "@/domains/observation-runs/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
-import type { OutcomeEvent } from "@/domains/outcome-events/types";
-import type { CandidateCause } from "@/domains/candidate-causes/types";
-import type { EventDecision } from "@/domains/event-decisions/types";
 
 // ---------------------------------------------------------------------------
 // Process-level mutable state.
@@ -76,9 +72,6 @@ type State = {
   observationRuns: ProfoundImportRun[] | null;
   promptAnswerObservations: PromptAnswerObservation[] | null;
   dailyMetricSnapshots: DailyMetricSnapshot[] | null;
-  outcomeEvents: OutcomeEvent[] | null;
-  candidateCauses: CandidateCause[] | null;
-  eventDecisions: EventDecision[] | null;
 };
 
 function emptyState(): State {
@@ -88,9 +81,6 @@ function emptyState(): State {
     observationRuns: null,
     promptAnswerObservations: null,
     dailyMetricSnapshots: null,
-    outcomeEvents: null,
-    candidateCauses: null,
-    eventDecisions: null,
   };
 }
 
@@ -160,24 +150,18 @@ async function loadStateForTenant(): Promise<State> {
   _byTenant.set(tenantId, state);
 
   // Initial disk read for all 8 stores (ambient-routed to this tenant).
-  const [tp, te, or, pao, dms, oe, cc, ed] = await Promise.all([
+  const [tp, te, or, pao, dms] = await Promise.all([
     readStore<TrackedPrompt>("tracked-prompts"),
     readStore<TrackedEntity>("tracked-entities"),
     readStore<ProfoundImportRun>("observation-runs"),
     readStore<PromptAnswerObservation>("prompt-answer-observations"),
     readStore<DailyMetricSnapshot>("daily-metric-snapshots"),
-    readStore<OutcomeEvent>("outcome-events"),
-    readStore<CandidateCause>("candidate-causes"),
-    readStore<EventDecision>("event-decisions"),
   ]);
   state.trackedPrompts = tp;
   state.trackedEntities = te;
   state.observationRuns = or;
   state.promptAnswerObservations = pao;
   state.dailyMetricSnapshots = dms;
-  state.outcomeEvents = oe;
-  state.candidateCauses = cc;
-  state.eventDecisions = ed;
 
   // Phase 3.5E hosted-hero DB merge — preserved verbatim from the
   // pre-7.8e-2 `ensureCanonicalStoresSeeded()`. On Vercel `.data/*.json`
@@ -271,20 +255,6 @@ export const getDailyMetricSnapshots = cache(
   },
 );
 
-export const getOutcomeEvents = cache(async (): Promise<OutcomeEvent[]> => {
-  return (await ensureLoaded()).outcomeEvents!;
-});
-
-export const getCandidateCauses = cache(
-  async (): Promise<CandidateCause[]> => {
-    return (await ensureLoaded()).candidateCauses!;
-  },
-);
-
-export const getEventDecisions = cache(async (): Promise<EventDecision[]> => {
-  return (await ensureLoaded()).eventDecisions!;
-});
-
 /**
  * Backwards-compat shim. Pre-7.8e-2, callers chained
  * `ensureCanonicalStoresSeeded()` to force the DB-merge before reading
@@ -352,17 +322,5 @@ export async function persistSnapshots(tenantId: string): Promise<void> {
   const dailyMetricSnapshots = await getDailyMetricSnapshots();
   await writeStore("daily-metric-snapshots", dailyMetricSnapshots);
   await syncDailyMetricSnapshots(dailyMetricSnapshots, tenantId);
-}
-
-export async function persistOutcomeEvents(): Promise<void> {
-  await writeStore("outcome-events", await getOutcomeEvents());
-}
-
-export async function persistCandidateCauses(): Promise<void> {
-  await writeStore("candidate-causes", await getCandidateCauses());
-}
-
-export async function persistEventDecisions(): Promise<void> {
-  await writeStore("event-decisions", await getEventDecisions());
 }
 

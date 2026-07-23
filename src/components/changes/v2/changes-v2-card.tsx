@@ -27,7 +27,7 @@ import {
   isIndexingDirectiveActionType,
   INDEXING_DIRECTIVE_CAVEAT,
   type ActionType,
-} from "@/domains/recommendations/action-types";
+} from "@/domains/changes/action-types";
 
 import { ChangesV2ResultPill } from "./changes-v2-result-pill";
 

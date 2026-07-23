@@ -825,7 +825,7 @@ export async function syncUrlChangeOutcomes(
  * `\\d recommended_edits` before changing this string.
  */
 export async function syncRecommendedEdits(
-  rows: import("@/domains/recommendations/recommended-edits-persistence").RecommendedEditRow[],
+  rows: import("@/domains/changes/recommended-edits-persistence").RecommendedEditRow[],
   tenantId: string,
 ): Promise<void> {
   if (!isDualWriteEnabled() || rows.length === 0) return;

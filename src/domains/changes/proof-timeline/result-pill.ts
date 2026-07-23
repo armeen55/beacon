@@ -86,7 +86,7 @@ type LifecycleTabClass =
   | "imported_legacy"
   | "scan_confirmed"
   | "unclassified";
-import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
+import type { ImplementationStatus } from "@/domains/changes/recommended-edits-persistence";
 
 export type ProofPillKind =
   | "helping"

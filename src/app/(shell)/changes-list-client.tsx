@@ -14,7 +14,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import type { ChangesClientView } from "./changes-data";
-import type { ChangeProposal } from "@/domains/decision/contracts";
+import type { ChangeProposal } from "@/domains/decision";
 import { markProposalImplementedAction } from "./changes/actions";
 
 type Tab = "ready" | "todo";

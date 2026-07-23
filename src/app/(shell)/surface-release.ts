@@ -83,7 +83,7 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
   return runSingleFlight(`customer-surface:${tenantId}`, async () => runWithTenant(tenantId, async () => {
     const [{ produceProposalsForTenant }, { buildChangesViewUncached }, { buildTodayCompositeFromChanges }] =
       await Promise.all([
-        import("@/domains/decision/produce-proposals"),
+        import("@/domains/decision"),
         import("./changes-data"),
         import("./today-view-data"),
       ]);

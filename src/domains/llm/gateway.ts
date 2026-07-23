@@ -46,7 +46,7 @@ import "server-only";
 import { log } from "@/lib/logger";
 import { recordAppError } from "@/lib/obs/error-ledger";
 import { perfCountExternal } from "@/lib/obs/perf-log";
-import { checkBudget, recordSpend } from "@/domains/recommendations/adjudicator-budget";
+import { checkBudget, recordSpend } from "./adjudicator-budget";
 import { assertPaidCallAllowed } from "@/domains/safety/cost-breaker";
 import type { PromptId } from "./prompt-registry";
 

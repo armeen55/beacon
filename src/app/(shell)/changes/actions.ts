@@ -8,8 +8,8 @@ import { getRepository } from "@/lib/persistence/repositories";
 import {
   editLifecycleStatus,
   markRecommendedEditsAsShipped,
-} from "@/domains/recommendations/recommended-edits-persistence";
-import { markProposalApplied } from "@/domains/decision/proposal-store";
+} from "@/domains/changes/recommended-edits-persistence";
+import { markProposalApplied } from "@/domains/decision";
 import { invalidateCoreSurfaces } from "../surface-release";
 
 /**

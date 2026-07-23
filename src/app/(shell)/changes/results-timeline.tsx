@@ -11,12 +11,12 @@ import { ChangesV2Client } from "./changes-v2-client";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import { maybeRefreshUrlWatcher } from "@/domains/product/url-watcher";
-import type { KernelRead } from "@/domains/proof-gsc/kernel";
+import type { KernelRead } from "@/domains/proof-gsc";
 import { kernelProofSummary } from "@/domains/changes/proof-timeline/result-pill";
 import type {
   ImplementationStatus,
   RecommendedEditRow,
-} from "@/domains/recommendations/recommended-edits-persistence";
+} from "@/domains/changes/recommended-edits-persistence";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,

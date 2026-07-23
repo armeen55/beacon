@@ -18,7 +18,7 @@ import { cache } from "react";
  * /changes it is free because the list itself already computed it this request).
  */
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
+import { loadProofLedgerCached } from "@/domains/proof-gsc";
 import { computeLifecycleCounts, type LifecycleCounts } from "@/domains/changes/lifecycle-counts";
 import { loadChangesView } from "./changes-data";
 import { valueWithDeadline } from "@/lib/load-with-deadline";

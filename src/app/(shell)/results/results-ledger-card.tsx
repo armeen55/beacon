@@ -1,5 +1,5 @@
-import type { KernelRead } from "@/domains/proof-gsc/kernel";
-import { verdictPhrase, windowStateLine } from "@/domains/proof-gsc/kernel";
+import type { KernelRead } from "@/domains/proof-gsc";
+import { verdictPhrase, windowStateLine } from "@/domains/proof-gsc";
 
 /** Plain-English action label from a raw action_type. */
 export function plainAction(actionType: string): string {

@@ -11,7 +11,7 @@ import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadChangesView, sanitizeSurfaceComputedAt, type ChangesView } from "./changes-data";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
-import type { ChangeProposal } from "@/domains/decision/contracts";
+import type { ChangeProposal } from "@/domains/decision";
 import type { TodayOpportunity, EvidenceStrength } from "@/domains/today/today-command";
 
 /** The minimal Today read model the Today page renders (headerSentence + the one

@@ -30,7 +30,7 @@ import {
   projectChangeTitle,
   clampShortTitle,
 } from "@/domains/changes/proof-timeline/title-projection";
-import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
+import type { ImplementationStatus } from "@/domains/changes/recommended-edits-persistence";
 
 import {
   ChangesV2Card,

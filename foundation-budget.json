@@ -13,7 +13,7 @@
     "target": 75000
   },
   "domains": {
-    "max": 38,
+    "max": 34,
     "target": 10,
     "_note": "ratchet down as legacy domains are internalized behind the five kernel facades"
   },
@@ -52,7 +52,6 @@
       "src/domains/drafts/draft-quality.ts": 988,
       "src/lib/persistence/dual-write.ts": 910,
       "src/domains/recommendation-intelligence/gsc-page-queries.ts": 884,
-      "src/domains/recommendations/action-types.ts": 840,
       "src/domains/recommendation-intelligence/page-surgeon/page-decision.ts": 836,
       "src/lib/business-config.ts": 831,
       "src/domains/attribution/url-change-outcome.ts": 825,
@@ -72,14 +71,18 @@
       "src/domains/product/url-citation-history.ts": 573,
       "src/domains/pages/extractors/extractors.ts": 571,
       "src/domains/evidence/readers/gsc-page-signals.ts": 560,
-      "src/domains/recommendations/recommended-edits-persistence.ts": 552,
+      "src/domains/changes/recommended-edits-persistence.ts": 547,
       "src/lib/persistence/store-classification.ts": 531,
       "src/lib/connectors/wix/client.ts": 512
     }
   },
   "imports": {
     "_note": "src/app (customer surfaces) must consume the kernels through their facades, never reach into private internals. Add a domain-internal path here once the kernel exposes a public index facade the surfaces use instead.",
-    "appForbiddenDomainDeep": []
+    "appForbiddenDomainDeep": [
+      "@/domains/evidence/",
+      "@/domains/decision/",
+      "@/domains/proof-gsc/"
+    ]
   },
   "deps": {
     "_note": "Runtime dependencies. Adding one requires explicit operator approval.",

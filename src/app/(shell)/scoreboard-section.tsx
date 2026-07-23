@@ -6,7 +6,7 @@
  * fail-soft (self-hides without enough history so it never renders an empty box).
  */
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
-import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
+import { loadShippedChanges } from "@/domains/proof-gsc";
 import { buildScoreboard, buildMoneyLine, type Scoreboard } from "@/domains/scoreboard/scoreboard";
 import { loadRevenueByDayForTenant } from "@/domains/revenue/load-revenue";
 import { loadOwnCitationsByDay } from "@/domains/recommendation-intelligence/citations-daily";

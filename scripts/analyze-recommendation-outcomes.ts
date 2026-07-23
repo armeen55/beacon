@@ -39,9 +39,9 @@ if (existsSync(envPath)) {
   }
 }
 
-import { readRecommendedEditsLocal } from "../src/domains/recommendations/recommended-edits-persistence";
+import { readRecommendedEditsLocal } from "../src/domains/changes/recommended-edits-persistence";
 import { getUrlChangeOutcomes } from "../src/domains/attribution/url-change-outcome";
-import type { RecommendedEditRow, ImplementationStatus } from "../src/domains/recommendations/recommended-edits-persistence";
+import type { RecommendedEditRow, ImplementationStatus } from "../src/domains/changes/recommended-edits-persistence";
 import { normalizeUrl } from "../src/lib/url/normalize";
 import { getChangelogEntries } from "../src/lib/seed-data.server";
 import type { ChangelogEntry } from "../src/domains/changelog/types";
