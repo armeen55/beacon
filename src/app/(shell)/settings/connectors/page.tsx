@@ -1,4 +1,4 @@
-import { getConnectorInfo, getConnectorHealth, getGoogleConnectorToken } from "@/lib/connector-store";
+import { getConnectorInfo, getConnectorHealth } from "@/lib/connector-store";
 import { rollupConnectors, type ConnectorRollupFact } from "@/lib/connectors/registry";
 import { getWixUrlMap } from "@/lib/connectors/wix/url-map";
 import { formatLastRefreshedCopy } from "@/lib/connectors/gsc/expiry-handler";
@@ -44,9 +44,6 @@ async function loadConnectorsPageData() {
   // Connect-cards slice (2026-06-12): the END-STATE contract — every
   // data source connects HERE, self-serve.
   const clarity = await getConnectorInfo("clarity");
-  // Selected GBP location lives on the (deferred) google_gbp token. Read
-  // it so a returning GBP card can immediately show the saved selection.
-  const gbpTok = await getGoogleConnectorToken("gbp");
 
   // T0b (2026-07-03) - how many pages Wix's url map covers right now. A
   // connected-but-zero-mapped Wix can't publish a single change; the Wix card
@@ -230,7 +227,6 @@ async function loadConnectorsPageData() {
     googleGa4,
     wix,
     clarity,
-    gbpTok,
     gscStaleCopy,
     gscReadiness,
     gscGapLine,
@@ -266,7 +262,6 @@ export default async function ConnectorsPage() {
     googleGa4,
     wix,
     clarity,
-    gbpTok,
     gscStaleCopy,
     gscReadiness,
     gscGapLine,
@@ -284,11 +279,6 @@ export default async function ConnectorsPage() {
       <PageHeader title="Connect your tools" description={CONNECTORS_DESCRIPTION} />
       <ConnectorsClient
         google={googleGsc}
-        googleSelectedLocation={
-          gbpTok?.selected_location_id
-            ? { id: gbpTok.selected_location_id, name: gbpTok.selected_location_name ?? "Location" }
-            : null
-        }
         ga4={googleGa4}
         wix={wix}
         clarity={clarity}

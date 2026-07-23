@@ -1,46 +1,13 @@
 "use client";
 
 /**
- * ChangesV2Client — proof-timeline pass for /changes?v2=1.
- *
- * Bundle (2026-05-10) — second pass at /changes per the maximum-depth
- * UI audit (`~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`).
- *
- * Goal: turn the legacy 11-column table + drawer into a customer-shaped
- * outcome story:
- *
- *   ┌──────────────────────────────────────────┬─────────────────────────┐
- *   │ Page header                              │                         │
- *   │ ┌─────┐ ┌─────┐ ┌─────┐                  │  Waiting for signal     │
- *   │ │ N   │ │ M   │ │ P   │  (3 counters)    │  (right rail; rows      │
- *   │ │Ship │ │Work │ │Need │                  │   too-early / watching /│
- *   │ │month│ │ing  │ │revw │                  │   live)                 │
- *   │ └─────┘ └─────┘ └─────┘                  │                         │
- *   │                                          │                         │
- *   │ Timeline (one card per row, newest first)│                         │
- *   │ ┌──────────────────────────────────────┐ │                         │
- *   │ │ title  · URL · date         [pill]   │ │                         │
- *   │ │ outcome blurb                        │ │                         │
- *   │ │ pattern-timing line (optional)       │ │                         │
- *   │ │ Open change →                        │ │                         │
- *   │ └──────────────────────────────────────┘ │                         │
- *   │ …                                        │                         │
- *   │ Open table view (legacy escape)          │                         │
- *   └──────────────────────────────────────────┴─────────────────────────┘
- *
- * Pure presentation — no state, no server actions, no data layer
- * rewrite. Consumes `EnrichedChangeRow[]` (changelog entry + the
- * proof-gsc measurement summary); the proof-pill resolver collapses
- * that into ONE customer-readable pill per card.
- *
- * Customer-vocabulary contract (forbidden-vocabulary guardrail):
- *   • No maturity enums, calibration words, or other internal
- *     vocabulary ever appear in rendered copy.
- *   • Raw verdict / lifecycle enums stay as code identifiers; the
- *     customer reads "Helping" / "Watching" / "Live" / etc.
- *   • Timing reads as "I will take the next Google reading on
- *     [date]" — sourced from the proof ledger's own checkpoint
- *     schedule, never a guess.
+ * ChangesV2Client — the "what changed / is it measuring / did it work" timeline,
+ * embedded under Results. A three-counter strip, a newest-first card timeline, and
+ * a waiting-for-signal rail. Consumes `EnrichedChangeRow[]` (changelog entry + the
+ * proof-gsc measurement summary); the proof-pill resolver collapses each row into
+ * ONE customer-readable pill. Rendered copy never leaks internal vocabulary
+ * (maturity enums, calibration words); timing reads as "I will take the next
+ * Google reading on [date]" from the proof ledger's own checkpoint schedule.
  */
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";

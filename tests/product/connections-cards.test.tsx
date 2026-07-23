@@ -28,19 +28,12 @@ vi.mock("@/app/(shell)/settings/connectors/actions", () => ({
   getGoogleGscConnectorStatus: vi.fn(),
   getGoogleGa4ConnectorStatus: vi.fn(),
   getWixConnectorStatus: vi.fn(),
-  getYelpConnectorStatus: vi.fn(),
   disconnectGoogle: vi.fn(),
   disconnectGoogleGa4: vi.fn(),
-  disconnectYelp: vi.fn(),
   disconnectWix: vi.fn(),
   saveWixConnection: vi.fn(),
   saveClarityConnection: vi.fn(),
   disconnectClarity: vi.fn(),
-  saveYelpApiKey: vi.fn(),
-  syncGoogleReviews: vi.fn(),
-  syncYelpReviews: vi.fn(),
-  loadGoogleLocations: vi.fn(),
-  selectGoogleLocation: vi.fn(),
   listGa4Properties: vi.fn(),
   selectGa4Property: vi.fn(),
   discoverWixCollections: vi.fn(),
@@ -84,7 +77,6 @@ function renderClient(over: {
   const tree = (
     <ConnectorsClient
       google={over.google ?? off}
-      googleSelectedLocation={null}
       ga4={over.ga4 ?? off}
       wix={over.wix ?? off}
       clarity={over.clarity ?? off}

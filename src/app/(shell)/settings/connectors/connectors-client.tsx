@@ -17,9 +17,6 @@ import {
   disconnectWix,
   saveClarityConnection,
   disconnectClarity,
-  syncGoogleReviews,
-  loadGoogleLocations,
-  selectGoogleLocation,
   listGa4Properties,
   selectGa4Property,
   syncGscNow,
@@ -29,21 +26,8 @@ import {
 } from "./actions";
 import type { ConnectorSyncNowResult } from "./actions";
 
-type SelectedLocation = { id: string; name: string } | null;
-
-type LocationOption = { locationId: string; locationName: string; address: string | null };
-
-/**
- * 2026-05-16, GSC scope split: the Google card is GSC-focused for v1.
- * Sync now + Location picker are GBP-only affordances; both flip on
- * when the deferred GBP card lands in a follow-up slice. Action code
- * + server actions stay wired; only the UI surfaces are gated.
- */
-const GBP_AFFORDANCES_ENABLED = false;
-
 type Props = {
   google: ConnectorInfo;
-  googleSelectedLocation: SelectedLocation;
   /** Slice 9.A1β (2026-05-18), GA4 connector status. Mirrors the
    *  GSC props shape (status, expires_at, ga4_property_id, etc.). */
   ga4: ConnectorInfo;
@@ -258,7 +242,6 @@ function RefreshLedgerLine({ fact }: { fact?: RefreshLedgerFact }) {
 
 export function ConnectorsClient({
   google: initialGoogle,
-  googleSelectedLocation: initialSelectedLocation,
   ga4: initialGa4,
   wix: initialWix,
   clarity: initialClarity,
@@ -293,7 +276,6 @@ export function ConnectorsClient({
   const [clarityTokenInput, setClarityTokenInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [googleSyncInFlight, setGoogleSyncInFlight] = useState(false);
 
   // Customer "Pull my data now" affordances (2026-06-14), each
   // connected source gets a per-card sync button wired to its
@@ -306,11 +288,6 @@ export function ConnectorsClient({
   const [ga4SyncResult, setGa4SyncResult] = useState<SyncResultMsg>(null);
   const [claritySyncPending, setClaritySyncPending] = useState(false);
   const [claritySyncResult, setClaritySyncResult] = useState<SyncResultMsg>(null);
-
-  const [selectedLocation, setSelectedLocation] = useState<SelectedLocation>(initialSelectedLocation);
-  const [locationOptions, setLocationOptions] = useState<LocationOption[] | null>(null);
-  const [locationsLoading, setLocationsLoading] = useState(false);
-  const [locationError, setLocationError] = useState<string | null>(null);
 
   // Slice 9.A1β (2026-05-18), GA4 property picker state. The list of
   // properties is loaded ONLY on explicit user action (Choose property
@@ -349,39 +326,6 @@ export function ConnectorsClient({
       window.history.replaceState(null, "", "/settings/connectors");
     }
   }, [searchParams]);
-
-  async function handleLoadLocations() {
-    setLocationError(null);
-    setLocationsLoading(true);
-    try {
-      const result = await loadGoogleLocations();
-      if (!result.ok) {
-        setLocationError(result.message);
-        return;
-      }
-      const locs = result.locations;
-      setLocationOptions(locs);
-      if (locs.length === 1 && !selectedLocation) {
-        await handleSelectLocation(locs[0]!);
-      }
-    } catch (e) {
-      setLocationError(e instanceof Error ? e.message : "Failed to load locations.");
-    } finally {
-      setLocationsLoading(false);
-    }
-  }
-
-  async function handleSelectLocation(loc: LocationOption) {
-    setLocationError(null);
-    const result = await selectGoogleLocation(loc.locationId, loc.locationName);
-    if (result.success) {
-      setSelectedLocation({ id: loc.locationId, name: loc.locationName });
-      setSuccess(`Location selected: ${loc.locationName}`);
-      router.refresh();
-    } else {
-      setLocationError(result.error ?? "Failed to select location.");
-    }
-  }
 
   function handleConnect() {
     setError(null);
@@ -514,11 +458,10 @@ export function ConnectorsClient({
   }
 
   function handleDisconnect() {
-    // #206, "Disconnect Google" clears BOTH the Search Console grant AND
-    // any Google Business Profile connection in one action. Confirm first so
-    // a Business Profile connection isn't dropped silently.
+    // #206, "Disconnect Google" clears the Search Console grant. Confirm first
+    // so the connection isn't dropped by a stray click.
     const confirmed = window.confirm(
-      "Disconnect Google? This disconnects Google Search Console and any connected Google Business Profile. Your previously synced data stays, reconnect any time to resume updates.",
+      "Disconnect Google Search Console? Your previously synced data stays, reconnect any time to resume updates.",
     );
     if (!confirmed) return;
     setError(null);
@@ -532,49 +475,12 @@ export function ConnectorsClient({
           expires_at: null,
           last_synced_at: null,
         });
-        setSelectedLocation(null);
-        setLocationOptions(null);
         setSuccess("Google disconnected. Previously synced data is preserved.");
         router.refresh();
       } else {
         setError(result.error ?? "Failed to disconnect.");
       }
     });
-  }
-
-  async function handleGoogleSyncNow() {
-    setError(null);
-    setSuccess(null);
-    setGoogleSyncInFlight(true);
-    try {
-      const result = await syncGoogleReviews();
-      if (!result.ok) {
-        if (result.code === "no_location") {
-          setError(result.message);
-          setLocationOptions(null);
-        } else if (result.code === "reconnect") {
-          setError(result.message);
-        } else {
-          setError(result.message || "Sync failed.");
-        }
-        return;
-      }
-      const status = await getGoogleGscConnectorStatus();
-      setGoogle(status);
-      let msg = `Synced ${result.imported} review${result.imported === 1 ? "" : "s"} from Google.`;
-      if (result.rejected > 0) {
-        msg += ` ${result.rejected} row${result.rejected === 1 ? "" : "s"} skipped (invalid data).`;
-      }
-      if (result.partial && result.warnings.length > 0) {
-        msg += ` Completed with ${result.warnings.length} warning${result.warnings.length === 1 ? "" : "s"}, some data may be incomplete.`;
-      }
-      setSuccess(msg);
-      router.refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Sync failed.");
-    } finally {
-      setGoogleSyncInFlight(false);
-    }
   }
 
   function handleSaveWixConnection() {
@@ -745,8 +651,6 @@ export function ConnectorsClient({
     });
   }
 
-  const anySync = googleSyncInFlight;
-
   // The honest rollup (2026-07-20) is the single source of the summary counts +
   // copy. Fall back to the bare connected count only when a legacy caller omits
   // it (render tests), so the strip always renders something coherent.
@@ -818,8 +722,6 @@ export function ConnectorsClient({
       )}
 
       {/* ── Google Search Console (GSC) ── */}
-      {/* GBP card is deferred to a follow-up slice. The GBP server action +
-          OAuth path are still wired (kind="gbp"); no UI exposes them yet. */}
       {google.status === "connected" ? (
         <details
           id="connector-google-gsc"
@@ -877,25 +779,6 @@ export function ConnectorsClient({
                 Connected as {google.google_account_email}
               </p>
             ) : null}
-            {GBP_AFFORDANCES_ENABLED ? (
-              <>
-                {selectedLocation ? (
-                  <p className="text-[12px] text-muted-foreground">
-                    Selected: {selectedLocation.name}
-                  </p>
-                ) : (
-                  // #197, setup-blocking state. The amber color alone
-                  // was the only urgency cue (color-only) and nothing
-                  // announced the state change. A non-color "Action
-                  // needed:" prefix + role="status" makes it legible to
-                  // color-blind users and announced to screen readers.
-                  <p className="text-[12px] text-status-warning" role="status">
-                    <span className="font-semibold">Action needed:</span>{" "}
-                    No location selected. Choose one below before syncing
-                  </p>
-                )}
-              </>
-            ) : null}
             {gscSyncResult ? (
               <p
                 className={`text-[12px] ${gscSyncResult.ok ? "text-status-success" : "text-status-warning"}`}
@@ -906,16 +789,6 @@ export function ConnectorsClient({
           </div>
 
           <div className="flex flex-wrap gap-2 px-5 pb-4">
-            {GBP_AFFORDANCES_ENABLED ? (
-              <button
-                type="button"
-                onClick={() => void handleGoogleSyncNow()}
-                disabled={googleSyncInFlight || isPending || !selectedLocation}
-                className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
-              >
-                {googleSyncInFlight ? "Updating…" : "Update data"}
-              </button>
-            ) : null}
             <button
               type="button"
               onClick={() =>
@@ -933,7 +806,7 @@ export function ConnectorsClient({
             <button
               type="button"
               onClick={() => handleReplaceGoogle("gsc")}
-              disabled={isPending || anySync}
+              disabled={isPending}
               className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
               title="Pick a different Google account for Search Console. I keep the current connection until the new account grants access."
             >
@@ -942,9 +815,9 @@ export function ConnectorsClient({
             <button
               type="button"
               onClick={handleDisconnect}
-              disabled={isPending || anySync}
+              disabled={isPending}
               className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-              title="Disconnects Google Search Console and any connected Google Business Profile. Historical data stays cached; no new data refreshes until you reconnect."
+              title="Disconnects Google Search Console. Historical data stays cached; no new data refreshes until you reconnect."
             >
               {isPending ? "Disconnecting…" : "Disconnect Google"}
             </button>
@@ -983,67 +856,6 @@ export function ConnectorsClient({
                 </p>
               ) : null}
               <RefreshLedgerLine fact={refreshLedger.gsc} />
-            </div>
-          ) : null}
-
-
-          {/* ── Location picker (Google connected), GBP only ── */}
-          {GBP_AFFORDANCES_ENABLED ? (
-            <div className="border-t border-border/40 px-5 py-3 space-y-3">
-              {locationError && (
-                <p className="text-[12px] text-status-warning">{locationError}</p>
-              )}
-
-              {!locationOptions ? (
-                <button
-                  type="button"
-                  onClick={() => void handleLoadLocations()}
-                  disabled={locationsLoading || isPending}
-                  className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
-                >
-                  {locationsLoading ? "Loading locations…" : selectedLocation ? "Change location" : "Load locations"}
-                </button>
-              ) : locationOptions.length === 0 ? (
-                <p className="text-[12px] text-muted-foreground">
-                  No locations found for this Google account. Make sure your Google Business Profile has at least one verified location.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  <label className="block text-[11px] font-medium text-foreground/90">
-                    Choose location to sync
-                  </label>
-                  <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                    {locationOptions.map((loc) => {
-                      const isSelected = selectedLocation?.id === loc.locationId;
-                      return (
-                        <button
-                          key={loc.locationId}
-                          type="button"
-                          onClick={() => void handleSelectLocation(loc)}
-                          disabled={isPending}
-                          className={`w-full text-left rounded-md border px-3 py-2 text-[12px] transition-colors disabled:opacity-50 ${
-                            isSelected
-                              ? "border-accent-primary/60 bg-accent-primary/[0.06] text-foreground"
-                              : "border-border/60 bg-background text-foreground hover:border-foreground/30"
-                          }`}
-                        >
-                          <span className="font-medium">{loc.locationName}</span>
-                          {loc.address ? (
-                            <span className="block text-[11px] text-muted-foreground mt-0.5">
-                              {loc.address}
-                            </span>
-                          ) : null}
-                          {isSelected ? (
-                            <span className="block text-[11px] text-accent-primary mt-0.5">
-                              Currently selected
-                            </span>
-                          ) : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </div>
           ) : null}
         </details>
@@ -1180,7 +992,7 @@ export function ConnectorsClient({
             <button
               type="button"
               onClick={() => handleReplaceGoogle("ga4")}
-              disabled={isPending || anySync}
+              disabled={isPending}
               className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
               title="Pick a different Google account for Analytics. I keep the current connection until the new account grants access."
             >
@@ -1189,7 +1001,7 @@ export function ConnectorsClient({
             <button
               type="button"
               onClick={handleDisconnectGa4}
-              disabled={isPending || anySync}
+              disabled={isPending}
               className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
               title="Soft disconnect: historical data stays cached but no new data refreshes until you reconnect."
             >
