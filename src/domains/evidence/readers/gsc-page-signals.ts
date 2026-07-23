@@ -22,7 +22,7 @@ import "server-only";
 
 import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { canonicalizeCitationUrl } from "@/domains/ai-visibility/canonicalize-citation-url";
 import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
 import { log } from "@/lib/logger";
 import { densifyDailyClicks } from "@/domains/gsc/densify-daily-series";

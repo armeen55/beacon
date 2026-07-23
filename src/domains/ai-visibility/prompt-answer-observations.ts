@@ -27,7 +27,7 @@ export type PromptAnswerObservation = {
    * Best-effort parsed split of `raw_search_queries`. Empty array when the
    * raw field is empty (all AIO rows, some Perplexity/ChatGPT rows that
    * didn't trigger a web search). See `parseSearchQueries()` in
-   * `src/domains/prompt-answer-observations/search-query-parser.ts` for the
+   * `src/domains/ai-visibility/search-query-parser.ts (not yet extracted)` for the
    * exact split heuristic (conservative: only splits when parts look like
    * real queries, not competitor-name fragments).
    */

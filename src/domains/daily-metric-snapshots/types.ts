@@ -117,7 +117,7 @@ export type DailyMetricSnapshot = {
    * on this snapshot's scope/date where `primary_recommendation ===
    * true`. The heuristic that derives the per-observation boolean
    * lives upstream of this column (see
-   * `src/domains/prompt-answer-observations/types.ts:63`); this
+   * `src/domains/ai-visibility/prompt-answer-observations.ts:63`); this
    * column is a per-scope materialization of that signal so customer
    * surfaces don't need to re-walk raw observations.
    *

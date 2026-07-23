@@ -52,7 +52,7 @@ import {
   type SamplingStatus,
 } from "@/domains/observations/poll-health";
 import { getPromptAnswerObservations } from "@/storage/canonical-store";
-import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
+import type { PromptAnswerObservation } from "@/domains/ai-visibility/prompt-answer-observations";
 
 // ---------------------------------------------------------------------------
 // S4 (operator audit, 2026-05-05) — sampling-status attribution wire-up

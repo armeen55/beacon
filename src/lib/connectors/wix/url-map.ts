@@ -14,7 +14,7 @@ import "server-only";
  * `wix-collection-config` (operator-edited on /diagnostics/wix).
  */
 
-import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { canonicalizeCitationUrl } from "@/domains/ai-visibility/canonicalize-citation-url";
 import { isProtectedUrlField, wixQueryAllDataItems, type WixDeps } from "./client";
 import {
   getWixCollectionConfig,

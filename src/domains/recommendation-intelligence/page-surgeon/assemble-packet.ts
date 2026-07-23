@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
 import { getRepository } from "@/lib/persistence/repositories";
 import { getTenant } from "@/domains/tenants/store";
-import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { canonicalizeCitationUrl } from "@/domains/ai-visibility/canonicalize-citation-url";
 import { inferBrandSuffix } from "./brand-heuristics";
 import { loadGscPageSignalsForTenant } from "@/domains/evidence/readers/gsc-page-signals";
 import { loadClarityPageSignalsForTenant } from "@/domains/evidence/readers/clarity-page-signals";

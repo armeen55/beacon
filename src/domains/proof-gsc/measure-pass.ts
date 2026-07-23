@@ -12,7 +12,7 @@ import "server-only";
  * self-tests, or forecast machinery.
  */
 
-import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { canonicalizeCitationUrl } from "@/domains/ai-visibility/canonicalize-citation-url";
 import {
   loadPageSurgeonContext,
   assemblePacketForUrl,

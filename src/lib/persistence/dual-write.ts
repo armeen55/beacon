@@ -270,9 +270,9 @@ import type { PageSnapshot, PageEntity } from "@/domains/pages/types";
 import type { Finding } from "@/domains/scanning/types";
 import type { BusinessConfig } from "@/lib/business-config";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
-import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
-import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
-import type { TrackedEntity } from "@/domains/tracked-entities/types";
+import type { PromptAnswerObservation } from "@/domains/ai-visibility/prompt-answer-observations";
+import type { TrackedPrompt } from "@/domains/ai-visibility/tracked-prompts";
+import type { TrackedEntity } from "@/domains/ai-visibility/tracked-entities";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
 

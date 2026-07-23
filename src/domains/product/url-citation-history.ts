@@ -24,7 +24,7 @@ import {
 } from "@/lib/persistence/cold-store";
 import { getPromptAnswerObservations } from "@/storage/canonical-store";
 import { normalizePlatform } from "@/lib/platform";
-import type { CitationObservation } from "@/domains/citation-observations/types";
+import type { CitationObservation } from "@/domains/ai-visibility/citation-observations";
 
 /**
  * Commit 7 (2026-04-24) — hardcoded boundary date between the Profound

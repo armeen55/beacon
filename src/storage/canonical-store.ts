@@ -49,10 +49,10 @@ import {
 } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
-import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
-import type { TrackedEntity } from "@/domains/tracked-entities/types";
-import type { ProfoundImportRun } from "@/domains/observation-runs/types";
-import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
+import type { TrackedPrompt } from "@/domains/ai-visibility/tracked-prompts";
+import type { TrackedEntity } from "@/domains/ai-visibility/tracked-entities";
+import type { ProfoundImportRun } from "@/domains/ai-visibility/observation-runs";
+import type { PromptAnswerObservation } from "@/domains/ai-visibility/prompt-answer-observations";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 
 // ---------------------------------------------------------------------------

@@ -23,10 +23,10 @@ import { getFindings } from "@/domains/scanning/findings-store";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
 import type { RecommendedEditRow } from "@/domains/changes/recommended-edits-persistence";
-import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
+import type { PromptAnswerObservation } from "@/domains/ai-visibility/prompt-answer-observations";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
-import type { TrackedEntity } from "@/domains/tracked-entities/types";
-import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
+import type { TrackedEntity } from "@/domains/ai-visibility/tracked-entities";
+import type { TrackedPrompt } from "@/domains/ai-visibility/tracked-prompts";
 
 /**
  * `DATA_SOURCE=file` implementation of `SeedDataRepository`.

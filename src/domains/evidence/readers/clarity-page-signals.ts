@@ -16,7 +16,7 @@ import "server-only";
 import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
-import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { canonicalizeCitationUrl } from "@/domains/ai-visibility/canonicalize-citation-url";
 
 // Request-memoized (see ga4-page-values): the hero post-pass + the money-leak
 // scan both read full-tenant Clarity friction on one render — dedupe to one query.

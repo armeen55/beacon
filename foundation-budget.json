@@ -13,7 +13,7 @@
     "target": 75000
   },
   "domains": {
-    "max": 34,
+    "max": 28,
     "target": 10,
     "_note": "ratchet down as legacy domains are internalized behind the five kernel facades"
   },

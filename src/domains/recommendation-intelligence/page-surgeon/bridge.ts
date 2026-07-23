@@ -13,7 +13,7 @@
 
 import "server-only";
 
-import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { canonicalizeCitationUrl } from "@/domains/ai-visibility/canonicalize-citation-url";
 
 import {
   assemblePacketForUrl,

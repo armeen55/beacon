@@ -10,6 +10,42 @@
 > Older entries (before 2026-07-01) are archived verbatim in `docs/archive/VERIFICATION_LOG_2026H1.md`.
 > That archive holds first-half-2026 history; this file holds 2026-07-01 onward.
 
+> 🟢 **2026-07-22 Foundation Freeze — AI-visibility family merge (34→28 domains).** Folded 6
+> native-AI-visibility micro-domains into `src/domains/ai-visibility/`: citation-observations,
+> prompt-answer-observations, observation-runs, tracked-prompts, tracked-entities, and
+> citation-lifecycle/canonicalize-url (→ `canonicalize-citation-url`). Left `observations` OUT (it is
+> the website-crawl/verify scanning concern, not AI-citation polling — wrong taxonomy to fold).
+> competitor-intel / competitors / daily-metric-snapshots untouched (separate slice). Persisted-store
+> registrations preserved (they key off string table names in store-classification.ts + canonical-store.ts,
+> not module paths); only type-import specifiers repointed. Domain ceiling ratcheted 34→28. Gate: tsc 0,
+> 211/211 tests, build clean, guard passes. Four surfaces walked on the REAL main tree (port 3141
+> beacon-audit → /Users/armeen/beacon, after discovering the beacon-iranopedia dev config runs from a
+> stale `.claude/worktrees/objective-davinci-c81e70` copy): Today ("2 ideas to review, 15 measuring"),
+> Changes (ranked queue, full New-page ChangeProposal), Results (WINS 4, directional reads
+> +0.7pp/+0.5pp with honest "observational not proof" caveats), Connections ("4 of 4 connected").
+> LESSON: the beacon-iranopedia launch config points at a worktree, not the main tree — walk on
+> beacon-audit (3141) for real-code verification. Net +20 lines (pure relocation + import repoints).
+
+> 🟢 **2026-07-22 Foundation Freeze — kernel facades + recommendations-domain elimination +
+> action-types collapse. Committed `bd362b66`, deployed prod `dpl_HQ8Jf9dtaV2WiTjnqrLn29Vg4gtQ`,
+> four surfaces walked on real Iranopedia data.** Boundary consolidation behind the five-kernel
+> facade rule: added public facades `evidence/index`, `decision/index`, `proof-gsc/index`; `src/app`
+> now consumes the kernels through facades only, enforced mechanically by the foundation guard
+> (`imports.appForbiddenDomainDeep` bans any `src/app` deep-import of a kernel internal, CI fails on a
+> reach-around). Eliminated the `recommendations` domain (copy-sanitize + placeholder-detection to
+> `decision/`, severing the Decision→recommendations leak; adjudicator-budget to `llm/`; action-types
+> + recommended-edits-persistence to `changes/`). Deleted 3 dead micro-domains (candidate-causes,
+> event-decisions, outcome-events) + canonical-store plumbing. 38→34 top-level domains, ceiling
+> ratcheted. Collapsed `action-types.ts` 835→94 lines: the Decision kernel proposes/validates
+> ChangeProposals directly, so the per-type spec registry / generatorActive machinery was dead; kept
+> only the live surface (ActionType union, indexing-directive predicate, operator-locked caveat),
+> clearing it from the giant-file grandfather list. Gate: tsc 0, 211/211 tests, build clean, guard
+> passes (prod 70,257 / test 3,886 / combined 74,143). Surface walk: Today (624 clicks/7d, 25 shipped
+> / 2 wins / 116 clicks-mo), Changes (Decision kernel — To do 7 / Measuring 6 of 23 / Results 1 of 2 /
+> Watching 78, real ranked proposal with honest confounder caveat), Results (proof-gsc — same counts,
+> "23 measuring, 2 wins, next verdicts Tuesday", confirmed wins), Connections (4 of 5 connected). The
+> ONE-COUNT RULE holds across Today/Results. Net -629 lines.
+
 > 🟢 **2026-07-22 CORE 100K platform-layer collapse (north-star sever + seed-data de-live +
 > section-analyzer) — local gates green, not yet committed/deployed.** Four bounded, verified
 > collapses landed on the working tree. (1) North-star sever: the GA4 sitewide+reconcile

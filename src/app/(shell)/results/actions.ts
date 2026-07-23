@@ -21,7 +21,7 @@ import {
   loadPageSurgeonContext,
   topPagesByDemand,
 } from "@/domains/recommendation-intelligence/page-surgeon/assemble-packet";
-import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { canonicalizeCitationUrl } from "@/domains/ai-visibility/canonicalize-citation-url";
 import {
   recordShippedChange,
   captureChangeMeta,
