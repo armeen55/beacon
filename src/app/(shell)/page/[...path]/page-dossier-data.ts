@@ -16,10 +16,7 @@ import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import { proofMaturityLabel } from "@/domains/proof-gsc/measure-lifecycle";
 import { loadChangesView } from "../../changes-data";
-import type { CanonicalChange } from "@/domains/changes/canonical-change";
-// Dossier honesty (2026-07-11) - name the zero-click trap plainly when this page's own numbers
-// show it, so the dossier never leaves it unexplained while the demand read sits right there.
-import { isZeroClickTrap, ZERO_CLICK_TRAP_REASON_GENERAL } from "@/domains/changes/zero-click-trap";
+import type { ChangeProposal } from "@/domains/decision/contracts";
 
 /**
  * page-dossier-data (BEACON_500 item 54, carry-over 87) - the "everything the team
@@ -38,11 +35,25 @@ export type DossierMove = {
   id: string;
   opportunityType: string;
   recommendation: string;
-  status: CanonicalChange["status"];
-  evidenceStrength: CanonicalChange["evidenceStrength"];
+  status: string;
+  evidenceStrength: "strong" | "directional" | "tracking";
   estimatedEffortMinutes: number;
   measurementHeadline: string | null;
 };
+
+const DOSSIER_CONFIDENCE_TO_STRENGTH: Record<ChangeProposal["confidence"], DossierMove["evidenceStrength"]> = {
+  high: "strong",
+  medium: "directional",
+  low: "tracking",
+};
+
+/** A plain directive for a proposal on this page. */
+function dossierRecommendation(p: ChangeProposal): string {
+  const c = p.recommendedChange;
+  if (c.kind === "new_page") return `Build a page that answers "${p.primaryQuery}".`;
+  const field = c.field === "meta" ? "description" : c.field.replace(/_/g, " ");
+  return `Update the ${field} to "${c.after}".`;
+}
 
 /** Retired with the daily-experiment plan (Core 100K): the dossier no longer surfaces a
  *  "planned pick" band, so `currentPlanPick` is always null. Kept on the type (and the
@@ -174,18 +185,18 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
 
   const daily = dailyByPath.get(path) ?? [];
 
-  // Current recommendation: prefer the canonical Changes list (the single worklist
-  // truth), falling back to null when nothing targets this page.
-  const change = changesView?.changes.find((c) => matchesPath(c.pagePath, path) || matchesPath(c.pageUrl, path)) ?? null;
+  // Current recommendation: prefer the ranked ChangeProposal targeting this page
+  // (the single Decision-kernel truth), falling back to null when nothing does.
+  const change = changesView?.proposals.find((c) => matchesPath(c.pagePath, path) || matchesPath(c.pageUrl, path)) ?? null;
   const currentMove: DossierMove | null = change
     ? {
         id: change.id,
         opportunityType: change.opportunityType,
-        recommendation: change.recommendation,
+        recommendation: dossierRecommendation(change),
         status: change.status,
-        evidenceStrength: change.evidenceStrength,
+        evidenceStrength: DOSSIER_CONFIDENCE_TO_STRENGTH[change.confidence],
         estimatedEffortMinutes: change.estimatedEffortMinutes,
-        measurementHeadline: change.measurementHeadline,
+        measurementHeadline: null,
       }
     : null;
 
@@ -226,20 +237,9 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
       )
     : null;
 
-  // Dossier honesty (2026-07-11) - the zero-click trap named from this page's OWN top query (the
-  // same signal build-canonical-changes.ts trips the trap on), so a trapped page never shows its
-  // demand numbers next to a silent, unexplained recommendation. The general sentence fits any
-  // lever the dossier might otherwise imply is worth doing here.
-  const topTrapQuery = [...(gscEntry?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0];
-  const trapNote =
-    topTrapQuery &&
-    isZeroClickTrap({
-      topQueryPosition: topTrapQuery.position,
-      topQueryImpressions90d: topTrapQuery.impressions,
-      topQueryClicks90d: topTrapQuery.clicks,
-    })
-      ? ZERO_CLICK_TRAP_REASON_GENERAL
-      : null;
+  // Zero-click honesty note retired with the demand-graph shaping (CORE 100K); the
+  // dossier surfaces this page's demand numbers and its ranked proposal directly.
+  const trapNote: string | null = null;
 
   return {
     path,

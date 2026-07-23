@@ -5,14 +5,13 @@ import { currentTenantId, runWithTenant } from "@/lib/tenant-context";
 import { runSingleFlight } from "@/lib/single-flight";
 import type { ChangesView } from "./changes-data";
 import type { TodayComposite } from "./today-view-data";
-import type { NewPagesData } from "./today-newpages-data";
 
 /**
- * surface-release (2026-07-21 loader consolidation) - the atomic Today+Changes
- * customer release: its store (merged from customer-surface-store.ts) and THE one
- * rebuild body (merged from customer-surface-refresh.ts). Since the consolidation
- * retired the today-surface and changes-surface shadow blobs, this release is the
- * ONLY persisted snapshot both routes read.
+ * surface-release (CORE 100K cutover, 2026-07-22) - the atomic Today+Changes
+ * customer release and THE one rebuild body. The rebuild now PRODUCES this
+ * tenant's ChangeProposals (decision kernel, cold gated drafter) then reads them
+ * back into the ranked Changes + Today views. This release is the ONLY persisted
+ * snapshot both routes read.
  */
 
 const STORE = "customer-surface";
@@ -22,19 +21,18 @@ export const CUSTOMER_SURFACE_FRESH_MS = 15 * 60 * 1000;
  * own caches independently, but Today and Changes only adopt a new release when
  * every core section below was assembled successfully. */
 export type CustomerSurface = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   releaseId: string;
   computedAt: string;
   tenantId: string;
   changes: ChangesView;
   today: TodayComposite;
-  newPages: NewPagesData | null;
 };
 
 export async function readCustomerSurface(tenantId: string): Promise<CustomerSurface | null> {
   const rows = await readStore<CustomerSurface>(STORE, [], { tenantId }).catch(() => [] as CustomerSurface[]);
   const row = rows[0];
-  if (!row || row.schemaVersion !== 1 || row.tenantId !== tenantId || !row.changes || !row.today) return null;
+  if (!row || row.schemaVersion !== 2 || row.tenantId !== tenantId || !row.changes || !row.today) return null;
   return row;
 }
 
@@ -66,8 +64,6 @@ export async function invalidateCustomerSurface(tenantId?: string): Promise<void
  * (the dynamic import keeps this module cycle-free at init time).
  */
 export async function invalidateCoreSurfaces(tenantId?: string): Promise<void> {
-  const { invalidateWorklistSurface } = await import("./worklist-data");
-  await invalidateWorklistSurface(tenantId).catch(() => {});
   await invalidateCustomerSurface(tenantId).catch(() => {});
 }
 
@@ -85,32 +81,28 @@ export function isCustomerSurfaceStale(computedAt: string, nowMs: number): boole
  *  at init, so the loaders that read the release can import it statically.) */
 export async function refreshCustomerSurface(tenantId: string): Promise<CustomerSurface> {
   return runSingleFlight(`customer-surface:${tenantId}`, async () => runWithTenant(tenantId, async () => {
-    const [{ refreshWorklistSurface }, { buildChangesViewUncached }, { buildTodayCompositeFromChanges }, { buildNewPagesData }] =
+    const [{ produceProposalsForTenant }, { buildChangesViewUncached }, { buildTodayCompositeFromChanges }] =
       await Promise.all([
-        import("./worklist-data"),
+        import("@/domains/decision/produce-proposals"),
         import("./changes-data"),
         import("./today-view-data"),
-        import("./today-newpages-data"),
       ]);
-    // Prepared packs hydrate onto TodayMove inside the worklist builder. Refresh
-    // that dependency first or a newly drafted top-five pack would not become
-    // Ready in the release we are about to publish.
-    await refreshWorklistSurface(tenantId);
+    // PRODUCE first: the cold, gated, budgeted drafter turns cached evidence into
+    // persisted ChangeProposals, so a newly drafted move is Ready in the release we
+    // are about to publish. Fail-soft: a production hiccup still publishes whatever
+    // proposals are already persisted.
+    await produceProposalsForTenant(tenantId).catch(() => null);
     const changes = await buildChangesViewUncached(tenantId);
-    const [today, newPages] = await Promise.all([
-      buildTodayCompositeFromChanges(changes),
-      buildNewPagesData(tenantId).catch(() => null),
-    ]);
+    const today = await buildTodayCompositeFromChanges(changes);
     const computedAt = new Date().toISOString();
     const releaseId = `${tenantId}:${computedAt}`;
     const surface: CustomerSurface = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       releaseId,
       computedAt,
       tenantId,
       changes,
       today: { ...today, surfaceVersion: releaseId, surfaceComputedAt: computedAt },
-      newPages,
     };
     // Atomically publish the one shared release consumed by Today + Changes.
     await writeCustomerSurface(surface);

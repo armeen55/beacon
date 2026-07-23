@@ -1,10 +1,20 @@
 /**
- * CONSTITUTION §6 — Destructive-action safety: indexing hold.
+ * CONSTITUTION §6 — Destructive-action safety: indexing / publish hold.
  *
- * (2026-07-21) The read-only indexability loader and its pins died with the
- * trigger->promotion producer pipeline; what remains — and must never
- * regress — is the accept-path half: the type-driven indexing HOLD posture
- * on every LIVE one-tap accept surface.
+ * (2026-07-22, CORE 100K cutover) The old trigger->promotion accept surfaces
+ * (today-moves-card, the rich changes list) were retired with the demand-graph
+ * decision engine. The live recommendation path is now the Decision kernel:
+ * every recommendation is a `ChangeProposal` whose publishing is MANUAL. There
+ * is no longer any one-tap path that applies a change (indexing directive or
+ * otherwise) to a live site — the operator applies the change on their own CMS,
+ * and the only mutating control ("Mark implemented") merely RECORDS that they
+ * did it, behind a server-side publish-authority gate.
+ *
+ * §6's invariant — a wrong crawl/index directive (robots, noindex, canonical,
+ * redirect) must never be one tap away from a live site — is therefore preserved
+ * STRUCTURALLY: the kernel never writes a live page (publish: "manual"), and the
+ * one accept surface enforces publish authority server-side. This pins both so
+ * neither can silently regress into a one-tap live write.
  */
 
 import { describe, expect, it } from "vitest";
@@ -17,31 +27,25 @@ function raw(rel: string): string {
   return readFileSync(resolve(REPO_ROOT, rel), "utf-8");
 }
 
-// #310 / destructive-action safety — the type-driven indexing HOLD posture must
-// survive on every LIVE one-tap accept surface, not only the ported proof card.
-// A crawl/index directive (robots.txt, meta noindex, canonical, redirect/status)
-// can DEINDEX a live site if applied with a wrong value, so a wrong value must
-// never be one tap away. This pins that both live accept surfaces reference the
-// single source-of-truth guard (isIndexingDirectiveActionType) — an import-
-// presence scan, so the guard can never be silently dropped from a surface and
-// regress a directive back into a one-tap change. Preserves the suite's idiom
-// (raw-source string scans, no rendering).
-describe("indexing hold — every live one-tap accept surface references the guard (§6)", () => {
-  const GUARD = "isIndexingDirectiveActionType";
-  const GUARD_MODULE = "@/domains/recommendations/action-types";
-  const LIVE_ACCEPT_SURFACES = [
-    "src/app/(shell)/changes-list-client.tsx",
-    "src/app/(shell)/today-moves-card.tsx",
-  ] as const;
+describe("publish hold — the recommendation kernel never writes a live page one tap away (§6)", () => {
+  it("the ChangeProposal contract hard-codes publish: manual", () => {
+    const src = raw("src/domains/decision/contracts.ts");
+    // The structural reminder is on the persisted type and its Zod schema.
+    expect(src).toMatch(/publish:\s*"manual"/);
+    expect(src).toMatch(/publish:\s*z\.literal\("manual"\)/);
+  });
 
-  for (const rel of LIVE_ACCEPT_SURFACES) {
-    it(`${rel} imports + references ${GUARD}`, () => {
-      const src = raw(rel);
-      // Imported from the single source of truth, not re-implemented locally.
-      expect(src).toContain(GUARD_MODULE);
-      // Referenced at least twice: the import binding + at least one live call
-      // site (the actual hold decision).
-      expect((src.match(new RegExp(GUARD, "g")) ?? []).length).toBeGreaterThanOrEqual(2);
-    });
-  }
+  it("every proposal the propose paths assemble is publish: manual", () => {
+    const src = raw("src/domains/decision/propose.ts");
+    expect(src).toMatch(/publish:\s*"manual"/);
+  });
+
+  it("the one accept surface (Mark implemented) enforces server-side publish authority and never publishes", () => {
+    const src = raw("src/app/(shell)/changes/actions.ts");
+    // A change is never one tap away from being applied without publish authority.
+    expect(src).toContain("canPublishForCurrentTenant");
+    // The mark-implemented action records status only; it must not import any
+    // live-write / push path.
+    expect(src).not.toMatch(/pushToWix|publishToLive|applyEditToPage/);
+  });
 });

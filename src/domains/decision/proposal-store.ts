@@ -87,6 +87,19 @@ export async function loadChangeProposal(tenantId: string, id: string): Promise<
   }
 }
 
+/**
+ * Manually mark one proposal APPLIED (the operator's own "Mark implemented"
+ * action — never the kernel). Re-persists the proposal with status "applied" so
+ * the pre-ship queue drops it and its measurement lives in the proof ledger.
+ * Fail-soft → false. Publishing stays manual: this records the operator's claim,
+ * it does not write a live page.
+ */
+export async function markProposalApplied(tenantId: string, id: string): Promise<boolean> {
+  const proposal = await loadChangeProposal(tenantId, id);
+  if (!proposal) return false;
+  return saveChangeProposal({ ...proposal, status: "applied" });
+}
+
 /** Load the latest valid proposal per id for a tenant. Fail-soft → empty map. */
 export async function loadChangeProposals(tenantId: string, limit = 500): Promise<Map<string, ChangeProposal>> {
   const out = new Map<string, ChangeProposal>();

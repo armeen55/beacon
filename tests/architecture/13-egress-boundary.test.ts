@@ -26,7 +26,9 @@ const read = (rel: string) => readFileSync(join(REPO_ROOT, rel), "utf8");
 const strip = (s: string) =>
   s.replace(/^\s*\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
 
-const LOAD_QUEUE_SRC = read("src/domains/recommendations/load-queue.ts");
+// CORE 100K (2026-07-22): the /recommendations render loader (load-queue.ts) was
+// deleted with the retired recommendation surface, a strictly stronger egress
+// guarantee than its old bounded window (the surface no longer exists to read).
 // Surface-collapse (2026-07-21): the /prompts list + /prompts/[id] detail pages
 // and the /settings/prompts management UI were all deleted. Their bounded-window
 // egress guards went with them. Lane S (2026-07-21) then retired the dead
@@ -40,18 +42,6 @@ const REPO_TYPES_SRC = read("src/lib/persistence/repositories/types.ts");
 const TENANT_REPO_SRC = read("src/lib/persistence/repositories/tenant-repo.ts");
 
 describe("route loaders read observations bounded, never unbounded", () => {
-  it("load-queue's persisted render path never touches the canonical observation pipeline", () => {
-    // Amputation (2026-07-21): the /recommendations live loader that paged
-    // canonical data (`loadLiveRecommendationQueue` → `loadFreshCanonicalData`)
-    // was deleted as dead code. The surviving render loader
-    // (`loadPersistedRecommendationQueueForPage`) reads ONLY small per-tenant
-    // stores (recommended_edits, recommendation_responses, tracked_prompts,
-    // changelog, GSC/Clarity signals). It calls `loadFreshCanonicalData` NOT AT
-    // ALL — a strictly stronger egress guarantee than the old bounded window,
-    // so no unbounded observation read can slip back onto this surface.
-    expect(LOAD_QUEUE_SRC).not.toMatch(/loadFreshCanonicalData/);
-  });
-
   it("the /today gate loader never touches the canonical observation pipeline", () => {
     // Lane S (2026-07-21): the dead today-v2-data section loaders (the last
     // render-time callers of `loadFreshCanonicalData`) were deleted. The
@@ -64,7 +54,6 @@ describe("route loaders read observations bounded, never unbounded", () => {
 
   it("no bare loadFreshCanonicalData() across the route-render sources", () => {
     const all = [
-      LOAD_QUEUE_SRC,
       TODAY_GATE_DATA_SRC,
     ].join("\n");
     expect(all).not.toMatch(/loadFreshCanonicalData\(\s*\)/);

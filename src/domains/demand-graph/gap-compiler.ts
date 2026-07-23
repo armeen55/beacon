@@ -22,9 +22,7 @@ import {
 import { loadGscPageSignalsForTenant, type GscPageSignal } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import { buildResearchDossier } from "@/domains/research/research-dossier";
 import { loadResearchCorpusForTenant } from "@/domains/research/research-dossier-loader";
-import type { RankedUnifiedEntry } from "@/domains/allocator/unified-list";
 import type { MoveCandidate } from "./build-graph";
-import { mergeRankedEvidenceIntoGraphMove } from "./ranked-evidence-merge";
 
 function stripWww(h: string): string {
   return h.replace(/^www\./i, "").toLowerCase();
@@ -73,7 +71,7 @@ export type LoadChangePacksResult = {
 
 export async function loadChangePacksForTenant(
   tenantId: string,
-  opts: { limit?: number; rankedEntries?: readonly RankedUnifiedEntry[] } = {},
+  opts: { limit?: number } = {},
 ): Promise<LoadChangePacksResult> {
   const limit = opts.limit ?? 25;
 
@@ -132,17 +130,13 @@ export async function loadChangePacksForTenant(
     graph.demandNodes.map((node) => [node.key, node.queries] as const),
   );
 
-  const rankedEntries = opts.rankedEntries ?? [];
   const actionable = graph.moves.filter((m) => m.gap !== "low_demand" && m.gap !== "healthy");
   const top = actionable.slice(0, limit);
 
   let withTeardown = 0;
   let withSnapshot = 0;
   const graphPackets: EvidencePacket[] = top.map((graphMove) => {
-    // The final-ranked research pass can discover fresher live-SERP winners than
-    // the graph carried when it was seeded. Merge only evidence into the graph
-    // move; rank, score, type, target, and rationale remain authoritative.
-    const move = mergeRankedEvidenceIntoGraphMove(graphMove, rankedEntries);
+    const move = graphMove;
     // top competitor audit
     const topCompUrl = move.competitorUrls[0] ?? null;
     const audit = topCompUrl ? audits.get(canonicalizeCitationUrl(topCompUrl) || topCompUrl) : undefined;
@@ -205,134 +199,9 @@ export async function loadChangePacksForTenant(
     });
   });
 
-  const usedGraphPackets = new Set<number>();
   const packets: EvidencePacket[] = [];
 
-  function findGraphPacket(entry: RankedUnifiedEntry): EvidencePacket | null {
-    if (!entry.graphBacked) return null;
-    const entryPath = entry.page ? pathKey(entry.page) : null;
-    const query = entry.query.trim().toLocaleLowerCase("en-US");
-    for (let index = 0; index < graphPackets.length; index += 1) {
-      if (usedGraphPackets.has(index)) continue;
-      const packet = graphPackets[index]!;
-      const pageMatch = entryPath && packet.yourPage.url && pathKey(packet.yourPage.url) === entryPath;
-      const queryMatch = packet.move.label.trim().toLocaleLowerCase("en-US") === query ||
-        packet.demand.queries.some((row) => row.query.trim().toLocaleLowerCase("en-US") === query);
-      if (pageMatch || queryMatch) {
-        usedGraphPackets.add(index);
-        return packet;
-      }
-    }
-    return null;
-  }
-
-  function buildAllocatorPacket(entry: RankedUnifiedEntry): EvidencePacket {
-    const exactKeyword = researchCorpus.keywordLibrary.rows.find(
-      (row) => row.keyword.trim().toLocaleLowerCase("en-US") === entry.query.trim().toLocaleLowerCase("en-US"),
-    );
-    const measuredGsc = Math.max(entry.demandEvidence.gscMonthly ?? 0, exactKeyword?.timesShownPerMo ?? 0);
-    const measuredVolume = Math.max(entry.demandEvidence.searchVolumeMonthly ?? 0, exactKeyword?.searchesPerMo ?? 0);
-    const demand = Math.max(measuredGsc, measuredVolume, 1);
-    const signals = new Set<string>();
-    if (measuredGsc > 0) signals.add("GSC");
-    if (measuredVolume > 0) signals.add("volume");
-    if (entry.sources.includes("aeo_gap")) signals.add("AI");
-    if (entry.sources.includes("serp_steal")) signals.add("SERP");
-    if (entry.page) signals.add("owned-page");
-
-    let ownedSnap: PageSnapshot | undefined;
-    if (entry.page) {
-      ownedSnap = ownedByCanon.get(canonicalizeCitationUrl(entry.page) || entry.page) ?? ownedByPath.get(pathKey(entry.page));
-    }
-    const ownedUrl = ownedSnap?.url ?? entry.page;
-    const gap: MoveCandidate["gap"] = entry.kind === "create"
-      ? "create_page"
-      : entry.kind === "fix"
-        ? "fix_experience"
-        : entry.sources.includes("aeo_gap")
-          ? "answer_block"
-          : "edit_page";
-    let move: MoveCandidate = {
-      demandKey: `allocator:${entry.id}`,
-      label: entry.query,
-      gap,
-      score: entry.allocatorScore,
-      components: {
-        demand,
-        winnability: entry.confidence,
-        dollarValue: 0,
-        visibilityGap: entry.kind === "create" || entry.sources.includes("aeo_gap") ? 1 : 0.5,
-        friction: entry.kind === "fix" ? 1 : 0,
-      },
-      confidence: entry.confidence >= 0.75 ? "high" : entry.confidence >= 0.5 ? "medium" : "low",
-      signals: [...signals],
-      ownedUrl,
-      competitorUrls: entry.competitorUrls,
-      fanoutSeeds: entry.fanoutSeeds,
-      rationale: entry.exactWhat,
-      aeoEvidence: entry.aeoEvidence ?? undefined,
-    };
-    const demandQueries: DemandQuerySignal[] = [{
-      query: entry.query,
-      impressions: measuredGsc > 0 ? measuredGsc : 1,
-      source: measuredGsc > 0 ? "gsc" : "graph",
-    }];
-    const researchDossier = buildResearchDossier({
-      tenantId,
-      move,
-      demandQueries,
-      corpus: researchCorpus,
-      nowIso: now.toISOString(),
-    });
-    const dossierWinnerUrls = [
-      ...researchDossier.cloneBriefs.map((brief) => brief.url),
-      ...(researchDossier.ai?.topCitedPages ?? []).filter((page) => !page.isOwned).map((page) => page.url),
-    ];
-    move = { ...move, competitorUrls: [...new Set([...entry.competitorUrls, ...dossierWinnerUrls])].slice(0, 8) };
-
-    const topCompUrl = move.competitorUrls[0] ?? null;
-    const audit = topCompUrl ? audits.get(canonicalizeCitationUrl(topCompUrl) || topCompUrl) : undefined;
-    const competitor = audit
-      ? { url: audit.url, domain: audit.domain, fetchStatus: audit.fetchStatus, facts: audit.facts }
-      : topCompUrl
-        ? {
-            url: topCompUrl,
-            domain: stripWww((() => {
-              try { return new URL(topCompUrl.startsWith("http") ? topCompUrl : `https://${topCompUrl}`).hostname; }
-              catch { return topCompUrl; }
-            })()),
-            fetchStatus: "not_audited",
-            facts: null,
-          }
-        : null;
-    const ownedFacts = ownedSnap ? snapshotToFacts(ownedSnap) : null;
-    let ownedGsc: EvidencePacket["yourPage"]["gsc"] = null;
-    if (ownedUrl) {
-      const sig = gscByCanon.get(canonicalizeCitationUrl(ownedUrl) || ownedUrl) ?? gscByPath.get(pathKey(ownedUrl));
-      if (sig) ownedGsc = { clicks: sig.clicks90d, impressions: sig.impressions90d, ctr: sig.ctr90d, position: sig.position90d };
-    }
-    return buildEvidencePacket({
-      move,
-      brand,
-      ownedFacts,
-      ownedGsc,
-      competitor,
-      fanoutSeeds: move.fanoutSeeds,
-      demandQueries,
-      researchDossier,
-    });
-  }
-
-  if (rankedEntries.length > 0) {
-    for (const entry of rankedEntries.slice(0, limit)) {
-      packets.push(findGraphPacket(entry) ?? buildAllocatorPacket(entry));
-    }
-    for (let index = 0; index < graphPackets.length; index += 1) {
-      if (!usedGraphPackets.has(index)) packets.push(graphPackets[index]!);
-    }
-  } else {
-    packets.push(...graphPackets);
-  }
+  packets.push(...graphPackets);
 
   return {
     packets,

@@ -13,7 +13,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { TodayCommandCard } from "@/components/today/today-command-card";
 import { buildTodayCommand, type TodayCommandInput } from "@/domains/today/today-command";
 import { buildTodaySmokeAlarm } from "@/components/today/today-smoke-alarm";
-import type { TodayOpportunity } from "@/domains/changes/today-view";
+import type { TodayOpportunity } from "@/domains/today/today-command";
 
 function text(markup: string): string {
   return markup

@@ -23,8 +23,22 @@
  */
 
 import type { TodaySmokeAlarm } from "@/components/today/today-smoke-alarm";
-import type { TodayOpportunity } from "@/domains/changes/today-view";
-import type { EvidenceStrength } from "@/domains/changes/canonical-change";
+
+/** How much comparison evidence stands behind a move (CORE 100K: owned here now
+ *  that the changes-domain today-view/canonical-change types were retired). */
+export type EvidenceStrength = "strong" | "directional" | "tracking";
+
+/** The one ranked "do this next" opportunity Today reads, derived from a ranked
+ *  ChangeProposal (see today-view-data). */
+export type TodayOpportunity = {
+  changeId: string;
+  pageLabel: string;
+  recommendation: string;
+  opportunityType: string;
+  estimatedEffortMinutes: number;
+  upside: number | null;
+  evidenceStrength: EvidenceStrength;
+};
 
 export type TodayCommandKind = "fix_defect" | "background_recovery" | "respond_to_loss" | "ship_move" | "observe";
 

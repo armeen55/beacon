@@ -1,17 +1,26 @@
 import "server-only";
 
 /**
- * today-view-data (2026-07-01, Move 5), server loader for the canonical Today slice.
- * Composes the SAME source /changes already uses (loadChangesView) and runs the pure
- * buildTodayView adapter. NO parallel graph build, NO new persistence, NO second
- * recommendation engine, Today derives from CanonicalChange. Fail-soft: a missing
- * changes read degrades to a partial Today.
+ * today-view-data (CORE 100K cutover, 2026-07-22) — Today's slice, derived from
+ * the SAME ranked ChangeProposals /changes renders (loadChangesView). No parallel
+ * recommendation engine, no new persistence. Today answers only: what is the one
+ * best move next, and how much is measuring. Fail-soft: a missing changes read
+ * degrades to a quiet Today.
  */
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadChangesView, sanitizeSurfaceComputedAt } from "./changes-data";
-import { buildTodayView, type TodayView } from "@/domains/changes/today-view";
+import { loadChangesView, sanitizeSurfaceComputedAt, type ChangesView } from "./changes-data";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
+import type { ChangeProposal } from "@/domains/decision/contracts";
+import type { TodayOpportunity, EvidenceStrength } from "@/domains/today/today-command";
+
+/** The minimal Today read model the Today page renders (headerSentence + the one
+ *  ranked next opportunity). Owned here now that the changes-domain today-view was
+ *  retired. */
+export type TodayView = {
+  headerSentence: string;
+  nextOpportunities: TodayOpportunity[];
+};
 
 export type TodayComposite = {
   today: TodayView;
@@ -20,71 +29,79 @@ export type TodayComposite = {
   surfaceComputedAt?: string;
 };
 
-/** FP3 ONE-COUNT RULE - Today's measuring/resultsAvailable counts are the SAME canonical
- *  ledger pair the ChangesView release already computed (countLedgerLifecycle), never a
- *  second CanonicalChange.status recount. The `?? 0` guards a pre-FP3 persisted snapshot
- *  that predates the canonical fields. Exported for the boundary regression test (defect
- *  A, 2026-07-20): this is the exact mapping the customer-surface composition threads into
- *  buildTodayView before the blob is persisted, so a broken mapping here is what would
- *  reintroduce the "today blob says 7 while changes says 25" divergence. */
-export function ledgerCountsOf(v: import("./changes-data").ChangesView | null): { measuring: number; decided: number } {
-  return { measuring: v?.measuringCountCanonical ?? 0, decided: v?.decidedCountCanonical ?? 0 };
+const CONFIDENCE_TO_STRENGTH: Record<ChangeProposal["confidence"], EvidenceStrength> = {
+  high: "strong",
+  medium: "directional",
+  low: "tracking",
+};
+
+/** A plain first-person directive for one proposal (the "do this next" line). */
+function recommendationOf(p: ChangeProposal): string {
+  const c = p.recommendedChange;
+  if (c.kind === "new_page") return `Build a new page that answers "${p.primaryQuery}"`;
+  const field = c.field === "meta" ? "description" : c.field.replace(/_/g, " ");
+  return `Update the ${field} on ${p.pageLabel} to sharpen it for "${p.primaryQuery}"`;
+}
+
+/** PURE: map a ranked proposal to Today's opportunity shape. */
+export function proposalToOpportunity(p: ChangeProposal): TodayOpportunity {
+  return {
+    changeId: p.id,
+    pageLabel: p.pageLabel,
+    recommendation: recommendationOf(p),
+    opportunityType: p.opportunityType,
+    estimatedEffortMinutes: p.estimatedEffortMinutes,
+    upside: p.upsidePerMonth,
+    evidenceStrength: CONFIDENCE_TO_STRENGTH[p.confidence],
+  };
+}
+
+/** PURE: build the Today slice from a ChangesView. Today's next opportunities are
+ *  the ready (validated, exact-copy) proposals, best first. */
+export function buildTodayViewFromChanges(view: ChangesView): TodayView {
+  const ready = view.ready.slice(0, 5).map(proposalToOpportunity);
+  const measuring = view.measuringCountCanonical;
+  let headerSentence: string;
+  if (ready.length > 0) {
+    headerSentence =
+      measuring > 0
+        ? `You have ${ready.length} change${ready.length === 1 ? "" : "s"} ready to apply and ${measuring} still measuring.`
+        : `You have ${ready.length} change${ready.length === 1 ? "" : "s"} ready to apply.`;
+  } else if (view.toDo.length > 0) {
+    headerSentence = `I have ${view.toDo.length} idea${view.toDo.length === 1 ? "" : "s"} to review with you, and ${measuring} change${measuring === 1 ? "" : "s"} measuring.`;
+  } else if (measuring > 0) {
+    headerSentence = `Nothing needs a decision today. ${measuring} change${measuring === 1 ? " is" : "s are"} measuring.`;
+  } else {
+    headerSentence = "Nothing needs a decision today. Connect your data and I'll rank your next moves.";
+  }
+  return { headerSentence, nextOpportunities: ready };
 }
 
 async function loadTodayViewUncached(): Promise<TodayComposite> {
-  const changesView = await loadChangesView().catch(() => null);
-  const today = buildTodayView({
-    changes: changesView?.changes ?? [],
-    strategy: "balanced",
-    plan: null,
-    ledgerCounts: ledgerCountsOf(changesView),
-  });
-  return { today, hasChanges: !!changesView && changesView.changes.length > 0 };
+  const view = await loadChangesView().catch(() => null);
+  if (!view) {
+    return { today: { headerSentence: "Nothing needs a decision today.", nextOpportunities: [] }, hasChanges: false };
+  }
+  return { today: buildTodayViewFromChanges(view), hasChanges: view.proposals.length > 0 };
 }
 
 /** Compose Today from the exact Changes release that will ship beside it. */
-export async function buildTodayCompositeFromChanges(changesView: import("./changes-data").ChangesView): Promise<TodayComposite> {
-  const today = buildTodayView({
-    changes: changesView.changes,
-    strategy: "balanced",
-    plan: null,
-    ledgerCounts: ledgerCountsOf(changesView),
-  });
-  return { today, hasChanges: changesView.changes.length > 0 };
+export async function buildTodayCompositeFromChanges(view: ChangesView): Promise<TodayComposite> {
+  return { today: buildTodayViewFromChanges(view), hasChanges: view.proposals.length > 0 };
 }
 
-/**
- * Item 93 - SWR surface for Today (same pattern as /changes): serve the last snapshot
- * instantly, background-refresh via after() once stale, invalidate on plan mutations.
- * Only the first-ever load (or the one right after an invalidation) pays the compute.
- *
- * Exported for tests (`loadTodayViewWithSwr`); this wrapper resolves the ambient
- * tenant once and threads it through explicitly, same as loadChangesView does.
- */
 export async function loadTodayView(): Promise<TodayComposite> {
   return loadTodayViewWithSwr(await currentTenantId());
 }
 
-/** Injectable builder so tests can drive the SWR flow without the real Changes/Daily
- *  compose (mirrors changes-data.ts's ChangesViewBuilder). */
 type TodayViewBuilder = (tenantId: string) => Promise<TodayComposite>;
 
-/**
- * Exported for tests; render paths go through loadTodayView above.
- *
- * ONE REBUILD BODY (loader consolidation, 2026-07-21): stale or cold, the only
- * thing this loader ever schedules is refreshCustomerSurface - the same
- * single-flighted release build /changes schedules - so Today and Changes can
- * never race two concurrent worklist/fuse builds for the same tenant. The
- * customer release is the ONLY persisted Today snapshot (the legacy
- * today-surface shadow blob is retired); a cold tenant composes synchronously
- * once and is warm from the scheduled release build onward.
- */
+/** Exported for tests; render paths go through loadTodayView above. */
 export async function loadTodayViewWithSwr(
   tenantId: string,
   deps: { build?: TodayViewBuilder } = {},
 ): Promise<TodayComposite> {
-  const build = deps.build ?? loadTodayViewUncached;
+  const build = deps.build ?? (() => loadTodayViewUncached());
   const scheduleReleaseRebuild = () =>
     after(async () => {
       const { refreshCustomerSurface } = await import("./surface-release");
@@ -97,13 +114,9 @@ export async function loadTodayViewWithSwr(
     return {
       ...customer.today,
       surfaceVersion: customer.releaseId,
-      // Same date-bomb guard /changes applies: an epoch-0 invalidation stamp is
-      // never a real build time, so it must not ride into the composite.
       surfaceComputedAt: sanitizeSurfaceComputedAt(customer.computedAt) ?? undefined,
     };
   }
-  // Cold: compose synchronously so the first render still has its greeting and
-  // ranked moves, and schedule the release build that makes the next visit warm.
   scheduleReleaseRebuild();
   return build(tenantId);
 }

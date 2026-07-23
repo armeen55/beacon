@@ -28,7 +28,6 @@ import { rootDomain } from "@/domains/serp/serp-provider";
 import { detectAnswerDrift, type DriftEvent } from "./answer-drift";
 import { ENGINE_PLAIN_NAME, type EngineId } from "./engine-types";
 import { scoreTopicMatch } from "@/domains/evidence/relevance-gate";
-import { readWorklistSurface } from "@/app/(shell)/worklist-data";
 
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 10; // 10k rows ceiling - well above one tenant's poll-window volume
@@ -181,19 +180,20 @@ export type DriftScanResult = {
   coverage: TenantDriftCoverage;
 };
 
-/** Find the open-worklist-move label whose topic shares a distinguishing token
+/** Find the ranked ChangeProposal whose page/topic shares a distinguishing token
  *  with the drifted prompt (same relevance-gate rule the query-spike band uses),
  *  or null when nothing matches. A pure concept link only - never mutates or
- *  reorders the worklist. */
+ *  reorders anything. (CORE 100K: reads the Decision kernel's proposals, not the
+ *  retired worklist surface.) */
 async function findRelatedMoveLabel(tenantId: string, promptText: string, topic: string | null): Promise<string | null> {
   try {
-    const surface = await readWorklistSurface(tenantId);
-    const moves = surface?.data.moves ?? [];
+    const { loadChangeProposals } = await import("@/domains/decision/proposal-store");
+    const byId = await loadChangeProposals(tenantId);
     const needle = topic || promptText;
-    for (const m of moves) {
-      const label = m.pageLabel;
+    for (const p of byId.values()) {
+      const label = p.pageLabel;
       if (!label) continue;
-      if (scoreTopicMatch(needle, label).relevant || scoreTopicMatch(needle, m.query ?? null).relevant) {
+      if (scoreTopicMatch(needle, label).relevant || scoreTopicMatch(needle, p.primaryQuery ?? null).relevant) {
         return label;
       }
     }

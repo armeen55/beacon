@@ -37,7 +37,7 @@ export async function ChangesSection() {
   }
   if (raced.timedOut) return <HonestDelay />;
   const view = raced.data;
-  if (view.changes.length === 0) {
+  if (view.proposals.length === 0) {
     // W2-B - distinguish a COLD first-ever render (the SWR snapshot is building in
     // the background) from a genuinely empty list. Never claim "no changes" while
     // the rebuild is still running.

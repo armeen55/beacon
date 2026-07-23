@@ -20,9 +20,11 @@ const ROOT = join(__dirname, "..", "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 
 describe("LLM spend caps fail CLOSED on a budget-check throw (money safety)", () => {
+  // CORE 100K: the demand-graph llm-answer-block helper was retired as dead code;
+  // the live LLM drafter the decision kernel uses is structured-drafter.ts, which
+  // remains pinned for money-safety (fail-closed on a budget-check throw).
   const targets = [
     "src/domains/llm/structured-drafter.ts",
-    "src/domains/demand-graph/llm-answer-block.ts",
   ];
   for (const f of targets) {
     it(`${f} — checkBudget().catch returns allowed:false, never allowed:true`, () => {

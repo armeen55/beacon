@@ -83,17 +83,14 @@ export async function writeGraphSnapshot(data: LoadGraphResult, computedAtIso: s
  */
 export async function invalidateDemandGraph(reason: string): Promise<void> {
   log.info("[graph-snapshot] invalidate", { reason });
-  // The graph snapshot itself hard-empties (recompute from inputs is the
-  // point); the derived worklist surface age-stamps instead of emptying so
-  // its blob keeps serving stale-while-revalidate and the empty-rebuild
-  // guard keeps its comparison snapshot (aligned with the single-snapshot
-  // invalidation model, 2026-07-21).
-  const { invalidateWorklistSurface } = await import(
-    "@/app/(shell)/worklist-data"
-  );
+  // The graph snapshot hard-empties (recompute from inputs is the point). The
+  // derived customer surface (Today + Changes) age-stamps instead of emptying so
+  // its blob keeps serving stale-while-revalidate (CORE 100K: the retired worklist
+  // surface is gone; the customer release is the one derived snapshot now).
+  const { invalidateCustomerSurface } = await import("@/app/(shell)/surface-release");
   await Promise.all([
     writeStore<GraphSnapshotRow>(STORE, []).catch(() => {}),
-    invalidateWorklistSurface().catch(() => {}),
+    invalidateCustomerSurface().catch(() => {}),
   ]);
 }
 
