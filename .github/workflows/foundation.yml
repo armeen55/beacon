@@ -1,0 +1,30 @@
+name: foundation
+
+# The bloat firewall in CI. Fails a PR/push that grows the repo past its
+# budgets (LOC, routes, domains, giant files, public API, deps) or breaks the
+# retained behavioral tests, typecheck, or build. Keeps Beacon from regrowing
+# to 500k. See foundation-budget.json + scripts/check-foundation-budget.mjs.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  foundation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Foundation budget guard (LOC / routes / domains / files / deps)
+        run: npm run guard:foundation
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Retained behavioral tests
+        run: npm run test
+      - name: Build
+        run: npm run build

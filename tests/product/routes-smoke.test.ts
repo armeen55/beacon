@@ -1,15 +1,12 @@
 /**
- * Route smoke - merged suite (Core 100K Phase 6).
- * Absorbs: routes/today-smoke, routes/changes-smoke (FP4 redirects),
- * routes/competitors-redirect-smoke, routes/connectors-smoke, api/version.
- * One frame-level render or redirect pin per route; deep behavior lives in
- * the per-surface suites.
+ * Four-surface smoke (Core 100K product contract). The four operator surfaces -
+ * Today, Changes, Results, Connections - each render their frame without throwing.
+ * One frame-level render per surface; deep behavior lives in the kept behavioral
+ * contract suites. Also pins GET /api/version.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement } from "react";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
@@ -65,12 +62,23 @@ describe("Today route smoke", () => {
   }, 15_000);
 });
 
-describe("FP4 route redirects smoke", () => {
-  it("the /changes index is the real Changes list, not a redirect", () => {
-    const src = readFileSync(resolve(process.cwd(), "src/app/(shell)/changes/page.tsx"), "utf8");
-    expect(src).not.toMatch(/permanentRedirect|\bredirect\(/);
-    expect(src).toContain('title="Changes"');
+describe("Changes route smoke", () => {
+  it("WorklistPage renders the Changes frame + list fallback", async () => {
+    const { default: ChangesPage } = await import("@/app/(shell)/changes/page");
+    const html = renderToStaticMarkup(ChangesPage() as ReactElement);
+    expect(html).toContain("Changes");
+    expect(html).toContain("ranked execution queue");
   });
+});
+
+describe("Results route smoke", () => {
+  it("ProofPage RSC renders the Results frame (empty-state is honest, never a bare zero)", async () => {
+    const { default: ResultsPage } = await import("@/app/(shell)/results/page");
+    const tree = await ResultsPage({ searchParams: Promise.resolve({}) });
+    const html = renderToStaticMarkup(tree as ReactElement);
+    expect(html).toContain("Results");
+    expect(html).toContain("7, 14, and 28 days");
+  }, 15_000);
 });
 
 describe("Connectors settings route smoke", () => {

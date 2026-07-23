@@ -2,6 +2,8 @@
 
 **Read first:** `docs/HANDOFF_VERIFIED_STATE.md`, then `docs/NEXT_PHASE_EXECUTION_PLAN.md` before non-trivial work.
 
+**BINDING (2026-07-22): Foundation Freeze + bloat firewall.** Beacon was rebuilt to a ~95k Foundation on three kernels (Evidence/Decision/Measurement) behind four surfaces. `npm run guard:foundation` (`foundation-budget.json`) mechanically caps LOC, routes, domains, file sizes, and deps — run `npm run gate`. Ordinary feature ≤750 net lines; a replacement deletes the old path in the same phase; no new domain/route/dependency without operator approval; one customer outcome per task; never "build N ideas"/continuous-feature prompts. Full policy: the "FOUNDATION FREEZE" section of `AGENTS.md`.
+
 This file is the **portable** project contract (use here, in Claude Code, or anywhere else). Cursor-specific rules live in `.cursor/rules/core.mdc` — keep them aligned when both are in use.
 
 ---
