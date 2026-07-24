@@ -51,8 +51,12 @@
   implemented and deployed; transport behavior is hermetically validated; the live provider response
   is NOT yet validated (no credentials, no paid call has ever been made).
 - Google SERP parsing already recognizes organic results, AI Overview citations, featured snippets, and PAA.
-- OpenAI drafting validates JSON with Zod after free-form generation; it is not yet the approved Responses API
-  plus native strict Structured Outputs gateway.
+- OpenAI generation flows through one strict Responses API gateway (Slice 3, 2026-07-23): /v1/responses with
+  native strict Structured Outputs (json_schema, strict true), double validation (provider schema + server
+  Zod), fail-closed refusal/incomplete/invalid handling with no artifact, budget checks before network,
+  per-attempt spend with real usage cost, provenance on drafted results, cache hits at zero cost. The free-form
+  Chat Completions transport and prose JSON recovery are deleted. Transport behavior is hermetically
+  validated; the live provider response is NOT yet validated (no paid call under the rebuild authorizations).
 - Recommendation, manual implementation, verification, and 7/14/28 measurement foundations exist.
 
 ## Known target mismatches
@@ -92,9 +96,9 @@ New customer routes require operator approval.
 
 ## Next slice
 
-Slices 1 and 2 are complete and deployed. The next build-order step is Slice 3: replace free-form Chat
-Completions generation with the canonical OpenAI Responses API + strict Structured Outputs gateway
-(operator-approved 2026-07-23).
+Slices 1, 2, and 3 are complete and deployed. The next build-order step is Slice 4: durable visit-driven
+Research Runs (Supabase phases, leases, idempotency, progress, pause, resume). It requires the eight fields
+from `AGENTS.md` and explicit operator approval before implementation.
 
 ## Verification
 
