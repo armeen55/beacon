@@ -29,7 +29,6 @@ import {
   getTenantSpentThisMonthUsd,
   recordSpendSupabase,
 } from "@/lib/cost/budget-ledger-supabase";
-import { currentTenantId } from "@/lib/tenant-context";
 import { log } from "@/lib/logger";
 
 const STORE_NAME = "llm-budget";
@@ -39,14 +38,14 @@ const DEFAULT_CAP_USD = 10;
 const ADJUDICATOR_PLATFORM = "adjudicator-openai" as const;
 
 /**
- * Durable monthly adjudicator spend from Supabase, or null when the DB is
- * unconfigured / read errored (caller falls back to the file ledger). Never
- * throws — resolving the tenant or the read failing both degrade to null.
+ * Durable monthly adjudicator spend from Supabase for an EXPLICIT account, or
+ * null when the DB is unconfigured / read errored (caller falls back to the file
+ * ledger). Never throws. Slice 3 (2026-07-23): the account is threaded in
+ * explicitly - no ambient currentTenantId() resolution inside the budget path.
  */
-async function durableMonthlySpentUsd(now: Date): Promise<number | null> {
+async function durableMonthlySpentUsd(now: Date, tenantId: string): Promise<number | null> {
   if (!isSupabaseConfigured()) return null;
   try {
-    const tenantId = await currentTenantId();
     return await getTenantSpentThisMonthUsd(tenantId, now, ADJUDICATOR_PLATFORM);
   } catch {
     return null;
@@ -127,7 +126,7 @@ export function isOverAdjudicatorBudget(
 }
 
 export async function checkBudget(
-  opts: { now?: Date; projectedCostUsd?: number } = {},
+  opts: { tenantId: string; now?: Date; projectedCostUsd?: number },
 ): Promise<BudgetCheckResult> {
   const now = opts.now ?? new Date();
   const state = await readState(now);
@@ -136,7 +135,7 @@ export async function checkBudget(
   // audit-3 #1: take the GREATER of the file spend and the durable Supabase
   // monthly spend. On Vercel the file reads back 0 (writes no-op), so without
   // the durable read the cap fails OPEN; the durable spend is the real total.
-  const durable = await durableMonthlySpentUsd(now);
+  const durable = await durableMonthlySpentUsd(now, opts.tenantId);
   const effectiveSpend = durable != null ? Math.max(state.spendUsd, durable) : state.spendUsd;
 
   if (isOverAdjudicatorBudget(effectiveSpend, projected, state.capUsd)) {
@@ -148,7 +147,7 @@ export async function checkBudget(
   return { allowed: true, remaining: state.capUsd - effectiveSpend };
 }
 
-export async function recordSpend(costUsd: number, opts: { now?: Date } = {}): Promise<void> {
+export async function recordSpend(costUsd: number, opts: { tenantId: string; now?: Date }): Promise<void> {
   const now = opts.now ?? new Date();
   const state = await readState(now);
   state.spendUsd = round6(state.spendUsd + costUsd);
@@ -160,12 +159,12 @@ export async function recordSpend(costUsd: number, opts: { now?: Date } = {}): P
   // survives Vercel's ephemeral disk. Always-on (not flag-gated) — the cap in
   // checkBudget reads this same table. Never throws (recordSpendSupabase
   // swallows its own errors); a durable miss only loses cross-run accounting,
-  // it never blocks the paid call that already happened.
+  // it never blocks the paid call that already happened. Slice 3: the account
+  // is threaded in explicitly (no ambient currentTenantId() in this path).
   if (isSupabaseConfigured() && Number.isFinite(costUsd) && costUsd >= 0) {
     try {
-      const tenantId = await currentTenantId();
       await recordSpendSupabase({
-        tenantId,
+        tenantId: opts.tenantId,
         platform: ADJUDICATOR_PLATFORM,
         costUsd,
       });

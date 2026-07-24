@@ -90,6 +90,7 @@ function baseArgs(over: Partial<StructuredCallArgs> = {}): StructuredCallArgs {
     maxOutputTokens: 512,
     timeoutMs: 30_000,
     budget: { mode: "caller", note: "test" },
+    tenantId: "tenant-fixture",
     ...over,
   };
 }
@@ -219,6 +220,7 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
     expect("note" in value).toBe(false); // optional-not-nullable null stripped
     expect(value.score).toBeNull(); // nullable kept
     expect(SCHEMA.safeParse(value).success).toBe(true);
+    expect(res.provenance.tenantId).toBe("tenant-fixture"); // provenance carries the account
     expect(res.provenance.responseId).toBe("resp_abc123");
     expect(res.provenance.servedModel).toBe("gpt-5-mini");
     expect(res.provenance.requestedModel).toBe("gpt-5-mini");
@@ -246,12 +248,27 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
     if (res.kind === "incomplete") expect(res.reason).toBe("max_output_tokens");
   });
 
-  it("returns invalid_response for a failed status", async () => {
+  it("returns invalid_response for a failed status, RETAINING the real usage cost (post-network)", async () => {
     const env = completedEnvelope("x", { status: "failed", output: [] });
     const { impl } = fakeFetch(env);
     const res = await openAIStructuredResponse(baseArgs({ fetchImpl: impl }));
     expect(res.kind).toBe("invalid_response");
-    if (res.kind === "invalid_response") expect(res.reason).toBe("failed_status");
+    if (res.kind !== "invalid_response") return;
+    expect(res.reason).toBe("failed_status");
+    // A POST-network invalid supplied usage, so its cost is real spend and must not be discarded.
+    expect(res.provenance?.tenantId).toBe("tenant-fixture");
+    expect(res.provenance?.costUsd).toBe(estimateCost("gpt-5-mini", 1200, 300));
+  });
+
+  it("a missing tenantId fails closed with NO fetch and NO provenance (pre-network)", async () => {
+    const { impl, capture } = fakeFetch(completedEnvelope("{}"));
+    const res = await openAIStructuredResponse(baseArgs({ tenantId: "  ", fetchImpl: impl }));
+    expect(res.kind).toBe("invalid_response");
+    if (res.kind === "invalid_response") {
+      expect(res.reason).toBe("missing_tenant");
+      expect(res.provenance).toBeUndefined(); // no provider provenance, no cost
+    }
+    expect(capture.calls).toBe(0);
   });
 
   it("returns invalid_response when a completed response has no structured output", async () => {

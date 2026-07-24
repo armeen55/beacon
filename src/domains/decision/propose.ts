@@ -210,6 +210,7 @@ export async function proposeNewPageChange(
   const now = opts.now ?? new Date();
   const draft = await draftCreatePageStructured(
     {
+      tenantId: input.tenantId,
       query: input.opportunity.query,
       pageLabel: input.page.label,
       competitorPages: input.evidence.competitorPages ?? [],

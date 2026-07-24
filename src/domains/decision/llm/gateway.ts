@@ -116,11 +116,13 @@ type GatewayIdentity = {
   promptId: PromptId;
   promptVersion: number;
   action: string;
-  tenantId?: string | null;
+  tenantId: string;
 };
 
-/** Provider provenance for the returned artifact (retryCount is the CALLER's). */
+/** Provider provenance for the returned artifact (retryCount is the CALLER's).
+ *  Carries the owning account so every ledger row and audit trail is attributable. */
 export type LlmProvenance = {
+  tenantId: string;
   responseId: string | null;
   requestedModel: string;
   servedModel: string | null;
@@ -153,7 +155,9 @@ export type StructuredCallArgs = {
   timeoutMs: number;
   budget: LlmBudgetPosture;
   fetchImpl?: typeof fetch;
-  tenantId?: string | null;
+  /** The owning account. REQUIRED (validated non-empty before any check) so spend,
+   *  provenance, and error-ledger rows are always attributable to one account. */
+  tenantId: string;
   /** Test seam for the cap; hermetic under vitest otherwise. */
   budgetImpl?: BudgetImpl;
   /** Test seam for the global cost breaker; hermetic under vitest otherwise. */
@@ -165,7 +169,10 @@ export type StructuredCallOutcome =
   | { kind: "blocked_budget"; reason: string }
   | { kind: "refusal"; provenance: LlmProvenance }
   | { kind: "incomplete"; reason: string; provenance: LlmProvenance }
-  | { kind: "invalid_response"; reason: string }
+  // provenance present ONLY for a POST-network invalid (the envelope supplied
+  // real usage/cost); a PRE-network invalid (unsupported schema, missing tenant)
+  // has no provider provenance and no cost.
+  | { kind: "invalid_response"; reason: string; provenance?: LlmProvenance }
   | { kind: "http_error"; status: number }
   | { kind: "error"; reason: string };
 
@@ -207,6 +214,7 @@ async function checkGatewayCostBreaker(
 async function checkGatewayBudget(
   posture: LlmBudgetPosture,
   budgetImpl: BudgetImpl | undefined,
+  tenantId: string,
 ): Promise<{ allowed: true } | { allowed: false; reason: string }> {
   if (posture.mode === "caller") return { allowed: true };
   if (budgetImpl) {
@@ -219,7 +227,7 @@ async function checkGatewayBudget(
   // run; tests that pin the cap inject budgetImpl.
   if (underVitest()) return { allowed: true };
   try {
-    const b = await checkBudget({ projectedCostUsd: posture.projectedCostUsd, now: posture.now });
+    const b = await checkBudget({ tenantId, projectedCostUsd: posture.projectedCostUsd, now: posture.now });
     return b.allowed ? { allowed: true } : { allowed: false, reason: b.reason };
   } catch {
     return { allowed: false, reason: "budget check unavailable, failing closed" };
@@ -232,7 +240,7 @@ async function checkGatewayBudget(
  */
 export async function recordGatewaySpend(
   costUsd: number,
-  opts: { now?: Date; budgetImpl?: BudgetImpl } = {},
+  opts: { tenantId: string; now?: Date; budgetImpl?: BudgetImpl },
 ): Promise<void> {
   if (!Number.isFinite(costUsd) || costUsd <= 0) return;
   if (opts.budgetImpl) {
@@ -240,7 +248,7 @@ export async function recordGatewaySpend(
     return;
   }
   if (underVitest()) return;
-  await recordSpend(costUsd, { now: opts.now }).catch(() => {});
+  await recordSpend(costUsd, { tenantId: opts.tenantId, now: opts.now }).catch(() => {});
 }
 
 /** LOUD, durable failure reporting - warn line always; error ledger outside tests. */
@@ -265,11 +273,16 @@ async function reportGatewayFailure(id: GatewayIdentity, reason: string, detail?
  * Schema, and returns a typed outcome. Never throws.
  */
 export async function openAIStructuredResponse(args: StructuredCallArgs): Promise<StructuredCallOutcome> {
+  // Account identity is required BEFORE any check: no spend, provenance, or ledger
+  // row may be unattributable. A caller that cannot name its account is a bug, not
+  // a license for a global call - fail closed with no cost, no network.
+  const tenantId = (args.tenantId ?? "").trim();
+  if (!tenantId) return { kind: "invalid_response", reason: "missing_tenant" };
   const id: GatewayIdentity = {
     promptId: args.promptId,
     promptVersion: args.promptVersion,
     action: args.action,
-    tenantId: args.tenantId ?? null,
+    tenantId,
   };
   const reasoning = isReasoningModel(args.model);
 
@@ -283,8 +296,8 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     return { kind: "blocked_budget", reason: breaker.reason };
   }
 
-  // 3. Per-platform monthly cap, fail-closed.
-  const budget = await checkGatewayBudget(args.budget, args.budgetImpl);
+  // 3. Per-platform monthly cap, fail-closed (scoped to the explicit account).
+  const budget = await checkGatewayBudget(args.budget, args.budgetImpl, tenantId);
   if (!budget.allowed) {
     await reportGatewayFailure(id, "blocked_budget", budget.reason);
     return { kind: "blocked_budget", reason: budget.reason };
@@ -341,6 +354,7 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   const fields = readProvenanceFields(json);
   const usagePresent = fields.inputTokens !== null || fields.outputTokens !== null;
   const provenance: LlmProvenance = {
+    tenantId,
     responseId: fields.responseId,
     requestedModel: args.model,
     servedModel: fields.servedModel,
@@ -362,8 +376,10 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     return { kind: "incomplete", reason: classified.reason, provenance };
   }
   if (classified.kind === "invalid") {
+    // POST-network: the envelope supplied real usage, so its cost is genuine spend.
+    // Return the provenance so the ledger counts it (it was under-counting before).
     await reportGatewayFailure(id, `invalid_response_${classified.reason}`);
-    return { kind: "invalid_response", reason: classified.reason };
+    return { kind: "invalid_response", reason: classified.reason, provenance };
   }
 
   // 7. Structured text present. With strict:true a JSON.parse failure signals a
@@ -372,8 +388,9 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   try {
     parsed = JSON.parse(classified.text);
   } catch {
+    // Also POST-network: keep the provenance so the real cost is not discarded.
     await reportGatewayFailure(id, "invalid_response_structured_parse");
-    return { kind: "invalid_response", reason: "structured output was not valid JSON" };
+    return { kind: "invalid_response", reason: "structured output was not valid JSON", provenance };
   }
 
   const value = normalizeStructuredValue(parsed, args.zodSchema);

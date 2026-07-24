@@ -39,6 +39,7 @@ const VALID_ATOMIC_EDIT = {
 
 const REQ = {
   kind: "atomic_edit" as const,
+  tenantId: "tenant-fixture",
   system: "You improve one on-page field. Return the field, before, after, rationale, evidenceRefs, confidence, risks, operatorSteps, proofPlan.",
   user: "Page: Nowruz. Field to edit: title. Current title: Nowruz.",
   grounded: "nowruz traditions persian new year customs haft-seen",
@@ -131,6 +132,7 @@ describe("structured-drafter strict transport", () => {
     const now = new Date("2026-07-23T00:00:00Z");
     const entry: LlmCallCacheEntry = {
       key: "ignored-key-is-derived",
+      tenantId: "tenant-fixture",
       kind: "atomic_edit",
       promptId: "draft.atomic_edit",
       promptVersion: 1,

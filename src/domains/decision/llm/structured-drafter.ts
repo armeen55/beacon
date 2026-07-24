@@ -39,10 +39,8 @@ import {
 } from "./schemas";
 
 /**
- * llm/structured-drafter (2026-06-25, P4) — the trustworthy drafting layer and
- * the FIRST production caller of the gated/budgeted LLM pattern. It turns a
- * grounded request into a SCHEMA-VALIDATED structured draft, or nothing:
- *
+ * llm/structured-drafter (2026-06-25, P4) — the trustworthy drafting layer. It
+ * turns a grounded request into a SCHEMA-VALIDATED structured draft, or nothing:
  *   gate (BEACON_LLM_PROVIDER=openai + key) → cache ($0 on an identical repeat)
  *   → budget (fail-closed cap) → strict structured call → Zod validate →
  *   content firewalls (numeric-fidelity, placeholder, em-dash, superlative) →
@@ -50,21 +48,14 @@ import {
  *
  * It NEVER returns loose/unvalidated text as a product artifact. Slice 3 (2026-
  * 07-23): the transport is the strict Responses gateway (openAIStructuredResponse)
- * returning a PARSED, schema-shaped VALUE, never free-form text - no prose-
- * recovery path here anymore; the drafter still runs its own Zod safeParse as the
- * second gate. A refusal, an incomplete response, or a non-retryable transport
- * error FAILS CLOSED (no artifact, no retry); only a schema-invalid value or a
- * retryable error consumes the single retry. Spend is recorded per attempt. The
- * completion fn is injectable so the whole flow runs with zero paid calls.
- *
- * R16 (2026-07-03, P6): the fetch lives in the ONE gateway (llm/gateway.ts);
- * every call carries a registered promptId + version (prompt-registry.ts);
- * identical requests are served from the content-hash call cache at $0
- * (call-cache.ts, `bypassCache` for the explicit Regenerate); the numeric
- * firewall has formatting tolerance + a repair retry (numeric-fidelity.ts);
- * near-copies retry once then ship FLAGGED "reads like a repeat"
- * (de-templating.ts); evidence text is stripped of instruction-shaped lines
- * before any prompt (injection-sanitizer.ts). Tenant-agnostic.
+ * returning a PARSED, schema-shaped VALUE; the drafter still runs its own Zod
+ * safeParse as the second gate. A refusal/incomplete/non-retryable transport error
+ * FAILS CLOSED; only a schema-invalid value or a retryable error consumes the
+ * single retry. Spend is recorded per attempt. The completion fn is injectable so
+ * the flow runs with zero paid calls. Every call carries a registered promptId +
+ * version and is scoped to an EXPLICIT account (Slice 3): the cache key + storage,
+ * the budget check/record, and the gateway spend are all keyed by tenantId - a
+ * missing account fails closed before cache/budget/network, never a global call.
  */
 
 const MODEL = "gpt-5-mini";
@@ -112,6 +103,8 @@ export type CompleteFn = (args: {
   maxTokens: number;
   timeoutMs: number;
   kind: StructuredDraftKind;
+  /** The owning account, threaded to the gateway for spend + provenance. */
+  tenantId: string;
 }) => Promise<{ value: unknown; provenance?: LlmProvenance } | { error: string; retryable: boolean; costUsd?: number }>;
 
 function isOn(): boolean {
@@ -141,33 +134,19 @@ function estimateCostUsd(promptChars: number, completionChars: number): number {
 
 const SUPERLATIVES = /\b(best|leading|#1|number one|top-rated|guaranteed|world-class|ultimate|premier)\b/i;
 
-/** Pilot loop 6 (2026-07-11): a rephrase-class retry asks the model to REWRITE
- *  its previous answer - exactly the moment it is tempted to "help" fill in a
- *  more convincing-sounding claim with a fresh, invented number or percentage
- *  (the numeric firewall would still catch it, but only after the final retry
- *  is spent). Every rephrase-class retry instruction below closes with this
- *  same reminder so a rewrite cannot trade an ungrounded superlative, or a
- *  too-thin answer, for an ungrounded statistic instead. */
+/** Pilot loop 6: a rephrase-class retry asks the model to REWRITE its answer -
+ *  exactly when it is tempted to fill in a fresh invented number. Every
+ *  rephrase-class instruction below closes with this reminder so a rewrite cannot
+ *  trade an ungrounded superlative or a too-thin answer for an invented statistic. */
 const NO_NEW_NUMBERS_RETRY_REMINDER =
   "Do not introduce any number, percentage, or statistic that is not present in the evidence; if " +
   "unsure, write the sentence without a number.";
 
-/** G4 (2026-07-10): the RETRY instruction when an answer block asserted a
- *  superlative no cited source proves. Instructs the model to REPHRASE to a
- *  grounded, non-superlative fact (the honest fix the operator made by hand:
- *  "most celebrated" -> "the defining voices in classical music", grounded by
- *  the honors/dates), rather than blanket-banning the superlative-intent topic.
- *
- *  Pilot loop 4 (2026-07-10): the pilot's second real run showed the model can
- *  satisfy this by swapping ONE ungrounded superlative for a DIFFERENT
- *  ungrounded one ("most famous" -> "the leading voice") - still a fail-closed
- *  reject, just on a fresh phrase. Strengthened below to rule that out
- *  explicitly and to state the preference plainly: a concrete grounded fact
- *  always beats any superlative, grounded or not.
- *
- *  Pilot loop 6 (2026-07-11): closes with NO_NEW_NUMBERS_RETRY_REMINDER so the
- *  rephrase cannot launder in a fresh invented number while it removes the
- *  superlative. */
+/** G4/Pilot loops 4+6: the RETRY instruction when an answer block asserted a
+ *  superlative no cited source proves. REPHRASE to a grounded, non-superlative
+ *  fact (never swap in a DIFFERENT unproven superlative); closes with
+ *  NO_NEW_NUMBERS_RETRY_REMINDER so the rewrite cannot launder in an invented
+ *  number while removing the superlative. */
 const SUPERLATIVE_REPHRASE_INSTRUCTION =
   'Your previous answer used a superlative or ranking claim (for example "most famous", ' +
   '"most celebrated", "leading", "best-known", "the first") that none of your cited sources ' +
@@ -182,19 +161,11 @@ const SUPERLATIVE_REPHRASE_INSTRUCTION =
   "superlative. " +
   NO_NEW_NUMBERS_RETRY_REMINDER;
 
-/** Pilot loop 5 (2026-07-11): the MERGED retry instruction for when attempt 1
- *  fails BOTH the 80-word floor AND the verification-aware superlative check
- *  at once. Before this, the too-thin retry and the superlative-rephrase retry
- *  each consumed the SAME single retry slot - whichever check ran first
- *  "claimed" the retry and the other problem was never named in the
- *  instruction, so a draft with both problems in attempt 1 died on attempt 2
- *  still carrying whichever issue the retry never mentioned. This addresses
- *  both in ONE instruction, spending no extra LLM call: lengthen with MORE
- *  grounded single-fact sentences (never padding), AND remove or replace every
- *  unproven superlative with a grounded fact, introducing no new one.
- *
- *  Pilot loop 6 (2026-07-11): closes with NO_NEW_NUMBERS_RETRY_REMINDER so
- *  lengthening the answer never smuggles in a fresh invented number either. */
+/** Pilot loops 5+6: the MERGED retry instruction for when attempt 1 fails BOTH
+ *  the 80-word floor AND the superlative check at once (each used to claim the
+ *  single retry slot and hide the other problem). Addresses both in ONE
+ *  instruction (lengthen with grounded single-fact sentences AND remove/replace
+ *  every unproven superlative) and closes with NO_NEW_NUMBERS_RETRY_REMINDER. */
 const COMBINED_THIN_AND_SUPERLATIVE_RETRY_INSTRUCTION =
   "Your previous answer had TWO problems - fix BOTH in this rewrite. First, it was too short: write " +
   "a complete answer of 80 to 150 words, grounded ONLY in the evidence provided - add the missing " +
@@ -616,7 +587,7 @@ function attemptCostUsd(costUsd: number | null | undefined, promptChars: number)
 }
 
 function defaultComplete(apiKey: string, promptId: PromptId): CompleteFn {
-  return async ({ system, user, maxTokens, timeoutMs, kind }) => {
+  return async ({ system, user, maxTokens, timeoutMs, kind, tenantId }) => {
     // The strict Responses gateway owns transport (fallbacks, error ledger,
     // reasoning timeout floor, json_schema). Budget stays HERE in caller mode.
     const outcome = await openAIStructuredResponse({
@@ -631,6 +602,7 @@ function defaultComplete(apiKey: string, promptId: PromptId): CompleteFn {
       zodSchema: SCHEMA_BY_KIND[kind],
       maxOutputTokens: maxTokens,
       timeoutMs,
+      tenantId,
       budget: { mode: "caller", note: "checkBudget + recordSpend live in callStructuredLLM" },
     });
     switch (outcome.kind) {
@@ -644,7 +616,8 @@ function defaultComplete(apiKey: string, promptId: PromptId): CompleteFn {
       case "incomplete":
         return { error: "incomplete", retryable: false, costUsd: outcome.provenance.costUsd ?? undefined };
       case "invalid_response":
-        return { error: outcome.reason || "invalid_response", retryable: false };
+        // A POST-network invalid carries provenance: bill its REAL usage cost.
+        return { error: outcome.reason || "invalid_response", retryable: false, costUsd: outcome.provenance?.costUsd ?? undefined };
       case "http_error":
         return { error: `openai_${outcome.status}`, retryable: httpStatusRetryable(outcome.status) };
       case "error":
@@ -655,6 +628,10 @@ function defaultComplete(apiKey: string, promptId: PromptId): CompleteFn {
 
 export type StructuredDraftRequest<K extends StructuredDraftKind> = {
   kind: K;
+  /** The owning account. REQUIRED and validated non-empty FIRST (before cache,
+   *  budget, or the call), and threaded into the cache key, cache storage, the
+   *  budget check/record, and the completion fn. No global fallback. */
+  tenantId: string;
   /** System prompt — describe the JSON shape + the grounding/safety rules. */
   system: string;
   /** User prompt — the grounded inputs. */
@@ -703,6 +680,13 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   req: StructuredDraftRequest<K>,
 ): Promise<StructuredDraftResult<z.infer<(typeof SCHEMA_BY_KIND)[K]>>> {
   if (!isOn()) return { status: "off" };
+  // Slice 3 account isolation: fail closed on a missing account BEFORE touching
+  // the cache, the budget, or the network - a draft with no owner is a bug, never
+  // a global call or a shared-cache read.
+  const tenantId = (req.tenantId ?? "").trim();
+  if (!tenantId) {
+    return { status: "validation_failed", reason: "missing_tenant", errors: ["missing_tenant"], costUsd: 0, retried: false };
+  }
   const apiKey = process.env.OPENAI_API_KEY;
   // R16: every structured call carries a registered prompt identity (all kinds
   // are registered as draft.<kind>; the registry test enforces coverage).
@@ -714,23 +698,22 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   const schemaForCache = SCHEMA_BY_KIND[req.kind] as z.ZodTypeAny;
   const cache = resolveCacheImpl(req.cacheImpl);
   const cacheKey = cache
-    ? llmCallCacheKey({ promptId, promptVersion, kind: req.kind, system: req.system, user: req.user })
+    ? llmCallCacheKey({ tenantId, promptId, promptVersion, kind: req.kind, system: req.system, user: req.user })
     : null;
 
   // R16 call cache: an identical request (same prompt version + prompts) returns
   // the prior VALIDATED output at $0 - before the budget gate, because a hit
   // spends nothing. `bypassCache` (the explicit Regenerate) forces a paid take.
   if (cache && cacheKey && req.bypassCache !== true) {
-    const hit = await cache.read(cacheKey).catch(() => null);
+    const hit = await cache.read(tenantId, cacheKey).catch(() => null);
     if (hit) {
       const revalidated = schemaForCache.safeParse(hit.value);
       if (revalidated.success) {
-        // W5 P2 (2026-07-09): re-stamp authority against THIS request's tenant
-        // allowlist on every cache read. The cache key does not include the
-        // allowlist, so a cached entry can be served to a different tenant; a
-        // stale "authoritative" label must never render under the wrong
-        // tenant's allowlist. `verified` and every other field survive
-        // (stampSourceAuthority only overwrites `authority`).
+        // A cache hit is now ALWAYS same-account (the key + storage are scoped to
+        // tenantId), so a hit can never serve another account. Re-stamp authority
+        // against this request's allowlist anyway - source-authority.ts is the one
+        // place `authority` is decided (stampSourceAuthority only overwrites it;
+        // `verified` and every other field survive).
         return {
           status: "drafted",
           kind: req.kind,
@@ -748,7 +731,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   // B82: fail CLOSED on an unknown budget (Supabase down / tenant-ctx error) — a
   // paid LLM call must NOT fire when spend can't be verified (matches the DataForSEO
   // + adjudicator caps; was fail-OPEN `allowed: true`, risking uncapped spend).
-  const budget = await checkBudget({ projectedCostUsd }).catch(() => ({ allowed: false as const, reason: "budget check unavailable — failing closed" }));
+  const budget = await checkBudget({ tenantId, projectedCostUsd }).catch(() => ({ allowed: false as const, reason: "budget check unavailable — failing closed" }));
   if (budget.allowed === false) {
     return { status: "blocked_budget", reason: (budget as { reason?: string }).reason ?? "cap reached" };
   }
@@ -761,7 +744,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   // R16 de-templating history: the last cached same-family outputs (or the
   // injected list). Empty history keeps the guard dormant.
   const recentTexts =
-    req.recentOutputs ?? (cache ? await cache.recentTexts(req.kind, REPEAT_HISTORY_SIZE).catch(() => []) : []);
+    req.recentOutputs ?? (cache ? await cache.recentTexts(tenantId, req.kind, REPEAT_HISTORY_SIZE).catch(() => []) : []);
 
   // W5 P0-1: the generation-time source verifier (null under vitest unless a
   // hermetic fetcher is injected) + a per-request URL cache so the same source
@@ -828,13 +811,13 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     lastFailureWasTemplated = false;
     lastFailureWasThin = false;
 
-    const out = await complete({ system, user: req.user, maxTokens, timeoutMs, kind: req.kind });
+    const out = await complete({ system, user: req.user, maxTokens, timeoutMs, kind: req.kind, tenantId });
 
     const blockedBudget = "error" in out && out.error === "blocked_budget"; // budget block fired NO call
     if (!blockedBudget) {
       const attemptCost = attemptCostUsd("error" in out ? out.costUsd : out.provenance?.costUsd, system.length + req.user.length);
       totalCost += attemptCost;
-      await recordSpend(attemptCost, {}).catch(() => {});
+      await recordSpend(attemptCost, { tenantId }).catch(() => {});
     }
 
     if ("error" in out) {
@@ -964,8 +947,9 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     if (cache && cacheKey) {
       const nowIso = (req.now ?? new Date()).toISOString();
       await cache
-        .write({
+        .write(tenantId, {
           key: cacheKey,
+          tenantId,
           kind: req.kind,
           promptId,
           promptVersion,
@@ -1014,10 +998,10 @@ export type AnswerBlockStructuredInput = {
   evidenceHints?: string[];
   /** The searcher's dominant intent (when/cost/how/where/who/list/compare/what) — decides answer type. */
   intent?: string;
-  /** BEACON_500 item 30: tenant id, used ONLY to look up this tenant's own measured
-   *  winners for the few-shot injection below. Optional - omitting it just means no
-   *  few-shot examples are added (prompt unchanged), never an error. */
-  tenantId?: string;
+  /** The owning account (Slice 3: REQUIRED, threaded to the drafter for cache +
+   *  budget scoping). Also looks up this account's own measured winners for the
+   *  few-shot injection below. */
+  tenantId: string;
   /** BEACON_500 item 74: the page's family (first path segment, e.g. "iran-animals"),
    *  used ONLY to look up a CONFIDENT winning pattern for this family in winner-memory's
    *  pattern aggregate. Optional - omitting it (or having no confident cell yet) leaves
@@ -1197,6 +1181,7 @@ export async function draftAnswerBlockStructured(
 
   return callStructuredLLM({
     kind: "answer_block",
+    tenantId: input.tenantId,
     system: ANSWER_BLOCK_SYSTEM + (entityRich ? ENTITY_REFERENCE_INSTRUCTION + ONE_FACT_PER_SENTENCE_INSTRUCTION : "") + fewShots,
     user,
     grounded,
@@ -1221,10 +1206,10 @@ export type AtomicEditStructuredInput = {
   evidenceHints?: string[];
   /** The searcher's dominant intent (when/cost/how/where/who/list/compare/what) — shapes the copy. */
   intent?: string;
-  /** BEACON_500 item 30: tenant id, used ONLY to look up this tenant's own measured
-   *  winners (same field/lever) for the few-shot injection below. Optional - omitting
-   *  it just means no few-shot examples are added (prompt unchanged), never an error. */
-  tenantId?: string;
+  /** The owning account (Slice 3: REQUIRED, threaded to the drafter for cache +
+   *  budget scoping). Also looks up this account's own measured winners (same
+   *  field/lever) for the few-shot injection below. */
+  tenantId: string;
   /** BEACON_500 item 74: the page's family (first path segment), used ONLY to look up
    *  a CONFIDENT winning pattern for this family. Optional - omitting it (or having no
    *  confident cell yet) leaves the prompt byte-identical, never an error. */
@@ -1292,6 +1277,7 @@ export async function draftAtomicEditStructured(
 
   const result = await callStructuredLLM({
     kind: "atomic_edit",
+    tenantId: input.tenantId,
     system: ATOMIC_EDIT_SYSTEM + fewShots,
     user,
     grounded,
@@ -1322,6 +1308,8 @@ export async function draftAtomicEditStructured(
 // ── concrete drafter: CreatePageBrief (a brand-new page) ──────────────────────
 
 export type CreatePageStructuredInput = {
+  /** The owning account (Slice 3: REQUIRED, threaded for cache + budget scoping). */
+  tenantId: string;
   /** The topic / demand cluster the new page targets. */
   query: string;
   /** Suggested slug or label for the page. */
@@ -1396,6 +1384,7 @@ export async function draftCreatePageStructured(
 
   return callStructuredLLM({
     kind: "create_page_brief",
+    tenantId: input.tenantId,
     system: CREATE_PAGE_SYSTEM,
     user,
     grounded,
@@ -1411,6 +1400,8 @@ export async function draftCreatePageStructured(
 // ── concrete drafter: CROFixSpec (fix_experience / Clarity friction) ──────────
 
 export type CROFixStructuredInput = {
+  /** The owning account (Slice 3: REQUIRED, threaded for cache + budget scoping). */
+  tenantId: string;
   /** The page with friction. */
   pageLabel: string;
   /** Clarity friction score / detail the team established (grounding). */
@@ -1448,6 +1439,7 @@ export async function draftCROFixStructured(
     .join("\n");
   return callStructuredLLM({
     kind: "cro_fix",
+    tenantId: input.tenantId,
     system: CRO_FIX_SYSTEM,
     user,
     grounded,
@@ -1461,6 +1453,8 @@ export async function draftCROFixStructured(
 // ── concrete drafter: AeoPromptBrief (AEO question intelligence) ──────────────
 
 export type AeoPromptBriefInput = {
+  /** The owning account (Slice 3: REQUIRED, threaded for cache + budget scoping). */
+  tenantId: string;
   /** The verbatim AI prompt to win. */
   prompt: string;
   /** Downstream fan-out queries the prompt expands into (grounding). */
@@ -1524,6 +1518,7 @@ export async function draftAeoPromptBrief(
 
   return callStructuredLLM({
     kind: "aeo_prompt_brief",
+    tenantId: input.tenantId,
     system: AEO_PROMPT_BRIEF_SYSTEM,
     user,
     grounded,
@@ -1572,6 +1567,8 @@ export function deserializeStructuredDraft(
 // ── team verdict (FINAL PREMIUM PLAN item 25) ─────────────────────────────────
 
 export type TeamVerdictInput = {
+  /** The owning account (Slice 3: REQUIRED, threaded for cache + budget scoping). */
+  tenantId: string;
   pageLabel: string;
   targetQuery: string;
   /** Tonight's change in plain words ("a sharper description"). */
@@ -1597,6 +1594,7 @@ export async function draftTeamVerdictStructured(
   const grounded = [input.pageLabel, input.targetQuery, input.proposedText, voiceLines, objectionLines, input.whyNot ?? ""].join("\n");
   return callStructuredLLM({
     kind: "team_verdict",
+    tenantId: input.tenantId,
     system: [
       "You are the strategist on an SEO team, synthesizing your specialists' findings for the site owner.",
       'Return ONLY JSON: {"verdict": string, "evidenceRefs": [{"source": string, "detail": string}]}.',
