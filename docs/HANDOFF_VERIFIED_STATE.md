@@ -41,8 +41,18 @@
 
 - URL-first onboarding crawls a bounded part of the site and shows a first scorecard.
 - Launch currently seeds only two brand prompts, not the approved 50-prompt system.
-- On-visit refresh uses Next `after()` and a once-daily receipt, but lacks a durable phased Research Run and
-  cross-instance lease.
+- Durable visit-driven Research Runs exist (Slice 4, 2026-07-24): every authenticated visit renders the
+  saved surfaces first, then claims or resumes one account-scoped `research_runs` cycle (one row per
+  account per UTC day) through an atomic database-time lease RPC. Three phases mirror today's real work
+  (refresh stale sources, one bounded GSC backfill chunk, evidence-conditioned surface publish); progress,
+  phase, and cursors are durable, a killed invocation resumes at the persisted phase after lease expiry,
+  concurrent instances cannot duplicate work, and Today shows one honest persisted status line (a dead
+  lease presents as paused; hidden when there is nothing to say). The old warm-receipt store, process-local
+  scheduled Set, and once-daily Pacific gate are deleted; the migration is applied to production and the
+  claim RPC was smoke-proven against the real database (service role executes, foreign lease loses,
+  expired lease reclaims, completed cycle short-circuits). Verified end to end on the rendered app: a real
+  visit completed cycle tenant-iranopedia:2026-07-24 (2 sources refreshed, surface published, lease
+  released) and Today rendered "Research is current as of 10:42 PM."
 - One canonical DataForSEO boundary exists (Slice 2, 2026-07-23): every call flows through
   `dataForSeoRequest` with typed states (not_configured / dry_run / capped / ok / error), dry-run the
   default, the global breaker and per-platform monthly cap failing closed before any network access,
@@ -105,9 +115,9 @@ New customer routes require operator approval.
 
 ## Next slice
 
-Slices 1, 2, and 3 are complete and deployed. The next build-order step is Slice 4: durable visit-driven
-Research Runs (Supabase phases, leases, idempotency, progress, pause, resume). It requires the eight fields
-from `AGENTS.md` and explicit operator approval before implementation.
+Slices 1 through 4 are complete and deployed. The next build-order step is Slice 5: the complete
+onboarding and 50-core-prompt approval flow on the real foundations. It requires the eight fields from
+`AGENTS.md` and explicit operator approval before implementation.
 
 ## Verification
 
