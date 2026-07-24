@@ -39,27 +39,34 @@
 
 ## What is real but incomplete
 
-- The complete seven-step onboarding and 50-core-prompt approval flow is live (Slice 5, 2026-07-24) on
-  `/onboard` (`/onboard/done` is a compatibility redirect): website submit with a bounded public crawl and
-  no prompt writes or paid checks; strict grounded BusinessProfile inference through the canonical gateway
-  (returned source URLs validated against the supplied crawl set; refusal or cap falls back to an honest
-  deterministic fact-based profile); an editable confirm step where natural-language instructions become a
-  whitelisted structured patch that persists only after the customer confirms the displayed diff; the
-  recover/grow/balanced goal on `tenants.growth_goal`; a model-built candidate universe (about 100 prompts
-  in 5 to 10 topic groups across seven intent families, exactly 50 recommended) persisted as inactive
-  `tracked_prompts` rows with deterministic per-account ids so retries never duplicate; declarative
-  group-level approval (bounds 10..100, edits version new rows, unselected candidates stay inactive);
-  optional connections that never block; and a real crawl-derived first finding before activation.
-  Every prompt row carries the canonical tenant id for both `tenant_id` and `account_id` (never the slug);
-  the old two-prompt launch, pre-approval seeding, day-zero SERP attempts, keep-scanning workflow, and
-  25-prompt cap are deleted. Pre-activation OpenAI spend is capped at a lifetime $2 per account on the
-  durable ledger platform `onboarding-openai` (fail-closed when unreadable) and the two live strict
-  contracts were validated against the real API for $0.0135. Pending accounts can start no Research Run
-  at either the runtime or claim-RPC boundary; activation is idempotent, requires website + confirmed
-  profile + goal + approved prompts + terms, and starts exactly one durable Research Run. Verified end to
-  end on the rendered app at desktop and mobile with two synthetic accounts (real crawls, real model calls,
-  activation landing on Today); all synthetic rows removed. The onboarding gate bug that bounced every
-  visit to login (a select of the nonexistent `provisional_name` column) is fixed.
+- The complete seven-step onboarding and 50-core-prompt approval flow is live and CONNECTED (Slice 5 +
+  connected-state closure, 2026-07-24) on `/onboard` (`/onboard/done` redirects): one onboarding basis
+  runs from website to activation. Every derived artifact carries a deterministic basis fingerprint
+  (account, canonical domain, confirmed research-affecting profile fields, goal, generation version)
+  tagged onto its `tracked_prompts` rows; only current-basis rows render, count, approve, or activate,
+  and approval sweeps every other-basis active row so an abandoned goal or profile can never leave stale
+  prompts tracked. Replacing the website mid-onboarding is one atomic service-role RPC
+  (`replace_onboarding_website`, applied): new domain, goal cleared, all prompt rows deactivated (history
+  kept), profile reset to the canonical empty record, crawl force-restarted; re-submitting the same domain
+  stays idempotent. Profile confirmation is truthful (every business section operator-confirmed; a
+  name-only edit or a single confirmed patch never advances the confirm step). The prompt step has real
+  individual controls (include/exclude, inline edit, add to a group, remove) behind group-level
+  progressive disclosure, server-validated against the current tenant and basis; new rows carry all four
+  intended engines (chatgpt, perplexity, gemini, claude) as tracking scope only. The deterministic
+  fallback asks natural per-family questions from confirmed facts, returns fewer honestly, and never pads
+  with numbered filler. Pre-activation OpenAI spend reserves the projected cost durably BEFORE each real
+  call against the lifetime $2 cap and reconciles to actual after (any write failure overcounts and blocks,
+  never undercounts; cache hits and the fallback reserve nothing); live-validated on the real API and the
+  rendered walk for $0.0378 total across two synthetic accounts. Page snapshots persist again (the dead
+  `images` field the production table never had is deleted; 14 real snapshots upserted on the walk). The
+  Connections page shows a status-derived "Return to setup" for accounts still onboarding (no redirect
+  parameter exists). Pending accounts can start no Research Run at either the runtime or claim-RPC
+  boundary; activation is idempotent, requires 10..100 current-basis approved prompts plus website +
+  fully confirmed profile + goal + terms, and starts exactly one durable Research Run. Verified end to
+  end on the rendered app at desktop and mobile with a real crawl, real model calls, a mid-flow website
+  change, and a mid-flow goal change (the old prompt set visibly stranded and regenerated). One synthetic
+  pending account (`tenant-smoke-onboard`, ritzbuilders.com data) remains in the database for operator
+  review per the no-unapproved-deletion rule; it is inert (pending accounts do no work).
 - Durable visit-driven Research Runs exist (Slice 4, 2026-07-24): every authenticated visit renders the
   saved surfaces first, then claims or resumes the account's Research Run through an atomic database-time
   lease RPC. At most one unfinished (running or paused) run exists per account across all dates, enforced
