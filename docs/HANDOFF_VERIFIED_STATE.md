@@ -59,7 +59,10 @@
   end to end (2026-07-24 closure): the structured-output cache is tenant-scoped storage with the account in
   the key hash and on every entry (the old global cache blob is inert and never read), de-templating history
   never crosses accounts, tenantId is required from the drafter entry point through cache, budget, transport,
-  provenance, and the error ledger, and post-network invalid envelopes retain real usage cost. A committed
+  provenance, and the error ledger, and post-network invalid envelopes retain real usage cost. The LLM
+  budget is per-account on BOTH layers (2026-07-24): the file-layer backstop is tenant-scoped with the
+  explicit account required before any ledger I/O (the old shared global blob is inert), and the durable
+  Supabase ledger remains authoritative; one account's spend can never throttle another. A committed
   regression sweep converts every SCHEMA_BY_KIND entry through the strict-subset conversion. Transport
   behavior is hermetically validated; the live provider response is NOT yet validated (no paid call under
   the rebuild authorizations).
