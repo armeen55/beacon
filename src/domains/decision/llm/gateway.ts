@@ -1,66 +1,69 @@
 import "server-only";
 
 /**
- * llm/gateway (2026-07-03, BEACON 500 R16 / P6) - THE single OpenAI chat egress.
+ * llm/gateway (Slice 3, 2026-07-23) - THE single OpenAI egress, now a STRICT
+ * Structured-Outputs transport over the canonical Responses API.
  *
- * Every chat-completions call in the product routes through
- * `openAIChatCompletion` below. The scattered `fetch("https://api.openai.com/...")`
- * call sites (drafters, strategist, critic, judge, adjudicator, SERP hypothesis,
- * cluster factory, engine poll, specific-edit provider) now build their request
- * BODY exactly as before (adapter-preserving; their parsing and outputs are
- * byte-identical) but the transport enforces one policy in one place:
+ * `openAIStructuredResponse` is the one door every internal-reasoning call uses.
+ * It converts the caller's Zod schema to a strict JSON Schema, POSTs to
+ * `POST /v1/responses` with `text.format.{type:"json_schema", strict:true}`, and
+ * returns a typed outcome (ok / blocked_budget / refusal / incomplete /
+ * invalid_response / http_error / error). The caller still Zod-validates the
+ * returned `value` against its ORIGINAL schema - the gateway only guarantees the
+ * value parsed as JSON and had its provider-nulls normalized away.
  *
- *   1. MONTHLY CAP, FAIL-CLOSED. `budget: { mode: "gateway_check" }` consults the
- *      dual-write ledger (`adjudicator-budget`: file + Supabase `llm_budget_ledger`)
- *      BEFORE the call and blocks when the cap is hit or the ledger is unreadable.
- *      Call sites whose own pinned orchestration already gates spend declare
- *      `{ mode: "caller", note }` - a greppable, explicit exemption, never a
- *      silent one.
- *   2. REASONING TIMEOUT FLOOR. gpt-5-family models routinely need 40-90s before
- *      emitting output (the 2026-06-18 lesson: a 40s ceiling made EVERY judge call
- *      silently fall back). Any reasoning-model call is floored to >= 90s.
- *   3. REASONING EFFORT. A reasoning-model body without `reasoning_effort` gets
- *      "low" pinned (defensive; every caller already sets it).
- *   4. LOUD FALLBACK. Every non-response outcome logs an unmissable warn line
- *      naming the promptId, and (outside tests) lands in the error ledger via
- *      `recordAppError` with the calling action - a failing LLM feature is never
- *      a mystery again.
- *   5. PROMPT IDENTITY. Every call carries a registered promptId + version
- *      (see prompt-registry.ts) so the regression harness can pin each prompt's
- *      parse path against recorded fixtures.
+ * ONE policy in one place, in this ORDER (unchanged intent from R16):
+ *   1. perfCountExternal - every reach to the LLM transport is tallied so a page
+ *      GET can be proven to fire ZERO LLM calls.
+ *   2. GLOBAL COST BREAKER (outer guard), FAIL-CLOSED, before any per-platform
+ *      read. A trip refuses the call outright; it never loosens the inner cap.
+ *   3. MONTHLY CAP (per-platform), FAIL-CLOSED. `budget: { mode: "gateway_check" }`
+ *      consults the dual-write ledger BEFORE the call; `{ mode: "caller", note }`
+ *      is a greppable, explicit exemption for call sites that gate spend
+ *      themselves and record via `recordGatewaySpend` post-parse.
+ *   4. SCHEMA CONVERSION - an unsupported schema fails closed as invalid_response
+ *      BEFORE any network call (strictness is never weakened to force it through).
+ *   5. REASONING TIMEOUT FLOOR - reasoning models are floored to >= 90s (the
+ *      gpt-5-mini lesson: a sub-90s ceiling made every call silently fall back).
+ *   6. REASONING EFFORT - reasoning models get `reasoning.effort: "low"`.
+ *   7. LOUD FALLBACK - every non-ok outcome logs an unmissable warn line and
+ *      (outside tests) lands in the error ledger via `recordAppError`.
  *
- * The gateway returns the RAW `Response` on any HTTP-level completion so each
- * call site keeps its exact status handling, JSON parsing, refusal handling,
- * and fallback semantics - consolidation without behavioral drift.
+ * VITEST HERMETICS: under vitest, budget/breaker checks default to "allowed" and
+ * spend/error-ledger writes no-op UNLESS an impl is injected. Tests inject
+ * `fetchImpl` (zero network), and pin the cap by injecting `budgetImpl` /
+ * `costBreakerImpl`; nothing touches the operator's real `.data/` ledgers.
  *
- * VITEST HERMETICS: under vitest, budget checks default to "allowed" and spend/
- * error-ledger writes no-op UNLESS a budgetImpl is injected. Tests that pin the
- * cap inject `budgetImpl`; everything else stays deterministic and never touches
- * the operator's real `.data/` ledgers (the llm-budget-test-isolation contract).
- *
- * Pinned by gateway.test.ts + tests/architecture/llm-safety-invariants.test.ts
- * (this file and the embeddings client are the only files allowed to reference
- * api.openai.com).
+ * Pinned by tests/decision/gateway.test.ts (this file is the ONLY file that
+ * may reference api.openai.com).
  */
 
 import { log } from "@/lib/logger";
 import { recordAppError } from "@/lib/obs/error-ledger";
 import { perfCountExternal } from "@/lib/obs/perf-log";
+import { z } from "zod";
 import { checkBudget, recordSpend } from "./adjudicator-budget";
 import { assertPaidCallAllowed } from "@/lib/cost/cost-breaker";
 import type { PromptId } from "./prompt-registry";
+import {
+  classifyResponsesEnvelope,
+  normalizeStructuredValue,
+  readProvenanceFields,
+  strictJsonSchemaFor,
+} from "./responses-envelope";
 
-export const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
+export { strictJsonSchemaFor, normalizeStructuredValue };
+
+/** The canonical structured-generation endpoint (verified against OpenAI docs 2026-07-23). */
+export const OPENAI_RESPONSES_API = "https://api.openai.com/v1/responses";
 
 /** Reasoning models must never run with a sub-90s ceiling (the gpt-5-mini lesson). */
 export const REASONING_TIMEOUT_FLOOR_MS = 90_000;
 
 /**
- * gpt-5 / o-series are REASONING models: they spend `reasoning_tokens` before
- * emitting output, so at the default reasoning effort a small completion can
- * still take 40-90s. They accept the `reasoning_effort` request param; older
- * non-reasoning chat models 400 on it. (Moved here from providers/openai.ts,
- * which re-exports it - the gateway is the transport authority now.)
+ * gpt-5 / o-series are REASONING models: they spend `reasoning` tokens before
+ * emitting output, so at low effort a small completion can still take 40-90s.
+ * They accept the `reasoning.effort` request param; older models reject it.
  */
 export function isReasoningModel(model: string): boolean {
   return /^(gpt-5|o\d)/i.test(model);
@@ -73,7 +76,7 @@ const COST_PER_MILLION = {
   "gpt-5.4-mini": { input: 0.75, output: 4.5 },
 } as const;
 
-/** Usage-based cost estimate (moved here from providers/openai.ts, re-exported there). */
+/** Usage-based cost estimate (re-exported by providers/openai.ts). */
 export function estimateCost(model: string, inputTokens: number, outputTokens: number): number {
   const rates =
     (COST_PER_MILLION as Record<string, { input: number; output: number }>)[model] ??
@@ -86,11 +89,9 @@ export function estimateCost(model: string, inputTokens: number, outputTokens: n
  * How this call is protected by the monthly cap:
  *  - "gateway_check": the gateway consults the fail-closed dual-write ledger
  *    BEFORE the call (blocked / unreadable -> no call). The caller records the
- *    actual spend post-parse via `recordGatewaySpend` (usage tokens are only
- *    known after JSON parsing, which stays in the caller).
- *  - "caller": the call site's own pinned orchestration checks AND records
- *    (structured-drafter, strategist, why-narrative, adjudicator, draft-gateway,
- *    engine poll's nightly prompt cap). The note documents where.
+ *    actual spend post-parse via `recordGatewaySpend`.
+ *  - "caller": the call site's own pinned orchestration checks AND records. The
+ *    note documents where.
  */
 export type LlmBudgetPosture =
   | { mode: "gateway_check"; projectedCostUsd: number; now?: Date }
@@ -102,57 +103,86 @@ export type BudgetImpl = {
 };
 
 /**
- * N43 outer guard seam: the GLOBAL cost breaker consulted BEFORE the
- * per-platform budget check. Returns tripped=true to block the call. Tests
- * inject this; production defaults to the real cross-lane breaker (hermetically
- * no-op under vitest unless injected, same posture as the budget check).
+ * The GLOBAL cost breaker consulted BEFORE the per-platform budget check.
+ * Returns tripped=true to block. Tests inject this; production defaults to the
+ * real cross-lane breaker (hermetically no-op under vitest unless injected).
  */
 export type CostBreakerImpl = {
   check: (projectedCostUsd: number) => Promise<{ tripped: boolean; reason?: string }>;
 };
 
-export type OpenAIChatArgs = {
+/** Everything the transport needs to name and account for the failure. */
+type GatewayIdentity = {
+  promptId: PromptId;
+  promptVersion: number;
+  action: string;
+  tenantId?: string | null;
+};
+
+/** Provider provenance for the returned artifact (retryCount is the CALLER's). */
+export type LlmProvenance = {
+  responseId: string | null;
+  requestedModel: string;
+  servedModel: string | null;
+  status: string | null;
+  createdAt: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  costUsd: number | null;
+  retryCount: number;
+};
+
+export type StructuredCallArgs = {
   /** Registered prompt identity (prompt-registry.ts) - versioned + fixture-pinned. */
   promptId: PromptId;
   promptVersion: number;
   /** The calling action for the error ledger (e.g. "page-surgeon-judge"). */
   action: string;
   apiKey: string;
-  /** The FULL request body, built by the caller - byte-identical to its legacy fetch. */
-  body: Record<string, unknown>;
+  model: string;
+  /** System instructions (Responses `instructions`). */
+  instructions: string;
+  /** User content (Responses `input`). */
+  input: string;
+  /** Stable schema name per kind (Responses `text.format.name`). */
+  schemaName: string;
+  /** Converted internally via `strictJsonSchemaFor`; caller re-validates against it. */
+  zodSchema: z.ZodTypeAny;
+  maxOutputTokens: number;
   /** Requested ceiling; floored to REASONING_TIMEOUT_FLOOR_MS for reasoning models. */
   timeoutMs: number;
   budget: LlmBudgetPosture;
   fetchImpl?: typeof fetch;
   tenantId?: string | null;
-  /** Test seam for the cap; see VITEST hermetics in the module doc. */
+  /** Test seam for the cap; hermetic under vitest otherwise. */
   budgetImpl?: BudgetImpl;
-  /** Test seam for the N43 global cost breaker; hermetic under vitest otherwise. */
+  /** Test seam for the global cost breaker; hermetic under vitest otherwise. */
   costBreakerImpl?: CostBreakerImpl;
 };
 
-export type OpenAIChatOutcome =
-  | { kind: "response"; response: Response }
+export type StructuredCallOutcome =
+  | { kind: "ok"; value: unknown; provenance: LlmProvenance }
   | { kind: "blocked_budget"; reason: string }
+  | { kind: "refusal"; provenance: LlmProvenance }
+  | { kind: "incomplete"; reason: string; provenance: LlmProvenance }
+  | { kind: "invalid_response"; reason: string }
+  | { kind: "http_error"; status: number }
   | { kind: "error"; reason: string };
 
 function underVitest(): boolean {
   return process.env.VITEST === "true";
 }
 
-/** The enforced ceiling: reasoning models are floored to 90s (the gpt-5-mini
- *  lesson - sub-90s ceilings made every call silently fall back). Pure. */
+/** The enforced ceiling: reasoning models are floored to 90s. Pure. */
 export function effectiveTimeoutMs(model: string, requestedMs: number): number {
   return isReasoningModel(model) ? Math.max(requestedMs, REASONING_TIMEOUT_FLOOR_MS) : requestedMs;
 }
 
 /**
- * N43 GLOBAL cost breaker (OUTER guard). Consulted BEFORE the per-platform
- * budget check on every chat call regardless of posture, because real money is
- * spent in both cases and this is belt-and-suspenders over the inner caps. It
- * never LOOSENS the per-platform cap; a trip here refuses the call outright.
- * Hermetic under vitest (never reads the operator's real ledger) unless a
- * costBreakerImpl is injected, same posture as checkGatewayBudget.
+ * GLOBAL cost breaker (OUTER guard). Consulted BEFORE the per-platform budget
+ * check on every call regardless of posture, because real money is spent in
+ * both cases. It never LOOSENS the per-platform cap; a trip refuses outright.
+ * Hermetic under vitest unless a costBreakerImpl is injected.
  */
 async function checkGatewayCostBreaker(
   posture: LlmBudgetPosture,
@@ -214,76 +244,138 @@ export async function recordGatewaySpend(
 }
 
 /** LOUD, durable failure reporting - warn line always; error ledger outside tests. */
-async function reportGatewayFailure(
-  args: OpenAIChatArgs,
-  reason: string,
-  detail?: string,
-): Promise<void> {
-  log.warn(`[llm-gateway] ${args.promptId} v${args.promptVersion} ${reason}`, {
-    action: args.action,
+async function reportGatewayFailure(id: GatewayIdentity, reason: string, detail?: string): Promise<void> {
+  log.warn(`[llm-gateway] ${id.promptId} v${id.promptVersion} ${reason}`, {
+    action: id.action,
     ...(detail ? { detail } : {}),
   });
   if (underVitest()) return;
   await recordAppError({
     route: "llm/gateway",
-    tenantId: args.tenantId ?? null,
-    action: args.action,
-    message: `${args.promptId} v${args.promptVersion}: ${reason}${detail ? ` (${detail})` : ""}`,
-    context: { promptId: args.promptId, promptVersion: args.promptVersion },
+    tenantId: id.tenantId ?? null,
+    action: id.action,
+    message: `${id.promptId} v${id.promptVersion}: ${reason}${detail ? ` (${detail})` : ""}`,
+    context: { promptId: id.promptId, promptVersion: id.promptVersion },
   });
 }
 
 /**
- * THE OpenAI chat-completions transport. Enforces the budget posture, the
- * reasoning timeout floor, and reasoning_effort defaulting; returns the raw
- * Response on any HTTP completion (callers keep their exact parsing), a
- * blocked_budget outcome when the cap fails closed, or an error outcome on
- * network/timeout failure. Never throws.
+ * THE OpenAI structured-generation transport over the Responses API. Enforces
+ * the guard order in the module doc, converts the Zod schema to a strict JSON
+ * Schema, and returns a typed outcome. Never throws.
  */
-export async function openAIChatCompletion(args: OpenAIChatArgs): Promise<OpenAIChatOutcome> {
-  const model = typeof args.body.model === "string" ? args.body.model : "";
-  const reasoning = isReasoningModel(model);
+export async function openAIStructuredResponse(args: StructuredCallArgs): Promise<StructuredCallOutcome> {
+  const id: GatewayIdentity = {
+    promptId: args.promptId,
+    promptVersion: args.promptVersion,
+    action: args.action,
+    tenantId: args.tenantId ?? null,
+  };
+  const reasoning = isReasoningModel(args.model);
 
-  // P0-B Wave 1 instrumentation: tally every reach to the LLM transport so a page
-  // GET can be verified to fire ZERO LLM calls after the guard.
-  perfCountExternal("llm", model || undefined);
+  // 1. Tally every reach to the LLM transport (page-GET zero-LLM invariant).
+  perfCountExternal("llm", args.model || undefined);
 
-  // N43 OUTER guard first: the global cross-lane ceiling refuses before the
-  // per-platform cap is even read (belt-and-suspenders, never a loosening).
+  // 2. Global breaker (outer guard) first: refuse before the per-platform cap is read.
   const breaker = await checkGatewayCostBreaker(args.budget, args.costBreakerImpl);
   if (!breaker.allowed) {
-    await reportGatewayFailure(args, "blocked_budget", breaker.reason);
+    await reportGatewayFailure(id, "blocked_budget", breaker.reason);
     return { kind: "blocked_budget", reason: breaker.reason };
   }
 
+  // 3. Per-platform monthly cap, fail-closed.
   const budget = await checkGatewayBudget(args.budget, args.budgetImpl);
   if (!budget.allowed) {
-    await reportGatewayFailure(args, "blocked_budget", budget.reason);
+    await reportGatewayFailure(id, "blocked_budget", budget.reason);
     return { kind: "blocked_budget", reason: budget.reason };
   }
 
-  const body: Record<string, unknown> = { ...args.body };
-  if (reasoning && body.reasoning_effort === undefined) body.reasoning_effort = "low";
+  // 4. Schema conversion - fail closed BEFORE any network call on an unsupported schema.
+  const converted = strictJsonSchemaFor(args.zodSchema, args.schemaName);
+  if ("unsupported" in converted) {
+    await reportGatewayFailure(id, "invalid_response_unsupported_schema", converted.unsupported);
+    return { kind: "invalid_response", reason: `unsupported_schema: ${converted.unsupported}` };
+  }
 
-  const timeoutMs = effectiveTimeoutMs(model, args.timeoutMs);
+  const requestBody: Record<string, unknown> = {
+    model: args.model,
+    instructions: args.instructions,
+    input: args.input,
+    max_output_tokens: args.maxOutputTokens,
+    text: { format: { type: "json_schema", name: converted.name, schema: converted.schema, strict: true } },
+  };
+  // 6. Reasoning effort default (only for reasoning models; older models reject it).
+  if (reasoning) requestBody.reasoning = { effort: "low" };
+
+  // 5. Reasoning timeout floor.
+  const timeoutMs = effectiveTimeoutMs(args.model, args.timeoutMs);
   const fetchImpl = args.fetchImpl ?? fetch;
 
+  let response: Response;
   try {
-    const response = await fetchImpl(OPENAI_CHAT_API, {
+    response = await fetchImpl(OPENAI_RESPONSES_API, {
       method: "POST",
       headers: { Authorization: `Bearer ${args.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!response.ok) {
-      // The caller decides what a non-2xx means for its fallback; the gateway
-      // just makes sure the failure is never silent.
-      await reportGatewayFailure(args, `openai_http_${response.status}`);
-    }
-    return { kind: "response", response };
   } catch (e) {
     const reason = e instanceof Error ? e.message.slice(0, 80) : "fetch_failed";
-    await reportGatewayFailure(args, "network_or_timeout", reason);
+    await reportGatewayFailure(id, "network_or_timeout", reason);
     return { kind: "error", reason: reason || "fetch_failed" };
   }
+
+  if (!response.ok) {
+    await reportGatewayFailure(id, `openai_http_${response.status}`);
+    return { kind: "http_error", status: response.status };
+  }
+
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch {
+    await reportGatewayFailure(id, "invalid_response_body_not_json");
+    return { kind: "invalid_response", reason: "response body was not JSON" };
+  }
+
+  const fields = readProvenanceFields(json);
+  const usagePresent = fields.inputTokens !== null || fields.outputTokens !== null;
+  const provenance: LlmProvenance = {
+    responseId: fields.responseId,
+    requestedModel: args.model,
+    servedModel: fields.servedModel,
+    status: fields.status,
+    createdAt: fields.createdAt,
+    inputTokens: fields.inputTokens,
+    outputTokens: fields.outputTokens,
+    costUsd: usagePresent ? estimateCost(args.model, fields.inputTokens ?? 0, fields.outputTokens ?? 0) : null,
+    retryCount: 0,
+  };
+
+  const classified = classifyResponsesEnvelope(json);
+  if (classified.kind === "refusal") {
+    await reportGatewayFailure(id, "refusal");
+    return { kind: "refusal", provenance };
+  }
+  if (classified.kind === "incomplete") {
+    await reportGatewayFailure(id, "incomplete", classified.reason);
+    return { kind: "incomplete", reason: classified.reason, provenance };
+  }
+  if (classified.kind === "invalid") {
+    await reportGatewayFailure(id, `invalid_response_${classified.reason}`);
+    return { kind: "invalid_response", reason: classified.reason };
+  }
+
+  // 7. Structured text present. With strict:true a JSON.parse failure signals a
+  //    provider malfunction; never substring-hunt for JSON in prose.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(classified.text);
+  } catch {
+    await reportGatewayFailure(id, "invalid_response_structured_parse");
+    return { kind: "invalid_response", reason: "structured output was not valid JSON" };
+  }
+
+  const value = normalizeStructuredValue(parsed, args.zodSchema);
+  return { kind: "ok", value, provenance };
 }

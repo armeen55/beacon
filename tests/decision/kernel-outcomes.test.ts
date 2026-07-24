@@ -31,10 +31,15 @@ import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 
 // ── fixtures ──────────────────────────────────────────────────────────────────
 
-/** A completion fn that replays a fixed queue (last response repeats). */
-function fakeComplete(responses: Array<{ text: string } | { error: string }>): CompleteFn {
+/** A completion fn that replays a fixed queue (last response repeats). Slice 3:
+ *  the seam now returns a PARSED structured VALUE (never text); an error carries
+ *  its retryability. */
+function fakeComplete(responses: Array<{ value: unknown } | { error: string; retryable?: boolean }>): CompleteFn {
   let i = 0;
-  return async () => responses[Math.min(i++, responses.length - 1)]!;
+  return async () => {
+    const r = responses[Math.min(i++, responses.length - 1)]!;
+    return "error" in r ? { error: r.error, retryable: r.retryable ?? false } : { value: r.value };
+  };
 }
 
 const VALID_ATOMIC_EDIT = {
@@ -150,7 +155,7 @@ function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal {
 describe("existing-page cold proposal", () => {
   it("generates, validates, persists (serialize), and re-loads (deserialize)", async () => {
     const out = await proposeExistingPageChange(EXISTING_INPUT, {
-      complete: fakeComplete([{ text: JSON.stringify(VALID_ATOMIC_EDIT) }]),
+      complete: fakeComplete([{ value: VALID_ATOMIC_EDIT }]),
       now: new Date("2026-07-22T00:00:00Z"),
     });
     expect(out.status).toBe("proposed");
@@ -185,7 +190,7 @@ describe("existing-page cold proposal", () => {
   it("returns no_draft (fail-closed) when the harness is off", async () => {
     process.env.BEACON_LLM_PROVIDER = "deterministic";
     const out = await proposeExistingPageChange(EXISTING_INPUT, {
-      complete: fakeComplete([{ text: JSON.stringify(VALID_ATOMIC_EDIT) }]),
+      complete: fakeComplete([{ value: VALID_ATOMIC_EDIT }]),
     });
     expect(out.status).toBe("no_draft");
   });
@@ -196,7 +201,7 @@ describe("existing-page cold proposal", () => {
 describe("new-page cold brief", () => {
   it("generates a full brief and validates it", async () => {
     const out = await proposeNewPageChange(NEW_PAGE_INPUT, {
-      complete: fakeComplete([{ text: JSON.stringify(VALID_CREATE_PAGE) }]),
+      complete: fakeComplete([{ value: VALID_CREATE_PAGE }]),
       now: new Date("2026-07-22T00:00:00Z"),
     });
     expect(out.status).toBe("proposed");
@@ -316,7 +321,7 @@ describe("no fabricated causality or certainty", () => {
 describe("manual publishing authority", () => {
   it("every generated proposal is a manual proposal, never applied", async () => {
     const out = await proposeExistingPageChange(EXISTING_INPUT, {
-      complete: fakeComplete([{ text: JSON.stringify(VALID_ATOMIC_EDIT) }]),
+      complete: fakeComplete([{ value: VALID_ATOMIC_EDIT }]),
     });
     expect(out.status).toBe("proposed");
     if (out.status !== "proposed") return;

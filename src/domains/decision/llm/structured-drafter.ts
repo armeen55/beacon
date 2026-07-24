@@ -4,7 +4,7 @@ import { checkBudget, recordSpend } from "./adjudicator-budget";
 import { log } from "@/lib/logger";
 import { buildWinnerFewShots, buildWinnerFewShotsWithPattern } from "./winner-memory";
 import type { DraftPatternId } from "./draft-pattern";
-import { openAIChatCompletion } from "./gateway";
+import { openAIStructuredResponse, type LlmProvenance } from "./gateway";
 import { PROMPT_REGISTRY, type PromptId } from "./prompt-registry";
 import { llmCallCacheKey, resolveCacheImpl, type CacheImpl } from "./call-cache";
 import { looksTemplated, REPEAT_FLAG, REPEAT_HISTORY_SIZE, VARIATION_INSTRUCTION } from "./de-templating";
@@ -44,30 +44,27 @@ import {
  * grounded request into a SCHEMA-VALIDATED structured draft, or nothing:
  *
  *   gate (BEACON_LLM_PROVIDER=openai + key) → cache ($0 on an identical repeat)
- *   → budget (fail-closed cap) → call → robust JSON extract → Zod validate →
+ *   → budget (fail-closed cap) → strict structured call → Zod validate →
  *   content firewalls (numeric-fidelity, placeholder, em-dash, superlative) →
  *   de-templating guard → RETRY ONCE on failure → FAIL CLOSED.
  *
- * It NEVER returns loose/unvalidated text as a product artifact. Spend is
- * recorded the moment a call returns (even if the draft is later rejected). The
- * completion fn is injectable so the whole flow is unit-tested with zero paid
- * calls. Mirrors the lessons in llm-answer-block.ts (gpt-5-mini reasoning models
- * return empty under response_format, so we parse JSON out of the text robustly).
+ * It NEVER returns loose/unvalidated text as a product artifact. Slice 3 (2026-
+ * 07-23): the transport is the strict Responses gateway (openAIStructuredResponse)
+ * returning a PARSED, schema-shaped VALUE, never free-form text - no prose-
+ * recovery path here anymore; the drafter still runs its own Zod safeParse as the
+ * second gate. A refusal, an incomplete response, or a non-retryable transport
+ * error FAILS CLOSED (no artifact, no retry); only a schema-invalid value or a
+ * retryable error consumes the single retry. Spend is recorded per attempt. The
+ * completion fn is injectable so the whole flow runs with zero paid calls.
  *
- * R16 (2026-07-03, P6): the raw fetch moved into the ONE gateway
- * (llm/gateway.ts - loud fallbacks, error ledger, reasoning timeout floor);
- * every call carries a registered promptId + version (prompt-registry.ts,
- * fixture-pinned by tests/llm-regression); identical requests are served from
- * the content-hash call cache at $0 (call-cache.ts, `bypassCache` for the
- * explicit Regenerate); the numeric firewall gained formatting tolerance +
- * a repair retry that injects the correct grounded numbers (numeric-fidelity
- * .ts); near-copies of recent same-family drafts retry once with a variation
- * instruction and otherwise ship FLAGGED "reads like a repeat"
- * (de-templating.ts); and evidence text is stripped of instruction-shaped
- * lines before it enters any prompt (injection-sanitizer.ts).
- *
- * Tenant-agnostic. Pinned by structured-drafter.test.ts +
- * structured-drafter-engine-pack.test.ts.
+ * R16 (2026-07-03, P6): the fetch lives in the ONE gateway (llm/gateway.ts);
+ * every call carries a registered promptId + version (prompt-registry.ts);
+ * identical requests are served from the content-hash call cache at $0
+ * (call-cache.ts, `bypassCache` for the explicit Regenerate); the numeric
+ * firewall has formatting tolerance + a repair retry (numeric-fidelity.ts);
+ * near-copies retry once then ship FLAGGED "reads like a repeat"
+ * (de-templating.ts); evidence text is stripped of instruction-shaped lines
+ * before any prompt (injection-sanitizer.ts). Tenant-agnostic.
  */
 
 const MODEL = "gpt-5-mini";
@@ -98,19 +95,24 @@ export type StructuredDraftResult<T> =
       fewShot?: FewShotProvenance;
       /** R16: present when this exact request was served from the call cache ($0). */
       cached?: true;
+      /** Provider provenance for the successful paid attempt (audit trail). */
+      provenance?: LlmProvenance;
       /** R16: present when the draft still reads like a repeat of recent same-family
        *  drafts after the variation retry ("reads like a repeat") - the draft-quality
        *  gate demotes flagged output instead of calling it ready. */
       repeatFlag?: string;
     };
 
-/** Injectable completion fn (default = real OpenAI). Returns text or an error. */
+/** Injectable completion fn (default = the strict Responses gateway). Returns a
+ *  PARSED, schema-shaped VALUE (the caller still Zod-validates it) plus provenance,
+ *  or an error with whether a retry helps (429/5xx/network yes; else no). */
 export type CompleteFn = (args: {
   system: string;
   user: string;
   maxTokens: number;
   timeoutMs: number;
-}) => Promise<{ text: string } | { error: string }>;
+  kind: StructuredDraftKind;
+}) => Promise<{ value: unknown; provenance?: LlmProvenance } | { error: string; retryable: boolean; costUsd?: number }>;
 
 function isOn(): boolean {
   return (process.env.BEACON_LLM_PROVIDER ?? "").trim().toLowerCase() === "openai";
@@ -219,22 +221,6 @@ function sanitizeDashesDeep(v: unknown): unknown {
     return out;
   }
   return v;
-}
-
-/** Parse JSON robustly: direct, then the first {...} / [...] slice in the text. */
-function robustJsonExtract(raw: string): unknown {
-  const t = raw.trim();
-  try {
-    return JSON.parse(t);
-  } catch {
-    const cand = t.match(/\{[\s\S]*\}/)?.[0] ?? t.match(/\[[\s\S]*\]/)?.[0];
-    if (!cand) return undefined;
-    try {
-      return JSON.parse(cand);
-    } catch {
-      return undefined;
-    }
-  }
 }
 
 /** The full grounded-number ledger for one request: evidence numbers with R16
@@ -618,40 +604,51 @@ function runContentFirewalls(
   return { ok: true };
 }
 
+/** Retryable HTTP statuses: throttling (429) + server faults (5xx). */
+function httpStatusRetryable(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+/** Spend for one attempt: the gateway's usage-based cost, else an input estimate. */
+function attemptCostUsd(costUsd: number | null | undefined, promptChars: number): number {
+  const c = costUsd;
+  return typeof c === "number" && Number.isFinite(c) && c > 0 ? c : estimateCostUsd(promptChars, 0);
+}
+
 function defaultComplete(apiKey: string, promptId: PromptId): CompleteFn {
-  return async ({ system, user, maxTokens, timeoutMs }) => {
-    // R16: the ONE gateway owns the transport (loud fallback logs, error ledger,
-    // reasoning timeout floor). Budget stays HERE in caller mode: callStructuredLLM
-    // checks the fail-closed cap before calling and records spend per attempt.
-    const outcome = await openAIChatCompletion({
+  return async ({ system, user, maxTokens, timeoutMs, kind }) => {
+    // The strict Responses gateway owns transport (fallbacks, error ledger,
+    // reasoning timeout floor, json_schema). Budget stays HERE in caller mode.
+    const outcome = await openAIStructuredResponse({
       promptId,
       promptVersion: PROMPT_REGISTRY[promptId],
       action: `structured-draft:${promptId}`,
       apiKey,
-      body: {
-        model: MODEL,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        // gpt-5-mini reasoning tokens count against this budget — give headroom.
-        // No response_format: it returns empty under reasoning; we parse robustly.
-        max_completion_tokens: maxTokens,
-        reasoning_effort: "low",
-      },
+      model: MODEL,
+      instructions: system,
+      input: user,
+      schemaName: kind,
+      zodSchema: SCHEMA_BY_KIND[kind],
+      maxOutputTokens: maxTokens,
       timeoutMs,
       budget: { mode: "caller", note: "checkBudget + recordSpend live in callStructuredLLM" },
     });
-    if (outcome.kind === "blocked_budget") return { error: "blocked_budget" };
-    if (outcome.kind === "error") return { error: outcome.reason || "fetch_failed" };
-    const res = outcome.response;
-    if (!res.ok) return { error: `openai_${res.status}` };
-    try {
-      const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-      const text = (json.choices?.[0]?.message?.content ?? "").trim();
-      return text ? { text } : { error: "empty_response" };
-    } catch (e) {
-      return { error: e instanceof Error ? e.message.slice(0, 80) : "fetch_failed" };
+    switch (outcome.kind) {
+      case "ok":
+        // Gateway parsed + null-normalized; the drafter still Zod-validates it.
+        return { value: outcome.value, provenance: outcome.provenance };
+      case "blocked_budget":
+        return { error: "blocked_budget", retryable: false };
+      case "refusal":
+        return { error: "refusal", retryable: false, costUsd: outcome.provenance.costUsd ?? undefined };
+      case "incomplete":
+        return { error: "incomplete", retryable: false, costUsd: outcome.provenance.costUsd ?? undefined };
+      case "invalid_response":
+        return { error: outcome.reason || "invalid_response", retryable: false };
+      case "http_error":
+        return { error: `openai_${outcome.status}`, retryable: httpStatusRetryable(outcome.status) };
+      case "error":
+        return { error: outcome.reason || "fetch_failed", retryable: true };
     }
   };
 }
@@ -774,6 +771,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   const verifyNowIso = (req.now ?? new Date()).toISOString();
 
   let totalCost = 0;
+  let lastProvenance: LlmProvenance | undefined;
   const errors: string[] = [];
   let lastFailureWasTemplated = false;
   let lastFailureWasThin = false;
@@ -790,14 +788,10 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
         // branch must be checked BEFORE the plain superlative/thin branches).
         system = `${req.system}\n\n${COMBINED_THIN_AND_SUPERLATIVE_RETRY_INSTRUCTION}`;
       } else if (lastFailureWasSuperlative) {
-        // G4 (2026-07-10): the first draft asserted a superlative no cited source
-        // proves. Retry with an explicit REPHRASE instruction (ground it in
-        // specific facts) rather than a blanket "invalid output" correction - a
-        // superlative-intent topic ("most famous X") must still be answerable.
+        // G4: ungrounded superlative - retry with the REPHRASE instruction.
         system = `${req.system}\n\n${SUPERLATIVE_REPHRASE_INSTRUCTION}`;
       } else if (lastFailureWasTemplated) {
-        // R16 de-templating: the first draft read like a repeat - retry with a
-        // variation instruction rather than an "invalid output" correction.
+        // R16 de-templating: read like a repeat - retry with variation.
         system = `${req.system}\n\n${VARIATION_INSTRUCTION}`;
       } else if (lastFailureWasThin) {
         // W5 (J-71): the first answer was under the 80-word floor - retry asking
@@ -813,7 +807,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
         // either - the same reminder every other rephrase-class retry carries.
         system = `${req.system}\n\nYour previous answer was too short. Write a complete answer of 80 to 150 words, grounded ONLY in the evidence provided. Add the missing length with MORE grounded facts (names, dates, honors, works) - do NOT introduce a new superlative or ranking claim while lengthening it. ${NO_NEW_NUMBERS_RETRY_REMINDER}`;
       } else {
-        system = `${req.system}\n\nYour previous output was invalid: ${errors.slice(-3).join(" | ")}. Return ONLY valid JSON matching the described shape, with non-empty evidenceRefs.`;
+        system = `${req.system}\n\nYour previous output was rejected: ${errors.slice(-3).join(" | ")}. Fix exactly those problems and include at least one non-empty evidenceRefs entry.`;
         // R16 numeric repair: when the failure was an ungrounded number, inject
         // the CORRECT grounded numbers so the retry can fix the figure instead
         // of guessing again. One repair retry, then fail closed.
@@ -834,24 +828,29 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     lastFailureWasTemplated = false;
     lastFailureWasThin = false;
 
-    const out = await complete({ system, user: req.user, maxTokens, timeoutMs });
+    const out = await complete({ system, user: req.user, maxTokens, timeoutMs, kind: req.kind });
+
+    const blockedBudget = "error" in out && out.error === "blocked_budget"; // budget block fired NO call
+    if (!blockedBudget) {
+      const attemptCost = attemptCostUsd("error" in out ? out.costUsd : out.provenance?.costUsd, system.length + req.user.length);
+      totalCost += attemptCost;
+      await recordSpend(attemptCost, {}).catch(() => {});
+    }
+
     if ("error" in out) {
       errors.push(`llm_${out.error}`);
       lastFailureWasTemplated = false;
       lastFailureWasThin = false;
+      // Non-retryable (refusal/incomplete/budget/4xx) FAILS CLOSED; a retryable
+      // error re-enters the SAME 2-attempt ceiling.
+      if (!out.retryable) break;
       continue;
     }
-    totalCost += estimateCostUsd(system.length + req.user.length, out.text.length);
-    await recordSpend(estimateCostUsd(system.length + req.user.length, out.text.length), {}).catch(() => {});
+    lastProvenance = out.provenance ? { ...out.provenance, retryCount: attempt } : undefined;
 
-    const parsedJson = robustJsonExtract(out.text);
-    if (parsedJson === undefined) {
-      errors.push("non_json");
-      lastFailureWasTemplated = false;
-      lastFailureWasThin = false;
-      continue;
-    }
-    const parsed = schema.safeParse(sanitizeDashesDeep(parsedJson));
+    // The drafter runs its OWN Zod safeParse (second validation) after normalizing
+    // em/en dashes in every string field of the gateway's schema-shaped value.
+    const parsed = schema.safeParse(sanitizeDashesDeep(out.value));
     if (!parsed.success) {
       errors.push(...parsed.error.issues.slice(0, 4).map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`));
       lastFailureWasTemplated = false;
@@ -958,6 +957,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       value: verifiedData,
       costUsd: totalCost,
       retried,
+      ...(lastProvenance ? { provenance: lastProvenance } : {}),
       ...(req.fewShotProvenance ? { fewShot: req.fewShotProvenance } : {}),
       ...(templated ? { repeatFlag: REPEAT_FLAG } : {}),
     };

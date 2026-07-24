@@ -417,11 +417,6 @@ export const SCHEMA_BY_KIND = {
 // entries below are the canonical contract each hand-rolled parser must keep
 // producing, pinned by tests/llm-regression/schema-registry.test.ts (every
 // entry must parse its recorded fixture).
-//
-// NOT here by design: the specific-edit bundle (providers/openai.ts) - its
-// schema is PACKET-DERIVED (actionType/targetUrl enums are built per request),
-// so a static entry cannot represent it; it is pinned instead by
-// tests/contracts/openai-structured-response.contract.test.ts.
 
 /** FAQ Q/A pairs (llm-answer-block's FAQPage JSON-LD generator). */
 export const FaqPairsSchema = z.object({
