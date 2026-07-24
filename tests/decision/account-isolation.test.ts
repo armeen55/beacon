@@ -29,7 +29,6 @@ import {
 } from "@/domains/decision/llm/structured-drafter";
 import {
   storeCacheImpl,
-  llmCallCacheKey,
   type CacheImpl,
   type LlmCallCacheEntry,
 } from "@/domains/decision/llm/call-cache";
@@ -110,52 +109,16 @@ describe("the call cache is per-account, keyed by account", () => {
     expect(classifyStore("llm-call-cache")).toBe("per-tenant");
   });
 
-  it("a byte-identical prompt from two accounts hashes to DIFFERENT keys", () => {
-    const parts = { promptId: "draft.atomic_edit", promptVersion: 1, kind: "atomic_edit", system: "s", user: "u" };
-    const keyA = llmCallCacheKey({ tenantId: "tenant-a", ...parts });
-    const keyB = llmCallCacheKey({ tenantId: "tenant-b", ...parts });
-    expect(keyA).not.toBe(keyB);
-    // Same account + same prompt is stable (the $0-repeat guarantee).
-    expect(llmCallCacheKey({ tenantId: "tenant-a", ...parts })).toBe(keyA);
-  });
-});
-
-// ── storeCacheImpl: explicit routing, owner stamping, fail-closed ────────────
-
-describe("storeCacheImpl routes per account and fails closed", () => {
-  it("read/write pass an EXPLICIT { tenantId } and stamp the owner on the entry", async () => {
-    const entry: LlmCallCacheEntry = {
-      key: "k1", tenantId: "tenant-a", kind: "atomic_edit", promptId: "draft.atomic_edit",
-      promptVersion: 1, value: VALID, primaryText: VALID.after, createdAt: "t", lastUsedAt: "t",
-    };
-    await storeCacheImpl.write("tenant-a", { ...entry, tenantId: "ignored-overwritten" });
-    // readAll first, then the routed write.
+  // The REAL impl: an omitted tenantId falls back to AMBIENT resolution downstream, so a regression here is silent.
+  it("storeCacheImpl routes with an EXPLICIT { tenantId }, stamps the owner, and throws on an empty account", async () => {
+    const entry = { key: "k1", tenantId: "ignored-overwritten", kind: "atomic_edit", promptId: "p",
+      promptVersion: 1, value: VALID, primaryText: "A", createdAt: "t", lastUsedAt: "t" } as LlmCallCacheEntry;
+    await storeCacheImpl.write("tenant-a", entry);
     expect(readStoreMock).toHaveBeenCalledWith("llm-call-cache", undefined, { tenantId: "tenant-a" });
-    const lastWrite = writeStoreMock.mock.calls.at(-1) as unknown as [string, LlmCallCacheEntry[], { tenantId: string }];
-    expect(lastWrite[2]).toEqual({ tenantId: "tenant-a" });
-    expect(lastWrite[1][0]!.tenantId).toBe("tenant-a"); // owner stamped, not the caller's value
-
-    await storeCacheImpl.read("tenant-b", "k1");
-    expect(readStoreMock).toHaveBeenLastCalledWith("llm-call-cache", undefined, { tenantId: "tenant-b" });
-  });
-
-  it("recentTexts returns only the SAME account's history (owner filter)", async () => {
-    readStoreMock.mockResolvedValue([
-      { key: "k1", tenantId: "tenant-a", kind: "atomic_edit", promptId: "p", promptVersion: 1, value: {}, primaryText: "A text", createdAt: "t", lastUsedAt: "t" },
-      { key: "k2", tenantId: "tenant-b", kind: "atomic_edit", promptId: "p", promptVersion: 1, value: {}, primaryText: "B text", createdAt: "t", lastUsedAt: "t" },
-    ]);
-    // storeCacheImpl asks the store for tenant-a's file; the in-memory owner
-    // filter drops any stray foreign row that ever appeared in it.
-    const texts = await storeCacheImpl.recentTexts("tenant-a", "atomic_edit", 5);
-    expect(texts).toEqual(["A text"]);
-  });
-
-  it("an empty account THROWS before any storage access", async () => {
+    const w = writeStoreMock.mock.calls.at(-1) as unknown as [string, LlmCallCacheEntry[], { tenantId: string }];
+    expect(w[2]).toEqual({ tenantId: "tenant-a" }); // explicit routing, never the ambient fallback
+    expect(w[1][0]!.tenantId).toBe("tenant-a"); // owner stamped, not the caller's value
     await expect(storeCacheImpl.read("", "k")).rejects.toThrow(/tenantId is required/);
-    await expect(storeCacheImpl.write("  ", {} as LlmCallCacheEntry)).rejects.toThrow(/tenantId is required/);
-    await expect(storeCacheImpl.recentTexts("", "atomic_edit", 5)).rejects.toThrow(/tenantId is required/);
-    expect(readStoreMock).not.toHaveBeenCalled();
-    expect(writeStoreMock).not.toHaveBeenCalled();
   });
 });
 

@@ -24,12 +24,15 @@ import {
  * on-visit-refresh - the Research Run executor (Slice 4, 2026-07-24).
  *
  * Every navigation schedules ONE post-response Research Run for the tenant. The
- * run is durable: claim_research_run leases the (tenant, UTC-day) cycle so
- * exactly one invocation advances it, and the persisted phase + progress let a
- * crash or lambda timeout resume at the phase it left off. There is no scheduler,
- * cron, heartbeat, in-memory dedupe, or job queue - the DATABASE lease is the
- * whole correctness mechanism (a second concurrent claim with a different owner
- * token returns null and exits cheaply).
+ * run is durable: claim_research_run RESUMES the account's single unfinished run
+ * first (regardless of the date it started, so yesterday's paused run is never
+ * abandoned and no second open run is created), blocks a redundant pass when a run
+ * already completed earlier this UTC day, and starts a fresh daily cycle only when
+ * no run is open. It leases the run so exactly one invocation advances it, and the
+ * persisted phase + progress let a crash or lambda timeout resume at the phase it
+ * left off. There is no scheduler, cron, heartbeat, in-memory dedupe, or job queue
+ * - the DATABASE lease is the whole correctness mechanism (a second concurrent
+ * claim with a different owner token returns null and exits cheaply).
  *
  * TRUTH BOUNDARY (Slice 4 truth-and-lease repair): a phase advances ONLY when it
  * truly succeeded or was a healthy no-op. Every failure pauses the cycle with a
@@ -84,11 +87,13 @@ const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_sy
 /** The ordered execution phases (excluding the terminal `done`). */
 const PHASE_SEQUENCE: ResearchPhase[] = ["refresh_sources", "gsc_backfill_chunk", "publish_surface"];
 
-/** The refresh_sources phase outcome: how many sources were attempted, how many
- *  actually synced, and the bounded per-source failure detail for the rest. */
+/** The refresh_sources phase outcome: how many sources were attempted, the
+ *  identities of the ones that actually synced, and the bounded per-source failure
+ *  detail for the rest. `succeeded` is a list of provider identities (not a count)
+ *  so retries can UNION distinct successes rather than double-count them. */
 export type RefreshSourcesResult = {
   attempted: number;
-  succeeded: number;
+  succeeded: string[];
   failures: Array<{ provider: string; detail: string }>;
 };
 
@@ -124,10 +129,11 @@ const defaultSteps: ResearchCycleSteps = {
     // .catch here: a THROW means the whole refresh could not run, and the runner
     // must pause rather than record a false "0 sources, all healthy".
     const results = await autoRefreshStaleConnectorsForTenant(tenantId, now);
+    const succeeded = results.filter((r) => r.ok).map((r) => String(r.provider));
     const failures = results
       .filter((r) => !r.ok)
       .map((r) => ({ provider: String(r.provider), detail: String(r.detail).slice(0, 200) }));
-    return { attempted: results.length, succeeded: results.length - failures.length, failures };
+    return { attempted: results.length, succeeded, failures };
   },
   async backfillChunk(tenantId, now) {
     // No deadline race: the chunk is bounded by design and its GSC fetch has no
@@ -162,6 +168,11 @@ const defaultSteps: ResearchCycleSteps = {
   },
 };
 
+/** Distinct values in first-seen order (small provider lists; order is cosmetic). */
+function dedupe(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
 /** One phase's outcome: the merged progress, plus an optional `pause` error when
  *  the phase reported a recoverable failure that is NOT a throw (a partial
  *  connector refresh). A thrown error is handled separately by the cycle loop. */
@@ -179,7 +190,11 @@ async function runPhase(
 ): Promise<PhaseOutcome> {
   if (phase === "refresh_sources") {
     const result = await steps.refreshSources(tenantId, now, attemptKey);
-    const next = { ...progress, sourcesRefreshed: result.succeeded };
+    // Union the freshly-synced provider identities with any that synced on an
+    // earlier attempt of this same cycle, so a provider that failed once and later
+    // succeeded is counted EXACTLY once. Failed providers are never added.
+    const refreshedProviders = dedupe([...(progress.refreshedProviders ?? []), ...result.succeeded]);
+    const next = { ...progress, refreshedProviders, sourcesRefreshed: refreshedProviders.length };
     if (result.failures.length > 0) {
       // Some connected sources failed to refresh: pause at refresh_sources with a
       // bounded receipt. The succeeded ones kept their freshness stamps, so the
@@ -286,6 +301,16 @@ async function driveRun(
         phase,
         failures: outcome.pause.failures?.length ?? 0,
       });
+      // Persist the partial success (the providers that DID sync) durably BEFORE
+      // pausing, at the SAME phase with the SAME attempt cursor, so a mixed attempt
+      // never strands its succeeded sources. If our lease was lost, abort with no
+      // finish call.
+      const saved = await advancePhase(tenantId, run.id, ownerToken, {
+        phase,
+        progress: outcome.progress,
+        cursor: attemptCursor,
+      });
+      if (!saved) return;
       await finishRun(tenantId, run.id, ownerToken, "paused", outcome.pause);
       return;
     }
@@ -304,9 +329,10 @@ async function driveRun(
 }
 
 /**
- * Claim (or resume) today's Research Run for the tenant and drive it. A lost
- * claim (null) means another instance holds today's cycle, or it already
- * completed - do nothing.
+ * Claim, resume, or start the account's Research Run and drive it. The claim
+ * resumes any unfinished run first (any date); a lost claim (null) means another
+ * instance holds the open run, or research already completed this UTC day - do
+ * nothing.
  */
 export async function runResearchCycle(tenantId: string, options: ResearchCycleOptions = {}): Promise<void> {
   const nowFn = options.now ?? (() => new Date());
@@ -316,7 +342,7 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
 
   await runWithTenant(tenantId, async () => {
     const ownerToken = newOwnerToken();
-    const run = await claimRun(tenantId, ownerToken, nowFn());
+    const run = await claimRun(tenantId, ownerToken);
     if (run == null) {
       log.debug("[research-run] no claim (held elsewhere or complete today)", { tenantId });
       return;

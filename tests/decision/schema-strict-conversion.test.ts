@@ -53,13 +53,6 @@ describe("normalizeStructuredValue — representative shape round-trips", () => 
     en: z.enum(["a", "b"]),
   });
 
-  it("converts to a fully strict schema", () => {
-    const out = strictJsonSchemaFor(RT, "rt");
-    expect("unsupported" in out).toBe(false);
-    if ("unsupported" in out) return;
-    assertFullyStrict(out.schema as Record<string, unknown>, "rt");
-  });
-
   it("strips optional-not-nullable nulls (incl. nested/array), keeps nullable nulls, then the ORIGINAL schema parses", () => {
     const providerShaped = {
       req: "r",

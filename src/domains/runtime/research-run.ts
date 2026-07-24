@@ -9,10 +9,16 @@ import { log } from "@/lib/logger";
  * research-run - the durable, visit-driven Research Run record (Slice 4,
  * 2026-07-24). THE canonical type + repository for a resumable research cycle.
  *
- * One row per (tenant, cycle_key = "<tenant>:<UTC day>"). A leased owner token
- * makes exactly one invocation advance the run at a time; the phase + cursor let
- * a crash resume where it left off. The DATABASE lease (claim_research_run) is
- * the correctness mechanism - there is no scheduler, cron, heartbeat, or queue.
+ * At most ONE unfinished (running or paused) run per account, across ALL dates -
+ * a database invariant (a partial unique index). Every visit claims through
+ * claim_research_run, which RESUMES the account's single unfinished run regardless
+ * of its cycle_key or start date (so yesterday's paused run is never abandoned),
+ * and only starts a fresh daily cycle when no unfinished run exists and none
+ * already completed this UTC day. The daily cycle_key ("<tenant>:<UTC day>") is
+ * computed at DATABASE time, not by the caller. A leased owner token makes exactly
+ * one invocation advance the run at a time; the phase + cursor let a crash resume
+ * where it left off. The DATABASE lease is the correctness mechanism - there is no
+ * scheduler, cron, heartbeat, or queue.
  *
  * Persistence is a service-role Supabase repository behind an injectable seam
  * (tests inject an in-memory repo that models the RPC contract faithfully). Every
@@ -21,9 +27,10 @@ import { log } from "@/lib/logger";
  * CLOSED - it returns null so NO background work runs - and the render never
  * crashes (researchRunStatus degrades to "none").
  *
- * See migrations/2026-07-24_research_runs.sql for the table, RLS, and the atomic
- * claim function, and migrations/2026-07-24_research_runs_truth.sql for the
- * database-time advance / renew / finish lease mutations this module calls.
+ * See migrations/2026-07-24_research_runs.sql for the table + RLS,
+ * 2026-07-24_research_runs_truth.sql for the database-time advance / renew / finish
+ * lease mutations, and 2026-07-24_research_runs_claim_semantics.sql for the
+ * one-open-run-per-account invariant and the resume-first claim function.
  */
 
 // ── Canonical record ───────────────────────────────────────────────────────
@@ -38,8 +45,12 @@ export type ResearchPhase = "refresh_sources" | "gsc_backfill_chunk" | "publish_
 export type ResearchRunStatus = "running" | "paused" | "completed";
 
 /** Evidence-based counters only - never a fabricated number. Grows as paid
- *  phases arrive; today it records what actually ran. */
+ *  phases arrive; today it records what actually ran. `refreshedProviders` is the
+ *  set of provider identities that actually synced this cycle (unioned across
+ *  retries); `sourcesRefreshed` is that set's size when the new path writes it, and
+ *  survives as a bare number on legacy rows written before the set existed. */
 export type ResearchRunProgress = {
+  refreshedProviders?: string[];
   sourcesRefreshed?: number;
   backfill?: { ran: boolean; complete?: boolean; daysPulled?: number };
   surfacePublished?: boolean;
@@ -233,9 +244,12 @@ export type AdvancePatch = {
 };
 
 export type ResearchRunRepo = {
-  /** Atomic claim/create for one cycle. Returns the claimed row, or null when
-   *  the caller did not win (foreign unexpired lease, or a completed cycle). */
-  claim(input: { tenantId: string; cycleKey: string; owner: string; leaseSeconds: number }): Promise<ResearchRun | null>;
+  /** Atomic claim/resume/create for the account. Resumes the single unfinished run
+   *  regardless of date; creates today's cycle only when none is open and none
+   *  completed this UTC day (the database computes the daily key). Returns the
+   *  claimed row, or null when the caller did not win (foreign unexpired lease, or
+   *  research already current for today). */
+  claim(input: { tenantId: string; owner: string; leaseSeconds: number }): Promise<ResearchRun | null>;
   /** Guarded advance at DATABASE time (id + tenant + owner + a LIVE lease +
    *  status='running'). Extends the lease. Returns whether a row matched; false ⇒
    *  our lease was lost or expired. */
@@ -278,10 +292,9 @@ function mapRow(r: Record<string, unknown>): ResearchRun {
 }
 
 const supabaseRepo: ResearchRunRepo = {
-  async claim({ tenantId, cycleKey, owner, leaseSeconds }) {
+  async claim({ tenantId, owner, leaseSeconds }) {
     const { data, error } = await getSupabaseAdmin().rpc("claim_research_run", {
       p_tenant_id: tenantId,
-      p_cycle_key: cycleKey,
       p_owner: owner,
       p_lease_seconds: leaseSeconds,
     });
@@ -347,16 +360,17 @@ export function setResearchRunRepoForTests(next: ResearchRunRepo | null): void {
 // ── Public operations (explicit tenant, fail-closed) ───────────────────────
 
 /**
- * Claim (or create) today's cycle for the tenant with our owner token. Returns
- * the claimed row when we won, or null when we did not (foreign unexpired lease,
- * or a completed cycle for today). Persistence unavailable ⇒ null (fail
- * closed: NO background work runs), logged, never throws to the caller.
+ * Claim, resume, or start the account's Research Run with our owner token. The
+ * database resumes the single unfinished run (any date) before considering a new
+ * daily cycle, and computes the daily key itself. Returns the claimed row when we
+ * won, or null when we did not (foreign unexpired lease, or research already
+ * current for today). Persistence unavailable ⇒ null (fail closed: NO background
+ * work runs), logged, never throws to the caller.
  */
-export async function claimRun(tenantId: string, ownerToken: string, now: Date = new Date()): Promise<ResearchRun | null> {
+export async function claimRun(tenantId: string, ownerToken: string): Promise<ResearchRun | null> {
   requireTenant(tenantId);
-  const cycleKey = cycleKeyForUtc(tenantId, now);
   try {
-    return await repo.claim({ tenantId, cycleKey, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS });
+    return await repo.claim({ tenantId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS });
   } catch (error) {
     log.warn("[research-run] claim failed; fail closed (no background work)", {
       tenantId,

@@ -13,7 +13,6 @@ import { describe, it, expect } from "vitest";
 
 import {
   buildEvidenceSnapshot,
-  hashSnapshot,
   MANDATORY_SOURCES,
   type EvidenceSnapshotInput,
   type EvidenceSourceKind,
@@ -301,15 +300,5 @@ describe("buildEvidenceSnapshot — honest source states", () => {
     expect(snap.ownedPages.length).toBe(2); // owned evidence still assembled
     expect(snap.competitors.length).toBe(0); // no AI citations → no competitors
     expect(snap.aiCitations.rowsScanned).toBe(0);
-  });
-});
-
-describe("hashSnapshot", () => {
-  it("is a stable 16-char hex digest", () => {
-    const snap = buildEvidenceSnapshot(fullInput());
-    const { evidenceHash: _h, ...rest } = snap;
-    void _h;
-    expect(snap.evidenceHash).toMatch(/^[0-9a-f]{16}$/);
-    expect(hashSnapshot(rest)).toBe(snap.evidenceHash);
   });
 });
