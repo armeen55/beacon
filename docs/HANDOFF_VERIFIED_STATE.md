@@ -55,8 +55,14 @@
   native strict Structured Outputs (json_schema, strict true), double validation (provider schema + server
   Zod), fail-closed refusal/incomplete/invalid handling with no artifact, budget checks before network,
   per-attempt spend with real usage cost, provenance on drafted results, cache hits at zero cost. The free-form
-  Chat Completions transport and prose JSON recovery are deleted. Transport behavior is hermetically
-  validated; the live provider response is NOT yet validated (no paid call under the rebuild authorizations).
+  Chat Completions transport and prose JSON recovery are deleted. The path is explicitly account-scoped
+  end to end (2026-07-24 closure): the structured-output cache is tenant-scoped storage with the account in
+  the key hash and on every entry (the old global cache blob is inert and never read), de-templating history
+  never crosses accounts, tenantId is required from the drafter entry point through cache, budget, transport,
+  provenance, and the error ledger, and post-network invalid envelopes retain real usage cost. A committed
+  regression sweep converts every SCHEMA_BY_KIND entry through the strict-subset conversion. Transport
+  behavior is hermetically validated; the live provider response is NOT yet validated (no paid call under
+  the rebuild authorizations).
 - Recommendation, manual implementation, verification, and 7/14/28 measurement foundations exist.
 
 ## Known target mismatches
