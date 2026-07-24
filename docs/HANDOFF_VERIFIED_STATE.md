@@ -39,8 +39,27 @@
 
 ## What is real but incomplete
 
-- URL-first onboarding crawls a bounded part of the site and shows a first scorecard.
-- Launch currently seeds only two brand prompts, not the approved 50-prompt system.
+- The complete seven-step onboarding and 50-core-prompt approval flow is live (Slice 5, 2026-07-24) on
+  `/onboard` (`/onboard/done` is a compatibility redirect): website submit with a bounded public crawl and
+  no prompt writes or paid checks; strict grounded BusinessProfile inference through the canonical gateway
+  (returned source URLs validated against the supplied crawl set; refusal or cap falls back to an honest
+  deterministic fact-based profile); an editable confirm step where natural-language instructions become a
+  whitelisted structured patch that persists only after the customer confirms the displayed diff; the
+  recover/grow/balanced goal on `tenants.growth_goal`; a model-built candidate universe (about 100 prompts
+  in 5 to 10 topic groups across seven intent families, exactly 50 recommended) persisted as inactive
+  `tracked_prompts` rows with deterministic per-account ids so retries never duplicate; declarative
+  group-level approval (bounds 10..100, edits version new rows, unselected candidates stay inactive);
+  optional connections that never block; and a real crawl-derived first finding before activation.
+  Every prompt row carries the canonical tenant id for both `tenant_id` and `account_id` (never the slug);
+  the old two-prompt launch, pre-approval seeding, day-zero SERP attempts, keep-scanning workflow, and
+  25-prompt cap are deleted. Pre-activation OpenAI spend is capped at a lifetime $2 per account on the
+  durable ledger platform `onboarding-openai` (fail-closed when unreadable) and the two live strict
+  contracts were validated against the real API for $0.0135. Pending accounts can start no Research Run
+  at either the runtime or claim-RPC boundary; activation is idempotent, requires website + confirmed
+  profile + goal + approved prompts + terms, and starts exactly one durable Research Run. Verified end to
+  end on the rendered app at desktop and mobile with two synthetic accounts (real crawls, real model calls,
+  activation landing on Today); all synthetic rows removed. The onboarding gate bug that bounced every
+  visit to login (a select of the nonexistent `provisional_name` column) is fixed.
 - Durable visit-driven Research Runs exist (Slice 4, 2026-07-24): every authenticated visit renders the
   saved surfaces first, then claims or resumes the account's Research Run through an atomic database-time
   lease RPC. At most one unfinished (running or paused) run exists per account across all dates, enforced
@@ -129,9 +148,9 @@ New customer routes require operator approval.
 
 ## Next slice
 
-Slices 1 through 4 are complete and deployed. The next build-order step is Slice 5: the complete
-onboarding and 50-core-prompt approval flow on the real foundations. It requires the eight fields from
-`AGENTS.md` and explicit operator approval before implementation.
+Slices 1 through 5 are complete and deployed. The next build-order step is Slice 6: the complete
+DataForSEO research funnel and caching. It requires the eight fields from `AGENTS.md` and explicit
+operator approval before implementation.
 
 ## Verification
 
