@@ -1,22 +1,17 @@
 /**
- * structured-drafter — STRICT GATEWAY TRANSPORT behavior (Slice 3, 2026-07-23).
- *
- * The drafter's `complete` seam now returns a PARSED structured VALUE (never
- * free-form text), and the free-form JSON-recovery path is gone. These pin the
- * outcomes that policy produces, all cold (an injected `complete`, zero paid
- * calls):
- *
- *   - a valid value drafts (the drafter still runs its OWN Zod safeParse)
- *   - a refusal FAILS CLOSED with NO retry (one call, no artifact)
- *   - an incomplete/truncated response FAILS CLOSED (no artifact)
- *   - a schema-invalid value RETRIES ONCE then fails closed
- *   - a retryable transport error retries within the SAME 2-attempt ceiling,
- *     recording spend per attempt
- *   - a budget block fails closed with NO spend
- *   - a cache hit costs $0 and never calls `complete`
+ * structured-drafter strict-gateway transport behavior: the complete seam
+ * returns parsed VALUES (no prose recovery); refusal/incomplete fail closed
+ * with no artifact; bounded retry with per-attempt spend; cache hits cost $0.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// Budget is not this file's subject (see llm-budget-isolation.test.ts): keep the
+// transport hermetic with an always-allowed, no-op budget seam.
+vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
+  checkBudget: async () => ({ allowed: true, remaining: 10 }),
+  recordSpend: async () => {},
+}));
 import {
   callStructuredLLM,
   type CompleteFn,

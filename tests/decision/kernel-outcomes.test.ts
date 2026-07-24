@@ -1,23 +1,16 @@
 /**
- * CORE 100K decision kernel — OUTCOME tests.
- *
- * These prove the OUTCOMES the old recommendation-intelligence / recommendations
- * / drafts / llm-orchestration / changes-shaping / action-packs stack produced,
- * against the ONE new decision path (EvidenceInput → ChangeProposal):
- *
- *   1. existing-page cold proposal generated + validated + persisted + loadable
- *   2. new-page cold brief generated + validated
- *   3. safety gates reject unsafe drafts (placeholder / dash / uuid /
- *      destructive edit / invented number)
- *   4. ranking orders by honest value
- *   5. no fabricated causality/certainty (an ungrounded number rejects)
- *   6. manual-publish — a proposal never auto-writes a live page
- *
- * Cold + deterministic: the drafting harness `complete` fn is injected, so zero
- * paid LLM calls run.
+ * DECISION kernel outcomes: generate -> validate -> rank -> persist round-trip,
+ * fail-closed validator rejections, and manual-only proposals. Each test name
+ * states its promise.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// Budget is not this file's subject: always-allowed, no-op hermetic seam.
+vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
+  checkBudget: async () => ({ allowed: true, remaining: 10 }),
+  recordSpend: async () => {},
+}));
 import { proposeExistingPageChange, proposeNewPageChange } from "@/domains/decision/propose";
 import { validateProposal } from "@/domains/decision/validate-proposal";
 import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals";

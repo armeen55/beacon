@@ -1,17 +1,6 @@
 /**
- * SOURCES — connector refresh wiring (Core 100K lane S merge).
- *
- * Merged from tests/lib/connectors/{cron-sync-succeeded,
- * on-use-sitewide-refresh, clarity/client, indexnow/ping-on-verify}.
- *
- * Pinned boundaries:
- *   • syncSucceeded gates freshness POSITIVELY on { synced: true } — a
- *     failure shape can never stamp last_synced_at fresh (audit-3 #5).
- *   • The on-USE refresh pulls the true sitewide GA4 series only when GA4 is
- *     connected (no cron dependence for the north-star card).
- *   • Clarity Data Export parser is defensive and fail-soft null.
- *   • Verify-live → IndexNow wiring self-hides without a key, records a
- *     receipt on every real ping, and NEVER throws.
+ * Connector refresh ledger: recordSourceRefresh outcome classification and the
+ * honest Recent-upkeep sentences (retired sources render nothing false).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";

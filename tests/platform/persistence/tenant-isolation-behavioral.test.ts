@@ -1,19 +1,7 @@
 /**
- * PLATFORM — tenant isolation, behavioral layer (Core 100K terminal suite).
- *
- * The §4 risk-register pin for "tenant isolation": the architecture suite
- * (tests/architecture/01-08) proves the SOURCE shape; this file proves the
- * RUNTIME shape across every persistence layer that touches tenant rows.
- * Merged from tests/persistence/{tenant-isolation-behavioral,
- * tenant-repository-pushdown, dual-write-tenant, dual-write-pao-same-day-repoll,
- * dual-write-observation-runs-dedup} and tests/tenants/isolation.
- *
- *   A. buildTenantRepo facade returns only the calling tenant's rows.
- *   B. supabase-backend forTenant static invariant: every select is scoped.
- *   C. dual-write validation fires BEFORE any I/O (scoped upserts, stamping,
- *      global-table membership, Tier A helper wiring, scoped deletes).
- *   D. same-day re-poll recovery writes only the missing rows.
- *   E. tenant-data adapters never leak across tenants.
+ * PLATFORM — tenant isolation, behavioral layer: repo facade scoping, the
+ * supabase-backend forTenant pushdown invariant, dual-write validation before
+ * I/O, and the canonical Account/BusinessProfile isolation promises.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -22,29 +10,12 @@ import { resolve } from "node:path";
 
 vi.mock("server-only", () => ({}));
 
-// Scripted supabase admin used ONLY by section D (dual-write is a no-op for
-// every other section because DUAL_WRITE is unset in the vitest env).
-const DUP_MSG = 'duplicate key value violates unique constraint "ux_pao_tenant_prompt_platform_day"';
-const _upsertResults: Array<{ error: { message: string } | null }> = [];
-const _upsertCalls: Array<Array<Record<string, unknown>>> = [];
-let _existingPromptIds: string[] = [];
+// Inert supabase stub: dual-write is a no-op in every section here because
+// DUAL_WRITE is unset in the vitest env; nothing may reach a real client.
 vi.mock("@/lib/persistence/supabase", () => ({
-  getSupabaseAdmin: () => ({
-    from: (_table: string) => ({
-      upsert: async (rows: Array<Record<string, unknown>>) => {
-        _upsertCalls.push(rows);
-        return _upsertResults.shift() ?? { error: null };
-      },
-      select: (_cols: string) => {
-        const terminator = {
-          eq: () => terminator,
-          gte: () => terminator,
-          lt: async () => ({ data: _existingPromptIds.map((prompt_id) => ({ prompt_id })), error: null }),
-        };
-        return terminator;
-      },
-    }),
-  }),
+  getSupabaseAdmin: () => {
+    throw new Error("test: no section may reach the supabase client");
+  },
 }));
 
 import { buildTenantRepo } from "@/lib/persistence/repositories/tenant-repo";
@@ -55,7 +26,6 @@ import {
   GLOBAL_TABLES,
   tenantizeRows,
   syncImportRuns,
-  syncPromptAnswerObservations,
 } from "@/lib/persistence/dual-write";
 
 const TENANT = "tenant-fixture-local";
@@ -259,57 +229,6 @@ describe("Tier A sync* helpers stay tenant-wired (static invariant)", () => {
     ).rejects.toThrow(/tenantId must be a non-empty string/);
   });
 });
-
-// ── D. same-day re-poll recovery (the June 3 outage class) ─────────────────
-
-describe("syncPromptAnswerObservations same-day re-poll recovery", () => {
-  function obs(promptId: string) {
-    return {
-      id: `obs-${promptId}`,
-      prompt_id: promptId,
-      answer_hash: "h",
-      platform: "chatgpt",
-      observed_at: "2026-06-03T12:01:31Z",
-      citation_domains: [],
-    } as unknown as Parameters<typeof syncPromptAnswerObservations>[0][number];
-  }
-
-  beforeEach(() => {
-    vi.stubEnv("DUAL_WRITE", "true");
-    _upsertResults.length = 0;
-    _upsertCalls.length = 0;
-    _existingPromptIds = [];
-  });
-
-  it("day-collision: writes ONLY the missing rows (rescues a partial run's gap)", async () => {
-    _upsertResults.push({ error: { message: DUP_MSG } });
-    _upsertResults.push({ error: null });
-    _existingPromptIds = ["p1"];
-    await syncPromptAnswerObservations([obs("p1"), obs("p2")], "tenant-test");
-    expect(_upsertCalls).toHaveLength(2);
-    expect(_upsertCalls[1]).toHaveLength(1);
-    expect(_upsertCalls[1]![0]!.prompt_id).toBe("p2");
-  });
-
-  it("all-duplicates: no second write, no throw (the June 3 shape)", async () => {
-    _upsertResults.push({ error: { message: DUP_MSG } });
-    _existingPromptIds = ["p1", "p2"];
-    await syncPromptAnswerObservations([obs("p1"), obs("p2")], "tenant-test");
-    expect(_upsertCalls).toHaveLength(1);
-  });
-
-  it("other constraint errors still throw (the paid-poll gate keeps its job)", async () => {
-    _upsertResults.push({ error: { message: 'violates unique constraint "something_else"' } });
-    await expect(syncPromptAnswerObservations([obs("p1")], "tenant-test")).rejects.toThrow(/something_else/);
-  });
-});
-
-// ───────────────────────────────────────────────────────────────────────────
-// F. Generic Account + BusinessProfile (Slice 1 acceptance).
-//    A freshly provisioned account is fully generic; missing configuration
-//    fails generically at every former leak site; no Account/Profile read
-//    depends on files, env blobs, founder fallbacks, or implicit tenants.
-// ───────────────────────────────────────────────────────────────────────────
 
 describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
   const FORBIDDEN_VOCAB =

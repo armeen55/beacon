@@ -1,12 +1,7 @@
 /**
- * llm/gateway — canonical strict OpenAI Responses transport (Slice 3).
- *
- * Every test injects `fetchImpl`; ZERO network. Budget/breaker seams are
- * injected so the cap logic is exercised without touching the operator's real
- * `.data/` ledgers. Proves: fail-closed BEFORE network (breaker, budget,
- * unsupported schema), the exact Responses request body, and every envelope
- * classification (ok / refusal / incomplete / failed / missing / http / abort)
- * plus provider-null normalization and provenance.
+ * Strict OpenAI Responses gateway: fail-closed-before-network (breaker, budget,
+ * unsupported schema, missing tenant), exact request contract (Responses fields
+ * present, Chat-Completions fields absent), and every envelope outcome.
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -100,39 +95,9 @@ const allowBudget: BudgetImpl = { check: async () => ({ allowed: true }), record
 
 // ── strictJsonSchemaFor ───────────────────────────────────────────────────────
 
-describe("strictJsonSchemaFor", () => {
-  it("makes every property required, sets additionalProperties:false, and nullifies optionals", () => {
-    const out = strictJsonSchemaFor(SCHEMA, "s");
-    expect("unsupported" in out).toBe(false);
-    if ("unsupported" in out) return;
-    const schema = out.schema as any;
-    expect(schema.additionalProperties).toBe(false);
-    expect(new Set(schema.required)).toEqual(new Set(["title", "note", "score"]));
-    // optional `note` becomes anyOf[string,null]
-    expect(schema.properties.note.anyOf).toEqual(expect.arrayContaining([{ type: "string" }, { type: "null" }]));
-    // strip validation keywords the strict subset does not guarantee
-    expect(JSON.stringify(schema)).not.toContain("$schema");
-    expect(JSON.stringify(schema)).not.toContain("minLength");
-  });
-
-  it("returns { unsupported } for a construct outside the strict subset (z.any)", () => {
-    const out = strictJsonSchemaFor(z.object({ a: z.any() }), "s");
-    expect("unsupported" in out).toBe(true);
-  });
-});
-
-// ── normalizeStructuredValue ──────────────────────────────────────────────────
-
-describe("normalizeStructuredValue", () => {
-  it("drops optional-not-nullable nulls but keeps genuinely-nullable nulls", () => {
-    const v = normalizeStructuredValue({ title: "Hi", note: null, score: null }, SCHEMA) as Record<string, unknown>;
-    expect("note" in v).toBe(false); // optional-not-nullable null stripped
-    expect(v.score).toBeNull(); // nullable null kept
-    expect(SCHEMA.safeParse(v).success).toBe(true); // original schema now parses
-  });
-});
-
-// ── fail-closed BEFORE network ────────────────────────────────────────────────
+// Schema conversion + null-normalization promises live in the committed
+// all-kinds sweep (schema-strict-conversion.test.ts); the unsupported-schema
+// fail-closed promise is pinned behaviorally below (zero-fetch invalid_response).
 
 describe("openAIStructuredResponse — fails closed before any fetch", () => {
   it("blocks on a tripped global cost breaker without calling fetch", async () => {

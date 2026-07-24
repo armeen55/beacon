@@ -84,20 +84,6 @@ export type RecordSpendDualWriteInput = {
   metadata?: Record<string, unknown>;
 };
 
-export type SpendSnapshotRow = {
-  tenant_id: string;
-  platform: string;
-  spent_usd: number;
-  cap_usd: number | null;
-  prompt_count: number;
-};
-
-// ─── Flag check ──────────────────────────────────────────────────────────
-
-export function isBudgetLedgerDualWriteEnabled(): boolean {
-  return process.env.BEACON_BUDGET_LEDGER_DUAL_WRITE === "1";
-}
-
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 function todayUtcDate(now: Date = new Date()): string {
@@ -105,27 +91,6 @@ function todayUtcDate(now: Date = new Date()): string {
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────
-
-/**
- * Dual-write a spend event to `public.llm_budget_ledger`.
- *
- * No-op when `BEACON_BUDGET_LEDGER_DUAL_WRITE !== "1"`. Never throws.
- *
- * Callers MUST already have written to the JSON ledger (the source of
- * truth in shadow mode). This helper is purely additive: a Supabase
- * read failure, validation rejection, or insert error WILL NOT
- * affect the JSON ledger or the polling pipeline.
- */
-/**
- * Flag-gated dual-write for the SHADOW poll path: a no-op unless
- * `BEACON_BUDGET_LEDGER_DUAL_WRITE === "1"`. Delegates to the always-on writer.
- */
-export async function recordSpendDualWrite(
-  input: RecordSpendDualWriteInput,
-): Promise<void> {
-  if (!isBudgetLedgerDualWriteEnabled()) return;
-  await recordSpendSupabase(input);
-}
 
 /**
  * ALWAYS-ON durable spend writer to `public.llm_budget_ledger`. NOT flag-gated —
@@ -303,90 +268,6 @@ export async function readMonthlySpendByPlatform(tenantId: string): Promise<Mont
   }
 }
 
-/**
- * R14b (spend-to-outcome join) - the recent day-grain spend rows for the
- * /activity stream: what was spent, on which platform, and what it bought
- * (prompt/call counts), newest day first. Bounded (one indexed read, hard row
- * cap), read-only, fail-soft -> []. The ledger's grain is one row per
- * (tenant, day, platform), so each row reads as one plain "I spent $X doing Y"
- * stream entry.
- */
-export type SpendActivityRow = {
-  dateUtc: string;
-  platform: string;
-  spentUsd: number;
-  promptCount: number;
-  callCount: number;
-  updatedAt: string | null;
-};
-
-export async function readRecentSpendRows(
-  tenantId: string,
-  sinceDays = 30,
-  maxRows = 90,
-): Promise<SpendActivityRow[]> {
-  if (typeof tenantId !== "string" || tenantId.trim() === "") return [];
-  try {
-    const supabase = getSupabaseAdmin();
-    const since = new Date(Date.now() - Math.max(1, sinceDays) * 86_400_000)
-      .toISOString()
-      .slice(0, 10);
-    const { data, error } = await supabase
-      .from("llm_budget_ledger")
-      .select("date_utc, platform, spent_usd, prompt_count, call_count, updated_at")
-      .eq("tenant_id", tenantId)
-      .gte("date_utc", since)
-      .order("date_utc", { ascending: false })
-      .limit(Math.max(1, maxRows));
-    if (error || !Array.isArray(data)) return [];
-    return (data as Array<Record<string, unknown>>).map((r) => ({
-      dateUtc: String(r.date_utc),
-      platform: String(r.platform),
-      spentUsd: Number(r.spent_usd) || 0,
-      promptCount: Number(r.prompt_count) || 0,
-      callCount: Number(r.call_count) || 0,
-      updatedAt: typeof r.updated_at === "string" ? r.updated_at : null,
-    }));
-  } catch {
-    return [];
-  }
-}
-
-export async function readSpendSnapshotForDate(
-  date: string,
-): Promise<SpendSnapshotRow[]> {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    console.warn(`[budget-ledger] readSpendSnapshotForDate: bad date "${date}"`);
-    return [];
-  }
-  try {
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from("llm_budget_ledger")
-      .select("tenant_id, platform, spent_usd, daily_cap_usd, prompt_count")
-      .eq("date_utc", date);
-    if (error) {
-      console.warn(
-        `[budget-ledger] read snapshot failed (non-fatal): ${error.message}`,
-      );
-      return [];
-    }
-    return (data ?? []).map((r) => ({
-      tenant_id: String(r.tenant_id),
-      platform: String(r.platform),
-      spent_usd: Number(r.spent_usd),
-      cap_usd:
-        r.daily_cap_usd === null || r.daily_cap_usd === undefined
-          ? null
-          : Number(r.daily_cap_usd),
-      prompt_count: Number(r.prompt_count),
-    }));
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.warn(`[budget-ledger] read snapshot threw (non-fatal): ${msg}`);
-    return [];
-  }
-}
 
 /**
  * 2026-06-10 (audit #31/#35) — today's TOTAL spend for a tenant across

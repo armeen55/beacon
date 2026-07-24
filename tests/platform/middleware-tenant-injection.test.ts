@@ -1,18 +1,8 @@
 /**
- * Middleware account-injection contract (2026-07-23 account-isolation
- * contraction): one login → one account → one website, fail-closed.
- *
- *   1. Inbound `x-beacon-tenant` is stripped (client spoof defense).
- *   2. Exactly one membership → that account id injected.
- *   3. Zero memberships → /login?error=no_account.
- *   4. Multiple memberships → /login?error=multiple_accounts_unsupported
- *      (never earliest-membership guessing).
- *   5. Query error / throw / hang → /login?error=account_unavailable, even
- *      when a forged or stale `beacon_tenant` cookie is supplied (the cookie
- *      is NEVER read; it is actively expired).
- *   6. Unauthenticated private-path requests redirect to /login?next=...
- *   7. BEACON_AUTH_DISABLED=1: ignores cookies, strips headers, no account
- *      enumeration — the resolver uses only the explicit env account.
+ * Middleware account injection: one login -> one account, fail-closed on zero/
+ * multiple/erroring/hung membership lookups, forged beacon_tenant cookies never
+ * honored (and actively expired), inbound tenant headers stripped, auth-disabled
+ * local mode uses only the explicit env account.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";

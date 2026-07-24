@@ -1,26 +1,26 @@
 import "server-only";
 
 /**
- * Adjudicator budget guardrail — Phase v7 Commit 3 (2026-04-23).
+ * Per-account LLM budget guardrail.
  *
- * Tracks monthly LLM spend in `.data/llm-budget.json`. Hard-caps calls
- * when the spend hits the configured limit for the current month. The
- * cap is small by design ($10 default for Ritz dogfood). Callers check
- * before calling the LLM and increment after.
+ * Tracks each account's monthly LLM spend and hard-caps calls when spend hits
+ * the configured limit for the current month. Callers check before calling
+ * the provider and record after. Every read and write takes the EXPLICIT
+ * account: no ambient tenant resolution exists anywhere in this path
+ * (isolation closures 2026-07-23/24).
  *
- * The budget store is single-writer (the adjudicator runs server-side
- * from /recommendations page render or cron). No lock needed at this
- * scale; if two renders race the worst case is a fractional overshoot.
- *
- * audit-3 #1 (2026-06-22) — DURABLE CAP. `.data/llm-budget.json` is the
- * source of truth ONLY where the disk is writable. On Vercel (and every
- * GitHub Actions run) `json-store` no-ops writes, so the file ledger reads
- * back 0 forever and the monthly cap fails OPEN — paid adjudicator calls
- * could run unbounded. We now ALSO consult the durable Supabase
- * `llm_budget_ledger` (platform `adjudicator-openai`): `checkBudget` blocks on
- * max(file, durable) monthly spend, and `recordSpend` writes the durable row
- * as well as the file. Fail-soft: a Supabase read error falls back to the file
- * spend (per-run cost stays tiny; the file is still the backstop in dev).
+ * Two layers, same account identity on both:
+ *   - Durable Supabase ledger (`llm_budget_ledger`, platform
+ *     "adjudicator-openai"): the authoritative per-account monthly spend. On
+ *     Vercel the file layer no-ops, so without this read the cap would fail
+ *     OPEN (audit-3 #1, 2026-06-22).
+ *   - File-layer backstop (`llm-budget`, TENANT-SCOPED store): dev-disk
+ *     protection when Supabase is unreachable. Routed per account via the
+ *     explicit tenantId; the pre-closure shared global blob is inert and
+ *     never read.
+ * `checkBudget` blocks on max(file, durable) FOR THE SAME ACCOUNT;
+ * `recordSpend` writes both. Fail-soft: a durable read error falls back to
+ * the account's file spend.
  */
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
@@ -38,10 +38,9 @@ const DEFAULT_CAP_USD = 10;
 const ADJUDICATOR_PLATFORM = "adjudicator-openai" as const;
 
 /**
- * Durable monthly adjudicator spend from Supabase for an EXPLICIT account, or
- * null when the DB is unconfigured / read errored (caller falls back to the file
- * ledger). Never throws. Slice 3 (2026-07-23): the account is threaded in
- * explicitly - no ambient currentTenantId() resolution inside the budget path.
+ * Durable monthly spend from Supabase for an EXPLICIT account, or null when
+ * the DB is unconfigured / read errored (caller falls back to the account's
+ * file ledger). Never throws.
  */
 async function durableMonthlySpentUsd(now: Date, tenantId: string): Promise<number | null> {
   if (!isSupabaseConfigured()) return null;
@@ -76,8 +75,15 @@ function emptyState(now: Date = new Date()): AdjudicatorBudgetState {
   };
 }
 
-async function readState(now: Date): Promise<AdjudicatorBudgetState> {
-  const rows = await readStore<AdjudicatorBudgetState>(STORE_NAME);
+/** A missing/empty account can never bind budget state to the wrong ledger. */
+function requireTenant(tenantId: string, op: string): string {
+  const t = (tenantId ?? "").trim();
+  if (!t) throw new Error(`adjudicator-budget.${op}: explicit tenantId is required.`);
+  return t;
+}
+
+async function readState(now: Date, tenantId: string): Promise<AdjudicatorBudgetState> {
+  const rows = await readStore<AdjudicatorBudgetState>(STORE_NAME, undefined, { tenantId });
   const existing = rows[0];
   if (!existing) return emptyState(now);
   const month = currentMonthKey(now);
@@ -94,8 +100,8 @@ async function readState(now: Date): Promise<AdjudicatorBudgetState> {
   return existing;
 }
 
-async function writeState(state: AdjudicatorBudgetState): Promise<void> {
-  await writeStore<AdjudicatorBudgetState>(STORE_NAME, [state]);
+async function writeState(state: AdjudicatorBudgetState, tenantId: string): Promise<void> {
+  await writeStore<AdjudicatorBudgetState>(STORE_NAME, [state], { tenantId });
 }
 
 export type BudgetCheckResult =
@@ -105,17 +111,9 @@ export type BudgetCheckResult =
 /**
  * Pure budget-boundary decision (wave-10, 2026-06-14). Blocks when spend is
  * ALREADY at/over the cap, OR when this call's projected cost would push the
- * total OVER it.
- *
- * The first clause (`spendUsd >= capUsd`) makes the cap fail-closed AT the
- * boundary — matching the native-polling path (`budget.ts`: `spent >= cap`)
- * and `monthly.ts`. Pre-fix the check was only `spendUsd + projected > capUsd`,
- * so with `projected = 0` (cost unknown at call time — the DEFAULT, since
- * adjudicate.ts calls checkBudget without a projected cost) a call made at
- * spend EXACTLY == cap slipped through (`cap + 0 > cap` is false), letting the
- * adjudicator exceed its monthly cap by one call. The second clause still lets
- * a KNOWN-cost call land exactly on the cap from below (not over-strict).
- * Matters once `BEACON_LLM_PROVIDER` flips off `deterministic`.
+ * total OVER it. The first clause makes the cap fail-closed AT the boundary
+ * (a zero-projected call at spend == cap must not slip through); the second
+ * still lets a KNOWN-cost call land exactly on the cap from below.
  */
 export function isOverAdjudicatorBudget(
   spendUsd: number,
@@ -128,14 +126,15 @@ export function isOverAdjudicatorBudget(
 export async function checkBudget(
   opts: { tenantId: string; now?: Date; projectedCostUsd?: number },
 ): Promise<BudgetCheckResult> {
+  const tenantId = requireTenant(opts.tenantId, "checkBudget");
   const now = opts.now ?? new Date();
-  const state = await readState(now);
+  const state = await readState(now, tenantId);
   const projected = opts.projectedCostUsd ?? 0;
 
-  // audit-3 #1: take the GREATER of the file spend and the durable Supabase
-  // monthly spend. On Vercel the file reads back 0 (writes no-op), so without
-  // the durable read the cap fails OPEN; the durable spend is the real total.
-  const durable = await durableMonthlySpentUsd(now, opts.tenantId);
+  // audit-3 #1: take the GREATER of this account's file spend and its durable
+  // Supabase monthly spend. On Vercel the file reads back 0 (writes no-op), so
+  // the durable per-account spend is the real total.
+  const durable = await durableMonthlySpentUsd(now, tenantId);
   const effectiveSpend = durable != null ? Math.max(state.spendUsd, durable) : state.spendUsd;
 
   if (isOverAdjudicatorBudget(effectiveSpend, projected, state.capUsd)) {
@@ -148,23 +147,21 @@ export async function checkBudget(
 }
 
 export async function recordSpend(costUsd: number, opts: { tenantId: string; now?: Date }): Promise<void> {
+  const tenantId = requireTenant(opts.tenantId, "recordSpend");
   const now = opts.now ?? new Date();
-  const state = await readState(now);
+  const state = await readState(now, tenantId);
   state.spendUsd = round6(state.spendUsd + costUsd);
   state.calls += 1;
   state.updatedAt = now.toISOString();
-  await writeState(state);
+  await writeState(state, tenantId);
 
-  // audit-3 #1: mirror the spend into the durable Supabase ledger so the cap
-  // survives Vercel's ephemeral disk. Always-on (not flag-gated) — the cap in
-  // checkBudget reads this same table. Never throws (recordSpendSupabase
-  // swallows its own errors); a durable miss only loses cross-run accounting,
-  // it never blocks the paid call that already happened. Slice 3: the account
-  // is threaded in explicitly (no ambient currentTenantId() in this path).
+  // Mirror the spend into the durable per-account Supabase ledger so the cap
+  // survives Vercel's ephemeral disk. Never throws; a durable miss only loses
+  // cross-run accounting, it never blocks the paid call that already happened.
   if (isSupabaseConfigured() && Number.isFinite(costUsd) && costUsd >= 0) {
     try {
       await recordSpendSupabase({
-        tenantId: opts.tenantId,
+        tenantId,
         platform: ADJUDICATOR_PLATFORM,
         costUsd,
       });
@@ -174,17 +171,6 @@ export async function recordSpend(costUsd: number, opts: { tenantId: string; now
       });
     }
   }
-}
-
-export async function getBudgetState(now?: Date): Promise<AdjudicatorBudgetState> {
-  return readState(now ?? new Date());
-}
-
-export async function setBudgetCap(capUsd: number, now: Date = new Date()): Promise<void> {
-  const state = await readState(now);
-  state.capUsd = capUsd;
-  state.updatedAt = now.toISOString();
-  await writeState(state);
 }
 
 function round6(n: number): number {

@@ -1,24 +1,12 @@
 /**
- * The Prepared Output Quality Gate (Core 100K Phase 6 merge of
- * src/domains/decision/drafts/draft-quality.test.ts + draft-quality-repeat-flag.test.ts,
- * trimmed to boundary + operator-locked fixture cases).
- *
- * Cases are pinned to the REAL Referencepedia draft audit + the adversarial
- * false-rejection findings. Locked rules: J-69 "no exceptions" source gate
- * (the cheetah fixture holds without a source, ships with one), the 80-150
- * word band, the never-ready-without-verification pin for robots-blocked
- * sources, entailment against the page body, and the formatting-kind
- * exemptions (internal_link / cro_fix / pure rephrase are never source-gated).
+ * Draft quality gates (the customer-copy floor): every test name states the
+ * accept/hold/reject promise it pins, with real prose fixtures as inputs.
  */
 import { describe, it, expect } from "vitest";
 import {
   evaluateDraftQuality,
   evaluateTitleMetaQuality,
   evaluateCreatePageBriefQuality,
-  evaluatePreparedPackQuality,
-  evaluateInternalLinkQuality,
-  evaluateCROFixQuality,
-  evaluateSectionDraftQuality,
 } from "@/domains/decision/drafts/draft-quality";
 
 const NOWRUZ_ANSWER =
@@ -382,142 +370,6 @@ describe("evaluateCreatePageBriefQuality", () => {
   });
 });
 
-describe("evaluateSectionDraftQuality (outline-to-draft pipeline)", () => {
-  it("PASSES a contextual, sourced section; REJECTS the same shape with zero sources", () => {
-    const ready = evaluateSectionDraftQuality({
-      heading: "The sofreh aghd ceremony",
-      body: "The sofreh aghd is a ceremonial spread laid before an Iranian couple during the wedding, carrying symbolic items such as bread, herbs, gold coins, and a mirror. Family members hold a canopy above the couple while an officiant reads the vows.",
-      sourceCount: 1,
-    });
-    expect(ready.status).toBe("ready");
-    const unsourced = evaluateSectionDraftQuality({
-      heading: "The sofreh aghd ceremony",
-      body: "The sofreh aghd is a ceremonial spread laid before an Iranian couple during the wedding, carrying symbolic items such as bread, herbs, gold coins, and a mirror.",
-      sourceCount: 0,
-    });
-    expect(unsourced.status).toBe("missing_source");
-  });
-
-  it("REJECTS plan-not-prose language ('this section will present…') caught in the first real Referencepedia run", () => {
-    const r = evaluateSectionDraftQuality({
-      heading: "Historical and cultural origins",
-      body: "This section will present the historical and cultural origins of Persian mythology as a focused topic. Intended chronological context: outline the timeframes and cultural phases that influenced myth formation across the Iranian cultural sphere and its neighbors over the centuries.",
-      sourceCount: 1,
-    });
-    expect(r.status).toBe("too_thin");
-    expect(r.reasons[0]).toContain("content plan");
-  });
-
-  it("does NOT reject present-tense synthesis ('this section synthesizes…') as plan language", () => {
-    const r = evaluateSectionDraftQuality({
-      heading: "Creation and end time themes in Persian cosmology",
-      body: "Creation narratives in Persian mythology describe the origins of the world and humanity's place within a structured cosmic order. Eschatological cycles of decline and renewal conclude moral history and restore order. This section synthesizes how those themes interact in mythic storytelling and ritual practice.",
-      sourceCount: 1,
-    });
-    expect(r.status).toBe("ready");
-  });
-
-  it("REJECTS off-topic sections and unsupported superlative claims", () => {
-    const offTopic = evaluateSectionDraftQuality({
-      heading: "Choosing a venue",
-      body: "Picking the right venue takes planning. Consider the guest count, the season, and the budget before booking anything for the big day ahead.",
-      sourceCount: 1,
-    });
-    expect(offTopic.status).toBe("relevance_rejected");
-    const superlative = evaluateSectionDraftQuality({
-      heading: "Why the sofreh aghd matters",
-      body: "The Persian sofreh aghd is the best wedding ceremony tradition in the world, unmatched by any other culture's rituals or customs across history.",
-      sourceCount: 1,
-    });
-    expect(superlative.status).toBe("unsupported_claim");
-  });
-});
-
-describe("formatting kinds - never source-gated", () => {
-  it("internal link: rejects a self-link; passes a distinct in-context link with zero sources", () => {
-    const selfLink = evaluateInternalLinkQuality({
-      sourcePage: "https://fixture-content.example/cities",
-      targetPage: "https://www.fixture-content.example/cities/",
-      anchorText: "Iranian cities",
-      linkSentence: "See our guide to Iranian cities for more.",
-    });
-    expect(selfLink.status).toBe("relevance_rejected");
-    const good = evaluateInternalLinkQuality({
-      sourcePage: "https://fixture-content.example/nowruz",
-      targetPage: "https://fixture-content.example/haft-seen",
-      anchorText: "Haft-Seen table",
-      linkSentence: "Families arrange a Haft-Seen table during Nowruz celebrations.",
-    });
-    expect(good.status).toBe("ready");
-  });
-
-  it("cro_fix: ready with a concrete fix + Clarity evidence; needs review with no evidence (no fake certainty)", () => {
-    const ready = evaluateCROFixQuality({
-      frictionType: "dead_click",
-      location: "the hero image on the cities page",
-      fix: "Make the hero image non-clickable or link it to the cities index, since users dead-click expecting navigation.",
-      evidenceRefs: 1,
-    });
-    expect(ready.status).toBe("ready");
-    const noEvidence = evaluateCROFixQuality({
-      frictionType: "rage_click",
-      location: "the top nav",
-      fix: "Increase the tap target size of the menu button for mobile users.",
-      evidenceRefs: 0,
-    });
-    expect(noEvidence.status).toBe("useful_but_needs_review");
-  });
-});
-
-describe("evaluatePreparedPackQuality - dispatch + repeat flag", () => {
-  const READY_ANSWER_PACK = {
-    structuredDraft: {
-      kind: "answer_block",
-      value: {
-        answer:
-          "Chaharshanbe Suri 2026 falls on Tuesday, March 17, the eve of the last Wednesday before Nowruz. Iranian families gather after sunset to jump over small bonfires, share ajil, and recite the traditional zardi-ye man az to verse to leave the old year's troubles behind. Neighbors light several small fires in a row along streets and courtyards, and children often join in with sparklers and small firecrackers under adult supervision. Musicians sometimes play drums nearby while groups pass from one small fire to the next well into the evening. Many families finish the night with a shared meal indoors once the fires have burned down safely.",
-        evidenceRefs: [{ source: "gsc", detail: "194 impressions on the 2026 date query" }],
-        sources: [
-          {
-            domain: "britannica.com",
-            claim: "Chaharshanbe Suri falls on the eve of the last Wednesday before Nowruz and involves jumping over bonfires",
-            verified: true,
-            supportingExcerpt:
-              "Chaharshanbe Suri 2026 falls on Tuesday, March 17, the eve of the last Wednesday before Nowruz. Iranian families gather after sunset to jump over small bonfires, share ajil, and recite the traditional zardi-ye man az to verse to leave the old year's troubles behind. Neighbors light several small fires in a row along streets and courtyards, and children often join in with sparklers and small firecrackers under adult supervision. Musicians sometimes play drums nearby while groups pass from one small fire to the next well into the evening. Many families finish the night with a shared meal indoors once the fires have burned down safely.",
-          },
-        ],
-      },
-    },
-    preparedStatus: "ready_to_review",
-    moveType: "answer_block",
-  } as const;
-
-  it("a pack with NO draft is too_thin, never ready (rec-3/7/11)", () => {
-    const r = evaluatePreparedPackQuality({ structuredDraft: null, preparedStatus: "demand_found", moveType: "edit_page" });
-    expect(r.status).toBe("too_thin");
-    expect(r.copyAllowed).toBe(false);
-  });
-
-  it("threads the draft's OWN sources[] field through to the answer gate (W5, J-69)", () => {
-    const withoutSources = evaluatePreparedPackQuality({
-      structuredDraft: { kind: "answer_block", value: { answer: NOWRUZ_ANSWER, evidenceRefs: [] } },
-    });
-    const withSources = evaluatePreparedPackQuality({
-      structuredDraft: { kind: "answer_block", value: { answer: NOWRUZ_ANSWER, evidenceRefs: [], sources: [NOWRUZ_SOURCE] } },
-    });
-    expect(withoutSources.status).toBe("missing_source");
-    expect(withSources.status).toBe("ready");
-  });
-
-  it("R16 repeat flag: demotes ready to useful_but_needs_review; never rescues; omitting is byte-identical", () => {
-    expect(evaluatePreparedPackQuality({ ...READY_ANSWER_PACK }).status).toBe("ready");
-    const flagged = evaluatePreparedPackQuality({ ...READY_ANSWER_PACK, repeatFlagged: true });
-    expect(flagged.status).toBe("useful_but_needs_review");
-    expect(flagged.reasons[0]).toBe("Reads like a repeat of recent drafts. Give it a quick look before shipping.");
-    expect(flagged.copyAllowed).toBe(true); // repetition is a review concern, not a trust breach
-    const thin = evaluatePreparedPackQuality({ structuredDraft: null, repeatFlagged: true });
-    expect(thin.status).toBe("too_thin");
-    const same = evaluatePreparedPackQuality({ ...READY_ANSWER_PACK, repeatFlagged: false });
-    expect(same).toEqual(evaluatePreparedPackQuality({ ...READY_ANSWER_PACK }));
-  });
-});
+// Dormant-kind evaluators (section drafts, internal-link/CRO formatting,
+// prepared-pack dispatch) have zero production callers since the Foundation
+// rebuild; their pins were retired 2026-07-24 with the dormant machinery.

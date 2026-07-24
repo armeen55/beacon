@@ -1,40 +1,8 @@
 /**
- * Vitest globalSetup — hydrate `.data/` from a small synthetic fixture
- * tree when (and ONLY when) the operator's curated `.data/` is missing.
- *
- * Why this exists
- * ---------------
- * Several tests read on-disk JSON under `.data/` (the operator's
- * gitignored data directory). Locally the operator has a real Harborview
- * dogfeed copy of `.data/` and the tests pass. In CI / fresh clones
- * the directory does not exist, so the same tests either:
- *
- *   • fail on `existsSync(...)` early-returns (vitest reports
- *     "No test found in suite" because the dynamic per-tenant test
- *     registration sees zero tenant dirs), or
- *   • fail on tenant-store lookups that require `tenants.json`.
- *
- * Both failure modes are environmental — not real product bugs.
- *
- * The fix is to hydrate a minimal synthetic fixture into `.data/` at
- * test-suite start, and clean it up at teardown. The fixture is small
- * (one founder tenant, one row per per-tenant store, five synthetic
- * recommendation rows) and lives under `tests/fixtures/ci-data/`.
- *
- * The local-data guard
- * --------------------
- * This hook is opt-out by default for any developer running with a
- * real `.data/`. The presence of `.data/global/tenants.json` is the
- * sentinel: if it exists, we DO NOT touch `.data/` at all and the
- * teardown is a no-op. The operator's data is never overwritten.
- *
- * Only when `.data/global/tenants.json` is absent do we copy the
- * fixture tree into `.data/` and remove the directory at teardown.
- *
- * The hook also tracks whether IT created the directory — if a partial
- * `.data/` already exists for some reason (e.g. a CI cache), we leave
- * it alone and run no fixture hydration. Strict "absent" means the
- * sentinel isn't there.
+ * Vitest globalSetup — hydrate `.data/` from the synthetic fixture tree ONLY
+ * when the operator's real `.data/` is absent (sentinel: .data/global/
+ * tenants.json). CI gets a deterministic substrate; a real local data dir is
+ * never touched or overwritten, and teardown removes only what this created.
  */
 
 import {

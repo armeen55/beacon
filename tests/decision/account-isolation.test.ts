@@ -1,17 +1,8 @@
 /**
- * Account isolation for the structured-drafter cache + budget (Slice 3, 2026-07-23).
- *
- * The customer promise: one account NEVER reuses another's generated text, and
- * every paid call is attributable to an explicit account. These pin it end to end:
- *
- *   - the "llm-call-cache" store is per-tenant (not global);
- *   - llmCallCacheKey folds the account IN, so identical prompts from two accounts
- *     hash to different keys;
- *   - storeCacheImpl routes every read/write per account, stamps the owner on each
- *     entry, scopes recentTexts, and THROWS on an empty account before any I/O;
- *   - callStructuredLLM threads the account into the cache (miss for account B on a
- *     byte-identical prompt; $0 hit for account A) and into the budget check/record;
- *   - a missing account fails closed BEFORE cache, budget, or the completion fn.
+ * Account isolation for the structured-output cache + budget: per-tenant store,
+ * account-keyed hashes, explicit routing with owner stamping, tenant-scoped
+ * recentTexts, and fail-closed missing-account behavior — each layer pinned
+ * independently, plus the end-to-end promises through callStructuredLLM.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";

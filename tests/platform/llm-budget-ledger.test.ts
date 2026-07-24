@@ -1,20 +1,10 @@
 /**
- * PLATFORM — LLM budget ledger dual-write (Core 100K terminal suite; trimmed
- * from src/lib/cost/budget-ledger-supabase.test.ts).
- *
- * Spend-cap-adjacent invariants: flag-gated writes, atomic increments,
- * never-throws (recording can never block a poll), validation BEFORE any
- * Supabase round-trip, and the calm snapshot reader. The fail-closed spend
- * CAP itself is pinned in tests/platform/critical-fix-regression.test.ts
- * (budget-check throw ⇒ allowed:false).
+ * Durable per-account LLM budget ledger: validation before I/O, insert/atomic
+ * increment upserts, and never-throws (recording can't block a paid call).
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import {
-  recordSpendDualWrite,
-  readSpendSnapshotForDate,
-  isBudgetLedgerDualWriteEnabled,
-} from "@/lib/cost/budget-ledger-supabase";
+import { recordSpendSupabase } from "@/lib/cost/budget-ledger-supabase";
 
 type MaybeSingleResult = { data: Record<string, unknown> | null; error: { message: string } | null };
 type ListResult = { data: Array<Record<string, unknown>> | null; error: { message: string } | null };
@@ -91,26 +81,9 @@ afterEach(() => {
   else process.env.BEACON_BUDGET_LEDGER_DUAL_WRITE = prevFlag;
 });
 
-describe("recordSpendDualWrite — flag-gated", () => {
-  it("flag unset (or '0') → no Supabase write attempted at all", async () => {
-    delete process.env.BEACON_BUDGET_LEDGER_DUAL_WRITE;
-    expect(isBudgetLedgerDualWriteEnabled()).toBe(false);
-    await recordSpendDualWrite({ tenantId: "tenant-fixture-local", platform: "perplexity", costUsd: 0.0917 });
-    expect(SUPABASE_STATE.fromTablesCalled).toEqual([]);
-    process.env.BEACON_BUDGET_LEDGER_DUAL_WRITE = "0";
-    expect(isBudgetLedgerDualWriteEnabled()).toBe(false);
-    process.env.BEACON_BUDGET_LEDGER_DUAL_WRITE = "1";
-    expect(isBudgetLedgerDualWriteEnabled()).toBe(true);
-  });
-});
-
-describe("recordSpendDualWrite — upserts when enabled", () => {
-  beforeEach(() => {
-    process.env.BEACON_BUDGET_LEDGER_DUAL_WRITE = "1";
-  });
-
+describe("recordSpendSupabase — the always-on durable per-account writer", () => {
   it("inserts a new row when one does not exist", async () => {
-    await recordSpendDualWrite({
+    await recordSpendSupabase({
       tenantId: "tenant-fixture-local",
       platform: "perplexity",
       costUsd: 0.0917,
@@ -131,7 +104,7 @@ describe("recordSpendDualWrite — upserts when enabled", () => {
       data: { spent_usd: "0.1", call_count: 2, prompt_count: 50, chunk_count: 1 },
       error: null,
     };
-    await recordSpendDualWrite({
+    await recordSpendSupabase({
       tenantId: "tenant-fixture-local",
       platform: "openai",
       costUsd: 2.88,
@@ -145,23 +118,17 @@ describe("recordSpendDualWrite — upserts when enabled", () => {
     expect(patch.prompt_count).toBe(150);
     expect(SUPABASE_STATE.insertCalls).toHaveLength(0);
   });
-});
 
-describe("recordSpendDualWrite — never throws, validates before I/O", () => {
-  beforeEach(() => {
-    process.env.BEACON_BUDGET_LEDGER_DUAL_WRITE = "1";
-  });
-
-  it("a Supabase failure logs and returns; recording can never block a poll", async () => {
+  it("a Supabase failure logs and returns; recording never blocks the paid call that already happened", async () => {
     SUPABASE_STATE.selectResult = { data: null, error: { message: "boom" } };
     await expect(
-      recordSpendDualWrite({ tenantId: "tenant-fixture-local", platform: "perplexity", costUsd: 0.05 }),
+      recordSpendSupabase({ tenantId: "tenant-fixture-local", platform: "perplexity", costUsd: 0.05 }),
     ).resolves.toBeUndefined();
     expect(warnSpy).toHaveBeenCalled();
     expect(SUPABASE_STATE.insertCalls).toEqual([]);
   });
 
-  const badInputs: Array<{ name: string; input: Parameters<typeof recordSpendDualWrite>[0] }> = [
+  const badInputs: Array<{ name: string; input: Parameters<typeof recordSpendSupabase>[0] }> = [
     { name: "empty tenantId", input: { tenantId: "", platform: "perplexity", costUsd: 0.05 } },
     { name: "invalid platform", input: { tenantId: "t1", platform: "claude" as never, costUsd: 0.05 } },
     { name: "negative costUsd", input: { tenantId: "t1", platform: "perplexity", costUsd: -0.01 } },
@@ -170,33 +137,9 @@ describe("recordSpendDualWrite — never throws, validates before I/O", () => {
   ];
   for (const c of badInputs) {
     it(`rejects ${c.name}: warns + no Supabase round-trip`, async () => {
-      await recordSpendDualWrite(c.input);
+      await recordSpendSupabase(c.input);
       expect(warnSpy).toHaveBeenCalled();
       expect(SUPABASE_STATE.fromTablesCalled).toEqual([]);
     });
   }
-});
-
-describe("readSpendSnapshotForDate — calm fallback, not flag-gated", () => {
-  it("rejects a malformed date and returns [] on a Supabase error; never throws", async () => {
-    expect(await readSpendSnapshotForDate("not-a-date")).toEqual([]);
-    expect(SUPABASE_STATE.fromTablesCalled).toEqual([]);
-    SUPABASE_STATE.listResult = { data: null, error: { message: "rls denied" } };
-    expect(await readSpendSnapshotForDate("2026-05-09")).toEqual([]);
-  });
-
-  it("maps rows (null daily_cap_usd → null cap) and reads even with the write flag unset", async () => {
-    delete process.env.BEACON_BUDGET_LEDGER_DUAL_WRITE;
-    SUPABASE_STATE.listResult = {
-      data: [
-        { tenant_id: "tenant-fixture-local", platform: "perplexity", spent_usd: "0.0917", daily_cap_usd: null, prompt_count: 100 },
-      ],
-      error: null,
-    };
-    const out = await readSpendSnapshotForDate("2026-05-09");
-    expect(out).toEqual([
-      { tenant_id: "tenant-fixture-local", platform: "perplexity", spent_usd: 0.0917, cap_usd: null, prompt_count: 100 },
-    ]);
-    expect(SUPABASE_STATE.fromTablesCalled).toContain("llm_budget_ledger");
-  });
 });

@@ -1,13 +1,6 @@
 /**
- * SOURCES — the canonical DataForSEO client boundary (Slice 2).
- *
- * Proves the ONE money gauntlet every DataForSEO endpoint flows through, with an
- * injected fetch stub so NO test ever spends or touches the network:
- *   (a) missing credentials -> not_configured, ZERO fetch calls;
- *   (b) DATAFORSEO_DRY_RUN honored -> dry_run echoing the exact request, ZERO fetch;
- *   (c) cap / breaker reached -> capped, ZERO fetch calls;
- *   (d) ok -> records the ACTUAL cost from the response + provenance + idempotency;
- *   (e) the same logical task twice -> the same idempotency key.
+ * Canonical DataForSEO client: zero-fetch proofs for not_configured/dry_run/
+ * capped, actual-cost + provenance + idempotency on ok, typed errors otherwise.
  */
 
 import { describe, it, expect, vi } from "vitest";

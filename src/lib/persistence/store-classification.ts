@@ -187,6 +187,7 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // Slice 3 (2026-07-23) — structured-drafter call cache, moved GLOBAL → per-tenant
   // so tenant B never reuses tenant A's generated text; old global blob stays inert.
   "llm-call-cache",
+  "llm-budget", // per-account file cap backstop (durable Supabase ledger is authoritative)
 ]);
 
 export const SINGLETON_STORES = new Set<string>([
@@ -386,7 +387,6 @@ export const GLOBAL_STORES = new Set<string>([
   // best-forecaster footer at $0.
   "team-scoreboard",
   "adjudicator-history", // LLM call audit log; operator-shared
-  "llm-budget", // operator-paid monthly LLM spend cap
   "llm-history-specific-edits", // Sprint 6A.2c (2026-04-26) — Specific
   // Weekly strategy review (2026-07-02, master plan item 51). Rows carry
   // tenant_id; written by the Sunday-night cron (no ambient request context,
