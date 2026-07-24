@@ -13,7 +13,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { parseDataForSeoSerp, resolveOwnRank } from "@/domains/evidence/readers/dataforseo-serp";
+import { parseDataForSeoSerp, parseFeaturedSnippet, resolveOwnRank } from "@/domains/evidence/readers/dataforseo-serp";
 
 const NOW_ISO = "2026-07-03T12:00:00.000Z";
 
@@ -60,6 +60,14 @@ describe("DataForSEO SERP items contract", () => {
     });
     expect(parsed.aiOverview.overviewTextExcerpt.length).toBeGreaterThan(0);
     expect(parsed.aiOverview.overviewTextExcerpt.length).toBeLessThanOrEqual(300);
+  });
+
+  it("detects a list-format snippet and truncates a long excerpt to 300 chars with an ellipsis", () => {
+    const long = "word ".repeat(80);
+    const p = parseFeaturedSnippet({ type: "featured_snippet", url: "https://a.example/x", featured_snippet_type: "list", description: long });
+    expect(p!.format).toBe("list");
+    expect(p!.textExcerpt.length).toBe(300);
+    expect(p!.textExcerpt.endsWith("...")).toBe(true);
   });
 
   it("parses the featured-snippet owner + format", () => {

@@ -5,7 +5,6 @@ import { after } from "next/server";
 import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/on-use-refresh";
 import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
 import { log } from "@/lib/logger";
-import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { runWithTenant } from "@/lib/tenant-context";
 import { warmFreeSurfaces } from "./warm-caches";
 import {
@@ -13,8 +12,11 @@ import {
   claimRun,
   finishRun,
   newOwnerToken,
+  phaseIdempotencyKey,
+  renewLease,
   type ResearchPhase,
   type ResearchRun,
+  type ResearchRunError,
   type ResearchRunProgress,
 } from "../research-run";
 
@@ -29,59 +31,82 @@ import {
  * whole correctness mechanism (a second concurrent claim with a different owner
  * token returns null and exits cheaply).
  *
- * Three phases run in order from the claimed row's current_phase, inside the
- * post-response deadline:
- *   1. refresh_sources     - refresh stale connectors (source-specific staleness
- *                            inside; naturally idempotent).
- *   2. gsc_backfill_chunk  - advance one bounded GSC deep-backfill chunk (its own
- *                            durable cursor makes retries idempotent; a timeout
- *                            leaves the cursor untouched).
- *   3. publish_surface     - rebuild + publish the Today/Changes release, but
- *                            ONLY when phase 1 refreshed ≥1 source, phase 2
- *                            advanced a chunk, or the saved release is genuinely
- *                            stale (evidence-conditioned, never day-gated).
+ * TRUTH BOUNDARY (Slice 4 truth-and-lease repair): a phase advances ONLY when it
+ * truly succeeded or was a healthy no-op. Every failure pauses the cycle with a
+ * bounded last_error and never reaches completion:
+ *   1. refresh_sources     - refresh stale connectors. sourcesRefreshed counts
+ *                            ONLY the sources that actually synced. ANY per-source
+ *                            failure pauses at refresh_sources (the succeeded ones
+ *                            keep their freshness stamps, so a retry targets only
+ *                            the remaining stale/failed sources). Zero stale
+ *                            sources is a healthy no-op that advances. A THROW
+ *                            (the whole refresh could not run) pauses too.
+ *   2. gsc_backfill_chunk  - advance one bounded GSC deep-backfill chunk. The
+ *                            chunk is bounded BY DESIGN (deep-backfill.ts sizes a
+ *                            chunk to fit a serverless window), so we run it to
+ *                            that bound rather than racing a deadline the GSC
+ *                            fetch cannot honour (it has no AbortSignal). An
+ *                            advance or a benign skip advances the phase; a real
+ *                            error THROWS and pauses at gsc_backfill_chunk with
+ *                            the cursor untouched (deep-backfill never advances
+ *                            its cursor on a failed pull), so the retry is the
+ *                            same window.
+ *   3. publish_surface     - rebuild + publish the Today/Changes release when
+ *                            phase 1 refreshed >=1 source, phase 2 advanced a
+ *                            chunk, or the saved release is genuinely stale
+ *                            (evidence-conditioned, never day-gated). surfacePublished
+ *                            is true ONLY after publishSurface RESOLVES; a THROW
+ *                            pauses at publish_surface and the previously saved
+ *                            surface stays visible (the retry rebuilds from truth).
  *
- * CRASH-BOUNDARY HONESTY: every phase side effect is idempotent - the connector
- * refresh is stale-checked, the backfill is cursor-gated, and the surface publish
- * rebuilds from truth. So a crash at ANY of the five boundaries (before a phase /
- * during it / after its side effect / before advancing the cursor / after) resumes
- * on the next visit without a duplicate durable effect: an un-advanced phase simply
- * re-runs, and its idempotent body produces the same result.
+ * IDEMPOTENCY: before each phase's side effect we persist the phase attempt
+ * identity (phase, a deterministic attemptKey, the seed) via renew_research_lease
+ * - which also renews the lease - and hand the executor that attemptKey. A retry
+ * of the same run+phase reuses the PERSISTED key (read-or-create); advancing to
+ * the next phase clears the cursor so the next phase mints its own key.
  *
- * Deadline reached before a phase ⇒ finishRun 'paused' (durable progress; next
- * visit resumes at current_phase). A phase throw ⇒ record bounded error info and
- * finishRun 'paused' (recoverable) - never 'failed' for a transient error. An
- * owner-guarded advance/finish returning false ⇒ our expired lease was recovered
- * by another instance; abort immediately with no further side effects.
+ * LEASE: the lease is renewed at DATABASE time BEFORE every bounded phase, so no
+ * phase inside the 210s cycle deadline can knowingly outlive its 240s lease. A
+ * false return from renewLease / advancePhase / finishRun means our lease was
+ * lost or expired - we abort immediately with no further side effects (for the
+ * pre-phase renew, we abort BEFORE the side effect).
  */
 
 /** Leave enough of the shell's 300-second lifetime to finish the surface build. */
 export const RESEARCH_CYCLE_DEADLINE_MS = 210_000;
 
-/** The GSC backfill chunk is hard-bounded so a wedged pull can never strand the
- *  lambda; on a timeout the cursor is left untouched and the next visit resumes. */
-const BACKFILL_CHUNK_DEADLINE_MS = 60_000;
-
 /** Reasons the deep-backfill continuation returns when there is simply nothing to
  *  do (no backfill started, already finished, or no synced property yet). These
- *  are healthy no-ops for every tenant that never started a backfill; they must
- *  NOT log a failure. */
+ *  are healthy no-ops for every tenant that never started a backfill; they advance
+ *  the phase without a failure. Any OTHER reason is a real error and throws. */
 const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_synced_property", "no_cursor"]);
 
 /** The ordered execution phases (excluding the terminal `done`). */
 const PHASE_SEQUENCE: ResearchPhase[] = ["refresh_sources", "gsc_backfill_chunk", "publish_surface"];
 
+/** The refresh_sources phase outcome: how many sources were attempted, how many
+ *  actually synced, and the bounded per-source failure detail for the rest. */
+export type RefreshSourcesResult = {
+  attempted: number;
+  succeeded: number;
+  failures: Array<{ provider: string; detail: string }>;
+};
+
+/** The gsc_backfill_chunk phase outcome. `advanced` = a chunk pulled (or the
+ *  backfill defensively completed); `no_work` = a benign skip. A real error is a
+ *  THROW, never a value. */
+export type BackfillChunkResult =
+  | { kind: "advanced"; complete?: boolean; daysPulled?: number }
+  | { kind: "no_work" };
+
 /** Injectable phase bodies + clock/deadline so the runner is testable with a
  *  short budget and stub executors; production passes nothing and uses the real
- *  implementations below. */
+ *  implementations below. Every executor receives the persisted attemptKey so a
+ *  retry can prove it is the same unit of work. */
 export type ResearchCycleSteps = {
-  refreshSources: (tenantId: string, now: Date) => Promise<number>;
-  backfillChunk: (
-    tenantId: string,
-    now: Date,
-    deadlineMs: number,
-  ) => Promise<{ ran: boolean; complete?: boolean; daysPulled?: number }>;
-  publishSurface: (tenantId: string) => Promise<void>;
+  refreshSources: (tenantId: string, now: Date, attemptKey: string) => Promise<RefreshSourcesResult>;
+  backfillChunk: (tenantId: string, now: Date, attemptKey: string) => Promise<BackfillChunkResult>;
+  publishSurface: (tenantId: string, attemptKey: string) => Promise<void>;
   surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
 };
 
@@ -93,42 +118,40 @@ export type ResearchCycleOptions = {
 
 const defaultSteps: ResearchCycleSteps = {
   async refreshSources(tenantId, now) {
-    const results = await autoRefreshStaleConnectorsForTenant(tenantId, now).catch((error) => {
-      log.warn("[research-run] connector refresh failed", {
-        tenantId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return [];
-    });
-    return results.length;
+    // autoRefreshStaleConnectorsForTenant is fail-soft PER SOURCE and returns one
+    // { ok } result per ATTEMPTED stale source. We count ONLY the ok:true ones as
+    // refreshed; any ok:false is a bounded failure the runner pauses on. We do NOT
+    // .catch here: a THROW means the whole refresh could not run, and the runner
+    // must pause rather than record a false "0 sources, all healthy".
+    const results = await autoRefreshStaleConnectorsForTenant(tenantId, now);
+    const failures = results
+      .filter((r) => !r.ok)
+      .map((r) => ({ provider: String(r.provider), detail: String(r.detail).slice(0, 200) }));
+    return { attempted: results.length, succeeded: results.length - failures.length, failures };
   },
-  async backfillChunk(tenantId, now, deadlineMs) {
-    const raced = await loadWithDeadline(continueDeepBackfillIfStarted(tenantId, now), deadlineMs).catch((error) => {
-      log.warn("[research-run] gsc deep backfill continuation failed", {
-        tenantId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return { timedOut: false as const, data: { ran: false as const, reason: "error" } };
-    });
-    if (raced.timedOut) {
-      log.info("[research-run] gsc deep backfill hit the phase deadline; resuming next visit", { tenantId });
-      return { ran: false };
-    }
-    const result = raced.data;
+  async backfillChunk(tenantId, now) {
+    // No deadline race: the chunk is bounded by design and its GSC fetch has no
+    // AbortSignal, so a race would release the lease while live side-effecting
+    // work kept running. continueDeepBackfillIfStarted converts a thrown error
+    // into { ran:false, reason }, so a non-benign reason here is a real failure.
+    const result = await continueDeepBackfillIfStarted(tenantId, now);
     if (result.ran) {
       log.info("[research-run] gsc deep backfill chunk advanced", {
         tenantId,
         daysPulled: result.daysPulled,
         complete: result.complete,
       });
-      return { ran: true, complete: result.complete, daysPulled: result.daysPulled };
+      return { kind: "advanced", complete: result.complete, daysPulled: result.daysPulled };
     }
-    if (!BENIGN_BACKFILL_SKIPS.has(result.reason)) {
-      log.warn("[research-run] gsc deep backfill chunk did not advance", { tenantId, reason: result.reason });
-    }
-    return { ran: false };
+    if (BENIGN_BACKFILL_SKIPS.has(result.reason)) return { kind: "no_work" };
+    // A real failure (auth / quota / network / unexpected): throw so the runner
+    // pauses AT gsc_backfill_chunk. deep-backfill leaves its cursor untouched on a
+    // failed pull, so the retry is the identical window.
+    throw new Error(`gsc backfill chunk did not advance: ${result.reason}`.slice(0, 200));
   },
   async publishSurface(tenantId) {
+    // warmFreeSurfaces now PROPAGATES failure (no internal swallow): a throw here
+    // pauses publish_surface and the previously saved surface stays visible.
     await warmFreeSurfaces(tenantId);
   },
   async surfaceStale(tenantId, nowMs) {
@@ -139,30 +162,58 @@ const defaultSteps: ResearchCycleSteps = {
   },
 };
 
-/** Run one phase's body, returning the merged progress. Throws propagate to the
- *  cycle loop, which records the error and pauses (recoverable). */
+/** One phase's outcome: the merged progress, plus an optional `pause` error when
+ *  the phase reported a recoverable failure that is NOT a throw (a partial
+ *  connector refresh). A thrown error is handled separately by the cycle loop. */
+type PhaseOutcome = { progress: ResearchRunProgress; pause?: ResearchRunError };
+
+/** Run one phase's body, returning the merged progress (and any returned-failure
+ *  pause). Throws propagate to the cycle loop, which records the error and pauses. */
 async function runPhase(
   phase: ResearchPhase,
   tenantId: string,
   now: Date,
   progress: ResearchRunProgress,
+  attemptKey: string,
   steps: ResearchCycleSteps,
-): Promise<ResearchRunProgress> {
+): Promise<PhaseOutcome> {
   if (phase === "refresh_sources") {
-    const sourcesRefreshed = await steps.refreshSources(tenantId, now);
-    return { ...progress, sourcesRefreshed };
+    const result = await steps.refreshSources(tenantId, now, attemptKey);
+    const next = { ...progress, sourcesRefreshed: result.succeeded };
+    if (result.failures.length > 0) {
+      // Some connected sources failed to refresh: pause at refresh_sources with a
+      // bounded receipt. The succeeded ones kept their freshness stamps, so the
+      // retry targets only the remaining stale/failed sources. Do NOT publish off
+      // a failed refresh.
+      return {
+        progress: next,
+        pause: {
+          phase: "refresh_sources",
+          message: `${result.failures.length} of ${result.attempted} connected sources failed to refresh`.slice(0, 300),
+          at: now.toISOString(),
+          failures: result.failures,
+        },
+      };
+    }
+    return { progress: next };
   }
   if (phase === "gsc_backfill_chunk") {
-    const backfill = await steps.backfillChunk(tenantId, now, BACKFILL_CHUNK_DEADLINE_MS);
-    return { ...progress, backfill };
+    const result = await steps.backfillChunk(tenantId, now, attemptKey);
+    const backfill =
+      result.kind === "advanced"
+        ? { ran: true, complete: result.complete, daysPulled: result.daysPulled }
+        : { ran: false };
+    return { progress: { ...progress, backfill } };
   }
   // publish_surface - evidence-conditioned, never day-gated, never every visit.
   const shouldPublish =
     (progress.sourcesRefreshed ?? 0) >= 1 ||
     progress.backfill?.ran === true ||
     (await steps.surfaceStale(tenantId, now.getTime()));
-  if (shouldPublish) await steps.publishSurface(tenantId);
-  return { ...progress, surfacePublished: shouldPublish };
+  // surfacePublished is true ONLY after publishSurface RESOLVES; a throw pauses
+  // here. When there is nothing to publish, advance with surfacePublished:false.
+  if (shouldPublish) await steps.publishSurface(tenantId, attemptKey);
+  return { progress: { ...progress, surfacePublished: shouldPublish } };
 }
 
 /** The next phase after `phase` in the sequence, or `done`. */
@@ -171,10 +222,28 @@ function nextPhase(phase: ResearchPhase): ResearchPhase {
   return i < 0 || i + 1 >= PHASE_SEQUENCE.length ? "done" : PHASE_SEQUENCE[i + 1]!;
 }
 
+/** Read-or-create the attempt identity for a phase. An interrupted retry of the
+ *  same run+phase reuses the PERSISTED attemptKey (proving it is the same unit of
+ *  work); a fresh phase mints a deterministic key. The seed is the cycle key: the
+ *  run+phase scope already makes the key unique per attempt, and it needs no extra
+ *  I/O (the persisted backfill cursor date is not cheaply available here). */
+function resolveAttemptKey(
+  tenantId: string,
+  runId: string,
+  cycleKey: string,
+  phase: ResearchPhase,
+  cursor: Record<string, unknown> | null,
+): string {
+  if (cursor != null && cursor.phase === phase && typeof cursor.attemptKey === "string") {
+    return cursor.attemptKey;
+  }
+  return phaseIdempotencyKey(tenantId, runId, phase, { seed: cycleKey });
+}
+
 /**
  * Execute the claimed run from its current_phase to done, or pause durably. The
- * DATABASE lease we hold (via ownerToken) is renewed on every advance; if an
- * advance/finish reports our lease was lost, we abort immediately.
+ * DATABASE lease we hold (via ownerToken) is renewed BEFORE every phase; if a
+ * renew / advance / finish reports our lease was lost, we abort immediately.
  */
 async function driveRun(
   run: ResearchRun,
@@ -186,6 +255,7 @@ async function driveRun(
   const tenantId = run.tenant_id;
   let progress: ResearchRunProgress = run.progress ?? {};
   let phase = run.current_phase;
+  let cursor: Record<string, unknown> | null = run.phase_cursor ?? null;
 
   while (phase !== "done") {
     if (nowFn().getTime() >= deadline) {
@@ -193,20 +263,43 @@ async function driveRun(
       await finishRun(tenantId, run.id, ownerToken, "paused");
       return;
     }
+
+    // Persist the phase attempt identity + renew the lease BEFORE the side effect.
+    const attemptKey = resolveAttemptKey(tenantId, run.id, run.cycle_key, phase, cursor);
+    const attemptCursor = { phase, attemptKey, seed: run.cycle_key };
+    const held = await renewLease(tenantId, run.id, ownerToken, attemptCursor);
+    if (!held) return; // lease lost/expired → abort BEFORE any side effect
+    cursor = attemptCursor;
+
+    let outcome: PhaseOutcome;
     try {
-      progress = await runPhase(phase, tenantId, nowFn(), progress, steps);
+      outcome = await runPhase(phase, tenantId, nowFn(), progress, attemptKey, steps);
     } catch (error) {
       const message = (error instanceof Error ? error.message : String(error)).slice(0, 300);
       log.warn("[research-run] phase threw; pausing (recoverable)", { tenantId, phase, error: message });
       await finishRun(tenantId, run.id, ownerToken, "paused", { phase, message, at: nowFn().toISOString() });
       return;
     }
+    if (outcome.pause) {
+      log.warn("[research-run] phase reported failures; pausing (recoverable)", {
+        tenantId,
+        phase,
+        failures: outcome.pause.failures?.length ?? 0,
+      });
+      await finishRun(tenantId, run.id, ownerToken, "paused", outcome.pause);
+      return;
+    }
+    progress = outcome.progress;
+
     const next = nextPhase(phase);
-    const held = await advancePhase(tenantId, run.id, ownerToken, { phase: next, progress });
-    if (!held) return; // our lease was recovered by another instance - abort, no side effects
+    // Advancing replaces the cursor (clears the completed phase's attempt identity).
+    const advanced = await advancePhase(tenantId, run.id, ownerToken, { phase: next, progress, cursor: null });
+    if (!advanced) return; // our lease was recovered by another instance - abort, no side effects
     phase = next;
+    cursor = null;
   }
 
+  // Reached only when all three phases succeeded or were healthy no-ops.
   await finishRun(tenantId, run.id, ownerToken, "completed");
 }
 

@@ -156,12 +156,6 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // indexnow/receipts-store.ts). Written from a request context that already knows the
   // tenant (the push/verify-live call sites), so it belongs here, not in GLOBAL_STORES.
   "indexnow-receipts",
-  // On-visit refresh throttle marker (operator spec 2026-07-09, I-59). One tiny row
-  // per tenant recording the last time an on-visit auto-refresh fired, so rapid
-  // revisits can't trigger a refresh storm (src/domains/runtime/ops/on-visit-refresh.ts).
-  // Written from the Today render context (ambient tenant), so file-routed
-  // tenant-scoped, not a cron-fan-out GLOBAL store.
-  "on-visit-refresh-marker",
   // 2026-07-18 cross-tenant leak hardening (finding A) — answer_texts is the
   // per-observation AI answer body, read by discrepancy-detect inside a
   // per-tenant brand/competitor loop. It was GLOBAL, so `.data/answer-texts.json`

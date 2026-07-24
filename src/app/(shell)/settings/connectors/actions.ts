@@ -1182,6 +1182,10 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
     // build keeps warming in the background for the next visit.
     const WARM_AFTER_REFRESH_DEADLINE_MS = 45_000;
     await Promise.race([
+      // warmFreeSurfaces PROPAGATES a build failure (the Research Run publish phase
+      // relies on that truth). This "Update data" action is deliberately fail-soft:
+      // a warm failure must never turn a successful data refresh into an error, so
+      // we own the .catch here rather than inside warmFreeSurfaces.
       warmFreeSurfaces(tenantId).catch(() => {}),
       new Promise<void>((resolve) => setTimeout(resolve, WARM_AFTER_REFRESH_DEADLINE_MS)),
     ]);

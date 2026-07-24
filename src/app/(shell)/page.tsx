@@ -17,7 +17,7 @@ import { RefreshMyDataButton } from "@/components/today/refresh-my-data-button";
 import { loadTodayV2GateData } from "./today-gate-data";
 import { loadTodayView } from "./today-view-data";
 import { currentTenantId } from "@/lib/tenant-context";
-import { researchRunStatus, type ResearchRunStatusView } from "@/domains/runtime";
+import { researchRunStatus, researchStatusLine, type ResearchRunStatusView } from "@/domains/runtime";
 import { ScoreboardSection } from "./scoreboard-section";
 import { loadProofLedgerCached } from "@/domains/measurement";
 import { perfMark, perfStage } from "@/lib/obs/perf-log";
@@ -87,23 +87,6 @@ const RESEARCH_NONE: ResearchRunStatusView = {
   updatedAt: null,
   completedAt: null,
 };
-
-/** ONE honest Beacon-voice line for the durable Research Run, or null (render
- *  nothing) for none/idle. No progress bar, percentage, ETA, or animation. */
-function researchStatusLine(view: ResearchRunStatusView): string | null {
-  if (view.state === "running") return `Researching: ${view.phaseLabel}.`;
-  if (view.state === "paused")
-    return `Research paused after ${view.stepsDone} of ${view.stepsTotal} steps. I'll resume when you return.`;
-  if (view.state === "completed" && view.completedAt) {
-    const at = new Date(view.completedAt).toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      timeZone: "America/Los_Angeles",
-    });
-    return `Research is current as of ${at}.`;
-  }
-  return null;
-}
 
 function CockpitSkeleton() {
   return (
@@ -294,7 +277,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   void picks;
   void minutes;
   const brief = `${dayLine}. ${today.headerSentence}` + streakLine;
-  const researchLine = researchStatusLine(research);
+  const researchLine = researchStatusLine(research, nowPacific);
 
   return (
     <div className="space-y-6">

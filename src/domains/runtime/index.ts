@@ -9,7 +9,7 @@
 
 // Visit-driven Research Run - schedule on visit + the durable Today status.
 export { ensureResearchRunOnVisit } from "./ops/on-visit-refresh";
-export { researchRunStatus, type ResearchRunStatusView } from "./research-run";
+export { researchRunStatus, researchStatusLine, type ResearchRunStatusView } from "./research-run";
 
 // Source refresh recording
 export { recordSourceRefresh } from "./ops/record-source-refresh";

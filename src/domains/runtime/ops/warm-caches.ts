@@ -16,22 +16,20 @@ import "server-only";
  * the post-refresh repaint instant and complete.
  *
  * Money posture: the graph/changes/today loaders are cached/durable reads only
- * ($0). Fail-soft per step: a failed build keeps the previous snapshot.
+ * ($0).
+ *
+ * FAILURE POSTURE (Slice 4 truth boundary): this PROPAGATES a build failure. The
+ * Research Run publish_surface phase depends on that truth - it may set
+ * surfacePublished:true only after a real publish resolved, and must pause (not
+ * advance) when the publish fails. Callers that want fail-soft warming (the
+ * connectors "Update data" action) own an explicit .catch at their call site.
  */
 
 /**
- * refreshCustomerSurface runs the decision-kernel fuse-then-compose and
- * publishes the shared Today + Changes release in a single pass.
- */
-async function refreshSurface(tenantId: string): Promise<void> {
-  const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
-  await refreshCustomerSurface(tenantId);
-}
-
-/**
- * Rebuild the fused Today + Changes surface release, fail-soft. Safe to call
- * synchronously from a request-context server action.
+ * Rebuild the fused Today + Changes surface release and publish it. Throws on a
+ * build/publish failure so the caller can decide whether to fail soft.
  */
 export async function warmFreeSurfaces(tenantId: string): Promise<void> {
-  await refreshSurface(tenantId).catch(() => {});
+  const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
+  await refreshCustomerSurface(tenantId);
 }
