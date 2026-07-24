@@ -40,16 +40,8 @@ vi.mock("@/lib/connector-store", async () => {
 vi.mock("@/domains/runtime/ops/refresh-runs-store", () => ({
   latestRefreshBySource: vi.fn(async () => ({})),
 }));
-vi.mock("@/domains/runtime/ops/warm-receipt-store", () => ({
-  readLastWarmReceipt: vi.fn(async () => ({
-    tenant_id: "tenant-fixture-content",
-    date: "2026-07-17",
-    ran_at: "2026-07-18T05:30:00.000Z",
-    ok: true,
-    totalMs: 1200,
-    trigger: "visit",
-    steps: [],
-  })),
+vi.mock("@/domains/runtime/research-run", () => ({
+  researchRunStatus: vi.fn(async () => ({ state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: 3, counters: {}, updatedAt: null, completedAt: null })),
 }));
 
 describe("Today route smoke", () => {

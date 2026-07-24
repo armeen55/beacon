@@ -245,7 +245,6 @@ export const GLOBAL_STORES = new Set<string>([
   // rows carry tenant_id; the cron fans out across tenants with no ambient
   // request context, so per-tenant path routing would misfile them.
   "ai-engine-answers", // 20h DataForSEO llm_responses answer cache (cost discipline)
-  "ai-engine-poll-runs", // per-night already-ran guard (idempotency)
   "ai-engine-gap-summary", // latest per-tenant engine-gap summary ($0 Today + candidate reads)
   // Pipeline invariant watchdog (2026-07-02, master plan item 10). Same cron
   // fan-out rationale as the ai-engine stores: rows carry tenant_id.
@@ -295,10 +294,6 @@ export const GLOBAL_STORES = new Set<string>([
   // but can never grant eligibility (domains/eval/blind-holdout-store.ts).
   "blind-holdout-receipts",
   "blind-holdout-case-events",
-  // Nightly precompute warm pass (2026-07-02, master plan item 13). Same cron
-  // fan-out rationale: rows carry tenant_id. Per-day run marker (double-fire
-  // idempotency) + the "last warmed" receipts /diagnostics shows.
-  "precompute-warm-receipts",
   // Trend radar (2026-07-02, master plan item 14). Same cron fan-out rationale:
   // rows carry tenant_id. Latest per-tenant week-over-week query-spike list
   // ($0 Today Demand band + daily plan hint reads).

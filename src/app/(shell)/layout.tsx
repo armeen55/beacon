@@ -21,7 +21,7 @@ import {
   readPerfTraceIdFromHeaders,
 } from "@/lib/perf-trace";
 import { currentTenantId } from "@/lib/tenant-context";
-import { scheduleAutonomousRefreshOnVisit } from "@/domains/runtime";
+import { ensureResearchRunOnVisit } from "@/domains/runtime";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 
 // T-CustomerNav (2026-05-08) - keys aligned with `navigationGroups`
@@ -142,10 +142,10 @@ async function loadShellData(): Promise<{
     traceId: await readPerfTraceIdFromHeaders(),
   });
 
-  // One shell-level trigger keeps connectors fresh and performs the bounded,
-  // once-daily research-before-ranking cycle after the response. No cron and no
-  // repeated research buttons are required; durable receipts prevent repeats.
-  scheduleAutonomousRefreshOnVisit(await currentTenantId());
+  // One shell-level trigger schedules the durable, visit-driven Research Run
+  // after the response. No cron and no repeated research buttons are required;
+  // the database lease (not any in-memory guard) makes it exactly-once per cycle.
+  ensureResearchRunOnVisit(await currentTenantId());
 
   // Perf bundle 6 (2026-05-12) - parallelize the independent shell reads
   // that fire on EVERY signed-in click. Pre-fix: five sequential awaits, a

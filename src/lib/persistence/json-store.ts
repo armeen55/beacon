@@ -81,8 +81,6 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // hosted lambda starts cold and pays the full rebuild/re-measure.
   "customer-surface",
   "results-surface",
-  // Nightly AI-engines poll idempotency guard; read by warm-receipt-store.ts.
-  "ai-engine-poll-runs",
   // Ops ledgers written from cron lambdas (no disk), read by error-ledger.ts /
   // the Today Ops + deadman cards.
   "pipeline-violations",
@@ -94,8 +92,6 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // Structured-drafter call cache (content hash -> validated output): the
   // $0-repeat guarantee on Vercel. domains/decision/llm/call-cache.ts.
   "llm-call-cache",
-  // Nightly precompute warm receipts; read by warm-receipt-store.ts.
-  "precompute-warm-receipts",
   // Winner memory (few-shot injection for the drafter); domains/decision/llm/winner-memory.ts.
   "winner-memory",
   // Demand-ranked question universe; read by the ai-visibility + evidence readers.

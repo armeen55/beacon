@@ -17,6 +17,7 @@ import { RefreshMyDataButton } from "@/components/today/refresh-my-data-button";
 import { loadTodayV2GateData } from "./today-gate-data";
 import { loadTodayView } from "./today-view-data";
 import { currentTenantId } from "@/lib/tenant-context";
+import { researchRunStatus, type ResearchRunStatusView } from "@/domains/runtime";
 import { ScoreboardSection } from "./scoreboard-section";
 import { loadProofLedgerCached } from "@/domains/measurement";
 import { perfMark, perfStage } from "@/lib/obs/perf-log";
@@ -74,6 +75,34 @@ function AlreadyLaunchedNotice({ notice }: { notice: string | string[] | undefin
       </p>
     </div>
   );
+}
+
+/** Fail-soft fallback: no run to show. */
+const RESEARCH_NONE: ResearchRunStatusView = {
+  state: "none",
+  phaseLabel: "",
+  stepsDone: 0,
+  stepsTotal: 3,
+  counters: {},
+  updatedAt: null,
+  completedAt: null,
+};
+
+/** ONE honest Beacon-voice line for the durable Research Run, or null (render
+ *  nothing) for none/idle. No progress bar, percentage, ETA, or animation. */
+function researchStatusLine(view: ResearchRunStatusView): string | null {
+  if (view.state === "running") return `Researching: ${view.phaseLabel}.`;
+  if (view.state === "paused")
+    return `Research paused after ${view.stepsDone} of ${view.stepsTotal} steps. I'll resume when you return.`;
+  if (view.state === "completed" && view.completedAt) {
+    const at = new Date(view.completedAt).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "America/Los_Angeles",
+    });
+    return `Research is current as of ${at}.`;
+  }
+  return null;
 }
 
 function CockpitSkeleton() {
@@ -164,6 +193,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     lifecycle,
     leadStoryDays,
     decaySignals,
+    research,
   ] = await Promise.all([
     valueWithDeadline(countConnectedDataSources(tenantId).catch(() => 0), 0),
     valueWithDeadline(
@@ -180,6 +210,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       [],
     ),
     valueWithDeadline(loadGscDecaySignalsForTenant(tenantId, new Date()).catch(() => new Map()), new Map(), TODAY_HERO_DEADLINE_MS),
+    // The durable Research Run status line (Slice 4). Bounded tight + fail-soft to
+    // "none" so it NEVER delays the saved Today snapshot; renders nothing on none.
+    valueWithDeadline(researchRunStatus(tenantId).catch(() => RESEARCH_NONE), RESEARCH_NONE, 1500),
   ]);
   perfStage("today-parallel-context", tLedger, { rows: ledgerRows.length });
 
@@ -261,6 +294,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   void picks;
   void minutes;
   const brief = `${dayLine}. ${today.headerSentence}` + streakLine;
+  const researchLine = researchStatusLine(research);
 
   return (
     <div className="space-y-6">
@@ -271,6 +305,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       <PageHeader title={greeting} description={brief}>
         <RefreshMyDataButton connectedCount={connectedSourceCount} />
       </PageHeader>
+      {/* Slice 4 - the durable Research Run status, one honest line under the
+          greeting. Self-hiding: renders nothing when there is no run to show. */}
+      {researchLine ? <p className="-mt-2 text-[13px] text-muted-foreground">{researchLine}</p> : null}
 
       {/* ── SLOT 2: THE ONE COMMAND ────────────────────────────────────────────────────────
           The single best thing to do now, its evidence, one exact action, and the ONE accent
