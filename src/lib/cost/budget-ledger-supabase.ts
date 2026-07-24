@@ -74,8 +74,12 @@ export type RecordSpendDualWriteInput = {
   tenantId: string;
   /** Platform enum matching the migration's CHECK constraint. */
   platform: LedgerPlatform;
-  /** Cost of THIS call/chunk in USD. Must be a finite nonnegative number. */
+  /** Cost of THIS call/chunk in USD. Must be finite; nonnegative unless
+   *  `allowNegative` is set (the reserve-then-reconcile rollback/refund path). */
   costUsd: number;
+  /** Slice 5 (D10): permit a NEGATIVE costUsd (reservation rollback / reconcile
+   *  refund); the row is clamped at zero. Omitted = the nonnegative-only path. */
+  allowNegative?: boolean;
   /** Optional. Number of prompts polled in this call. Default 0. */
   promptCount?: number;
   /** Optional. Number of chunks completed in this call. Default 0. */
@@ -99,29 +103,33 @@ function todayUtcDate(now: Date = new Date()): string {
  * use this for spend that a daily/monthly CAP must actually see (e.g. the page
  * factory): getTenantSpentTodayUsd reads this same table, so gating the write
  * behind the shadow-mode flag made those caps structurally fail-OPEN. Never
- * throws; a Supabase error is logged and swallowed.
+ * throws; a Supabase error is logged and swallowed. Returns true when the row
+ * durably persisted, false when validation or the DB rejected the write (the
+ * reserve-then-reconcile path in adjudicator-budget.ts refuses on false).
  */
 export async function recordSpendSupabase(
   input: RecordSpendDualWriteInput,
-): Promise<void> {
+): Promise<boolean> {
   // ── Validation (fail loud BEFORE any Supabase round-trip) ──
   if (typeof input.tenantId !== "string" || input.tenantId.trim() === "") {
     console.warn(
       `[budget-ledger] dual-write rejected: empty tenantId platform=${input.platform}`,
     );
-    return;
+    return false;
   }
   if (!VALID_PLATFORMS.has(input.platform)) {
     console.warn(
       `[budget-ledger] dual-write rejected: invalid platform "${input.platform}"`,
     );
-    return;
+    return false;
   }
-  if (!Number.isFinite(input.costUsd) || input.costUsd < 0) {
+  // Negative costs are rejected UNLESS `allowNegative` is set (the D10 rollback /
+  // reconcile refund path); the row is clamped at zero on write below either way.
+  if (!Number.isFinite(input.costUsd) || (input.costUsd < 0 && input.allowNegative !== true)) {
     console.warn(
       `[budget-ledger] dual-write rejected: invalid costUsd=${input.costUsd} tenantId=${input.tenantId}`,
     );
-    return;
+    return false;
   }
   const promptCount = input.promptCount ?? 0;
   const chunkCount = input.chunkCount ?? 0;
@@ -129,13 +137,13 @@ export async function recordSpendSupabase(
     console.warn(
       `[budget-ledger] dual-write rejected: invalid promptCount=${promptCount}`,
     );
-    return;
+    return false;
   }
   if (!Number.isInteger(chunkCount) || chunkCount < 0) {
     console.warn(
       `[budget-ledger] dual-write rejected: invalid chunkCount=${chunkCount}`,
     );
-    return;
+    return false;
   }
 
   try {
@@ -157,14 +165,14 @@ export async function recordSpendSupabase(
         `[budget-ledger] read failed (non-fatal) tenantId=${input.tenantId} ` +
           `platform=${input.platform}: ${selErr.message}`,
       );
-      return;
+      return false;
     }
 
     if (existing) {
       const { error: updErr } = await supabase
         .from("llm_budget_ledger")
         .update({
-          spent_usd: Number(existing.spent_usd) + input.costUsd,
+          spent_usd: Math.max(0, Number(existing.spent_usd) + input.costUsd),
           call_count: Number(existing.call_count) + 1,
           prompt_count: Number(existing.prompt_count) + promptCount,
           chunk_count: Number(existing.chunk_count) + chunkCount,
@@ -180,15 +188,16 @@ export async function recordSpendSupabase(
           `[budget-ledger] update failed (non-fatal) tenantId=${input.tenantId} ` +
             `platform=${input.platform}: ${updErr.message}`,
         );
+        return false;
       }
-      return;
+      return true;
     }
 
     const { error: insErr } = await supabase.from("llm_budget_ledger").insert({
       tenant_id: input.tenantId,
       date_utc: date,
       platform: input.platform,
-      spent_usd: input.costUsd,
+      spent_usd: Math.max(0, input.costUsd),
       call_count: 1,
       prompt_count: promptCount,
       chunk_count: chunkCount,
@@ -211,7 +220,7 @@ export async function recordSpendSupabase(
           const { error: retryErr } = await supabase
             .from("llm_budget_ledger")
             .update({
-              spent_usd: Number(row.spent_usd) + input.costUsd,
+              spent_usd: Math.max(0, Number(row.spent_usd) + input.costUsd),
               call_count: Number(row.call_count) + 1,
               prompt_count: Number(row.prompt_count) + promptCount,
               chunk_count: Number(row.chunk_count) + chunkCount,
@@ -221,17 +230,20 @@ export async function recordSpendSupabase(
             .eq("tenant_id", input.tenantId)
             .eq("date_utc", date)
             .eq("platform", input.platform);
-          if (!retryErr) return;
+          if (!retryErr) return true;
         }
       }
       console.warn(
         `[budget-ledger] insert failed (non-fatal) tenantId=${input.tenantId} ` +
           `platform=${input.platform}: ${insErr.message}`,
       );
+      return false;
     }
+    return true;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.warn(`[budget-ledger] dual-write threw (non-fatal): ${msg}`);
+    return false;
   }
 }
 

@@ -210,7 +210,6 @@ export const GLOBAL_STORES = new Set<string>([
   // NOTE: "sitemap-reconciliation" was moved to TENANT_SCOPED_STORES
   // as part of Phase A.3 (post-A.3.5, 2026-05-15). See the entry
   // above + the migration in `migrations/<date>_phase_a3_sitemap_reconciliation_mirror.sql`.
-  "prompt-library",
   // NOTE: "answer-texts" was moved GLOBAL → TENANT_SCOPED (finding A,
   // 2026-07-18). See the entry + rationale in TENANT_SCOPED_STORES above.
   "cost-ledger",
@@ -432,15 +431,9 @@ export const GLOBAL_STORES = new Set<string>([
   // showed, so forecast-calibration-store.ts's day-28 settle can be joined back to
   // the exact hypothesis that was on screen when the operator acted (or didn't).
   "opportunity-hypotheses",
-  // Demand-ranked question universe (2026-07-03, BEACON_500 R11 / N30). Rows
-  // carry tenant_id; rebuilt + written by the nightly cron fan-out (no ambient
-  // request context - same rationale as app-errors / publish-health above).
-  // Capped at 300 rows per tenant on every rebuild
-  // (src/domains/research/question-universe-loader.ts).
-  "question-universe",
   // Claim-level provenance graph (2026-07-03, BEACON_500 R13 / N3). Rows
   // carry tenant_id; rebuilt + written by the nightly cron fan-out (no
-  // ambient request context - same rationale as question-universe above)
+  // ambient request context - same rationale as app-errors above)
   // AND appended from the ship path when a draft's checked facts register.
   // Capped at 500 rows per tenant on every rebuild
   // (src/domains/provenance/claim-graph-loader.ts).
@@ -452,7 +445,7 @@ export const GLOBAL_STORES = new Set<string>([
   "fact-propagation-plans",
   // Weekly GSC dimension snapshots (2026-07-03, BEACON_500 R17b, v1 136+268).
   // Rows carry tenant_id; written by the nightly cron fan-out with no ambient
-  // request context (same rationale as question-universe above). One
+  // request context (same rationale as app-errors above). One
   // searchAppearance + one device aggregate per tenant per week, capped at 26
   // snapshots per tenant (src/lib/connectors/gsc/weekly-dimensions-sync.ts).
   "gsc-weekly-dimensions",

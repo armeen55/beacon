@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { checkBudget, recordSpend, checkOnboardingBudget, recordOnboardingSpend } from "./adjudicator-budget";
+import { checkBudget, recordSpend, reserveOnboardingSpend, reconcileOnboardingSpend } from "./adjudicator-budget";
 import { log } from "@/lib/logger";
 import { buildWinnerFewShots, buildWinnerFewShotsWithPattern } from "./winner-memory";
 import type { DraftPatternId } from "./draft-pattern";
@@ -363,31 +363,23 @@ function stripSourceVerificationFields(value: unknown): unknown {
 
 /**
  * W5 stop-ship F2 (2026-07-09): the GENERATION-TIME source-verification trust
- * boundary. For each of the first MAX_SOURCES_TO_VERIFY sources:
- *   1. RESET every verification field FIRST (never trust the LLM's own
- *      `verified`/excerpt/hash) - see resetSourceVerification.
- *   2. fetch the URL through the SSRF-safe fetcher (injected here).
- *   3. on a reachable page, run findSupportingSpan(claim, text) and recompute
- *      authority from the FINAL (post-redirect) host. `verified: true` is set
- *      ONLY when a qualifying span is found AND the final host is authoritative;
- *      the fetched final URL, the supporting excerpt, and its content hash are
- *      persisted so the receipt shows exactly what backed the claim.
- * An unreachable URL, a redirect to an untrusted (non-authoritative) final
- * host, a weak-match, or a source with no URL/claim all downgrade `authority`
- * to "weak" and leave `verified: false` - so a hallucinated .gov/.edu URL can
- * never pass the authority gate on domain class alone. NEVER throws; a draft
- * with no sources array is returned unchanged. Runs at generation time only
- * (behind the resolveSourceFetch gate), never on a render/eval path.
+ * boundary. For each of the first MAX_SOURCES_TO_VERIFY sources it (1) RESETS
+ * every verification field first (never trusts the LLM's own verified/excerpt/
+ * hash), (2) fetches the URL through the injected SSRF-safe fetcher, and (3) on a
+ * reachable page runs findSupportingSpan(claim, text) and recomputes authority
+ * from the FINAL (post-redirect) host. `verified: true` is set ONLY when a
+ * qualifying span is found AND the final host is authoritative; the final URL,
+ * supporting excerpt, and content hash are persisted for the receipt. An
+ * unreachable URL, a redirect to an untrusted host, a weak match, or a missing
+ * url/claim all downgrade `authority` to "weak" with `verified: false`, so a
+ * hallucinated .gov/.edu URL never passes on domain class alone. NEVER throws;
+ * a draft with no sources array is returned unchanged; generation-time only.
  *
- * P2 (2026-07-09): eligible sources verify through a bounded worker pool of
- * at most SOURCE_VERIFY_CONCURRENCY fetches in flight, all sharing ONE
- * WHOLE_DRAFT_VERIFY_DEADLINE_MS wall-clock budget (captured once, before the
- * first fetch). Each worker checks the remaining budget immediately before
- * its OWN next fetch; once spent, every source not yet started is left
- * verified:false / authority:"weak" rather than fetched on borrowed time -
- * FAIL CLOSED on the whole-draft deadline, exactly like a single fetch's own
- * per-hop deadline in safe-source-fetch.ts. Results are reassembled in the
- * original source order regardless of which worker finished first.
+ * P2 (2026-07-09): eligible sources verify through a bounded worker pool (at most
+ * SOURCE_VERIFY_CONCURRENCY in flight) sharing ONE WHOLE_DRAFT_VERIFY_DEADLINE_MS
+ * budget captured before the first fetch. Each worker checks the remaining budget
+ * before its OWN next fetch; once spent, every source not yet started stays
+ * verified:false / weak (FAIL CLOSED). Results reassemble in original order.
  */
 async function verifyStampedSources(
   value: unknown,
@@ -730,11 +722,11 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   }
 
   const projectedCostUsd = req.projectedCostUsd ?? 0.02;
-  // B82: fail CLOSED on unknown budget. Slice 5: onboarding uses the $2 pre-activation lifetime cap.
-  const budgetFn = req.budgetPlatform === "onboarding-openai" ? checkOnboardingBudget : checkBudget;
-  const budget = await budgetFn({ tenantId, projectedCostUsd }).catch(() => ({ allowed: false as const, reason: "budget check unavailable; failing closed" }));
-  if (budget.allowed === false) {
-    return { status: "blocked_budget", reason: (budget as { reason?: string }).reason ?? "cap reached" };
+  const isOnboarding = req.budgetPlatform === "onboarding-openai";
+  // B82: fail CLOSED on unknown budget; onboarding reserves per real attempt (D10) instead of this pre-loop check.
+  if (!isOnboarding) {
+    const budget = await checkBudget({ tenantId, projectedCostUsd }).catch(() => ({ allowed: false as const, reason: "budget check unavailable; failing closed" }));
+    if (budget.allowed === false) return { status: "blocked_budget", reason: (budget as { reason?: string }).reason ?? "cap reached" };
   }
 
   const schema = SCHEMA_BY_KIND[req.kind] as z.ZodTypeAny;
@@ -812,14 +804,21 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     lastFailureWasTemplated = false;
     lastFailureWasThin = false;
 
+    // Slice 5 D10: onboarding durably RESERVES its projected cost before each real attempt (retries reserve again); a refusal makes no call and fails closed to the deterministic fallback.
+    if (isOnboarding) {
+      const rv = await reserveOnboardingSpend(projectedCostUsd, { tenantId });
+      if (rv.allowed === false) return { status: "blocked_budget", reason: rv.reason };
+    }
+
     const out = await complete({ system, user: req.user, maxTokens, timeoutMs, kind: req.kind, tenantId });
 
     const blockedBudget = "error" in out && out.error === "blocked_budget"; // budget block fired NO call
     if (!blockedBudget) {
       const attemptCost = attemptCostUsd("error" in out ? out.costUsd : out.provenance?.costUsd, system.length + req.user.length);
       totalCost += attemptCost;
-      const recordFn = req.budgetPlatform === "onboarding-openai" ? recordOnboardingSpend : recordSpend;
-      await recordFn(attemptCost, { tenantId }).catch(() => {});
+      // Onboarding SETTLES its reservation to the real cost (reserved == projectedCostUsd); others record against the monthly cap.
+      if (isOnboarding) await reconcileOnboardingSpend(projectedCostUsd, attemptCost, { tenantId }).catch(() => {});
+      else await recordSpend(attemptCost, { tenantId }).catch(() => {});
     }
 
     if ("error" in out) {

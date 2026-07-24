@@ -2,8 +2,8 @@
  * Account kernel — public facade.
  *
  * Owns tenant identity, membership provisioning, and the onboarding flow
- * (access gating, URL-first look, config derivation, first-scan dispatch,
- * first-audit scorecard). This index is the ONLY surface `src/app` and
+ * (access gating, config derivation, first-scan dispatch). This index is the
+ * ONLY surface `src/app` and
  * `src/components` may import for VALUE imports. Internal files stay private.
  */
 
@@ -25,6 +25,7 @@ export {
   saveBusinessProfile,
   emptyBusinessProfile,
   isProfileEmpty,
+  invalidateBusinessProfileCache,
   locationRegexFrom,
   serviceRegexFrom,
 } from "./business-profile";
@@ -44,6 +45,3 @@ export { normalizeSiteUrl } from "./onboarding/fetch-site-profile";
 
 // Onboarding: config derivation
 export { deriveAndPersistTenantConfig } from "./onboarding/launch-config";
-
-// Onboarding: first-audit scorecard
-export { composeFirstAuditScorecard } from "./onboarding/first-audit";

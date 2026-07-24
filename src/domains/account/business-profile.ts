@@ -209,6 +209,15 @@ export function __resetBusinessProfileCacheForTests(): void {
   _inFlight.clear();
 }
 
+/** Drop ONE account's memoized profile so the next read reloads from the row.
+ *  Used when a durable write outside saveBusinessProfile changed the row (the
+ *  website-replacement RPC resets the profile), so the cache cannot serve stale
+ *  identity. Narrow by design: never clears another account. */
+export function invalidateBusinessProfileCache(accountId: string): void {
+  _loaded.delete(accountId);
+  _inFlight.delete(accountId);
+}
+
 /**
  * THE production profile read. Async, Supabase-backed. Returns the account's
  * canonical profile, or an EMPTY profile (never another business's data)

@@ -115,7 +115,7 @@ const defaultClientDeps: DataForSeoClientDeps = {
   // SHARED DataForSEO budget: cap + spend both ride the "dataforseo-serp"
   // platform so EVERY DataForSEO endpoint draws from ONE monthly cap.
   spentThisMonthUsd: (t, now) => getTenantSpentThisMonthUsd(t, now, "dataforseo-serp"),
-  recordSpend: (tenantId, costUsd) => recordSpendSupabase({ tenantId, platform: "dataforseo-serp", costUsd }),
+  recordSpend: (tenantId, costUsd) => recordSpendSupabase({ tenantId, platform: "dataforseo-serp", costUsd }).then(() => {}),
   fetchImpl: fetch,
   globalBreaker: async (env, now, projectedCostUsd) => {
     // Hermetic under vitest: never read the real cross-lane ledger from a test.

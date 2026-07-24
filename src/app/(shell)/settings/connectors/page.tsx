@@ -14,6 +14,7 @@ import {
 import { loadGscIngestionGapReport } from "@/domains/evidence";
 import { ingestionGapLine } from "@/domains/evidence";
 import { currentTenantId } from "@/lib/tenant-context";
+import { getTenant } from "@/domains/account";
 import { latestRefreshBySource } from "@/domains/runtime";
 import { PageHeader } from "@/components/data/page-header";
 import { ConnectorsClient, type RefreshLedgerFacts } from "./connectors-client";
@@ -222,7 +223,20 @@ async function loadConnectorsPageData() {
     recentUpkeep = [];
   }
 
+  // A still-onboarding account reached this page from Step 6's Connect links.
+  // Show a calm way back so an OAuth round trip never strands the operator here.
+  // Status-derived (no query param, no allowlist), so it survives the redirect.
+  let pendingOnboarding = false;
+  try {
+    const tid = await currentTenantId();
+    const account = await getTenant(tid);
+    pendingOnboarding = account?.status === "pending_onboarding";
+  } catch {
+    pendingOnboarding = false;
+  }
+
   return {
+    pendingOnboarding,
     googleGsc,
     googleGa4,
     wix,
@@ -258,6 +272,7 @@ export default async function ConnectorsPage() {
     );
   }
   const {
+    pendingOnboarding,
     googleGsc,
     googleGa4,
     wix,
@@ -276,6 +291,12 @@ export default async function ConnectorsPage() {
 
   return (
     <div>
+      {pendingOnboarding ? (
+        <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border border-foreground/25 bg-surface px-4 py-3">
+          <p className="text-[13px]">You have not finished setting up Beacon. Connect what you like here, then head back to finish.</p>
+          <a href="/onboard" className="whitespace-nowrap rounded-md bg-foreground text-background px-3 py-2 text-[13px] font-medium">Return to setup</a>
+        </div>
+      ) : null}
       <PageHeader title="Connect your tools" description={CONNECTORS_DESCRIPTION} />
       <ConnectorsClient
         google={googleGsc}

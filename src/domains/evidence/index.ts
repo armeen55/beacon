@@ -113,3 +113,6 @@ export { fetchPageHtml } from "./competitor-intel/polite-fetch";
 
 // AI-visibility citation canonicalization
 export { canonicalizeCitationUrl } from "./ai-visibility/canonicalize-citation-url";
+
+// AI engines the tenant prompt library is tracked across (canonical union)
+export { ALL_ENGINES, type EngineId } from "./readers/engine-types";

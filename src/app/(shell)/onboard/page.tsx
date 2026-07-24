@@ -10,8 +10,6 @@
  */
 
 import { requireOnboardingTenant } from "@/domains/account";
-import { composeFirstAuditScorecard } from "@/domains/account";
-import { loadCrawlFrontier } from "@/domains/evidence";
 import { loadOnboardingState } from "@/domains/runtime";
 import { OnboardWizard, type FirstFindings } from "./onboard-wizard";
 
@@ -39,20 +37,12 @@ export default async function OnboardPage({
     else if (current === 6 && requested === 7) rendered = 7;
   }
 
-  // First findings for step 7: the real crawl-derived preview, not a promise.
-  let firstFindings: FirstFindings = { pagesRead: state.website.crawl.pagesRead, firstWin: null };
-  if (rendered === 7) {
-    const frontier = await loadCrawlFrontier(tenantId).catch(() => null);
-    if (frontier) {
-      const card = composeFirstAuditScorecard(frontier);
-      firstFindings = {
-        pagesRead: card.pagesRead,
-        firstWin: card.firstWin
-          ? { action: card.firstWin.action, plainWhy: card.firstWin.plainWhy, exactFix: card.firstWin.exactFix, url: card.firstWin.url }
-          : null,
-      };
-    }
-  }
+  // First findings for step 7: the real crawl-derived preview, composed behind
+  // the Runtime facade so this page never imports the scanner directly.
+  const firstFindings: FirstFindings = {
+    pagesRead: state.website.crawl.pagesRead,
+    firstWin: state.findings.firstWin,
+  };
 
   return (
     <div className="mx-auto w-full max-w-2xl px-6 py-10">

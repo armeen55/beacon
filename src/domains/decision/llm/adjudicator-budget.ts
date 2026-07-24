@@ -189,49 +189,66 @@ function round6(n: number): number {
   return Math.round(n * 1_000_000) / 1_000_000;
 }
 
-// ── onboarding lifetime budget (Slice 5) ───────────────────────────────────
+// ── onboarding lifetime budget: reserve-then-reconcile (Slice 5 D10) ─────────
+
+export type OnboardingReservation =
+  | { allowed: true; reservedUsd: number }
+  | { allowed: false; reason: string };
 
 /**
- * The pre-activation onboarding budget check. Same BudgetCheckResult shape as
- * checkBudget, but the rule is a LIFETIME sum against ONBOARDING_LIFETIME_CAP_USD
- * ($2), sourced from the durable ledger only. FAIL CLOSED: an unreadable lifetime
- * sum (null) is treated as "not allowed", so onboarding falls back to its
- * deterministic path rather than risking uncapped pre-activation spend.
+ * The pre-activation onboarding budget guard, as a DURABLE RESERVATION against the
+ * $2 lifetime cap. It WRITES first (reserves the projected cost), THEN re-reads the
+ * lifetime sum: that write-before-read order is the concurrency mechanism, so a
+ * later reader sees every in-flight reservation and two near-cap calls can never
+ * both pass. Fail-closed: no durable ledger or an unpersistable reservation REFUSES
+ * with no call; a post-reserve sum over the cap (or unreadable) refuses and rolls
+ * the reservation back (a rollback miss keeps it: overcount, never undercount). On
+ * allow, the caller MUST reconcileOnboardingSpend to settle. Never throws.
  */
-export async function checkOnboardingBudget(
-  opts: { tenantId: string; projectedCostUsd?: number },
-): Promise<BudgetCheckResult> {
-  const tenantId = requireTenant(opts.tenantId, "checkOnboardingBudget");
-  const projected = opts.projectedCostUsd ?? 0;
+export async function reserveOnboardingSpend(
+  projectedCostUsd: number,
+  opts: { tenantId: string },
+): Promise<OnboardingReservation> {
+  const tenantId = requireTenant(opts.tenantId, "reserveOnboardingSpend");
+  const projected = Number.isFinite(projectedCostUsd) && projectedCostUsd > 0 ? projectedCostUsd : 0;
+  if (!isSupabaseConfigured()) return { allowed: false, reason: "durable ledger unavailable; refusing pre-activation spend" };
+  const reserved = await recordSpendSupabase({ tenantId, platform: ONBOARDING_PLATFORM, costUsd: projected }).catch(() => false);
+  if (!reserved) return { allowed: false, reason: "onboarding reservation write failed; refusing" };
+
   const spent = await getTenantLifetimeSpendUsd(tenantId, ONBOARDING_PLATFORM).catch(() => null);
-  if (spent == null) {
-    return { allowed: false, reason: "onboarding spend unreadable; failing closed" };
-  }
-  if (isOverAdjudicatorBudget(spent, projected, ONBOARDING_LIFETIME_CAP_USD)) {
+  if (spent == null || spent > ONBOARDING_LIFETIME_CAP_USD) {
+    // Over cap (or unreadable): undo this reservation. A rollback miss is fine -
+    // it only overcounts, which fails closed on the next call.
+    await recordSpendSupabase({ tenantId, platform: ONBOARDING_PLATFORM, costUsd: -projected, allowNegative: true }).catch(() => false);
     return {
       allowed: false,
-      reason: `Pre-activation onboarding budget reached (${spent.toFixed(4)} / ${ONBOARDING_LIFETIME_CAP_USD} USD).`,
+      reason: spent == null
+        ? "onboarding spend unreadable after reserve; refusing"
+        : `Pre-activation onboarding budget reached (${spent.toFixed(4)} / ${ONBOARDING_LIFETIME_CAP_USD} USD).`,
     };
   }
-  return { allowed: true, remaining: ONBOARDING_LIFETIME_CAP_USD - spent };
+  return { allowed: true, reservedUsd: projected };
 }
 
 /**
- * Record a pre-activation onboarding spend into the durable ledger under the
- * 'onboarding-openai' platform. Never throws; a durable miss only loses
- * cross-run accounting, it never blocks the paid call that already happened.
+ * Settle a prior reservation to the REAL cost by writing the signed delta (actual
+ * - reserved) into the durable ledger. A negative delta (cheaper than projected)
+ * is a guarded refund; recordSpendSupabase clamps the row at zero. A reconcile-write
+ * miss KEEPS the conservative reservation (overcount, never undercount) and logs.
+ * Never throws; the paid call already happened.
  */
-export async function recordOnboardingSpend(
-  costUsd: number,
+export async function reconcileOnboardingSpend(
+  reservedUsd: number,
+  actualCostUsd: number,
   opts: { tenantId: string },
 ): Promise<void> {
-  const tenantId = requireTenant(opts.tenantId, "recordOnboardingSpend");
-  if (!isSupabaseConfigured() || !Number.isFinite(costUsd) || costUsd < 0) return;
-  try {
-    await recordSpendSupabase({ tenantId, platform: ONBOARDING_PLATFORM, costUsd });
-  } catch (e) {
-    log.warn?.("onboarding durable spend write failed (non-fatal)", {
-      error: e instanceof Error ? e.message : String(e),
-    });
+  const tenantId = requireTenant(opts.tenantId, "reconcileOnboardingSpend");
+  const reserved = Number.isFinite(reservedUsd) && reservedUsd > 0 ? reservedUsd : 0;
+  const actual = Number.isFinite(actualCostUsd) && actualCostUsd > 0 ? actualCostUsd : 0;
+  const delta = round6(actual - reserved);
+  if (delta === 0 || !isSupabaseConfigured()) return;
+  const ok = await recordSpendSupabase({ tenantId, platform: ONBOARDING_PLATFORM, costUsd: delta, allowNegative: true }).catch(() => false);
+  if (!ok) {
+    log.warn?.("onboarding reconcile write failed (non-fatal; reservation kept)", { tenantId });
   }
 }

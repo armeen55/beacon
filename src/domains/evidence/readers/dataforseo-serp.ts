@@ -458,7 +458,7 @@ const defaultDeps: SerpRunDeps = {
   now: () => new Date(),
   tenantId: currentTenantId,
   spentThisMonthUsd: (t, now) => getTenantSpentThisMonthUsd(t, now, "dataforseo-serp"),
-  recordSpend: (tenantId, costUsd) => recordSpendSupabase({ tenantId, platform: "dataforseo-serp", costUsd }),
+  recordSpend: (tenantId, costUsd) => recordSpendSupabase({ tenantId, platform: "dataforseo-serp", costUsd }).then(() => {}),
   readCache: () => readStore<CacheRow>(SERP_CACHE_STORE, []),
   writeCache: (rows) => writeStore(SERP_CACHE_STORE, rows),
   fetchImpl: fetch,

@@ -53,7 +53,7 @@ export type GscWeeklyCountryRow = {
 
 /** One stored weekly snapshot: both dimension pulls over one 7-day final
  *  window. Rows carry tenant_id because the store is written by the nightly
- *  cron fan-out with no request context (same rationale as question-universe). */
+ *  cron fan-out with no request context (same rationale as the other cron-written stores). */
 export type GscWeeklyDimensionsSnapshot = {
   tenant_id: string;
   property: string;

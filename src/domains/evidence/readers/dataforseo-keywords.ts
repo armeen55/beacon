@@ -187,7 +187,7 @@ const defaultDeps: KeywordsRunDeps = {
   // SHARED DataForSEO budget: cap + spend both ride the "dataforseo-serp" platform
   // so all DataForSEO calls draw from ONE monthly cap (no new ledger key/migration).
   spentThisMonthUsd: (t, now) => getTenantSpentThisMonthUsd(t, now, "dataforseo-serp"),
-  recordSpend: (tenantId, costUsd) => recordSpendSupabase({ tenantId, platform: "dataforseo-serp", costUsd }),
+  recordSpend: (tenantId, costUsd) => recordSpendSupabase({ tenantId, platform: "dataforseo-serp", costUsd }).then(() => {}),
   readCache: () => readStore<CacheRow>(KW_CACHE_STORE, []),
   writeCache: (rows) => writeStore(KW_CACHE_STORE, rows),
   fetchImpl: fetch,

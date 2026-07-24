@@ -123,7 +123,7 @@ describe("recordSpendSupabase — the always-on durable per-account writer", () 
     SUPABASE_STATE.selectResult = { data: null, error: { message: "boom" } };
     await expect(
       recordSpendSupabase({ tenantId: "tenant-fixture-local", platform: "perplexity", costUsd: 0.05 }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(warnSpy).toHaveBeenCalled();
     expect(SUPABASE_STATE.insertCalls).toEqual([]);
   });

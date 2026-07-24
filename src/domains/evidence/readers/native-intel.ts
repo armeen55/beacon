@@ -416,8 +416,8 @@ export function extractQuestionsFromAnswer(answerText: string): string[] {
  * Roll up native follow-up questions across every observation row into a
  * ranked, deduped list - the native twin of a Profound query fanout. Two
  * questions collapse together when their normalized text is identical
- * (conservative on purpose: near-duplicate clustering belongs to the
- * existing question-universe dedupe, not this extractor). The source
+ * (conservative on purpose: near-duplicate clustering belongs to a
+ * dedicated demand-ranking pass, not this extractor). The source
  * prompt's own text is excluded from its own expansion (a question
  * shouldn't "expand" into itself). Pure, deterministic.
  */

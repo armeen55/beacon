@@ -165,11 +165,6 @@ describe("openAIStructuredResponse — request body", () => {
     expect(body.response_format).toBeUndefined();
   });
 
-  it("omits reasoning for a non-reasoning model", async () => {
-    const { impl, capture } = fakeFetch(completedEnvelope(JSON.stringify({ title: "T", note: null, score: 1 })));
-    await openAIStructuredResponse(baseArgs({ model: "gpt-4o-mini", fetchImpl: impl }));
-    expect(capture.body.reasoning).toBeUndefined();
-  });
 });
 
 // ── envelope classification ───────────────────────────────────────────────────

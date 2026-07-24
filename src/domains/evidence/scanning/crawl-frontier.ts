@@ -7,9 +7,9 @@
  * tail read unless the operator wires a GitHub PAT. This module turns the
  * cold-start into a durable QUEUE: every invocation crawls one BOUNDED batch
  * (max pages + a hard time budget, both well inside a serverless window),
- * persists the frontier cursor, and stops. Visit-driven continuation and the
- * on-demand "Keep scanning" action each run exactly one more batch until the
- * frontier is exhausted or the 150-page cap is reached.
+ * persists the frontier cursor, and stops. Visit-driven continuation runs
+ * exactly one more batch each time until the frontier is exhausted or the
+ * 150-page cap is reached.
  *
  * Persistence: a GLOBAL json-store ("crawl-frontier") whose rows carry
  * tenant_id, Supabase-mirrored so the cursor survives Vercel's read-only,
@@ -59,7 +59,7 @@ const DISCOVERY_BUDGET_MS = 12_000;
  *  mirrored blob. The cap is what we will ever crawl anyway. */
 const MAX_FRONTIER_URLS = CRAWL_PAGE_CAP;
 /** Question lines kept per page fact (titles/headings that read like a
- *  question feed the day-0 question library). */
+ *  question, kept for the deterministic profile read). */
 const MAX_QUESTIONS_PER_PAGE = 6;
 
 /** File-ish URLs a content crawl should never spend budget on. */
@@ -99,13 +99,8 @@ export type CrawlFrontierState = {
   updated_at: string;
   last_batch_at: string | null;
   batches_run: number;
-  /** Compact audit facts per crawled page - the day-0 scorecard's input. */
+  /** Compact audit facts per crawled page - the first-look preview's input. */
   page_facts: CrawlPageFact[];
-  /** Day-0 baseline receipts (question seeding + queued Google checks). */
-  day0: {
-    question_seeding: string | null;
-    serp_terms: { term: string; status: string }[];
-  };
   /** Honest failure detail when status is "unreachable". */
   detail?: string;
 };
@@ -352,7 +347,6 @@ export async function startColdStartCrawl(args: {
           last_batch_at: null,
           batches_run: 0,
           page_facts: [],
-          day0: { question_seeding: null, serp_terms: [] },
           detail: probe.reason === "robots_blocked" ? "robots_blocked" : "no_reachable_pages",
         };
         await save(dead);
@@ -376,7 +370,6 @@ export async function startColdStartCrawl(args: {
       last_batch_at: null,
       batches_run: 0,
       page_facts: [],
-      day0: { question_seeding: null, serp_terms: [] },
     };
     const { frontier, added } = enqueueDiscovered(base, urls);
     // A homepage-source discovery whose ONLY yield failed (not even the

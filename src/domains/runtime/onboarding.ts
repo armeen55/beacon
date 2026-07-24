@@ -14,11 +14,11 @@ import "server-only";
  */
 
 import type { BusinessProfile, BusinessType, ProfileSection } from "@/domains/account";
-import { normalizeSiteUrl } from "@/domains/account";
+import { normalizeSiteUrl, invalidateBusinessProfileCache } from "@/domains/account";
 import type { CrawlPageFact } from "@/domains/evidence/scanning/crawl-frontier";
 import { callStructuredLLM } from "@/domains/decision/llm/structured-drafter";
 import {
-  resolve, PROMPT_INTENTS, PROMPT_TAGS,
+  resolve, PROMPT_INTENTS, PROMPT_TAGS, CONFIRMABLE_FIELDS, isProfileConfirmed, basisTag,
   type OnboardingDeps, type OnboardingState, type OnboardingGoal,
   type ProfileEdits, type ProfilePatch, type PromptSelection, type TrackedPromptRow,
 } from "./onboarding-store";
@@ -34,11 +34,10 @@ export type {
 
 type CommandResult = { ok: true } | { ok: false; error: string };
 
-/** The editable business fields a natural-language patch (or a direct edit) may touch. */
-const PATCHABLE_FIELDS = [
-  "name", "businessType", "siteArchetype", "offerings", "audiences", "customerProblems",
-  "geographicScope", "differentiators", "trustClaims", "topicsToOwn", "topicsToExclude",
-] as const;
+/** The editable business fields a natural-language patch (or a direct edit) may
+ *  touch. Same set as the confirmable fields, so confirming all of them is a
+ *  true "every section confirmed" (D3). */
+const PATCHABLE_FIELDS = CONFIRMABLE_FIELDS;
 type PatchField = (typeof PATCHABLE_FIELDS)[number];
 
 // ── loadOnboardingState ─────────────────────────────────────────────────────
@@ -48,12 +47,14 @@ export async function loadOnboardingState(tenantId: string, deps?: OnboardingDep
   const [account, profile, crawl] = await Promise.all([
     d.getAccount(tenantId), d.loadProfile(tenantId), d.loadCrawl(tenantId).catch(() => null),
   ]);
+  const canonicalId = account?.id ?? tenantId;
   const domain = account?.domain?.trim() ?? "";
-  const confirmed = profile.name.origin === "operator_confirmed";
+  const confirmed = isProfileConfirmed(profile);
   const hasInference = profile.name.value.trim() !== "" || profile.businessType.value !== null;
   const goal = (account?.growth_goal ?? null) as OnboardingGoal | null;
-  const rows = await d.store.readPrompts(tenantId).catch(() => [] as TrackedPromptRow[]);
-  const prompts = projectPrompts(rows);
+  const basis = basisTag(canonicalId, domain, profile, goal);
+  const rows = await d.store.readPrompts(canonicalId).catch(() => [] as TrackedPromptRow[]);
+  const prompts = projectPrompts(rows, basis);
   const connections = await Promise.all(
     (["google_gsc", "google_ga4", "wix", "clarity"] as const).map(async (kind) => {
       const info = await d.connectorInfo(kind, tenantId).catch(() => null);
@@ -72,6 +73,7 @@ export async function loadOnboardingState(tenantId: string, deps?: OnboardingDep
       confirmed, hasInference, source: confirmed ? "you" : hasInference ? "site" : "none",
     },
     goal, prompts, connections,
+    findings: { firstWin: pickFirstWin(crawl?.page_facts ?? []) },
   };
 }
 
@@ -84,8 +86,10 @@ function firstIncompleteStep(domain: string, hasInference: boolean, confirmed: b
   return 6; // connections are skippable; step 7 is reached by explicit navigation
 }
 
-function projectPrompts(rows: TrackedPromptRow[]): OnboardingState["prompts"] {
-  const candidates = rows.filter((r) => r.tags?.includes(PROMPT_TAGS.candidate));
+function projectPrompts(rows: TrackedPromptRow[], basis: string): OnboardingState["prompts"] {
+  // Only CURRENT-basis candidate rows are the live set; superseded-basis rows are
+  // inactive history and never shown or counted.
+  const candidates = rows.filter((r) => r.tags?.includes(PROMPT_TAGS.candidate) && r.tags?.includes(basis));
   const byGroup = new Map<string, OnboardingState["prompts"]["groups"][number]>();
   let recommendedCount = 0;
   for (const r of candidates) {
@@ -112,6 +116,60 @@ function titleize(slug: string): string {
   return slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// ── first-look preview (folded from the retired first-audit module) ──────────
+// The ONE strongest deterministic first change from the crawl facts, $0, no
+// connectors, no model. Pure. Priority order: a real page with no title, the
+// homepage missing its search description, the biggest page missing one, a thin
+// page with a real title, then the biggest page missing its headline.
+
+const THIN_PAGE_WORDS = 120;
+type FirstWin = { action: string; url: string; plainWhy: string; exactFix: string };
+
+function stripSiteSuffix(title: string): string {
+  return title.split(/\s*(?:\||–|—|::|\s-\s)\s*/)[0]!.trim();
+}
+function pageLabel(f: CrawlPageFact): string {
+  if (f.path === "/") return "your homepage";
+  const t = (f.title?.trim() || f.h1?.trim() || "").trim();
+  return t ? `"${stripSiteSuffix(t)}"` : f.path;
+}
+
+function pickFirstWin(facts: readonly CrawlPageFact[]): FirstWin | null {
+  if (facts.length === 0) return null;
+  const byWords = [...facts].sort((a, b) => b.word_count - a.word_count);
+  const noTitle = byWords.find((f) => !f.title?.trim() && f.word_count >= 40);
+  if (noTitle) return {
+    action: "Write a title", url: noTitle.url,
+    plainWhy: `The page at ${noTitle.path} has ${noTitle.word_count} words of content but no title, so Google has nothing to show for it in results.`,
+    exactFix: "Give this page a title that says what it answers in plain words. That is the single highest-leverage line on the page.",
+  };
+  const home = facts.find((f) => f.path === "/");
+  if (home && !home.has_meta_description) return {
+    action: "Add a search description", url: home.url,
+    plainWhy: "Your homepage has no search description, so Google writes its own snippet for your most-seen page.",
+    exactFix: "Add a one-sentence description of who you help and what you do. I will check how the snippet changes after it goes live.",
+  };
+  const noMeta = byWords.find((f) => !f.has_meta_description && f.word_count >= 40);
+  if (noMeta) return {
+    action: "Add a search description", url: noMeta.url,
+    plainWhy: `${pageLabel(noMeta)} is one of your biggest pages (${noMeta.word_count} words) and has no search description, so its Google snippet is left to chance.`,
+    exactFix: "Add a one-sentence description that answers the page's main question. Pages with a real description usually win a cleaner snippet.",
+  };
+  const thin = byWords.filter((f) => f.word_count > 0 && f.word_count < THIN_PAGE_WORDS && Boolean(f.title?.trim())).sort((a, b) => a.word_count - b.word_count)[0];
+  if (thin) return {
+    action: "Add real content", url: thin.url,
+    plainWhy: `${pageLabel(thin)} has only ${thin.word_count} words. Pages this thin almost never get picked by Google or AI assistants.`,
+    exactFix: "Answer the page's main question in the first two sentences, then add the details a visitor would ask next.",
+  };
+  const noH1 = byWords.find((f) => !f.h1?.trim() && f.word_count >= 40);
+  if (noH1) return {
+    action: "Add a headline", url: noH1.url,
+    plainWhy: `${pageLabel(noH1)} has no main headline, so readers and search engines have to guess what it is about.`,
+    exactFix: "Add one clear headline at the top that states the page's topic.",
+  };
+  return null;
+}
+
 // ── submitWebsite ───────────────────────────────────────────────────────────
 
 export async function submitWebsite(tenantId: string, url: string, deps?: OnboardingDeps): Promise<CommandResult & { domain?: string }> {
@@ -128,12 +186,20 @@ export async function submitWebsite(tenantId: string, url: string, deps?: Onboar
         : `I could not reach ${normalized.domain}. Check the spelling, or try it with www in front.`,
     };
   }
-  const wrote = await d.store.updateTenantDomain(tenantId, normalized.domain, d.now().toISOString()).catch(() => "not_pending" as const);
-  if (wrote !== "ok") return { ok: false, error: "Your account has already started. Head to your dashboard." };
+  const outcome = await d.store.replaceWebsite(tenantId, normalized.domain, d.now().toISOString()).catch(() => "not_pending" as const);
+  if (outcome === "not_pending") return { ok: false, error: "Your account has already started. Head to your dashboard." };
+
+  // A REAL website change invalidates everything the old site produced: the RPC
+  // already cleared the goal, deactivated the old prompts, and reset the profile
+  // in one transaction. Drop the in-process profile cache so the next read sees
+  // the reset row, and force a fresh crawl of the new site. An UNCHANGED domain
+  // keeps today's idempotent behavior (probe + crawl continue, nothing reset).
+  const replaced = outcome === "replaced";
+  if (replaced) invalidateBusinessProfileCache(tenantId);
 
   // Bounded crawl (discovery + one batch). Fail-soft; NO prompt writes, NO paid checks.
   try {
-    const start = await d.startCrawl({ tenantId, domain: normalized.domain });
+    const start = await d.startCrawl({ tenantId, domain: normalized.domain, force: replaced });
     if (start.status !== "unreachable") await d.runBatch({ tenantId, deps: { batchBudgetMs: 15_000 } });
   } catch { /* the crawl is best-effort; step 2 reads whatever landed */ }
   return { ok: true, domain: normalized.domain };

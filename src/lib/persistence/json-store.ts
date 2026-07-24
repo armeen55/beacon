@@ -94,8 +94,6 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   "llm-call-cache",
   // Winner memory (few-shot injection for the drafter); domains/decision/llm/winner-memory.ts.
   "winner-memory",
-  // Demand-ranked question universe; read by the ai-visibility + evidence readers.
-  "question-universe",
   // Weekly GSC dimension snapshots + the fresh-tail volatile presentation cache.
   "gsc-weekly-dimensions",
   "gsc-fresh-tail",
