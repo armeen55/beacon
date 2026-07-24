@@ -55,32 +55,54 @@ export type OnboardingTenantContext = {
 export async function requireOnboardingTenant(opts?: {
   allowActive?: boolean;
 }): Promise<OnboardingTenantContext> {
-  const supabase = await getSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    redirect("/login?next=/onboard");
+  // Local BEACON_AUTH_DISABLED=1 (mirrors the middleware bypass): no Supabase
+  // session exists; resolve the explicitly configured env account and run the
+  // SAME tenant fetch + status gates below. Never set in hosted environments.
+  let user: { id: string; email: string };
+  let tenantId: string;
+  if (process.env.BEACON_AUTH_DISABLED === "1" && process.env.BEACON_TENANT_ID) {
+    user = { id: "local-dev", email: "" };
+    tenantId = process.env.BEACON_TENANT_ID;
+  } else {
+    const supabase = await getSupabaseServerClient();
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
+    if (!authUser) {
+      redirect("/login?next=/onboard");
+    }
+    const { tenantId: memberTenantId, error: lookupErr } =
+      await lookupExistingMembership(getSupabaseAdmin(), authUser.id);
+    if (lookupErr) {
+      console.error("[onboard] tenant lookup failed:", lookupErr);
+      redirect("/login?error=onboarding_lookup_failed");
+    }
+    if (!memberTenantId) {
+      redirect("/signup?error=no_tenant");
+    }
+    user = { id: authUser.id, email: authUser.email ?? "" };
+    tenantId = memberTenantId;
   }
 
-  const admin = getSupabaseAdmin();
-  const { tenantId, error: lookupErr } = await lookupExistingMembership(
-    admin,
-    user.id,
-  );
-  if (lookupErr) {
-    console.error("[onboard] tenant lookup failed:", lookupErr);
-    redirect("/login?error=onboarding_lookup_failed");
-  }
-  if (!tenantId) {
-    redirect("/signup?error=no_tenant");
-  }
-
-  const { data: tenant, error: tErr } = await admin
+  // The physical column is business_name; the canonical Account field is
+  // provisional_name (an internal signup seed). Selecting a nonexistent
+  // provisional_name column errored here and bounced EVERY onboarding visit
+  // to /login?error=tenant_fetch_failed (found on the Slice 5 rendered walk).
+  const { data: row, error: tErr } = await getSupabaseAdmin()
     .from("tenants")
-    .select("id, slug, provisional_name, domain, status, tos_accepted_at")
+    .select("id, slug, business_name, domain, status, tos_accepted_at")
     .eq("id", tenantId)
     .maybeSingle();
+  const tenant = row
+    ? {
+        id: String(row.id),
+        slug: String(row.slug ?? ""),
+        provisional_name: String(row.business_name ?? ""),
+        domain: String(row.domain ?? ""),
+        status: row.status,
+        tos_accepted_at: (row.tos_accepted_at as string | null) ?? null,
+      }
+    : null;
 
   if (tErr) {
     console.error("[onboard] tenant fetch failed:", tErr.message);
@@ -104,7 +126,7 @@ export async function requireOnboardingTenant(opts?: {
   }
   // status === "pending_onboarding" — allow.
   return {
-    user: { id: user.id, email: user.email ?? "" },
+    user,
     tenantId,
     tenant: tenant as OnboardingTenantContext["tenant"],
   };

@@ -7,7 +7,7 @@ import { provisionTenantForNewUser } from "@/domains/account";
  * Supabase magic-link callback. Exchanges the `code` query param for a
  * session cookie, provisions a pending tenant + tenant_members row for
  * first-time users (Gap B, 2026-05-07), then redirects:
- *   - First-time user (no prior tenant_members row) → `/onboard/business`
+ *   - First-time user (no prior tenant_members row) → `/onboard`
  *   - Existing user (membership already present)    → `next` or `/`
  *
  * Provisioning is idempotent — repeat magic-link clicks after a

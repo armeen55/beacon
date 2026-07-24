@@ -47,9 +47,6 @@ export const ENGINE_OBSERVATION_SOURCE: Record<EngineId, string> = {
 // which is the real backstop; these bound the worst single night.
 // ---------------------------------------------------------------------------
 
-/** Top-N tracked prompts per night, in prompt-library order. */
-export const NIGHTLY_PROMPT_CAP = 25;
-
 /** Engines that go through the paid DataForSEO llm_responses path. */
 export const DATAFORSEO_ENGINES: readonly EngineId[] = ["gemini", "claude"];
 

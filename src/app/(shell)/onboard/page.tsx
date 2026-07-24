@@ -1,43 +1,62 @@
 /**
- * /onboard - the URL-first entry (Core 100K minimal onboarding).
+ * /onboard - the seven-step setup (Slice 5, 2026-07-24).
  *
- * One field: the site address. Submitting derives the name and domain,
- * saves them to the pending tenant, persists the minimal business config,
- * runs the bounded first-look scan (discovery + one crawl batch + day-0
- * baselines), and lands on /onboard/done with an honest scorecard where the
- * tenant confirms and starts tracking. The legacy multi-step wizard
- * (business/competitors/scope/review) was retired. Access control:
- * pending_onboarding tenants only.
+ * Server component: resolves the pending account, reads the durable onboarding
+ * state, computes the first incomplete step, and renders the wizard. The ?step
+ * query may show an EARLIER completed step (or step 7 once connections are
+ * reached); every mutation re-checks its own prerequisites server-side, so a
+ * URL cannot skip ahead. An active account is redirected to the dashboard by the
+ * gate. The legacy URL-first scorecard flow was retired with this slice.
  */
 
 import { requireOnboardingTenant } from "@/domains/account";
-import { UrlFirstForm } from "./url-form";
+import { composeFirstAuditScorecard } from "@/domains/account";
+import { loadCrawlFrontier } from "@/domains/evidence";
+import { loadOnboardingState } from "@/domains/runtime";
+import { OnboardWizard, type FirstFindings } from "./onboard-wizard";
 
 export const dynamic = "force-dynamic";
-// No page-level maxDuration override: this route INHERITS the (shell) layout's
-// 300s ceiling so the layout's post-response autonomous cycle can never be
-// killed mid-flight (a 60s cap left the status UI stuck on "working"). The
-// submit action's polite bounded crawl (discovery + one batch + $0 baselines)
-// still finishes well under that ceiling.
 
-export default async function OnboardUrlFirstPage() {
-  const { tenant } = await requireOnboardingTenant();
+function clampStep(raw: string | string[] | undefined): number | null {
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= 7 ? n : null;
+}
+
+export default async function OnboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const { tenantId } = await requireOnboardingTenant();
+  const state = await loadOnboardingState(tenantId);
+
+  const requested = clampStep((await searchParams).step);
+  const current = state.currentStep;
+  let rendered = current;
+  if (requested !== null) {
+    if (requested <= current) rendered = requested as typeof current;
+    else if (current === 6 && requested === 7) rendered = 7;
+  }
+
+  // First findings for step 7: the real crawl-derived preview, not a promise.
+  let firstFindings: FirstFindings = { pagesRead: state.website.crawl.pagesRead, firstWin: null };
+  if (rendered === 7) {
+    const frontier = await loadCrawlFrontier(tenantId).catch(() => null);
+    if (frontier) {
+      const card = composeFirstAuditScorecard(frontier);
+      firstFindings = {
+        pagesRead: card.pagesRead,
+        firstWin: card.firstWin
+          ? { action: card.firstWin.action, plainWhy: card.firstWin.plainWhy, exactFix: card.firstWin.exactFix, url: card.firstWin.url }
+          : null,
+      };
+    }
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6 py-12">
-      <div className="w-full max-w-md space-y-8">
-        <div className="space-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            What site do you want to grow?
-          </h1>
-          <p className="text-[14px] text-muted-foreground">
-            Give me one address. I read your pages, score what I find, and
-            hand you the first change worth making. No code on your site,
-            nothing published without your approval.
-          </p>
-        </div>
-        <UrlFirstForm initialUrl={tenant.domain ?? ""} />
-      </div>
+    <div className="mx-auto w-full max-w-2xl px-6 py-10">
+      <OnboardWizard state={state} step={rendered} firstFindings={firstFindings} />
     </div>
   );
 }

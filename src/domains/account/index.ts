@@ -39,9 +39,6 @@ export {
 // Onboarding: access gating
 export { requireOnboardingTenant } from "./onboarding/access";
 
-// Onboarding: URL-first look
-export { runFirstLook, deriveNameFromDomain } from "./onboarding/url-first";
-
 // Onboarding: site-profile normalization
 export { normalizeSiteUrl } from "./onboarding/fetch-site-profile";
 

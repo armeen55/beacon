@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { checkBudget, recordSpend } from "./adjudicator-budget";
+import { checkBudget, recordSpend, checkOnboardingBudget, recordOnboardingSpend } from "./adjudicator-budget";
 import { log } from "@/lib/logger";
 import { buildWinnerFewShots, buildWinnerFewShotsWithPattern } from "./winner-memory";
 import type { DraftPatternId } from "./draft-pattern";
@@ -670,6 +670,8 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
    *  without injection (no draft with sources ever hits the network in a test
    *  that didn't opt in). */
   sourceFetch?: SourceTextFetcher;
+  /** Slice 5: budget this call against the $2 pre-activation onboarding lifetime cap. Omitted = default (byte-identical). */
+  budgetPlatform?: "onboarding-openai";
 };
 
 /**
@@ -728,10 +730,9 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   }
 
   const projectedCostUsd = req.projectedCostUsd ?? 0.02;
-  // B82: fail CLOSED on an unknown budget (Supabase down / tenant-ctx error) — a
-  // paid LLM call must NOT fire when spend can't be verified (matches the DataForSEO
-  // + adjudicator caps; was fail-OPEN `allowed: true`, risking uncapped spend).
-  const budget = await checkBudget({ tenantId, projectedCostUsd }).catch(() => ({ allowed: false as const, reason: "budget check unavailable — failing closed" }));
+  // B82: fail CLOSED on unknown budget. Slice 5: onboarding uses the $2 pre-activation lifetime cap.
+  const budgetFn = req.budgetPlatform === "onboarding-openai" ? checkOnboardingBudget : checkBudget;
+  const budget = await budgetFn({ tenantId, projectedCostUsd }).catch(() => ({ allowed: false as const, reason: "budget check unavailable; failing closed" }));
   if (budget.allowed === false) {
     return { status: "blocked_budget", reason: (budget as { reason?: string }).reason ?? "cap reached" };
   }
@@ -817,7 +818,8 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     if (!blockedBudget) {
       const attemptCost = attemptCostUsd("error" in out ? out.costUsd : out.provenance?.costUsd, system.length + req.user.length);
       totalCost += attemptCost;
-      await recordSpend(attemptCost, { tenantId }).catch(() => {});
+      const recordFn = req.budgetPlatform === "onboarding-openai" ? recordOnboardingSpend : recordSpend;
+      await recordFn(attemptCost, { tenantId }).catch(() => {});
     }
 
     if ("error" in out) {

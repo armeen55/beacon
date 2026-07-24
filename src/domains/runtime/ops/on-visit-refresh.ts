@@ -4,6 +4,7 @@ import { after } from "next/server";
 
 import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/on-use-refresh";
 import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
+import { getTenant } from "@/domains/account";
 import { log } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { warmFreeSurfaces } from "./warm-caches";
@@ -339,6 +340,20 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
   const deadlineMs = options.deadlineMs ?? RESEARCH_CYCLE_DEADLINE_MS;
   const steps: ResearchCycleSteps = { ...defaultSteps, ...options.steps };
   const deadline = nowFn().getTime() + deadlineMs;
+
+  // Slice 5 pre-activation gate: no research work runs before an account is
+  // active. FAIL CLOSED: a missing/unknown account, or any read error, is a
+  // no-op (logged), never a claim. The database claim_research_run RPC carries
+  // the same active-account guard; this is the runtime-level mirror so we never
+  // even reach the claim for a pending account.
+  const account = await getTenant(tenantId).catch(() => null);
+  if (!account || account.status !== "active") {
+    log.debug("[research-run] skipped: account not active (no research before activation)", {
+      tenantId,
+      status: account?.status ?? "unknown",
+    });
+    return;
+  }
 
   await runWithTenant(tenantId, async () => {
     const ownerToken = newOwnerToken();

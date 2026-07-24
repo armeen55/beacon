@@ -13,6 +13,7 @@
  */
 
 import { z } from "zod";
+import { BusinessProfileInferenceSchema, BusinessProfilePatchSchema, PromptCandidatesSchema } from "./onboarding-schemas";
 
 // ── shared building blocks ──────────────────────────────────────────────────
 
@@ -389,7 +390,8 @@ export type StructuredDraftKind =
   | "batch_adjudication"
   | "strategy_review"
   | "section_draft"
-  | "outreach_pitch";
+  | "outreach_pitch"
+  | "business_profile_inference" | "business_profile_patch" | "prompt_candidates";
 
 export const SCHEMA_BY_KIND = {
   answer_block: AnswerBlockDraftSchema,
@@ -406,6 +408,9 @@ export const SCHEMA_BY_KIND = {
   strategy_review: StrategyReviewSchema,
   section_draft: SectionDraftSchema,
   outreach_pitch: OutreachPitchSchema,
+  business_profile_inference: BusinessProfileInferenceSchema,
+  business_profile_patch: BusinessProfilePatchSchema,
+  prompt_candidates: PromptCandidatesSchema,
 } as const satisfies Record<StructuredDraftKind, z.ZodTypeAny>;
 
 // ── R16 (P6 LLM engine pack): the FULL output-shape registry ─────────────────

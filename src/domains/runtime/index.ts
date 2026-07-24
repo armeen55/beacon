@@ -24,3 +24,26 @@ export {
 
 // Cache warming (used by the connectors "Update data" action + the publish phase)
 export { warmFreeSurfaces } from "./ops/warm-caches";
+
+// Onboarding facade (Slice 5) - the seven-step /onboard flow's command surface.
+export {
+  loadOnboardingState,
+  submitWebsite,
+  inferProfile,
+  saveProfileEdits,
+  confirmProfile,
+  proposeProfilePatch,
+  applyConfirmedPatch,
+  saveGoal,
+  generatePromptCandidates,
+  approvePrompts,
+  activateAccount,
+  type OnboardingState,
+  type OnboardingGoal,
+  type ProfileEdits,
+  type ProfilePatch,
+  type PromptSelection,
+  type OnboardingDeps,
+  type OnboardingStore,
+  type TrackedPromptRow,
+} from "./onboarding";

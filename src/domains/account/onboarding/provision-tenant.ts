@@ -200,6 +200,7 @@ export async function provisionTenantForNewUser(
     signup_date: ts,
     tos_accepted_at: null,
     daily_budget_usd: PROVISIONING_DEFAULTS.daily_budget_usd,
+    growth_goal: null,
     status: PROVISIONING_DEFAULTS.status,
     created_at: ts,
     updated_at: ts,

@@ -9,6 +9,35 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import * as RR from "@/domains/runtime/research-run";
 import { runResearchCycle, ensureResearchRunOnVisit, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
+import { setAccountRepositoryForTests, type AccountRepository } from "@/domains/account/tenants/store";
+import type { AccountStatus } from "@/domains/account";
+
+// Slice 5 pre-activation gate: the runtime + the RPC model both refuse research
+// work unless the account is active. The account status world defaults every
+// tenant to 'active' so every existing cycle test stands unchanged; a test opts
+// a tenant into 'pending_onboarding' to exercise the gate.
+const ACCOUNT_STATUS = new Map<string, AccountStatus>();
+const statusOf = (t: string): AccountStatus => ACCOUNT_STATUS.get(t) ?? "active";
+function setAccountStatus(t: string, s: AccountStatus): void {
+  ACCOUNT_STATUS.set(t, s);
+}
+function installAccountRepo(): void {
+  const byId = async (id: string) => ({
+    id,
+    slug: id,
+    provisional_name: "",
+    domain: "example.com",
+    status: statusOf(id),
+    signup_date: "",
+    tos_accepted_at: null,
+    daily_budget_usd: 0,
+    growth_goal: null,
+    created_at: "",
+    updated_at: "",
+  });
+  const repo: AccountRepository = { getAccountById: byId, getAccountBySlug: byId };
+  setAccountRepositoryForTests(repo);
+}
 let NOW = 1_700_000_000_000;
 const iso = (ms = NOW) => new Date(ms).toISOString();
 const DAY = 24 * 3600 * 1000;
@@ -35,6 +64,8 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } {
     rows.filter((x) => x.tenant_id === t && (x.status === "running" || x.status === "paused")).sort((a, b) => b.started_at.localeCompare(a.started_at))[0];
   const repo: RR.ResearchRunRepo = {
     async claim({ tenantId, owner, leaseSeconds }) {
+      // Mirror the RPC's new leading guard: no claim unless the account is active.
+      if (statusOf(tenantId) !== "active") return null;
       const exp = iso(NOW + leaseSeconds * 1000);
       const open = openRun(tenantId);
       if (open) {
@@ -112,6 +143,8 @@ const run = (steps: Partial<ResearchCycleSteps>, deadlineMs?: number) =>
 beforeEach(() => {
   NOW = 1_700_000_000_000;
   RR.setResearchRunRepoForTests(null);
+  ACCOUNT_STATUS.clear(); // every tenant defaults to active
+  installAccountRepo();
 });
 
 describe("research-run claim: one open run per account across all dates", () => {
@@ -153,6 +186,22 @@ describe("research-run claim: one open run per account across all dates", () => 
     const next = await RR.claimRun(T, "o4");
     expect(next).not.toBeNull();
     expect(next!.id).not.toBe(a!.id); // a genuinely new run once none is open
+  });
+});
+
+describe("research-run pre-activation gate (Slice 5)", () => {
+  it("a pending account runs no research at the runtime level: the seeded run is never claimed, no lease is taken, and no new run is created", async () => {
+    const rows = withRun(); // a claimable paused today-row for T
+    setAccountStatus(T, "pending_onboarding");
+    await run(BENIGN);
+    expect(rows[0]!.status).toBe("paused"); // untouched — the cycle no-oped before claiming
+    expect(rows[0]!.lease_owner).toBeNull(); // no lease was taken
+    expect(rows).toHaveLength(1); // no second run was opened
+  });
+  it("the claim model returns null for a non-active tenant, mirroring the database tenant-active guard", async () => {
+    freshRepo();
+    setAccountStatus(T, "pending_onboarding");
+    expect(await RR.claimRun(T, "o1")).toBeNull(); // nothing claimed or created before activation
   });
 });
 

@@ -66,6 +66,10 @@ export const PROMPT_REGISTRY = {
   "draft.tool_asset": 1,
   "draft.commerce_asset": 1,
   "draft.experiment_plan": 1,
+  // ── onboarding kinds (Slice 5, 2026-07-24) ────────────────────────────────
+  "draft.business_profile_inference": 1,
+  "draft.business_profile_patch": 1,
+  "draft.prompt_candidates": 1,
   // ── legacy demand-graph drafters (llm-answer-block.ts) ────────────────────
   // answer_block.text bumped to v2 (2026-07-09, W5/J-71): 80-150 word target
   // + cite-sources instruction replace the old 40-60 word prompt.

@@ -38,6 +38,10 @@ export function mapRowToAccount(r: Record<string, unknown>): Account {
       typeof r.daily_budget_usd === "number"
         ? r.daily_budget_usd
         : Number(r.daily_budget_usd ?? 0) || 0,
+    growth_goal:
+      r.growth_goal === "recover" || r.growth_goal === "grow" || r.growth_goal === "balanced"
+        ? r.growth_goal
+        : null,
     created_at: String(r.created_at ?? ""),
     updated_at: String(r.updated_at ?? ""),
   };

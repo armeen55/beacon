@@ -1,12 +1,12 @@
 /**
- * PLATFORM — tenant isolation, behavioral layer: repo facade scoping, the
- * supabase-backend forTenant pushdown invariant, dual-write validation before
- * I/O, and the canonical Account/BusinessProfile isolation promises.
+ * PLATFORM — tenant isolation, behavioral layer: repo facade scoping, dual-write
+ * validation before I/O, and the canonical Account/BusinessProfile isolation
+ * promises. Structural pushdown guarantees live in the foundation guard, not in
+ * readFileSync source scans (AGENTS.md test policy), so those scans were removed;
+ * the runtime enforcement below is what actually protects a tenant.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 vi.mock("server-only", () => ({}));
 
@@ -78,38 +78,7 @@ describe("buildTenantRepo behavioral isolation", () => {
   });
 });
 
-// ── B. supabase-backend forTenant pushdown (static invariant) ───────────────
-
-describe("supabase-backend forTenant pushdown invariant", () => {
-  const SRC = readFileSync(
-    resolve(__dirname, "../../../src/lib/persistence/repositories/supabase-backend.ts"),
-    "utf8",
-  );
-
-  it("every .select( in the forTenant block carries a tenant predicate (or the account-slug exception)", () => {
-    const fnStart = SRC.indexOf("forTenant(tenantId");
-    expect(fnStart).toBeGreaterThan(0);
-    const fnEnd = SRC.indexOf("\n  },", fnStart);
-    expect(fnEnd).toBeGreaterThan(fnStart);
-    const body = SRC.slice(fnStart, fnEnd);
-
-    const selects = [...body.matchAll(/\.select\(/g)];
-    expect(selects.length).toBeGreaterThan(0);
-    for (const m of selects) {
-      const window = body.slice(m.index ?? 0, (m.index ?? 0) + 1200);
-      const scoped =
-        window.includes('.eq("tenant_id", tenantId)') ||
-        window.includes(".eq('tenant_id', tenantId)") ||
-        window.includes('.eq("account_id", tenant.slug)') ||
-        window.includes(".eq('account_id', tenant.slug)");
-      expect(scoped, `unscoped .select( in forTenant at offset ${m.index}: ${window.slice(0, 120)}`).toBe(true);
-    }
-    expect(SRC).toMatch(/async function selectScoped[\s\S]*?\.eq\("tenant_id", tenantId\)/);
-    expect(SRC).toMatch(/async function queryAllPagedScoped[\s\S]*?\.eq\("tenant_id", tenantId\)/);
-  });
-});
-
-// ── C. dual-write validation layer ──────────────────────────────────────────
+// ── B. dual-write validation layer ──────────────────────────────────────────
 
 describe("dual-write tenant validation (fires before any I/O)", () => {
   it("assertRowsScopedToTenant throws on empty tenantId and on any mismatched row", () => {
@@ -163,35 +132,7 @@ describe("dual-write tenant validation (fires before any I/O)", () => {
   });
 });
 
-const DUAL_WRITE_SOURCE = readFileSync(
-  resolve(__dirname, "../../../src/lib/persistence/dual-write.ts"),
-  "utf8",
-);
-
-/** Slice a helper body from `export async function NAME(` to the next export. */
-function sliceHelperBody(source: string, name: string): string {
-  const startIdx = source.indexOf(`export async function ${name}(`);
-  if (startIdx < 0) return "";
-  const nextExportIdx = source.indexOf("\nexport ", startIdx + 1);
-  return nextExportIdx > 0 ? source.slice(startIdx, nextExportIdx) : source.slice(startIdx);
-}
-
 describe("Tier A sync* helpers stay tenant-wired", () => {
-  it("syncRecommendedEdits uses STRICT dualWriteUpsertScoped with the tenant-leading compound key", () => {
-    const body = sliceHelperBody(DUAL_WRITE_SOURCE, "syncRecommendedEdits");
-    expect(body).not.toBe("");
-    expect(body).toMatch(/dualWriteUpsertScoped\(/);
-    expect(body).not.toMatch(/tenantizeRows\(/);
-    expect(body).toMatch(/["']tenant_id,rec_id,action_type,target_element_key["']/);
-  });
-
-  it("deleteRecommendationResponseByRecId filters by BOTH rec_id AND tenant_id and fails loud on empty tenantId", () => {
-    const body = sliceHelperBody(DUAL_WRITE_SOURCE, "deleteRecommendationResponseByRecId");
-    expect(body).toMatch(/\.eq\(\s*["']rec_id["']\s*,\s*recId\s*\)/);
-    expect(body).toMatch(/\.eq\(\s*["']tenant_id["']\s*,\s*tenantId\s*\)/);
-    expect(body).toMatch(/tenantId must be a non-empty string/);
-  });
-
   it("runtime: a representative Tier A helper rejects a cross-tenant row and an empty tenantId", async () => {
     await expect(
       syncImportRuns([{ id: "r1", tenant_id: OTHER } as unknown as Parameters<typeof syncImportRuns>[0][number]], TENANT),
@@ -361,7 +302,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     const account = {
       id: "tenant-copy", slug: "copy", provisional_name: "seed-name-visible-nowhere",
       domain: "copy-co.example", status: "active" as const, signup_date: "2026-01-01",
-      tos_accepted_at: null, daily_budget_usd: 5, created_at: "2026-01-01", updated_at: "2026-01-01",
+      tos_accepted_at: null, daily_budget_usd: 5, growth_goal: null, created_at: "2026-01-01", updated_at: "2026-01-01",
     };
     store.setAccountRepositoryForTests({
       getAccountById: async (id) => (id === account.id ? account : null),
@@ -390,7 +331,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     const memA = {
       id: "tenant-mem-a", slug: "mem-a", provisional_name: "Mem A", domain: "mem-a.example",
       status: "active" as const, signup_date: "2026-01-01", tos_accepted_at: null,
-      daily_budget_usd: 5, created_at: "2026-01-01", updated_at: "2026-01-01",
+      daily_budget_usd: 5, growth_goal: null, created_at: "2026-01-01", updated_at: "2026-01-01",
     };
     store.setAccountRepositoryForTests({
       getAccountById: async (id) => (id === memA.id ? memA : null),

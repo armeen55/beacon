@@ -26,6 +26,7 @@ import "server-only";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { isSupabaseConfigured } from "@/lib/persistence/supabase";
 import {
+  getTenantLifetimeSpendUsd,
   getTenantSpentThisMonthUsd,
   recordSpendSupabase,
 } from "@/lib/cost/budget-ledger-supabase";
@@ -33,6 +34,17 @@ import { log } from "@/lib/logger";
 
 const STORE_NAME = "llm-budget";
 const DEFAULT_CAP_USD = 10;
+
+/** Platform tag for pre-activation onboarding spend in the durable ledger. */
+const ONBOARDING_PLATFORM = "onboarding-openai" as const;
+
+/**
+ * Slice 5 (Product Truth $2 pre-activation cap): before onboarding completes,
+ * Beacon may spend at most this much, TOTAL, for one account. It is a LIFETIME
+ * cap (summed across every date), separate from the active account's recurring
+ * monthly cap, and it is enforced against the durable ledger only.
+ */
+export const ONBOARDING_LIFETIME_CAP_USD = 2;
 
 /** Platform tag for adjudicator/LLM-narrative spend in the durable ledger. */
 const ADJUDICATOR_PLATFORM = "adjudicator-openai" as const;
@@ -175,4 +187,51 @@ export async function recordSpend(costUsd: number, opts: { tenantId: string; now
 
 function round6(n: number): number {
   return Math.round(n * 1_000_000) / 1_000_000;
+}
+
+// ── onboarding lifetime budget (Slice 5) ───────────────────────────────────
+
+/**
+ * The pre-activation onboarding budget check. Same BudgetCheckResult shape as
+ * checkBudget, but the rule is a LIFETIME sum against ONBOARDING_LIFETIME_CAP_USD
+ * ($2), sourced from the durable ledger only. FAIL CLOSED: an unreadable lifetime
+ * sum (null) is treated as "not allowed", so onboarding falls back to its
+ * deterministic path rather than risking uncapped pre-activation spend.
+ */
+export async function checkOnboardingBudget(
+  opts: { tenantId: string; projectedCostUsd?: number },
+): Promise<BudgetCheckResult> {
+  const tenantId = requireTenant(opts.tenantId, "checkOnboardingBudget");
+  const projected = opts.projectedCostUsd ?? 0;
+  const spent = await getTenantLifetimeSpendUsd(tenantId, ONBOARDING_PLATFORM).catch(() => null);
+  if (spent == null) {
+    return { allowed: false, reason: "onboarding spend unreadable; failing closed" };
+  }
+  if (isOverAdjudicatorBudget(spent, projected, ONBOARDING_LIFETIME_CAP_USD)) {
+    return {
+      allowed: false,
+      reason: `Pre-activation onboarding budget reached (${spent.toFixed(4)} / ${ONBOARDING_LIFETIME_CAP_USD} USD).`,
+    };
+  }
+  return { allowed: true, remaining: ONBOARDING_LIFETIME_CAP_USD - spent };
+}
+
+/**
+ * Record a pre-activation onboarding spend into the durable ledger under the
+ * 'onboarding-openai' platform. Never throws; a durable miss only loses
+ * cross-run accounting, it never blocks the paid call that already happened.
+ */
+export async function recordOnboardingSpend(
+  costUsd: number,
+  opts: { tenantId: string },
+): Promise<void> {
+  const tenantId = requireTenant(opts.tenantId, "recordOnboardingSpend");
+  if (!isSupabaseConfigured() || !Number.isFinite(costUsd) || costUsd < 0) return;
+  try {
+    await recordSpendSupabase({ tenantId, platform: ONBOARDING_PLATFORM, costUsd });
+  } catch (e) {
+    log.warn?.("onboarding durable spend write failed (non-fatal)", {
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
 }

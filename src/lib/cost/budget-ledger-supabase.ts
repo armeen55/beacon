@@ -56,6 +56,7 @@ export type LedgerPlatform =
   | "perplexity"
   | "openai"
   | "adjudicator-openai"
+  | "onboarding-openai"
   | "dataforseo-serp"
   | "other";
 
@@ -63,6 +64,7 @@ const VALID_PLATFORMS: ReadonlySet<string> = new Set<LedgerPlatform>([
   "perplexity",
   "openai",
   "adjudicator-openai",
+  "onboarding-openai",
   "dataforseo-serp",
   "other",
 ]);
@@ -309,6 +311,38 @@ export async function getTenantSpentTodayUsd(
  * null on read error → caller falls back to the file ledger, with the
  * per-run cost ceiling as the always-on backstop.
  */
+/**
+ * Slice 5 (2026-07-24) - LIFETIME spend for a tenant on ONE platform, summed
+ * across ALL dates in `llm_budget_ledger`. Powers the $2 pre-activation
+ * onboarding cap, which is a lifetime cap, not a monthly one. FAIL CLOSED on any
+ * read error: returns null so the caller must treat "unknown spend" as "not
+ * allowed" (an unreadable ledger must never let uncapped pre-activation spend
+ * through). An empty/absent ledger is a real 0, not an error.
+ */
+export async function getTenantLifetimeSpendUsd(
+  tenantId: string,
+  platform: LedgerPlatform,
+): Promise<number | null> {
+  if (typeof tenantId !== "string" || tenantId.trim() === "") return null;
+  if (!VALID_PLATFORMS.has(platform)) return null;
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase
+      .from("llm_budget_ledger")
+      .select("spent_usd")
+      .eq("tenant_id", tenantId)
+      .eq("platform", platform);
+    if (error || !Array.isArray(data)) return null;
+    let total = 0;
+    for (const row of data as Array<{ spent_usd?: number }>) {
+      if (typeof row.spent_usd === "number") total += row.spent_usd;
+    }
+    return total;
+  } catch {
+    return null;
+  }
+}
+
 export async function getTenantSpentThisMonthUsd(
   tenantId: string,
   now: Date = new Date(),

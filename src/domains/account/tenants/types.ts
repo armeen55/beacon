@@ -42,6 +42,8 @@ export type Account = {
   tos_accepted_at: string | null;
   /** Per-account daily research spend cap in USD (fail-closed). */
   daily_budget_usd: number;
+  /** The account's chosen onboarding goal, or null until Step 4 is done. */
+  growth_goal: "recover" | "grow" | "balanced" | null;
   created_at: string;
   updated_at: string;
 };

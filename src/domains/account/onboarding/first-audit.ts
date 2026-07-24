@@ -15,74 +15,15 @@
 
 import type { CrawlFrontierState, CrawlPageFact } from "@/domains/evidence/scanning/crawl-frontier";
 import { crawlProgressLine } from "@/domains/evidence/scanning/crawl-frontier";
-import type { SeedCandidate } from "@/domains/evidence/ai-visibility/tenant-question-library";
 
 /** Pages under this many words read as thin for a first-look verdict. */
 export const THIN_PAGE_WORDS = 120;
-/** How many Google-check terms the day-0 baseline queues. */
-export const DAY0_SERP_TERM_CAP = 5;
-
-// ---------------------------------------------------------------------------
-// Question seeds from the crawl (feeds seedTenantQuestionLibraryIfEmpty)
-// ---------------------------------------------------------------------------
-
-/** The crawl's question-shaped lines as library seed candidates. Dedupe is
- *  the library's own job; this just flattens + trims. */
-export function deriveQuestionSeedsFromFacts(
-  facts: readonly CrawlPageFact[],
-): SeedCandidate[] {
-  const out: SeedCandidate[] = [];
-  const seen = new Set<string>();
-  for (const f of facts) {
-    for (const q of f.questions) {
-      const key = q.toLowerCase().trim();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      out.push({ text: q.trim(), topic: null, source: "crawl" });
-    }
-  }
-  return out;
-}
-
-// ---------------------------------------------------------------------------
-// Day-0 Google-check terms
-// ---------------------------------------------------------------------------
 
 /** Strip a trailing site-name suffix ("Best Kebab | Iranopedia" -> "Best
  *  Kebab"). Separators handled: pipe, hyphen-with-spaces, en/em dash (as
  *  unicode escapes, never literal), double colon. */
 export function stripSiteSuffix(title: string): string {
   return title.split(/\s*(?:\||\u2013|\u2014|::|\s-\s)\s*/)[0]!.trim();
-}
-
-/**
- * The tenant's strongest first Google-check terms, derived from the crawl
- * alone: the cleaned titles (else H1s) of the highest-word-count pages.
- * Deterministic, deduped, capped. The homepage is skipped (its title is the
- * brand, not a topic) unless nothing else exists.
- */
-export function deriveSerpTermsFromFacts(
-  facts: readonly CrawlPageFact[],
-  cap = DAY0_SERP_TERM_CAP,
-): string[] {
-  const ranked = [...facts].sort((a, b) => b.word_count - a.word_count);
-  const pick = (pool: readonly CrawlPageFact[], out: string[], seen: Set<string>) => {
-    for (const f of pool) {
-      if (out.length >= cap) break;
-      const raw = (f.title?.trim() || f.h1?.trim() || "").trim();
-      if (!raw) continue;
-      const term = stripSiteSuffix(raw).toLowerCase();
-      if (term.length < 4 || term.length > 90) continue;
-      if (seen.has(term)) continue;
-      seen.add(term);
-      out.push(term);
-    }
-  };
-  const out: string[] = [];
-  const seen = new Set<string>();
-  pick(ranked.filter((f) => f.path !== "/"), out, seen);
-  if (out.length === 0) pick(ranked, out, seen);
-  return out;
 }
 
 // ---------------------------------------------------------------------------
