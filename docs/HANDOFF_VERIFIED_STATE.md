@@ -47,12 +47,18 @@
   (refresh stale sources, one bounded GSC backfill chunk, evidence-conditioned surface publish); progress,
   phase, and cursors are durable, a killed invocation resumes at the persisted phase after lease expiry,
   concurrent instances cannot duplicate work, and Today shows one honest persisted status line (a dead
-  lease presents as paused; hidden when there is nothing to say). The old warm-receipt store, process-local
+  lease presents as paused; hidden when there is nothing to say). The truth boundary is enforced
+  (2026-07-24 repair): a failed connector, backfill, or surface publication pauses the run at its phase
+  with a bounded error and can never advance, publish, or present as completed research; lease mutations
+  (advance, pre-phase renew, finish) are database-time security-definer RPCs so an expired owner cannot
+  mutate a run and completed rows reject all mutation; each phase's idempotency key is persisted before
+  its side effect and reused across interrupted retries; completion copy says "Latest research pass
+  finished today/(date) at h:mm" and never claims research is current. The old warm-receipt store, process-local
   scheduled Set, and once-daily Pacific gate are deleted; the migration is applied to production and the
   claim RPC was smoke-proven against the real database (service role executes, foreign lease loses,
   expired lease reclaims, completed cycle short-circuits). Verified end to end on the rendered app: a real
   visit completed cycle tenant-iranopedia:2026-07-24 (2 sources refreshed, surface published, lease
-  released) and Today rendered "Research is current as of 10:42 PM."
+  released) and Today rendered the honest completion line for that pass.
 - One canonical DataForSEO boundary exists (Slice 2, 2026-07-23): every call flows through
   `dataForSeoRequest` with typed states (not_configured / dry_run / capped / ok / error), dry-run the
   default, the global breaker and per-platform monthly cap failing closed before any network access,
