@@ -1,33 +1,45 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { isDataForSeoConfigured, isDryRun, runDataForSeoTransport } from "./client";
-import { collectResolvedTask, identityCacheKey, resolveDeps, runResolvedCall, type ResolvedCall } from "./cached-call";
+import { collectResolvedTask, identityCacheKey, runResolvedCall, type ResolvedCall } from "./cached-call";
+import { resolveDeps } from "./default-deps";
 import type {
   CachedCallResult, CapabilityInputByKey, CapabilityKey, EngineModelResolution, FunnelBoundaryDeps,
-  ParsedAiAnswer, ParsedByCapability, ParsedKeywordItem, ParsedModels, ParsedSerp, ProviderEnvelope,
+  ParsedAiAnswer, ParsedByCapability, ParsedKeywordItem, ParsedSerp, ProviderEnvelope,
 } from "./funnel-boundary";
 
 /**
  * capabilities - the typed DataForSEO provider registry behind the frozen
  * funnel-boundary contract. ONE entry per CapabilityKey owns the EXACT request
  * builder (only fields the docs document for that endpoint), the reservation, the
- * cache dimensions, the envelope parser, and its route. providerCall is the ONE
- * model-resolution point: it resolves the engine model ONCE, picks Standard vs
- * Live from that resolution, and stamps the requested model back on the result.
+ * cache dimensions, the envelope parser, and its route (post + free task_get +
+ * free tasks_ready). providerCall is the ONE model-resolution point: it resolves
+ * the engine model ONCE, picks Standard vs Live from that resolution, and stamps
+ * the requested model back on the result. The model is NEVER caller-supplied.
  * Executors never resolve models. Every field verified vs docs.dataforseo.com
- * 2026-07-24 (chat_gpt/claude/gemini task_post + gemini/perplexity live + scraper
- * task_post + appendix/errors).
+ * 2026-07-26 (chat_gpt/claude/gemini llm_responses task_post + live, perplexity
+ * live, chat_gpt llm_scraper task_post, serp organic + ai_mode, every family's
+ * tasks_ready, and appendix/errors).
  */
 
 const DFS_API_BASE = "https://api.dataforseo.com/v3";
 const LOCATION_US = 2840;
 const LANG_EN = "en";
 const DAY = 86_400_000;
+/** Bound the token-variable half of every LLM ask at the REQUEST. Documented on
+ *  chat_gpt/claude/gemini llm_responses task_post AND live and on perplexity live:
+ *  "maximum value: 4096; default value: 2048". NOT documented on llm_scraper, so
+ *  it is never sent there. Honest limit: the same docs say that with web_search
+ *  true or a reasoning model the output "may exceed the specified
+ *  max_output_tokens limit", so this narrows the spend, it does not hard-cap it. */
+const LLM_MAX_OUTPUT_TOKENS = 2048;
 
 type LlmEngine = "chatgpt" | "gemini" | "claude" | "perplexity";
 const ENGINE_SLUG: Record<LlmEngine, string> = { chatgpt: "chat_gpt", gemini: "gemini", claude: "claude", perplexity: "perplexity" };
 
-type Route = { mode: "live" | "task"; postPath: string; getPath: ((id: string) => string) | null };
+/** tasksReady = the FREE GET listing of finished-but-uncollected tasks, the ONLY
+ *  sanctioned recovery for a quarantined row. Null on Live routes (no task). */
+type Route = { mode: "live" | "task"; postPath: string; getPath: ((id: string) => string) | null; tasksReady: string | null };
 
 type Entry<K extends CapabilityKey> = {
   ttlMs: number;
@@ -51,30 +63,31 @@ class MissingFieldsError extends Error {
 
 // ── request builders (emit ONLY documented fields per endpoint) ───────────────
 
-/** ChatGPT + Claude task_post/live: user_prompt + model_name, plus web fields.
- *  force_web_search needs web_search enabled first AND a web-capable model, so it
- *  is gated on the resolution's webSearch flag; country only rides an enabled web
- *  search. (docs: chat_gpt/claude llm_responses/task_post, 2026-07-24) */
+/** ChatGPT + Claude task_post/live: user_prompt + model_name + max_output_tokens,
+ *  plus web fields. force_web_search needs web_search enabled first AND a
+ *  web-capable model, so it is gated on the resolution's webSearch flag; country
+ *  only rides an enabled web search. (docs: chat_gpt/claude llm_responses
+ *  task_post + live, 2026-07-26) */
 function llmWebBuild(i: CapabilityInputByKey["llm_chatgpt"], r: EngineModelResolution | null): unknown[] {
   const web = r?.webSearch === true && (i.web_search === true || i.force_web_search === true);
   const force = web && i.force_web_search === true;
   return [clean({
-    user_prompt: i.user_prompt, model_name: r?.model,
+    user_prompt: i.user_prompt, model_name: r?.model, max_output_tokens: LLM_MAX_OUTPUT_TOKENS,
     web_search: web ? true : undefined,
     force_web_search: force ? true : undefined,
     web_search_country_iso_code: web ? i.web_search_country_iso_code : undefined,
   })];
 }
 /** Gemini: web_search ONLY; never force_web_search/country (undocumented for
- *  Gemini). (docs: gemini llm_responses/task_post + /live, 2026-07-24) */
+ *  Gemini). (docs: gemini llm_responses/task_post + /live, 2026-07-26) */
 function geminiBuild(i: CapabilityInputByKey["llm_gemini"], r: EngineModelResolution | null): unknown[] {
   const web = r?.webSearch === true && i.web_search === true;
-  return [clean({ user_prompt: i.user_prompt, model_name: r?.model, web_search: web ? true : undefined })];
+  return [clean({ user_prompt: i.user_prompt, model_name: r?.model, max_output_tokens: LLM_MAX_OUTPUT_TOKENS, web_search: web ? true : undefined })];
 }
 /** Perplexity Live: web_search is on by default (not a request field); only
- *  web_search_country_iso_code is documented. (docs: perplexity live, 2026-07-24) */
+ *  web_search_country_iso_code is documented. (docs: perplexity live, 2026-07-26) */
 function perplexityBuild(i: CapabilityInputByKey["llm_perplexity"], r: EngineModelResolution | null): unknown[] {
-  return [clean({ user_prompt: i.user_prompt, model_name: r?.model, web_search_country_iso_code: i.web_search_country_iso_code })];
+  return [clean({ user_prompt: i.user_prompt, model_name: r?.model, max_output_tokens: LLM_MAX_OUTPUT_TOKENS, web_search_country_iso_code: i.web_search_country_iso_code })];
 }
 /** Scraper is KEYWORD-based (never user_prompt/model_name) and REQUIRES location +
  *  language; expand_citations REQUIRES force_web_search. (docs: chat_gpt
@@ -96,7 +109,7 @@ function labsEntry<K extends "labs_keywords_for_site" | "labs_ranked_keywords" |
 ): Entry<K> {
   return {
     ttlMs: 7 * DAY, estCostUsd, dims: { device: false, model: false },
-    route: () => ({ mode: "live", postPath, getPath: null }),
+    route: () => ({ mode: "live", postPath, getPath: null, tasksReady: null }),
     build: (i) => [{ [keyField]: (i as Record<string, unknown>)[keyField], location_code: LOCATION_US, language_code: LANG_EN, limit: (i as { limit?: number }).limit ?? 200 }],
     parse: parseKeywords,
   };
@@ -104,7 +117,7 @@ function labsEntry<K extends "labs_keywords_for_site" | "labs_ranked_keywords" |
 function serpEntry<K extends "serp_organic" | "serp_ai_mode">(base: string, estCostUsd: number): Entry<K> {
   return {
     ttlMs: 1 * DAY, estCostUsd, dims: { device: true, model: false },
-    route: () => ({ mode: "task", postPath: `${base}/task_post`, getPath: (id) => `${base}/task_get/advanced/${id}` }),
+    route: () => ({ mode: "task", postPath: `${base}/task_post`, getPath: (id) => `${base}/task_get/advanced/${id}`, tasksReady: `${base}/tasks_ready` }),
     build: (i) => [{ keyword: i.keyword, location_code: LOCATION_US, language_code: LANG_EN, device: i.device ?? "desktop" }],
     parse: parseSerp,
   };
@@ -114,10 +127,16 @@ function serpEntry<K extends "serp_organic" | "serp_ai_mode">(base: string, estC
  *  per engine; providerCall picks by the SINGLE resolution. */
 function llmDynamicRoute(engine: LlmEngine): (r: EngineModelResolution | null) => Route {
   const slug = ENGINE_SLUG[engine];
-  const standard: Route = { mode: "task", postPath: `ai_optimization/${slug}/llm_responses/task_post`, getPath: (id) => `ai_optimization/${slug}/llm_responses/task_get/${id}` };
-  const live: Route = { mode: "live", postPath: `ai_optimization/${slug}/llm_responses/live`, getPath: null };
+  const standard: Route = { mode: "task", postPath: `ai_optimization/${slug}/llm_responses/task_post`, getPath: (id) => `ai_optimization/${slug}/llm_responses/task_get/${id}`, tasksReady: `ai_optimization/${slug}/llm_responses/tasks_ready` };
+  const live: Route = { mode: "live", postPath: `ai_optimization/${slug}/llm_responses/live`, getPath: null, tasksReady: null };
   return (r) => (r?.method === "standard" ? standard : live);
 }
+/** PRICING EVIDENCE for the 0.035 reservation (dataforseo.com/pricing/ai-optimization/
+ *  llm-responses + the task_post docs, read 2026-07-26): a Standard-queue LLM task
+ *  costs $0.0002 plus a $0.01 prepayment refunded down to the LLM's actual charge;
+ *  Live adds $0.0006 plus the LLM charge, token-based and NOT capped by
+ *  max_output_tokens when web_search is on. So 0.035 is a deliberate high estimate,
+ *  not a proven bound; the monthly cap is reservation-based with bounded overshoot. */
 function llmDynamicEntry<K extends "llm_chatgpt" | "llm_gemini" | "llm_claude">(engine: LlmEngine, build: Entry<K>["build"]): Entry<K> {
   return { ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: true }, engine, route: llmDynamicRoute(engine), build, parse: parseLlmAnswer };
 }
@@ -131,7 +150,7 @@ const REGISTRY: Registry = {
   labs_keyword_suggestions: labsEntry("dataforseo_labs/google/keyword_suggestions/live", "keyword", 0.012),
   labs_keyword_overview: {
     ttlMs: 7 * DAY, estCostUsd: 0.02, dims: { device: false, model: false },
-    route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_overview/live", getPath: null }),
+    route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_overview/live", getPath: null, tasksReady: null }),
     build: (i) => [{ keywords: i.keywords, location_code: LOCATION_US, language_code: LANG_EN }],
     parse: parseKeywords,
   },
@@ -144,18 +163,13 @@ const REGISTRY: Registry = {
     ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: true }, engine: "perplexity",
     // Perplexity models are Live-only (task_post_supported=false for all), so this
     // stays Live-only; providerCall still resolves the model once for the id.
-    route: () => ({ mode: "live", postPath: "ai_optimization/perplexity/llm_responses/live", getPath: null }),
+    route: () => ({ mode: "live", postPath: "ai_optimization/perplexity/llm_responses/live", getPath: null, tasksReady: null }),
     build: perplexityBuild, parse: parseLlmAnswer,
   },
   llm_scraper_chatgpt: {
     ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: false },
-    route: () => ({ mode: "task", postPath: "ai_optimization/chat_gpt/llm_scraper/task_post", getPath: (id) => `ai_optimization/chat_gpt/llm_scraper/task_get/advanced/${id}` }),
+    route: () => ({ mode: "task", postPath: "ai_optimization/chat_gpt/llm_scraper/task_post", getPath: (id) => `ai_optimization/chat_gpt/llm_scraper/task_get/advanced/${id}`, tasksReady: "ai_optimization/chat_gpt/llm_scraper/tasks_ready" }),
     build: scraperBuild, parse: parseScraper,
-  },
-  engine_models: {
-    ttlMs: 7 * DAY, estCostUsd: 0, dims: { device: false, model: false },
-    route: () => ({ mode: "live", postPath: "ai_optimization/chat_gpt/llm_responses/models", getPath: null }),
-    build: () => [], parse: parseModels,
   },
 };
 
@@ -171,23 +185,23 @@ export async function providerCall<K extends CapabilityKey>(
     // ONE resolution: the method routes the call AND the model rides the request.
     resolution = await resolveEngineModel(entry.engine, deps);
     if (!resolution) return { state: "not_configured", cacheKey: null, detail: `I could not find a usable ${entry.engine} model to ask right now. I will try again on the next pass.` };
-    const override = (input as { model_name?: string }).model_name;
-    modelRequested = typeof override === "string" && override ? override : resolution.model;
-    resolution = { ...resolution, model: modelRequested };
+    // The resolution is the ONLY source of the model: no caller override exists.
+    modelRequested = resolution.model;
   }
   const route = entry.route(resolution);
   let payload: unknown[];
   try {
     payload = entry.build(input, resolution);
   } catch (err) {
-    return { state: "error", cacheKey: null, detail: err instanceof Error ? err.message : String(err) };
+    return { state: "error", cacheKey: null, disposition: "none", detail: err instanceof Error ? err.message : String(err) };
   }
   const device = entry.dims.device ? ((input as { device?: string }).device ?? "desktop") : null;
   const modelDim = entry.dims.model ? modelRequested : null;
-  const publicInput = publicInputOf(input);
+  const publicInput = (input ?? {}) as Record<string, unknown>;
   const cacheKey = identityCacheKey({ endpoint: route.postPath, publicInput, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim });
   const resolved: ResolvedCall = {
     cacheKey, endpoint: route.postPath, endpointVersion: "v3", postPath: route.postPath, getPath: route.getPath,
+    tasksReadyPath: route.tasksReady,
     publicInput, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim,
     payload, ttlMs: entry.ttlMs, estCostUsd: entry.estCostUsd, mode: route.mode, tenantId: ids.tenantId,
   };
@@ -197,9 +211,17 @@ export async function providerCall<K extends CapabilityKey>(
   return result;
 }
 
-/** Resume a waiting Standard task via the endpoint-derived free task_get path. */
+/** Resume a waiting Standard task via the endpoint-derived FREE task_get path, or
+ *  recover a quarantined row via the endpoint-derived FREE tasks_ready listing. */
 export async function collectCapability(cacheKey: string, deps: FunnelBoundaryDeps = {}): Promise<CachedCallResult> {
-  return collectResolvedTask(cacheKey, getPathForEndpoint, deps);
+  return collectResolvedTask(cacheKey, { getPath: getPathForEndpoint, tasksReadyPath: tasksReadyForEndpoint, ttlMsFor: ttlMsForEndpoint }, deps);
+}
+/** Ready-payload freshness for a collected task, by endpoint: every Standard
+ *  family in the registry (SERP, AI Mode, llm_responses, llm_scraper) carries
+ *  the 1-day ttl, so a due weekly re-observation re-buys instead of hitting a
+ *  stale row. Null = not a task endpoint. */
+function ttlMsForEndpoint(endpoint: string): number | null {
+  return endpoint.endsWith("/task_post") ? DAY : null;
 }
 /** The free task_get derivation from a stored task_post endpoint: serp + scraper
  *  use /task_get/advanced, llm_responses uses the plain /task_get. */
@@ -210,6 +232,14 @@ function getPathForEndpoint(endpoint: string, id: string): string | null {
   if (endpoint.includes("/llm_responses/")) return `${base}/task_get/${id}`;
   return null;
 }
+/** The free tasks_ready derivation. ONE rule across every family we post to,
+ *  each verified on docs.dataforseo.com 2026-07-26 as a free GET returning
+ *  {id, tag} per finished task: serp/google/organic, serp/google/ai_mode,
+ *  ai_optimization/{chat_gpt,claude,gemini}/llm_responses, and
+ *  ai_optimization/chat_gpt/llm_scraper all expose <base>/tasks_ready. */
+function tasksReadyForEndpoint(endpoint: string): string | null {
+  return endpoint.endsWith("/task_post") ? `${endpoint.slice(0, -"/task_post".length)}/tasks_ready` : null;
+}
 
 /** Pure: the full bounded envelope -> the capability's frozen typed output. */
 export function parseCapability<K extends CapabilityKey>(capability: K, envelope: ProviderEnvelope): ParsedByCapability[K] | null {
@@ -218,13 +248,6 @@ export function parseCapability<K extends CapabilityKey>(capability: K, envelope
   } catch {
     return null;
   }
-}
-
-/** model minus the model dimension (model is a cache DIMENSION, not input hash). */
-function publicInputOf(input: unknown): Record<string, unknown> {
-  const { model_name: _model, ...rest } = (input ?? {}) as Record<string, unknown>;
-  void _model;
-  return rest;
 }
 
 // ── model resolution (FREE models endpoint, method-aware, cached) ──────────────
@@ -386,9 +409,6 @@ function parseScraper(env: ProviderEnvelope): ParsedAiAnswer {
     answerText: str(result0?.markdown), modelServed: str(result0?.model), webSearchReported: null,
     citations, fanOutQueries: arrStr(result0?.fan_out_queries), brands: brandNames(result0?.brand_entities),
   };
-}
-function parseModels(env: ProviderEnvelope): ParsedModels {
-  return { models: modelObjects(env).map((m) => str(m.model_name)).filter((s): s is string => s !== null) };
 }
 function modelObjects(env: ProviderEnvelope): Record<string, unknown>[] {
   const result = env.tasks?.[0]?.result;

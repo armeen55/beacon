@@ -4,7 +4,8 @@ import "server-only";
  * funnel/observe (integrity closure) - the AI-answer, SERP, and winning-page
  * executors plus the PURE snapshot projector. Every provider call routes through
  * the frozen boundary by CAPABILITY and consumes the registry's typed parse
- * output; posted Standard tasks resume via collect and are never reposted. All
+ * output; posted Standard tasks resume via collect, and only a PROVEN-dead task
+ * identity earns one clean repost per incident (the disposition decides). All
  * state is basis-scoped with optimistic row_version. Provenance is TRUE: every
  * winning-page appearance carries its own query/prompt/engine, and citations
  * preserve the null-vs-[]-vs-nonempty tri-state end to end.
@@ -14,24 +15,19 @@ import { basisTag } from "@/domains/account";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
-import type { CapabilityKey, FunnelCounters, FunnelUnitFn, FunnelUnitOutcome, LlmWebInput, ParsedAiAnswer, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
-import type { CachedCallResult } from "@/domains/evidence/dataforseo/funnel-boundary";
+import type { CachedCallResult, CapabilityKey, FunnelCounters, FunnelUnitFn, FunnelUnitOutcome, LlmWebInput, ParsedAiAnswer, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { rankAndCap, rankWinningPages } from "./normalize";
 import { type FunnelPair, type FunnelSerp, type FunnelState, type FunnelWinningPage } from "./state";
 import {
-  emptyResearchEvidence,
-  type FunnelResearchEvidence,
-  type ResearchEngine,
-  type ResearchPageExtract,
-  type ResearchWinningAppearance,
+  emptyResearchEvidence, type FunnelResearchEvidence, type ResearchEngine,
+  type ResearchPageExtract, type ResearchWinningAppearance,
 } from "./research-evidence";
 import {
-  basisFromCursor, CONFLICT_DETAIL, FRESH_MS, interp, type Interp, NO_BASIS_DETAIL,
+  basisFromCursor, beginCycle, CONFLICT_DETAIL, FRESH_MS, interp, type Interp, NO_BASIS_DETAIL, pauseDetail,
   resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps,
 } from "./shared";
 
 // ── B3: prompt observation ──────────────────────────────────────────────────
-
 const ENGINES: ResearchEngine[] = ["chatgpt", "gemini", "claude", "perplexity"];
 const pairKey = (p: FunnelPair) => `${p.promptId}|${p.engine}|${p.scraper ? "s" : ""}`;
 const capabilityFor = (p: FunnelPair): CapabilityKey => (p.scraper ? "llm_scraper_chatgpt" : (`llm_${p.engine}` as CapabilityKey));
@@ -50,33 +46,46 @@ function observeCall(callProvider: ResolvedDeps["callProvider"], p: FunnelPair, 
   }
 }
 
-function buildPairs(prompts: { id: string }[]): FunnelPair[] {
-  const out: FunnelPair[] = [];
-  for (const p of prompts) for (const engine of ENGINES) out.push({ promptId: p.id, engine, cacheKey: null, status: "pending" });
-  for (const p of prompts.slice(0, 20)) out.push({ promptId: p.id, engine: "chatgpt", scraper: true, cacheKey: null, status: "pending" });
-  return out;
+/** THE current intended pair set (active prompts x engines + the scraper subset),
+ *  each carrying forward its persisted row when the key still belongs. Anything
+ *  else is PRUNED: research_state is the resumable working set, never an archive,
+ *  so an obsolete done pair can never satisfy a pending one and can never eat the
+ *  row cap. True history lives in prompt_answer_observations. */
+function currentPairs(prompts: { id: string }[], persisted: FunnelPair[]): FunnelPair[] {
+  const byKey = new Map(persisted.map((p) => [pairKey(p), p]));
+  const intended: FunnelPair[] = [];
+  for (const p of prompts) for (const engine of ENGINES) intended.push({ promptId: p.id, engine, cacheKey: null, status: "pending" });
+  for (const p of prompts.slice(0, 20)) intended.push({ promptId: p.id, engine: "chatgpt", scraper: true, cacheKey: null, status: "pending" });
+  return intended.map((ip) => byKey.get(pairKey(ip)) ?? ip);
 }
+
+/** Fresh = observed inside the weekly window. A done-but-STALE pair is outstanding
+ *  work (a refresh in flight), never completed coverage. */
+const pairFresh = (p: FunnelPair, now: number) => p.status === "done" && !!p.observedAt && now - Date.parse(p.observedAt) <= FRESH_MS;
+const pairComplete = (p: FunnelPair, now: number) => p.status === "unsupported" || pairFresh(p, now);
 
 function pairProgress(s: FunnelState): FunnelCounters {
   return {
     promptsChecked: new Set(s.prompts.pairs.map((p) => p.promptId)).size,
     enginePairsDone: s.prompts.pairs.filter((p) => p.status === "done").length,
     enginePairsIntended: s.prompts.intendedPairs,
-    cacheHits: s.ledger.cacheHits,
-    spendUsd: round(s.ledger.spentUsd),
+    cacheHits: s.cycle.cacheHits,
+    spendUsd: round(s.cycle.spentUsd),
   };
 }
 
 /** ONE historical prompt_answer_observations row per completed answer. The id folds
- *  in modelServed + day so a changed served model yields a DISTINCT row, never a
- *  merge. citation_urls is null (not []) when citations were NOT observable, and
- *  metadata.citationsObserved records the tri-state a count-of-0 would flatten. */
+ *  in the retrieval MODE (the scraper look is a different observation of the same
+ *  engine, never an overwrite), modelServed, and the day, so a changed served model
+ *  yields a DISTINCT row, never a merge. citation_urls is null (not []) when
+ *  citations were NOT observable, and metadata.citationsObserved records the
+ *  tri-state a count-of-0 would flatten. */
 function paoRow(p: FunnelPair, parsed: ParsedAiAnswer, tenantId: string, runId: string, nowIso: string): PromptAnswerObservation {
   const domains = (parsed.citations ?? []).map((c) => c.domain);
   const observed = parsed.citations !== null;
   const model = parsed.modelServed ?? p.modelRequested ?? p.engine;
   return {
-    id: `${tenantId}|${p.engine}|${p.promptId}|${model}|${nowIso.slice(0, 10)}`,
+    id: `${tenantId}|${p.engine}${p.scraper ? "+scraper" : ""}|${p.promptId}|${model}|${nowIso.slice(0, 10)}`,
     prompt_id: p.promptId,
     run_id: runId,
     answer_hash: parsed.answerText ? sha16(parsed.answerText) : null,
@@ -110,6 +119,7 @@ async function landAnswer(p: FunnelPair, r: Interp, parsed: ParsedAiAnswer, prom
   p.status = "done";
   p.cacheKey = r.cacheKey;
   p.observedAt = nowIso;
+  p.reposts = undefined; // a landed answer closes the incident: fresh budget next time
   p.promptText = promptText;
   p.modelServed = parsed.modelServed ?? r.modelServed;
   p.webSearchReported = parsed.webSearchReported;
@@ -127,26 +137,26 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     if (!basis) return { status: "failed", cursor, progress: {}, detail: NO_BASIS_DETAIL };
     const unitKey = `prompts:${tenantId}`;
     const ids = { tenantId, unitKey };
-    const runId = (cursor?.runId as string) ?? unitKey;
     const deadline = d.now() + Math.max(1000, budgetMs);
     const loaded = await d.loadState(tenantId, basis);
     const state = loaded.state;
+    const runId = beginCycle(state, cursor, unitKey);
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion };
     const prompts = (await d.loadActivePrompts(tenantId)).slice(0, 100);
     if (prompts.length === 0) return { status: "failed", cursor, progress: pairProgress(state), detail: "I have no active core prompts to check yet." };
 
-    const intended = buildPairs(prompts);
-    const byKey = new Map(state.prompts.pairs.map((p) => [pairKey(p), p]));
-    for (const ip of intended) if (!byKey.has(pairKey(ip))) byKey.set(pairKey(ip), ip);
-    const pairs = [...byKey.values()];
-    state.prompts.intendedPairs = intended.length;
+    const pairs = currentPairs(prompts, state.prompts.pairs);
+    state.prompts.intendedPairs = pairs.length;
     const textOf = new Map(prompts.map((p) => [p.id, p.text]));
     const nowIso = () => new Date(d.now()).toISOString();
     let failedDetail: string | null = null;
     let softUnavailable = false;
+    // Budgets are per INCIDENT: a stale unsupported pair re-enters weekly with a
+    // fresh repost budget, so unavailable coverage is a bounded outage, not a hole.
+    for (const p of pairs) if (p.status === "unsupported" && p.observedAt && d.now() - Date.parse(p.observedAt) > FRESH_MS) { p.status = "pending"; p.cacheKey = null; p.reposts = undefined; }
 
     try {
-      // 1) collect prior posted tasks first (never repost a posted key)
+      // 1) collect prior posted tasks (only a PROVEN-dead identity ever reposts)
       for (const p of pairs.filter((x) => x.status === "posted" && x.cacheKey)) {
         if (d.now() > deadline) break;
         const r = interp(await d.collectTask(p.cacheKey!));
@@ -158,18 +168,20 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           if (parsed) await landAnswer(p, r, parsed, textOf.get(p.promptId) ?? p.promptText ?? "", tenantId, runId, nowIso(), d.syncHistory);
           else failedDetail = "I collected an answer I could not read. I will retry it on the next pass.";
         } else if (r.kind === "failed") {
-          // Terminal collect: this posted task can never return. Repost the pair
-          // clean exactly ONCE through the full money path; a second terminal marks
-          // it unsupported (explicit unavailable coverage), never an eternal retry.
-          if ((p.reposts ?? 0) >= 1) { p.status = "unsupported"; p.cacheKey = null; }
-          else { p.status = "pending"; p.cacheKey = null; p.reposts = 1; }
+          // The DISPOSITION decides. repost_once = proven-dead identity: ONE clean
+          // repost, then unsupported (explicit unavailable coverage). Every other
+          // disposition keeps the pair POSTED for a free collect, spending nothing.
+          if (r.disposition === "repost_once") {
+            if ((p.reposts ?? 0) >= 1) { p.status = "unsupported"; p.cacheKey = null; p.observedAt = nowIso(); }
+            else { p.status = "pending"; p.cacheKey = null; p.reposts = 1; }
+          } else failedDetail = pauseDetail(r.disposition, "A prompt check did not come back. I will collect it on the next pass.");
         }
       }
 
       // 2) post/live the stalest pending pairs, bounded batch within budget
       const now = d.now();
       const todo = pairs
-        .filter((p) => p.status === "pending" || (p.status === "done" && p.observedAt && now - Date.parse(p.observedAt) > FRESH_MS))
+        .filter((p) => p.status === "pending" || (p.status === "done" && !pairFresh(p, now)))
         .sort((a, b) => (a.observedAt ? Date.parse(a.observedAt) : 0) - (b.observedAt ? Date.parse(b.observedAt) : 0));
       let processed = 0, perp = 0, progressed = false;
       for (const p of todo) {
@@ -186,22 +198,23 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           const parsed = d.parse(capabilityFor(p), r.payload as never) as ParsedAiAnswer | null;
           if (parsed) { await landAnswer(p, r, parsed, text, tenantId, runId, nowIso(), d.syncHistory); progressed = true; }
           else failedDetail = "I got an answer I could not read. I will retry it on the next pass.";
-        } else if (r.kind === "failed") failedDetail = r.detail ?? "A provider call failed. I will retry it on the next pass.";
+        } else if (r.kind === "failed") failedDetail = pauseDetail(r.disposition, "A prompt check did not run. I will retry it on the next pass.");
         else if (r.soft === "not_configured") softUnavailable = true; // genuine unavailable coverage
         processed += 1;
       }
 
-      state.prompts.pairs = pairs.slice(0, 500);
+      state.prompts.pairs = pairs; // bounded by construction: <= 100 prompts x 4 engines + 20 scraper
       await save(d, tenantId, basis, state, ctx);
-      const done = pairs.filter((p) => p.status === "done").length;
+      const at = d.now();
+      const complete = pairs.filter((p) => pairComplete(p, at)).length;
+      const freshDone = pairs.filter((p) => pairFresh(p, at)).length;
       const unsupported = pairs.filter((p) => p.status === "unsupported").length;
       const anyPosted = pairs.some((p) => p.status === "posted");
-      // Honest status: complete only when every intended pair is resolved (done or
-      // EXPLICITLY unsupported) with at least one real answer; failures pause; posted
-      // pairs wait; "advanced" only on real progress; leftover pending pairs are a
-      // recoverable pause, never a fake done.
+      // Honest status over the CURRENT set only: done needs every intended pair
+      // FRESHLY answered or EXPLICITLY unsupported plus one real answer; stale-done
+      // is outstanding; failures pause; leftover pending pairs never fake done.
       let status: FunnelUnitOutcome["status"];
-      if (state.prompts.intendedPairs > 0 && done > 0 && done + unsupported >= state.prompts.intendedPairs) {
+      if (pairs.length > 0 && freshDone > 0 && complete >= pairs.length) {
         status = "done";
         if (unsupported > 0) failedDetail = `${unsupported} prompt checks were unavailable from the provider this round; the rest are in.`;
       }
@@ -210,8 +223,8 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
       else if (progressed) status = "advanced";
       else if (softUnavailable) { status = "failed"; failedDetail = "I could not reach the AI engines to check your prompts. I will try again on the next pass."; }
       else if (pairs.some((p) => p.status === "pending")) { status = "failed"; failedDetail = "Some prompt checks did not run this pass. I will pick them up on the next pass."; }
-      else if (done > 0) status = "done";
-      else { status = "failed"; failedDetail = "The provider could not return any prompt answers this round. I will try the whole set fresh on the next pass."; }
+      else if (freshDone === 0) { status = "failed"; failedDetail = "The provider could not return any prompt answers this round. I will try the whole set fresh on the next pass."; }
+      else { status = "failed"; failedDetail = `${pairs.length - complete} prompt checks are still outstanding. I will finish them on the next pass.`; }
       return { status, cursor: { runId }, progress: pairProgress(state), ...(failedDetail ? { detail: failedDetail } : {}) };
     } catch (e) {
       if (e instanceof StateConflictError) return { status: "failed", cursor: { runId }, progress: pairProgress(state), detail: CONFLICT_DETAIL };
@@ -219,20 +232,24 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     }
   };
 }
-
 // ── B4: SERP analysis ───────────────────────────────────────────────────────
 
 const refs = (parsed: ParsedSerp | null) => (parsed?.aiOverview?.references ?? []).map((r) => ({ url: r.url, domain: r.domain, title: r.title }));
 
-function applySerp(s: FunnelSerp, parsed: ParsedSerp): void {
+function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string): void {
   s.status = "done";
+  s.observedAt = nowIso;
+  s.reposts = undefined; // a landed look closes the incident: fresh budget next time
   s.organic = parsed.organic.slice(0, 10).map((o) => ({ rank: o.rank, url: o.url, domain: o.domain, title: o.title }));
   s.aiOverview = refs(parsed);
   s.paa = parsed.paaQuestions.map((q) => ({ question: q.question, answeringDomain: q.answeringDomain }));
   s.related = parsed.relatedSearches.slice(0, 20);
 }
 
-const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.serps.analyzed, cacheHits: s.ledger.cacheHits, spendUsd: round(s.ledger.spentUsd) });
+/** A look observed inside the weekly window; anything older is due again. */
+const serpFresh = (s: FunnelSerp, now: number) => s.status === "done" && !!s.observedAt && now - Date.parse(s.observedAt) <= FRESH_MS;
+
+const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.serps.analyzed, cacheHits: s.cycle.cacheHits, spendUsd: round(s.cycle.spentUsd) });
 
 export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
   const d = resolveDeps(deps);
@@ -244,36 +261,53 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     const deadline = d.now() + Math.max(1000, budgetMs);
     const loaded = await d.loadState(tenantId, basis);
     const state = loaded.state;
+    beginCycle(state, cursor, unitKey);
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion };
     const retained = state.discovery.retained;
     if (retained.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "I have no researched keywords to check in search yet." };
 
+    // PRUNE to the CURRENT chosen set: an obsolete query can never satisfy a new one.
     const chosen = rankAndCap(retained, 40).map((k) => k.keyword);
     const byQ = new Map(state.serps.queries.map((s) => [s.query, s]));
-    for (const q of chosen) if (!byQ.has(q)) byQ.set(q, { query: q, cacheKey: null, status: "pending" });
-    const serps = [...byQ.values()];
+    const serps: FunnelSerp[] = chosen.map((q) => byQ.get(q) ?? { query: q, cacheKey: null, status: "pending" });
     const top5 = new Set(chosen.slice(0, 5));
+    const nowIso = () => new Date(d.now()).toISOString();
     const parseSerp = (payload: unknown) => d.parse("serp_organic", payload as never) as ParsedSerp | null;
     let failedDetail: string | null = null;
+    // A look older than the weekly window is DUE (done OR exhausted-failed): it
+    // re-enters with a fresh per-incident budget and its AI Mode observation
+    // re-opens too, so no query and no AI Mode look can freeze forever.
+    for (const s of serps) {
+      if ((s.status !== "done" && s.status !== "failed") || !s.observedAt || d.now() - Date.parse(s.observedAt) <= FRESH_MS) continue;
+      s.status = "pending"; s.cacheKey = null; s.reposts = undefined;
+      s.aiMode = undefined; s.aiModeCacheKey = null; s.aiModeReposted = undefined; s.aiModeFailed = undefined;
+    }
 
     try {
-      // 1) collect posted organic + AI Mode tasks (never repost)
+      // 1) collect posted organic + AI Mode tasks (never repost a live key)
       for (const s of serps) {
         if (d.now() > deadline) break;
         if (s.status === "posted" && s.cacheKey) {
           const r = interp(await d.collectTask(s.cacheKey));
           track(state, r);
-          if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed); }
-          else if (r.kind === "failed") { s.status = "failed"; failedDetail = r.detail ?? "A search did not finish. I will retry it on the next pass."; }
+          if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso()); }
+          else if (r.kind === "failed") {
+            // Disposition decides: repost_once = ONE clean repost then explicit
+            // unavailable; everything else stays posted for a free collect.
+            if (r.disposition !== "repost_once") failedDetail = pauseDetail(r.disposition, "A search did not finish. I will retry it on the next pass.");
+            else if ((s.reposts ?? 0) >= 1) { s.status = "failed"; s.observedAt = nowIso(); failedDetail = "A search could not be completed after a second try. I will try it fresh next week."; }
+            else { s.status = "pending"; s.cacheKey = null; s.reposts = 1; }
+          }
         }
-        if (s.aiModeCacheKey && !s.aiMode && !s.aiModeFailed) {
+        if (top5.has(s.query) && s.aiModeCacheKey && !s.aiMode && !s.aiModeFailed) {
           const r = interp(await d.collectTask(s.aiModeCacheKey));
           track(state, r);
-          if (r.kind === "evidence") s.aiMode = refs(d.parse("serp_ai_mode", r.payload as never) as ParsedSerp | null);
+          if (r.kind === "evidence") { s.aiMode = refs(d.parse("serp_ai_mode", r.payload as never) as ParsedSerp | null); s.aiModeReposted = undefined; }
           else if (r.kind === "failed") {
             // Terminal AI Mode collect: ONE clean repost, then explicit missing
             // coverage (never a silent gap, never an eternal dead-key collect).
-            if (s.aiModeReposted) s.aiModeFailed = true;
+            if (r.disposition !== "repost_once") failedDetail = pauseDetail(r.disposition, "An AI Mode look did not finish. I will retry it on the next pass.");
+            else if (s.aiModeReposted) s.aiModeFailed = true;
             else { s.aiModeCacheKey = null; s.aiModeReposted = true; }
           }
         }
@@ -287,13 +321,14 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           const r = interp(await d.callProvider("serp_organic", { keyword: s.query }, ids));
           track(state, r);
           if (r.kind === "waiting") { s.status = "posted"; s.cacheKey = r.cacheKey; }
-          else if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed); }
+          else if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso()); }
           else if (r.kind === "failed") {
-            s.status = "failed";
+            // A post that never landed leaves the query PENDING (there is nothing to
+            // collect) and pauses the phase; it never burns the repost budget.
             state.serps.queries = serps.slice(0, 60);
             state.serps.analyzed = serps.filter((x) => x.status === "done").length;
             await save(d, tenantId, basis, state, ctx);
-            return { status: "failed", cursor, progress: serpProgress(state), detail: r.detail };
+            return { status: "failed", cursor, progress: serpProgress(state), detail: pauseDetail(r.disposition, r.detail ?? "A search did not run. I will retry it on the next pass.") };
           }
           processed += 1;
         }
@@ -302,23 +337,32 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           track(state, r);
           if (r.kind === "waiting") s.aiModeCacheKey = r.cacheKey;
           else if (r.kind === "evidence") { s.aiModeCacheKey = r.cacheKey; s.aiMode = refs(d.parse("serp_ai_mode", r.payload as never) as ParsedSerp | null); }
-          else if (r.kind === "failed") { if (s.aiModeReposted) s.aiModeFailed = true; else s.aiModeReposted = true; } // one retry, then explicit missing
+          else if (r.kind === "failed") {
+            // blocked/transient pause WITHOUT spending the one AI Mode retry;
+            // anything else spends it, and a second failure names the gap.
+            if (r.disposition === "repost_once" || r.disposition === "none") { if (s.aiModeReposted) s.aiModeFailed = true; else s.aiModeReposted = true; }
+            else failedDetail = pauseDetail(r.disposition, "I could not start an AI Mode look this pass. I will try again on the next pass.");
+          }
         }
       }
 
       state.serps.queries = serps.slice(0, 60);
       state.serps.analyzed = serps.filter((s) => s.status === "done").length;
       await save(d, tenantId, basis, state, ctx);
-      const aiModeInFlight = serps.some((s) => s.aiModeCacheKey && !s.aiMode && !s.aiModeFailed);
+      // AI Mode truth is judged for the CURRENT top five ONLY; a row that has since
+      // dropped out of the top five can neither pause nor pollute this phase.
+      const topRows = serps.filter((s) => top5.has(s.query));
+      const aiModeInFlight = topRows.some((s) => s.aiModeCacheKey && !s.aiMode && !s.aiModeFailed);
       const anyPending = serps.some((s) => s.status === "pending" || s.status === "posted") || aiModeInFlight;
-      const aiModeMissing = serps.filter((s) => s.aiModeFailed).length;
-      // done when every chosen query is analyzed AND no AI Mode task is still live;
-      // else wait; else a bounded failure instead of looping "advanced" forever.
-      // Unavailable AI Mode coverage is surfaced, never silent.
+      const aiModeMissing = topRows.filter((s) => s.aiModeFailed).length;
+      const unavailable = serps.filter((s) => s.status === "failed").length;
+      // done = every CURRENT query freshly analyzed or explicitly unavailable,
+      // one real look minimum, no AI Mode still live; unavailable is surfaced.
       let status: FunnelUnitOutcome["status"];
-      if (state.serps.analyzed >= chosen.length && !aiModeInFlight) {
+      if (state.serps.analyzed > 0 && state.serps.analyzed + unavailable >= chosen.length && !aiModeInFlight) {
         status = "done";
-        if (aiModeMissing > 0) failedDetail = `${aiModeMissing} AI Mode looks were unavailable from the provider; the search results themselves are in.`;
+        if (unavailable > 0) failedDetail = `${unavailable} searches were unavailable from the provider; the rest are in.`;
+        else if (aiModeMissing > 0) failedDetail = `${aiModeMissing} AI Mode looks were unavailable from the provider; the search results themselves are in.`;
       }
       else if (anyPending) status = "waiting";
       else status = "failed";
@@ -330,7 +374,6 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     }
   };
 }
-
 // ── B5: winning pages ───────────────────────────────────────────────────────
 
 /** Flatten every SERP + AI appearance into TRUE-provenance rows: each carries its
@@ -339,7 +382,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
 function collectAppearances(state: FunnelState, fallbackIso: string): ResearchWinningAppearance[] {
   const out: ResearchWinningAppearance[] = [];
   for (const s of state.serps.queries.filter((x) => x.status === "done")) {
-    const at = state.updatedAt || fallbackIso;
+    const at = s.observedAt || state.updatedAt || fallbackIso;
     for (const o of s.organic ?? []) out.push({ kind: "serp_organic", query: s.query, promptId: null, promptText: null, engine: null, rank: o.rank, citedUrl: o.url, observedAt: at, modelServed: null });
     for (const a of s.aiOverview ?? []) out.push({ kind: "ai_overview", query: s.query, promptId: null, promptText: null, engine: null, rank: null, citedUrl: a.url, observedAt: at, modelServed: null });
     for (const a of s.aiMode ?? []) out.push({ kind: "ai_mode", query: s.query, promptId: null, promptText: null, engine: null, rank: null, citedUrl: a.url, observedAt: at, modelServed: null });
@@ -366,6 +409,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     const deadline = d.now() + Math.max(1000, budgetMs);
     const loaded = await d.loadState(tenantId, basis);
     const state = loaded.state;
+    beginCycle(state, cursor, `winning:${tenantId}`);
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion };
     const account = await d.getAccount(tenantId).catch(() => null);
     const ownDomain = account?.domain ? rootDomain(account.domain) : null;
@@ -404,14 +448,13 @@ export function winningPagesUnit(deps: FunnelDeps = {}): FunnelUnitFn {
       }
       state.winningPages = pages;
       await save(d, tenantId, basis, state, ctx);
-      return { status: "done", cursor: null, progress: { winningPagesFetched: fetched, cacheHits: state.ledger.cacheHits, spendUsd: round(state.ledger.spentUsd) } };
+      return { status: "done", cursor: null, progress: { winningPagesFetched: fetched, cacheHits: state.cycle.cacheHits, spendUsd: round(state.cycle.spentUsd) } };
     } catch (e) {
       if (e instanceof StateConflictError) return { status: "failed", cursor, progress: { winningPagesFetched: fetched }, detail: CONFLICT_DETAIL };
       throw e;
     }
   };
 }
-
 // ── B6: PURE snapshot projector ─────────────────────────────────────────────
 
 const competitionLevel = (c: number | null): "low" | "medium" | "high" | null => (c == null ? null : c < 0.34 ? "low" : c < 0.67 ? "medium" : "high");
@@ -421,11 +464,15 @@ const competitionLevel = (c: number | null): "low" | "medium" | "high" | null =>
 export type FunnelEvidence = FunnelResearchEvidence;
 
 /** Read-only: normalize the persisted funnel state into the canonical research
- *  evidence bundle plus an explicit receipt. PURE (no I/O, no network). */
+ *  evidence bundle plus an explicit receipt. The state is already pruned to the
+ *  CURRENT set, so nothing obsolete can be projected. The receipt's money and cache
+ *  numbers are THIS RUN's, not a lifetime total. PURE (no I/O, no network). */
 export function projectFunnelEvidence(state: FunnelState, now: number): FunnelResearchEvidence {
   const donePairs = state.prompts.pairs.filter((p) => p.status === "done");
   const observedTimes = donePairs.map((p) => p.observedAt).filter((t): t is string => !!t).sort();
-  const stale = donePairs.filter((p) => p.observedAt && now - Date.parse(p.observedAt) > FRESH_MS).length;
+  const isStale = (at: string | undefined) => !at || now - Date.parse(at) > FRESH_MS;
+  const stale = donePairs.filter((p) => isStale(p.observedAt)).length
+    + state.serps.queries.filter((s) => s.status === "done" && isStale(s.observedAt)).length;
   const missing = Math.max(0, state.prompts.intendedPairs - donePairs.length)
     + state.serps.queries.filter((s) => s.status !== "done").length
     + state.serps.queries.filter((s) => s.aiModeFailed).length;
@@ -446,7 +493,7 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
       paa: s.paa ?? [], related: s.related ?? [],
     })),
     winningPages: state.winningPages.map((w) => ({ url: w.url, domain: w.domain, engines: w.engines, examplePrompts: w.examplePrompts, appearances: w.appearances, extract: w.extract })),
-    receipt: { researched: state.discovery.counts.raw, retained: state.discovery.counts.retained, stale, missing, cached: state.ledger.cacheHits, spentUsd: round(state.ledger.spentUsd), freshestObservationAt: observedTimes.at(-1) ?? null },
+    receipt: { researched: state.discovery.counts.raw, retained: state.discovery.counts.retained, stale, missing, cached: state.cycle.cacheHits, spentUsd: round(state.cycle.spentUsd), freshestObservationAt: observedTimes.at(-1) ?? null },
   };
 }
 

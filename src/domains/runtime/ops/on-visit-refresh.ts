@@ -332,7 +332,9 @@ async function driveRun(
         // Every funnel unit runs under the account's CURRENT basis; a change in
         // website/profile/goal mints a new basis and strands prior derived state.
         const basis = await steps.currentBasis(tenantId);
-        unit = await steps.funnelUnit(phase, tenantId, { ...(priorUnit ?? {}), ...(basis ? { basis } : {}) }, deadline - nowFn().getTime());
+        // The REAL run identity travels with the cursor: history rows carry this
+        // run's id, and the funnel's receipt resets per cycle instead of drifting.
+        unit = await steps.funnelUnit(phase, tenantId, { ...(priorUnit ?? {}), ...(basis ? { basis } : {}), runId: run.id, cycle: run.cycle_key }, deadline - nowFn().getTime());
       } catch (error) {
         const message = (error instanceof Error ? error.message : String(error)).slice(0, 300);
         await finishRun(tenantId, run.id, ownerToken, "paused", { phase, message, at: nowFn().toISOString() });

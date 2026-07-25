@@ -13,25 +13,13 @@ export const labsKeywordsForSiteLive = {
     se_type: "google", target: "apple.com", location_code: 2840, language_code: "en", total_count: 61789671, items_count: 2, offset: 0,
     items: [
       { se_type: "google", keyword: "video editing app for ipad pro", location_code: 2840, language_code: "en",
-        keyword_info: { se_type: "google", competition: 0.1, competition_level: "LOW", cpc: 1.36, search_volume: 30,
-          monthly_searches: [{ year: 2025, month: 1, search_volume: 30 }, { year: 2024, month: 12, search_volume: 30 }] },
-        keyword_properties: { se_type: "google", keyword_difficulty: 60 },
-        search_intent_info: { se_type: "google", main_intent: "transactional" } },
+        keyword_info: { se_type: "google", competition: 0.1, competition_level: "LOW", cpc: 1.36, search_volume: 30, monthly_searches: [{ year: 2025, month: 1, search_volume: 30 }, { year: 2024, month: 12, search_volume: 30 }] },
+        keyword_properties: { se_type: "google", keyword_difficulty: 60 }, search_intent_info: { se_type: "google", main_intent: "transactional" } },
       { se_type: "google", keyword: "apple watch couldn't pair", location_code: 2840, language_code: "en",
-        keyword_info: { se_type: "google", competition: null, competition_level: "LOW", cpc: null, search_volume: 40,
-          monthly_searches: [{ year: 2025, month: 1, search_volume: 50 }, { year: 2024, month: 12, search_volume: 70 }] },
-        keyword_properties: { se_type: "google", keyword_difficulty: 13 },
-        search_intent_info: { se_type: "google", main_intent: "commercial" } },
+        keyword_info: { se_type: "google", competition: null, competition_level: "LOW", cpc: null, search_volume: 40, monthly_searches: [{ year: 2025, month: 1, search_volume: 50 }, { year: 2024, month: 12, search_volume: 70 }] },
+        keyword_properties: { se_type: "google", keyword_difficulty: 13 }, search_intent_info: { se_type: "google", main_intent: "commercial" } },
     ],
   }] }],
-};
-
-// serp/google/organic/task_post (acknowledgement)
-export const serpTaskPostAck = {
-  version: "0.1.20200129", status_code: 20000, status_message: "Ok.", cost: 0.0045,
-  tasks: [{ id: "01291721-1535-0066-0000-8f0635c0dc89", status_code: 20100, status_message: "Task Created.", cost: 0.0015, result_count: 0,
-    path: ["v3", "serp", "google", "organic", "task_post"],
-    data: { api: "serp", function: "task_post", se: "google", se_type: "organic", language_code: "en", location_code: 2840, keyword: "albert einstein", tag: "TAGVALUE" }, result: null }],
 };
 
 // serp/google/organic/task_get/advanced
@@ -52,8 +40,7 @@ export const serpTaskGetAdvanced = {
         references: [
           { type: "ai_overview_reference", source: "Python.org", domain: "python.org", url: "https://www.python.org/about/", title: "About Python", text: "Work quickly." },
           { type: "ai_overview_reference", source: "Wikipedia", domain: "wikipedia.org", url: "https://en.wikipedia.org/wiki/Python_(programming_language)", title: "Python (programming language)", text: "Interpreted." },
-        ],
-      }] },
+        ] }] },
     ],
   }] }],
 };
@@ -85,28 +72,11 @@ export const perplexityLive = {
   status_code: 20000, status_message: "Ok.", cost: 0.035,
   tasks: [{ id: "ppx-1", status_code: 20000, status_message: "Ok.", cost: 0.035, result: [{
     model_name: "sonar", input_tokens: 9, output_tokens: 40, web_search: true, money_spent: 0.03,
-    items: [{ type: "message", sections: [{ type: "text", text: "Perplexity recommends Brand Y.",
-      annotations: [{ title: "Brand Y", url: "https://www.gearlab.com/brand-y" }] }] }],
+    items: [{ type: "message", sections: [{ type: "text", text: "Perplexity recommends Brand Y.", annotations: [{ title: "Brand Y", url: "https://www.gearlab.com/brand-y" }] }] }],
   }] }],
 };
 
-// ai_optimization/chat_gpt/llm_scraper/task_get (advanced result shape)
-export const scraperTaskGet = {
-  status_code: 20000, status_message: "Ok.", cost: 0.035,
-  tasks: [{ id: "scraper-1", status_code: 20000, status_message: "Ok.", cost: 0.035, result: [{
-    keyword: "best crm for startups", location_code: 2840, language_code: "en", model: "gpt-4o", datetime: "2026-07-24 11:00:00 +00:00",
-    markdown: "For startups, the top CRMs are **Acme CRM** and **Beacon CRM**.",
-    fan_out_queries: ["crm for small teams", "affordable startup crm"],
-    brand_entities: ["Acme CRM", "Beacon CRM"],
-    sources: [
-      { type: "chat_gpt_source", title: "Acme CRM", domain: "acmecrm.com", url: "https://acmecrm.com/", source_name: "Acme", publication_date: "2026-01-10 00:00:00 +00:00" },
-      { type: "chat_gpt_source", title: "Beacon CRM", domain: "beaconcrm.com", url: "https://beaconcrm.com/pricing", source_name: "Beacon", publication_date: "2026-02-01 00:00:00 +00:00" },
-    ],
-    items: [{ type: "chat_gpt_text", rank_group: 1, rank_absolute: 1, markdown: "Top CRMs...", sources: [], brand_entities: ["Acme CRM"] }],
-  }] }],
-};
-
-// ai_optimization/chat_gpt/llm_responses/models
+// ai_optimization/{chat_gpt,perplexity}/llm_responses/models (perplexity is Live-only)
 export const chatgptModels = {
   version: "0.1.20241227", status_code: 20000, status_message: "Ok.", cost: 0,
   tasks: [{ id: "models-1", status_code: 20000, status_message: "Ok.", cost: 0, result: [
@@ -115,8 +85,6 @@ export const chatgptModels = {
     { model_name: "gpt-5", reasoning: true, web_search_supported: true, task_post_supported: false },
   ] }],
 };
-
-// ai_optimization/perplexity/llm_responses/models (all Live-only: task_post_supported false)
 export const perplexityModels = {
   status_code: 20000, status_message: "Ok.", cost: 0,
   tasks: [{ id: "ppx-models-1", status_code: 20000, status_message: "Ok.", cost: 0, result: [

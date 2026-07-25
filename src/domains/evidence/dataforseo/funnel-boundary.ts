@@ -38,8 +38,7 @@ export type CapabilityKey =
   | "llm_gemini"
   | "llm_claude"
   | "llm_perplexity"
-  | "llm_scraper_chatgpt"
-  | "engine_models";
+  | "llm_scraper_chatgpt";
 
 /** The full bounded provider envelope the boundary caches and returns. */
 export type ProviderEnvelope = {
@@ -83,8 +82,6 @@ export type ParsedAiAnswer = {
   fanOutQueries: string[] | null;
   brands: string[] | null;
 };
-export type ParsedModels = { models: string[] };
-
 export type ParsedByCapability = {
   labs_keywords_for_site: ParsedKeywordItem[];
   labs_ranked_keywords: ParsedKeywordItem[];
@@ -98,15 +95,15 @@ export type ParsedByCapability = {
   llm_claude: ParsedAiAnswer;
   llm_perplexity: ParsedAiAnswer;
   llm_scraper_chatgpt: ParsedAiAnswer;
-  engine_models: ParsedModels;
 };
 
 /** TYPED capability inputs: the ONLY shapes a caller may hand the boundary.
  *  Every field is a real provider field for that endpoint (web_search flags are
- *  engine-specific; the scraper is KEYWORD-based, never user_prompt; model_name
- *  omitted = providerCall resolves a method-compatible model once). A wrong or
+ *  engine-specific; the scraper is KEYWORD-based, never user_prompt). The model
+ *  is NEVER caller-supplied: providerCall resolves the one method-compatible
+ *  model, so a Live-only model can never ride a Standard route. A wrong or
  *  cross-engine field fails TypeScript, not production. */
-export type LlmWebInput = { user_prompt: string; model_name?: string; web_search?: boolean; force_web_search?: boolean; web_search_country_iso_code?: string };
+export type LlmWebInput = { user_prompt: string; web_search?: boolean; force_web_search?: boolean; web_search_country_iso_code?: string };
 export type CapabilityInputByKey = {
   labs_keywords_for_site: { target: string; limit?: number };
   labs_ranked_keywords: { target: string; limit?: number };
@@ -118,10 +115,9 @@ export type CapabilityInputByKey = {
   llm_chatgpt: LlmWebInput;
   llm_claude: LlmWebInput;
   /** Gemini supports web_search only; never send ChatGPT/Claude-only fields. */
-  llm_gemini: { user_prompt: string; model_name?: string; web_search?: boolean };
-  llm_perplexity: { user_prompt: string; model_name?: string; web_search_country_iso_code?: string };
+  llm_gemini: { user_prompt: string; web_search?: boolean };
+  llm_perplexity: { user_prompt: string; web_search_country_iso_code?: string };
   llm_scraper_chatgpt: { keyword: string; force_web_search?: boolean; expand_citations?: boolean };
-  engine_models: Record<string, never>;
 };
 
 /** Method-aware model resolution: the exact current model, the retrieval method
@@ -132,14 +128,31 @@ export type CapabilityInputByKey = {
  *  executors never resolve; the requested model travels back on the result. */
 export type EngineModelResolution = { model: string; method: "standard" | "live"; webSearch: boolean };
 
+/** THE structured lifecycle vocabulary. Callers NEVER parse detail strings or
+ *  treat every error identically; the disposition alone decides retry behavior.
+ *    retry_free  - transient provider/transport failure (in-body 50xxx): the task
+ *                  id is PRESERVED; retry the free collect later; ZERO reposts.
+ *    repost_once - the task is proven missing/expired (40401/40403, HTTP 404):
+ *                  the dead identity was cleared; at most ONE clean repost.
+ *    blocked     - auth/payment/quota/invalid-contract (401xx/402xx/405xx):
+ *                  pause explicitly; ZERO reposts; NEVER labeled unsupported.
+ *    quarantined - an uncertain POST or an accepted task whose id could not be
+ *                  persisted: ZERO automatic reposts ever; recovery ONLY via the
+ *                  provider's FREE tasks_ready listing matched by tag=cacheKey.
+ *    none        - a plain recoverable failure (claim/reserve/persist): retry
+ *                  the whole call on a later visit. */
+export type FailureDisposition = "retry_free" | "repost_once" | "blocked" | "quarantined" | "none";
+
 export type CachedCallResult =
   | { state: "hit"; envelope: ProviderEnvelope; costUsd: 0; cacheKey: string; modelServed: string | null }
   | { state: "ok"; envelope: ProviderEnvelope; costUsd: number; cacheKey: string; modelServed: string | null; modelRequested?: string | null }
-  /** costUsd on waiting = the provider-reported cost of a NEWLY accepted task
-   *  POST, contributed exactly once; 0 for pending-claim waits, resumed
-   *  collects, and uncertain posts (reservation held, never labeled actual). */
+  /** waiting = GENUINE queue/in-flight work only (40601/40602, a live claim, or
+   *  a transport blip on the free GET): the task id is preserved and the next
+   *  visit collects for free. costUsd on waiting = the provider-reported cost of
+   *  a NEWLY accepted task POST, contributed exactly once; 0 otherwise. */
   | { state: "waiting"; cacheKey: string; providerTaskId: string | null; costUsd: number; modelRequested?: string | null; detail: string }
-  | { state: "not_configured" | "dry_run" | "capped" | "error"; cacheKey: string | null; detail: string };
+  | { state: "not_configured" | "dry_run" | "capped"; cacheKey: string | null; detail: string }
+  | { state: "error"; cacheKey: string | null; disposition: FailureDisposition; detail: string };
 
 export type FunnelBoundaryDeps = Record<string, unknown>;
 

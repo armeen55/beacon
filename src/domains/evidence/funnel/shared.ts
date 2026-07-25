@@ -20,6 +20,7 @@ import type {
   CachedCallResult,
   CapabilityInputByKey,
   CapabilityKey,
+  FailureDisposition,
 } from "@/domains/evidence/dataforseo/funnel-boundary";
 import {
   providerCall,
@@ -30,7 +31,10 @@ import {
 } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { loadFunnelState, saveFunnelState, type FunnelState, type LoadedFunnelState } from "./state";
 
-/** AI observations cache no longer than freshness so a due re-observation re-fetches. */
+/** THE one freshness window for every observation the funnel keeps: AI answers and
+ *  search looks are re-observed WEEKLY. A done row older than this is due and
+ *  re-enters the same boundary; OUR one-day evidence cache (the collected row's
+ *  ttl) still deduplicates a repeat inside a day, never double-paying per day. */
 export const FRESH_MS = 7 * 24 * 3600 * 1000;
 
 export type FunnelDeps = {
@@ -115,6 +119,10 @@ export type Interp = {
   kind: "evidence" | "waiting" | "failed" | "soft";
   hit: boolean; payload?: unknown; cacheKey: string | null; costUsd: number;
   modelServed: string | null; modelRequested: string | null;
+  /** The boundary's structured failure vocabulary, carried through so an executor
+   *  NEVER treats every failure identically: the disposition alone decides whether
+   *  a task is retried free, reposted once, or paused without spending again. */
+  disposition?: FailureDisposition;
   /** Which soft state produced a "soft" kind: not_configured is genuine unavailable
    *  coverage; dry_run is a benign dev/test no-spend pass. */
   soft?: "not_configured" | "dry_run"; detail?: string;
@@ -122,22 +130,47 @@ export type Interp = {
 
 /** Interpret a boundary result: hit/ok carry evidence; waiting is durable/resumable
  *  and now carries the accepted-POST cost exactly once; capped/error are recoverable
- *  failures; not_configured/dry_run are "soft" (tagged so the funnel can tell genuine
- *  unavailable coverage from a dev no-spend pass). */
+ *  failures carrying a DISPOSITION; not_configured/dry_run are "soft" (tagged so the
+ *  funnel can tell genuine unavailable coverage from a dev no-spend pass). */
 export function interp(r: CachedCallResult): Interp {
   switch (r.state) {
     case "hit": return { kind: "evidence", hit: true, payload: r.envelope, cacheKey: r.cacheKey, costUsd: 0, modelServed: r.modelServed, modelRequested: null };
     case "ok": return { kind: "evidence", hit: false, payload: r.envelope, cacheKey: r.cacheKey, costUsd: r.costUsd, modelServed: r.modelServed, modelRequested: r.modelRequested ?? null };
     case "waiting": return { kind: "waiting", hit: false, cacheKey: r.cacheKey, costUsd: r.costUsd, modelServed: null, modelRequested: r.modelRequested ?? null, detail: r.detail };
-    case "capped":
-    case "error": return { kind: "failed", hit: false, cacheKey: r.cacheKey, costUsd: 0, modelServed: null, modelRequested: null, detail: r.detail };
+    // A spend cap is a plain recoverable pause, never a dead task identity.
+    case "capped": return { kind: "failed", hit: false, cacheKey: r.cacheKey, costUsd: 0, modelServed: null, modelRequested: null, disposition: "none", detail: r.detail };
+    case "error": return { kind: "failed", hit: false, cacheKey: r.cacheKey, costUsd: 0, modelServed: null, modelRequested: null, disposition: r.disposition, detail: r.detail };
     default: return { kind: "soft", hit: false, cacheKey: r.cacheKey, costUsd: 0, modelServed: null, modelRequested: null, soft: r.state, detail: r.detail };
   }
 }
 
+/** ONE plain sentence per failure disposition, in Beacon voice: what happened and
+ *  what I will do next. Callers never parse provider detail strings. */
+export function pauseDetail(disposition: FailureDisposition | undefined, fallback: string): string {
+  switch (disposition) {
+    case "retry_free": return "A research request did not come back this time. I kept it and I will collect it for free on the next pass.";
+    case "blocked": return "The research provider turned my request away over account, billing, or limits. I will not spend again until that is cleared.";
+    case "quarantined": return "I am recovering a paid attempt for free; I will not pay twice.";
+    case "repost_once": return "A research task expired at the provider. I will run it once more on the next pass.";
+    default: return fallback;
+  }
+}
+
+/** Runtime ALWAYS injects the real run id + cycle key into the funnel cursor; the
+ *  fallback covers only a direct unit call outside a run. A NEW run id resets the
+ *  per-cycle receipt so what I report is this run's spend, not a lifetime total. */
+export function beginCycle(state: FunnelState, cursor: Record<string, unknown> | null, fallbackRunId: string): string {
+  const runId = typeof cursor?.runId === "string" && cursor.runId.trim() ? cursor.runId.trim() : fallbackRunId;
+  const cycleKey = typeof cursor?.cycle === "string" && cursor.cycle.trim() ? cursor.cycle.trim() : null;
+  if (state.cycle.runId !== runId) state.cycle = { runId, cycleKey, spentUsd: 0, cacheHits: 0 };
+  return runId;
+}
+
+/** Every provider result lands twice: the basis LIFETIME ledger and THIS run's receipt. */
 export function track(state: FunnelState, r: Interp): void {
   state.ledger.spentUsd += r.costUsd;
-  if (r.hit) state.ledger.cacheHits += 1;
+  state.cycle.spentUsd += r.costUsd;
+  if (r.hit) { state.ledger.cacheHits += 1; state.cycle.cacheHits += 1; }
 }
 
 /** Basis-scoped optimistic save. Advances ctx.rowVersion, or throws on conflict. */

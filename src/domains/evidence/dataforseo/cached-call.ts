@@ -1,20 +1,28 @@
 import "server-only";
-
 import { createHash } from "node:crypto";
 
-import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { assertPaidCallAllowed } from "@/lib/cost/cost-breaker";
 import { isDataForSeoConfigured, isDryRun, monthlyCapUsd, runDataForSeoTransport } from "./client";
+import { resolveDeps } from "./default-deps";
 import type { CachedCallResult, FunnelBoundaryDeps, ProviderEnvelope } from "./funnel-boundary";
 
 /**
- * cached-call (Slice 6) — the money-safe, single-flight, TENANT-INDEPENDENT
+ * cached-call (Slice 6 / 6D) - the money-safe, single-flight, TENANT-INDEPENDENT
  * DataForSEO cache/transport body behind the frozen funnel-boundary contract.
  * Miss order: cacheKey -> configured? -> claim -> dry-run? -> breaker -> ATOMIC
  * reservation -> network -> reconcile to provider cost -> cache write.
  * Reservation is the ONLY money path (reserve BEFORE, adjust to actual AFTER; a
- * failed adjust keeps the reservation: overcount, never undercount). All seams
- * injectable.
+ * failed adjust keeps the reservation: overcount, never undercount).
+ *
+ * CAP HONESTY: the monthly cap is RESERVATION based, not a hard per-dollar
+ * ceiling. reserve_provider_spend refuses any call whose ESTIMATE would cross the
+ * cap; reconciliation may then move recorded spend UP to the provider's actual.
+ * So spend can overshoot the cap by at most (actual minus estimate) on the single
+ * last call through, and by nothing when the estimate is the higher number. Every
+ * registry estCostUsd is therefore set deliberately high.
+ * DISPOSITIONS: every error carries a structured FailureDisposition; callers never
+ * parse detail strings. QUARANTINE: an uncertain POST, or an accepted task whose
+ * id did not persist, is quarantined - ZERO automatic reposts ever, recovered only
+ * via the provider's FREE tasks_ready listing matched on tag = cacheKey.
  */
 
 const API_BASE = "https://api.dataforseo.com/v3";
@@ -25,19 +33,23 @@ const TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 /** After an UNCERTAIN Standard post (network throw/timeout after reserving), the
  *  row is held this long before any re-claim so we never silently repost. */
 const AMBIGUITY_WINDOW_MS = 15 * 60 * 1000;
+/** The only free quarantine exit is tasks_ready, which lists roughly the prior
+ *  three days. Past this window the attempt is provably unrecoverable for free:
+ *  allow ONE clean repost (worst case one duplicate) over an eternal stall. */
+const QUARANTINE_MAX_MS = 4 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** A fully resolved provider call. The registry (capabilities.ts) produces this
- *  with EXACT paths + the GET derivation; `getPath` is the only per-endpoint
- *  derivation and it is owned by the registry entry. */
+/** A fully resolved provider call. The registry (capabilities.ts) produces it with
+ *  EXACT paths; `getPath` (free task_get) and `tasksReadyPath` (free finished-task
+ *  listing, for quarantine recovery) are its only per-endpoint derivations. */
 export type ResolvedCall = {
   cacheKey: string; endpoint: string; endpointVersion: string; postPath: string;
-  getPath: ((id: string) => string | null) | null; publicInput: Record<string, unknown>;
+  getPath: ((id: string) => string | null) | null; tasksReadyPath: string | null;
+  publicInput: Record<string, unknown>;
   locationCode: number; languageCode: string; device: string | null; modelRequested: string | null;
   payload: unknown[]; ttlMs: number; estCostUsd: number; mode: "live" | "task"; tenantId: string;
 };
-
 // ── seams ────────────────────────────────────────────────────────────────────
-
 type EvidenceCacheClaim = {
   outcome: "ready" | "claimed" | "pending";
   payload: unknown | null; providerTaskId: string | null; modelServed: string | null;
@@ -48,6 +60,8 @@ type EvidenceCacheRow = {
   cache_key: string; endpoint: string; status: "pending" | "ready" | "error";
   provider_task_id: string | null; payload: unknown | null; model_served: string | null;
   cost_usd: number; expires_at: string;
+  /** Set = a possibly-paid task we cannot name; only tasks_ready clears it. */
+  quarantined_at?: string | null;
 };
 
 type ClaimArgs = {
@@ -72,15 +86,14 @@ export type CachedCallDeps = {
   breaker: (env: NodeJS.ProcessEnv, now: Date, projectedCostUsd: number) => Promise<{ tripped: boolean; reason?: string }>;
 };
 
-// ── the cached, money-safe call ──
-/** THE money-safe order for a fully resolved call. Miss order: configured ->
- *  claim -> dry-run -> breaker -> reserve -> (task-only pre-post receipt) ->
- *  transport -> reconcile -> write. The ENVELOPE RULE holds throughout: the row
- *  stores and hits return the FULL bounded ProviderEnvelope. */
+/** THE money-safe order for a resolved call: configured -> claim -> dry-run ->
+ *  breaker -> reserve -> (task-only pre-post receipt) -> transport -> reconcile ->
+ *  write. ENVELOPE RULE throughout: rows store and hits return the FULL envelope. */
 export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps = {}): Promise<CachedCallResult> {
   const d = resolveDeps(deps);
   const cacheKey = r.cacheKey;
   const now = d.now();
+  const paths = { getPath: (_e: string, id: string) => r.getPath?.(id) ?? null, tasksReadyPath: () => r.tasksReadyPath, ttlMsFor: () => r.ttlMs };
 
   if (!isDataForSeoConfigured(d.env)) return { state: "not_configured", cacheKey, detail: "DataForSEO not configured" };
 
@@ -94,18 +107,22 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
       claimSeconds: CLAIM_LEASE_SECONDS,
     });
   } catch (err) {
-    return { state: "error", cacheKey, detail: `cache claim failed: ${short(err)}` };
+    return { state: "error", cacheKey, disposition: "none", detail: `I could not reserve this fetch (${short(err)}); I will try it again on the next pass.` };
   }
 
   if (claim.outcome === "ready") {
     return { state: "hit", envelope: (claim.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: claim.modelServed };
   }
   if (claim.outcome === "pending") {
-    if (r.mode === "task" && claim.providerTaskId) return collectResolvedTask(cacheKey, (_e, id) => r.getPath?.(id) ?? null, deps);
-    // A pending claim charges nothing here: any spend was already labeled on the
-    // POST that created the in-flight task (or nothing was posted yet).
-    return { state: "waiting", cacheKey, providerTaskId: claim.providerTaskId, costUsd: 0, detail: claim.providerTaskId ? "The provider is already working on this; I will collect it for free." : "Another run is already fetching this; I will pick up its result." };
+    // Task mode ALWAYS routes into the free collect (task_get resumption + free
+    // tasks_ready recovery of a quarantined row): charges nothing, never reposts.
+    if (r.mode === "task") return collectResolvedTask(cacheKey, paths, deps);
+    return { state: "waiting", cacheKey, providerTaskId: claim.providerTaskId, costUsd: 0, detail: "Another run is already fetching this; I will pick up its result." };
   }
+
+  // A claim must never pair a LIVE task id with permission to post: collect the
+  // existing task for free instead of paying for a duplicate.
+  if (r.mode === "task" && claim.providerTaskId) return collectResolvedTask(cacheKey, paths, deps);
 
   if (isDryRun(d.env)) {
     await releaseClaim(d, cacheKey, now, "dry_run");
@@ -123,7 +140,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     reserved = await d.reserveProviderSpend(r.tenantId, PLATFORM, r.estCostUsd, monthlyCapUsd(d.env));
   } catch (err) {
     await releaseClaim(d, cacheKey, now, "reserve_error");
-    return { state: "error", cacheKey, detail: `reservation failed: ${short(err)}` };
+    return { state: "error", cacheKey, disposition: "none", detail: `I could not set aside budget for this (${short(err)}); I made no provider call and will try again.` };
   }
   if (!reserved) {
     await releaseClaim(d, cacheKey, now, "capped");
@@ -141,12 +158,11 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
         fetch_claimed_until: new Date(now.getTime() + AMBIGUITY_WINDOW_MS).toISOString(),
       });
     } catch (err) {
-      // Fail closed: the receipt that guards against a silent repost did not
-      // persist. Make NO network call (no task exists yet). Reconcile the
-      // reservation down (best effort) and release the lease for a clean re-claim.
+      // Fail closed: the anti-repost receipt did not persist. NO network call
+      // (no task exists yet); reconcile down and release for a clean re-claim.
       await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {});
       await releaseClaim(d, cacheKey, now, "prepost_receipt_failed");
-      return { state: "error", cacheKey, detail: `I could not save the pre-post receipt (${short(err)}); I made no provider call and will try again.` };
+      return { state: "error", cacheKey, disposition: "none", detail: `I could not save the pre-post receipt (${short(err)}); I made no provider call and will try again.` };
     }
   }
 
@@ -155,20 +171,19 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence",
   });
   if (!transport.ok) {
-    // A THROW (status null) after a task reservation is an UNCERTAIN post: the
-    // provider MAY have created the task. Do NOT release (the pre-post receipt
-    // holds the row for AMBIGUITY_WINDOW_MS); keep the reservation (overcount,
-    // never undercount). A definite HTTP error or any live failure created no
-    // task -> reconcile down and release for re-claim. (Residual: after the
-    // window a genuinely-created task is orphaned and the row reposts once.)
+    // A THROW after a task reservation is an UNCERTAIN post: the provider MAY
+    // hold a paid task we cannot name. QUARANTINE (no branch ever reposts; keep
+    // the reservation). A definite HTTP/live failure created no task ->
+    // reconcile down and release for a clean re-claim.
     if (r.mode === "task" && transport.status === null) {
-      // Uncertain post: the reservation is HELD (overcount, never undercount) but
-      // never labeled an actual charge, so costUsd is 0 here.
-      return { state: "waiting", cacheKey, providerTaskId: null, costUsd: 0, detail: "I am not sure the provider received this task, so I am holding it briefly before any retry." };
+      const held = await quarantineRow(d, cacheKey, now);
+      return held
+        ? { state: "error", cacheKey, disposition: "quarantined", detail: "I could not confirm the provider received this task, so I paused it. I will look for it on the provider's free finished-task list instead of paying for it twice." }
+        : { state: "error", cacheKey, disposition: "none", detail: "I could not confirm the provider received this task and I could not record that pause; I am holding it for a few minutes before I try again." };
     }
     await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {});
     await releaseClaim(d, cacheKey, now, `http_error:${transport.status ?? "throw"}`);
-    return { state: "error", cacheKey, detail: transport.message };
+    return { state: "error", cacheKey, disposition: "none", detail: `I could not reach the provider (${transport.message}); nothing was charged and I will try again on the next pass.` };
   }
 
   const body = transport.body;
@@ -179,7 +194,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     if (!posted.accepted || !posted.taskId) {
       await reconcileFailure(d, r.tenantId, r.estCostUsd, providerCost);
       await releaseClaim(d, cacheKey, now, "task_post_rejected");
-      return { state: "error", cacheKey, detail: "provider did not accept the task" };
+      return { state: "error", cacheKey, disposition: "none", detail: "The provider did not accept this task; I will try it again on the next pass." };
     }
     const actual = providerCost ?? r.estCostUsd;
     await d.adjustProviderSpend(r.tenantId, PLATFORM, actual - r.estCostUsd).catch(() => {});
@@ -190,13 +205,14 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
       });
     } catch {
       // Fail closed: the task WAS accepted and charged, but its id did not persist.
-      // Keep the reservation (the task exists: overcount, never undercount) and do
-      // NOT report success. The pre-post receipt still holds the row for the
-      // ambiguity window, so the immediate next claim cannot repost.
-      return { state: "error", cacheKey, detail: "The provider accepted this task but I could not save its receipt; I will not repost it and will resume it later." };
+      // QUARANTINE (never a lease that lapses into a repost). Keep the reservation:
+      // the task exists, so overcount, never undercount.
+      const held = await quarantineRow(d, cacheKey, now);
+      return held
+        ? { state: "error", cacheKey, disposition: "quarantined", detail: "The provider took this task but I could not save its receipt, so I paused it. I will find it on the provider's free finished-task list rather than pay for it twice." }
+        : { state: "error", cacheKey, disposition: "none", detail: "The provider took this task but I could not save its receipt or record the pause; I am holding it for a few minutes and will pick it up again." };
     }
-    // costUsd is the provider-reported actual for THIS accepted POST, contributed
-    // exactly once (later pending claims and the free GET add 0).
+    // costUsd = the provider-reported actual for THIS accepted POST, exactly once.
     return { state: "waiting", cacheKey, providerTaskId: posted.taskId, costUsd: actual, modelRequested: r.modelRequested, detail: "I posted this task to the provider; I will collect it with a free follow-up." };
   }
 
@@ -204,7 +220,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
   if (!live.valid) {
     await reconcileFailure(d, r.tenantId, r.estCostUsd, providerCost);
     await releaseClaim(d, cacheKey, now, "envelope_invalid");
-    return { state: "error", cacheKey, detail: "provider envelope was not a success" };
+    return { state: "error", cacheKey, disposition: "none", detail: "The provider answered but not with a usable result; I will ask again on the next pass." };
   }
   const actual = providerCost ?? r.estCostUsd;
   await d.adjustProviderSpend(r.tenantId, PLATFORM, actual - r.estCostUsd).catch(() => {});
@@ -221,84 +237,147 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     // would treat it as cached and never re-fetch). Keep the reservation (money
     // was spent) and release the lease so a later visit re-fetches honestly.
     await releaseClaim(d, cacheKey, now, "ready_persist_failed");
-    return { state: "error", cacheKey, detail: "I fetched the result but could not save it, so I will fetch it again rather than show a stale answer." };
+    return { state: "error", cacheKey, disposition: "none", detail: "I fetched the result but could not save it, so I will fetch it again rather than show a stale answer." };
   }
   return { state: "ok", envelope: (live.payload ?? {}) as ProviderEnvelope, costUsd: actual, cacheKey, modelServed: live.modelServed, modelRequested: r.modelRequested };
 }
 
-/** Resume a Standard-mode task with a FREE task_get. The task_get path is derived
- *  by `getPathFor` (the registry entry for the capability). Never reposts, never
- *  charges; a not-ready or transient failure is durable "waiting", not error.
- *  Stores the FULL bounded envelope. */
+/** Resume a Standard task with a FREE task_get, or recover a QUARANTINED row via
+ *  the free listing. Registry-owned paths; never reposts, never charges; not-ready
+ *  and transport failures stay durable "waiting"; stores the FULL envelope. */
 export async function collectResolvedTask(
   cacheKey: string,
-  getPathFor: (endpoint: string, id: string) => string | null,
+  paths: { getPath: (endpoint: string, id: string) => string | null; tasksReadyPath: (endpoint: string) => string | null; ttlMsFor: (endpoint: string) => number | null },
   deps: FunnelBoundaryDeps = {},
 ): Promise<CachedCallResult> {
   const d = resolveDeps(deps);
   const now = d.now();
   const row = await d.cacheRead(cacheKey).catch(() => null);
-  if (!row || !row.provider_task_id) return { state: "error", cacheKey, detail: "no posted provider task to collect" };
+  if (!row) return { state: "error", cacheKey, disposition: "none", detail: "I have no record of a provider task here, so I will start this one fresh." };
   if (row.status === "ready" && row.payload != null && Date.parse(row.expires_at) > now.getTime()) {
     return { state: "hit", envelope: (row.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: row.model_served };
   }
-  const getPath = getPathFor(row.endpoint, row.provider_task_id);
-  if (!getPath) return { state: "error", cacheKey, detail: "unknown task_get path for endpoint" };
+  let taskId = row.provider_task_id;
+  if (!taskId && row.quarantined_at) {
+    taskId = await recoverQuarantined(d, cacheKey, paths.tasksReadyPath(row.endpoint));
+    if (!taskId) {
+      // BOUNDED quarantine: past the listing window, release for ONE clean
+      // repost rather than stalling this public key forever for every account.
+      if (now.getTime() - Date.parse(row.quarantined_at) > QUARANTINE_MAX_MS) {
+        await clearDeadTask(d, cacheKey, now, "quarantine_expired");
+        return { state: "error", cacheKey, disposition: "repost_once", detail: "I could not recover that paused attempt for free within the provider's window, so I will start it fresh once." };
+      }
+      return { state: "error", cacheKey, disposition: "quarantined", detail: "I paused this one because I could not confirm the provider received it. I am still recovering this attempt for free; I will not pay for it twice." };
+    }
+  }
+  if (!taskId) return { state: "waiting", cacheKey, providerTaskId: null, costUsd: 0, detail: "Another run is already fetching this; I will pick up its result." };
+  const getPath = paths.getPath(row.endpoint, taskId);
+  if (!getPath) return { state: "error", cacheKey, disposition: "none", detail: "I do not know how to collect this task, so I will start it fresh." };
 
   const transport = await runDataForSeoTransport({
     url: `${API_BASE}/${getPath}`, payload: [], estCostUsd: 0,
     env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence-collect", method: "GET",
   });
   if (!transport.ok) {
-    // A 404 is a wrong or expired retrieval PATH, never "not ready": honest error.
+    // A 404 is a wrong or expired retrieval PATH, never "not ready": the identity
+    // is proven dead, so clear it and allow exactly ONE clean repost.
     if (transport.status === 404) {
       await clearDeadTask(d, cacheKey, now, "http_404");
-      return { state: "error", cacheKey, detail: "The provider could not find that task to collect, so I will start it fresh instead of waiting." };
+      return { state: "error", cacheKey, disposition: "repost_once", detail: "The provider could not find that task to collect, so I will start it fresh instead of waiting." };
     }
-    // Any other transport-level failure on a FREE GET (5xx, timeout, throw) is a
-    // costless retry next visit, not an error. Carry the message so it is never a
-    // silent eternal wait.
-    return { state: "waiting", cacheKey, providerTaskId: row.provider_task_id, costUsd: 0, detail: `I could not reach the provider to collect this (${transport.message}); I will try again for free.` };
+    // Any other transport failure on a FREE GET is a costless retry next visit;
+    // the message rides along so it is never a silent eternal wait.
+    return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: `I could not reach the provider to collect this (${transport.message}); I will try again for free.` };
   }
-  // Strict in-body classification of the FIRST task status_code. Only genuine
-  // queue codes stay waiting; terminal and transient codes are bounded errors.
+  // Strict in-body classification onto the frozen dispositions; no strings read.
   const task = firstTask(transport.body);
   const code = typeof task?.status_code === "number" ? task.status_code : null;
   const cls = classifyTaskStatus(code);
-  if (cls === "waiting") return { state: "waiting", cacheKey, providerTaskId: row.provider_task_id, costUsd: 0, detail: `The provider is still working on this (code ${code ?? "unknown"}); I will collect it for free on the next pass.` };
-  if (cls === "terminal") {
-    // Clear the dead task identity so a clean re-claim can repost ONCE; without
-    // this the claim keeps routing every visit into a GET that can never succeed.
-    await clearDeadTask(d, cacheKey, now, `terminal_${code ?? "unknown"}`);
-    return { state: "error", cacheKey, detail: `The provider cannot return this task (code ${code ?? "unknown"}); I will start it fresh.` };
+  if (cls === "waiting") return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: `The provider is still working on this (code ${code ?? "unknown"}); I will collect it for free on the next pass.` };
+  if (cls === "missing") {
+    // Proven gone: clear the dead identity so a clean re-claim reposts ONCE.
+    await clearDeadTask(d, cacheKey, now, `missing_${code ?? "unknown"}`);
+    return { state: "error", cacheKey, disposition: "repost_once", detail: `The provider no longer has this task (code ${code ?? "unknown"}); I will start it fresh once.` };
   }
-  if (cls === "transient") return { state: "error", cacheKey, detail: `The provider hit a temporary problem on this task (code ${code ?? "unknown"}); I will try it again shortly.` };
+  if (cls === "blocked") {
+    // Account/contract problem, NOT a dead task: keep the id and pause.
+    return { state: "error", cacheKey, disposition: "blocked", detail: `The provider turned this request down (code ${code ?? "unknown"}); I am pausing here until the account is sorted out. The task is still on file, so nothing gets paid for twice.` };
+  }
+  if (cls === "transient") return { state: "error", cacheKey, disposition: "retry_free", detail: `The provider hit a temporary problem on this task (code ${code ?? "unknown"}); I kept it and will collect it again for free shortly.` };
   const live = readLiveResult(transport.body);
-  if (!live.valid) return { state: "waiting", cacheKey, providerTaskId: row.provider_task_id, costUsd: 0, detail: "The provider marked this ready but sent no result yet; I will collect it again for free." };
+  if (!live.valid) return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: "The provider marked this ready but sent no result yet; I will collect it again for free." };
   try {
+    // FRESHNESS truth: the ready payload expires on the REGISTRY ttl, so a due
+    // re-observation re-buys; the 30-day retention covers only UNcollected tasks.
+    const ttlMs = paths.ttlMsFor(row.endpoint) ?? DAY_MS;
     await d.cacheWrite(cacheKey, {
       status: "ready", payload: live.payload as Record<string, unknown>, model_served: live.modelServed,
-      ready_at: now.toISOString(), fetch_claimed_until: null, content_hash: sha256(stableStringify(live.payload)).slice(0, 40),
+      ready_at: now.toISOString(), expires_at: new Date(now.getTime() + ttlMs).toISOString(),
+      fetch_claimed_until: null, content_hash: sha256(stableStringify(live.payload)).slice(0, 40),
     });
   } catch {
     // Fail closed: collected but did not persist. Do NOT report ok; the task id
     // stays on the row, so a later visit collects it again for free.
-    return { state: "error", cacheKey, detail: "I collected the result but could not save it, so I will collect it again rather than lose it." };
+    return { state: "error", cacheKey, disposition: "none", detail: "I collected the result but could not save it, so I will collect it again rather than lose it." };
   }
   return { state: "ok", envelope: (live.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: live.modelServed };
 }
 
 /** DataForSEO task-status classification (docs.dataforseo.com/v3/appendix/errors):
  *  20000 ready; 40601 Task Handed and 40602 Task in Queue = genuinely queued;
- *  404xx (Not Found / Results Expired), 401xx auth, 402xx payment, 405xx invalid
- *  request = TERMINAL; 50xxx internal = transient. An unknown non-20000 code in a
- *  terminal class range fails closed to terminal; anything else stays resumable. */
-function classifyTaskStatus(code: number | null): "ready" | "waiting" | "terminal" | "transient" {
+ *  404xx (Task Not Found 40401 / Results Expired 40403) = MISSING, the identity is
+ *  dead and one clean repost is allowed; 401xx auth, 402xx payment, 405xx invalid
+ *  request = BLOCKED, the task stays on file and nothing reposts; 50xxx internal =
+ *  transient, keep the id and retry the free GET. Anything else stays resumable. */
+function classifyTaskStatus(code: number | null): "ready" | "waiting" | "missing" | "blocked" | "transient" {
   if (code === 20000) return "ready";
   if (code === 40601 || code === 40602) return "waiting";
   if (code !== null && code >= 50000 && code <= 50999) return "transient";
-  if (code !== null && ((code >= 40100 && code <= 40199) || (code >= 40200 && code <= 40299) || (code >= 40400 && code <= 40499) || (code >= 40500 && code <= 40599))) return "terminal";
+  if (code !== null && code >= 40400 && code <= 40499) return "missing";
+  if (code !== null && ((code >= 40100 && code <= 40199) || (code >= 40200 && code <= 40299) || (code >= 40500 && code <= 40599))) return "blocked";
   return "waiting";
+}
+
+/** Mark the row QUARANTINED: the provider may hold a paid task we cannot name, so
+ *  no branch may repost it (claim_evidence_fetch refuses to reclaim or expire a
+ *  quarantined row). False = the mark did not persist, so only the lease guards. */
+async function quarantineRow(d: CachedCallDeps, cacheKey: string, now: Date): Promise<boolean> {
+  try {
+    await d.cacheWrite(cacheKey, {
+      quarantined_at: now.toISOString(), posted_attempt_at: now.toISOString(),
+      fetch_claimed_until: new Date(now.getTime() + AMBIGUITY_WINDOW_MS).toISOString(),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** At most ONE free tasks_ready GET per collect: the provider's finished-task
+ *  listing is the only sanctioned way to learn the id of a task we may already have
+ *  paid for. Match our tag (= cacheKey), persist the id, clear the quarantine. Any
+ *  doubt (no path, unreachable, no match, unsaved id) fails closed and stays paused. */
+async function recoverQuarantined(d: CachedCallDeps, cacheKey: string, tasksReadyPath: string | null): Promise<string | null> {
+  if (!tasksReadyPath) return null;
+  const t = await runDataForSeoTransport({
+    url: `${API_BASE}/${tasksReadyPath}`, payload: [], estCostUsd: 0,
+    env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence-recover", method: "GET",
+  });
+  if (!t.ok) return null;
+  const tasks = (t.body as { tasks?: unknown })?.tasks;
+  let found: string | null = null;
+  for (const task of Array.isArray(tasks) ? (tasks as Record<string, unknown>[]) : []) {
+    for (const e of Array.isArray(task.result) ? (task.result as Record<string, unknown>[]) : []) {
+      if (e.tag === cacheKey && typeof e.id === "string" && e.id.length > 0) found = e.id;
+    }
+  }
+  if (!found) return null;
+  try {
+    await d.cacheWrite(cacheKey, { status: "pending", provider_task_id: found, quarantined_at: null, fetch_claimed_until: null });
+  } catch {
+    return null;
+  }
+  return found;
 }
 
 /** Inject the deterministic cacheKey as the provider `tag` on the first task
@@ -308,7 +387,6 @@ function tagTaskPayload(payload: unknown[], tag: string): unknown[] {
   const [first, ...rest] = payload;
   return [{ ...(first as Record<string, unknown>), tag }, ...rest];
 }
-
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /** TENANT-INDEPENDENT public identity: version|endpoint|input|location|language|
@@ -331,6 +409,7 @@ async function clearDeadTask(d: CachedCallDeps, cacheKey: string, now: Date, det
   await d
     .cacheWrite(cacheKey, {
       status: "error", provider_task_id: null, posted_at: null, posted_attempt_at: null,
+      quarantined_at: null, // a dead task has nothing left to protect
       fetch_claimed_until: null, error_at: now.toISOString(), error_detail: `dead_task:${detail}`.slice(0, 200),
     })
     .catch(() => {});
@@ -417,69 +496,4 @@ function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return "[" + value.map(stableStringify).join(",") + "]";
   const obj = value as Record<string, unknown>;
   return "{" + Object.keys(obj).sort().map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k])).join(",") + "}";
-}
-
-// ── production default seams (lazy; never touched by an injecting test) ──────
-
-function underVitest(): boolean {
-  return process.env.VITEST === "true";
-}
-
-export function resolveDeps(deps: FunnelBoundaryDeps): CachedCallDeps {
-  return { ...buildDefaultDeps(process.env), ...(deps as unknown as Partial<CachedCallDeps>) };
-}
-
-function buildDefaultDeps(env: NodeJS.ProcessEnv): CachedCallDeps {
-  const rpc = (fn: string, params: Record<string, unknown>) => getSupabaseAdmin().rpc(fn, params);
-  return {
-    env,
-    now: () => new Date(),
-    fetchImpl: fetch,
-    claimEvidenceFetch: async (p) => {
-      const { data, error } = await rpc("claim_evidence_fetch", {
-        p_cache_key: p.cacheKey, p_endpoint: p.endpoint, p_endpoint_version: p.endpointVersion,
-        p_input_hash: p.inputHash, p_input_summary: p.inputSummary, p_location_code: p.locationCode,
-        p_language_code: p.languageCode, p_device: p.device, p_model_requested: p.modelRequested,
-        p_claim_seconds: p.claimSeconds,
-      });
-      if (error) throw new Error(error.message);
-      const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
-      return {
-        outcome: ((row?.outcome as string) ?? "claimed") as EvidenceCacheClaim["outcome"],
-        payload: row?.payload ?? null,
-        providerTaskId: (row?.provider_task_id as string) ?? null,
-        modelServed: (row?.model_served as string) ?? null,
-        readyAt: (row?.ready_at as string) ?? null,
-        costUsd: Number(row?.cost_usd ?? 0),
-      };
-    },
-    reserveProviderSpend: async (tenantId, platform, amount, monthlyCap) => {
-      const { data, error } = await rpc("reserve_provider_spend", { p_tenant_id: tenantId, p_platform: platform, p_amount: amount, p_monthly_cap: monthlyCap });
-      if (error) throw new Error(error.message);
-      return data === true;
-    },
-    adjustProviderSpend: async (tenantId, platform, delta) => {
-      const { data, error } = await rpc("adjust_provider_spend", { p_tenant_id: tenantId, p_platform: platform, p_delta: delta });
-      return error ? false : data === true;
-    },
-    cacheRead: async (cacheKey) => {
-      const { data } = await getSupabaseAdmin().from("evidence_cache").select("*").eq("cache_key", cacheKey).maybeSingle();
-      return (data as EvidenceCacheRow | null) ?? null;
-    },
-    cacheWrite: async (cacheKey, patch) => {
-      // Fail closed: a swallowed write is how a paid result is lost or a task is
-      // silently reposted. Surface the DB error so callers can keep the money-safe
-      // invariant (never report success on an unsaved row).
-      const { error } = await getSupabaseAdmin().from("evidence_cache").update({ ...patch, updated_at: new Date().toISOString() }).eq("cache_key", cacheKey);
-      if (error) throw new Error(`evidence_cache update failed: ${error.message}`);
-    },
-    cacheUpsert: async (cacheKey, row) => {
-      const { error } = await getSupabaseAdmin().from("evidence_cache").upsert({ cache_key: cacheKey, ...row, updated_at: new Date().toISOString() }, { onConflict: "cache_key" });
-      if (error) throw new Error(`evidence_cache upsert failed: ${error.message}`);
-    },
-    breaker: async (e, now, projected) => {
-      if (underVitest()) return { tripped: false };
-      return assertPaidCallAllowed({ projectedCostUsd: projected }, { env: e, now: () => now });
-    },
-  };
 }

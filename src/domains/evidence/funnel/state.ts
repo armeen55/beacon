@@ -11,7 +11,7 @@ import "server-only";
 import { loadResearchState, saveResearchState, type StateRepoDeps } from "./state-repo";
 import type { ResearchPageExtract, ResearchWinningAppearance } from "./research-evidence";
 
-const FUNNEL_SCHEMA_VERSION = 2;
+const FUNNEL_SCHEMA_VERSION = 3;
 
 export const MAX_RETAINED = 150;
 export const MAX_REJECTED = 150;
@@ -53,7 +53,12 @@ export type FunnelPair = {
 export type FunnelSerp = {
   query: string;
   cacheKey: string | null;
+  /** failed = the one clean repost was already spent (explicit unavailable coverage). */
   status: "pending" | "posted" | "done" | "failed";
+  /** When this look actually landed; a look older than FRESH_MS is due again. */
+  observedAt?: string;
+  /** Terminal-collect recoveries: ONE clean repost, then unavailable coverage. */
+  reposts?: number;
   organic?: { rank: number; url: string; domain: string; title: string | null }[];
   aiOverview?: { url: string; domain: string; title: string | null }[];
   aiModeCacheKey?: string | null;
@@ -90,10 +95,16 @@ export type FunnelState = {
     rejected: FunnelReject[];
     counts: { raw: number; normalized: number; retained: number; rejected: number };
   };
+  /** The CURRENT working set only: pairs whose prompt or engine left the intended
+   *  set are pruned. True history lives in prompt_answer_observations. */
   prompts: { pairs: FunnelPair[]; intendedPairs: number };
+  /** The CURRENT chosen keyword set only; obsolete queries are pruned. */
   serps: { queries: FunnelSerp[]; analyzed: number };
   winningPages: FunnelWinningPage[];
+  /** LIFETIME totals for this basis (not the receipt). */
   ledger: { spentUsd: number; cacheHits: number };
+  /** THIS run's receipt: reset whenever Runtime hands us a new run id. */
+  cycle: { runId: string | null; cycleKey: string | null; spentUsd: number; cacheHits: number };
   updatedAt: string;
 };
 
@@ -109,6 +120,7 @@ export function emptyFunnelState(tenantId: string, basisTag = "", now = ""): Fun
     serps: { queries: [], analyzed: 0 },
     winningPages: [],
     ledger: { spentUsd: 0, cacheHits: 0 },
+    cycle: { runId: null, cycleKey: null, spentUsd: 0, cacheHits: 0 },
     updatedAt: now,
   };
 }
@@ -128,6 +140,7 @@ function decodeFunnelState(tenantId: string, basisTag: string, raw: unknown): Fu
     serps: r.serps && typeof r.serps === "object" ? { ...base.serps, ...r.serps } : base.serps,
     winningPages: Array.isArray(r.winningPages) ? r.winningPages : base.winningPages,
     ledger: r.ledger && typeof r.ledger === "object" ? { ...base.ledger, ...r.ledger } : base.ledger,
+    cycle: r.cycle && typeof r.cycle === "object" ? { ...base.cycle, ...r.cycle } : base.cycle,
     updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : "",
   };
 }

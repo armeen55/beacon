@@ -13,7 +13,7 @@ import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import type { CapabilityInputByKey, FunnelCounters, FunnelUnitFn, ParsedKeywordItem } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { applyFilters, dedupeKeywords, filterContextFrom, keywordsFromParsed, normalizeKeyword, rankAndCap } from "./normalize";
 import { type FunnelKeyword, type FunnelState, MAX_REJECTED, MAX_RETAINED } from "./state";
-import { basisFromCursor, CONFLICT_DETAIL, interp, NO_BASIS_DETAIL, resolveDeps, round, save, StateConflictError, track, type FunnelDeps } from "./shared";
+import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, NO_BASIS_DETAIL, resolveDeps, round, save, StateConflictError, track, type FunnelDeps } from "./shared";
 
 function ctxFrom(p: BusinessProfile) {
   return filterContextFrom({
@@ -41,8 +41,8 @@ function discProgress(s: FunnelState): FunnelCounters {
     normalizedKeywords: s.discovery.counts.normalized,
     retainedKeywords: s.discovery.counts.retained,
     rejectedKeywords: s.discovery.counts.rejected,
-    cacheHits: s.ledger.cacheHits,
-    spendUsd: round(s.ledger.spentUsd),
+    cacheHits: s.cycle.cacheHits,
+    spendUsd: round(s.cycle.spentUsd),
   };
 }
 
@@ -73,6 +73,7 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     const deadline = d.now() + Math.max(1000, budgetMs);
     const loaded = await d.loadState(tenantId, basis);
     const state = loaded.state;
+    beginCycle(state, cursor, unitKey); // a new run id resets this run's receipt
     const ctx = { rowVersion: loaded.rowVersion };
     const profile = await d.loadProfile(tenantId);
     if (!profileConfirmed(profile)) {
