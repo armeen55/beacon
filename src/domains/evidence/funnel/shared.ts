@@ -88,6 +88,8 @@ async function defaultActivePrompts(tenantId: string): Promise<{ id: string; tex
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
       .contains("tags", ["core_v1"])
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
       .limit(100);
     if (error) return [];
     return ((data ?? []) as { id: string; text: string }[]).filter((r) => r.id && r.text);

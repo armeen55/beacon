@@ -122,24 +122,27 @@ describe("research funnel - current-set truth + the disposition ladder", () => {
   const donePair = (promptId: string, engine: FunnelPair["engine"], observedAt: string): FunnelPair => ({ promptId, engine, cacheKey: null, status: "done", observedAt, citationsObserved: true, citations: [] });
   const seedWith = (pairs: FunnelPair[]) => { const s = emptyFunnelState("tp", BASIS); s.prompts = { pairs, intendedPairs: pairs.length }; return memStore(s); };
   const mk = (store: ReturnType<typeof memStore>, over: Partial<FunnelDeps> = {}): FunnelDeps => ({ ...store.deps, loadProfile: async () => profileOf("tp", ["persian food"], ["saffron"]), loadActivePrompts: async () => prompts, parse, syncHistory: async () => {}, now: () => NOW, ...over });
-  const many = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `p${i}`, text: `prompt ${i}` }));
+  const many = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `p${String(i).padStart(2, "0")}`, text: `prompt ${i}` }));
   it("prunes pairs whose prompt left the active set, so old completions can never satisfy the new set", async () => {
     const store = seedWith(ENG.map((e) => donePair("p_gone", e, new Date(NOW).toISOString()))); const out = await promptObservationUnit(mk(store, { callProvider: async () => waiting("ck") }))("tp", cur(), 60_000);
     expect(out.status).toBe("waiting"); expect(out.progress.enginePairsIntended).toBe(4); // every CANONICAL pair of the NEW prompt is outstanding
     const kept = store.peek("tp", BASIS)!.prompts.pairs; expect(kept.length).toBe(5); expect(kept.every((p) => p.promptId === "p1")).toBe(true); // 4 canonical + 1 auxiliary; obsolete rows dropped (history lives in observations)
   });
   it("intends 4 canonical pairs per prompt plus a bounded 20-prompt auxiliary set, and migrates a pre-6I state without re-buying a fresh look", async () => {
-    const fresh = new Date(NOW).toISOString(); const store = seedWith([...ENG.map((e) => donePair("p0", e, fresh)), { ...donePair("p0", "chatgpt", fresh), scraper: true }, donePair("p24", "chatgpt", fresh)]);
+    const fresh = new Date(NOW).toISOString(); const store = seedWith([...ENG.map((e) => donePair("p00", e, fresh)), { ...donePair("p00", "chatgpt", fresh), scraper: true }, donePair("p24", "chatgpt", fresh)]);
     const asked: string[] = []; const ask = (i: unknown) => (i as { user_prompt?: string; keyword?: string }).user_prompt ?? (i as { keyword?: string }).keyword;
     const out = await promptObservationUnit(mk(store, { loadActivePrompts: async () => many(25), callProvider: async (cap, i) => { asked.push(`${cap}|${ask(i)}`); return waiting("ck"); } }))("tp", cur(), 60_000);
     const pairs = store.peek("tp", BASIS)!.prompts.pairs; const aux = pairs.filter((p) => p.engine === "chatgpt" && p.mode === "standardized_response");
     expect([out.progress.enginePairsIntended, pairs.length]).toEqual([100, 120]); // 25 x 4 canonical coverage, plus 20 auxiliary chatgpt looks that count toward nothing
     expect(pairs.filter((p) => p.engine === "chatgpt" && p.mode === "consumer_search").length).toBe(25); // exactly ONE consumer look per prompt
     expect([aux.length, new Set(aux.map((p) => p.promptId)).size, aux.some((p) => p.promptId === "p24")]).toEqual([20, 20, false]); // bounded to the first 20 prompts
-    expect(pairs.filter((p) => p.promptId === "p0" && p.status === "done").map((p) => `${p.engine}|${p.mode}`).sort())
+    expect(pairs.filter((p) => p.promptId === "p00" && p.status === "done").map((p) => `${p.engine}|${p.mode}`).sort())
       .toEqual(["chatgpt|consumer_search", "chatgpt|standardized_response", "claude|standardized_response", "gemini|standardized_response", "perplexity|standardized_response"]); // legacy scraper flag decodes to the consumer look, a bare chatgpt row to the auxiliary slot
     expect(asked.some((a) => a.endsWith("prompt 0"))).toBe(false); // every carried row is fresh: nothing fresh is ever bought twice
     expect(pairs.some((p) => p.promptId === "p24")).toBe(true); expect(pairs.some((p) => p.promptId === "p24" && p.status === "done")).toBe(false); // the out-of-band auxiliary row is pruned from the working set
+    const shuffled = memStore(); await promptObservationUnit(mk(shuffled, { loadActivePrompts: async () => many(25).reverse(), callProvider: async () => waiting("ck") }))("tp", cur(), 60_000);
+    const shuffledAux = shuffled.peek("tp", BASIS)!.prompts.pairs.filter((p) => p.engine === "chatgpt" && p.mode === "standardized_response").map((p) => p.promptId);
+    expect(shuffledAux).toEqual(aux.map((p) => p.promptId)); // provider row order cannot rotate the paid auxiliary sample
   });
   it("an auxiliary failure never fails the unit or blocks done, and even an auxiliary BLOCK never holds the run hostage", async () => {
     const run = (disposition: FailureDisposition) => { const store = memStore(); return promptObservationUnit(mk(store, { callProvider: async (cap) => (cap === "llm_chatgpt" ? err(disposition) : ok(aiAnswer({ citations: [] }))) }))("tp", cur(), 60_000).then((out) => ({ out, store })); };

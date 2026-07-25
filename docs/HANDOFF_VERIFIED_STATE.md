@@ -146,9 +146,8 @@
   connector provider, runtime health entries, question seeding, drafter sources, the customer-visible AEO
   confidence gate, the vendor-named benchmark, the GitHub Actions dispatch, and the provider-import
   architecture). SEMrush and borrowed-account assumptions must not be revived.
-- The four-engine observation paths are implemented but have never run live (no DataForSEO credentials);
-  until credentials land, dry-run keeps every funnel phase at zero paid coverage and Today's counters
-  honestly reflect that.
+- Production DataForSEO remains deliberately unconfigured and dry-run; the local research paths were
+  live-validated under the proved $2 provider-day cap.
 - Real-customer names remain in historical code comments outside the Account boundary (executable strings and
   fixtures are clean).
 - Legacy `.data`/dual-write code remains for non-account stores; the Account/Profile path no longer uses it.
@@ -159,9 +158,8 @@ Verified variable-name presence without reading or printing values:
 
 - Local and Vercel production have Supabase and OpenAI credentials.
 - Vercel production has Google OAuth client credentials and a GSC site configuration.
-- Neither local nor Vercel production currently has verified DataForSEO credentials or production provider
-  settings. Required before live provider validation: DataForSEO authentication, provider selection, an
-  explicit dry-run decision, and a fail-closed spend cap.
+- Local DataForSEO credentials and fail-closed provider settings were live-validated. Vercel production has
+  no DataForSEO credentials and remains deliberately unconfigured and dry-run.
 
 Never place credentials in chat, documentation, commits, or command output.
 

@@ -31,9 +31,9 @@ const isCanonical = (p: FunnelPair) => modeOf(p) === canonicalMode(p.engine);
 const pairKey = (p: FunnelPair) => `${p.promptId}|${p.engine}|${modeOf(p)}`;
 const capabilityFor = (p: FunnelPair): CapabilityKey => (p.engine === "chatgpt" && modeOf(p) === "consumer_search" ? "llm_scraper_chatgpt" : (`llm_${p.engine}` as CapabilityKey));
 
-/** Each capability gets EXACTLY its own documented ask. ChatGPT llm_responses takes web_search only (force_web_search
- *  draws an in-body 40501 on its reasoning models, which is every current one); Claude documents force_web_search +
- *  country; Gemini web_search only; perplexity none; the consumer-search scraper is KEYWORD-based. */
+/** Each capability gets EXACTLY its own documented ask. ChatGPT llm_responses takes web_search only (the live
+ *  o4-mini validation rejected force_web_search with in-body 40501); Claude documents force_web_search + country;
+ *  Gemini web_search only; perplexity none; the consumer-search scraper is KEYWORD-based. */
 function observeCall(callProvider: ResolvedDeps["callProvider"], p: FunnelPair, text: string, ids: { tenantId: string; unitKey: string }): Promise<CachedCallResult> {
   switch (capabilityFor(p)) {
     case "llm_scraper_chatgpt": return callProvider("llm_scraper_chatgpt", { keyword: text, force_web_search: true, expand_citations: true }, ids);
@@ -123,7 +123,8 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     const state = loaded.state;
     const runId = beginCycle(state, cursor, unitKey);
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion };
-    const prompts = (await d.loadActivePrompts(tenantId)).slice(0, 100);
+    // A loader override must not be able to rotate the bounded auxiliary sample.
+    const prompts = (await d.loadActivePrompts(tenantId)).sort((a, b) => a.id.localeCompare(b.id)).slice(0, 100);
     if (prompts.length === 0) return { status: "failed", cursor, progress: pairProgress(state), detail: "I have no active core prompts to check yet." };
 
     const pairs = normalizePairs(prompts, state.prompts.pairs);
@@ -494,4 +495,3 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
     receipt: { researched: state.discovery.counts.raw, retained: state.discovery.counts.retained, stale, missing, cached: state.cycle.cacheHits, spentUsd: round(state.cycle.spentUsd), freshestObservationAt: observedTimes.at(-1) ?? null },
   };
 }
-

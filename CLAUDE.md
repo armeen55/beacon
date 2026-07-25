@@ -33,11 +33,11 @@ never print secrets; pause for a human only when Supabase itself needs a login t
 architecture duplicates, verification logs, roadmaps, or in-repo archives. Git history is the archive.
 Canonical doc line ceilings are guard-enforced.
 
-**No bloat theater:** do not reward yourself for files, abstractions, agents, tests, or lines produced. One
-customer outcome per task. Prefer deletion and replacement. Do not revive SEMrush, Profound, borrowed-account,
-or provider-specific native polling. DataForSEO is the external research/observation boundary; OpenAI is the
-strictly structured internal reasoning boundary. Fable may assist a bounded approved UI outcome, never generate
-an alternate product, extra routes, or a parallel component system.
+**Research before judgment:** when a material choice is not fully established, inspect primary documentation and
+multiple best-in-class products first. Label fact versus inference and say when evidence is inconclusive. Research
+must reduce uncertainty, never create scope. **No bloat theater:** prefer deletion and replacement; never reward
+files, abstractions, agents, tests, or lines. DataForSEO is external research; OpenAI is structured reasoning.
+Fable may assist bounded approved UI, never an alternate product, extra routes, or parallel component system.
 
 **Finish every task with:** `Task completed`, 1–5 bullets, exactly one next recommendation, and
 `Recommended capability for next step: [Fast / Balanced / Max]` + one-line why (Fast=Haiku, Balanced=Sonnet,

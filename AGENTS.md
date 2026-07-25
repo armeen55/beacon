@@ -165,6 +165,8 @@ readFileSync source scans.
 ### Process
 - One customer outcome per task. Never "build 20 ideas" / "Beacon 500" / indefinite
   continuous-feature prompts. Give a terminal outcome; stop when it and its test pass.
-- At most two implementation agents + one reviewer, disjoint ownership. Only the
-  orchestrator runs git. Report net growth (prod/test add+delete, routes, deps,
-  public API) every task.
+- Before a material judgment not fully established by evidence, research primary sources and multiple best-in-class
+  products; label fact versus inference, then choose the smallest Product-Truth-aligned adaptation. Say when evidence
+  is inconclusive. Research reduces uncertainty; it never creates unapproved scope.
+- At most two implementation agents + one reviewer, disjoint ownership. Only the orchestrator runs git.
+  Report net growth (prod/test add+delete, routes, deps, public API) every task.
