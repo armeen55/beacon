@@ -36,18 +36,3 @@ export function getDataDir(tenantSlug?: string | null): string {
   return dir;
 }
 
-export function createTenant(slug: string): string {
-  const dir = join(tenantsDir(), slug);
-  if (process.env.VERCEL !== "1" && !existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-  return dir;
-}
-
-export function listTenants(): string[] {
-  const td = tenantsDir();
-  if (!existsSync(td)) return [];
-  return (readdirSync(td, { withFileTypes: true }) as { name: string; isDirectory: () => boolean }[])
-    .filter((d) => d.isDirectory())
-    .map((d) => d.name);
-}

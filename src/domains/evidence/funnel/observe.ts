@@ -14,8 +14,9 @@ import { basisTag } from "@/domains/account";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
-import type { CapabilityKey, FunnelCounters, FunnelUnitFn, FunnelUnitOutcome, ParsedAiAnswer, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
-import { normalizeKeyword, rankAndCap, rankWinningPages } from "./normalize";
+import type { CapabilityKey, FunnelCounters, FunnelUnitFn, FunnelUnitOutcome, LlmWebInput, ParsedAiAnswer, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
+import type { CachedCallResult } from "@/domains/evidence/dataforseo/funnel-boundary";
+import { rankAndCap, rankWinningPages } from "./normalize";
 import { type FunnelPair, type FunnelSerp, type FunnelState, type FunnelWinningPage } from "./state";
 import {
   emptyResearchEvidence,
@@ -34,6 +35,20 @@ import {
 const ENGINES: ResearchEngine[] = ["chatgpt", "gemini", "claude", "perplexity"];
 const pairKey = (p: FunnelPair) => `${p.promptId}|${p.engine}|${p.scraper ? "s" : ""}`;
 const capabilityFor = (p: FunnelPair): CapabilityKey => (p.scraper ? "llm_scraper_chatgpt" : (`llm_${p.engine}` as CapabilityKey));
+
+/** ChatGPT/Claude get the full web-enabled ask; the registry gates force/country on
+ *  the resolved model's web support. Gemini takes web_search only; Perplexity none
+ *  (web is on by default); the scraper is KEYWORD-based, never user_prompt. */
+const webAsk = (text: string): LlmWebInput => ({ user_prompt: text, web_search: true, force_web_search: true, web_search_country_iso_code: "US" });
+function observeCall(callProvider: ResolvedDeps["callProvider"], p: FunnelPair, text: string, ids: { tenantId: string; unitKey: string }): Promise<CachedCallResult> {
+  if (p.scraper) return callProvider("llm_scraper_chatgpt", { keyword: text, force_web_search: true, expand_citations: true }, ids);
+  switch (p.engine) {
+    case "gemini": return callProvider("llm_gemini", { user_prompt: text, web_search: true }, ids);
+    case "perplexity": return callProvider("llm_perplexity", { user_prompt: text }, ids);
+    case "claude": return callProvider("llm_claude", webAsk(text), ids);
+    default: return callProvider("llm_chatgpt", webAsk(text), ids);
+  }
+}
 
 function buildPairs(prompts: { id: string }[]): FunnelPair[] {
   const out: FunnelPair[] = [];
@@ -127,11 +142,8 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     state.prompts.intendedPairs = intended.length;
     const textOf = new Map(prompts.map((p) => [p.id, p.text]));
     const nowIso = () => new Date(d.now()).toISOString();
-    const modelCache = new Map<ResearchEngine, string | null>();
-    const modelFor = async (engine: ResearchEngine): Promise<string | null> => {
-      if (!modelCache.has(engine)) modelCache.set(engine, await d.resolveModel(engine).catch(() => null));
-      return modelCache.get(engine) ?? null;
-    };
+    let failedDetail: string | null = null;
+    let softUnavailable = false;
 
     try {
       // 1) collect prior posted tasks first (never repost a posted key)
@@ -139,9 +151,18 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
         if (d.now() > deadline) break;
         const r = interp(await d.collectTask(p.cacheKey!));
         track(state, r);
+        if (r.modelRequested) p.modelRequested = r.modelRequested;
         if (r.kind === "evidence") {
           const parsed = d.parse(capabilityFor(p), r.payload as never) as ParsedAiAnswer | null;
+          // Collected but unreadable evidence is a bounded failure, never a fake answer.
           if (parsed) await landAnswer(p, r, parsed, textOf.get(p.promptId) ?? p.promptText ?? "", tenantId, runId, nowIso(), d.syncHistory);
+          else failedDetail = "I collected an answer I could not read. I will retry it on the next pass.";
+        } else if (r.kind === "failed") {
+          // Terminal collect: this posted task can never return. Repost the pair
+          // clean exactly ONCE through the full money path; a second terminal marks
+          // it unsupported (explicit unavailable coverage), never an eternal retry.
+          if ((p.reposts ?? 0) >= 1) { p.status = "unsupported"; p.cacheKey = null; }
+          else { p.status = "pending"; p.cacheKey = null; p.reposts = 1; }
         }
       }
 
@@ -151,36 +172,46 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
         .filter((p) => p.status === "pending" || (p.status === "done" && p.observedAt && now - Date.parse(p.observedAt) > FRESH_MS))
         .sort((a, b) => (a.observedAt ? Date.parse(a.observedAt) : 0) - (b.observedAt ? Date.parse(b.observedAt) : 0));
       let processed = 0, perp = 0, progressed = false;
-      let failedDetail: string | null = null;
       for (const p of todo) {
         if (d.now() > deadline || processed >= 20) break;
         const text = textOf.get(p.promptId);
         if (!text) continue;
         if (p.engine === "perplexity" && perp >= 3) continue;
         if (p.engine === "perplexity") perp += 1;
-        const model = await modelFor(p.engine);
-        p.modelRequested = model;
-        const r = interp(await d.callProvider(capabilityFor(p), { user_prompt: text, modelRequested: model ?? undefined }, ids));
+        const r = interp(await observeCall(d.callProvider, p, text, ids));
         track(state, r);
+        p.modelRequested = r.modelRequested ?? p.modelRequested ?? null;
         if (r.kind === "waiting") { p.status = "posted"; p.cacheKey = r.cacheKey; progressed = true; }
         else if (r.kind === "evidence") {
           const parsed = d.parse(capabilityFor(p), r.payload as never) as ParsedAiAnswer | null;
           if (parsed) { await landAnswer(p, r, parsed, text, tenantId, runId, nowIso(), d.syncHistory); progressed = true; }
-        } else if (r.kind === "failed") failedDetail = r.detail ?? "provider call failed";
+          else failedDetail = "I got an answer I could not read. I will retry it on the next pass.";
+        } else if (r.kind === "failed") failedDetail = r.detail ?? "A provider call failed. I will retry it on the next pass.";
+        else if (r.soft === "not_configured") softUnavailable = true; // genuine unavailable coverage
         processed += 1;
       }
 
       state.prompts.pairs = pairs.slice(0, 500);
       await save(d, tenantId, basis, state, ctx);
       const done = pairs.filter((p) => p.status === "done").length;
+      const unsupported = pairs.filter((p) => p.status === "unsupported").length;
       const anyPosted = pairs.some((p) => p.status === "posted");
-      // Honest status: a capped/errored provider PAUSES (never a busy loop); "advanced"
-      // only on real forward progress; a zero-progress soft pass finishes the phase.
+      // Honest status: complete only when every intended pair is resolved (done or
+      // EXPLICITLY unsupported) with at least one real answer; failures pause; posted
+      // pairs wait; "advanced" only on real progress; leftover pending pairs are a
+      // recoverable pause, never a fake done.
       let status: FunnelUnitOutcome["status"];
-      if (state.prompts.intendedPairs > 0 && done >= state.prompts.intendedPairs) status = "done";
+      if (state.prompts.intendedPairs > 0 && done > 0 && done + unsupported >= state.prompts.intendedPairs) {
+        status = "done";
+        if (unsupported > 0) failedDetail = `${unsupported} prompt checks were unavailable from the provider this round; the rest are in.`;
+      }
       else if (failedDetail) status = "failed";
       else if (anyPosted) status = "waiting";
-      else status = progressed ? "advanced" : "done";
+      else if (progressed) status = "advanced";
+      else if (softUnavailable) { status = "failed"; failedDetail = "I could not reach the AI engines to check your prompts. I will try again on the next pass."; }
+      else if (pairs.some((p) => p.status === "pending")) { status = "failed"; failedDetail = "Some prompt checks did not run this pass. I will pick them up on the next pass."; }
+      else if (done > 0) status = "done";
+      else { status = "failed"; failedDetail = "The provider could not return any prompt answers this round. I will try the whole set fresh on the next pass."; }
       return { status, cursor: { runId }, progress: pairProgress(state), ...(failedDetail ? { detail: failedDetail } : {}) };
     } catch (e) {
       if (e instanceof StateConflictError) return { status: "failed", cursor: { runId }, progress: pairProgress(state), detail: CONFLICT_DETAIL };
@@ -223,6 +254,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     const serps = [...byQ.values()];
     const top5 = new Set(chosen.slice(0, 5));
     const parseSerp = (payload: unknown) => d.parse("serp_organic", payload as never) as ParsedSerp | null;
+    let failedDetail: string | null = null;
 
     try {
       // 1) collect posted organic + AI Mode tasks (never repost)
@@ -232,12 +264,18 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           const r = interp(await d.collectTask(s.cacheKey));
           track(state, r);
           if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed); }
-          else if (r.kind === "failed") s.status = "failed";
+          else if (r.kind === "failed") { s.status = "failed"; failedDetail = r.detail ?? "A search did not finish. I will retry it on the next pass."; }
         }
-        if (s.aiModeCacheKey && !s.aiMode) {
+        if (s.aiModeCacheKey && !s.aiMode && !s.aiModeFailed) {
           const r = interp(await d.collectTask(s.aiModeCacheKey));
           track(state, r);
           if (r.kind === "evidence") s.aiMode = refs(d.parse("serp_ai_mode", r.payload as never) as ParsedSerp | null);
+          else if (r.kind === "failed") {
+            // Terminal AI Mode collect: ONE clean repost, then explicit missing
+            // coverage (never a silent gap, never an eternal dead-key collect).
+            if (s.aiModeReposted) s.aiModeFailed = true;
+            else { s.aiModeCacheKey = null; s.aiModeReposted = true; }
+          }
         }
       }
 
@@ -259,20 +297,33 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           }
           processed += 1;
         }
-        if (top5.has(s.query) && s.aiModeCacheKey == null && s.status !== "failed") {
+        if (top5.has(s.query) && s.aiModeCacheKey == null && !s.aiModeFailed && s.status !== "failed") {
           const r = interp(await d.callProvider("serp_ai_mode", { keyword: s.query }, ids));
           track(state, r);
           if (r.kind === "waiting") s.aiModeCacheKey = r.cacheKey;
           else if (r.kind === "evidence") { s.aiModeCacheKey = r.cacheKey; s.aiMode = refs(d.parse("serp_ai_mode", r.payload as never) as ParsedSerp | null); }
+          else if (r.kind === "failed") { if (s.aiModeReposted) s.aiModeFailed = true; else s.aiModeReposted = true; } // one retry, then explicit missing
         }
       }
 
       state.serps.queries = serps.slice(0, 60);
       state.serps.analyzed = serps.filter((s) => s.status === "done").length;
       await save(d, tenantId, basis, state, ctx);
-      const anyPending = serps.some((s) => s.status === "pending" || s.status === "posted");
-      const status: FunnelUnitOutcome["status"] = state.serps.analyzed >= chosen.length ? "done" : anyPending ? "waiting" : "advanced";
-      return { status, cursor, progress: serpProgress(state) };
+      const aiModeInFlight = serps.some((s) => s.aiModeCacheKey && !s.aiMode && !s.aiModeFailed);
+      const anyPending = serps.some((s) => s.status === "pending" || s.status === "posted") || aiModeInFlight;
+      const aiModeMissing = serps.filter((s) => s.aiModeFailed).length;
+      // done when every chosen query is analyzed AND no AI Mode task is still live;
+      // else wait; else a bounded failure instead of looping "advanced" forever.
+      // Unavailable AI Mode coverage is surfaced, never silent.
+      let status: FunnelUnitOutcome["status"];
+      if (state.serps.analyzed >= chosen.length && !aiModeInFlight) {
+        status = "done";
+        if (aiModeMissing > 0) failedDetail = `${aiModeMissing} AI Mode looks were unavailable from the provider; the search results themselves are in.`;
+      }
+      else if (anyPending) status = "waiting";
+      else status = "failed";
+      const detail = status === "failed" ? (failedDetail ?? "Some searches did not finish. I will retry them on the next pass.") : failedDetail;
+      return { status, cursor, progress: serpProgress(state), ...(detail ? { detail } : {}) };
     } catch (e) {
       if (e instanceof StateConflictError) return { status: "failed", cursor, progress: serpProgress(state), detail: CONFLICT_DETAIL };
       throw e;
@@ -375,7 +426,9 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
   const donePairs = state.prompts.pairs.filter((p) => p.status === "done");
   const observedTimes = donePairs.map((p) => p.observedAt).filter((t): t is string => !!t).sort();
   const stale = donePairs.filter((p) => p.observedAt && now - Date.parse(p.observedAt) > FRESH_MS).length;
-  const missing = Math.max(0, state.prompts.intendedPairs - donePairs.length) + state.serps.queries.filter((s) => s.status !== "done").length;
+  const missing = Math.max(0, state.prompts.intendedPairs - donePairs.length)
+    + state.serps.queries.filter((s) => s.status !== "done").length
+    + state.serps.queries.filter((s) => s.aiModeFailed).length;
   const doneSerps = state.serps.queries.filter((s) => s.status === "done");
   return {
     retainedKeywords: state.discovery.retained.map((k) => ({ query: k.keyword, searchVolume: k.searchVolume, competition: k.competition, competitionLevel: competitionLevel(k.competition), intent: k.intent })),

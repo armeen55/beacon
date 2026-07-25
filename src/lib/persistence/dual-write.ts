@@ -268,10 +268,7 @@ export function tenantizeRows<
 import type { ImportRun } from "@/lib/import/types";
 import type { PageSnapshot, PageEntity } from "@/domains/evidence/pages/types";
 import type { Finding } from "@/domains/evidence/scanning/types";
-import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
-import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
-import type { TrackedEntity } from "@/domains/evidence/ai-visibility/tracked-entities";
 import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/measurement/attribution/url-change-outcome";
 
@@ -320,19 +317,6 @@ export async function syncPages(
 // the contract/issue write paths that fed them were retired in earlier
 // campaigns. The tenant-scoped READ paths (getChangeContracts) stay live.
 
-// ── Operator memory sync (Phase 9) ──
-
-export async function syncDailyMetricSnapshots(
-  rows: DailyMetricSnapshot[],
-  tenantId: string,
-): Promise<void> {
-  const stamped = tenantizeRows(rows, tenantId, "daily_metric_snapshots");
-  await dualWriteUpsert(
-    "daily_metric_snapshots",
-    stamped as unknown as AnyRow[],
-    "id",
-  );
-}
 
 /** The per-day uniqueness index on prompt_answer_observations:
  *  (tenant_id, prompt_id, platform, (observed_at AT TIME ZONE 'UTC')::date).
@@ -506,49 +490,8 @@ export async function syncScanFindings(
 // (CORE 100K Lane K): zero callers anywhere.
 
 // ── Config tables sync (Phase 10) ──
-
-// Phase 1 Stage C (2026-05-09): tracked_prompts and tracked_entities
-// are still in GLOBAL_TABLES (writes go through dualWriteUpsert, not the
-// scoped variant) but the migration adds an additive `tenant_id` column
-// alongside `account_id`. Sync wrappers stamp tenant_id explicitly so the
-// CHECK constraint never fires on a runtime write. account_id stays
-// untouched for compatibility — the existing eq("account_id", slug)
-// reads continue to work; new reads can use tenant_id (the canonical
-// scoping column).
-export async function syncTrackedPrompts(
-  rows: TrackedPrompt[],
-  tenantId: string,
-): Promise<void> {
-  if (!tenantId) {
-    throw new Error(
-      "[dual-write/tracked_prompts] syncTrackedPrompts: tenantId required",
-    );
-  }
-  const stamped = tenantizeRows(rows, tenantId, "tracked_prompts");
-  await dualWriteUpsert(
-    "tracked_prompts",
-    stamped as unknown as AnyRow[],
-    "id",
-  );
-}
-
-export async function syncTrackedEntities(
-  rows: TrackedEntity[],
-  tenantId: string,
-): Promise<void> {
-  if (!tenantId) {
-    throw new Error(
-      "[dual-write/tracked_entities] syncTrackedEntities: tenantId required",
-    );
-  }
-  const stamped = tenantizeRows(rows, tenantId, "tracked_entities");
-  await dualWriteUpsert(
-    "tracked_entities",
-    stamped as unknown as AnyRow[],
-    "id",
-  );
-}
-
+// syncTrackedPrompts/syncTrackedEntities/syncDailyMetricSnapshots removed
+// 2026-07-25 (Slice 6C): their last caller, canonical-store persist* family, was dead.
 // syncAnswerTexts removed 2026-07-21 (CORE 100K): zero callers; the answer_texts
 // table stays readable as deliberately historical data (see store-classification).
 

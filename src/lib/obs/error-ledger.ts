@@ -78,7 +78,7 @@ export function errorFieldsFrom(e: unknown): { message: string; stack: string | 
 }
 
 /** PURE: fold the input into a bounded persisted row (testable without I/O). */
-export function buildAppErrorRow(input: AppErrorInput, id: string, now: Date = new Date()): AppErrorRow {
+function buildAppErrorRow(input: AppErrorInput, id: string, now: Date = new Date()): AppErrorRow {
   return {
     id,
     at: now.toISOString(),
@@ -145,21 +145,3 @@ export async function recordAppError(input: AppErrorInput): Promise<void> {
   }
 }
 
-/**
- * Rows visible to ONE tenant's surfaces, newest first: that tenant's own rows
- * plus fleet-level (tenantId null) rows. Fail-soft to [].
- */
-export async function listAppErrorsForTenant(
-  tenantId: string,
-  limit: number = MAX_ERRORS_PER_TENANT,
-): Promise<AppErrorRow[]> {
-  try {
-    const rows = await readStore<AppErrorRow>(STORE, []);
-    return rows
-      .filter((r) => r.tenantId === tenantId || r.tenantId == null)
-      .sort((a, b) => b.at.localeCompare(a.at))
-      .slice(0, limit);
-  } catch {
-    return [];
-  }
-}

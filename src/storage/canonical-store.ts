@@ -39,13 +39,7 @@ import "server-only";
 
 import { cache } from "react";
 
-import { readStore, writeStore } from "@/lib/persistence/json-store";
-import {
-  syncDailyMetricSnapshots,
-  syncPromptAnswerObservations,
-  syncTrackedPrompts,
-  syncTrackedEntities,
-} from "@/lib/persistence/dual-write";
+import { readStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
@@ -202,16 +196,6 @@ async function loadStateForTenant(): Promise<State> {
   return state;
 }
 
-/**
- * Constants exported for tests + downstream introspection. Defined
- * here (not in a separate config file) because the seed is the only
- * caller; centralizing keeps the contract in one place.
- */
-export const CANONICAL_SEED_WINDOWS = {
-  observationsDays: SEED_OBSERVATIONS_WINDOW_DAYS,
-  snapshotsDays: SEED_SNAPSHOTS_WINDOW_DAYS,
-} as const;
-
 const ensureLoaded = cache(loadStateForTenant);
 
 // ---------------------------------------------------------------------------
@@ -243,68 +227,10 @@ export const getDailyMetricSnapshots = cache(
   },
 );
 
-/**
- * Backwards-compat shim. Pre-7.8e-2, callers chained
- * `ensureCanonicalStoresSeeded()` to force the DB-merge before reading
- * module-level arrays. Post-7.8e-2 the merge is automatic on first
- * getter call, but render paths and tests still invoke this name —
- * keep it as a thin proxy so caller cascade stays minimal.
- */
-export async function ensureCanonicalStoresSeeded(): Promise<void> {
-  await ensureLoaded();
-}
-
-/**
- * Test-only reset. Clears the process-level state so the next caller
- * re-runs `loadFromDiskAndMerge()`.
- */
-export function _resetCanonicalStoreStateForTests(): void {
-  _byTenant.clear();
-}
-
-/**
- * Test-only / dev hook. Pre-7.8e-2 this dropped the seed-once flag so
- * the next request re-fetched from Supabase. Post-7.8e-2 the lazy
- * getters serve cached state forever within one lambda; calling this
- * forces the next getter call to re-run disk + DB merge.
- */
-export function invalidateCanonicalStoresSeed(): void {
-  _resetCanonicalStoreStateForTests();
-}
-
 
 // loadFreshCanonicalData removed 2026-07-21 (CORE 100K): its last
 // render-time callers died with the today-v2 loader family; the seeding
 // path above (tenantRepo.* reads in loadFromDiskAndMerge) is the one
 // surviving tenant-scoped canonical read.
 
-// ---------------------------------------------------------------------------
-// Persistence helpers.
-// Each reads the cached array via the getter, then writes-back to disk +
-// dual-write target.
-// ---------------------------------------------------------------------------
-
-export async function persistTrackedPrompts(tenantId: string): Promise<void> {
-  const trackedPrompts = await getTrackedPrompts();
-  await writeStore("tracked-prompts", trackedPrompts);
-  await syncTrackedPrompts(trackedPrompts, tenantId);
-}
-
-export async function persistTrackedEntities(tenantId: string): Promise<void> {
-  const trackedEntities = await getTrackedEntities();
-  await writeStore("tracked-entities", trackedEntities);
-  await syncTrackedEntities(trackedEntities, tenantId);
-}
-
-export async function persistObservations(tenantId: string): Promise<void> {
-  const promptAnswerObservations = await getPromptAnswerObservations();
-  await writeStore("prompt-answer-observations", promptAnswerObservations);
-  await syncPromptAnswerObservations(promptAnswerObservations, tenantId);
-}
-
-export async function persistSnapshots(tenantId: string): Promise<void> {
-  const dailyMetricSnapshots = await getDailyMetricSnapshots();
-  await writeStore("daily-metric-snapshots", dailyMetricSnapshots);
-  await syncDailyMetricSnapshots(dailyMetricSnapshots, tenantId);
-}
 

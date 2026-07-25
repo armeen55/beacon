@@ -18,28 +18,25 @@ import { syncPromptAnswerObservations } from "@/lib/persistence/dual-write";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type {
   CachedCallResult,
-  CapabilityInput,
+  CapabilityInputByKey,
   CapabilityKey,
 } from "@/domains/evidence/dataforseo/funnel-boundary";
 import {
   providerCall,
   collectCapability,
   parseCapability,
-  resolveEngineModel,
   readPublicPageExtract,
   writePublicPageExtract,
 } from "@/domains/evidence/dataforseo/funnel-boundary";
-import type { ResearchEngine } from "./research-evidence";
 import { loadFunnelState, saveFunnelState, type FunnelState, type LoadedFunnelState } from "./state";
 
 /** AI observations cache no longer than freshness so a due re-observation re-fetches. */
 export const FRESH_MS = 7 * 24 * 3600 * 1000;
 
 export type FunnelDeps = {
-  callProvider?: (capability: CapabilityKey, input: CapabilityInput, ids: { tenantId: string; unitKey: string }) => Promise<CachedCallResult>;
+  callProvider?: <K extends CapabilityKey>(capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string }) => Promise<CachedCallResult>;
   collectTask?: (cacheKey: string) => Promise<CachedCallResult>;
   parse?: typeof parseCapability;
-  resolveModel?: (engine: ResearchEngine) => Promise<string | null>;
   readPageExtract?: typeof readPublicPageExtract;
   writePageExtract?: typeof writePublicPageExtract;
   loadProfile?: (tenantId: string) => Promise<BusinessProfile>;
@@ -57,10 +54,9 @@ export type ResolvedDeps = ReturnType<typeof resolveDeps>;
 
 export function resolveDeps(deps: FunnelDeps) {
   return {
-    callProvider: deps.callProvider ?? ((c: CapabilityKey, i: CapabilityInput, ids: { tenantId: string; unitKey: string }) => providerCall(c, i, ids)),
+    callProvider: deps.callProvider ?? providerCall,
     collectTask: deps.collectTask ?? ((k: string) => collectCapability(k)),
     parse: deps.parse ?? parseCapability,
-    resolveModel: deps.resolveModel ?? ((e: ResearchEngine) => resolveEngineModel(e)),
     readPageExtract: deps.readPageExtract ?? readPublicPageExtract,
     writePageExtract: deps.writePageExtract ?? writePublicPageExtract,
     loadProfile: deps.loadProfile ?? loadBusinessProfile,
@@ -115,18 +111,27 @@ export const CONFLICT_DETAIL = "My research notes changed while I was saving. I 
 
 export type SaveCtx = { rowVersion: number };
 
-export type Interp = { kind: "evidence" | "waiting" | "failed" | "soft"; hit: boolean; payload?: unknown; cacheKey: string | null; costUsd: number; modelServed: string | null; detail?: string };
+export type Interp = {
+  kind: "evidence" | "waiting" | "failed" | "soft";
+  hit: boolean; payload?: unknown; cacheKey: string | null; costUsd: number;
+  modelServed: string | null; modelRequested: string | null;
+  /** Which soft state produced a "soft" kind: not_configured is genuine unavailable
+   *  coverage; dry_run is a benign dev/test no-spend pass. */
+  soft?: "not_configured" | "dry_run"; detail?: string;
+};
 
-/** Interpret a boundary result: hit/ok carry evidence; waiting is durable/resumable;
- *  capped/error are recoverable failures; not_configured/dry_run are "soft". */
+/** Interpret a boundary result: hit/ok carry evidence; waiting is durable/resumable
+ *  and now carries the accepted-POST cost exactly once; capped/error are recoverable
+ *  failures; not_configured/dry_run are "soft" (tagged so the funnel can tell genuine
+ *  unavailable coverage from a dev no-spend pass). */
 export function interp(r: CachedCallResult): Interp {
   switch (r.state) {
-    case "hit": return { kind: "evidence", hit: true, payload: r.envelope, cacheKey: r.cacheKey, costUsd: 0, modelServed: r.modelServed };
-    case "ok": return { kind: "evidence", hit: false, payload: r.envelope, cacheKey: r.cacheKey, costUsd: r.costUsd, modelServed: r.modelServed };
-    case "waiting": return { kind: "waiting", hit: false, cacheKey: r.cacheKey, costUsd: 0, modelServed: null, detail: r.detail };
+    case "hit": return { kind: "evidence", hit: true, payload: r.envelope, cacheKey: r.cacheKey, costUsd: 0, modelServed: r.modelServed, modelRequested: null };
+    case "ok": return { kind: "evidence", hit: false, payload: r.envelope, cacheKey: r.cacheKey, costUsd: r.costUsd, modelServed: r.modelServed, modelRequested: r.modelRequested ?? null };
+    case "waiting": return { kind: "waiting", hit: false, cacheKey: r.cacheKey, costUsd: r.costUsd, modelServed: null, modelRequested: r.modelRequested ?? null, detail: r.detail };
     case "capped":
-    case "error": return { kind: "failed", hit: false, cacheKey: r.cacheKey, costUsd: 0, modelServed: null, detail: r.detail };
-    default: return { kind: "soft", hit: false, cacheKey: r.cacheKey, costUsd: 0, modelServed: null, detail: r.detail };
+    case "error": return { kind: "failed", hit: false, cacheKey: r.cacheKey, costUsd: 0, modelServed: null, modelRequested: null, detail: r.detail };
+    default: return { kind: "soft", hit: false, cacheKey: r.cacheKey, costUsd: 0, modelServed: null, modelRequested: null, soft: r.state, detail: r.detail };
   }
 }
 

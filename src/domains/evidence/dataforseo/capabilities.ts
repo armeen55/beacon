@@ -3,17 +3,20 @@ import { createHash } from "node:crypto";
 import { isDataForSeoConfigured, isDryRun, runDataForSeoTransport } from "./client";
 import { collectResolvedTask, identityCacheKey, resolveDeps, runResolvedCall, type ResolvedCall } from "./cached-call";
 import type {
-  CachedCallResult, CapabilityInput, CapabilityKey, FunnelBoundaryDeps, ParsedAiAnswer,
-  ParsedByCapability, ParsedKeywordItem, ParsedModels, ParsedSerp, ProviderEnvelope,
+  CachedCallResult, CapabilityInputByKey, CapabilityKey, EngineModelResolution, FunnelBoundaryDeps,
+  ParsedAiAnswer, ParsedByCapability, ParsedKeywordItem, ParsedModels, ParsedSerp, ProviderEnvelope,
 } from "./funnel-boundary";
 
 /**
  * capabilities - the typed DataForSEO provider registry behind the frozen
- * funnel-boundary contract. ONE entry per CapabilityKey owns the EXACT POST/Live
- * path, the free task_get derivation, the REQUIRED-field builder, the reservation,
- * the cache dimensions, and the envelope parser. providerCall composes an entry
- * with the money-safe cached core; collectCapability resumes a Standard task via
- * the registry getPath; parseCapability is pure. Verified vs docs 2026-07-24.
+ * funnel-boundary contract. ONE entry per CapabilityKey owns the EXACT request
+ * builder (only fields the docs document for that endpoint), the reservation, the
+ * cache dimensions, the envelope parser, and its route. providerCall is the ONE
+ * model-resolution point: it resolves the engine model ONCE, picks Standard vs
+ * Live from that resolution, and stamps the requested model back on the result.
+ * Executors never resolve models. Every field verified vs docs.dataforseo.com
+ * 2026-07-24 (chat_gpt/claude/gemini task_post + gemini/perplexity live + scraper
+ * task_post + appendix/errors).
  */
 
 const DFS_API_BASE = "https://api.dataforseo.com/v3";
@@ -21,163 +24,191 @@ const LOCATION_US = 2840;
 const LANG_EN = "en";
 const DAY = 86_400_000;
 
-type Entry = {
-  mode: "live" | "task";
-  postPath: string;
-  getPath?: (id: string) => string;
+type LlmEngine = "chatgpt" | "gemini" | "claude" | "perplexity";
+const ENGINE_SLUG: Record<LlmEngine, string> = { chatgpt: "chat_gpt", gemini: "gemini", claude: "claude", perplexity: "perplexity" };
+
+type Route = { mode: "live" | "task"; postPath: string; getPath: ((id: string) => string) | null };
+
+type Entry<K extends CapabilityKey> = {
   ttlMs: number;
   estCostUsd: number;
   dims: { device: boolean; model: boolean };
-  build: (input: CapabilityInput) => unknown[];
-  parse: (env: ProviderEnvelope) => unknown;
+  /** Present = the call needs a resolved engine model (Standard vs Live routing). */
+  engine?: LlmEngine;
+  route: (r: EngineModelResolution | null) => Route;
+  build: (input: CapabilityInputByKey[K], r: EngineModelResolution | null) => unknown[];
+  parse: (env: ProviderEnvelope) => ParsedByCapability[K];
 };
+type Registry = { [K in CapabilityKey]: Entry<K> };
 
-/** Thrown by a builder when the provider's REQUIRED fields are absent. */
+/** Thrown by a builder when a runtime-required field COMBINATION is absent. */
 class MissingFieldsError extends Error {
   constructor(cap: string, missing: string[]) {
     super(`capability ${cap}: missing required field(s): ${missing.join(", ")}`);
     this.name = "MissingFieldsError";
   }
 }
-function req(cap: string, input: CapabilityInput, fields: string[]): void {
-  const missing = fields.filter((f) => input[f] === undefined || input[f] === null || input[f] === "");
-  if (missing.length) throw new MissingFieldsError(cap, missing);
+
+// ── request builders (emit ONLY documented fields per endpoint) ───────────────
+
+/** ChatGPT + Claude task_post/live: user_prompt + model_name, plus web fields.
+ *  force_web_search needs web_search enabled first AND a web-capable model, so it
+ *  is gated on the resolution's webSearch flag; country only rides an enabled web
+ *  search. (docs: chat_gpt/claude llm_responses/task_post, 2026-07-24) */
+function llmWebBuild(i: CapabilityInputByKey["llm_chatgpt"], r: EngineModelResolution | null): unknown[] {
+  const web = r?.webSearch === true && (i.web_search === true || i.force_web_search === true);
+  const force = web && i.force_web_search === true;
+  return [clean({
+    user_prompt: i.user_prompt, model_name: r?.model,
+    web_search: web ? true : undefined,
+    force_web_search: force ? true : undefined,
+    web_search_country_iso_code: web ? i.web_search_country_iso_code : undefined,
+  })];
+}
+/** Gemini: web_search ONLY; never force_web_search/country (undocumented for
+ *  Gemini). (docs: gemini llm_responses/task_post + /live, 2026-07-24) */
+function geminiBuild(i: CapabilityInputByKey["llm_gemini"], r: EngineModelResolution | null): unknown[] {
+  const web = r?.webSearch === true && i.web_search === true;
+  return [clean({ user_prompt: i.user_prompt, model_name: r?.model, web_search: web ? true : undefined })];
+}
+/** Perplexity Live: web_search is on by default (not a request field); only
+ *  web_search_country_iso_code is documented. (docs: perplexity live, 2026-07-24) */
+function perplexityBuild(i: CapabilityInputByKey["llm_perplexity"], r: EngineModelResolution | null): unknown[] {
+  return [clean({ user_prompt: i.user_prompt, model_name: r?.model, web_search_country_iso_code: i.web_search_country_iso_code })];
+}
+/** Scraper is KEYWORD-based (never user_prompt/model_name) and REQUIRES location +
+ *  language; expand_citations REQUIRES force_web_search. (docs: chat_gpt
+ *  llm_scraper/task_post, 2026-07-24) */
+function scraperBuild(i: CapabilityInputByKey["llm_scraper_chatgpt"]): unknown[] {
+  const forceWeb = i.force_web_search === true;
+  if (i.expand_citations === true && !forceWeb) {
+    throw new MissingFieldsError("llm_scraper_chatgpt", ["force_web_search (required to enable expand_citations)"]);
+  }
+  return [clean({
+    keyword: i.keyword, location_code: LOCATION_US, language_code: LANG_EN,
+    force_web_search: forceWeb ? true : undefined,
+    expand_citations: forceWeb && i.expand_citations === true ? true : undefined,
+  })];
+}
+
+function labsEntry<K extends "labs_keywords_for_site" | "labs_ranked_keywords" | "labs_related_keywords" | "labs_keyword_suggestions">(
+  postPath: string, keyField: "target" | "keyword", estCostUsd: number,
+): Entry<K> {
+  return {
+    ttlMs: 7 * DAY, estCostUsd, dims: { device: false, model: false },
+    route: () => ({ mode: "live", postPath, getPath: null }),
+    build: (i) => [{ [keyField]: (i as Record<string, unknown>)[keyField], location_code: LOCATION_US, language_code: LANG_EN, limit: (i as { limit?: number }).limit ?? 200 }],
+    parse: parseKeywords,
+  };
+}
+function serpEntry<K extends "serp_organic" | "serp_ai_mode">(base: string, estCostUsd: number): Entry<K> {
+  return {
+    ttlMs: 1 * DAY, estCostUsd, dims: { device: true, model: false },
+    route: () => ({ mode: "task", postPath: `${base}/task_post`, getPath: (id) => `${base}/task_get/advanced/${id}` }),
+    build: (i) => [{ keyword: i.keyword, location_code: LOCATION_US, language_code: LANG_EN, device: i.device ?? "desktop" }],
+    parse: parseSerp,
+  };
+}
+/** DYNAMIC routing: a Standard-capable resolution posts a resumable task_post
+ *  (free task_get resume); otherwise the Live endpoint. Both paths are carried
+ *  per engine; providerCall picks by the SINGLE resolution. */
+function llmDynamicRoute(engine: LlmEngine): (r: EngineModelResolution | null) => Route {
+  const slug = ENGINE_SLUG[engine];
+  const standard: Route = { mode: "task", postPath: `ai_optimization/${slug}/llm_responses/task_post`, getPath: (id) => `ai_optimization/${slug}/llm_responses/task_get/${id}` };
+  const live: Route = { mode: "live", postPath: `ai_optimization/${slug}/llm_responses/live`, getPath: null };
+  return (r) => (r?.method === "standard" ? standard : live);
+}
+function llmDynamicEntry<K extends "llm_chatgpt" | "llm_gemini" | "llm_claude">(engine: LlmEngine, build: Entry<K>["build"]): Entry<K> {
+  return { ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: true }, engine, route: llmDynamicRoute(engine), build, parse: parseLlmAnswer };
 }
 
 // ── the registry ─────────────────────────────────────────────────────────────
 
-const REGISTRY: Record<CapabilityKey, Entry> = {
+const REGISTRY: Registry = {
   labs_keywords_for_site: labsEntry("dataforseo_labs/google/keywords_for_site/live", "target", 0.012),
   labs_ranked_keywords: labsEntry("dataforseo_labs/google/ranked_keywords/live", "target", 0.012),
   labs_related_keywords: labsEntry("dataforseo_labs/google/related_keywords/live", "keyword", 0.012),
   labs_keyword_suggestions: labsEntry("dataforseo_labs/google/keyword_suggestions/live", "keyword", 0.012),
   labs_keyword_overview: {
-    mode: "live", postPath: "dataforseo_labs/google/keyword_overview/live", ttlMs: 7 * DAY, estCostUsd: 0.02,
-    dims: { device: false, model: false },
-    build: (i) => { req("labs_keyword_overview", i, ["keywords"]); return [{ keywords: i.keywords, location_code: loc(i), language_code: lang(i) }]; },
+    ttlMs: 7 * DAY, estCostUsd: 0.02, dims: { device: false, model: false },
+    route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_overview/live", getPath: null }),
+    build: (i) => [{ keywords: i.keywords, location_code: LOCATION_US, language_code: LANG_EN }],
     parse: parseKeywords,
   },
   serp_organic: serpEntry("serp/google/organic", 0.0021),
   serp_ai_mode: serpEntry("serp/google/ai_mode", 0.01),
-  llm_chatgpt: llmEntry("chat_gpt"),
-  // Gemini is Live-only in practice: the official models endpoint reports
-  // task_post_supported=false for EVERY gemini model (docs.dataforseo.com,
-  // verified 2026-07-24), so Standard posts would always be rejected.
-  llm_gemini: llmEntry("gemini", "live"),
-  llm_claude: llmEntry("claude"),
+  llm_chatgpt: llmDynamicEntry("chatgpt", llmWebBuild),
+  llm_gemini: llmDynamicEntry("gemini", geminiBuild),
+  llm_claude: llmDynamicEntry("claude", llmWebBuild),
   llm_perplexity: {
-    mode: "live", postPath: "ai_optimization/perplexity/llm_responses/live", ttlMs: 1 * DAY, estCostUsd: 0.035,
-    dims: { device: false, model: true },
-    build: (i) => {
-      req("llm_perplexity", i, ["user_prompt", "model_name"]);
-      return [clean({ user_prompt: i.user_prompt, model_name: i.model_name, web_search_country_iso_code: i.web_search_country_iso_code })];
-    },
-    parse: parseLlmAnswer,
+    ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: true }, engine: "perplexity",
+    // Perplexity models are Live-only (task_post_supported=false for all), so this
+    // stays Live-only; providerCall still resolves the model once for the id.
+    route: () => ({ mode: "live", postPath: "ai_optimization/perplexity/llm_responses/live", getPath: null }),
+    build: perplexityBuild, parse: parseLlmAnswer,
   },
   llm_scraper_chatgpt: {
-    mode: "task", postPath: "ai_optimization/chat_gpt/llm_scraper/task_post",
-    // Scraper retrieval is task_get/advanced/{id}; the plain task_get/{id}
-    // variant does not exist for llm_scraper (docs verified 2026-07-24).
-    getPath: (id) => `ai_optimization/chat_gpt/llm_scraper/task_get/advanced/${id}`,
-    ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: true },
-    build: (i) => {
-      // Scraper is KEYWORD-based (not user_prompt) and REQUIRES location + language.
-      req("llm_scraper_chatgpt", i, ["keyword"]);
-      const forceWeb = i.force_web_search === true;
-      if (i.expand_citations === true && !forceWeb) {
-        throw new MissingFieldsError("llm_scraper_chatgpt", ["force_web_search (required to enable expand_citations)"]);
-      }
-      return [clean({
-        keyword: i.keyword, location_code: loc(i), language_code: lang(i),
-        force_web_search: forceWeb, expand_citations: forceWeb && i.expand_citations === true ? true : undefined,
-      })];
-    },
-    parse: parseScraper,
+    ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: false },
+    route: () => ({ mode: "task", postPath: "ai_optimization/chat_gpt/llm_scraper/task_post", getPath: (id) => `ai_optimization/chat_gpt/llm_scraper/task_get/advanced/${id}` }),
+    build: scraperBuild, parse: parseScraper,
   },
   engine_models: {
-    mode: "live", postPath: "ai_optimization/chat_gpt/llm_responses/models", ttlMs: 7 * DAY, estCostUsd: 0,
-    dims: { device: false, model: false }, build: () => [], parse: parseModels,
+    ttlMs: 7 * DAY, estCostUsd: 0, dims: { device: false, model: false },
+    route: () => ({ mode: "live", postPath: "ai_optimization/chat_gpt/llm_responses/models", getPath: null }),
+    build: () => [], parse: parseModels,
   },
 };
 
-function labsEntry(postPath: string, keyField: "target" | "keyword", estCostUsd: number): Entry {
-  return {
-    mode: "live", postPath, ttlMs: 7 * DAY, estCostUsd, dims: { device: false, model: false },
-    build: (i) => { req(postPath, i, [keyField]); return [{ [keyField]: i[keyField], location_code: loc(i), language_code: lang(i), limit: i.limit ?? 200 }]; },
-    parse: parseKeywords,
-  };
-}
-function serpEntry(base: string, estCostUsd: number): Entry {
-  return {
-    mode: "task", postPath: `${base}/task_post`, getPath: (id) => `${base}/task_get/advanced/${id}`,
-    ttlMs: 1 * DAY, estCostUsd, dims: { device: true, model: false },
-    build: (i) => { req(base, i, ["keyword"]); return [{ keyword: i.keyword, location_code: loc(i), language_code: lang(i), device: i.device ?? "desktop" }]; },
-    parse: parseSerp,
-  };
-}
-function llmEntry(engine: "chat_gpt" | "gemini" | "claude", mode: "task" | "live" = "task"): Entry {
-  return mode === "live" ? {
-    mode: "live", postPath: `ai_optimization/${engine}/llm_responses/live`,
-    ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: true },
-    build: llmBuild(engine), parse: parseLlmAnswer,
-  } : {
-    mode: "task", postPath: `ai_optimization/${engine}/llm_responses/task_post`,
-    getPath: (id) => `ai_optimization/${engine}/llm_responses/task_get/${id}`,
-    ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: true },
-    build: llmBuild(engine), parse: parseLlmAnswer,
-  };
-}
-function llmBuild(engine: string) {
-  return (i: CapabilityInput): unknown[] => {
-    req(`llm_${engine}`, i, ["user_prompt", "model_name"]);
-    return [clean({
-      user_prompt: i.user_prompt, model_name: i.model_name,
-      web_search: i.web_search === true ? true : undefined,
-      force_web_search: i.force_web_search === true ? true : undefined,
-      web_search_country_iso_code: i.web_search_country_iso_code,
-    })];
-  };
-}
+// ── composed provider call (the ONE model-resolution point) ───────────────────
 
-// ── composed provider call ──
-const LLM_ENGINE: Partial<Record<CapabilityKey, "chatgpt" | "gemini" | "claude" | "perplexity">> = {
-  llm_chatgpt: "chatgpt", llm_gemini: "gemini", llm_claude: "claude", llm_perplexity: "perplexity",
-};
-
-export async function providerCall(
-  capability: CapabilityKey, input: CapabilityInput, ids: { tenantId: string; unitKey: string }, deps: FunnelBoundaryDeps = {},
+export async function providerCall<K extends CapabilityKey>(
+  capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string }, deps: FunnelBoundaryDeps = {},
 ): Promise<CachedCallResult> {
   const entry = REGISTRY[capability];
-  const resolvedInput: CapabilityInput = { ...input };
+  let resolution: EngineModelResolution | null = null;
   let modelRequested: string | null = null;
-  const engine = LLM_ENGINE[capability];
-  if (engine) {
-    modelRequested = typeof input.model_name === "string" && input.model_name ? input.model_name : await resolveEngineModel(engine, deps);
-    if (!modelRequested) return { state: "not_configured", cacheKey: null, detail: `no method-compatible model resolved for ${engine}` };
-    resolvedInput.model_name = modelRequested;
+  if (entry.engine) {
+    // ONE resolution: the method routes the call AND the model rides the request.
+    resolution = await resolveEngineModel(entry.engine, deps);
+    if (!resolution) return { state: "not_configured", cacheKey: null, detail: `I could not find a usable ${entry.engine} model to ask right now. I will try again on the next pass.` };
+    const override = (input as { model_name?: string }).model_name;
+    modelRequested = typeof override === "string" && override ? override : resolution.model;
+    resolution = { ...resolution, model: modelRequested };
   }
+  const route = entry.route(resolution);
   let payload: unknown[];
   try {
-    payload = entry.build(resolvedInput);
+    payload = entry.build(input, resolution);
   } catch (err) {
     return { state: "error", cacheKey: null, detail: err instanceof Error ? err.message : String(err) };
   }
-  const device = entry.dims.device ? (typeof resolvedInput.device === "string" ? resolvedInput.device : "desktop") : null;
+  const device = entry.dims.device ? ((input as { device?: string }).device ?? "desktop") : null;
   const modelDim = entry.dims.model ? modelRequested : null;
-  const publicInput = { ...resolvedInput };
-  delete publicInput.model_name; // model is a cache DIMENSION, not part of the input hash
-  const cacheKey = identityCacheKey({ endpoint: entry.postPath, publicInput, locationCode: loc(resolvedInput), languageCode: lang(resolvedInput), device, modelRequested: modelDim });
+  const publicInput = publicInputOf(input);
+  const cacheKey = identityCacheKey({ endpoint: route.postPath, publicInput, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim });
   const resolved: ResolvedCall = {
-    cacheKey, endpoint: entry.postPath, endpointVersion: "v3", postPath: entry.postPath, getPath: entry.getPath ?? null,
-    publicInput, locationCode: loc(resolvedInput), languageCode: lang(resolvedInput), device, modelRequested: modelDim,
-    payload, ttlMs: entry.ttlMs, estCostUsd: entry.estCostUsd, mode: entry.mode, tenantId: ids.tenantId,
+    cacheKey, endpoint: route.postPath, endpointVersion: "v3", postPath: route.postPath, getPath: route.getPath,
+    publicInput, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim,
+    payload, ttlMs: entry.ttlMs, estCostUsd: entry.estCostUsd, mode: route.mode, tenantId: ids.tenantId,
   };
-  return runResolvedCall(resolved, deps);
+  const result = await runResolvedCall(resolved, deps);
+  // Stamp the requested model back so the executor records it without re-resolving.
+  if (modelRequested && (result.state === "ok" || result.state === "waiting")) return { ...result, modelRequested };
+  return result;
 }
 
-/** Resume a waiting Standard task using the REGISTRY's exact getPath. */
+/** Resume a waiting Standard task via the endpoint-derived free task_get path. */
 export async function collectCapability(cacheKey: string, deps: FunnelBoundaryDeps = {}): Promise<CachedCallResult> {
-  return collectResolvedTask(cacheKey, (endpoint, id) => entryByPostPath(endpoint)?.getPath?.(id) ?? null, deps);
+  return collectResolvedTask(cacheKey, getPathForEndpoint, deps);
+}
+/** The free task_get derivation from a stored task_post endpoint: serp + scraper
+ *  use /task_get/advanced, llm_responses uses the plain /task_get. */
+function getPathForEndpoint(endpoint: string, id: string): string | null {
+  if (!endpoint.endsWith("/task_post")) return null;
+  const base = endpoint.slice(0, -"/task_post".length);
+  if (endpoint.startsWith("serp/") || endpoint.includes("/llm_scraper/")) return `${base}/task_get/advanced/${id}`;
+  if (endpoint.includes("/llm_responses/")) return `${base}/task_get/${id}`;
+  return null;
 }
 
 /** Pure: the full bounded envelope -> the capability's frozen typed output. */
@@ -189,24 +220,27 @@ export function parseCapability<K extends CapabilityKey>(capability: K, envelope
   }
 }
 
-function entryByPostPath(postPath: string): Entry | null {
-  for (const key of Object.keys(REGISTRY) as CapabilityKey[]) if (REGISTRY[key].postPath === postPath) return REGISTRY[key];
-  return null;
+/** model minus the model dimension (model is a cache DIMENSION, not input hash). */
+function publicInputOf(input: unknown): Record<string, unknown> {
+  const { model_name: _model, ...rest } = (input ?? {}) as Record<string, unknown>;
+  void _model;
+  return rest;
 }
 
-// ── model resolution (FREE models endpoint, method-compatible, cached) ──
-/** DELIBERATELY VALIDATED fallback ids (docs.dataforseo.com, 2026-07-24).
- *  chatgpt/claude report task_post_supported models; gemini lists NONE for
- *  Standard (so the registry routes it Live) and perplexity is Live-only.
- *  Fallbacks are used ONLY in not_configured/dry_run. */
-const FALLBACK_MODEL: Record<string, string> = { chatgpt: "gpt-4o", gemini: "gemini-2.5-flash", claude: "claude-sonnet-4-20250514", perplexity: "sonar" };
-const ENGINE_SLUG: Record<string, string> = { chatgpt: "chat_gpt", gemini: "gemini", claude: "claude", perplexity: "perplexity" };
+// ── model resolution (FREE models endpoint, method-aware, cached) ──────────────
+/** Labeled fallbacks (docs.dataforseo.com, 2026-07-24), used ONLY in
+ *  not_configured/dry_run: chatgpt/claude standard, gemini/perplexity live. */
+const FALLBACK: Record<LlmEngine, EngineModelResolution> = {
+  chatgpt: { model: "gpt-4o", method: "standard", webSearch: true },
+  claude: { model: "claude-sonnet-4-20250514", method: "standard", webSearch: true },
+  gemini: { model: "gemini-2.5-flash", method: "live", webSearch: true },
+  perplexity: { model: "sonar", method: "live", webSearch: true },
+};
 
-export async function resolveEngineModel(engine: "chatgpt" | "gemini" | "claude" | "perplexity", deps: FunnelBoundaryDeps = {}): Promise<string | null> {
+export async function resolveEngineModel(engine: LlmEngine, deps: FunnelBoundaryDeps = {}): Promise<EngineModelResolution | null> {
   const d = resolveDeps(deps);
-  const method: "standard" | "live" = engine === "perplexity" || engine === "gemini" ? "live" : "standard";
-  // not_configured OR dry_run -> the validated fallback (labeled), no network.
-  if (!isDataForSeoConfigured(d.env) || isDryRun(d.env)) return FALLBACK_MODEL[engine] ?? null;
+  // not_configured OR dry_run -> the labeled fallback, no network.
+  if (!isDataForSeoConfigured(d.env) || isDryRun(d.env)) return FALLBACK[engine];
   const path = `ai_optimization/${ENGINE_SLUG[engine]}/llm_responses/models`;
   const cacheKey = "dfsmodels_" + sha256(path).slice(0, 32);
   const now = d.now();
@@ -227,15 +261,19 @@ export async function resolveEngineModel(engine: "chatgpt" | "gemini" | "claude"
   }
   // Configured + live but the list is unavailable -> FAIL CLOSED (null).
   if (!envelope) return null;
-  return selectModel(modelObjects(envelope), method);
+  return selectResolution(modelObjects(envelope));
 }
 
-/** Select a model that supports the REQUIRED method (Standard = task_post_supported;
- *  Live = any listed model), preferring web-search capability. Null = none. */
-function selectModel(models: Record<string, unknown>[], method: "standard" | "live"): string | null {
-  const compatible = models.filter((m) => (method === "standard" ? m.task_post_supported === true : true));
-  const preferred = compatible.find((m) => m.web_search_supported === true) ?? compatible[0];
-  return preferred ? str(preferred.model_name) : null;
+/** Prefer a Standard + web model (resumable AND current); else web-only (Live);
+ *  else any Standard; else any (Live). method follows the chosen model. */
+function selectResolution(models: Record<string, unknown>[]): EngineModelResolution | null {
+  if (models.length === 0) return null;
+  const web = (m: Record<string, unknown>) => m.web_search_supported === true;
+  const post = (m: Record<string, unknown>) => m.task_post_supported === true;
+  const chosen = models.find((m) => web(m) && post(m)) ?? models.find(web) ?? models.find(post) ?? models[0];
+  const model = str(chosen.model_name);
+  if (!model) return null;
+  return { model, method: post(chosen) ? "standard" : "live", webSearch: web(chosen) };
 }
 
 // ── content-hash-aware public page-extract reuse (same evidence_cache table) ──
@@ -357,8 +395,6 @@ function modelObjects(env: ProviderEnvelope): Record<string, unknown>[] {
   return Array.isArray(result) ? (result as Record<string, unknown>[]) : [];
 }
 // ── small pure helpers ──
-function loc(i: CapabilityInput): number { return typeof i.location_code === "number" ? i.location_code : LOCATION_US; }
-function lang(i: CapabilityInput): string { return typeof i.language_code === "string" && i.language_code ? i.language_code : LANG_EN; }
 function clean(o: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(o)) if (v !== undefined) out[k] = v;

@@ -187,89 +187,6 @@ async function readWindow(
   return byPage;
 }
 
-/**
- * Total GSC clicks per page over an explicit [fromIso, toIso) date range. Used by
- * the proof-recovery detector to compare a page's clicks BEFORE vs AFTER a shipped
- * change's date. Bounded + fail-soft → empty Map.
- */
-export async function loadPageClicksInRange(
-  tenantId: string,
-  pages: string[],
-  fromIso: string,
-  toIso: string,
-): Promise<Map<string, number>> {
-  const out = new Map<string, number>();
-  if (!tenantId || pages.length === 0) return out;
-  try {
-    const sb = getSupabaseAdmin();
-    const { data, error } = await sb
-      .from("gsc_daily_rows")
-      .select("page, clicks")
-      .eq("tenant_id", tenantId)
-      .in("page", pages.slice(0, 50))
-      .gte("date", fromIso)
-      .lt("date", toIso)
-      .limit(ROW_BUDGET);
-    if (error || !data) return out;
-    for (const r of data) {
-      const page = r.page as string;
-      if (!page) continue;
-      out.set(page, (out.get(page) ?? 0) + (Number(r.clicks) || 0));
-    }
-    return out;
-  } catch {
-    return out;
-  }
-}
-
-/**
- * Per-page daily clicks for a SMALL explicit page set (the worklist), over the
- * trailing `days`, for momentum sparklines. Reads the per-page-per-day
- * `gsc_daily_page_totals` table (already aggregated — NOT the per-query
- * `gsc_daily_rows`, where 16 pages × ~56d × N queries blows the row budget on the
- * first page), filtered `page IN (...)` to ≤16 pages so ~16×56 rows stays well
- * under ROW_BUDGET. Never a full tenant scan. Returns page → ascending daily
- * {date, clicks}. Fail-soft → empty map.
- */
-export async function loadDailyClicksByPagesForTenant(
-  tenantId: string,
-  pages: string[],
-  days = 70,
-): Promise<Map<string, DailyClicks[]>> {
-  const out = new Map<string, DailyClicks[]>();
-  if (!tenantId || pages.length === 0) return out;
-  try {
-    const sb = getSupabaseAdmin();
-    const since = sinceDateIso(days);
-    const { data, error } = await sb
-      .from("gsc_daily_page_totals")
-      .select("page, date, clicks")
-      .eq("tenant_id", tenantId)
-      .in("page", pages.slice(0, 16))
-      .gte("date", since)
-      .limit(ROW_BUDGET);
-    if (error || !data) return out;
-    // Collapse to a daily total per (page, date) — defensive against any dup rows.
-    const byPageDate = new Map<string, Map<string, number>>();
-    for (const r of data as Array<{ page: string; date: string; clicks: number | string | null }>) {
-      if (!r.page || !r.date) continue;
-      const d = r.date.slice(0, 10);
-      let dm = byPageDate.get(r.page);
-      if (!dm) byPageDate.set(r.page, (dm = new Map()));
-      dm.set(d, (dm.get(d) ?? 0) + (Number(r.clicks) || 0));
-    }
-    for (const [page, dm] of byPageDate) {
-      out.set(
-        page,
-        densifyDailyClicks([...dm.entries()].map(([date, clicks]) => ({ date, clicks }))),
-      );
-    }
-    return out;
-  } catch {
-    return out;
-  }
-}
-
 export type TenantQuery = {
   query: string;
   clicks: number;
@@ -730,32 +647,6 @@ export async function loadQueryDeclinesForPages(
 }
 
 export type RisingQuery = QueryRise & { page: string };
-
-/**
- * RISING queries for ONE explicit page (the Workbench drill-down companion to the
- * site-wide loader). Two bounded windowed reads on just this page → `risesForPage`.
- * Fail-soft → []. Lets the per-page workspace show emerging demand in context.
- */
-export async function loadRisingQueriesForPage(
-  tenantId: string,
-  pageUrl: string,
-  opts: { windowDays?: number } = {},
-): Promise<QueryRise[]> {
-  if (!tenantId || !pageUrl) return [];
-  const w = opts.windowDays ?? 28;
-  try {
-    const sb = getSupabaseAdmin();
-    const recentFrom = sinceDateIso(w);
-    const [recent, prior] = await Promise.all([
-      readWindow(sb, tenantId, [pageUrl], recentFrom, sinceDateIso(0)),
-      readWindow(sb, tenantId, [pageUrl], sinceDateIso(w * 2), recentFrom),
-    ]);
-    return risesForPage(recent.get(pageUrl) ?? new Map(), prior.get(pageUrl) ?? new Map(), { cap: 5 });
-  } catch (e) {
-    log.warn("[gsc-page-queries] page-rising threw", { tenantId, error: e instanceof Error ? e.message : String(e) });
-    return [];
-  }
-}
 
 /**
  * Site-wide RISING queries — the inverse of {@link loadTopDecliningPagesForTenant}.

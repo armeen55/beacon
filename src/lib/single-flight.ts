@@ -41,16 +41,5 @@ export function runSingleFlight<T>(key: string, fn: () => Promise<T>): Promise<T
 }
 
 /** True when a run is currently in flight for `key`. (Diagnostics / tests.) */
-export function isInFlight(key: string): boolean {
-  return inFlight.has(key);
-}
-
 /** Number of distinct keys currently in flight. (Diagnostics / tests.) */
-export function inFlightCount(): number {
-  return inFlight.size;
-}
-
 /** Clear all in-flight state. TEST-ONLY reset between cases. */
-export function __resetSingleFlightForTests(): void {
-  inFlight.clear();
-}

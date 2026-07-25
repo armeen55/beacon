@@ -10,7 +10,7 @@ import "server-only";
 
 import type { BusinessProfile } from "@/domains/account";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
-import type { CapabilityInput, CapabilityKey, FunnelCounters, FunnelUnitFn, ParsedKeywordItem } from "@/domains/evidence/dataforseo/funnel-boundary";
+import type { CapabilityInputByKey, FunnelCounters, FunnelUnitFn, ParsedKeywordItem } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { applyFilters, dedupeKeywords, filterContextFrom, keywordsFromParsed, normalizeKeyword, rankAndCap } from "./normalize";
 import { type FunnelKeyword, type FunnelState, MAX_REJECTED, MAX_RETAINED } from "./state";
 import { basisFromCursor, CONFLICT_DETAIL, interp, NO_BASIS_DETAIL, resolveDeps, round, save, StateConflictError, track, type FunnelDeps } from "./shared";
@@ -46,7 +46,9 @@ function discProgress(s: FunnelState): FunnelCounters {
   };
 }
 
-type DiscStep = { capability: CapabilityKey; input: CapabilityInput; via: FunnelKeyword["discoveredVia"] };
+type DiscCapability = "labs_keywords_for_site" | "labs_ranked_keywords" | "labs_related_keywords" | "labs_keyword_suggestions";
+/** Discriminated so each step's input is TYPE-CHECKED against its capability. */
+type DiscStep = { [K in DiscCapability]: { capability: K; input: CapabilityInputByKey[K]; via: FunnelKeyword["discoveredVia"] } }[DiscCapability];
 
 function discoveryPlan(domain: string, seeds: string[]): DiscStep[] {
   const plan: DiscStep[] = [];
@@ -139,12 +141,18 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}): FunnelUnitFn {
 
       // overview: enrich retained with volume/intent/difficulty (<=700/batch)
       const retained = state.discovery.retained;
+      let softDetail: string | null = null;
       if (retained.length > 0) {
         const r = interp(await d.callProvider("labs_keyword_overview", { keywords: retained.map((k) => k.keyword).slice(0, 700) }, ids));
         track(state, r);
         if (r.kind === "waiting") {
           await save(d, tenantId, basis, state, ctx);
           return { status: "waiting", cursor: { stage: "overview" }, progress: discProgress(state), detail: r.detail };
+        }
+        if (r.kind === "failed") {
+          // Enrichment failed terminally: pause honestly, keep the retained set intact.
+          await save(d, tenantId, basis, state, ctx);
+          return { status: "failed", cursor: { stage: "overview" }, progress: discProgress(state), detail: r.detail ?? "I could not add search volume this run. I will try again on the next pass." };
         }
         if (r.kind === "evidence") {
           const parsed = d.parse("labs_keyword_overview", r.payload as never) as ParsedKeywordItem[] | null;
@@ -155,10 +163,13 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           });
           state.discovery.retained = rankAndCap(merged, MAX_RETAINED);
           state.discovery.counts.retained = state.discovery.retained.length;
+        } else if (r.kind === "soft") {
+          // not_configured/dry_run: keep the retained keywords, labeled as unenriched.
+          softDetail = "I kept your researched keywords but could not add search volume this run. I will enrich them on the next pass.";
         }
       }
       await save(d, tenantId, basis, state, ctx);
-      return { status: "done", cursor: null, progress: discProgress(state) };
+      return { status: "done", cursor: null, progress: discProgress(state), ...(softDetail ? { detail: softDetail } : {}) };
     } catch (e) {
       if (e instanceof StateConflictError) return { status: "failed", cursor, progress: discProgress(state), detail: CONFLICT_DETAIL };
       throw e;

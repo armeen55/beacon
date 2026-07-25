@@ -695,7 +695,19 @@ export function hashSnapshot(snapshot: Omit<EvidenceSnapshot, "evidenceHash">): 
     npo: snapshot.newPageOpportunities.map((n) => [n.topic, n.demandWeight, n.basis]),
     ilo: snapshot.internalLinkOpportunities.map((l) => [l.fromUrl, l.toUrl]),
     can: snapshot.cannibalization.map((c) => [c.query, c.competingUrls]),
-    res: [snapshot.research.receipt.researched, snapshot.research.receipt.retained, snapshot.research.aiObservations.length, snapshot.research.serpEvidence.length, snapshot.research.winningPages.map((w) => [w.url, w.appearances.length])],
+    // MATERIAL research truth, not counters: the actual retained keyword metrics,
+    // the exact AI observations (models served/requested, web-search state, cited
+    // urls+domains, fan-out queries), the per-query SERP evidence, and the winning
+    // pages with their extract structure. Every timestamp and every spend/cache
+    // counter is excluded, so the same evidence at a later clock hashes identically
+    // while a changed citation, served model, fan-out, volume/intent, or extract
+    // structure changes the hash.
+    res: {
+      kw: snapshot.research.retainedKeywords.map((k) => [k.query, k.searchVolume, k.competition, k.intent]),
+      ai: snapshot.research.aiObservations.map((o) => [o.promptId, o.engine, o.modelServed, o.modelRequested, o.webSearchReported, o.citationsObserved, (o.citations ?? []).map((c) => [c.url, c.domain]), o.fanOutQueries]),
+      serp: snapshot.research.serpEvidence.map((s) => [s.query, s.organic.map((o) => [o.rank, o.url]), s.aiOverview.map((c) => c.url), s.aiMode.map((c) => c.url), s.paa.map((p) => p.question), s.related]),
+      win: snapshot.research.winningPages.map((w) => [w.url, w.engines, w.examplePrompts, w.extract ? [w.extract.title, w.extract.h1, w.extract.wordCount, w.extract.headings, w.extract.faqCount] : null]),
+    },
   };
   return createHash("sha256").update(JSON.stringify(stable)).digest("hex").slice(0, 16);
 }

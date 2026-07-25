@@ -35,6 +35,8 @@ export type FunnelPair = {
   scraper?: boolean;
   cacheKey: string | null;
   status: "pending" | "posted" | "done" | "unsupported";
+  /** Terminal-collect recoveries: ONE clean repost, then unsupported. */
+  reposts?: number;
   observedAt?: string;
   modelRequested?: string | null;
   modelServed?: string | null;
@@ -56,6 +58,9 @@ export type FunnelSerp = {
   aiOverview?: { url: string; domain: string; title: string | null }[];
   aiModeCacheKey?: string | null;
   aiMode?: { url: string; domain: string; title: string | null }[];
+  /** ONE clean AI Mode retry after a terminal failure, then explicit missing coverage. */
+  aiModeReposted?: boolean;
+  aiModeFailed?: boolean;
   paa?: { question: string; answeringDomain: string | null }[];
   related?: string[];
 };

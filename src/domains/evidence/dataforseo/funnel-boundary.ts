@@ -101,28 +101,60 @@ export type ParsedByCapability = {
   engine_models: ParsedModels;
 };
 
-/** Capability inputs are PUBLIC identity fields; the registry builder turns them
- *  into the exact provider body (adding location/language/model as the endpoint
- *  REQUIRES) and they double as the cache-identity input hash. */
-export type CapabilityInput = Record<string, unknown>;
+/** TYPED capability inputs: the ONLY shapes a caller may hand the boundary.
+ *  Every field is a real provider field for that endpoint (web_search flags are
+ *  engine-specific; the scraper is KEYWORD-based, never user_prompt; model_name
+ *  omitted = providerCall resolves a method-compatible model once). A wrong or
+ *  cross-engine field fails TypeScript, not production. */
+export type LlmWebInput = { user_prompt: string; model_name?: string; web_search?: boolean; force_web_search?: boolean; web_search_country_iso_code?: string };
+export type CapabilityInputByKey = {
+  labs_keywords_for_site: { target: string; limit?: number };
+  labs_ranked_keywords: { target: string; limit?: number };
+  labs_related_keywords: { keyword: string; depth?: number; limit?: number };
+  labs_keyword_suggestions: { keyword: string; limit?: number };
+  labs_keyword_overview: { keywords: string[] };
+  serp_organic: { keyword: string; device?: "desktop" | "mobile" };
+  serp_ai_mode: { keyword: string; device?: "desktop" | "mobile" };
+  llm_chatgpt: LlmWebInput;
+  llm_claude: LlmWebInput;
+  /** Gemini supports web_search only; never send ChatGPT/Claude-only fields. */
+  llm_gemini: { user_prompt: string; model_name?: string; web_search?: boolean };
+  llm_perplexity: { user_prompt: string; model_name?: string; web_search_country_iso_code?: string };
+  llm_scraper_chatgpt: { keyword: string; force_web_search?: boolean; expand_citations?: boolean };
+  engine_models: Record<string, never>;
+};
+
+/** Method-aware model resolution: the exact current model, the retrieval method
+ *  it supports, and whether it can do web search, from the FREE models endpoint.
+ *  Routing is CAPABILITY DRIVEN per engine: a web-capable task_post_supported
+ *  model -> resumable Standard; else a valid Live model -> Live. Null = fail
+ *  closed (no simulated coverage). providerCall is the ONE resolution point:
+ *  executors never resolve; the requested model travels back on the result. */
+export type EngineModelResolution = { model: string; method: "standard" | "live"; webSearch: boolean };
 
 export type CachedCallResult =
   | { state: "hit"; envelope: ProviderEnvelope; costUsd: 0; cacheKey: string; modelServed: string | null }
-  | { state: "ok"; envelope: ProviderEnvelope; costUsd: number; cacheKey: string; modelServed: string | null }
-  | { state: "waiting"; cacheKey: string; providerTaskId: string | null; detail: string }
+  | { state: "ok"; envelope: ProviderEnvelope; costUsd: number; cacheKey: string; modelServed: string | null; modelRequested?: string | null }
+  /** costUsd on waiting = the provider-reported cost of a NEWLY accepted task
+   *  POST, contributed exactly once; 0 for pending-claim waits, resumed
+   *  collects, and uncertain posts (reservation held, never labeled actual). */
+  | { state: "waiting"; cacheKey: string; providerTaskId: string | null; costUsd: number; modelRequested?: string | null; detail: string }
   | { state: "not_configured" | "dry_run" | "capped" | "error"; cacheKey: string | null; detail: string };
 
 export type FunnelBoundaryDeps = Record<string, unknown>;
 
 /**
  * THE one cached, money-safe provider call, by capability. Implemented in
- * cached-call.ts + capabilities.ts (Agent A); these re-exports are the frozen
- * import path for the funnel.
- *   providerCall    - resolve/claim/pay/persist one capability request.
+ * cached-call.ts + capabilities.ts; these re-exports are the frozen import
+ * path for the funnel.
+ *   providerCall<K> - resolve/claim/pay/persist one capability request; input
+ *     is CapabilityInputByKey[K], enforced at compile time.
  *   collectCapability - free GET resumption for a waiting Standard task row.
+ *     Queue codes (40601/40602) stay waiting; terminal codes (40401/40403,
+ *     auth/payment/contract) are bounded errors, never eternal waiting.
  *   parseCapability - envelope -> the capability's typed parse output.
- *   resolveEngineModel - the exact full model id for an engine, from the FREE
- *     models endpoint (cached), method-compatible, with a validated fallback.
+ *   resolveEngineModel - EngineModelResolution (model + supported method) from
+ *     the FREE models endpoint (cached); null = fail closed.
  *   readPublicPageExtract / writePublicPageExtract - content-hash-aware reuse
  *     of fetched public competitor pages on the SAME evidence cache (no second
  *     crawler subsystem, no refetch inside freshness).
