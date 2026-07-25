@@ -94,35 +94,35 @@
   completion short-circuits, a later day creates, and a direct second open-row insert violates the index). Verified end to end on the rendered app: a real
   visit completed cycle tenant-iranopedia:2026-07-24 (2 sources refreshed, surface published, lease
   released) and Today rendered the honest completion line for that pass.
-- The DataForSEO research funnel is lifecycle-true and feeds ONE canonical evidence input (Slice 6 +
-  closures 6B/6C/6D, 2026-07-25). A TYPED capability registry (CapabilityInputByKey; wrong or
-  cross-engine fields fail TypeScript; the model is never caller-supplied) owns every provider contract.
-  Requests are WEB-ENABLED per engine exactly as documented (chatgpt/claude web_search + force + US
-  context gated on the resolved model, gemini web_search only, perplexity Live, the keyword-based
-  scraper) and every llm_responses ask carries max_output_tokens; providerCall resolves the one
-  method-compatible model and routes Standard-vs-Live from task_post_supported, never hardcoded. The
-  boundary returns the FULL bounded envelope; official fixtures travel transport to Snapshot in tests.
+- The DataForSEO research funnel is lifecycle-true and feeds ONE canonical evidence input (Slice 6 + closures
+  6B/6C/6D/6E, 2026-07-25). A TYPED registry (CapabilityInputByKey; wrong or cross-engine fields fail
+  TypeScript; the model never caller-supplied) owns every provider contract. Requests are WEB-ENABLED per
+  engine exactly as documented (chatgpt/claude web_search + force + US context gated on the resolved model,
+  gemini web_search only, perplexity Live, the keyword-based scraper, max_output_tokens on every llm_responses
+  ask); providerCall resolves the one compatible model and routes Standard-vs-Live from task_post_supported.
+  The boundary returns the FULL bounded envelope; official fixtures travel transport to Snapshot in tests.
   Money: tenant-independent `evidence_cache` + single-flight claim + dry-run default + breaker + ATOMIC
-  reservation BEFORE the network + reconcile after; an accepted task POST reports its cost into the
-  per-cycle receipt exactly once; the monthly cap is reservation-based with bounded overshoot (stated
-  honestly, not "hard"); cache persistence FAILS CLOSED down to a zero-row UPDATE. Every failure carries
-  a structured disposition, never a parsed string: 50xxx and transport blips keep the task id and stay
-  free; 40401/40403/404 earn ONE clean repost per incident; auth/payment/contract errors pause without
-  reposting; an UNCERTAIN post or an unpersisted accepted task id is QUARANTINED (migration slice6d:
-  quarantined rows are inert to every claim branch, a crashed-mid-POST receipt quarantines on first
-  touch, recovery is only the free tasks_ready listing matched by our tag, bounded at four days then one
-  clean release). Collected task rows expire on the registry ttl so weekly re-observation truly re-buys;
+  reservation BEFORE the network + reconcile after; an accepted task POST reports its cost into the per-cycle
+  receipt once; the cap is reservation-based with bounded overshoot; persistence and reads FAIL CLOSED down to
+  a zero-row UPDATE. Every failure carries a structured disposition, never a parsed string: 50xxx and
+  transport blips keep the task id and stay free; ONLY in-body 40401/40403 (never a raw HTTP 404, never any
+  other code) earn ONE clean repost per incident; auth/payment/contract/unknown codes pause without reposting;
+  an UNCERTAIN outcome in EITHER mode (throw, 5xx, unpersisted task id, unsavable or possibly-charged answer;
+  only HTTP 401/402/404 provably charged nothing) is QUARANTINED INDEFINITELY with the reservation kept:
+  recovery is only the free tasks_ready listing matched by our tag (one listing per family per pass; Live rows
+  have no listing and stay set aside for an operator; quarantined coverage counts as explicitly unavailable so
+  no phase ever stalls). Collected task rows expire on the registry ttl so re-observation truly re-buys;
   completion counts only the CURRENT active pairs and chosen queries (obsolete rows pruned, stale-done
   outstanding, budgets per incident, unsupported/failed/AI Mode coverage re-enters weekly); scraper
   observations carry distinct history ids; the real research-run id and a per-cycle receipt replace the
-  manufactured run id and lifetime counters. Funnel state is Supabase-only and basis-scoped
-  (research_state, optimistic row_version). The canonical EvidenceSnapshot carries the research bundle
-  (retained keywords, AI observations with prompt text + tri-state citations + webSearchReported +
-  model drift as distinct rows, SERP evidence with observedAt, winning pages with own-appearance
-  provenance, per-run receipt) and is the ONE public evidence input; evidenceHash fingerprints MATERIAL
-  content, never clocks or counters. Proof is hermetic on exact official fixtures only: NO DataForSEO
-  credentials exist anywhere, no paid call has ever been made, and the live path stays UNVERIFIED until
-  the $2-bounded live validation runs.
+  manufactured run id and lifetime counters. Funnel state is Supabase-only, basis-scoped (research_state,
+  optimistic row_version). The canonical EvidenceSnapshot carries the research bundle (retained keywords, AI
+  observations with prompt text + tri- state citations + webSearchReported + model drift as distinct rows,
+  SERP evidence with observedAt, winning pages with own-appearance provenance, per-run receipt) and is the ONE
+  public evidence input; evidenceHash fingerprints MATERIAL content, never clocks or counters. Beacon never
+  automatically retries a paid request after an ambiguous outcome; some quarantines are operator-resolved.
+  Proof is hermetic on exact official fixtures: NO DataForSEO credentials exist anywhere, no paid call has
+  ever been made, and the live path stays UNVERIFIED until the $2-bounded live validation runs.
 - OpenAI generation flows through one strict Responses API gateway (Slice 3, 2026-07-23): /v1/responses with
   native strict Structured Outputs (json_schema, strict true), double validation (provider schema + server
   Zod), fail-closed refusal/incomplete/invalid handling with no artifact, budget checks before network,
