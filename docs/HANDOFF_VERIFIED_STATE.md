@@ -94,35 +94,35 @@
   completion short-circuits, a later day creates, and a direct second open-row insert violates the index). Verified end to end on the rendered app: a real
   visit completed cycle tenant-iranopedia:2026-07-24 (2 sources refreshed, surface published, lease
   released) and Today rendered the honest completion line for that pass.
-- The DataForSEO research funnel is live-path contract-true and feeds ONE canonical evidence input
-  (Slice 6 + closures 6B/6C, 2026-07-25). A TYPED capability registry (CapabilityInputByKey; a wrong or
-  cross-engine field fails TypeScript) owns every provider contract; no caller builds URLs or bodies.
-  Requests are WEB-ENABLED per engine exactly as documented: chatgpt/claude send web_search +
-  force_web_search + US context (gated on the resolved model's web support), gemini sends web_search
-  only, perplexity its Live contract, and the scraper is keyword-based (location + language required,
-  expand_citations gated on force_web_search, task_get/advanced resumption). providerCall is the ONE
-  model-resolution point: the FREE models endpoints yield model + method + web support (7-day cached,
-  fail-closed live, labeled fallback only in dry-run/not-configured) and Standard-vs-Live routing is
-  CAPABILITY DRIVEN per engine from task_post_supported, never hardcoded. The boundary caches and
-  returns the FULL bounded envelope; official fixtures travel transport to cache to parser to state to
-  Snapshot in tests without hand reshaping. Money: tenant-independent `evidence_cache` + single-flight
-  claim + dry-run default + breaker + ATOMIC reservation BEFORE the network + reconcile after; an
-  accepted task POST reports its provider cost into the research receipt exactly once (GETs and hits $0);
-  cache persistence FAILS CLOSED (a pre-post receipt must persist before any task POST or zero network
-  calls happen; task-id or ready-envelope write failures never report success; migration slice6c added
-  the posted_attempt_at column the receipt needs plus an expiry-aware claim so an expired provider task
-  is reclaimed clean, never immortal). Task collection classifies strictly: 40601/40602 wait, terminal
-  codes (40401/40403, auth/payment/contract) get ONE clean repost then explicit unsupported coverage,
-  transient codes pause; no phase ever fakes done with pending pairs, a swallowed AI Mode failure, or a
-  failed keyword_overview. Funnel state is Supabase-only and basis-scoped (research_state, optimistic
-  row_version; a website/profile/goal change strands nothing stale). The canonical EvidenceSnapshot
-  carries the research bundle (retained keywords, AI observations with prompt text + tri-state citations
-  + webSearchReported + model drift as distinct rows, SERP evidence, winning pages with own-appearance
-  provenance, honest receipt) and is the ONE public evidence input; evidenceHash fingerprints MATERIAL
-  research content (citations, models, fan-outs, keyword volumes/intents, extracts), never clocks or
-  spend counters. Proof is hermetic on exact official fixtures only: NO DataForSEO credentials exist
-  anywhere, no paid call has ever been made, and the live path stays UNVERIFIED until the $2-bounded
-  live validation runs.
+- The DataForSEO research funnel is lifecycle-true and feeds ONE canonical evidence input (Slice 6 +
+  closures 6B/6C/6D, 2026-07-25). A TYPED capability registry (CapabilityInputByKey; wrong or
+  cross-engine fields fail TypeScript; the model is never caller-supplied) owns every provider contract.
+  Requests are WEB-ENABLED per engine exactly as documented (chatgpt/claude web_search + force + US
+  context gated on the resolved model, gemini web_search only, perplexity Live, the keyword-based
+  scraper) and every llm_responses ask carries max_output_tokens; providerCall resolves the one
+  method-compatible model and routes Standard-vs-Live from task_post_supported, never hardcoded. The
+  boundary returns the FULL bounded envelope; official fixtures travel transport to Snapshot in tests.
+  Money: tenant-independent `evidence_cache` + single-flight claim + dry-run default + breaker + ATOMIC
+  reservation BEFORE the network + reconcile after; an accepted task POST reports its cost into the
+  per-cycle receipt exactly once; the monthly cap is reservation-based with bounded overshoot (stated
+  honestly, not "hard"); cache persistence FAILS CLOSED down to a zero-row UPDATE. Every failure carries
+  a structured disposition, never a parsed string: 50xxx and transport blips keep the task id and stay
+  free; 40401/40403/404 earn ONE clean repost per incident; auth/payment/contract errors pause without
+  reposting; an UNCERTAIN post or an unpersisted accepted task id is QUARANTINED (migration slice6d:
+  quarantined rows are inert to every claim branch, a crashed-mid-POST receipt quarantines on first
+  touch, recovery is only the free tasks_ready listing matched by our tag, bounded at four days then one
+  clean release). Collected task rows expire on the registry ttl so weekly re-observation truly re-buys;
+  completion counts only the CURRENT active pairs and chosen queries (obsolete rows pruned, stale-done
+  outstanding, budgets per incident, unsupported/failed/AI Mode coverage re-enters weekly); scraper
+  observations carry distinct history ids; the real research-run id and a per-cycle receipt replace the
+  manufactured run id and lifetime counters. Funnel state is Supabase-only and basis-scoped
+  (research_state, optimistic row_version). The canonical EvidenceSnapshot carries the research bundle
+  (retained keywords, AI observations with prompt text + tri-state citations + webSearchReported +
+  model drift as distinct rows, SERP evidence with observedAt, winning pages with own-appearance
+  provenance, per-run receipt) and is the ONE public evidence input; evidenceHash fingerprints MATERIAL
+  content, never clocks or counters. Proof is hermetic on exact official fixtures only: NO DataForSEO
+  credentials exist anywhere, no paid call has ever been made, and the live path stays UNVERIFIED until
+  the $2-bounded live validation runs.
 - OpenAI generation flows through one strict Responses API gateway (Slice 3, 2026-07-23): /v1/responses with
   native strict Structured Outputs (json_schema, strict true), double validation (provider schema + server
   Zod), fail-closed refusal/incomplete/invalid handling with no artifact, budget checks before network,
