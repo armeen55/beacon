@@ -76,8 +76,9 @@
   a redundant pass, and a new daily cycle (its key computed at database time) starts only when no run is
   open. A partially failed connector refresh persists the identities of the providers that actually synced
   (deduplicated across retries; the visible count is that unique set's size) durably before pausing, so a
-  mixed attempt never strands its succeeded sources. Three phases mirror today's real work
-  (refresh stale sources, one bounded GSC backfill chunk, evidence-conditioned surface publish); progress,
+  mixed attempt never strands its succeeded sources. Seven phases mirror today's real work
+  (refresh stale sources, one bounded GSC backfill chunk, keyword discovery, core-prompt AI observation,
+  retained-query SERP analysis, winning-page comparison, evidence-conditioned surface publish); progress,
   phase, and cursors are durable, a killed invocation resumes at the persisted phase after lease expiry,
   concurrent instances cannot duplicate work, and Today shows one honest persisted status line (a dead
   lease presents as paused; hidden when there is nothing to say). The truth boundary is enforced
@@ -93,14 +94,33 @@
   completion short-circuits, a later day creates, and a direct second open-row insert violates the index). Verified end to end on the rendered app: a real
   visit completed cycle tenant-iranopedia:2026-07-24 (2 sources refreshed, surface published, lease
   released) and Today rendered the honest completion line for that pass.
-- One canonical DataForSEO boundary exists (Slice 2, 2026-07-23): every call flows through
-  `dataForSeoRequest` with typed states (not_configured / dry_run / capped / ok / error), dry-run the
-  default, the global breaker and per-platform monthly cap failing closed before any network access,
-  actual provider cost recorded per account with provenance and a deterministic idempotency key.
-  Endpoint coverage is still keyword volume + one-query Google organic SERP. The boundary is
-  implemented and deployed; transport behavior is hermetically validated; the live provider response
-  is NOT yet validated (no credentials, no paid call has ever been made).
-- Google SERP parsing already recognizes organic results, AI Overview citations, featured snippets, and PAA.
+- The complete DataForSEO research funnel exists on one canonical evidence cache (Slice 6, 2026-07-25).
+  Every provider call flows through ONE money-safe boundary: a tenant-independent public cache row in
+  `evidence_cache` (key = endpoint + version + normalized input + location + language + device + model;
+  never a tenant id, so two accounts reuse identical public evidence at $0 while spend attribution and
+  derived conclusions stay account-scoped), a Postgres single-flight claim so concurrent identical misses
+  pay once, dry-run as the default, the global breaker, an ATOMIC spend reservation BEFORE the network
+  call (advisory-locked check + increment against the monthly cap), and reconciliation to the
+  provider-reported cost after (any write failure overcounts and blocks, never undercounts). Standard
+  provider tasks post once, persist their task id on the cache row, and resume through free GETs across
+  process death; not-ready is a durable waiting state, never an error and never completion. The funnel
+  researches broad-first (keywords_for_site, ranked_keywords, related_keywords, keyword_suggestions,
+  plus $0 crawl seeds; normalize, dedupe, deterministic relevance/constraint filters; retain at most 150
+  before ANY enrichment or SERP purchase; keyword_overview enriches only the retained set), observes the
+  approved core prompts across chatgpt/gemini/claude via durable Standard tasks and Perplexity live in
+  bounded units, uses the ChatGPT search-mode scraper for sources/brands/fan-out queries, posts Standard
+  Google SERPs (with AI Overview, PAA, related searches) for at most ~40 retained queries plus AI Mode
+  for the strongest five, and detects + politely fetches recurring winning pages (AI citations weighted
+  double, own domain excluded). New AI observations write the ONE historical `prompt_answer_observations`
+  path with a model-drift boundary (a changed served model is a distinct row); missing citations stay
+  missing evidence, never a false zero; a capped or errored provider pauses the run honestly. The two
+  legacy endpoint readers, their JSON caches and registrations, the legacy per-reader money gauntlet, and
+  the dead SERP vocabulary are deleted. Intentionally omitted as duplicative: keyword_ideas, search_intent
+  and bulk_keyword_difficulty (keyword_overview supplies intent + difficulty), relevant_pages (page demand
+  joins from the $0 crawl inventory), and LLM Mentions (outside the MVP per Product Truth). Everything is
+  hermetically validated (cache reuse, single-flight, reservation/reconcile, task resumption, broad-then-
+  narrow, engine honesty, partial-failure pauses); the LIVE provider response is NOT yet validated - no
+  DataForSEO credentials exist in any environment and no paid call has ever been made.
 - OpenAI generation flows through one strict Responses API gateway (Slice 3, 2026-07-23): /v1/responses with
   native strict Structured Outputs (json_schema, strict true), double validation (provider schema + server
   Zod), fail-closed refusal/incomplete/invalid handling with no artifact, budget checks before network,
@@ -124,9 +144,9 @@
   connector provider, runtime health entries, question seeding, drafter sources, the customer-visible AEO
   confidence gate, the vendor-named benchmark, the GitHub Actions dispatch, and the provider-import
   architecture). SEMrush and borrowed-account assumptions must not be revived.
-- Four AI engines are declared in types, but the active runners that would populate those observations are absent.
-- DataForSEO Labs, ChatGPT Scraper, LLM Responses, LLM Mentions, full keyword research, and competitor/domain
-  endpoints are not implemented.
+- The four-engine observation paths are implemented but have never run live (no DataForSEO credentials);
+  until credentials land, dry-run keeps every funnel phase at zero paid coverage and Today's counters
+  honestly reflect that.
 - Real-customer names remain in historical code comments outside the Account boundary (executable strings and
   fixtures are clean).
 - Legacy `.data`/dual-write code remains for non-account stores; the Account/Profile path no longer uses it.
@@ -155,8 +175,9 @@ New customer routes require operator approval.
 
 ## Next slice
 
-Slices 1 through 5 are complete and deployed. The next build-order step is Slice 6: the complete
-DataForSEO research funnel and caching. It requires the eight fields from `AGENTS.md` and explicit
+Slices 1 through 6 are complete and deployed. The next build-order step is Slice 7: one deeply
+evidenced existing-page Change Bundle from the canonical research foundation (consuming
+`loadFunnelEvidence` and the Evidence Snapshot). It requires the eight fields from `AGENTS.md` and explicit
 operator approval before implementation.
 
 ## Verification
