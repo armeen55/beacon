@@ -93,12 +93,12 @@ describe("research funnel - prompt observation honesty + history identity", () =
     expect(gemRow.citation_urls).toBeNull(); expect(gemRow.metadata.citationsObserved).toBe(false);
     expect(rows.some((r) => (r.search_queries ?? []).length > 0)).toBe(true);
   });
-  it("hands each engine its own provider-valid ask: chatgpt web+force, gemini web-only, perplexity plain, scraper by keyword", async () => {
+  it("hands each engine its own provider-valid ask: chatgpt web only, claude web+force+country, gemini web-only, perplexity plain, scraper by keyword", async () => {
     const seen = new Map<string, unknown>(); const store = memStore();
     await promptObservationUnit({ ...deps(store, [], "claude-4"), callProvider: async (cap, input) => { if (!seen.has(cap)) seen.set(cap, input); return waiting("ck"); } })("tp", cur(), 60_000);
-    expect(seen.get("llm_chatgpt")).toEqual({ user_prompt: "best persian restaurant", web_search: true, force_web_search: true, web_search_country_iso_code: "US" });
-    expect(seen.get("llm_gemini")).toEqual({ user_prompt: "best persian restaurant", web_search: true });
-    expect(seen.get("llm_perplexity")).toEqual({ user_prompt: "best persian restaurant" });
+    expect(seen.get("llm_chatgpt")).toEqual({ user_prompt: "best persian restaurant", web_search: true }); // ChatGPT rejects force_web_search on its reasoning models (in-body 40501), so we never send it
+    expect(seen.get("llm_claude")).toEqual({ user_prompt: "best persian restaurant", web_search: true, force_web_search: true, web_search_country_iso_code: "US" }); // documented for Claude
+    expect(seen.get("llm_gemini")).toEqual({ user_prompt: "best persian restaurant", web_search: true }); expect(seen.get("llm_perplexity")).toEqual({ user_prompt: "best persian restaurant" });
     expect(seen.get("llm_scraper_chatgpt")).toEqual({ keyword: "best persian restaurant", force_web_search: true, expand_citations: true }); // keyword-based, never user_prompt
   });
   it("gives the scraper look and a changed served model their OWN history rows, never a merge", async () => {

@@ -95,34 +95,34 @@
   visit completed cycle tenant-iranopedia:2026-07-24 (2 sources refreshed, surface published, lease
   released) and Today rendered the honest completion line for that pass.
 - The DataForSEO research funnel is lifecycle-true and feeds ONE canonical evidence input (Slice 6 + closures
-  6B..6G, 2026-07-25). A TYPED registry (CapabilityInputByKey; wrong fields fail tsc; the model never
-  caller-supplied) owns every contract. Requests are WEB-ENABLED per engine as documented (chatgpt/claude
-  web_search + force + US gated on the model, gemini web_search only, perplexity Live, the keyword scraper);
-  providerCall resolves the one compatible model and routes Standard-vs-Live from task_post_supported. The
-  boundary returns the FULL bounded envelope; the guarantee: Beacon never automatically retries a paid request
-  after a refusal or an ambiguous outcome. Money: tenant-independent `evidence_cache` + single-flight claim +
-  dry-run default + breaker + ATOMIC reservation BEFORE the network + reconcile after; an accepted POST reports
-  its cost once; the cap is reservation-based with bounded overshoot; persistence and reads FAIL CLOSED to a
-  zero-row UPDATE. Every failure carries a structured disposition; every PAID response passes one context-aware
-  policy: ONLY in-body 40401/40403 on a FREE collect earn ONE repost per incident (never a raw HTTP status or a
-  POST reply); a rejected paid response with a provider-REPORTED zero cost releases only when EVERY status
-  present (top and task) is an exact temporary code, otherwise refunding into a DURABLE blocked hold no revisit
-  retries (raw HTTP 401/402/404 land there too); an UNCERTAIN outcome (throw, 5xx, unknown cost, lost id,
-  unsavable answer) is QUARANTINED INDEFINITELY, reservation kept, recovered only by the free per-family
-  tasks_ready listing (Standard; Live holds have none); holds carry distinct on-row reasons, revisit at zero
-  cost, and clear only by deliberate operator action (quarantined_at, plus posted_attempt_at on uncertain rows).
-  A BLOCKED response PAUSES the run visibly with the provider's own reason, stops the batch, and never becomes
-  unavailable coverage. Quarantined coverage stays explicitly unavailable (prompt unsupported, search failed, AI
-  Mode missing) so no ambiguous key stalls a phase. A model-cache read failure makes zero provider calls.
-  Collected rows expire on the registry ttl so re-observation re-buys; completion counts only CURRENT pairs and
-  queries (obsolete rows pruned, stale-done outstanding, budgets per incident, unavailable coverage re-enters
-  weekly); scraper looks get distinct history ids; the real run id and per-cycle receipt replace manufactured
-  ones. Funnel state is Supabase-only, basis-scoped (research_state, optimistic row_version). The canonical
-  EvidenceSnapshot carries the research bundle (retained keywords, AI observations with prompt text + tri-state
-  citations + webSearchReported + model drift rows, SERP evidence with observedAt, winning pages with appearance
-  provenance, per-run receipt) and is the ONE public evidence input; evidenceHash fingerprints MATERIAL content,
-  never clocks or counters. Proof is hermetic on exact official fixtures: NO DataForSEO credentials exist
-  anywhere, no paid call has ever been made, and the live path stays UNVERIFIED until the $2 validation runs.
+  6B..6H, 2026-07-25). A TYPED registry (CapabilityInputByKey; wrong fields fail tsc; model never caller-supplied)
+  owns every per-engine ask, live-verified: chatgpt web_search ONLY (its models are all reasoning; force draws
+  40501), claude web + force + US, gemini web_search only, perplexity Live, the scraper force + expanded
+  citations; providerCall resolves the compatible model and routes Standard-vs-Live from task_post_supported. The
+  boundary returns the FULL bounded envelope, and Beacon never auto-retries a paid request after a refusal or
+  ambiguity. Money: tenant-independent `evidence_cache` + single-flight claim + dry-run default + breaker + ATOMIC
+  reservation BEFORE the network + reconcile after; the cap is reservation-based with bounded overshoot;
+  persistence and reads FAIL CLOSED to a zero-row UPDATE. Every failure carries a structured disposition; every
+  PAID response passes ONE policy: ONLY in-body 40401/40403 on a FREE collect earn ONE repost per incident (never
+  a raw HTTP status or POST reply); a rejected paid response with provider-REPORTED cost 0 releases only when
+  EVERY status present (top and task) is an exact temporary code, else refunding into a DURABLE blocked hold no
+  revisit retries (raw 401/402/404 land there too); an UNCERTAIN outcome (throw, 5xx, unknown cost, lost id,
+  unsavable answer) is QUARANTINED INDEFINITELY, reservation kept, recovered only by the free tasks_ready listing
+  (Standard; Live has none); holds carry distinct on-row reasons, clearing only by deliberate operator action
+  (quarantined_at, plus posted_attempt_at on uncertain rows). A BLOCKED response PAUSES the run visibly with the
+  provider's reason, stops the batch, and never becomes unavailable coverage. Quarantined coverage stays
+  explicitly unavailable so no key stalls a phase. A model-cache read failure makes zero provider calls. Rows
+  expire on the registry ttl so re-observation re-buys; completion counts only CURRENT pairs and queries (obsolete
+  rows pruned, stale-done outstanding, per-incident budgets, weekly re-entry); scraper looks get distinct history
+  ids; run id and per-cycle receipt are real. Funnel state is Supabase-only and basis-scoped (research_state,
+  optimistic row_version). The canonical EvidenceSnapshot carries the research bundle (retained keywords; AI
+  observations with prompt text, tri-state citations, webSearchReported, model drift rows; SERP evidence with
+  observedAt; winning pages with appearance provenance; per-run receipt), the ONE public evidence input;
+  evidenceHash fingerprints MATERIAL content, never clocks or counters. Proof is hermetic on fixtures AND
+  live-validated locally (2026-07-25, $2 provider day limit proven): labs, Standard SERP, all four engines, and
+  the scraper ran end to end for $0.07; Standard ids collected free, Live persisted, every repeat a $0 hit, the
+  ledger matched provider cost to the cent, and a deliberately crashed POST quarantined then recovered by the free
+  tasks_ready tag at no extra spend. Production stays dry-run and UNCONFIGURED until the operator enables it.
 - OpenAI generation flows through one strict Responses API gateway (Slice 3, 2026-07-23): /v1/responses with
   native strict Structured Outputs (json_schema, strict true), double validation (provider schema + server
   Zod), fail-closed refusal/incomplete/invalid handling with no artifact, budget checks before network,

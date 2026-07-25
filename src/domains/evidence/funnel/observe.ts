@@ -12,7 +12,7 @@ import { basisTag } from "@/domains/account";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
-import type { CachedCallResult, CapabilityKey, FunnelCounters, FunnelUnitFn, FunnelUnitOutcome, LlmWebInput, ParsedAiAnswer, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
+import type { CachedCallResult, CapabilityKey, FunnelCounters, FunnelUnitFn, FunnelUnitOutcome, ParsedAiAnswer, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { rankAndCap, rankWinningPages } from "./normalize";
 import { type FunnelPair, type FunnelSerp, type FunnelState, type FunnelWinningPage } from "./state";
 import {
@@ -31,16 +31,16 @@ const ENGINES: ResearchEngine[] = ["chatgpt", "gemini", "claude", "perplexity"];
 const pairKey = (p: FunnelPair) => `${p.promptId}|${p.engine}|${p.scraper ? "s" : ""}`;
 const capabilityFor = (p: FunnelPair): CapabilityKey => (p.scraper ? "llm_scraper_chatgpt" : (`llm_${p.engine}` as CapabilityKey));
 
-/** ChatGPT/Claude get the full web-enabled ask (registry gates force/country on the model); gemini
- *  web_search only; perplexity none; the scraper is KEYWORD-based. */
-const webAsk = (text: string): LlmWebInput => ({ user_prompt: text, web_search: true, force_web_search: true, web_search_country_iso_code: "US" });
+/** Each engine gets EXACTLY its own documented ask. ChatGPT takes web_search only: force_web_search
+ *  draws an in-body 40501 on its reasoning models, which is every current one. Claude documents
+ *  force_web_search + country. Gemini is web_search only; perplexity none; the scraper is KEYWORD-based. */
 function observeCall(callProvider: ResolvedDeps["callProvider"], p: FunnelPair, text: string, ids: { tenantId: string; unitKey: string }): Promise<CachedCallResult> {
   if (p.scraper) return callProvider("llm_scraper_chatgpt", { keyword: text, force_web_search: true, expand_citations: true }, ids);
   switch (p.engine) {
     case "gemini": return callProvider("llm_gemini", { user_prompt: text, web_search: true }, ids);
     case "perplexity": return callProvider("llm_perplexity", { user_prompt: text }, ids);
-    case "claude": return callProvider("llm_claude", webAsk(text), ids);
-    default: return callProvider("llm_chatgpt", webAsk(text), ids);
+    case "claude": return callProvider("llm_claude", { user_prompt: text, web_search: true, force_web_search: true, web_search_country_iso_code: "US" }, ids);
+    default: return callProvider("llm_chatgpt", { user_prompt: text, web_search: true }, ids);
   }
 }
 

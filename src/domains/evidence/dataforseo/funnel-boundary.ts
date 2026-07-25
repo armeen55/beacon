@@ -102,8 +102,15 @@ export type ParsedByCapability = {
  *  engine-specific; the scraper is KEYWORD-based, never user_prompt). The model
  *  is NEVER caller-supplied: providerCall resolves the one method-compatible
  *  model, so a Live-only model can never ride a Standard route. A wrong or
- *  cross-engine field fails TypeScript, not production. */
-export type LlmWebInput = { user_prompt: string; web_search?: boolean; force_web_search?: boolean; web_search_country_iso_code?: string };
+ *  cross-engine field fails TypeScript, not production.
+ *  ChatGPT and Claude are DIFFERENT contracts (live-verified 2026-07-25):
+ *  ChatGPT llm_responses rejects force_web_search on reasoning models (in-body
+ *  40501) and every current ChatGPT model reports reasoning true, so ChatGPT
+ *  accepts web_search ONLY, never force or country. Claude documents force +
+ *  country and conflicts only with use_reasoning, which Beacon never sends. The
+ *  dedicated ChatGPT SCRAPER is a separate API where force is documented. */
+export type ChatGptWebInput = { user_prompt: string; web_search?: boolean };
+export type ClaudeWebInput = { user_prompt: string; web_search?: boolean; force_web_search?: boolean; web_search_country_iso_code?: string };
 export type CapabilityInputByKey = {
   labs_keywords_for_site: { target: string; limit?: number };
   labs_ranked_keywords: { target: string; limit?: number };
@@ -112,8 +119,8 @@ export type CapabilityInputByKey = {
   labs_keyword_overview: { keywords: string[] };
   serp_organic: { keyword: string; device?: "desktop" | "mobile" };
   serp_ai_mode: { keyword: string; device?: "desktop" | "mobile" };
-  llm_chatgpt: LlmWebInput;
-  llm_claude: LlmWebInput;
+  llm_chatgpt: ChatGptWebInput;
+  llm_claude: ClaudeWebInput;
   /** Gemini supports web_search only; never send ChatGPT/Claude-only fields. */
   llm_gemini: { user_prompt: string; web_search?: boolean };
   llm_perplexity: { user_prompt: string; web_search_country_iso_code?: string };

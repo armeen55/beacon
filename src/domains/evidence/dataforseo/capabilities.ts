@@ -65,18 +65,29 @@ class MissingFieldsError extends Error {
 
 // ── request builders (emit ONLY documented fields per endpoint) ───────────────
 
-/** ChatGPT + Claude task_post/live: user_prompt + model_name + max_output_tokens,
- *  plus web fields. force_web_search needs web_search enabled first AND a
- *  web-capable model, so it is gated on the resolution's webSearch flag; country
- *  only rides an enabled web search. (docs: chat_gpt/claude llm_responses
+/** ChatGPT llm_responses: user_prompt + model_name + max_output_tokens + web_search
+ *  ONLY. force_web_search is NEVER sent here and neither is a country: the endpoint
+ *  rejects force_web_search on a reasoning model with an in-body 40501 ("this model
+ *  does not support force_web_search"), verified live 2026-07-25 on o4-mini, and the
+ *  live models list that day reported reasoning true for EVERY ChatGPT model. It exposes
+ *  only model_name/reasoning/web_search_supported/task_post_supported, so there is
+ *  no force-web-search capability to gate on. (docs: chat_gpt llm_responses
  *  task_post + live, 2026-07-26) */
-function llmWebBuild(i: CapabilityInputByKey["llm_chatgpt"], r: EngineModelResolution | null): unknown[] {
-  const web = r?.webSearch === true && (i.web_search === true || i.force_web_search === true);
-  const force = web && i.force_web_search === true;
+function chatGptBuild(i: CapabilityInputByKey["llm_chatgpt"], r: EngineModelResolution | null): unknown[] {
+  const web = r?.webSearch === true && i.web_search === true;
+  return [clean({ user_prompt: i.user_prompt, model_name: r?.model, max_output_tokens: LLM_MAX_OUTPUT_TOKENS, web_search: web ? true : undefined })];
+}
+/** Claude llm_responses: a DIFFERENT contract from ChatGPT. force_web_search and
+ *  web_search_country_iso_code are both documented here and conflict only with
+ *  use_reasoning, which Beacon never sends. Both ride an ENABLED web search, so
+ *  neither is emitted when web search is off. (docs: claude llm_responses
+ *  task_post + live, 2026-07-26) */
+function claudeBuild(i: CapabilityInputByKey["llm_claude"], r: EngineModelResolution | null): unknown[] {
+  const web = r?.webSearch === true && i.web_search === true;
   return [clean({
     user_prompt: i.user_prompt, model_name: r?.model, max_output_tokens: LLM_MAX_OUTPUT_TOKENS,
     web_search: web ? true : undefined,
-    force_web_search: force ? true : undefined,
+    force_web_search: web && i.force_web_search === true ? true : undefined,
     web_search_country_iso_code: web ? i.web_search_country_iso_code : undefined,
   })];
 }
@@ -146,10 +157,12 @@ function llmDynamicEntry<K extends "llm_chatgpt" | "llm_gemini" | "llm_claude">(
 // ── the registry ─────────────────────────────────────────────────────────────
 
 const REGISTRY: Registry = {
-  labs_keywords_for_site: labsEntry("dataforseo_labs/google/keywords_for_site/live", "target", 0.012),
-  labs_ranked_keywords: labsEntry("dataforseo_labs/google/ranked_keywords/live", "target", 0.012),
-  labs_related_keywords: labsEntry("dataforseo_labs/google/related_keywords/live", "keyword", 0.012),
-  labs_keyword_suggestions: labsEntry("dataforseo_labs/google/keyword_suggestions/live", "keyword", 0.012),
+  // Labs live actually charged 0.018 for a 50-row suggestions call (live, 2026-07-25),
+  // so the reservation stays deliberately ABOVE that, never under it.
+  labs_keywords_for_site: labsEntry("dataforseo_labs/google/keywords_for_site/live", "target", 0.02),
+  labs_ranked_keywords: labsEntry("dataforseo_labs/google/ranked_keywords/live", "target", 0.02),
+  labs_related_keywords: labsEntry("dataforseo_labs/google/related_keywords/live", "keyword", 0.02),
+  labs_keyword_suggestions: labsEntry("dataforseo_labs/google/keyword_suggestions/live", "keyword", 0.02),
   labs_keyword_overview: {
     ttlMs: 7 * DAY, estCostUsd: 0.02, dims: { device: false, model: false },
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_overview/live", getPath: null, tasksReady: null }),
@@ -158,9 +171,9 @@ const REGISTRY: Registry = {
   },
   serp_organic: serpEntry("serp/google/organic", 0.0021),
   serp_ai_mode: serpEntry("serp/google/ai_mode", 0.01),
-  llm_chatgpt: llmDynamicEntry("chatgpt", llmWebBuild),
+  llm_chatgpt: llmDynamicEntry("chatgpt", chatGptBuild),
   llm_gemini: llmDynamicEntry("gemini", geminiBuild),
-  llm_claude: llmDynamicEntry("claude", llmWebBuild),
+  llm_claude: llmDynamicEntry("claude", claudeBuild),
   llm_perplexity: {
     ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: true }, engine: "perplexity",
     // Perplexity models are Live-only (task_post_supported=false for all), so this
