@@ -35,8 +35,19 @@ import { log } from "@/lib/logger";
 
 // ── Canonical record ───────────────────────────────────────────────────────
 
-/** The ordered phases of one Research Run. `done` is the terminal phase. */
-export type ResearchPhase = "refresh_sources" | "gsc_backfill_chunk" | "publish_surface" | "done";
+/** The ordered phases of one Research Run. `done` is the terminal phase. The
+ *  four evidence phases (Slice 6) sit between the connector work and the
+ *  surface publish: broad keyword discovery, core-prompt AI observation,
+ *  retained-query SERPs, then winning-page comparison. */
+export type ResearchPhase =
+  | "refresh_sources"
+  | "gsc_backfill_chunk"
+  | "keyword_discovery"
+  | "prompt_observations"
+  | "serp_analysis"
+  | "winning_pages"
+  | "publish_surface"
+  | "done";
 
 /** The run status. Three honestly-produced states only: a transient phase
  *  failure PAUSES with a bounded last_error (recoverable next visit), it never
@@ -54,6 +65,13 @@ export type ResearchRunProgress = {
   sourcesRefreshed?: number;
   backfill?: { ran: boolean; complete?: boolean; daysPulled?: number };
   surfacePublished?: boolean;
+  /** Slice 6: real persisted funnel counters (never fabricated). */
+  funnel?: {
+    rawKeywords?: number; normalizedKeywords?: number; retainedKeywords?: number;
+    rejectedKeywords?: number; promptsChecked?: number; enginePairsDone?: number;
+    enginePairsIntended?: number; serpsAnalyzed?: number; winningPagesFetched?: number;
+    cacheHits?: number; spendUsd?: number;
+  };
 };
 
 /** Bounded error info stored on last_error when a phase pauses (throw or a
@@ -90,15 +108,18 @@ export type ResearchRunStatusView = {
   state: "running" | "paused" | "completed" | "none";
   phaseLabel: string;
   stepsDone: number;
-  stepsTotal: 3;
+  stepsTotal: 7;
   counters: { sourcesRefreshed?: number; backfillDaysPulled?: number };
   updatedAt: string | null;
   completedAt: string | null;
 };
 
-/** The three operator-visible steps, in order. `done` is terminal (not a step). */
-const STEP_ORDER: ResearchPhase[] = ["refresh_sources", "gsc_backfill_chunk", "publish_surface"];
-export const RESEARCH_RUN_STEPS_TOTAL = 3 as const;
+/** The seven operator-visible steps, in order. `done` is terminal (not a step). */
+const STEP_ORDER: ResearchPhase[] = [
+  "refresh_sources", "gsc_backfill_chunk", "keyword_discovery",
+  "prompt_observations", "serp_analysis", "winning_pages", "publish_surface",
+];
+export const RESEARCH_RUN_STEPS_TOTAL = 7 as const;
 
 /** Lease length for one claimed cycle. Renewed at DATABASE time BEFORE every
  *  bounded phase (renew_research_lease) so no phase inside the 210s cycle deadline
@@ -165,6 +186,10 @@ function stepsDoneForPhase(phase: ResearchPhase): number {
 const PHASE_LABEL: Record<ResearchPhase, string> = {
   refresh_sources: "refreshing your connected data",
   gsc_backfill_chunk: "loading more Search Console history",
+  keyword_discovery: "researching what your customers search for",
+  prompt_observations: "checking how AI assistants answer your questions",
+  serp_analysis: "reading the results pages for your strongest topics",
+  winning_pages: "studying the pages that win those results",
   publish_surface: "updating your ranked changes",
   done: "updating your ranked changes",
 };

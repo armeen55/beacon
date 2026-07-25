@@ -82,7 +82,7 @@ const RESEARCH_NONE: ResearchRunStatusView = {
   state: "none",
   phaseLabel: "",
   stepsDone: 0,
-  stepsTotal: 3,
+  stepsTotal: 7,
   counters: {},
   updatedAt: null,
   completedAt: null,

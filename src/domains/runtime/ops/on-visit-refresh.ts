@@ -3,6 +3,10 @@ import "server-only";
 import { after } from "next/server";
 
 import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/on-use-refresh";
+import {
+  keywordDiscoveryUnit, promptObservationUnit, serpAnalysisUnit, winningPagesUnit,
+  type FunnelUnitOutcome,
+} from "@/domains/evidence";
 import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
 import { getTenant } from "@/domains/account";
 import { log } from "@/lib/logger";
@@ -86,7 +90,12 @@ export const RESEARCH_CYCLE_DEADLINE_MS = 210_000;
 const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_synced_property", "no_cursor"]);
 
 /** The ordered execution phases (excluding the terminal `done`). */
-const PHASE_SEQUENCE: ResearchPhase[] = ["refresh_sources", "gsc_backfill_chunk", "publish_surface"];
+const PHASE_SEQUENCE: ResearchPhase[] = [
+  "refresh_sources", "gsc_backfill_chunk", "keyword_discovery",
+  "prompt_observations", "serp_analysis", "winning_pages", "publish_surface",
+];
+/** The four Slice 6 evidence phases, each backed by one funnel unit executor. */
+const FUNNEL_PHASES = new Set<ResearchPhase>(["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]);
 
 /** The refresh_sources phase outcome: how many sources were attempted, the
  *  identities of the ones that actually synced, and the bounded per-source failure
@@ -112,6 +121,8 @@ export type BackfillChunkResult =
 export type ResearchCycleSteps = {
   refreshSources: (tenantId: string, now: Date, attemptKey: string) => Promise<RefreshSourcesResult>;
   backfillChunk: (tenantId: string, now: Date, attemptKey: string) => Promise<BackfillChunkResult>;
+  /** The four Slice 6 evidence executors (evidence facade), one per funnel phase. */
+  funnelUnit: (phase: ResearchPhase, tenantId: string, cursor: Record<string, unknown> | null, budgetMs: number) => Promise<FunnelUnitOutcome>;
   publishSurface: (tenantId: string, attemptKey: string) => Promise<void>;
   surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
 };
@@ -155,6 +166,16 @@ const defaultSteps: ResearchCycleSteps = {
     // pauses AT gsc_backfill_chunk. deep-backfill leaves its cursor untouched on a
     // failed pull, so the retry is the identical window.
     throw new Error(`gsc backfill chunk did not advance: ${result.reason}`.slice(0, 200));
+  },
+  async funnelUnit(phase, tenantId, cursor, budgetMs) {
+    const fn = {
+      keyword_discovery: keywordDiscoveryUnit,
+      prompt_observations: promptObservationUnit,
+      serp_analysis: serpAnalysisUnit,
+      winning_pages: winningPagesUnit,
+    }[phase as "keyword_discovery" | "prompt_observations" | "serp_analysis" | "winning_pages"];
+    return fn()(tenantId, cursor, budgetMs); // each facade export is a deps factory returning the executor
+
   },
   async publishSurface(tenantId) {
     // warmFreeSurfaces now PROPAGATES failure (no internal swallow): a throw here
@@ -281,11 +302,56 @@ async function driveRun(
     }
 
     // Persist the phase attempt identity + renew the lease BEFORE the side effect.
+    // Funnel phases carry their durable unit cursor forward inside the attempt cursor.
     const attemptKey = resolveAttemptKey(tenantId, run.id, run.cycle_key, phase, cursor);
-    const attemptCursor = { phase, attemptKey, seed: run.cycle_key };
+    const priorUnit = cursor?.phase === phase && cursor.unit != null ? (cursor.unit as Record<string, unknown>) : null;
+    const attemptCursor: Record<string, unknown> = { phase, attemptKey, seed: run.cycle_key, ...(priorUnit ? { unit: priorUnit } : {}) };
     const held = await renewLease(tenantId, run.id, ownerToken, attemptCursor);
     if (!held) return; // lease lost/expired → abort BEFORE any side effect
     cursor = attemptCursor;
+
+    if (FUNNEL_PHASES.has(phase)) {
+      // One bounded evidence unit. advanced = keep iterating this phase; waiting =
+      // durable provider work is pending (pause honestly, resume next visit; NOT a
+      // failure and NOT completion); done = phase complete; failed = bounded pause.
+      let unit: FunnelUnitOutcome;
+      try {
+        unit = await steps.funnelUnit(phase, tenantId, priorUnit, deadline - nowFn().getTime());
+      } catch (error) {
+        const message = (error instanceof Error ? error.message : String(error)).slice(0, 300);
+        await finishRun(tenantId, run.id, ownerToken, "paused", { phase, message, at: nowFn().toISOString() });
+        return;
+      }
+      progress = { ...progress, funnel: { ...progress.funnel, ...unit.progress } };
+      const unitCursor = unit.cursor ? { ...attemptCursor, unit: unit.cursor } : { phase, attemptKey, seed: run.cycle_key };
+      if (unit.status === "failed") {
+        const saved = await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: unitCursor });
+        if (!saved) return;
+        await finishRun(tenantId, run.id, ownerToken, "paused", {
+          phase, message: (unit.detail ?? "evidence step could not finish").slice(0, 300), at: nowFn().toISOString(),
+        });
+        return;
+      }
+      if (unit.status === "waiting") {
+        const saved = await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: unitCursor });
+        if (!saved) return;
+        await finishRun(tenantId, run.id, ownerToken, "paused"); // honest resumable wait, no error
+        return;
+      }
+      if (unit.status === "advanced") {
+        const saved = await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: unitCursor });
+        if (!saved) return;
+        cursor = unitCursor;
+        continue; // same phase, next unit (deadline check at loop top)
+      }
+      // unit.status === "done" -> fall through to the normal next-phase advance.
+      const nextAfterFunnel = nextPhase(phase);
+      const advancedFunnel = await advancePhase(tenantId, run.id, ownerToken, { phase: nextAfterFunnel, progress, cursor: null });
+      if (!advancedFunnel) return;
+      phase = nextAfterFunnel;
+      cursor = null;
+      continue;
+    }
 
     let outcome: PhaseOutcome;
     try {

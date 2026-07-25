@@ -37,6 +37,10 @@
  */
 
 export const TENANT_SCOPED_STORES = new Set<string>([
+  // Slice 6 (2026-07-25): the account's durable research-funnel state (retained
+  // keyword set, observation refs, winning pages) - tenant-DERIVED conclusions,
+  // never shared, unlike the public evidence_cache table.
+  "research-funnel",
   // Inherited from scripts/backfill-tenant-id.ts (38 stores).
   "imported-results",
   "imported-changes",
@@ -83,9 +87,6 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // "what wins" pattern (format/title/winning-domains) per query, populated by the
   // operator-triggered enrichResearchPacks; read by the research module on the card.
   "research-serp-patterns",
-  // 2026-07-01 R4 - per-tenant cache of "which domains do LLM answers cite for a
-  // topic" (domains/serp/dataforseo-llm-mentions.ts), the owned AI-visibility feed.
-  "dataforseo-llm-mentions",
   // Autonomous, cache-only synthesis of citation phrasing, answer drift, and
   // second-order citation targets. One compact snapshot per explicit tenant.
   "citation-intelligence-snapshot",
@@ -224,8 +225,6 @@ export const GLOBAL_STORES = new Set<string>([
   // this entry readStore/writeStore THROW ("unknown store"), the cache read/write
   // is swallowed, and every paid call re-spends. Registering them makes the
   // 14-day cache actually persist (the cost-discipline guarantee).
-  "dataforseo-serp-cache", // SERP top-10 cache (domains/serp/dataforseo-serp.ts)
-  "dataforseo-keywords-cache", // keyword-volume cache (domains/serp/dataforseo-keywords.ts)
   // Competitor keyword gap engine (2026-07-02, master plan item 16). The Labs
   // cache is public market data (keyed by endpoint+location+lang+domain, no
   // tenant secrets) - global like the other DataForSEO caches so its 30-day

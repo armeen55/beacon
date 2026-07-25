@@ -62,6 +62,8 @@ import { resolveDataPath } from "./resolve-data-path";
  * Migration: migrations/2026-07-01_json_store_blobs.sql (additive).
  */
 export const SUPABASE_MIRRORED_STORES = new Set<string>([
+  // Slice 6: durable per-account research-funnel state must survive serverless.
+  "research-funnel",
   // 2026-07-22 (CORE 100K persistence collapse): pruned to the stores with a
   // SURVIVING live reader/writer. The 28-domain strip deleted every producer/
   // consumer of the other ~42 stores that used to live here (autopilot-state,
@@ -72,8 +74,6 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
 
   // Public market-data caches — the cost-discipline guarantee (a re-run inside
   // the TTL must not re-spend); read by the evidence readers.
-  "dataforseo-keywords-cache", // domains/evidence/readers/dataforseo-keywords.ts
-  "dataforseo-serp-cache", // domains/evidence/readers/dataforseo-serp.ts
   // Deterministic competitor-page teardown; read by passage-answerability.ts.
   "competitor-page-audit",
   // The two customer-visible SWR surface snapshots (the ONLY persisted Today+

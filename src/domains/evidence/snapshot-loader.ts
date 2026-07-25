@@ -19,7 +19,7 @@ import { loadGscPageSignalsForTenant, type GscPageSignal } from "@/domains/evide
 import { loadGa4PageValuesForTenant, loadGa4PageRevenueForTenant, type Ga4PageValue } from "@/domains/evidence/readers/ga4-page-values";
 import type { PageRevenueValue } from "@/domains/evidence/readers/ga4-revenue";
 import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/evidence/readers/clarity-page-signals";
-import { readAllCachedKeywordDemand } from "@/domains/evidence/readers/dataforseo-keywords";
+import { loadFunnelEvidence } from "@/domains/evidence/funnel/observe";
 import { loadNativeIntelForTenant } from "@/domains/evidence/readers/native-intel-loader";
 import { getPageSnapshots } from "@/domains/evidence/readers/snapshot-store";
 
@@ -79,7 +79,7 @@ export async function loadEvidenceSnapshot(
       loadGa4PageValuesForTenant(tenantId, now).catch(() => new Map<string, Ga4PageValue>()),
       loadGa4PageRevenueForTenant(tenantId, now).catch(() => new Map<string, PageRevenueValue>()),
       loadClarityPageSignalsForTenant(tenantId, now).catch(() => new Map<string, ClarityPageSignal>()),
-      readAllCachedKeywordDemand({ now: () => now }).catch(() => []),
+      loadFunnelEvidence(tenantId).then((f) => f.retainedKeywords).catch(() => []),
       loadSourceNativeIntel(tenantId),
       getPageSnapshots().catch(() => []),
     ]);
@@ -147,9 +147,9 @@ export async function loadEvidenceSnapshot(
     if (!existing || (row.fetchedAt ?? "") > (existing.fetchedAt ?? "")) wixByUrl.set(key, row);
   }
 
-  // ── DataForSEO keyword volume ──
+  // ── DataForSEO keyword demand (the funnel's retained set) ──
   const dfsPayload = keywordRows.map((k) => ({
-    query: k.keyword,
+    query: k.query,
     searchVolume: k.searchVolume,
     competition: k.competition,
     competitionLevel: k.competitionLevel,

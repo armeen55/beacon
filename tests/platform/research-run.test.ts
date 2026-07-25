@@ -18,9 +18,7 @@ import type { AccountStatus } from "@/domains/account";
 // a tenant into 'pending_onboarding' to exercise the gate.
 const ACCOUNT_STATUS = new Map<string, AccountStatus>();
 const statusOf = (t: string): AccountStatus => ACCOUNT_STATUS.get(t) ?? "active";
-function setAccountStatus(t: string, s: AccountStatus): void {
-  ACCOUNT_STATUS.set(t, s);
-}
+const setAccountStatus = (t: string, s: AccountStatus): void => void ACCOUNT_STATUS.set(t, s);
 function installAccountRepo(): void {
   const byId = async (id: string) => ({
     id,
@@ -125,6 +123,7 @@ function withRun(o: Partial<RR.ResearchRun> = {}): RR.ResearchRun[] {
 const BENIGN: ResearchCycleSteps = {
   refreshSources: async () => ({ attempted: 0, succeeded: [], failures: [] }),
   backfillChunk: async () => ({ kind: "no_work" }),
+  funnelUnit: async () => ({ status: "done", cursor: null, progress: {} }), // evidence phases no-op in these lease/truth tests
   publishSurface: async () => {},
   surfaceStale: async () => false,
 };
@@ -138,7 +137,7 @@ function healthySteps(log: string[]): Partial<ResearchCycleSteps> {
   };
 }
 const run = (steps: Partial<ResearchCycleSteps>, deadlineMs?: number) =>
-  runResearchCycle(T, { now: () => new Date(NOW), steps, ...(deadlineMs === undefined ? {} : { deadlineMs }) });
+  runResearchCycle(T, { now: () => new Date(NOW), steps: { ...BENIGN, ...steps }, ...(deadlineMs === undefined ? {} : { deadlineMs }) });
 
 beforeEach(() => {
   NOW = 1_700_000_000_000;
@@ -365,13 +364,13 @@ describe("research-run resume + status projection", () => {
     const v = await RR.researchRunStatus(T, new Date(NOW));
     expect(v.state).toBe("running");
     expect(v.phaseLabel).toBe("refreshing your connected data");
-    expect(v.stepsTotal).toBe(3);
+    expect(v.stepsTotal).toBe(7);
   });
 });
 
 describe("research-run Today copy", () => {
   const view = (o: Partial<RR.ResearchRunStatusView>): RR.ResearchRunStatusView => ({
-    state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: 3, counters: {}, updatedAt: null, completedAt: null,
+    state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: 7, counters: {}, updatedAt: null, completedAt: null,
     ...o,
   });
   const NOON_PT = Date.parse("2026-07-23T19:00:00Z"); // noon Pacific on Jul 23
@@ -387,7 +386,7 @@ describe("research-run Today copy", () => {
       "Researching: refreshing your connected data.",
     );
     expect(RR.researchStatusLine(view({ state: "paused", stepsDone: 1 }))).toBe(
-      "Research paused after 1 of 3 steps. I'll resume when you return.",
+      "Research paused after 1 of 7 steps. I'll resume when you return.",
     );
     expect(RR.researchStatusLine(view({ state: "none" }))).toBeNull();
   });

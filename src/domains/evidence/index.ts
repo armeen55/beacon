@@ -68,26 +68,16 @@ export type { PageRevenueValue, RevenueConfidence } from "./readers/ga4-revenue"
 export { normalizePageRevenue, revenueScoreMultiplier, revenueStateLabel } from "./readers/ga4-revenue";
 export type { ClarityPageSignal } from "./readers/clarity-page-signals";
 export { loadClarityPageSignalsForTenant } from "./readers/clarity-page-signals";
-export type { KeywordDemand } from "./readers/dataforseo-keywords";
-export { readAllCachedKeywordDemand } from "./readers/dataforseo-keywords";
 export { loadNativeIntelForTenant } from "./readers/native-intel-loader";
 
-// Canonical DataForSEO boundary — the ONE seam every DataForSEO call flows
-// through. App-side code reads configuration state + the typed result vocabulary
-// here; it never touches an endpoint reader's internals or a raw fetch.
-export type {
-  DataForSeoResult,
-  DataForSeoProvenance,
-  DataForSeoRequestShape,
-  DataForSeoRequestArgs,
-} from "./dataforseo/types";
-export {
-  dataForSeoRequest,
-  dataForSeoIdempotencyKey,
-  isDataForSeoConfigured,
-  isDryRun,
-  monthlyCapUsd,
-} from "./dataforseo/client";
+// Canonical DataForSEO boundary: env/config state lives in dataforseo/client;
+// every provider call flows through the cached money-safe boundary
+// (dataforseo/funnel-boundary); the research funnel's phase executors and
+// snapshot-ready evidence are the ONLY surface Runtime consumes.
+export type { FunnelUnitOutcome } from "./dataforseo/funnel-boundary";
+export { keywordDiscoveryUnit } from "./funnel/discovery";
+export { promptObservationUnit, serpAnalysisUnit, winningPagesUnit, loadFunnelEvidence } from "./funnel/observe";
+export type { FunnelEvidence } from "./funnel/observe";
 
 // --- App/component surface re-exports (curated) ---
 
