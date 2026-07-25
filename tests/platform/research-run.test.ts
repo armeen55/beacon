@@ -21,17 +21,9 @@ const statusOf = (t: string): AccountStatus => ACCOUNT_STATUS.get(t) ?? "active"
 const setAccountStatus = (t: string, s: AccountStatus): void => void ACCOUNT_STATUS.set(t, s);
 function installAccountRepo(): void {
   const byId = async (id: string) => ({
-    id,
-    slug: id,
-    provisional_name: "",
-    domain: "example.com",
-    status: statusOf(id),
-    signup_date: "",
-    tos_accepted_at: null,
-    daily_budget_usd: 0,
-    growth_goal: null,
-    created_at: "",
-    updated_at: "",
+    id, slug: id, provisional_name: "", domain: "example.com", status: statusOf(id),
+    signup_date: "", tos_accepted_at: null, daily_budget_usd: 0, growth_goal: null,
+    created_at: "", updated_at: "",
   });
   const repo: AccountRepository = { getAccountById: byId, getAccountBySlug: byId };
   setAccountRepositoryForTests(repo);
@@ -43,11 +35,9 @@ const T = "acct-a";
 const U = "acct-b";
 const LEASE = RR.RESEARCH_RUN_LEASE_SECONDS * 1000;
 const mk = (o: Partial<RR.ResearchRun>): RR.ResearchRun => ({
-  id: "seed", tenant_id: T, cycle_key: RR.cycleKeyForUtc(T, new Date(NOW)),
-  status: "paused", current_phase: "refresh_sources", phase_cursor: null,
-  progress: {}, spend_usd: 0, last_error: null, lease_owner: null, lease_expires_at: null,
-  started_at: iso(), updated_at: iso(), completed_at: null,
-  ...o,
+  id: "seed", tenant_id: T, cycle_key: RR.cycleKeyForUtc(T, new Date(NOW)), status: "paused",
+  current_phase: "refresh_sources", phase_cursor: null, progress: {}, spend_usd: 0, last_error: null,
+  lease_owner: null, lease_expires_at: null, started_at: iso(), updated_at: iso(), completed_at: null, ...o,
 });
 /** In-memory repo modeling the RPC guards: claim resumes the account's single
  *  unfinished run (any date) before a new daily cycle, a foreign LIVE lease returns
@@ -76,8 +66,8 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } {
       if (rows.some((x) => x.tenant_id === tenantId && x.status === "completed" && (x.completed_at ?? "").slice(0, 10) === today)) return null;
       rows.push(mk({
         id: `r${rows.length}`, tenant_id: tenantId, cycle_key: RR.cycleKeyForUtc(tenantId, new Date(NOW)),
-        status: "running", current_phase: "refresh_sources", phase_cursor: null, progress: {}, last_error: null,
-        lease_owner: owner, lease_expires_at: exp, started_at: iso(), updated_at: iso(),
+        status: "running", current_phase: "refresh_sources", phase_cursor: null, progress: {},
+        last_error: null, lease_owner: owner, lease_expires_at: exp, started_at: iso(), updated_at: iso(),
       }));
       return { ...rows[rows.length - 1]! };
     },
@@ -124,6 +114,7 @@ const BENIGN: ResearchCycleSteps = {
   refreshSources: async () => ({ attempted: 0, succeeded: [], failures: [] }),
   backfillChunk: async () => ({ kind: "no_work" }),
   funnelUnit: async () => ({ status: "done", cursor: null, progress: {} }), // evidence phases no-op in these lease/truth tests
+  currentBasis: async () => "basis_test", // the account basis the funnel scopes to
   publishSurface: async () => {},
   surfaceStale: async () => false,
 };
@@ -150,8 +141,7 @@ describe("research-run claim: one open run per account across all dates", () => 
   it("resumes the account's one unfinished run first: yesterday's paused run is reclaimed by the same id with phase and cursor untouched, a later-day visit reuses it, and no second row is ever created", async () => {
     const rows = freshRepo();
     rows.push(mk({
-      id: "seed", status: "paused", current_phase: "gsc_backfill_chunk",
-      phase_cursor: { phase: "gsc_backfill_chunk", attemptKey: "k" },
+      id: "seed", status: "paused", current_phase: "gsc_backfill_chunk", phase_cursor: { phase: "gsc_backfill_chunk", attemptKey: "k" },
       cycle_key: RR.cycleKeyForUtc(T, new Date(NOW - DAY)), started_at: iso(NOW - DAY),
     }));
     const first = await RR.claimRun(T, "o1");
@@ -274,10 +264,7 @@ describe("research-run partial-success durability + deduped refreshed providers"
     const steps: Partial<ResearchCycleSteps> = {
       ...BENIGN,
       refreshSources: async () => {
-        if (firstAttempt) {
-          firstAttempt = false;
-          return { attempted: 2, succeeded: ["google_gsc"], failures: [{ provider: "google_ga4", detail: "boom" }] };
-        }
+        if (firstAttempt) { firstAttempt = false; return { attempted: 2, succeeded: ["google_gsc"], failures: [{ provider: "google_ga4", detail: "boom" }] }; }
         return { attempted: 2, succeeded: ["google_gsc", "google_ga4"], failures: [] };
       },
     };
@@ -308,9 +295,7 @@ describe("research-run idempotency identity", () => {
       ...BENIGN,
       refreshSources: async (_t, _n, key) => {
         refreshKeys.push(key);
-        return refreshFails
-          ? { attempted: 1, succeeded: [], failures: [{ provider: "google_gsc", detail: "boom" }] }
-          : { attempted: 1, succeeded: ["google_gsc"], failures: [] };
+        return refreshFails ? { attempted: 1, succeeded: [], failures: [{ provider: "google_gsc", detail: "boom" }] } : { attempted: 1, succeeded: ["google_gsc"], failures: [] };
       },
       backfillChunk: async (_t, _n, key) => (backfillKeys.push(key), { kind: "no_work" }),
     };
@@ -370,8 +355,7 @@ describe("research-run resume + status projection", () => {
 
 describe("research-run Today copy", () => {
   const view = (o: Partial<RR.ResearchRunStatusView>): RR.ResearchRunStatusView => ({
-    state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: 7, counters: {}, updatedAt: null, completedAt: null,
-    ...o,
+    state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: 7, counters: {}, updatedAt: null, completedAt: null, ...o,
   });
   const NOON_PT = Date.parse("2026-07-23T19:00:00Z"); // noon Pacific on Jul 23
   it("never says 'current': same-day completion shows today, an older pass shows its date, running/paused keep their lines, none is silent", () => {

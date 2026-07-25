@@ -37,8 +37,9 @@ export {
   isPlaceholderBusinessName,
 } from "./onboarding/provision-tenant";
 
-// Onboarding: access gating
+// Onboarding: access gating + the ONE basis fingerprint (shared by Runtime and Evidence)
 export { requireOnboardingTenant } from "./onboarding/access";
+export { basisTag } from "./onboarding/basis";
 
 // Onboarding: site-profile normalization
 export { normalizeSiteUrl } from "./onboarding/fetch-site-profile";

@@ -1,16 +1,17 @@
 import "server-only";
 
 /**
- * funnel/state (Slice 6, Agent B) - the durable per-account research-funnel
- * document in the tenant-scoped mirrored json-store "research-funnel" (already
- * registered), read/written with { tenantId } explicit. Versioned + safely
- * decoded; every list is bounded so the mirrored blob cannot grow without limit.
+ * funnel/state (integrity closure, Agent B) - the durable per-account research
+ * document, now scoped to ONE (tenant, onboarding basis) row in
+ * public.research_state via state-repo (NO json-store, NO dual-write). A new
+ * basis naturally reads empty; old-basis rows stay inert. Versioned + safely
+ * decoded; every list is bounded so a persisted blob cannot grow without limit.
  */
 
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { loadResearchState, saveResearchState, type StateRepoDeps } from "./state-repo";
+import type { ResearchPageExtract, ResearchWinningAppearance } from "./research-evidence";
 
-const STORE = "research-funnel";
-const FUNNEL_SCHEMA_VERSION = 1;
+const FUNNEL_SCHEMA_VERSION = 2;
 
 export const MAX_RETAINED = 150;
 export const MAX_REJECTED = 150;
@@ -28,39 +29,54 @@ export type FunnelReject = { keyword: string; reason: string };
 
 export type FunnelPair = {
   promptId: string;
+  /** Real prompt text, persisted when observed so provenance never surfaces an id. */
+  promptText?: string;
   engine: "chatgpt" | "perplexity" | "gemini" | "claude";
   scraper?: boolean;
   cacheKey: string | null;
   status: "pending" | "posted" | "done" | "unsupported";
   observedAt?: string;
+  modelRequested?: string | null;
   modelServed?: string | null;
-  citations?: { url: string; domain: string }[];
   webSearchReported?: boolean | null;
+  /** false = citations not observable on this path (distinct from observed zero). */
+  citationsObserved?: boolean;
+  /** null = not observable; [] = observed zero; nonempty = real citations. */
+  citations?: { url: string; domain: string; title: string | null }[] | null;
+  /** null = not observable on this path. */
+  fanOutQueries?: string[] | null;
+  answerHash?: string | null;
 };
 
 export type FunnelSerp = {
   query: string;
   cacheKey: string | null;
   status: "pending" | "posted" | "done" | "failed";
-  organic?: { rank: number; url: string; domain: string }[];
-  aiOverview?: { url: string; domain: string }[];
+  organic?: { rank: number; url: string; domain: string; title: string | null }[];
+  aiOverview?: { url: string; domain: string; title: string | null }[];
   aiModeCacheKey?: string | null;
-  aiModeCitations?: { url: string; domain: string }[];
+  aiMode?: { url: string; domain: string; title: string | null }[];
+  paa?: { question: string; answeringDomain: string | null }[];
+  related?: string[];
 };
 
 export type FunnelWinningPage = {
   url: string;
   domain: string;
-  appearances: { query: string; rank: number | null; surface: "organic" | "ai_overview" | "ai_answer" | "ai_mode" }[];
+  /** engines of THIS page's OWN appearances only. */
+  engines: string[];
+  /** real appearance prompt texts. */
+  examplePrompts: string[];
+  appearances: ResearchWinningAppearance[];
   fetched: boolean;
-  cacheKey?: string;
-  extract: { title: string | null; h1: string | null; wordCount: number; headings: string[]; faqCount: number } | null;
+  contentHash?: string | null;
+  extract: ResearchPageExtract | null;
 };
 
 export type FunnelState = {
   schemaVersion: number;
   tenantId: string;
-  basisTag?: string;
+  basisTag: string;
   discovery: {
     seeds: string[];
     raw: FunnelKeyword[];
@@ -76,10 +92,13 @@ export type FunnelState = {
   updatedAt: string;
 };
 
-export function emptyFunnelState(tenantId: string, now = ""): FunnelState {
+export type LoadedFunnelState = { state: FunnelState; rowVersion: number };
+
+export function emptyFunnelState(tenantId: string, basisTag = "", now = ""): FunnelState {
   return {
     schemaVersion: FUNNEL_SCHEMA_VERSION,
     tenantId,
+    basisTag,
     discovery: { seeds: [], raw: [], normalized: [], retained: [], rejected: [], counts: { raw: 0, normalized: 0, retained: 0, rejected: 0 } },
     prompts: { pairs: [], intendedPairs: 0 },
     serps: { queries: [], analyzed: 0 },
@@ -89,16 +108,16 @@ export function emptyFunnelState(tenantId: string, now = ""): FunnelState {
   };
 }
 
-/** Decode an unknown persisted blob into a safe, current-shape state. Never throws. */
-function decodeFunnelState(tenantId: string, raw: unknown): FunnelState {
-  const base = emptyFunnelState(tenantId);
+/** Decode an unknown persisted blob into a safe, current-shape state. Never throws.
+ *  A schema/basis/tenant mismatch reads as EMPTY so stale-shape residue never renders. */
+function decodeFunnelState(tenantId: string, basisTag: string, raw: unknown): FunnelState {
+  const base = emptyFunnelState(tenantId, basisTag);
   if (!raw || typeof raw !== "object") return base;
   const r = raw as Partial<FunnelState>;
-  if (r.schemaVersion !== FUNNEL_SCHEMA_VERSION || r.tenantId !== tenantId) return base;
+  if (r.schemaVersion !== FUNNEL_SCHEMA_VERSION || r.tenantId !== tenantId || r.basisTag !== basisTag) return base;
   const d = r.discovery;
   return {
     ...base,
-    basisTag: typeof r.basisTag === "string" ? r.basisTag : undefined,
     discovery: d && typeof d === "object" ? { ...base.discovery, ...d, counts: { ...base.discovery.counts, ...d.counts } } : base.discovery,
     prompts: r.prompts && typeof r.prompts === "object" ? { ...base.prompts, ...r.prompts } : base.prompts,
     serps: r.serps && typeof r.serps === "object" ? { ...base.serps, ...r.serps } : base.serps,
@@ -108,16 +127,26 @@ function decodeFunnelState(tenantId: string, raw: unknown): FunnelState {
   };
 }
 
-export async function loadFunnelState(tenantId: string): Promise<FunnelState> {
-  try {
-    const rows = await readStore<FunnelState>(STORE, [], { tenantId });
-    const row = (rows ?? []).find((x) => x && (x as FunnelState).tenantId === tenantId);
-    return decodeFunnelState(tenantId, row ?? null);
-  } catch {
-    return emptyFunnelState(tenantId);
-  }
+/** Load the basis-scoped state plus its optimistic row_version (0 when absent). */
+export async function loadFunnelState(tenantId: string, basisTag: string, deps?: StateRepoDeps): Promise<LoadedFunnelState> {
+  const row = await loadResearchState<FunnelState>(tenantId, basisTag, deps);
+  if (!row) return { state: emptyFunnelState(tenantId, basisTag), rowVersion: 0 };
+  return { state: decodeFunnelState(tenantId, basisTag, row.state), rowVersion: row.rowVersion };
 }
 
-export async function saveFunnelState(tenantId: string, state: FunnelState): Promise<void> {
-  await writeStore<FunnelState>(STORE, [{ ...state, schemaVersion: FUNNEL_SCHEMA_VERSION, tenantId }], { tenantId });
+/** Optimistic save. Returns the new row version, or null on a version conflict. */
+export async function saveFunnelState(
+  tenantId: string,
+  basisTag: string,
+  state: FunnelState,
+  expectedRowVersion: number,
+  deps?: StateRepoDeps,
+): Promise<number | null> {
+  return saveResearchState<FunnelState>(
+    tenantId,
+    basisTag,
+    { ...state, schemaVersion: FUNNEL_SCHEMA_VERSION, tenantId, basisTag },
+    expectedRowVersion,
+    deps,
+  );
 }

@@ -147,7 +147,7 @@ export interface SeedDataRepository {
  * citation-rebuild) that genuinely need full history don't have to
  * change anything.
  */
-export type WindowedReadOptions = {
+type WindowedReadOptions = {
   /** ISO date string (YYYY-MM-DD or full ISO timestamp). Filters the
    *  read at the database with `<column> >= since` so the rows never
    *  cross the wire. */
@@ -175,7 +175,7 @@ export type WindowedReadOptions = {
  * pushes the predicate down to Postgres so the row count crossing
  * the wire drops from ~15,000 to typically <500.
  */
-export type ScopedObservationReadOptions = WindowedReadOptions & {
+type ScopedObservationReadOptions = WindowedReadOptions & {
   /** When set, filter at the DB with `prompt_id = $1`. */
   promptId?: string;
 };

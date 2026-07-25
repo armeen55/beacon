@@ -29,17 +29,8 @@ const SCHEMA = z.object({
 /** A completed Responses envelope carrying `structuredText` as the output_text. */
 function completedEnvelope(structuredText: string, over: Record<string, unknown> = {}) {
   return {
-    id: "resp_abc123",
-    model: "gpt-5-mini",
-    status: "completed",
-    created_at: 1_753_000_000,
-    output: [
-      {
-        type: "message",
-        role: "assistant",
-        content: [{ type: "output_text", text: structuredText }],
-      },
-    ],
+    id: "resp_abc123", model: "gpt-5-mini", status: "completed", created_at: 1_753_000_000,
+    output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: structuredText }] }],
     output_text: structuredText,
     usage: { input_tokens: 1200, output_tokens: 300 },
     ...over,
@@ -60,12 +51,8 @@ function fakeFetch(
     capture.body = init?.body ? JSON.parse(init.body as string) : null;
     if (opts.throwErr) throw opts.throwErr;
     return {
-      ok: opts.ok ?? true,
-      status: opts.status ?? 200,
-      json: async () => {
-        if (opts.notJson) throw new Error("not json");
-        return envelope;
-      },
+      ok: opts.ok ?? true, status: opts.status ?? 200,
+      json: async () => { if (opts.notJson) throw new Error("not json"); return envelope; },
     } as unknown as Response;
   }) as unknown as typeof fetch;
   return { impl, capture };
@@ -73,20 +60,9 @@ function fakeFetch(
 
 function baseArgs(over: Partial<StructuredCallArgs> = {}): StructuredCallArgs {
   return {
-    promptId: "draft.answer_block",
-    promptVersion: 6,
-    action: "gateway-test",
-    apiKey: "sk-test",
-    model: "gpt-5-mini",
-    instructions: "You are a strict JSON generator.",
-    input: "Make a title.",
-    schemaName: "test_schema",
-    zodSchema: SCHEMA,
-    maxOutputTokens: 512,
-    timeoutMs: 30_000,
-    budget: { mode: "caller", note: "test" },
-    tenantId: "tenant-fixture",
-    ...over,
+    promptId: "draft.answer_block", promptVersion: 6, action: "gateway-test", apiKey: "sk-test", model: "gpt-5-mini",
+    instructions: "You are a strict JSON generator.", input: "Make a title.", schemaName: "test_schema", zodSchema: SCHEMA,
+    maxOutputTokens: 512, timeoutMs: 30_000, budget: { mode: "caller", note: "test" }, tenantId: "tenant-fixture", ...over,
   };
 }
 
@@ -102,13 +78,10 @@ const allowBudget: BudgetImpl = { check: async () => ({ allowed: true }), record
 describe("openAIStructuredResponse — fails closed before any fetch", () => {
   it("blocks on a tripped global cost breaker without calling fetch", async () => {
     const { impl, capture } = fakeFetch(completedEnvelope("{}"));
-    const res = await openAIStructuredResponse(
-      baseArgs({
-        budget: { mode: "gateway_check", projectedCostUsd: 0.01 },
-        costBreakerImpl: { check: async () => ({ tripped: true, reason: "ceiling reached" }) },
-        fetchImpl: impl,
-      }),
-    );
+    const res = await openAIStructuredResponse(baseArgs({
+      budget: { mode: "gateway_check", projectedCostUsd: 0.01 },
+      costBreakerImpl: { check: async () => ({ tripped: true, reason: "ceiling reached" }) }, fetchImpl: impl,
+    }));
     expect(res.kind).toBe("blocked_budget");
     if (res.kind === "blocked_budget") expect(res.reason).toBe("ceiling reached");
     expect(capture.calls).toBe(0);
@@ -116,23 +89,17 @@ describe("openAIStructuredResponse — fails closed before any fetch", () => {
 
   it("blocks on the per-platform budget cap without calling fetch", async () => {
     const { impl, capture } = fakeFetch(completedEnvelope("{}"));
-    const res = await openAIStructuredResponse(
-      baseArgs({
-        budget: { mode: "gateway_check", projectedCostUsd: 0.01 },
-        costBreakerImpl: allowBreaker,
-        budgetImpl: { check: async () => ({ allowed: false, reason: "cap reached" }), record: async () => {} },
-        fetchImpl: impl,
-      }),
-    );
+    const res = await openAIStructuredResponse(baseArgs({
+      budget: { mode: "gateway_check", projectedCostUsd: 0.01 }, costBreakerImpl: allowBreaker,
+      budgetImpl: { check: async () => ({ allowed: false, reason: "cap reached" }), record: async () => {} }, fetchImpl: impl,
+    }));
     expect(res.kind).toBe("blocked_budget");
     expect(capture.calls).toBe(0);
   });
 
   it("returns invalid_response for an unsupported schema without calling fetch", async () => {
     const { impl, capture } = fakeFetch(completedEnvelope("{}"));
-    const res = await openAIStructuredResponse(
-      baseArgs({ zodSchema: z.object({ a: z.any() }), fetchImpl: impl }),
-    );
+    const res = await openAIStructuredResponse(baseArgs({ zodSchema: z.object({ a: z.any() }), fetchImpl: impl }));
     expect(res.kind).toBe("invalid_response");
     if (res.kind === "invalid_response") expect(res.reason).toContain("unsupported_schema");
     expect(capture.calls).toBe(0);
@@ -164,7 +131,6 @@ describe("openAIStructuredResponse — request body", () => {
     expect(body.reasoning_effort).toBeUndefined();
     expect(body.response_format).toBeUndefined();
   });
-
 });
 
 // ── envelope classification ───────────────────────────────────────────────────

@@ -37,10 +37,6 @@
  */
 
 export const TENANT_SCOPED_STORES = new Set<string>([
-  // Slice 6 (2026-07-25): the account's durable research-funnel state (retained
-  // keyword set, observation refs, winning pages) - tenant-DERIVED conclusions,
-  // never shared, unlike the public evidence_cache table.
-  "research-funnel",
   // Inherited from scripts/backfill-tenant-id.ts (38 stores).
   "imported-results",
   "imported-changes",

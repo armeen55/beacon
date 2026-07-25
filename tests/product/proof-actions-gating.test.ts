@@ -31,23 +31,17 @@ vi.mock("@/lib/auth/can-publish", () => ({
 vi.mock("@/lib/operator-mode", () => ({ isOperatorModeServer: () => true }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: vi.fn(async () => "tenant-test") }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/bridge", () => ({
-  loadProofPlan: mocks.loadProofPlan,
-}));
+vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/bridge", () => ({ loadProofPlan: mocks.loadProofPlan }));
 vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet", () => ({
-  loadPageSurgeonContext: mocks.loadPageSurgeonContext,
-  topPagesByDemand: mocks.topPagesByDemand,
+  loadPageSurgeonContext: mocks.loadPageSurgeonContext, topPagesByDemand: mocks.topPagesByDemand,
 }));
 vi.mock("@/domains/measurement/proof-gsc/measure-pass", () => ({
-  captureChangeMeta: mocks.captureChangeMeta,
-  recordShippedChange: mocks.recordShippedChange,
-  measureRecord: mocks.measureRecord,
+  captureChangeMeta: mocks.captureChangeMeta, recordShippedChange: mocks.recordShippedChange, measureRecord: mocks.measureRecord,
   // audit-4: actions.ts now defaults shipDate to the Pacific calendar day.
   defaultPacificShipDate: () => "2026-06-22",
 }));
 vi.mock("@/domains/measurement/proof-gsc/shipped-change-store", () => ({
-  loadShippedChanges: mocks.loadShippedChanges,
-  upsertShippedChange: mocks.upsertShippedChange,
+  loadShippedChanges: mocks.loadShippedChanges, upsertShippedChange: mocks.upsertShippedChange,
 }));
 
 import {
@@ -59,26 +53,15 @@ import {
 beforeEach(() => {
   ownerFlag.value = true;
   Object.values(mocks).forEach((m) => m.mockReset());
-  mocks.loadProofPlan.mockResolvedValue([
-    { pageUrl: "https://x.test/cities", controlPaths: ["/a", "/b"], headlineAction: "title" },
-  ]);
+  mocks.loadProofPlan.mockResolvedValue([{ pageUrl: "https://x.test/cities", controlPaths: ["/a", "/b"], headlineAction: "title" }]);
   mocks.captureChangeMeta.mockResolvedValue({
-    canonPage: "https://x.test/cities",
-    path: "/cities",
-    before: "old",
-    after: "new",
-    targetQueries: ["cities in iran"],
-    headlineAction: "title",
+    canonPage: "https://x.test/cities", path: "/cities", before: "old", after: "new", targetQueries: ["cities in iran"], headlineAction: "title",
   });
   mocks.recordShippedChange.mockResolvedValue({ id: "/cities::2026-06-19", verdict: "measuring" });
   mocks.upsertShippedChange.mockResolvedValue(undefined);
   mocks.loadShippedChanges.mockResolvedValue([]);
   mocks.loadPageSurgeonContext.mockResolvedValue({});
-  mocks.topPagesByDemand.mockReturnValue([
-    "https://x.test/a",
-    "https://x.test/b",
-    "https://x.test/c",
-  ]);
+  mocks.topPagesByDemand.mockReturnValue(["https://x.test/a", "https://x.test/b", "https://x.test/c"]);
 });
 
 describe("recordShippedChangeAction — account-owner gating", () => {
@@ -116,15 +99,9 @@ describe("recordShippedChangeAction — account-owner gating", () => {
 
   it("passes explicit change fields through to recordShippedChange", async () => {
     const res = await recordShippedChangeAction({
-      pageUrl: "/cities",
-      changeType: "edit_meta",
-      before: "old meta",
-      after: "new meta",
-      shippedAt: "2026-06-20",
-      notes: "manual wix edit",
-      targetQueries: "cities in iran\nlargest cities in iran, cities of iran",
-      verifiedLive: true,
-      liveSourceUrl: "https://www.fixture-content.example/cities",
+      pageUrl: "/cities", changeType: "edit_meta", before: "old meta", after: "new meta", shippedAt: "2026-06-20",
+      notes: "manual wix edit", targetQueries: "cities in iran\nlargest cities in iran, cities of iran",
+      verifiedLive: true, liveSourceUrl: "https://www.fixture-content.example/cities",
     });
     expect(res.success).toBe(true);
     const arg = mocks.recordShippedChange.mock.calls[0][0];
@@ -134,21 +111,12 @@ describe("recordShippedChangeAction — account-owner gating", () => {
     expect(arg.notes).toBe("manual wix edit");
     expect(arg.verifiedLive).toBe(true);
     expect(arg.liveSourceUrl).toBe("https://www.fixture-content.example/cities");
-    expect(arg.targetQueries).toEqual([
-      "cities in iran",
-      "largest cities in iran",
-      "cities of iran",
-    ]);
+    expect(arg.targetQueries).toEqual(["cities in iran", "largest cities in iran", "cities of iran"]);
   });
 
   it("real edit with no before/after (and no pack copy) ⇒ refused", async () => {
     mocks.captureChangeMeta.mockResolvedValue({
-      canonPage: "https://x.test/cities",
-      path: "/cities",
-      before: null,
-      after: null,
-      targetQueries: [],
-      headlineAction: null,
+      canonPage: "https://x.test/cities", path: "/cities", before: null, after: null, targetQueries: [], headlineAction: null,
     });
     const res = await recordShippedChangeAction({ pageUrl: "/cities", changeType: "edit_title" });
     expect(res.success).toBe(false);
@@ -158,12 +126,7 @@ describe("recordShippedChangeAction — account-owner gating", () => {
 
   it("keep_current with no before/after ⇒ still records (monitor decision)", async () => {
     mocks.captureChangeMeta.mockResolvedValue({
-      canonPage: "https://x.test/cities",
-      path: "/cities",
-      before: null,
-      after: null,
-      targetQueries: [],
-      headlineAction: null,
+      canonPage: "https://x.test/cities", path: "/cities", before: null, after: null, targetQueries: [], headlineAction: null,
     });
     const res = await recordShippedChangeAction({ pageUrl: "/cities", changeType: "keep_current" });
     expect(res.success).toBe(true);
@@ -171,9 +134,7 @@ describe("recordShippedChangeAction — account-owner gating", () => {
   });
 
   it("duplicate page + ship date ⇒ refused, nothing overwritten", async () => {
-    mocks.loadShippedChanges.mockResolvedValue([
-      { path: "/cities", actionType: "meta", shippedAt: "2026-06-20T08:00:00.000Z" },
-    ]);
+    mocks.loadShippedChanges.mockResolvedValue([{ path: "/cities", actionType: "meta", shippedAt: "2026-06-20T08:00:00.000Z" }]);
     const res = await recordShippedChangeAction({ pageUrl: "/cities", shippedAt: "2026-06-20" });
     expect(res.success).toBe(false);
     expect(res.error).toMatch(/already recorded/i);
@@ -208,9 +169,7 @@ describe("markRecrawlRequestedAction — operator gating + toggle", () => {
   });
 
   it("operator mark ⇒ stamps recrawlRequestedAt and persists", async () => {
-    mocks.loadShippedChanges.mockResolvedValue([
-      { id: "/cities::2026-06-20", recrawlRequestedAt: null },
-    ]);
+    mocks.loadShippedChanges.mockResolvedValue([{ id: "/cities::2026-06-20", recrawlRequestedAt: null }]);
     const res = await markRecrawlRequestedAction({ id: "/cities::2026-06-20", requested: true });
     expect(res.success).toBe(true);
     expect(mocks.upsertShippedChange).toHaveBeenCalledOnce();
@@ -218,9 +177,7 @@ describe("markRecrawlRequestedAction — operator gating + toggle", () => {
   });
 
   it("operator undo ⇒ clears recrawlRequestedAt", async () => {
-    mocks.loadShippedChanges.mockResolvedValue([
-      { id: "/cities::2026-06-20", recrawlRequestedAt: "2026-06-20T00:00:00Z" },
-    ]);
+    mocks.loadShippedChanges.mockResolvedValue([{ id: "/cities::2026-06-20", recrawlRequestedAt: "2026-06-20T00:00:00Z" }]);
     const res = await markRecrawlRequestedAction({ id: "/cities::2026-06-20", requested: false });
     expect(res.success).toBe(true);
     expect(mocks.upsertShippedChange.mock.calls[0][0].recrawlRequestedAt).toBeNull();

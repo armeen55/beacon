@@ -15,11 +15,14 @@
 import "server-only";
 
 import { log } from "@/lib/logger";
+import { basisTag, getTenant, loadBusinessProfile } from "@/domains/account";
 import { loadGscPageSignalsForTenant, type GscPageSignal } from "@/domains/evidence/readers/gsc-page-signals";
 import { loadGa4PageValuesForTenant, loadGa4PageRevenueForTenant, type Ga4PageValue } from "@/domains/evidence/readers/ga4-page-values";
 import type { PageRevenueValue } from "@/domains/evidence/readers/ga4-revenue";
 import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/evidence/readers/clarity-page-signals";
-import { loadFunnelEvidence } from "@/domains/evidence/funnel/observe";
+import { projectFunnelEvidence } from "@/domains/evidence/funnel/observe";
+import { loadFunnelState, type FunnelState } from "@/domains/evidence/funnel/state";
+import { emptyResearchEvidence, type FunnelResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
 import { loadNativeIntelForTenant } from "@/domains/evidence/readers/native-intel-loader";
 import { getPageSnapshots } from "@/domains/evidence/readers/snapshot-store";
 
@@ -60,7 +63,38 @@ export type LoadEvidenceSnapshotOptions = {
    *  citations apart. Falls back to the most common owned-page host. */
   site?: string | null;
   now?: Date;
+  /** The account's CURRENT research basis. Production default composes
+   *  getTenant + loadBusinessProfile + basisTag; injectable for tests. */
+  resolveBasis?: (tenantId: string) => Promise<string | null>;
+  loadState?: (tenantId: string, basisTag: string) => Promise<{ state: FunnelState; rowVersion: number }>;
 };
+
+/** The account's current basis (same inputs Runtime folds into the funnel cursor). */
+async function defaultResolveBasis(tenantId: string): Promise<string | null> {
+  try {
+    const account = await getTenant(tenantId);
+    if (!account?.domain?.trim()) return null;
+    const profile = await loadBusinessProfile(tenantId);
+    return basisTag(account.id, account.domain.trim(), profile, account.growth_goal ?? null);
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve the basis and project the basis-scoped funnel state into research
+ *  evidence. A missing basis or empty state yields honest empty evidence. */
+async function loadResearch(
+  tenantId: string,
+  now: Date,
+  options: LoadEvidenceSnapshotOptions,
+): Promise<{ basis: string | null; evidence: FunnelResearchEvidence }> {
+  const resolveBasis = options.resolveBasis ?? defaultResolveBasis;
+  const loadState = options.loadState ?? loadFunnelState;
+  const basis = await resolveBasis(tenantId).catch(() => null);
+  if (!basis) return { basis: null, evidence: emptyResearchEvidence() };
+  const { state } = await loadState(tenantId, basis);
+  return { basis, evidence: projectFunnelEvidence(state, now.getTime()) };
+}
 
 /**
  * Assemble a normalized EvidenceSnapshot for a tenant from cached evidence only
@@ -73,13 +107,13 @@ export async function loadEvidenceSnapshot(
 ): Promise<EvidenceSnapshot> {
   const now = options.now ?? new Date();
 
-  const [gscMap, ga4Map, revenueMap, clarityMap, keywordRows, nativeSource, snapshots] =
+  const [gscMap, ga4Map, revenueMap, clarityMap, research, nativeSource, snapshots] =
     await Promise.all([
       loadGscPageSignalsForTenant(tenantId, now).catch(() => new Map<string, GscPageSignal>()),
       loadGa4PageValuesForTenant(tenantId, now).catch(() => new Map<string, Ga4PageValue>()),
       loadGa4PageRevenueForTenant(tenantId, now).catch(() => new Map<string, PageRevenueValue>()),
       loadClarityPageSignalsForTenant(tenantId, now).catch(() => new Map<string, ClarityPageSignal>()),
-      loadFunnelEvidence(tenantId).then((f) => f.retainedKeywords).catch(() => []),
+      loadResearch(tenantId, now, options).catch(() => ({ basis: null as string | null, evidence: emptyResearchEvidence() })),
       loadSourceNativeIntel(tenantId),
       getPageSnapshots().catch(() => []),
     ]);
@@ -148,12 +182,24 @@ export async function loadEvidenceSnapshot(
   }
 
   // ── DataForSEO keyword demand (the funnel's retained set) ──
-  const dfsPayload = keywordRows.map((k) => ({
+  const dfsPayload = research.evidence.retainedKeywords.map((k) => ({
     query: k.query,
     searchVolume: k.searchVolume,
     competition: k.competition,
     competitionLevel: k.competitionLevel,
   }));
+  // ── Research funnel bundle (retained-with-intent + AI observations + SERP
+  //    evidence + winning pages + receipt), carried verbatim onto the snapshot. ──
+  const researchRows =
+    research.evidence.retainedKeywords.length +
+    research.evidence.aiObservations.length +
+    research.evidence.serpEvidence.length +
+    research.evidence.winningPages.length;
+  const researchSource: LoadedSource<FunnelResearchEvidence> = {
+    status: research.basis == null ? "dormant" : researchRows > 0 ? "fresh" : "empty",
+    lastSyncedAt: research.evidence.receipt.freshestObservationAt,
+    payload: research.evidence,
+  };
 
   // ── site host for owned/competitor split ──
   const ownedHosts = new Map<string, number>();
@@ -177,6 +223,7 @@ export async function loadEvidenceSnapshot(
     wix: { status: statusFor(wixByUrl.size), lastSyncedAt: null, payload: [...wixByUrl.values()] },
     clarity: { status: statusFor(clarityPayload.length), lastSyncedAt: null, payload: clarityPayload },
     dataforseo: { status: statusFor(dfsPayload.length), lastSyncedAt: null, payload: dfsPayload },
+    research: researchSource,
     nativeAi: buildNativeSourceInput(nativeSource, site, ownedUrlKeys),
   };
 

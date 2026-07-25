@@ -53,12 +53,7 @@ const VALID_CREATE_PAGE = {
     "Learn what goes on the Haft-Seen table for the Persian New Year and what each symbolic item means for the year ahead.",
   openingAnswer:
     "The Haft-Seen table is the centerpiece of Nowruz, the Persian New Year, arranged with symbolic items whose Persian names begin with the letter seen. Families gather the setting to wish for renewal, health, and prosperity, and sit before it together as the new year arrives.",
-  outline: [
-    "What the Haft-Seen table is",
-    "The symbolic items and their meanings",
-    "How families arrange the setting",
-    "Regional variations across Iran",
-  ],
+  outline: ["What the Haft-Seen table is", "The symbolic items and their meanings", "How families arrange the setting", "Regional variations across Iran"],
   faqQuestions: ["What does Haft-Seen mean?", "When is the Haft-Seen table set?"],
   schemaTypes: ["Article", "FAQPage"],
   evidenceRefs: [{ source: "dataforseo", detail: "AI is asked what goes on the haft-seen table for nowruz" }],
@@ -71,14 +66,7 @@ const VALID_CREATE_PAGE = {
 const EXISTING_INPUT: EvidenceInput = {
   tenantId: "referencepedia",
   page: { path: "/nowruz", url: "https://fixture-content.example/nowruz", label: "Nowruz" },
-  opportunity: {
-    query: "nowruz traditions",
-    kind: "existing_edit",
-    field: "title",
-    opportunityType: "Capture clicks",
-    currentValue: "Nowruz",
-    intent: "what",
-  },
+  opportunity: { query: "nowruz traditions", kind: "existing_edit", field: "title", opportunityType: "Capture clicks", currentValue: "Nowruz", intent: "what" },
   evidence: {
     hints: ["Search Console shows strong demand for nowruz traditions, the persian new year customs"],
     outline: ["History of Nowruz", "Haft-Seen table", "Persian customs and foods"],
@@ -89,15 +77,10 @@ const EXISTING_INPUT: EvidenceInput = {
 const NEW_PAGE_INPUT: EvidenceInput = {
   tenantId: "referencepedia",
   page: { path: null, url: null, label: "Haft-Seen table" },
-  opportunity: {
-    query: "haft-seen table",
-    kind: "new_page",
-    opportunityType: "Win AI citations",
-  },
+  opportunity: { query: "haft-seen table", kind: "new_page", opportunityType: "Win AI citations" },
   evidence: {
     hints: ["AI assistants are asked what goes on the haft-seen table for nowruz, the persian new year celebrated across iran"],
-    fanoutQueries: ["what are the seven items", "what does each item mean"],
-    competitorPages: ["https://example.com/haft-seen"],
+    fanoutQueries: ["what are the seven items", "what does each item mean"], competitorPages: ["https://example.com/haft-seen"],
   },
   sizing: { impactScore: 60, upsidePerMonth: null },
 };
@@ -123,12 +106,7 @@ function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal {
     opportunityType: "Capture clicks",
     changeFamily: "title",
     status: "proposed",
-    recommendedChange: {
-      kind: "existing_edit",
-      field: "title",
-      before: "Nowruz",
-      after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen",
-    },
+    recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen" },
     whyItMatters: "The title misses the customs searchers ask about.",
     estimatedEffortMinutes: 1,
     riskLevel: "low",
@@ -147,10 +125,7 @@ function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal {
 
 describe("existing-page cold proposal", () => {
   it("generates, validates, persists (serialize), and re-loads (deserialize)", async () => {
-    const out = await proposeExistingPageChange(EXISTING_INPUT, {
-      complete: fakeComplete([{ value: VALID_ATOMIC_EDIT }]),
-      now: new Date("2026-07-22T00:00:00Z"),
-    });
+    const out = await proposeExistingPageChange(EXISTING_INPUT, { complete: fakeComplete([{ value: VALID_ATOMIC_EDIT }]), now: new Date("2026-07-22T00:00:00Z") });
     expect(out.status).toBe("proposed");
     if (out.status !== "proposed") return;
 
@@ -182,9 +157,7 @@ describe("existing-page cold proposal", () => {
 
   it("returns no_draft (fail-closed) when the harness is off", async () => {
     process.env.BEACON_LLM_PROVIDER = "deterministic";
-    const out = await proposeExistingPageChange(EXISTING_INPUT, {
-      complete: fakeComplete([{ value: VALID_ATOMIC_EDIT }]),
-    });
+    const out = await proposeExistingPageChange(EXISTING_INPUT, { complete: fakeComplete([{ value: VALID_ATOMIC_EDIT }]) });
     expect(out.status).toBe("no_draft");
   });
 });
@@ -193,10 +166,7 @@ describe("existing-page cold proposal", () => {
 
 describe("new-page cold brief", () => {
   it("generates a full brief and validates it", async () => {
-    const out = await proposeNewPageChange(NEW_PAGE_INPUT, {
-      complete: fakeComplete([{ value: VALID_CREATE_PAGE }]),
-      now: new Date("2026-07-22T00:00:00Z"),
-    });
+    const out = await proposeNewPageChange(NEW_PAGE_INPUT, { complete: fakeComplete([{ value: VALID_CREATE_PAGE }]), now: new Date("2026-07-22T00:00:00Z") });
     expect(out.status).toBe("proposed");
     if (out.status !== "proposed") return;
 
@@ -223,35 +193,27 @@ describe("new-page cold brief", () => {
 
 describe("safety gates reject unsafe drafts", () => {
   it("rejects a placeholder stub", () => {
-    const p = baseProposal({
-      recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz [insert customs here]" },
-    });
+    const p = baseProposal({ recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz [insert customs here]" } });
     expect(validateProposal(p).verdict).toBe("rejected");
   });
 
   it("rejects an em/en dash in operator copy", () => {
-    const p = baseProposal({
-      recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions — Persian New Year" },
-    });
+    const p = baseProposal({ recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions — Persian New Year" } });
     const v = validateProposal(p);
     expect(v.verdict).toBe("rejected");
     expect(v.safetyFlags.some((f) => /dash/i.test(f))).toBe(true);
   });
 
   it("rejects a raw uuid leaking into copy", () => {
-    const p = baseProposal({
-      recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz 550e8400-e29b-41d4-a716-446655440000 Guide" },
-    });
+    const p = baseProposal({ recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz 550e8400-e29b-41d4-a716-446655440000 Guide" } });
     expect(validateProposal(p).verdict).toBe("rejected");
   });
 
   it("rejects a destructive edit that guts the current value", () => {
     const p = baseProposal({
       recommendedChange: {
-        kind: "existing_edit",
-        field: "meta",
+        kind: "existing_edit", field: "meta", after: "Nowruz.",
         before: "Nowruz is the Persian New Year celebrated with the Haft-Seen table, customs, and foods across Iran and the diaspora.",
-        after: "Nowruz.",
       },
     });
     const v = validateProposal(p);
@@ -261,10 +223,7 @@ describe("safety gates reject unsafe drafts", () => {
 
   it("maps a rejected verdict to a rejected proposal status", () => {
     const p = baseProposal();
-    const v = validateProposal({
-      ...p,
-      recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz — bad" },
-    });
+    const v = validateProposal({ ...p, recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz — bad" } });
     expect(v.status).toBe("rejected");
   });
 });
@@ -296,9 +255,7 @@ describe("no fabricated causality or certainty", () => {
   it("rejects an edit that introduces an ungrounded number/claim", () => {
     const p = baseProposal({
       recommendedChange: {
-        kind: "existing_edit",
-        field: "meta",
-        before: "Nowruz is the Persian New Year celebrated across Iran.",
+        kind: "existing_edit", field: "meta", before: "Nowruz is the Persian New Year celebrated across Iran.",
         after: "Nowruz is the Persian New Year, first celebrated exactly 3247 years ago in 1223 BCE.",
       },
     });
@@ -313,9 +270,7 @@ describe("no fabricated causality or certainty", () => {
 
 describe("manual publishing authority", () => {
   it("every generated proposal is a manual proposal, never applied", async () => {
-    const out = await proposeExistingPageChange(EXISTING_INPUT, {
-      complete: fakeComplete([{ value: VALID_ATOMIC_EDIT }]),
-    });
+    const out = await proposeExistingPageChange(EXISTING_INPUT, { complete: fakeComplete([{ value: VALID_ATOMIC_EDIT }]) });
     expect(out.status).toBe("proposed");
     if (out.status !== "proposed") return;
     expect(out.proposal.publish).toBe("manual");

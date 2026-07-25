@@ -17,6 +17,9 @@ import {
   type EvidenceSnapshotInput,
   type EvidenceSourceKind,
 } from "./snapshot";
+import { emptyResearchEvidence } from "./funnel/research-evidence";
+
+const RESEARCH_SOURCE = { status: "dormant" as const, lastSyncedAt: null, payload: emptyResearchEvidence() };
 
 const SCOPE = { tenantId: "t_iran", site: "fixture-content.example", builtAt: "2026-07-22T00:00:00.000Z" };
 
@@ -25,122 +28,64 @@ function fullInput(): EvidenceSnapshotInput {
   return {
     scope: SCOPE,
     gsc: {
-      status: "fresh",
-      lastSyncedAt: "2026-07-21T00:00:00.000Z",
+      status: "fresh", lastSyncedAt: "2026-07-21T00:00:00.000Z",
       payload: [
         {
-          url: "https://fixture-content.example/flag",
-          clicks90d: 40,
-          impressions90d: 4000,
-          ctr90d: 0.01,
-          position90d: 8.2,
+          url: "https://fixture-content.example/flag", clicks90d: 40, impressions90d: 4000, ctr90d: 0.01, position90d: 8.2,
           topQueries: [
             { query: "iran flag meaning", impressions: 3000, clicks: 30, position: 8 },
             { query: "iran flag colors", impressions: 1000, clicks: 10, position: 9 },
           ],
         },
         {
-          url: "https://fixture-content.example/flag-history",
-          clicks90d: 5,
-          impressions90d: 900,
-          ctr90d: 0.005,
-          position90d: 14,
+          url: "https://fixture-content.example/flag-history", clicks90d: 5, impressions90d: 900, ctr90d: 0.005, position90d: 14,
           topQueries: [{ query: "iran flag meaning", impressions: 900, clicks: 5, position: 14 }],
         },
       ],
     },
     ga4: {
-      status: "fresh",
-      lastSyncedAt: "2026-07-21T00:00:00.000Z",
-      payload: [
-        {
-          url: "https://fixture-content.example/flag",
-          sessions28d: 800,
-          engaged28d: 500,
-          conversions28d: 12,
-          revenueUsd: 340,
-        },
-      ],
+      status: "fresh", lastSyncedAt: "2026-07-21T00:00:00.000Z",
+      payload: [{ url: "https://fixture-content.example/flag", sessions28d: 800, engaged28d: 500, conversions28d: 12, revenueUsd: 340 }],
     },
     wix: {
-      status: "fresh",
-      lastSyncedAt: "2026-07-20T00:00:00.000Z",
+      status: "fresh", lastSyncedAt: "2026-07-20T00:00:00.000Z",
       payload: [
         {
-          url: "https://fixture-content.example/flag",
-          title: "The Iran Flag: Meaning and Colors",
-          metaDescription: "What the Iran flag means.",
-          h1: "The Iran Flag",
-          h2: ["Colors", "Emblem"],
-          outline: ["Colors", "Emblem", "History"],
-          schemaTypes: ["Article"],
-          hasFaq: false,
-          faqCount: 0,
-          wordCount: 600,
-          internalLinks: [],
-          fetchedAt: "2026-07-20T00:00:00.000Z",
+          url: "https://fixture-content.example/flag", title: "The Iran Flag: Meaning and Colors", metaDescription: "What the Iran flag means.",
+          h1: "The Iran Flag", h2: ["Colors", "Emblem"], outline: ["Colors", "Emblem", "History"], schemaTypes: ["Article"],
+          hasFaq: false, faqCount: 0, wordCount: 600, internalLinks: [], fetchedAt: "2026-07-20T00:00:00.000Z",
         },
         {
-          url: "https://fixture-content.example/flag-history",
-          title: "Iran Flag History Through the Ages",
-          metaDescription: null,
-          h1: "Iran Flag History",
-          h2: ["Timeline"],
-          outline: ["Timeline"],
-          schemaTypes: [],
-          hasFaq: false,
-          faqCount: 0,
-          wordCount: 300,
-          internalLinks: [],
-          fetchedAt: "2026-07-20T00:00:00.000Z",
+          url: "https://fixture-content.example/flag-history", title: "Iran Flag History Through the Ages", metaDescription: null,
+          h1: "Iran Flag History", h2: ["Timeline"], outline: ["Timeline"], schemaTypes: [],
+          hasFaq: false, faqCount: 0, wordCount: 300, internalLinks: [], fetchedAt: "2026-07-20T00:00:00.000Z",
         },
       ],
     },
     clarity: {
-      status: "fresh",
-      lastSyncedAt: "2026-07-21T00:00:00.000Z",
-      payload: [
-        {
-          url: "https://fixture-content.example/flag",
-          sessions: 800,
-          rageClicks: 20,
-          deadClicks: 10,
-          quickbacks: 5,
-          scriptErrors: 3,
-          frictionScore: 36,
-        },
-      ],
+      status: "fresh", lastSyncedAt: "2026-07-21T00:00:00.000Z",
+      payload: [{ url: "https://fixture-content.example/flag", sessions: 800, rageClicks: 20, deadClicks: 10, quickbacks: 5, scriptErrors: 3, frictionScore: 36 }],
     },
     dataforseo: {
-      status: "fresh",
-      lastSyncedAt: "2026-07-19T00:00:00.000Z",
+      status: "fresh", lastSyncedAt: "2026-07-19T00:00:00.000Z",
       payload: [
         { query: "iran flag meaning", searchVolume: 5400, competition: 0.2, competitionLevel: "low" },
         { query: "buy iran flag", searchVolume: 880, competition: 0.8, competitionLevel: "high" },
       ],
     },
+    research: RESEARCH_SOURCE,
     nativeAi: {
-      status: "fresh",
-      lastSyncedAt: "2026-07-21T00:00:00.000Z",
+      status: "fresh", lastSyncedAt: "2026-07-21T00:00:00.000Z",
       payload: {
-        rowsScanned: 120,
-        enginesSeen: ["chatgpt", "perplexity"],
+        rowsScanned: 120, enginesSeen: ["chatgpt", "perplexity"],
         citedPages: [
           {
-            url: "https://fixture-content.example/flag",
-            isOwned: true,
-            citationCount: 4,
-            distinctPrompts: 3,
-            engines: ["chatgpt"],
-            examplePrompts: ["what does the iran flag mean"],
+            url: "https://fixture-content.example/flag", isOwned: true, citationCount: 4, distinctPrompts: 3,
+            engines: ["chatgpt"], examplePrompts: ["what does the iran flag mean"],
           },
           {
-            url: "https://persianfood.example/kebab",
-            isOwned: false,
-            citationCount: 9,
-            distinctPrompts: 6,
-            engines: ["chatgpt", "perplexity"],
-            examplePrompts: ["best persian kebab recipes", "how to make koobideh kebab"],
+            url: "https://persianfood.example/kebab", isOwned: false, citationCount: 9, distinctPrompts: 6,
+            engines: ["chatgpt", "perplexity"], examplePrompts: ["best persian kebab recipes", "how to make koobideh kebab"],
           },
         ],
         questions: [
@@ -201,10 +146,7 @@ describe("buildEvidenceSnapshot — six-source normalization", () => {
     const snap = buildEvidenceSnapshot(fullInput());
     const cannib = snap.cannibalization.find((c) => c.query === "iran flag meaning");
     expect(cannib).toBeTruthy();
-    expect(cannib!.competingUrls).toEqual([
-      "fixture-content.example/flag",
-      "fixture-content.example/flag-history",
-    ]);
+    expect(cannib!.competingUrls).toEqual(["fixture-content.example/flag", "fixture-content.example/flag-history"]);
   });
 
   it("classifies intent (buy → commercial, meaning → informational)", () => {
@@ -223,19 +165,11 @@ describe("buildEvidenceSnapshot — six-source normalization", () => {
   it("hash ignores freshness timestamps but reacts to material evidence change", () => {
     const base = fullInput();
     const a = buildEvidenceSnapshot(base);
-    const laterClock: EvidenceSnapshotInput = {
-      ...base,
-      gsc: { ...base.gsc, lastSyncedAt: "2099-01-01T00:00:00.000Z" },
-    };
+    const laterClock: EvidenceSnapshotInput = { ...base, gsc: { ...base.gsc, lastSyncedAt: "2099-01-01T00:00:00.000Z" } };
     expect(buildEvidenceSnapshot(laterClock).evidenceHash).toBe(a.evidenceHash);
     const changed: EvidenceSnapshotInput = {
       ...base,
-      gsc: {
-        ...base.gsc,
-        payload: base.gsc.payload.map((p, i) =>
-          i === 0 ? { ...p, clicks90d: 9999 } : p,
-        ),
-      },
+      gsc: { ...base.gsc, payload: base.gsc.payload.map((p, i) => (i === 0 ? { ...p, clicks90d: 9999 } : p)) },
     };
     expect(buildEvidenceSnapshot(changed).evidenceHash).not.toBe(a.evidenceHash);
   });
@@ -245,17 +179,8 @@ describe("buildEvidenceSnapshot — honest source states", () => {
   function emptyInput(): EvidenceSnapshotInput {
     const empty = <T>(payload: T) => ({ status: "empty" as const, lastSyncedAt: null, payload });
     return {
-      scope: SCOPE,
-      gsc: empty([]),
-      ga4: empty([]),
-      wix: empty([]),
-      clarity: empty([]),
-      dataforseo: empty([]),
-      nativeAi: {
-        status: "dormant",
-        lastSyncedAt: null,
-        payload: { citedPages: [], questions: [], rowsScanned: 0, enginesSeen: [] },
-      },
+      scope: SCOPE, gsc: empty([]), ga4: empty([]), wix: empty([]), clarity: empty([]), dataforseo: empty([]), research: RESEARCH_SOURCE,
+      nativeAi: { status: "dormant", lastSyncedAt: null, payload: { citedPages: [], questions: [], rowsScanned: 0, enginesSeen: [] } },
     };
   }
 
@@ -264,21 +189,14 @@ describe("buildEvidenceSnapshot — honest source states", () => {
     expect(snap.sources).toHaveLength(6);
     expect(snap.ownedPages).toHaveLength(0);
     expect(snap.newPageOpportunities).toHaveLength(0);
-    const byKind = new Map<EvidenceSourceKind, string>(
-      snap.sources.map((s) => [s.source, s.status]),
-    );
+    const byKind = new Map<EvidenceSourceKind, string>(snap.sources.map((s) => [s.source, s.status]));
     expect(byKind.get("native_ai")).toBe("dormant");
     expect(byKind.get("gsc")).toBe("empty");
   });
 
   it("distinguishes a FAILED source from an EMPTY one, with a plain note", () => {
     const input = emptyInput();
-    input.ga4 = {
-      status: "failed",
-      lastSyncedAt: null,
-      note: "GA4 read errored this run.",
-      payload: [],
-    };
+    input.ga4 = { status: "failed", lastSyncedAt: null, note: "GA4 read errored this run.", payload: [] };
     const snap = buildEvidenceSnapshot(input);
     const ga4 = snap.sources.find((s) => s.source === "ga4")!;
     expect(ga4.status).toBe("failed");
@@ -290,11 +208,7 @@ describe("buildEvidenceSnapshot — honest source states", () => {
 
   it("native AI dormant does not break the rest of the snapshot", () => {
     const input = fullInput();
-    input.nativeAi = {
-      status: "dormant",
-      lastSyncedAt: null,
-      payload: { citedPages: [], questions: [], rowsScanned: 0, enginesSeen: [] },
-    };
+    input.nativeAi = { status: "dormant", lastSyncedAt: null, payload: { citedPages: [], questions: [], rowsScanned: 0, enginesSeen: [] } };
     const snap = buildEvidenceSnapshot(input);
     expect(snap.sources.find((s) => s.source === "native_ai")!.status).toBe("dormant");
     expect(snap.ownedPages.length).toBe(2); // owned evidence still assembled

@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { assertPaidCallAllowed } from "@/lib/cost/cost-breaker";
 import { isDataForSeoConfigured, isDryRun, monthlyCapUsd, runDataForSeoTransport } from "./client";
-import type { CachedCallResult, CachedCallSpec, FunnelBoundaryDeps } from "./funnel-boundary";
+import type { CachedCallResult, FunnelBoundaryDeps, ProviderEnvelope } from "./funnel-boundary";
 
 /**
  * cached-call (Slice 6) — the money-safe, single-flight, TENANT-INDEPENDENT
@@ -22,6 +22,19 @@ const API_BASE = "https://api.dataforseo.com/v3";
 const PLATFORM = "dataforseo-serp";
 const CLAIM_LEASE_SECONDS = 120;
 const TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+/** After an UNCERTAIN Standard post (network throw/timeout after reserving), the
+ *  row is held this long before any re-claim so we never silently repost. */
+const AMBIGUITY_WINDOW_MS = 15 * 60 * 1000;
+
+/** A fully resolved provider call. The registry (capabilities.ts) produces this
+ *  with EXACT paths + the GET derivation; `getPath` is the only per-endpoint
+ *  derivation and it is owned by the registry entry. */
+export type ResolvedCall = {
+  cacheKey: string; endpoint: string; endpointVersion: string; postPath: string;
+  getPath: ((id: string) => string | null) | null; publicInput: Record<string, unknown>;
+  locationCode: number; languageCode: string; device: string | null; modelRequested: string | null;
+  payload: unknown[]; ttlMs: number; estCostUsd: number; mode: "live" | "task"; tenantId: string;
+};
 
 // ── seams ────────────────────────────────────────────────────────────────────
 
@@ -54,70 +67,58 @@ export type CachedCallDeps = {
   adjustProviderSpend: (tenantId: string, platform: string, delta: number) => Promise<boolean>;
   cacheRead: (cacheKey: string) => Promise<EvidenceCacheRow | null>;
   cacheWrite: (cacheKey: string, patch: Record<string, unknown>) => Promise<void>;
+  /** Insert-or-update a full row (page-extract reuse has no prior claim row). */
+  cacheUpsert: (cacheKey: string, row: Record<string, unknown>) => Promise<void>;
   breaker: (env: NodeJS.ProcessEnv, now: Date, projectedCostUsd: number) => Promise<{ tripped: boolean; reason?: string }>;
 };
 
-// ── the cached, money-safe call ──────────────────────────────────────────────
-
-export async function cachedDataForSeoCall(spec: CachedCallSpec, deps: FunnelBoundaryDeps = {}): Promise<CachedCallResult> {
+// ── the cached, money-safe call ──
+/** THE money-safe order for a fully resolved call. Miss order: configured ->
+ *  claim -> dry-run -> breaker -> reserve -> (task-only pre-post receipt) ->
+ *  transport -> reconcile -> write. The ENVELOPE RULE holds throughout: the row
+ *  stores and hits return the FULL bounded ProviderEnvelope. */
+export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps = {}): Promise<CachedCallResult> {
   const d = resolveDeps(deps);
-  const cacheKey = computeCacheKey(spec);
+  const cacheKey = r.cacheKey;
   const now = d.now();
 
-  // (2) configured? fail closed — no cache row, no network, no reservation.
-  if (!isDataForSeoConfigured(d.env)) {
-    return { state: "not_configured", cacheKey, detail: "DataForSEO not configured" };
-  }
+  if (!isDataForSeoConfigured(d.env)) return { state: "not_configured", cacheKey, detail: "DataForSEO not configured" };
 
-  // (3) single-flight claim (serialized per cache key in Postgres).
   let claim: EvidenceCacheClaim;
   try {
     claim = await d.claimEvidenceFetch({
-      cacheKey, endpoint: spec.endpoint, endpointVersion: spec.endpointVersion ?? "v3",
-      inputHash: sha256(stableStringify(spec.publicInput)).slice(0, 40),
-      inputSummary: boundedSummary(spec.publicInput), locationCode: spec.locationCode,
-      languageCode: spec.languageCode, device: spec.device ?? null,
-      modelRequested: spec.modelRequested ?? null, claimSeconds: CLAIM_LEASE_SECONDS,
+      cacheKey, endpoint: r.postPath, endpointVersion: r.endpointVersion,
+      inputHash: sha256(stableStringify(r.publicInput)).slice(0, 40),
+      inputSummary: boundedSummary(r.publicInput), locationCode: r.locationCode,
+      languageCode: r.languageCode, device: r.device, modelRequested: r.modelRequested,
+      claimSeconds: CLAIM_LEASE_SECONDS,
     });
   } catch (err) {
     return { state: "error", cacheKey, detail: `cache claim failed: ${short(err)}` };
   }
 
   if (claim.outcome === "ready") {
-    // Fresh public result already exists: reserve NOTHING, record NOTHING.
-    return { state: "hit", payload: claim.payload, costUsd: 0, cacheKey, modelServed: claim.modelServed };
+    return { state: "hit", envelope: (claim.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: claim.modelServed };
   }
   if (claim.outcome === "pending") {
-    // Standard task in flight -> one free GET; else another invocation owns it.
-    if (spec.mode === "task" && claim.providerTaskId) return collectDataForSeoTask(cacheKey, deps);
-    return {
-      state: "waiting",
-      cacheKey,
-      providerTaskId: claim.providerTaskId,
-      detail: claim.providerTaskId ? "provider task in flight" : "another invocation is fetching",
-    };
+    if (r.mode === "task" && claim.providerTaskId) return collectResolvedTask(cacheKey, (_e, id) => r.getPath?.(id) ?? null, deps);
+    return { state: "waiting", cacheKey, providerTaskId: claim.providerTaskId, detail: claim.providerTaskId ? "provider task in flight" : "another invocation is fetching" };
   }
-  // claim.outcome === "claimed" -> we own the paid path.
 
-  // (4) dry-run (DEFAULT ON) -> release the claim honestly, NO reservation.
   if (isDryRun(d.env)) {
     await releaseClaim(d, cacheKey, now, "dry_run");
     return { state: "dry_run", cacheKey, detail: "dry-run: no spend" };
   }
 
-  // (5) global cross-lane breaker -> release the claim, NO reservation.
-  const verdict = await d
-    .breaker(d.env, now, spec.estCostUsd)
-    .catch(() => ({ tripped: true, reason: "global spend breaker unavailable, failing closed" }));
+  const verdict = await d.breaker(d.env, now, r.estCostUsd).catch(() => ({ tripped: true, reason: "global spend breaker unavailable, failing closed" }));
   if (verdict.tripped) {
     await releaseClaim(d, cacheKey, now, "capped");
     return { state: "capped", cacheKey, detail: verdict.reason ?? "global monthly ceiling reached" };
   }
 
-  // (6) ATOMIC reservation BEFORE the network call.
   let reserved: boolean;
   try {
-    reserved = await d.reserveProviderSpend(spec.tenantId, PLATFORM, spec.estCostUsd, monthlyCapUsd(d.env));
+    reserved = await d.reserveProviderSpend(r.tenantId, PLATFORM, r.estCostUsd, monthlyCapUsd(d.env));
   } catch (err) {
     await releaseClaim(d, cacheKey, now, "reserve_error");
     return { state: "error", cacheKey, detail: `reservation failed: ${short(err)}` };
@@ -127,32 +128,48 @@ export async function cachedDataForSeoCall(spec: CachedCallSpec, deps: FunnelBou
     return { state: "capped", cacheKey, detail: `monthly cap reached for ${PLATFORM}` };
   }
 
-  // (7) network via the ONE shared transport core.
+  // (task) DETERMINISTIC tag = cacheKey, and a pre-post receipt persisted BEFORE
+  // the network post so an uncertain outcome is never silently reposted.
+  let payload = r.payload;
+  if (r.mode === "task") {
+    payload = tagTaskPayload(r.payload, cacheKey);
+    await d.cacheWrite(cacheKey, {
+      posted_attempt_at: now.toISOString(),
+      fetch_claimed_until: new Date(now.getTime() + AMBIGUITY_WINDOW_MS).toISOString(),
+    }).catch(() => {});
+  }
+
   const transport = await runDataForSeoTransport({
-    url: `${API_BASE}/${spec.endpoint}`, payload: spec.payload, estCostUsd: spec.estCostUsd,
+    url: `${API_BASE}/${r.postPath}`, payload, estCostUsd: r.estCostUsd,
     env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence",
   });
-  // (8) transport failure AFTER reservation: no successful call means no charge,
-  // so reconcile DOWN best-effort; a failed adjust keeps the reservation.
   if (!transport.ok) {
-    await d.adjustProviderSpend(spec.tenantId, PLATFORM, -spec.estCostUsd).catch(() => {});
+    // A THROW (status null) after a task reservation is an UNCERTAIN post: the
+    // provider MAY have created the task. Do NOT release (the pre-post receipt
+    // holds the row for AMBIGUITY_WINDOW_MS); keep the reservation (overcount,
+    // never undercount). A definite HTTP error or any live failure created no
+    // task -> reconcile down and release for re-claim. (Residual: after the
+    // window a genuinely-created task is orphaned and the row reposts once.)
+    if (r.mode === "task" && transport.status === null) {
+      return { state: "waiting", cacheKey, providerTaskId: null, detail: "post outcome uncertain; holding before any retry" };
+    }
+    await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {});
     await releaseClaim(d, cacheKey, now, `http_error:${transport.status ?? "throw"}`);
     return { state: "error", cacheKey, detail: transport.message };
   }
 
   const body = transport.body;
-  const providerCost = readProviderCost(body); // number | null (null = unreported)
+  const providerCost = readProviderCost(body);
 
-  if (spec.mode === "task") {
+  if (r.mode === "task") {
     const posted = readTaskPosted(body);
     if (!posted.accepted || !posted.taskId) {
-      await reconcileFailure(d, spec.tenantId, spec.estCostUsd, providerCost);
+      await reconcileFailure(d, r.tenantId, r.estCostUsd, providerCost);
       await releaseClaim(d, cacheKey, now, "task_post_rejected");
       return { state: "error", cacheKey, detail: "provider did not accept the task" };
     }
-    const actual = providerCost ?? spec.estCostUsd;
-    await d.adjustProviderSpend(spec.tenantId, PLATFORM, actual - spec.estCostUsd).catch(() => {});
-    // expires_at = 30-day retention window (also the task result's freshness window).
+    const actual = providerCost ?? r.estCostUsd;
+    await d.adjustProviderSpend(r.tenantId, PLATFORM, actual - r.estCostUsd).catch(() => {});
     await d.cacheWrite(cacheKey, {
       status: "pending", provider_task_id: posted.taskId, fetch_claimed_until: null,
       posted_at: now.toISOString(), expires_at: new Date(now.getTime() + TASK_RETENTION_MS).toISOString(), cost_usd: actual,
@@ -160,48 +177,52 @@ export async function cachedDataForSeoCall(spec: CachedCallSpec, deps: FunnelBou
     return { state: "waiting", cacheKey, providerTaskId: posted.taskId, detail: "task posted; resume with a free GET" };
   }
 
-  // mode "live": one resolved result.
   const live = readLiveResult(body);
   if (!live.valid) {
-    await reconcileFailure(d, spec.tenantId, spec.estCostUsd, providerCost);
+    await reconcileFailure(d, r.tenantId, r.estCostUsd, providerCost);
     await releaseClaim(d, cacheKey, now, "envelope_invalid");
     return { state: "error", cacheKey, detail: "provider envelope was not a success" };
   }
-  const actual = providerCost ?? spec.estCostUsd;
-  await d.adjustProviderSpend(spec.tenantId, PLATFORM, actual - spec.estCostUsd).catch(() => {});
+  const actual = providerCost ?? r.estCostUsd;
+  await d.adjustProviderSpend(r.tenantId, PLATFORM, actual - r.estCostUsd).catch(() => {});
   const readyAt = now.toISOString();
   await d.cacheWrite(cacheKey, {
     status: "ready", payload: live.payload as Record<string, unknown>, model_served: live.modelServed,
-    cost_usd: actual, ready_at: readyAt, expires_at: new Date(now.getTime() + spec.ttlMs).toISOString(),
+    cost_usd: actual, ready_at: readyAt, expires_at: new Date(now.getTime() + r.ttlMs).toISOString(),
     fetch_claimed_until: null, content_hash: sha256(stableStringify(live.payload)).slice(0, 40),
-    provenance: { provider: "dataforseo", endpoint: spec.endpoint, ts: readyAt },
+    provenance: { provider: "dataforseo", endpoint: r.endpoint, ts: readyAt },
   });
-  return { state: "ok", payload: live.payload, costUsd: actual, cacheKey, modelServed: live.modelServed };
+  return { state: "ok", envelope: (live.payload ?? {}) as ProviderEnvelope, costUsd: actual, cacheKey, modelServed: live.modelServed };
 }
 
-/** Resume a Standard-mode task with a FREE task_get. Never reposts, never
- *  charges; a not-ready or transient failure is durable "waiting", not error. */
-export async function collectDataForSeoTask(cacheKey: string, deps: FunnelBoundaryDeps = {}): Promise<CachedCallResult> {
+/** Resume a Standard-mode task with a FREE task_get. The task_get path is derived
+ *  by `getPathFor` (the registry entry for the capability). Never reposts, never
+ *  charges; a not-ready or transient failure is durable "waiting", not error.
+ *  Stores the FULL bounded envelope. */
+export async function collectResolvedTask(
+  cacheKey: string,
+  getPathFor: (endpoint: string, id: string) => string | null,
+  deps: FunnelBoundaryDeps = {},
+): Promise<CachedCallResult> {
   const d = resolveDeps(deps);
   const now = d.now();
   const row = await d.cacheRead(cacheKey).catch(() => null);
   if (!row || !row.provider_task_id) return { state: "error", cacheKey, detail: "no posted provider task to collect" };
   if (row.status === "ready" && row.payload != null && Date.parse(row.expires_at) > now.getTime()) {
-    return { state: "hit", payload: row.payload, costUsd: 0, cacheKey, modelServed: row.model_served };
+    return { state: "hit", envelope: (row.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: row.model_served };
   }
-  const getPath = deriveTaskGetPath(row.endpoint, row.provider_task_id);
+  const getPath = getPathFor(row.endpoint, row.provider_task_id);
   if (!getPath) return { state: "error", cacheKey, detail: "unknown task_get path for endpoint" };
 
   const transport = await runDataForSeoTransport({
-    url: `${API_BASE}/${getPath}`,
-    payload: [],
-    estCostUsd: 0,
-    env: d.env,
-    fetchImpl: d.fetchImpl,
-    perfDetail: "evidence-collect",
-    method: "GET",
+    url: `${API_BASE}/${getPath}`, payload: [], estCostUsd: 0,
+    env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence-collect", method: "GET",
   });
-  // A transient GET failure OR a not-ready envelope is resumable waiting.
+  // A 404 is a wrong or expired retrieval path, never "not ready" (not-ready is
+  // HTTP 200 with an in-body task code): report an honest error, do not wait forever.
+  if (!transport.ok && transport.status === 404) {
+    return { state: "error", cacheKey, detail: "provider task retrieval path returned 404" };
+  }
   const live = transport.ok ? readLiveResult(transport.body) : { valid: false, payload: null, modelServed: null };
   if (!live.valid) {
     return { state: "waiting", cacheKey, providerTaskId: row.provider_task_id, detail: "provider task not ready yet" };
@@ -210,22 +231,31 @@ export async function collectDataForSeoTask(cacheKey: string, deps: FunnelBounda
     status: "ready", payload: live.payload as Record<string, unknown>, model_served: live.modelServed,
     ready_at: now.toISOString(), fetch_claimed_until: null, content_hash: sha256(stableStringify(live.payload)).slice(0, 40),
   });
-  // The GET itself is free; the POST already reconciled the cost onto the row.
-  return { state: "ok", payload: live.payload, costUsd: 0, cacheKey, modelServed: live.modelServed };
+  return { state: "ok", envelope: (live.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: live.modelServed };
+}
+
+/** Inject the deterministic cacheKey as the provider `tag` on the first task
+ *  object (crash-safe idempotency handle), preserving all other fields. */
+function tagTaskPayload(payload: unknown[], tag: string): unknown[] {
+  if (payload.length === 0) return [{ tag }];
+  const [first, ...rest] = payload;
+  return [{ ...(first as Record<string, unknown>), tag }, ...rest];
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /** TENANT-INDEPENDENT public identity: version|endpoint|input|location|language|
- *  device|model. Never a tenant id. */
-function computeCacheKey(spec: CachedCallSpec): string {
+ *  device|model. Never a tenant id. The registry is the only producer. */
+export function identityCacheKey(p: {
+  endpointVersion?: string; endpoint: string; publicInput: unknown;
+  locationCode: number; languageCode: string; device?: string | null; modelRequested?: string | null;
+}): string {
   const raw = [
-    spec.endpointVersion ?? "v3", spec.endpoint, stableStringify(spec.publicInput),
-    String(spec.locationCode), spec.languageCode, spec.device ?? "", spec.modelRequested ?? "",
+    p.endpointVersion ?? "v3", p.endpoint, stableStringify(p.publicInput),
+    String(p.locationCode), p.languageCode, p.device ?? "", p.modelRequested ?? "",
   ].join("|");
   return "dfs2_" + sha256(raw).slice(0, 40);
 }
-
 /** Mark the row error, which releases the lease honestly: claim_evidence_fetch
  *  treats an errored row as immediately re-claimable. */
 async function releaseClaim(d: CachedCallDeps, cacheKey: string, now: Date, detail: string): Promise<void> {
@@ -260,10 +290,29 @@ function readModelServed(task: Record<string, unknown> | null): string | null {
   const m = (r?.model_name ?? r?.model ?? task.model) as unknown;
   return typeof m === "string" && m.length > 0 ? m : null;
 }
-function readLiveResult(body: unknown): { valid: boolean; payload: unknown; modelServed: string | null } {
+/** ENVELOPE RULE: project the body to the FULL bounded ProviderEnvelope (drop
+ *  version/time/path/data noise, KEEP status + cost + tasks[].result). Registry
+ *  parsers read inside this; hits and fresh results normalize identically. */
+function boundEnvelope(body: unknown): ProviderEnvelope {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const tasks = Array.isArray(b.tasks) ? (b.tasks as Record<string, unknown>[]) : [];
+  return {
+    status_code: typeof b.status_code === "number" ? b.status_code : undefined,
+    status_message: typeof b.status_message === "string" ? b.status_message : undefined,
+    cost: typeof b.cost === "number" ? b.cost : undefined,
+    tasks: tasks.map((t) => ({
+      id: typeof t.id === "string" ? t.id : undefined,
+      status_code: typeof t.status_code === "number" ? t.status_code : undefined,
+      status_message: typeof t.status_message === "string" ? t.status_message : undefined,
+      cost: typeof t.cost === "number" ? t.cost : undefined,
+      result: t.result ?? null,
+    })),
+  };
+}
+function readLiveResult(body: unknown): { valid: boolean; payload: ProviderEnvelope | null; modelServed: string | null } {
   const task = firstTask(body);
   const valid = topStatus(body) === 20000 && task != null && task.status_code === 20000;
-  return { valid, payload: task && task.result != null ? task.result : body, modelServed: readModelServed(task) };
+  return { valid, payload: valid ? boundEnvelope(body) : null, modelServed: readModelServed(task) };
 }
 function readTaskPosted(body: unknown): { accepted: boolean; taskId: string | null } {
   const task = firstTask(body);
@@ -271,28 +320,6 @@ function readTaskPosted(body: unknown): { accepted: boolean; taskId: string | nu
   const id = task?.id;
   const accepted = topStatus(body) === 20000 && task != null && (code === 20000 || code === 20100) && typeof id === "string" && id.length > 0;
   return { accepted, taskId: accepted ? (id as string) : null };
-}
-
-/** Fail-closed map from a task_post endpoint to its free task_get path. */
-function deriveTaskGetPath(endpoint: string, taskId: string): string | null {
-  const e = endpoint.replace(/^\/+|\/+$/g, "");
-  if (!e.endsWith("/task_post")) return null;
-  const base = e.slice(0, -"/task_post".length);
-  if (base.startsWith("serp/")) return `${base}/task_get/advanced/${taskId}`;
-  if (base.endsWith("/llm_responses") || base.endsWith("/llm_scraper")) return `${base}/task_get/${taskId}`;
-  return null;
-}
-
-function pickModelId(payload: unknown): string | null {
-  const p = payload as { items?: unknown } | unknown[];
-  const arr = Array.isArray(p) ? (Array.isArray(p[0]) ? p[0] : p) : (p as { items?: unknown }).items;
-  if (Array.isArray(arr)) {
-    for (const it of arr) {
-      const id = typeof it === "string" ? it : ((it as Record<string, unknown>)?.model_name ?? (it as Record<string, unknown>)?.model ?? (it as Record<string, unknown>)?.id);
-      if (typeof id === "string" && id.length > 0) return id;
-    }
-  }
-  return null;
 }
 
 function short(err: unknown): string {
@@ -318,7 +345,7 @@ function underVitest(): boolean {
   return process.env.VITEST === "true";
 }
 
-function resolveDeps(deps: FunnelBoundaryDeps): CachedCallDeps {
+export function resolveDeps(deps: FunnelBoundaryDeps): CachedCallDeps {
   return { ...buildDefaultDeps(process.env), ...(deps as unknown as Partial<CachedCallDeps>) };
 }
 
@@ -361,6 +388,9 @@ function buildDefaultDeps(env: NodeJS.ProcessEnv): CachedCallDeps {
     },
     cacheWrite: async (cacheKey, patch) => {
       await getSupabaseAdmin().from("evidence_cache").update({ ...patch, updated_at: new Date().toISOString() }).eq("cache_key", cacheKey);
+    },
+    cacheUpsert: async (cacheKey, row) => {
+      await getSupabaseAdmin().from("evidence_cache").upsert({ cache_key: cacheKey, ...row, updated_at: new Date().toISOString() }, { onConflict: "cache_key" });
     },
     breaker: async (e, now, projected) => {
       if (underVitest()) return { tripped: false };

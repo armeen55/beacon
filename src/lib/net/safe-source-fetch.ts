@@ -73,7 +73,7 @@ const BLOCKED_HOSTNAMES: ReadonlySet<string> = new Set([
   "localhost",
 ]);
 
-export type SafeFetchReason =
+type SafeFetchReason =
   | "blocked_scheme"
   | "blocked_credentials"
   | "blocked_port"
@@ -106,7 +106,7 @@ export type SafeFetchResult =
   | { ok: true; text: string; finalUrl: string; status: number }
   | { ok: false; reason: SafeFetchReason };
 
-export type SafeFetchDeps = {
+type SafeFetchDeps = {
   /** Injectable transport. Default = global fetch, ALWAYS called redirect:"manual". */
   fetchImpl?: typeof fetch;
   /** Injectable resolver. Default = node dns lookup(host,{all:true}) -> every A/AAAA. */
@@ -115,7 +115,7 @@ export type SafeFetchDeps = {
   now?: () => number;
 };
 
-export type SafeFetchOptions = {
+type SafeFetchOptions = {
   /** Per-hop request timeout. Default 8s. */
   timeoutMs?: number;
   /** Total wall-clock budget across all hops. Default 15s. */
@@ -128,7 +128,7 @@ export type SafeFetchOptions = {
   allowedContentTypes?: readonly string[];
 };
 
-export type AssertSafeUrlResult =
+type AssertSafeUrlResult =
   | { ok: true; url: URL }
   | { ok: false; reason: "blocked_scheme" | "blocked_credentials" | "blocked_port" };
 
@@ -318,7 +318,7 @@ function isBlockedIPv6Big(ipBig: bigint): boolean {
  * IPv4, IPv6, and every embedded-v4 IPv6 form, unwrapped and re-checked).
  * Fails CLOSED on anything that doesn't parse as a clean IPv4/IPv6 address.
  */
-export function isBlockedAddress(ip: string): boolean {
+function isBlockedAddress(ip: string): boolean {
   let addr = (ip ?? "").trim().toLowerCase();
   if (!addr) return true; // fail closed on an empty/unknown address
   const zone = addr.indexOf("%"); // strip any scope-id
@@ -451,7 +451,7 @@ async function validateHop(
  * `connect.lookup` faithfully; what THIS module owns and must prove is that
  * the lookup it hands over never answers with anything but the checked IP.
  */
-export function buildPinnedLookup(pinnedIp: string, pinnedFamily: PinnedFamily): net.LookupFunction {
+function buildPinnedLookup(pinnedIp: string, pinnedFamily: PinnedFamily): net.LookupFunction {
   return (_hostname, _options, callback) => {
     callback(null, [{ address: pinnedIp, family: pinnedFamily }]);
   };

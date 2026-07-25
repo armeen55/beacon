@@ -22,7 +22,7 @@ export function isLiveDbTestAllowed(): boolean {
 }
 
 /** True when we're running under a test runner (vitest sets VITEST). */
-export function isTestRuntime(): boolean {
+function isTestRuntime(): boolean {
   return process.env.VITEST != null || process.env.NODE_ENV === "test";
 }
 
@@ -30,7 +30,7 @@ export function isTestRuntime(): boolean {
  * A hosted/prod Supabase URL — `*.supabase.co` (or .in). Local dev uses
  * 127.0.0.1 / localhost (the `supabase start` stack), which is always allowed.
  */
-export function looksLikeHostedSupabase(url: string): boolean {
+function looksLikeHostedSupabase(url: string): boolean {
   if (/localhost|127\.0\.0\.1|\[::1\]/i.test(url)) return false;
   return /\.supabase\.(co|in)\b/i.test(url);
 }

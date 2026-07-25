@@ -62,8 +62,6 @@ import { resolveDataPath } from "./resolve-data-path";
  * Migration: migrations/2026-07-01_json_store_blobs.sql (additive).
  */
 export const SUPABASE_MIRRORED_STORES = new Set<string>([
-  // Slice 6: durable per-account research-funnel state must survive serverless.
-  "research-funnel",
   // 2026-07-22 (CORE 100K persistence collapse): pruned to the stores with a
   // SURVIVING live reader/writer. The 28-domain strip deleted every producer/
   // consumer of the other ~42 stores that used to live here (autopilot-state,

@@ -1,13 +1,16 @@
 import "server-only";
 
 /**
- * funnel/normalize (Slice 6, Agent B) - the PURE broad-then-narrow core:
- * keyword normalize + dedupe, deterministic relevance/constraint/junk filters
- * with a bounded reject taxonomy, and tolerant adapters over the real DataForSEO
- * bodies. No I/O, never throws; a malformed body answers "nothing observed".
+ * funnel/normalize (integrity closure, Agent B) - the PURE broad-then-narrow
+ * core: keyword normalize + dedupe, deterministic relevance/constraint/junk
+ * filters with a bounded reject taxonomy, a thin mapper from the registry's typed
+ * ParsedKeywordItem onto the funnel row, and winning-page ranking that preserves
+ * TRUE per-appearance provenance. No I/O, no envelope-poking, never throws.
  */
 
+import type { ParsedKeywordItem } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
+import type { ResearchWinningAppearance } from "./research-evidence";
 import type { FunnelKeyword, FunnelReject } from "./state";
 
 // ── keyword normalization + dedupe ──────────────────────────────────────────
@@ -29,6 +32,16 @@ function coreIdentity(keyword: string): string {
 
 function tokenize(s: string): string[] {
   return normalizeKeyword(s).split(" ").filter(Boolean);
+}
+
+/** Map the registry's typed keyword items onto lean funnel rows. Pure. */
+export function keywordsFromParsed(items: ParsedKeywordItem[], via: FunnelKeyword["discoveredVia"]): FunnelKeyword[] {
+  const out: FunnelKeyword[] = [];
+  for (const it of items) {
+    if (!it || typeof it.keyword !== "string" || !it.keyword.trim()) continue;
+    out.push({ keyword: it.keyword, searchVolume: it.searchVolume, competition: it.competition, difficulty: it.difficulty, intent: it.intent, discoveredVia: via });
+  }
+  return out;
 }
 
 /** Dedupe a raw candidate pool by core identity, keeping the richest row per key
@@ -120,168 +133,33 @@ export function rankAndCap(retained: FunnelKeyword[], cap: number): FunnelKeywor
   return [...retained].sort((a, b) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0)).slice(0, cap);
 }
 
-// ── provider response adapters (tolerant; never throw) ──────────────────────
+// ── winning-page ranking (pure, TRUE provenance) ────────────────────────────
 
-function asRecord(v: unknown): Record<string, unknown> | null {
-  return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
-}
+type WinningCandidate = { url: string; domain: string; weight: number; appearances: ResearchWinningAppearance[] };
 
-function items(payload: unknown): Record<string, unknown>[] {
-  const p = asRecord(payload);
-  const task = asRecord((p?.tasks as unknown[] | undefined)?.[0]);
-  const result = asRecord((task?.result as unknown[] | undefined)?.[0]);
-  const raw = result?.items;
-  return Array.isArray(raw) ? raw.filter((x): x is Record<string, unknown> => !!asRecord(x)) : [];
-}
-
-function num(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
-
-/** Read one labs keyword item (keywords_for_site / ranked / related / suggestion
- *  / overview) into a lean row. Handles the `keyword_data` wrapper of the ranked
- *  and related endpoints. */
-export function extractKeywordItems(payload: unknown, via: FunnelKeyword["discoveredVia"]): FunnelKeyword[] {
-  const out: FunnelKeyword[] = [];
-  for (const it of items(payload)) {
-    const kd = asRecord(it.keyword_data) ?? it;
-    const keyword = typeof kd.keyword === "string" ? kd.keyword : "";
-    if (!keyword.trim()) continue;
-    const info = asRecord(kd.keyword_info);
-    const props = asRecord(kd.keyword_properties);
-    const intentInfo = asRecord(kd.search_intent_info);
-    out.push({
-      keyword,
-      searchVolume: num(info?.search_volume),
-      competition: num(info?.competition),
-      difficulty: num(props?.keyword_difficulty),
-      intent: typeof intentInfo?.main_intent === "string" ? (intentInfo.main_intent as string) : null,
-      discoveredVia: via,
-    });
-  }
-  return out;
-}
-
-type SerpParse = {
-  organicItems: { rank: number; domain: string; url: string }[];
-  aiOverview: { present: boolean; references: { url: string; domain: string; title: string | null }[]; excerpt: string | null } | null;
-  snippetOwner: { domain: string; url: string } | null;
-  paaQuestions: { question: string; answeringDomain: string | null }[];
-  relatedSearches: string[];
-};
-
-/** Parse a SERP task body into the lean SERP evidence Beacon keeps. Pure. */
-export function parseSerpTask(payload: unknown): SerpParse {
-  const organicItems: SerpParse["organicItems"] = [];
-  let aiOverview: SerpParse["aiOverview"] = null;
-  let snippetOwner: SerpParse["snippetOwner"] = null;
-  const paaQuestions: SerpParse["paaQuestions"] = [];
-  const relatedSearches: string[] = [];
-  let rank = 0;
-  for (const it of items(payload)) {
-    const type = String(it.type ?? "");
-    if (type === "organic" && typeof it.url === "string") {
-      rank += 1;
-      organicItems.push({ rank, url: it.url, domain: rootDomain(it.url) });
-    } else if (type === "ai_overview") {
-      const refs = Array.isArray(it.references) ? it.references : [];
-      const references = refs
-        .map((r) => asRecord(r))
-        .filter((r): r is Record<string, unknown> => !!r && typeof r.url === "string")
-        .map((r) => ({ url: r.url as string, domain: rootDomain(r.url as string), title: typeof r.title === "string" ? r.title : null }));
-      const md = typeof it.markdown === "string" ? it.markdown : typeof it.text === "string" ? it.text : "";
-      const excerpt = md ? md.replace(/\s+/g, " ").trim().slice(0, 300) : null;
-      aiOverview = { present: true, references, excerpt };
-    } else if (type === "featured_snippet" && typeof it.url === "string") {
-      snippetOwner = { url: it.url, domain: rootDomain(it.url) };
-    } else if (type === "people_also_ask" && Array.isArray(it.items)) {
-      for (const q of it.items) {
-        const qr = asRecord(q);
-        const question = typeof qr?.title === "string" ? qr.title : "";
-        if (!question.trim()) continue;
-        const exp = asRecord(Array.isArray(qr?.expanded_element) ? (qr!.expanded_element as unknown[])[0] : null);
-        const url = typeof exp?.url === "string" ? exp.url : "";
-        paaQuestions.push({ question: question.trim(), answeringDomain: url ? rootDomain(url) : null });
-      }
-    } else if (type === "related_searches" && Array.isArray(it.items)) {
-      for (const r of it.items) if (typeof r === "string") relatedSearches.push(r);
-    }
-  }
-  return { organicItems, aiOverview, snippetOwner, paaQuestions, relatedSearches };
-}
-
-type AiAnswerParse = {
-  modelServed: string | null;
-  webSearchReported: boolean | null;
-  answerText: string | null;
-  citations: { url: string; domain: string; title: string | null }[] | null;
-  fanOutQueries: string[] | null;
-  brands: string[] | null;
-};
-
-/** Parse an ai_optimization / llm_scraper answer body. `scraper` = true reads the
- *  fan-out queries + brands the scraper path exposes; the plain llm_responses path
- *  leaves both null (not observable, distinct from empty). Pure. */
-export function parseAiAnswer(payload: unknown, scraper: boolean): AiAnswerParse {
-  const p = asRecord(payload);
-  const task = asRecord((p?.tasks as unknown[] | undefined)?.[0]);
-  const result = asRecord((task?.result as unknown[] | undefined)?.[0]);
-  const first = asRecord(items(payload)[0]) ?? result;
-  if (!first) return { modelServed: null, webSearchReported: null, answerText: null, citations: null, fanOutQueries: null, brands: null };
-
-  const content = asRecord(first.content);
-  const answerText =
-    typeof content?.text === "string" ? content.text : typeof first.text === "string" ? first.text : typeof first.message === "string" ? (first.message as string) : null;
-  const modelServed = typeof first.model_name === "string" ? first.model_name : typeof result?.model_name === "string" ? (result.model_name as string) : null;
-  const webSearchReported = typeof first.web_search === "boolean" ? first.web_search : typeof result?.web_search === "boolean" ? (result.web_search as boolean) : null;
-
-  const annos = Array.isArray(first.annotations) ? first.annotations : Array.isArray(content?.annotations) ? content!.annotations : null;
-  const citations = annos
-    ? (annos as unknown[])
-        .map((a) => asRecord(a))
-        .filter((a): a is Record<string, unknown> => !!a && typeof a.url === "string")
-        .map((a) => ({ url: a.url as string, domain: rootDomain(a.url as string), title: typeof a.title === "string" ? a.title : null }))
-    : null;
-
-  let fanOutQueries: string[] | null = null;
-  let brands: string[] | null = null;
-  if (scraper) {
-    const fo = first.search_queries ?? first.fan_out_queries;
-    fanOutQueries = Array.isArray(fo) ? (fo as unknown[]).filter((x): x is string => typeof x === "string") : [];
-    const br = first.brands ?? first.mentioned_brands;
-    brands = Array.isArray(br) ? (br as unknown[]).filter((x): x is string => typeof x === "string") : [];
-  }
-  return { modelServed, webSearchReported, answerText, citations, fanOutQueries, brands };
-}
-
-// ── winning-page detection (pure) ───────────────────────────────────────────
-
-type WinningAppearance = { query: string; rank: number | null; surface: "organic" | "ai_overview" | "ai_answer" | "ai_mode" };
-type WinningCandidate = { url: string; domain: string; weight: number; appearances: WinningAppearance[] };
-
-/** Weight recurring domains/URLs across SERP + AI evidence. AI citations count
- *  double; organic top-10 counts single; the account's own domain is excluded. Pure. */
-export function detectWinningPages(
-  serps: { query: string; organic: { rank: number; url: string; domain: string }[]; aiOverview: { url: string; domain: string }[] }[],
-  aiAnswers: { query: string; citations: { url: string; domain: string }[] }[],
+/** Aggregate winning pages from a flat appearance stream, each appearance carrying
+ *  its ACTUAL source (query or real prompt id + text, engine, rank). AI surfaces
+ *  weight double; organic top-10 single; the account's own domain is excluded. A
+ *  page's engines/prompts derive from ITS OWN appearances only. Pure. */
+export function rankWinningPages(
+  appearances: ResearchWinningAppearance[],
   ownDomain: string | null,
   topN: number,
 ): WinningCandidate[] {
   const own = (ownDomain ?? "").toLowerCase();
   const byUrl = new Map<string, WinningCandidate>();
-  const bump = (url: string, domain: string, weight: number, appearance: WinningAppearance) => {
-    if (!url) return;
-    const d = domain.toLowerCase();
-    if (own && (d === own || d.endsWith(`.${own}`))) return;
+  for (const a of appearances) {
+    const url = a.citedUrl;
+    if (!url) continue;
+    const d = rootDomain(url).toLowerCase();
+    if (!d) continue;
+    if (own && (d === own || d.endsWith(`.${own}`))) continue;
+    if (a.kind === "serp_organic" && (a.rank == null || a.rank > 10)) continue;
+    const weight = a.kind === "serp_organic" ? 1 : 2;
     const prev = byUrl.get(url) ?? { url, domain: d, weight: 0, appearances: [] };
     prev.weight += weight;
-    prev.appearances.push(appearance);
+    prev.appearances.push(a);
     byUrl.set(url, prev);
-  };
-  for (const s of serps) {
-    for (const o of s.organic) if (o.rank <= 10) bump(o.url, o.domain, 1, { query: s.query, rank: o.rank, surface: "organic" });
-    for (const a of s.aiOverview) bump(a.url, a.domain, 2, { query: s.query, rank: null, surface: "ai_overview" });
   }
-  for (const a of aiAnswers) for (const c of a.citations) bump(c.url, c.domain, 2, { query: a.query, rank: null, surface: "ai_answer" });
-  return [...byUrl.values()].sort((x, y) => y.weight - x.weight).slice(0, topN);
+  return [...byUrl.values()].sort((x, y) => y.weight - x.weight || x.url.localeCompare(y.url)).slice(0, topN);
 }

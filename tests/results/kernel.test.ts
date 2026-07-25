@@ -28,29 +28,15 @@ const NOW = new Date("2026-06-01T00:00:00Z");
 
 function win(day: 7 | 14 | 28, over: Partial<KernelInput["windows"][number]> = {}) {
   return {
-    day,
-    ran: true,
-    adjustedClicksLift: 0,
-    adjustedCtrLift: 0,
-    adjustedPosLift: 0,
-    adjustedImpressionsLift: 0,
-    controlsUsed: 3,
-    treatedPostImpressions: 5000,
-    ...over,
+    day, ran: true, adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedPosLift: 0,
+    adjustedImpressionsLift: 0, controlsUsed: 3, treatedPostImpressions: 5000, ...over,
   };
 }
 
 function baseInput(over: Partial<KernelInput> = {}): KernelInput {
   return {
-    id: "c1",
-    page: "https://site.com/a",
-    path: "/a",
-    actionType: "edit_title",
-    shippedAt: "2026-05-01",
-    baselineImpressions: 5000,
-    baselineClicks: 400,
-    windows: [win(7), win(14), win(28)],
-    ...over,
+    id: "c1", page: "https://site.com/a", path: "/a", actionType: "edit_title", shippedAt: "2026-05-01",
+    baselineImpressions: 5000, baselineClicks: 400, windows: [win(7), win(14), win(28)], ...over,
   };
 }
 
@@ -79,11 +65,7 @@ describe("window evaluation and reporting lag", () => {
 
 describe("individual directional reads", () => {
   it("reads a real click gain as an improvement, never as causal proof", () => {
-    const read = evaluateChange(
-      baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40 })] }),
-      CLOSED_WINDOWS,
-      [],
-    );
+    const read = evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40 })] }), CLOSED_WINDOWS, []);
     expect(["directional_improvement", "stronger_improvement"]).toContain(read.verdict);
     expect(read.rankingSignal).toBeGreaterThan(0);
     // Point 7: never claims causality.
@@ -92,43 +74,27 @@ describe("individual directional reads", () => {
   });
 
   it("owns a decline plainly and feeds a negative ranking signal", () => {
-    const read = evaluateChange(
-      baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: -40 })] }),
-      CLOSED_WINDOWS,
-      [],
-    );
+    const read = evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: -40 })] }), CLOSED_WINDOWS, []);
     expect(read.verdict).toBe("directional_decline");
     expect(read.rankingSignal).toBeLessThan(0);
     expect(read.headline).toContain("did not work");
   });
 
   it("stays waiting with no closed window and never reads a dead end", () => {
-    const read = evaluateChange(
-      baseInput({ windows: [win(7, { ran: false })] }),
-      evaluateWindows("2026-05-30", NOW, "2026-05-31"),
-      [],
-    );
+    const read = evaluateChange(baseInput({ windows: [win(7, { ran: false })] }), evaluateWindows("2026-05-30", NOW, "2026-05-31"), []);
     expect(read.verdict).toBe("waiting");
     expect(read.rankingSignal).toBe(0);
   });
 
   it("reads insufficient evidence on a thin baseline", () => {
-    const read = evaluateChange(
-      baseInput({ baselineImpressions: 50, windows: [win(28, { adjustedClicksLift: 40 })] }),
-      CLOSED_WINDOWS,
-      [],
-    );
+    const read = evaluateChange(baseInput({ baselineImpressions: 50, windows: [win(28, { adjustedClicksLift: 40 })] }), CLOSED_WINDOWS, []);
     expect(read.verdict).toBe("insufficient_evidence");
     expect(read.rankingSignal).toBe(0);
     expect(read.confidenceReasons.join(" ")).toContain("50 impressions");
   });
 
   it("reads insufficient evidence with too few comparable pages", () => {
-    const read = evaluateChange(
-      baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40, controlsUsed: 1 })] }),
-      CLOSED_WINDOWS,
-      [],
-    );
+    const read = evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40, controlsUsed: 1 })] }), CLOSED_WINDOWS, []);
     expect(read.verdict).toBe("insufficient_evidence");
   });
 });
@@ -154,11 +120,7 @@ describe("overlap and confounding honesty", () => {
   });
 
   it("downgrades a directional read to confounded when changes overlap", () => {
-    const read = evaluateChange(
-      baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40 })] }),
-      CLOSED_WINDOWS,
-      ["other-change"],
-    );
+    const read = evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40 })] }), CLOSED_WINDOWS, ["other-change"]);
     expect(read.verdict).toBe("confounded");
     expect(read.rankingSignal).toBe(0);
     expect(read.headline).toContain("cannot say which one");
@@ -182,12 +144,8 @@ describe("overlap and confounding honesty", () => {
 describe("historical records are preserved end to end", () => {
   it("maps every historical record to exactly one read", () => {
     const records: LedgerRecordLike[] = Array.from({ length: 12 }, (_, i) => ({
-      id: `r${i}`,
-      page: `https://site.com/p${i}`,
-      path: `/p${i}`,
-      actionType: i % 2 === 0 ? "edit_title" : "content",
-      shippedAt: "2026-05-01",
-      baseline: { impressions: 4000, clicks: 300 },
+      id: `r${i}`, page: `https://site.com/p${i}`, path: `/p${i}`, actionType: i % 2 === 0 ? "edit_title" : "content",
+      shippedAt: "2026-05-01", baseline: { impressions: 4000, clicks: 300 },
       windows: [{ day: 28, ran: true, adjustedLift: 10, adjustedCtrLift: 0.01, controlsUsed: 3, treatedPostImpressions: 4000 }],
     }));
     const reads = readLedger(records, NOW, "2026-07-01");
@@ -206,19 +164,14 @@ describe("historical records are preserved end to end", () => {
 
 describe("ranking outcome signal", () => {
   it("earns a per-action-type prior only from settled reads at sample floor", () => {
-    const contributing = Array.from({ length: 3 }, () => ({
-      actionType: "edit_title",
-      read: { rankingSignal: 0.6 },
-    }));
+    const contributing = Array.from({ length: 3 }, () => ({ actionType: "edit_title", read: { rankingSignal: 0.6 } }));
     const priors = rankingPriors(contributing);
     expect(priors.get("edit_title")).toBeCloseTo(0.6, 5);
   });
 
   it("ignores zero-signal (waiting / confounded / insufficient) reads", () => {
     const priors = rankingPriors([
-      { actionType: "faq", read: { rankingSignal: 0 } },
-      { actionType: "faq", read: { rankingSignal: 0 } },
-      { actionType: "faq", read: { rankingSignal: 0 } },
+      { actionType: "faq", read: { rankingSignal: 0 } }, { actionType: "faq", read: { rankingSignal: 0 } }, { actionType: "faq", read: { rankingSignal: 0 } },
     ]);
     expect(priors.has("faq")).toBe(false);
   });

@@ -13,7 +13,7 @@ export type NavItem = {
   icon: LucideIcon;
 };
 
-export type NavGroup = {
+type NavGroup = {
   label: string;
   items: NavItem[];
 };
@@ -85,7 +85,7 @@ export const operatorNavGroup: NavGroup = {
 // bare "Detail" as its title (the audit's "research / Detail" killer).
 // ---------------------------------------------------------------------------
 
-export type RouteCrumb = {
+type RouteCrumb = {
   /** Plain title for the header. */
   title: string;
   /** Optional parent breadcrumb link (nearest listed ancestor). */
@@ -199,8 +199,3 @@ export function routeCrumbFor(pathname: string): RouteCrumb {
  * number come from" labels. Strips query/hash first: "/results?page=x" ->
  * "Results".
  */
-export function surfaceNameFor(href: string): string {
-  const pathname = (href.split(/[?#]/)[0] || "/").replace(/\/+$/, "") || "/";
-  const crumb = routeCrumbFor(pathname);
-  return crumb.title;
-}

@@ -94,33 +94,34 @@
   completion short-circuits, a later day creates, and a direct second open-row insert violates the index). Verified end to end on the rendered app: a real
   visit completed cycle tenant-iranopedia:2026-07-24 (2 sources refreshed, surface published, lease
   released) and Today rendered the honest completion line for that pass.
-- The complete DataForSEO research funnel exists on one canonical evidence cache (Slice 6, 2026-07-25).
-  Every provider call flows through ONE money-safe boundary: a tenant-independent public cache row in
-  `evidence_cache` (key = endpoint + version + normalized input + location + language + device + model;
-  never a tenant id, so two accounts reuse identical public evidence at $0 while spend attribution and
-  derived conclusions stay account-scoped), a Postgres single-flight claim so concurrent identical misses
-  pay once, dry-run as the default, the global breaker, an ATOMIC spend reservation BEFORE the network
-  call (advisory-locked check + increment against the monthly cap), and reconciliation to the
-  provider-reported cost after (any write failure overcounts and blocks, never undercounts). Standard
-  provider tasks post once, persist their task id on the cache row, and resume through free GETs across
-  process death; not-ready is a durable waiting state, never an error and never completion. The funnel
-  researches broad-first (keywords_for_site, ranked_keywords, related_keywords, keyword_suggestions,
-  plus $0 crawl seeds; normalize, dedupe, deterministic relevance/constraint filters; retain at most 150
-  before ANY enrichment or SERP purchase; keyword_overview enriches only the retained set), observes the
-  approved core prompts across chatgpt/gemini/claude via durable Standard tasks and Perplexity live in
-  bounded units, uses the ChatGPT search-mode scraper for sources/brands/fan-out queries, posts Standard
-  Google SERPs (with AI Overview, PAA, related searches) for at most ~40 retained queries plus AI Mode
-  for the strongest five, and detects + politely fetches recurring winning pages (AI citations weighted
-  double, own domain excluded). New AI observations write the ONE historical `prompt_answer_observations`
-  path with a model-drift boundary (a changed served model is a distinct row); missing citations stay
-  missing evidence, never a false zero; a capped or errored provider pauses the run honestly. The two
-  legacy endpoint readers, their JSON caches and registrations, the legacy per-reader money gauntlet, and
-  the dead SERP vocabulary are deleted. Intentionally omitted as duplicative: keyword_ideas, search_intent
-  and bulk_keyword_difficulty (keyword_overview supplies intent + difficulty), relevant_pages (page demand
-  joins from the $0 crawl inventory), and LLM Mentions (outside the MVP per Product Truth). Everything is
-  hermetically validated (cache reuse, single-flight, reservation/reconcile, task resumption, broad-then-
-  narrow, engine honesty, partial-failure pauses); the LIVE provider response is NOT yet validated - no
-  DataForSEO credentials exist in any environment and no paid call has ever been made.
+- The DataForSEO research funnel is contract-true end to end and feeds ONE canonical evidence input
+  (Slice 6 + integrity closure, 2026-07-25). A typed capability registry owns every provider contract; no
+  caller builds URLs or bodies. The 13 capabilities carry the exact official endpoints (Labs live, SERP +
+  AI Mode task_post with task_get/advanced resumption, chatgpt/claude LLM Responses task_post +
+  task_get/{id}, gemini and perplexity routed Live because the official models endpoint lists no
+  Standard-capable gemini model, and the keyword-based ChatGPT scraper with location + language required
+  and expand_citations gated on force_web_search), required-field builders that throw typed errors, and
+  the only parsers allowed to read a response. The boundary caches and returns the FULL bounded provider
+  envelope, so cache hits and fresh responses normalize identically and the official response fixtures
+  travel transport to cache to parser to state to Snapshot in tests without hand reshaping. Model identity
+  resolves from the FREE models endpoints (method-compatible, 7-day cached, fail-closed when live; labeled
+  fallback only in dry-run/not-configured) and is a cache dimension. Money: tenant-independent public
+  `evidence_cache` row + Postgres single-flight claim + dry-run default + global breaker + ATOMIC
+  reservation BEFORE the network + reconcile to provider cost after (overcount, never undercount);
+  Standard posts carry the deterministic cacheKey as the provider tag and persist a pre-post receipt so an
+  uncertain post outcome is held, never silently reposted; not-ready is durable waiting, never an error.
+  Funnel state is Supabase-only and basis-scoped: one `research_state` row per (tenant, basis fingerprint)
+  with optimistic row_version (migration slice6b applied); changing the website/profile/goal changes the
+  basis so stale research never renders; the research-funnel JSON store registration is deleted. The
+  canonical EvidenceSnapshot carries the research bundle: retained keywords, AI observations with prompt
+  text, tri-state citations (null = unobservable, [] = observed zero), webSearchReported, and model drift
+  as distinct history rows, SERP evidence, winning pages attributed only to their OWN engines and prompts
+  with the own domain excluded and content-hash-cached extracts, and an honest spend receipt. That
+  Snapshot is the ONE public evidence input for later slices (loadFunnelEvidence left the facade).
+  Intentionally omitted as duplicative: keyword_ideas, search_intent, bulk_keyword_difficulty,
+  relevant_pages, LLM Mentions. Proof is hermetic on exact official fixtures only: NO DataForSEO
+  credentials exist anywhere, no paid call has ever been made, and the live path stays UNVERIFIED until
+  the $2-bounded live validation runs.
 - OpenAI generation flows through one strict Responses API gateway (Slice 3, 2026-07-23): /v1/responses with
   native strict Structured Outputs (json_schema, strict true), double validation (provider schema + server
   Zod), fail-closed refusal/incomplete/invalid handling with no artifact, budget checks before network,

@@ -59,11 +59,11 @@ export async function readPerfTraceIdFromHeaders(): Promise<string | null> {
   }
 }
 
-export type PerfTraceEntry =
+type PerfTraceEntry =
   | { label: string; ms: number }
   | { label: string; value: number | string };
 
-export type PerfTrace = {
+type PerfTrace = {
   /** The trace ID for header correlation. Empty string when tracing is
    *  disabled. */
   readonly id: string;

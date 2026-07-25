@@ -3,12 +3,12 @@ import "server-only";
 import { after } from "next/server";
 
 import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/on-use-refresh";
+import { basisTag, getTenant, loadBusinessProfile } from "@/domains/account";
 import {
   keywordDiscoveryUnit, promptObservationUnit, serpAnalysisUnit, winningPagesUnit,
   type FunnelUnitOutcome,
 } from "@/domains/evidence";
 import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
-import { getTenant } from "@/domains/account";
 import { log } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { warmFreeSurfaces } from "./warm-caches";
@@ -123,6 +123,9 @@ export type ResearchCycleSteps = {
   backfillChunk: (tenantId: string, now: Date, attemptKey: string) => Promise<BackfillChunkResult>;
   /** The four Slice 6 evidence executors (evidence facade), one per funnel phase. */
   funnelUnit: (phase: ResearchPhase, tenantId: string, cursor: Record<string, unknown> | null, budgetMs: number) => Promise<FunnelUnitOutcome>;
+  /** The account's CURRENT onboarding basis (the one Account fingerprint); the
+   *  funnel scopes every derived read/write to it. Null = not resolvable. */
+  currentBasis: (tenantId: string) => Promise<string | null>;
   publishSurface: (tenantId: string, attemptKey: string) => Promise<void>;
   surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
 };
@@ -166,6 +169,16 @@ const defaultSteps: ResearchCycleSteps = {
     // pauses AT gsc_backfill_chunk. deep-backfill leaves its cursor untouched on a
     // failed pull, so the retry is the identical window.
     throw new Error(`gsc backfill chunk did not advance: ${result.reason}`.slice(0, 200));
+  },
+  async currentBasis(tenantId) {
+    try {
+      const account = await getTenant(tenantId);
+      if (!account?.domain?.trim()) return null;
+      const profile = await loadBusinessProfile(tenantId);
+      return basisTag(account.id, account.domain.trim(), profile, account.growth_goal ?? null);
+    } catch {
+      return null;
+    }
   },
   async funnelUnit(phase, tenantId, cursor, budgetMs) {
     const fn = {
@@ -316,7 +329,10 @@ async function driveRun(
       // failure and NOT completion); done = phase complete; failed = bounded pause.
       let unit: FunnelUnitOutcome;
       try {
-        unit = await steps.funnelUnit(phase, tenantId, priorUnit, deadline - nowFn().getTime());
+        // Every funnel unit runs under the account's CURRENT basis; a change in
+        // website/profile/goal mints a new basis and strands prior derived state.
+        const basis = await steps.currentBasis(tenantId);
+        unit = await steps.funnelUnit(phase, tenantId, { ...(priorUnit ?? {}), ...(basis ? { basis } : {}) }, deadline - nowFn().getTime());
       } catch (error) {
         const message = (error instanceof Error ? error.message : String(error)).slice(0, 300);
         await finishRun(tenantId, run.id, ownerToken, "paused", { phase, message, at: nowFn().toISOString() });

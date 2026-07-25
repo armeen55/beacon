@@ -21,7 +21,7 @@ import { cache } from "react";
  */
 
 /** Turn on with BEACON_PERF_LOG=1. Read lazily so a test can toggle process.env. */
-export function perfLogEnabled(): boolean {
+function perfLogEnabled(): boolean {
   return process.env.BEACON_PERF_LOG === "1";
 }
 
@@ -41,9 +41,9 @@ export function perfStage(stage: string, startMs: number, meta?: Record<string, 
 }
 
 /** The paid/live sinks a page GET must NEVER reach after the Wave-1 guard. */
-export type ExternalCallKind = "serp" | "llm" | "dataforseo" | "crawl";
+type ExternalCallKind = "serp" | "llm" | "dataforseo" | "crawl";
 
-export type ExternalCallCounts = Record<ExternalCallKind, number>;
+type ExternalCallCounts = Record<ExternalCallKind, number>;
 
 function zeroCounts(): ExternalCallCounts {
   return { serp: 0, llm: 0, dataforseo: 0, crawl: 0 };
@@ -84,19 +84,3 @@ export function perfCountExternal(kind: ExternalCallKind, detail?: string): void
   console.warn(`[perf][external] kind=${kind} total=${counts[kind]}${suffix}`);
 }
 
-/** Snapshot the running external-call tally for THIS request (or the process
- *  fallback outside a request) - for a diagnostics endpoint or a test. */
-export function readExternalCallCounts(): Readonly<ExternalCallCounts> {
-  return { ...activeCounts() };
-}
-
-/** Zero the active tally. Per-request scoping already resets between GETs; this is
- *  for explicit reset points (a measurement-window start, or a test between cases
- *  on the module-fallback path). */
-export function resetExternalCallCounts(): void {
-  const counts = activeCounts();
-  counts.serp = 0;
-  counts.llm = 0;
-  counts.dataforseo = 0;
-  counts.crawl = 0;
-}

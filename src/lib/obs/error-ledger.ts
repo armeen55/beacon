@@ -34,7 +34,7 @@ import { readStore, writeStore } from "@/lib/persistence/json-store";
 const STORE = "app-errors";
 
 /** Keep at most this many rows per tenant bucket (null tenant = its own bucket). */
-export const MAX_ERRORS_PER_TENANT = 200;
+const MAX_ERRORS_PER_TENANT = 200;
 
 /** Bounded field sizes so one pathological error can never bloat the store. */
 const MAX_MESSAGE_CHARS = 500;
@@ -93,7 +93,7 @@ export function buildAppErrorRow(input: AppErrorInput, id: string, now: Date = n
 
 /** PURE: cap the store at the newest MAX_ERRORS_PER_TENANT rows per tenant
  *  bucket (null tenantId is its own bucket). Rows come back newest first. */
-export function pruneAppErrorRows(
+function pruneAppErrorRows(
   rows: ReadonlyArray<AppErrorRow>,
   maxPerTenant: number = MAX_ERRORS_PER_TENANT,
 ): AppErrorRow[] {
@@ -162,39 +162,4 @@ export async function listAppErrorsForTenant(
   } catch {
     return [];
   }
-}
-
-export type AppErrorGroup = {
-  route: string;
-  action: string;
-  message: string;
-  count: number;
-  /** ISO of the most recent occurrence in the group. */
-  lastAt: string;
-};
-
-/** PURE: group rows by route + message (the diagnostics view), biggest and
- *  most recent groups first. `action` is the most recent row's action. */
-export function groupAppErrors(rows: ReadonlyArray<AppErrorRow>): AppErrorGroup[] {
-  const groups = new Map<string, AppErrorGroup>();
-  const sorted = [...rows].sort((a, b) => b.at.localeCompare(a.at));
-  for (const row of sorted) {
-    const key = `${row.route}\u0000${row.message}`;
-    const existing = groups.get(key);
-    if (existing) {
-      existing.count += 1;
-      if (row.at > existing.lastAt) existing.lastAt = row.at;
-    } else {
-      groups.set(key, {
-        route: row.route,
-        action: row.action,
-        message: row.message,
-        count: 1,
-        lastAt: row.at,
-      });
-    }
-  }
-  return [...groups.values()].sort(
-    (a, b) => b.count - a.count || b.lastAt.localeCompare(a.lastAt),
-  );
 }

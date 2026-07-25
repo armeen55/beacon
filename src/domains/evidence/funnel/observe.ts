@@ -1,31 +1,46 @@
 import "server-only";
 
 /**
- * funnel/observe (B3-B6) - the AI-answer, SERP, and winning-page executors plus
- * the read-only snapshot assembler. Every provider call routes through the frozen
- * boundary; posted Standard tasks resume via collect and are never reposted.
+ * funnel/observe (integrity closure) - the AI-answer, SERP, and winning-page
+ * executors plus the PURE snapshot projector. Every provider call routes through
+ * the frozen boundary by CAPABILITY and consumes the registry's typed parse
+ * output; posted Standard tasks resume via collect and are never reposted. All
+ * state is basis-scoped with optimistic row_version. Provenance is TRUE: every
+ * winning-page appearance carries its own query/prompt/engine, and citations
+ * preserve the null-vs-[]-vs-nonempty tri-state end to end.
  */
 
+import { basisTag } from "@/domains/account";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
-import type { FunnelCounters, FunnelUnitFn, FunnelUnitOutcome } from "@/domains/evidence/dataforseo/funnel-boundary";
-import { detectWinningPages, normalizeKeyword, parseAiAnswer, parseSerpTask, rankAndCap } from "./normalize";
+import type { CapabilityKey, FunnelCounters, FunnelUnitFn, FunnelUnitOutcome, ParsedAiAnswer, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
+import { normalizeKeyword, rankAndCap, rankWinningPages } from "./normalize";
 import { type FunnelPair, type FunnelSerp, type FunnelState, type FunnelWinningPage } from "./state";
-import { AI_EP, buildSpec, EP, EST, FRESH_MS, interp, type Interp, LANG, LOC, MODEL, resolveDeps, round, save, sha16, track, type FunnelDeps, type ResolvedDeps } from "./shared";
+import {
+  emptyResearchEvidence,
+  type FunnelResearchEvidence,
+  type ResearchEngine,
+  type ResearchPageExtract,
+  type ResearchWinningAppearance,
+} from "./research-evidence";
+import {
+  basisFromCursor, CONFLICT_DETAIL, FRESH_MS, interp, type Interp, NO_BASIS_DETAIL,
+  resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps,
+} from "./shared";
 
 // ── B3: prompt observation ──────────────────────────────────────────────────
 
+const ENGINES: ResearchEngine[] = ["chatgpt", "gemini", "claude", "perplexity"];
 const pairKey = (p: FunnelPair) => `${p.promptId}|${p.engine}|${p.scraper ? "s" : ""}`;
+const capabilityFor = (p: FunnelPair): CapabilityKey => (p.scraper ? "llm_scraper_chatgpt" : (`llm_${p.engine}` as CapabilityKey));
 
 function buildPairs(prompts: { id: string }[]): FunnelPair[] {
   const out: FunnelPair[] = [];
-  for (const p of prompts) for (const engine of ["chatgpt", "gemini", "claude", "perplexity"] as const) out.push({ promptId: p.id, engine, cacheKey: null, status: "pending" });
+  for (const p of prompts) for (const engine of ENGINES) out.push({ promptId: p.id, engine, cacheKey: null, status: "pending" });
   for (const p of prompts.slice(0, 20)) out.push({ promptId: p.id, engine: "chatgpt", scraper: true, cacheKey: null, status: "pending" });
   return out;
 }
-
-const aiPayload = (text: string, scraper: boolean): unknown[] => [scraper ? { user_prompt: text, force_web_search: true, expand_citations: true } : { user_prompt: text }];
 
 function pairProgress(s: FunnelState): FunnelCounters {
   return {
@@ -38,10 +53,13 @@ function pairProgress(s: FunnelState): FunnelCounters {
 }
 
 /** ONE historical prompt_answer_observations row per completed answer. The id folds
- *  in modelServed + day so a changed served model yields a DISTINCT row, never a merge. */
-function paoRow(p: FunnelPair, parsed: ReturnType<typeof parseAiAnswer>, tenantId: string, runId: string, nowIso: string): PromptAnswerObservation {
+ *  in modelServed + day so a changed served model yields a DISTINCT row, never a
+ *  merge. citation_urls is null (not []) when citations were NOT observable, and
+ *  metadata.citationsObserved records the tri-state a count-of-0 would flatten. */
+function paoRow(p: FunnelPair, parsed: ParsedAiAnswer, tenantId: string, runId: string, nowIso: string): PromptAnswerObservation {
   const domains = (parsed.citations ?? []).map((c) => c.domain);
-  const model = parsed.modelServed ?? MODEL[p.engine] ?? p.engine;
+  const observed = parsed.citations !== null;
+  const model = parsed.modelServed ?? p.modelRequested ?? p.engine;
   return {
     id: `${tenantId}|${p.engine}|${p.promptId}|${model}|${nowIso.slice(0, 10)}`,
     prompt_id: p.promptId,
@@ -59,30 +77,46 @@ function paoRow(p: FunnelPair, parsed: ReturnType<typeof parseAiAnswer>, tenantI
     platform: p.engine,
     topic: "",
     search_queries: parsed.fanOutQueries ?? undefined,
-    citation_urls: (parsed.citations ?? []).map((c) => c.url),
-    metadata: { source: "research-funnel", scraper: Boolean(p.scraper), webSearchReported: parsed.webSearchReported, modelServed: parsed.modelServed },
+    citation_urls: observed ? (parsed.citations ?? []).map((c) => c.url) : null,
+    metadata: {
+      source: "research-funnel",
+      scraper: Boolean(p.scraper),
+      webSearchReported: parsed.webSearchReported,
+      modelServed: parsed.modelServed,
+      modelRequested: p.modelRequested ?? null,
+      citationsObserved: observed,
+      prompt_text: p.promptText ?? "",
+    },
     tenant_id: tenantId,
   };
 }
 
-async function landAnswer(p: FunnelPair, r: Interp, tenantId: string, runId: string, nowIso: string, syncHistory: ResolvedDeps["syncHistory"]): Promise<void> {
-  const parsed = parseAiAnswer(r.payload, Boolean(p.scraper));
+async function landAnswer(p: FunnelPair, r: Interp, parsed: ParsedAiAnswer, promptText: string, tenantId: string, runId: string, nowIso: string, syncHistory: ResolvedDeps["syncHistory"]): Promise<void> {
   p.status = "done";
   p.cacheKey = r.cacheKey;
   p.observedAt = nowIso;
+  p.promptText = promptText;
   p.modelServed = parsed.modelServed ?? r.modelServed;
   p.webSearchReported = parsed.webSearchReported;
-  p.citations = (parsed.citations ?? []).map((c) => ({ url: c.url, domain: c.domain }));
+  p.citationsObserved = parsed.citations !== null;
+  p.citations = parsed.citations ? parsed.citations.map((c) => ({ url: c.url, domain: c.domain, title: c.title })) : null;
+  p.fanOutQueries = parsed.fanOutQueries;
+  p.answerHash = parsed.answerText ? sha16(parsed.answerText) : null;
   await syncHistory([paoRow(p, parsed, tenantId, runId, nowIso)], tenantId);
 }
 
 export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
   const d = resolveDeps(deps);
   return async (tenantId, cursor, budgetMs) => {
+    const basis = basisFromCursor(cursor);
+    if (!basis) return { status: "failed", cursor, progress: {}, detail: NO_BASIS_DETAIL };
     const unitKey = `prompts:${tenantId}`;
+    const ids = { tenantId, unitKey };
     const runId = (cursor?.runId as string) ?? unitKey;
     const deadline = d.now() + Math.max(1000, budgetMs);
-    const state = await d.loadState(tenantId);
+    const loaded = await d.loadState(tenantId, basis);
+    const state = loaded.state;
+    const ctx: SaveCtx = { rowVersion: loaded.rowVersion };
     const prompts = (await d.loadActivePrompts(tenantId)).slice(0, 100);
     if (prompts.length === 0) return { status: "failed", cursor, progress: pairProgress(state), detail: "I have no active core prompts to check yet." };
 
@@ -93,71 +127,78 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     state.prompts.intendedPairs = intended.length;
     const textOf = new Map(prompts.map((p) => [p.id, p.text]));
     const nowIso = () => new Date(d.now()).toISOString();
+    const modelCache = new Map<ResearchEngine, string | null>();
+    const modelFor = async (engine: ResearchEngine): Promise<string | null> => {
+      if (!modelCache.has(engine)) modelCache.set(engine, await d.resolveModel(engine).catch(() => null));
+      return modelCache.get(engine) ?? null;
+    };
 
-    // 1) collect prior posted tasks first (never repost a posted key)
-    for (const p of pairs.filter((x) => x.status === "posted" && x.cacheKey)) {
-      if (d.now() > deadline) break;
-      const r = interp(await d.collectTask(p.cacheKey!));
-      track(state, r);
-      if (r.kind === "evidence") await landAnswer(p, r, tenantId, runId, nowIso(), d.syncHistory);
-      // waiting -> still pending; failed -> leave posted for a later retry
-    }
-
-    // 2) post/live the stalest pending pairs, bounded batch within budget
-    const now = d.now();
-    const todo = pairs
-      .filter((p) => p.status === "pending" || (p.status === "done" && p.observedAt && now - Date.parse(p.observedAt) > FRESH_MS))
-      .sort((a, b) => (a.observedAt ? Date.parse(a.observedAt) : 0) - (b.observedAt ? Date.parse(b.observedAt) : 0));
-    let processed = 0, perp = 0;
-    let progressed = false;
-    let failedDetail: string | null = null;
-    for (const p of todo) {
-      if (d.now() > deadline || processed >= 20) break;
-      const text = textOf.get(p.promptId);
-      if (!text) continue;
-      if (p.engine === "perplexity") {
-        if (perp >= 3) continue;
-        perp += 1;
-        const r = interp(await d.callProvider(buildSpec(tenantId, unitKey, AI_EP.perplexity!, aiPayload(text, false), { prompt: normalizeKeyword(text), engine: "perplexity" }, "live", EST.perplexity, MODEL.perplexity)));
+    try {
+      // 1) collect prior posted tasks first (never repost a posted key)
+      for (const p of pairs.filter((x) => x.status === "posted" && x.cacheKey)) {
+        if (d.now() > deadline) break;
+        const r = interp(await d.collectTask(p.cacheKey!));
         track(state, r);
-        if (r.kind === "waiting") { p.status = "posted"; p.cacheKey = r.cacheKey; progressed = true; }
-        else if (r.kind === "evidence") { await landAnswer(p, r, tenantId, runId, nowIso(), d.syncHistory); progressed = true; }
-        else if (r.kind === "failed") failedDetail = r.detail ?? "provider call failed";
-      } else {
-        const endpoint = p.scraper ? AI_EP.scraper! : AI_EP[p.engine]!;
-        const r = interp(await d.callProvider(buildSpec(tenantId, unitKey, endpoint, aiPayload(text, Boolean(p.scraper)), { prompt: normalizeKeyword(text), engine: p.engine, scraper: Boolean(p.scraper) }, "task", p.scraper ? EST.scraper : EST.answer, MODEL[p.engine])));
-        track(state, r);
-        if (r.kind === "waiting") { p.status = "posted"; p.cacheKey = r.cacheKey; progressed = true; }
-        else if (r.kind === "evidence") { await landAnswer(p, r, tenantId, runId, nowIso(), d.syncHistory); progressed = true; }
-        else if (r.kind === "failed") failedDetail = r.detail ?? "provider call failed";
+        if (r.kind === "evidence") {
+          const parsed = d.parse(capabilityFor(p), r.payload as never) as ParsedAiAnswer | null;
+          if (parsed) await landAnswer(p, r, parsed, textOf.get(p.promptId) ?? p.promptText ?? "", tenantId, runId, nowIso(), d.syncHistory);
+        }
       }
-      processed += 1;
-    }
 
-    state.prompts.pairs = pairs.slice(0, 500);
-    await save(d, tenantId, state);
-    const done = pairs.filter((p) => p.status === "done").length;
-    const anyPosted = pairs.some((p) => p.status === "posted");
-    // Honest status: a capped/errored provider PAUSES the run (never a busy loop);
-    // "advanced" is returned ONLY when this iteration made real forward progress;
-    // a zero-progress soft pass (dry-run / not configured) finishes the phase with
-    // whatever coverage honestly exists rather than spinning the cycle budget.
-    let status: FunnelUnitOutcome["status"];
-    if (state.prompts.intendedPairs > 0 && done >= state.prompts.intendedPairs) status = "done";
-    else if (failedDetail) status = "failed";
-    else if (anyPosted) status = "waiting";
-    else status = progressed ? "advanced" : "done";
-    return { status, cursor: { runId }, progress: pairProgress(state), ...(failedDetail ? { detail: failedDetail } : {}) };
+      // 2) post/live the stalest pending pairs, bounded batch within budget
+      const now = d.now();
+      const todo = pairs
+        .filter((p) => p.status === "pending" || (p.status === "done" && p.observedAt && now - Date.parse(p.observedAt) > FRESH_MS))
+        .sort((a, b) => (a.observedAt ? Date.parse(a.observedAt) : 0) - (b.observedAt ? Date.parse(b.observedAt) : 0));
+      let processed = 0, perp = 0, progressed = false;
+      let failedDetail: string | null = null;
+      for (const p of todo) {
+        if (d.now() > deadline || processed >= 20) break;
+        const text = textOf.get(p.promptId);
+        if (!text) continue;
+        if (p.engine === "perplexity" && perp >= 3) continue;
+        if (p.engine === "perplexity") perp += 1;
+        const model = await modelFor(p.engine);
+        p.modelRequested = model;
+        const r = interp(await d.callProvider(capabilityFor(p), { user_prompt: text, modelRequested: model ?? undefined }, ids));
+        track(state, r);
+        if (r.kind === "waiting") { p.status = "posted"; p.cacheKey = r.cacheKey; progressed = true; }
+        else if (r.kind === "evidence") {
+          const parsed = d.parse(capabilityFor(p), r.payload as never) as ParsedAiAnswer | null;
+          if (parsed) { await landAnswer(p, r, parsed, text, tenantId, runId, nowIso(), d.syncHistory); progressed = true; }
+        } else if (r.kind === "failed") failedDetail = r.detail ?? "provider call failed";
+        processed += 1;
+      }
+
+      state.prompts.pairs = pairs.slice(0, 500);
+      await save(d, tenantId, basis, state, ctx);
+      const done = pairs.filter((p) => p.status === "done").length;
+      const anyPosted = pairs.some((p) => p.status === "posted");
+      // Honest status: a capped/errored provider PAUSES (never a busy loop); "advanced"
+      // only on real forward progress; a zero-progress soft pass finishes the phase.
+      let status: FunnelUnitOutcome["status"];
+      if (state.prompts.intendedPairs > 0 && done >= state.prompts.intendedPairs) status = "done";
+      else if (failedDetail) status = "failed";
+      else if (anyPosted) status = "waiting";
+      else status = progressed ? "advanced" : "done";
+      return { status, cursor: { runId }, progress: pairProgress(state), ...(failedDetail ? { detail: failedDetail } : {}) };
+    } catch (e) {
+      if (e instanceof StateConflictError) return { status: "failed", cursor: { runId }, progress: pairProgress(state), detail: CONFLICT_DETAIL };
+      throw e;
+    }
   };
 }
 
 // ── B4: SERP analysis ───────────────────────────────────────────────────────
 
-function applySerp(s: FunnelSerp, payload: unknown): void {
-  const parsed = parseSerpTask(payload);
+const refs = (parsed: ParsedSerp | null) => (parsed?.aiOverview?.references ?? []).map((r) => ({ url: r.url, domain: r.domain, title: r.title }));
+
+function applySerp(s: FunnelSerp, parsed: ParsedSerp): void {
   s.status = "done";
-  s.organic = parsed.organicItems.slice(0, 10);
-  s.aiOverview = (parsed.aiOverview?.references ?? []).map((r) => ({ url: r.url, domain: r.domain }));
+  s.organic = parsed.organic.slice(0, 10).map((o) => ({ rank: o.rank, url: o.url, domain: o.domain, title: o.title }));
+  s.aiOverview = refs(parsed);
+  s.paa = parsed.paaQuestions.map((q) => ({ question: q.question, answeringDomain: q.answeringDomain }));
+  s.related = parsed.relatedSearches.slice(0, 20);
 }
 
 const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.serps.analyzed, cacheHits: s.ledger.cacheHits, spendUsd: round(s.ledger.spentUsd) });
@@ -165,9 +206,14 @@ const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.ser
 export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
   const d = resolveDeps(deps);
   return async (tenantId, cursor, budgetMs) => {
+    const basis = basisFromCursor(cursor);
+    if (!basis) return { status: "failed", cursor, progress: {}, detail: NO_BASIS_DETAIL };
     const unitKey = `serps:${tenantId}`;
+    const ids = { tenantId, unitKey };
     const deadline = d.now() + Math.max(1000, budgetMs);
-    const state = await d.loadState(tenantId);
+    const loaded = await d.loadState(tenantId, basis);
+    const state = loaded.state;
+    const ctx: SaveCtx = { rowVersion: loaded.rowVersion };
     const retained = state.discovery.retained;
     if (retained.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "I have no researched keywords to check in search yet." };
 
@@ -176,130 +222,178 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     for (const q of chosen) if (!byQ.has(q)) byQ.set(q, { query: q, cacheKey: null, status: "pending" });
     const serps = [...byQ.values()];
     const top5 = new Set(chosen.slice(0, 5));
+    const parseSerp = (payload: unknown) => d.parse("serp_organic", payload as never) as ParsedSerp | null;
 
-    // 1) collect posted organic + AI Mode tasks (never repost)
-    for (const s of serps) {
-      if (d.now() > deadline) break;
-      if (s.status === "posted" && s.cacheKey) {
-        const r = interp(await d.collectTask(s.cacheKey));
-        track(state, r);
-        if (r.kind === "evidence") applySerp(s, r.payload);
-        else if (r.kind === "failed") s.status = "failed";
-      }
-      if (s.aiModeCacheKey && !s.aiModeCitations) {
-        const r = interp(await d.collectTask(s.aiModeCacheKey));
-        track(state, r);
-        if (r.kind === "evidence") s.aiModeCitations = (parseSerpTask(r.payload).aiOverview?.references ?? []).map((x) => ({ url: x.url, domain: x.domain }));
-      }
-    }
-
-    // 2) post pending organic (and AI Mode for the strongest few)
-    let processed = 0;
-    for (const s of serps) {
-      if (d.now() > deadline || processed >= 40) break;
-      if (s.status === "pending") {
-        const r = interp(await d.callProvider(buildSpec(tenantId, unitKey, EP.serp, [{ keyword: s.query, location_code: LOC, language_code: LANG, load_async_ai_overview: true, people_also_ask_click_depth: 1 }], { query: s.query, ep: "serp" }, "task", EST.serp)));
-        track(state, r);
-        if (r.kind === "waiting") { s.status = "posted"; s.cacheKey = r.cacheKey; }
-        else if (r.kind === "evidence") applySerp(s, r.payload);
-        else if (r.kind === "failed") {
-          s.status = "failed";
-          state.serps.queries = serps.slice(0, 60);
-          state.serps.analyzed = serps.filter((x) => x.status === "done").length;
-          await save(d, tenantId, state);
-          return { status: "failed", cursor, progress: serpProgress(state), detail: r.detail };
+    try {
+      // 1) collect posted organic + AI Mode tasks (never repost)
+      for (const s of serps) {
+        if (d.now() > deadline) break;
+        if (s.status === "posted" && s.cacheKey) {
+          const r = interp(await d.collectTask(s.cacheKey));
+          track(state, r);
+          if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed); }
+          else if (r.kind === "failed") s.status = "failed";
         }
-        processed += 1;
+        if (s.aiModeCacheKey && !s.aiMode) {
+          const r = interp(await d.collectTask(s.aiModeCacheKey));
+          track(state, r);
+          if (r.kind === "evidence") s.aiMode = refs(d.parse("serp_ai_mode", r.payload as never) as ParsedSerp | null);
+        }
       }
-      if (top5.has(s.query) && s.aiModeCacheKey == null && s.status !== "failed") {
-        const r = interp(await d.callProvider(buildSpec(tenantId, unitKey, EP.aiMode, [{ keyword: s.query, location_code: LOC, language_code: LANG }], { query: s.query, ep: "aimode" }, "task", EST.aiMode)));
-        track(state, r);
-        if (r.kind === "waiting") s.aiModeCacheKey = r.cacheKey;
-        else if (r.kind === "evidence") { s.aiModeCacheKey = r.cacheKey; s.aiModeCitations = (parseSerpTask(r.payload).aiOverview?.references ?? []).map((x) => ({ url: x.url, domain: x.domain })); }
-      }
-    }
 
-    state.serps.queries = serps.slice(0, 60);
-    state.serps.analyzed = serps.filter((s) => s.status === "done").length;
-    await save(d, tenantId, state);
-    const anyPending = serps.some((s) => s.status === "pending" || s.status === "posted");
-    const status: FunnelUnitOutcome["status"] = state.serps.analyzed >= chosen.length ? "done" : anyPending ? "waiting" : "advanced";
-    return { status, cursor, progress: serpProgress(state) };
+      // 2) post pending organic (and AI Mode for the strongest few)
+      let processed = 0;
+      for (const s of serps) {
+        if (d.now() > deadline || processed >= 40) break;
+        if (s.status === "pending") {
+          const r = interp(await d.callProvider("serp_organic", { keyword: s.query }, ids));
+          track(state, r);
+          if (r.kind === "waiting") { s.status = "posted"; s.cacheKey = r.cacheKey; }
+          else if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed); }
+          else if (r.kind === "failed") {
+            s.status = "failed";
+            state.serps.queries = serps.slice(0, 60);
+            state.serps.analyzed = serps.filter((x) => x.status === "done").length;
+            await save(d, tenantId, basis, state, ctx);
+            return { status: "failed", cursor, progress: serpProgress(state), detail: r.detail };
+          }
+          processed += 1;
+        }
+        if (top5.has(s.query) && s.aiModeCacheKey == null && s.status !== "failed") {
+          const r = interp(await d.callProvider("serp_ai_mode", { keyword: s.query }, ids));
+          track(state, r);
+          if (r.kind === "waiting") s.aiModeCacheKey = r.cacheKey;
+          else if (r.kind === "evidence") { s.aiModeCacheKey = r.cacheKey; s.aiMode = refs(d.parse("serp_ai_mode", r.payload as never) as ParsedSerp | null); }
+        }
+      }
+
+      state.serps.queries = serps.slice(0, 60);
+      state.serps.analyzed = serps.filter((s) => s.status === "done").length;
+      await save(d, tenantId, basis, state, ctx);
+      const anyPending = serps.some((s) => s.status === "pending" || s.status === "posted");
+      const status: FunnelUnitOutcome["status"] = state.serps.analyzed >= chosen.length ? "done" : anyPending ? "waiting" : "advanced";
+      return { status, cursor, progress: serpProgress(state) };
+    } catch (e) {
+      if (e instanceof StateConflictError) return { status: "failed", cursor, progress: serpProgress(state), detail: CONFLICT_DETAIL };
+      throw e;
+    }
   };
 }
 
 // ── B5: winning pages ───────────────────────────────────────────────────────
 
+/** Flatten every SERP + AI appearance into TRUE-provenance rows: each carries its
+ *  own query or real prompt id + text, its engine, and its rank. Prompt ids never
+ *  surface as customer-facing query evidence. Pure. */
+function collectAppearances(state: FunnelState, fallbackIso: string): ResearchWinningAppearance[] {
+  const out: ResearchWinningAppearance[] = [];
+  for (const s of state.serps.queries.filter((x) => x.status === "done")) {
+    const at = state.updatedAt || fallbackIso;
+    for (const o of s.organic ?? []) out.push({ kind: "serp_organic", query: s.query, promptId: null, promptText: null, engine: null, rank: o.rank, citedUrl: o.url, observedAt: at, modelServed: null });
+    for (const a of s.aiOverview ?? []) out.push({ kind: "ai_overview", query: s.query, promptId: null, promptText: null, engine: null, rank: null, citedUrl: a.url, observedAt: at, modelServed: null });
+    for (const a of s.aiMode ?? []) out.push({ kind: "ai_mode", query: s.query, promptId: null, promptText: null, engine: null, rank: null, citedUrl: a.url, observedAt: at, modelServed: null });
+  }
+  for (const p of state.prompts.pairs.filter((x) => x.status === "done" && x.citations && x.citations.length > 0)) {
+    for (const c of p.citations!) out.push({ kind: "ai_answer", query: null, promptId: p.promptId, promptText: p.promptText ?? null, engine: p.engine, rank: null, citedUrl: c.url, observedAt: p.observedAt ?? fallbackIso, modelServed: p.modelServed ?? null });
+  }
+  return out;
+}
+
+const extractFromRecord = (rec: Record<string, unknown>): ResearchPageExtract => ({
+  title: typeof rec.title === "string" ? rec.title : null,
+  h1: typeof rec.h1 === "string" ? rec.h1 : null,
+  wordCount: typeof rec.wordCount === "number" ? rec.wordCount : 0,
+  headings: Array.isArray(rec.headings) ? (rec.headings as unknown[]).filter((x): x is string => typeof x === "string") : [],
+  faqCount: typeof rec.faqCount === "number" ? rec.faqCount : 0,
+});
+
 export function winningPagesUnit(deps: FunnelDeps = {}): FunnelUnitFn {
   const d = resolveDeps(deps);
-  return async (tenantId, _cursor, budgetMs) => {
+  return async (tenantId, cursor, budgetMs) => {
+    const basis = basisFromCursor(cursor);
+    if (!basis) return { status: "failed", cursor, progress: {}, detail: NO_BASIS_DETAIL };
     const deadline = d.now() + Math.max(1000, budgetMs);
-    const state = await d.loadState(tenantId);
+    const loaded = await d.loadState(tenantId, basis);
+    const state = loaded.state;
+    const ctx: SaveCtx = { rowVersion: loaded.rowVersion };
     const account = await d.getAccount(tenantId).catch(() => null);
     const ownDomain = account?.domain ? rootDomain(account.domain) : null;
-
-    const serpInputs = state.serps.queries.map((s) => ({ query: s.query, organic: s.organic ?? [], aiOverview: [...(s.aiOverview ?? []), ...(s.aiModeCitations ?? [])] }));
-    const aiInputs = state.prompts.pairs.filter((p) => p.citations && p.citations.length > 0).map((p) => ({ query: p.promptId, citations: p.citations! }));
-    const candidates = detectWinningPages(serpInputs, aiInputs, ownDomain, 10);
     const profile = await d.loadProfile(tenantId).catch(() => null);
+    const nowIso = new Date(d.now()).toISOString();
 
+    const candidates = rankWinningPages(collectAppearances(state, nowIso), ownDomain, 10);
     const pages: FunnelWinningPage[] = [];
     let fetched = 0;
-    for (const c of candidates) {
-      let extract: FunnelWinningPage["extract"] = null;
-      let didFetch = false;
-      if (d.now() <= deadline) {
-        try {
-          const res = await d.fetchPage(c.url, new Map(), {});
-          if (res.ok) {
-            didFetch = true;
-            const snap = extractPageSnapshot(res.html, c.url, `winpage-${sha16(c.url)}`, tenantId, res.status, profile);
-            extract = { title: snap.title, h1: snap.h1, wordCount: snap.word_count, headings: (snap.h2_list ?? []).slice(0, 20), faqCount: snap.faqs.length };
-            fetched += 1;
+    try {
+      for (const c of candidates) {
+        const engines = [...new Set(c.appearances.map((a) => a.engine).filter((e): e is string => !!e))].sort();
+        const examplePrompts = [...new Set(c.appearances.map((a) => a.promptText).filter((t): t is string => !!t))].slice(0, 5);
+        let extract: ResearchPageExtract | null = null;
+        let contentHash: string | null = null;
+        let has = false;
+        // Reuse a cached public extract before any fetch; never refetch in freshness.
+        const cached = await d.readPageExtract(c.url).catch(() => null);
+        if (cached) { extract = extractFromRecord(cached.extract); contentHash = cached.contentHash; has = true; }
+        else if (d.now() <= deadline) {
+          try {
+            const res = await d.fetchPage(c.url, new Map(), {});
+            if (res.ok) {
+              const snap = extractPageSnapshot(res.html, c.url, `winpage-${sha16(c.url)}`, tenantId, res.status, profile);
+              extract = { title: snap.title, h1: snap.h1, wordCount: snap.word_count, headings: (snap.h2_list ?? []).slice(0, 20), faqCount: snap.faqs.length };
+              contentHash = sha16(res.html);
+              await d.writePageExtract(c.url, extract as unknown as Record<string, unknown>, contentHash).catch(() => {});
+              fetched += 1;
+              has = true;
+            }
+          } catch {
+            /* fetch/extract failure -> honest fetched:false */
           }
-        } catch {
-          /* fetch/extract failure -> honest fetched:false */
         }
+        pages.push({ url: c.url, domain: c.domain, engines, examplePrompts, appearances: c.appearances, fetched: has, contentHash, extract });
       }
-      pages.push({ url: c.url, domain: c.domain, appearances: c.appearances, fetched: didFetch, extract });
+      state.winningPages = pages;
+      await save(d, tenantId, basis, state, ctx);
+      return { status: "done", cursor: null, progress: { winningPagesFetched: fetched, cacheHits: state.ledger.cacheHits, spendUsd: round(state.ledger.spentUsd) } };
+    } catch (e) {
+      if (e instanceof StateConflictError) return { status: "failed", cursor, progress: { winningPagesFetched: fetched }, detail: CONFLICT_DETAIL };
+      throw e;
     }
-    state.winningPages = pages;
-    await save(d, tenantId, state);
-    return { status: "done", cursor: null, progress: { winningPagesFetched: fetched, cacheHits: state.ledger.cacheHits, spendUsd: round(state.ledger.spentUsd) } };
   };
 }
 
-// ── B6: read-only snapshot assembler ────────────────────────────────────────
+// ── B6: PURE snapshot projector ─────────────────────────────────────────────
 
 const competitionLevel = (c: number | null): "low" | "medium" | "high" | null => (c == null ? null : c < 0.34 ? "low" : c < 0.67 ? "medium" : "high");
 
-export type FunnelEvidence = {
-  retainedKeywords: { query: string; searchVolume: number | null; competition: number | null; competitionLevel: "low" | "medium" | "high" | null }[];
-  nativeAi: { citedPages: { url: string; isOwned: boolean; citationCount: number; distinctPrompts: number; engines: string[]; examplePrompts: string[] }[]; questions: { text: string; weight: number; sourcePrompts: string[] }[]; rowsScanned: number; enginesSeen: string[] };
-  serpCitations: { query: string; aiOverviewDomains: string[]; organicDomains: string[] }[];
-  winningPages: FunnelWinningPage[];
-  receipt: { researched: number; retained: number; stale: number; missing: number; cached: number; spentUsd: number };
-};
+/** FunnelEvidence is the funnel's snapshot-facing bundle (kept as the historical
+ *  facade name). Slice 7 consumes it ONLY through the canonical EvidenceSnapshot. */
+export type FunnelEvidence = FunnelResearchEvidence;
 
-/** Read-only: normalize the persisted funnel into snapshot-ready inputs plus an
- *  explicit missing-evidence receipt. No writes, no network. */
-export async function loadFunnelEvidence(tenantId: string, deps: FunnelDeps = {}): Promise<FunnelEvidence> {
-  const d = resolveDeps(deps);
-  const state = await d.loadState(tenantId);
-  const now = d.now();
+/** Read-only: normalize the persisted funnel state into the canonical research
+ *  evidence bundle plus an explicit receipt. PURE (no I/O, no network). */
+export function projectFunnelEvidence(state: FunnelState, now: number): FunnelResearchEvidence {
   const donePairs = state.prompts.pairs.filter((p) => p.status === "done");
-  const enginesSeen = [...new Set(donePairs.map((p) => p.engine))];
-  const doneSerps = state.serps.queries.filter((s) => s.status === "done");
-
-  const citedPages = state.winningPages.map((w) => ({ url: w.url, isOwned: false, citationCount: w.appearances.length, distinctPrompts: new Set(w.appearances.map((a) => a.query)).size, engines: enginesSeen, examplePrompts: [] }));
+  const observedTimes = donePairs.map((p) => p.observedAt).filter((t): t is string => !!t).sort();
   const stale = donePairs.filter((p) => p.observedAt && now - Date.parse(p.observedAt) > FRESH_MS).length;
   const missing = Math.max(0, state.prompts.intendedPairs - donePairs.length) + state.serps.queries.filter((s) => s.status !== "done").length;
-
+  const doneSerps = state.serps.queries.filter((s) => s.status === "done");
   return {
-    retainedKeywords: state.discovery.retained.map((k) => ({ query: k.keyword, searchVolume: k.searchVolume, competition: k.competition, competitionLevel: competitionLevel(k.competition) })),
-    nativeAi: { citedPages, questions: [], rowsScanned: donePairs.length, enginesSeen },
-    serpCitations: doneSerps.map((s) => ({ query: s.query, aiOverviewDomains: (s.aiOverview ?? []).map((x) => x.domain), organicDomains: (s.organic ?? []).map((x) => x.domain) })),
-    winningPages: state.winningPages,
-    receipt: { researched: state.discovery.counts.raw, retained: state.discovery.counts.retained, stale, missing, cached: state.ledger.cacheHits, spentUsd: round(state.ledger.spentUsd) },
+    retainedKeywords: state.discovery.retained.map((k) => ({ query: k.keyword, searchVolume: k.searchVolume, competition: k.competition, competitionLevel: competitionLevel(k.competition), intent: k.intent })),
+    aiObservations: donePairs.map((p) => ({
+      promptId: p.promptId, promptText: p.promptText ?? "", engine: p.engine,
+      modelRequested: p.modelRequested ?? null, modelServed: p.modelServed ?? null,
+      webSearchReported: p.webSearchReported ?? null, citationsObserved: p.citationsObserved ?? (p.citations != null),
+      citations: p.citations ?? null, fanOutQueries: p.fanOutQueries ?? null, observedAt: p.observedAt ?? "",
+    })),
+    serpEvidence: doneSerps.map((s) => ({
+      query: s.query,
+      organic: (s.organic ?? []).map((o) => ({ rank: o.rank, domain: o.domain, url: o.url, title: o.title ?? null })),
+      aiOverview: (s.aiOverview ?? []).map((a) => ({ url: a.url, domain: a.domain, title: a.title ?? null })),
+      aiMode: (s.aiMode ?? []).map((a) => ({ url: a.url, domain: a.domain, title: a.title ?? null })),
+      paa: s.paa ?? [], related: s.related ?? [],
+    })),
+    winningPages: state.winningPages.map((w) => ({ url: w.url, domain: w.domain, engines: w.engines, examplePrompts: w.examplePrompts, appearances: w.appearances, extract: w.extract })),
+    receipt: { researched: state.discovery.counts.raw, retained: state.discovery.counts.retained, stale, missing, cached: state.ledger.cacheHits, spentUsd: round(state.ledger.spentUsd), freshestObservationAt: observedTimes.at(-1) ?? null },
   };
 }
+

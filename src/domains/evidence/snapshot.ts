@@ -29,6 +29,7 @@
 import { createHash } from "node:crypto";
 
 import { domainOf, internalLinkRelevance, scoreTopicMatch, topicTokens } from "./relevance-gate";
+import type { FunnelResearchEvidence } from "./funnel/research-evidence";
 
 // ── source identity + freshness ──────────────────────────────────────────────
 
@@ -241,6 +242,10 @@ export type EvidenceSnapshot = {
     engines: string[];
     rowsScanned: number;
   };
+  /** The research funnel's basis-scoped evidence, carried verbatim: retained
+   *  keyword metrics with intent, exact AI prompt/engine observations, per-query
+   *  SERP evidence, winning pages with true provenance, and the funnel receipt. */
+  research: FunnelResearchEvidence;
   /** Stable over timestamps; changes only when material evidence changes. */
   evidenceHash: string;
 };
@@ -260,39 +265,18 @@ export type LoadedSource<T> = {
 export type EvidenceSnapshotInput = {
   scope: EvidenceSnapshotScope;
   /** GSC: per-owned-page search metrics keyed by canonical URL. */
-  gsc: LoadedSource<
-    {
-      url: string;
-      clicks90d: number;
-      impressions90d: number;
-      ctr90d: number;
-      position90d: number;
-      topQueries: OwnedQuerySignal[];
-    }[]
-  >;
+  gsc: LoadedSource<{ url: string; clicks90d: number; impressions90d: number; ctr90d: number; position90d: number; topQueries: OwnedQuerySignal[] }[]>;
   /** GA4: per-owned-page engagement + revenue keyed by canonical URL. */
-  ga4: LoadedSource<
-    {
-      url: string;
-      sessions28d: number;
-      engaged28d: number;
-      conversions28d: number;
-      revenueUsd: number | null;
-    }[]
-  >;
+  ga4: LoadedSource<{ url: string; sessions28d: number; engaged28d: number; conversions28d: number; revenueUsd: number | null }[]>;
   /** Wix/crawl: per-owned-page CONTENT keyed by canonical URL. */
   wix: LoadedSource<({ url: string } & OwnedPageContent)[]>;
   /** Clarity: per-owned-page friction keyed by canonical URL. */
   clarity: LoadedSource<({ url: string } & OwnedPageFriction)[]>;
   /** DataForSEO: keyword volume rows. */
-  dataforseo: LoadedSource<
-    {
-      query: string;
-      searchVolume: number | null;
-      competition: number | null;
-      competitionLevel: "low" | "medium" | "high" | null;
-    }[]
-  >;
+  dataforseo: LoadedSource<{ query: string; searchVolume: number | null; competition: number | null; competitionLevel: "low" | "medium" | "high" | null }[]>;
+  /** Research funnel: retained keywords WITH intent, exact AI observations,
+   *  per-query SERP evidence, winning pages with true provenance, + the receipt. */
+  research: LoadedSource<FunnelResearchEvidence>;
   /** native AI: cited pages (owned + competitor) + surfaced questions. */
   nativeAi: LoadedSource<{
     citedPages: {
@@ -680,6 +664,7 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
       engines: aiEngines,
       rowsScanned: input.nativeAi.payload.rowsScanned,
     },
+    research: input.research.payload,
   };
 
   return { ...snapshot, evidenceHash: hashSnapshot(snapshot) };
@@ -710,6 +695,7 @@ export function hashSnapshot(snapshot: Omit<EvidenceSnapshot, "evidenceHash">): 
     npo: snapshot.newPageOpportunities.map((n) => [n.topic, n.demandWeight, n.basis]),
     ilo: snapshot.internalLinkOpportunities.map((l) => [l.fromUrl, l.toUrl]),
     can: snapshot.cannibalization.map((c) => [c.query, c.competingUrls]),
+    res: [snapshot.research.receipt.researched, snapshot.research.receipt.retained, snapshot.research.aiObservations.length, snapshot.research.serpEvidence.length, snapshot.research.winningPages.map((w) => [w.url, w.appearances.length])],
   };
   return createHash("sha256").update(JSON.stringify(stable)).digest("hex").slice(0, 16);
 }

@@ -76,7 +76,7 @@ export { loadNativeIntelForTenant } from "./readers/native-intel-loader";
 // snapshot-ready evidence are the ONLY surface Runtime consumes.
 export type { FunnelUnitOutcome } from "./dataforseo/funnel-boundary";
 export { keywordDiscoveryUnit } from "./funnel/discovery";
-export { promptObservationUnit, serpAnalysisUnit, winningPagesUnit, loadFunnelEvidence } from "./funnel/observe";
+export { promptObservationUnit, serpAnalysisUnit, winningPagesUnit } from "./funnel/observe";
 export type { FunnelEvidence } from "./funnel/observe";
 
 // --- App/component surface re-exports (curated) ---

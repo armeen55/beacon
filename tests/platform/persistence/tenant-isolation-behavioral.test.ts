@@ -82,27 +82,15 @@ describe("buildTenantRepo behavioral isolation", () => {
 
 describe("dual-write tenant validation (fires before any I/O)", () => {
   it("assertRowsScopedToTenant throws on empty tenantId and on any mismatched row", () => {
-    expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }], "", "results")).toThrow(
-      /tenantId must be a non-empty string/,
-    );
-    expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }, { tenant_id: OTHER }], TENANT, "results")).toThrow(
-      /tenant mismatch/,
-    );
-    expect(() =>
-      assertRowsScopedToTenant([{ tenant_id: TENANT }, { tenant_id: TENANT }], TENANT, "results"),
-    ).not.toThrow();
+    expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }], "", "results")).toThrow(/tenantId must be a non-empty string/);
+    expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }, { tenant_id: OTHER }], TENANT, "results")).toThrow(/tenant mismatch/);
+    expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }, { tenant_id: TENANT }], TENANT, "results")).not.toThrow();
   });
 
   it("dualWriteUpsertScoped rejects global tables, mismatches, and empty tenantIds", async () => {
-    await expect(dualWriteUpsertScoped("tenants", [{ tenant_id: TENANT, id: "x" }], "id", TENANT)).rejects.toThrow(
-      /is a global table/,
-    );
-    await expect(dualWriteUpsertScoped("results", [{ tenant_id: OTHER, id: "r1" }], "id", TENANT)).rejects.toThrow(
-      /tenant mismatch/,
-    );
-    await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", "")).rejects.toThrow(
-      /tenantId must be a non-empty string/,
-    );
+    await expect(dualWriteUpsertScoped("tenants", [{ tenant_id: TENANT, id: "x" }], "id", TENANT)).rejects.toThrow(/is a global table/);
+    await expect(dualWriteUpsertScoped("results", [{ tenant_id: OTHER, id: "r1" }], "id", TENANT)).rejects.toThrow(/tenant mismatch/);
+    await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", "")).rejects.toThrow(/tenantId must be a non-empty string/);
     // Valid input with DUAL_WRITE off is a silent no-op success.
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", TENANT)).resolves.toBeUndefined();
   });
@@ -121,11 +109,7 @@ describe("dual-write tenant validation (fires before any I/O)", () => {
   it("tenantizeRows stamps missing tenant_id, throws on a real mismatch, never mutates input", () => {
     const original = { id: "r1", tenant_id: "" };
     const out = tenantizeRows([original, { id: "r2", tenant_id: TENANT }, { id: "r3" }], TENANT, "results");
-    expect(out).toEqual([
-      { id: "r1", tenant_id: TENANT },
-      { id: "r2", tenant_id: TENANT },
-      { id: "r3", tenant_id: TENANT },
-    ]);
+    expect(out).toEqual([{ id: "r1", tenant_id: TENANT }, { id: "r2", tenant_id: TENANT }, { id: "r3", tenant_id: TENANT }]);
     expect(original.tenant_id).toBe("");
     expect(() => tenantizeRows([{ id: "r1", tenant_id: OTHER }], TENANT, "results")).toThrow(/tenant mismatch/);
     expect(() => tenantizeRows([], "", "results")).toThrow(/tenantId must be a non-empty string/);
@@ -134,12 +118,8 @@ describe("dual-write tenant validation (fires before any I/O)", () => {
 
 describe("Tier A sync* helpers stay tenant-wired", () => {
   it("runtime: a representative Tier A helper rejects a cross-tenant row and an empty tenantId", async () => {
-    await expect(
-      syncImportRuns([{ id: "r1", tenant_id: OTHER } as unknown as Parameters<typeof syncImportRuns>[0][number]], TENANT),
-    ).rejects.toThrow(/tenant mismatch/);
-    await expect(
-      syncImportRuns([{ id: "r1", tenant_id: "" } as unknown as Parameters<typeof syncImportRuns>[0][number]], ""),
-    ).rejects.toThrow(/tenantId must be a non-empty string/);
+    await expect(syncImportRuns([{ id: "r1", tenant_id: OTHER } as unknown as Parameters<typeof syncImportRuns>[0][number]], TENANT)).rejects.toThrow(/tenant mismatch/);
+    await expect(syncImportRuns([{ id: "r1", tenant_id: "" } as unknown as Parameters<typeof syncImportRuns>[0][number]], "")).rejects.toThrow(/tenantId must be a non-empty string/);
   });
 });
 
@@ -148,25 +128,17 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     /(harborview|referencepedia|builder|project_mix|budget_range|cities_served|publish_target|email_frequency|profound|semrush|founder|bay area)/i;
 
   it("a freshly provisioned account row carries no vertical, customer, publishing, or provider vocabulary", async () => {
-    const { provisionTenantForNewUser, PROVISIONING_DEFAULTS } = await import(
-      "@/domains/account/onboarding/provision-tenant"
-    );
+    const { provisionTenantForNewUser, PROVISIONING_DEFAULTS } = await import("@/domains/account/onboarding/provision-tenant");
     expect(JSON.stringify(PROVISIONING_DEFAULTS)).not.toMatch(FORBIDDEN_VOCAB);
 
     const inserted: Record<string, unknown>[] = [];
     const fakeSupabase = {
       from: (table: string) => ({
         select: () => ({ eq: async () => ({ data: [], error: null }) }),
-        upsert: async (row: Record<string, unknown>) => {
-          inserted.push({ __table: table, ...row });
-          return { error: null };
-        },
+        upsert: async (row: Record<string, unknown>) => { inserted.push({ __table: table, ...row }); return { error: null }; },
       }),
     } as never;
-    const out = await provisionTenantForNewUser(fakeSupabase, {
-      userId: "12345678-abcd-abcd-abcd-1234567890ab",
-      email: "owner@gmail.com",
-    });
+    const out = await provisionTenantForNewUser(fakeSupabase, { userId: "12345678-abcd-abcd-abcd-1234567890ab", email: "owner@gmail.com" });
     expect(out.ok).toBe(true);
     const tenantRow = inserted.find((r) => r.__table === "tenants")!;
     expect(tenantRow).toBeTruthy();
@@ -179,10 +151,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
   it("cold first read resolves the real account identity; no placeholder is ever cached as identity", async () => {
     const bp = await import("@/domains/account/business-profile");
     bp.__resetBusinessProfileCacheForTests();
-    const row = {
-      schemaVersion: 2,
-      name: { value: "Real Cold Co", origin: "operator_confirmed", confidence: 1, sourceUrls: [] },
-    };
+    const row = { schemaVersion: 2, name: { value: "Real Cold Co", origin: "operator_confirmed", confidence: 1, sourceUrls: [] } };
     let loads = 0;
     bp.setBusinessProfileRepositoryForTests({
       load: async () => {
@@ -258,19 +227,10 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
   it("a historical pre-canonical row maps into canonical sections with legacy provenance and preserved raw JSON", async () => {
     const bp = await import("@/domains/account/business-profile");
     const legacyRow = {
-      name: "Historic Publisher",
-      businessType: "content_publisher",
-      contentSiteMode: true,
-      services: ["guides"],
-      serviceTerms: ["reference articles"],
-      locations: ["US"],
-      keyPages: ["/about"],
-      contentRules: ["Use plain English."],
-      flaggedTerms: ["cheap"],
-      authoritativeSourceDomains: ["wikipedia.org"],
-      primaryCompetitors: ["rival.example"],
-      yelpBusinessId: "legacy-yelp",
-      revenueModel: { kind: "rpm", rpmUsd: 5 },
+      name: "Historic Publisher", businessType: "content_publisher", contentSiteMode: true, services: ["guides"],
+      serviceTerms: ["reference articles"], locations: ["US"], keyPages: ["/about"], contentRules: ["Use plain English."],
+      flaggedTerms: ["cheap"], authoritativeSourceDomains: ["wikipedia.org"], primaryCompetitors: ["rival.example"],
+      yelpBusinessId: "legacy-yelp", revenueModel: { kind: "rpm", rpmUsd: 5 },
     };
     const profile = bp.profileFromRow("tenant-hist", legacyRow as never);
     expect(profile.schemaVersion).toBe(2);
@@ -343,9 +303,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       await expect(store.getTenantOrThrow("tenant-absent")).rejects.toThrow(/Unknown account/);
       // Website is the canonical projection of the account's one domain.
       const { websiteOf } = await import("@/domains/account/tenants/types");
-      expect(websiteOf(memA)).toEqual({
-        account_id: "tenant-mem-a", domain: "mem-a.example", canonical_url: "https://mem-a.example",
-      });
+      expect(websiteOf(memA)).toEqual({ account_id: "tenant-mem-a", domain: "mem-a.example", canonical_url: "https://mem-a.example" });
     } finally {
       store.setAccountRepositoryForTests(null);
     }

@@ -13,7 +13,8 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import type { Account, BusinessProfile, BusinessType } from "@/domains/account";
-import { getTenant, loadBusinessProfile, saveBusinessProfile } from "@/domains/account";
+import { basisTag, getTenant, loadBusinessProfile, saveBusinessProfile } from "@/domains/account";
+export { basisTag };
 import { loadCrawlFrontier, runCrawlBatch, runInProcessColdStartScan, fetchPageHtml, ALL_ENGINES } from "@/domains/evidence";
 import { startColdStartCrawl, type CrawlFrontierState } from "@/domains/evidence/scanning/crawl-frontier";
 import { getConnectorInfo, type ConnectorInfo, type ConnectorProvider } from "@/lib/connector-store";
@@ -29,14 +30,6 @@ export const PROMPT_INTENTS: readonly PromptIntent[] = ["category", "problem", "
 /** Tags + limits that define the core-prompt lifecycle (one export each, bundled). */
 export const PROMPT_TAGS = { candidate: "candidate_v1", set: "set_v1", recommended: "recommended", core: "core_v1", edited: "edited", added: "added" } as const;
 const LIMITS = { recommendedTarget: 50, minActive: 10, maxActive: 100 };
-
-/** The prompt-generation recipe version. Bump ONLY when generation changes enough
- *  that old rows should regenerate; a bump is a basis input, so it strands every
- *  prior basis as inactive history. */
-const PROMPT_GENERATION_VERSION = 1;
-/** Reserved basis separators: control chars that never appear in normalized
- *  business text, so no field value can forge one. */
-const SEP_TOP = "\x1e", SEP_FIELD = "\x1f", SEP_LIST = "\x1d";
 
 /** The confirmable/patchable business fields; confirmed only when EVERY one carries operator_confirmed provenance. */
 export const CONFIRMABLE_FIELDS = [
@@ -160,33 +153,6 @@ function sha16(input: string): string {
 /** Row id keyed by (tenant, basis, text): a new basis writes NEW rows and old ones survive untouched as inactive history. */
 function promptRowId(tenantId: string, basisTag: string, normalizedText: string): string {
   return "prompt-" + sha16(`${tenantId}|${basisTag}|${normalizedText}`);
-}
-function normField(value: unknown): string {
-  // Strip the reserved separator range so no field value can forge a boundary.
-  return String(value ?? "").replace(/[\x1c-\x1f]/g, "").trim().toLowerCase();
-}
-function normList(value: unknown): string {
-  return (Array.isArray(value) ? value : [])
-    .map((v) => normField(v))
-    .filter(Boolean)
-    .sort()
-    .join(SEP_LIST);
-}
-/** Basis fingerprint (D2): a stable "basis_" + 16-hex tag over the research-
- *  affecting inputs (tenant, domain, goal, generation version, confirmed profile
- *  facts, lists lowercased/trimmed/sorted). Any change mints a new basis; the
- *  old set survives only as inactive history. Pure. */
-export function basisTag(tenantId: string, domain: string, profile: BusinessProfile, goal: string | null): string {
-  const p = profile as unknown as Record<string, { value?: unknown }>;
-  const profileSegment = [
-    normField(profile.name.value), normField(profile.businessType.value), normField(profile.siteArchetype.value),
-    normList(p.offerings?.value), normList(p.audiences?.value), normList(p.customerProblems?.value),
-    normList(p.geographicScope?.value), normList(p.topicsToOwn?.value), normList(p.topicsToExclude?.value),
-  ].join(SEP_FIELD);
-  const canonical = [
-    normField(tenantId), normField(domain), normField(goal), String(PROMPT_GENERATION_VERSION), profileSegment,
-  ].join(SEP_TOP);
-  return "basis_" + sha16(canonical);
 }
 function slugify(name: string): string {
   return (name ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "group";

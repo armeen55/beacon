@@ -13,10 +13,8 @@ const NOWRUZ_ANSWER =
   "Nowruz Activities USA refers to community and cultural events held across the United States to observe Nowruz, the Persian New Year, each spring. Local Iranian-American associations in cities such as Los Angeles, Washington, and Houston organize Haft-Seen table displays, traditional Persian music performances, and folk dance shows during the two-week celebration window that follows the spring equinox. Families gather for shared meals, poetry readings, and craft workshops for children, while community centers coordinate a public calendar of events. Many gatherings also host a small Nowruz market selling sweets, herbs, and handmade goods from Persian vendors.";
 
 const NOWRUZ_SOURCE = {
-  domain: "britannica.com",
+  domain: "britannica.com", verified: true as const, supportingExcerpt: NOWRUZ_ANSWER,
   claim: "Nowruz marks the Persian new year and is celebrated with community gatherings and Haft-Seen displays",
-  verified: true as const,
-  supportingExcerpt: NOWRUZ_ANSWER,
 };
 
 const CHEETAH =
@@ -68,14 +66,7 @@ describe("evaluateDraftQuality - answer blocks", () => {
     const r = evaluateDraftQuality({
       answer: CHEETAH,
       evidenceRefs: 0,
-      sources: [
-        {
-          domain: "britannica.com",
-          claim: "the Asiatic cheetah is Iran's national animal and is critically endangered",
-          verified: true,
-          supportingExcerpt: CHEETAH,
-        },
-      ],
+      sources: [{ domain: "britannica.com", claim: "the Asiatic cheetah is Iran's national animal and is critically endangered", verified: true, supportingExcerpt: CHEETAH }],
     });
     expect(r.status).toBe("ready");
     expect(r.copyAllowed).toBe(true);
@@ -102,15 +93,10 @@ describe("evaluateDraftQuality - G5 needs_source_check (honest unfetchable-sourc
     const r = evaluateDraftQuality({
       answer: CHEETAH,
       evidenceRefs: 0,
-      sources: [
-        {
-          url: "https://www.britannica.com/animal/asiatic-cheetah",
-          domain: "britannica.com",
-          claim: "the Asiatic cheetah is Iran's national animal and is critically endangered",
-          verified: false,
-          fetchBlocked: true,
-        },
-      ],
+      sources: [{
+        url: "https://www.britannica.com/animal/asiatic-cheetah", domain: "britannica.com", verified: false, fetchBlocked: true,
+        claim: "the Asiatic cheetah is Iran's national animal and is critically endangered",
+      }],
     });
     expect(r.status).toBe("needs_source_check");
     expect(r.reasons[0]).toBe(
@@ -146,12 +132,8 @@ describe("evaluateDraftQuality - G5 needs_source_check (honest unfetchable-sourc
       answer: CHEETAH,
       sources: [
         { domain: "britannica.com", claim: "blocked one", verified: false, fetchBlocked: true },
-        {
-          domain: "heritage-encyclopedia.example",
-          claim: "the Asiatic cheetah is Iran's national animal and is critically endangered",
-          verified: true,
-          supportingExcerpt: CHEETAH,
-        },
+        { domain: "heritage-encyclopedia.example", verified: true, supportingExcerpt: CHEETAH,
+          claim: "the Asiatic cheetah is Iran's national animal and is critically endangered" },
       ],
       authoritativeSourceDomains: ["heritage-encyclopedia.example"],
     });
@@ -224,15 +206,11 @@ describe("evaluateDraftQuality - factual entailment (N8, additive/opt-in)", () =
       evidenceRefs: 1,
       pageBodyText:
         "Nowruz is a 3000 year old Persian tradition celebrated in Iran, marking the arrival of spring every March with family gatherings, music, and poetry readings. The holiday runs for nearly two weeks and closes with a picnic on the thirteenth day.",
-      sources: [
-        {
-          domain: "britannica.com",
-          claim: "Nowruz has been celebrated in Iran for more than 3000 years",
-          verified: true,
-          supportingExcerpt:
-            "Nowruz has been celebrated in Iran for more than 3000 years, marking the arrival of spring with family gatherings, music, poetry readings, and shared meals across the region every March.",
-        },
-      ],
+      sources: [{
+        domain: "britannica.com", claim: "Nowruz has been celebrated in Iran for more than 3000 years", verified: true,
+        supportingExcerpt:
+          "Nowruz has been celebrated in Iran for more than 3000 years, marking the arrival of spring with family gatherings, music, poetry readings, and shared meals across the region every March.",
+      }],
     });
     expect(r.status).toBe("ready");
   });
@@ -260,17 +238,11 @@ describe("operator correction (page is stale, dated evidence backs the draft)", 
       answer: RECIPES_ANSWER,
       evidenceRefs: 1,
       pageBodyText: STALE_PAGE,
-      authoritativeFacts: [
-        { source: "your site's recipe count (Wix connector)", date: "2026-07-01", detail: "4500 recipes are currently published" },
-      ],
-      sources: [
-        {
-          domain: "britannica.com",
-          claim: "Referencepedia's collection spans regional Persian dishes and holiday specialties",
-          verified: true,
-          supportingExcerpt: RECIPES_ANSWER,
-        },
-      ],
+      authoritativeFacts: [{ source: "your site's recipe count (Wix connector)", date: "2026-07-01", detail: "4500 recipes are currently published" }],
+      sources: [{
+        domain: "britannica.com", claim: "Referencepedia's collection spans regional Persian dishes and holiday specialties",
+        verified: true, supportingExcerpt: RECIPES_ANSWER,
+      }],
     });
     expect(r.status).toBe("ready");
     expect(r.corrections).toBeDefined();
@@ -346,15 +318,11 @@ describe("evaluateCreatePageBriefQuality", () => {
     faqQuestions: ["What is a sofreh aghd?", "What items go on the spread?", "How long is a Persian wedding?"],
     schemaTypes: ["Article", "FAQPage"],
     hasSerpVerdict: true,
-    sources: [
-      {
-        domain: "britannica.com",
-        claim: "a Persian wedding centers on the sofreh aghd ceremonial spread",
-        verified: true as const,
-        supportingExcerpt:
-          "A Persian wedding blends pre-Islamic and Islamic customs centered on the Sofreh Aghd, a ceremonial spread with symbolic items such as a mirror, candelabras, sugar cones, and sweets.",
-      },
-    ],
+    sources: [{
+      domain: "britannica.com", claim: "a Persian wedding centers on the sofreh aghd ceremonial spread", verified: true as const,
+      supportingExcerpt:
+        "A Persian wedding blends pre-Islamic and Islamic customs centered on the Sofreh Aghd, a ceremonial spread with symbolic items such as a mirror, candelabras, sugar cones, and sweets.",
+    }],
   };
 
   it("PASSES the real brief; HOLDS the same brief with no source as missing_source (P1-4)", () => {
