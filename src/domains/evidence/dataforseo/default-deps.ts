@@ -16,6 +16,9 @@ function underVitest(): boolean {
   return process.env.VITEST === "true";
 }
 
+/** Internal: a persistence failure that must NEVER be mistaken for "no row". */
+class CachePersistenceError extends Error {}
+
 /** Production defaults first, caller-injected seams last (injection always wins). */
 export function resolveDeps(deps: FunnelBoundaryDeps): CachedCallDeps {
   return { ...buildDefaultDeps(process.env), ...(deps as unknown as Partial<CachedCallDeps>) };
@@ -55,7 +58,10 @@ function buildDefaultDeps(env: NodeJS.ProcessEnv): CachedCallDeps {
       return error ? false : data === true;
     },
     cacheRead: async (cacheKey) => {
-      const { data } = await getSupabaseAdmin().from("evidence_cache").select("*").eq("cache_key", cacheKey).maybeSingle();
+      // FAIL CLOSED: a records outage must never look like a cache miss. Swallowing
+      // this error is how a paused, possibly-paid attempt gets bought a second time.
+      const { data, error } = await getSupabaseAdmin().from("evidence_cache").select("*").eq("cache_key", cacheKey).maybeSingle();
+      if (error) throw new CachePersistenceError(`evidence_cache read failed: ${error.message}`);
       return (data as Awaited<ReturnType<CachedCallDeps["cacheRead"]>>) ?? null;
     },
     cacheWrite: async (cacheKey, patch) => {

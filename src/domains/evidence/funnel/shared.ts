@@ -150,7 +150,7 @@ export function pauseDetail(disposition: FailureDisposition | undefined, fallbac
   switch (disposition) {
     case "retry_free": return "A research request did not come back this time. I kept it and I will collect it for free on the next pass.";
     case "blocked": return "The research provider turned my request away over account, billing, or limits. I will not spend again until that is cleared.";
-    case "quarantined": return "I am recovering a paid attempt for free; I will not pay twice.";
+    case "quarantined": return "I set aside a paid attempt I could not verify. I will never buy it a second time, and I keep checking whether it can be recovered for free.";
     case "repost_once": return "A research task expired at the provider. I will run it once more on the next pass.";
     default: return fallback;
   }

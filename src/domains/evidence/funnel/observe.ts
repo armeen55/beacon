@@ -1,5 +1,4 @@
 import "server-only";
-
 /**
  * funnel/observe (integrity closure) - the AI-answer, SERP, and winning-page
  * executors plus the PURE snapshot projector. Every provider call routes through
@@ -32,9 +31,8 @@ const ENGINES: ResearchEngine[] = ["chatgpt", "gemini", "claude", "perplexity"];
 const pairKey = (p: FunnelPair) => `${p.promptId}|${p.engine}|${p.scraper ? "s" : ""}`;
 const capabilityFor = (p: FunnelPair): CapabilityKey => (p.scraper ? "llm_scraper_chatgpt" : (`llm_${p.engine}` as CapabilityKey));
 
-/** ChatGPT/Claude get the full web-enabled ask; the registry gates force/country on
- *  the resolved model's web support. Gemini takes web_search only; Perplexity none
- *  (web is on by default); the scraper is KEYWORD-based, never user_prompt. */
+/** ChatGPT/Claude get the full web-enabled ask (registry gates force/country on the
+ *  model); gemini web_search only; perplexity none; the scraper is KEYWORD-based. */
 const webAsk = (text: string): LlmWebInput => ({ user_prompt: text, web_search: true, force_web_search: true, web_search_country_iso_code: "US" });
 function observeCall(callProvider: ResolvedDeps["callProvider"], p: FunnelPair, text: string, ids: { tenantId: string; unitKey: string }): Promise<CachedCallResult> {
   if (p.scraper) return callProvider("llm_scraper_chatgpt", { keyword: text, force_web_search: true, expand_citations: true }, ids);
@@ -46,11 +44,9 @@ function observeCall(callProvider: ResolvedDeps["callProvider"], p: FunnelPair, 
   }
 }
 
-/** THE current intended pair set (active prompts x engines + the scraper subset),
- *  each carrying forward its persisted row when the key still belongs. Anything
- *  else is PRUNED: research_state is the resumable working set, never an archive,
- *  so an obsolete done pair can never satisfy a pending one and can never eat the
- *  row cap. True history lives in prompt_answer_observations. */
+/** THE current intended pair set (active prompts x engines + scraper subset), each
+ *  carrying forward its persisted row when the key still belongs; everything else is
+ *  PRUNED (the working set is not an archive; history lives in the pao table). */
 function currentPairs(prompts: { id: string }[], persisted: FunnelPair[]): FunnelPair[] {
   const byKey = new Map(persisted.map((p) => [pairKey(p), p]));
   const intended: FunnelPair[] = [];
@@ -59,8 +55,7 @@ function currentPairs(prompts: { id: string }[], persisted: FunnelPair[]): Funne
   return intended.map((ip) => byKey.get(pairKey(ip)) ?? ip);
 }
 
-/** Fresh = observed inside the weekly window. A done-but-STALE pair is outstanding
- *  work (a refresh in flight), never completed coverage. */
+/** Fresh = inside the weekly window; done-but-STALE = outstanding, not complete. */
 const pairFresh = (p: FunnelPair, now: number) => p.status === "done" && !!p.observedAt && now - Date.parse(p.observedAt) <= FRESH_MS;
 const pairComplete = (p: FunnelPair, now: number) => p.status === "unsupported" || pairFresh(p, now);
 
@@ -174,7 +169,8 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           if (r.disposition === "repost_once") {
             if ((p.reposts ?? 0) >= 1) { p.status = "unsupported"; p.cacheKey = null; p.observedAt = nowIso(); }
             else { p.status = "pending"; p.cacheKey = null; p.reposts = 1; }
-          } else failedDetail = pauseDetail(r.disposition, "A prompt check did not come back. I will collect it on the next pass.");
+          } else if (r.disposition === "quarantined") { p.status = "unsupported"; p.observedAt = nowIso(); }
+          else failedDetail = pauseDetail(r.disposition, "A prompt check did not come back. I will collect it on the next pass.");
         }
       }
 
@@ -198,7 +194,12 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           const parsed = d.parse(capabilityFor(p), r.payload as never) as ParsedAiAnswer | null;
           if (parsed) { await landAnswer(p, r, parsed, text, tenantId, runId, nowIso(), d.syncHistory); progressed = true; }
           else failedDetail = "I got an answer I could not read. I will retry it on the next pass.";
-        } else if (r.kind === "failed") failedDetail = pauseDetail(r.disposition, "A prompt check did not run. I will retry it on the next pass.");
+        } else if (r.kind === "failed") {
+          // quarantined = EXPLICIT unavailable coverage (the boundary holds the
+          // paid attempt; weekly re-entry retries the free recovery forever).
+          if (r.disposition === "quarantined") { p.status = "unsupported"; p.cacheKey = r.cacheKey; p.observedAt = nowIso(); }
+          else failedDetail = pauseDetail(r.disposition, "A prompt check did not run. I will retry it on the next pass.");
+        }
         else if (r.soft === "not_configured") softUnavailable = true; // genuine unavailable coverage
         processed += 1;
       }
@@ -233,7 +234,6 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
   };
 }
 // ── B4: SERP analysis ───────────────────────────────────────────────────────
-
 const refs = (parsed: ParsedSerp | null) => (parsed?.aiOverview?.references ?? []).map((r) => ({ url: r.url, domain: r.domain, title: r.title }));
 
 function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string): void {
@@ -294,7 +294,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           else if (r.kind === "failed") {
             // Disposition decides: repost_once = ONE clean repost then explicit
             // unavailable; everything else stays posted for a free collect.
-            if (r.disposition !== "repost_once") failedDetail = pauseDetail(r.disposition, "A search did not finish. I will retry it on the next pass.");
+            if (r.disposition === "quarantined") { s.status = "failed"; s.observedAt = nowIso(); }
+            else if (r.disposition !== "repost_once") failedDetail = pauseDetail(r.disposition, "A search did not finish. I will retry it on the next pass.");
             else if ((s.reposts ?? 0) >= 1) { s.status = "failed"; s.observedAt = nowIso(); failedDetail = "A search could not be completed after a second try. I will try it fresh next week."; }
             else { s.status = "pending"; s.cacheKey = null; s.reposts = 1; }
           }
@@ -306,7 +307,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           else if (r.kind === "failed") {
             // Terminal AI Mode collect: ONE clean repost, then explicit missing
             // coverage (never a silent gap, never an eternal dead-key collect).
-            if (r.disposition !== "repost_once") failedDetail = pauseDetail(r.disposition, "An AI Mode look did not finish. I will retry it on the next pass.");
+            if (r.disposition === "quarantined") s.aiModeFailed = true; // explicit missing coverage, never a stall
+            else if (r.disposition !== "repost_once") failedDetail = pauseDetail(r.disposition, "An AI Mode look did not finish. I will retry it on the next pass.");
             else if (s.aiModeReposted) s.aiModeFailed = true;
             else { s.aiModeCacheKey = null; s.aiModeReposted = true; }
           }
@@ -323,12 +325,10 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           if (r.kind === "waiting") { s.status = "posted"; s.cacheKey = r.cacheKey; }
           else if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso()); }
           else if (r.kind === "failed") {
-            // A post that never landed leaves the query PENDING (there is nothing to
-            // collect) and pauses the phase; it never burns the repost budget.
-            state.serps.queries = serps.slice(0, 60);
-            state.serps.analyzed = serps.filter((x) => x.status === "done").length;
-            await save(d, tenantId, basis, state, ctx);
-            return { status: "failed", cursor, progress: serpProgress(state), detail: pauseDetail(r.disposition, r.detail ?? "A search did not run. I will retry it on the next pass.") };
+            // One bad key never aborts the phase: quarantined = explicit
+            // unavailable coverage; anything else pauses while the rest continue.
+            if (r.disposition === "quarantined") { s.status = "failed"; s.observedAt = nowIso(); }
+            else failedDetail = pauseDetail(r.disposition, r.detail ?? "A search did not run. I will retry it on the next pass.");
           }
           processed += 1;
         }
