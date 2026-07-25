@@ -113,8 +113,11 @@ begin
     -- A pre-post receipt with NO task id and NO quarantine mark means the poster
     -- crashed mid-POST: the provider may hold a paid task we cannot name. Honor
     -- the receipt by quarantining the row durably instead of reclaiming it, so a
-    -- crash can never buy the same task twice. The client recovers it for free
-    -- via tasks_ready, or releases it for one clean repost after the window.
+    -- crash can never buy the same task twice. The hold is INDEFINITE: there is no
+    -- timed release and no window. The row leaves quarantine only when the free
+    -- tasks_ready listing returns its id, or when an operator deliberately clears
+    -- BOTH quarantined_at AND posted_attempt_at (clearing only the first re-arms
+    -- this branch). (Slice 6E deleted the timed release that once lived here.)
     if v.posted_attempt_at is not null and v.provider_task_id is null and v.quarantined_at is null and v.status = 'pending' then
       update public.evidence_cache c
          set quarantined_at = now(), updated_at = now()

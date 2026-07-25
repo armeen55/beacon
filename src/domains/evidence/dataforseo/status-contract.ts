@@ -13,8 +13,10 @@
  *           single repost downstream.
  * transient 50000 "Internal Error.", 50001 "Error While Checking the Balance.",
  *           50301 "3rd Party API Service Unavailable.", 50302 "Internal 3rd Party API
- *           Service Unavailable.", 50303 "Update in progress." Provider-side and the
- *           task id survives, so the retry is a FREE collect, never a new charge.
+ *           Service Unavailable.", 50303 "Update in progress. Please try after a few
+ *           minutes." Provider-side and the task id survives, so the retry is a FREE
+ *           collect, never a new charge. These five are the ONLY codes the docs mark
+ *           temporary that we act on automatically.
  * blocked   EVERYTHING else, deliberately: it fails closed, keeps the identity, posts
  *           nothing, and shows the operator the raw code. Notably 40400 "Not found.",
  *           40402 "Invalid Path.", 40404 "Not found.", 40405 "Textual
@@ -28,6 +30,9 @@
  *           "Internal Error - Timeout." and 50402 "Target page took too long to
  *           respond." (live mode only, where any retry is a NEW PAID call, so neither
  *           can be a free retry); and any code the docs do not list at all.
+ *           DELIBERATE DEVIATION, stated plainly: the docs describe 50304, 50401 and
+ *           50402 as temporary. We still refuse them automatically for the reasons
+ *           above; an operator sees the raw code instead of a silent loop or a bill.
  */
 
 export type TaskStatusClass = "ready" | "waiting" | "missing" | "blocked" | "transient";
@@ -43,4 +48,34 @@ const EXACT = new Map<number, TaskStatusClass>([
 export function classifyTaskStatus(code: number | null): TaskStatusClass {
   if (code === null) return "waiting";
   return EXACT.get(code) ?? "blocked";
+}
+
+/** THE context-aware policy for a PAID response (Standard task POST or Live).
+ *  ONE decision point. Callers never re-derive it from codes, from numeric
+ *  ranges (there are none anywhere in this file), or from the status TEXT, which
+ *  is provider prose and is parsed nowhere in the codebase.
+ *  THE POLICY, in four sentences:
+ *   1. Only an exact 40401/40403 in the body of a FREE Task GET ever authorizes
+ *      repost_once. That decision lives on the collect path, not here.
+ *   2. The same 40401/40403 arriving on a fresh POST or Live response is
+ *      "blocked": a reply to a task we just posted cannot prove that task is
+ *      missing, and reposting there would buy the same work twice.
+ *   3. Only an exact documented temporary code (50000/50001/50301/50302/50303)
+ *      carrying a provider-REPORTED cost of exactly 0 may auto-retry a PAID
+ *      attempt. A reported zero is the only proof we were not charged.
+ *   4. Any code the docs do not list fails closed onto "blocked".
+ *  The three outcomes:
+ *    retry_free_release - REPORTED cost 0 AND an exact temporary server failure:
+ *      refund the reservation and release for a later clean attempt (nothing was
+ *      created, so nothing can duplicate).
+ *    blocked - REPORTED cost 0 but the outcome is terminal, malformed, unknown,
+ *      or a collect-only code on the wrong context: refund, then hold the row
+ *      DURABLY so nothing automatic ever retries it.
+ *    uncertain - the cost is not a reported zero (any other number, or null
+ *      because the provider reported nothing): we may have been charged, so keep
+ *      the reservation and quarantine. */
+export type PaidResponseAction = "retry_free_release" | "blocked" | "uncertain";
+export function classifyPaidResponse(topCode: number | null, taskCode: number | null, providerCost: number | null): PaidResponseAction {
+  if (providerCost !== 0) return "uncertain";
+  return classifyTaskStatus(taskCode ?? topCode) === "transient" ? "retry_free_release" : "blocked";
 }

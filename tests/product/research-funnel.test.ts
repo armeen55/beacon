@@ -183,8 +183,9 @@ describe("research funnel - current-set truth + the disposition ladder", () => {
     const store = memStore(); let t = 0; // the deadline passes immediately after it is set: zero pairs run
     const stalled = await promptObservationUnit(mk(store, { now: () => (t += 100_000), callProvider: async () => waiting("ck") }))("tp", cur(), 1_000);
     const unavailable = await promptObservationUnit(mk(store, { callProvider: async () => ({ state: "not_configured", cacheKey: null, detail: "not configured" }) }))("tp", cur(), 60_000);
-    expect([stalled.status, unavailable.status]).toEqual(["failed", "failed"]);
-    expect(stalled.detail).toBeTruthy(); expect(unavailable.detail).toBeTruthy();
+    expect([stalled.status, unavailable.status, !!stalled.detail, !!unavailable.detail]).toEqual(["failed", "failed", true, true]);
+    const b = memStore(); const blocked = await promptObservationUnit(mk(b, { callProvider: async () => ({ state: "error", cacheKey: "ck", disposition: "blocked", detail: "the provider turned it down" }) }))("tp", cur(), 60_000); // a BLOCKED paid attempt
+    expect([b.peek("tp", BASIS)!.prompts.pairs.every((p) => p.status === "unsupported"), blocked.status]).toEqual([true, "failed"]); // explicit unavailable coverage at zero spend; all-unavailable stays an honest pause, never a stalled pending pair
   });
 });
 describe("research funnel - SERP current set, freshness, and recovery", () => {

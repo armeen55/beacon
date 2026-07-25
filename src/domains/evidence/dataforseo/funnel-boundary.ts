@@ -130,12 +130,16 @@ export type EngineModelResolution = { model: string; method: "standard" | "live"
 
 /** THE structured lifecycle vocabulary. Callers NEVER parse detail strings or
  *  treat every error identically; the disposition alone decides retry behavior.
- *    retry_free  - transient provider/transport failure (in-body 50xxx): the task
- *                  id is PRESERVED; retry the free collect later; ZERO reposts.
- *    repost_once - the task is proven missing/expired (40401/40403, HTTP 404):
- *                  the dead identity was cleared; at most ONE clean repost.
- *    blocked     - auth/payment/quota/invalid-contract (401xx/402xx/405xx):
- *                  pause explicitly; ZERO reposts; NEVER labeled unsupported.
+ *    retry_free  - an exactly documented temporary provider failure on a FREE
+ *                  collect: the task id is PRESERVED; retry later; ZERO reposts.
+ *    repost_once - the task is proven missing/expired by an EXACT in-body
+ *                  40401/40403 on a collect (never a raw HTTP status, never a
+ *                  POST response): identity cleared; at most ONE clean repost.
+ *    blocked     - a terminal, malformed, auth/payment, or unknown outcome.
+ *                  On a PAID response the refusal is held DURABLY (refunded when
+ *                  the provider reported cost 0) and nothing automatic retries
+ *                  it; on a FREE collect the task id is kept and re-checked for
+ *                  free. The funnel surfaces it as explicit unavailable coverage.
  *    quarantined - an uncertain POST or an accepted task whose id could not be
  *                  persisted: ZERO automatic reposts ever; recovery ONLY via the
  *                  provider's FREE tasks_ready listing matched by tag=cacheKey.

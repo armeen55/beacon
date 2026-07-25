@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { isDataForSeoConfigured, isDryRun, monthlyCapUsd, runDataForSeoTransport } from "./client";
 import { resolveDeps } from "./default-deps";
-import { classifyTaskStatus } from "./status-contract";
+import { classifyPaidResponse, classifyTaskStatus } from "./status-contract";
 import type { CachedCallResult, FunnelBoundaryDeps, ProviderEnvelope } from "./funnel-boundary";
 
 /**
@@ -18,14 +18,19 @@ import type { CachedCallResult, FunnelBoundaryDeps, ProviderEnvelope } from "./f
  * reconciliation may then move recorded spend UP to the provider's actual, so spend
  * can overshoot by at most (actual minus estimate) on the single last call through.
  * Every registry estCostUsd is therefore set deliberately high.
+ *
  * DISPOSITIONS: every error carries a structured FailureDisposition; callers never
- * parse detail strings. QUARANTINE covers BOTH modes and is INDEFINITE: an uncertain
- * call, an accepted task whose id did not persist, or a paid Live answer we could
- * not save is held with ZERO automatic paid retries. A Standard row exits for free
- * via the provider's tasks_ready listing matched on tag = cacheKey; a Live row has
- * no such listing, so its payload may be lost for good and only a deliberate
- * operator action resolves it. The guarantee is never "exactly once": it is that
- * Beacon never automatically retries a paid request after an ambiguous outcome.
+ * parse detail strings. ONE durable hold column (quarantined_at) carries BOTH kinds
+ * of no-auto-retry state, told apart by error_detail:
+ *   "uncertain:" - the provider may have charged for a call we cannot name, so the
+ *     reservation is KEPT, indefinitely. A Standard row can still exit for free via
+ *     the tasks_ready listing matched on tag = cacheKey; a Live row cannot.
+ *   "blocked:" - the provider REFUSED the request and REPORTED zero cost (documented
+ *     pre-execution HTTP 401/402/404, or a terminal/unknown in-body code): refunded,
+ *     then held so nothing automatic re-runs it. It never lists tasks_ready (no task
+ *     exists) and never decays into quarantined or unsupported.
+ * The guarantee is never "exactly once": it is that Beacon never automatically
+ * retries a paid request after an ambiguous outcome or a refusal.
  */
 
 const API_BASE = "https://api.dataforseo.com/v3";
@@ -61,8 +66,11 @@ type EvidenceCacheRow = {
   cache_key: string; endpoint: string; status: "pending" | "ready" | "error";
   provider_task_id: string | null; payload: unknown | null; model_served: string | null;
   cost_usd: number; expires_at: string;
-  /** Set = a possibly-paid call we cannot name; nothing automatic clears it. */
+  /** Set = a durable hold; nothing automatic clears it or re-runs the request. */
   quarantined_at?: string | null;
+  /** The hold's REASON: "blocked:<reason>" = refused and refunded; anything else
+   *  (including "uncertain:...") = possibly paid and possibly recoverable. */
+  error_detail?: string | null;
 };
 
 type ClaimArgs = {
@@ -108,18 +116,18 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     return { state: "error", cacheKey, disposition: "none", detail: `I could not reserve this fetch (${short(err)}); I will try it again on the next pass.` };
   }
 
-  if (claim.outcome === "ready") {
-    return { state: "hit", envelope: (claim.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: claim.modelServed };
-  }
+  if (claim.outcome === "ready") return { state: "hit", envelope: (claim.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: claim.modelServed };
   if (claim.outcome === "pending") {
     // Task mode ALWAYS routes into the free collect (task_get resumption + free
     // tasks_ready recovery of a quarantined row): charges nothing, never reposts.
     if (r.mode === "task") return collectResolvedTask(cacheKey, paths, deps);
-    // Live pending is honest ONLY when the row is not quarantined; a quarantined
-    // live attempt has no free way back and must say so. Reads fail closed.
+    // Live pending is honest ONLY when the row carries no durable hold; a held live
+    // attempt has no free way back and must say which hold it is. Reads fail closed.
     try {
       const liveRow = await d.cacheRead(cacheKey);
-      if (liveRow?.quarantined_at) return { state: "error", cacheKey, disposition: "quarantined", detail: "I paid for this answer once but could not confirm or keep it, and there is no free list for this kind of request. I set it aside for good rather than buy it twice." };
+      const refused = blockedReason(liveRow);
+      if (refused) return blockedResult(cacheKey, refused);
+      if (liveRow?.quarantined_at) return { state: "error", cacheKey, disposition: "quarantined", detail: "I may have paid for this answer once and could not confirm or keep it, and there is no free list for this kind of request. I set it aside for good rather than buy it twice." };
     } catch {
       return { state: "error", cacheKey, disposition: "none", detail: "I could not read my own records; I will not call the provider until I can." };
     }
@@ -130,16 +138,10 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
   // existing task for free instead of paying for a duplicate.
   if (r.mode === "task" && claim.providerTaskId) return collectResolvedTask(cacheKey, paths, deps);
 
-  if (isDryRun(d.env)) {
-    await releaseClaim(d, cacheKey, now, "dry_run");
-    return { state: "dry_run", cacheKey, detail: "dry-run: no spend" };
-  }
+  if (isDryRun(d.env)) { await releaseClaim(d, cacheKey, now, "dry_run"); return { state: "dry_run", cacheKey, detail: "dry-run: no spend" }; }
 
   const verdict = await d.breaker(d.env, now, r.estCostUsd).catch(() => ({ tripped: true, reason: "global spend breaker unavailable, failing closed" }));
-  if (verdict.tripped) {
-    await releaseClaim(d, cacheKey, now, "capped");
-    return { state: "capped", cacheKey, detail: verdict.reason ?? "global monthly ceiling reached" };
-  }
+  if (verdict.tripped) { await releaseClaim(d, cacheKey, now, "capped"); return { state: "capped", cacheKey, detail: verdict.reason ?? "global monthly ceiling reached" }; }
 
   let reserved: boolean;
   try {
@@ -148,11 +150,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     await releaseClaim(d, cacheKey, now, "reserve_error");
     return { state: "error", cacheKey, disposition: "none", detail: `I could not set aside budget for this (${short(err)}); I made no provider call and will try again.` };
   }
-  if (!reserved) {
-    await releaseClaim(d, cacheKey, now, "capped");
-    return { state: "capped", cacheKey, detail: `monthly cap reached for ${PLATFORM}` };
-  }
-
+  if (!reserved) { await releaseClaim(d, cacheKey, now, "capped"); return { state: "capped", cacheKey, detail: `monthly cap reached for ${PLATFORM}` }; }
   // ONE pre-call receipt for BOTH modes, persisted BEFORE the network, so an
   // uncertain outcome is never re-bought; task payloads carry tag = cacheKey.
   const payload = r.mode === "task" ? tagTaskPayload(r.payload, cacheKey) : r.payload;
@@ -169,12 +167,13 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
   const transport = await runDataForSeoTransport({ url: `${API_BASE}/${r.postPath}`, payload, estCostUsd: r.estCostUsd, env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence" });
   if (!transport.ok) {
     // Only HTTP 401/402/404 are documented pre-execution rejections (charged
-    // nothing): reconcile down and release. A throw, 5xx, or ANY other status is
-    // UNCERTAIN (may have run and billed): hold and keep the money.
+    // nothing): refund, then HOLD the row. Releasing it is what silently re-runs a
+    // refused paid request, and a raw 404 must never read as a dead task. A throw,
+    // 5xx, or any other status may have run and billed: hold and keep the money.
     if (transport.status === 401 || transport.status === 402 || transport.status === 404) {
       await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {});
-      await releaseClaim(d, cacheKey, now, `http_error:${transport.status}`);
-      return { state: "error", cacheKey, disposition: "none", detail: `The provider turned this request away (${transport.message}) before doing any work; I will try again on the next pass.` };
+      if (!(await holdBlocked(d, cacheKey, now, `HTTP ${transport.status}`))) return { state: "error", cacheKey, disposition: "none", detail: "The provider refused this request and I could not record the refusal; I am holding it briefly and will note it properly on the next pass." };
+      return blockedResult(cacheKey, `HTTP ${transport.status}`);
     }
     return holdUncertain(d, r.mode, cacheKey, now, "I could not confirm whether the provider took and charged this request, so I paused it.");
   }
@@ -184,15 +183,8 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
 
   if (r.mode === "task") {
     const posted = readTaskPosted(body);
-    if (!posted.accepted || !posted.taskId) {
-      // Only a REPORTED zero cost proves the rejection was free.
-      if (providerCost === 0) {
-        await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {});
-        await releaseClaim(d, cacheKey, now, "task_post_rejected");
-        return { state: "error", cacheKey, disposition: "none", detail: "The provider did not accept this task and charged nothing; I will try it again on the next pass." };
-      }
-      return holdUncertain(d, r.mode, cacheKey, now, "The provider did not clearly accept this task and may still have charged for it, so I paused it.");
-    }
+    // A rejection is never automatically retried on cost alone: the STATUS decides.
+    if (!posted.accepted || !posted.taskId) return applyPaidRejection(d, r, body, providerCost, now, "The provider did not clearly accept this task and may still have charged for it, so I paused it.");
     const actual = providerCost ?? r.estCostUsd;
     await d.adjustProviderSpend(r.tenantId, PLATFORM, actual - r.estCostUsd).catch(() => {});
     try {
@@ -210,17 +202,9 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
   }
 
   const live = readLiveResult(body);
-  if (!live.valid) {
-    // Only a REPORTED zero cost proves no charge (safe retry later); any other
-    // unusable answer may be paid for, so it quarantines, reservation kept.
-    if (providerCost === 0) {
-      await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {});
-      await releaseClaim(d, cacheKey, now, "envelope_invalid_unpaid");
-      return { state: "error", cacheKey, disposition: "none", detail: "The provider answered without a usable result and charged nothing; I will ask again on the next pass." };
-    }
-    await quarantineRow(d, cacheKey, now);
-    return { state: "error", cacheKey, disposition: "quarantined", detail: "The provider answered without a usable result and may have charged for it, so I paused this one; I will not buy it again." };
-  }
+  // Same policy for a Live rejection: a reported zero cost alone never authorizes a
+  // silent paid retry, and a Live 40401/40403 proves nothing about a task we posted.
+  if (!live.valid) return applyPaidRejection(d, r, body, providerCost, now, "The provider answered without a usable result and may have charged for it, so I paused it.");
   const actual = providerCost ?? r.estCostUsd;
   await d.adjustProviderSpend(r.tenantId, PLATFORM, actual - r.estCostUsd).catch(() => {});
   const readyAt = now.toISOString();
@@ -253,9 +237,11 @@ export async function collectResolvedTask(
     return { state: "error", cacheKey, disposition: "none", detail: "I could not read my own records; I will not call the provider until I can." };
   }
   if (!row) return { state: "error", cacheKey, disposition: "none", detail: "I have no record of a provider task here, so I will start this one fresh." };
-  if (row.status === "ready" && row.payload != null && Date.parse(row.expires_at) > now.getTime()) {
-    return { state: "hit", envelope: (row.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: row.model_served };
-  }
+  if (row.status === "ready" && row.payload != null && Date.parse(row.expires_at) > now.getTime()) return { state: "hit", envelope: (row.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: row.model_served };
+  // A BLOCKED hold created no task and was already refunded, so there is nothing to
+  // list and nothing to collect: say so and spend zero calls, however many visits.
+  const refused = blockedReason(row);
+  if (refused) return blockedResult(cacheKey, refused);
   let taskId = row.provider_task_id;
   if (!taskId && row.quarantined_at) {
     taskId = await recoverQuarantined(d, cacheKey, paths.tasksReadyPath(row.endpoint), now);
@@ -272,9 +258,7 @@ export async function collectResolvedTask(
   if (!transport.ok) {
     // A raw HTTP 404 is NOT proof of a missing task (only in-body 40401/40403
     // is): fail closed, keep the identity, pause visibly, authorize nothing.
-    if (transport.status === 404) {
-      return { state: "error", cacheKey, disposition: "blocked", detail: "The provider answered 404 when I tried to collect this. I kept the task on file and will not buy it again; I will keep checking it for free." };
-    }
+    if (transport.status === 404) return { state: "error", cacheKey, disposition: "blocked", detail: "The provider answered 404 when I tried to collect this. I kept the task on file and will not buy it again; I will keep checking it for free." };
     // Any other transport failure on a FREE GET is a costless retry next visit;
     // the message rides along so it is never a silent eternal wait.
     return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: `I could not reach the provider to collect this (${transport.message}); I will try again for free.` };
@@ -285,14 +269,11 @@ export async function collectResolvedTask(
   const cls = classifyTaskStatus(code);
   if (cls === "waiting") return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: `The provider is still working on this (code ${code ?? "unknown"}); I will collect it for free on the next pass.` };
   if (cls === "missing") {
-    // Proven gone: clear the dead identity so a clean re-claim reposts ONCE.
-    await clearDeadTask(d, cacheKey, now, `missing_${code ?? "unknown"}`);
+    await clearDeadTask(d, cacheKey, now, `missing_${code ?? "unknown"}`); // proven gone: clear the dead identity so a clean re-claim reposts ONCE
     return { state: "error", cacheKey, disposition: "repost_once", detail: `The provider no longer has this task (code ${code ?? "unknown"}); I will start it fresh once.` };
   }
-  if (cls === "blocked") {
-    // Account/contract problem, NOT a dead task: keep the id and pause.
-    return { state: "error", cacheKey, disposition: "blocked", detail: `The provider turned this request down (code ${code ?? "unknown"}); I am pausing here until the account is sorted out. The task is still on file, so nothing gets paid for twice.` };
-  }
+  // Account/contract problem, NOT a dead task: keep the id and pause.
+  if (cls === "blocked") return { state: "error", cacheKey, disposition: "blocked", detail: `The provider turned this request down (code ${code ?? "unknown"}); I am pausing here until the account is sorted out. The task is still on file, so nothing gets paid for twice.` };
   if (cls === "transient") return { state: "error", cacheKey, disposition: "retry_free", detail: `The provider hit a temporary problem on this task (code ${code ?? "unknown"}); I kept it and will collect it again for free shortly.` };
   const live = readLiveResult(transport.body);
   if (!live.valid) return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: "The provider marked this ready but sent no result yet; I will collect it again for free." };
@@ -310,9 +291,7 @@ export async function collectResolvedTask(
 
 /** An ambiguous outcome on a call we may already have paid for: hold the row, keep
  *  the reservation, never retry it automatically. A Standard row can still come back
- *  for free from tasks_ready; a Live row has no such listing, so its payload may be
- *  lost for good and only an operator can resolve it. That is the honest cost of
- *  uncertainty, and it is cheaper than buying the same answer twice. */
+ *  for free from tasks_ready; a Live row cannot. Cheaper than paying twice. */
 async function holdUncertain(d: CachedCallDeps, mode: "live" | "task", cacheKey: string, now: Date, lead: string): Promise<CachedCallResult> {
   const held = await quarantineRow(d, cacheKey, now);
   const way = mode === "task"
@@ -323,23 +302,65 @@ async function holdUncertain(d: CachedCallDeps, mode: "live" | "task", cacheKey:
     : { state: "error", cacheKey, disposition: "none", detail: `${lead} I could not record that pause either, so I am holding it for a few minutes before I look again.` };
 }
 
+/** THE one application point for the paid-response policy (a Standard POST the
+ *  provider did not accept, or a Live answer with no usable result).
+ *  classifyPaidResponse owns the decision; this owns the money and the row. */
+async function applyPaidRejection(d: CachedCallDeps, r: ResolvedCall, body: unknown, providerCost: number | null, now: Date, lead: string): Promise<CachedCallResult> {
+  const taskCode = firstTask(body)?.status_code;
+  const code = typeof taskCode === "number" ? taskCode : topStatus(body);
+  const action = classifyPaidResponse(topStatus(body), typeof taskCode === "number" ? taskCode : null, providerCost);
+  // Not a REPORTED zero: the provider may have charged, so keep the reservation.
+  if (action === "uncertain") return holdUncertain(d, r.mode, r.cacheKey, now, lead);
+  const shown = `code ${code ?? "unknown"}`;
+  await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {});
+  if (action === "retry_free_release") {
+    // The ONLY automatic retry after a paid rejection: an exactly documented
+    // temporary provider failure that reported no charge. Nothing was created.
+    await releaseClaim(d, r.cacheKey, now, `provider_temporary:${code ?? "unknown"}`);
+    return { state: "error", cacheKey: r.cacheKey, disposition: "none", detail: `The provider hit a temporary problem on its side (${shown}) and charged nothing, so I asked for the reservation back and will try this again on the next pass.` };
+  }
+  if (!(await holdBlocked(d, r.cacheKey, now, shown))) return { state: "error", cacheKey: r.cacheKey, disposition: "none", detail: "The provider refused this request and I could not record the refusal; I am holding it briefly and will note it properly on the next pass." };
+  return blockedResult(r.cacheKey, shown);
+}
+
+/** The DURABLE refusal hold: refused, already refunded, nothing to collect.
+ *  False = the mark did not persist; the caller must degrade honestly. */
+async function holdBlocked(d: CachedCallDeps, cacheKey: string, now: Date, reason: string): Promise<boolean> {
+  return holdRow(d, cacheKey, now, `blocked:${reason}`);
+}
+/** The refusal reason if this row is a BLOCKED hold, else null (an unmarked or
+ *  "uncertain:" hold is possibly paid and keeps its own recovery path). */
+function blockedReason(row: { error_detail?: string | null } | null | undefined): string | null {
+  const detail = row?.error_detail;
+  return typeof detail === "string" && detail.startsWith("blocked:") ? detail.slice(8, 120) : null;
+}
+function blockedResult(cacheKey: string, reason: string): CachedCallResult {
+  return { state: "error", cacheKey, disposition: "blocked", detail: `The provider would not run this request (${reason}) and reported no charge, so I asked for that reservation back. Nothing retries this on its own; it stays set aside for review.` };
+}
+
 /** The FREE cache write, retried twice more in the same invocation, for the two
  *  places where losing the write would otherwise cost real money to redo. */
 async function writeRetried(d: CachedCallDeps, cacheKey: string, patch: Record<string, unknown>): Promise<boolean> {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try { await d.cacheWrite(cacheKey, patch); return true; } catch { /* free to try again */ }
-  }
+  for (let attempt = 0; attempt < 3; attempt++) try { await d.cacheWrite(cacheKey, patch); return true; } catch { /* free to try again */ }
   return false;
 }
 
-/** Mark the row QUARANTINED: the provider may hold a paid call we cannot name, so
- *  no branch may repost it (claim_evidence_fetch refuses to reclaim or expire a
- *  quarantined row). False = the mark did not persist, so only the lease guards. */
+/** Mark the row UNCERTAIN: the provider may hold a paid call we cannot name. */
 async function quarantineRow(d: CachedCallDeps, cacheKey: string, now: Date): Promise<boolean> {
+  return holdRow(d, cacheKey, now, "uncertain:unconfirmed provider call");
+}
+/** THE one durable hold, one column carrying two meanings. claim_evidence_fetch
+ *  answers 'pending' forever for any marked row, so no branch can repost it and no
+ *  SQL changes. The ALWAYS EXPLICIT reason marker is what a later visit reads, so a
+ *  stale error_detail can never be mistaken for the other kind of hold. A blocked
+ *  hold clears the pre-call receipt because the provider created nothing.
+ *  False = the mark did not persist, so only the ambiguity lease guards the row. */
+async function holdRow(d: CachedCallDeps, cacheKey: string, now: Date, reason: string): Promise<boolean> {
   try {
     await d.cacheWrite(cacheKey, {
-      quarantined_at: now.toISOString(), posted_attempt_at: now.toISOString(),
+      quarantined_at: now.toISOString(), posted_attempt_at: reason.startsWith("blocked:") ? null : now.toISOString(),
       fetch_claimed_until: new Date(now.getTime() + AMBIGUITY_WINDOW_MS).toISOString(),
+      error_at: now.toISOString(), error_detail: reason.slice(0, 200),
     });
     return true;
   } catch { return false; }
@@ -354,13 +375,9 @@ async function recoverQuarantined(d: CachedCallDeps, cacheKey: string, tasksRead
   const byTag = await memoListing(d, tasksReadyPath, now.getTime());
   const found = byTag.get(cacheKey);
   if (!found) return null;
-  try {
-    // The adopted task is real: give it the full retention window so the claim's
-    // expiry-clear branch can never treat it as instantly dead and repost it.
-    await d.cacheWrite(cacheKey, { status: "pending", provider_task_id: found, quarantined_at: null, fetch_claimed_until: null, expires_at: new Date(now.getTime() + TASK_RETENTION_MS).toISOString() });
-  } catch {
-    return null;
-  }
+  // The adopted task is real: give it the full retention window so the claim's
+  // expiry-clear branch can never treat it as instantly dead and repost it.
+  try { await d.cacheWrite(cacheKey, { status: "pending", provider_task_id: found, quarantined_at: null, error_detail: null, fetch_claimed_until: null, expires_at: new Date(now.getTime() + TASK_RETENTION_MS).toISOString() }); } catch { return null; }
   return found;
 }
 /** ONE listing GET per family per pass: a process-local 60 second bucket
@@ -407,10 +424,9 @@ export function identityCacheKey(p: {
     String(p.locationCode), p.languageCode, p.device ?? "", p.modelRequested ?? ""].join("|");
   return "dfs2_" + sha256(raw).slice(0, 40);
 }
-/** A terminally dead provider task (404 / expired / contract error): clear the
- *  stale task identity and mark the row errored so the next claim reclaims and
- *  reposts clean one time only. Best-effort: if this write fails, the caller
- *  still reports the terminal error and a later pass retries the clear. */
+/** A terminally dead provider task (in-body 40401/40403 only): clear the stale
+ *  identity and mark the row errored so the next claim reposts clean ONE time.
+ *  Best-effort: a failed write just means a later pass retries the clear. */
 async function clearDeadTask(d: CachedCallDeps, cacheKey: string, now: Date, detail: string): Promise<void> {
   await d.cacheWrite(cacheKey, {
     // a dead task has nothing left to protect, so the quarantine mark clears too
@@ -421,15 +437,7 @@ async function clearDeadTask(d: CachedCallDeps, cacheKey: string, now: Date, det
 /** Mark the row error, which releases the lease honestly: claim_evidence_fetch
  *  treats an errored row as immediately re-claimable. */
 async function releaseClaim(d: CachedCallDeps, cacheKey: string, now: Date, detail: string): Promise<void> {
-  await d.cacheWrite(cacheKey, { status: "error", error_at: now.toISOString(), error_detail: detail.slice(0, 200), fetch_claimed_until: null }).catch(() => {});
-}
-
-/** Reconcile after an HTTP-200-but-not-success envelope. Reconcile DOWN only
- *  when the provider genuinely did not charge; unknown cost keeps the reservation. */
-async function reconcileFailure(d: CachedCallDeps, tenantId: string, estCostUsd: number, providerCost: number | null): Promise<void> {
-  if (providerCost === null) return; // unknown -> keep reservation (overcount, never undercount)
-  const delta = providerCost <= 0 ? -estCostUsd : providerCost - estCostUsd;
-  await d.adjustProviderSpend(tenantId, PLATFORM, delta).catch(() => {});
+  await d.cacheWrite(cacheKey, { status: "error", error_at: now.toISOString(), error_detail: detail.slice(0, 200), fetch_claimed_until: null, posted_attempt_at: null }).catch(() => {});
 }
 
 function firstTask(body: unknown): Record<string, unknown> | null {
@@ -474,21 +482,14 @@ function readLiveResult(body: unknown): { valid: boolean; payload: ProviderEnvel
 }
 function readTaskPosted(body: unknown): { accepted: boolean; taskId: string | null } {
   const task = firstTask(body);
-  const code = task?.status_code;
-  const id = task?.id;
+  const code = task?.status_code; const id = task?.id;
   const accepted = topStatus(body) === 20000 && task != null && (code === 20000 || code === 20100) && typeof id === "string" && id.length > 0;
   return { accepted, taskId: accepted ? (id as string) : null };
 }
 
-function short(err: unknown): string {
-  return (err instanceof Error ? err.message : String(err)).slice(0, 120);
-}
-function boundedSummary(input: Record<string, unknown>): string {
-  return stableStringify(input).slice(0, 200);
-}
-function sha256(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
-}
+function short(err: unknown): string { return (err instanceof Error ? err.message : String(err)).slice(0, 120); }
+function boundedSummary(input: Record<string, unknown>): string { return stableStringify(input).slice(0, 200); }
+function sha256(s: string): string { return createHash("sha256").update(s).digest("hex"); }
 /** Deterministic JSON: object keys sorted recursively. */
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";

@@ -149,8 +149,8 @@ export function interp(r: CachedCallResult): Interp {
 export function pauseDetail(disposition: FailureDisposition | undefined, fallback: string): string {
   switch (disposition) {
     case "retry_free": return "A research request did not come back this time. I kept it and I will collect it for free on the next pass.";
-    case "blocked": return "The research provider turned my request away over account, billing, or limits. I will not spend again until that is cleared.";
-    case "quarantined": return "I set aside a paid attempt I could not verify. I will never buy it a second time, and I keep checking whether it can be recovered for free.";
+    case "blocked": return "The research provider turned this request down. I will not spend on it again on my own; it stays set aside for review.";
+    case "quarantined": return "I set this request aside so I do not run it twice. If the provider offers free recovery I will keep checking; otherwise it waits for review.";
     case "repost_once": return "A research task expired at the provider. I will run it once more on the next pass.";
     default: return fallback;
   }

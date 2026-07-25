@@ -9,7 +9,6 @@ import "server-only";
  * winning-page appearance carries its own query/prompt/engine, and citations
  * preserve the null-vs-[]-vs-nonempty tri-state end to end.
  */
-
 import { basisTag } from "@/domains/account";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
@@ -170,7 +169,7 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
             if ((p.reposts ?? 0) >= 1) { p.status = "unsupported"; p.cacheKey = null; p.observedAt = nowIso(); }
             else { p.status = "pending"; p.cacheKey = null; p.reposts = 1; }
           } else if (r.disposition === "quarantined") { p.status = "unsupported"; p.observedAt = nowIso(); }
-          else failedDetail = pauseDetail(r.disposition, "A prompt check did not come back. I will collect it on the next pass.");
+          else failedDetail = r.detail ?? pauseDetail(r.disposition, "A prompt check did not come back. I will collect it on the next pass.");
         }
       }
 
@@ -195,10 +194,11 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           if (parsed) { await landAnswer(p, r, parsed, text, tenantId, runId, nowIso(), d.syncHistory); progressed = true; }
           else failedDetail = "I got an answer I could not read. I will retry it on the next pass.";
         } else if (r.kind === "failed") {
-          // quarantined = EXPLICIT unavailable coverage (the boundary holds the
-          // paid attempt; weekly re-entry retries the free recovery forever).
-          if (r.disposition === "quarantined") { p.status = "unsupported"; p.cacheKey = r.cacheKey; p.observedAt = nowIso(); }
-          else failedDetail = pauseDetail(r.disposition, "A prompt check did not run. I will retry it on the next pass.");
+          // quarantined AND blocked-from-post = EXPLICIT unavailable coverage: the
+          // boundary holds the row durably at zero spend, so the pair must not
+          // stall the phase. Weekly re-entry re-checks both for free.
+          if (r.disposition === "quarantined" || r.disposition === "blocked") { p.status = "unsupported"; p.cacheKey = r.cacheKey; p.observedAt = nowIso(); failedDetail = r.detail ?? failedDetail; }
+          else failedDetail = r.detail ?? pauseDetail(r.disposition, "A prompt check did not run. I will retry it on the next pass.");
         }
         else if (r.soft === "not_configured") softUnavailable = true; // genuine unavailable coverage
         processed += 1;
@@ -294,8 +294,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           else if (r.kind === "failed") {
             // Disposition decides: repost_once = ONE clean repost then explicit
             // unavailable; everything else stays posted for a free collect.
-            if (r.disposition === "quarantined") { s.status = "failed"; s.observedAt = nowIso(); }
-            else if (r.disposition !== "repost_once") failedDetail = pauseDetail(r.disposition, "A search did not finish. I will retry it on the next pass.");
+            if (r.disposition === "quarantined" || r.disposition === "blocked") { s.status = "failed"; s.observedAt = nowIso(); failedDetail = r.detail ?? failedDetail; }
+            else if (r.disposition !== "repost_once") failedDetail = r.detail ?? pauseDetail(r.disposition, "A search did not finish. I will retry it on the next pass.");
             else if ((s.reposts ?? 0) >= 1) { s.status = "failed"; s.observedAt = nowIso(); failedDetail = "A search could not be completed after a second try. I will try it fresh next week."; }
             else { s.status = "pending"; s.cacheKey = null; s.reposts = 1; }
           }
@@ -307,8 +307,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           else if (r.kind === "failed") {
             // Terminal AI Mode collect: ONE clean repost, then explicit missing
             // coverage (never a silent gap, never an eternal dead-key collect).
-            if (r.disposition === "quarantined") s.aiModeFailed = true; // explicit missing coverage, never a stall
-            else if (r.disposition !== "repost_once") failedDetail = pauseDetail(r.disposition, "An AI Mode look did not finish. I will retry it on the next pass.");
+            if (r.disposition === "quarantined" || r.disposition === "blocked") s.aiModeFailed = true; // explicit missing coverage, never a stall
+            else if (r.disposition !== "repost_once") failedDetail = r.detail ?? pauseDetail(r.disposition, "An AI Mode look did not finish. I will retry it on the next pass.");
             else if (s.aiModeReposted) s.aiModeFailed = true;
             else { s.aiModeCacheKey = null; s.aiModeReposted = true; }
           }

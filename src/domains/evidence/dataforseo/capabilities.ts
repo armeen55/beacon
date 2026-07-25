@@ -37,8 +37,10 @@ const LLM_MAX_OUTPUT_TOKENS = 2048;
 type LlmEngine = "chatgpt" | "gemini" | "claude" | "perplexity";
 const ENGINE_SLUG: Record<LlmEngine, string> = { chatgpt: "chat_gpt", gemini: "gemini", claude: "claude", perplexity: "perplexity" };
 
-/** tasksReady = the FREE GET listing of finished-but-uncollected tasks, the ONLY
- *  sanctioned recovery for a quarantined row. Null on Live routes (no task). */
+/** tasksReady = the FREE GET listing of finished-but-uncollected tasks, the only
+ *  AUTOMATIC recovery a quarantined row ever gets (the hold is otherwise
+ *  indefinite otherwise; the deliberate clear-path is documented in the handoff).
+ *  Null on Live routes (no task). */
 type Route = { mode: "live" | "task"; postPath: string; getPath: ((id: string) => string) | null; tasksReady: string | null };
 
 type Entry<K extends CapabilityKey> = {
@@ -268,7 +270,11 @@ export async function resolveEngineModel(engine: LlmEngine, deps: FunnelBoundary
   const cacheKey = "dfsmodels_" + sha256(path).slice(0, 32);
   const now = d.now();
   let envelope: ProviderEnvelope | null = null;
-  const row = await d.cacheRead(cacheKey).catch(() => null);
+  // A read FAILURE is not an absent row: our records are down, so fail closed here
+  // and make ZERO provider calls (not even the free models GET) rather than walk on
+  // toward a paid one. An ABSENT row is a real miss and does fetch the free list.
+  let row: Awaited<ReturnType<typeof d.cacheRead>>;
+  try { row = await d.cacheRead(cacheKey); } catch { return null; }
   if (row && row.status === "ready" && row.payload != null && Date.parse(row.expires_at) > now.getTime()) {
     envelope = row.payload as ProviderEnvelope;
   } else {
@@ -282,7 +288,8 @@ export async function resolveEngineModel(engine: LlmEngine, deps: FunnelBoundary
       }).catch(() => {});
     }
   }
-  // Configured + live but the list is unavailable -> FAIL CLOSED (null).
+  // Configured + live but the list is unavailable -> FAIL CLOSED (null). providerCall
+  // turns a null resolution into a bounded no-model result and never posts anything.
   if (!envelope) return null;
   return selectResolution(modelObjects(envelope));
 }
