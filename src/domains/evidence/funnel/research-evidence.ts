@@ -9,6 +9,15 @@
 
 export type ResearchEngine = "chatgpt" | "gemini" | "claude" | "perplexity";
 
+/** Provenance of an AI observation (frozen, Slice 6I). consumer_search = the
+ *  ChatGPT scraper look at the consumer search experience: citation-grade
+ *  evidence for citations, brands, sources, and fan-outs, and THE canonical
+ *  ChatGPT visibility signal. standardized_response = the llm_responses ask:
+ *  natural/base response visibility, canonical for gemini/claude/perplexity but
+ *  AUXILIARY research for chatgpt (never engine coverage, never a substitute
+ *  for missing consumer visibility). The two are never blended or collapsed. */
+export type ObservationMode = "consumer_search" | "standardized_response";
+
 type ResearchKeyword = {
   query: string;
   searchVolume: number | null;
@@ -24,6 +33,8 @@ type ResearchAiObservation = {
   /** The REAL prompt text observed (never a prompt id surfaced as evidence). */
   promptText: string;
   engine: string;
+  /** Frozen provenance: which retrieval experience produced this observation. */
+  observationMode: ObservationMode;
   modelRequested: string | null;
   modelServed: string | null;
   /** Provider-REPORTED web-search state; null = not reported. */
@@ -60,6 +71,12 @@ export type ResearchWinningAppearance = {
   citedUrl: string;
   observedAt: string;
   modelServed: string | null;
+  /** ai_answer appearances carry their observation mode; SERP kinds carry null.
+   *  Optional for persisted pre-6I rows, which read as null. */
+  observationMode?: ObservationMode | null;
+  /** The original provider URL when a known redirect wrapper was resolved into
+   *  citedUrl (provenance back to the raw citation); null when citedUrl is raw. */
+  viaUrl?: string | null;
 };
 
 export type ResearchPageExtract = {

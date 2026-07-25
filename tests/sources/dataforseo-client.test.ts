@@ -1,18 +1,12 @@
 /**
- * DataForSEO env truth + the ONE shared HTTP transport core. The money policy
- * (configured / dry-run / breaker / atomic reservation / single-flight cache)
- * is pinned end to end in tests/sources/evidence-cache.test.ts; this file pins
- * what every call shares: credential resolution, the dry-run DEFAULT, the
- * fail-safe monthly cap, and transport status/cost extraction.
+ * DataForSEO env truth + the ONE shared HTTP transport core. The money policy (configured / dry-run /
+ * breaker / atomic reservation / single-flight cache) is pinned end to end in
+ * tests/sources/evidence-cache.test.ts; this file pins what every call shares: credential resolution,
+ * the dry-run DEFAULT, the fail-safe monthly cap, and transport status/cost extraction.
  */
 import { describe, it, expect, vi } from "vitest";
-import {
-  isDataForSeoConfigured, isDryRun, monthlyCapUsd, resolveAuthB64,
-  runDataForSeoTransport, DEFAULT_MONTHLY_CAP_USD,
-} from "@/domains/evidence/dataforseo/client";
-
+import { isDataForSeoConfigured, isDryRun, monthlyCapUsd, resolveAuthB64, runDataForSeoTransport, DEFAULT_MONTHLY_CAP_USD } from "@/domains/evidence/dataforseo/client";
 const ENV = { BEACON_SERP_PROVIDER: "dataforseo", DATAFORSEO_LOGIN: "u", DATAFORSEO_PASSWORD: "p" } as unknown as NodeJS.ProcessEnv;
-
 describe("DataForSEO env truth", () => {
   it("configured requires the provider selection AND usable auth; base64 wins over login/password", () => {
     expect(isDataForSeoConfigured(ENV)).toBe(true);
@@ -22,14 +16,12 @@ describe("DataForSEO env truth", () => {
     expect(resolveAuthB64(ENV)).toBe(Buffer.from("u:p").toString("base64"));
   });
   it("dry-run is the DEFAULT (only an explicit false disables) and the cap never resolves to unlimited", () => {
-    expect(isDryRun(ENV)).toBe(true);
-    expect(isDryRun({ ...ENV, DATAFORSEO_DRY_RUN: "false" } as never)).toBe(false);
+    expect(isDryRun(ENV)).toBe(true); expect(isDryRun({ ...ENV, DATAFORSEO_DRY_RUN: "false" } as never)).toBe(false);
     expect(monthlyCapUsd(ENV)).toBe(DEFAULT_MONTHLY_CAP_USD);
     expect(monthlyCapUsd({ ...ENV, DATAFORSEO_MONTHLY_CAP_USD: "12.5" } as never)).toBe(12.5);
     expect(monthlyCapUsd({ ...ENV, DATAFORSEO_MONTHLY_CAP_USD: "-3" } as never)).toBe(DEFAULT_MONTHLY_CAP_USD); // never unlimited
   });
 });
-
 describe("the shared transport core", () => {
   it("returns the body with the provider-reported cost (falling back to the estimate) and never throws", async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ cost: 0.004, tasks: [] }), { status: 200 }));
@@ -46,7 +38,6 @@ describe("the shared transport core", () => {
     let captured: RequestInit | undefined;
     const fetchImpl = vi.fn(async (_u: string, init?: RequestInit) => { captured = init; return new Response("{}", { status: 200 }); });
     await runDataForSeoTransport({ url: "https://x/v3/task_get/1", payload: [], estCostUsd: 0, env: ENV, fetchImpl: fetchImpl as never, method: "GET" });
-    expect(captured?.method).toBe("GET");
-    expect(captured?.body).toBeUndefined();
+    expect(captured?.method).toBe("GET"); expect(captured?.body).toBeUndefined();
   });
 });

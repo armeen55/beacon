@@ -9,7 +9,7 @@ import "server-only";
  */
 
 import { loadResearchState, saveResearchState, type StateRepoDeps } from "./state-repo";
-import type { ResearchPageExtract, ResearchWinningAppearance } from "./research-evidence";
+import type { ObservationMode, ResearchPageExtract, ResearchWinningAppearance } from "./research-evidence";
 
 const FUNNEL_SCHEMA_VERSION = 3;
 
@@ -32,6 +32,13 @@ export type FunnelPair = {
   /** Real prompt text, persisted when observed so provenance never surfaces an id. */
   promptText?: string;
   engine: "chatgpt" | "perplexity" | "gemini" | "claude";
+  /** Frozen provenance (Slice 6I): the retrieval experience of this pair.
+   *  Canonical coverage = chatgpt consumer_search + the other three engines
+   *  standardized_response; a chatgpt standardized_response pair is AUXILIARY.
+   *  Stamped by normalization on load; every consumer reads mode, never scraper. */
+  mode?: ObservationMode;
+  /** LEGACY decode input only (pre-6I blobs): normalization derives mode from it
+   *  (chatgpt scraper true = consumer_search) and nothing else may read it. */
   scraper?: boolean;
   cacheKey: string | null;
   status: "pending" | "posted" | "done" | "unsupported";

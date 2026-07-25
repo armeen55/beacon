@@ -10,20 +10,13 @@
  * unit-testable. The loader (native-intel-loader.ts) does the one paged
  * Supabase read and calls into this file.
  *
- * Four outputs, all deterministic, all built ONLY from the tenant's own
- * observation rows (never fabricated):
- *   1. rankRecurringDomains  - third-party domains that keep appearing across
- *      distinct prompts (the people on the lists). Ranked by how many
- *      DISTINCT prompts cite them, then by total citation count.
- *   2. rankRecurringPages    - the exact URLs cited repeatedly, same ranking
- *      shape at the page level.
- *   3. buildPresenceMatrix   - per (prompt, engine): are we mentioned, are we
- *      cited, and the exact answer sentence when we are (never a raw excerpt
- *      dump - the sentence that actually names us).
- *   4. extractNativeQuestions - follow-up/related questions embedded in the
- *      answer text itself (question-mark sentences + "people also ask"-style
- *      list structures), the native twin of a Profound query fanout.
+ * Four deterministic outputs, each documented at its own function and built
+ * ONLY from the tenant's own observation rows (never fabricated):
+ * rankRecurringDomains, rankRecurringPages, buildPresenceMatrix,
+ * rollUpNativeQuestions.
  */
+
+import type { ObservationMode } from "@/domains/evidence/funnel/research-evidence";
 
 // ---------------------------------------------------------------------------
 // Shared input shape - one row per (prompt, engine, observed_at). The loader
@@ -35,6 +28,9 @@ export type NativeObservationInput = {
   promptText: string;
   /** Engine id, e.g. "chatgpt" | "perplexity" | "gemini" | "claude". */
   engine: string;
+  /** Slice 6I retrieval mode; absent on legacy rows, which predate the chatgpt
+   *  pair and are counted exactly as before. */
+  observationMode?: ObservationMode | null;
   topic: string | null;
   observedAt: string;
   answerText: string;
@@ -45,9 +41,26 @@ export type NativeObservationInput = {
   trackedBrandCited: boolean | null;
 };
 
-// ---------------------------------------------------------------------------
+/** Slice 6I - a raw row's retrieval mode. `observationMode` is authoritative; `scraper` true is
+ *  the consumer look. NEITHER marker = legacy (null), counted exactly as before 6I: pre-6I rows
+ *  wrote `scraper: false` on every standardized ask, so scraper false alone must NEVER reclassify
+ *  history as auxiliary (that would silently drop every historical ChatGPT citation from presence
+ *  and proof windows). */
+export function observationModeOf(metadata: Record<string, unknown> | null | undefined): ObservationMode | null {
+  const explicit = metadata?.["observationMode"];
+  if (explicit === "consumer_search" || explicit === "standardized_response") return explicit;
+  return metadata?.["scraper"] === true ? "consumer_search" : null;
+}
+
+/** The ONE countability gate every reader shares: a chatgpt standardized_response row is auxiliary
+ *  research, never a second observation of the engine, so it adds no presence, citation, coverage or
+ *  recurrence count and never stands in for a missing consumer_search row (missing chatgpt coverage
+ *  stays honestly missing). Other engines unaffected: the standardized ask IS their canonical look. */
+function countableRows<T extends { engine: string; observationMode?: ObservationMode | null }>(rows: readonly T[]): T[] {
+  return rows.filter((r) => !(r.engine.trim().toLowerCase() === "chatgpt" && r.observationMode === "standardized_response"));
+}
+
 // (a) Recurring domains - "the people on the lists"
-// ---------------------------------------------------------------------------
 
 export type RecurringDomain = {
   domain: string;
@@ -77,13 +90,13 @@ function isOwnDomain(domain: string, ownedRoot: string): boolean {
   return domain === ownedRoot || domain.endsWith(`.${ownedRoot}`);
 }
 
-/** Search-engine grounding/redirect-wrapper hosts. These are infrastructure
- *  the engine's own citation pipeline routes through (e.g. Gemini's grounding
- *  proxy) - they are not a real third-party source AI "keeps recommending",
- *  so they would otherwise flood the recurring-domain list with a fake #1
- *  every single engine cites on every single prompt. Narrow list, exact
- *  observed hosts only - never a broad heuristic that could hide a real
- *  competitor domain. */
+/** Search-engine grounding/redirect-wrapper hosts: infrastructure the engine's
+ *  own citation pipeline routes through, not a source AI "keeps recommending",
+ *  so they would otherwise be a fake #1 on every prompt. Narrow list, exact
+ *  observed hosts only - never a heuristic that could hide a real competitor.
+ *  The Gemini entry is the host the funnel exports as GEMINI_WRAPPER_HOST
+ *  (competitor-intel/polite-fetch); it stays a literal here because this module
+ *  is PURE and that one is transitively server-only. */
 const REDIRECT_WRAPPER_DOMAINS = new Set<string>([
   "vertexaisearch.cloud.google.com",
   "www.google.com",
@@ -106,6 +119,7 @@ export function rankRecurringDomains(
   rows: readonly NativeObservationInput[],
   opts: { ownedRoot?: string; limit?: number } = {},
 ): RecurringDomain[] {
+  rows = countableRows(rows);
   const ownedRoot = normDomain(opts.ownedRoot ?? "");
   const byDomain = new Map<
     string,
@@ -154,9 +168,7 @@ export function rankRecurringDomains(
   return opts.limit != null ? results.slice(0, opts.limit) : results;
 }
 
-// ---------------------------------------------------------------------------
 // (b) Recurring pages - exact URLs cited repeatedly
-// ---------------------------------------------------------------------------
 
 export type RecurringPage = {
   url: string;
@@ -173,6 +185,7 @@ export function rankRecurringPages(
   rows: readonly NativeObservationInput[],
   opts: { ownedRoot?: string; limit?: number } = {},
 ): RecurringPage[] {
+  rows = countableRows(rows);
   const ownedRoot = normDomain(opts.ownedRoot ?? "");
   const byUrl = new Map<
     string,
@@ -228,9 +241,7 @@ export function rankRecurringPages(
   return opts.limit != null ? results.slice(0, opts.limit) : results;
 }
 
-// ---------------------------------------------------------------------------
 // (c) WE ARE / WE ARE NOT matrix
-// ---------------------------------------------------------------------------
 
 export type PresenceCell = {
   engine: string;
@@ -307,8 +318,10 @@ export function buildPresenceMatrix(
   opts: { brandVariants?: readonly string[] } = {},
 ): PresenceMatrix {
   const brandVariants = (opts.brandVariants ?? []).filter((v) => v && v.length >= 2);
+  rows = countableRows(rows);
 
-  // Latest observation per (prompt, engine).
+  // Latest observation per (prompt, engine). With the gate above, the chatgpt
+  // cell is the latest CONSUMER row and is absent when there is none.
   const latestByCell = new Map<string, NativeObservationInput>();
   for (const row of rows) {
     const key = `${row.promptId}::${row.engine}`;
@@ -367,9 +380,7 @@ export function buildPresenceMatrix(
   };
 }
 
-// ---------------------------------------------------------------------------
 // (d) Native question expansion - follow-up questions embedded in answers
-// ---------------------------------------------------------------------------
 
 export type NativeQuestion = {
   /** Normalized question text, as it appeared in the answer (trimmed,
@@ -415,16 +426,15 @@ export function extractQuestionsFromAnswer(answerText: string): string[] {
 /**
  * Roll up native follow-up questions across every observation row into a
  * ranked, deduped list - the native twin of a Profound query fanout. Two
- * questions collapse together when their normalized text is identical
- * (conservative on purpose: near-duplicate clustering belongs to a
- * dedicated demand-ranking pass, not this extractor). The source
- * prompt's own text is excluded from its own expansion (a question
- * shouldn't "expand" into itself). Pure, deterministic.
+ * questions collapse only when their normalized text is identical (near-
+ * duplicate clustering belongs to a demand-ranking pass, not this extractor).
+ * A prompt never "expands" into itself. Pure, deterministic.
  */
 export function rollUpNativeQuestions(
   rows: readonly NativeObservationInput[],
   opts: { limit?: number } = {},
 ): NativeQuestion[] {
+  rows = countableRows(rows);
   const byQuestion = new Map<string, { weight: number; prompts: Set<string> }>();
   for (const row of rows) {
     const candidates = extractQuestionsFromAnswer(row.answerText);
@@ -450,9 +460,7 @@ export function rollUpNativeQuestions(
   return opts.limit != null ? results.slice(0, opts.limit) : results;
 }
 
-// ---------------------------------------------------------------------------
 // Combined report shape (what the loader hands to the /prompts surface)
-// ---------------------------------------------------------------------------
 
 export type NativeIntelReport = {
   recurringDomains: RecurringDomain[];
@@ -475,13 +483,16 @@ export function buildNativeIntelReport(
   rows: readonly NativeObservationInput[],
   opts: { ownedRoot?: string; brandVariants?: readonly string[] } = {},
 ): NativeIntelReport {
-  const enginesSeen = [...new Set(rows.map((r) => r.engine))].sort();
+  // Count and report on the COUNTABLE stream only, so rowsScanned/enginesSeen
+  // describe the same evidence the four sections were built from.
+  const counted = countableRows(rows);
+  const enginesSeen = [...new Set(counted.map((r) => r.engine))].sort();
   return {
-    recurringDomains: rankRecurringDomains(rows, { ownedRoot: opts.ownedRoot, limit: DEFAULT_DOMAIN_LIMIT }),
-    recurringPages: rankRecurringPages(rows, { ownedRoot: opts.ownedRoot, limit: DEFAULT_PAGE_LIMIT }),
-    presence: buildPresenceMatrix(rows, { brandVariants: opts.brandVariants }),
-    nativeQuestions: rollUpNativeQuestions(rows, { limit: DEFAULT_QUESTION_LIMIT }),
-    rowsScanned: rows.length,
+    recurringDomains: rankRecurringDomains(counted, { ownedRoot: opts.ownedRoot, limit: DEFAULT_DOMAIN_LIMIT }),
+    recurringPages: rankRecurringPages(counted, { ownedRoot: opts.ownedRoot, limit: DEFAULT_PAGE_LIMIT }),
+    presence: buildPresenceMatrix(counted, { brandVariants: opts.brandVariants }),
+    nativeQuestions: rollUpNativeQuestions(counted, { limit: DEFAULT_QUESTION_LIMIT }),
+    rowsScanned: counted.length,
     enginesSeen,
   };
 }

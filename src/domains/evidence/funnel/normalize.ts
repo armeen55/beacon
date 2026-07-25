@@ -8,6 +8,7 @@ import "server-only";
  * TRUE per-appearance provenance. No I/O, no envelope-poking, never throws.
  */
 
+import { GEMINI_WRAPPER_HOST } from "@/domains/evidence/competitor-intel/polite-fetch";
 import type { ParsedKeywordItem } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import type { ResearchWinningAppearance } from "./research-evidence";
@@ -137,6 +138,40 @@ export function rankAndCap(retained: FunnelKeyword[], cap: number): FunnelKeywor
 
 type WinningCandidate = { url: string; domain: string; weight: number; appearances: ResearchWinningAppearance[] };
 
+/** Exact host of a URL, lowercased ("" when unparseable). */
+function exactHost(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/** Defensive mode-blind dedupe for AI answers (Slice 6I). The chatgpt consumer
+ *  look and the standardized ask are TWO observations of one engine, so the same
+ *  prompt + engine + url must count ONCE; consumer_search wins the tie. Collection
+ *  already dedupes, so this only stops a duplicate from ever inflating weight.
+ *  SERP appearances are untouched. Order preserved. Pure. */
+function dedupeAppearances(appearances: ResearchWinningAppearance[]): ResearchWinningAppearance[] {
+  const slotOf = new Map<string, number>();
+  const out: ResearchWinningAppearance[] = [];
+  for (const a of appearances) {
+    if (a.kind !== "ai_answer") {
+      out.push(a);
+      continue;
+    }
+    const id = `${a.promptId ?? ""}|${a.engine ?? ""}|${a.citedUrl}`;
+    const slot = slotOf.get(id);
+    if (slot === undefined) {
+      slotOf.set(id, out.length);
+      out.push(a);
+    } else if (a.observationMode === "consumer_search" && out[slot]!.observationMode !== "consumer_search") {
+      out[slot] = a;
+    }
+  }
+  return out;
+}
+
 /** Aggregate winning pages from a flat appearance stream, each appearance carrying
  *  its ACTUAL source (query or real prompt id + text, engine, rank). AI surfaces
  *  weight double; organic top-10 single; the account's own domain is excluded. A
@@ -148,9 +183,13 @@ export function rankWinningPages(
 ): WinningCandidate[] {
   const own = (ownDomain ?? "").toLowerCase();
   const byUrl = new Map<string, WinningCandidate>();
-  for (const a of appearances) {
+  for (const a of dedupeAppearances(appearances)) {
     const url = a.citedUrl;
     if (!url) continue;
+    // An UNRESOLVED Gemini redirect wrapper is infrastructure, not a page: it can
+    // never rank as a competitor or winning page. Resolved citations arrive here
+    // as their real target (viaUrl keeps the raw wrapper), so they rank normally.
+    if (exactHost(url) === GEMINI_WRAPPER_HOST) continue;
     const d = rootDomain(url).toLowerCase();
     if (!d) continue;
     if (own && (d === own || d.endsWith(`.${own}`))) continue;

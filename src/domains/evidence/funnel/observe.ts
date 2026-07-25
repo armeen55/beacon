@@ -1,110 +1,98 @@
 import "server-only";
 /**
- * funnel/observe (integrity closure) - the AI-answer, SERP, and winning-page executors plus the PURE
- * snapshot projector. Every provider call routes through the frozen boundary by CAPABILITY and consumes
- * the registry's typed parse output; posted Standard tasks resume via collect, only a PROVEN-dead task
- * identity earns one clean repost per incident, and a BLOCKED refusal always stops the batch and pauses
- * the run for review (the disposition decides). All state is basis-scoped with optimistic row_version.
- * Provenance is TRUE: every winning-page appearance carries its own query/prompt/engine, and citations
- * preserve the null-vs-[]-vs-nonempty tri-state end to end.
+ * funnel/observe (integrity closure) - the AI-answer, SERP and winning-page executors plus the PURE
+ * snapshot projector. Provider calls route through the frozen boundary by CAPABILITY; posted tasks resume
+ * via collect, only a PROVEN-dead identity earns one clean repost per incident, and a BLOCKED refusal
+ * always stops the batch and pauses the run. State is basis-scoped with optimistic row_version. Provenance
+ * is TRUE: every observation carries its retrieval MODE, every appearance its own query/prompt/engine, and
+ * citations keep the null-vs-[]-vs-nonempty tri-state end to end.
  */
-import { basisTag } from "@/domains/account";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
+import { resolveCitationTargets } from "@/domains/evidence/competitor-intel/polite-fetch";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type { CachedCallResult, CapabilityKey, FunnelCounters, FunnelUnitFn, FunnelUnitOutcome, ParsedAiAnswer, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { rankAndCap, rankWinningPages } from "./normalize";
 import { type FunnelPair, type FunnelSerp, type FunnelState, type FunnelWinningPage } from "./state";
-import {
-  emptyResearchEvidence, type FunnelResearchEvidence, type ResearchEngine,
-  type ResearchPageExtract, type ResearchWinningAppearance,
-} from "./research-evidence";
-import {
-  basisFromCursor, beginCycle, CONFLICT_DETAIL, FRESH_MS, interp, type Interp, NO_BASIS_DETAIL, pauseDetail,
-  resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps,
-} from "./shared";
+import { type FunnelResearchEvidence, type ObservationMode, type ResearchEngine, type ResearchPageExtract, type ResearchWinningAppearance } from "./research-evidence";
+import { basisFromCursor, beginCycle, CONFLICT_DETAIL, FRESH_MS, interp, type Interp, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
 
 /** blocked = a HELD refusal at zero further spend. It ALWAYS pauses the run, so prefer the boundary's own truthful detail. */
 const blockedNote = (r: Interp) => r.detail || pauseDetail("blocked", "");
 // ── B3: prompt observation ──────────────────────────────────────────────────
 const ENGINES: ResearchEngine[] = ["chatgpt", "gemini", "claude", "perplexity"];
-const pairKey = (p: FunnelPair) => `${p.promptId}|${p.engine}|${p.scraper ? "s" : ""}`;
-const capabilityFor = (p: FunnelPair): CapabilityKey => (p.scraper ? "llm_scraper_chatgpt" : (`llm_${p.engine}` as CapabilityKey));
+/** CANONICAL coverage = the ChatGPT consumer search experience (the citation-grade look real people get)
+ *  plus the standardized response on the other three. A chatgpt standardized_response pair is AUXILIARY
+ *  research: bounded, never engine coverage, never a substitute for the consumer look. */
+const canonicalMode = (engine: ResearchEngine): ObservationMode => (engine === "chatgpt" ? "consumer_search" : "standardized_response");
+/** Mode is stamped by normalization; the legacy scraper flag is decode input ONLY (nothing else reads it). */
+const modeOf = (p: FunnelPair): ObservationMode => p.mode ?? (p.scraper ? "consumer_search" : "standardized_response");
+const isCanonical = (p: FunnelPair) => modeOf(p) === canonicalMode(p.engine);
+const pairKey = (p: FunnelPair) => `${p.promptId}|${p.engine}|${modeOf(p)}`;
+const capabilityFor = (p: FunnelPair): CapabilityKey => (p.engine === "chatgpt" && modeOf(p) === "consumer_search" ? "llm_scraper_chatgpt" : (`llm_${p.engine}` as CapabilityKey));
 
-/** Each engine gets EXACTLY its own documented ask. ChatGPT takes web_search only: force_web_search
- *  draws an in-body 40501 on its reasoning models, which is every current one. Claude documents
- *  force_web_search + country. Gemini is web_search only; perplexity none; the scraper is KEYWORD-based. */
+/** Each capability gets EXACTLY its own documented ask. ChatGPT llm_responses takes web_search only (force_web_search
+ *  draws an in-body 40501 on its reasoning models, which is every current one); Claude documents force_web_search +
+ *  country; Gemini web_search only; perplexity none; the consumer-search scraper is KEYWORD-based. */
 function observeCall(callProvider: ResolvedDeps["callProvider"], p: FunnelPair, text: string, ids: { tenantId: string; unitKey: string }): Promise<CachedCallResult> {
-  if (p.scraper) return callProvider("llm_scraper_chatgpt", { keyword: text, force_web_search: true, expand_citations: true }, ids);
-  switch (p.engine) {
-    case "gemini": return callProvider("llm_gemini", { user_prompt: text, web_search: true }, ids);
-    case "perplexity": return callProvider("llm_perplexity", { user_prompt: text }, ids);
-    case "claude": return callProvider("llm_claude", { user_prompt: text, web_search: true, force_web_search: true, web_search_country_iso_code: "US" }, ids);
+  switch (capabilityFor(p)) {
+    case "llm_scraper_chatgpt": return callProvider("llm_scraper_chatgpt", { keyword: text, force_web_search: true, expand_citations: true }, ids);
+    case "llm_gemini": return callProvider("llm_gemini", { user_prompt: text, web_search: true }, ids);
+    case "llm_perplexity": return callProvider("llm_perplexity", { user_prompt: text }, ids);
+    case "llm_claude": return callProvider("llm_claude", { user_prompt: text, web_search: true, force_web_search: true, web_search_country_iso_code: "US" }, ids);
     default: return callProvider("llm_chatgpt", { user_prompt: text, web_search: true }, ids);
   }
 }
 
-/** THE current intended pair set (active prompts x engines + scraper subset), each carrying forward its
- *  persisted row when the key still belongs; everything else is PRUNED (history lives in the pao table). */
-function currentPairs(prompts: { id: string }[], persisted: FunnelPair[]): FunnelPair[] {
+/** THE current intended pair set, MODE-stamped: 4 canonical pairs per prompt plus one auxiliary chatgpt standardized
+ *  pair for the first 20 prompts only. A persisted row carries forward by promptId|engine|MODE (a legacy scraper flag
+ *  decodes to consumer_search, a legacy bare chatgpt row to standardized), so nothing fresh is re-bought; every other
+ *  row is PRUNED from the working set (history lives in the pao table). */
+function normalizePairs(prompts: { id: string }[], persisted: FunnelPair[]): FunnelPair[] {
   const byKey = new Map(persisted.map((p) => [pairKey(p), p]));
   const intended: FunnelPair[] = [];
-  for (const p of prompts) for (const engine of ENGINES) intended.push({ promptId: p.id, engine, cacheKey: null, status: "pending" });
-  for (const p of prompts.slice(0, 20)) intended.push({ promptId: p.id, engine: "chatgpt", scraper: true, cacheKey: null, status: "pending" });
-  return intended.map((ip) => byKey.get(pairKey(ip)) ?? ip);
+  for (const p of prompts) for (const engine of ENGINES) intended.push({ promptId: p.id, engine, mode: canonicalMode(engine), cacheKey: null, status: "pending" });
+  for (const p of prompts.slice(0, 20)) intended.push({ promptId: p.id, engine: "chatgpt", mode: "standardized_response", cacheKey: null, status: "pending" });
+  return intended.map((ip) => { const kept = byKey.get(pairKey(ip)); return kept ? { ...kept, mode: ip.mode, scraper: undefined } : ip; });
 }
 
 /** Fresh = inside the weekly window; done-but-STALE = outstanding, not complete. */
 const pairFresh = (p: FunnelPair, now: number) => p.status === "done" && !!p.observedAt && now - Date.parse(p.observedAt) <= FRESH_MS;
 const pairComplete = (p: FunnelPair, now: number) => p.status === "unsupported" || pairFresh(p, now);
 
+/** Progress counts CANONICAL coverage only: auxiliary research can never inflate a denominator. */
 function pairProgress(s: FunnelState): FunnelCounters {
+  const canon = s.prompts.pairs.filter(isCanonical);
   return {
-    promptsChecked: new Set(s.prompts.pairs.map((p) => p.promptId)).size,
-    enginePairsDone: s.prompts.pairs.filter((p) => p.status === "done").length,
-    enginePairsIntended: s.prompts.intendedPairs,
-    cacheHits: s.cycle.cacheHits,
-    spendUsd: round(s.cycle.spentUsd),
+    promptsChecked: new Set(canon.map((p) => p.promptId)).size, enginePairsDone: canon.filter((p) => p.status === "done").length,
+    enginePairsIntended: s.prompts.intendedPairs, cacheHits: s.cycle.cacheHits, spendUsd: round(s.cycle.spentUsd),
   };
 }
 
 /** ONE historical prompt_answer_observations row per completed answer. The id folds in the retrieval
- *  MODE (the scraper look is a different observation of the same engine, never an overwrite),
- *  modelServed, and the day, so a changed served model yields a DISTINCT row, never a merge.
- *  citation_urls is null (not []) when citations were NOT observable, and metadata.citationsObserved
- *  records the tri-state a count-of-0 would flatten. */
+ *  MODE (the consumer look is a different observation of the same engine, never an overwrite, and the
+ *  "+scraper" segment is kept verbatim so pre-6I ids stay continuous), modelServed, and the day, so a
+ *  changed served model yields a DISTINCT row. citation_urls is null (not []) when citations were NOT
+ *  observable, and metadata.citationsObserved records the tri-state a count-of-0 would flatten. */
 function paoRow(p: FunnelPair, parsed: ParsedAiAnswer, tenantId: string, runId: string, nowIso: string): PromptAnswerObservation {
   const domains = (parsed.citations ?? []).map((c) => c.domain);
   const observed = parsed.citations !== null;
   const model = parsed.modelServed ?? p.modelRequested ?? p.engine;
+  const consumer = modeOf(p) === "consumer_search";
   return {
-    id: `${tenantId}|${p.engine}${p.scraper ? "+scraper" : ""}|${p.promptId}|${model}|${nowIso.slice(0, 10)}`,
-    prompt_id: p.promptId,
-    run_id: runId,
+    id: `${tenantId}|${p.engine}${consumer ? "+scraper" : ""}|${p.promptId}|${model}|${nowIso.slice(0, 10)}`,
+    prompt_id: p.promptId, run_id: runId, tenant_id: tenantId, platform: p.engine, observed_at: nowIso, topic: "",
     answer_hash: parsed.answerText ? sha16(parsed.answerText) : null,
-    position: null,
-    tracked_brand_mentioned: null,
-    tracked_brand_cited: null,
-    citation_count: domains.length,
-    owned_citation_count: 0,
-    citation_domains: domains,
-    citation_categories: {},
-    mentions: [],
-    observed_at: nowIso,
-    platform: p.engine,
-    topic: "",
+    position: null, tracked_brand_mentioned: null, tracked_brand_cited: null,
+    citation_count: domains.length, owned_citation_count: 0, citation_domains: domains, citation_categories: {}, mentions: [],
     search_queries: parsed.fanOutQueries ?? undefined,
     citation_urls: observed ? (parsed.citations ?? []).map((c) => c.url) : null,
     metadata: {
-      source: "research-funnel",
-      scraper: Boolean(p.scraper),
-      webSearchReported: parsed.webSearchReported,
-      modelServed: parsed.modelServed,
-      modelRequested: p.modelRequested ?? null,
-      citationsObserved: observed,
-      prompt_text: p.promptText ?? "",
+      source: "research-funnel", observationMode: modeOf(p),
+      scraper: consumer, // kept for pre-6I readers; mode is the truth now
+      webSearchReported: parsed.webSearchReported, modelServed: parsed.modelServed, modelRequested: p.modelRequested ?? null,
+      citationsObserved: observed, prompt_text: p.promptText ?? "",
     },
-    tenant_id: tenantId,
   };
 }
 
@@ -138,12 +126,15 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     const prompts = (await d.loadActivePrompts(tenantId)).slice(0, 100);
     if (prompts.length === 0) return { status: "failed", cursor, progress: pairProgress(state), detail: "I have no active core prompts to check yet." };
 
-    const pairs = currentPairs(prompts, state.prompts.pairs);
-    state.prompts.intendedPairs = pairs.length;
+    const pairs = normalizePairs(prompts, state.prompts.pairs);
+    state.prompts.intendedPairs = prompts.length * ENGINES.length; // CANONICAL coverage only
     const textOf = new Map(prompts.map((p) => [p.id, p.text]));
     const nowIso = () => new Date(d.now()).toISOString();
     let failedDetail: string | null = null, blockedDetail: string | null = null;
     let softUnavailable = false;
+    /** Only a CANONICAL pair can pause the unit: an auxiliary gap is named nowhere and blocks nothing.
+     *  blocked is the ONE exception and is handled separately (account-level truth from ANY pair). */
+    const fail = (p: FunnelPair, detail?: string | null) => { if (isCanonical(p) && detail) failedDetail = detail; };
     // Budgets are per INCIDENT: a stale unsupported pair re-enters weekly with a fresh repost budget.
     for (const p of pairs) if (p.status === "unsupported" && p.observedAt && d.now() - Date.parse(p.observedAt) > FRESH_MS) { p.status = "pending"; p.cacheKey = null; p.reposts = undefined; }
 
@@ -158,25 +149,27 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           const parsed = d.parse(capabilityFor(p), r.payload as never) as ParsedAiAnswer | null;
           // Collected but unreadable evidence is a bounded failure, never a fake answer.
           if (parsed) await landAnswer(p, r, parsed, textOf.get(p.promptId) ?? p.promptText ?? "", tenantId, runId, nowIso(), d.syncHistory);
-          else failedDetail = "I collected an answer I could not read. I will retry it on the next pass.";
+          else fail(p, "I collected an answer I could not read. I will retry it on the next pass.");
         } else if (r.kind === "failed") {
-          // The DISPOSITION decides. blocked = a held refusal: the row is left EXACTLY as it is,
-          // the batch stops, and the run pauses for review. repost_once = proven-dead identity: ONE
-          // clean repost, then unsupported. Everything else keeps the pair POSTED for a free collect.
-          if (r.disposition === "blocked") { blockedDetail = blockedNote(r); break; }
+          // The DISPOSITION decides. blocked on a CANONICAL pair = held refusal: row untouched, batch
+          // stops, run pauses for review. blocked on an AUXILIARY pair never holds the run hostage:
+          // the hold is durable and free, so it reads unsupported (an account-level block resurfaces
+          // on canonical work within the week). repost_once = ONE clean repost, then unsupported.
+          if (r.disposition === "blocked") { if (isCanonical(p)) { blockedDetail = blockedNote(r); break; } p.status = "unsupported"; p.observedAt = nowIso(); continue; }
           if (r.disposition === "repost_once") {
             if ((p.reposts ?? 0) >= 1) { p.status = "unsupported"; p.cacheKey = null; p.observedAt = nowIso(); }
             else { p.status = "pending"; p.cacheKey = null; p.reposts = 1; }
           } else if (r.disposition === "quarantined") { p.status = "unsupported"; p.observedAt = nowIso(); }
-          else failedDetail = r.detail ?? pauseDetail(r.disposition, "A prompt check did not come back. I will collect it on the next pass.");
+          else fail(p, r.detail ?? pauseDetail(r.disposition, "A prompt check did not come back. I will collect it on the next pass."));
         }
       }
 
-      // 2) post/live the stalest pending pairs, bounded batch within budget
+      // 2) post/live the stalest pending pairs, bounded batch within budget. CANONICAL coverage takes
+      // every budget slot first; auxiliary research only spends what is left over.
       const now = d.now();
       const todo = pairs
         .filter((p) => p.status === "pending" || (p.status === "done" && !pairFresh(p, now)))
-        .sort((a, b) => (a.observedAt ? Date.parse(a.observedAt) : 0) - (b.observedAt ? Date.parse(b.observedAt) : 0));
+        .sort((a, b) => (Number(isCanonical(b)) - Number(isCanonical(a))) || (a.observedAt ? Date.parse(a.observedAt) : 0) - (b.observedAt ? Date.parse(b.observedAt) : 0));
       let processed = 0, perp = 0, progressed = false;
       for (const p of todo) {
         if (blockedDetail || d.now() > deadline || processed >= 20) break;
@@ -191,31 +184,30 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
         else if (r.kind === "evidence") {
           const parsed = d.parse(capabilityFor(p), r.payload as never) as ParsedAiAnswer | null;
           if (parsed) { await landAnswer(p, r, parsed, text, tenantId, runId, nowIso(), d.syncHistory); progressed = true; }
-          else failedDetail = "I got an answer I could not read. I will retry it on the next pass.";
+          else fail(p, "I got an answer I could not read. I will retry it on the next pass.");
         } else if (r.kind === "failed") {
-          // blocked = the boundary holds this durably: the pair stays PENDING untouched, the batch
-          // stops, and the run pauses visibly for review. quarantined = EXPLICIT unavailable
-          // coverage that must not stall the phase; weekly re-entry re-checks it for free.
-          if (r.disposition === "blocked") { blockedDetail = blockedNote(r); break; }
-          if (r.disposition === "quarantined") { p.status = "unsupported"; p.cacheKey = r.cacheKey; p.observedAt = nowIso(); failedDetail = r.detail ?? failedDetail; }
-          else failedDetail = r.detail ?? pauseDetail(r.disposition, "A prompt check did not run. I will retry it on the next pass.");
+          // blocked: CANONICAL = durable hold, batch stops, run pauses; AUXILIARY reads unsupported
+          // and never pauses (see the collect ladder). quarantined = EXPLICIT unavailable coverage.
+          if (r.disposition === "blocked") { if (isCanonical(p)) { blockedDetail = blockedNote(r); break; } p.status = "unsupported"; p.observedAt = nowIso(); processed += 1; continue; }
+          if (r.disposition === "quarantined") { p.status = "unsupported"; p.cacheKey = r.cacheKey; p.observedAt = nowIso(); fail(p, r.detail); }
+          else fail(p, r.detail ?? pauseDetail(r.disposition, "A prompt check did not run. I will retry it on the next pass."));
         }
-        else if (r.soft === "not_configured") softUnavailable = true; // genuine unavailable coverage
+        else if (r.soft === "not_configured" && isCanonical(p)) softUnavailable = true; // genuine unavailable coverage
         processed += 1;
       }
 
-      state.prompts.pairs = pairs; // bounded by construction: <= 100 prompts x 4 engines + 20 scraper
+      state.prompts.pairs = pairs; // bounded by construction: <= 100 prompts x 4 canonical + 20 auxiliary
       await save(d, tenantId, basis, state, ctx);
       if (blockedDetail) return { status: "failed", cursor: { runId }, progress: pairProgress(state), detail: blockedDetail }; // a held refusal OUTRANKS done/advanced/waiting: never buried under unavailable counts
       const at = d.now();
-      const complete = pairs.filter((p) => pairComplete(p, at)).length;
-      const freshDone = pairs.filter((p) => pairFresh(p, at)).length;
-      const unsupported = pairs.filter((p) => p.status === "unsupported").length;
-      const anyPosted = pairs.some((p) => p.status === "posted");
-      // Honest status over the CURRENT set only: done needs every intended pair FRESHLY answered or
-      // EXPLICITLY unsupported plus one real answer; stale-done is outstanding and nothing fakes done.
+      const canon = pairs.filter(isCanonical); // completion is judged on CANONICAL coverage ONLY
+      const complete = canon.filter((p) => pairComplete(p, at)).length, freshDone = canon.filter((p) => pairFresh(p, at)).length;
+      const unsupported = canon.filter((p) => p.status === "unsupported").length;
+      const anyPosted = canon.some((p) => p.status === "posted");
+      // Honest status over the CURRENT canonical set only: done needs every intended pair FRESHLY
+      // answered or EXPLICITLY unsupported plus one real answer; stale-done is outstanding.
       let status: FunnelUnitOutcome["status"];
-      if (pairs.length > 0 && freshDone > 0 && complete >= pairs.length) {
+      if (canon.length > 0 && freshDone > 0 && complete >= canon.length) {
         status = "done";
         if (unsupported > 0) failedDetail = `${unsupported} prompt checks were unavailable from the provider this round; the rest are in.`;
       }
@@ -223,9 +215,9 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
       else if (anyPosted) status = "waiting";
       else if (progressed) status = "advanced";
       else if (softUnavailable) { status = "failed"; failedDetail = "I could not reach the AI engines to check your prompts. I will try again on the next pass."; }
-      else if (pairs.some((p) => p.status === "pending")) { status = "failed"; failedDetail = "Some prompt checks did not run this pass. I will pick them up on the next pass."; }
+      else if (canon.some((p) => p.status === "pending")) { status = "failed"; failedDetail = "Some prompt checks did not run this pass. I will pick them up on the next pass."; }
       else if (freshDone === 0) { status = "failed"; failedDetail = "The provider could not return any prompt answers this round. I will try the whole set fresh on the next pass."; }
-      else { status = "failed"; failedDetail = `${pairs.length - complete} prompt checks are still outstanding. I will finish them on the next pass.`; }
+      else { status = "failed"; failedDetail = `${canon.length - complete} prompt checks are still outstanding. I will finish them on the next pass.`; }
       return { status, cursor: { runId }, progress: pairProgress(state), ...(failedDetail ? { detail: failedDetail } : {}) };
     } catch (e) {
       if (e instanceof StateConflictError) return { status: "failed", cursor: { runId }, progress: pairProgress(state), detail: CONFLICT_DETAIL };
@@ -245,9 +237,6 @@ function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string): void {
   s.paa = parsed.paaQuestions.map((q) => ({ question: q.question, answeringDomain: q.answeringDomain }));
   s.related = parsed.relatedSearches.slice(0, 20);
 }
-
-/** A look observed inside the weekly window; anything older is due again. */
-const serpFresh = (s: FunnelSerp, now: number) => s.status === "done" && !!s.observedAt && now - Date.parse(s.observedAt) <= FRESH_MS;
 
 const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.serps.analyzed, cacheHits: s.cycle.cacheHits, spendUsd: round(s.cycle.spentUsd) });
 
@@ -380,31 +369,36 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
 // ── B5: winning pages ───────────────────────────────────────────────────────
 
 /** Flatten every SERP + AI appearance into TRUE-provenance rows: each carries its own query or real
- *  prompt id + text, its engine, and its rank. Prompt ids never surface as query evidence. Pure. */
+ *  prompt id + text, its engine, its rank and (for AI answers) its observation MODE. One citation seen
+ *  through BOTH ChatGPT modes is ONE appearance credited to the consumer look, never counted twice. Pure. */
 function collectAppearances(state: FunnelState, fallbackIso: string): ResearchWinningAppearance[] {
   const out: ResearchWinningAppearance[] = [];
   for (const s of state.serps.queries.filter((x) => x.status === "done")) {
     const at = s.observedAt || state.updatedAt || fallbackIso;
-    for (const o of s.organic ?? []) out.push({ kind: "serp_organic", query: s.query, promptId: null, promptText: null, engine: null, rank: o.rank, citedUrl: o.url, observedAt: at, modelServed: null });
-    for (const a of s.aiOverview ?? []) out.push({ kind: "ai_overview", query: s.query, promptId: null, promptText: null, engine: null, rank: null, citedUrl: a.url, observedAt: at, modelServed: null });
-    for (const a of s.aiMode ?? []) out.push({ kind: "ai_mode", query: s.query, promptId: null, promptText: null, engine: null, rank: null, citedUrl: a.url, observedAt: at, modelServed: null });
+    for (const o of s.organic ?? []) out.push({ kind: "serp_organic", query: s.query, promptId: null, promptText: null, engine: null, rank: o.rank, citedUrl: o.url, observedAt: at, modelServed: null, observationMode: null });
+    for (const a of s.aiOverview ?? []) out.push({ kind: "ai_overview", query: s.query, promptId: null, promptText: null, engine: null, rank: null, citedUrl: a.url, observedAt: at, modelServed: null, observationMode: null });
+    for (const a of s.aiMode ?? []) out.push({ kind: "ai_mode", query: s.query, promptId: null, promptText: null, engine: null, rank: null, citedUrl: a.url, observedAt: at, modelServed: null, observationMode: null });
   }
-  for (const p of state.prompts.pairs.filter((x) => x.status === "done" && x.citations && x.citations.length > 0)) {
-    for (const c of p.citations!) out.push({ kind: "ai_answer", query: null, promptId: p.promptId, promptText: p.promptText ?? null, engine: p.engine, rank: null, citedUrl: c.url, observedAt: p.observedAt ?? fallbackIso, modelServed: p.modelServed ?? null });
+  const cited = state.prompts.pairs.filter((x) => x.status === "done" && x.citations && x.citations.length > 0)
+    .sort((a, b) => Number(modeOf(b) === "consumer_search") - Number(modeOf(a) === "consumer_search")); // consumer look first: it wins the duplicate
+  const seen = new Set<string>();
+  for (const p of cited) for (const c of p.citations!) {
+    const key = `${p.promptId}|${p.engine}|${c.url}`; if (seen.has(key)) continue; seen.add(key);
+    out.push({ kind: "ai_answer", query: null, promptId: p.promptId, promptText: p.promptText ?? null, engine: p.engine, rank: null, citedUrl: c.url, observedAt: p.observedAt ?? fallbackIso, modelServed: p.modelServed ?? null, observationMode: modeOf(p) });
   }
   return out;
 }
 
 const extractFromRecord = (rec: Record<string, unknown>): ResearchPageExtract => ({
-  title: typeof rec.title === "string" ? rec.title : null,
-  h1: typeof rec.h1 === "string" ? rec.h1 : null,
-  wordCount: typeof rec.wordCount === "number" ? rec.wordCount : 0,
+  title: typeof rec.title === "string" ? rec.title : null, h1: typeof rec.h1 === "string" ? rec.h1 : null,
+  wordCount: typeof rec.wordCount === "number" ? rec.wordCount : 0, faqCount: typeof rec.faqCount === "number" ? rec.faqCount : 0,
   headings: Array.isArray(rec.headings) ? (rec.headings as unknown[]).filter((x): x is string => typeof x === "string") : [],
-  faqCount: typeof rec.faqCount === "number" ? rec.faqCount : 0,
 });
 
 export function winningPagesUnit(deps: FunnelDeps = {}): FunnelUnitFn {
   const d = resolveDeps(deps);
+  // Wrapper citations resolve to their REAL target before ranking, so one page is never two winners.
+  const resolve = deps.resolveCitations ?? resolveCitationTargets;
   return async (tenantId, cursor, budgetMs) => {
     const basis = basisFromCursor(cursor);
     if (!basis) return { status: "failed", cursor, progress: {}, detail: NO_BASIS_DETAIL };
@@ -418,11 +412,12 @@ export function winningPagesUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     const profile = await d.loadProfile(tenantId).catch(() => null);
     const nowIso = new Date(d.now()).toISOString();
 
-    const candidates = rankWinningPages(collectAppearances(state, nowIso), ownDomain, 10);
     const pages: FunnelWinningPage[] = [];
     let fetched = 0;
     try {
-      for (const c of candidates) {
+      const raw = collectAppearances(state, nowIso);
+      // A resolver failure (sync OR async) degrades to raw appearances; the unit deadline bounds it.
+      const resolved = await Promise.resolve().then(() => resolve(raw, undefined, deadline)).catch(() => raw); for (const c of rankWinningPages(resolved, ownDomain, 10)) {
         const engines = [...new Set(c.appearances.map((a) => a.engine).filter((e): e is string => !!e))].sort();
         const examplePrompts = [...new Set(c.appearances.map((a) => a.promptText).filter((t): t is string => !!t))].slice(0, 5);
         let extract: ResearchPageExtract | null = null;
@@ -471,16 +466,19 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
   const donePairs = state.prompts.pairs.filter((p) => p.status === "done");
   const observedTimes = donePairs.map((p) => p.observedAt).filter((t): t is string => !!t).sort();
   const isStale = (at: string | undefined) => !at || now - Date.parse(at) > FRESH_MS;
-  const stale = donePairs.filter((p) => isStale(p.observedAt)).length
+  // Receipt denominators are CANONICAL only, derived from the pairs themselves so a pre-6I
+  // persisted intendedPairs (which included auxiliary work) can never overstate missing.
+  const canonIntended = state.prompts.pairs.filter(isCanonical).length;
+  const stale = donePairs.filter((p) => isCanonical(p) && isStale(p.observedAt)).length
     + state.serps.queries.filter((s) => s.status === "done" && isStale(s.observedAt)).length;
-  const missing = Math.max(0, state.prompts.intendedPairs - donePairs.length)
+  const missing = Math.max(0, canonIntended - donePairs.filter(isCanonical).length)
     + state.serps.queries.filter((s) => s.status !== "done").length
     + state.serps.queries.filter((s) => s.aiModeFailed).length;
   const doneSerps = state.serps.queries.filter((s) => s.status === "done");
   return {
     retainedKeywords: state.discovery.retained.map((k) => ({ query: k.keyword, searchVolume: k.searchVolume, competition: k.competition, competitionLevel: competitionLevel(k.competition), intent: k.intent })),
     aiObservations: donePairs.map((p) => ({
-      promptId: p.promptId, promptText: p.promptText ?? "", engine: p.engine,
+      promptId: p.promptId, promptText: p.promptText ?? "", engine: p.engine, observationMode: modeOf(p),
       modelRequested: p.modelRequested ?? null, modelServed: p.modelServed ?? null,
       webSearchReported: p.webSearchReported ?? null, citationsObserved: p.citationsObserved ?? (p.citations != null),
       citations: p.citations ?? null, fanOutQueries: p.fanOutQueries ?? null, observedAt: p.observedAt ?? "",

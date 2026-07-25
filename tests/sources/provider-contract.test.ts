@@ -1,8 +1,8 @@
 /**
- * Provider-contract proof: the capability registry composed with the money-safe core, bound to BOUNDED
- * official DataForSEO fixtures. No network, no Supabase, no spend. Pins the exact paths (post, FREE
- * task_get, FREE tasks_ready), the PER-ENGINE request body with its documented output-token bound,
- * DYNAMIC Standard-vs-Live routing, the envelope rule, and method-aware resolution.
+ * Provider-contract proof: the capability registry composed with the money-safe core, bound to BOUNDED official
+ * DataForSEO fixtures. No network, no Supabase, no spend. Pins the exact paths (post, FREE task_get, FREE
+ * tasks_ready), the PER-ENGINE request body with its documented output-token bound, DYNAMIC Standard-vs-Live
+ * routing, the envelope rule, and method-aware resolution.
  */
 import { describe, it, expect, vi } from "vitest";
 import { providerCall, collectCapability, parseCapability, resolveEngineModel } from "@/domains/evidence/dataforseo/capabilities";
@@ -10,7 +10,6 @@ import { identityCacheKey } from "@/domains/evidence/dataforseo/cached-call";
 import type { ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { classifyTaskStatus, classifyPaidResponse, type TaskStatusClass, type PaidResponseAction } from "@/domains/evidence/dataforseo/status-contract";
 import { labsKeywordsForSiteLive, serpTaskGetAdvanced, llmResponsesTaskPostAck, llmResponsesTaskGet, perplexityLive, chatgptModels, perplexityModels } from "../fixtures/dataforseo-envelopes";
-
 const ENV = { BEACON_SERP_PROVIDER: "dataforseo", DATAFORSEO_AUTH_B64: "abc", DATAFORSEO_DRY_RUN: "false" } as unknown as NodeJS.ProcessEnv;
 const NOW = new Date("2026-07-25T12:00:00.000Z");
 const IDS = { tenantId: "t", unitKey: "u" };
@@ -19,32 +18,26 @@ const modelsEnv = (...models: Record<string, unknown>[]): ProviderEnvelope => ({
 const STD = modelsEnv({ model_name: "gpt-4o", web_search_supported: true, task_post_supported: true });
 const modelsFor = (name: string, post: boolean) => modelsEnv({ model_name: name, web_search_supported: true, task_post_supported: post });
 const taskRow = (endpoint: string, over: Record<string, unknown> = {}) => ({ cache_key: "k", endpoint, status: "pending", provider_task_id: "abc-123", payload: null, model_served: null, cost_usd: 0.03, expires_at: new Date(NOW.getTime() + 86_400_000).toISOString(), quarantined_at: null, ...over });
-
 /** fetchImpl routes the FREE /models GET to modelsBody (default = fetchBody) and every other call to fetchBody, so an engine call resolves its model then posts. */
 function harness(fetchBody: unknown, over: Record<string, unknown> = {}) {
   const { modelsBody = fetchBody, ...depsOver } = over;
   const calls = { fetch: [] as string[], bodies: [] as Record<string, unknown>[][], writes: [] as Record<string, unknown>[] };
-  const deps = {
-    env: ENV, now: () => NOW,
+  const deps = { env: ENV, now: () => NOW,
     fetchImpl: vi.fn(async (url: string, init?: RequestInit) => {
-      calls.fetch.push(url);
-      if (init?.body) calls.bodies.push(JSON.parse(String(init.body)));
+      calls.fetch.push(url); if (init?.body) calls.bodies.push(JSON.parse(String(init.body)));
       return new Response(JSON.stringify(url.endsWith("/models") ? modelsBody : fetchBody), { status: 200 });
     }) as unknown as typeof fetch,
     claimEvidenceFetch: async () => ({ outcome: "claimed", payload: null, providerTaskId: null, modelServed: null, readyAt: null, costUsd: 0 }),
     reserveProviderSpend: async () => true, adjustProviderSpend: async () => true, cacheUpsert: async () => {}, breaker: async () => ({ tripped: false }),
-    cacheRead: async () => null, cacheWrite: async (_k: string, patch: Record<string, unknown>) => { calls.writes.push(patch); }, ...depsOver,
-  };
+    cacheRead: async () => null, cacheWrite: async (_k: string, patch: Record<string, unknown>) => { calls.writes.push(patch); }, ...depsOver };
   return { deps: deps as unknown as Record<string, unknown>, calls, task: () => calls.fetch.filter((u) => !u.endsWith("/models")) };
 }
-
 describe("exact task-status taxonomy (docs.dataforseo.com/v3/appendix/errors)", () => {
   it("pins every documented code onto one class and fails closed on everything else", () => {
     const groups: [TaskStatusClass, (number | null)[]][] = [
       ["ready", [20000]], ["waiting", [null, 20100, 40601, 40602]], ["missing", [40401, 40403]], // waiting = still the provider's turn; ONLY the two missing codes are proven dead -> the one repost
       ["transient", [50000, 50001, 50301, 50302, 50303]], // FREE collect, id preserved
-      ["blocked", [40000, 40100, 40103, 40200, 40202, 40400, 40402, 40404, 40405, 40406, 40407, 40408, 40501, 40506, 50100, 50304, 50401, 50402, 44999, 61234]], // never missing, never a paid repost: contract, account, duplicate, terminal, unknown
-    ];
+      ["blocked", [40000, 40100, 40103, 40200, 40202, 40400, 40402, 40404, 40405, 40406, 40407, 40408, 40501, 40506, 50100, 50304, 50401, 50402, 44999, 61234]]]; // never missing, never a paid repost: contract, account, duplicate, terminal, unknown
     for (const [cls, codes] of groups) for (const code of codes) expect([code, classifyTaskStatus(code)]).toEqual([code, cls]);
   });
   it("judges a PAID response on REPORTED cost first, then on BOTH statuses: every non-success status must be exact-temporary at a reported 0", () => {
@@ -55,16 +48,13 @@ describe("exact task-status taxonomy (docs.dataforseo.com/v3/appendix/errors)", 
       [20000, null, 0, "blocked"], [null, null, 0, "blocked"], // a rejected paid response carrying no non-success status proves nothing temporary
       [50100, null, 0, "blocked"], [20000, 50100, 0, "blocked"], [20000, 50401, 0, "blocked"], [20000, 50402, 0, "blocked"], // terminal, or live-only where any retry is a NEW charge
       [40401, null, 0, "blocked"], [20000, 40403, 0, "blocked"], // a POST/Live reply can never prove a task is missing
-      [20000, 61234, 0, "blocked"], // undocumented: fails closed
-    ];
+      [20000, 61234, 0, "blocked"]]; // undocumented: fails closed
     for (const c of paid) expect([c[0], c[1], c[2], classifyPaidResponse(c[0], c[1], c[2])]).toEqual(c);
   });
 });
-
 describe("exact provider paths + DYNAMIC method routing", () => {
   it("a Standard AI POST hits /task_post, the tag carries the cacheKey, and the model rides back; Perplexity is Live", async () => {
-    const chat = harness(llmResponsesTaskPostAck, { modelsBody: STD });
-    const res = await providerCall("llm_chatgpt", { user_prompt: "hi", web_search: true }, IDS, chat.deps);
+    const chat = harness(llmResponsesTaskPostAck, { modelsBody: STD }); const res = await providerCall("llm_chatgpt", { user_prompt: "hi", web_search: true }, IDS, chat.deps);
     if (res.state !== "waiting") throw new Error(res.state); expect(res.modelRequested).toBe("gpt-4o");
     expect(chat.task()[0]).toBe(BASE + "ai_optimization/chat_gpt/llm_responses/task_post"); expect(chat.calls.bodies[0][0].tag).toBe(res.cacheKey);
     const px = harness(perplexityLive, { modelsBody: modelsFor("sonar", false) }); await providerCall("llm_perplexity", { user_prompt: "hi" }, IDS, px.deps); expect(px.task()[0]).toBe(BASE + "ai_optimization/perplexity/llm_responses/live");
@@ -72,8 +62,7 @@ describe("exact provider paths + DYNAMIC method routing", () => {
   it("routes the SAME engine to Standard or to Live purely from the model resolution", async () => {
     for (const [post, path] of [[true, "task_post"], [false, "live"]] as [boolean, string][]) {
       const g = harness(post ? llmResponsesTaskPostAck : perplexityLive, { modelsBody: modelsFor("gemini-2.5-pro", post) });
-      await providerCall("llm_gemini", { user_prompt: "g", web_search: true }, IDS, g.deps);
-      expect(g.task()[0]).toBe(`${BASE}ai_optimization/gemini/llm_responses/${path}`);
+      await providerCall("llm_gemini", { user_prompt: "g", web_search: true }, IDS, g.deps); expect(g.task()[0]).toBe(`${BASE}ai_optimization/gemini/llm_responses/${path}`);
     }
   });
   it("resumes Standard via /task_get/{id}, scraper via /task_get/advanced/{id}, and a raw 404 fails closed", async () => {
@@ -90,7 +79,6 @@ describe("exact provider paths + DYNAMIC method routing", () => {
     }
   });
 });
-
 describe("web-enabled request bodies per engine (only documented fields)", () => {
   it("ChatGPT sends web_search ONLY: force_web_search draws an in-body 40501 on its reasoning models, and no web field rides an unasked or unsupported search", async () => {
     const chat = harness(llmResponsesTaskPostAck, { modelsBody: modelsFor("o4-mini", true) }); const r1 = await providerCall("llm_chatgpt", { user_prompt: "q", web_search: true }, IDS, chat.deps);
@@ -126,11 +114,9 @@ describe("web-enabled request bodies per engine (only documented fields)", () =>
     expect([typeof scraper, typeof chosen]).toEqual(["function", "function"]);
   });
 });
-
 describe("envelope parsing + method-aware resolution", () => {
   it("the Labs fixture through providerCall parses to nonempty keyword items, and a hit parses identically", async () => {
-    const fresh = harness(labsKeywordsForSiteLive);
-    const r1 = await providerCall("labs_keywords_for_site", { target: "apple.com" }, IDS, fresh.deps); if (r1.state !== "ok") throw new Error(r1.state);
+    const fresh = harness(labsKeywordsForSiteLive); const r1 = await providerCall("labs_keywords_for_site", { target: "apple.com" }, IDS, fresh.deps); if (r1.state !== "ok") throw new Error(r1.state);
     const parsed = parseCapability("labs_keywords_for_site", r1.envelope); expect(parsed?.length).toBe(2); expect(parsed![0]).toMatchObject({ keyword: "video editing app for ipad pro", searchVolume: 30, difficulty: 60, intent: "transactional" });
     const stored = fresh.calls.writes.find((w) => w.status === "ready")!.payload;
     const hit = harness(labsKeywordsForSiteLive, { claimEvidenceFetch: async () => ({ outcome: "ready", payload: stored, providerTaskId: null, modelServed: null, readyAt: NOW.toISOString(), costUsd: 0 }) });

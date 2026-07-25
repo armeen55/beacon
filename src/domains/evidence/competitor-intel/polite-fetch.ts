@@ -13,10 +13,18 @@
  * script made.
  */
 
+import type { ResearchWinningAppearance } from "@/domains/evidence/funnel/research-evidence";
 import { perfCountExternal } from "@/lib/obs/perf-log";
+import { isSafeRedirectHopUrl } from "@/lib/net/safe-source-fetch";
 
 export const COMPETITOR_INTEL_UA = "BeaconBot/1.0 (competitor-intel)";
 const TIMEOUT_MS = 10_000;
+
+/** Gemini's grounding redirect wrapper. A live Gemini observation (2026-07-24)
+ *  returned citations whose host is EXACTLY this, each redirecting to the real
+ *  source. The wrapper is infrastructure, never a page that can win. THE single
+ *  source of this host string for the funnel. */
+export const GEMINI_WRAPPER_HOST = "vertexaisearch.cloud.google.com";
 
 export type PoliteFetchDeps = {
   fetchImpl?: typeof fetch;
@@ -149,4 +157,105 @@ export async function fetchPageHtml(
       detail: err instanceof Error ? err.message : "unknown",
     };
   }
+}
+
+// -- Slice 6I: bounded redirect-only resolution of Gemini wrapper citations ---
+
+const MAX_REDIRECT_HOPS = 4;
+const MAX_RESOLUTIONS_PER_CALL = 10;
+
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/** True when a URL's host is EXACTLY the Gemini wrapper (never a suffix match:
+ *  a real source must never be mistaken for infrastructure). */
+function isGeminiWrapperUrl(url: string): boolean {
+  return hostOf(url) === GEMINI_WRAPPER_HOST;
+}
+
+/** Follow a wrapper URL by Location header ONLY. Never downloads or parses a
+ *  body (redirect: "manual" + immediate body cancel); requests go ONLY to the
+ *  wrapper host, and the FIRST off-wrapper Location IS the resolved source
+ *  (no confirmation request to the final host, so its robots posture is never
+ *  touched here; a later content GET flows through fetchPageHtml with robots
+ *  on the final host). Every hop target passes isSafeRedirectHopUrl, the SAME
+ *  hardened screen the safe-source fetcher uses (metadata hosts, intranet
+ *  names, private/reserved literal IPs): a redirect chain is attacker-shaped
+ *  input and may never point inside the deployment. Null on any failure. */
+async function resolveOneRedirect(startUrl: string, fetchImpl: typeof fetch): Promise<string | null> {
+  let current = startUrl;
+  for (let hop = 0; hop < MAX_REDIRECT_HOPS; hop++) {
+    let res: Response;
+    try {
+      perfCountExternal("crawl", "gemini-wrapper-hop");
+      res = await fetchImpl(current, {
+        method: "GET",
+        headers: { "User-Agent": COMPETITOR_INTEL_UA, Accept: "*/*" },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+        redirect: "manual",
+      });
+    } catch {
+      return null;
+    }
+    // Never read the body: cancel the stream the moment headers are in.
+    try {
+      await res.body?.cancel?.();
+    } catch {
+      /* body already closed or absent (test stub) - nothing to release */
+    }
+    const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+    if (!location) return null; // the wrapper always redirects; anything else is not a resolution
+    let next: string;
+    try {
+      next = new URL(location, current).toString();
+    } catch {
+      return null;
+    }
+    if (!isSafeRedirectHopUrl(next)) return null;
+    if (hostOf(next) !== GEMINI_WRAPPER_HOST) return next; // first off-wrapper target IS the source
+    current = next;
+  }
+  return null; // hop budget spent mid-chain: unresolved, never a guess
+}
+
+/**
+ * Resolve Gemini wrapper citations to their real target, in place, order
+ * preserved. ONLY appearances whose citedUrl host is exactly
+ * GEMINI_WRAPPER_HOST are touched; everything else passes through untouched
+ * with zero fetches. Per-call: at most MAX_RESOLUTIONS_PER_CALL chains, one
+ * chain per distinct URL (deduped). On success citedUrl becomes the final URL
+ * and viaUrl keeps the raw wrapper URL; on ANY failure the appearance is
+ * returned UNCHANGED (the raw wrapper stays as honest unresolved evidence).
+ */
+export async function resolveCitationTargets(
+  appearances: ResearchWinningAppearance[],
+  fetchImpl?: typeof fetch,
+  /** Absolute epoch ms; past it, remaining wrappers stay raw (the caller's unit budget bounds us). */
+  deadlineMs?: number,
+): Promise<ResearchWinningAppearance[]> {
+  const impl = fetchImpl ?? fetch;
+  const resolved = new Map<string, string | null>();
+  const out: ResearchWinningAppearance[] = [];
+  for (const a of appearances) {
+    if (!a.citedUrl || !isGeminiWrapperUrl(a.citedUrl)) {
+      out.push(a);
+      continue;
+    }
+    let target = resolved.get(a.citedUrl);
+    if (target === undefined) {
+      if (resolved.size >= MAX_RESOLUTIONS_PER_CALL || (deadlineMs != null && Date.now() > deadlineMs)) {
+        out.push(a); // budget or deadline spent: leave the rest raw
+        continue;
+      }
+      target = await resolveOneRedirect(a.citedUrl, impl);
+      resolved.set(a.citedUrl, target);
+    }
+    out.push(target ? { ...a, citedUrl: target, viaUrl: a.citedUrl } : a);
+  }
+  return out;
 }

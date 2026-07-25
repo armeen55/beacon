@@ -24,6 +24,7 @@ import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { ENGINE_PLAIN_NAME } from "./engine-types";
 import {
   buildNativeIntelReport,
+  observationModeOf,
   type NativeIntelReport,
   type NativeObservationInput,
 } from "./native-intel";
@@ -96,6 +97,10 @@ function toInput(row: ObservationRow): NativeObservationInput | null {
     promptId: row.prompt_id,
     promptText: promptTextOf(row),
     engine: row.platform,
+    // Slice 6I: carry the row's retrieval mode through so the pure layer's
+    // countability gate can drop an auxiliary chatgpt standardized row instead
+    // of counting it as a second observation of the same engine.
+    observationMode: observationModeOf(row.metadata),
     topic: row.topic || null,
     observedAt: row.observed_at,
     answerText: answerExcerptOf(row),

@@ -24,6 +24,7 @@ import {
 } from "@/lib/persistence/cold-store";
 import { getPromptAnswerObservations } from "@/storage/canonical-store";
 import { normalizePlatform } from "@/lib/platform";
+import { observationModeOf } from "@/domains/evidence/readers/native-intel";
 import type { CitationObservation } from "@/domains/evidence/ai-visibility/citation-observations";
 
 /**
@@ -73,25 +74,12 @@ export type UrlCitationHistory = {
 
 /**
  * Normalize a URL to a path-only key so different representations of the same
- * page match. We strip scheme, host, `www.`, trailing slashes, and lowercase.
- *
- * This is intentionally path-only (not host+path) because changelog entries
- * carry paths ("/locations/palo-alto") while citation observations carry full
- * URLs ("https://ritzbuilders.com/locations/palo-alto/"). Matching on path
- * alone makes them align for a single-site tenant, which is the current model.
- *
- * Examples:
- *   https://ritzbuilders.com/locations/palo-alto/  →  /locations/palo-alto
- *   /locations/palo-alto                            →  /locations/palo-alto
- *   ritzbuilders.com/services/whole-home-remodel   →  /services/whole-home-remodel
- *   https://example.com                             →  /
+ * page match (scheme, host, `www.`, trailing slash stripped, lowercased).
+ * Path-only on purpose: changelog entries carry paths while observations carry
+ * full URLs, and they must align for a single-site tenant. The implementation
+ * lives in `src/lib/url/normalize.ts` (T6.6) so scripts can import it without
+ * this file's dependency tree; re-exported here, behavior unchanged.
  */
-// Re-export the canonical helper from `src/lib/url/normalize.ts` (T6.6).
-// The helper was extracted out of this file so analysis scripts +
-// future write-time normalization callers can import it without pulling
-// in the citation-history transitive dependency tree. Behavior is
-// byte-identical to the previous in-file implementation; the public
-// `normalizeUrl` symbol is unchanged.
 import { normalizeUrl } from "@/lib/url/normalize";
 export { normalizeUrl };
 
@@ -106,11 +94,7 @@ export { normalizeUrl };
  * per-URL dedup invariant. Tagged source_type='derived'.
  *
  * No date interpolation, no cross-regime summing. Each day's count comes
- * from exactly one regime.
- *
- * Performance: ~40 daily shards × ~2,500 citations each + ~200 native
- * observations/day with ~10 citations each ≈ 100K iterations. Runs in well
- * under a second on a laptop.
+ * from exactly one regime. ~100K iterations worst case, well under a second.
  */
 export async function buildUrlCitationHistory(opts?: {
   ownedOnly?: boolean;
@@ -133,16 +117,10 @@ export async function buildUrlCitationHistory(opts?: {
    * GAP-FILL precedence: benchmark > native > profound (Profound never
    * overwrites a (url,date) the polling regimes already cover, so the
    * same citation is never double-counted). Absent/empty (every render
-   * consumer + the default) → byte-identical behavior. The proof
-   * engine's honesty gates (≥controls, placebo, parallel-trends) apply
-   * to the merged history unchanged.
+   * consumer + the default) → byte-identical behavior. The proof engine's
+   * honesty gates apply to the merged history unchanged.
    */
-  profoundOwnedCitations?: ReadonlyArray<{
-    url: string;
-    date: string;
-    platform: string;
-    count: number;
-  }>;
+  profoundOwnedCitations?: ReadonlyArray<{ url: string; date: string; platform: string; count: number }>;
 }): Promise<UrlCitationHistory> {
   const ownedOnly = opts?.ownedOnly ?? true;
   const since = opts?.sinceDate ?? null;
@@ -151,6 +129,9 @@ export async function buildUrlCitationHistory(opts?: {
   // output). Used by the Profound shard ingest path (native path uses
   // observation.platform directly — we're iterating observations, not
   // detached citation rows).
+  // Slice 6I: a per-id lookup, not a counter, and it only serves the benchmark
+  // regime (dates before NATIVE_REGIME_START, which no dual-mode chatgpt row can
+  // carry), so it cannot double count. The native gate is buildNativeDayBuckets.
   const promptAnswerObservations =
     opts?.observations ?? (await getPromptAnswerObservations());
   const paoPlatform = new Map<string, string>();
@@ -345,6 +326,19 @@ function stripWww(host: string): string {
   return host.replace(/^www\./i, "").toLowerCase();
 }
 
+/**
+ * Slice 6I - the one mode gate this file needs. ChatGPT can now produce TWO rows
+ * for the same prompt on the same day: the consumer search look (canonical) and
+ * the standardized ask (auxiliary). Counting both would hand every owned URL a
+ * silent +1 per day that reads as a real citation gain in the proof/verdict
+ * windows. Dropping the standardized row makes a day's chatgpt count the consumer
+ * look only, and a prompt with no consumer look stays honestly uncounted. Legacy
+ * rows carry no marker and count exactly as before - they predate the pair.
+ */
+function isAuxiliaryChatgptRow(obs: { platform: string; metadata?: Record<string, unknown> | null }): boolean {
+  return normalizePlatform(obs.platform) === "chatgpt" && observationModeOf(obs.metadata) === "standardized_response";
+}
+
 /** Host of a full URL in `citation_domains` form, or null if unparseable. */
 function urlHost(raw: string): string | null {
   try {
@@ -393,6 +387,8 @@ export function buildNativeDayBuckets(
     citation_urls?: string[] | null;
     citation_domains?: string[] | null;
     citation_domain_classes?: string[] | null;
+    /** Slice 6I: carries `observationMode` / `scraper`. Absent on legacy rows. */
+    metadata?: Record<string, unknown> | null;
   }>,
   opts: {
     ownedOnly: boolean;
@@ -420,6 +416,8 @@ export function buildNativeDayBuckets(
   >();
 
   for (const obs of observations) {
+    // Slice 6I: never count the auxiliary chatgpt row as a second observation.
+    if (isAuxiliaryChatgptRow(obs)) continue;
     // Skip observations outside the native regime window.
     const isoDate = obs.observed_at.slice(0, 10);
     if (isoDate < NATIVE_REGIME_START) continue;

@@ -22,6 +22,7 @@ import type {
   CapabilityKey,
   FailureDisposition,
 } from "@/domains/evidence/dataforseo/funnel-boundary";
+import type { ResearchWinningAppearance } from "./research-evidence";
 import {
   providerCall,
   collectCapability,
@@ -45,6 +46,9 @@ export type FunnelDeps = {
   writePageExtract?: typeof writePublicPageExtract;
   loadProfile?: (tenantId: string) => Promise<BusinessProfile>;
   loadCrawl?: (tenantId: string) => Promise<CrawlFrontierState | null>;
+  /** Test seam for winning-page citation-target resolution (defaults to the real
+   *  redirect-only resolver in competitor-intel/polite-fetch). */
+  resolveCitations?: (appearances: ResearchWinningAppearance[], fetchImpl?: typeof fetch, deadlineMs?: number) => Promise<ResearchWinningAppearance[]>;
   getAccount?: (tenantId: string) => Promise<Account | null>;
   loadActivePrompts?: (tenantId: string) => Promise<{ id: string; text: string }[]>;
   syncHistory?: (rows: PromptAnswerObservation[], tenantId: string) => Promise<void>;

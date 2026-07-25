@@ -67,11 +67,7 @@ const SOURCE_VERIFY_UA = "BeaconBot/1.0 (source-verify)";
 const DEFAULT_CONTENT_TYPES = ["text/html", "application/xhtml+xml", "text/plain"] as const;
 
 /** Named hosts refused BEFORE any DNS lookup (cloud metadata + loopback). */
-const BLOCKED_HOSTNAMES: ReadonlySet<string> = new Set([
-  "metadata.google.internal",
-  "metadata",
-  "localhost",
-]);
+const BLOCKED_HOSTNAMES: ReadonlySet<string> = new Set(["metadata.google.internal", "metadata", "localhost"]);
 
 type SafeFetchReason =
   | "blocked_scheme"
@@ -85,21 +81,15 @@ type SafeFetchReason =
   | "wrong_content_type"
   | "timeout"
   | "deadline_exceeded"
-  /** Drafter last-mile G5 (2026-07-10): the host answered but REFUSED us with an
-   *  access-control status (401/403/429/451 - the robots/anti-bot block class,
-   *  e.g. britannica.com 403s BeaconBot). Kept DISTINCT from `fetch_failed`
-   *  (a broken/unreachable URL) and from `dns_error`/`timeout` (network faults):
-   *  a source we could not READ because it blocks robots is honestly different
-   *  from one that does not exist, so the caller can hold the draft as
-   *  "check this citation" instead of "no source". Never a reason to evade the
-   *  block - the UA stays identified. */
+  /** Drafter last-mile G5 (2026-07-10): the host answered but REFUSED us (401/403/429/451, the
+   *  robots/anti-bot class, e.g. britannica.com 403s BeaconBot). Kept DISTINCT from fetch_failed
+   *  (broken URL) and dns_error/timeout (network faults) so the caller can hold the draft as
+   *  "check this citation" instead of "no source". Never a reason to evade; the UA stays identified. */
   | "access_blocked"
   | "fetch_failed";
 
-/** HTTP statuses that mean "the host is up but is refusing this client"
- *  (auth-required / forbidden / rate-limited / legal-block) rather than a
- *  broken resource. These map to `access_blocked` so the draft gate can tell a
- *  robots-blocked authoritative source apart from a dead link. */
+/** Statuses meaning "up but refusing this client" (auth/forbidden/rate-limit/legal), mapped to
+ *  access_blocked so a robots-blocked authoritative source reads apart from a dead link. */
 const ACCESS_BLOCKED_STATUSES: ReadonlySet<number> = new Set([401, 403, 429, 451]);
 
 export type SafeFetchResult =
@@ -132,11 +122,8 @@ type AssertSafeUrlResult =
   | { ok: true; url: URL }
   | { ok: false; reason: "blocked_scheme" | "blocked_credentials" | "blocked_port" };
 
-/**
- * Pure URL policy check: http/https scheme only, no embedded credentials,
- * and no non-default port (URL normalizes 80/443 to empty, so any non-empty
- * port is an explicit non-standard one). Never throws.
- */
+/** Pure URL policy check: http/https only, no embedded credentials, no non-default port (URL
+ *  normalizes 80/443 to empty, so any non-empty port is explicit non-standard). Never throws. */
 export function assertSafeUrl(raw: string): AssertSafeUrlResult {
   let u: URL;
   try {
@@ -148,8 +135,7 @@ export function assertSafeUrl(raw: string): AssertSafeUrlResult {
   const scheme = u.protocol.toLowerCase();
   if (scheme !== "http:" && scheme !== "https:") return { ok: false, reason: "blocked_scheme" };
   if (u.username !== "" || u.password !== "") return { ok: false, reason: "blocked_credentials" };
-  // URL() drops a default port (80 for http, 443 for https) to "", so a
-  // non-empty port here is always an explicit non-standard/unsafe one.
+  // URL() drops a default 80/443 port to "", so any non-empty port is explicit non-standard/unsafe.
   if (u.port !== "") return { ok: false, reason: "blocked_port" };
   return { ok: true, url: u };
 }
@@ -354,6 +340,19 @@ function hostLiteralIp(host: string): string | null {
 async function defaultResolve(host: string): Promise<string[]> {
   const records = await lookup(host, { all: true });
   return records.map((r) => r.address);
+}
+
+/** Sync host screen for redirect-only header reads elsewhere (Slice 6I): assertSafeUrl plus the
+ *  SAME hostname/intranet/literal-IP blocks the fetcher applies, minus DNS (no body is ever read
+ *  on a hop; later content GETs run a body-fetching path with full validation). Never a second,
+ *  weaker SSRF filter. */
+export function isSafeRedirectHopUrl(raw: string): boolean {
+  const safe = assertSafeUrl(raw);
+  if (!safe.ok) return false;
+  const host = safe.url.hostname.toLowerCase().replace(/\.$/, "");
+  if (isBlockedHostname(host) || !host.includes(".") || host.endsWith(".local") || host.endsWith(".internal")) return false;
+  const literal = hostLiteralIp(host);
+  return literal == null || !isBlockedAddress(literal);
 }
 
 function isAbortError(e: unknown): boolean {
