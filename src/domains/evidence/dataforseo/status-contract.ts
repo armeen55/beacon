@@ -54,18 +54,25 @@ export function classifyTaskStatus(code: number | null): TaskStatusClass {
  *  ONE decision point. Callers never re-derive it from codes, from numeric
  *  ranges (there are none anywhere in this file), or from the status TEXT, which
  *  is provider prose and is parsed nowhere in the codebase.
- *  THE POLICY, in four sentences:
+ *  THE POLICY, in four rules:
  *   1. Only an exact 40401/40403 in the body of a FREE Task GET ever authorizes
  *      repost_once. That decision lives on the collect path, not here.
  *   2. The same 40401/40403 arriving on a fresh POST or Live response is
  *      "blocked": a reply to a task we just posted cannot prove that task is
  *      missing, and reposting there would buy the same work twice.
- *   3. Only an exact documented temporary code (50000/50001/50301/50302/50303)
- *      carrying a provider-REPORTED cost of exactly 0 may auto-retry a PAID
- *      attempt. A reported zero is the only proof we were not charged.
- *   4. Any code the docs do not list fails closed onto "blocked".
+ *   3. BOTH the top-level and the task-level status are judged, never only one.
+ *      A top-level 20000 is the neutral successful-envelope wrapper and is
+ *      ignored. A retryable release needs at least one non-success status
+ *      PRESENT and EVERY non-success status present to be one of the five exact
+ *      documented temporary codes (50000/50001/50301/50302/50303), carrying a
+ *      provider-REPORTED cost of exactly 0. A reported zero is the only proof we
+ *      were not charged.
+ *   4. Any code the docs do not list fails closed onto "blocked", and so does any
+ *      CONFLICTING pair (a terminal, auth, payment or unknown status sitting
+ *      beside a temporary one) and a rejected paid response carrying no
+ *      non-success status at all: neither proves the failure was temporary.
  *  The three outcomes:
- *    retry_free_release - REPORTED cost 0 AND an exact temporary server failure:
+ *    retry_free_release - REPORTED cost 0 AND only exact temporary server failure:
  *      refund the reservation and release for a later clean attempt (nothing was
  *      created, so nothing can duplicate).
  *    blocked - REPORTED cost 0 but the outcome is terminal, malformed, unknown,
@@ -77,5 +84,9 @@ export function classifyTaskStatus(code: number | null): TaskStatusClass {
 export type PaidResponseAction = "retry_free_release" | "blocked" | "uncertain";
 export function classifyPaidResponse(topCode: number | null, taskCode: number | null, providerCost: number | null): PaidResponseAction {
   if (providerCost !== 0) return "uncertain";
-  return classifyTaskStatus(taskCode ?? topCode) === "transient" ? "retry_free_release" : "blocked";
+  const present = [topCode, taskCode]
+    .filter((c): c is number => c !== null)
+    .map(classifyTaskStatus)
+    .filter((c) => c !== "ready");
+  return present.length > 0 && present.every((c) => c === "transient") ? "retry_free_release" : "blocked";
 }

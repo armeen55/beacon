@@ -1,10 +1,9 @@
 /**
- * PRODUCT - the research funnel (task-lifecycle closure, Agent B): the four executors,
- * the pure projector and the canonical snapshot, driven by injected CAPABILITY fakes
- * over an in-memory basis-scoped state repo. Pins CURRENT-SET truth (obsolete pairs and
- * queries are pruned and can never inherit completion), weekly freshness, the
- * DISPOSITION ladder, distinct history identity, and the per-run receipt. The wire
- * bodies are pinned by the registry's own provider-contract test. No network.
+ * PRODUCT - the research funnel (task-lifecycle closure, Agent B): the four executors, the pure projector
+ * and the canonical snapshot, driven by injected CAPABILITY fakes over an in-memory basis-scoped state repo.
+ * Pins CURRENT-SET truth (obsolete pairs and queries are pruned and can never inherit completion), weekly
+ * freshness, the DISPOSITION ladder (a blocked refusal stops the batch and pauses the run; quarantined is
+ * plain unavailable coverage), distinct history identity, and the per-run receipt. No network.
  */
 import { describe, it, expect } from "vitest";
 import { emptyBusinessProfile, type Account, type BusinessProfile, type ProfileSection } from "@/domains/account";
@@ -23,9 +22,8 @@ const cur = (basis: string | null = BASIS) => (basis ? { basis } : {});
 const confirmed = <V>(value: V): ProfileSection<V> => ({ value, origin: "operator_confirmed", confidence: null, sourceUrls: [] });
 function profileOf(id: string, offerings: string[], topics: string[], exclude: string[] = [], banned: string[] = []): BusinessProfile {
   const p = emptyBusinessProfile(id);
-  p.offerings = confirmed(offerings); p.topicsToOwn = confirmed(topics);
+  p.offerings = confirmed(offerings); p.topicsToOwn = confirmed(topics); p.constraints.value.bannedTerms = banned;
   p.topicsToExclude = { value: exclude, origin: "inferred", confidence: null, sourceUrls: [] };
-  p.constraints.value.bannedTerms = banned;
   return p;
 }
 const parse = ((_c: unknown, env: unknown) => env) as unknown as FunnelDeps["parse"];
@@ -41,8 +39,7 @@ function memStore(seed?: FunnelState) {
   const clone = (s: FunnelState): FunnelState => structuredClone(s); // the real repo decodes a fresh object per load
   const deps = {
     loadState: async (t: string, b: string) => { const row = rows.get(`${t}|${b}`); return row ? { state: clone(row.state), rowVersion: row.rowVersion } : { state: emptyFunnelState(t, b), rowVersion: 0 }; },
-    saveState: async (t: string, b: string, s: FunnelState, expected: number) => { const k = `${t}|${b}`; if ((rows.get(k)?.rowVersion ?? 0) !== expected) return null; rows.set(k, { state: clone(s), rowVersion: expected + 1 }); return expected + 1; },
-  } satisfies Pick<FunnelDeps, "loadState" | "saveState">;
+    saveState: async (t: string, b: string, s: FunnelState, expected: number) => { const k = `${t}|${b}`; if ((rows.get(k)?.rowVersion ?? 0) !== expected) return null; rows.set(k, { state: clone(s), rowVersion: expected + 1 }); return expected + 1; } } satisfies Pick<FunnelDeps, "loadState" | "saveState">;
   return { deps, peek: (t: string, b: string) => rows.get(`${t}|${b}`)?.state };
 }
 const base = (profile: BusinessProfile, domain = "iranopedia.com"): FunnelDeps => ({ loadProfile: async () => profile, loadCrawl: async () => null, getAccount: async () => ({ domain } as Account), parse, now: () => 1_000_000 });
@@ -52,33 +49,28 @@ describe("research funnel - basis-scoped discovery + isolation", () => {
   const rejects = [{ keyword: "gambling bonus offer" }, { keyword: "politics debate today" }, { keyword: "login account page" }, { keyword: "unrelated widget gadget" }];
   const callProvider = async (cap: CapabilityKey) => (cap === "labs_keywords_for_site" ? ok(parsedKw([...bulk, ...rejects])) : ok(parsedKw([])));
   it("scopes retained keywords to the cursor basis, shares nothing across tenants, and fails closed with no basis", async () => {
-    const store = memStore();
-    const out = await keywordDiscoveryUnit({ ...base(profile), ...store.deps, callProvider })("t1", cur(), 60_000);
-    expect(out.status).toBe("done");
-    const st = store.peek("t1", BASIS)!;
-    expect(st.discovery.retained.length).toBeGreaterThan(0);
+    const store = memStore(); const out = await keywordDiscoveryUnit({ ...base(profile), ...store.deps, callProvider })("t1", cur(), 60_000);
+    expect(out.status).toBe("done"); const st = store.peek("t1", BASIS)!; expect(st.discovery.retained.length).toBeGreaterThan(0);
     expect(new Set(st.discovery.rejected.map((r) => r.reason))).toEqual(new Set(["banned_term", "excluded_topic", "junk", "irrelevant"]));
     expect(store.peek("t1", "basis_other")).toBeUndefined();
     await keywordDiscoveryUnit({ ...base(profileOf("t2", ["persian recipes"], ["persian food"])), ...store.deps, callProvider })("t2", cur(), 60_000);
     expect(store.peek("t2", BASIS)!.discovery.retained.length).toBeGreaterThan(0);
     expect(store.peek("t1", BASIS)!.discovery.retained.length).toBe(st.discovery.retained.length);
     const blind = await keywordDiscoveryUnit({ ...base(profile), ...memStore().deps, callProvider })("t1", cur(null), 60_000);
-    expect(blind.status).toBe("failed"); expect(blind.detail).toBeTruthy();
+    expect([blind.status, !!blind.detail]).toEqual(["failed", true]); // fail closed with no basis
   });
   it("does not corrupt persisted state when an optimistic save conflicts (fail closed)", async () => {
     const seed = emptyFunnelState("t1", BASIS);
     seed.discovery.retained = [{ keyword: "keep me", searchVolume: 9, competition: 0.2, difficulty: null, intent: null, discoveredVia: "site" }];
     const store = memStore(seed); // a concurrent writer moved the row: every save now conflicts
     const out = await keywordDiscoveryUnit({ ...base(profile), ...store.deps, saveState: async () => null, callProvider })("t1", cur(), 60_000);
-    expect(out.status).toBe("failed");
-    expect(store.peek("t1", BASIS)!.discovery.retained[0]!.keyword).toBe("keep me"); // persisted row untouched
+    expect(out.status).toBe("failed"); expect(store.peek("t1", BASIS)!.discovery.retained[0]!.keyword).toBe("keep me"); // persisted row untouched
   });
 });
 describe("research funnel - prompt observation honesty + history identity", () => {
   const prompts = [{ id: "p1", text: "best persian restaurant" }, { id: "p2", text: "where to buy saffron" }];
   function deps(store: ReturnType<typeof memStore>, rows: PromptAnswerObservation[], claudeModel: string): FunnelDeps {
-    return {
-      ...store.deps, loadProfile: async () => profileOf("tp", ["persian food"], ["saffron"]), parse,
+    return { ...store.deps, loadProfile: async () => profileOf("tp", ["persian food"], ["saffron"]), parse,
       loadActivePrompts: async () => prompts, syncHistory: async (r) => { rows.push(...r); }, now: () => 5_000_000,
       collectTask: async () => ok(aiAnswer({ modelServed: "gpt-4o", citations: [{ url: "https://a.com/1", domain: "a.com", title: null }] }), "ck-chat"),
       callProvider: async (cap: CapabilityKey) => {
@@ -86,16 +78,13 @@ describe("research funnel - prompt observation honesty + history identity", () =
         if (cap === "llm_scraper_chatgpt") return ok(aiAnswer({ modelServed: "gpt-4o", citations: [{ url: "https://c.com/2", domain: "c.com", title: null }], fanOutQueries: ["persian food near me"] }));
         if (cap === "llm_chatgpt") return waiting("ck-chat");
         if (cap === "llm_gemini") return ok(aiAnswer({ citations: null }));
-        return ok(aiAnswer({ modelServed: claudeModel, citations: [{ url: "https://d.com/3", domain: "d.com", title: null }] }));
-      },
-    };
+        return ok(aiAnswer({ modelServed: claudeModel, citations: [{ url: "https://d.com/3", domain: "d.com", title: null }] })); } };
   }
   it("keeps webSearchReported distinct from citations and preserves the null-vs-[] citation tri-state", async () => {
     const rows: PromptAnswerObservation[] = []; const store = memStore();
     const out = await promptObservationUnit(deps(store, rows, "claude-3-5-sonnet"))("tp", cur(), 60_000);
     expect(out.progress.enginePairsIntended).toBe(10); expect(out.status).toBe("waiting"); // chatgpt pairs posted, resumed via collect
-    const st = store.peek("tp", BASIS)!;
-    const perp = st.prompts.pairs.find((p) => p.engine === "perplexity" && p.status === "done")!;
+    const st = store.peek("tp", BASIS)!; const perp = st.prompts.pairs.find((p) => p.engine === "perplexity" && p.status === "done")!;
     expect(perp.webSearchReported).toBe(true); expect(perp.citations).toEqual([]); expect(perp.citationsObserved).toBe(true);
     const gem = st.prompts.pairs.find((p) => p.engine === "gemini" && p.status === "done")!;
     expect(gem.citations).toBeNull(); expect(gem.citationsObserved).toBe(false);
@@ -130,8 +119,7 @@ describe("research funnel - prompt observation honesty + history identity", () =
     const c1 = store.peek("tp", BASIS)!;
     expect(c1.cycle).toMatchObject({ runId: "run-1", cycleKey: "cycle-1" }); expect(c1.cycle.spentUsd).toBeCloseTo(0.1, 5); // 10 pairs at one cent
     const r2 = await promptObservationUnit(d)("tp", { basis: BASIS, runId: "run-2", cycle: "cycle-2" }, 60_000);
-    const c2 = store.peek("tp", BASIS)!;
-    expect(r2.status).toBe("done"); expect(r2.progress.spendUsd).toBe(0);
+    const c2 = store.peek("tp", BASIS)!; expect(r2.status).toBe("done"); expect(r2.progress.spendUsd).toBe(0);
     expect(c2.cycle).toMatchObject({ runId: "run-2", spentUsd: 0, cacheHits: 0 }); // a new run gets a FRESH receipt
     expect(c2.ledger.spentUsd).toBeCloseTo(0.1, 5); // the lifetime total is still true
   });
@@ -145,84 +133,97 @@ describe("research funnel - current-set truth + the disposition ladder", () => {
     const store = seedWith(ENG.map((e) => donePair("p_gone", e, new Date(NOW).toISOString())));
     const out = await promptObservationUnit(mk(store, { callProvider: async () => waiting("ck") }))("tp", cur(), 60_000);
     expect(out.status).toBe("waiting"); expect(out.progress.enginePairsIntended).toBe(5); // every pair of the NEW prompt is outstanding
-    const kept = store.peek("tp", BASIS)!.prompts.pairs;
-    expect(kept.length).toBe(5); expect(kept.every((p) => p.promptId === "p1")).toBe(true); // obsolete rows dropped; history lives in observations
+    const kept = store.peek("tp", BASIS)!.prompts.pairs; expect(kept.length).toBe(5); expect(kept.every((p) => p.promptId === "p1")).toBe(true); // obsolete rows dropped; history lives in observations
   });
   it("keeps working on a half-refreshed stale set instead of reporting done", async () => {
     const store = seedWith([...ENG.map((e) => donePair("p1", e, WEEKS_AGO)), { ...donePair("p1", "chatgpt", WEEKS_AGO), scraper: true }]);
     let landed = false; // the budget runs out right after the FIRST stale pair refreshes
     const out = await promptObservationUnit(mk(store, { now: () => (landed ? NOW + 9_000_000 : NOW), syncHistory: async () => { landed = true; }, callProvider: async () => ok(aiAnswer({ citations: [] })) }))("tp", cur(), 60_000);
-    expect(out.status).toBe("advanced"); // NOT done: four looks are still stale
-    expect(store.peek("tp", BASIS)!.prompts.pairs.filter((p) => p.observedAt === WEEKS_AGO).length).toBe(4);
+    expect(out.status).toBe("advanced"); expect(store.peek("tp", BASIS)!.prompts.pairs.filter((p) => p.observedAt === WEEKS_AGO).length).toBe(4); // NOT done: four looks are still stale
   });
-  it("keeps a retry_free task posted on the SAME key, and never reposts or unsupports a blocked one", async () => {
+  it("keeps a retry_free task posted on the SAME key; a blocked collect keeps it too and stops the paid batch dead", async () => {
     for (const disposition of ["retry_free", "blocked"] as const) {
-      const store = seedWith([{ promptId: "p1", engine: "chatgpt", cacheKey: "ck-old", status: "posted" }]);
-      const d = mk(store, { collectTask: async () => err(disposition), callProvider: async () => waiting("ck-new") });
+      const store = seedWith([{ promptId: "p1", engine: "chatgpt", cacheKey: "ck-old", status: "posted" }]); let posts = 0;
+      const d = mk(store, { collectTask: async () => err(disposition), callProvider: async () => { posts += 1; return waiting("ck-new"); } });
       const r1 = await promptObservationUnit(d)("tp", cur(), 60_000), r2 = await promptObservationUnit(d)("tp", cur(), 60_000); // a second terminal never escalates
       const p = store.peek("tp", BASIS)!.prompts.pairs.find((x) => x.engine === "chatgpt" && !x.scraper)!;
-      expect(p).toMatchObject({ status: "posted", cacheKey: "ck-old" }); // the free collect stays queued on the SAME identity
-      expect(p.reposts).toBeUndefined(); // the one-repost budget is untouched
+      expect(p).toMatchObject({ status: "posted", cacheKey: "ck-old" }); expect(p.reposts).toBeUndefined(); // same identity, one-repost budget untouched
       expect([r1.status, r2.status]).toEqual(["failed", "failed"]); expect(r2.detail).toBeTruthy(); // an honest bounded pause
+      expect(posts).toBe(disposition === "blocked" ? 0 : 4); // blocked stops every remaining provider call; retry_free lets the rest of the set run
     }
   });
   it("an expired task reposts the pair clean exactly ONCE, then explicit unsupported coverage, never a stuck run", async () => {
-    const store = seedWith([{ promptId: "p1", engine: "chatgpt", cacheKey: "ck-old", status: "posted" }]);
-    let posts = 0;
+    const store = seedWith([{ promptId: "p1", engine: "chatgpt", cacheKey: "ck-old", status: "posted" }]); let posts = 0;
     const d = mk(store, { collectTask: async () => err("repost_once"), callProvider: async () => { posts += 1; return waiting("ck-new"); } });
     const chat = () => store.peek("tp", BASIS)!.prompts.pairs.find((p) => p.engine === "chatgpt" && !p.scraper)!;
-    const r1 = await promptObservationUnit(d)("tp", cur(), 60_000);
-    expect(r1.status).toBe("waiting"); expect(chat()).toMatchObject({ status: "posted", cacheKey: "ck-new", reposts: 1 }); // ONE clean repost
-    const r2 = await promptObservationUnit(d)("tp", cur(), 60_000);
-    expect(chat().status).toBe("unsupported"); expect(r2.status).toBe("waiting"); // unavailable coverage named; the run is not stuck
+    const r1 = await promptObservationUnit(d)("tp", cur(), 60_000); expect(r1.status).toBe("waiting"); expect(chat()).toMatchObject({ status: "posted", cacheKey: "ck-new", reposts: 1 }); // ONE clean repost
+    const r2 = await promptObservationUnit(d)("tp", cur(), 60_000); expect(chat().status).toBe("unsupported"); expect(r2.status).toBe("waiting"); // unavailable coverage named; the run is not stuck
     expect(posts).toBe(9); // 5 first-pass posts + the OTHER four pairs' single recovery; the dead key never reposts again
-    const r3 = await promptObservationUnit(d)("tp", cur(), 60_000);
-    expect(posts).toBe(9); expect(r3.status).toBe("failed"); // every repost spent: zero further spend, honest failure, never done
+    const r3 = await promptObservationUnit(d)("tp", cur(), 60_000); expect(posts).toBe(9); expect(r3.status).toBe("failed"); // every repost spent: zero further spend, honest failure, never done
   });
   it("pauses honestly when a pass processes nothing or coverage is unavailable, never a fake done", async () => {
     const store = memStore(); let t = 0; // the deadline passes immediately after it is set: zero pairs run
     const stalled = await promptObservationUnit(mk(store, { now: () => (t += 100_000), callProvider: async () => waiting("ck") }))("tp", cur(), 1_000);
     const unavailable = await promptObservationUnit(mk(store, { callProvider: async () => ({ state: "not_configured", cacheKey: null, detail: "not configured" }) }))("tp", cur(), 60_000);
     expect([stalled.status, unavailable.status, !!stalled.detail, !!unavailable.detail]).toEqual(["failed", "failed", true, true]);
-    const b = memStore(); const blocked = await promptObservationUnit(mk(b, { callProvider: async () => ({ state: "error", cacheKey: "ck", disposition: "blocked", detail: "the provider turned it down" }) }))("tp", cur(), 60_000); // a BLOCKED paid attempt
-    expect([b.peek("tp", BASIS)!.prompts.pairs.every((p) => p.status === "unsupported"), blocked.status]).toEqual([true, "failed"]); // explicit unavailable coverage at zero spend; all-unavailable stays an honest pause, never a stalled pending pair
+  });
+  it("a blocked POST stops the batch on the FIRST refusal, leaves every row exactly as it was, and pauses the run for review", async () => {
+    const store = memStore(); let calls = 0; const pairs = () => store.peek("tp", BASIS)!.prompts.pairs;
+    const d = mk(store, { callProvider: async () => { calls += 1; return err("blocked", "ck-blocked"); } });
+    const r1 = await promptObservationUnit(d)("tp", cur(), 60_000); expect([r1.status, r1.detail, calls]).toEqual(["failed", "the provider could not finish it", 1]); // the boundary's own truth, never a canned line, and not one more paid request
+    expect(pairs().every((p) => p.status === "pending" && p.cacheKey == null)).toBe(true); // a held refusal is NEVER ordinary unsupported coverage
+    const r2 = await promptObservationUnit(d)("tp", cur(), 60_000); // a revisit re-enters and gets the same held answer for free
+    expect([r2.status, r2.detail, calls]).toEqual(["failed", "the provider could not finish it", 2]); // still paused, zero post-block calls
+    let ecalls = 0; // a refusal carrying an EMPTY detail must still arm the block and the batch stop
+    const empty = await promptObservationUnit(mk(memStore(), { callProvider: async () => { ecalls += 1; return { state: "error", cacheKey: null, disposition: "blocked", detail: "" } as CachedCallResult; } }))("tp", cur(), 60_000);
+    expect([empty.status, !!empty.detail, ecalls]).toEqual(["failed", true, 1]);
+  });
+  it("a quarantined POST is plain unavailable coverage: the pair is marked unsupported and the batch keeps running", async () => {
+    const store = memStore(); let calls = 0;
+    const out = await promptObservationUnit(mk(store, { callProvider: async () => { calls += 1; return err("quarantined", "ck-q"); } }))("tp", cur(), 60_000);
+    expect([out.status, calls]).toEqual(["failed", 5]); // one ambiguous key never deadlocks the phase: every pair still got its turn
+    expect(store.peek("tp", BASIS)!.prompts.pairs.every((p) => p.status === "unsupported" && p.observedAt)).toBe(true); // explicit, dated, unavailable
   });
 });
 describe("research funnel - SERP current set, freshness, and recovery", () => {
-  const retainedState = (keywords: string[]): FunnelState => {
-    const s = emptyFunnelState("ts", BASIS);
-    s.discovery.retained = keywords.map((keyword, i) => ({ keyword, searchVolume: 90 - i, competition: 0.3, difficulty: null, intent: null, discoveredVia: "site" as const }));
-    return s;
-  };
+  const retainedState = (keywords: string[]): FunnelState => { const s = emptyFunnelState("ts", BASIS);
+    s.discovery.retained = keywords.map((keyword, i) => ({ keyword, searchVolume: 90 - i, competition: 0.3, difficulty: null, intent: null, discoveredVia: "site" as const })); return s; };
   it("prunes obsolete queries, re-observes only a week-old look, resumes via collect, and never reposts a live key", async () => {
     const seed = retainedState(["a query", "b query"]);
     seed.serps.queries = [{ query: "dropped query", cacheKey: null, status: "done", observedAt: new Date(NOW).toISOString() }, { query: "a query", cacheKey: null, status: "done", observedAt: WEEKS_AGO }, { query: "b query", cacheKey: null, status: "done", observedAt: new Date(NOW - 3_600_000).toISOString() }];
-    seed.serps.analyzed = 3;
-    const store = memStore(seed); let posts = 0, collects = 0;
-    const deps: FunnelDeps = { ...store.deps, parse, now: () => NOW,
-      callProvider: async (cap: CapabilityKey, input) => { if (cap === "serp_organic") posts += 1; return waiting(`ck-${(input as { keyword: string }).keyword}`); },
+    seed.serps.analyzed = 3; const store = memStore(seed); let posts = 0, collects = 0;
+    const deps: FunnelDeps = { ...store.deps, parse, now: () => NOW, callProvider: async (cap: CapabilityKey, input) => { if (cap === "serp_organic") posts += 1; return waiting(`ck-${(input as { keyword: string }).keyword}`); },
       collectTask: async () => { collects += 1; return ok(serp([{ rank: 1, domain: "a.com", url: "https://a.com/x", title: "A" }])); } };
     const r1 = await serpAnalysisUnit(deps)("ts", cur(), 60_000);
     expect(r1.status).toBe("waiting"); expect(posts).toBe(1); // only the week-old look is due; the fresh one is never bought again
-    const kept = store.peek("ts", BASIS)!.serps;
-    expect(kept.queries.map((q) => q.query)).toEqual(["a query", "b query"]); // the obsolete query is pruned
+    const kept = store.peek("ts", BASIS)!.serps; expect(kept.queries.map((q) => q.query)).toEqual(["a query", "b query"]); // the obsolete query is pruned
     expect(kept.analyzed).toBe(1); // an old completion can never satisfy a due query
     const r2 = await serpAnalysisUnit(deps)("ts", cur(), 60_000);
     expect(posts).toBe(1); expect(collects).toBeGreaterThanOrEqual(1); expect(r2.status).toBe("done"); // resumed for free, never reposted
   });
   it("recovers an expired search exactly once, then reports it unavailable instead of sticking failed", async () => {
-    const seed = retainedState(["a query"]);
-    seed.serps.queries = [{ query: "a query", cacheKey: "ck-old", status: "posted" }];
+    const seed = retainedState(["a query"]); seed.serps.queries = [{ query: "a query", cacheKey: "ck-old", status: "posted" }];
     const store = memStore(seed); let posts = 0;
-    const deps: FunnelDeps = { ...store.deps, parse, now: () => NOW, collectTask: async () => err("repost_once"),
-      callProvider: async (cap: CapabilityKey) => { if (cap === "serp_organic") posts += 1; return waiting("ck-new"); } };
+    const deps: FunnelDeps = { ...store.deps, parse, now: () => NOW, collectTask: async () => err("repost_once"), callProvider: async (cap: CapabilityKey) => { if (cap === "serp_organic") posts += 1; return waiting("ck-new"); } };
     const r1 = await serpAnalysisUnit(deps)("ts", cur(), 60_000);
     expect(r1.status).toBe("waiting"); expect(posts).toBe(1); // exactly ONE clean repost
     expect(store.peek("ts", BASIS)!.serps.queries[0]).toMatchObject({ status: "posted", cacheKey: "ck-new", reposts: 1 });
     const r2 = await serpAnalysisUnit(deps)("ts", cur(), 60_000);
-    expect(posts).toBe(1); // the repost budget is spent: zero further spend
-    expect(store.peek("ts", BASIS)!.serps.queries[0]!.status).toBe("failed");
+    expect(posts).toBe(1); expect(store.peek("ts", BASIS)!.serps.queries[0]!.status).toBe("failed"); // the repost budget is spent: zero further spend
     expect(r2.status).toBe("failed"); expect(r2.detail).toBeTruthy(); // explicit unavailable coverage, never silence
+  });
+  it("a blocked refusal outranks the done arithmetic and stops the batch; a quarantined one only names the gap", async () => {
+    const seed = retainedState(["a query", "b query"]); const fresh = new Date(NOW).toISOString();
+    seed.serps.queries = [{ query: "a query", cacheKey: null, status: "done", observedAt: fresh }, { query: "b query", cacheKey: null, status: "done", observedAt: fresh }];
+    seed.serps.analyzed = 2; // both looks already landed: analyzed + unavailable would otherwise satisfy done
+    const run = async (disposition: FailureDisposition) => { const s = memStore(seed); let calls = 0;
+      const out = await serpAnalysisUnit({ ...s.deps, parse, now: () => NOW, callProvider: async () => { calls += 1; return err(disposition); } })("ts", cur(), 60_000); return { out, calls, rows: s.peek("ts", BASIS)!.serps.queries }; };
+    const b = await run("blocked");
+    expect([b.out.status, b.out.detail, b.calls]).toEqual(["failed", "the provider could not finish it", 1]); // every look is in and the run STILL pauses for review
+    expect(b.rows.every((r) => r.status === "done" && !r.aiModeFailed)).toBe(true); // a block never turns into unavailable coverage
+    const q = await run("quarantined");
+    expect([q.out.status, q.calls]).toEqual(["done", 2]); // one ambiguous key never deadlocks the phase
+    expect(q.rows.every((r) => r.aiModeFailed)).toBe(true); expect(q.out.detail).toContain("AI Mode looks were unavailable"); // explicit missing coverage, named
   });
   it("attributes each winning page to its OWN engines/prompts, excludes the own domain, and reuses a cached extract before any fetch", async () => {
     const s = emptyFunnelState("tw", BASIS);
@@ -234,10 +235,8 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
       readPageExtract: async () => ({ extract: { title: "CACHED", h1: null, wordCount: 5, headings: [], faqCount: 0 }, contentHash: "h", fetchedAt: "x" }),
       fetchPage: (async () => { fetchCalls += 1; return { ok: false }; }) as unknown as FunnelDeps["fetchPage"] })("tw", cur(), 60_000);
     expect(out.status).toBe("done"); expect(fetchCalls).toBe(0); // cached extract reused before any fetch
-    const win = store.peek("tw", BASIS)!.winningPages;
-    expect(win.map((w) => w.domain)).not.toContain("own.com");
-    expect(win[0]!.domain).toBe("b.com"); // AI-cited (x2) outweighs organic
-    expect(win[0]!.engines).toEqual(["chatgpt"]); // its OWN appearances only
+    const win = store.peek("tw", BASIS)!.winningPages; expect(win.map((w) => w.domain)).not.toContain("own.com");
+    expect(win[0]!.domain).toBe("b.com"); expect(win[0]!.engines).toEqual(["chatgpt"]); // AI-cited (x2) outweighs organic; its OWN appearances only
     expect(win[0]!.examplePrompts).toEqual(["best persian restaurant"]); // real text, never the id
     expect(win[0]!.extract!.title).toBe("CACHED");
   });

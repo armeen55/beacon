@@ -1,12 +1,11 @@
 import "server-only";
 /**
- * funnel/observe (integrity closure) - the AI-answer, SERP, and winning-page
- * executors plus the PURE snapshot projector. Every provider call routes through
- * the frozen boundary by CAPABILITY and consumes the registry's typed parse
- * output; posted Standard tasks resume via collect, and only a PROVEN-dead task
- * identity earns one clean repost per incident (the disposition decides). All
- * state is basis-scoped with optimistic row_version. Provenance is TRUE: every
- * winning-page appearance carries its own query/prompt/engine, and citations
+ * funnel/observe (integrity closure) - the AI-answer, SERP, and winning-page executors plus the PURE
+ * snapshot projector. Every provider call routes through the frozen boundary by CAPABILITY and consumes
+ * the registry's typed parse output; posted Standard tasks resume via collect, only a PROVEN-dead task
+ * identity earns one clean repost per incident, and a BLOCKED refusal always stops the batch and pauses
+ * the run for review (the disposition decides). All state is basis-scoped with optimistic row_version.
+ * Provenance is TRUE: every winning-page appearance carries its own query/prompt/engine, and citations
  * preserve the null-vs-[]-vs-nonempty tri-state end to end.
  */
 import { basisTag } from "@/domains/account";
@@ -25,13 +24,15 @@ import {
   resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps,
 } from "./shared";
 
+/** blocked = a HELD refusal at zero further spend. It ALWAYS pauses the run, so prefer the boundary's own truthful detail. */
+const blockedNote = (r: Interp) => r.detail || pauseDetail("blocked", "");
 // ── B3: prompt observation ──────────────────────────────────────────────────
 const ENGINES: ResearchEngine[] = ["chatgpt", "gemini", "claude", "perplexity"];
 const pairKey = (p: FunnelPair) => `${p.promptId}|${p.engine}|${p.scraper ? "s" : ""}`;
 const capabilityFor = (p: FunnelPair): CapabilityKey => (p.scraper ? "llm_scraper_chatgpt" : (`llm_${p.engine}` as CapabilityKey));
 
-/** ChatGPT/Claude get the full web-enabled ask (registry gates force/country on the
- *  model); gemini web_search only; perplexity none; the scraper is KEYWORD-based. */
+/** ChatGPT/Claude get the full web-enabled ask (registry gates force/country on the model); gemini
+ *  web_search only; perplexity none; the scraper is KEYWORD-based. */
 const webAsk = (text: string): LlmWebInput => ({ user_prompt: text, web_search: true, force_web_search: true, web_search_country_iso_code: "US" });
 function observeCall(callProvider: ResolvedDeps["callProvider"], p: FunnelPair, text: string, ids: { tenantId: string; unitKey: string }): Promise<CachedCallResult> {
   if (p.scraper) return callProvider("llm_scraper_chatgpt", { keyword: text, force_web_search: true, expand_citations: true }, ids);
@@ -43,9 +44,8 @@ function observeCall(callProvider: ResolvedDeps["callProvider"], p: FunnelPair, 
   }
 }
 
-/** THE current intended pair set (active prompts x engines + scraper subset), each
- *  carrying forward its persisted row when the key still belongs; everything else is
- *  PRUNED (the working set is not an archive; history lives in the pao table). */
+/** THE current intended pair set (active prompts x engines + scraper subset), each carrying forward its
+ *  persisted row when the key still belongs; everything else is PRUNED (history lives in the pao table). */
 function currentPairs(prompts: { id: string }[], persisted: FunnelPair[]): FunnelPair[] {
   const byKey = new Map(persisted.map((p) => [pairKey(p), p]));
   const intended: FunnelPair[] = [];
@@ -68,12 +68,11 @@ function pairProgress(s: FunnelState): FunnelCounters {
   };
 }
 
-/** ONE historical prompt_answer_observations row per completed answer. The id folds
- *  in the retrieval MODE (the scraper look is a different observation of the same
- *  engine, never an overwrite), modelServed, and the day, so a changed served model
- *  yields a DISTINCT row, never a merge. citation_urls is null (not []) when
- *  citations were NOT observable, and metadata.citationsObserved records the
- *  tri-state a count-of-0 would flatten. */
+/** ONE historical prompt_answer_observations row per completed answer. The id folds in the retrieval
+ *  MODE (the scraper look is a different observation of the same engine, never an overwrite),
+ *  modelServed, and the day, so a changed served model yields a DISTINCT row, never a merge.
+ *  citation_urls is null (not []) when citations were NOT observable, and metadata.citationsObserved
+ *  records the tri-state a count-of-0 would flatten. */
 function paoRow(p: FunnelPair, parsed: ParsedAiAnswer, tenantId: string, runId: string, nowIso: string): PromptAnswerObservation {
   const domains = (parsed.citations ?? []).map((c) => c.domain);
   const observed = parsed.citations !== null;
@@ -143,10 +142,9 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     state.prompts.intendedPairs = pairs.length;
     const textOf = new Map(prompts.map((p) => [p.id, p.text]));
     const nowIso = () => new Date(d.now()).toISOString();
-    let failedDetail: string | null = null;
+    let failedDetail: string | null = null, blockedDetail: string | null = null;
     let softUnavailable = false;
-    // Budgets are per INCIDENT: a stale unsupported pair re-enters weekly with a
-    // fresh repost budget, so unavailable coverage is a bounded outage, not a hole.
+    // Budgets are per INCIDENT: a stale unsupported pair re-enters weekly with a fresh repost budget.
     for (const p of pairs) if (p.status === "unsupported" && p.observedAt && d.now() - Date.parse(p.observedAt) > FRESH_MS) { p.status = "pending"; p.cacheKey = null; p.reposts = undefined; }
 
     try {
@@ -162,9 +160,10 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           if (parsed) await landAnswer(p, r, parsed, textOf.get(p.promptId) ?? p.promptText ?? "", tenantId, runId, nowIso(), d.syncHistory);
           else failedDetail = "I collected an answer I could not read. I will retry it on the next pass.";
         } else if (r.kind === "failed") {
-          // The DISPOSITION decides. repost_once = proven-dead identity: ONE clean
-          // repost, then unsupported (explicit unavailable coverage). Every other
-          // disposition keeps the pair POSTED for a free collect, spending nothing.
+          // The DISPOSITION decides. blocked = a held refusal: the row is left EXACTLY as it is,
+          // the batch stops, and the run pauses for review. repost_once = proven-dead identity: ONE
+          // clean repost, then unsupported. Everything else keeps the pair POSTED for a free collect.
+          if (r.disposition === "blocked") { blockedDetail = blockedNote(r); break; }
           if (r.disposition === "repost_once") {
             if ((p.reposts ?? 0) >= 1) { p.status = "unsupported"; p.cacheKey = null; p.observedAt = nowIso(); }
             else { p.status = "pending"; p.cacheKey = null; p.reposts = 1; }
@@ -180,7 +179,7 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
         .sort((a, b) => (a.observedAt ? Date.parse(a.observedAt) : 0) - (b.observedAt ? Date.parse(b.observedAt) : 0));
       let processed = 0, perp = 0, progressed = false;
       for (const p of todo) {
-        if (d.now() > deadline || processed >= 20) break;
+        if (blockedDetail || d.now() > deadline || processed >= 20) break;
         const text = textOf.get(p.promptId);
         if (!text) continue;
         if (p.engine === "perplexity" && perp >= 3) continue;
@@ -194,10 +193,11 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           if (parsed) { await landAnswer(p, r, parsed, text, tenantId, runId, nowIso(), d.syncHistory); progressed = true; }
           else failedDetail = "I got an answer I could not read. I will retry it on the next pass.";
         } else if (r.kind === "failed") {
-          // quarantined AND blocked-from-post = EXPLICIT unavailable coverage: the
-          // boundary holds the row durably at zero spend, so the pair must not
-          // stall the phase. Weekly re-entry re-checks both for free.
-          if (r.disposition === "quarantined" || r.disposition === "blocked") { p.status = "unsupported"; p.cacheKey = r.cacheKey; p.observedAt = nowIso(); failedDetail = r.detail ?? failedDetail; }
+          // blocked = the boundary holds this durably: the pair stays PENDING untouched, the batch
+          // stops, and the run pauses visibly for review. quarantined = EXPLICIT unavailable
+          // coverage that must not stall the phase; weekly re-entry re-checks it for free.
+          if (r.disposition === "blocked") { blockedDetail = blockedNote(r); break; }
+          if (r.disposition === "quarantined") { p.status = "unsupported"; p.cacheKey = r.cacheKey; p.observedAt = nowIso(); failedDetail = r.detail ?? failedDetail; }
           else failedDetail = r.detail ?? pauseDetail(r.disposition, "A prompt check did not run. I will retry it on the next pass.");
         }
         else if (r.soft === "not_configured") softUnavailable = true; // genuine unavailable coverage
@@ -206,14 +206,14 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
 
       state.prompts.pairs = pairs; // bounded by construction: <= 100 prompts x 4 engines + 20 scraper
       await save(d, tenantId, basis, state, ctx);
+      if (blockedDetail) return { status: "failed", cursor: { runId }, progress: pairProgress(state), detail: blockedDetail }; // a held refusal OUTRANKS done/advanced/waiting: never buried under unavailable counts
       const at = d.now();
       const complete = pairs.filter((p) => pairComplete(p, at)).length;
       const freshDone = pairs.filter((p) => pairFresh(p, at)).length;
       const unsupported = pairs.filter((p) => p.status === "unsupported").length;
       const anyPosted = pairs.some((p) => p.status === "posted");
-      // Honest status over the CURRENT set only: done needs every intended pair
-      // FRESHLY answered or EXPLICITLY unsupported plus one real answer; stale-done
-      // is outstanding; failures pause; leftover pending pairs never fake done.
+      // Honest status over the CURRENT set only: done needs every intended pair FRESHLY answered or
+      // EXPLICITLY unsupported plus one real answer; stale-done is outstanding and nothing fakes done.
       let status: FunnelUnitOutcome["status"];
       if (pairs.length > 0 && freshDone > 0 && complete >= pairs.length) {
         status = "done";
@@ -273,10 +273,9 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     const top5 = new Set(chosen.slice(0, 5));
     const nowIso = () => new Date(d.now()).toISOString();
     const parseSerp = (payload: unknown) => d.parse("serp_organic", payload as never) as ParsedSerp | null;
-    let failedDetail: string | null = null;
-    // A look older than the weekly window is DUE (done OR exhausted-failed): it
-    // re-enters with a fresh per-incident budget and its AI Mode observation
-    // re-opens too, so no query and no AI Mode look can freeze forever.
+    let failedDetail: string | null = null, blockedDetail: string | null = null;
+    // A look older than the weekly window is DUE (done OR exhausted-failed): it re-enters with a
+    // fresh per-incident budget and its AI Mode observation re-opens, so nothing freezes forever.
     for (const s of serps) {
       if ((s.status !== "done" && s.status !== "failed") || !s.observedAt || d.now() - Date.parse(s.observedAt) <= FRESH_MS) continue;
       s.status = "pending"; s.cacheKey = null; s.reposts = undefined;
@@ -286,28 +285,30 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     try {
       // 1) collect posted organic + AI Mode tasks (never repost a live key)
       for (const s of serps) {
-        if (d.now() > deadline) break;
+        if (blockedDetail || d.now() > deadline) break;
         if (s.status === "posted" && s.cacheKey) {
           const r = interp(await d.collectTask(s.cacheKey));
           track(state, r);
           if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso()); }
           else if (r.kind === "failed") {
-            // Disposition decides: repost_once = ONE clean repost then explicit
-            // unavailable; everything else stays posted for a free collect.
-            if (r.disposition === "quarantined" || r.disposition === "blocked") { s.status = "failed"; s.observedAt = nowIso(); failedDetail = r.detail ?? failedDetail; }
+            // Disposition decides: blocked leaves the row posted and STOPS the batch; repost_once =
+            // ONE clean repost then explicit unavailable; everything else stays posted, free.
+            if (r.disposition === "blocked") blockedDetail = blockedNote(r);
+            else if (r.disposition === "quarantined") { s.status = "failed"; s.observedAt = nowIso(); failedDetail = r.detail ?? failedDetail; }
             else if (r.disposition !== "repost_once") failedDetail = r.detail ?? pauseDetail(r.disposition, "A search did not finish. I will retry it on the next pass.");
             else if ((s.reposts ?? 0) >= 1) { s.status = "failed"; s.observedAt = nowIso(); failedDetail = "A search could not be completed after a second try. I will try it fresh next week."; }
             else { s.status = "pending"; s.cacheKey = null; s.reposts = 1; }
           }
         }
-        if (top5.has(s.query) && s.aiModeCacheKey && !s.aiMode && !s.aiModeFailed) {
+        if (!blockedDetail && top5.has(s.query) && s.aiModeCacheKey && !s.aiMode && !s.aiModeFailed) {
           const r = interp(await d.collectTask(s.aiModeCacheKey));
           track(state, r);
           if (r.kind === "evidence") { s.aiMode = refs(d.parse("serp_ai_mode", r.payload as never) as ParsedSerp | null); s.aiModeReposted = undefined; }
           else if (r.kind === "failed") {
-            // Terminal AI Mode collect: ONE clean repost, then explicit missing
-            // coverage (never a silent gap, never an eternal dead-key collect).
-            if (r.disposition === "quarantined" || r.disposition === "blocked") s.aiModeFailed = true; // explicit missing coverage, never a stall
+            // blocked STOPS the batch and pauses the run; quarantined is explicit missing coverage;
+            // repost_once gets ONE clean repost, then the gap is named. Never a silent gap.
+            if (r.disposition === "blocked") blockedDetail = blockedNote(r);
+            else if (r.disposition === "quarantined") s.aiModeFailed = true;
             else if (r.disposition !== "repost_once") failedDetail = r.detail ?? pauseDetail(r.disposition, "An AI Mode look did not finish. I will retry it on the next pass.");
             else if (s.aiModeReposted) s.aiModeFailed = true;
             else { s.aiModeCacheKey = null; s.aiModeReposted = true; }
@@ -318,29 +319,32 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
       // 2) post pending organic (and AI Mode for the strongest few)
       let processed = 0;
       for (const s of serps) {
-        if (d.now() > deadline || processed >= 40) break;
+        if (blockedDetail || d.now() > deadline || processed >= 40) break;
         if (s.status === "pending") {
           const r = interp(await d.callProvider("serp_organic", { keyword: s.query }, ids));
           track(state, r);
           if (r.kind === "waiting") { s.status = "posted"; s.cacheKey = r.cacheKey; }
           else if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso()); }
           else if (r.kind === "failed") {
-            // One bad key never aborts the phase: quarantined = explicit
-            // unavailable coverage; anything else pauses while the rest continue.
-            if (r.disposition === "quarantined") { s.status = "failed"; s.observedAt = nowIso(); }
+            // blocked is the ONE stop: the row is left alone and the run pauses for review. One bad
+            // key never aborts the phase: quarantined = explicit unavailable coverage; rest continue.
+            if (r.disposition === "blocked") blockedDetail = blockedNote(r);
+            else if (r.disposition === "quarantined") { s.status = "failed"; s.observedAt = nowIso(); }
             else failedDetail = pauseDetail(r.disposition, r.detail ?? "A search did not run. I will retry it on the next pass.");
           }
           processed += 1;
         }
-        if (top5.has(s.query) && s.aiModeCacheKey == null && !s.aiModeFailed && s.status !== "failed") {
+        if (!blockedDetail && top5.has(s.query) && s.aiModeCacheKey == null && !s.aiModeFailed && s.status !== "failed") {
           const r = interp(await d.callProvider("serp_ai_mode", { keyword: s.query }, ids));
           track(state, r);
           if (r.kind === "waiting") s.aiModeCacheKey = r.cacheKey;
           else if (r.kind === "evidence") { s.aiModeCacheKey = r.cacheKey; s.aiMode = refs(d.parse("serp_ai_mode", r.payload as never) as ParsedSerp | null); }
           else if (r.kind === "failed") {
-            // blocked/transient pause WITHOUT spending the one AI Mode retry;
-            // anything else spends it, and a second failure names the gap.
-            if (r.disposition === "repost_once" || r.disposition === "none") { if (s.aiModeReposted) s.aiModeFailed = true; else s.aiModeReposted = true; }
+            // blocked STOPS the batch; quarantined names the gap like its collect twin; repost_once
+            // and none spend the ONE AI Mode retry, and a second failure names the gap.
+            if (r.disposition === "blocked") blockedDetail = blockedNote(r);
+            else if (r.disposition === "quarantined") s.aiModeFailed = true;
+            else if (r.disposition === "repost_once" || r.disposition === "none") { if (s.aiModeReposted) s.aiModeFailed = true; else s.aiModeReposted = true; }
             else failedDetail = pauseDetail(r.disposition, "I could not start an AI Mode look this pass. I will try again on the next pass.");
           }
         }
@@ -349,15 +353,14 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
       state.serps.queries = serps.slice(0, 60);
       state.serps.analyzed = serps.filter((s) => s.status === "done").length;
       await save(d, tenantId, basis, state, ctx);
-      // AI Mode truth is judged for the CURRENT top five ONLY; a row that has since
-      // dropped out of the top five can neither pause nor pollute this phase.
+      if (blockedDetail) return { status: "failed", cursor, progress: serpProgress(state), detail: blockedDetail }; // a held refusal OUTRANKS the done arithmetic and every unavailable count
+      // AI Mode truth is judged for the CURRENT top five ONLY: a dropped row can neither pause nor pollute this phase.
       const topRows = serps.filter((s) => top5.has(s.query));
       const aiModeInFlight = topRows.some((s) => s.aiModeCacheKey && !s.aiMode && !s.aiModeFailed);
       const anyPending = serps.some((s) => s.status === "pending" || s.status === "posted") || aiModeInFlight;
       const aiModeMissing = topRows.filter((s) => s.aiModeFailed).length;
       const unavailable = serps.filter((s) => s.status === "failed").length;
-      // done = every CURRENT query freshly analyzed or explicitly unavailable,
-      // one real look minimum, no AI Mode still live; unavailable is surfaced.
+      // done = every CURRENT query freshly analyzed or explicitly unavailable, one real look minimum, no AI Mode live; unavailable is surfaced.
       let status: FunnelUnitOutcome["status"];
       if (state.serps.analyzed > 0 && state.serps.analyzed + unavailable >= chosen.length && !aiModeInFlight) {
         status = "done";
@@ -376,9 +379,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
 }
 // ── B5: winning pages ───────────────────────────────────────────────────────
 
-/** Flatten every SERP + AI appearance into TRUE-provenance rows: each carries its
- *  own query or real prompt id + text, its engine, and its rank. Prompt ids never
- *  surface as customer-facing query evidence. Pure. */
+/** Flatten every SERP + AI appearance into TRUE-provenance rows: each carries its own query or real
+ *  prompt id + text, its engine, and its rank. Prompt ids never surface as query evidence. Pure. */
 function collectAppearances(state: FunnelState, fallbackIso: string): ResearchWinningAppearance[] {
   const out: ResearchWinningAppearance[] = [];
   for (const s of state.serps.queries.filter((x) => x.status === "done")) {
@@ -459,14 +461,12 @@ export function winningPagesUnit(deps: FunnelDeps = {}): FunnelUnitFn {
 
 const competitionLevel = (c: number | null): "low" | "medium" | "high" | null => (c == null ? null : c < 0.34 ? "low" : c < 0.67 ? "medium" : "high");
 
-/** FunnelEvidence is the funnel's snapshot-facing bundle (kept as the historical
- *  facade name). Slice 7 consumes it ONLY through the canonical EvidenceSnapshot. */
+/** FunnelEvidence is the funnel's snapshot-facing bundle (historical facade name). Slice 7 consumes it ONLY through EvidenceSnapshot. */
 export type FunnelEvidence = FunnelResearchEvidence;
 
-/** Read-only: normalize the persisted funnel state into the canonical research
- *  evidence bundle plus an explicit receipt. The state is already pruned to the
- *  CURRENT set, so nothing obsolete can be projected. The receipt's money and cache
- *  numbers are THIS RUN's, not a lifetime total. PURE (no I/O, no network). */
+/** Read-only: normalize the persisted funnel state into the canonical research evidence bundle plus an
+ *  explicit receipt. The state is already pruned to the CURRENT set, so nothing obsolete can be
+ *  projected. The receipt's money and cache numbers are THIS RUN's, not a lifetime total. PURE. */
 export function projectFunnelEvidence(state: FunnelState, now: number): FunnelResearchEvidence {
   const donePairs = state.prompts.pairs.filter((p) => p.status === "done");
   const observedTimes = donePairs.map((p) => p.observedAt).filter((t): t is string => !!t).sort();
