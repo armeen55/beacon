@@ -1,23 +1,16 @@
 "use server";
 
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
+import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { provisionTenantForNewUser } from "@/domains/account";
 
 /**
- * requestSignupMagicLink — Gap B (2026-05-07).
- *
- * Sends a magic link for new-account signup. After the user clicks it,
- * /auth/callback exchanges the code for a session AND provisions a
- * pending tenant + tenant_members row (idempotent — repeat clicks
- * don't duplicate).
- *
- * Mirrors /login's `requestMagicLink` but routes through the signup
- * code path so the callback can detect first-time provisioning.
- *
- * The redirectTo URL passes `?signup=1` so the callback knows this
- * came from the signup flow (informational; provisioning logic
- * actually keys off "does tenant_members already exist for this user"
- * to stay idempotent across login + signup re-uses).
+ * requestSignupMagicLink sends a magic link for new-account signup. After
+ * the user clicks it, /auth/callback exchanges the code for a session AND
+ * provisions a pending tenant + tenant_members row (idempotent, so repeat
+ * clicks never duplicate).
  */
 export async function requestSignupMagicLink(
   email: string,
@@ -32,7 +25,7 @@ export async function requestSignupMagicLink(
   const proto = h.get("x-forwarded-proto") ?? "http";
   const origin = host ? `${proto}://${host}` : "http://localhost:3000";
 
-  const redirectTo = `${origin}/auth/callback?signup=1`;
+  const redirectTo = `${origin}/auth/callback`;
 
   const { error } = await supabase.auth.signInWithOtp({
     email,
@@ -44,4 +37,27 @@ export async function requestSignupMagicLink(
 
   if (error) return { error: error.message };
   return { error: null };
+}
+
+/**
+ * Re-run provisioning for the CURRENT signed-in user. This is the one escape
+ * hatch for a session that authenticated but whose workspace was never
+ * created: without it that user is stranded on every route. Same shape as the
+ * callback (user client reads the session, admin client does the writes).
+ */
+export async function retryProvisioningAction(): Promise<void> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  const provision = await provisionTenantForNewUser(getSupabaseAdmin(), {
+    userId: user.id,
+    email: user.email ?? "",
+  });
+  if (!provision.ok) {
+    console.error("[signup] retry provisioning failed:", provision.phase, provision.error);
+    redirect(`/signup?error=provisioning_${provision.phase}`);
+  }
+  redirect("/onboard");
 }

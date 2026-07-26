@@ -3,6 +3,14 @@
 import { useState, useTransition } from "react";
 import { requestSignupMagicLink } from "./actions";
 
+/** URL error codes are machine words; the customer reads one plain sentence. */
+function friendlySignupError(code: string | undefined): string | null {
+  if (!code) return null;
+  if (code === "no_account") return "I could not find a workspace for that sign in. Create one below to get started.";
+  if (code.startsWith("provisioning_")) return "Your sign in worked, but I hit a problem creating your workspace. Request a fresh link below and try again.";
+  return "I could not finish signing you up just now. Request a fresh link below and try again.";
+}
+
 export function SignupForm({
   sent,
   error,
@@ -84,8 +92,8 @@ export function SignupForm({
         className="w-full rounded-md border border-foreground/15 bg-transparent px-3 py-2 text-[13px] outline-none focus:border-foreground/40"
         placeholder="you@yourcompany.com"
       />
-      {(localError || error) && (
-        <p className="text-[12px] text-red-600">{localError || error}</p>
+      {(localError || friendlySignupError(error)) && (
+        <p className="text-[12px] text-red-600">{localError || friendlySignupError(error)}</p>
       )}
       <button
         type="submit"
@@ -101,8 +109,8 @@ export function SignupForm({
             edits to their live site). Until a real terms page exists,
             don't request agreement to something that can't be read; keep
             the honest, high-value cost disclosure. */}
-        Setup is free. Some features use paid data, and we'll always show
-        the price and ask before charging you anything.
+        Setup is free. I pay for the research data I use, so you will never get
+        a per request charge from me.
       </p>
     </form>
   );

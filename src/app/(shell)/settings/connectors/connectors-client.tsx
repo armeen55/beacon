@@ -130,7 +130,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   persistence_failed:
     "Authorization succeeded but Beacon could not save the connection. Please try again, or contact support if it persists.",
   env_missing:
-    "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and BEACON_OAUTH_STATE_SECRET in your environment.",
+    "I cannot start the Google connection right now. This one is on my side. Try again in a few minutes.",
   // #213, the callback emits ?error=not_authorized when Google grants
   // but the signed-in user isn't a member of the connecting account.
   // Pre-fix this fell through to the raw "Connection error: not_authorized".
@@ -303,7 +303,7 @@ export function ConnectorsClient({
     const connected = searchParams.get("connected");
     if (err) {
       const detail = searchParams.get("detail");
-      const hint = detail ? (EXCHANGE_DETAIL_HINTS[detail] ?? ` (${detail})`) : "";
+      const hint = detail ? (EXCHANGE_DETAIL_HINTS[detail] ?? "") : "";
       setError((ERROR_MESSAGES[err] ?? DEFAULT_ERROR_MESSAGE) + hint);
       window.history.replaceState(null, "", "/settings/connectors");
     }
@@ -497,7 +497,7 @@ export function ConnectorsClient({
         const status = await getWixConnectorStatus();
         setWix(status);
         setSuccess(
-          "Wix connected. Beacon can now prepare publish-ready edits for your site, and every change waits for your explicit approval before anything goes live.",
+          "Wix connected. I can read your pages now, so my changes name the exact page and the exact text. I never edit your live site.",
         );
       } else {
         setError(result.error ?? "Could not save the Wix connection.");
@@ -599,7 +599,7 @@ export function ConnectorsClient({
             result.mappedPages === 1 ? "" : "s"
           } across ${result.collectionsMapped} collection${
             result.collectionsMapped === 1 ? "" : "s"
-          }. You can publish approved changes to your site now.`,
+          }. I can now match every change to the right page.`,
         });
         router.refresh();
       } else if (result.ok) {
@@ -612,10 +612,10 @@ export function ConnectorsClient({
       } else {
         setWixDiscoverResult({ ok: false, text: discoverErrorText(result.reason) });
       }
-    } catch (e) {
+    } catch {
       setWixDiscoverResult({
         ok: false,
-        text: e instanceof Error && e.message ? e.message : "I could not finish mapping just now. Please try again in a moment.",
+        text: "I could not finish that just now. Try again in a moment.",
       });
     } finally {
       setWixDiscoverPending(false);
@@ -643,8 +643,8 @@ export function ConnectorsClient({
         } else {
           setResult({ ok: false, text: result.error ?? "Sync failed." });
         }
-      } catch (e) {
-        setResult({ ok: false, text: e instanceof Error ? e.message : "Sync failed." });
+      } catch {
+        setResult({ ok: false, text: "I could not finish that just now. Try again in a moment." });
       } finally {
         setPending(false);
       }
@@ -1151,7 +1151,7 @@ export function ConnectorsClient({
               <div role="status" data-recovery-fix="wix_url_map_empty" className="space-y-2">
                 <p className="text-[12px] text-status-warning">
                   <span className="font-semibold">Fix this:</span>{" "}
-                  Click Discover collections below so I can map your Wix pages. I cannot publish anything to your site until this is done.
+                  Click Discover collections so I can map your Wix pages. Until I do, I cannot match a change to the right page.
                 </p>
                 <button
                   type="button"
@@ -1184,9 +1184,8 @@ export function ConnectorsClient({
 
           <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10">
             <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Only used when you approve an edit for publishing. Daily caps and
-              the non-destructive guard apply to every change, and disconnecting
-              stops all publishing instantly.
+              Read only. I never write to your Wix site. You paste each change
+              yourself and mark it done.
             </p>
           </div>
         </details>
@@ -1198,13 +1197,12 @@ export function ConnectorsClient({
         >
           <h3 className="text-[13px] font-semibold text-foreground">Wix</h3>
           <p className="mt-1 text-[12px] text-muted-foreground">
-            Connect your Wix site so I can prepare publish-ready edits.
-            Nothing changes on your live site without your approval.
+            Connect your Wix site so I can read your current pages and write
+            changes against the real text. I never edit your live site.
           </p>
           <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
-            Only used when you approve an edit for publishing. Daily caps and
-            the non-destructive guard apply to every change, and disconnecting
-            stops all publishing instantly.
+            Read only. I never write to your Wix site. You paste each change
+            yourself and mark it done.
           </p>
 
           <div className="mt-3 space-y-2">

@@ -14,6 +14,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { hasActiveExperiment } from "@/lib/seed-data.server";
 import { hasAnyConnectedDataSource } from "@/lib/connector-store";
 import { getRepository } from "@/lib/persistence/repositories";
+import { PROMPT_TAGS } from "@/domains/runtime";
 
 export type TodayV2GateData = {
   isDemoMode: boolean;
@@ -62,7 +63,12 @@ export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
       repo.getTrackedPrompts(),
     ]);
     observationCount = recentObs.length;
-    activePromptCount = prompts.filter((p) => p.is_active).length;
+    // Count ONLY the rows research actually checks (active AND core-tagged). A
+    // legacy seed row is active but invisible to the funnel, so counting it made
+    // this gate claim questions were tracked while research had nothing to do.
+    activePromptCount = prompts.filter(
+      (p) => p.is_active && (p.tags as string[] | null)?.includes(PROMPT_TAGS.core),
+    ).length;
   } catch (err) {
     // Defensive: if anything throws (e.g. repo init error during cold
     // tenant context), short-circuit to "not first reading" — the

@@ -107,11 +107,9 @@ const COMMAND_EVIDENCE_WORD: Record<EvidenceStrength, string> = {
   tracking: "Still building evidence for this one.",
 };
 
-/** The deep link to one change's detail on Changes (the SAME encoding the Changes list reads
- *  from ?focus). Kept here so the command's CTA and any render pin agree byte for byte. */
-export function changeFocusHref(changeId: string): string {
-  return `/changes?focus=${encodeURIComponent(changeId)}`;
-}
+/** The command's CTA opens the ranked Changes queue with the recommended move on top.
+ *  It used to carry ?focus=<id>, which nothing on /changes has ever read. */
+const CHANGES_HREF = "/changes";
 
 function fixDefect(input: TodayCommandInput): TodayCommand {
   if (input.dataTrustBroken === false) {
@@ -206,7 +204,7 @@ function shipMove(input: TodayCommandInput): TodayCommand {
     headline: `Do this next: ${stripPeriod(o.recommendation)}.`,
     why,
     exactAction: `Open ${o.pageLabel} on Changes to make this change.`,
-    cta: { label: "See the change", href: changeFocusHref(o.changeId) },
+    cta: { label: "See the change", href: CHANGES_HREF },
   };
 }
 

@@ -34,8 +34,17 @@ export {
 export {
   provisionTenantForNewUser,
   lookupExistingMembership,
-  isPlaceholderBusinessName,
 } from "./onboarding/provision-tenant";
+
+// Account lifecycle: the ONE resolver that decides ready / incomplete /
+// suspended / unavailable. Every surface gate reads it, so no signed-in
+// customer can land on a dead end.
+export type { AccountAccess } from "./lifecycle";
+export {
+  resolveAccountAccess,
+  requireReadyAccount,
+  AccountUnavailableError,
+} from "./lifecycle";
 
 // Onboarding: access gating + the ONE basis fingerprint (shared by Runtime and Evidence)
 export { requireOnboardingTenant } from "./onboarding/access";

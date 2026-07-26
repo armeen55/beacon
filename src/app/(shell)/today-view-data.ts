@@ -12,6 +12,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { loadChangesView, sanitizeSurfaceComputedAt, type ChangesView } from "./changes-data";
 import { normalizedFixKey } from "@/components/today/today-smoke-alarm";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
+import { countTrackedQuestions } from "@/domains/runtime";
 import type { ChangeProposal } from "@/domains/decision";
 import type { TodayOpportunity, EvidenceStrength } from "@/domains/measurement/today/today-command";
 
@@ -24,7 +25,10 @@ export type TodayView = {
   /** Pages that already have a READY proposal in THIS release, keyed by the same
    *  normalized path the smoke alarm blames, carrying the proposal to open. Today
    *  says "I have a fix ready" only from this list, and links straight at it.
-   *  Optional so a release blob written before this field degrades to no claim. */
+   *  Optional so a release blob written before this field degrades to no claim.
+   *  proposalId is EMPTY STRING when the change has no bundle: the fix is real
+   *  (so the claim stays honest) but /changes/<id> would 404 for it, so the CTA
+   *  falls back to the Changes queue. */
   readyFixes?: { page: string; proposalId: string }[];
 };
 
@@ -33,6 +37,11 @@ export type TodayComposite = {
   hasChanges: boolean;
   surfaceVersion?: string;
   surfaceComputedAt?: string;
+  /** TRUE when I am tracking zero questions, which is the one state that stops my
+   *  research outright. Today shows the fix instead of a silent empty page. */
+  needsTrackedQuestions?: boolean;
+  /** Where that fix lives. */
+  trackedQuestionsHref?: string;
 };
 
 const CONFIDENCE_TO_STRENGTH: Record<ChangeProposal["confidence"], EvidenceStrength> = {
@@ -76,7 +85,7 @@ export function buildTodayViewFromChanges(view: ChangesView): TodayView {
   const ready = view.ready.slice(0, TODAY_PREVIEW_LIMIT).map(proposalToOpportunity);
   const readyFixes = view.ready
     .filter((p) => p.pagePath || p.pageUrl)
-    .map((p) => ({ page: normalizedFixKey(p.pagePath ?? p.pageUrl ?? ""), proposalId: p.id }))
+    .map((p) => ({ page: normalizedFixKey(p.pagePath ?? p.pageUrl ?? ""), proposalId: p.bundle ? p.id : "" }))
     .filter((f) => f.page.length > 0);
   const measuring = view.measuringCountCanonical;
   let headerSentence: string;
@@ -99,7 +108,7 @@ export function buildTodayViewFromChanges(view: ChangesView): TodayView {
   } else if (measuring > 0) {
     headerSentence = `Nothing needs a decision today. ${measuring} change${measuring === 1 ? " is" : "s are"} measuring.`;
   } else {
-    headerSentence = "Nothing needs a decision today. Connect your data and I'll rank your next moves.";
+    headerSentence = "Nothing needs a decision today. I am still gathering evidence, and I will rank your next moves as it lands.";
   }
   return { headerSentence, nextOpportunities: ready, readyFixes };
 }
@@ -135,15 +144,27 @@ export async function loadTodayViewWithSwr(
       await refreshCustomerSurface(tenantId).catch(() => null);
     });
 
-  const customer = await readCustomerSurface(tenantId).catch(() => null);
+  // One lean head-count, in parallel with the surface read: zero tracked
+  // questions is the ONE state that stops research outright, and Today has to
+  // name it rather than look merely quiet. A failed count (null) claims
+  // NOTHING: a false zero would advertise a recovery the account does not need.
+  const [customer, trackedCount] = await Promise.all([
+    readCustomerSurface(tenantId).catch(() => null),
+    countTrackedQuestions(tenantId).catch(() => null),
+  ]);
+  const paused = trackedCount === 0
+    ? { needsTrackedQuestions: true, trackedQuestionsHref: "/settings/config#tracked-ai-prompts" }
+    : {};
+
   if (customer) {
     if (isCustomerSurfaceStale(customer.computedAt, Date.now())) scheduleReleaseRebuild();
     return {
       ...customer.today,
+      ...paused,
       surfaceVersion: customer.releaseId,
       surfaceComputedAt: sanitizeSurfaceComputedAt(customer.computedAt) ?? undefined,
     };
   }
   scheduleReleaseRebuild();
-  return build(tenantId);
+  return { ...(await build(tenantId)), ...paused };
 }

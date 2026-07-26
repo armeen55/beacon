@@ -1,5 +1,7 @@
 import { Suspense } from "react";
 
+import { redirect } from "next/navigation";
+import { requireReadyAccount } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import { scheduleAutoMeasure } from "@/domains/measurement";
 import { bundleReads, splitReads, type BundleRead, type KernelRead } from "@/domains/measurement";
@@ -23,6 +25,8 @@ export default async function ProofPage({
   const params = await (searchParams ?? Promise.resolve<Record<string, string | string[] | undefined>>({}));
   const initialPage = typeof params.page === "string" ? params.page : "";
   const tenantId = await currentTenantId();
+  const { access } = await requireReadyAccount(tenantId);
+  if (access.kind === "suspended") redirect("/");
   const surface = await loadResultsLedgerSurface().catch(() => ({ reads: [] as KernelRead[], computedAt: null }));
   const reads = surface.reads;
   const checkedAgo = ledgerCheckedAgoLine(surface.computedAt, Date.now());

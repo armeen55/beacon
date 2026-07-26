@@ -21,7 +21,7 @@ export const SETTINGS_SECTIONS = [
   {
     href: "/settings/config",
     label: "Business info",
-    description: "Name, domain, phone, address, and category Beacon uses everywhere.",
+    description: "Your business details and the questions I track across AI assistants.",
   },
 ] as const;
 

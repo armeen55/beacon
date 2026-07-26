@@ -224,7 +224,7 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
               value={targetQueries}
               onChange={(e) => setTargetQueries(e.target.value)}
               rows={2}
-              placeholder="biggest cities in iran&#10;largest cities in iran"
+              placeholder="the search you want this page to win&#10;another search for the same page"
               className={FIELD_INPUT + " resize-y"}
             />
             <p className="mt-0.5 text-[10px] text-muted-foreground">

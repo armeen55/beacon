@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { ChangelogEntry } from "@/domains/measurement/changelog/types";
 import { getRepository } from "@/lib/persistence/repositories";
+import { requireReadyAccount } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
   createPerfTrace,
@@ -44,6 +45,8 @@ export default async function ChangeDetailPage({
     // Next hands the path segment URL-encoded; proposal ids carry "::" and "/".
     const id = decodeURIComponent(rawId);
     const tenantId = await currentTenantId();
+    const { access } = await requireReadyAccount(tenantId);
+    if (access.kind === "suspended") redirect("/");
 
     // Slice 7: a ranked proposal carrying a Change Bundle owns this route and
     // renders its two-layer detail from saved data (the SAME cached surface the

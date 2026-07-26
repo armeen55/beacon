@@ -1,10 +1,6 @@
-/**
- * PLATFORM — tenant isolation, behavioral layer: repo facade scoping, dual-write
- * validation before I/O, and the canonical Account/BusinessProfile isolation
- * promises. Structural pushdown guarantees live in the foundation guard, not in
- * readFileSync source scans (AGENTS.md test policy), so those scans were removed;
- * the runtime enforcement below is what actually protects a tenant.
- */
+/** PLATFORM — tenant isolation, behavioral layer: repo facade scoping, dual-write
+ *  validation before I/O, and the canonical Account/BusinessProfile + lifecycle
+ *  promises. Structural pushdown lives in the foundation guard, not source scans. */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -127,25 +123,27 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
   const FORBIDDEN_VOCAB =
     /(harborview|referencepedia|builder|project_mix|budget_range|cities_served|publish_target|email_frequency|profound|semrush|founder|bay area)/i;
 
-  it("a freshly provisioned account row carries no vertical, customer, publishing, or provider vocabulary", async () => {
+  // Supabase stub: select("user_id") answers the collision probe with `owners`;
+  // the membership idempotency probe answers empty so provisioning proceeds.
+  const fakeSupabase = (inserted: Record<string, unknown>[], owners: { user_id: string }[] = []) =>
+    ({ from: (table: string) => ({
+      select: (cols: string) => ({ eq: () => Object.assign(Promise.resolve({ data: cols === "user_id" ? owners : [], error: null }), { order: () => Promise.resolve({ data: [], error: null }) }) }),
+      upsert: async (row: Record<string, unknown>) => { inserted.push({ __table: table, ...row }); return { error: null }; },
+    }) }) as never;
+  const NEW_USER = { userId: "12345678-abcd-abcd-abcd-1234567890ab", email: "owner@gmail.com" };
+
+  it("the provisioned tenants row names EXACTLY the physical columns, and never adopts another user's tenant", async () => {
     const { provisionTenantForNewUser, PROVISIONING_DEFAULTS } = await import("@/domains/account/onboarding/provision-tenant");
     expect(JSON.stringify(PROVISIONING_DEFAULTS)).not.toMatch(FORBIDDEN_VOCAB);
-
     const inserted: Record<string, unknown>[] = [];
-    const fakeSupabase = {
-      from: (table: string) => ({
-        select: () => ({ eq: async () => ({ data: [], error: null }) }),
-        upsert: async (row: Record<string, unknown>) => { inserted.push({ __table: table, ...row }); return { error: null }; },
-      }),
-    } as never;
-    const out = await provisionTenantForNewUser(fakeSupabase, { userId: "12345678-abcd-abcd-abcd-1234567890ab", email: "owner@gmail.com" });
-    expect(out.ok).toBe(true);
-    const tenantRow = inserted.find((r) => r.__table === "tenants")!;
-    expect(tenantRow).toBeTruthy();
-    expect(JSON.stringify(tenantRow)).not.toMatch(FORBIDDEN_VOCAB);
-    for (const k of ["segment", "project_mix", "cities_served", "budget_range", "publish_target", "role", "email_frequency"]) {
-      expect(k in tenantRow).toBe(false);
-    }
+    expect(await provisionTenantForNewUser(fakeSupabase(inserted), NEW_USER)).toEqual({ ok: true, tenantId: "tenant-12345678", created: true });
+    const { __table: _t, ...row } = inserted.find((r) => r.__table === "tenants")!;
+    // Any key that is not a real column takes EVERY signup down with PGRST204;
+    // the physical set also proves no vertical vocabulary is written.
+    expect(Object.keys(row).sort()).toEqual(["business_name", "created_at", "daily_budget_usd", "domain", "growth_goal", "id", "signup_date", "slug", "status", "tos_accepted_at", "updated_at"]);
+    expect(typeof row.business_name === "string" && (row.business_name as string).length > 0, "business_name is NOT NULL").toBe(true);
+    // A colliding id already owned by someone else is refused, never adopted.
+    expect(await provisionTenantForNewUser(fakeSupabase([], [{ user_id: "other-user" }]), NEW_USER)).toEqual({ ok: false, error: "tenant id collision", phase: "tenant_collision" });
   });
 
   it("cold first read resolves the real account identity; no placeholder is ever cached as identity", async () => {
@@ -260,10 +258,8 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     const bp = await import("@/domains/account/business-profile");
     bp.__resetBusinessProfileCacheForTests();
     const account = {
-      id: "tenant-copy", slug: "copy", provisional_name: "seed-name-visible-nowhere",
-      domain: "copy-co.example", status: "active" as const, signup_date: "2026-01-01",
-      tos_accepted_at: null, daily_budget_usd: 5, growth_goal: null, created_at: "2026-01-01", updated_at: "2026-01-01",
-    };
+      id: "tenant-copy", slug: "copy", provisional_name: "seed-name-visible-nowhere", domain: "copy-co.example", status: "active" as const,
+      signup_date: "2026-01-01", tos_accepted_at: null, daily_budget_usd: 5, growth_goal: null, created_at: "2026-01-01", updated_at: "2026-01-01" };
     store.setAccountRepositoryForTests({
       getAccountById: async (id) => (id === account.id ? account : null),
       getAccountBySlug: async () => null,
@@ -289,10 +285,8 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
   it("the account store resolves through the injected scoped repository and fails to no-account, never a default", async () => {
     const store = await import("@/domains/account/tenants/store");
     const memA = {
-      id: "tenant-mem-a", slug: "mem-a", provisional_name: "Mem A", domain: "mem-a.example",
-      status: "active" as const, signup_date: "2026-01-01", tos_accepted_at: null,
-      daily_budget_usd: 5, growth_goal: null, created_at: "2026-01-01", updated_at: "2026-01-01",
-    };
+      id: "tenant-mem-a", slug: "mem-a", provisional_name: "Mem A", domain: "mem-a.example", status: "active" as const,
+      signup_date: "2026-01-01", tos_accepted_at: null, daily_budget_usd: 5, growth_goal: null, created_at: "2026-01-01", updated_at: "2026-01-01" };
     store.setAccountRepositoryForTests({
       getAccountById: async (id) => (id === memA.id ? memA : null),
       getAccountBySlug: async (slug) => (slug === memA.slug ? memA : null),
@@ -304,6 +298,36 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       // Website is the canonical projection of the account's one domain.
       const { websiteOf } = await import("@/domains/account/tenants/types");
       expect(websiteOf(memA)).toEqual({ account_id: "tenant-mem-a", domain: "mem-a.example", canonical_url: "https://mem-a.example" });
+    } finally {
+      store.setAccountRepositoryForTests(null);
+    }
+  });
+
+  it("lifecycle: a failed or anomalous account read resolves unavailable, never a redirect or a paused lockout", async () => {
+    const store = await import("@/domains/account/tenants/store");
+    const { resolveAccountAccess, requireReadyAccount, AccountUnavailableError } = await import("@/domains/account/lifecycle");
+    const base = { id: "tenant-lc", slug: "lc", provisional_name: "", domain: "lc.example", signup_date: "2026-01-01",
+      tos_accepted_at: null, daily_budget_usd: 5, growth_goal: null, created_at: "2026-01-01", updated_at: "2026-01-01" };
+    const withStatus = (row: Record<string, unknown>) => store.mapRowToAccount({ ...base, business_name: "", ...row });
+    // An unrecognized physical status is flagged by the mapper and resolved as unavailable, not paused.
+    expect(withStatus({ status: "trialing" }).status_unrecognized).toBe(true);
+    expect(withStatus({ status: "active" }).status_unrecognized).toBeUndefined();
+    const repo = (acct: unknown) => store.setAccountRepositoryForTests({
+      getAccountById: async () => { if (acct instanceof Error) throw acct; return acct as never; }, getAccountBySlug: async () => null });
+    try {
+      repo(new Error("supabase down"));
+      expect((await resolveAccountAccess("tenant-lc")).kind).toBe("unavailable");
+      await expect(requireReadyAccount("tenant-lc")).rejects.toBeInstanceOf(AccountUnavailableError);
+      repo(null);
+      expect((await resolveAccountAccess("tenant-lc")).kind).toBe("unavailable");
+      repo(withStatus({ status: "trialing" }));
+      expect((await resolveAccountAccess("tenant-lc")).kind).toBe("unavailable");
+      repo(withStatus({ status: "pending_onboarding" }));
+      expect((await resolveAccountAccess("tenant-lc")).kind).toBe("incomplete");
+      repo(withStatus({ status: "paused" }));
+      expect(await resolveAccountAccess("tenant-lc")).toMatchObject({ kind: "suspended", reason: "paused" });
+      repo(withStatus({ status: "active" }));
+      expect((await resolveAccountAccess("tenant-lc")).kind).toBe("ready");
     } finally {
       store.setAccountRepositoryForTests(null);
     }

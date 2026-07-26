@@ -125,7 +125,7 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion };
     // A loader override must not be able to rotate the bounded auxiliary sample.
     const prompts = (await d.loadActivePrompts(tenantId)).sort((a, b) => a.id.localeCompare(b.id)).slice(0, 100);
-    if (prompts.length === 0) return { status: "failed", cursor, progress: pairProgress(state), detail: "I have no active core prompts to check yet." };
+    if (prompts.length === 0) return { status: "failed", cursor, progress: pairProgress(state), detail: "I am not tracking any questions for you yet, so I stopped here. Choose them in Settings and I will pick up on your next visit." };
 
     const pairs = normalizePairs(prompts, state.prompts.pairs);
     state.prompts.intendedPairs = prompts.length * ENGINES.length; // CANONICAL coverage only

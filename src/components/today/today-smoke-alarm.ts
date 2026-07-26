@@ -96,8 +96,9 @@ function monthDay(iso: string | null | undefined): string | null {
 export function buildTodaySmokeAlarm(input: {
   decay: ReadonlyArray<SmokeAlarmDecayRow>;
   /** Normalized page key -> the id of the READY change for that page in the CURRENT
-   *  release. Presence is the ONLY thing that earns "I have a fix ready", and the id
-   *  is what the CTA opens. Empty map = no fix claim anywhere on the alarm. */
+   *  release, or "" when that change has no detail page. KEY PRESENCE is the only
+   *  thing that earns "I have a fix ready"; a non-empty id is what the CTA opens.
+   *  Empty map = no fix claim anywhere on the alarm. */
   readyFixes: ReadonlyMap<string, string>;
   /** The last finalized GSC day the decay "now" window ends on (from the same
    *  GscDecaySignal the rows came from). Names the exact window so the claim is
@@ -119,8 +120,12 @@ export function buildTodaySmokeAlarm(input: {
   const label = prettyPath(worst.page);
   const fixKey = normalizedFixKey(worst.page);
   const lost = Math.round(worst.lost);
-  const readyProposalId = input.readyFixes.get(fixKey) ?? null;
-  const closing = readyProposalId ? "I have a fix ready." : "Worth a look before it slides further.";
+  // A mapped page has a ready fix. An EMPTY id means that fix has no detail page
+  // of its own, so the claim stays true while the CTA opens the Changes queue
+  // instead of a /changes/<id> route that would 404.
+  const mapped = input.readyFixes.get(fixKey);
+  const readyProposalId = mapped ? mapped : null;
+  const closing = mapped !== undefined ? "I have a fix ready." : "Worth a look before it slides further.";
   // `lost` is clicksPrior - clicksNow across two consecutive 28-day windows: the
   // page got `lost` FEWER clicks in the most recent 4 weeks than in the 4 weeks
   // before. "in the last 4 weeks" read as an absolute single-window count and was

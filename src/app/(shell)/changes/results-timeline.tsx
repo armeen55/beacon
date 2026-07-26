@@ -110,15 +110,14 @@ export async function ResultsTimeline() {
             No changes yet
           </h2>
           <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-            Every edit you ship, and every change Beacon detects on your site,
-            shows up here, newest first. Approve a suggested fix to get your
-            first change tracked.
+            Every change you make shows up here, newest first. Open Changes, make
+            the top one on your site, then mark it done and I will start measuring.
           </p>
           <Link
-            href="/changes?status=ready"
+            href="/changes"
             className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
           >
-            See suggested fixes &rarr;
+            Open Changes &rarr;
           </Link>
         </section>
       );

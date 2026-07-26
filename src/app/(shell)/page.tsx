@@ -17,6 +17,7 @@ import { RefreshMyDataButton } from "@/components/today/refresh-my-data-button";
 import { loadTodayV2GateData } from "./today-gate-data";
 import { loadTodayView } from "./today-view-data";
 import { currentTenantId } from "@/lib/tenant-context";
+import { requireReadyAccount } from "@/domains/account";
 import { researchRunStatus, researchStatusLine, type ResearchRunStatusView } from "@/domains/runtime";
 import { ScoreboardSection } from "./scoreboard-section";
 import { loadProofLedgerCached } from "@/domains/measurement";
@@ -54,6 +55,24 @@ export default async function TodayPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const notice = (await searchParams).notice;
+  // The ONE lifecycle gate: pending resumes onboarding, a failed read renders the
+  // bounded retry boundary, and a paused or cancelled account gets one honest
+  // notice here instead of a silently normal dashboard.
+  const { access } = await requireReadyAccount(await currentTenantId());
+  if (access.kind === "suspended") {
+    return (
+      <div className="max-w-3xl rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5">
+        <p className="text-[13px] font-semibold text-foreground">
+          {access.reason === "paused"
+            ? "Your account is paused, so I am not researching or drafting changes right now."
+            : "This account is closed, so I am not researching or drafting changes."}
+        </p>
+        <p className="mt-2 text-[13px] text-muted-foreground">
+          Reply to your welcome email and I will {access.reason === "paused" ? "turn it back on" : "help from there"}.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="max-w-3xl space-y-6">
       <AlreadyLaunchedNotice notice={notice} />
@@ -292,8 +311,22 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         <RefreshMyDataButton connectedCount={connectedSourceCount} />
       </PageHeader>
       {/* Slice 4 - the durable Research Run status, one honest line under the
-          greeting. Self-hiding: renders nothing when there is no run to show. */}
-      {researchLine ? <p className="-mt-2 text-[13px] text-muted-foreground">{researchLine}</p> : null}
+          greeting. Self-hiding: renders nothing when there is no run to show. When
+          research is paused because no questions are tracked, the line carries the
+          one control that fixes it instead of describing a dead end. */}
+      {researchLine || composite.needsTrackedQuestions ? (
+        <p className="-mt-2 text-[13px] text-muted-foreground">
+          {researchLine ?? "I am not tracking any questions for you yet, so my research cannot start."}
+          {composite.needsTrackedQuestions && composite.trackedQuestionsHref ? (
+            <>
+              {" "}
+              <Link href={composite.trackedQuestionsHref} className="font-medium text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
+                Choose the questions I should track →
+              </Link>
+            </>
+          ) : null}
+        </p>
+      ) : null}
 
       {/* ── SLOT 2: THE ONE COMMAND ────────────────────────────────────────────────────────
           The single best thing to do now, its evidence, one exact action, and the ONE accent

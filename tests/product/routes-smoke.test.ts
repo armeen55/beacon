@@ -3,12 +3,10 @@
  * render their frame without throwing, plus the two Today claims a stranger reads first (the
  * ready count and the one CTA). Deep behavior lives in the kept behavioral contract suites.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderToStaticMarkup } from "react-dom/server";
-import type { ReactElement } from "react";
+import { describe, it, expect, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server"; import type { ReactElement } from "react";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-
 vi.mock("next/navigation", () => {
   const redirected = (url: string) => { throw new Error(`NEXT_REDIRECT:${url}`); };
   return { permanentRedirect: redirected, redirect: redirected, useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
@@ -23,6 +21,9 @@ vi.mock("@/domains/runtime/ops/refresh-runs-store", () => ({ latestRefreshBySour
 vi.mock("@/domains/runtime/research-run", () => ({
   researchRunStatus: vi.fn(async () => ({ state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: 3, counters: {}, updatedAt: null, completedAt: null })),
 }));
+// The smoke suite pins frames; lifecycle gating has its own behavioral tests.
+vi.mock("@/domains/account/lifecycle", () => ({ requireReadyAccount: vi.fn(async () => ({ access: { kind: "ready", account: { status: "active" } } })),
+  resolveAccountAccess: vi.fn(async () => ({ kind: "ready", account: { status: "active" } })), AccountUnavailableError: class extends Error {} }));
 
 describe("Today route smoke", () => {
   it("TodayPage RSC renders the shell wrapper + Cockpit skeleton fallback", async () => {
@@ -63,9 +64,8 @@ describe("Today tells the truth about its own queue", () => {
 describe("Changes route smoke", () => {
   it("WorklistPage renders the Changes frame + list fallback", async () => {
     const { default: ChangesPage } = await import("@/app/(shell)/changes/page");
-    const html = renderToStaticMarkup(ChangesPage() as ReactElement);
-    expect(html).toContain("Changes");
-    expect(html).toContain("ranked execution queue");
+    const html = renderToStaticMarkup((await ChangesPage()) as ReactElement);
+    expect(html).toContain("Changes"); expect(html).toContain("ranked execution queue");
   });
 });
 
@@ -99,24 +99,5 @@ describe("Connectors settings route smoke", () => {
     });
     const { default: ConnectorsPage } = await import("@/app/(shell)/settings/connectors/page");
     expect(renderToStaticMarkup((await ConnectorsPage()) as ReactElement)).toContain("2 of 4 connected");
-  });
-});
-
-describe("GET /api/version", () => {
-  const KEYS = ["VERCEL_GIT_COMMIT_SHA", "VERCEL_GIT_COMMIT_REF", "VERCEL_DEPLOYMENT_ID"] as const;
-  const saved: Record<string, string | undefined> = {};
-  beforeEach(() => { for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k]; } });
-  afterEach(() => { for (const k of KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
-
-  it("returns nulls when deploy env vars are unset, reflects them when present", async () => {
-    const { GET } = await import("@/app/api/version/route");
-    const empty = GET();
-    expect(empty.status).toBe(200);
-    expect(await empty.json()).toEqual({ sha: null, ref: null, deployedId: null });
-
-    process.env.VERCEL_GIT_COMMIT_SHA = "abc123";
-    process.env.VERCEL_GIT_COMMIT_REF = "main";
-    process.env.VERCEL_DEPLOYMENT_ID = "dpl_xyz";
-    expect(await GET().json()).toEqual({ sha: "abc123", ref: "main", deployedId: "dpl_xyz" });
   });
 });

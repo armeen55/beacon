@@ -29,8 +29,8 @@ const TITLES: Record<number, { title: string; description: string }> = {
   1: { title: "Your website", description: "Give me one address. I read your pages, then work out the rest from what I find." },
   2: { title: "What I read on your site", description: "I read your pages and drafted a picture of your business. Check it in a second." },
   3: { title: "Confirm your business", description: "This is what I understood. Fix anything, or tell me in plain words what to change." },
-  4: { title: "Your goal", description: "This shapes which prompts I recommend. You can change it later." },
-  5: { title: "Topics and AI prompts", description: "The questions I will track across AI assistants. Approve the 50 I recommend, or pick your own." },
+  4: { title: "Your goal", description: "This shapes which questions I recommend. You can change it later." },
+  5: { title: "Topics and questions", description: "The questions I will track across AI assistants. Approve the 50 I recommend, or pick your own." },
   6: { title: "Connect your data", description: "Each connection sharpens my work. Every one is optional, and I never publish without your say." },
   7: { title: "Your first findings", description: "Here is what I found so far. Start Beacon and I begin the full research." },
 };

@@ -3,6 +3,21 @@
 import { useState, useTransition } from "react";
 import { requestMagicLink } from "./actions";
 
+/**
+ * Every error code the sign-in chain can produce, mapped to words a customer
+ * can act on. Raw codes ("no_account") must never render: they read as a bug
+ * report, not a next step. Unknown codes fall through to the generic retry.
+ */
+const LOGIN_ERROR_MESSAGES: Record<string, string> = {
+  no_account:
+    "I could not find a workspace for this sign in. Create one from the signup page to get started.",
+  multiple_accounts_unsupported:
+    "This email is attached to more than one workspace, which I cannot open yet. Reply to your welcome email and I will sort it out.",
+  account_unavailable: "I could not open your account just now. Try again in a minute.",
+};
+const LOGIN_ERROR_FALLBACK =
+  "I could not finish signing you in just now. Request a fresh link below and try again.";
+
 export function LoginForm({
   next,
   sent,
@@ -16,6 +31,9 @@ export function LoginForm({
   const [pending, startTransition] = useTransition();
   const [localError, setLocalError] = useState<string | null>(null);
   const [localSent, setLocalSent] = useState(false);
+  const mappedError = error
+    ? (LOGIN_ERROR_MESSAGES[error] ?? LOGIN_ERROR_FALLBACK)
+    : null;
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -57,8 +75,18 @@ export function LoginForm({
         className="w-full rounded-md border border-foreground/15 bg-transparent px-3 py-2 text-[13px] outline-none focus:border-foreground/40"
         placeholder="you@example.com"
       />
-      {(localError || error) && (
-        <p role="alert" className="text-[12px] text-red-600">{localError || error}</p>
+      {(localError || mappedError) && (
+        <p role="alert" className="text-[12px] text-red-600">
+          {localError || mappedError}
+          {!localError && error === "no_account" && (
+            <>
+              {" "}
+              <a href="/signup?error=no_account" className="underline">
+                Create your account
+              </a>
+            </>
+          )}
+        </p>
       )}
       <button
         type="submit"

@@ -10,6 +10,7 @@ import {
   type CompetitorRef,
   type ProfileSection,
 } from "@/domains/account";
+import { readTrackedQuestions, saveTrackedQuestions } from "@/domains/runtime";
 import { currentTenantId } from "@/lib/tenant-context";
 import { revalidatePath } from "next/cache";
 
@@ -144,6 +145,27 @@ export async function saveSetup(data: {
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
     log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
-    return { success: false, error: err };
+    // The operator gets the same plain sentence a failed write gets; the raw
+    // exception belongs in the log, never on the screen.
+    return { success: false, error: "I couldn't save your business details just now. Try again in a moment." };
   }
+}
+
+/** The tracked questions this screen renders. FREE: one narrow read, no model
+ *  call and no research, so opening Settings never costs anything. */
+export async function loadTrackedQuestions(): Promise<{ active: { id: string; text: string }[]; count: number; recommended: string[]; unknown?: boolean }> {
+  return readTrackedQuestions(await currentTenantId());
+}
+
+/** Save the tracked set. Unchanged wording keeps its id, so a save never throws
+ *  away the measurement history of a question the operator left alone. */
+export async function saveTrackedQuestionsAction(
+  input: { keepIds: string[]; edits: { id: string; newText: string }[]; additions: string[] },
+): Promise<{ ok: true; count: number; added: number; skippedDuplicates: number; skippedBlank: number } | { ok: false; error: string }> {
+  const result = await saveTrackedQuestions(await currentTenantId(), input);
+  if (result.ok) {
+    revalidatePath("/", "layout");
+    revalidatePath("/settings/config");
+  }
+  return result;
 }

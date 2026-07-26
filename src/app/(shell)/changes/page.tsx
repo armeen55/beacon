@@ -1,6 +1,10 @@
 export const dynamic = "force-dynamic";
 
 import { Suspense } from "react";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { requireReadyAccount } from "@/domains/account";
+import { currentTenantId } from "@/lib/tenant-context";
 import { PageHeader } from "@/components/data/page-header";
 import { loadChangesView, toClientView } from "../changes-data";
 import { ChangesListClient } from "../changes-list-client";
@@ -52,7 +56,9 @@ export async function ChangesSection() {
     }
     return (
       <p className="rounded-2xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
-        No changes yet. Once your Google + AI demand data syncs, Beacon&apos;s ranked changes appear here.
+        No changes yet. I am still researching your site, and your ranked changes land here as I finish.{" "}
+        <Link href="/settings/connectors" className="underline underline-offset-2">Connecting Google Search Console</Link>{" "}
+        gets me there faster.
       </p>
     );
   }
@@ -90,7 +96,9 @@ function ChangesListFallback() {
   );
 }
 
-export default function WorklistPage() {
+export default async function WorklistPage() {
+  const { access } = await requireReadyAccount(await currentTenantId());
+  if (access.kind === "suspended") redirect("/");
   return (
     <div className="max-w-5xl space-y-6">
       <PageHeader

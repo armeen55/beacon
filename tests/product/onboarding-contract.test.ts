@@ -12,6 +12,7 @@ import type { OnboardingDeps, OnboardingStore, TrackedPromptRow } from "@/domain
 import {
   loadOnboardingState, submitWebsite, inferProfile, saveProfileEdits, proposeProfilePatch,
   applyConfirmedPatch, saveGoal, generatePromptCandidates, approvePrompts, activateAccount,
+  applyTrackedSelection, projectTrackedQuestions,
 } from "@/domains/runtime";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import { reserveOnboardingSpend, reconcileOnboardingSpend } from "@/domains/decision/llm/adjudicator-budget";
@@ -279,5 +280,25 @@ describe("onboarding contract (Slice 5)", () => {
     expect((await saveGoal(A, "recover", w.deps)).ok).toBe(false);
     const t = w.tenants.get(A)!;
     expect(t.domain).toBe("live.com"); expect(t.growth_goal).toBe("grow");
+  });
+  it("13. a live account is never stranded: approval cannot sweep it, kept wording keeps its id, a rewording versions itself, legacy rows are untouched, bounds hold, and both projections agree", async () => {
+    const w = makeWorld(); seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
+    await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates });
+    await approvePrompts(A, { useRecommendedDefault: true }, w.deps); w.tenants.get(A)!.status = "active";
+    const live = activeCore(w, A); const keep = live.slice(0, 12).map((p) => p.id);
+    // THE RAIL: a running account's questions can never be swept by any caller of approval.
+    expect([(await approvePrompts(A, { approvedIds: keep }, w.deps)).ok, activeCore(w, A).length]).toEqual([false, 50]);
+    const rows = [...w.prompts.filter((p) => p.tenant_id === A), { ...live[0]!, id: "prompt-seedprofound01", tags: ["seed_profound"], text: "legacy seed row" }];
+    const ctx = { tenantId: A, basis: "basis_next", nowIso: "2026-07-26T00:00:00.000Z" };
+    const r = applyTrackedSelection(rows, { keepIds: keep, edits: [{ id: keep[0]!, newText: "  Reworded   QUESTION " }], additions: ["one more question", "ONE  more question", "   "] }, ctx);
+    const writes = r.ok ? r.writes : []; // 11 kept + 1 reworded + 1 added; dedupe is normalized, the blank line is dropped
+    expect(r.ok && [r.activeCount, r.added, r.skippedDuplicates, r.skippedBlank]).toEqual([13, 1, 1, 1]);
+    // The replaced wording retires as history, and its successor names the row it replaced.
+    expect([writes.some((x) => x.id === keep[0] && !x.is_active), writes.some((x) => x.is_active && x.tags.includes("core_v1") && x.tags.includes(`superseded:${keep[0]}`))]).toEqual([true, true]);
+    expect(writes.some((x) => x.id === keep[1] || x.id === "prompt-seedprofound01")).toBe(false); // kept ids are untouched (continuity); a non-core seed row is NEVER written
+    const n = (k: number) => applyTrackedSelection(rows, { keepIds: [], edits: [], additions: Array.from({ length: k }, (_, i) => `question number ${i}`) }, ctx).ok;
+    expect([n(9), n(10), n(100), n(101)]).toEqual([false, true, true, false]);
+    const funnelWay = rows.filter((p) => p.is_active && p.tags.includes("core_v1")).sort((a, b) => (a.created_at === b.created_at ? a.id.localeCompare(b.id) : a.created_at.localeCompare(b.created_at))).map((p) => p.id).slice(0, 100);
+    expect(projectTrackedQuestions(rows).active.map((q) => q.id)).toEqual(funnelWay); // what the operator reads is exactly what I check
   });
 });

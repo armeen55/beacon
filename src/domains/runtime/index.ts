@@ -47,3 +47,14 @@ export {
   type OnboardingStore,
   type TrackedPromptRow,
 } from "./onboarding";
+
+// The tracked-question set (Settings + Today + the funnel read the SAME rules).
+export {
+  PROMPT_TAGS,
+  LIMITS as PROMPT_LIMITS,
+  projectTrackedQuestions,
+  applyTrackedSelection,
+  readTrackedQuestions,
+  countTrackedQuestions,
+  saveTrackedQuestions,
+} from "./prompt-set";

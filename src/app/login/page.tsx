@@ -12,8 +12,14 @@ export default async function LoginPage({
   const supabase = await getSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   const params = await searchParams;
-  if (user) {
-    redirect(params.next || "/");
+  // An authenticated user with an error param is the stranded case: bouncing
+  // them to "/" just sends them straight back here. Render the mapped message
+  // so they read words and get a next step instead of ping-ponging.
+  if (user && !params.error) {
+    // Same-origin paths only: "//host" or "https://…" in next must never
+    // become an off-site redirect (mirrors safeNext in the auth callback).
+    const next = params.next;
+    redirect(next && next.startsWith("/") && !next.startsWith("//") ? next : "/");
   }
 
   return (

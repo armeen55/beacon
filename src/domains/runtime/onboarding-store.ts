@@ -10,8 +10,10 @@ import "server-only";
  * carries tenant_id = account_id = the canonical tenant id (never the slug).
  */
 
-import { createHash } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { LIMITS, PROMPT_TAGS, normalizePromptText, promptIdFor, type TrackedPromptRow } from "./prompt-set";
+export { PROMPT_TAGS };
+export type { TrackedPromptRow };
 import type { Account, BusinessProfile, BusinessType } from "@/domains/account";
 import { basisTag, getTenant, loadBusinessProfile, saveBusinessProfile } from "@/domains/account";
 export { basisTag };
@@ -26,10 +28,6 @@ import { ensureResearchRunOnVisit } from "./ops/on-visit-refresh";
 export type OnboardingGoal = "recover" | "grow" | "balanced";
 type PromptIntent = "category" | "problem" | "comparison" | "commercial" | "factual" | "trust" | "brand";
 export const PROMPT_INTENTS: readonly PromptIntent[] = ["category", "problem", "comparison", "commercial", "factual", "trust", "brand"];
-
-/** Tags + limits that define the core-prompt lifecycle (one export each, bundled). */
-export const PROMPT_TAGS = { candidate: "candidate_v1", set: "set_v1", recommended: "recommended", core: "core_v1", edited: "edited", added: "added" } as const;
-const LIMITS = { recommendedTarget: 50, minActive: 10, maxActive: 100 };
 
 /** The confirmable/patchable business fields; confirmed only when EVERY one carries operator_confirmed provenance. */
 export const CONFIRMABLE_FIELDS = [
@@ -85,13 +83,6 @@ export type PromptSelection = {
   /** Brand-new prompts typed into a group: the group's intent is inherited; text is normalized, deduped, validated server-side. */
   additions?: Array<{ groupSlug: string; text: string }>;
 };
-export type TrackedPromptRow = {
-  id: string; tenant_id: string; account_id: string; text: string;
-  topic_id: string | null; location_scope: string | null; service_scope: string | null;
-  intent_type: string; platforms: string[]; tags: string[]; is_active: boolean;
-  created_at: string; updated_at: string;
-};
-
 type CandidateDraft = { text: string; groupSlug: string; groupName: string; intent: PromptIntent; recommended: boolean };
 
 // ── injectable dependencies ─────────────────────────────────────────────────
@@ -142,18 +133,8 @@ export function resolve(deps?: OnboardingDeps): Resolved {
   };
 }
 
-// ── pure prompt helpers (internal) ──────────────────────────────────────────
+// ── pure candidate helpers (internal; ids + normalization live in prompt-set) ─
 
-function normalizePromptText(text: string): string {
-  return (text ?? "").trim().toLowerCase().replace(/\s+/g, " ");
-}
-function sha16(input: string): string {
-  return createHash("sha256").update(input).digest("hex").slice(0, 16);
-}
-/** Row id keyed by (tenant, basis, text): a new basis writes NEW rows and old ones survive untouched as inactive history. */
-function promptRowId(tenantId: string, basisTag: string, normalizedText: string): string {
-  return "prompt-" + sha16(`${tenantId}|${basisTag}|${normalizedText}`);
-}
 function slugify(name: string): string {
   return (name ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "group";
 }
@@ -238,7 +219,6 @@ function deterministicCandidates(profile: BusinessProfile): CandidateDraft[] {
   const seeded = unique.map((c, i) => ({ ...c, recommended: i < target }));
   return fixRecommendedCount(seeded, target);
 }
-function uniqueTags(tags: string[]): string[] { return [...new Set(tags)]; }
 
 // ── durable store (Supabase-backed default) ─────────────────────────────────
 
@@ -317,7 +297,7 @@ export async function generatePromptCandidates(tenantId: string, deps?: Onboardi
   const nowIso = d.now().toISOString();
   const byId = new Map<string, TrackedPromptRow>();
   for (const c of candidates) {
-    const id = promptRowId(canonicalId, basis, normalizePromptText(c.text));
+    const id = promptIdFor(canonicalId, basis, c.text);
     byId.set(id, {
       id, tenant_id: canonicalId, account_id: canonicalId, text: c.text.trim(),
       topic_id: c.groupSlug, location_scope: null, service_scope: null, intent_type: c.intent,
@@ -386,7 +366,7 @@ export async function approvePrompts(tenantId: string, selection: PromptSelectio
     const intent = candidates.find((r) => r.topic_id === addn.groupSlug)?.intent_type ?? "category";
     writes.push(coreRow(canonicalId, basis, addn.text, addn.groupSlug, intent, PROMPT_TAGS.added, nowIso));
   }
-  for (const r of candidates) if (approvedIds.has(r.id)) writes.push({ ...r, is_active: true, tags: uniqueTags([...r.tags, PROMPT_TAGS.core]), updated_at: nowIso });
+  for (const r of candidates) if (approvedIds.has(r.id)) writes.push({ ...r, is_active: true, tags: [...new Set([...r.tags, PROMPT_TAGS.core])], updated_at: nowIso });
 
   // Approval is DECLARATIVE: this selection IS the active core set. Dedupe by id,
   // bound the true resulting count, then deactivate any previously-approved row
@@ -399,9 +379,16 @@ export async function approvePrompts(tenantId: string, selection: PromptSelectio
   // Sweep EVERY active prompt row not in this selection, across ALL bases: a goal
   // toggled back reuses old candidates without the mint sweep, so approval is what
   // keeps abandoned-basis rows from staying live and paid-for.
-  for (const r of rows) {
-    if (r.is_active && !byId.has(r.id) && (r.tags?.includes(PROMPT_TAGS.candidate) || r.tags?.includes(PROMPT_TAGS.core))) {
-      finalWrites.push({ ...r, is_active: false, updated_at: nowIso });
+  //
+  // THE RAIL (no stranded account): the sweep is guarded LOCALLY, not only at the
+  // top of this function. A running account changes its questions in Settings,
+  // where wording keeps its identity, so no future caller of approvePrompts can
+  // reach this loop and silently stop a live account's research.
+  if (account.status === "pending_onboarding") {
+    for (const r of rows) {
+      if (r.is_active && !byId.has(r.id) && (r.tags?.includes(PROMPT_TAGS.candidate) || r.tags?.includes(PROMPT_TAGS.core))) {
+        finalWrites.push({ ...r, is_active: false, updated_at: nowIso });
+      }
     }
   }
   await d.store.upsertPrompts(finalWrites);
@@ -411,7 +398,7 @@ export async function approvePrompts(tenantId: string, selection: PromptSelectio
 /** One active core prompt row (edited or added), basis-tagged to the current set with the four-engine tracking scope. */
 function coreRow(canonicalId: string, basis: string, text: string, topicId: string | null, intent: string, kind: string, nowIso: string): TrackedPromptRow {
   return {
-    id: promptRowId(canonicalId, basis, normalizePromptText(text)), tenant_id: canonicalId, account_id: canonicalId, text: text.trim(),
+    id: promptIdFor(canonicalId, basis, text), tenant_id: canonicalId, account_id: canonicalId, text: text.trim(),
     topic_id: topicId, location_scope: null, service_scope: null, intent_type: intent,
     platforms: [...ALL_ENGINES], tags: [PROMPT_TAGS.candidate, PROMPT_TAGS.set, kind, PROMPT_TAGS.core, basis], is_active: true,
     created_at: nowIso, updated_at: nowIso,

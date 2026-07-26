@@ -38,6 +38,10 @@ export type Account = {
    *   consume zero paid or background work and are never switchable-to.
    */
   status: AccountStatus;
+  /** Set ONLY when the physical row carried a status outside the union above.
+   *  The lifecycle resolver treats such an account as unavailable, never as
+   *  paused: a data anomaly must read as "try again", not as a lockout. */
+  status_unrecognized?: true;
   signup_date: string;
   tos_accepted_at: string | null;
   /** Per-account daily research spend cap in USD (fail-closed). */

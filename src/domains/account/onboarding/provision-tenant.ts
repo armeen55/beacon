@@ -13,30 +13,37 @@
  *   The two writes (tenants insert + tenant_members insert) are NOT a
  *   single transaction. If the second write fails, we surface the
  *   error so the caller can decide. The redirect chain stays at
- *   /signup with an error param — the user can click the magic link
- *   again and the next attempt will detect the orphan tenant by id +
- *   skip the duplicate insert (per the upsert semantics below).
+ *   /signup with an error param, which renders a "Try again" card that
+ *   re-runs this function; the retry detects the orphan tenant by id and
+ *   skips the duplicate insert (per the upsert semantics below).
  *
  * Schema invariants (pinned by tests):
- *   - status = 'pending_onboarding' (NOT 'active') so the cron
- *     ignores the tenant (Gap A's lister filters status='active').
- *   - role = 'beta_customer' (operator-locked default; later flipped
- *     to 'paid_customer' by billing).
- *   - daily_budget_usd = 5 (operator-locked safety default; can be
- *     raised by operator after the customer-2 cost-cap mini-phase).
+ *   - The upsert payload names PHYSICAL `tenants` columns only. The
+ *     canonical Account field `provisional_name` is a READ-side mapping of
+ *     the physical `business_name` column; writing the domain name here is
+ *     what took every signup down with PGRST204 (2026-07-26).
+ *   - business_name is NOT NULL in the database, so the placeholder must
+ *     always be a non-empty string.
+ *   - status = 'pending_onboarding' (NOT 'active') so background work
+ *     ignores the account until onboarding finishes.
+ *   - daily_budget_usd = 5 (operator-locked safety default).
  *   - id = `tenant-<8-char-uuid-prefix>` (deterministic-from-userId
  *     so repeat magic-link clicks idempotently produce the same id).
  *   - tenant_members.role = 'owner'.
  *
- * Deferred (Gap B does not handle):
+ * Collision (handled, not deferred): 8 hex chars is a 4-billion space, not a
+ * guarantee. Before the upsert we check whether the derived id already carries
+ * a membership belonging to a DIFFERENT user; if it does we refuse with
+ * phase 'tenant_collision' rather than making this user an owner of someone
+ * else's business. A row with zero memberships is this user's own orphan from
+ * a half-finished attempt, so the retry adopts it.
+ *
+ * Deferred (this module does not handle):
  *   - Multi-user-per-tenant (one user invites another).
  *   - Tenant deletion / cancel flow.
- *   - Slug uniqueness against ALL tenants (today derives from userId
- *     which is itself unique, so no collision).
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Account } from "@/domains/account/tenants/types";
 
 /**
  * Operator-locked defaults for new accounts. Pinned by behavioral tests
@@ -58,9 +65,33 @@ export type ProvisionInput = {
   email: string;
 };
 
-export type ProvisionOutcome =
+type ProvisionOutcome =
   | { ok: true; tenantId: string; created: boolean }
-  | { ok: false; error: string; phase: "lookup" | "tenant_insert" | "member_insert" };
+  | {
+      ok: false;
+      error: string;
+      phase: "lookup" | "tenant_insert" | "member_insert" | "tenant_collision";
+    };
+
+/**
+ * The exact PHYSICAL `tenants` columns this module writes. Deliberately NOT
+ * derived from the canonical `Account` type: Account is the read-side domain
+ * shape (it carries `provisional_name`, which is not a column), and pinning the
+ * write payload to it is what forced a nonexistent column into the insert.
+ */
+type TenantsInsertRow = {
+  id: string;
+  slug: string;
+  business_name: string;
+  domain: string;
+  signup_date: string;
+  tos_accepted_at: string | null;
+  daily_budget_usd: number;
+  growth_goal: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
 
 /**
  * Derive a deterministic tenant id from the auth user id. First 8 chars
@@ -75,10 +106,10 @@ export function deriveTenantId(userId: string): string {
 
 /**
  * The generic stub name the provisioner emits when it can't derive a real
- * name from the signup email. Treated as "no name yet" everywhere it could
- * leak into customer-facing copy.
+ * name from the signup email. `tenants.business_name` is NOT NULL, so this is
+ * always a non-empty string; onboarding treats it as "no name yet".
  */
-export const PLACEHOLDER_BUSINESS_NAME = "New Beacon Account";
+const PLACEHOLDER_BUSINESS_NAME = "New Beacon Account";
 
 /**
  * Free / personal email providers whose domain prefix is NOT a business name
@@ -92,8 +123,8 @@ const FREE_EMAIL_DOMAINS = new Set([
 ]);
 
 /**
- * Derive a placeholder provisional_name from email. Used as a stub until
- * the user fills in the real name in /onboard/business (Gap C).
+ * Derive a placeholder business name from email. Used as a stub until the
+ * user fills in the real name in /onboard.
  *
  * "joe@acme-builders.com" → "Acme Builders" (best-effort title-cased
  * domain prefix). Personal email (gmail/yahoo/…) and weird emails fall back
@@ -116,32 +147,9 @@ export function derivePlaceholderBusinessName(email: string): string {
 }
 
 /**
- * Detect the auto-derived placeholder name so recap blocks never present
- * it back to the user as if they had typed it (#136). Returns true for the
- * stub name and for empty/blank values.
- */
-export function isPlaceholderBusinessName(name: string | null | undefined): boolean {
-  const trimmed = (name ?? "").trim();
-  if (!trimmed) return true;
-  return trimmed === PLACEHOLDER_BUSINESS_NAME;
-}
-
-/**
- * Customer-safe business name for recap/summary display. When the stored
- * name is still the provisioner placeholder (or blank), fall back to a
- * neutral label rather than echoing "New Beacon Account" as the user's
- * real business (#136).
- */
-export function displayBusinessName(
-  name: string | null | undefined,
-  fallback = "Your business",
-): string {
-  return isPlaceholderBusinessName(name) ? fallback : (name as string).trim();
-}
-
-/**
  * Returns the existing tenant_id for a user if one exists, else null.
- * Pure read.
+ * Pure read. Ordered by created_at so a user who somehow holds two
+ * memberships always resolves to the SAME one on every request.
  */
 export async function lookupExistingMembership(
   supabase: SupabaseClient,
@@ -150,7 +158,8 @@ export async function lookupExistingMembership(
   const { data, error } = await supabase
     .from("tenant_members")
     .select("tenant_id")
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
   if (error) return { tenantId: null, error: error.message };
   if (!data || data.length === 0) return { tenantId: null, error: null };
   // First tenant wins. Multi-tenant per user is deferred; the middleware
@@ -164,12 +173,14 @@ export async function lookupExistingMembership(
  * Flow:
  *   1. SELECT tenant_members WHERE user_id = ?
  *      - If row exists → return that tenantId (created: false).
- *   2. INSERT tenants ({ id: derive(userId), status: pending_onboarding, ... })
+ *   2. Collision guard: if a tenants row already holds a membership for a
+ *      DIFFERENT user, refuse (phase 'tenant_collision').
+ *   3. INSERT tenants ({ id: derive(userId), status: pending_onboarding, ... })
  *      - On conflict on id (orphaned tenant from prior partial provisioning),
  *        skip — the row already exists.
- *   3. INSERT tenant_members ({ user_id, tenant_id, role: 'owner' })
+ *   4. INSERT tenant_members ({ user_id, tenant_id, role: 'owner' })
  *      - On conflict, skip.
- *   4. Return tenantId (created: true).
+ *   5. Return tenantId (created: true).
  */
 export async function provisionTenantForNewUser(
   supabase: SupabaseClient,
@@ -188,14 +199,26 @@ export async function provisionTenantForNewUser(
   const tenantId = deriveTenantId(input.userId);
   const slug = tenantId.replace(/^tenant-/, "");
   const ts = now();
-  // Fully generic account row. Legacy vertical columns (segment, project_mix,
-  // cities_served, budget_range, publish_target, role, email_frequency,
-  // discovered_competitors) are intentionally OMITTED: the database supplies
-  // neutral defaults, and application code never writes vertical vocabulary.
+
+  // 2b. Collision guard. Never adopt a tenant that another user already owns.
+  const { data: owners, error: ownersErr } = await supabase
+    .from("tenant_members")
+    .select("user_id")
+    .eq("tenant_id", tenantId);
+  if (ownersErr) return { ok: false, error: ownersErr.message, phase: "lookup" };
+  if ((owners ?? []).some((m: { user_id?: string }) => m.user_id !== input.userId)) {
+    return { ok: false, error: "tenant id collision", phase: "tenant_collision" };
+  }
+
+  // Fully generic account row, PHYSICAL columns only. Legacy vertical columns
+  // (segment, project_mix, cities_served, budget_range, publish_target, role,
+  // email_frequency, discovered_competitors) are intentionally OMITTED: the
+  // database supplies neutral defaults, and application code never writes
+  // vertical vocabulary.
   const tenantRow = {
     id: tenantId,
     slug,
-    provisional_name: derivePlaceholderBusinessName(input.email),
+    business_name: derivePlaceholderBusinessName(input.email),
     domain: "",
     signup_date: ts,
     tos_accepted_at: null,
@@ -204,7 +227,7 @@ export async function provisionTenantForNewUser(
     status: PROVISIONING_DEFAULTS.status,
     created_at: ts,
     updated_at: ts,
-  } satisfies Omit<Account, "id"> & { id: string };
+  } satisfies TenantsInsertRow;
 
   // 3. Insert tenant. `onConflict: 'id', ignoreDuplicates: true` makes
   // this a no-op when the orphaned row already exists.

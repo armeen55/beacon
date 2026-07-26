@@ -22,11 +22,14 @@ export type AccountRepository = {
 /** Map a Supabase `tenants` row to the canonical Account. Legacy vertical
  *  columns on the row are intentionally ignored. */
 export function mapRowToAccount(r: Record<string, unknown>): Account {
-  const status: AccountStatus =
-    r.status === "active" || r.status === "paused" || r.status === "cancelled" || r.status === "pending_onboarding"
-      ? r.status
-      : "paused";
+  const known =
+    r.status === "active" || r.status === "paused" || r.status === "cancelled" || r.status === "pending_onboarding";
+  // An unrecognized status is a data anomaly, not a lifecycle: coercing it to
+  // "paused" under the lifecycle guards would strand the whole account behind a
+  // paused notice. The flag lets the resolver treat it as unavailable instead.
+  const status: AccountStatus = known ? (r.status as AccountStatus) : "paused";
   return {
+    ...(known ? {} : { status_unrecognized: true as const }),
     id: String(r.id),
     slug: String(r.slug ?? ""),
     provisional_name: String(r.business_name ?? ""),

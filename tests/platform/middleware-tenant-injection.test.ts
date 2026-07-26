@@ -2,7 +2,8 @@
  * Middleware account injection: one login -> one account, fail-closed on zero/
  * multiple/erroring/hung membership lookups, forged beacon_tenant cookies never
  * honored (and actively expired), inbound tenant headers stripped, auth-disabled
- * local mode uses only the explicit env account.
+ * local mode uses only the explicit env account, and public paths stay reachable
+ * for a session with zero memberships (no /login redirect loop).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -39,7 +40,6 @@ vi.mock("@supabase/ssr", () => ({
           };
         };
         const eq = (_col: string, _val: string) => ({
-          order: () => (supabaseState.tenantHangs ? NEVER : Promise.resolve(result())),
           then: (onF: (v: unknown) => unknown) =>
             (supabaseState.tenantHangs ? NEVER : Promise.resolve(result())).then(onF),
         });
@@ -101,8 +101,7 @@ describe("middleware account injection — one login, one account, fail-closed",
   });
 
   it("strips the inbound x-beacon-tenant header on every path (client spoof defense)", async () => {
-    supabaseState.user = { id: "user-1" };
-    supabaseState.tenantMembersRows = [{ tenant_id: "tenant-real" }];
+    supabaseState.user = { id: "user-1" }; supabaseState.tenantMembersRows = [{ tenant_id: "tenant-real" }];
     const res = await updateSession(
       makeRequest("/today", { headers: { "x-beacon-tenant": "tenant-attacker" } }),
     );
@@ -126,12 +125,17 @@ describe("middleware account injection — one login, one account, fail-closed",
     expect(res.headers.get("location")).toContain("error=no_account");
   });
 
+  it("a stranded session (zero memberships) still reaches /login and /auth/signout", async () => {
+    supabaseState.user = { id: "user-none" };
+    for (const p of ["/login", "/login?error=no_account", "/auth/signout"]) {
+      const res = await updateSession(makeRequest(p));
+      expect(res.status, `${p} must not bounce for a stranded session`).toBe(200);
+    }
+  });
+
   it("multiple memberships fail closed — never earliest-membership guessing", async () => {
     supabaseState.user = { id: "user-multi" };
-    supabaseState.tenantMembersRows = [
-      { tenant_id: "tenant-earliest" },
-      { tenant_id: "tenant-later" },
-    ];
+    supabaseState.tenantMembersRows = [{ tenant_id: "tenant-earliest" }, { tenant_id: "tenant-later" }];
     const res = await updateSession(makeRequest("/today"));
     expect(res.status).toBeGreaterThanOrEqual(300);
     expect(res.headers.get("location")).toContain("error=multiple_accounts_unsupported");
@@ -139,8 +143,7 @@ describe("middleware account injection — one login, one account, fail-closed",
   });
 
   it("a query error fails closed even with a forged beacon_tenant cookie", async () => {
-    supabaseState.user = { id: "user-1" };
-    supabaseState.tenantMembersError = { message: "boom" };
+    supabaseState.user = { id: "user-1" }; supabaseState.tenantMembersError = { message: "boom" };
     const res = await updateSession(makeCookieRequest("/today", "tenant-forged"));
     expect(res.status).toBeGreaterThanOrEqual(300);
     expect(res.headers.get("location")).toContain("error=account_unavailable");
@@ -149,16 +152,14 @@ describe("middleware account injection — one login, one account, fail-closed",
   });
 
   it("a lookup throw fails closed even with a forged cookie", async () => {
-    supabaseState.user = { id: "user-1" };
-    supabaseState.tenantQueryThrows = true;
+    supabaseState.user = { id: "user-1" }; supabaseState.tenantQueryThrows = true;
     const res = await updateSession(makeCookieRequest("/today", "tenant-forged"));
     expect(res.headers.get("location")).toContain("error=account_unavailable");
     expect(injectedTenant(res)).not.toBe("tenant-forged");
   });
 
   it("a hung membership lookup fails closed (no 504, no cookie honor)", async () => {
-    supabaseState.user = { id: "user-1" };
-    supabaseState.tenantHangs = true;
+    supabaseState.user = { id: "user-1" }; supabaseState.tenantHangs = true;
     const res = await updateSession(makeCookieRequest("/today", "tenant-forged"));
     expect(res.headers.get("location")).toContain("error=account_unavailable");
     expect(injectedTenant(res)).not.toBe("tenant-forged");

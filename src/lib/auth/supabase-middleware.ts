@@ -161,7 +161,11 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     return expireRetiredCookie(NextResponse.redirect(url));
   };
 
-  if (user) {
+  // Public paths never need account injection, and gating on isPublic is what
+  // keeps /login and /auth/signout REACHABLE for a session with zero
+  // memberships. Without it, the no_account redirect below fired on /login too,
+  // so /login 307'd to itself forever and the user could not even sign out.
+  if (user && !isPublic) {
     try {
       type TenantRows = { tenant_id: string }[];
       type TenantLookupResult = { data: TenantRows | null; error: { message: string } | null };

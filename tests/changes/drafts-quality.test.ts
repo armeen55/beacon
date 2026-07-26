@@ -30,13 +30,11 @@ describe("evaluateDraftQuality - answer blocks", () => {
     expect(r.copyAllowed).toBe(false);
     expect(r.canRegenerate).toBe(true);
   });
-
   it("PASSES a contextual definitional opener, sourced (ab-2: Nowruz USA)", () => {
     const r = evaluateDraftQuality({ answer: NOWRUZ_ANSWER, sources: [NOWRUZ_SOURCE] });
     expect(r.status).toBe("ready");
     expect(r.copyAllowed).toBe(true);
   });
-
   it("REJECTS a punt non-answer as too_thin (ab-5: most-followed Instagram)", () => {
     const r = evaluateDraftQuality({
       answer:
@@ -45,7 +43,6 @@ describe("evaluateDraftQuality - answer blocks", () => {
     expect(r.status).toBe("too_thin");
     expect(r.copyAllowed).toBe(false);
   });
-
   it("REJECTS a meta non-answer that talks about the page (rec-5/rec-12)", () => {
     const r = evaluateDraftQuality({
       answer:
@@ -54,14 +51,12 @@ describe("evaluateDraftQuality - answer blocks", () => {
     expect(r.status).toBe("too_thin");
     expect(r.copyAllowed).toBe(false);
   });
-
   it("HOLDS a specific unsourced factual claim as missing_source, never regeneratable (ab-9: cheetah, J-69)", () => {
     const r = evaluateDraftQuality({ answer: CHEETAH, evidenceRefs: 0 });
     expect(r.status).toBe("missing_source");
     expect(r.copyAllowed).toBe(false);
     expect(r.canRegenerate).toBe(false);
   });
-
   it("the SAME cheetah claim is ready once a qualifying authoritative source is attached", () => {
     const r = evaluateDraftQuality({
       answer: CHEETAH,
@@ -71,12 +66,10 @@ describe("evaluateDraftQuality - answer blocks", () => {
     expect(r.status).toBe("ready");
     expect(r.copyAllowed).toBe(true);
   });
-
   it("rejects an empty answer as malformed", () => {
     expect(evaluateDraftQuality({ answer: "" }).status).toBe("malformed");
     expect(evaluateDraftQuality({ answer: null }).status).toBe("malformed");
   });
-
   it("a formatting/technical draft with zero sources is NEVER source-gated (claim-free answer block)", () => {
     const r = evaluateDraftQuality({
       answer:
@@ -87,7 +80,6 @@ describe("evaluateDraftQuality - answer blocks", () => {
     expect(r.copyAllowed).toBe(true);
   });
 });
-
 describe("evaluateDraftQuality - G5 needs_source_check (honest unfetchable-source hold)", () => {
   it("holds as needs_source_check (NOT missing_source) when an authority-strong citation was robots-blocked", () => {
     const r = evaluateDraftQuality({
@@ -105,7 +97,6 @@ describe("evaluateDraftQuality - G5 needs_source_check (honest unfetchable-sourc
     expect(r.copyAllowed).toBe(false);
     expect(r.canRegenerate).toBe(false);
   });
-
   it("NEVER-READY-WITHOUT-VERIFICATION pin: a blocked authoritative source alone is never ready", () => {
     const r = evaluateDraftQuality({
       answer: CHEETAH,
@@ -116,7 +107,6 @@ describe("evaluateDraftQuality - G5 needs_source_check (honest unfetchable-sourc
     expect(r.status).not.toBe("ready");
     expect(r.copyAllowed).toBe(false);
   });
-
   it("a robots-block on a NON-authoritative domain is still plain missing_source (a block is no trust grant)", () => {
     const r = evaluateDraftQuality({
       answer: CHEETAH,
@@ -126,7 +116,6 @@ describe("evaluateDraftQuality - G5 needs_source_check (honest unfetchable-sourc
     });
     expect(r.status).toBe("missing_source");
   });
-
   it("READY still requires verified coverage: a verified covering source wins even when a blocked one is also cited", () => {
     const r = evaluateDraftQuality({
       answer: CHEETAH,
@@ -141,7 +130,6 @@ describe("evaluateDraftQuality - G5 needs_source_check (honest unfetchable-sourc
     expect(r.copyAllowed).toBe(true);
   });
 });
-
 describe("evaluateDraftQuality - J-71 word band (80-150 words)", () => {
   // Deliberately claim-free so these isolate the LENGTH decision from J-69.
   const BASE =
@@ -158,7 +146,6 @@ describe("evaluateDraftQuality - J-71 word band (80-150 words)", () => {
     expect(under.reasons[0]).toContain("80-150");
     expect(evaluateDraftQuality({ answer: words(80) }).status).toBe("ready");
   });
-
   it("150 words is still ready; 151 is not_quotable (trim, don't rewrite from scratch)", () => {
     expect(evaluateDraftQuality({ answer: words(150) }).status).toBe("ready");
     const over = evaluateDraftQuality({ answer: words(151) });
@@ -166,7 +153,6 @@ describe("evaluateDraftQuality - J-71 word band (80-150 words)", () => {
     expect(over.canRegenerate).toBe(true);
   });
 });
-
 describe("evaluateDraftQuality - quotability", () => {
   it("rejects a well-formed, on-topic, sourced draft that opens with a pronoun", () => {
     const r = evaluateDraftQuality({
@@ -177,13 +163,11 @@ describe("evaluateDraftQuality - quotability", () => {
     expect(r.status).toBe("not_quotable");
     expect(r.reasons.some((x) => x.toLowerCase().includes("name the subject"))).toBe(true);
   });
-
   it("does NOT reject a clean, on-topic, sourced draft with no number/date at all (matches the real corpus)", () => {
     const r = evaluateDraftQuality({ answer: NOWRUZ_ANSWER, sources: [NOWRUZ_SOURCE] });
     expect(r.status).toBe("ready");
   });
 });
-
 describe("evaluateDraftQuality - factual entailment (N8, additive/opt-in)", () => {
   it("REJECTS an otherwise-ready draft with a number the page body does not support", () => {
     const r = evaluateDraftQuality({
@@ -198,7 +182,6 @@ describe("evaluateDraftQuality - factual entailment (N8, additive/opt-in)", () =
     expect(r.reasons[0]).toContain("3000");
     expect(r.reasons[0]).toContain("could not find that number");
   });
-
   it("PASSES the same 3000-year claim when the page body actually supports it, sourced", () => {
     const r = evaluateDraftQuality({
       answer:
@@ -214,7 +197,6 @@ describe("evaluateDraftQuality - factual entailment (N8, additive/opt-in)", () =
     });
     expect(r.status).toBe("ready");
   });
-
   it("REJECTS an atomic title/meta rewrite that introduces an unsupported number", () => {
     const r = evaluateTitleMetaQuality({
       before: "Persian New Year Traditions",
@@ -226,7 +208,6 @@ describe("evaluateDraftQuality - factual entailment (N8, additive/opt-in)", () =
     expect(r.copyAllowed).toBe(false);
   });
 });
-
 describe("operator correction (page is stale, dated evidence backs the draft)", () => {
   const RECIPES_ANSWER =
     "Referencepedia now lists 4500 Persian recipes in its growing collection, spanning regional dishes, holiday specialties, and everyday family meals from every corner of Iran and its many worldwide diaspora communities. Each recipe entry includes a short history of the dish alongside step by step cooking instructions contributed by home cooks and professional chefs. Readers can filter the collection by region, occasion, or main ingredient to find dishes suited to a specific holiday table or an everyday weeknight meal. New recipes are added every month as contributors submit family recipes passed down across several generations of home cooking.";
@@ -248,7 +229,6 @@ describe("operator correction (page is stale, dated evidence backs the draft)", 
     expect(r.corrections).toBeDefined();
     expect(r.corrections!.some((c) => c.includes("4500") && c.includes("2026-07-01"))).toBe(true);
   });
-
   it("the SAME contradicting number with no authoritative fact stays unverified_claim (blocked)", () => {
     const r = evaluateDraftQuality({ answer: RECIPES_ANSWER, evidenceRefs: 1, pageBodyText: STALE_PAGE });
     expect(r.status).toBe("unverified_claim");
@@ -256,7 +236,6 @@ describe("operator correction (page is stale, dated evidence backs the draft)", 
     expect(r.corrections).toBeUndefined();
   });
 });
-
 describe("J-70 first-mention rule (soft, tenant-configured)", () => {
   it("a miss downgrades an otherwise-ready draft to useful_but_needs_review (never a hard block)", () => {
     const r = evaluateDraftQuality({
@@ -269,7 +248,6 @@ describe("J-70 first-mention rule (soft, tenant-configured)", () => {
     expect(r.canRegenerate).toBe(false);
   });
 });
-
 describe("evaluateTitleMetaQuality - atomic edits", () => {
   it("PASSES an entity-forward rewrite (rec-0: Persian Wolf), no new specific fact, never source-gated", () => {
     const r = evaluateTitleMetaQuality({
@@ -280,7 +258,6 @@ describe("evaluateTitleMetaQuality - atomic edits", () => {
     expect(r.status).toBe("ready");
     expect(r.copyAllowed).toBe(true);
   });
-
   it("FLAGS a newly-introduced count as needs-review (rec-9: 150+ surnames)", () => {
     const r = evaluateTitleMetaQuality({
       before: "Popular Iranian First and Last Names with Meanings",
@@ -290,13 +267,11 @@ describe("evaluateTitleMetaQuality - atomic edits", () => {
     expect(r.status).toBe("useful_but_needs_review");
     expect(r.copyAllowed).toBe(true);
   });
-
   it("rejects a rewrite that drops the entity", () => {
     const r = evaluateTitleMetaQuality({ before: "Persian Wolf Range and Behavior", after: "Range, Behavior, and Conservation Status", field: "title" });
     expect(r.status).toBe("relevance_rejected");
     expect(r.copyAllowed).toBe(false);
   });
-
   it("a formatting-only edit is exempt: never missing_source, even with zero sources", () => {
     const r = evaluateTitleMetaQuality({
       before: "Persian Holidays: Explore the Traditions",
@@ -307,7 +282,6 @@ describe("evaluateTitleMetaQuality - atomic edits", () => {
     expect(r.status).toBe("ready");
   });
 });
-
 describe("evaluateCreatePageBriefQuality", () => {
   const goodBrief = {
     title: "Persian wedding traditions and Sofreh Aghd rituals",

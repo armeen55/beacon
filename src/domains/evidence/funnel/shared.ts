@@ -31,6 +31,8 @@ import {
   writePublicPageExtract,
 } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { loadFunnelState, saveFunnelState, type FunnelState, type LoadedFunnelState } from "./state";
+// ONE tag vocabulary: the set Settings writes is byte-for-byte the set I check.
+import { PROMPT_TAGS } from "@/domains/runtime/prompt-set";
 
 /** THE one freshness window for every observation the funnel keeps: AI answers and
  *  search looks are re-observed WEEKLY. A done row older than this is due and
@@ -87,7 +89,7 @@ async function defaultActivePrompts(tenantId: string): Promise<{ id: string; tex
       .select("id,text")
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
-      .contains("tags", ["core_v1"])
+      .contains("tags", JSON.stringify([PROMPT_TAGS.core]))
       .order("created_at", { ascending: true })
       .order("id", { ascending: true })
       .limit(100);
@@ -107,7 +109,7 @@ export function basisFromCursor(cursor: Record<string, unknown> | null): string 
   return cursor && typeof cursor.basis === "string" ? cursor.basis.trim() : "";
 }
 
-export const NO_BASIS_DETAIL = "I could not tell which business setup to research yet. Please finish onboarding, then I will research it.";
+export const NO_BASIS_DETAIL = "I need your confirmed business details before I can research. Open Settings, Business info and save them.";
 
 /** Raised by save() when the stored row moved underneath us; each executor
  *  catches it and fails closed (a genuine pause, never a corrupt overwrite). */
@@ -153,9 +155,9 @@ export function interp(r: CachedCallResult): Interp {
 export function pauseDetail(disposition: FailureDisposition | undefined, fallback: string): string {
   switch (disposition) {
     case "retry_free": return "A research request did not come back this time. I kept it and I will collect it for free on the next pass.";
-    case "blocked": return "The research provider turned this request down. I will not spend on it again on my own; it stays set aside for review.";
-    case "quarantined": return "I set this request aside so I do not run it twice. If the provider offers free recovery I will keep checking; otherwise it waits for review.";
-    case "repost_once": return "A research task expired at the provider. I will run it once more on the next pass.";
+    case "blocked": return "One research request was turned down. I set it aside so I do not repeat it, and I will try the rest.";
+    case "quarantined": return "I set one request aside so I do not run it twice. I will keep checking whether it can finish.";
+    case "repost_once": return "One research request timed out. I will run it once more on your next visit.";
     default: return fallback;
   }
 }

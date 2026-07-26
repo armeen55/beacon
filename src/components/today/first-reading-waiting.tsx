@@ -40,9 +40,9 @@ export function FirstReadingWaiting({
             Beacon is preparing your first reading.
           </h1>
           <p className="text-[14px] text-muted-foreground">
-            Connect your data sources and click Refresh to see your first
-            dashboard. Beacon analyzes your website and tracks how AI search
-            engines describe your business {context.nextReadingDescription}.
+            I am reading your site and checking how AI assistants answer your
+            questions. This fills in while you are signed in. Connecting Google
+            Search Console makes the first reading sharper.
           </p>
           <Link
             href="/settings/connectors"
@@ -63,11 +63,11 @@ export function FirstReadingWaiting({
                 <dd className="font-mono">{context.domain}</dd>
               </>
             ) : null}
-            <dt className="text-muted-foreground">Prompts tracked</dt>
+            <dt className="text-muted-foreground">Questions I track</dt>
             <dd>
               {context.promptCount}{" "}
               <span className="text-muted-foreground">
-                {context.promptCount === 1 ? "prompt" : "prompts"} ready
+                {context.promptCount === 1 ? "question" : "questions"} ready
               </span>
             </dd>
             <dt className="text-muted-foreground">Next reading</dt>
@@ -135,10 +135,9 @@ export function FirstReadingWaiting({
               Clarity.
             </li>
             <li>
-              Refresh: Beacon reviews your website&apos;s pages and checks how
-              the AI search engines describe your business, then fills your
-              dashboard with the search demand for your pages and who they
-              compare you to.
+              Stay signed in: I read your pages and check how AI assistants
+              answer your questions while you use Beacon, then fill this
+              dashboard with your search demand and who you get compared to.
             </li>
             <li>
               Review your recommendations: once your first reading comes in,
@@ -153,12 +152,6 @@ export function FirstReadingWaiting({
             className="text-[13px] underline"
           >
             See your changes
-          </Link>
-          <Link
-            href="/changes?status=ready"
-            className="text-[13px] underline text-muted-foreground"
-          >
-            Recommendations (available after first reading)
           </Link>
         </div>
       </div>

@@ -1,23 +1,32 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { provisionTenantForNewUser } from "@/domains/account";
+import { provisionTenantForNewUser, resolveAccountAccess } from "@/domains/account";
 
 /**
  * Supabase magic-link callback. Exchanges the `code` query param for a
  * session cookie, provisions a pending tenant + tenant_members row for
- * first-time users (Gap B, 2026-05-07), then redirects:
+ * first-time users, then routes by lifecycle:
  *   - First-time user (no prior tenant_members row) → `/onboard`
- *   - Existing user (membership already present)    → `next` or `/`
+ *   - Returning user, onboarding unfinished         → `/onboard`
+ *   - Returning user, onboarding done               → `next` or `/`
  *
- * Provisioning is idempotent — repeat magic-link clicks after a
- * partial failure detect the existing tenant_members row and skip
- * the inserts. See provisionTenantForNewUser() for the contract.
+ * Provisioning is idempotent: a repeat magic-link click after a partial
+ * failure detects the existing tenant_members row and skips the inserts.
  */
+
+/** Only same-origin app paths may be honored. A protocol-relative "//evil.com"
+ *  is a real open redirect, so anything that is not a single-slash path is
+ *  dropped back to "/". */
+function safeNext(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/";
+  return raw;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl;
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/";
+  const next = safeNext(searchParams.get("next"));
 
   if (!code) {
     return NextResponse.redirect(`${origin}/login?error=missing_code`);
@@ -53,9 +62,9 @@ export async function GET(request: NextRequest) {
   });
 
   if (!provision.ok) {
-    // Provisioning failed mid-flight. Surface the error on /signup so
-    // the user can retry; the next attempt will detect any orphaned
-    // tenant row (idempotent inserts) and resume cleanly.
+    // Provisioning failed mid-flight. Surface the error on /signup, which
+    // renders a "Try again" card for the signed-in user; the retry detects any
+    // orphaned tenant row (idempotent inserts) and resumes cleanly.
     console.error("[auth/callback] provisioning failed:", {
       userId: user.id,
       phase: provision.phase,
@@ -66,12 +75,23 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // First-time signup → the URL-first entry (2026-07-03 R12/T0e): one site
-  // address is enough to reach a first honest scorecard; the guided wizard
-  // stays one link away on that page.
-  // Repeat sign-in (membership already existed) → caller's `next` or `/`.
+  // First-time signup → the URL-first entry: one site address is enough to
+  // reach a first honest scorecard, and the guided wizard stays one link away.
   if (provision.created) {
     return NextResponse.redirect(`${origin}/onboard`);
+  }
+
+  // Repeat sign-in. Routing on `created` alone stranded anyone who quit
+  // onboarding halfway: they landed on "/" with no way back to /onboard. Read
+  // the lifecycle instead. A transient read failure falls through to `next` so
+  // a slow database never blocks a valid sign-in.
+  try {
+    const access = await resolveAccountAccess(provision.tenantId);
+    if (access.kind === "incomplete") {
+      return NextResponse.redirect(`${origin}/onboard`);
+    }
+  } catch (e) {
+    console.error("[auth/callback] lifecycle read failed:", e);
   }
   return NextResponse.redirect(`${origin}${next}`);
 }

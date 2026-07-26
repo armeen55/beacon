@@ -27,6 +27,7 @@ import { redirect } from "next/navigation";
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { lookupExistingMembership } from "./provision-tenant";
+import { mapRowToAccount } from "@/domains/account/tenants/store";
 import type { Account } from "@/domains/account/tenants/types";
 
 export type OnboardingTenantContext = {
@@ -85,24 +86,15 @@ export async function requireOnboardingTenant(opts?: {
   }
 
   // The physical column is business_name; the canonical Account field is
-  // provisional_name (an internal signup seed). Selecting a nonexistent
-  // provisional_name column errored here and bounced EVERY onboarding visit
-  // to /login?error=tenant_fetch_failed (found on the Slice 5 rendered walk).
+  // provisional_name (an internal signup seed). One mapper (mapRowToAccount)
+  // owns that translation for every reader, so a column rename can never leave
+  // a second hand-rolled copy behind to bounce onboarding to /login.
   const { data: row, error: tErr } = await getSupabaseAdmin()
     .from("tenants")
     .select("id, slug, business_name, domain, status, tos_accepted_at")
     .eq("id", tenantId)
     .maybeSingle();
-  const tenant = row
-    ? {
-        id: String(row.id),
-        slug: String(row.slug ?? ""),
-        provisional_name: String(row.business_name ?? ""),
-        domain: String(row.domain ?? ""),
-        status: row.status,
-        tos_accepted_at: (row.tos_accepted_at as string | null) ?? null,
-      }
-    : null;
+  const tenant = row ? mapRowToAccount(row as Record<string, unknown>) : null;
 
   if (tErr) {
     console.error("[onboard] tenant fetch failed:", tErr.message);
@@ -125,9 +117,5 @@ export async function requireOnboardingTenant(opts?: {
     redirect("/?error=tenant_cancelled");
   }
   // status === "pending_onboarding" — allow.
-  return {
-    user,
-    tenantId,
-    tenant: tenant as OnboardingTenantContext["tenant"],
-  };
+  return { user, tenantId, tenant };
 }

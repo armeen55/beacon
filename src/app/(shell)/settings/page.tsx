@@ -1,5 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/data/page-header";
+import { requireReadyAccount } from "@/domains/account";
+import { currentTenantId } from "@/lib/tenant-context";
 import { SETTINGS_SECTIONS } from "./settings-sections";
 import { SpendLine } from "./spend-line";
 
@@ -15,11 +18,13 @@ import { SpendLine } from "./spend-line";
  * once every one of them is done.
  */
 export default async function SettingsPage() {
+  const { access } = await requireReadyAccount(await currentTenantId());
+  if (access.kind === "suspended") redirect("/");
   return (
     <div className="max-w-2xl">
       <PageHeader
         title="Settings"
-        description="Your business info, connections, and how Beacon measures things."
+        description="Your business info, the questions I track, and your connections."
       />
       <ul className="space-y-2">
         {SETTINGS_SECTIONS.map((item) => (
