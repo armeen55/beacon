@@ -4,7 +4,7 @@
  * with no artifact; bounded retry with per-attempt spend; cache hits cost $0.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 // Budget is not this file's subject (see llm-budget-isolation.test.ts): keep the
 // transport hermetic with an always-allowed, no-op budget seam.
@@ -38,10 +38,6 @@ function seam(responses: Array<{ value: unknown } | { error: string; retryable: 
   const complete: CompleteFn = async () => { calls += 1; return responses[Math.min(i++, responses.length - 1)]!; };
   return { complete, calls: () => calls };
 }
-
-const ORIGINAL_PROVIDER = process.env.BEACON_LLM_PROVIDER;
-beforeEach(() => { process.env.BEACON_LLM_PROVIDER = "openai"; });
-afterEach(() => { process.env.BEACON_LLM_PROVIDER = ORIGINAL_PROVIDER; });
 
 describe("structured-drafter strict transport", () => {
   it("drafts a schema-valid VALUE (no text parsing)", async () => {

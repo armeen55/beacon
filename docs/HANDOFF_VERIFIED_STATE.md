@@ -127,8 +127,8 @@
   BOTH layers (2026-07-24): the file-layer backstop is tenant-scoped with the explicit account required before any
   ledger I/O (the old shared global blob is inert), and the durable Supabase ledger remains authoritative; one
   account's spend can never throttle another. A committed regression sweep converts every SCHEMA_BY_KIND entry
-  through the strict-subset conversion. Transport behavior is hermetically validated; the live provider response
-  is NOT yet validated (no paid call under the rebuild authorizations).
+  through the strict-subset conversion. Transport and live provider behavior are validated; the existing OpenAI
+  key enables this canonical path directly, with no secondary feature flag.
 - One canonical proposal path produces the ranked Changes queue AND, per pass, at most ONE deeply evidenced
   existing-page Change Bundle for the strongest page (Slice 7, 2026-07-25): receipt-first plain-English evidence
   (Search demand, current copy, research classes when present, an honest missing list); components pass the one
@@ -175,10 +175,10 @@ New customer routes require operator approval.
 
 ## Next slice
 
-Slices 1 through 6 are complete and deployed. The next build-order step is Slice 7: one deeply
-evidenced existing-page Change Bundle from the canonical research foundation (consuming
-`loadFunnelEvidence` and the Evidence Snapshot). It requires the eight fields from `AGENTS.md` and explicit
-operator approval before implementation.
+Slices 1 through 7 are complete and deployed. The next build-order step is Slice 8: one deeply evidenced
+new-page Change from the same canonical research foundation and proposal pipeline. It requires the eight
+fields from `AGENTS.md` and explicit operator approval before implementation; no enablement flag or parallel
+generation path is needed.
 
 ## Verification
 

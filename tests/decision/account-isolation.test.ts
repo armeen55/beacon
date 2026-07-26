@@ -5,7 +5,7 @@
  * independently, plus the end-to-end promises through callStructuredLLM.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Budget seam: spy on the real adjudicator budget so we can assert the explicit
 // account reaches the cap check + spend record (drafter uses these directly).
@@ -59,19 +59,13 @@ function seam(values: Array<{ value: unknown } | { error: string; retryable: boo
   return { complete, calls: () => calls };
 }
 
-const ORIGINAL_PROVIDER = process.env.BEACON_LLM_PROVIDER;
 beforeEach(() => {
-  process.env.BEACON_LLM_PROVIDER = "openai";
   (checkBudget as unknown as ReturnType<typeof vi.fn>).mockClear();
   (recordSpend as unknown as ReturnType<typeof vi.fn>).mockClear();
   readStoreMock.mockClear();
   readStoreMock.mockResolvedValue([]);
   writeStoreMock.mockClear();
 });
-afterEach(() => {
-  process.env.BEACON_LLM_PROVIDER = ORIGINAL_PROVIDER;
-});
-
 // ── store classification + key isolation ─────────────────────────────────────
 
 describe("the call cache is per-account, keyed by account", () => {

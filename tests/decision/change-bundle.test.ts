@@ -75,9 +75,8 @@ function snapshot(over: Partial<EvidenceSnapshot> = {}): EvidenceSnapshot {
 
 const reverse = <T,>(a: readonly T[]): T[] => [...a].reverse();
 
-const ORIGINAL_PROVIDER = process.env.BEACON_LLM_PROVIDER;
-beforeEach(() => { process.env.BEACON_LLM_PROVIDER = "openai"; process.env.OPENAI_API_KEY = "test-key"; });
-afterEach(() => { process.env.BEACON_LLM_PROVIDER = ORIGINAL_PROVIDER ?? "deterministic"; delete process.env.OPENAI_API_KEY; });
+beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; });
+afterEach(() => { delete process.env.OPENAI_API_KEY; });
 
 describe("produceBundleForSnapshot", () => {
   it("bundles the strongest page with exact drafted copy and a receipt every component cites", async () => {

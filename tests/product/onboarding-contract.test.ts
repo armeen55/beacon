@@ -6,7 +6,7 @@
  * ledger, mocked as a tiny accumulating row so the $2 reserve-then-reconcile cap is
  * exercised. Each scenario states the customer stake it protects.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { emptyBusinessProfile, type Account, type BusinessProfile } from "@/domains/account";
 import type { OnboardingDeps, OnboardingStore, TrackedPromptRow } from "@/domains/runtime";
 import {
@@ -112,8 +112,7 @@ const INTENTS = ["category", "problem", "comparison", "commercial", "factual", "
 const WORDS = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet", "kilo", "lima", "mike", "november", "oscar"];
 const completeCandidates: CompleteFn = async () => ({ value: { groups: INTENTS.map((intent) => ({
   slug: `g-${intent}`, name: `${intent} topics`, intent, prompts: WORDS.map((word, i) => ({ text: `${intent} ${word} question`, recommended: i < 4 })) })) } });
-beforeEach(() => { process.env.BEACON_LLM_PROVIDER = "openai"; ledger = { usd: 0, has: false }; ledgerThrows = false; ledgerWriteFails = false; });
-afterEach(() => { delete process.env.BEACON_LLM_PROVIDER; });
+beforeEach(() => { ledger = { usd: 0, has: false }; ledgerThrows = false; ledgerWriteFails = false; });
 const A = "tenant-aaaa1111";
 const B = "tenant-bbbb2222";
 const activeCore = (w: ReturnType<typeof makeWorld>, id: string) => w.prompts.filter((p) => p.tenant_id === id && p.is_active && p.tags.includes("core_v1"));

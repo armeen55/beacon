@@ -4,7 +4,7 @@
  * states its promise.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 // Budget is not this file's subject: always-allowed, no-op hermetic seam.
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
@@ -64,10 +64,6 @@ const NEW_PAGE_INPUT: EvidenceInput = {
   sizing: { impactScore: 60, upsidePerMonth: null },
 };
 
-const ORIGINAL_PROVIDER = process.env.BEACON_LLM_PROVIDER;
-beforeEach(() => { process.env.BEACON_LLM_PROVIDER = "openai"; }); // opt into the enabled drafting path
-afterEach(() => { process.env.BEACON_LLM_PROVIDER = ORIGINAL_PROVIDER; });
-
 /** A minimal safe existing-edit proposal, for constructing rejection variants. */
 function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal {
   return {
@@ -112,9 +108,8 @@ describe("existing-page cold proposal", () => {
     expect(deserializeChangeProposal(tampered)).toBeNull();
   });
 
-  it("returns no_draft (fail-closed) when the harness is off", async () => {
-    process.env.BEACON_LLM_PROVIDER = "deterministic";
-    const out = await proposeExistingPageChange(EXISTING_INPUT, { complete: fakeComplete([{ value: VALID_ATOMIC_EDIT }]) });
+  it("returns no_draft (fail-closed) when no key or completion transport exists", async () => {
+    const out = await proposeExistingPageChange(EXISTING_INPUT);
     expect(out.status).toBe("no_draft");
   });
 });

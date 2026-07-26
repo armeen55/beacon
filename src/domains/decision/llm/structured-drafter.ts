@@ -40,7 +40,7 @@ import {
 /**
  * llm/structured-drafter (2026-06-25, P4) — the trustworthy drafting layer. It
  * turns a grounded request into a SCHEMA-VALIDATED structured draft, or nothing:
- *   gate (BEACON_LLM_PROVIDER=openai + key) → cache ($0 on an identical repeat)
+ *   key/injected transport → cache ($0 on an identical repeat)
  *   → budget (fail-closed cap) → strict structured call → Zod validate →
  *   content firewalls (numeric-fidelity, placeholder, em-dash, superlative) →
  *   de-templating guard → RETRY ONCE on failure → FAIL CLOSED.
@@ -105,10 +105,6 @@ export type CompleteFn = (args: {
   /** The owning account, threaded to the gateway for spend + provenance. */
   tenantId: string;
 }) => Promise<{ value: unknown; provenance?: LlmProvenance } | { error: string; retryable: boolean; costUsd?: number }>;
-
-function isOn(): boolean {
-  return (process.env.BEACON_LLM_PROVIDER ?? "").trim().toLowerCase() === "openai";
-}
 
 /** BEACON_500 item 74: turn a confident pattern-hint cell into the one-line, plain-
  *  English provenance the draft-provenance surface shows. Pure - no I/O. Names the
@@ -671,7 +667,6 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
 export async function callStructuredLLM<K extends StructuredDraftKind>(
   req: StructuredDraftRequest<K>,
 ): Promise<StructuredDraftResult<z.infer<(typeof SCHEMA_BY_KIND)[K]>>> {
-  if (!isOn()) return { status: "off" };
   // Slice 3 account isolation: fail closed on a missing account BEFORE touching
   // the cache, the budget, or the network - a draft with no owner is a bug, never
   // a global call or a shared-cache read.
@@ -685,7 +680,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   const promptId = `draft.${req.kind}` as PromptId;
   const promptVersion = PROMPT_REGISTRY[promptId];
   const complete = req.complete ?? (apiKey ? defaultComplete(apiKey, promptId) : null);
-  if (!complete) return { status: "off" }; // configured "on" but no key → off
+  if (!complete) return { status: "off" }; // no injected transport and no key
 
   const schemaForCache = SCHEMA_BY_KIND[req.kind] as z.ZodTypeAny;
   const cache = resolveCacheImpl(req.cacheImpl);
