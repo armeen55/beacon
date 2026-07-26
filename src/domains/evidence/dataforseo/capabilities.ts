@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { isDataForSeoConfigured, isDryRun, runDataForSeoTransport } from "./client";
+import { isDataForSeoConfigured, runDataForSeoTransport } from "./client";
 import { collectResolvedTask, identityCacheKey, runResolvedCall, type ResolvedCall } from "./cached-call";
 import { resolveDeps } from "./default-deps";
 import type {
@@ -266,8 +266,8 @@ export function parseCapability<K extends CapabilityKey>(capability: K, envelope
 }
 
 // ── model resolution (FREE models endpoint, method-aware, cached) ──────────────
-/** Labeled fallbacks (docs.dataforseo.com, 2026-07-24), used ONLY in
- *  not_configured/dry_run: chatgpt/claude standard, gemini/perplexity live. */
+/** Labeled fallbacks (docs.dataforseo.com, 2026-07-24), used only when
+ *  credentials are absent: chatgpt/claude standard, gemini/perplexity live. */
 const FALLBACK: Record<LlmEngine, EngineModelResolution> = {
   chatgpt: { model: "gpt-4o", method: "standard", webSearch: true },
   claude: { model: "claude-sonnet-4-20250514", method: "standard", webSearch: true },
@@ -277,8 +277,8 @@ const FALLBACK: Record<LlmEngine, EngineModelResolution> = {
 
 export async function resolveEngineModel(engine: LlmEngine, deps: FunnelBoundaryDeps = {}): Promise<EngineModelResolution | null> {
   const d = resolveDeps(deps);
-  // not_configured OR dry_run -> the labeled fallback, no network.
-  if (!isDataForSeoConfigured(d.env) || isDryRun(d.env)) return FALLBACK[engine];
+  // No credentials -> the labeled fallback, no network.
+  if (!isDataForSeoConfigured(d.env)) return FALLBACK[engine];
   const path = `ai_optimization/${ENGINE_SLUG[engine]}/llm_responses/models`;
   const cacheKey = "dfsmodels_" + sha256(path).slice(0, 32);
   const now = d.now();

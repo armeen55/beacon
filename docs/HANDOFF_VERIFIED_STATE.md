@@ -146,8 +146,8 @@
 - Profound and SEMrush survive only as historical-row reads and inert comments (Slice 2 removed the connector
   provider, health entries, question seeding, drafter sources, the customer-visible AEO confidence gate, the
   vendor benchmark, the Actions dispatch, and the provider-import architecture); never revive them.
-- Production DataForSEO remains deliberately unconfigured and dry-run; the local research paths were
-  live-validated under the proved $2 provider-day cap.
+- Production DataForSEO remains unconfigured because no credentials are present; the local research paths
+  were live-validated under the proved $2 provider-day cap.
 - Real-customer names remain in historical code comments outside the Account boundary (executable strings and
   fixtures are clean).
 - Legacy `.data`/dual-write code remains for non-account stores; the Account/Profile path no longer uses it.
@@ -158,8 +158,8 @@ Verified variable-name presence without reading or printing values:
 
 - Local and Vercel production have Supabase and OpenAI credentials.
 - Vercel production has Google OAuth client credentials and a GSC site configuration.
-- Local DataForSEO credentials and fail-closed provider settings were live-validated. Vercel production has
-  no DataForSEO credentials and remains deliberately unconfigured and dry-run.
+- Local DataForSEO credentials and fail-closed spend settings were live-validated. Vercel production has
+  no DataForSEO credentials, so research fails closed before any provider call.
 
 Never place credentials in chat, documentation, commits, or command output.
 
@@ -175,10 +175,10 @@ New customer routes require operator approval.
 
 ## Next slice
 
-Slices 1 through 7 are complete and deployed. The next build-order step is Slice 8: one deeply evidenced
-new-page Change from the same canonical research foundation and proposal pipeline. It requires the eight
-fields from `AGENTS.md` and explicit operator approval before implementation; no enablement flag or parallel
-generation path is needed.
+Slices 1 through 8 are complete and deployed. The next build-order step is Slice 9: one canonical Shipment
+with live implementation verification. It requires the eight fields from `AGENTS.md` and explicit operator
+approval before implementation; production research requires only the existing DataForSEO credentials and
+no enablement flag or parallel activation path.
 
 ## Verification
 

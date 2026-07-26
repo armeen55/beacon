@@ -13,7 +13,5 @@ export type DataForSeoEnv = {
   /** Pre-encoded base64(login:password) — the dashboard "Base64 Format" string.
    *  When present it is used verbatim, bypassing login/password assembly. */
   authB64?: string;
-  provider?: string;
-  dryRun?: string;
   monthlyCapUsd?: string;
 };

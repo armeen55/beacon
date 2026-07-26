@@ -35,7 +35,7 @@ Canonical doc line ceilings are guard-enforced.
 
 **Research before judgment:** when a material choice is not fully established, inspect primary documentation and
 multiple best-in-class products first. Label fact versus inference and say when evidence is inconclusive. Research
-must reduce uncertainty, never create scope. **No bloat theater:** prefer deletion and replacement; never reward
+must reduce uncertainty, never create scope. Approved work ships with no flags or shadows. **No bloat theater:** prefer deletion and replacement; never reward
 files, abstractions, agents, tests, or lines. DataForSEO is external research; OpenAI is structured reasoning.
 Fable may assist bounded approved UI, never an alternate product, extra routes, or parallel component system.
 

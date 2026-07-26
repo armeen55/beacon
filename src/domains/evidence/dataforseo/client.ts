@@ -5,10 +5,10 @@ import type { DataForSeoEnv } from "./types";
 
 /**
  * dataforseo/client — env/config truth + the ONE shared HTTP transport core for
- * every DataForSEO call. Policy (configured / dry-run / breaker / atomic
+ * every DataForSEO call. Policy (configured / breaker / atomic
  * reservation / cache) lives in cached-call.ts behind the frozen
  * funnel-boundary contract; this module owns only what every call shares:
- * credentials resolution, the dry-run default, the monthly cap, and the
+ * credentials resolution, the monthly cap, and the
  * fetch + HTTP-status + provider-cost extraction. The legacy per-reader money
  * gauntlet (dataForSeoRequest) was deleted with its readers in Slice 6 — the
  * reservation path is the ONLY way money moves.
@@ -21,8 +21,6 @@ function readEnv(env: NodeJS.ProcessEnv = process.env): DataForSeoEnv {
     login: env.DATAFORSEO_LOGIN,
     password: env.DATAFORSEO_PASSWORD,
     authB64: (env.DATAFORSEO_AUTH_B64 ?? "").trim().replace(/^Basic\s+/i, "") || undefined,
-    provider: env.BEACON_SERP_PROVIDER,
-    dryRun: env.DATAFORSEO_DRY_RUN,
     monthlyCapUsd: env.DATAFORSEO_MONTHLY_CAP_USD,
   };
 }
@@ -39,14 +37,9 @@ export function resolveAuthB64(env: NodeJS.ProcessEnv = process.env): string | n
   return null;
 }
 
-/** Configured = provider selected AND a usable auth (base64 OR login+password). */
+/** DataForSEO is the canonical provider: usable auth is the complete configuration. */
 export function isDataForSeoConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
-  return readEnv(env).provider === "dataforseo" && resolveAuthB64(env) !== null;
-}
-
-/** DRY-RUN is the DEFAULT. Only an explicit DATAFORSEO_DRY_RUN=false turns it off. */
-export function isDryRun(env: NodeJS.ProcessEnv = process.env): boolean {
-  return readEnv(env).dryRun !== "false";
+  return resolveAuthB64(env) !== null;
 }
 
 /** The shared per-platform monthly ceiling. A missing / NaN / non-positive env
@@ -71,7 +64,7 @@ function extractActualCostUsd(body: unknown, fallbackUsd: number): number {
 /**
  * The ONE shared HTTP transport core: send the request, check the HTTP status,
  * extract the provider-reported cost. NO money (reservation / record) and NO
- * configured / dry-run policy — callers own those. `dataForSeoRequest` wraps it
+ * configured policy — callers own it. `dataForSeoRequest` wraps it
  * with the legacy money gauntlet; `cachedDataForSeoCall` wraps it with the
  * atomic Slice 6 reservation. Never throws; returns a discriminated result.
  */

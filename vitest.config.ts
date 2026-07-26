@@ -70,9 +70,7 @@ export default defineConfig({
       DATAFORSEO_AUTH_B64: "",
       DATAFORSEO_LOGIN: "",
       DATAFORSEO_PASSWORD: "",
-      DATAFORSEO_DRY_RUN: "",
       DATAFORSEO_MONTHLY_CAP_USD: "",
-      BEACON_SERP_PROVIDER: "",
       OPENAI_API_KEY: "",
       PERPLEXITY_API_KEY: "",
       // Google OAuth / connector credentials:

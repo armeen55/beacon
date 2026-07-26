@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { isDataForSeoConfigured, isDryRun, monthlyCapUsd, runDataForSeoTransport } from "./client";
+import { isDataForSeoConfigured, monthlyCapUsd, runDataForSeoTransport } from "./client";
 import { resolveDeps } from "./default-deps";
 import { classifyPaidResponse, classifyTaskStatus } from "./status-contract";
 import type { CachedCallResult, FunnelBoundaryDeps, ProviderEnvelope } from "./funnel-boundary";
@@ -94,8 +94,8 @@ export type CachedCallDeps = {
   breaker: (env: NodeJS.ProcessEnv, now: Date, projectedCostUsd: number) => Promise<{ tripped: boolean; reason?: string }>;
 };
 
-/** THE money-safe order for a resolved call: configured -> claim -> dry-run ->
- *  breaker -> reserve -> pre-call receipt (BOTH modes) -> transport -> reconcile ->
+/** THE money-safe order for a resolved call: configured -> claim -> breaker ->
+ *  reserve -> pre-call receipt (BOTH modes) -> transport -> reconcile ->
  *  write. ENVELOPE RULE throughout: rows store and hits return the FULL envelope. */
 export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps = {}): Promise<CachedCallResult> {
   const d = resolveDeps(deps);
@@ -137,8 +137,6 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
   // A claim must never pair a LIVE task id with permission to post: collect the
   // existing task for free instead of paying for a duplicate.
   if (r.mode === "task" && claim.providerTaskId) return collectResolvedTask(cacheKey, paths, deps);
-
-  if (isDryRun(d.env)) { await releaseClaim(d, cacheKey, now, "dry_run"); return { state: "dry_run", cacheKey, detail: "dry-run: no spend" }; }
 
   const verdict = await d.breaker(d.env, now, r.estCostUsd).catch(() => ({ tripped: true, reason: "global spend breaker unavailable, failing closed" }));
   if (verdict.tripped) { await releaseClaim(d, cacheKey, now, "capped"); return { state: "capped", cacheKey, detail: verdict.reason ?? "global monthly ceiling reached" }; }

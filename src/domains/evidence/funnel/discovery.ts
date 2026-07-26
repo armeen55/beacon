@@ -165,7 +165,7 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           state.discovery.retained = rankAndCap(merged, MAX_RETAINED);
           state.discovery.counts.retained = state.discovery.retained.length;
         } else if (r.kind === "soft") {
-          // not_configured/dry_run: keep the retained keywords, labeled as unenriched.
+          // Missing credentials: keep the retained keywords, labeled as unenriched.
           softDetail = "I kept your researched keywords but could not add search volume this run. I will enrich them on the next pass.";
         }
       }

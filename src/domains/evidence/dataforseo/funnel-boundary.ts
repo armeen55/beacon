@@ -162,7 +162,7 @@ export type CachedCallResult =
    *  visit collects for free. costUsd on waiting = the provider-reported cost of
    *  a NEWLY accepted task POST, contributed exactly once; 0 otherwise. */
   | { state: "waiting"; cacheKey: string; providerTaskId: string | null; costUsd: number; modelRequested?: string | null; detail: string }
-  | { state: "not_configured" | "dry_run" | "capped"; cacheKey: string | null; detail: string }
+  | { state: "not_configured" | "capped"; cacheKey: string | null; detail: string }
   | { state: "error"; cacheKey: string | null; disposition: FailureDisposition; detail: string };
 
 export type FunnelBoundaryDeps = Record<string, unknown>;

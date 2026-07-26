@@ -10,7 +10,7 @@ import { identityCacheKey } from "@/domains/evidence/dataforseo/cached-call";
 import type { ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { classifyTaskStatus, classifyPaidResponse, type TaskStatusClass, type PaidResponseAction } from "@/domains/evidence/dataforseo/status-contract";
 import { labsKeywordsForSiteLive, serpTaskGetAdvanced, llmResponsesTaskPostAck, llmResponsesTaskGet, perplexityLive, chatgptModels, perplexityModels } from "../fixtures/dataforseo-envelopes";
-const ENV = { BEACON_SERP_PROVIDER: "dataforseo", DATAFORSEO_AUTH_B64: "abc", DATAFORSEO_DRY_RUN: "false" } as unknown as NodeJS.ProcessEnv;
+const ENV = { DATAFORSEO_AUTH_B64: "abc" } as unknown as NodeJS.ProcessEnv;
 const NOW = new Date("2026-07-25T12:00:00.000Z");
 const IDS = { tenantId: "t", unitKey: "u" };
 const BASE = "https://api.dataforseo.com/v3/";
@@ -128,11 +128,11 @@ describe("envelope parsing + method-aware resolution", () => {
     expect(serp!.paaQuestions).toHaveLength(2); expect(serp!.relatedSearches).toHaveLength(3); expect(serp!.aiOverview?.references.map((r) => r.domain)).toEqual(["python.org", "wikipedia.org"]);
     const { deps } = harness(llmResponsesTaskGet, { cacheRead: async () => taskRow("ai_optimization/chat_gpt/llm_responses/task_post", { cost_usd: 0 }) }); const res = await collectCapability("k", deps); if (res.state !== "ok") throw new Error(res.state); const ans = parseCapability("llm_chatgpt", res.envelope); expect([ans!.webSearchReported, ans!.citations?.map((c) => c.domain), ans!.fanOutQueries?.length]).toEqual([true, ["runnersworld.com", "wirecutter.com"], 2]);
   });
-  it("resolution prefers Standard + web, fails closed when unavailable, and uses the labeled dry-run fallback", async () => {
+  it("resolution prefers Standard + web, fails closed when unavailable, and uses the unconfigured fallback", async () => {
     expect(await resolveEngineModel("chatgpt", harness(chatgptModels).deps)).toMatchObject({ model: "gpt-4o", method: "standard", webSearch: true }); // NOT gpt-5
     expect(await resolveEngineModel("perplexity", harness(perplexityModels).deps)).toMatchObject({ model: "sonar-reasoning-pro", method: "live", webSearch: true });
     expect(await resolveEngineModel("chatgpt", harness({}, { fetchImpl: vi.fn(async () => { throw new Error("down"); }) as unknown as typeof fetch }).deps)).toBeNull(); // fail closed
-    const dry = harness({}, { env: { ...ENV, DATAFORSEO_DRY_RUN: "true" } as unknown as NodeJS.ProcessEnv }); expect(await resolveEngineModel("gemini", dry.deps)).toMatchObject({ model: "gemini-2.5-flash", method: "live", webSearch: true }); expect(dry.calls.fetch).toHaveLength(0);
+    const off = harness({}, { env: {} }); expect(await resolveEngineModel("gemini", off.deps)).toMatchObject({ model: "gemini-2.5-flash", method: "live", webSearch: true }); expect(off.calls.fetch).toHaveLength(0);
   });
   it("a model-cache READ FAILURE fails closed: no model, a bounded no-model result, and ZERO provider calls", async () => {
     const outage = harness(llmResponsesTaskPostAck, { modelsBody: STD, cacheRead: async () => { throw new Error("records down"); } });

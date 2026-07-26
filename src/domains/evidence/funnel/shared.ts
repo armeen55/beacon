@@ -129,15 +129,13 @@ export type Interp = {
    *  NEVER treats every failure identically: the disposition alone decides whether
    *  a task is retried free, reposted once, or paused without spending again. */
   disposition?: FailureDisposition;
-  /** Which soft state produced a "soft" kind: not_configured is genuine unavailable
-   *  coverage; dry_run is a benign dev/test no-spend pass. */
-  soft?: "not_configured" | "dry_run"; detail?: string;
+  /** Missing credentials are genuine unavailable coverage. */
+  soft?: "not_configured"; detail?: string;
 };
 
 /** Interpret a boundary result: hit/ok carry evidence; waiting is durable/resumable
  *  and now carries the accepted-POST cost exactly once; capped/error are recoverable
- *  failures carrying a DISPOSITION; not_configured/dry_run are "soft" (tagged so the
- *  funnel can tell genuine unavailable coverage from a dev no-spend pass). */
+ *  failures carrying a DISPOSITION; not_configured is soft unavailable coverage. */
 export function interp(r: CachedCallResult): Interp {
   switch (r.state) {
     case "hit": return { kind: "evidence", hit: true, payload: r.envelope, cacheKey: r.cacheKey, costUsd: 0, modelServed: r.modelServed, modelRequested: null };

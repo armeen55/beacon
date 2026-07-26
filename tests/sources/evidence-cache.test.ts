@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from "vitest";
 import { runResolvedCall, collectResolvedTask, identityCacheKey, type CachedCallDeps, type ResolvedCall } from "@/domains/evidence/dataforseo/cached-call";
 /** Every UPDATE matches ZERO rows here, so the production write seam must throw. */
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ from: () => ({ update: () => ({ eq: () => ({ select: async () => ({ data: [], error: null }) }) }) }) }) }));
-const ENV = { BEACON_SERP_PROVIDER: "dataforseo", DATAFORSEO_AUTH_B64: "abc", DATAFORSEO_DRY_RUN: "false" } as unknown as NodeJS.ProcessEnv;
+const ENV = { DATAFORSEO_AUTH_B64: "abc" } as unknown as NodeJS.ProcessEnv;
 const NOW = new Date("2026-07-25T12:00:00.000Z"); const FUTURE = new Date(NOW.getTime() + 86_400_000).toISOString(); const SERP = "serp/google/organic";
 const PATHS = { getPath: (_e: string, id: string) => `${SERP}/task_get/advanced/${id}`, tasksReadyPath: () => `${SERP}/tasks_ready`, ttlMsFor: () => 86_400_000 };
 function resolved(over: Partial<ResolvedCall> = {}): ResolvedCall {
@@ -66,17 +66,16 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
     const pending = [r1, r2].find((r) => r.state === "waiting");
     expect([[r1.state, r2.state].sort(), calls.fetch.length, pending?.state === "waiting" && pending.costUsd]).toEqual([["ok", "waiting"], 1, 0]); // a bare pending claim charges nothing
   });
-  it("no un-paid path (cap / reserve-throw / breaker / dry-run / not_configured) ever touches the network", async () => {
+  it("no un-paid path (cap / reserve-throw / breaker / not_configured) ever touches the network", async () => {
     const spy = vi.fn();
     const cap = makeDeps({ reserveProviderSpend: async () => false });
     const rerr = makeDeps({ reserveProviderSpend: async () => { throw new Error("db down"); } });
     const brk = makeDeps({ breaker: async () => ({ tripped: true, reason: "ceiling reached" }) });
-    const dry = makeDeps({ env: { ...ENV, DATAFORSEO_DRY_RUN: "true" } as unknown as NodeJS.ProcessEnv });
-    const nc = makeDeps({ env: { DATAFORSEO_DRY_RUN: "false" } as unknown as NodeJS.ProcessEnv, claimEvidenceFetch: spy as never });
+    const nc = makeDeps({ env: {} as NodeJS.ProcessEnv, claimEvidenceFetch: spy as never });
     const states = [];
-    for (const g of [cap, rerr, brk, dry, nc]) { states.push((await runResolvedCall(resolved(), g.deps)).state); expect(g.calls.fetch).toHaveLength(0); }
-    expect(states).toEqual(["capped", "error", "capped", "dry_run", "not_configured"]);
-    for (const g of [brk, dry, nc]) expect(g.calls.reserve).toHaveLength(0); // breaker/dry/not-configured never reserve
+    for (const g of [cap, rerr, brk, nc]) { states.push((await runResolvedCall(resolved(), g.deps)).state); expect(g.calls.fetch).toHaveLength(0); }
+    expect(states).toEqual(["capped", "error", "capped", "not_configured"]);
+    for (const g of [brk, nc]) expect(g.calls.reserve).toHaveLength(0); // breaker/not-configured never reserve
     expect(spy).not.toHaveBeenCalled(); // not_configured never even claims
   });
   it("cache identity has NO tenant input and splits on location / model", async () => {
