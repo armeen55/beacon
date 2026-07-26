@@ -114,7 +114,7 @@
   fingerprints MATERIAL content, never clocks. Proof is hermetic on fixtures AND live-validated (2026-07-25, $2
   provider day cap proven): labs, Standard SERP, all four engines and the scraper ran end to end for $0.07 with
   free Standard collection, durable Live persistence, $0 repeat hits, a cent-exact ledger, and a crashed POST
-  quarantined then recovered free by its tasks_ready tag. Production stays dry-run and UNCONFIGURED.
+  quarantined then recovered free by its tasks_ready tag. Production research is ENABLED (2026-07-25).
 - OpenAI generation flows through one strict Responses API gateway (Slice 3, 2026-07-23): /v1/responses with
   native strict Structured Outputs (json_schema, strict true), double validation (provider schema + server Zod),
   fail-closed refusal/incomplete/invalid handling with no artifact, budget checks before network, per-attempt
@@ -146,8 +146,8 @@
 - Profound and SEMrush survive only as historical-row reads and inert comments (Slice 2 removed the connector
   provider, health entries, question seeding, drafter sources, the customer-visible AEO confidence gate, the
   vendor benchmark, the Actions dispatch, and the provider-import architecture); never revive them.
-- Production DataForSEO remains unconfigured because no credentials are present; the local research paths
-  were live-validated under the proved $2 provider-day cap.
+- Production DataForSEO is ENABLED (operator-approved 2026-07-25): credentials are the sole activation,
+  bounded by the proved $2 provider-day cap and the default $50 tenant month cap.
 - Real-customer names remain in historical code comments outside the Account boundary (executable strings and
   fixtures are clean).
 - Legacy `.data`/dual-write code remains for non-account stores; the Account/Profile path no longer uses it.
@@ -158,8 +158,8 @@ Verified variable-name presence without reading or printing values:
 
 - Local and Vercel production have Supabase and OpenAI credentials.
 - Vercel production has Google OAuth client credentials and a GSC site configuration.
-- Local DataForSEO credentials and fail-closed spend settings were live-validated. Vercel production has
-  no DataForSEO credentials, so research fails closed before any provider call.
+- DataForSEO credentials are live-validated locally AND set on Vercel production (Encrypted, Production
+  scope, applied via redeploy dpl_GigNyZia97r2gpH3yesXbRiqWXBo); missing credentials still fail closed.
 
 Never place credentials in chat, documentation, commits, or command output.
 
