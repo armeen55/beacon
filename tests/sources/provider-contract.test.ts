@@ -36,7 +36,7 @@ describe("exact task-status taxonomy (docs.dataforseo.com/v3/appendix/errors)", 
   it("pins every documented code onto one class and fails closed on everything else", () => {
     const groups: [TaskStatusClass, (number | null)[]][] = [
       ["ready", [20000]], ["waiting", [null, 20100, 40601, 40602]], ["missing", [40401, 40403]], // waiting = still the provider's turn; ONLY the two missing codes are proven dead -> the one repost
-      ["transient", [50000, 50001, 50301, 50302, 50303]], // FREE collect, id preserved
+      ["transient", [50000, 50001, 50301, 50302, 50303]], ["limited", [40203]], // transient = FREE collect, id preserved; limited = the account's OWN daily ceiling, which resets
       ["blocked", [40000, 40100, 40103, 40200, 40202, 40400, 40402, 40404, 40405, 40406, 40407, 40408, 40501, 40506, 50100, 50304, 50401, 50402, 44999, 61234]]]; // never missing, never a paid repost: contract, account, duplicate, terminal, unknown
     for (const [cls, codes] of groups) for (const code of codes) expect([code, classifyTaskStatus(code)]).toEqual([code, cls]);
   });
@@ -48,7 +48,9 @@ describe("exact task-status taxonomy (docs.dataforseo.com/v3/appendix/errors)", 
       [20000, null, 0, "blocked"], [null, null, 0, "blocked"], // a rejected paid response carrying no non-success status proves nothing temporary
       [50100, null, 0, "blocked"], [20000, 50100, 0, "blocked"], [20000, 50401, 0, "blocked"], [20000, 50402, 0, "blocked"], // terminal, or live-only where any retry is a NEW charge
       [40401, null, 0, "blocked"], [20000, 40403, 0, "blocked"], // a POST/Live reply can never prove a task is missing
-      [20000, 61234, 0, "blocked"]]; // undocumented: fails closed
+      [20000, 61234, 0, "blocked"], // undocumented: fails closed
+      [40203, null, 0, "daily_limit_release"], [20000, 40203, 0, "daily_limit_release"], // a ceiling that RESETS releases, never a hold needing an operator
+      [40203, null, 0.01, "uncertain"], [40203, 50303, 0, "blocked"]]; // ...unless it may have charged, or is mixed with another refusal
     for (const c of paid) expect([c[0], c[1], c[2], classifyPaidResponse(c[0], c[1], c[2])]).toEqual(c);
   });
 });

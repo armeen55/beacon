@@ -6,49 +6,48 @@ import { classifyPaidResponse, classifyTaskStatus } from "./status-contract";
 import type { CachedCallResult, FunnelBoundaryDeps, ProviderEnvelope } from "./funnel-boundary";
 
 /**
- * cached-call (Slice 6 / 6E) - the money-safe, single-flight, TENANT-INDEPENDENT
- * DataForSEO cache/transport body behind the frozen funnel-boundary contract.
- * Miss order: cacheKey -> configured? -> claim -> dry-run? -> breaker -> ATOMIC
- * reservation -> pre-call receipt -> network -> reconcile -> cache write.
- * Reservation is the ONLY money path (reserve BEFORE, adjust to actual AFTER; a
- * failed adjust keeps the reservation: overcount, never undercount).
- *
+ * cached-call (Slice 6 / 6E) - the money-safe, single-flight, TENANT-INDEPENDENT DataForSEO
+ * cache/transport body behind the frozen funnel-boundary contract. Miss order: cacheKey ->
+ * configured? -> claim -> dry-run? -> breaker -> ATOMIC reservation -> pre-call receipt ->
+ * network -> reconcile -> cache write. Reservation is the ONLY money path (reserve BEFORE,
+ * adjust to actual AFTER; a failed adjust keeps the reservation: overcount, never undercount).
  * CAP HONESTY: the monthly cap is RESERVATION based, not a hard per-dollar ceiling.
- * reserve_provider_spend refuses any call whose ESTIMATE would cross the cap;
- * reconciliation may then move recorded spend UP to the provider's actual, so spend
- * can overshoot by at most (actual minus estimate) on the single last call through.
- * Every registry estCostUsd is therefore set deliberately high.
- *
- * DISPOSITIONS: every error carries a structured FailureDisposition; callers never
- * parse detail strings. ONE durable hold column (quarantined_at) carries BOTH kinds
- * of no-auto-retry state, told apart by error_detail:
- *   "uncertain:" - the provider may have charged for a call we cannot name, so the
- *     reservation is KEPT, indefinitely. A Standard row can still exit for free via
- *     the tasks_ready listing matched on tag = cacheKey; a Live row cannot.
- *   "blocked:" - the provider REFUSED the request and REPORTED zero cost (documented
- *     pre-execution HTTP 401/402/404, or a terminal/unknown in-body code): refunded,
- *     then held so nothing automatic re-runs it. It never lists tasks_ready (no task
- *     exists) and never decays into quarantined or unsupported.
- * The guarantee is never "exactly once": it is that Beacon never automatically
- * retries a paid request after an ambiguous outcome or a refusal.
+ * reserve_provider_spend refuses any call whose ESTIMATE would cross the cap; reconciliation may
+ * then move recorded spend UP to the provider's actual, so spend can overshoot by at most
+ * (actual minus estimate) on the single last call through. Every registry estCostUsd is high.
+ * DISPOSITIONS: every error carries a structured FailureDisposition; callers never parse detail
+ * strings. ONE durable hold column (quarantined_at) carries BOTH kinds of no-auto-retry state,
+ * told apart by error_detail:
+ *   "uncertain:" - the provider may have charged for a call we cannot name, so the reservation is
+ *     KEPT, indefinitely. A Standard row can still exit for free via the tasks_ready listing
+ *     matched on tag = cacheKey; a Live row cannot.
+ *   "blocked:" - the provider REFUSED and REPORTED zero cost (documented pre-execution HTTP
+ *     401/402/404, or a terminal/unknown in-body code): refunded, then held so nothing automatic
+ *     re-runs it. It never lists tasks_ready (no task exists), never decays into quarantined.
+ * A DAILY-CEILING refusal (40203) is NEITHER: refunded and RELEASED, since a resetting limit must
+ * never need an operator to clear it.
+ * The guarantee is not "exactly once": Beacon never auto-retries a paid request after an ambiguous
+ * outcome or a refusal.
  */
 
 const API_BASE = "https://api.dataforseo.com/v3";
 /** ONE shared DataForSEO monthly cap: every endpoint draws from this platform. */
 const PLATFORM = "dataforseo-serp";
+/** Daily-ceiling copy: a normal stopping point, never an account fault. */
+const DAILY_LIMIT_DETAIL = "I reached today's research spending limit, so I stopped here. I keep everything I already collected and pick up where I left off tomorrow.";
 const CLAIM_LEASE_SECONDS = 120;
 const TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-/** After an UNCERTAIN call (transport throw after reserving) the row is held this
- *  long before any re-claim, underneath the durable quarantine mark. */
+/** After an UNCERTAIN call (transport throw after reserving) the row is held this long
+ *  before any re-claim, underneath the durable quarantine mark. */
 const AMBIGUITY_WINDOW_MS = 15 * 60 * 1000;
-/** One free tasks_ready listing serves a whole family for this long. Entries are
- *  FREE GETs, so staleness only ever costs one extra free refetch. */
+/** One free tasks_ready listing serves a whole family for this long. Entries are FREE
+ *  GETs, so staleness only ever costs one extra free refetch. */
 const LISTING_MEMO_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** A fully resolved provider call. The registry (capabilities.ts) produces it with
- *  EXACT paths; `getPath` (free task_get) and `tasksReadyPath` (free finished-task
- *  listing, for quarantine recovery) are its only per-endpoint derivations. */
+/** A fully resolved provider call. The registry (capabilities.ts) produces it with EXACT
+ *  paths; `getPath` (free task_get) and `tasksReadyPath` (free finished-task listing, for
+ *  quarantine recovery) are its only per-endpoint derivations. */
 export type ResolvedCall = {
   cacheKey: string; endpoint: string; endpointVersion: string; postPath: string;
   getPath: ((id: string) => string | null) | null; tasksReadyPath: string | null;
@@ -78,8 +77,8 @@ type ClaimArgs = {
   locationCode: number; languageCode: string; device: string | null; modelRequested: string | null; claimSeconds: number;
 };
 
-/** Every I/O seam, all injectable so a test never spends and never touches
- *  Supabase. Production defaults use getSupabaseAdmin().rpc + .from("evidence_cache"). */
+/** Every I/O seam, all injectable so a test never spends and never touches Supabase.
+ *  Production defaults use getSupabaseAdmin().rpc + .from("evidence_cache"). */
 export type CachedCallDeps = {
   env: NodeJS.ProcessEnv;
   now: () => Date;
@@ -118,8 +117,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
 
   if (claim.outcome === "ready") return { state: "hit", envelope: (claim.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: claim.modelServed };
   if (claim.outcome === "pending") {
-    // Task mode ALWAYS routes into the free collect (task_get resumption + free
-    // tasks_ready recovery of a quarantined row): charges nothing, never reposts.
+    // Task mode ALWAYS routes into the free collect (task_get + free tasks_ready recovery): never reposts.
     if (r.mode === "task") return collectResolvedTask(cacheKey, paths, deps);
     // Live pending is honest ONLY when the row carries no durable hold; a held live
     // attempt has no free way back and must say which hold it is. Reads fail closed.
@@ -300,9 +298,8 @@ async function holdUncertain(d: CachedCallDeps, mode: "live" | "task", cacheKey:
     : { state: "error", cacheKey, disposition: "none", detail: `${lead} I could not record that pause either, so I am holding it for a few minutes before I look again.` };
 }
 
-/** THE one application point for the paid-response policy (a Standard POST the
- *  provider did not accept, or a Live answer with no usable result).
- *  classifyPaidResponse owns the decision; this owns the money and the row. */
+/** THE one application point for the paid-response policy (a Standard POST the provider did not
+ *  accept, or a Live answer with no usable result). classifyPaidResponse decides; this owns money + row. */
 async function applyPaidRejection(d: CachedCallDeps, r: ResolvedCall, body: unknown, providerCost: number | null, now: Date, lead: string): Promise<CachedCallResult> {
   const taskCode = firstTask(body)?.status_code;
   const code = typeof taskCode === "number" ? taskCode : topStatus(body);
@@ -312,22 +309,28 @@ async function applyPaidRejection(d: CachedCallDeps, r: ResolvedCall, body: unkn
   const shown = `code ${code ?? "unknown"}`;
   await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {});
   if (action === "retry_free_release") {
-    // The ONLY automatic retry after a paid rejection: an exactly documented
-    // temporary provider failure that reported no charge. Nothing was created.
+    // The ONLY automatic retry after a paid rejection: an exactly documented temporary
+    // provider failure that reported no charge. Nothing was created.
     await releaseClaim(d, r.cacheKey, now, `provider_temporary:${code ?? "unknown"}`);
     return { state: "error", cacheKey: r.cacheKey, disposition: "none", detail: `The provider hit a temporary problem on its side (${shown}) and charged nothing, so I asked for the reservation back and will try this again on the next pass.` };
+  }
+  if (action === "daily_limit_release") {
+    // A ceiling that RESETS is never a durable hold: release the row so the very
+    // same request is free to run again once the day rolls over.
+    await releaseClaim(d, r.cacheKey, now, "daily_cost_limit");
+    return { state: "error", cacheKey: r.cacheKey, disposition: "daily_limit", detail: DAILY_LIMIT_DETAIL };
   }
   if (!(await holdBlocked(d, r.cacheKey, now, shown))) return { state: "error", cacheKey: r.cacheKey, disposition: "none", detail: "The provider refused this request and I could not record the refusal; I am holding it briefly and will note it properly on the next pass." };
   return blockedResult(r.cacheKey, shown);
 }
 
-/** The DURABLE refusal hold: refused, already refunded, nothing to collect.
- *  False = the mark did not persist; the caller must degrade honestly. */
+/** The DURABLE refusal hold: refused, already refunded, nothing to collect. False = the mark
+ *  did not persist; the caller must degrade honestly. */
 async function holdBlocked(d: CachedCallDeps, cacheKey: string, now: Date, reason: string): Promise<boolean> {
   return holdRow(d, cacheKey, now, `blocked:${reason}`);
 }
-/** The refusal reason if this row is a BLOCKED hold, else null (an unmarked or
- *  "uncertain:" hold is possibly paid and keeps its own recovery path). */
+/** The refusal reason if this row is a BLOCKED hold, else null (an unmarked or "uncertain:"
+ *  hold is possibly paid and keeps its own recovery path). */
 function blockedReason(row: { error_detail?: string | null } | null | undefined): string | null {
   const detail = row?.error_detail;
   return typeof detail === "string" && detail.startsWith("blocked:") ? detail.slice(8, 120) : null;
@@ -336,8 +339,8 @@ function blockedResult(cacheKey: string, reason: string): CachedCallResult {
   return { state: "error", cacheKey, disposition: "blocked", detail: `The provider would not run this request (${reason}) and reported no charge, so I asked for that reservation back. Nothing retries this on its own; it stays set aside for review.` };
 }
 
-/** The FREE cache write, retried twice more in the same invocation, for the two
- *  places where losing the write would otherwise cost real money to redo. */
+/** The FREE cache write, retried twice more in the same invocation, for the two places where
+ *  losing the write would otherwise cost real money to redo. */
 async function writeRetried(d: CachedCallDeps, cacheKey: string, patch: Record<string, unknown>): Promise<boolean> {
   for (let attempt = 0; attempt < 3; attempt++) try { await d.cacheWrite(cacheKey, patch); return true; } catch { /* free to try again */ }
   return false;
@@ -364,10 +367,9 @@ async function holdRow(d: CachedCallDeps, cacheKey: string, now: Date, reason: s
   } catch { return false; }
 }
 
-/** The provider's FREE finished-task listing is the only sanctioned way to learn the
- *  id of a task we may already have paid for. Match our tag (= cacheKey), persist the
- *  id, clear the quarantine. Any doubt (no path, unreachable, no match, unsaved id)
- *  fails closed and the row stays paused. */
+/** The provider's FREE finished-task listing is the only sanctioned way to learn the id of a task
+ *  we may already have paid for. Match our tag (= cacheKey), persist the id, clear the quarantine.
+ *  Any doubt (no path, unreachable, no match, unsaved id) fails closed and the row stays paused. */
 async function recoverQuarantined(d: CachedCallDeps, cacheKey: string, tasksReadyPath: string | null, now: Date): Promise<string | null> {
   if (!tasksReadyPath) return null;
   const byTag = await memoListing(d, tasksReadyPath, now.getTime());
@@ -422,9 +424,9 @@ export function identityCacheKey(p: {
     String(p.locationCode), p.languageCode, p.device ?? "", p.modelRequested ?? ""].join("|");
   return "dfs2_" + sha256(raw).slice(0, 40);
 }
-/** A terminally dead provider task (in-body 40401/40403 only): clear the stale
- *  identity and mark the row errored so the next claim reposts clean ONE time.
- *  Best-effort: a failed write just means a later pass retries the clear. */
+/** A terminally dead provider task (in-body 40401/40403 only): clear the stale identity and mark
+ *  the row errored so the next claim reposts clean ONE time. Best-effort: a failed write just
+ *  means a later pass retries the clear. */
 async function clearDeadTask(d: CachedCallDeps, cacheKey: string, now: Date, detail: string): Promise<void> {
   await d.cacheWrite(cacheKey, {
     // a dead task has nothing left to protect, so the quarantine mark clears too

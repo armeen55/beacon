@@ -152,7 +152,9 @@ export type EngineModelResolution = { model: string; method: "standard" | "live"
  *                  provider's FREE tasks_ready listing matched by tag=cacheKey.
  *    none        - a plain recoverable failure (claim/reserve/persist): retry
  *                  the whole call on a later visit. */
-export type FailureDisposition = "retry_free" | "repost_once" | "blocked" | "quarantined" | "none";
+/** daily_limit = the account's own daily spend ceiling refused the call at zero charge.
+ *  It stops the batch for the day like a refusal, but holds nothing and clears itself. */
+export type FailureDisposition = "retry_free" | "repost_once" | "blocked" | "quarantined" | "daily_limit" | "none";
 
 export type CachedCallResult =
   | { state: "hit"; envelope: ProviderEnvelope; costUsd: 0; cacheKey: string; modelServed: string | null }

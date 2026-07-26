@@ -122,8 +122,7 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     const runId = beginCycle(state, cursor, unitKey);
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion };
     const loadedPrompts = await d.loadActivePrompts(tenantId);
-    // A FAILED read (null) is not "zero questions": pausing with the no-questions
-    // reason on a transient blip once falsely told a 35-question account it had none.
+    // A FAILED read (null) is not "zero questions": that once told a 35-question account it had none.
     if (loadedPrompts === null) return { status: "failed", cursor, progress: pairProgress(state), detail: "I could not read your tracked questions just now, so I stopped here. I will try again on your next visit." };
     // A loader override must not be able to rotate the bounded auxiliary sample.
     const prompts = loadedPrompts.sort((a, b) => a.id.localeCompare(b.id)).slice(0, 100);
@@ -133,7 +132,7 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     state.prompts.intendedPairs = prompts.length * ENGINES.length; // CANONICAL coverage only
     const textOf = new Map(prompts.map((p) => [p.id, p.text]));
     const nowIso = () => new Date(d.now()).toISOString();
-    let failedDetail: string | null = null, blockedDetail: string | null = null;
+    let failedDetail: string | null = null, blockedDetail: string | null = null, limitDetail: string | null = null;
     let softUnavailable = false;
     /** Only a CANONICAL pair can pause the unit (auxiliary gaps block nothing); blocked is the one
      *  exception, handled separately as account-level truth from ANY pair. */
@@ -154,10 +153,10 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           if (parsed) await landAnswer(p, r, parsed, textOf.get(p.promptId) ?? p.promptText ?? "", tenantId, runId, nowIso(), d.syncHistory);
           else fail(p, "I collected an answer I could not read. I will retry it on the next pass.");
         } else if (r.kind === "failed") {
-          // The DISPOSITION decides. blocked on a CANONICAL pair = held refusal: row untouched, batch
-          // stops, run pauses for review. blocked on an AUXILIARY pair never holds the run hostage:
-          // the hold is durable and free, so it reads unsupported (an account-level block resurfaces
-          // on canonical work within the week). repost_once = ONE clean repost, then unsupported.
+          // The DISPOSITION decides. blocked on a CANONICAL pair = held refusal (row untouched, batch stops,
+          // run pauses for review); on an AUXILIARY pair it reads unsupported and never holds the run hostage
+          // (an account-level block resurfaces on canonical work within the week). repost_once = ONE repost.
+          if (r.disposition === "daily_limit") { limitDetail = r.detail ?? null; break; }
           if (r.disposition === "blocked") { if (isCanonical(p)) { blockedDetail = blockedNote(r); break; } p.status = "unsupported"; p.observedAt = nowIso(); continue; }
           if (r.disposition === "repost_once") {
             if ((p.reposts ?? 0) >= 1) { p.status = "unsupported"; p.cacheKey = null; p.observedAt = nowIso(); }
@@ -167,15 +166,14 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
         }
       }
 
-      // 2) post/live the stalest pending pairs, bounded batch within budget. CANONICAL coverage takes
-      // every budget slot first; auxiliary research only spends what is left over.
+      // 2) post/live stalest pending pairs, bounded. CANONICAL takes every slot first; auxiliary gets leftovers.
       const now = d.now();
       const todo = pairs
         .filter((p) => p.status === "pending" || (p.status === "done" && !pairFresh(p, now)))
         .sort((a, b) => (Number(isCanonical(b)) - Number(isCanonical(a))) || (a.observedAt ? Date.parse(a.observedAt) : 0) - (b.observedAt ? Date.parse(b.observedAt) : 0));
       let processed = 0, perp = 0, progressed = false;
       for (const p of todo) {
-        if (blockedDetail || d.now() > deadline || processed >= 20) break;
+        if (blockedDetail || limitDetail || d.now() > deadline || processed >= 20) break;
         const text = textOf.get(p.promptId);
         if (!text) continue;
         if (p.engine === "perplexity" && perp >= 3) continue;
@@ -191,6 +189,7 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
         } else if (r.kind === "failed") {
           // blocked: CANONICAL = durable hold, batch stops, run pauses; AUXILIARY reads unsupported
           // and never pauses (see the collect ladder). quarantined = EXPLICIT unavailable coverage.
+          if (r.disposition === "daily_limit") { limitDetail = r.detail ?? null; break; }
           if (r.disposition === "blocked") { if (isCanonical(p)) { blockedDetail = blockedNote(r); break; } p.status = "unsupported"; p.observedAt = nowIso(); processed += 1; continue; }
           if (r.disposition === "quarantined") { p.status = "unsupported"; p.cacheKey = r.cacheKey; p.observedAt = nowIso(); fail(p, r.detail); }
           else fail(p, r.detail ?? pauseDetail(r.disposition, "A prompt check did not run. I will retry it on the next pass."));
@@ -201,14 +200,15 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
 
       state.prompts.pairs = pairs; // bounded by construction: <= 100 prompts x 4 canonical + 20 auxiliary
       await save(d, tenantId, basis, state, ctx);
+      if (limitDetail) return { status: "failed", cursor: { runId }, progress: pairProgress(state), detail: limitDetail }; // a reset-able ceiling, nothing held
       if (blockedDetail) return { status: "failed", cursor: { runId }, progress: pairProgress(state), detail: blockedDetail }; // a held refusal OUTRANKS done/advanced/waiting: never buried under unavailable counts
       const at = d.now();
       const canon = pairs.filter(isCanonical); // completion is judged on CANONICAL coverage ONLY
       const complete = canon.filter((p) => pairComplete(p, at)).length, freshDone = canon.filter((p) => pairFresh(p, at)).length;
       const unsupported = canon.filter((p) => p.status === "unsupported").length;
       const anyPosted = canon.some((p) => p.status === "posted");
-      // Honest status over the CURRENT canonical set only: done needs every intended pair FRESHLY
-      // answered or EXPLICITLY unsupported plus one real answer; stale-done is outstanding.
+      // Honest status over the CURRENT canonical set: done needs every intended pair FRESHLY answered or
+      // EXPLICITLY unsupported plus one real answer; stale-done is outstanding.
       let status: FunnelUnitOutcome["status"];
       if (canon.length > 0 && freshDone > 0 && complete >= canon.length) {
         status = "done";

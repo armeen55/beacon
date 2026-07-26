@@ -61,14 +61,12 @@ describe("openAIStructuredResponse — fails closed before any fetch", () => {
     if (res.kind === "blocked_budget") expect(res.reason).toBe("ceiling reached");
     expect(capture.calls).toBe(0);
   });
-
   it("blocks on the per-platform budget cap without calling fetch", async () => {
     const { impl, capture } = fakeFetch(completedEnvelope("{}"));
     const res = await openAIStructuredResponse(baseArgs({ budget: { mode: "gateway_check", projectedCostUsd: 0.01 }, costBreakerImpl: allowBreaker, budgetImpl: { check: async () => ({ allowed: false, reason: "cap reached" }), record: async () => {} }, fetchImpl: impl }));
     expect(res.kind).toBe("blocked_budget");
     expect(capture.calls).toBe(0);
   });
-
   it("returns invalid_response for an unsupported schema without calling fetch", async () => {
     const { impl, capture } = fakeFetch(completedEnvelope("{}"));
     const res = await openAIStructuredResponse(baseArgs({ zodSchema: z.object({ a: z.any() }), fetchImpl: impl }));
