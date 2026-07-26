@@ -49,17 +49,14 @@ export type ResearchPhase =
   | "publish_surface"
   | "done";
 
-/** The run status. Three honestly-produced states only: a transient phase
- *  failure PAUSES with a bounded last_error (recoverable next visit), it never
- *  becomes a terminal `failed`. Completion is reached only when every phase
- *  succeeded or was a healthy no-op. */
+/** Three honestly-produced states only: a transient phase failure PAUSES with a
+ *  bounded last_error (recoverable next visit), never a terminal `failed`.
+ *  Completion is reached only when every phase succeeded or was a healthy no-op. */
 export type ResearchRunStatus = "running" | "paused" | "completed";
 
-/** Evidence-based counters only - never a fabricated number. Grows as paid
- *  phases arrive; today it records what actually ran. `refreshedProviders` is the
- *  set of provider identities that actually synced this cycle (unioned across
- *  retries); `sourcesRefreshed` is that set's size when the new path writes it, and
- *  survives as a bare number on legacy rows written before the set existed. */
+/** Evidence-based counters only, never a fabricated number. `refreshedProviders` is
+ *  the set of providers that actually synced this cycle (unioned across retries);
+ *  `sourcesRefreshed` is that set's size, and survives as a bare number on legacy rows. */
 export type ResearchRunProgress = {
   refreshedProviders?: string[];
   sourcesRefreshed?: number;
@@ -74,9 +71,8 @@ export type ResearchRunProgress = {
   };
 };
 
-/** Bounded error info stored on last_error when a phase pauses (throw or a
- *  returned failure). `failures` carries the per-source connector detail when a
- *  refresh_sources attempt partially failed (each detail bounded to ~200 chars). */
+/** Bounded error info stored on last_error when a phase pauses (throw or a returned
+ *  failure). `failures` carries per-source connector detail on a partial refresh. */
 export type ResearchRunError = {
   phase: ResearchPhase;
   message: string;
@@ -102,8 +98,8 @@ export type ResearchRun = {
   completed_at: string | null;
 };
 
-/** The compact Today projection - derived FROM the canonical record, never a
- *  duplicate status union. `none` covers no-run and any fail-soft error. */
+/** The compact Today projection, derived FROM the canonical record. `none` covers
+ *  no-run and any fail-soft error. */
 export type ResearchRunStatusView = {
   state: "running" | "paused" | "completed" | "none";
   phaseLabel: string;
@@ -112,6 +108,8 @@ export type ResearchRunStatusView = {
   counters: { sourcesRefreshed?: number; backfillDaysPulled?: number };
   updatedAt: string | null;
   completedAt: string | null;
+  /** The paused phase's Beacon-voice reason: some pauses need the operator and never resume alone. */
+  pauseReason: string | null;
 };
 
 /** The seven operator-visible steps, in order. `done` is terminal (not a step). */
@@ -212,6 +210,7 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
     counters: {},
     updatedAt: null,
     completedAt: null,
+    pauseReason: null,
   };
   if (run == null) return none;
 
@@ -232,6 +231,7 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
     counters,
     updatedAt: run.updated_at ?? null,
     completedAt: run.completed_at ?? null,
+    pauseReason: state === "paused" ? (run.last_error?.message?.trim() || null) : null,
   };
 }
 
@@ -246,7 +246,10 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
 export function researchStatusLine(view: ResearchRunStatusView, now: Date = new Date()): string | null {
   if (view.state === "running") return `Researching: ${view.phaseLabel}.`;
   if (view.state === "paused") {
-    return `Research paused after ${view.stepsDone} of ${view.stepsTotal} steps. I'll resume when you return.`;
+    // The phase's own reason wins: promising "I'll resume" when the pause needs the
+    // operator would leave them waiting on research that cannot continue.
+    const where = `Research paused after ${view.stepsDone} of ${view.stepsTotal} steps.`;
+    return view.pauseReason ? `${where} ${view.pauseReason}` : `${where} I'll resume when you return.`;
   }
   if (view.state === "completed" && view.completedAt) {
     const tz = { timeZone: "America/Los_Angeles" } as const;

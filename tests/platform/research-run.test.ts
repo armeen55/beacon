@@ -355,7 +355,7 @@ describe("research-run resume + status projection", () => {
 
 describe("research-run Today copy", () => {
   const view = (o: Partial<RR.ResearchRunStatusView>): RR.ResearchRunStatusView => ({
-    state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: 7, counters: {}, updatedAt: null, completedAt: null, ...o,
+    state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: 7, counters: {}, updatedAt: null, completedAt: null, pauseReason: null, ...o,
   });
   const NOON_PT = Date.parse("2026-07-23T19:00:00Z"); // noon Pacific on Jul 23
   it("never says 'current': same-day completion shows today, an older pass shows its date, running/paused keep their lines, none is silent", () => {
@@ -372,6 +372,9 @@ describe("research-run Today copy", () => {
     expect(RR.researchStatusLine(view({ state: "paused", stepsDone: 1 }))).toBe(
       "Research paused after 1 of 7 steps. I'll resume when you return.",
     );
+    // A pause the operator must clear names its reason instead of promising a resume that cannot happen.
+    expect(RR.researchStatusLine(view({ state: "paused", stepsDone: 2, pauseReason: "I need your confirmed business basics before I can research keywords." })))
+      .toBe("Research paused after 2 of 7 steps. I need your confirmed business basics before I can research keywords.");
     expect(RR.researchStatusLine(view({ state: "none" }))).toBeNull();
   });
 });

@@ -86,6 +86,7 @@ const RESEARCH_NONE: ResearchRunStatusView = {
   counters: {},
   updatedAt: null,
   completedAt: null,
+  pauseReason: null,
 };
 
 function CockpitSkeleton() {
