@@ -7,8 +7,6 @@
 
 import "server-only";
 
-import { createHash } from "node:crypto";
-
 import { log } from "@/lib/logger";
 import { getRepository } from "@/lib/persistence/repositories";
 import { getTenant } from "@/domains/account/tenants/store";
@@ -20,13 +18,11 @@ import { loadGa4PageValuesForTenant } from "@/domains/evidence/readers/ga4-page-
 import type { PageSnapshot } from "@/domains/evidence/pages/types";
 
 import type { EvidencePacket } from "./contract";
-import type { BrandConfig } from "./title-candidates";
-import { DECISION_SCHEMA_VERSION } from "./page-decision";
 import { expectedCtrForPosition as expectedCtr } from "./expected-ctr";
 
 export type PageSurgeonContext = {
   tenantId: string;
-  brand: BrandConfig;
+  brand: { separator: string; suffix: string } | null;
   boilerplateTerms: string[];
   publishChannel: "wix_cms" | "git_pr" | "dev_note" | "none";
   /** canonical url → … */
@@ -252,24 +248,4 @@ export function assemblePacketForUrl(
   }
 
   return packet;
-}
-
-/** Stable hash of the DECISION-AFFECTING evidence, so a cached brief is reused
- *  when the inputs are unchanged (no OpenAI re-spend) and flagged stale when
- *  they move. */
-export function evidenceHash(packet: EvidencePacket): string {
-  const sig = {
-    v: DECISION_SCHEMA_VERSION,
-    title: packet.current.currentText,
-    q: packet.gsc?.topQueries.slice(0, 5).map((t) => [t.query, t.impressions, t.clicks, Math.round(t.position)]),
-    impr: packet.gsc?.impressions,
-    clicks: packet.gsc?.clicks,
-    pos: packet.gsc ? Math.round(packet.gsc.avgPosition * 10) : null,
-    h1: packet.crawl?.h1,
-    meta: packet.crawl?.metaDescription,
-    h2: packet.crawl?.h2List?.length,
-    clarity: packet.clarity ? [packet.clarity.deadClicks, packet.clarity.rageClicks] : null,
-    ga4: packet.ga4?.sessions ?? 0,
-  };
-  return createHash("sha256").update(JSON.stringify(sig)).digest("hex").slice(0, 16);
 }

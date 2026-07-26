@@ -17,7 +17,7 @@ import {
 
 /** Change-type options for the manual record form (value ⇒ label). */
 const CHANGE_TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "Auto (use the Change Pack)" },
+  { value: "", label: "Auto (name it for me)" },
   { value: "edit_title", label: "Title" },
   { value: "edit_meta", label: "Meta description" },
   { value: "change_h1", label: "Page headline (H1)" },
@@ -40,18 +40,15 @@ const FIELD_INPUT =
   `mt-1 w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/60 ${FOCUS}`;
 
 /**
- * Record a shipped change for ANY page (not just review-approved ones). Quick
- * path: paste a page path ("/cities") or full URL, click Record — the server
- * pulls before/after from the Change Pack, snapshots the GSC baseline, auto-picks
- * control pages, and starts measuring. "Add details" lets the operator override
- * the change type, before/after copy, ship date, target queries, notes, and mark
- * it verified live. The manual-ship companion to pasting the change in your CMS.
+ * Record a shipped change for ANY page. Paste a page path ("/cities") or full
+ * URL, add the change type and the before/after copy under "Add details", click
+ * Record: the server snapshots the GSC baseline, auto-picks control pages, and
+ * starts measuring. The manual-ship companion to pasting the change in your CMS.
  */
 export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }) {
   const router = useRouter();
-  // initialPage prefills from a /results?page=... hand-off (e.g. the Workbench
-  // "Record this change" link), so recording a shipped experiment doesn't mean
-  // re-typing the path. The Change Pack auto-fills action/before/after/queries.
+  // initialPage prefills from a /results?page=... hand-off so recording a
+  // shipped change never means re-typing the path.
   const [pageUrl, setPageUrl] = useState(initialPage);
   const [showDetails, setShowDetails] = useState(false);
   const [changeType, setChangeType] = useState("");
@@ -108,9 +105,9 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
     <div className="rounded-lg border border-border/60 bg-surface-inset/30 p-4">
       <div className="text-[13px] font-semibold text-foreground">Tell us about an edit you made</div>
       <p className="mt-0.5 text-[12px] text-muted-foreground">
-        Changed a page yourself (for example, in Wix)? Paste the page address and Beacon will
-        record where it stands today, pick similar pages to compare against, and check after 1, 2,
-        and 4 weeks whether more people found you. Nothing publishes.
+        Changed a page yourself (for example, in Wix)? Paste the page address plus the before and after copy
+        under Add details, and Beacon will record where it stands today, pick similar pages to
+        compare against, and check after 1, 2, and 4 weeks whether more people found you. Nothing publishes.
       </p>
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         <input
@@ -198,7 +195,7 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
                 value={before}
                 onChange={(e) => setBefore(e.target.value)}
                 rows={3}
-                placeholder="The old copy (leave blank to use the Change Pack draft)"
+                placeholder="The copy as it was before your change"
                 className={FIELD_INPUT + " resize-y"}
               />
             </div>

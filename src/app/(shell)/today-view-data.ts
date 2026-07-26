@@ -38,6 +38,8 @@ const CONFIDENCE_TO_STRENGTH: Record<ChangeProposal["confidence"], EvidenceStren
 /** A plain first-person directive for one proposal (the "do this next" line). */
 function recommendationOf(p: ChangeProposal): string {
   const c = p.recommendedChange;
+  // Slice 7: a bundled change already states its objective in one plain sentence.
+  if (p.bundle) return p.bundle.objective;
   if (c.kind === "new_page") return `Build a new page that answers "${p.primaryQuery}"`;
   const field = c.field === "meta" ? "description" : c.field.replace(/_/g, " ");
   return `Update the ${field} on ${p.pageLabel} to sharpen it for "${p.primaryQuery}"`;

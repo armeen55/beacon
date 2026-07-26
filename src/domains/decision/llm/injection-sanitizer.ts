@@ -55,7 +55,7 @@ export function isInjectionShapedLine(line: string): boolean {
  * Remove instruction-shaped lines from one evidence text. Benign input is
  * returned UNCHANGED (same string identity semantics for prompt pins).
  */
-export function sanitizeEvidenceText(text: string): string {
+function sanitizeEvidenceText(text: string): string {
   if (!text) return text;
   // Fast path: no line matches -> return the original string untouched.
   const lines = text.split("\n");

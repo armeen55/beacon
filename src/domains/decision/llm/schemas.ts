@@ -215,16 +215,6 @@ export const CommerceAssetSpecSchema = z.object({
 });
 export type CommerceAssetSpec = z.infer<typeof CommerceAssetSpecSchema>;
 
-/** 6. CROFixSpec — a conversion/UX fix from a friction signal. */
-export const CROFixSpecSchema = z.object({
-  frictionType: z.enum(["dead_click", "rage_click", "cta_clarity", "form_friction", "intent_mismatch"]),
-  location: z.string().min(1).max(200),
-  fix: z.string().min(1).max(600),
-  proofPlan: ProofPlanSchema,
-  ...base,
-});
-export type CROFixSpec = z.infer<typeof CROFixSpecSchema>;
-
 /** 7. ExperimentPlan — a falsifiable experiment for a Move. */
 export const ExperimentPlanSchema = z.object({
   hypothesis: z.string().min(1).max(300),
@@ -235,27 +225,6 @@ export const ExperimentPlanSchema = z.object({
   ...base,
 });
 export type ExperimentPlan = z.infer<typeof ExperimentPlanSchema>;
-
-/** 8. AeoPromptBrief — the structured brief to WIN one AI prompt (AEO question
- *  intelligence). NOT a vague summary: a quotable direct answer + the
- *  fan-out sub-questions to cover + the facts/entities/sources/competitor-pages
- *  + the schema + internal links. Field names mirror the operator's spec. */
-export const AeoPromptBriefSchema = z.object({
-  // 40–80 words ≈ 220–520 chars (one extractable, quotable answer).
-  direct_answer_40_80_words: z.string().min(150).max(700),
-  fanout_sections: z
-    .array(z.object({ question: z.string().min(4).max(200), answer_goal: z.string().min(3).max(400) }))
-    .min(1)
-    .max(12),
-  facts_to_verify: z.array(z.string().min(1).max(300)).max(20).default([]),
-  entities_to_include: z.array(z.string().min(1).max(120)).max(30).default([]),
-  sources_to_reference: z.array(z.string().min(1).max(300)).max(20).default([]),
-  competitor_pages_to_beat: z.array(z.string().min(1).max(400)).max(10).default([]),
-  schema_recommendation: z.enum(["FAQPage", "Article", "ItemList", "None"]),
-  internal_links: z.array(z.string().min(1).max(300)).max(20).default([]),
-  ...base,
-});
-export type AeoPromptBrief = z.infer<typeof AeoPromptBriefSchema>;
 
 /** 9. InternalLinkDraft — a contextual internal link from a source page to a target
  *  page. NOT a bare URL pair: the exact anchor + the sentence to drop the link into +
@@ -276,13 +245,6 @@ export type InternalLinkDraft = z.infer<typeof InternalLinkDraftSchema>;
 // The strategist's one-paragraph synthesis of the specialist debate for a nightly pick.
 // Grounded in the REAL voices (claims carry the numbers); the numeric firewall blocks any
 // figure that is not in the grounding. Short, opinionated, operator language.
-
-export const TeamVerdictSchema = z.object({
-  /** 1-3 sentences: what the evidence says, why THIS change, what the bigger prize is. */
-  verdict: z.string().min(60).max(520),
-  evidenceRefs: z.array(EvidenceRefSchema).min(1),
-});
-export type TeamVerdict = z.infer<typeof TeamVerdictSchema>;
 
 // ── batch adjudication (BEACON 500 item 12 - the final review) ────────────────
 // The nightly FINAL REVIEW over the whole plan preview: one bounded call
@@ -382,11 +344,8 @@ export type StructuredDraftKind =
   | "atomic_edit"
   | "tool_asset"
   | "commerce_asset"
-  | "cro_fix"
   | "internal_link"
   | "experiment_plan"
-  | "aeo_prompt_brief"
-  | "team_verdict"
   | "batch_adjudication"
   | "strategy_review"
   | "section_draft"
@@ -399,11 +358,8 @@ export const SCHEMA_BY_KIND = {
   atomic_edit: AtomicEditDraftSchema,
   tool_asset: ToolAssetSpecSchema,
   commerce_asset: CommerceAssetSpecSchema,
-  cro_fix: CROFixSpecSchema,
   internal_link: InternalLinkDraftSchema,
   experiment_plan: ExperimentPlanSchema,
-  aeo_prompt_brief: AeoPromptBriefSchema,
-  team_verdict: TeamVerdictSchema,
   batch_adjudication: BatchAdjudicationSchema,
   strategy_review: StrategyReviewSchema,
   section_draft: SectionDraftSchema,

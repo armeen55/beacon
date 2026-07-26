@@ -17,7 +17,6 @@ import {
   loadPageSurgeonContext,
   assemblePacketForUrl,
 } from "@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet";
-import { loadPageSurgeonForUrl } from "@/domains/decision/recommendation-intelligence/page-surgeon/bridge";
 import { readWindowForPages, readLastFinalizedDate } from "./gsc-window";
 import {
   BASELINE_WINDOW_DAYS,
@@ -179,9 +178,11 @@ export async function measureRecord(
 }
 
 /**
- * Pull the human context for a shipped change from the cached Page Surgeon
- * context + pack: canonical page, path, before/after text + headline action, and
- * the page's top target queries. Best-effort; every field degrades to null/[].
+ * Pull the human context for a shipped change from the cached page context:
+ * canonical page, path and the page's top target queries. Before/after text and
+ * the headline action come from the operator's own entry (Slice 7 removed the
+ * superseded brief lookup that used to guess them). Best-effort; every field
+ * degrades to null/[].
  */
 export async function captureChangeMeta(
   tenantId: string,
@@ -201,20 +202,7 @@ export async function captureChangeMeta(
   } catch {
     /* best-effort */
   }
-  let before: string | null = null;
-  let after: string | null = null;
-  let headlineAction: string | null = null;
-  try {
-    const ps = await loadPageSurgeonForUrl(tenantId, pageUrl, { history: false });
-    if (ps.status === "pack") {
-      headlineAction = ps.pack.headlineAction;
-      before = ps.pack.bundle.primary?.before ?? null;
-      after = ps.pack.bundle.primary?.after ?? null;
-    }
-  } catch {
-    /* best-effort */
-  }
-  return { canonPage, path, before, after, targetQueries, headlineAction };
+  return { canonPage, path, before: null, after: null, targetQueries, headlineAction: null };
 }
 
 /**

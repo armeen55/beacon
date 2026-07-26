@@ -59,7 +59,7 @@
  *       real, checkable citation, so some previously-"needs review" fixtures
  *       now correctly surface as "needs a source" instead, that retroactive
  *       flip is the point, not a bug. Formatting/technical kinds (a
- *       title/meta/h1 rewrite that only rephrases, internal_link, cro_fix,
+ *       title/meta/h1 rewrite that only rephrases, internal_link,
  *       schema fixes, a claim-free answer block) are NEVER source-gated.
  *       `isFactualClaim` returning false means there is nothing to source.
  *    3. A soft first-mention check (J-70), see `checkFirstMention`, only
@@ -822,32 +822,6 @@ export function evaluateInternalLinkQuality(input: EvaluateInternalLinkInput): D
   return { status: "ready", reasons: ["Distinct source/target, descriptive anchor, reads in context."], copyAllowed: true, canRegenerate: false, confidence: "high" };
 }
 
-// ── CRO / experience-fix quality ──────────────────────────────────────────────
-
-export type EvaluateCROInput = {
-  frictionType?: string | null;
-  location?: string | null;
-  fix?: string | null;
-  evidenceRefs?: number;
-};
-
-/** Evaluate a CRO/fix_experience draft. Must name a real fix grounded in friction. */
-export function evaluateCROFixQuality(input: EvaluateCROInput): DraftQualityResult {
-  const fix = (input.fix ?? "").trim();
-  const location = (input.location ?? "").trim();
-  if (!fix || !location) {
-    return { status: "malformed", reasons: ["Missing fix or location."], copyAllowed: false, canRegenerate: true, confidence: "high" };
-  }
-  if (wordCount(fix) < 6) {
-    return { status: "too_thin", reasons: ["Fix is too vague to act on."], copyAllowed: false, canRegenerate: true, confidence: "high" };
-  }
-  // A CRO fix with zero grounding is a guess — flag for review (Clarity evidence needed).
-  if ((input.evidenceRefs ?? 0) === 0) {
-    return { status: "useful_but_needs_review", reasons: ["No Clarity/analytics evidence cited — confirm the friction before changing the page."], copyAllowed: true, canRegenerate: false, confidence: "medium" };
-  }
-  return { status: "ready", reasons: ["Concrete, located fix grounded in friction evidence."], copyAllowed: true, canRegenerate: false, confidence: "high" };
-}
-
 // ── prepared-pack dispatch (the critical adversarial fix) ──────────────────────
 
 export type EvaluatePackInput = {
@@ -940,14 +914,6 @@ function evaluatePreparedPackQualityBase(input: EvaluatePackInput): DraftQuality
       // W5 P1-4: the brief's OWN sources[] drive its openingAnswer source gate.
       sources: Array.isArray(v.sources) ? (v.sources as ClassifiableSource[]) : undefined,
       authoritativeSourceDomains: input.authoritativeSourceDomains,
-    });
-  }
-  if (sd.kind === "cro_fix") {
-    return evaluateCROFixQuality({
-      frictionType: typeof v.frictionType === "string" ? v.frictionType : null,
-      location: typeof v.location === "string" ? v.location : null,
-      fix: typeof v.fix === "string" ? v.fix : null,
-      evidenceRefs: Array.isArray(v.evidenceRefs) ? v.evidenceRefs.length : 0,
     });
   }
   if (sd.kind === "internal_link") {

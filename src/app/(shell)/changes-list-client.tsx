@@ -14,7 +14,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import type { ChangesClientView } from "./changes-data";
-import type { ChangeProposal } from "@/domains/decision";
+import type { ChangeProposal, ChangeBundle } from "@/domains/decision";
 import { markProposalImplementedAction } from "./changes/actions";
 
 type Tab = "ready" | "todo";
@@ -68,9 +68,13 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
       ) : null}
 
       <ol className="space-y-3">
-        {rows.map((p, i) => (
-          <ProposalRow key={p.id} proposal={p} rank={i + 1} canApply={tab === "ready"} />
-        ))}
+        {rows.map((p, i) =>
+          p.bundle ? (
+            <BundleRow key={p.id} proposal={p} bundle={p.bundle} rank={i + 1} />
+          ) : (
+            <ProposalRow key={p.id} proposal={p} rank={i + 1} canApply={tab === "ready"} />
+          ),
+        )}
       </ol>
     </div>
   );
@@ -89,6 +93,42 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * Slice 7: a proposal carrying a Change Bundle is the flagship row: one plain
+ * recommendation, the strongest reason, the honest evidence count, and ONE
+ * action (open the full change). The exact copy lives on the detail page.
+ */
+function BundleRow({ proposal, bundle, rank }: { proposal: ChangeProposal; bundle: ChangeBundle; rank: number }) {
+  const checks = bundle.receipt.items.length;
+  const parts = bundle.components.length;
+  const reason = bundle.confidenceReasons[0] ?? bundle.receipt.items[0]?.fact ?? null;
+  return (
+    <li className="space-y-2 rounded-2xl border border-accent-primary/50 bg-surface-raised p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[12px] tabular-nums text-muted-foreground">{rank}</span>
+        <span className="rounded bg-accent-primary/15 px-1.5 py-0.5 text-[11px] font-medium text-accent-primary">
+          Bundled change
+        </span>
+        <span className="text-[14px] font-semibold text-foreground">{proposal.pageLabel}</span>
+      </div>
+      <p className="text-[14px] leading-relaxed text-foreground">{proposal.whyItMatters}</p>
+      {reason ? (
+        <p className="text-[13px] leading-relaxed text-muted-foreground">Strongest reason: {reason}</p>
+      ) : null}
+      <p className="text-[12px] text-muted-foreground tabular-nums">
+        {parts} exact edit{parts === 1 ? "" : "s"}{proposal.status === "proposed" ? ", copy ready" : ""} · about {proposal.estimatedEffortMinutes} min · Backed by{" "}
+        {checks} check{checks === 1 ? "" : "s"} · {CONFIDENCE_LABEL[proposal.confidence]}
+      </p>
+      <Link
+        href={`/changes/${encodeURIComponent(proposal.id)}`}
+        className="inline-flex rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white"
+      >
+        See the change
+      </Link>
+    </li>
   );
 }
 
@@ -201,10 +241,10 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MarkImplemented({ proposalId }: { proposalId: string }) {
+export function MarkImplemented({ proposalId, label: idle = "Mark implemented" }: { proposalId: string; label?: string }) {
   const [pending, startTransition] = useTransition();
   const [state, setState] = useState<{ done: boolean; error: string | null }>({ done: false, error: null });
-  const label = useMemo(() => (state.done ? "Marked implemented" : "Mark implemented"), [state.done]);
+  const label = useMemo(() => (state.done ? "Marked implemented" : idle), [state.done, idle]);
 
   function onClick() {
     startTransition(async () => {

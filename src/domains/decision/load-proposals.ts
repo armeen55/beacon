@@ -36,7 +36,11 @@ export type RankedProposalQueue = {
 /** Load + rank + partition a tenant's proposal queue. Fail-soft → empty queue. */
 export async function loadProposalQueue(tenantId: string): Promise<RankedProposalQueue> {
   const byId = await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>());
-  const all = [...byId.values()].filter((p) => p.status !== "rejected" && p.status !== "applied");
+  const live = [...byId.values()].filter((p) => p.status !== "rejected" && p.status !== "applied");
+  // A bundle REPLACES its page's atomic edits: never show the same edit twice
+  // (covers historical atomic rows persisted before the bundle existed).
+  const bundledPages = new Set(live.filter((p) => p.bundle).map((p) => p.pagePath));
+  const all = live.filter((p) => p.bundle || p.kind !== "existing_edit" || !bundledPages.has(p.pagePath));
   const ranked = rankProposals(all);
   return {
     ranked,

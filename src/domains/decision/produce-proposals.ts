@@ -22,6 +22,7 @@ import { log } from "@/lib/logger";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { loadBusinessProfile } from "@/domains/account";
 import { snapshotToEvidenceInputs } from "./opportunities";
+import { produceBundleForSnapshot } from "./produce-bundle";
 import { proposeChange, type ProposeOptions } from "./propose";
 import { saveChangeProposal } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
@@ -89,6 +90,33 @@ export async function produceProposalsForTenant(
     }
     proposals.push(outcome.proposal);
     if (persist) await saveChangeProposal(outcome.proposal);
+  }
+
+  // ONE bundle per pass: the strongest existing page gets the deep, copy-ready
+  // form. The bundle REPLACES that page's atomic drafts (never the same edit
+  // twice); a refusal here is honest and silent and the atomic drafts stand.
+  const bundled = await produceBundleForSnapshot(snapshot, {
+    complete: opts.complete,
+    now: opts.now,
+    bypassCache: opts.bypassCache,
+    authoritativeSourceDomains: allowlist,
+  }).catch((e) => {
+    log.warn("[produce-proposals] bundle threw (fail-soft)", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return { status: "none" as const, reason: "threw" };
+  });
+  if (bundled.status === "bundled") {
+    const covered = bundled.proposal.pagePath;
+    for (let i = proposals.length - 1; i >= 0; i--) {
+      const p = proposals[i]!;
+      if (p.kind === "existing_edit" && p.pagePath === covered) proposals.splice(i, 1);
+    }
+    proposals.push(bundled.proposal);
+    if (persist) await saveChangeProposal(bundled.proposal);
+  } else {
+    log.info("[produce-proposals] no bundle this pass", { tenantId, reason: bundled.reason });
   }
 
   return { proposals: rankProposals(proposals), opportunities: inputs.length, noDraft };

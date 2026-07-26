@@ -24,7 +24,7 @@ import { projectFunnelEvidence } from "@/domains/evidence/funnel/observe";
 import { loadFunnelState, type FunnelState } from "@/domains/evidence/funnel/state";
 import { emptyResearchEvidence, type FunnelResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
 import { loadNativeIntelForTenant } from "@/domains/evidence/readers/native-intel-loader";
-import { getPageSnapshots } from "@/domains/evidence/readers/snapshot-store";
+import { getRepository } from "@/lib/persistence/repositories";
 
 import {
   buildEvidenceSnapshot,
@@ -115,7 +115,9 @@ export async function loadEvidenceSnapshot(
       loadClarityPageSignalsForTenant(tenantId, now).catch(() => new Map<string, ClarityPageSignal>()),
       loadResearch(tenantId, now, options).catch(() => ({ basis: null as string | null, evidence: emptyResearchEvidence() })),
       loadSourceNativeIntel(tenantId),
-      getPageSnapshots().catch(() => []),
+      // Supabase is the one persistence path: the tenant repo's lean projection,
+      // never the legacy .data file (empty on every hosted deploy).
+      getRepository().forTenant(tenantId).getPageSnapshots().catch(() => []),
     ]);
 
   // ── GSC ──

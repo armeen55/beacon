@@ -18,6 +18,10 @@ export type {
   RecommendedChange,
   ProposalEvidence,
   ChangeProposal,
+  ChangeBundle,
+  BundleComponent,
+  BundleComponentKind,
+  BundleEvidenceItem,
 } from "./contracts";
 export {
   ChangeProposalSchema,
@@ -59,7 +63,6 @@ export { validateProposal } from "./validate-proposal";
 // Recommendation-intelligence surfaces
 export { loadDailyTotalsForTenant } from "./recommendation-intelligence/gsc-page-queries";
 export { loadOwnCitationsByDay } from "./recommendation-intelligence/citations-daily";
-export { loadProofPlan } from "./recommendation-intelligence/page-surgeon/bridge";
 export {
   loadPageSurgeonContext,
   topPagesByDemand,

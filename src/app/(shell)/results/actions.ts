@@ -16,7 +16,6 @@ import { revalidatePath } from "next/cache";
 
 import { isAccountOwner } from "@/lib/auth/can-publish";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadProofPlan } from "@/domains/decision";
 import {
   loadPageSurgeonContext,
   topPagesByDemand,
@@ -91,9 +90,6 @@ export async function recordShippedChangeAction(args: {
 
   try {
     const tenantId = await currentTenantId();
-    const plan = await loadProofPlan(tenantId).catch(() => []);
-    const row = plan.find((r) => r.pageUrl === pageUrl) ?? null;
-
     const meta = await captureChangeMeta(tenantId, pageUrl);
 
     // The treated page must resolve to an absolute URL. GSC windows are keyed by
@@ -107,11 +103,10 @@ export async function recordShippedChangeAction(args: {
       };
     }
 
-    // Change type: explicit wins, else the Change Pack headline, else generic.
-    const changeType =
-      args.changeType?.trim() || meta.headlineAction || row?.headlineAction || "change";
+    // Change type: explicit wins, else the recorded ledger headline, else generic.
+    const changeType = args.changeType?.trim() || meta.headlineAction || "change";
 
-    // Before/after: explicit operator copy wins, else the Change Pack draft.
+    // Before/after: the operator's own copy, else what the ledger already holds.
     const before = (args.before?.trim() || meta.before || "").trim() || null;
     const after = (args.after?.trim() || meta.after || "").trim() || null;
 
@@ -124,13 +119,6 @@ export async function recordShippedChangeAction(args: {
       };
     }
 
-    const origin = (() => {
-      try {
-        return new URL(meta.canonPage).origin;
-      } catch {
-        return "";
-      }
-    })();
     // Load the ledger ONCE: used to (a) exclude any page that is ITSELF treated
     // from the control set — a treated page is not a clean comparator, its own
     // change contaminates the diff-in-diff and biases the treated page's verdict
@@ -146,16 +134,11 @@ export async function recordShippedChangeAction(args: {
       }
     };
 
-    // Proof-plan controls are PATHS; resolve to canonical URLs on the same host.
-    let controlPages = (row?.controlPaths ?? [])
-      .map((p) => canonicalizeCitationUrl(origin + p) ?? `${origin}${p}`)
-      .filter((u) => u && u !== meta.canonPage && isUntreated(u));
-
-    // No proof-plan row (e.g. a page that was never review-approved) ⇒ derive
-    // controls the same way the proof plan does: top same-site pages by GSC demand,
-    // excluding the treated page AND any page that is itself mid-experiment. Pull
-    // a wider candidate pool (12) so enough untreated pages remain to fill 3.
-    if (controlPages.length === 0) {
+    // Controls: top same-site pages by GSC demand, excluding the treated page AND
+    // any page that is itself mid-measurement. Pull a wider candidate pool (12) so
+    // enough untreated pages remain to fill 3.
+    let controlPages: string[] = [];
+    {
       try {
         const ctx = await loadPageSurgeonContext(tenantId);
         controlPages = topPagesByDemand(ctx, 12)

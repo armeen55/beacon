@@ -3,7 +3,7 @@
  * Surgeon Ready path still needs after the trigger->promotion producer
  * pipeline was retired. Relocated verbatim from the deleted
  * recommendation-intelligence/draft-enrichment.ts:
- *   - isCmsPlaceholder: CMS template-residue detection (artifact-bundle),
+ * consumed by assemble-packet's title context (the packet owner).
  *   - inferBrandSuffix: infer the site's title-suffix brand from its own
  *     pages (assemble-packet).
  */
@@ -31,7 +31,7 @@ const CMS_PLACEHOLDER_TEXTS: ReadonlySet<string> = new Set([
   "add a title",
 ]);
 
-export function isCmsPlaceholder(text: string): boolean {
+function isCmsPlaceholder(text: string): boolean {
   return CMS_PLACEHOLDER_TEXTS.has(text.trim().toLowerCase());
 }
 

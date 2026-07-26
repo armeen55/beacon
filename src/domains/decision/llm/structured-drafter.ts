@@ -15,7 +15,7 @@ import {
   groundedNumberList,
   type GroundedNumbers,
 } from "./numeric-fidelity";
-import { sanitizeEvidenceTexts, sanitizeNullableEvidence, sanitizeEvidenceText } from "./injection-sanitizer";
+import { sanitizeEvidenceTexts, sanitizeNullableEvidence } from "./injection-sanitizer";
 import {
   stampSourceAuthority,
   findSupportingSpan,
@@ -35,7 +35,6 @@ import {
   type AnswerBlockDraft,
   type AtomicEditDraft,
   type CreatePageBrief,
-  type AeoPromptBrief,
 } from "./schemas";
 
 /**
@@ -219,7 +218,6 @@ function primaryCustomerText(kind: StructuredDraftKind, value: unknown): string 
     case "answer_block": return pick("answer");
     case "atomic_edit": return pick("after");
     case "create_page_brief": return pick("openingAnswer");
-    case "aeo_prompt_brief": return pick("direct_answer_40_80_words");
     case "section_draft": return pick("body");
     case "outreach_pitch": return pick("body");
     case "internal_link": return pick("linkSentence");
@@ -1398,138 +1396,6 @@ export async function draftCreatePageStructured(
   });
 }
 
-// ── concrete drafter: CROFixSpec (fix_experience / Clarity friction) ──────────
-
-export type CROFixStructuredInput = {
-  /** The owning account (Slice 3: REQUIRED, threaded for cache + budget scoping). */
-  tenantId: string;
-  /** The page with friction. */
-  pageLabel: string;
-  /** Clarity friction score / detail the team established (grounding). */
-  frictionDetail: string;
-  /** Optional dominant friction signal hint (dead/rage/quickback) if known. */
-  frictionHint?: string;
-};
-
-const CRO_FIX_SYSTEM =
-  "You diagnose ONE on-page UX/conversion friction and prescribe a concrete fix for a content/encyclopedia site. " +
-  'Return ONLY a JSON object: "frictionType" (one of dead_click|rage_click|cta_clarity|form_friction|intent_mismatch), ' +
-  '"location" (where on the page — be specific), "fix" (a concrete, actionable change — what to inspect and change, not vague advice), ' +
-  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
-  '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (concrete steps to inspect + fix), ' +
-  '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
-  "Ground ONLY in the friction evidence provided — do NOT assert a cause you cannot see in the data (no fake certainty). Prefer a checklist of elements to inspect over prose. No marketing language. No em-dashes. Do NOT invent statistics.";
-
-/** Draft a schema-valid CROFixSpec for one fix_experience Move from Clarity friction. */
-export async function draftCROFixStructured(
-  input: CROFixStructuredInput,
-  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean } = {},
-): Promise<StructuredDraftResult<import("./schemas").CROFixSpec>> {
-  // R16 injection firewall: friction detail can carry crawled page text.
-  const frictionDetail = sanitizeEvidenceText(input.frictionDetail);
-  const frictionHint = sanitizeNullableEvidence(input.frictionHint ?? null);
-  const grounded = [input.pageLabel, frictionDetail, frictionHint ?? ""].join(" ");
-  const user = [
-    `Page: ${input.pageLabel}`,
-    `Friction the team measured: ${frictionDetail}`,
-    frictionHint ? `Dominant signal: ${frictionHint}` : "",
-    "",
-    "Return the JSON now.",
-  ]
-    .filter(Boolean)
-    .join("\n");
-  return callStructuredLLM({
-    kind: "cro_fix",
-    tenantId: input.tenantId,
-    system: CRO_FIX_SYSTEM,
-    user,
-    grounded,
-    projectedCostUsd: 0.02,
-    complete: opts.complete,
-    now: opts.now,
-    bypassCache: opts.bypassCache,
-  });
-}
-
-// ── concrete drafter: AeoPromptBrief (AEO question intelligence) ──────────────
-
-export type AeoPromptBriefInput = {
-  /** The owning account (Slice 3: REQUIRED, threaded for cache + budget scoping). */
-  tenantId: string;
-  /** The verbatim AI prompt to win. */
-  prompt: string;
-  /** Downstream fan-out queries the prompt expands into (grounding). */
-  fanoutQueries: string[];
-  /** Competitor pages/domains AI cites now (to study + beat). */
-  competitorPages: string[];
-  /** Owned pages already cited (expand vs create). */
-  ownCitedUrls: string[];
-  /** Recommended move from the opportunity (answer_block | expand_page | …). */
-  recommendedMove: string;
-  /** Theme tags / entities seen (grounding). */
-  tags?: string[];
-};
-
-const AEO_PROMPT_BRIEF_SYSTEM =
-  "You write a STRUCTURED brief (never a vague summary) for an encyclopedia / content site to WIN one specific AI-assistant question (AEO). " +
-  "Return ONLY a JSON object with keys: " +
-  '"direct_answer_40_80_words" (one quotable, self-contained factual answer of 40-80 words an AI could lift verbatim), ' +
-  '"fanout_sections" (array of {"question","answer_goal"} — one per sub-question the page must also answer, from the fan-out queries provided), ' +
-  '"facts_to_verify" (array of specific facts the owner must confirm before publishing — do NOT assert them as true), ' +
-  '"entities_to_include" (array of named people/places/works to mention), ' +
-  '"sources_to_reference" (array of authoritative source types/names to cite), ' +
-  '"competitor_pages_to_beat" (array — the cited competitor pages/domains provided), ' +
-  '"schema_recommendation" ("FAQPage"|"Article"|"ItemList"|"None"), ' +
-  '"internal_links" (array of on-site link suggestions, or []), ' +
-  '"evidenceRefs" (array of {"source","detail"}, at least one; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
-  '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps). ' +
-  "Ground EVERYTHING only in the prompt, fan-out queries, and competitor pages provided. Do NOT invent statistics, dates, prices, rankings, or superlatives (put anything uncertain in facts_to_verify). No marketing language. No em-dashes.";
-
-/** Draft a schema-valid AeoPromptBrief for one AI-prompt opportunity.
- *  Capped + budgeted + firewalled; spends only when invoked. */
-export async function draftAeoPromptBrief(
-  input: AeoPromptBriefInput,
-  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean } = {},
-): Promise<StructuredDraftResult<AeoPromptBrief>> {
-  // R16 injection firewall: the verbatim AI prompt, fan-outs, and competitor
-  // pages are untrusted external text.
-  const prompt = sanitizeEvidenceText(input.prompt);
-  const fanoutQueries = sanitizeEvidenceTexts(input.fanoutQueries);
-  const competitorPages = sanitizeEvidenceTexts(input.competitorPages);
-  const tags = sanitizeEvidenceTexts(input.tags ?? []);
-  const grounded = [
-    prompt,
-    fanoutQueries.join(" "),
-    competitorPages.join(" "),
-    input.ownCitedUrls.join(" "),
-    tags.join(" "),
-  ].join(" ");
-  const user = [
-    `AI prompt to win: "${prompt}"`,
-    `Recommended move: ${input.recommendedMove}`,
-    fanoutQueries.length ? `Fan-out queries this prompt expands into: ${fanoutQueries.slice(0, 12).join("; ")}` : "",
-    competitorPages.length ? `Pages AI cites now (study + beat): ${competitorPages.slice(0, 10).join("; ")}` : "",
-    input.ownCitedUrls.length ? `Your pages already cited: ${input.ownCitedUrls.join("; ")}` : "Your site is NOT currently cited for this prompt.",
-    tags.length ? `Topic tags: ${tags.join("; ")}` : "",
-    "",
-    "Return the JSON now.",
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  return callStructuredLLM({
-    kind: "aeo_prompt_brief",
-    tenantId: input.tenantId,
-    system: AEO_PROMPT_BRIEF_SYSTEM,
-    user,
-    grounded,
-    projectedCostUsd: 0.03,
-    complete: opts.complete,
-    now: opts.now,
-    bypassCache: opts.bypassCache,
-  });
-}
-
 // ── persistence (projected, under the move_drafts size cap) ───────────────────
 
 const PERSIST_VERSION = 1;
@@ -1563,64 +1429,4 @@ export function deserializeStructuredDraft(
   } catch {
     return null;
   }
-}
-
-// ── team verdict (FINAL PREMIUM PLAN item 25) ─────────────────────────────────
-
-export type TeamVerdictInput = {
-  /** The owning account (Slice 3: REQUIRED, threaded for cache + budget scoping). */
-  tenantId: string;
-  pageLabel: string;
-  targetQuery: string;
-  /** Tonight's change in plain words ("a sharper description"). */
-  leverPlain: string;
-  proposedText: string;
-  voices: Array<{ label: string; claim: string }>;
-  objections: Array<{ label: string; reason: string }>;
-  whyNot?: string;
-};
-
-/**
- * The strategist writes the team's verdict: a 1-3 sentence synthesis of the REAL specialist
- * claims for one nightly pick. Grounded in the voices verbatim (the numeric firewall rejects
- * any number not present in them). Budget-gated + fail-closed like every structured draft;
- * the caller keeps the deterministic verdict on any non-"drafted" result.
- */
-export async function draftTeamVerdictStructured(
-  input: TeamVerdictInput,
-  opts: { complete?: CompleteFn; now?: Date } = {},
-): Promise<StructuredDraftResult<import("./schemas").TeamVerdict>> {
-  const voiceLines = input.voices.map((v) => `${v.label}: ${v.claim}`).join("\n");
-  const objectionLines = input.objections.map((o) => `${o.label} pushed back: ${o.reason}`).join("\n");
-  const grounded = [input.pageLabel, input.targetQuery, input.proposedText, voiceLines, objectionLines, input.whyNot ?? ""].join("\n");
-  return callStructuredLLM({
-    kind: "team_verdict",
-    tenantId: input.tenantId,
-    system: [
-      "You are the strategist on an SEO team, synthesizing your specialists' findings for the site owner.",
-      'Return ONLY JSON: {"verdict": string, "evidenceRefs": [{"source": string, "detail": string}]}.',
-      "The verdict is 1-3 sentences, plain business English, first person plural (we).",
-      "Rules: use ONLY facts and numbers from the specialists' lines below, never invent a figure;",
-      "name the single weakest link the change fixes; if AI citations are mentioned, name that prize;",
-      "no hedging filler, no jargon (experiment, control, SERP), no em dashes, no exclamation marks.",
-      "Write like a sharp human strategist: specific, confident, brief.",
-    ].join(" "),
-    user: [
-      `Page: ${input.pageLabel}`,
-      `The search: "${input.targetQuery}"`,
-      `Today's change: ${input.leverPlain}`,
-      `New text: ${input.proposedText}`,
-      "",
-      "The specialists said:",
-      voiceLines || "(no voices)",
-      objectionLines ? `\nPushback:\n${objectionLines}` : "",
-      input.whyNot ? `\nRoad not taken: ${input.whyNot}` : "",
-    ].join("\n"),
-    grounded,
-    projectedCostUsd: 0.01,
-    maxTokens: 1200,
-    timeoutMs: 45_000,
-    now: opts.now,
-    complete: opts.complete,
-  });
 }

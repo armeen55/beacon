@@ -15,22 +15,20 @@
 - Supabase authentication provisions one membership and one tenant per new user.
 - One login resolves exactly one account, fail-closed (2026-07-23): the middleware injects the single membership's
   account; zero, multiple, erroring, or timed-out membership lookups all redirect to login (`no_account` /
-  `multiple_accounts_unsupported` / `account_unavailable`). No account switcher, account enumeration, or selection
-  cookie exists (the retired `beacon_tenant` cookie is never read and is actively expired), and an authenticated
-  request can never reach an env-tenant fallback. `BEACON_OPERATOR_MODE` is presentation-only: OAuth connector
-  ownership and every measurement/publish mutation require the authenticated account owner's membership row. The
-  Account's `provisional_name` is an internal signup seed; active surfaces render the BusinessProfile name with
-  the Website domain as fallback.
+  `multiple_accounts_unsupported` / `account_unavailable`). No account switcher, enumeration, or selection cookie
+  exists (the retired `beacon_tenant` cookie is never read and is actively expired); an authenticated request can
+  never reach an env-tenant fallback. `BEACON_OPERATOR_MODE` is presentation-only: OAuth connector ownership and
+  every measurement/publish mutation require the authenticated account owner's membership row. `provisional_name`
+  is an internal signup seed; surfaces render the BusinessProfile name, then the domain.
 - Canonical Account, Website, and BusinessProfile records exist (Slice 1 + closure, 2026-07-23): the Account is
   the `tenants` row (vertical columns retired to unread legacy) resolved through account-scoped Supabase queries;
   Website is the one canonical projection of `Account.domain` (the only persisted website authority; Settings
   shows it read-only); BusinessProfile lives in the Account kernel as provenance-carrying sections
   (`ProfileSection`: value, origin, confidence, source URLs) over the approved Product Truth fields, backed by the
   `business_config` row at schemaVersion 2 with raw pre-canonical JSON preserved under an inert `legacy` key.
-  Profile reads are async and Supabase-backed only: a cold first read resolves the real account identity, a
-  missing row or transient failure is never cached as identity, and no file, env, founder, or process-global site
-  fallback exists (`business-config.ts` and `site-config.ts` are deleted). Provisioning writes a fully generic
-  row; missing configuration fails generic at every former leak site.
+  Profile reads are async and Supabase-only: a cold first read resolves the real identity, a missing row or
+  transient failure is never cached as identity, and no file, env, founder, or process-global fallback exists.
+  Provisioning writes a generic row; missing configuration fails generic at every former leak site.
 - Test fixtures carry generic account identities and domains; synthetic non-Latin-script sample content is
   retained deliberately for multilingual behavioral coverage.
 - Revenue settings and the operator revenue model were removed (revenue attribution is an MVP non-goal);
@@ -39,58 +37,51 @@
 
 ## What is real but incomplete
 
-- The complete seven-step onboarding and 50-core-prompt approval flow is live and CONNECTED (Slice 5 +
-  connected-state closure, 2026-07-24) on `/onboard` (`/onboard/done` redirects): one onboarding basis runs from
-  website to activation. Every derived artifact carries a deterministic basis fingerprint (account, canonical
-  domain, confirmed research-affecting profile fields, goal, generation version) tagged onto its `tracked_prompts`
-  rows; only current-basis rows render, count, approve, or activate, and approval sweeps every other-basis active
-  row so an abandoned goal or profile can never leave stale prompts tracked. Replacing the website mid-onboarding
-  is one atomic service-role RPC (`replace_onboarding_website`, applied): new domain, goal cleared, all prompt
-  rows deactivated (history kept), profile reset to the canonical empty record, crawl force-restarted;
-  re-submitting the same domain stays idempotent. Profile confirmation is truthful (every business section
-  operator-confirmed; a name-only edit or a single confirmed patch never advances the confirm step). The prompt
-  step has real individual controls (include/exclude, inline edit, add to a group, remove) behind group-level
-  progressive disclosure, server-validated against the current tenant and basis; new rows carry all four intended
-  engines (chatgpt, perplexity, gemini, claude) as tracking scope only. The deterministic fallback asks natural
-  per-family questions from confirmed facts, returns fewer honestly, and never pads with numbered filler.
-  Pre-activation OpenAI spend reserves the projected cost durably BEFORE each real call against the lifetime $2
-  cap and reconciles to actual after (any write failure overcounts and blocks, never undercounts; cache hits and
-  the fallback reserve nothing); live-validated on the real API and the rendered walk for $0.0378 total across two
-  synthetic accounts. Page snapshots persist again (the dead `images` field the production table never had is
-  deleted; 14 real snapshots upserted on the walk). The Connections page shows a status-derived "Return to setup"
-  for accounts still onboarding (no redirect parameter exists). Pending accounts can start no Research Run at
-  either the runtime or claim-RPC boundary; activation is idempotent, requires 10..100 current-basis approved
-  prompts plus website + fully confirmed profile + goal + terms, and starts exactly one durable Research Run.
-  Verified end to end on the rendered app at desktop and mobile with a real crawl, real model calls, a mid-flow
-  website change, and a mid-flow goal change (the old prompt set visibly stranded and regenerated). One synthetic
-  pending account (`tenant-smoke-onboard`, ritzbuilders.com data) remains in the database for operator review per
-  the no-unapproved-deletion rule; it is inert (pending accounts do no work).
+- The seven-step onboarding and 50-core-prompt approval flow is live and CONNECTED (Slice 5 + closure, 2026-07-24)
+  on `/onboard`: one onboarding basis runs from website to activation. Every derived artifact carries a
+  deterministic basis fingerprint (account, domain, confirmed research-affecting fields, goal, generation version)
+  on its `tracked_prompts` rows; only current-basis rows render, count, approve, or activate, and approval sweeps
+  every other-basis active row so an abandoned goal or profile never leaves stale prompts tracked. Replacing the
+  website mid-onboarding is one atomic RPC (`replace_onboarding_website`, applied): new domain, goal cleared,
+  prompt rows deactivated (history kept), profile reset, crawl restarted; the same domain re-submitted stays
+  idempotent. Profile confirmation is truthful (every section operator-confirmed; a name-only edit or single patch
+  never advances it). The prompt step has real per-prompt controls (include/exclude, edit, group, remove) behind
+  group-level disclosure, server-validated against the current tenant and basis; new rows carry all four intended
+  engines as tracking scope only. The deterministic fallback asks natural per-family questions from confirmed
+  facts and never pads. Pre-activation OpenAI spend reserves the projected cost durably BEFORE each call against
+  the lifetime $2 cap and reconciles to actual (a write failure overcounts and blocks, never undercounts);
+  live-validated on the real API and the rendered walk for $0.0378 across two synthetic accounts. Page snapshots
+  persist again (the dead `images` field is deleted; 14 real snapshots upserted on the walk). Connections shows a
+  status-derived "Return to setup" while onboarding. Pending accounts can start no Research Run at either the
+  runtime or claim-RPC boundary; activation is idempotent, requires 10..100 current-basis approved prompts plus
+  website, fully confirmed profile, goal, and terms, and starts exactly one durable Research Run. Verified end to
+  end on the rendered app, desktop and mobile, with a real crawl, real model calls, and mid-flow website and goal
+  changes (the old prompt set visibly stranded and regenerated). One synthetic pending account
+  (`tenant-smoke-onboard`) remains for operator review per the no-unapproved-deletion rule; it is inert.
 - Durable visit-driven Research Runs exist (Slice 4, 2026-07-24): every authenticated visit renders the saved
   surfaces first, then claims or resumes the account's Research Run through an atomic database-time lease RPC. At
-  most one unfinished (running or paused) run exists per account across all dates, enforced by a partial unique
-  index (claim-semantics repair, 2026-07-24): the claim resumes the single unfinished run regardless of the day it
-  started (same row, phase, cursor, attempt key, and progress; a live foreign lease blocks creation and an expired
-  one is reclaimed), a run completed earlier the same UTC day blocks a redundant pass, and a new daily cycle (its
-  key computed at database time) starts only when no run is open. A partially failed connector refresh persists
-  the identities of the providers that actually synced (deduplicated across retries; the visible count is that
-  unique set's size) durably before pausing, so a mixed attempt never strands its succeeded sources. Seven phases
-  mirror today's real work (refresh stale sources, one bounded GSC backfill chunk, keyword discovery, core-prompt
-  AI observation, retained-query SERP analysis, winning-page comparison, evidence-conditioned surface publish);
-  progress, phase, and cursors are durable, a killed invocation resumes at the persisted phase after lease expiry,
-  concurrent instances cannot duplicate work, and Today shows one honest persisted status line (a dead lease
-  presents as paused; hidden when there is nothing to say). The truth boundary is enforced (2026-07-24 repair): a
-  failed connector, backfill, or surface publication pauses the run at its phase with a bounded error and can
-  never advance, publish, or present as completed research; lease mutations (advance, pre-phase renew, finish) are
-  database-time security-definer RPCs so an expired owner cannot mutate a run and completed rows reject all
-  mutation; each phase's idempotency key is persisted before its side effect and reused across interrupted
-  retries; completion copy says "Latest research pass finished today/(date) at h:mm" and never claims research is
-  current. The old warm-receipt store, process-local scheduled Set, and once-daily Pacific gate are deleted; all
-  three migrations are applied to production and the claim RPC was smoke-proven against the real database (service
-  role executes, a live foreign lease loses, an expired lease reclaims yesterday's row by the same id with its
-  attempt key intact, a same-UTC-day completion short-circuits, a later day creates, and a direct second open-row
-  insert violates the index). Verified end to end on the rendered app: a real visit completed cycle
-  tenant-iranopedia:2026-07-24 (2 sources refreshed, surface published, lease released) and Today rendered the
-  honest completion line for that pass.
+  most one unfinished run exists per account across all dates (partial unique index, 2026-07-24): the claim
+  resumes the one unfinished run whatever day it started (same row, phase, cursor, attempt key, progress; a live
+  foreign lease blocks creation, an expired one reclaims), a same-UTC-day completion blocks a redundant pass, and
+  a new daily cycle (key computed at database time) starts only when no run is open. A partially failed connector
+  refresh durably persists the providers that actually synced (deduplicated across retries) before pausing, so a
+  mixed attempt never strands its succeeded sources. Seven phases mirror the real work (refresh stale sources, one
+  bounded GSC backfill chunk, keyword discovery, core-prompt AI observation, retained-query search analysis,
+  winning-page comparison, evidence-conditioned surface publish); progress, phase, and cursors are durable; a
+  killed invocation resumes at the persisted phase after lease expiry; concurrent instances cannot duplicate work;
+  Today shows one honest persisted status line (a dead lease reads paused). The truth boundary is enforced
+  (2026-07-24): a failed connector, backfill, or surface publication pauses the run at its phase with a bounded
+  error and never advances, publishes, or presents as completed research; lease mutations (advance, pre-phase
+  renew, finish) are database-time security-definer RPCs so an expired owner cannot mutate a run and completed
+  rows reject all mutation; each phase's idempotency key is persisted before its side effect and reused across
+  interrupted retries; completion copy says "Latest research pass finished today/(date) at h:mm" and never claims
+  research is current. The old warm-receipt store, process-local scheduled Set, and once-daily Pacific gate are
+  deleted; all three migrations are applied to production and the claim RPC was smoke-proven against the real
+  database (service role executes, a live foreign lease loses, an expired lease reclaims yesterday's row by the
+  same id with its attempt key intact, a same-UTC-day completion short-circuits, a later day creates, and a direct
+  second open-row insert violates the index). Verified end to end on the rendered app: a real visit completed
+  cycle tenant-iranopedia:2026-07-24 (2 sources refreshed, surface published, lease released) and Today rendered
+  the honest completion line for that pass.
 - The DataForSEO research funnel is lifecycle-true and feeds ONE canonical evidence input (Slice 6 + closures
   6B..6I, 2026-07-25). A TYPED registry (CapabilityInputByKey; wrong fields fail tsc; model never caller-supplied)
   owns each engine ask, live-verified: chatgpt llm_responses web_search ONLY (the live o4-mini is reasoning and
@@ -138,14 +129,23 @@
   account's spend can never throttle another. A committed regression sweep converts every SCHEMA_BY_KIND entry
   through the strict-subset conversion. Transport behavior is hermetically validated; the live provider response
   is NOT yet validated (no paid call under the rebuild authorizations).
-- Recommendation, manual implementation, verification, and 7/14/28 measurement foundations exist.
-
+- One canonical proposal path produces the ranked Changes queue AND, per pass, at most ONE deeply evidenced
+  existing-page Change Bundle for the strongest page (Slice 7, 2026-07-25): receipt-first plain-English evidence
+  (Search demand, current copy, research classes when present, an honest missing list); components pass the one
+  gated drafter/validator (rejects become named alternatives, never filler); output is deterministic; no demand or
+  current copy = refusal. The bundle REPLACES its page's atomic edits at generation and load (the same edit never
+  shows twice), rides the existing ChangeProposal (one decoder serves pre-bundle rows), renders as the flagship
+  Changes row and a two-layer /changes/[id] detail (exact before/after copy, receipt, alternatives, risks,
+  truthful measurement plan), and stays manual (its one action marks it applied and points at Results). Walked on
+  rendered Iranopedia data (75,285-view page, one gate-passing title edit, 8 receipt checks, five honest gaps);
+  OpenAI validation $0.07 ledgered. The writer-less page-surgeon brief/review/artifact generation (~3,000 lines)
+  was deleted in the same slice; page snapshots now read the tenant's Supabase rows, never the legacy .data file
+  (empty on hosted). Manual implementation, verification, and 7/14/28 measurement foundations stand unchanged.
 ## Known target mismatches
 
-- Profound and SEMrush survive only as historical-row reads and inert comments (Slice 2 removed the
-  connector provider, runtime health entries, question seeding, drafter sources, the customer-visible AEO
-  confidence gate, the vendor-named benchmark, the GitHub Actions dispatch, and the provider-import
-  architecture). SEMrush and borrowed-account assumptions must not be revived.
+- Profound and SEMrush survive only as historical-row reads and inert comments (Slice 2 removed the connector
+  provider, health entries, question seeding, drafter sources, the customer-visible AEO confidence gate, the
+  vendor benchmark, the Actions dispatch, and the provider-import architecture); never revive them.
 - Production DataForSEO remains deliberately unconfigured and dry-run; the local research paths were
   live-validated under the proved $2 provider-day cap.
 - Real-customer names remain in historical code comments outside the Account boundary (executable strings and

@@ -12,7 +12,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 const { ownerFlag, mocks } = vi.hoisted(() => ({
   ownerFlag: { value: true },
   mocks: {
-    loadProofPlan: vi.fn(),
     captureChangeMeta: vi.fn(),
     recordShippedChange: vi.fn(),
     measureRecord: vi.fn(),
@@ -31,7 +30,6 @@ vi.mock("@/lib/auth/can-publish", () => ({
 vi.mock("@/lib/operator-mode", () => ({ isOperatorModeServer: () => true }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: vi.fn(async () => "tenant-test") }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/bridge", () => ({ loadProofPlan: mocks.loadProofPlan }));
 vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet", () => ({
   loadPageSurgeonContext: mocks.loadPageSurgeonContext, topPagesByDemand: mocks.topPagesByDemand,
 }));
@@ -53,7 +51,6 @@ import {
 beforeEach(() => {
   ownerFlag.value = true;
   Object.values(mocks).forEach((m) => m.mockReset());
-  mocks.loadProofPlan.mockResolvedValue([{ pageUrl: "https://x.test/cities", controlPaths: ["/a", "/b"], headlineAction: "title" }]);
   mocks.captureChangeMeta.mockResolvedValue({
     canonPage: "https://x.test/cities", path: "/cities", before: "old", after: "new", targetQueries: ["cities in iran"], headlineAction: "title",
   });
@@ -87,8 +84,7 @@ describe("recordShippedChangeAction — account-owner gating", () => {
     expect(mocks.recordShippedChange).not.toHaveBeenCalled();
   });
 
-  it("ANY page (no proof-plan row) ⇒ still records, controls derived from top-demand pages", async () => {
-    mocks.loadProofPlan.mockResolvedValue([]); // page was never review-approved
+  it("ANY page ⇒ still records, controls derived from top-demand pages", async () => {
     const res = await recordShippedChangeAction({ pageUrl: "/cities" });
     expect(res.success).toBe(true);
     expect(mocks.topPagesByDemand).toHaveBeenCalled(); // fallback control selection fired
@@ -142,7 +138,6 @@ describe("recordShippedChangeAction — account-owner gating", () => {
   });
 
   it("fewer than 2 control pages ⇒ refused, nothing recorded", async () => {
-    mocks.loadProofPlan.mockResolvedValue([]); // no plan controls
     mocks.topPagesByDemand.mockReturnValue(["https://x.test/a"]); // only 1 candidate
     const res = await recordShippedChangeAction({ pageUrl: "/cities" });
     expect(res.success).toBe(false);

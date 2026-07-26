@@ -12,55 +12,36 @@ vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
   checkBudget: async () => ({ allowed: true, remaining: 10 }),
   recordSpend: async () => {},
 }));
-import {
-  callStructuredLLM,
-  type CompleteFn,
-} from "@/domains/decision/llm/structured-drafter";
+import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
 
 // A schema-valid AtomicEditDraft value (the simplest kind — no source-verify /
 // word-count / superlative machinery in the way of the transport assertions).
 const VALID_ATOMIC_EDIT = {
-  field: "title",
-  before: "Nowruz",
-  after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen",
+  field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen",
   rationale: "The current title is one word and misses the customs searchers ask about.",
   evidenceRefs: [{ source: "gsc", detail: "strong impressions for nowruz traditions with a low click rate" }],
-  confidence: "high",
-  risks: ["keep the title concise"],
-  operatorSteps: ["Replace the page title field with the new value"],
+  confidence: "high", risks: ["keep the title concise"], operatorSteps: ["Replace the page title field with the new value"],
   proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },
 };
 
 const REQ = {
-  kind: "atomic_edit" as const,
-  tenantId: "tenant-fixture",
+  kind: "atomic_edit" as const, tenantId: "tenant-fixture",
   system: "You improve one on-page field. Return the field, before, after, rationale, evidenceRefs, confidence, risks, operatorSteps, proofPlan.",
   user: "Page: Nowruz. Field to edit: title. Current title: Nowruz.",
   grounded: "nowruz traditions persian new year customs haft-seen",
 };
 
 /** A `complete` double that replays a queue and counts how many times it ran. */
-function seam(responses: Array<{ value: unknown } | { error: string; retryable: boolean; costUsd?: number }>): {
-  complete: CompleteFn;
-  calls: () => number;
-} {
-  let i = 0;
-  let calls = 0;
-  const complete: CompleteFn = async () => {
-    calls += 1;
-    return responses[Math.min(i++, responses.length - 1)]!;
-  };
+function seam(responses: Array<{ value: unknown } | { error: string; retryable: boolean; costUsd?: number }>): { complete: CompleteFn; calls: () => number } {
+  let i = 0, calls = 0;
+  const complete: CompleteFn = async () => { calls += 1; return responses[Math.min(i++, responses.length - 1)]!; };
   return { complete, calls: () => calls };
 }
 
 const ORIGINAL_PROVIDER = process.env.BEACON_LLM_PROVIDER;
-beforeEach(() => {
-  process.env.BEACON_LLM_PROVIDER = "openai";
-});
-afterEach(() => {
-  process.env.BEACON_LLM_PROVIDER = ORIGINAL_PROVIDER;
-});
+beforeEach(() => { process.env.BEACON_LLM_PROVIDER = "openai"; });
+afterEach(() => { process.env.BEACON_LLM_PROVIDER = ORIGINAL_PROVIDER; });
 
 describe("structured-drafter strict transport", () => {
   it("drafts a schema-valid VALUE (no text parsing)", async () => {
@@ -126,21 +107,11 @@ describe("structured-drafter strict transport", () => {
   it("a cache hit costs $0 and never calls complete", async () => {
     const now = new Date("2026-07-23T00:00:00Z");
     const entry: LlmCallCacheEntry = {
-      key: "ignored-key-is-derived",
-      tenantId: "tenant-fixture",
-      kind: "atomic_edit",
-      promptId: "draft.atomic_edit",
-      promptVersion: 1,
-      value: VALID_ATOMIC_EDIT,
-      primaryText: VALID_ATOMIC_EDIT.after,
-      createdAt: now.toISOString(),
-      lastUsedAt: now.toISOString(),
+      key: "ignored-key-is-derived", tenantId: "tenant-fixture", kind: "atomic_edit",
+      promptId: "draft.atomic_edit", promptVersion: 1, value: VALID_ATOMIC_EDIT,
+      primaryText: VALID_ATOMIC_EDIT.after, createdAt: now.toISOString(), lastUsedAt: now.toISOString(),
     };
-    const cacheImpl: CacheImpl = {
-      read: async () => entry,
-      write: async () => {},
-      recentTexts: async () => [],
-    };
+    const cacheImpl: CacheImpl = { read: async () => entry, write: async () => {}, recentTexts: async () => [] };
     const { complete, calls } = seam([{ error: "should-never-run", retryable: false }]);
     const out = await callStructuredLLM({ ...REQ, complete, cacheImpl });
     expect(out.status).toBe("drafted");

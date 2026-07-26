@@ -7,53 +7,33 @@
 import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
 import {
-  openAIStructuredResponse,
-  strictJsonSchemaFor,
-  normalizeStructuredValue,
-  effectiveTimeoutMs,
-  isReasoningModel,
-  estimateCost,
-  type StructuredCallArgs,
-  type BudgetImpl,
-  type CostBreakerImpl,
+  openAIStructuredResponse, strictJsonSchemaFor, normalizeStructuredValue, effectiveTimeoutMs,
+  isReasoningModel, estimateCost, type StructuredCallArgs, type BudgetImpl, type CostBreakerImpl,
 } from "@/domains/decision/llm/gateway";
 
-// ── helpers ──────────────────────────────────────────────────────────────────
-
-const SCHEMA = z.object({
-  title: z.string(),
-  note: z.string().optional(), // optional-not-nullable: provider null must be stripped
-  score: z.number().nullable(), // genuinely nullable: null must be kept
-});
+// note = optional-not-nullable (provider null must be stripped); score = genuinely nullable (null kept).
+const SCHEMA = z.object({ title: z.string(), note: z.string().optional(), score: z.number().nullable() });
 
 /** A completed Responses envelope carrying `structuredText` as the output_text. */
 function completedEnvelope(structuredText: string, over: Record<string, unknown> = {}) {
   return {
     id: "resp_abc123", model: "gpt-5-mini", status: "completed", created_at: 1_753_000_000,
     output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: structuredText }] }],
-    output_text: structuredText,
-    usage: { input_tokens: 1200, output_tokens: 300 },
-    ...over,
+    output_text: structuredText, usage: { input_tokens: 1200, output_tokens: 300 }, ...over,
   };
 }
 
 type FetchCapture = { calls: number; url: string | null; body: any };
 
 /** A fake fetch that records the call and returns the given envelope/status. */
-function fakeFetch(
-  envelope: unknown,
-  opts: { ok?: boolean; status?: number; throwErr?: Error; notJson?: boolean } = {},
-): { impl: typeof fetch; capture: FetchCapture } {
+function fakeFetch(envelope: unknown, opts: { ok?: boolean; status?: number; throwErr?: Error; notJson?: boolean } = {}): { impl: typeof fetch; capture: FetchCapture } {
   const capture: FetchCapture = { calls: 0, url: null, body: null };
   const impl = (async (url: string, init: RequestInit) => {
     capture.calls += 1;
     capture.url = url;
     capture.body = init?.body ? JSON.parse(init.body as string) : null;
     if (opts.throwErr) throw opts.throwErr;
-    return {
-      ok: opts.ok ?? true, status: opts.status ?? 200,
-      json: async () => { if (opts.notJson) throw new Error("not json"); return envelope; },
-    } as unknown as Response;
+    return { ok: opts.ok ?? true, status: opts.status ?? 200, json: async () => { if (opts.notJson) throw new Error("not json"); return envelope; } } as unknown as Response;
   }) as unknown as typeof fetch;
   return { impl, capture };
 }
@@ -69,19 +49,14 @@ function baseArgs(over: Partial<StructuredCallArgs> = {}): StructuredCallArgs {
 const allowBreaker: CostBreakerImpl = { check: async () => ({ tripped: false }) };
 const allowBudget: BudgetImpl = { check: async () => ({ allowed: true }), record: async () => {} };
 
-// ── strictJsonSchemaFor ───────────────────────────────────────────────────────
-
-// Schema conversion + null-normalization promises live in the committed
-// all-kinds sweep (schema-strict-conversion.test.ts); the unsupported-schema
-// fail-closed promise is pinned behaviorally below (zero-fetch invalid_response).
+// Schema conversion + null-normalization promises live in the committed all-kinds
+// sweep (schema-strict-conversion.test.ts); the unsupported-schema fail-closed
+// promise is pinned behaviorally below (zero-fetch invalid_response).
 
 describe("openAIStructuredResponse — fails closed before any fetch", () => {
   it("blocks on a tripped global cost breaker without calling fetch", async () => {
     const { impl, capture } = fakeFetch(completedEnvelope("{}"));
-    const res = await openAIStructuredResponse(baseArgs({
-      budget: { mode: "gateway_check", projectedCostUsd: 0.01 },
-      costBreakerImpl: { check: async () => ({ tripped: true, reason: "ceiling reached" }) }, fetchImpl: impl,
-    }));
+    const res = await openAIStructuredResponse(baseArgs({ budget: { mode: "gateway_check", projectedCostUsd: 0.01 }, costBreakerImpl: { check: async () => ({ tripped: true, reason: "ceiling reached" }) }, fetchImpl: impl }));
     expect(res.kind).toBe("blocked_budget");
     if (res.kind === "blocked_budget") expect(res.reason).toBe("ceiling reached");
     expect(capture.calls).toBe(0);
@@ -89,10 +64,7 @@ describe("openAIStructuredResponse — fails closed before any fetch", () => {
 
   it("blocks on the per-platform budget cap without calling fetch", async () => {
     const { impl, capture } = fakeFetch(completedEnvelope("{}"));
-    const res = await openAIStructuredResponse(baseArgs({
-      budget: { mode: "gateway_check", projectedCostUsd: 0.01 }, costBreakerImpl: allowBreaker,
-      budgetImpl: { check: async () => ({ allowed: false, reason: "cap reached" }), record: async () => {} }, fetchImpl: impl,
-    }));
+    const res = await openAIStructuredResponse(baseArgs({ budget: { mode: "gateway_check", projectedCostUsd: 0.01 }, costBreakerImpl: allowBreaker, budgetImpl: { check: async () => ({ allowed: false, reason: "cap reached" }), record: async () => {} }, fetchImpl: impl }));
     expect(res.kind).toBe("blocked_budget");
     expect(capture.calls).toBe(0);
   });
@@ -105,8 +77,6 @@ describe("openAIStructuredResponse — fails closed before any fetch", () => {
     expect(capture.calls).toBe(0);
   });
 });
-
-// ── request body shape ────────────────────────────────────────────────────────
 
 describe("openAIStructuredResponse — request body", () => {
   it("sends EXACT Responses fields and omits Chat-Completions fields", async () => {
@@ -126,14 +96,9 @@ describe("openAIStructuredResponse — request body", () => {
     expect(body.reasoning).toEqual({ effort: "low" });
 
     // Chat-Completions fields MUST be absent.
-    expect(body.messages).toBeUndefined();
-    expect(body.max_completion_tokens).toBeUndefined();
-    expect(body.reasoning_effort).toBeUndefined();
-    expect(body.response_format).toBeUndefined();
+    for (const k of ["messages", "max_completion_tokens", "reasoning_effort", "response_format"]) expect(body[k]).toBeUndefined();
   });
 });
-
-// ── envelope classification ───────────────────────────────────────────────────
 
 describe("openAIStructuredResponse — envelope outcomes", () => {
   it("parses a completed valid response to ok with provenance and normalized nulls", async () => {
@@ -190,10 +155,7 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
     const { impl, capture } = fakeFetch(completedEnvelope("{}"));
     const res = await openAIStructuredResponse(baseArgs({ tenantId: "  ", fetchImpl: impl }));
     expect(res.kind).toBe("invalid_response");
-    if (res.kind === "invalid_response") {
-      expect(res.reason).toBe("missing_tenant");
-      expect(res.provenance).toBeUndefined(); // no provider provenance, no cost
-    }
+    if (res.kind === "invalid_response") { expect(res.reason).toBe("missing_tenant"); expect(res.provenance).toBeUndefined(); } // no provenance, no cost
     expect(capture.calls).toBe(0);
   });
 
@@ -225,8 +187,6 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
     if (res.kind === "error") expect(res.reason).toContain("aborted");
   });
 });
-
-// ── pure helpers still honored ────────────────────────────────────────────────
 
 describe("gateway pure helpers", () => {
   it("floors reasoning-model timeouts to 90s and leaves others alone", () => {

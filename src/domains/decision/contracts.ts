@@ -131,6 +131,65 @@ export type ProposalEvidence = {
   evidenceRefCount: number;
 };
 
+// ── ChangeBundle: the atomic components implemented together on one page ──────
+// (canonical record, Slice 7). A bundle rides ON a ChangeProposal: the proposal
+// stays the one persisted, ranked, validated record; the bundle is its deep,
+// copy-ready form. Never a second pipeline, never a second status vocabulary.
+
+export type BundleComponentKind = "title" | "meta" | "h1" | "opening_answer" | "section" | "internal_links" | "source_pack";
+
+/** One exact, copy-ready component. Every component cites the receipt items
+ *  that justify it; a component without evidence is never emitted (three
+ *  grounded components beat eight padded ones). */
+export type BundleComponent = {
+  kind: BundleComponentKind;
+  /** Operator-facing label ("Page title", "Opening answer", ...). */
+  label: string;
+  /** Exact current copy (null = the page has none today: a pure insertion). */
+  before: string | null;
+  /** Exact copy-ready replacement or insertion text. */
+  after: string;
+  /** Keys into receipt.items that justify this component (>= 1). */
+  evidenceKeys: string[];
+  /** review = touches facts or claims and deserves a human look first. */
+  risk: "safe" | "review";
+};
+
+/** One piece of canonical evidence the bundle used, in plain English. */
+export type BundleEvidenceItem = {
+  /** Stable within the bundle; referenced by BundleComponent.evidenceKeys. */
+  key: string;
+  kind: "gsc_demand" | "keyword" | "serp" | "ai_observation" | "winning_page" | "page_extract" | "competitor" | "internal_link";
+  /** Plain-English fact (never a raw id, provider name, or lab word). */
+  fact: string;
+  /** Freshness; null = an undated aggregate. */
+  observedAt: string | null;
+};
+
+export type ChangeBundle = {
+  /** What applying this bundle achieves, in one sentence. */
+  objective: string;
+  /** The one metric Beacon will watch afterward. */
+  metric: string;
+  /** The demand scope: real queries and (when present) tracked prompt texts. */
+  scope: { queries: string[]; prompts: string[] };
+  /** >= 1 evidence-justified components with exact copy. */
+  components: BundleComponent[];
+  receipt: {
+    items: BundleEvidenceItem[];
+    /** Evidence Beacon looked for and honestly does NOT have. */
+    missing: string[];
+    freshestObservedAt: string | null;
+  };
+  /** What else was considered and why it lost. */
+  alternatives: { option: string; reason: string }[];
+  /** Plain-English destructive/factual risk notes. */
+  risks: string[];
+  confidenceReasons: string[];
+  /** What Beacon will measure once the operator applies the bundle. */
+  measurementPlan: string;
+};
+
 export type ChangeProposal = {
   /** Stable identity: `${tenantId}::${pageKey}::${kind}::${field|new_page}`. */
   id: string;
@@ -161,6 +220,9 @@ export type ChangeProposal = {
   /** Honest value sizing for the ranker (may be null — never fabricated). */
   impactScore: number | null;
   upsidePerMonth: number | null;
+  /** The deep copy-ready form (Slice 7). Absent on atomic proposals and on
+   *  every pre-bundle persisted row; ONE decoder serves both generations. */
+  bundle?: ChangeBundle;
   /** STRUCTURAL: this is a proposal. The kernel never writes a live page. */
   publish: "manual";
   createdAt: string;
@@ -186,6 +248,41 @@ const RecommendedChangeSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
+  objective: z.string().min(1),
+  metric: z.string().min(1),
+  scope: z.object({ queries: z.array(z.string()), prompts: z.array(z.string()) }),
+  components: z.array(z.object({
+    kind: z.enum(["title", "meta", "h1", "opening_answer", "section", "internal_links", "source_pack"]),
+    label: z.string().min(1),
+    before: z.string().nullable(),
+    after: z.string().min(1),
+    evidenceKeys: z.array(z.string().min(1)).min(1),
+    risk: z.enum(["safe", "review"]),
+  })).min(1),
+  receipt: z.object({
+    items: z.array(z.object({
+      key: z.string().min(1),
+      kind: z.enum(["gsc_demand", "keyword", "serp", "ai_observation", "winning_page", "page_extract", "competitor", "internal_link"]),
+      fact: z.string().min(1),
+      observedAt: z.string().nullable(),
+    })),
+    missing: z.array(z.string()),
+    freshestObservedAt: z.string().nullable(),
+  }),
+  alternatives: z.array(z.object({ option: z.string().min(1), reason: z.string().min(1) })),
+  risks: z.array(z.string()),
+  confidenceReasons: z.array(z.string()),
+  measurementPlan: z.string().min(1),
+}).superRefine((b, ctx) => {
+  // Referential integrity: unproven copy can never be served. Every component
+  // must cite receipt items that actually exist.
+  const keys = new Set(b.receipt.items.map((i) => i.key));
+  for (const c of b.components) for (const k of c.evidenceKeys) {
+    if (!keys.has(k)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `component ${c.kind} cites missing evidence ${k}` });
+  }
+}) as z.ZodType<ChangeBundle>;
+
 export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   id: z.string().min(1),
   tenantId: z.string().min(1),
@@ -210,6 +307,7 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   }),
   impactScore: z.number().nullable(),
   upsidePerMonth: z.number().nullable(),
+  bundle: ChangeBundleSchema.optional(),
   publish: z.literal("manual"),
   createdAt: z.string(),
 }) as z.ZodType<ChangeProposal>;
