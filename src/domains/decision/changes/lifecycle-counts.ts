@@ -157,7 +157,7 @@ function toLedgerRecordLike(row: LedgerLifecycleRow): LedgerRecordLike & { opera
   };
 }
 
-export type LedgerLifecycleSplit<T> = { won: T[]; learned: T[]; measuring: T[] };
+export type LedgerLifecycleSplit<T> = { won: T[]; promising: T[]; learned: T[]; measuring: T[] };
 
 /**
  * Split a whole ledger into the three Results bands - the ONE band membership rule,
@@ -174,14 +174,15 @@ export function splitLedgerLifecycle<T extends LedgerLifecycleRow>(
   // restored as attribution limited). No-revert ledgers pass through untouched.
   const real = excludeRevertBookkeeping(rows);
   const reads = readRecordsForLearning(real.map(toLedgerRecordLike), now);
-  const out: LedgerLifecycleSplit<T> = { won: [], learned: [], measuring: [] };
+  const out: LedgerLifecycleSplit<T> = { won: [], promising: [], learned: [], measuring: [] };
   real.forEach((row, i) => out[bandOf(reads[i])].push(row));
   return out;
 }
 
 /** Classify ONE ledger row into its band. */
 export function ledgerLifecycleStage(row: LedgerLifecycleRow, now: Date = new Date()): LedgerLifecycleStage {
-  return bandOf(readRecordsForLearning([toLedgerRecordLike(row)], now)[0]);
+  const band = bandOf(readRecordsForLearning([toLedgerRecordLike(row)], now)[0]);
+  return band === "promising" ? "measuring" : band; // promising is still in flight
 }
 
 /** The three ledger-derived counts, from the same split Results renders. */
@@ -191,7 +192,8 @@ export function countLedgerLifecycle(
 ): { measuring: number; decided: number; won: number } {
   const split = splitLedgerLifecycle(rows, now);
   return {
-    measuring: split.measuring.length,
+    // A promising (pre-28-day) improvement is still in flight, never decided.
+    measuring: split.measuring.length + split.promising.length,
     decided: split.won.length + split.learned.length,
     won: split.won.length,
   };

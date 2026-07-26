@@ -43,6 +43,8 @@ export type ChangesView = {
   summary: ChangesSummary;
   /** Whole-tenant measuring count (proof ledger, the ONE-COUNT RULE). */
   measuringCountCanonical: number;
+  /** Validator-passed rows set aside only because business info changed. */
+  demotedStaleBasis: number;
   /** Whole-tenant decided count (proof ledger). */
   decidedCountCanonical: number;
   /** Set only when Ready is 0, so the tab is never a bare "0" with no reason. */
@@ -81,6 +83,7 @@ const EMPTY_CHANGES_VIEW: ChangesView = {
   newPageBriefs: [],
   summary: { todo: 0, ready: 0, measuring: 0, results: 0 },
   measuringCountCanonical: 0,
+  demotedStaleBasis: 0,
   decidedCountCanonical: 0,
   readyZeroHint: null,
   receiptLine: null,
@@ -136,7 +139,7 @@ export async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesV
  */
 export async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> {
   const [queue, ledgerRows] = await Promise.all([
-    loadProposalQueue(tenantId).catch(() => ({ ranked: [], ready: [], toDo: [], newPageBriefs: [] })),
+    loadProposalQueue(tenantId).catch(() => ({ ranked: [], ready: [], toDo: [], newPageBriefs: [], demotedStaleBasis: 0 })),
     loadProofLedgerCached(tenantId).catch(() => []),
   ]);
 
@@ -150,7 +153,9 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
 
   let readyZeroHint: string | null = null;
   if (summary.ready === 0) {
-    if (summary.todo > 0) {
+    if (queue.demotedStaleBasis > 0) {
+      readyZeroHint = `Your business info changed, so I set aside ${queue.demotedStaleBasis} earlier ${queue.demotedStaleBasis === 1 ? "idea" : "ideas"} drafted against the old version. I will draft fresh recommendations from your confirmed info on the next research pass.`;
+    } else if (summary.todo > 0) {
       readyZeroHint =
         "None has cleared Ready yet. These ideas still need a human look before I hand you exact copy. Open one to review it.";
     } else if (summary.measuring > 0) {
@@ -177,6 +182,7 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
     newPageBriefs: queue.newPageBriefs,
     summary,
     measuringCountCanonical: ledgerCounts.measuring,
+    demotedStaleBasis: queue.demotedStaleBasis,
     decidedCountCanonical: ledgerCounts.decided,
     readyZeroHint,
     receiptLine,

@@ -12,7 +12,7 @@ export default async function SettingsConfigPage() {
     <div>
       <PageHeader
         title="Your business info"
-        description="This is what Beacon knows about your business. We filled it in from your website to start. Anything you type here replaces our guess."
+        description="This is what I know about your business. I filled it in from your website to start. Everything you save here becomes confirmed truth, and I research and write against it."
       />
       <ConfigForm initial={initial} />
     </div>

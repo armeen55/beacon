@@ -1,27 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
-  addDays,
-  bundleReads,
-  detectOverlaps,
-  evaluateChange,
-  evaluateWindows,
-  metricFor,
-  rankingPriors,
-  readLedger,
-  toKernelInput,
-  verdictPhrase,
-  type KernelInput,
-  type LedgerRecordLike,
+  addDays, bundleReads, detectOverlaps, evaluateChange, evaluateWindows, metricFor, rankingPriors,
+  readLedger, toKernelInput, verdictPhrase, type KernelInput, type LedgerRecordLike,
 } from "@/domains/measurement/proof-gsc/kernel";
 
 /**
- * Outcome-level contract tests for the measurement kernel. These pin CUSTOMER
- * TRUTH, not implementation details:
- *   - every historical shipment maps to exactly one read (nothing disappears);
- *   - the 7/14/28 windows respect Google's reporting lag;
- *   - overlapping changes on one page read as confounded, never fabricated causality;
- *   - the ranking outcome signal exists and only cleanly-settled reads feed it;
- *   - no operator string claims clean causality.
+ * Outcome-level contract tests for the measurement kernel. These pin CUSTOMER TRUTH, not
+ * implementation: every historical shipment maps to exactly one read (nothing disappears);
+ * the 7/14/28 windows respect Google's reporting lag; overlapping changes on one page read
+ * as confounded; only cleanly-settled reads feed ranking; no operator string claims cause.
  */
 
 const NOW = new Date("2026-06-01T00:00:00Z");
@@ -73,11 +60,18 @@ describe("individual directional reads", () => {
     expect(read.headline.toLowerCase()).toContain("similar pages");
   });
 
-  it("owns a decline plainly and feeds a negative ranking signal", () => {
+  it("owns a decline observationally, with no plus sign on a loss and no verdict while it is still measuring", () => {
     const read = evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: -40 })] }), CLOSED_WINDOWS, []);
     expect(read.verdict).toBe("directional_decline");
     expect(read.rankingSignal).toBeLessThan(0);
-    expect(read.headline).toContain("did not work");
+    expect(read.headline).toContain("moved down after the change");
+    expect(read.headline).toContain("40 clicks behind similar pages");
+    expect(read.headline).not.toMatch(/did not work|\+/); // a loss never renders a plus sign
+    // The same loss read on the 7-day window is still measuring: no closing verdict.
+    const early = evaluateChange(baseInput({ actionType: "content", windows: [win(7, { adjustedClicksLift: -40 })] }), evaluateWindows("2026-05-01", NOW, "2026-05-10"), []);
+    expect(early.basisDay).toBe(7);
+    expect(early.headline).toContain("Still measuring");
+    expect(early.headline).not.toMatch(/did not work|try something else|different angle/);
   });
 
   it("stays waiting with no closed window and never reads a dead end", () => {

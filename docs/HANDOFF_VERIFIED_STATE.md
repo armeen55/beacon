@@ -129,18 +129,18 @@
   account's spend can never throttle another. A committed regression sweep converts every SCHEMA_BY_KIND entry
   through the strict-subset conversion. Transport and live provider behavior are validated; the existing OpenAI
   key enables this canonical path directly, with no secondary feature flag.
-- One canonical path produces the ranked Changes queue AND, per pass, at most one deeply evidenced Change Bundle
-  PER ARCHETYPE (Slice 7 existing-page + Slice 8 new-page, 2026-07-25): the strongest page rewrite and researched
-  unbuilt topic (new-page components are pure insertions incl. a page plan and screened source pack; citable
-  research REQUIRED; token-scored topic matching): receipt-first plain-English evidence with an honest missing
-  list; components pass the one gated drafter/validator (rejects become named alternatives, never filler);
-  deterministic; insufficient evidence = refusal. A bundle REPLACES its own shallow rows at generation and load
-  (page for rewrites, topic for new pages), rides ChangeProposal (one decoder serves pre-bundle rows), renders as
-  the flagship Changes row and two-layer /changes/[id] detail (exact copy, receipt, alternatives, risks, truthful
-  measurement; Results takes New page), and stays manual. Walked on rendered Iranopedia data (75,285-view flagship
-  rewrite; new pages live-refuse until funnel research exists); OpenAI validation $0.07 ledgered. The writer-less
-  page-surgeon generation (~3,000 lines) is deleted; page snapshots read the tenant's Supabase rows, never the
-  legacy .data file. Manual implementation and 7/14/28 measurement stand unchanged.
+- One canonical path produces the ranked Changes queue AND one deep Change Bundle PER ARCHETYPE per pass at most
+  (Slices 7+8, 2026-07-25): the strongest page rewrite and researched topic (pure insertions; citable research
+  REQUIRED; threshold-gated cannibalization): receipt-first plain-English evidence with an honest missing list;
+  gated, deterministic; thin evidence = refusal. A bundle REPLACES its shallow rows at generation and load, rides
+  ChangeProposal (one decoder serves all rows), renders as the flagship row and two-layer /changes/[id] detail
+  (Results takes New page), and stays manual. Proposals are BASIS-STAMPED (2026-07-26): a row off the current
+  basis, or owing a source, demotes to To do in presentation only, and the surfaces say why. Page snapshots read
+  Supabase; the page-surgeon generation is gone. Business Info is universal and provenance-safe: displayed fields
+  confirm on save, blank optionals keep prior value AND origin, no save merges over a failed read; research needs
+  offerings or topics. Results bands are maturity-true everywhere: early improvement = Promising, Win = 28-day
+  only, still-measuring carries no verdict or causal claim, lifts never mis-signed. Today counts the full Ready
+  list and the bleeding-page alarm links to its fix; manual implementation and 7/14/28 measurement stand.
 ## Known target mismatches
 
 - Profound and SEMrush survive only as historical-row reads and inert comments (Slice 2 removed the connector

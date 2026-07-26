@@ -31,7 +31,10 @@ export default async function ProofPage({
   if (reads.length > 0) scheduleAutoMeasure(tenantId);
 
   const bands = splitReads(reads.map((read) => ({ read })));
+  // The kernel's bandOf owns maturity now: "won" is 28-day evidence only and
+  // "promising" is the earlier improvement band, on every surface at once.
   const won = bands.won.map((b) => b.read);
+  const promising = bands.promising.map((b) => b.read);
   const learned = bands.learned.map((b) => b.read);
   const measuring = bands.measuring.map((b) => b.read);
   const bundles = bundleReads(reads);
@@ -67,7 +70,8 @@ export default async function ProofPage({
       ) : (
         <>
           {bundles.length > 0 ? <BundleCallouts bundles={bundles} /> : null}
-          <Band title="Wins" tone="text-emerald-700" reads={won} blurb="These changes beat their comparison pages over the window. Real, measured gains." />
+          <Band title="Wins" tone="text-emerald-700" reads={won} blurb="These changes beat their comparison pages across the full 28 days. Real, measured gains." />
+          <Band title="Promising" tone="text-emerald-600" reads={promising} blurb="These are moving up, but their 28 day window has not closed yet. I will call them when it does." />
           <Band title="What I learned" tone="text-foreground/70" reads={learned} blurb="These settled without a clear gain. That tells us which lever to try next on pages like these." />
           <Band title="Still measuring" tone="text-muted-foreground" reads={measuring} blurb="Still collecting data or waiting on Google. Nothing to do here until a read lands." />
         </>

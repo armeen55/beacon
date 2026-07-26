@@ -486,7 +486,8 @@ export async function produceNewPageBundleForSnapshot(
       opportunityType: "Build the page this demand is asking for",
       status: verdict.status,
       recommendedChange: change,
-      whyItMatters: `AI and Google are asked about "${topic}" and you have no page that answers it, so building one is how you get into that answer.`,
+      // Name only the source with receipts: never a combined claim when one is absent.
+      whyItMatters: `${pick.basis === "ai_attention" ? `AI keeps getting asked about "${topic}"` : pick.basis === "search_volume" ? `People search for "${topic}"` : `People search for "${topic}" and AI gets asked about it too`} and you have no page that answers it, so building one is how you get into that answer.`,
       estimatedEffortMinutes: 60, riskLevel: "medium",
       confidence: receipt.items.length >= 6 ? pick.confidence : "low", limitations: receipt.missing,
       evidence: { query: topic, hints: facts.slice(0, 5), evidenceRefCount: receipt.items.length },

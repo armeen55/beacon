@@ -144,6 +144,9 @@ export function buildScoreboard(
   const stageById = new Map<string, LedgerLifecycleStage>();
   for (const r of split.won) stageById.set(r.id, "won");
   for (const r of split.learned) stageById.set(r.id, "learned");
+  // A promising early improvement is still measuring on every surface: it must
+  // never read as a win before its 28-day window closes.
+  for (const r of split.promising) stageById.set(r.id, "measuring");
   for (const r of split.measuring) stageById.set(r.id, "measuring");
 
   // Markers: group ledger rows by ship DAY, only within the charted range.

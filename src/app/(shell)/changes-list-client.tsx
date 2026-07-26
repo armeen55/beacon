@@ -70,7 +70,7 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
       <ol className="space-y-3">
         {rows.map((p, i) =>
           p.bundle ? (
-            <BundleRow key={p.id} proposal={p} bundle={p.bundle} rank={i + 1} />
+            <BundleRow key={p.id} proposal={p} bundle={p.bundle} rank={i + 1} inReadyLane={tab === "ready"} />
           ) : (
             <ProposalRow key={p.id} proposal={p} rank={i + 1} canApply={tab === "ready"} />
           ),
@@ -104,13 +104,13 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
  * parts wording change: a page that does not exist yet has no edits to make,
  * it has pieces to paste.
  */
-function BundleRow({ proposal, bundle, rank }: { proposal: ChangeProposal; bundle: ChangeBundle; rank: number }) {
+function BundleRow({ proposal, bundle, rank, inReadyLane }: { proposal: ChangeProposal; bundle: ChangeBundle; rank: number; inReadyLane: boolean }) {
   const checks = bundle.receipt.items.length;
   const parts = bundle.components.length;
   const isNew = proposal.kind === "new_page";
   const partsLabel = isNew
-    ? `${parts} ${proposal.status === "proposed" ? "ready-to-paste" : "drafted"} piece${parts === 1 ? "" : "s"}`
-    : `${parts} exact edit${parts === 1 ? "" : "s"}${proposal.status === "proposed" ? ", copy ready" : ""}`;
+    ? `${parts} ${inReadyLane ? "ready-to-paste" : "drafted"} piece${parts === 1 ? "" : "s"}`
+    : `${parts} exact edit${parts === 1 ? "" : "s"}${inReadyLane ? ", copy ready" : ""}`;
   const reason = bundle.confidenceReasons[0] ?? bundle.receipt.items[0]?.fact ?? null;
   return (
     <li className="space-y-2 rounded-2xl border border-accent-primary/50 bg-surface-raised p-4">
@@ -207,6 +207,11 @@ function ChangeBody({ proposal }: { proposal: ChangeProposal }) {
       </div>
     );
   }
+  // FAQPage is not a win to recommend: Google restricts FAQ rich results to
+  // authoritative government and health sites, so a normal page marking it up gets
+  // nothing extra in search. It stays in the saved brief; it just never renders as
+  // something I am telling the operator to add.
+  const schemaToShow = c.schemaTypes.filter((s) => s.trim().toLowerCase() !== "faqpage");
   return (
     <div className="space-y-3">
       <Field label="Title" value={c.proposedTitle} />
@@ -232,8 +237,8 @@ function ChangeBody({ proposal }: { proposal: ChangeProposal }) {
           </ul>
         </div>
       ) : null}
-      {c.schemaTypes.length > 0 ? (
-        <p className="text-[12px] text-muted-foreground">Schema: {c.schemaTypes.join(", ")}</p>
+      {schemaToShow.length > 0 ? (
+        <p className="text-[12px] text-muted-foreground">Schema: {schemaToShow.join(", ")}</p>
       ) : null}
     </div>
   );

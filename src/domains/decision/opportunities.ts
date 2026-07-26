@@ -22,6 +22,7 @@ import type {
   OwnedPageEvidence,
   NewPageOpportunity,
 } from "@/domains/evidence/snapshot";
+import { scoreTopicMatch } from "@/domains/evidence/relevance-gate";
 import type { EvidenceInput, ProposalKind } from "./contracts";
 
 /** Caps so a large tenant never queues an unbounded number of cold drafts. */
@@ -114,6 +115,26 @@ function existingEditInput(
   };
 }
 
+/** The headline claim for a new page, matched to the receipts behind it. Never
+ *  says both sources when only one produced evidence: an AI-attention topic has
+ *  no measured search volume, and a volume-only topic has no AI question. */
+function newPageLabel(basis: NewPageOpportunity["basis"]): string {
+  if (basis === "ai_attention") return "Build a page AI keeps asking about";
+  if (basis === "search_volume") return "Build a page people search for";
+  return "Build a page people search for and AI asks about";
+}
+
+/** The one demand fact behind a new page, from the same basis as its label. */
+function newPageHint(opp: NewPageOpportunity): string {
+  if (opp.basis === "ai_attention") {
+    return `AI answers keep surfacing "${opp.topic}" and competitors get cited for it while you have no page on it.`;
+  }
+  if (opp.basis === "search_volume") {
+    return `There is real search demand for "${opp.topic}" and you have no page that answers it directly.`;
+  }
+  return `People search for "${opp.topic}" and AI gets asked about it too, and you have no page that answers it.`;
+}
+
 /** Build one new-page input from a NewPageOpportunity. */
 function newPageInput(snapshot: EvidenceSnapshot, opp: NewPageOpportunity): EvidenceInput {
   return {
@@ -122,15 +143,11 @@ function newPageInput(snapshot: EvidenceSnapshot, opp: NewPageOpportunity): Evid
     opportunity: {
       query: opp.topic,
       kind: "new_page",
-      opportunityType: "Build a page AI and Google keep asking for",
+      opportunityType: newPageLabel(opp.basis),
       intent: intentOf(opp.topic),
     },
     evidence: {
-      hints: [
-        opp.basis === "ai_attention"
-          ? `AI answers keep surfacing "${opp.topic}" and competitors get cited for it while you have no page on it.`
-          : `There is real search demand for "${opp.topic}" and you have no page that answers it directly.`,
-      ],
+      hints: [newPageHint(opp)],
       competitorPages: opp.competitorUrls,
       fanoutQueries: opp.fanoutSeeds,
     },
@@ -181,7 +198,24 @@ export function snapshotToEvidenceInputs(snapshot: EvidenceSnapshot): EvidenceIn
     if (existing.length >= MAX_EXISTING_EDIT_OPPORTUNITIES) break;
   }
 
+  // Never propose building a page the tenant already owns. A topic that matches an
+  // owned page's own words is that page's job: the existing-page path above already
+  // covers it, and emitting a new_page as well would recommend competing with
+  // yourself for the same searches. Same relevance rule the rest of the product uses.
+  const ownedTopicText = snapshot.ownedPages
+    .map((p) => [p.content?.title, p.content?.h1].filter(Boolean).join(" ").trim())
+    .filter((t) => t.length > 0);
+  // Threshold, not bare relevance: one shared token ("nowruz", "tehran") must not
+  // let a single owned page silently kill every adjacent topic. Suppress only when
+  // MOST of the topic's own distinguishing tokens are covered by the owned page.
+  const alreadyOwned = (topic: string) =>
+    ownedTopicText.some((text) => {
+      const v = scoreTopicMatch(topic, text);
+      return v.relevant && v.score >= 0.6;
+    });
+
   const newPages = [...snapshot.newPageOpportunities]
+    .filter((opp) => !alreadyOwned(opp.topic))
     .sort((a, b) => b.demandWeight - a.demandWeight)
     .slice(0, MAX_NEW_PAGE_OPPORTUNITIES)
     .map((opp) => newPageInput(snapshot, opp));

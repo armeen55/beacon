@@ -121,7 +121,6 @@ type RouteTitleEntry = {
 // header, so a title entry for it was dead weight.
 const EXTRA_ROUTE_TITLES: RouteTitleEntry[] = [
   { prefix: "/changes", title: "Changes", childTitle: "Change detail" },
-  { prefix: "/page", title: "Page report", childTitle: "Page report" },
   { prefix: "/help", title: "Help & glossary" },
   { prefix: "/onboard", title: "Set up your business", childTitle: "Set up your business" },
   { prefix: "/settings", title: "Settings" },
@@ -181,13 +180,8 @@ export function routeCrumbFor(pathname: string): RouteCrumb {
     return { title: entry.title, parent: parentCrumb };
   }
 
-  // Deeper than the registered prefix: a detail page. The page report's
-  // subject IS its path, so surface it; everything else falls back to the
-  // entry's plain childTitle under the entry as parent.
-  if (entry.prefix === "/page") {
-    const subject = decodeURIComponent(pathname.slice("/page".length)) || "/";
-    return { title: subject, parent: { label: entry.title, href: "/" } };
-  }
+  // Deeper than the registered prefix: a detail page falls back to the entry's
+  // plain childTitle under the entry as parent.
   return {
     title: entry.childTitle ?? entry.title,
     parent: { label: entry.title, href: entry.prefix },

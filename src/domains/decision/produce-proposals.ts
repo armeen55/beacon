@@ -21,6 +21,7 @@ import "server-only";
 import { log } from "@/lib/logger";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { loadBusinessProfile } from "@/domains/account";
+import { resolveCurrentBasis } from "./load-proposals";
 import { snapshotToEvidenceInputs } from "./opportunities";
 import { produceBundleForSnapshot, produceNewPageBundleForSnapshot } from "./produce-bundle";
 import { proposeChange, type ProposeOptions } from "./propose";
@@ -66,6 +67,15 @@ export async function produceProposalsForTenant(
   const allowlist =
     opts.authoritativeSourceDomains ?? profile?.trustedSourceDomains.value ?? [];
 
+  // The basis this pass generates under: the SAME fingerprint Runtime and the
+  // Evidence funnel scope their derived work with (account + domain + goal +
+  // confirmed profile facts). Every proposal is stamped with it, so when the
+  // operator changes what the business is, yesterday's proposals stop reading as
+  // ready and become history instead of silently current. Fail-soft to null: an
+  // unreadable account stamps nothing rather than stamping a wrong basis.
+  const basis = await resolveCurrentBasis(tenantId, profile);
+  const stamp = (p: ChangeProposal): ChangeProposal => (basis ? { ...p, basis } : p);
+
   const inputs = snapshotToEvidenceInputs(snapshot).slice(0, maxDrafts);
 
   const proposals: ChangeProposal[] = [];
@@ -88,8 +98,9 @@ export async function produceProposalsForTenant(
       noDraft += 1;
       continue;
     }
-    proposals.push(outcome.proposal);
-    if (persist) await saveChangeProposal(outcome.proposal);
+    const proposal = stamp(outcome.proposal);
+    proposals.push(proposal);
+    if (persist) await saveChangeProposal(proposal);
   }
 
   // ONE bundle per archetype per pass (strongest page rewrite + strongest researched
@@ -115,8 +126,9 @@ export async function produceProposalsForTenant(
       const p = proposals[i]!;
       if (p.kind === "existing_edit" && p.pagePath === covered) proposals.splice(i, 1);
     }
-    proposals.push(bundled.proposal);
-    if (persist) await saveChangeProposal(bundled.proposal);
+    const proposal = stamp(bundled.proposal);
+    proposals.push(proposal);
+    if (persist) await saveChangeProposal(proposal);
   } else {
     log.info("[produce-proposals] no bundle this pass", { tenantId, reason: bundled.reason });
   }
@@ -128,8 +140,9 @@ export async function produceProposalsForTenant(
       const p = proposals[i]!;
       if (p.kind === "new_page" && p.primaryQuery.trim().toLowerCase() === topic) proposals.splice(i, 1);
     }
-    proposals.push(newPageBundled.proposal);
-    if (persist) await saveChangeProposal(newPageBundled.proposal);
+    const proposal = stamp(newPageBundled.proposal);
+    proposals.push(proposal);
+    if (persist) await saveChangeProposal(proposal);
   } else {
     log.info("[produce-proposals] no new-page bundle this pass", { tenantId, reason: newPageBundled.reason });
   }

@@ -8,13 +8,57 @@ const BUSINESS_TYPE_OPTIONS = [
   { value: "ecommerce", label: "An online store (I sell products)" },
   { value: "saas", label: "A software product or app" },
   { value: "content_publisher", label: "A publication (articles, guides, an encyclopedia)" },
-  { value: "other", label: "I'm not sure yet" },
+  { value: "other", label: "Something else" },
 ];
 
 const inputCls =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/30";
 const labelCls = "mb-1.5 block text-[12px] font-medium text-foreground";
 const hintCls = "mt-1 text-[11px] text-muted-foreground";
+
+const LIST_HINT = "One per line, or separate them with commas.";
+
+/** The three answers research runs on, then the optional detail. Every label is
+ *  a question a stranger can answer about any kind of business. */
+const FIELDS: Array<{ key: keyof SetupView; label: string; hint: string; rows: number }> = [
+  {
+    key: "offeringsText",
+    label: "What does your business sell, provide, or publish?",
+    hint: `Products, services, or the subjects you write about. ${LIST_HINT}`,
+    rows: 5,
+  },
+  { key: "audiencesText", label: "Who is it for?", hint: `The people you want to reach. ${LIST_HINT}`, rows: 3 },
+  {
+    key: "topicsToOwnText",
+    label: "What should people find you for?",
+    hint: `The subjects you want to be the answer to. ${LIST_HINT}`,
+    rows: 4,
+  },
+  {
+    key: "geographicScopeText",
+    label: "Where do you operate?",
+    hint: `Optional. Leave this empty if location does not matter. ${LIST_HINT}`,
+    rows: 2,
+  },
+  {
+    key: "competitorsText",
+    label: "Competitors you already know",
+    hint: `Optional. I also discover competitors from search and AI evidence, so leave this empty if you are not sure. ${LIST_HINT}`,
+    rows: 2,
+  },
+  {
+    key: "editorialRulesText",
+    label: "Writing or factual rules I must follow",
+    hint: "Optional. One rule per line.",
+    rows: 3,
+  },
+  {
+    key: "bannedTermsText",
+    label: "Forbidden words or claims",
+    hint: `Optional. I reject any draft that uses these. ${LIST_HINT}`,
+    rows: 2,
+  },
+];
 
 export function ConfigForm({ initial }: { initial: SetupView }) {
   const [form, setForm] = useState(initial);
@@ -33,11 +77,13 @@ export function ConfigForm({ initial }: { initial: SetupView }) {
       const res = await saveSetup({
         name: form.name,
         businessType: form.businessType,
-        geographicScopeLine: form.geographicScopeLine,
-        offeringsLine: form.offeringsLine,
-        competitorsLine: form.competitorsLine,
-        editorialRulesLine: form.editorialRulesLine,
-        bannedTermsLine: form.bannedTermsLine,
+        offeringsText: form.offeringsText,
+        audiencesText: form.audiencesText,
+        topicsToOwnText: form.topicsToOwnText,
+        geographicScopeText: form.geographicScopeText,
+        competitorsText: form.competitorsText,
+        editorialRulesText: form.editorialRulesText,
+        bannedTermsText: form.bannedTermsText,
       });
       if (res.success) setStatus("saved");
       else {
@@ -60,6 +106,20 @@ export function ConfigForm({ initial }: { initial: SetupView }) {
         <p className={hintCls}>Your website was confirmed during setup. It is the one site Beacon works on.</p>
       </div>
 
+      {FIELDS.map((f) => (
+        <div key={f.key}>
+          <label htmlFor={`config-${f.key}`} className={labelCls}>{f.label}</label>
+          <textarea
+            id={`config-${f.key}`}
+            className={inputCls}
+            rows={f.rows}
+            value={form[f.key]}
+            onChange={set(f.key)}
+          />
+          <p className={hintCls}>{f.hint}</p>
+        </div>
+      ))}
+
       <div>
         <label htmlFor="config-business-type" className={labelCls}>What kind of business is this?</label>
         <select id="config-business-type" className={inputCls} value={form.businessType} onChange={set("businessType")}>
@@ -68,31 +128,7 @@ export function ConfigForm({ initial }: { initial: SetupView }) {
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
-      </div>
-
-      <div>
-        <label htmlFor="config-locations" className={labelCls}>Places you serve</label>
-        <input id="config-locations" className={inputCls} value={form.geographicScopeLine} onChange={set("geographicScopeLine")} placeholder="Comma separated. Leave blank if location does not matter." />
-      </div>
-
-      <div>
-        <label htmlFor="config-offerings" className={labelCls}>What you offer</label>
-        <input id="config-offerings" className={inputCls} value={form.offeringsLine} onChange={set("offeringsLine")} placeholder="Your products, services, or main topics. Comma separated." />
-      </div>
-
-      <div>
-        <label htmlFor="config-competitors" className={labelCls}>Your competitors</label>
-        <input id="config-competitors" className={inputCls} value={form.competitorsLine} onChange={set("competitorsLine")} placeholder="Comma separated." />
-      </div>
-
-      <div>
-        <label htmlFor="config-content-rules" className={labelCls}>Writing rules Beacon must follow</label>
-        <textarea id="config-content-rules" className={inputCls} rows={3} value={form.editorialRulesLine} onChange={set("editorialRulesLine")} placeholder="One rule per line." />
-      </div>
-
-      <div>
-        <label htmlFor="config-banned-terms" className={labelCls}>Words Beacon must never use</label>
-        <input id="config-banned-terms" className={inputCls} value={form.bannedTermsLine} onChange={set("bannedTermsLine")} placeholder="Comma separated." />
+        <p className={hintCls}>Optional. I research your business the same way either way.</p>
       </div>
 
       <div className="flex items-center gap-3">
@@ -103,7 +139,11 @@ export function ConfigForm({ initial }: { initial: SetupView }) {
         >
           {pending ? "Saving…" : "Save"}
         </button>
-        {status === "saved" && <span className="text-[12px] text-muted-foreground">Saved. I use this on every ranked change.</span>}
+        {status === "saved" && (
+          <span className="text-[12px] text-muted-foreground">
+            Saved. This is now your confirmed truth and I research against it.
+          </span>
+        )}
         {status === "error" && <span className="text-[12px] text-red-600">{error}</span>}
       </div>
     </form>

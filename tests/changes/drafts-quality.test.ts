@@ -336,6 +336,14 @@ describe("evaluateCreatePageBriefQuality", () => {
   it("rejects a boilerplate title", () => {
     expect(evaluateCreatePageBriefQuality({ ...goodBrief, title: "Persian Weddings: The Complete Guide" }).status).toBe("generic_rejected");
   });
+
+  it("rejects an opening that announces the page instead of answering the question", () => {
+    for (const lead of ["This page explains Persian wedding traditions.", "This guide covers the Sofreh Aghd.", "The following is a look at Persian weddings.", "What is a Persian wedding? This article explains it."]) {
+      const r = evaluateCreatePageBriefQuality({ ...goodBrief, opening: `${lead} ${goodBrief.opening}` });
+      expect(r.status).toBe("too_thin"); expect(r.copyAllowed).toBe(false);
+    }
+    expect(evaluateCreatePageBriefQuality(goodBrief).status).toBe("ready"); // an opening that leads with the answer still passes
+  });
 });
 
 // Dormant-kind evaluators (section drafts, internal-link/CRO formatting,

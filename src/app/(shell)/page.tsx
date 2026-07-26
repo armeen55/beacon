@@ -220,16 +220,18 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
 
   // P14 item 2 (v1 324) - the smoke alarm with page blame: ONE honest line naming the exact
   // page bleeding clicks and the number, from the SAME per-page GSC decay signal the GSC
-  // scoreboard card reads. pagesWithFixReady = the pages tonight's plan already has a queued
-  // change for, so "I have a fix ready" is only said when it is true. $0-ish read, fail-soft
-  // to null (no alarm). It feeds the command; it is not rendered as its own card.
-  const pagesWithFixReady = new Set<string>();
+  // scoreboard card reads. readyFixes comes from the SAME customer release the rest of Today
+  // and all of Changes read, so "I have a fix ready" is said only when that release really
+  // holds a ready change for that page, and the CTA opens that exact change. It used to be an
+  // empty set, so the claim could never be true and the CTA pointed at a dead route. $0-ish
+  // read, fail-soft to null (no alarm). It feeds the command; it is not its own card.
+  const readyFixes = new Map((today.readyFixes ?? []).map((f) => [f.page, f.proposalId] as const));
   const decayRows = Array.from(
     (decaySignals as Map<string, { page: string; clicksNow: number; clicksPrior: number; windowNowEnd?: string }>).values(),
   );
   const smokeAlarm = buildTodaySmokeAlarm({
     decay: decayRows.map((d) => ({ page: d.page, clicksNow: d.clicksNow, clicksPrior: d.clicksPrior })),
-    pagesWithFixReady,
+    readyFixes,
     // The finalized day the decay "now" window ends on (same for every row in one
     // read), so the alarm names its exact reproducible window instead of an undated
     // "last 4 weeks".

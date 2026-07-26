@@ -10,6 +10,7 @@ import "server-only";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadChangesView, sanitizeSurfaceComputedAt, type ChangesView } from "./changes-data";
+import { normalizedFixKey } from "@/components/today/today-smoke-alarm";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
 import type { ChangeProposal } from "@/domains/decision";
 import type { TodayOpportunity, EvidenceStrength } from "@/domains/measurement/today/today-command";
@@ -20,6 +21,11 @@ import type { TodayOpportunity, EvidenceStrength } from "@/domains/measurement/t
 export type TodayView = {
   headerSentence: string;
   nextOpportunities: TodayOpportunity[];
+  /** Pages that already have a READY proposal in THIS release, keyed by the same
+   *  normalized path the smoke alarm blames, carrying the proposal to open. Today
+   *  says "I have a fix ready" only from this list, and links straight at it.
+   *  Optional so a release blob written before this field degrades to no claim. */
+  readyFixes?: { page: string; proposalId: string }[];
 };
 
 export type TodayComposite = {
@@ -58,25 +64,44 @@ export function proposalToOpportunity(p: ChangeProposal): TodayOpportunity {
   };
 }
 
+/** How many ready changes Today previews under its one command. */
+const TODAY_PREVIEW_LIMIT = 5;
+
 /** PURE: build the Today slice from a ChangesView. Today's next opportunities are
- *  the ready (validated, exact-copy) proposals, best first. */
+ *  the ready (validated, exact-copy) proposals, best first. The COUNT is the full
+ *  ready list; the preview is the top five, so Today can never under-report the
+ *  queue it is drawing from (it used to count the sliced preview). */
 export function buildTodayViewFromChanges(view: ChangesView): TodayView {
-  const ready = view.ready.slice(0, 5).map(proposalToOpportunity);
+  const readyTotal = view.ready.length;
+  const ready = view.ready.slice(0, TODAY_PREVIEW_LIMIT).map(proposalToOpportunity);
+  const readyFixes = view.ready
+    .filter((p) => p.pagePath || p.pageUrl)
+    .map((p) => ({ page: normalizedFixKey(p.pagePath ?? p.pageUrl ?? ""), proposalId: p.id }))
+    .filter((f) => f.page.length > 0);
   const measuring = view.measuringCountCanonical;
   let headerSentence: string;
-  if (ready.length > 0) {
+  if (readyTotal > 0) {
+    const lead =
+      readyTotal > ready.length
+        ? `You have ${readyTotal} changes ready; here are the ${ready.length === 5 ? "five" : ready.length} strongest.`
+        : `You have ${readyTotal} change${readyTotal === 1 ? "" : "s"} ready to apply.`;
     headerSentence =
       measuring > 0
-        ? `You have ${ready.length} change${ready.length === 1 ? "" : "s"} ready to apply and ${measuring} still measuring.`
-        : `You have ${ready.length} change${ready.length === 1 ? "" : "s"} ready to apply.`;
+        ? `${lead} ${measuring} more ${measuring === 1 ? "is" : "are"} still measuring.`
+        : lead;
+    return { headerSentence, nextOpportunities: ready, readyFixes };
+  } else if ((view.demotedStaleBasis ?? 0) > 0) {
+    const n = view.demotedStaleBasis;
+    headerSentence = `Your business info changed, so I set aside ${n} earlier ${n === 1 ? "idea" : "ideas"} and will draft fresh ones on the next research pass.${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
   } else if (view.toDo.length > 0) {
-    headerSentence = `I have ${view.toDo.length} idea${view.toDo.length === 1 ? "" : "s"} to review with you, and ${measuring} change${measuring === 1 ? "" : "s"} measuring.`;
+    const tail = measuring > 0 ? `, and ${measuring} change${measuring === 1 ? " is" : "s are"} measuring` : "";
+    headerSentence = `I have ${view.toDo.length} idea${view.toDo.length === 1 ? "" : "s"} to review with you${tail}.`;
   } else if (measuring > 0) {
     headerSentence = `Nothing needs a decision today. ${measuring} change${measuring === 1 ? " is" : "s are"} measuring.`;
   } else {
     headerSentence = "Nothing needs a decision today. Connect your data and I'll rank your next moves.";
   }
-  return { headerSentence, nextOpportunities: ready };
+  return { headerSentence, nextOpportunities: ready, readyFixes };
 }
 
 async function loadTodayViewUncached(): Promise<TodayComposite> {

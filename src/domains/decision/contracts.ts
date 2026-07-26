@@ -223,6 +223,11 @@ export type ChangeProposal = {
   /** The deep copy-ready form (Slice 7). Absent on atomic proposals and on
    *  every pre-bundle persisted row; ONE decoder serves both generations. */
   bundle?: ChangeBundle;
+  /** The onboarding/research basis this proposal was generated under (truth
+   *  convergence slice). A proposal whose basis is not the account's CURRENT
+   *  basis can never render Ready; it is demoted at load, never deleted.
+   *  Absent on pre-basis rows, which read as stale by definition. */
+  basis?: string;
   /** STRUCTURAL: this is a proposal. The kernel never writes a live page. */
   publish: "manual";
   createdAt: string;
@@ -308,6 +313,7 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   impactScore: z.number().nullable(),
   upsidePerMonth: z.number().nullable(),
   bundle: ChangeBundleSchema.optional(),
+  basis: z.string().optional(),
   publish: z.literal("manual"),
   createdAt: z.string(),
 }) as z.ZodType<ChangeProposal>;

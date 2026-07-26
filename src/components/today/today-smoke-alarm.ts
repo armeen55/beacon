@@ -20,8 +20,6 @@
  * person ("I have a fix ready"), a concrete number, a next step; no lab jargon; no em/en dashes.
  */
 
-import { dossierHref } from "@/lib/page-dossier-link";
-
 export type SmokeAlarmDecayRow = {
   page: string;
   /** Trailing 28-day clicks. */
@@ -42,7 +40,8 @@ export type TodaySmokeAlarm = {
   windowLabel: string;
   /** The one alarm sentence. */
   sentence: string;
-  /** Where the fix link points (the page's own change queue / dossier). */
+  /** Where the fix link points: the exact ready change for this page when one
+   *  exists, otherwise the Changes queue. Never a route that does not exist. */
   href: string;
   /** The action link text. */
   actionLabel: string;
@@ -63,14 +62,15 @@ function prettyPath(u: string): string {
 }
 
 /**
- * The full normalized page key used for the `pagesWithFixReady` lookup. This mirrors
- * EXACTLY the host-strip + de-slash normalization page.tsx builds `pagesWithFixReady` with
- * (host prefix removed, one trailing slash removed, "/" fallback) and carries NO length cap,
- * so a long-URL page is compared key-for-key against the plan paths. prettyPath (which DOES
- * cap length) is for the visible label only; using it for the `.has()` check silently dropped
- * the "I have a fix ready" affordance on any page whose path ran past the 44-char cap.
+ * The full normalized page key used for the ready-fix lookup. THE one key rule:
+ * today-view-data keys its ready proposals with this same function, so both sides of
+ * the lookup are built by one implementation (host prefix removed, one trailing slash
+ * removed, "/" fallback). It carries NO length cap, so a long-URL page is compared
+ * key-for-key. prettyPath (which DOES cap length) is for the visible label only; using
+ * it for the lookup silently dropped the "I have a fix ready" affordance on any page
+ * whose path ran past the 44-char cap.
  */
-function normalizedFixKey(u: string): string {
+export function normalizedFixKey(u: string): string {
   return (u.replace(/^https?:\/\/[^/]+/i, "").replace(/\/$/, "")) || "/";
 }
 
@@ -95,8 +95,10 @@ function monthDay(iso: string | null | undefined): string | null {
 
 export function buildTodaySmokeAlarm(input: {
   decay: ReadonlyArray<SmokeAlarmDecayRow>;
-  /** Set of page paths (host-stripped) that already have a queued/ready change. */
-  pagesWithFixReady: ReadonlySet<string>;
+  /** Normalized page key -> the id of the READY change for that page in the CURRENT
+   *  release. Presence is the ONLY thing that earns "I have a fix ready", and the id
+   *  is what the CTA opens. Empty map = no fix claim anywhere on the alarm. */
+  readyFixes: ReadonlyMap<string, string>;
   /** The last finalized GSC day the decay "now" window ends on (from the same
    *  GscDecaySignal the rows came from). Names the exact window so the claim is
    *  reproducible; when absent the phrase omits the date but still names the
@@ -117,8 +119,8 @@ export function buildTodaySmokeAlarm(input: {
   const label = prettyPath(worst.page);
   const fixKey = normalizedFixKey(worst.page);
   const lost = Math.round(worst.lost);
-  const fixReady = input.pagesWithFixReady.has(fixKey);
-  const closing = fixReady ? "I have a fix ready." : "Worth a look before it slides further.";
+  const readyProposalId = input.readyFixes.get(fixKey) ?? null;
+  const closing = readyProposalId ? "I have a fix ready." : "Worth a look before it slides further.";
   // `lost` is clicksPrior - clicksNow across two consecutive 28-day windows: the
   // page got `lost` FEWER clicks in the most recent 4 weeks than in the 4 weeks
   // before. "in the last 4 weeks" read as an absolute single-window count and was
@@ -132,12 +134,10 @@ export function buildTodaySmokeAlarm(input: {
     : "the previous 4 weeks";
   const sentence = `Heads up: ${label} lost ${lost.toLocaleString()} click${lost === 1 ? "" : "s"} vs ${windowLabel}. ${closing}`;
 
-  // The CTA points at the exact bleeding page's dossier (its own change queue), not a /changes
-  // deep link the Changes list ignores. dossierHref normalizes the RAW page (host-strip, one
-  // trailing slash, lowercase) so the operator lands on the same page the alarm blames. The
-  // fallback (only the site root / a sentinel has no dossier) is the live Changes backlog, never
-  // a dead /page/ link.
-  const href = dossierHref(worst.page) ?? "/changes";
+  // The CTA opens the EXACT ready change for this page when one exists, and the Changes
+  // queue otherwise. It used to point at /page/<path>, a dossier route that does not
+  // exist in this product, so every alarm CTA was a dead link.
+  const href = readyProposalId ? `/changes/${encodeURIComponent(readyProposalId)}` : "/changes";
 
   return {
     page: label,
@@ -145,6 +145,6 @@ export function buildTodaySmokeAlarm(input: {
     windowLabel,
     sentence,
     href,
-    actionLabel: fixReady ? "See the fix" : "Review the page",
+    actionLabel: readyProposalId ? "See the fix" : "Open Changes",
   };
 }

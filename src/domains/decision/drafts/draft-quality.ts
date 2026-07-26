@@ -656,6 +656,22 @@ export type EvaluateBriefInput = {
 
 const ALLOWED_SCHEMA = new Set(["article", "faqpage", "webpage", "blogposting", "howto", "itemlist"]);
 
+/** An opening that ANNOUNCES the page instead of ANSWERING the question. The
+ *  reader asked something; a page that opens by describing itself has spent the
+ *  one extractable paragraph AI and Google read on nothing. Bounded literal
+ *  starts, no NLP, so a real answer that happens to contain these words passes. */
+const OPENING_ANNOUNCES =
+  /^\s*(?:this (?:page|article|guide|post)|in this (?:page|article|guide|post)|the following)\b/i;
+
+/** The lead sentence to judge: a bare restated question ("What are X?") is a
+ *  frame, so the announcement check moves to the sentence that follows it. */
+function announcingLead(opening: string): boolean {
+  const sentences = opening.split(/(?<=[.?!])\s+/);
+  const first = sentences[0] ?? "";
+  if (OPENING_ANNOUNCES.test(first)) return true;
+  return /\?\s*$/.test(first.trim()) && OPENING_ANNOUNCES.test(sentences[1] ?? "");
+}
+
 /** Evaluate a structured new-page brief. */
 export function evaluateCreatePageBriefQuality(input: EvaluateBriefInput): DraftQualityResult {
   const tokens = input.contextTokens ?? DEFAULT_CONTEXT_TOKENS;
@@ -680,6 +696,9 @@ export function evaluateCreatePageBriefQuality(input: EvaluateBriefInput): Draft
   }
   if (!hasContext(opening, tokens)) {
     return { status: "relevance_rejected", reasons: ["Opening carries no Iran/Persian context."], copyAllowed: false, canRegenerate: true, confidence: "medium" };
+  }
+  if (announcingLead(opening)) {
+    return { status: "too_thin", reasons: ["Opening announces the page instead of answering the question. Lead with the answer."], copyAllowed: false, canRegenerate: true, confidence: "high" };
   }
   if (outline.length < 3) {
     return { status: "too_thin", reasons: [`Outline has only ${outline.length} sections.`], copyAllowed: false, canRegenerate: true, confidence: "high" };
@@ -712,7 +731,7 @@ export function evaluateCreatePageBriefQuality(input: EvaluateBriefInput): Draft
   if (faqs.length < 3) reasons.push("Fewer than 3 FAQ questions.");
   const badSchema = schema.filter((s) => !ALLOWED_SCHEMA.has(s.toLowerCase()));
   if (badSchema.length) reasons.push(`Schema type may not fit a content page: ${badSchema.join(", ")}.`);
-  if (input.hasSerpVerdict === false) reasons.push("No live-SERP verdict yet — confirm Google demand before building.");
+  if (input.hasSerpVerdict === false) reasons.push("I have not checked what Google shows for this topic yet, so confirm the demand before you build.");
 
   if (reasons.length) {
     return { status: "useful_but_needs_review", reasons, copyAllowed: true, canRegenerate: false, confidence: "medium" };

@@ -154,6 +154,19 @@ function staleDateLabel(iso: string | null): string | null {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Los_Angeles" });
 }
 
+/** The window the AI citation count actually covers. "The last 30 days" is only
+ *  true while the observations are current; once the newest CITED day is more than
+ *  seven days old the phrase names the day the data really ends, so a paused
+ *  tracker can never read as live. Seven days (not three) because the daily series
+ *  omits zero-citation days: a live tracker with a quiet week must not read as
+ *  stale. Timezone matches the neighboring stale label (Pacific). PURE. */
+function aiWindowPhrase(latestDay: string | null, nowMs: number): string {
+  const t = latestDay ? Date.parse(`${latestDay.slice(0, 10)}T00:00:00Z`) : NaN;
+  if (!Number.isFinite(t) || nowMs - t <= 7 * 86_400_000) return "in the last 30 days";
+  const ending = new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Los_Angeles" });
+  return `in the 30 days ending ${ending}`;
+}
+
 export async function ScoreboardSection({
   tenantId,
   stale = false,
@@ -343,7 +356,7 @@ export async function ScoreboardSection({
         ) : null}
         {citations.total > 0 ? (
           <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2 text-[12px] text-gray-600 dark:border-neutral-800 dark:text-neutral-300 tabular-nums">
-            <span className="font-semibold text-pink-700 dark:text-pink-300">AI cited your pages {citations.total.toLocaleString()} time{citations.total === 1 ? "" : "s"} in the last 30 days.</span>
+            <span className="font-semibold text-pink-700 dark:text-pink-300">AI cited your pages {citations.total.toLocaleString()} time{citations.total === 1 ? "" : "s"} {aiWindowPhrase(citations.daily[citations.daily.length - 1]?.date ?? null, Date.now())}.</span>
             {citations.daily.length >= 5 ? <Sparkline points={citations.daily} width={96} height={18} className="inline-block opacity-80" /> : null}
             <span className="text-[11px] text-gray-400 dark:text-neutral-500">citations of your pages in AI answers, per day</span>
             {/* R14b (receipts everywhere) - the AI count's own receipt, from the same

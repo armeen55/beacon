@@ -272,16 +272,15 @@ function floorFor(
   return Math.max(MIN_LIFT_CLICKS, windowBaseline * MIN_LIFT_FRACTION);
 }
 
+/** The SIZE of a move, never its sign: the sentence owns the direction. A signed number
+ *  inside a sentence that already said "down" printed "+0.5pp" on a losing change. */
 function formatLift(metric: KernelMetric, lift: number): string {
   if (metric === "ctr") {
-    const pp = Math.round(lift * 1000) / 10;
-    return `${pp >= 0 ? "+" : ""}${pp}pp click rate`;
+    const pp = Math.abs(Math.round(lift * 1000) / 10);
+    return `${pp} percentage point${pp === 1 ? "" : "s"} of click rate`;
   }
-  if (metric === "position") {
-    const r = Math.round(Math.abs(lift) * 10) / 10;
-    return `${r} ${r === 1 ? "rank" : "ranks"} ${lift >= 0 ? "up" : "down"}`;
-  }
-  return `${lift >= 0 ? "+" : ""}${Math.round(lift)} clicks`;
+  const size = metric === "position" ? Math.round(Math.abs(lift) * 10) / 10 : Math.abs(Math.round(lift));
+  return `${size} ${metric === "position" ? "rank" : "click"}${size === 1 ? "" : "s"}`;
 }
 
 /** Human phrase for a verdict, Beacon voice, concrete numbers folded in by the
@@ -472,12 +471,13 @@ function buildHeadline(
   switch (verdict) {
     case "confounded":
       return `This page moved over the ${win} window, but I made ${overlapCount} other change${overlapCount === 1 ? "" : "s"} on it at the same time, so I cannot say which one did it.${ga4}`;
+    // Observational, never causal: the page MOVED after the change. A pre-28-day read is still measuring, so it never closes with a verdict.
     case "stronger_improvement":
-      return `This is helping: ${formatLift(metric, lift)} compared to similar pages over the ${win} window. A clear, well supported gain.${ga4}`;
+      return `This page moved up after the change: ${formatLift(metric, lift)} ahead of similar pages over the ${win} window.${basisDay === 28 ? " A clear, well supported move." : " I will call it when the 28-day window closes."}${ga4}`;
     case "directional_improvement":
-      return `This looks like it is helping: ${formatLift(metric, lift)} compared to similar pages over the ${win} window. Still observational, not proof.${ga4}`;
+      return `This page moved up after the change: ${formatLift(metric, lift)} ahead of similar pages over the ${win} window. Still observational, not proof.${ga4}`;
     case "directional_decline":
-      return `This one did not work. The page is down ${formatLift(metric, Math.abs(lift))} compared to similar pages over the ${win} window. Here is a signal to try something else.${ga4}`;
+      return `This page moved down after the change: ${formatLift(metric, lift)} behind similar pages over the ${win} window.${basisDay === 28 ? " Worth trying a different angle on this page." : " Still measuring, so I will call it when the 28-day window closes."}${ga4}`;
     case "no_clear_movement":
     default: {
       const vis = impressionsLift > 50 ? ` The page is showing for more searches though (+${Math.round(impressionsLift)} impressions vs similar pages).` : "";
@@ -648,28 +648,27 @@ export function readLedger(
 
 // ── UI bands + labels (point 9) ──────────────────────────────────────────────
 
-export type ResultBand = "won" | "learned" | "measuring";
+export type ResultBand = "won" | "promising" | "learned" | "measuring";
 
-/**
- * Which of the three Results bands a read belongs to. Pure.
- *   - "won"       a mature improvement (celebrated).
- *   - "learned"   a mature decline or a settled no-clear-movement (knowledge gained).
- *   - "measuring" everything still in flight: waiting, insufficient, confounded,
- *                 or an early (pre-28-day) read.
- */
+/** Which Results band a read belongs to. Pure. "won" = a MATURE (28-day)
+ *  improvement; "promising" = an earlier improvement whose window has not
+ *  closed (never sold as a win); "learned" = a mature decline or settled
+ *  no-movement; "measuring" = everything else still in flight. */
 export function bandOf(read: Pick<KernelRead, "verdict" | "basisDay">): ResultBand {
-  if (read.verdict === "directional_improvement" || read.verdict === "stronger_improvement") return "won";
+  if (read.verdict === "directional_improvement" || read.verdict === "stronger_improvement") {
+    return read.basisDay === 28 ? "won" : "promising";
+  }
   if (read.basisDay === 28 && (read.verdict === "directional_decline" || read.verdict === "no_clear_movement")) {
     return "learned";
   }
   return "measuring";
 }
 
-/** Split a set of reads into the three bands, preserving order. Pure. */
+/** Split reads into the four bands, preserving order. Pure. */
 export function splitReads<T extends { read: Pick<KernelRead, "verdict" | "basisDay"> }>(
   items: ReadonlyArray<T>,
-): { won: T[]; learned: T[]; measuring: T[] } {
-  const out = { won: [] as T[], learned: [] as T[], measuring: [] as T[] };
+): { won: T[]; promising: T[]; learned: T[]; measuring: T[] } {
+  const out = { won: [] as T[], promising: [] as T[], learned: [] as T[], measuring: [] as T[] };
   for (const it of items) out[bandOf(it.read)].push(it);
   return out;
 }

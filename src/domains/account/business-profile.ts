@@ -266,6 +266,20 @@ export async function saveBusinessProfile(
   patch: Partial<Omit<BusinessProfile, "accountId" | "schemaVersion" | "legacy">>,
 ): Promise<SaveBusinessProfileResult> {
   const current = await loadBusinessProfile(accountId);
+  // A save must never merge over a FAILED read: spreading a patch over an empty
+  // base born from a transient error would permanently blank every field the
+  // form does not display. An uncached base is ambiguous (failed OR genuinely
+  // absent), so re-check the row directly: a row that EXISTS while our base is
+  // uncached means the earlier read failed (refuse); a confirmed-absent row is
+  // the legitimate first save and proceeds on the empty base.
+  if (_loaded.get(accountId) !== current) {
+    try {
+      const raw = await repository.load(accountId);
+      if (raw) return { profile: current, persisted: false, persistError: "profile_read_unavailable" };
+    } catch {
+      return { profile: current, persisted: false, persistError: "profile_read_unavailable" };
+    }
+  }
   const updated: BusinessProfile = {
     ...current,
     ...patch,

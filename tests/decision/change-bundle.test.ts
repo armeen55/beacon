@@ -1,8 +1,8 @@
 /**
- * The ONE bundle contract, both archetypes: an existing-page rewrite (Slice 7) and a
- * new page (Slice 8). Selection, receipt-first grounding, determinism under reordered
- * evidence, honest omission and refusal, topic dedupe fresh + historical, and a
- * persistence round-trip that also reads a pre-bundle row.
+ * The ONE bundle contract, both archetypes: an existing-page rewrite (Slice 7) and a new page
+ * (Slice 8). Selection, receipt-first grounding, determinism under reordered evidence, honest
+ * omission and refusal, topic dedupe fresh + historical, a persistence round-trip that also
+ * reads a pre-bundle row, and the readiness rules (basis + owed sources) the surfaces trust.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
@@ -20,7 +20,7 @@ import { produceProposalsForTenant } from "@/domains/decision/produce-proposals"
 import { loadProposalQueue } from "@/domains/decision/load-proposals";
 import { serializeChangeProposal, deserializeChangeProposal } from "@/domains/decision/contracts";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
-import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
+import type { EvidenceSnapshot, NewPageOpportunity, OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
 
 const TENANT = "fixture-tenant";
@@ -228,5 +228,31 @@ describe("one pass, both bundles, one row per change", () => {
     expect([...store.rows.keys()].filter((id) => id.includes(`new::${TOPIC}`)).length).toBeGreaterThan(1);
     const queue = await loadProposalQueue(TENANT);
     expect(queue.newPageBriefs.filter((p) => p.primaryQuery === TOPIC).map((p) => p.id)).toEqual([bundleId]);
+  });
+
+  it("READY means ready: an older-basis row and a row still owing a source both drop to to-do, and neither is deleted", async () => {
+    env.snap = topicSnapshot();
+    await produceProposalsForTenant(TENANT, { complete: briefSeam([SOURCE]), now: NOW, bypassCache: true });
+    const owing = "Add one before this is paste-ready.", owingId = `${TENANT}::/rain-barrels::existing_edit::bundle`;
+    [...store.rows.values()].forEach((p) => store.rows.set(p.id, { ...p, status: "proposed", basis: "basis_today", limitations: p.id === owingId ? [owing] : [] }));
+    const rows = store.rows.size;
+    const stale = await loadProposalQueue(TENANT, { currentBasis: "basis_after_the_operator_changed_the_business" });
+    expect(stale.ready).toEqual([]); expect(stale.toDo.length).toBe(stale.ranked.length); // an old basis can never claim ready
+    const current = await loadProposalQueue(TENANT, { currentBasis: "basis_today" });
+    expect(current.ready.length).toBeGreaterThan(0);
+    expect(current.ready.some((p) => p.limitations.includes(owing))).toBe(false);
+    expect(current.toDo.some((p) => p.limitations.includes(owing))).toBe(true);
+    expect(store.rows.size).toBe(rows); // presentation demotion only: no row rewritten away, no history lost
+  });
+
+  it("never claims both sources when one is missing, and never proposes a page the tenant already owns", async () => {
+    const { snapshotToEvidenceInputs } = await import("@/domains/decision/opportunities");
+    const label = (over: Partial<NewPageOpportunity>) => snapshotToEvidenceInputs(topicSnapshot({ newPageOpportunities: [{ ...OPP, ...over }] })).filter((i) => i.opportunity.kind === "new_page");
+    const aiOnly = label({ basis: "ai_attention" })[0]!;
+    expect(aiOnly.opportunity.opportunityType).toBe("Build a page AI keeps asking about");
+    expect(`${aiOnly.opportunity.opportunityType} ${(aiOnly.evidence.hints ?? []).join(" ")}`).not.toMatch(/people search|google/i);
+    expect(label({ basis: "search_volume" })[0]!.opportunity.opportunityType).toBe("Build a page people search for");
+    expect(label({})[0]!.opportunity.opportunityType).toBe("Build a page people search for and AI asks about");
+    expect(label({ topic: "rain barrels" })).toEqual([]); // an owned page title: proposing a new page for it is self-cannibalization
   });
 });
