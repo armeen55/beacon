@@ -100,17 +100,24 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
  * Slice 7: a proposal carrying a Change Bundle is the flagship row: one plain
  * recommendation, the strongest reason, the honest evidence count, and ONE
  * action (open the full change). The exact copy lives on the detail page.
+ * Slice 8: the same row also carries a new-page bundle. Only the badge and the
+ * parts wording change: a page that does not exist yet has no edits to make,
+ * it has pieces to paste.
  */
 function BundleRow({ proposal, bundle, rank }: { proposal: ChangeProposal; bundle: ChangeBundle; rank: number }) {
   const checks = bundle.receipt.items.length;
   const parts = bundle.components.length;
+  const isNew = proposal.kind === "new_page";
+  const partsLabel = isNew
+    ? `${parts} ${proposal.status === "proposed" ? "ready-to-paste" : "drafted"} piece${parts === 1 ? "" : "s"}`
+    : `${parts} exact edit${parts === 1 ? "" : "s"}${proposal.status === "proposed" ? ", copy ready" : ""}`;
   const reason = bundle.confidenceReasons[0] ?? bundle.receipt.items[0]?.fact ?? null;
   return (
     <li className="space-y-2 rounded-2xl border border-accent-primary/50 bg-surface-raised p-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[12px] tabular-nums text-muted-foreground">{rank}</span>
         <span className="rounded bg-accent-primary/15 px-1.5 py-0.5 text-[11px] font-medium text-accent-primary">
-          Bundled change
+          {isNew ? "New page" : "Bundled change"}
         </span>
         <span className="text-[14px] font-semibold text-foreground">{proposal.pageLabel}</span>
       </div>
@@ -119,7 +126,7 @@ function BundleRow({ proposal, bundle, rank }: { proposal: ChangeProposal; bundl
         <p className="text-[13px] leading-relaxed text-muted-foreground">Strongest reason: {reason}</p>
       ) : null}
       <p className="text-[12px] text-muted-foreground tabular-nums">
-        {parts} exact edit{parts === 1 ? "" : "s"}{proposal.status === "proposed" ? ", copy ready" : ""} · about {proposal.estimatedEffortMinutes} min · Backed by{" "}
+        {partsLabel} · about {proposal.estimatedEffortMinutes} min · Backed by{" "}
         {checks} check{checks === 1 ? "" : "s"} · {CONFIDENCE_LABEL[proposal.confidence]}
       </p>
       <Link

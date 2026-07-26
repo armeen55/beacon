@@ -130,10 +130,14 @@ function Bullets({ items }: { items: string[] }) {
   );
 }
 
-/** Slice 7: the two-layer bundle detail. Layer 1 decides, layer 2 proves. */
+/** Slice 7: the two-layer bundle detail. Layer 1 decides, layer 2 proves.
+ *  Slice 8: the same two layers render a new-page bundle. Nothing forks: the
+ *  page-does-not-exist truth is stated once and every component is a pure
+ *  insertion, so the before/after framing simply drops away. */
 function BundleDetail({ proposal, bundle }: { proposal: ChangeProposal; bundle: ChangeBundle }) {
   const facts = new Map(bundle.receipt.items.map((i) => [i.key, i]));
   const chips = [...bundle.scope.queries, ...bundle.scope.prompts];
+  const isNew = proposal.kind === "new_page";
   return (
     <div className="max-w-3xl space-y-5">
       <Link href="/changes" className="inline-flex text-[13px] text-muted-foreground hover:text-foreground">
@@ -143,14 +147,19 @@ function BundleDetail({ proposal, bundle }: { proposal: ChangeProposal; bundle: 
       <section className="space-y-2 rounded-2xl border border-accent-primary/40 bg-surface-raised p-5">
         <h1 className="text-[14px] font-semibold text-foreground">What I recommend</h1>
         <p className="text-[15px] font-semibold leading-relaxed text-foreground">{bundle.objective}</p>
-        <p className="text-[13px] text-muted-foreground">On this page: {proposal.pageLabel}</p>
+        <p className="text-[13px] text-muted-foreground">
+          {isNew ? "A new page for" : "On this page"}: {proposal.pageLabel}
+        </p>
         <p className="text-[13px] leading-relaxed text-muted-foreground">{proposal.whyItMatters}</p>
       </section>
 
       <section className="space-y-3">
-        <Heading>The exact edits</Heading>
+        <Heading>{isNew ? "The pieces to paste" : "The exact edits"}</Heading>
+        {isNew ? (
+          <p className="text-[13px] leading-relaxed text-muted-foreground">This page does not exist yet.</p>
+        ) : null}
         {bundle.components.map((c, i) => (
-          <ComponentCard key={i} component={c} facts={facts} />
+          <ComponentCard key={i} component={c} facts={facts} isNew={isNew} />
         ))}
       </section>
 
@@ -209,7 +218,7 @@ function BundleDetail({ proposal, bundle }: { proposal: ChangeProposal; bundle: 
       </section>
 
       <section className="rounded-2xl border border-border bg-surface-raised p-5">
-        <MarkImplemented proposalId={proposal.id} label="I made this change" />
+        <MarkImplemented proposalId={proposal.id} label={isNew ? "I built this page" : "I made this change"} />
         <p className="mt-2 text-[12px] text-muted-foreground">
           After you make it, record this page on Results and the measurement starts.
         </p>
@@ -221,9 +230,11 @@ function BundleDetail({ proposal, bundle }: { proposal: ChangeProposal; bundle: 
 function ComponentCard({
   component,
   facts,
+  isNew,
 }: {
   component: BundleComponent;
   facts: Map<string, BundleEvidenceItem>;
+  isNew: boolean;
 }) {
   const cited = component.evidenceKeys.map((k) => facts.get(k)).filter((i): i is BundleEvidenceItem => Boolean(i));
   return (
@@ -236,7 +247,7 @@ function ComponentCard({
           </span>
         ) : null}
       </div>
-      {component.before ? (
+      {isNew ? null : component.before ? (
         <div className="space-y-1">
           <p className="text-[12px] text-muted-foreground">On the page now</p>
           <p className="whitespace-pre-wrap break-words rounded-lg bg-surface-inset px-3 py-2 text-[13px] text-muted-foreground line-through">
@@ -248,9 +259,7 @@ function ComponentCard({
       )}
       <div className="space-y-1">
         <p className="text-[12px] text-muted-foreground">Use this</p>
-        <p className="whitespace-pre-wrap break-words rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2 text-[13px] leading-relaxed text-foreground">
-          {component.after}
-        </p>
+        <CopyBlock component={component} />
       </div>
       {cited.length > 0 ? (
         <div className="space-y-1">
@@ -260,6 +269,36 @@ function ComponentCard({
       ) : null}
     </div>
   );
+}
+
+/** Slice 8: the copy-ready block. A page plan reads as a list and a source pack
+ *  puts each source on its own line, so a multi-line insertion stays readable
+ *  instead of one wall of text. Every other component stays one exact block. */
+function CopyBlock({ component }: { component: BundleComponent }) {
+  const box =
+    "rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2 text-[13px] leading-relaxed text-foreground";
+  const lines = component.after.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (lines.length > 1 && component.kind === "section") {
+    return (
+      <ul className={`${box} list-disc space-y-1 break-words pl-7`}>
+        {lines.map((l, i) => (
+          <li key={i}>{l}</li>
+        ))}
+      </ul>
+    );
+  }
+  if (lines.length > 1 && component.kind === "source_pack") {
+    return (
+      <div className={`${box} space-y-1`}>
+        {lines.map((l, i) => (
+          <p key={i} className="break-words">
+            {l}
+          </p>
+        ))}
+      </div>
+    );
+  }
+  return <p className={`${box} whitespace-pre-wrap break-words`}>{component.after}</p>;
 }
 
 /**

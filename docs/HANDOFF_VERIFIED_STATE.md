@@ -129,18 +129,18 @@
   account's spend can never throttle another. A committed regression sweep converts every SCHEMA_BY_KIND entry
   through the strict-subset conversion. Transport and live provider behavior are validated; the existing OpenAI
   key enables this canonical path directly, with no secondary feature flag.
-- One canonical proposal path produces the ranked Changes queue AND, per pass, at most ONE deeply evidenced
-  existing-page Change Bundle for the strongest page (Slice 7, 2026-07-25): receipt-first plain-English evidence
-  (Search demand, current copy, research classes when present, an honest missing list); components pass the one
-  gated drafter/validator (rejects become named alternatives, never filler); output is deterministic; no demand or
-  current copy = refusal. The bundle REPLACES its page's atomic edits at generation and load (the same edit never
-  shows twice), rides the existing ChangeProposal (one decoder serves pre-bundle rows), renders as the flagship
-  Changes row and a two-layer /changes/[id] detail (exact before/after copy, receipt, alternatives, risks,
-  truthful measurement plan), and stays manual (its one action marks it applied and points at Results). Walked on
-  rendered Iranopedia data (75,285-view page, one gate-passing title edit, 8 receipt checks, five honest gaps);
-  OpenAI validation $0.07 ledgered. The writer-less page-surgeon brief/review/artifact generation (~3,000 lines)
-  was deleted in the same slice; page snapshots now read the tenant's Supabase rows, never the legacy .data file
-  (empty on hosted). Manual implementation, verification, and 7/14/28 measurement foundations stand unchanged.
+- One canonical path produces the ranked Changes queue AND, per pass, at most one deeply evidenced Change Bundle
+  PER ARCHETYPE (Slice 7 existing-page + Slice 8 new-page, 2026-07-25): the strongest page rewrite and researched
+  unbuilt topic (new-page components are pure insertions incl. a page plan and screened source pack; citable
+  research REQUIRED; token-scored topic matching): receipt-first plain-English evidence with an honest missing
+  list; components pass the one gated drafter/validator (rejects become named alternatives, never filler);
+  deterministic; insufficient evidence = refusal. A bundle REPLACES its own shallow rows at generation and load
+  (page for rewrites, topic for new pages), rides ChangeProposal (one decoder serves pre-bundle rows), renders as
+  the flagship Changes row and two-layer /changes/[id] detail (exact copy, receipt, alternatives, risks, truthful
+  measurement; Results takes New page), and stays manual. Walked on rendered Iranopedia data (75,285-view flagship
+  rewrite; new pages live-refuse until funnel research exists); OpenAI validation $0.07 ledgered. The writer-less
+  page-surgeon generation (~3,000 lines) is deleted; page snapshots read the tenant's Supabase rows, never the
+  legacy .data file. Manual implementation and 7/14/28 measurement stand unchanged.
 ## Known target mismatches
 
 - Profound and SEMrush survive only as historical-row reads and inert comments (Slice 2 removed the connector

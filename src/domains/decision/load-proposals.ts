@@ -37,10 +37,13 @@ export type RankedProposalQueue = {
 export async function loadProposalQueue(tenantId: string): Promise<RankedProposalQueue> {
   const byId = await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>());
   const live = [...byId.values()].filter((p) => p.status !== "rejected" && p.status !== "applied");
-  // A bundle REPLACES its page's atomic edits: never show the same edit twice
-  // (covers historical atomic rows persisted before the bundle existed).
-  const bundledPages = new Set(live.filter((p) => p.bundle).map((p) => p.pagePath));
-  const all = live.filter((p) => p.bundle || p.kind !== "existing_edit" || !bundledPages.has(p.pagePath));
+  // A bundle REPLACES its own shallow rows, historical included: an existing-page
+  // bundle covers that PAGE, a new-page bundle covers that TOPIC.
+  const bundledPages = new Set(live.filter((p) => p.bundle && p.kind === "existing_edit").map((p) => p.pagePath));
+  const topicOf = (p: ChangeProposal): string => p.primaryQuery.trim().toLowerCase();
+  const bundledTopics = new Set(live.filter((p) => p.bundle && p.kind === "new_page").map(topicOf));
+  const all = live.filter((p) => p.bundle
+    || (p.kind === "existing_edit" ? !bundledPages.has(p.pagePath) : !bundledTopics.has(topicOf(p))));
   const ranked = rankProposals(all);
   return {
     ranked,

@@ -18,6 +18,7 @@ import {
 /** Change-type options for the manual record form (value ⇒ label). */
 const CHANGE_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "Auto (name it for me)" },
+  { value: "new_page", label: "New page" },
   { value: "edit_title", label: "Title" },
   { value: "edit_meta", label: "Meta description" },
   { value: "change_h1", label: "Page headline (H1)" },

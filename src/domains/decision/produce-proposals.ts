@@ -22,7 +22,7 @@ import { log } from "@/lib/logger";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { loadBusinessProfile } from "@/domains/account";
 import { snapshotToEvidenceInputs } from "./opportunities";
-import { produceBundleForSnapshot } from "./produce-bundle";
+import { produceBundleForSnapshot, produceNewPageBundleForSnapshot } from "./produce-bundle";
 import { proposeChange, type ProposeOptions } from "./propose";
 import { saveChangeProposal } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
@@ -92,21 +92,23 @@ export async function produceProposalsForTenant(
     if (persist) await saveChangeProposal(outcome.proposal);
   }
 
-  // ONE bundle per pass: the strongest existing page gets the deep, copy-ready
-  // form. The bundle REPLACES that page's atomic drafts (never the same edit
-  // twice); a refusal here is honest and silent and the atomic drafts stand.
-  const bundled = await produceBundleForSnapshot(snapshot, {
+  // ONE bundle per archetype per pass (strongest page rewrite + strongest researched
+  // topic). A bundle REPLACES its own shallow drafts (never the same change twice);
+  // a refusal is honest and silent and the shallow drafts stand.
+  const bundleOpts = {
     complete: opts.complete,
     now: opts.now,
     bypassCache: opts.bypassCache,
     authoritativeSourceDomains: allowlist,
-  }).catch((e) => {
+  };
+  const onThrow = (e: unknown) => {
     log.warn("[produce-proposals] bundle threw (fail-soft)", {
       tenantId,
       error: e instanceof Error ? e.message : String(e),
     });
     return { status: "none" as const, reason: "threw" };
-  });
+  };
+  const bundled = await produceBundleForSnapshot(snapshot, bundleOpts).catch(onThrow);
   if (bundled.status === "bundled") {
     const covered = bundled.proposal.pagePath;
     for (let i = proposals.length - 1; i >= 0; i--) {
@@ -117,6 +119,19 @@ export async function produceProposalsForTenant(
     if (persist) await saveChangeProposal(bundled.proposal);
   } else {
     log.info("[produce-proposals] no bundle this pass", { tenantId, reason: bundled.reason });
+  }
+
+  const newPageBundled = await produceNewPageBundleForSnapshot(snapshot, bundleOpts).catch(onThrow);
+  if (newPageBundled.status === "bundled") {
+    const topic = newPageBundled.proposal.primaryQuery.trim().toLowerCase();
+    for (let i = proposals.length - 1; i >= 0; i--) {
+      const p = proposals[i]!;
+      if (p.kind === "new_page" && p.primaryQuery.trim().toLowerCase() === topic) proposals.splice(i, 1);
+    }
+    proposals.push(newPageBundled.proposal);
+    if (persist) await saveChangeProposal(newPageBundled.proposal);
+  } else {
+    log.info("[produce-proposals] no new-page bundle this pass", { tenantId, reason: newPageBundled.reason });
   }
 
   return { proposals: rankProposals(proposals), opportunities: inputs.length, noDraft };
