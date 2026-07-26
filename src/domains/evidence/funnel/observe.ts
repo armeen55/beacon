@@ -1,11 +1,10 @@
 import "server-only";
 /**
- * funnel/observe (integrity closure) - the AI-answer, SERP and winning-page executors plus the PURE
- * snapshot projector. Provider calls route through the frozen boundary by CAPABILITY; posted tasks resume
- * via collect, only a PROVEN-dead identity earns one clean repost per incident, and a BLOCKED refusal
- * always stops the batch and pauses the run. State is basis-scoped with optimistic row_version. Provenance
- * is TRUE: every observation carries its retrieval MODE, every appearance its own query/prompt/engine, and
- * citations keep the null-vs-[]-vs-nonempty tri-state end to end.
+ * funnel/observe (integrity closure) - the AI-answer, SERP and winning-page executors + the PURE snapshot
+ * projector. Provider calls route through the frozen boundary by CAPABILITY; posted tasks resume via collect;
+ * only a PROVEN-dead identity earns one repost per incident; a BLOCKED refusal stops the batch and pauses the
+ * run. State is basis-scoped (optimistic row_version). Provenance is TRUE: every observation carries its
+ * retrieval MODE and query/prompt/engine; citations keep the null-vs-[]-vs-nonempty tri-state end to end.
  */
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { resolveCitationTargets } from "@/domains/evidence/competitor-intel/polite-fetch";
@@ -31,9 +30,8 @@ const isCanonical = (p: FunnelPair) => modeOf(p) === canonicalMode(p.engine);
 const pairKey = (p: FunnelPair) => `${p.promptId}|${p.engine}|${modeOf(p)}`;
 const capabilityFor = (p: FunnelPair): CapabilityKey => (p.engine === "chatgpt" && modeOf(p) === "consumer_search" ? "llm_scraper_chatgpt" : (`llm_${p.engine}` as CapabilityKey));
 
-/** Each capability gets EXACTLY its own documented ask. ChatGPT llm_responses takes web_search only (the live
- *  o4-mini validation rejected force_web_search with in-body 40501); Claude documents force_web_search + country;
- *  Gemini web_search only; perplexity none; the consumer-search scraper is KEYWORD-based. */
+/** Each capability gets EXACTLY its documented ask: ChatGPT llm_responses web_search only (live o4-mini rejected
+ *  force, 40501); Claude force + country; Gemini web_search only; perplexity none; the scraper is KEYWORD-based. */
 function observeCall(callProvider: ResolvedDeps["callProvider"], p: FunnelPair, text: string, ids: { tenantId: string; unitKey: string }): Promise<CachedCallResult> {
   switch (capabilityFor(p)) {
     case "llm_scraper_chatgpt": return callProvider("llm_scraper_chatgpt", { keyword: text, force_web_search: true, expand_citations: true }, ids);
@@ -44,10 +42,10 @@ function observeCall(callProvider: ResolvedDeps["callProvider"], p: FunnelPair, 
   }
 }
 
-/** THE current intended pair set, MODE-stamped: 4 canonical pairs per prompt plus one auxiliary chatgpt standardized
- *  pair for the first 20 prompts only. A persisted row carries forward by promptId|engine|MODE (a legacy scraper flag
- *  decodes to consumer_search, a legacy bare chatgpt row to standardized), so nothing fresh is re-bought; every other
- *  row is PRUNED from the working set (history lives in the pao table). */
+/** THE intended pair set, MODE-stamped: 4 canonical pairs per prompt + one auxiliary chatgpt standardized pair
+ *  for the first 20 prompts only. A persisted row carries forward by promptId|engine|MODE (legacy scraper flag =
+ *  consumer_search, legacy bare chatgpt = standardized) so nothing fresh is re-bought; every other row is PRUNED
+ *  from the working set (history lives in the pao table). */
 function normalizePairs(prompts: { id: string }[], persisted: FunnelPair[]): FunnelPair[] {
   const byKey = new Map(persisted.map((p) => [pairKey(p), p]));
   const intended: FunnelPair[] = [];
@@ -69,11 +67,11 @@ function pairProgress(s: FunnelState): FunnelCounters {
   };
 }
 
-/** ONE historical prompt_answer_observations row per completed answer. The id folds in the retrieval
- *  MODE (the consumer look is a different observation of the same engine, never an overwrite, and the
- *  "+scraper" segment is kept verbatim so pre-6I ids stay continuous), modelServed, and the day, so a
- *  changed served model yields a DISTINCT row. citation_urls is null (not []) when citations were NOT
- *  observable, and metadata.citationsObserved records the tri-state a count-of-0 would flatten. */
+/** ONE historical prompt_answer_observations row per completed answer. The id folds in the retrieval MODE
+ *  (the consumer look is a distinct observation, never an overwrite; the "+scraper" segment stays verbatim so
+ *  pre-6I ids stay continuous), modelServed, and the day, so a changed served model yields a DISTINCT row.
+ *  citation_urls is null (not []) when citations were NOT observable; metadata.citationsObserved records the
+ *  tri-state a count-of-0 would flatten. */
 function paoRow(p: FunnelPair, parsed: ParsedAiAnswer, tenantId: string, runId: string, nowIso: string): PromptAnswerObservation {
   const domains = (parsed.citations ?? []).map((c) => c.domain);
   const observed = parsed.citations !== null;
@@ -123,8 +121,12 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     const state = loaded.state;
     const runId = beginCycle(state, cursor, unitKey);
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion };
+    const loadedPrompts = await d.loadActivePrompts(tenantId);
+    // A FAILED read (null) is not "zero questions": pausing with the no-questions
+    // reason on a transient blip once falsely told a 35-question account it had none.
+    if (loadedPrompts === null) return { status: "failed", cursor, progress: pairProgress(state), detail: "I could not read your tracked questions just now, so I stopped here. I will try again on your next visit." };
     // A loader override must not be able to rotate the bounded auxiliary sample.
-    const prompts = (await d.loadActivePrompts(tenantId)).sort((a, b) => a.id.localeCompare(b.id)).slice(0, 100);
+    const prompts = loadedPrompts.sort((a, b) => a.id.localeCompare(b.id)).slice(0, 100);
     if (prompts.length === 0) return { status: "failed", cursor, progress: pairProgress(state), detail: "I am not tracking any questions for you yet, so I stopped here. Choose them in Settings and I will pick up on your next visit." };
 
     const pairs = normalizePairs(prompts, state.prompts.pairs);
@@ -133,8 +135,8 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     const nowIso = () => new Date(d.now()).toISOString();
     let failedDetail: string | null = null, blockedDetail: string | null = null;
     let softUnavailable = false;
-    /** Only a CANONICAL pair can pause the unit: an auxiliary gap is named nowhere and blocks nothing.
-     *  blocked is the ONE exception and is handled separately (account-level truth from ANY pair). */
+    /** Only a CANONICAL pair can pause the unit (auxiliary gaps block nothing); blocked is the one
+     *  exception, handled separately as account-level truth from ANY pair. */
     const fail = (p: FunnelPair, detail?: string | null) => { if (isCanonical(p) && detail) failedDetail = detail; };
     // Budgets are per INCIDENT: a stale unsupported pair re-enters weekly with a fresh repost budget.
     for (const p of pairs) if (p.status === "unsupported" && p.observedAt && d.now() - Date.parse(p.observedAt) > FRESH_MS) { p.status = "pending"; p.cacheKey = null; p.reposts = undefined; }

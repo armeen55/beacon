@@ -52,7 +52,7 @@ export type FunnelDeps = {
    *  redirect-only resolver in competitor-intel/polite-fetch). */
   resolveCitations?: (appearances: ResearchWinningAppearance[], fetchImpl?: typeof fetch, deadlineMs?: number) => Promise<ResearchWinningAppearance[]>;
   getAccount?: (tenantId: string) => Promise<Account | null>;
-  loadActivePrompts?: (tenantId: string) => Promise<{ id: string; text: string }[]>;
+  loadActivePrompts?: (tenantId: string) => Promise<{ id: string; text: string }[] | null>;
   syncHistory?: (rows: PromptAnswerObservation[], tenantId: string) => Promise<void>;
   fetchPage?: typeof fetchPageHtml;
   loadState?: (tenantId: string, basisTag: string) => Promise<LoadedFunnelState>;
@@ -81,7 +81,9 @@ export function resolveDeps(deps: FunnelDeps) {
   };
 }
 
-async function defaultActivePrompts(tenantId: string): Promise<{ id: string; text: string }[]> {
+/** null = the READ FAILED. A transient failure must never masquerade as "zero
+ *  questions": that once wrote a false no-questions pause onto a live run. */
+async function defaultActivePrompts(tenantId: string): Promise<{ id: string; text: string }[] | null> {
   try {
     const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
     const { data, error } = await getSupabaseAdmin()
@@ -93,10 +95,10 @@ async function defaultActivePrompts(tenantId: string): Promise<{ id: string; tex
       .order("created_at", { ascending: true })
       .order("id", { ascending: true })
       .limit(100);
-    if (error) return [];
+    if (error) return null;
     return ((data ?? []) as { id: string; text: string }[]).filter((r) => r.id && r.text);
   } catch {
-    return [];
+    return null;
   }
 }
 
