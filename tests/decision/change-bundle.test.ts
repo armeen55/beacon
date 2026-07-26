@@ -1,12 +1,11 @@
 /**
- * The ONE bundle contract, both archetypes: an existing-page rewrite (Slice 7) and a new page
- * (Slice 8). Selection, receipt-first grounding, determinism under reordered evidence, honest
- * omission and refusal, topic dedupe fresh + historical, a persistence round-trip that also
- * reads a pre-bundle row, and the readiness rules (basis + owed sources) the surfaces trust.
+ * The ONE bundle contract, both archetypes: an existing-page rewrite (Slice 7) and a new page (Slice 8).
+ * Selection, receipt-first grounding, evidence that attaches only where it is topically anchored, determinism
+ * under reordered evidence, honest omission and refusal, topic dedupe fresh + historical, a persistence
+ * round-trip that also reads a pre-bundle row, and the readiness rules the surfaces trust.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
-
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() }));
 const env = vi.hoisted(() => ({ snap: null as unknown }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
@@ -14,7 +13,6 @@ vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: as
 vi.mock("@/domains/decision/proposal-store", () => ({ loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); } }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null }));
-
 import { produceBundleForSnapshot, produceNewPageBundleForSnapshot } from "@/domains/decision/produce-bundle";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
 import { loadProposalQueue } from "@/domains/decision/load-proposals";
@@ -22,7 +20,6 @@ import { serializeChangeProposal, deserializeChangeProposal } from "@/domains/de
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { EvidenceSnapshot, NewPageOpportunity, OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
-
 const TENANT = "fixture-tenant";
 const NOW = new Date("2026-07-25T00:00:00.000Z");
 const TITLE_AFTER = "Rain barrel sizing: gallons per storm by roof area";
@@ -41,8 +38,7 @@ function page(over: Partial<OwnedPageEvidence> & { url: string }): OwnedPageEvid
   return {
     content: { title: "Rain Barrels", metaDescription: null, h1: "Rain Barrels", h2: [], outline: ["Rain barrel sizing", "Roof area and gallons", "Chaining a second barrel"], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 900, internalLinks: [], fetchedAt: "2026-07-20T00:00:00.000Z" },
     search: { clicks90d: 120, impressions90d: 9000, ctr90d: 0.013, position90d: 8, topQueries: [{ query: "rain barrel sizing", impressions: 6000, clicks: 90, position: 8 }, { query: "how many gallons rain barrel", impressions: 2000, clicks: 20, position: 11 }] },
-    engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] },
-    ...over,
+    engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] }, ...over,
   };
 }
 const RESEARCH = {
@@ -88,26 +84,21 @@ function snapshot(over: Partial<EvidenceSnapshot> = {}): EvidenceSnapshot {
     contentGaps: [], internalLinkOpportunities: [], newPageOpportunities: [], evidenceHash: "fixture", research: RESEARCH,
     aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 },
     ownedPages: [page({ url: "fixture-content.example/rain-barrels" }),
-      page({ url: "fixture-content.example/compost", search: { clicks90d: 4, impressions90d: 300, ctr90d: 0.013, position90d: 22, topQueries: [{ query: "compost bin sizing", impressions: 300, clicks: 4, position: 22 }] } })],
-    ...over,
+      page({ url: "fixture-content.example/compost", search: { clicks90d: 4, impressions90d: 300, ctr90d: 0.013, position90d: 22, topQueries: [{ query: "compost bin sizing", impressions: 300, clicks: 4, position: 22 }] } })], ...over,
   };
 }
 const topicSnapshot = (over: Partial<EvidenceSnapshot> = {}): EvidenceSnapshot =>
   snapshot({ research: TOPIC_RESEARCH, newPageOpportunities: [OPP, OPP2], competitors: [COMPETITOR], ...over });
 const reverse = <T,>(a: readonly T[]): T[] => [...a].reverse();
 /** Every component cites receipt items that actually exist. */
-const expectKeysResolve = (b: ChangeBundle): void => {
-  const keys = new Set(b.receipt.items.map((i) => i.key));
-  for (const c of b.components) { expect(c.evidenceKeys.length).toBeGreaterThan(0); for (const k of c.evidenceKeys) expect(keys.has(k)).toBe(true); }
-};
+const expectKeysResolve = (b: ChangeBundle): void => { const keys = new Set(b.receipt.items.map((i) => i.key));
+  for (const c of b.components) { expect(c.evidenceKeys.length).toBeGreaterThan(0); for (const k of c.evidenceKeys) expect(keys.has(k)).toBe(true); } };
 /** No provider name, no lab word, no dash reaches operator-facing copy. */
 const expectCleanCopy = (p: ChangeProposal): void => {
   const b = p.bundle!;
   const copy = [b.objective, b.metric, b.measurementPlan, p.whyItMatters, ...b.receipt.items.map((i) => i.fact), ...b.receipt.missing, ...b.risks,
     ...b.confidenceReasons, ...b.components.map((c) => `${c.label} ${c.after}`), ...b.alternatives.map((a) => `${a.option} ${a.reason}`)].join(" ");
-  expect(copy).not.toMatch(/chatgpt|gemini|dataforseo|SERP|baseline|control group/i);
-  expect(copy).not.toMatch(/[–—]/);
-};
+  expect(copy).not.toMatch(/chatgpt|gemini|dataforseo|SERP|baseline|control group/i); expect(copy).not.toMatch(/[–—]/); };
 beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; store.rows.clear(); });
 afterEach(() => { delete process.env.OPENAI_API_KEY; });
 describe("produceBundleForSnapshot", () => {
@@ -117,19 +108,16 @@ describe("produceBundleForSnapshot", () => {
     if (out.status !== "bundled") return;
     const p = out.proposal; const bundle = p.bundle!;
     expect(p.id).toBe(`${TENANT}::/rain-barrels::existing_edit::bundle`);
-    expect(p.pagePath).toBe("/rain-barrels"); // the 9,000-view page, not the 300-view one
-    expect(p.changeFamily).toBe("bundle"); expect(p.kind).toBe("existing_edit");
+    expect(p.pagePath).toBe("/rain-barrels"); expect(p.changeFamily).toBe("bundle"); expect(p.kind).toBe("existing_edit"); // the 9,000-view page, not the 300-view one
     expect(bundle.components.map((c) => c.kind)).toEqual(["title", "meta", "opening_answer"]);
     expect(bundle.components.map((c) => c.before)).toEqual(["Rain Barrels", null, null]); // no description today
     expect(bundle.components.map((c) => c.after)).toEqual([TITLE_AFTER, META_AFTER, ANSWER_AFTER]);
     expect(p.recommendedChange).toEqual({ kind: "existing_edit", field: "title", before: "Rain Barrels", after: TITLE_AFTER });
-    expectKeysResolve(bundle);
     expect(bundle.receipt.items.map((i) => i.kind)).toEqual(expect.arrayContaining(["gsc_demand", "page_extract", "keyword", "serp", "ai_observation", "winning_page"]));
-    expect(bundle.receipt.freshestObservedAt).toBe("2026-07-22T00:00:00.000Z");
+    expect(bundle.receipt.freshestObservedAt).toBe("2026-07-22T00:00:00.000Z"); expectKeysResolve(bundle); expectCleanCopy(p);
     expect(bundle.scope).toEqual({ queries: ["rain barrel sizing", "how many gallons rain barrel"], prompts: ["rain barrel sizing rule of thumb", "what size rain barrel do I need"] });
     expect(bundle.alternatives.some((a) => a.option.includes("/compost"))).toBe(true);
     expect(p.evidence.evidenceRefCount).toBe(bundle.receipt.items.length);
-    expectCleanCopy(p);
   });
   it("is identical when every input list arrives in the opposite order", async () => {
     const base = snapshot();
@@ -146,12 +134,11 @@ describe("produceBundleForSnapshot", () => {
     expect(out.status).toBe("bundled");
     if (out.status !== "bundled") return;
     const bundle = out.proposal.bundle!;
-    expect(bundle.components.map((c) => c.kind)).toEqual(["title", "meta"]);
+    expect(bundle.components.map((c) => c.kind)).toEqual(["title", "meta"]); expect(bundle.scope.prompts).toEqual([]);
     expect(bundle.receipt.missing).toEqual(expect.arrayContaining(["I do not have a monthly search count for these searches yet.",
-      "I have not looked at the live results page for these searches yet.", "No AI answers have been gathered for these prompts yet.",
+      "I have not looked at the live results page for these searches yet.", "I have not gathered an AI answer about this page's topic yet.",
       "I have not read the pages AI keeps citing on this topic yet."]));
     expect(bundle.alternatives.some((a) => a.option.includes("Opening answer"))).toBe(true);
-    expect(bundle.scope.prompts).toEqual([]);
   });
   it("refuses without demand or current copy, and round-trips through persistence", async () => {
     const opt = { complete: seam, now: NOW, bypassCache: true };
@@ -166,8 +153,7 @@ describe("produceBundleForSnapshot", () => {
     expect(back).toEqual(out.proposal); expect(back!.bundle!.components).toHaveLength(3);
     const { bundle: _dropped, ...preBundleRow } = out.proposal; void _dropped;
     const legacy = deserializeChangeProposal(serializeChangeProposal(preBundleRow as typeof out.proposal));
-    expect(legacy).not.toBeNull(); expect(legacy!.bundle).toBeUndefined();
-  });
+    expect(legacy).not.toBeNull(); expect(legacy!.bundle).toBeUndefined(); });
 });
 describe("produceNewPageBundleForSnapshot", () => {
   it("builds one researched topic into a page plan every component cites", async () => {
@@ -176,19 +162,17 @@ describe("produceNewPageBundleForSnapshot", () => {
     if (out.status !== "bundled") return;
     const p = out.proposal; const bundle = p.bundle!;
     expect(p.id).toBe(`${TENANT}::new::${TOPIC}::new_page::bundle`);
-    expect(p.kind).toBe("new_page"); expect(p.pagePath).toBeNull();
-    expect(p.impactScore).toBe(5200); // the opportunity's own demand weight
+    expect(p.kind).toBe("new_page"); expect(p.pagePath).toBeNull(); expect(p.impactScore).toBe(5200); // the opportunity's own demand weight
     expect(p.recommendedChange).toEqual({ kind: "new_page", ...BRIEF });
     expect(bundle.components.map((c) => c.kind)).toEqual(["title", "meta", "opening_answer", "section", "source_pack"]);
     expect(bundle.components.map((c) => c.label)).toEqual(["Page title", "Search description", "Opening answer", "Page plan", "Sources to cite"]);
     expect(bundle.components.every((c) => c.before === null)).toBe(true); // every component is an insertion
     expect(bundle.components[3].after).toBe(PLAN); // the outline plus the FAQ questions, one heading per line
     expect(bundle.components[4].after).toBe("County permit rules, waterwise.example: https://waterwise.example/permits");
-    expectKeysResolve(bundle);
     expect(bundle.receipt.items.map((i) => i.kind)).toEqual(["keyword", "serp", "ai_observation", "competitor", "winning_page"]);
     expect(bundle.receipt.items.find((i) => i.kind === "competitor")!.fact).toBe("AI answers cite waterwise.example for this on 4 different prompts.");
     expect(bundle.receipt.items.find((i) => i.kind === "winning_page")!.fact).toContain("runs 1,800 words with 3 sections");
-    expect(bundle.receipt.freshestObservedAt).toBe("2026-07-23T00:00:00.000Z");
+    expect(bundle.receipt.freshestObservedAt).toBe("2026-07-23T00:00:00.000Z"); expectKeysResolve(bundle);
     expect(bundle.objective).toBe(`Build one page that answers "${TOPIC}" so the demand lands on you.`);
     expect(bundle.metric).toBe(`Clicks and views from search for "${TOPIC}" over the next 28 days.`);
     expect(bundle.scope).toEqual({ queries: [TOPIC], prompts: [PROMPT2] });
@@ -213,8 +197,59 @@ describe("produceNewPageBundleForSnapshot", () => {
     const unresearched = await produceNewPageBundleForSnapshot(snapshot({ newPageOpportunities: [OPP, OPP2] }), { complete: briefSeam([SOURCE]), now: NOW, bypassCache: true });
     expect(unresearched.status).toBe("none");
     if (unresearched.status !== "none") return;
-    expect(unresearched.reason).toContain("has research behind it yet");
+    expect(unresearched.reason).toContain("has research behind it yet"); });
+});
+// ── anchored evidence: the words this account puts on everything prove nothing ─
+const CONTENT = page({ url: "x" }).content!;
+const kwRow = (query: string, searchVolume: number | null) => ({ query, searchVolume, competition: 0.2, competitionLevel: "low" as const, intent: "informational" });
+const obsRow = (promptText: string, observedAt: string) => ({ promptId: promptText, promptText, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url: URL2, domain: "waterwise.example", title: "P" }], fanOutQueries: null, observedAt });
+const GALLONS = "how many gallons does a rain barrel hold";
+const MOSQUITO = "do rain barrels attract mosquitoes"; // shares only the everywhere-words with every page this account owns
+const ANCHOR_RESEARCH = {
+  ...emptyResearchEvidence(), serpEvidence: TOPIC_RESEARCH.serpEvidence,
+  retainedKeywords: [kwRow("rain barrel sizing", 4400), kwRow("how many gallons rain barrel", 880), kwRow(TOPIC, 1600), kwRow("rain barrel winter care", 210), kwRow("rain barrel overflow hose", 140), kwRow("rain barrel mosquito screen", 90)],
+  aiObservations: [obsRow(GALLONS, "2026-07-22T00:00:00.000Z"), obsRow(MOSQUITO, "2026-07-21T00:00:00.000Z"), obsRow(PROMPT2, "2026-07-23T00:00:00.000Z"), obsRow("how do I winterize a rain barrel", "2026-07-20T00:00:00.000Z"), obsRow("rain barrel overflow in a storm", "2026-07-19T00:00:00.000Z")],
+  winningPages: [{ ...RESEARCH.winningPages[0], examplePrompts: [GALLONS] }, { ...TOPIC_RESEARCH.winningPages[1], examplePrompts: [MOSQUITO] }],
+};
+const anchorSnap = (over: Partial<EvidenceSnapshot> = {}): EvidenceSnapshot => snapshot({ research: ANCHOR_RESEARCH, competitors: [COMPETITOR], ...over });
+describe("evidence attaches only where it is topically anchored", () => {
+  it("keeps the AI answer and cited page that are about THIS page, drops the ones sharing only the everywhere-word", async () => {
+    const opt = { complete: seam, now: NOW, bypassCache: true };
+    const out = await produceBundleForSnapshot(anchorSnap(), opt);
+    if (out.status !== "bundled") throw new Error("expected a bundle");
+    const b = out.proposal.bundle!; const facts = b.receipt.items.map((i) => i.fact).join(" ");
+    expect(b.scope.prompts).toEqual([GALLONS]); expect(facts).not.toMatch(/mosquito|winterize|permit/i); // the four broad prompts share only "rain barrel"
+    expect(b.receipt.items.filter((i) => i.kind === "winning_page").map((i) => i.fact.split(" ")[0])).toEqual(["gardenguide.example"]);
+    expect(b.receipt.items.some((i) => i.kind === "ai_observation")).toBe(true); expectKeysResolve(b); expectCleanCopy(out.proposal);
+    const flipped = anchorSnap({ research: { ...ANCHOR_RESEARCH, retainedKeywords: reverse(ANCHOR_RESEARCH.retainedKeywords), aiObservations: reverse(ANCHOR_RESEARCH.aiObservations), winningPages: reverse(ANCHOR_RESEARCH.winningPages) } });
+    expect(JSON.stringify(await produceBundleForSnapshot(flipped, opt))).toBe(JSON.stringify(out)); // same snapshot, same bundle
   });
+  it("researches a new topic only from rows anchored to it, and refuses when every row is weak-only", async () => {
+    const opt = { complete: briefSeam([SOURCE]), now: NOW, bypassCache: true };
+    const out = await produceNewPageBundleForSnapshot(anchorSnap({ newPageOpportunities: [{ ...OPP, topic: "rain barrel permits" }] }), opt);
+    if (out.status !== "bundled") throw new Error("expected a bundle");
+    const b = out.proposal.bundle!;
+    expect(b.scope.queries).toEqual(["rain barrel permits", TOPIC]); expect(b.scope.prompts).toEqual([PROMPT2]); // the five other searches share only "rain barrel"
+    expect(b.receipt.items.map((i) => i.fact).join(" ")).not.toMatch(/mosquito|gallons|sizing/i);
+    const weakOnly = await produceNewPageBundleForSnapshot(anchorSnap({ newPageOpportunities: [{ ...OPP, topic: "rain barrel stands" }] }), opt);
+    expect(weakOnly.status).toBe("none");
+    if (weakOnly.status === "none") expect(weakOnly.reason).toContain("has research behind it yet"); });
+  it("drops evidence that is not about the page, then says plainly what it no longer holds", async () => {
+    const only = [page({ url: "fixture-content.example/compost", search: { clicks90d: 40, impressions90d: 9000, ctr90d: 0.004, position90d: 22, topQueries: [{ query: "compost bin sizing", impressions: 9000, clicks: 40, position: 22 }] } })];
+    const out = await produceBundleForSnapshot(anchorSnap({ ownedPages: only }), { complete: seam, now: NOW, bypassCache: true });
+    if (out.status !== "bundled") throw new Error("expected a bundle");
+    const b = out.proposal.bundle!;
+    expect(b.components.map((c) => c.kind)).toEqual(["title", "meta"]); // the opening answer needed research this page cannot claim
+    expect(b.alternatives.some((a) => a.option === "Opening answer at the top of the page" && a.reason.includes("no outside evidence"))).toBe(true);
+    expect(b.receipt.missing).toEqual(expect.arrayContaining(["I have not gathered an AI answer about this page's topic yet.", "I have not read the pages AI keeps citing on this topic yet."]));
+    expect(b.receipt.items.every((i) => i.kind === "gsc_demand" || i.kind === "page_extract")).toBe(true); expect(b.scope.prompts).toEqual([]); });
+  it("suppresses a new page that overlaps an owned page on its distinguishing words, never on the everywhere-word", async () => {
+    const { snapshotToEvidenceInputs } = await import("@/domains/decision/opportunities");
+    const owned = ["Harbor", "Harbor Girl Names|Harbor Female Names", "Harbor Tide Charts", "Harbor Ferry Schedule", "Harbor Whale Tours", "Harbor Seafood Market", "Harbor Parking Rates", "Harbor Fishing Permits"]
+      .map((t) => t.split("|")).map(([title, h1]) => page({ url: `fixture-content.example/${title}`, content: { ...CONTENT, title, h1: h1 ?? title } }));
+    const topics = ["beautiful harbor girl names", "harbor kayak rentals"].map((topic, i) => ({ ...OPP, topic, demandWeight: 90 - i }));
+    const kept = snapshotToEvidenceInputs(snapshot({ ownedPages: owned, newPageOpportunities: topics })).filter((i) => i.opportunity.kind === "new_page");
+    expect(kept.map((i) => i.opportunity.query)).toEqual(["harbor kayak rentals"]); }); // the girl-names topic is the owned page's own job
 });
 describe("one pass, both bundles, one row per change", () => {
   it("drops the shallow brief for a bundled topic at generation and again on load", async () => {
@@ -227,8 +262,7 @@ describe("one pass, both bundles, one row per change", () => {
     expect(res.proposals.filter((p) => p.kind === "new_page" && p.primaryQuery === TOPIC).map((p) => p.id)).toEqual([bundleId]);
     expect([...store.rows.keys()].filter((id) => id.includes(`new::${TOPIC}`)).length).toBeGreaterThan(1);
     const queue = await loadProposalQueue(TENANT);
-    expect(queue.newPageBriefs.filter((p) => p.primaryQuery === TOPIC).map((p) => p.id)).toEqual([bundleId]);
-  });
+    expect(queue.newPageBriefs.filter((p) => p.primaryQuery === TOPIC).map((p) => p.id)).toEqual([bundleId]); });
 
   it("READY means ready: an older-basis row and a row still owing a source both drop to to-do, and neither is deleted", async () => {
     env.snap = topicSnapshot();
@@ -239,8 +273,7 @@ describe("one pass, both bundles, one row per change", () => {
     const stale = await loadProposalQueue(TENANT, { currentBasis: "basis_after_the_operator_changed_the_business" });
     expect(stale.ready).toEqual([]); expect(stale.toDo.length).toBe(stale.ranked.length); // an old basis can never claim ready
     const current = await loadProposalQueue(TENANT, { currentBasis: "basis_today" });
-    expect(current.ready.length).toBeGreaterThan(0);
-    expect(current.ready.some((p) => p.limitations.includes(owing))).toBe(false);
+    expect(current.ready.length).toBeGreaterThan(0); expect(current.ready.some((p) => p.limitations.includes(owing))).toBe(false);
     expect(current.toDo.some((p) => p.limitations.includes(owing))).toBe(true);
     expect(store.rows.size).toBe(rows); // presentation demotion only: no row rewritten away, no history lost
   });
@@ -253,6 +286,5 @@ describe("one pass, both bundles, one row per change", () => {
     expect(`${aiOnly.opportunity.opportunityType} ${(aiOnly.evidence.hints ?? []).join(" ")}`).not.toMatch(/people search|google/i);
     expect(label({ basis: "search_volume" })[0]!.opportunity.opportunityType).toBe("Build a page people search for");
     expect(label({})[0]!.opportunity.opportunityType).toBe("Build a page people search for and AI asks about");
-    expect(label({ topic: "rain barrels" })).toEqual([]); // an owned page title: proposing a new page for it is self-cannibalization
-  });
+    expect(label({ topic: "rain barrels" })).toEqual([]); }); // an owned page title: proposing a new page for it is self-cannibalization
 });

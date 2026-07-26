@@ -31,8 +31,16 @@ function profileConfirmed(p: BusinessProfile): boolean {
   return [p.offerings, p.topicsToOwn, p.customerProblems].some((s) => s.origin === "operator_confirmed" && s.value.length > 0);
 }
 
+/** Paid discovery seeds: EVERY confirmed theme, deduped in a stable order (topics I
+ *  want to own, then what I sell, then the problems customers bring), bounded at 12.
+ *  The old .slice(0, 5) silently starved most of an account's themes of any discovery
+ *  at all, so their keywords never entered the funnel and could never be checked in
+ *  search. Cost bound: 2 labs calls per seed (related + suggestions), so at most 24. */
+const MAX_SEEDS = 12;
+
 function seedsFrom(p: BusinessProfile): string[] {
-  return [...new Set([...p.topicsToOwn.value, ...p.offerings.value])].map((s) => s.trim()).filter(Boolean).slice(0, 5);
+  const all = [...p.topicsToOwn.value, ...p.offerings.value, ...p.customerProblems.value].map((s) => s.trim()).filter(Boolean);
+  return [...new Set(all)].slice(0, MAX_SEEDS);
 }
 
 function discProgress(s: FunnelState): FunnelCounters {

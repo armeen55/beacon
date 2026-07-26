@@ -1,16 +1,15 @@
 /**
  * decision/produce-bundle (Slices 7 + 8). The ONE producer of a deep, copy-ready
- * ChangeBundle, in the only two archetypes that exist: REWRITE the strongest
- * existing page, and BUILD the one new page the demand is asking for. Not a second
- * pipeline: both reuse the same EvidenceSnapshot, the same structured drafters, the
- * same ONE validator, and ride on the same persisted ChangeProposal.
- *
- * Order of work is deliberate: SELECT, BUILD the evidence receipt FIRST, then draft
- * and keep only what the receipt and the gates justify. Three grounded components
- * beat eight padded ones, and no evidence means no bundle (an honest refusal, never
- * filler). Deterministic: every input list is re-sorted before it is read, so the
- * same evidence in any order produces a byte-identical bundle. server-only; cold
- * under an injected `complete`.
+ * ChangeBundle, in the only two archetypes that exist: REWRITE the strongest existing
+ * page, and BUILD the one new page the demand is asking for. Not a second pipeline:
+ * both ride the same EvidenceSnapshot, the same structured drafters, the same ONE
+ * validator, the same persisted ChangeProposal. Order of work is deliberate: SELECT,
+ * BUILD the evidence receipt FIRST, then draft and keep only what the receipt and the
+ * gates justify. Three grounded components beat eight padded ones, no evidence means no
+ * bundle (an honest refusal, never filler), and evidence that is not topically connected
+ * to the change is not evidence. Deterministic: every input list is re-sorted before it
+ * is read, so the same evidence in any order produces a byte-identical bundle.
+ * server-only; cold under an injected `complete`.
  */
 
 import "server-only";
@@ -19,7 +18,7 @@ import type { EvidenceSnapshot, NewPageOpportunity, OwnedPageEvidence, OwnedQuer
 import { draftAtomicEditStructured, draftAnswerBlockStructured, draftCreatePageStructured } from "@/domains/decision/llm/structured-drafter";
 import type { ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, RecommendedChange } from "./contracts";
 import type { ProposeOptions } from "./propose"; import { validateProposal } from "./validate-proposal";
-import { scoreTopicMatch } from "@/domains/evidence/relevance-gate"; import { looksLikePlaceholder } from "./placeholder-detection"; import { containsUuid } from "./copy-sanitize";
+import { anchoredTopicMatch, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import { looksLikePlaceholder } from "./placeholder-detection"; import { containsUuid } from "./copy-sanitize";
 
 export type BundleOutcome =
   | { status: "bundled"; proposal: ChangeProposal }
@@ -51,10 +50,25 @@ function parseUrl(url: string): URL | null {
 const pathOf = (url: string): string => parseUrl(url)?.pathname || (url.startsWith("/") ? url : `/${url}`);
 const hostOf = (url: string): string => parseUrl(url)?.hostname ?? url;
 
-const WANTS: Record<string, string> = {
-  informational: "want an explanation", commercial: "are comparing options",
-  transactional: "are ready to act", navigational: "are looking for one specific site",
-};
+/** WEAK ANCHORS: the words this account puts on nearly everything it owns ("iran" for an
+ *  encyclopedia of Iran) fit anything, so alone they prove no topical connection and must
+ *  never attach evidence to a change. Read fresh each pass from the account's OWN corpus:
+ *  its searches, its prompts, its page titles. Under MIN_ANCHOR_CORPUS phrases on file
+ *  nothing has recurred often enough to earn the label, so the set is empty and a
+ *  single-topic account keeps the evidence that genuinely is about its one topic. */
+const MIN_ANCHOR_CORPUS = 10;
+function weakAnchorsOf(snapshot: EvidenceSnapshot): Set<string> {
+  const r = snapshot.research;
+  const phrases = [...new Set([...(r?.retainedKeywords ?? []).map((k) => k.query), ...(r?.aiObservations ?? []).map((o) => o.promptText),
+    ...snapshot.ownedPages.map((p) => p.content?.title || p.content?.h1 || pathOf(p.url))].map((s) => (s ?? "").trim()).filter(Boolean))];
+  return phrases.length < MIN_ANCHOR_CORPUS ? new Set<string>() : weakAnchorTokens(phrases);
+}
+/** Same topic = exact equality OR a shared DISTINGUISHING token (never a bare substring, never the everywhere-word alone). */
+const topicMatch = (a: string, b: string, weak: ReadonlySet<string>): boolean =>
+  norm(a) === norm(b) || anchoredTopicMatch(a, b, weak).relevant;
+
+const WANTS: Record<string, string> = { informational: "want an explanation", commercial: "are comparing options",
+  transactional: "are ready to act", navigational: "are looking for one specific site" };
 
 /** One plain-English fact per research class, shared by both archetypes so the
  *  operator reads the SAME sentence shape whichever bundle produced it. */
@@ -90,18 +104,16 @@ function queriesOf(page: OwnedPageEvidence): OwnedQuerySignal[] {
 type Receipt = ChangeBundle["receipt"] & { prompts: string[]; hasResearch: boolean; contextOnlyKeys: string[] };
 
 /** The evidence receipt, built BEFORE anything is drafted. Plain English only. */
-function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queries: OwnedQuerySignal[]): Receipt {
-  const items: BundleEvidenceItem[] = [];
-  const contextOnly: string[] = [];
-  const missing: string[] = [];
-  const prompts: string[] = [];
-  const add = (key: string, kind: BundleEvidenceItem["kind"], fact: string, observedAt: string | null): void => {
-    items.push({ key, kind, fact, observedAt });
-  };
+function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queries: OwnedQuerySignal[], weak: ReadonlySet<string>): Receipt {
+  const items: BundleEvidenceItem[] = []; const contextOnly: string[] = []; const missing: string[] = []; const prompts: string[] = [];
+  const add = (key: string, kind: BundleEvidenceItem["kind"], fact: string, observedAt: string | null): void => { items.push({ key, kind, fact, observedAt }); };
   const research = snapshot.research;
   const qset = new Set(queries.map((q) => norm(q.query)));
   const s = page.search!;
   const c = page.content!;
+  // Support attaches only when it is about THIS page: an AI answer or a cited page sharing nothing with the page's own words is noise.
+  const pageTopic = [...queries.map((q) => q.query), c.title ?? "", c.h1 ?? ""].join(" ");
+  const onTopic = (text: string): boolean => topicMatch(text, pageTopic, weak);
 
   add("demand-page", "gsc_demand", `Over the last 90 days this page earned ${s.clicks90d.toLocaleString()} clicks from ${s.impressions90d.toLocaleString()} views in search, at about position ${Math.round(s.position90d)}.`, null);
   queries.slice(0, 3).forEach((q, i) => add(`demand-q${i + 1}`, "gsc_demand",
@@ -119,11 +131,11 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   if (serps.length === 0) missing.push("I have not looked at the live results page for these searches yet.");
   serps.slice(0, 2).forEach((e, i) => add(`serp${i + 1}`, "serp", serpFact(e), null));
 
-  const observations = [...(research?.aiObservations ?? [])].sort(
+  const observations = [...(research?.aiObservations ?? [])].filter((o) => onTopic(o.promptText)).sort(
     (a, b) => byText(a.observationMode, b.observationMode) || byText(a.promptText, b.promptText) || byText(a.engine, b.engine));
   const consumer = observations.filter((o) => o.observationMode === "consumer_search");
   const plain = observations.filter((o) => o.observationMode !== "consumer_search");
-  if (observations.length === 0) missing.push("No AI answers have been gathered for these prompts yet.");
+  if (observations.length === 0) missing.push("I have not gathered an AI answer about this page's topic yet.");
   else if (consumer.length === 0) missing.push("I have not yet watched what a customer sees when they search inside an assistant for these prompts.");
   [...consumer.slice(0, 2), ...plain.slice(0, 1)].forEach((o, i) => {
     add(`ai${i + 1}`, "ai_observation", observationFact(o), o.observedAt);
@@ -131,7 +143,8 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
     prompts.push(o.promptText);
   });
 
-  const winners = [...(research?.winningPages ?? [])].sort((a, b) => byText(a.url, b.url)).slice(0, 2);
+  const winners = [...(research?.winningPages ?? [])].filter((w) => w.examplePrompts.some((p) => onTopic(p)) || onTopic(w.url))
+    .sort((a, b) => byText(a.url, b.url)).slice(0, 2);
   if (winners.length === 0) missing.push("I have not read the pages AI keeps citing on this topic yet.");
   winners.forEach((w, i) => {
     const newest = [...w.appearances].sort((a, b) => byText(b.observedAt, a.observedAt))[0] ?? null;
@@ -166,9 +179,8 @@ function gateShape(tenantId: string, query: string, change: RecommendedChange): 
 
 export type ProduceBundleOptions = ProposeOptions;
 
-/** Produce at most ONE bundle for a tenant's strongest existing page. `none`
- *  with a structured reason when no page clears demand + current copy, or when
- *  every drafted component fails a gate. */
+/** Produce at most ONE bundle for a tenant's strongest existing page. `none` with a structured
+ *  reason when no page clears demand + current copy, or when every drafted component fails a gate. */
 export async function produceBundleForSnapshot(
   snapshot: EvidenceSnapshot,
   opts: ProduceBundleOptions = {},
@@ -185,7 +197,7 @@ export async function produceBundleForSnapshot(
   const primary = queries[0]!.query;
   const content = page.content!;
   const search = page.search!;
-  const receipt = buildReceipt(snapshot, page, queries);
+  const receipt = buildReceipt(snapshot, page, queries, weakAnchorsOf(snapshot));
   const facts = receipt.items.map((it) => it.fact);
   const evidenceText = [...facts, ...content.outline, content.title ?? ""].filter(Boolean).join(" ");
   // The relevance gate asks "does the rewrite still name this page's topic". Ground it in
@@ -300,47 +312,37 @@ export async function produceBundleForSnapshot(
 }
 
 // ── archetype 2 (Slice 8): the ONE new page the demand is asking for ──────────
-/** Same topic = exact normalized equality OR the shared token scorer (a bare substring like
- *  "per" inside a long topic must never inherit its demand). */
-const topicMatch = (a: string, b: string): boolean => norm(a) === norm(b) || scoreTopicMatch(a, b).relevant;
-
 type TopicResearch = { keywords: Keyword[]; serps: SerpEvidence[]; observations: Observation[]; winners: Research["winningPages"]; competitors: EvidenceSnapshot["competitors"] };
 
 /** Everything on file about ONE topic, re-sorted before read. */
-function researchForTopic(snapshot: EvidenceSnapshot, opp: NewPageOpportunity): TopicResearch {
+function researchForTopic(snapshot: EvidenceSnapshot, opp: NewPageOpportunity, weak: ReadonlySet<string>): TopicResearch {
   const r = snapshot.research;
   const topic = opp.topic;
-  const observations = [...(r?.aiObservations ?? [])].filter((o) => topicMatch(o.promptText, topic)).sort(
+  const observations = [...(r?.aiObservations ?? [])].filter((o) => topicMatch(o.promptText, topic, weak)).sort(
     (a, b) => byText(a.observationMode, b.observationMode) || byText(a.promptText, b.promptText) || byText(a.engine, b.engine));
   const compDomains = new Set(opp.competitorUrls.map(hostOf));
   const citedDomains = new Set(observations.flatMap((o) => (o.citations ?? []).map((c) => c.domain)));
   return {
-    keywords: [...(r?.retainedKeywords ?? [])].filter((k) => topicMatch(k.query, topic) && k.searchVolume != null)
+    keywords: [...(r?.retainedKeywords ?? [])].filter((k) => topicMatch(k.query, topic, weak) && k.searchVolume != null)
       .sort((a, b) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0) || byText(norm(a.query), norm(b.query))),
-    serps: [...(r?.serpEvidence ?? [])].filter((e) => topicMatch(e.query, topic)).sort((a, b) => byText(norm(a.query), norm(b.query))),
+    serps: [...(r?.serpEvidence ?? [])].filter((e) => topicMatch(e.query, topic, weak)).sort((a, b) => byText(norm(a.query), norm(b.query))),
     observations,
     winners: [...(r?.winningPages ?? [])]
-      .filter((w) => w.examplePrompts.some((p) => topicMatch(p, topic)) || compDomains.has(w.domain) || citedDomains.has(w.domain))
+      .filter((w) => w.examplePrompts.some((p) => topicMatch(p, topic, weak)) || compDomains.has(w.domain) || citedDomains.has(w.domain))
       .sort((a, b) => byText(a.url, b.url)).slice(0, 2),
     competitors: [...snapshot.competitors].filter((c) => compDomains.has(c.domain))
       .sort((a, b) => b.citationCount - a.citationCount || byText(a.domain, b.domain)).slice(0, 2),
   };
 }
 
-/** Support that can JUSTIFY copy. A citation-null observation is context only,
- *  so on its own it never earns a page brief. */
+/** Support that can JUSTIFY copy. A citation-null observation is context only, so alone it never earns a page brief. */
 const hasSupport = (res: TopicResearch): boolean =>
   res.keywords.length > 0 || res.serps.length > 0 || res.observations.some((o) => o.citations != null);
 
 /** The evidence receipt for a brand-new page, built BEFORE anything is drafted. */
 function buildTopicReceipt(res: TopicResearch): Receipt {
-  const items: BundleEvidenceItem[] = [];
-  const contextOnly: string[] = [];
-  const missing: string[] = [];
-  const prompts: string[] = [];
-  const add = (key: string, kind: BundleEvidenceItem["kind"], fact: string, observedAt: string | null): void => {
-    items.push({ key, kind, fact, observedAt });
-  };
+  const items: BundleEvidenceItem[] = []; const contextOnly: string[] = []; const missing: string[] = []; const prompts: string[] = [];
+  const add = (key: string, kind: BundleEvidenceItem["kind"], fact: string, observedAt: string | null): void => { items.push({ key, kind, fact, observedAt }); };
   if (res.keywords.length === 0) missing.push("I do not have a monthly search count for this topic yet.");
   res.keywords.slice(0, 3).forEach((k, i) => add(`kw${i + 1}`, "keyword", keywordFact(k), null));
   if (res.serps.length === 0) missing.push("I have not looked at the live results page for this topic yet.");
@@ -375,9 +377,8 @@ function buildTopicReceipt(res: TopicResearch): Receipt {
   };
 }
 
-/** Produce at most ONE new-page bundle per pass: the strongest demand-ranked topic
- *  that ALSO has research behind it. `none` with a structured reason when no topic
- *  clears that bar or the brief fails a gate; the shallow briefs continue either way. */
+/** Produce at most ONE new-page bundle per pass: the strongest demand-ranked topic that ALSO has
+ *  research behind it. `none` when no topic clears that bar or the brief fails a gate; shallow briefs continue. */
 export async function produceNewPageBundleForSnapshot(
   snapshot: EvidenceSnapshot,
   opts: ProduceBundleOptions = {},
@@ -389,8 +390,9 @@ export async function produceNewPageBundleForSnapshot(
     .sort((a, b) => b.demandWeight - a.demandWeight || byText(norm(a.topic), norm(b.topic)));
   let pick: NewPageOpportunity | undefined;
   let res: TopicResearch | undefined;
+  const weak = weakAnchorsOf(snapshot);
   for (const opp of ranked) {
-    const candidate = researchForTopic(snapshot, opp);
+    const candidate = researchForTopic(snapshot, opp, weak);
     if (hasSupport(candidate)) { pick = opp; res = candidate; break; }
   }
   if (!pick || !res) return { status: "none", reason: "No topic AI keeps asking about has research behind it yet, so I will not hand you a page I cannot back." };

@@ -13,6 +13,8 @@ import { createHash } from "node:crypto";
 import type { Account, BusinessProfile } from "@/domains/account";
 import { getTenant, loadBusinessProfile } from "@/domains/account";
 import { fetchPageHtml } from "@/domains/evidence/competitor-intel/polite-fetch";
+import { loadGscDecaySignalsForTenant, loadGscPageSignalsForTenant, type GscDecaySignal, type GscPageSignal } from "@/domains/evidence/readers/gsc-page-signals";
+import type { SerpAgendaPageQuery } from "./normalize";
 import { loadCrawlFrontier, type CrawlFrontierState } from "@/domains/evidence/scanning/crawl-frontier";
 import { syncPromptAnswerObservations } from "@/lib/persistence/dual-write";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
@@ -48,6 +50,8 @@ export type FunnelDeps = {
   writePageExtract?: typeof writePublicPageExtract;
   loadProfile?: (tenantId: string) => Promise<BusinessProfile>;
   loadCrawl?: (tenantId: string) => Promise<CrawlFrontierState | null>;
+  /** Top queries of the account's own strongest pages: portfolio 1 of the SERP agenda. */
+  loadPageQueries?: (tenantId: string) => Promise<SerpAgendaPageQuery[]>;
   /** Test seam for winning-page citation-target resolution (defaults to the real
    *  redirect-only resolver in competitor-intel/polite-fetch). */
   resolveCitations?: (appearances: ResearchWinningAppearance[], fetchImpl?: typeof fetch, deadlineMs?: number) => Promise<ResearchWinningAppearance[]>;
@@ -71,6 +75,7 @@ export function resolveDeps(deps: FunnelDeps) {
     writePageExtract: deps.writePageExtract ?? writePublicPageExtract,
     loadProfile: deps.loadProfile ?? loadBusinessProfile,
     loadCrawl: deps.loadCrawl ?? loadCrawlFrontier,
+    loadPageQueries: deps.loadPageQueries ?? defaultPageQueries,
     getAccount: deps.getAccount ?? getTenant,
     loadActivePrompts: deps.loadActivePrompts ?? defaultActivePrompts,
     syncHistory: deps.syncHistory ?? syncPromptAnswerObservations,
@@ -99,6 +104,31 @@ async function defaultActivePrompts(tenantId: string): Promise<{ id: string; tex
     return ((data ?? []) as { id: string; text: string }[]).filter((r) => r.id && r.text);
   } catch {
     return null;
+  }
+}
+
+/** The SAME canonical Search Console read the evidence snapshot's
+ *  ownedPages.search.topQueries comes from: the strongest pages by 90-day
+ *  impressions, each carrying its own top queries. A page whose last 28 days of
+ *  clicks fell against the 28 before marks its queries declining, so a slipping
+ *  money query is checked in search before a steady one. Fail-soft by design: an
+ *  unreadable read is [] (portfolio 1 simply contributes nothing), NEVER a throw
+ *  that would take the whole SERP phase down with it. */
+async function defaultPageQueries(tenantId: string): Promise<SerpAgendaPageQuery[]> {
+  try {
+    const [signals, decay] = await Promise.all([
+      loadGscPageSignalsForTenant(tenantId).catch(() => new Map<string, GscPageSignal>()),
+      loadGscDecaySignalsForTenant(tenantId).catch(() => new Map<string, GscDecaySignal>()),
+    ]);
+    const out: SerpAgendaPageQuery[] = [];
+    for (const p of [...signals.values()].sort((a, b) => b.impressions90d - a.impressions90d).slice(0, 25)) {
+      const d = decay.get(p.page);
+      const declining = !!d && d.clicksNow < d.clicksPrior;
+      for (const q of p.topQueries ?? []) out.push({ query: q.query, impressions: q.impressions, declining });
+    }
+    return out;
+  } catch {
+    return [];
   }
 }
 

@@ -22,7 +22,7 @@ import type {
   OwnedPageEvidence,
   NewPageOpportunity,
 } from "@/domains/evidence/snapshot";
-import { scoreTopicMatch } from "@/domains/evidence/relevance-gate";
+import { anchoredTopicMatch, scoreTopicMatch, weakAnchorTokens } from "@/domains/evidence/relevance-gate";
 import type { EvidenceInput, ProposalKind } from "./contracts";
 
 /** Caps so a large tenant never queues an unbounded number of cold drafts. */
@@ -32,6 +32,10 @@ export const MAX_NEW_PAGE_OPPORTUNITIES = 15;
 /** A page needs at least this many 90d impressions for its query to be a real
  *  demand signal worth an edit (below this it is noise, not an opportunity). */
 const MIN_PAGE_IMPRESSIONS = 20;
+
+/** Phrases an account must have on file before any word of its own can be called
+ *  ubiquitous. Under this, a one-topic account keeps its honest overlaps. */
+const MIN_ANCHOR_CORPUS = 10;
 
 /** Coarse searcher-intent bucket from the query tokens (feeds the drafter's
  *  intent directive). Deterministic; never fabricates. */
@@ -208,8 +212,18 @@ export function snapshotToEvidenceInputs(snapshot: EvidenceSnapshot): EvidenceIn
   // Threshold, not bare relevance: one shared token ("nowruz", "tehran") must not
   // let a single owned page silently kill every adjacent topic. Suppress only when
   // MOST of the topic's own distinguishing tokens are covered by the owned page.
+  // Anchored GATE, original SCORE: the account's own ubiquitous word ("iran" for an
+  // encyclopedia of Iran) can no longer be the whole overlap (an owned title that is
+  // only that word once scored 1.0 and silently killed every adjacent topic), but a
+  // pair that DOES share a strong token keeps the exact unanchored 0.6 calibration
+  // the threshold was tuned on: reshrinking the denominator too loosened real
+  // overlaps like "harbor seafood restaurants" vs an owned "Harbor Seafood Market".
+  // Under MIN_ANCHOR_CORPUS phrases the weak set is empty and behavior is unchanged.
+  const corpus = [...new Set([...ownedTopicText, ...snapshot.newPageOpportunities.map((o) => o.topic.trim())].filter(Boolean))];
+  const weak = corpus.length < MIN_ANCHOR_CORPUS ? new Set<string>() : weakAnchorTokens(corpus);
   const alreadyOwned = (topic: string) =>
     ownedTopicText.some((text) => {
+      if (!anchoredTopicMatch(topic, text, weak).relevant) return false;
       const v = scoreTopicMatch(topic, text);
       return v.relevant && v.score >= 0.6;
     });

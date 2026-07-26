@@ -92,6 +92,41 @@ export function isNoiseDomain(url: string): boolean {
   return !!d && NOISE_DOMAINS.some((n) => d === n || d.endsWith(`.${n}`));
 }
 
+/**
+ * WEAK ANCHORS (relevance convergence slice, 2026-07-26). A token that recurs
+ * across most of an account's own phrases ("iran" for an Iran encyclopedia,
+ * "plumbing" for a plumber) matches nearly everything the account touches, so
+ * it proves nothing about TOPICAL fit: on its own it let 368k-volume news
+ * queries pass the research filter and let a broad culture prompt "support" a
+ * names page. Derived per account from its OWN corpus, never hardcoded. Pure.
+ * A token is weak when it appears in >= ceil(40% of phrases) and at least 3.
+ */
+export function weakAnchorTokens(phrases: ReadonlyArray<string | null | undefined>): Set<string> {
+  const freq = new Map<string, number>();
+  let docs = 0;
+  for (const p of phrases) {
+    const toks = topicTokens(p);
+    if (toks.length === 0) continue;
+    docs += 1;
+    for (const t of toks) freq.set(t, (freq.get(t) ?? 0) + 1);
+  }
+  const cut = Math.max(3, Math.ceil(docs * 0.4));
+  const weak = new Set<string>();
+  for (const [t, n] of freq) if (n >= cut) weak.add(t);
+  return weak;
+}
+
+/** Anchor-aware topical match: relevant ONLY when the two texts share at least
+ *  one token that is NOT a weak anchor (or normalize identically). A shared
+ *  weak token alone is the exact failure this slice removes. Pure. */
+export function anchoredTopicMatch(a: string | null | undefined, b: string | null | undefined, weak: ReadonlySet<string>): RelevanceVerdict {
+  const v = scoreTopicMatch(a, b);
+  if (!v.relevant) return v;
+  const strong = v.sharedTerms.filter((t) => !weak.has(t));
+  if (strong.length === 0) return { relevant: false, score: 0, reason: "weak_topic_fit", sharedTerms: v.sharedTerms };
+  return { ...v, sharedTerms: strong };
+}
+
 /** Core: do two topic strings share a distinguishing token? */
 export function scoreTopicMatch(a: string | null | undefined, b: string | null | undefined): RelevanceVerdict {
   const ta = topicTokens(a);
