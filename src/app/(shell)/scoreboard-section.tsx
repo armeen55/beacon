@@ -204,9 +204,9 @@ export async function ScoreboardSection({
         )
       : { daily: [] as Array<{ date: string; clicks: number }>, total: 0 };
     // Wave 3A: pass the FULL ledger rows (windows + baseline), not a slim verdict-string
-    // projection, so buildScoreboard classifies each change through the canonical lifecycle
-    // rule (splitLedgerLifecycle / verdictSchedule) instead of re-deriving its own count and
-    // next-read date. ShippedChangeRecord satisfies ScoreboardLedgerRow structurally.
+    // projection, so buildScoreboard tones each chart marker through the canonical lifecycle
+    // rule (splitLedgerLifecycle). The measuring count and next-read date are NOT read here:
+    // Today's proof strip owns both. ShippedChangeRecord satisfies ScoreboardLedgerRow.
     const s = buildScoreboard(daily, ledger);
     if (!s) return null;
     // Item 3 - one honest money sentence. Null when no revenue_facts exist, so

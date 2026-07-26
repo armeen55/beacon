@@ -9,36 +9,28 @@ import { log } from "@/lib/logger";
  * research-run - the durable, visit-driven Research Run record (Slice 4,
  * 2026-07-24). THE canonical type + repository for a resumable research cycle.
  *
- * At most ONE unfinished (running or paused) run per account, across ALL dates -
- * a database invariant (a partial unique index). Every visit claims through
- * claim_research_run, which RESUMES the account's single unfinished run regardless
- * of its cycle_key or start date (so yesterday's paused run is never abandoned),
- * and only starts a fresh daily cycle when no unfinished run exists and none
- * already completed this UTC day. The daily cycle_key ("<tenant>:<UTC day>") is
- * computed at DATABASE time, not by the caller. A leased owner token makes exactly
- * one invocation advance the run at a time; the phase + cursor let a crash resume
- * where it left off. The DATABASE lease is the correctness mechanism - there is no
- * scheduler, cron, heartbeat, or queue.
+ * At most ONE unfinished (running or paused) run per account across ALL dates (partial
+ * unique index). Every visit claims through claim_research_run, which RESUMES the one
+ * unfinished run regardless of cycle_key or start date, and starts a fresh daily cycle
+ * (cycle_key "<tenant>:<UTC day>", computed at DATABASE time) only when none is open and
+ * none completed this UTC day. A leased owner token makes exactly one invocation advance
+ * the run; phase + cursor let a crash resume. The DATABASE lease is the correctness
+ * mechanism - no scheduler, cron, heartbeat, queue.
  *
- * Persistence is a service-role Supabase repository behind an injectable seam
- * (tests inject an in-memory repo that models the RPC contract faithfully). Every
- * operation requires an explicit tenantId and throws before any I/O when it is
- * empty. When persistence is unavailable (the claim RPC throws), claiming FAILS
- * CLOSED - it returns null so NO background work runs - and the render never
- * crashes (researchRunStatus degrades to "none").
+ * Persistence is a service-role Supabase repository behind an injectable seam (tests
+ * inject an in-memory repo modeling the RPC contract). Every operation requires an
+ * explicit tenantId and throws before any I/O when empty. An unavailable claim RPC
+ * FAILS CLOSED (null, no background work); the render degrades to "none", never crashes.
  *
- * See migrations/2026-07-24_research_runs.sql for the table + RLS,
- * 2026-07-24_research_runs_truth.sql for the database-time advance / renew / finish
- * lease mutations, and 2026-07-24_research_runs_claim_semantics.sql for the
- * one-open-run-per-account invariant and the resume-first claim function.
+ * Migrations: 2026-07-24_research_runs.sql (table + RLS), _truth.sql (database-time
+ * advance / renew / finish), _claim_semantics.sql (one open run + resume-first claim).
  */
 
 // ── Canonical record ───────────────────────────────────────────────────────
 
-/** The ordered phases of one Research Run. `done` is the terminal phase. The
- *  four evidence phases (Slice 6) sit between the connector work and the
- *  surface publish: broad keyword discovery, core-prompt AI observation,
- *  retained-query SERPs, then winning-page comparison. */
+/** The ordered phases of one Research Run. `done` is the terminal phase. The four
+ *  evidence phases (Slice 6) sit between the connector work and the surface publish:
+ *  broad keyword discovery, AI observation, retained-query SERPs, winning pages. */
 export type ResearchPhase =
   | "refresh_sources"
   | "gsc_backfill_chunk"
@@ -99,13 +91,14 @@ export type ResearchRun = {
 };
 
 /** The compact Today projection, derived FROM the canonical record. `none` covers
- *  no-run and any fail-soft error. */
+ *  no-run and any fail-soft error. Counters carry evidence-backed numbers only:
+ *  aiChecks* mirror the persisted funnel enginePairs counters, never a guess. */
 export type ResearchRunStatusView = {
   state: "running" | "paused" | "completed" | "none";
   phaseLabel: string;
   stepsDone: number;
   stepsTotal: 7;
-  counters: { sourcesRefreshed?: number; backfillDaysPulled?: number };
+  counters: { sourcesRefreshed?: number; backfillDaysPulled?: number; aiChecksDone?: number; aiChecksIntended?: number };
   updatedAt: string | null;
   completedAt: string | null;
   /** The paused phase's Beacon-voice reason: some pauses need the operator and never resume alone. */
@@ -174,7 +167,7 @@ export function phaseIdempotencyKey(
     .slice(0, 32)}`;
 }
 
-/** Human step index (1..3) for a phase; `done` maps to 3 (all steps done). */
+/** Human step index for a phase; `done` maps to all 7 steps done. */
 function stepsDoneForPhase(phase: ResearchPhase): number {
   if (phase === "done") return RESEARCH_RUN_STEPS_TOTAL;
   const i = STEP_ORDER.indexOf(phase);
@@ -222,6 +215,14 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
   const counters: ResearchRunStatusView["counters"] = {};
   if (typeof run.progress?.sourcesRefreshed === "number") counters.sourcesRefreshed = run.progress.sourcesRefreshed;
   if (typeof run.progress?.backfill?.daysPulled === "number") counters.backfillDaysPulled = run.progress.backfill.daysPulled;
+  // AI checks: durably persisted funnel numbers, both or neither, and ONLY while the AI-check
+  // phase is current (they survive onto later phases and would freeze under a moving label).
+  const { enginePairsDone: aiDone, enginePairsIntended: aiWanted } =
+    run.current_phase === "prompt_observations" ? (run.progress?.funnel ?? {}) : {};
+  if (typeof aiDone === "number" && Number.isFinite(aiDone) && typeof aiWanted === "number" && Number.isFinite(aiWanted)) {
+    counters.aiChecksDone = aiDone;
+    counters.aiChecksIntended = aiWanted;
+  }
 
   return {
     state,
@@ -231,26 +232,29 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
     counters,
     updatedAt: run.updated_at ?? null,
     completedAt: run.completed_at ?? null,
-    pauseReason: state === "paused" ? (run.last_error?.message?.trim() || null) : null,
+    // A reason belongs to the phase that recorded it (claim preserves last_error): a stale
+    // reason from an already-passed phase must never resurrect.
+    pauseReason:
+      state === "paused" && run.last_error?.phase === run.current_phase ? (run.last_error?.message?.trim() || null) : null,
   };
 }
 
 /**
- * PURE: the ONE honest Beacon-voice Today status line for the durable Research
- * Run, or null (render nothing) for none/idle. No progress bar, percentage, ETA,
- * or animation - and never the word "current": a completed row is a finished
- * research PASS at a stated time, never a promise the data stays fresh. A
- * completed pass from an earlier day shows its date, so a stale row is never
- * dressed up as fresh.
+ * PURE: the ONE honest Beacon-voice Today status line for the durable Research Run,
+ * or null (render nothing) for none/idle. An OPEN run with no bounded reason reads as
+ * ONE in-progress sentence whether or not a lease is live, so the line can never
+ * toggle on lease state alone; only a real pause reason changes it, because a pause
+ * needing the operator must not promise a resume. No progress bar, percentage, ETA,
+ * animation, and never "current": a completed row is a finished PASS at a stated time,
+ * never a promise the data stays fresh, and an earlier day's pass shows its date.
  */
 export function researchStatusLine(view: ResearchRunStatusView, now: Date = new Date()): string | null {
-  if (view.state === "running") return `Researching: ${view.phaseLabel}.`;
-  if (view.state === "paused") {
-    // The phase's own reason wins: promising "I'll resume" when the pause needs the
-    // operator would leave them waiting on research that cannot continue.
-    const where = `Research paused after ${view.stepsDone} of ${view.stepsTotal} steps.`;
-    return view.pauseReason ? `${where} ${view.pauseReason}` : `${where} I'll resume when you return.`;
+  if (view.state === "running" || (view.state === "paused" && view.pauseReason == null)) {
+    const { aiChecksDone: aiDone, aiChecksIntended: aiWanted } = view.counters;
+    const checks = typeof aiDone === "number" && typeof aiWanted === "number" && aiWanted > 0 ? ` ${aiDone} of ${aiWanted} AI checks collected.` : "";
+    return `Research in progress: ${view.phaseLabel}.${checks}`;
   }
+  if (view.state === "paused") return `Research paused after ${view.stepsDone} of ${view.stepsTotal} steps. ${view.pauseReason}`;
   if (view.state === "completed" && view.completedAt) {
     const tz = { timeZone: "America/Los_Angeles" } as const;
     const finished = new Date(view.completedAt);
@@ -388,12 +392,11 @@ export function setResearchRunRepoForTests(next: ResearchRunRepo | null): void {
 // ── Public operations (explicit tenant, fail-closed) ───────────────────────
 
 /**
- * Claim, resume, or start the account's Research Run with our owner token. The
- * database resumes the single unfinished run (any date) before considering a new
- * daily cycle, and computes the daily key itself. Returns the claimed row when we
- * won, or null when we did not (foreign unexpired lease, or research already
- * current for today). Persistence unavailable ⇒ null (fail closed: NO background
- * work runs), logged, never throws to the caller.
+ * Claim, resume, or start the account's Research Run with our owner token. The database
+ * resumes the single unfinished run (any date) before considering a new daily cycle, and
+ * computes the daily key itself. Returns the claimed row when we won, else null (foreign
+ * unexpired lease, or research already current for today). Persistence unavailable ⇒ null
+ * (fail closed: NO background work runs), logged, never throws to the caller.
  */
 export async function claimRun(tenantId: string, ownerToken: string): Promise<ResearchRun | null> {
   requireTenant(tenantId);
@@ -432,10 +435,10 @@ export async function advancePhase(
 }
 
 /**
- * Renew our lease AND persist the pre-phase attempt identity (cursor) at DATABASE
- * time, owner-guarded, WITHOUT changing the phase. Called BEFORE each phase side
- * effect: a false return means our lease was lost or expired, so the caller aborts
- * before doing any side-effecting work. Never throws to the caller.
+ * Renew our lease AND persist the pre-phase attempt identity (cursor) at DATABASE time,
+ * owner-guarded, WITHOUT changing the phase. Called BEFORE each phase side effect: false
+ * ⇒ our lease was lost or expired, so the caller aborts before any side-effecting work.
+ * Never throws to the caller.
  */
 export async function renewLease(
   tenantId: string,
@@ -478,11 +481,9 @@ export async function finishRun(
   }
 }
 
-/**
- * The compact Today projection: latest run for the tenant, projected to the
- * status view. Bounded + fail-soft - any error (unavailable persistence) ⇒
- * "none", so the status line simply renders nothing.
- */
+/** The compact Today projection: latest run for the tenant, projected to the status
+ *  view. Bounded + fail-soft - any error (unavailable persistence) ⇒ "none", so the
+ *  status line simply renders nothing. */
 export async function researchRunStatus(tenantId: string, now: Date = new Date()): Promise<ResearchRunStatusView> {
   try {
     requireTenant(tenantId);

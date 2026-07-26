@@ -1,8 +1,6 @@
-/**
- * Four-surface smoke (Core 100K product contract): Today, Changes, Results, Connections each
- * render their frame without throwing, plus the two Today claims a stranger reads first (the
- * ready count and the one CTA). Deep behavior lives in the kept behavioral contract suites.
- */
+/** Four-surface smoke (Core 100K product contract): Today, Changes, Results, Connections each render
+ *  their frame without throwing, plus the Today claims a stranger reads first (the ready count, the one
+ *  CTA, the hero chart sentence). Deep behavior lives in the kept behavioral contract suites. */
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server"; import type { ReactElement } from "react";
 
@@ -10,30 +8,25 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => {
   const redirected = (url: string) => { throw new Error(`NEXT_REDIRECT:${url}`); };
   return { permanentRedirect: redirected, redirect: redirected, useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
-    useSearchParams: () => new URLSearchParams(), usePathname: () => "/settings/connectors" };
-});
+    useSearchParams: () => new URLSearchParams(), usePathname: () => "/settings/connectors" }; });
 vi.mock("@/lib/connector-store", async () => ({
   ...(await vi.importActual<typeof import("@/lib/connector-store")>("@/lib/connector-store")),
   getConnectorInfo: vi.fn(async () => ({ status: "disconnected" as const, connected_at: null, expires_at: null, last_synced_at: null })),
-  getGoogleConnectorToken: vi.fn(async () => null), getYelpConnectorToken: vi.fn(async () => null),
-}));
+  getGoogleConnectorToken: vi.fn(async () => null), getYelpConnectorToken: vi.fn(async () => null) }));
 vi.mock("@/domains/runtime/ops/refresh-runs-store", () => ({ latestRefreshBySource: vi.fn(async () => ({})) }));
-vi.mock("@/domains/runtime/research-run", () => ({
-  researchRunStatus: vi.fn(async () => ({ state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: 3, counters: {}, updatedAt: null, completedAt: null })),
-}));
+vi.mock("@/domains/runtime/research-run", () => ({ researchRunStatus: vi.fn(async () => ({ state: "none",
+  phaseLabel: "", stepsDone: 0, stepsTotal: 3, counters: {}, updatedAt: null, completedAt: null })) }));
 // The smoke suite pins frames; lifecycle gating has its own behavioral tests.
 vi.mock("@/domains/account/lifecycle", () => ({ requireReadyAccount: vi.fn(async () => ({ access: { kind: "ready", account: { status: "active" } } })),
   resolveAccountAccess: vi.fn(async () => ({ kind: "ready", account: { status: "active" } })), AccountUnavailableError: class extends Error {} }));
 
-describe("Today route smoke", () => {
+describe("Today renders, and tells the truth about its own queue", () => {
   it("TodayPage RSC renders the shell wrapper + Cockpit skeleton fallback", async () => {
     const { default: TodayPage } = await import("@/app/(shell)/page");
     const html = renderToStaticMarkup((await TodayPage({ searchParams: Promise.resolve({}) })) as ReactElement);
     expect(html).toContain("max-w-3xl"); expect(html).toContain('aria-label="Loading today"');
   }, 15_000);
-});
 
-describe("Today tells the truth about its own queue", () => {
   const readyView = (n: number, measuring: number) => ({
     ready: Array.from({ length: n }, (_, i) => ({ id: `t::/p${i}::existing_edit::title`, pagePath: `/p${i}`, pageUrl: null, pageLabel: `P${i}`, primaryQuery: "q",
       opportunityType: "Sharpen the title", estimatedEffortMinutes: 2, upsidePerMonth: null, confidence: "high", recommendedChange: { kind: "existing_edit", field: "title" } })),
@@ -59,6 +52,17 @@ describe("Today tells the truth about its own queue", () => {
     expect(bare.href).toBe("/changes"); expect(bare.actionLabel).toBe("Open Changes"); expect(bare.sentence).not.toContain("fix ready");
     for (const href of [fixed.href, bare.href]) expect(href.startsWith("/page/")).toBe(false);
   });
+
+  // The proof strip owns the measuring count; the chart used to print its own smaller one (16 vs 13).
+  it("keeps the measuring count off the hero chart sentence entirely", async () => {
+    const { buildScoreboard } = await import("@/domains/measurement");
+    const days = Array.from({ length: 14 }, (_, i) => ({ date: `2026-07-${String(i + 1).padStart(2, "0")}`, clicks: 10, impressions: 100 }));
+    const ledger = Array.from({ length: 5 }, (_, i) => ({ id: `c${i}`, path: `/p${i}`, shippedAt: "2026-07-10T00:00:00.000Z", verdict: "measuring", windows: [] }));
+    const s = buildScoreboard(days, ledger, new Date("2026-07-14T00:00:00.000Z"))!;
+    expect(s.verdictLine).toBe("Last 7 reported days: 70 clicks from every search, about even with the week before.");
+    expect(Object.keys(s)).not.toContain("measuringCount"); // the field is gone, not merely unprinted
+    expect(s.markers).toHaveLength(1); // marker tones still read the canonical lifecycle
+  });
 });
 
 describe("Changes route smoke", () => {
@@ -81,13 +85,9 @@ describe("Connectors settings route smoke", () => {
   it("renders the connector page with the shipped cards + the one summary strip", async () => {
     const { default: ConnectorsPage } = await import("@/app/(shell)/settings/connectors/page");
     const html = renderToStaticMarkup((await ConnectorsPage()) as ReactElement);
-    expect(html).toContain("Connect your tools");
-    expect(html).toContain("Connect Google Search Console");
-    expect(html).toContain('data-connector-card="google-ga4"');
-    expect(html).toContain('data-connector-card="clarity"');
+    for (const claim of ["Connect your tools", "Connect Google Search Console", 'data-connector-card="google-ga4"',
+      'data-connector-card="clarity"', 'data-connectors-summary-strip="true"', "I never touch your live site"]) expect(html).toContain(claim);
     expect(html).not.toContain("Enter Yelp API Key");
-    expect(html).toContain('data-connectors-summary-strip="true"');
-    expect(html).toContain("I never touch your live site");
   });
 
   it("computes 'N of M connected' from provider reads and surfaces the on-use receipt", async () => {

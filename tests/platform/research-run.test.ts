@@ -64,11 +64,8 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } {
       }
       const today = new Date(NOW).toISOString().slice(0, 10);
       if (rows.some((x) => x.tenant_id === tenantId && x.status === "completed" && (x.completed_at ?? "").slice(0, 10) === today)) return null;
-      rows.push(mk({
-        id: `r${rows.length}`, tenant_id: tenantId, cycle_key: RR.cycleKeyForUtc(tenantId, new Date(NOW)),
-        status: "running", current_phase: "refresh_sources", phase_cursor: null, progress: {},
-        last_error: null, lease_owner: owner, lease_expires_at: exp, started_at: iso(), updated_at: iso(),
-      }));
+      // mk defaults already give refresh_sources / null cursor / {} progress / null error.
+      rows.push(mk({ id: `r${rows.length}`, tenant_id: tenantId, cycle_key: RR.cycleKeyForUtc(tenantId, new Date(NOW)), status: "running", lease_owner: owner, lease_expires_at: exp }));
       return { ...rows[rows.length - 1]! };
     },
     async advance({ tenantId, id, owner, leaseSeconds, patch }) {
@@ -136,18 +133,15 @@ beforeEach(() => {
   ACCOUNT_STATUS.clear(); // every tenant defaults to active
   installAccountRepo();
 });
-
 describe("research-run claim: one open run per account across all dates", () => {
   it("resumes the account's one unfinished run first: yesterday's paused run is reclaimed by the same id with phase and cursor untouched, a later-day visit reuses it, and no second row is ever created", async () => {
     const rows = freshRepo();
-    rows.push(mk({
-      id: "seed", status: "paused", current_phase: "gsc_backfill_chunk", phase_cursor: { phase: "gsc_backfill_chunk", attemptKey: "k" },
-      cycle_key: RR.cycleKeyForUtc(T, new Date(NOW - DAY)), started_at: iso(NOW - DAY),
-    }));
+    const cursor = { phase: "gsc_backfill_chunk", attemptKey: "k" };
+    rows.push(mk({ id: "seed", status: "paused", current_phase: "gsc_backfill_chunk", phase_cursor: cursor, cycle_key: RR.cycleKeyForUtc(T, new Date(NOW - DAY)), started_at: iso(NOW - DAY) }));
     const first = await RR.claimRun(T, "o1");
     expect(first?.id).toBe("seed"); // resumed, not a new run
     expect(first?.current_phase).toBe("gsc_backfill_chunk"); // phase untouched on claim
-    expect(first?.phase_cursor).toEqual({ phase: "gsc_backfill_chunk", attemptKey: "k" }); // cursor untouched
+    expect(first?.phase_cursor).toEqual(cursor); // cursor untouched
     expect(first?.status).toBe("running"); // paused flips to running
     NOW += 2 * DAY; // two UTC days later, o1's lease long dead
     const later = await RR.claimRun(T, "o2");
@@ -177,7 +171,6 @@ describe("research-run claim: one open run per account across all dates", () => 
     expect(next!.id).not.toBe(a!.id); // a genuinely new run once none is open
   });
 });
-
 describe("research-run pre-activation gate (Slice 5)", () => {
   it("a pending account runs no research at the runtime level: the seeded run is never claimed, no lease is taken, and no new run is created", async () => {
     const rows = withRun(); // a claimable paused today-row for T
@@ -193,7 +186,6 @@ describe("research-run pre-activation gate (Slice 5)", () => {
     expect(await RR.claimRun(T, "o1")).toBeNull(); // nothing claimed or created before activation
   });
 });
-
 describe("research-run database-time lease guards", () => {
   it("guards every mutation at database time: foreign and expired owners cannot advance / renew / finish, a live owner can, and a completed row rejects mutation", async () => {
     const rows = withRun({ status: "running", lease_owner: "o1", lease_expires_at: iso(NOW + LEASE) });
@@ -213,7 +205,6 @@ describe("research-run database-time lease guards", () => {
     expect(await RR.finishRun(T, id, "o1", "paused")).toBe(false);
   });
 });
-
 describe("research-run phase truth", () => {
   it("counts only synced sources as refreshed, and any connector failure pauses at refresh_sources without advancing to publish", async () => {
     const rows = withRun();
@@ -247,7 +238,6 @@ describe("research-run phase truth", () => {
     expect(publish[0]!.completed_at).toBeNull();
   });
 });
-
 describe("research-run partial-success durability + deduped refreshed providers", () => {
   it("persists the providers that DID sync durably before pausing, and never counts a failed provider", async () => {
     const rows = withRun();
@@ -358,24 +348,34 @@ describe("research-run Today copy", () => {
     state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: 7, counters: {}, updatedAt: null, completedAt: null, pauseReason: null, ...o,
   });
   const NOON_PT = Date.parse("2026-07-23T19:00:00Z"); // noon Pacific on Jul 23
-  it("never says 'current': same-day completion shows today, an older pass shows its date, running/paused keep their lines, none is silent", () => {
+  it("never says 'current': same-day completion shows today, an older pass shows its date, none is silent", () => {
     const completed = view({ state: "completed", completedAt: new Date(NOON_PT).toISOString() });
     const sameDay = RR.researchStatusLine(completed, new Date(NOON_PT));
     expect(sameDay).toBe("Latest research pass finished today at 12:00 PM.");
     const older = RR.researchStatusLine(completed, new Date(NOON_PT + 2 * DAY));
     expect(older).toBe("Latest research pass finished Jul 23 at 12:00 PM.");
-    expect(sameDay).not.toMatch(/current/i);
-    expect(older).not.toMatch(/current/i);
-    expect(RR.researchStatusLine(view({ state: "running", phaseLabel: "refreshing your connected data" }))).toBe(
-      "Researching: refreshing your connected data.",
-    );
-    expect(RR.researchStatusLine(view({ state: "paused", stepsDone: 1 }))).toBe(
-      "Research paused after 1 of 7 steps. I'll resume when you return.",
-    );
-    // A pause the operator must clear names its reason instead of promising a resume that cannot happen.
-    expect(RR.researchStatusLine(view({ state: "paused", stepsDone: 2, pauseReason: "I need your confirmed business basics before I can research keywords." })))
-      .toBe("Research paused after 2 of 7 steps. I need your confirmed business basics before I can research keywords.");
+    expect(`${sameDay} ${older}`).not.toMatch(/current/i);
     expect(RR.researchStatusLine(view({ state: "none" }))).toBeNull();
+  });
+  it("gives an open error-free run ONE in-progress sentence with the persisted AI-check counts, identical whether the lease is live or released", () => {
+    const progress = { funnel: { promptsChecked: 35, enginePairsDone: 40, enginePairsIntended: 140 } };
+    const leased = mk({ status: "running", current_phase: "prompt_observations", progress, lease_owner: "o", lease_expires_at: iso(NOW + LEASE) });
+    const released = mk({ ...leased, status: "paused", lease_owner: null, lease_expires_at: null }); // same run, a normal provider wait persisted
+    const live = RR.researchStatusLine(RR.projectStatusView(leased, NOW));
+    expect(live).toBe("Research in progress: checking how AI assistants answer your questions. 40 of 140 AI checks collected.");
+    expect(RR.researchStatusLine(RR.projectStatusView(released, NOW))).toBe(live); // THE pin: the line never toggles on lease state alone
+  });
+  it("invents no numbers off the AI phase, names a real pause reason, and never resurrects a stale one", () => {
+    // Cumulative funnel counters survive onto later phases; the clause must not follow them.
+    const later = mk({ status: "running", current_phase: "serp_analysis", lease_owner: "o", lease_expires_at: iso(NOW + LEASE),
+      progress: { funnel: { promptsChecked: 35, enginePairsDone: 40, enginePairsIntended: 140 } } });
+    expect(RR.researchStatusLine(RR.projectStatusView(later, NOW))).toBe("Research in progress: reading the results pages for your strongest topics.");
+    // A pause the operator must clear names its reason instead of reading as ordinary progress.
+    const stuck = mk({ status: "paused", current_phase: "keyword_discovery", last_error: { phase: "keyword_discovery", message: "I need your confirmed business basics before I can research keywords.", at: iso() } });
+    expect(RR.researchStatusLine(RR.projectStatusView(stuck, NOW))).toBe("Research paused after 2 of 7 steps. I need your confirmed business basics before I can research keywords.");
+    // A reason recorded by an already-passed phase never resurrects on the current one.
+    const stale = mk({ ...stuck, current_phase: "serp_analysis" });
+    expect(RR.researchStatusLine(RR.projectStatusView(stale, NOW))).toBe("Research in progress: reading the results pages for your strongest topics.");
   });
 });
 

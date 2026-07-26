@@ -5,25 +5,22 @@
  *   - daily click points + a 7-day rolling average (the honest trend line)
  *   - change markers placed on the chart at each ship date (won = green, measuring = neutral,
  *     no lift = amber) so cause and effect live in one picture
- *   - a one-sentence verdict comparing the last 7 FULL days of data vs the prior 7, plus how
- *     many changes are measuring and when the next verdicts land
+ *   - a one-sentence verdict comparing the last 7 FULL days of data vs the prior 7
  * No I/O, no LLM. GSC reports with a ~3 day lag; the caller passes whatever rows exist and the
- * math uses the latest REPORTED date as "now" so a lag never fakes a decline. Pinned by
- * scoreboard.test.ts.
+ * math uses the latest REPORTED date as "now" so a lag never fakes a decline.
  *
- * Wave 3A (2026-07-10): the measuring COUNT, the marker TONE, and the "next reads around"
- * date no longer come from the raw stored verdict string. They come from the canonical
- * selectors (splitLedgerLifecycle / verdictSchedule) so the hero line can never disagree
- * with Results, Today's measuring strip, or the Changes list about how many changes are in
- * flight or when the next read lands. The date is formatted with the one monthDayLabel.
+ * The chart explains the click trend and nothing else. The measuring COUNT and the next-read
+ * date belong to Today's proof strip (loadLifecycleCounts + the one verdictSchedule); the
+ * scoreboard used to derive its own from a second ledger read and print a second, smaller
+ * number in the same screen. The marker TONE still reads splitLedgerLifecycle so a marker can
+ * never disagree with Results about whether a change won.
  */
 
 import {
   splitLedgerLifecycle,
   type LedgerLifecycleStage,
 } from "@/domains/decision/changes/lifecycle-counts";
-import { verdictSchedule, type VerdictScheduleRow } from "@/domains/measurement/proof-gsc/verdict-schedule";
-import { monthDayLabel } from "@/components/data/receipt-line";
+import { type VerdictScheduleRow } from "@/domains/measurement/proof-gsc/verdict-schedule";
 
 export type ScoreboardDay = { date: string; clicks: number; impressions: number };
 
@@ -57,10 +54,7 @@ export type Scoreboard = {
   last7Impressions: number;
   /** Latest date GSC has reported (the chart's honest right edge). */
   reportedThrough: string;
-  measuringCount: number;
-  /** yyyy-mm-dd of the soonest first-read checkpoint among measuring changes, or null. */
-  nextVerdictDate: string | null;
-  /** The one-line verdict sentence, plain language, no jargon, no dashes. */
+  /** The one-line click-trend sentence, plain language, no jargon, no dashes. */
   verdictLine: string;
 };
 
@@ -137,9 +131,8 @@ export function buildScoreboard(
   const last7Impressions = last7.reduce((s, d) => s + d.impressions, 0);
   const deltaPct = prior7Clicks > 0 ? Math.round(((last7Clicks - prior7Clicks) / prior7Clicks) * 100) : null;
 
-  // Canonical lifecycle classification for the WHOLE ledger, once. Marker tone and the
-  // measuring count both read this map, so they can never disagree with Results' bands or
-  // Today's measuring strip (the FP3 "25 vs 6" class of bug).
+  // Canonical lifecycle classification for the WHOLE ledger, once. Marker tone reads this
+  // map, so a marker can never disagree with Results' bands (the FP3 "25 vs 6" class of bug).
   const split = splitLedgerLifecycle(ledger, now);
   const stageById = new Map<string, LedgerLifecycleStage>();
   for (const r of split.won) stageById.set(r.id, "won");
@@ -173,23 +166,13 @@ export function buildScoreboard(
       return { date, count: rows.length, tone, label };
     });
 
-  // Measuring count + the soonest upcoming first-read, both from the canonical selectors -
-  // never a raw stored-verdict filter or a bespoke ship+day date walk.
-  const measuringCount = split.measuring.length;
-  const schedule = verdictSchedule(ledger, now);
-  const nextVerdictDate = schedule.firstReadOn;
-
   const direction =
     deltaPct == null ? "" : deltaPct > 2 ? `, up ${deltaPct}% vs the week before` : deltaPct < -2 ? `, down ${Math.abs(deltaPct)}% vs the week before` : ", about even with the week before";
-  const friendlyNext = monthDayLabel(nextVerdictDate);
-  const measuringPart =
-    measuringCount > 0
-      ? ` ${measuringCount} change${measuringCount === 1 ? "" : "s"} measuring${friendlyNext ? `, next reads around ${friendlyNext}` : ""}.`
-      : "";
   // R17a (brand split, v1 265): this sentence counts EVERY search - brand and
   // not - so it says which lens it uses. The non-brand growth lens renders as
-  // its own sub-line on the scoreboard (see brand-split.ts).
-  const verdictLine = `Last 7 reported days: ${last7Clicks.toLocaleString()} clicks from every search${direction}.${measuringPart}`;
+  // its own sub-line on the scoreboard (see brand-split.ts). It says nothing about
+  // how many changes are measuring: the proof strip owns that count and its date.
+  const verdictLine = `Last 7 reported days: ${last7Clicks.toLocaleString()} clicks from every search${direction}.`;
 
   return {
     days,
@@ -199,8 +182,6 @@ export function buildScoreboard(
     deltaPct,
     last7Impressions,
     reportedThrough,
-    measuringCount,
-    nextVerdictDate,
     verdictLine,
   };
 }
