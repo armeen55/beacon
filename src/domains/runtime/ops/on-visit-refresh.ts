@@ -28,50 +28,37 @@ import {
 /**
  * on-visit-refresh - the Research Run executor (Slice 4, 2026-07-24).
  *
- * Every navigation schedules ONE post-response Research Run for the tenant. The
- * run is durable: claim_research_run RESUMES the account's single unfinished run
- * first (regardless of the date it started, so yesterday's paused run is never
- * abandoned and no second open run is created), blocks a redundant pass when a run
- * already completed earlier this UTC day, and starts a fresh daily cycle only when
- * no run is open. It leases the run so exactly one invocation advances it, and the
- * persisted phase + progress let a crash or lambda timeout resume at the phase it
- * left off. There is no scheduler, cron, heartbeat, in-memory dedupe, or job queue
- * - the DATABASE lease is the whole correctness mechanism (a second concurrent
- * claim with a different owner token returns null and exits cheaply).
+ * Every navigation schedules ONE post-response Research Run for the tenant. The run is durable:
+ * claim_research_run RESUMES the account's single unfinished run first (regardless of its start date, so
+ * yesterday's paused run is never abandoned and no second open run is created), blocks a redundant pass when
+ * one completed earlier this UTC day, and starts a fresh daily cycle only when no run is open. It leases the
+ * run so exactly one invocation advances it, and the persisted phase + progress let a crash or lambda timeout
+ * resume where it left off. No scheduler, cron, heartbeat, in-memory dedupe, or job queue: the DATABASE lease
+ * is the whole correctness mechanism (a concurrent claim with a different owner token returns null).
  *
  * TRUTH BOUNDARY (Slice 4 truth-and-lease repair): a phase advances ONLY when it
  * truly succeeded or was a healthy no-op. Every failure pauses the cycle with a
  * bounded last_error and never reaches completion:
- *   1. refresh_sources     - refresh stale connectors. sourcesRefreshed counts
- *                            ONLY the sources that actually synced. ANY per-source
- *                            failure pauses at refresh_sources (the succeeded ones
- *                            keep their freshness stamps, so a retry targets only
- *                            the remaining stale/failed sources). Zero stale
- *                            sources is a healthy no-op that advances. A THROW
- *                            (the whole refresh could not run) pauses too.
- *   2. gsc_backfill_chunk  - advance one bounded GSC deep-backfill chunk. The
- *                            chunk is bounded BY DESIGN (deep-backfill.ts sizes a
- *                            chunk to fit a serverless window), so we run it to
- *                            that bound rather than racing a deadline the GSC
- *                            fetch cannot honour (it has no AbortSignal). An
- *                            advance or a benign skip advances the phase; a real
- *                            error THROWS and pauses at gsc_backfill_chunk with
- *                            the cursor untouched (deep-backfill never advances
- *                            its cursor on a failed pull), so the retry is the
- *                            same window.
- *   3. publish_surface     - rebuild + publish the Today/Changes release when
- *                            phase 1 refreshed >=1 source, phase 2 advanced a
- *                            chunk, or the saved release is genuinely stale
- *                            (evidence-conditioned, never day-gated). surfacePublished
- *                            is true ONLY after publishSurface RESOLVES; a THROW
- *                            pauses at publish_surface and the previously saved
- *                            surface stays visible (the retry rebuilds from truth).
+ *   1. refresh_sources     - refresh stale connectors. sourcesRefreshed counts ONLY the sources that
+ *                            actually synced. ANY per-source failure pauses here (the succeeded ones keep
+ *                            their freshness stamps, so a retry targets only the rest). Zero stale sources
+ *                            is a healthy no-op that advances. A THROW (refresh could not run) pauses too.
+ *   2. gsc_backfill_chunk  - advance one bounded GSC deep-backfill chunk. The chunk is bounded BY DESIGN
+ *                            (deep-backfill.ts sizes it to a serverless window), so we run it to that bound
+ *                            rather than racing a deadline the GSC fetch cannot honour (no AbortSignal). An
+ *                            advance or a benign skip advances; a real error THROWS and pauses with the
+ *                            cursor untouched (deep-backfill never advances on a failed pull), so the retry
+ *                            is the same window.
+ *   3. publish_surface     - rebuild + publish the Today/Changes release when phase 1 refreshed >=1 source,
+ *                            phase 2 advanced a chunk, or the saved release is genuinely stale
+ *                            (evidence-conditioned, never day-gated). surfacePublished is true ONLY after
+ *                            publishSurface RESOLVES; a THROW pauses here and the previously saved surface
+ *                            stays visible (the retry rebuilds from truth).
  *
- * IDEMPOTENCY: before each phase's side effect we persist the phase attempt
- * identity (phase, a deterministic attemptKey, the seed) via renew_research_lease
- * - which also renews the lease - and hand the executor that attemptKey. A retry
- * of the same run+phase reuses the PERSISTED key (read-or-create); advancing to
- * the next phase clears the cursor so the next phase mints its own key.
+ * IDEMPOTENCY: before each phase's side effect we persist the phase attempt identity (phase, a deterministic
+ * attemptKey, the seed) via renew_research_lease, which also renews the lease, and hand the executor that
+ * attemptKey. A retry of the same run+phase reuses the PERSISTED key; advancing clears the cursor, so the
+ * next phase mints its own. The run's frozen priority queries ride on PROGRESS for exactly that reason.
  *
  * CONFLICT: an evidence unit reporting the structured `state_conflict` code persisted
  * NOTHING, so its counters are DISCARDED (a stale zeroed receipt must never overwrite
@@ -80,11 +67,9 @@ import {
  * identities keep the retry $0. A second conflict in a row pauses honestly. Nothing
  * else retries: blocked, waiting, capped and lost-lease behaviour are untouched.
  *
- * LEASE: the lease is renewed at DATABASE time BEFORE every bounded phase, so no
- * phase inside the 210s cycle deadline can knowingly outlive its 240s lease. A
- * false return from renewLease / advancePhase / finishRun means our lease was
- * lost or expired - we abort immediately with no further side effects (for the
- * pre-phase renew, we abort BEFORE the side effect).
+ * LEASE: renewed at DATABASE time BEFORE every bounded phase, so no phase inside the 210s cycle deadline can
+ * knowingly outlive its 240s lease. A false return from renewLease / advancePhase / finishRun means the lease
+ * was lost or expired: abort immediately with no further side effects (pre-phase renew aborts before it).
  */
 
 /** Leave enough of the shell's 300-second lifetime to finish the surface build. */
@@ -126,7 +111,9 @@ export type ResearchCycleSteps = {
   refreshSources: (tenantId: string, now: Date, attemptKey: string) => Promise<RefreshSourcesResult>;
   backfillChunk: (tenantId: string, now: Date, attemptKey: string) => Promise<BackfillChunkResult>;
   /** The four Slice 6 evidence executors (evidence facade), one per funnel phase. */
-  funnelUnit: (phase: ResearchPhase, tenantId: string, cursor: Record<string, unknown> | null, budgetMs: number) => Promise<FunnelUnitOutcome>;
+  funnelUnit: (phase: ResearchPhase, tenantId: string, cursor: Record<string, unknown> | null, budgetMs: number, priorityQueries: string[]) => Promise<FunnelUnitOutcome>;
+  /** THIS run's investigation priorities, asked for ONCE (Runtime asks Decision, Evidence gets strings). */
+  investigationPriorities: (tenantId: string) => Promise<string[]>;
   /** The account's CURRENT onboarding basis (the one Account fingerprint); the
    *  funnel scopes every derived read/write to it. Null = not resolvable. */
   currentBasis: (tenantId: string) => Promise<string | null>;
@@ -184,14 +171,16 @@ const defaultSteps: ResearchCycleSteps = {
       return null;
     }
   },
-  async funnelUnit(phase, tenantId, cursor, budgetMs) {
+  async investigationPriorities(tenantId) {
+    return topInvestigationQueries(tenantId).catch(() => [] as string[]);
+  },
+  async funnelUnit(phase, tenantId, cursor, budgetMs, priorityQueries) {
     // An OPEN INVESTIGATION needs BOTH halves of its evidence: the results page for that
-    // exact search AND the pages that actually win it. Buying the first while ranking
-    // winners globally left the query that needed competitors with none, so both phases
-    // take the same priority list (investigation-queries). Fail-soft: no priority, same agenda.
+    // exact search AND the pages that actually win it. The list is the RUN's, frozen by
+    // the caller, never re-resolved here: landing a results page closes that search, so a
+    // second lookup handed winning-pages a different three than the ones just paid for.
     if (phase === "serp_analysis" || phase === "winning_pages") {
-      return (phase === "serp_analysis" ? serpAnalysisUnit : winningPagesUnit)({},
-        await topInvestigationQueries(tenantId).catch(() => [] as string[]))(tenantId, cursor, budgetMs);
+      return (phase === "serp_analysis" ? serpAnalysisUnit : winningPagesUnit)({}, priorityQueries)(tenantId, cursor, budgetMs);
     }
     const fn = {
       keyword_discovery: keywordDiscoveryUnit,
@@ -335,6 +324,17 @@ async function driveRun(
     cursor = attemptCursor;
 
     if (FUNNEL_PHASES.has(phase)) {
+      // FREEZE THE PRIORITIES ONCE PER RUN, durably, BEFORE a cent is spent: chosen when this run first
+      // reaches the results-page phase and reused unchanged by winning-pages, so the searches Beacon pays to
+      // look up are the ones it then reads competitors for. Persisted through advancePhase on the SAME phase.
+      // Only a REAL list is frozen: an open run can span days, so one transient empty read must not silence
+      // its priorities for that whole life. Empty stays unfrozen and both units keep the broad agenda, which
+      // is coherent either way because winning-pages never resolves a list of its own.
+      if (phase === "serp_analysis" && progress.priorityQueries == null) {
+        const frozen = await steps.investigationPriorities(tenantId).catch(() => [] as string[]);
+        if (frozen.length > 0) { progress = { ...progress, priorityQueries: frozen };
+          if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return; }
+      }
       // One bounded evidence unit. advanced = keep iterating this phase; waiting =
       // durable provider work is pending (pause honestly, resume next visit; NOT a
       // failure and NOT completion); done = phase complete; failed = bounded pause.
@@ -345,7 +345,8 @@ async function driveRun(
         const basis = await steps.currentBasis(tenantId);
         // The REAL run identity travels with the cursor: history rows carry this
         // run's id, and the funnel's receipt resets per cycle instead of drifting.
-        unit = await steps.funnelUnit(phase, tenantId, { ...(priorUnit ?? {}), ...(basis ? { basis } : {}), runId: run.id, cycle: run.cycle_key }, deadline - nowFn().getTime());
+        unit = await steps.funnelUnit(phase, tenantId, { ...(priorUnit ?? {}), ...(basis ? { basis } : {}), runId: run.id, cycle: run.cycle_key },
+          deadline - nowFn().getTime(), progress.priorityQueries ?? []);
       } catch (error) {
         const message = (error instanceof Error ? error.message : String(error)).slice(0, 300);
         await finishRun(tenantId, run.id, ownerToken, "paused", { phase, message, at: nowFn().toISOString() });
@@ -363,8 +364,7 @@ async function driveRun(
       else if (conflictRetried !== phase) {
         conflictRetried = phase;
         log.warn("[research-run] research notes moved underneath the writer; retrying this phase once", { tenantId, phase });
-        continue; // loop top renews the SAME lease with the SAME attempt cursor
-      }
+        continue; } // loop top renews the SAME lease with the SAME attempt cursor
       const unitCursor = unit.cursor ? { ...attemptCursor, unit: unit.cursor } : { phase, attemptKey, seed: run.cycle_key };
       if (unit.status === "failed") {
         const saved = await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: unitCursor });

@@ -115,6 +115,7 @@ const BENIGN: ResearchCycleSteps = {
   refreshSources: async () => ({ attempted: 0, succeeded: [], failures: [] }),
   backfillChunk: async () => ({ kind: "no_work" }),
   funnelUnit: async () => ({ status: "done", cursor: null, progress: {} }), // evidence phases no-op in these lease/truth tests
+  investigationPriorities: async () => [],
   currentBasis: async () => "basis_test", // the account basis the funnel scopes to
   publishSurface: async () => {},
   surfaceStale: async () => false,
@@ -221,8 +222,7 @@ describe("research-run phase truth", () => {
     const rows = withRun();
     await run({ ...BENIGN, surfaceStale: async () => true }); // nothing refreshed, but the saved surface is stale
     expect([rows[0]!.status, rows[0]!.current_phase, rows[0]!.last_error]).toEqual(["completed", "done", null]);
-    expect(rows[0]!.progress.surfacePublished).toBe(true);
-  });
+    expect(rows[0]!.progress.surfacePublished).toBe(true); });
   it("pauses at the phase that throws, never marks it published, and never completes (backfill chunk, then publish build)", async () => {
     const backfill = withRun({ current_phase: "gsc_backfill_chunk" });
     await run({ ...BENIGN, backfillChunk: async () => { throw new Error("gsc backfill chunk did not advance: 429"); } });
@@ -231,9 +231,7 @@ describe("research-run phase truth", () => {
     const publish = withRun({ current_phase: "publish_surface" }); // fresh repo + seed
     await run({ ...BENIGN, surfaceStale: async () => true, publishSurface: async () => { throw new Error("surface build failed"); } });
     expect([publish[0]!.status, publish[0]!.current_phase]).toEqual(["paused", "publish_surface"]);
-    expect(publish[0]!.progress.surfacePublished).not.toBe(true);
-    expect(publish[0]!.completed_at).toBeNull();
-  });
+    expect(publish[0]!.progress.surfacePublished).not.toBe(true); expect(publish[0]!.completed_at).toBeNull(); });
 });
 describe("research-run partial-success durability + deduped refreshed providers", () => {
   it("persists the providers that DID sync before pausing, never counts a failed one, and counts a later success exactly once across the retry", async () => {
@@ -243,14 +241,13 @@ describe("research-run partial-success durability + deduped refreshed providers"
       : { attempted: 2, succeeded: ["google_gsc", "google_ga4"], failures: [] }) };
     await run(steps); // first attempt: gsc synced, ga4 failed
     expect([rows[0]!.status, rows[0]!.current_phase]).toEqual(["paused", "refresh_sources"]); // the retry stays at refresh_sources
-    expect(rows[0]!.progress.refreshedProviders).toEqual(["google_gsc"]); // the succeeded source is not stranded; the failed one is never counted
-    expect(rows[0]!.progress.sourcesRefreshed).toBe(1); // count derived from the unique set
+    expect([rows[0]!.progress.refreshedProviders, rows[0]!.progress.sourcesRefreshed]).toEqual([["google_gsc"], 1]); // the succeeded source is not stranded, and the count is the unique set
     await run(steps); // retry: both synced → union, gsc counted once
     expect([rows[0]!.status, rows[0]!.progress.sourcesRefreshed]).toEqual(["completed", 2]);
     expect(rows[0]!.progress.refreshedProviders).toEqual(["google_gsc", "google_ga4"]); }); // union of both attempts, no double count
   it("decodes a legacy numeric-only progress row: projection and resume never crash and the number survives", async () => {
     const rows = withRun({ current_phase: "publish_surface", progress: { sourcesRefreshed: 2 } });
-    expect((await RR.researchRunStatus(T, new Date(NOW))).counters.sourcesRefreshed).toBe(2); // projection decodes the bare number
+    expect((await RR.researchRunStatus(T, new Date(NOW))).counters.sourcesRefreshed).toBe(2); // decodes the bare number
     await run({ ...BENIGN, surfaceStale: async () => false });
     expect([rows[0]!.status, rows[0]!.progress.sourcesRefreshed]).toEqual(["completed", 2]); }); // legacy number survives the resume (refresh_sources not re-run)
 });
@@ -264,30 +261,40 @@ describe("research-run idempotency identity", () => {
       backfillChunk: async (_t, _n, key) => (backfillKeys.push(key), { kind: "no_work" }) };
     await run(steps); // first visit: refresh fails → pause at refresh_sources with the cursor persisted
     expect([rows[0]!.status, rows[0]!.current_phase]).toEqual(["paused", "refresh_sources"]);
-    NOW += DAY; // a new UTC day: the resumed run's ORIGINAL cycle key, not today's, still seeds the key
-    await run(steps);
+    NOW += DAY; await run(steps); // a new UTC day: the resumed run's ORIGINAL cycle key, not today's, still seeds the key
     expect([refreshKeys[1], rows.length]).toEqual([refreshKeys[0], 1]); // identical key after the date changed, and no second run on the new day
     refreshFails = false;
     await run(steps); // refresh succeeds → resumes the SAME phase (identical key), then advances
     expect([rows[0]!.status, rows[0]!.id]).toEqual(["completed", "seed"]);
     expect(refreshKeys[2]).toBe(refreshKeys[0]); // an interrupted retry reuses the identical key
-    expect(backfillKeys[0]).not.toBe(refreshKeys[2]); // the next phase gets a different key
-    expect(refreshKeys[0]).toMatch(/^rr_[0-9a-f]{32}$/); });
+    expect(backfillKeys[0]).not.toBe(refreshKeys[2]); expect(refreshKeys[0]).toMatch(/^rr_[0-9a-f]{32}$/); }); // the next phase gets a different key
 });
 
 describe("research-run resume + status projection", () => {
   it("resumes at the persisted phase (done phases are not re-run) and a deadline pauses durably", async () => {
-    const rows = withRun({ current_phase: "gsc_backfill_chunk" });
-    const log: string[] = [];
+    const rows = withRun({ current_phase: "gsc_backfill_chunk" }); const log: string[] = [];
     await run(healthySteps(log), 0); // out of time before any phase
-    expect(log).toEqual([]);
-    expect(rows[0]!.status).toBe("paused");
-    expect(rows[0]!.current_phase).toBe("gsc_backfill_chunk");
+    expect(log).toEqual([]); expect([rows[0]!.status, rows[0]!.current_phase]).toEqual(["paused", "gsc_backfill_chunk"]);
     await run(healthySteps(log));
     expect(log).toEqual(["backfill", "publish"]); // never "refresh" (that phase was already done)
-    expect(rows[0]!.status).toBe("completed");
-    expect(rows[0]!.current_phase).toBe("done");
-  });
+    expect([rows[0]!.status, rows[0]!.current_phase]).toEqual(["completed", "done"]); });
+  it("pays for one set of searches and reads competitors for that SAME set, across a pause", async () => {
+    const rows = withRun({ current_phase: "serp_analysis" }); const seen: Array<[string, string[]]> = []; let asked = 0;
+    const answers = [["a", "b", "c"], ["d", "e", "f"]]; // the second is what a fresh look says once those results pages land
+    const steps: Partial<ResearchCycleSteps> = { investigationPriorities: async () => answers[Math.min(asked++, 1)]!,
+      funnelUnit: async (phase, _t, _c, _b, priority) => { seen.push([phase, priority]); // the first look waits on the provider, the next visit finishes it
+        return phase === "serp_analysis" && seen.length === 1 ? { status: "waiting", cursor: null, progress: {} } : { status: "done", cursor: null, progress: {} }; } };
+    await run(steps); expect(rows[0]!.progress.priorityQueries).toEqual(["a", "b", "c"]); // durable BEFORE any paid work
+    await run(steps); // a later visit resumes and crosses into winning_pages
+    expect(seen).toEqual([["serp_analysis", ["a", "b", "c"]], ["serp_analysis", ["a", "b", "c"]], ["winning_pages", ["a", "b", "c"]]]);
+    expect(asked).toBe(1); }); // the run chose once; the second answer never reached a paid phase
+  it("does not let one empty read silence a run's priorities for the rest of its life", async () => {
+    const rows = withRun({ current_phase: "serp_analysis" }); const seen: string[][] = []; let asked = 0;
+    const steps: Partial<ResearchCycleSteps> = { investigationPriorities: async () => (asked++ === 0 ? [] : ["a"]), // the first read comes back cold
+      funnelUnit: async (_p, _t, _c, _b, priority) => { seen.push(priority);
+        return seen.length === 1 ? { status: "waiting", cursor: null, progress: {} } : { status: "done", cursor: null, progress: {} }; } };
+    await run(steps); expect(rows[0]!.progress.priorityQueries).toBeUndefined(); // nothing worth freezing, so nothing frozen
+    await run(steps); expect(seen).toEqual([[], ["a"], ["a"]]); }); // the next visit asks again and the run recovers
   it("projects persisted truth: a running row with a dead lease presents as paused; a live one runs", async () => {
     const rows = withRun({ status: "running", lease_owner: "o", lease_expires_at: iso(NOW - LEASE) }); // lease long dead
     expect((await RR.researchRunStatus(T, new Date(NOW))).state).toBe("paused");
@@ -306,21 +313,16 @@ describe("research-run Today copy", () => {
   const NOON_PT = Date.parse("2026-07-23T19:00:00Z"); // noon Pacific on Jul 23
   it("never says 'current': same-day completion shows today, an older pass shows its date, none is silent", () => {
     const completed = view({ state: "completed", completedAt: new Date(NOON_PT).toISOString() });
-    const sameDay = RR.researchStatusLine(completed, new Date(NOON_PT));
-    expect(sameDay).toBe("Latest research pass finished today at 12:00 PM.");
-    const older = RR.researchStatusLine(completed, new Date(NOON_PT + 2 * DAY));
-    expect(older).toBe("Latest research pass finished Jul 23 at 12:00 PM.");
-    expect(`${sameDay} ${older}`).not.toMatch(/current/i);
-    expect(RR.researchStatusLine(view({ state: "none" }))).toBeNull();
-  });
+    const sameDay = RR.researchStatusLine(completed, new Date(NOON_PT)); const older = RR.researchStatusLine(completed, new Date(NOON_PT + 2 * DAY));
+    expect(sameDay).toBe("Latest research pass finished today at 12:00 PM."); expect(older).toBe("Latest research pass finished Jul 23 at 12:00 PM.");
+    expect(`${sameDay} ${older}`).not.toMatch(/current/i); expect(RR.researchStatusLine(view({ state: "none" }))).toBeNull(); });
   it("gives an open error-free run ONE in-progress sentence with the persisted AI-check counts, identical whether the lease is live or released", () => {
     const progress = { funnel: { promptsChecked: 35, enginePairsDone: 40, enginePairsIntended: 140 } };
     const leased = mk({ status: "running", current_phase: "prompt_observations", progress, lease_owner: "o", lease_expires_at: iso(NOW + LEASE) });
     const released = mk({ ...leased, status: "paused", lease_owner: null, lease_expires_at: null }); // same run, a normal provider wait persisted
     const live = RR.researchStatusLine(RR.projectStatusView(leased, NOW));
     expect(live).toBe("Research in progress: checking how AI assistants answer your questions. 40 of 140 AI checks collected.");
-    expect(RR.researchStatusLine(RR.projectStatusView(released, NOW))).toBe(live); // THE pin: the line never toggles on lease state alone
-  });
+    expect(RR.researchStatusLine(RR.projectStatusView(released, NOW))).toBe(live); }); // THE pin: the line never toggles on lease state alone
   it("invents no numbers off the AI phase, names a real pause reason, and never resurrects a stale one", () => {
     // Cumulative funnel counters survive onto later phases; the clause must not follow them.
     const later = mk({ status: "running", current_phase: "serp_analysis", lease_owner: "o", lease_expires_at: iso(NOW + LEASE),

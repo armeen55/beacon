@@ -28,9 +28,8 @@ import { log } from "@/lib/logger";
 
 // ── Canonical record ───────────────────────────────────────────────────────
 
-/** The ordered phases of one Research Run. `done` is the terminal phase. The four
- *  evidence phases (Slice 6) sit between the connector work and the surface publish:
- *  broad keyword discovery, AI observation, retained-query SERPs, winning pages. */
+/** The ordered phases of one Research Run. `done` is terminal. The four evidence phases (Slice 6) sit between
+ *  the connector work and the surface publish: keyword discovery, AI observation, SERPs, winning pages. */
 export type ResearchPhase =
   | "refresh_sources"
   | "gsc_backfill_chunk"
@@ -41,18 +40,20 @@ export type ResearchPhase =
   | "publish_surface"
   | "done";
 
-/** Three honestly-produced states only: a transient phase failure PAUSES with a
- *  bounded last_error (recoverable next visit), never a terminal `failed`.
- *  Completion is reached only when every phase succeeded or was a healthy no-op. */
+/** Three honestly-produced states only: a transient phase failure PAUSES with a bounded last_error
+ *  (recoverable next visit), never a terminal `failed`. Completion means every phase succeeded or no-opped. */
 export type ResearchRunStatus = "running" | "paused" | "completed";
 
-/** Evidence-based counters only, never a fabricated number. `refreshedProviders` is
- *  the set of providers that actually synced this cycle (unioned across retries);
- *  `sourcesRefreshed` is that set's size, and survives as a bare number on legacy rows. */
+/** Evidence-based counters only, never a fabricated number. `refreshedProviders` is the set of providers
+ *  that actually synced this cycle (unioned across retries); `sourcesRefreshed` is that set's size. */
 export type ResearchRunProgress = {
   refreshedProviders?: string[];
   sourcesRefreshed?: number;
   backfill?: { ran: boolean; complete?: boolean; daysPulled?: number };
+  /** THIS run's frozen investigation priorities, chosen ONCE at the results-page phase and reused by
+   *  winning-pages: recomputing per phase bought results pages for one set of searches and read
+   *  competitors for another. Durable on progress (the phase advance clears the cursor), dies with the run. */
+  priorityQueries?: string[];
   surfacePublished?: boolean;
   /** Slice 6: real persisted funnel counters (never fabricated). */
   funnel?: {
@@ -63,8 +64,8 @@ export type ResearchRunProgress = {
   };
 };
 
-/** Bounded error info stored on last_error when a phase pauses (throw or a returned
- *  failure). `failures` carries per-source connector detail on a partial refresh. */
+/** Bounded error info stored on last_error when a phase pauses (throw or returned failure).
+ *  `failures` carries per-source connector detail on a partial refresh. */
 export type ResearchRunError = {
   phase: ResearchPhase;
   message: string;
@@ -90,9 +91,8 @@ export type ResearchRun = {
   completed_at: string | null;
 };
 
-/** The compact Today projection, derived FROM the canonical record. `none` covers
- *  no-run and any fail-soft error. Counters carry evidence-backed numbers only:
- *  aiChecks* mirror the persisted funnel enginePairs counters, never a guess. */
+/** The compact Today projection, derived FROM the canonical record. `none` covers no-run and any fail-soft
+ *  error. Counters carry evidence-backed numbers only: aiChecks* mirror persisted funnel counters. */
 export type ResearchRunStatusView = {
   state: "running" | "paused" | "completed" | "none";
   phaseLabel: string;
