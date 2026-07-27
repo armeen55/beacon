@@ -118,29 +118,33 @@
   durable Supabase ledger authoritative); one account's spend never throttles another. A regression sweep converts
   every SCHEMA_BY_KIND entry through the strict-subset conversion. Transport and live behavior are validated; the
   OpenAI key enables this path directly, no secondary flag.
-- DOING NOTHING IS THE DEFAULT AND A PROVEN GAP IS AN INVESTIGATION (2026-07-27): each page is diagnosed against its
-  OWN exact query rows and the shipped click curve BEFORE any draft; an action needs impressions to trust, a real
-  gap at that position, and enough recoverable clicks to be worth a morning, and everything else answers watch or do
-  nothing WITH the numbers. The title/meta factory is DELETED. A change reaches Ready only where the live results
-  page for that EXACT search on that EXACT page is held (readyForAction); otherwise the gap is an open investigation
-  that says in plain words what is missing, and confidence follows evidence completeness (confidenceFor), never how
-  the draft reads: a page never fetched vouches for nothing, no body store exists so High on an edit is currently
-  unreachable, readiness is keyed by page AND exact search, and a new page is held to the same bar. Decision
-  generation 3 demotes older-bar rows to To do in presentation only, reused rows are re-judged, applied work is
-  never redrafted, and a gate-rejected draft waits for new evidence rather than re-paying the drafter. Runtime buys
-  the results pages the top three open investigations need before anything exploratory. An investigation is VISIBLE:
-  Today names how many pages are losing clicks and carries the decision's own verdict for the page it blames,
-  quoting no promised lift anywhere (objectives state the modeled shortfall). Live replay 2026-07-27 (SHA 6bdd5838):
-  5 proven actions, 18 investigations, 164 watch, 211 do nothing, 3 proposals, every one Medium. ONE canonical path
-  produces the ranked queue AND at most one deep Change per archetype per pass (Slices 7+8): receipt-first, citable
-  research REQUIRED, threshold-gated cannibalization, thin evidence = refusal. Parts bundle ONLY when they are one
-  repair; a bundle REPLACES its shallow rows. Evidence tells the truth about itself: query identity on the receipt,
-  winners attaching ONLY on exact URL or exact member query or prompt, an answer that merely cites a page importing
-  nothing, internal links withheld while no page body is held, metric sentences naming their scope, fan-out seeds
-  carrying only provider-run queries, and a producer failure never publishing a fresh timestamp over stale
-  proposals. Page snapshots read Supabase. Business Info is provenance-safe. Results bands are maturity-true: early
-  = Promising, Win = 28-day only, still-measuring carries no verdict. Today counts the full Ready list; the
-  bleeding-page alarm matches on a full page key and links to its fix; manual implementation and 7/14/28 stand.
+- DOING NOTHING IS THE DEFAULT AND AN EXACT RESULTS PAGE MUST EXPLAIN THE ACTION (2026-07-27): each page is
+  diagnosed against its OWN exact query rows and the shipped click curve BEFORE any draft; an action needs
+  impressions to trust, a real gap at that position, and enough recoverable clicks to be worth a morning. A row I
+  hold nothing about is not a page I judged. HOLDING the live results page is not READING it: ActionDiagnosis reads
+  the line Google displays for the page, the wording that recurs across the SITES beating it (one site twice is that
+  site's style), and the gap between them, so only a named cause with a competing explanation ruled out becomes
+  work; token containment is deleted. Nothing reaches a drafter before a diagnosis, so an unsupported change costs
+  nothing. Confidence follows evidence completeness, never the draft. A page's own words are readable through a
+  targeted reader over the snapshot columns the shared projection drops (explicit account, three URLs, bounded,
+  fails closed), so drafts are checked against the page itself. An investigation gets BOTH halves of its evidence:
+  the results page for that exact search and the pages that win it, priority first, noise domains excluded; only a
+  query with no results page yet can be closed by buying one. The diagnosis and every alternative it ruled out are
+  receipt items, and every count is derived from real items. A held Ready change is re-judged and set aside when the
+  evidence stops supporting it. Copy is honest about its own limits: search averages cover every country and device,
+  so a page missing from one collected results page is a different slice of Google and never proof it does not rank,
+  and a rank counting ads and packs is never printed as a position. Decision generation 4. Live replay 2026-07-27
+  (SHA e92bdbd1): 0 actionable, 23 investigations, 164 watch, 31 do nothing, 0 Ready; the three searches the next
+  pass buys are the three with no results page yet. ONE canonical path produces the ranked queue AND at most one
+  deep Change per archetype per pass (Slices 7+8): receipt-first, citable research REQUIRED, threshold-gated
+  cannibalization, thin evidence = refusal. Parts bundle ONLY when they are one repair; a bundle REPLACES its
+  shallow rows. Evidence tells the truth about itself: query identity on the receipt, winners attaching ONLY on
+  exact URL or exact member query or prompt, a page that arrived by rank never called an AI citation, internal links
+  withheld while no body backs them, metric sentences naming their scope, and a producer failure never publishing a
+  fresh timestamp over stale proposals. Page snapshots read Supabase. Business Info is provenance-safe. Results
+  bands are maturity-true: early = Promising, Win = 28-day only, still-measuring carries no verdict. Today counts
+  the full Ready list, names how many pages are under investigation, and carries the decision's own verdict for the
+  page it blames; manual implementation and 7/14/28 stand.
 ## Known target mismatches
 
 - Profound and SEMrush survive only as historical-row reads and inert comments (Slice 2 removed the connector
@@ -159,31 +163,25 @@ Verified variable-name presence without reading or printing values:
 - Local and Vercel production have Supabase and OpenAI credentials.
 - Vercel production has Google OAuth client credentials and a GSC site configuration.
 - DataForSEO credentials are live-validated locally AND set on Vercel production (Encrypted, Production scope,
-  applied via redeploy dpl_GigNyZia97r2gpH3yesXbRiqWXBo); missing credentials still fail closed.
-
-Never place credentials in chat, documentation, commits, or command output.
+  redeploy dpl_GigNyZia97r2gpH3yesXbRiqWXBo); missing credentials fail closed. Never place credentials in chat,
+  documentation, commits, or command output.
 
 ## Current routes
 
-- Today `/`
-- Changes `/changes` and `/changes/[id]`
-- Results `/results`
-- Connections `/settings/connectors`
+- Today `/`; Changes `/changes` and `/changes/[id]`; Results `/results`; Connections `/settings/connectors`
 - Minimal settings, onboarding, login, signup, Google callback, and version routes
 
 New customer routes require operator approval.
 
 ## Next slice
 
-Slices 1 through 8 are complete and deployed. The next build-order step is Slice 9: one canonical Shipment
-with live implementation verification. It requires the eight fields from `AGENTS.md` and explicit operator
-approval before implementation; production research requires only the existing DataForSEO credentials and
-no enablement flag or parallel activation path.
+Slices 1 through 8 are complete and deployed. Next is Slice 9: one canonical Shipment with live
+implementation verification, which needs the eight `AGENTS.md` fields and explicit operator approval; production
+research needs only the existing DataForSEO credentials, no flag or parallel activation path.
 
 ## Verification
 
-- Use the real main tree at `/Users/armeen/beacon`.
-- Preserve unrelated untracked `.codex/` and `supabase/` content.
+- Use the real main tree at `/Users/armeen/beacon`; preserve untracked `.codex/` and `supabase/` content.
 - Run `npm run gate` before completion.
 - An accepted implementation plan authorizes commit, push to `origin/main`, Vercel deployment, and hosted smoke
   verification, subject to the destructive and external-state pauses in `AGENTS.md`.
