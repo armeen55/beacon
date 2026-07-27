@@ -118,28 +118,27 @@
   durable Supabase ledger authoritative); one account's spend never throttles another. A regression sweep converts
   every SCHEMA_BY_KIND entry through the strict-subset conversion. Transport and live behavior are validated; the
   OpenAI key enables this path directly, no secondary flag.
-- One canonical path produces the ranked Changes queue AND one deep Change Bundle PER ARCHETYPE per pass at most
-  (Slices 7+8, 2026-07-25): strongest page rewrite + researched topic (pure insertions; citable research REQUIRED;
-  threshold-gated cannibalization); receipt-first plain-English evidence with an honest missing list; thin
-  evidence = refusal. A bundle REPLACES its shallow rows at generation and load, rides ChangeProposal, renders as
-  flagship row + two-layer /changes/[id] detail, stays manual. Proposals are BASIS-STAMPED: off-basis or
-  source-owing rows demote to To do in presentation only; surfaces say why. Page snapshots read Supabase. Business
-  Info is universal and provenance-safe: displayed fields confirm on save, blank optionals keep value AND origin,
-  no merge over a failed read; research needs offerings or topics. Results bands are maturity-true: early =
-  Promising, Win = 28-day only, still-measuring carries no verdict, lifts never mis-signed. Today counts the full
-  Ready list; the bleeding-page alarm links to its fix; manual implementation and 7/14/28 stand. Research is
-  QUERY-FAITHFUL and decision-led (2026-07-26): trusted GSC queries, tracked questions, and fan-outs are bought
-  VERBATIM (substitution deleted), deduped by one canonical token-multiset identity (reordered wording joins, a
-  changed modifier never, every script); themes contribute only strong candidates (else reported uncovered),
-  exploration caps at 8 slots, thin trust means a shorter agenda, blind research fails BEFORE spending. The
-  receipt shares the identity (a reworded SERP attaches to its page); winners attach via own title/h1 or citing
-  prompt (URL tokens and boilerplate headings out); internal links pass a final topical check; High confidence
-  needs a matched outside check, reasons naming classes. Retention keeps 700 keywords source-diversely, batch
-  bounds enforced; labs entries reserve above real charges. The generic token list carries no vertical words
-  (account ubiquity is corpus-derived; snapshot gates migrated to it). Real-input replay: every trusted query
-  exact, one slot per duplicate, no cross-intent mapping possible. Known mismatch: natural-sentence profile themes
-  are not yet interpreted into topic-shaped seeds (reported uncovered); the natural-language profile
-  interpretation remains unbuilt.
+- DOING NOTHING IS THE DEFAULT (2026-07-27): each page is diagnosed against its OWN exact query rows and the
+  shipped click curve BEFORE any draft; an action needs impressions to trust, a real gap at that position, and
+  enough recoverable clicks to be worth a morning, and everything else answers watch or do nothing WITH the
+  numbers. The title/meta factory (two proposals per page over 20 impressions, gross-traffic ranked, 24 serial
+  drafts) is DELETED. A proven gap whose words are already in the copy is the strongest rewrite case, not silence;
+  a page beating its curve is watched only while the soft search is small against what it earns; ranking sinks
+  older-generation rows whose impact numbers are not comparable. Live replay: 23 proven gaps, 164 watch, 211 do
+  nothing. ONE canonical path then produces the ranked queue AND at most one deep Change per archetype per pass
+  (Slices 7+8): the proven page and a researched topic, receipt-first, citable research REQUIRED, threshold-gated
+  cannibalization, thin evidence = refusal. Parts bundle ONLY when they are one repair and the bundle says what
+  breaks if one ships alone; independent edits stay atomic. A bundle REPLACES its shallow rows and drafts the page
+  the diagnosis proved. Proposals are BASIS-STAMPED: off-basis or source-owing rows demote to To do in
+  presentation only, and the surfaces name a raised bar as MINE, never blaming the operator's info. Evidence tells
+  the truth about itself: the receipt shares query identity (a reworded SERP attaches to its page), winners attach
+  ONLY on exact URL or exact member query/prompt, internal links are withheld while no page body is held, metric
+  sentences name their scope, fan-out seeds carry only provider-run queries, bought keyword difficulty is carried
+  rather than dropped, a producer failure cannot publish a fresh timestamp over stale proposals, drafting prompts
+  carry no vertical assumption, and High confidence needs a matched outside check with reasons naming evidence
+  classes. Page snapshots read Supabase. Business Info is provenance-safe. Results bands are maturity-true: early
+  = Promising, Win = 28-day only, still-measuring carries no verdict. Today counts the full Ready list; the
+  bleeding-page alarm links to its fix; manual implementation and 7/14/28 stand.
 
 ## Known target mismatches
 
