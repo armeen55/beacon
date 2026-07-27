@@ -19,8 +19,13 @@ const MAX_PRIORITY_QUERIES = 3;
 
 export async function topInvestigationQueries(tenantId: string): Promise<string[]> {
   const snapshot = await loadEvidenceSnapshot(tenantId);
+  // ONLY what buying evidence can actually close. An investigation that already holds
+  // its results page and concluded something else (Google's own rewrite already carries
+  // the search, nothing recurs across the winners, a different slice of Google) is not
+  // waiting on a purchase, and leaving it in this list made it re-buy the same page every
+  // week while the queries with no results page at all waited behind it.
   const open = compileCandidates(snapshot)
-    .filter((c) => c.action === "research_needed" && !!c.query)
+    .filter((c) => c.action === "research_needed" && !!c.query && (c.diagnosis == null || c.diagnosis.cause === "unknown"))
     .sort((a, b) => b.recoverableClicks - a.recoverableClicks || (a.query ?? "").localeCompare(b.query ?? ""));
   const seen = new Set<string>();
   const queries: string[] = [];

@@ -94,6 +94,10 @@ export { CONTENT_CHANGE_TYPES } from "./scanning/content-change-types";
 export { runInProcessColdStartScan } from "./scanning/in-process-scan";
 export { loadCrawlFrontier, runCrawlBatch } from "./scanning/crawl-frontier";
 
+// Targeted owned-page body read (an explicit tenant + a handful of URLs)
+export type { OwnedPageBody } from "./pages/owned-context";
+export { loadOwnedPageBodies } from "./pages/owned-context";
+
 // Product URL watcher
 export { maybeRefreshUrlWatcher } from "./product/url-watcher";
 

@@ -101,8 +101,7 @@ const PHASE_SEQUENCE: ResearchPhase[] = [
   "refresh_sources", "gsc_backfill_chunk", "keyword_discovery",
   "prompt_observations", "serp_analysis", "winning_pages", "publish_surface",
 ];
-/** The four Slice 6 evidence phases, each backed by one funnel unit executor. */
-const FUNNEL_PHASES = new Set<ResearchPhase>(["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]);
+/** The four Slice 6 evidence phases, each backed by one funnel unit executor. */ const FUNNEL_PHASES = new Set<ResearchPhase>(["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]);
 
 /** The refresh_sources phase outcome: how many sources were attempted, the
  *  identities of the ones that actually synced, and the bounded per-source failure
@@ -117,9 +116,7 @@ export type RefreshSourcesResult = {
 /** The gsc_backfill_chunk phase outcome. `advanced` = a chunk pulled (or the
  *  backfill defensively completed); `no_work` = a benign skip. A real error is a
  *  THROW, never a value. */
-export type BackfillChunkResult =
-  | { kind: "advanced"; complete?: boolean; daysPulled?: number }
-  | { kind: "no_work" };
+export type BackfillChunkResult = { kind: "advanced"; complete?: boolean; daysPulled?: number } | { kind: "no_work" };
 
 /** Injectable phase bodies + clock/deadline so the runner is testable with a
  *  short budget and stub executors; production passes nothing and uses the real
@@ -188,15 +185,18 @@ const defaultSteps: ResearchCycleSteps = {
     }
   },
   async funnelUnit(phase, tenantId, cursor, budgetMs) {
-    // The results pages an OPEN INVESTIGATION cannot close without go first (see
-    // investigation-queries). Fail-soft: no priority, same agenda as before.
-    if (phase === "serp_analysis") return serpAnalysisUnit({},
-      await topInvestigationQueries(tenantId).catch(() => [] as string[]))(tenantId, cursor, budgetMs);
+    // An OPEN INVESTIGATION needs BOTH halves of its evidence: the results page for that
+    // exact search AND the pages that actually win it. Buying the first while ranking
+    // winners globally left the query that needed competitors with none, so both phases
+    // take the same priority list (investigation-queries). Fail-soft: no priority, same agenda.
+    if (phase === "serp_analysis" || phase === "winning_pages") {
+      return (phase === "serp_analysis" ? serpAnalysisUnit : winningPagesUnit)({},
+        await topInvestigationQueries(tenantId).catch(() => [] as string[]))(tenantId, cursor, budgetMs);
+    }
     const fn = {
       keyword_discovery: keywordDiscoveryUnit,
       prompt_observations: promptObservationUnit,
-      winning_pages: winningPagesUnit,
-    }[phase as "keyword_discovery" | "prompt_observations" | "winning_pages"];
+    }[phase as "keyword_discovery" | "prompt_observations"];
     return fn()(tenantId, cursor, budgetMs); // each facade export is a deps factory returning the executor
   },
   async publishSurface(tenantId) {

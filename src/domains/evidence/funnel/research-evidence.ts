@@ -82,13 +82,73 @@ export type ResearchWinningAppearance = {
   viaUrl?: string | null;
 };
 
+/** What a winning page is actually MADE OF, from the one fetch that was already
+ *  paid for. A title, a word count and a heading list cannot tell anyone why a
+ *  page wins, so the same extraction the fetch already computes is carried
+ *  through instead of being thrown away. Every field below the original five is
+ *  OPTIONAL: an extract persisted before they existed still deserializes and
+ *  simply reads as "not captured". No second fetch, no page HTML, no new call. */
 export type ResearchPageExtract = {
   title: string | null;
   h1: string | null;
   wordCount: number;
   headings: string[];
   faqCount: number;
+  metaDescription?: string | null;
+  /** The page's opening body words (a sample, not the page). */
+  openingSample?: string | null;
+  entityNames?: string[];
+  hasList?: boolean;
+  hasTable?: boolean;
+  internalLinkCount?: number;
+  externalLinkCount?: number;
+  fetchedAt?: string | null;
 };
+
+const OPENING_SAMPLE_CHARS = 600;
+const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
+const strings = (v: unknown, max: number): string[] =>
+  (Array.isArray(v) ? v : []).filter((x): x is string => typeof x === "string" && !!x.trim()).slice(0, max);
+
+/** The fields a page snapshot already carries, named structurally so this module
+ *  stays pure (no store, no I/O, no PageSnapshot import). */
+type ExtractableSnapshot = {
+  title: string | null; h1: string | null; word_count: number; h2_list?: string[]; faqs?: unknown[];
+  meta_description?: string | null; body_paragraph_sample?: string[]; schema_entity_names?: string[];
+  card_texts?: string[]; table_count?: number; internal_link_count?: number; external_link_count?: number;
+  fetched_at?: string;
+};
+
+/** ONE mapper from a freshly extracted page snapshot onto the extract. Pure. */
+export function pageExtractFrom(snap: ExtractableSnapshot): ResearchPageExtract {
+  return {
+    title: snap.title, h1: snap.h1, wordCount: snap.word_count,
+    headings: strings(snap.h2_list, 20), faqCount: (snap.faqs ?? []).length,
+    metaDescription: str(snap.meta_description),
+    openingSample: str(strings(snap.body_paragraph_sample, 8).join(" ").slice(0, OPENING_SAMPLE_CHARS)),
+    entityNames: strings(snap.schema_entity_names, 12),
+    hasList: strings(snap.card_texts, 1).length > 0,
+    hasTable: (snap.table_count ?? 0) > 0,
+    internalLinkCount: snap.internal_link_count ?? 0,
+    externalLinkCount: snap.external_link_count ?? 0,
+    fetchedAt: str(snap.fetched_at),
+  };
+}
+
+/** Decode a PERSISTED extract. A legacy row missing every field added later reads
+ *  as the original five plus honest absence, never a throw and never a fake zero. */
+export function pageExtractFromRecord(rec: Record<string, unknown>): ResearchPageExtract {
+  const num = (v: unknown): number | undefined => (typeof v === "number" ? v : undefined);
+  const bool = (v: unknown): boolean | undefined => (typeof v === "boolean" ? v : undefined);
+  return {
+    title: str(rec.title), h1: str(rec.h1), wordCount: num(rec.wordCount) ?? 0,
+    headings: strings(rec.headings, 20), faqCount: num(rec.faqCount) ?? 0,
+    metaDescription: str(rec.metaDescription), openingSample: str(rec.openingSample),
+    entityNames: strings(rec.entityNames, 12), hasList: bool(rec.hasList), hasTable: bool(rec.hasTable),
+    internalLinkCount: num(rec.internalLinkCount), externalLinkCount: num(rec.externalLinkCount),
+    fetchedAt: str(rec.fetchedAt),
+  };
+}
 
 type ResearchWinningPage = {
   url: string;

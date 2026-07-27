@@ -46,8 +46,9 @@ import { produceBundleForSnapshot, produceNewPageBundleForSnapshot } from "./pro
 import { proposeChange, type ProposeOptions } from "./propose";
 import { loadChangeProposals, proposalFingerprint, saveChangeProposal } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
-import { confidenceFor, proposalId, type ChangeProposal, type EvidenceReadiness } from "./contracts";
+import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
+import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
 
 export type ProduceProposalsOptions = ProposeOptions & {
   /** Hard cap on how many opportunities we draft this pass (budget guard). */
@@ -134,6 +135,7 @@ export async function produceProposalsForTenant(
   const acted = candidates.filter((c) => c.action === "act_existing_page" || c.action === "act_new_page");
   const recoverableByKey = new Map<string, number>();
   const readinessByKey = new Map<string, EvidenceReadiness>();
+  const diagnosisByKey = new Map<string, ActionDiagnosis>();
   for (const c of acted) {
     if (c.action === "act_existing_page") {
       for (const k of pageKeys(c.pageUrl)) {
@@ -144,6 +146,7 @@ export async function produceProposalsForTenant(
         // so a card read "high" directly above its own receipt saying I never
         // looked at that search. The query is part of the key now.
         if (c.readiness && c.query) readinessByKey.set(`${k}::${canonicalQueryKey(c.query)}`, c.readiness);
+        if (c.diagnosis && c.query) diagnosisByKey.set(`${k}::${canonicalQueryKey(c.query)}`, c.diagnosis);
       }
     } else recoverableByKey.set(`topic:${(c.query ?? "").trim().toLowerCase()}`, c.recoverableClicks);
   }
@@ -168,7 +171,11 @@ export async function produceProposalsForTenant(
       ...p,
       ...(basis ? { basis } : {}),
       impactScore: recoverable ?? p.impactScore,
-      confidence: readiness ? confidenceFor(readiness) : p.confidence,
+      // A BUNDLE KEEPS ITS OWN CONFIDENCE. It read the page's body and built its own
+      // receipt, so the candidate's coarser readiness must not overwrite it (that
+      // capped every deep change at medium forever). The shallow path has no receipt
+      // of its own, so the diagnosis-aware value stands there.
+      confidence: p.bundle ? p.confidence : readiness ? confidenceFor(readiness, diagnosisByKey.get(`${key}::${qk}`) ?? null) : p.confidence,
     };
   };
 
@@ -235,6 +242,21 @@ export async function produceProposalsForTenant(
   const provenKeys = pageKeys(provenPage);
   /** The deep bundle this page already has under the current basis, if any. */
   const heldBundle = currentBundleFor((p) => p.kind === "existing_edit" && provenKeys.includes((p.pagePath ?? "").trim().toLowerCase()));
+
+  // A READY CHANGE MAY NOT OUTLIVE ITS OWN EXPLANATION. The basis fingerprints the
+  // account, not the evidence, so a stored row kept rendering Ready while today's
+  // diagnosis no longer supports it: Google rewrites the line it displays, a rival
+  // retitles, the page slips off the results page I check. Every live bundle whose
+  // page no longer earns an action this pass is set aside, in the queue and in the
+  // store, with the reason the operator can read. Its words and history are kept.
+  const provenNow = new Set(acted.filter((c) => c.action === "act_existing_page").flatMap((c) => pageKeys(c.pageUrl)));
+  for (const p of live) {
+    if (!p.bundle || p.kind !== "existing_edit" || p.status !== "proposed" || !current(p)) continue;
+    if (provenNow.has((p.pagePath ?? "").trim().toLowerCase())) continue;
+    const why = candidates.find((c) => pageKeys(c.pageUrl).includes((p.pagePath ?? "").trim().toLowerCase()))?.diagnosis?.explanation;
+    await persistIfChanged({ ...p, status: "needs_review", confidence: "low",
+      limitations: [...new Set([...p.limitations, why ?? "My evidence no longer shows that this change is the fix, so I set it aside instead of leaving it on your list."])] });
+  }
 
   const proposals: ChangeProposal[] = [];
   let noDraft = 0;
@@ -306,7 +328,12 @@ export async function produceProposalsForTenant(
   };
 
   if (provenPage && !heldBundle) {
-    const bundled = await produceBundleForSnapshot(snapshot, { ...bundleOpts, onlyPageUrl: provenPage }).catch(onThrow);
+    // The ONE page under investigation gets its own words read, through the targeted
+    // Evidence reader (explicit tenant, this URL only). A diagnosis written from a
+    // title and a word count is a guess; fail-soft to none, which stays honest.
+    const bodyByUrl = await loadOwnedPageBodies(tenantId, [provenPage]).catch(() => null);
+    const bundled = await produceBundleForSnapshot(snapshot, { ...bundleOpts, onlyPageUrl: provenPage,
+      ...(bodyByUrl ? { bodyByUrl } : {}) }).catch(onThrow);
     const covered = bundled.status === "bundled" ? (bundled.proposal.pageUrl ?? "").trim().toLowerCase() : "";
     const proven = bundled.status === "bundled"
       && (recoverableByKey.has(covered) || recoverableByKey.has((bundled.proposal.pagePath ?? "").trim().toLowerCase()));

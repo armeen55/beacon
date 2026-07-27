@@ -106,6 +106,7 @@ const EVIDENCE_GROUP: Record<BundleEvidenceItem["kind"], string> = {
   gsc_demand: "What people search on Google",
   keyword: "How much demand there is",
   serp: "What Google shows today",
+  diagnosis: "Why I think this is the problem",
   ai_observation: "What AI assistants answer",
   winning_page: "Pages winning this today",
   page_extract: "What your page says now",

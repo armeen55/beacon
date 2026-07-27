@@ -11,7 +11,9 @@ import "server-only";
 import { GEMINI_WRAPPER_HOST } from "@/domains/evidence/competitor-intel/polite-fetch";
 import type { ParsedKeywordItem } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
+import { isNoiseDomain } from "@/domains/evidence/relevance-gate";
 import { anchoredTopicMatch, canonicalQueryKey, topicTokens, weakAnchorTokens } from "@/domains/evidence/relevance-gate";
+import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import type { ResearchWinningAppearance } from "./research-evidence";
 import type { FunnelKeyword, FunnelReject } from "./state";
 
@@ -355,14 +357,39 @@ function dedupeAppearances(appearances: ResearchWinningAppearance[]): ResearchWi
   return out;
 }
 
+/** At most this many exact-query winners per priority query, so a bounded reserve
+ *  can never crowd out the global picture. */
+const PRIORITY_WINNERS_PER_QUERY = 2;
+
+/** The best organic rank this candidate holds for ONE exact query (null = none).
+ *  Organic means a real page I can go and read, which is what a comparison needs. */
+function organicRankFor(c: WinningCandidate, key: string): number | null {
+  let best: number | null = null;
+  for (const a of c.appearances) {
+    if (a.kind !== "serp_organic" || a.rank == null || !a.query) continue;
+    if (canonicalQueryKey(normalizeKeyword(a.query)) !== key) continue;
+    if (best == null || a.rank < best) best = a.rank;
+  }
+  return best;
+}
+
 /** Aggregate winning pages from a flat appearance stream, each appearance carrying
  *  its ACTUAL source (query or real prompt id + text, engine, rank). AI surfaces
  *  weight double; organic top-10 single; the account's own domain is excluded. A
- *  page's engines/prompts derive from ITS OWN appearances only. Pure. */
+ *  page's engines/prompts derive from ITS OWN appearances only.
+ *
+ *  Ranking is HYBRID, not global. A purely global weight order once returned ten
+ *  winners for an account and not one of them came from the query under
+ *  investigation: the AI-cited pages outweighed every organic result, so the
+ *  question that actually needed competitors got zero. Now each priority query
+ *  banks its own top few fetchable organic winners FIRST, in the caller's own
+ *  ranking, and the global order fills whatever capacity is left. The TOTAL is
+ *  unchanged, so this buys no extra fetch. Pure. */
 export function rankWinningPages(
   appearances: ResearchWinningAppearance[],
   ownDomain: string | null,
   topN: number,
+  priorityQueries: string[] = [],
 ): WinningCandidate[] {
   const own = (ownDomain ?? "").toLowerCase();
   const byUrl = new Map<string, WinningCandidate>();
@@ -383,5 +410,28 @@ export function rankWinningPages(
     prev.appearances.push(a);
     byUrl.set(url, prev);
   }
-  return [...byUrl.values()].sort((x, y) => y.weight - x.weight || x.url.localeCompare(y.url)).slice(0, topN);
+  if (topN <= 0) return [];
+  const ranked = [...byUrl.values()].sort((x, y) => y.weight - x.weight || x.url.localeCompare(y.url));
+  const picked: WinningCandidate[] = [];
+  const taken = new Set<string>(); // canonical identity: one page is never two winners
+  const claim = (c: WinningCandidate): void => {
+    const id = canonicalUrlKey(c.url);
+    if (picked.length >= topN || taken.has(id)) return;
+    taken.add(id);
+    picked.push(c);
+  };
+  for (const q of (priorityQueries ?? []).slice(0, MAX_PRIORITY_QUERIES)) {
+    const key = canonicalQueryKey(normalizeKeyword(q));
+    if (!key) continue;
+    ranked
+      .map((c) => ({ c, rank: organicRankFor(c, key) }))
+      // A social or forum profile that happens to rank is not a page to learn from, and
+      // the priority reserve used to promote three of them past every real competitor.
+      .filter((r): r is { c: WinningCandidate; rank: number } => r.rank != null && !isNoiseDomain(r.c.url) && !taken.has(canonicalUrlKey(r.c.url)))
+      .sort((a, b) => a.rank - b.rank || a.c.url.localeCompare(b.c.url))
+      .slice(0, PRIORITY_WINNERS_PER_QUERY)
+      .forEach((r) => claim(r.c));
+  }
+  for (const c of ranked) claim(c);
+  return picked;
 }

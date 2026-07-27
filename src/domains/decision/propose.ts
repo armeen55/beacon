@@ -35,6 +35,7 @@ import {
   proposalId,
   proposalFamily,
   effortForFamily,
+  readyForAction,
 } from "./contracts";
 import { validateProposal, type ProposalValidation } from "./validate-proposal";
 
@@ -123,6 +124,14 @@ export async function proposeExistingPageChange(
   opts: ProposeOptions = {},
 ): Promise<ProposalOutcome> {
   const now = opts.now ?? new Date();
+  // NO DRAFT SPEND BEFORE A DIAGNOSIS. A gap proves something is wrong and never what
+  // to change, so a candidate whose results page does not accuse a specific field
+  // costs nothing here: no completion call, no copy, no persisted proposal.
+  const diagnosis = input.evidence.diagnosis;
+  if (!readyForAction(diagnosis)) {
+    return { status: "no_draft", reason: diagnosis?.explanation
+      ?? "I checked the results page, but it does not yet show that the title is the problem.", drafterStatus: "not_diagnosed" };
+  }
   const field = input.opportunity.field ?? "title";
   const draft = await draftAtomicEditStructured(
     {
@@ -164,7 +173,9 @@ export async function proposeExistingPageChange(
     whyItMatters: value.rationale,
     confidence: value.confidence,
     draftRisks: value.risks ?? [],
-    evidenceRefCount: value.evidenceRefs?.length ?? 0,
+    // The COUNT IS THE EVIDENCE, never the drafter's own claim about it: a drafter
+    // that said "evidenceRefs: 1" used to set this while its receipt held nothing.
+    evidenceRefCount: diagnosis!.evidenceKeys.length,
     now,
     validation: NEUTRAL_VALIDATION,
   });
@@ -200,7 +211,7 @@ export async function proposeExistingPageChange(
     whyItMatters: value.rationale,
     confidence: value.confidence,
     draftRisks: value.risks ?? [],
-    evidenceRefCount: value.evidenceRefs?.length ?? 0,
+    evidenceRefCount: diagnosis!.evidenceKeys.length,
     now,
     validation,
   });
@@ -256,7 +267,7 @@ export async function proposeNewPageChange(
     whyItMatters: why,
     confidence: value.confidence,
     draftRisks: value.risks ?? [],
-    evidenceRefCount: value.evidenceRefs?.length ?? 0,
+    evidenceRefCount: (input.evidence.hints ?? []).length, // the grounding facts actually carried, never the drafter's own claim about them
     now,
     validation: NEUTRAL_VALIDATION,
   });
@@ -282,7 +293,7 @@ export async function proposeNewPageChange(
     whyItMatters: why,
     confidence: value.confidence,
     draftRisks: value.risks ?? [],
-    evidenceRefCount: value.evidenceRefs?.length ?? 0,
+    evidenceRefCount: (input.evidence.hints ?? []).length, // the grounding facts actually carried, never the drafter's own claim about them
     now,
     validation,
   });

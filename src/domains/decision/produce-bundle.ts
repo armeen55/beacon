@@ -2,18 +2,21 @@
  * decision/produce-bundle (Slices 7 + 8). The ONE producer of a deep, copy-ready change, in the only two archetypes that
  * exist: REPAIR the existing page with the biggest proven click gap, and BUILD the one new page the demand is asking for. Both
  * ride the same EvidenceSnapshot, structured drafters, ONE validator and persisted ChangeProposal. Order is
- * deliberate: SELECT on a proven gap, BUILD the evidence receipt FIRST for the EXACT candidate search, then draft and
- * keep only what that receipt and the gates justify. A click gap proves something is wrong and never what to change, so
- * confidence and readiness follow the EVIDENCE HELD (contracts.readyForAction / confidenceFor), never how the draft reads.
- * Parts bundle ONLY when they are one repair. No evidence means no change, and every input list is re-sorted before it is read
+ * deliberate: SELECT on a proven gap, BUILD the evidence receipt FIRST for the EXACT candidate search, DIAGNOSE off that
+ * receipt, and only then draft the ONE field the diagnosis named. A click gap proves something is wrong and never what to
+ * change, so nothing reaches a drafter until decision/diagnose reads the results page and accuses a field, and confidence
+ * follows the EVIDENCE HELD (contracts.readyForAction / confidenceFor), never how the draft reads. A description or an
+ * opening answer would need the line Google shows under the result or this page's own body words, and neither is on file,
+ * so neither is written. No evidence means no change, and every input list is re-sorted before it is read
  * so the same evidence in any order produces a byte-identical result. server-only.
  */
 
 import "server-only";
 
 import type { EvidenceSnapshot, NewPageOpportunity, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot"; import { canonicalUrlKey } from "@/domains/evidence/snapshot";
-import { draftAtomicEditStructured, draftAnswerBlockStructured, draftCreatePageStructured } from "@/domains/decision/llm/structured-drafter"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
-import type { ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, EvidenceReadiness, RecommendedChange } from "./contracts"; import { confidenceFor, MIN_CTR_DEFICIT, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction } from "./contracts";
+import { draftAtomicEditStructured, draftCreatePageStructured } from "@/domains/decision/llm/structured-drafter"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
+import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, EvidenceReadiness, RecommendedChange } from "./contracts"; import { confidenceFor, MIN_CTR_DEFICIT, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction } from "./contracts";
+import { diagnoseCandidate, ownedResultOf, recurringPattern, RECEIPT, type DiagnosisInput } from "./diagnose";
 import type { ProposeOptions } from "./propose"; import { validateProposal } from "./validate-proposal";
 import { anchoredTopicMatch, canonicalQueryKey, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import { looksLikePlaceholder } from "./placeholder-detection"; import { containsUuid } from "./copy-sanitize";
 
@@ -26,9 +29,9 @@ type Keyword = Research["retainedKeywords"][number];
 
 const norm = (s: string): string => s.trim().toLowerCase();
 const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-/** Nothing on file holds a page's full body text, so drafts are checked against title and headings only and body
- *  readiness is honestly false. One line carries it everywhere the day a body store lands. */
-const PAGE_BODY_TEXT: string | null = null;
+/** The page's OWN WORDS for the one page under investigation, read by the caller through the targeted Evidence reader.
+ *  Absent means absent: drafts are checked against title and headings only and body readiness stays honestly false. */
+export type OwnedBody = { openingSample: string | null; fetchedAt: string | null };
 
 /** RECOVERABLE OPPORTUNITY, never gross traffic. Per query clearing MIN_QUERY_IMPRESSIONS, the frozen CTR curve
  *  says what that position normally earns; the shortfall under it, once it clears MIN_CTR_DEFICIT, is the clicks a fix
@@ -93,7 +96,8 @@ const observationFact = (o: Observation): string => {
 const CLASS_OF: Record<BundleEvidenceItem["kind"], string> = {
   gsc_demand: "your own search data", page_extract: "what the page says today", keyword: "monthly search counts",
   serp: "a live results check", ai_observation: "an AI answer I watched", winning_page: "a winning page comparison",
-  competitor: "the sites AI hands this to instead of you", internal_link: "links from your own pages" };
+  competitor: "the sites AI hands this to instead of you", internal_link: "links from your own pages",
+  diagnosis: "what the results page told me about the cause" };
 const classSentence = (r: Receipt, c = [...new Set(r.items.map((it) => CLASS_OF[it.kind]))]): string =>
   `I built this from ${c.length > 1 ? `${c.slice(0, -1).join(", ")}, and ${c[c.length - 1]}` : c[0] ?? "nothing I can show you"}, and I can show you every piece.`;
 /** A brand-new page has no first-party rows and no copy to replace, so the frozen EDIT readiness cannot speak for it. Its
@@ -107,7 +111,7 @@ const rankOf = (c: ChangeProposal["confidence"]): number => (c === "high" ? 2 : 
 const queriesOf = (page: OwnedPageEvidence): OwnedQuerySignal[] => [...(page.search?.topQueries ?? [])]
   .sort((a, b) => b.impressions - a.impressions || b.clicks - a.clicks || byText(a.query, b.query)).slice(0, 5);
 
-type Receipt = ChangeBundle["receipt"] & { prompts: string[]; hasResearch: boolean; contextOnlyKeys: string[]; links: { anchor: string; to: string }[]; readiness: EvidenceReadiness };
+type Receipt = ChangeBundle["receipt"] & { prompts: string[]; hasResearch: boolean; contextOnlyKeys: string[]; links: { anchor: string; to: string }[]; readiness: EvidenceReadiness; diagnosis: ActionDiagnosis; bodyText?: string | null };
 
 /** A pattern may be claimed only across MULTIPLE pages that actually come up for this exact search, and only as a count
  *  I can show, never as a rule: one page's style is that page's style. */
@@ -121,7 +125,7 @@ function winnerPattern(read: Research["winningPages"], c: NonNullable<OwnedPageE
 }
 
 /** The evidence receipt for ONE candidate search, built BEFORE anything is drafted. Plain English only. */
-function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queries: OwnedQuerySignal[], primary: string, weak: ReadonlySet<string>): Receipt {
+function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queries: OwnedQuerySignal[], primary: string, weak: ReadonlySet<string>, body: OwnedBody | null): Receipt {
   const items: BundleEvidenceItem[] = []; const contextOnly: string[] = []; const missing: string[] = []; const prompts: string[] = [];
   const add = (key: string, kind: BundleEvidenceItem["kind"], fact: string, observedAt: string | null): void => { items.push({ key, kind, fact, observedAt }); };
   const research = snapshot.research;
@@ -134,18 +138,31 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
 
   // SCOPE IS PART OF THE NUMBER. A page total says "this page overall"; a query claim carries only that query's own figures. A page total worded as a query total made a 75,285-view page read as one search.
   add("demand-page", "gsc_demand", `Over the last 90 days this page overall earned ${s.clicks90d.toLocaleString()} clicks from ${s.impressions90d.toLocaleString()} views in search, across every search that reaches it, at about position ${Math.round(s.position90d)}.`, null);
-  queries.slice(0, 3).forEach((q, i) => add(`demand-q${i + 1}`, "gsc_demand",
-    `That one search "${q.query}" brings this page ${q.impressions.toLocaleString()} views and ${q.clicks.toLocaleString()} clicks${q.position == null ? "" : `, at about position ${Math.round(q.position)}`}.`, null));
-  add("copy-current", "page_extract", `Today the page ${c.title ? `is titled "${c.title}"` : "has no title set"} and runs ${c.wordCount.toLocaleString()} words across ${c.outline.length} sections.`, c.fetchedAt);
-
+  const queryFact = (q: OwnedQuerySignal): string => `That one search "${q.query}" brings this page ${q.impressions.toLocaleString()} views and ${q.clicks.toLocaleString()} clicks${q.position == null ? "" : `, at about position ${Math.round(q.position)}`}.`;
+  const exact = (s.topQueries ?? []).find((q) => isPrimary(q.query));
+  if (exact) add(RECEIPT.gsc, "gsc_demand", queryFact(exact), null); // the EXACT search the gap was measured on, never a neighbour
+  queries.slice(0, 3).filter((q) => !isPrimary(q.query)).forEach((q, i) => add(`demand-q${i + 1}`, "gsc_demand", queryFact(q), null));
+  add(RECEIPT.copy, "page_extract", `Today the page ${c.title ? `is titled "${c.title}"` : "has no title set"} and runs ${c.wordCount.toLocaleString()} words across ${c.outline.length} sections.`, c.fetchedAt);
   const keywords = [...(research?.retainedKeywords ?? [])].filter((k) => isPrimary(k.query) && k.searchVolume != null)
     .sort((a, b) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0) || byText(norm(a.query), norm(b.query)));
   if (keywords.length === 0) missing.push(`I do not have a monthly search count for "${primary}" yet.`);
   keywords.slice(0, 3).forEach((k, i) => add(`kw${i + 1}`, "keyword", keywordFact(k), null));
-
   const serps = [...(research?.serpEvidence ?? [])].filter((e) => isPrimary(e.query)).sort((a, b) => byText(norm(a.query), norm(b.query)));
   if (serps.length === 0) missing.push(`I have not looked at the live results page for "${primary}" yet, so I cannot yet name what is taking the clicks.`);
   serps.slice(0, 2).forEach((e, i) => add(`serp${i + 1}`, "serp", serpFact(e), null));
+
+  // WHAT THAT RESULTS PAGE ACTUALLY SAYS. Holding it is not reading it: the line Google displays for this page is what
+  // a searcher reads, and wording that RECURS across the results beating it is the only pattern I may call a pattern.
+  const bodyText = (body?.openingSample ?? "").trim() || null; const dx: DiagnosisInput = { query: primary, ownedUrl: page.url, organic: serps[0]?.organic ?? null, body: !!bodyText, gscPosition: exact?.position ?? null };
+  if (bodyText) add(RECEIPT.body, "page_extract", `In its own words the page opens: "${bodyText.slice(0, 240)}".`, body?.fetchedAt ?? null);
+  const owned = ownedResultOf(dx); const pattern = recurringPattern(dx, owned); const diagnosis = diagnoseCandidate(dx);
+  if (diagnosis.status === "diagnosed") { // the conclusion is inspectable evidence too, beside the observations it cites
+    add("diagnosis", "diagnosis", diagnosis.explanation, null);
+    diagnosis.alternativesRuledOut.forEach((a, i) => add(`ruledout${i + 1}`, "diagnosis", `${a.alternative}: ${a.reason}`, null)); }
+  if (owned) add(RECEIPT.ownedResult, "serp", `On that results page Google shows this page worded "${(owned.title ?? "").trim()}".`, null);
+  else if (serps.length > 0) missing.push(`I could not find this page on the results page for "${primary}", so I cannot see what a searcher reads for it.`);
+  if (pattern.length > 0) add(RECEIPT.pattern, "serp", `Across the other pages that come up for "${primary}", ${pattern.slice(0, 4).map((t) => `"${t}"`).join(", ")} recur in the wording Google shows.`, null);
+  else if (serps.length > 0) missing.push(`The pages that come up for "${primary}" share no recurring wording I can point at.`);
 
   // ABOUT THE SEARCH, not merely about the page: a prompt sharing one broad word this account puts on everything diagnoses
   // nothing. An answer attaches only when its own words anchor to THIS search, or a search the assistant really ran IS this
@@ -172,11 +189,12 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   const belongs = [...(research?.winningPages ?? [])].filter((w) => winnerBelongs(w, memberQueries, memberPrompts, memberUrls)).sort((a, b) => byText(a.url, b.url));
   const read = belongs.filter((w) => !!w.extract); const winners = belongs.slice(0, 2);
   if (winners.length === 0) missing.push(`I have not read the pages that come up for "${primary}" yet.`);
+  // SAY HOW IT GOT HERE: a page that arrived by organic rank was never cited by an assistant, and calling it one invented a fact about a competitor.
   winners.forEach((w, i) => add(`win${i + 1}`, "winning_page",
-    `${w.domain} is one of the pages AI keeps citing here${w.extract ? `, and it runs ${w.extract.wordCount.toLocaleString()} words under ${w.extract.headings.length} headings` : ""}.`,
+    `${w.domain} ${w.appearances.some((a) => a.kind !== "serp_organic") ? "is one of the pages AI keeps citing here" : `comes up on the results page for "${primary}"`}${w.extract ? `, and it runs ${w.extract.wordCount.toLocaleString()} words under ${w.extract.headings.length} headings` : ""}.`,
     [...w.appearances].sort((a, b) => byText(b.observedAt, a.observedAt))[0]?.observedAt ?? null));
-  const pattern = winnerPattern(read, c, primary);
-  if (pattern) add("winpattern", "winning_page", pattern, null);
+  const winners2 = winnerPattern(read, c, primary);
+  if (winners2) add("winpattern", "winning_page", winners2, null);
 
   // A link needs TWO proofs: an on-topic destination AND body text proving where it belongs. I hold no body, so none is ever proposed; the destinations are counted so I can say so.
   const links = [...snapshot.internalLinkOpportunities].filter((l) => l.fromUrl === page.url && onTopic(l.anchor))
@@ -186,9 +204,9 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
 
   // EVIDENCE READINESS for this exact search: what I hold, counted honestly, never how good the draft reads.
   const readiness: EvidenceReadiness = { gsc: (s.topQueries ?? []).some((q) => isPrimary(q.query)), ownedCopy: !!(c.title || c.metaDescription),
-    serp: serps.length > 0, winners: read.length, body: !!PAGE_BODY_TEXT };
+    serp: serps.length > 0, winners: read.length, body: !!bodyText };
   const dates = items.map((it) => it.observedAt).filter((d): d is string => !!d).sort(byText);
-  return { items, missing, readiness, freshestObservedAt: dates.length ? dates[dates.length - 1]! : null, prompts: [...new Set(prompts)].sort(byText),
+  return { items, missing, readiness, diagnosis, bodyText, freshestObservedAt: dates.length ? dates[dates.length - 1]! : null, prompts: [...new Set(prompts)].sort(byText),
     hasResearch: items.some((it) => it.kind === "keyword" || it.kind === "serp" || it.kind === "ai_observation" || it.kind === "winning_page"),
     contextOnlyKeys: contextOnly, links: links.map((l) => ({ anchor: l.anchor, to: pathOf(l.toUrl) })) };
 }
@@ -202,8 +220,9 @@ const gateShape = (tenantId: string, query: string, change: RecommendedChange): 
 export type ProduceBundleOptions = ProposeOptions;
 
 /** Produce at most ONE change for the existing page with the biggest PROVEN click gap. `none` with a structured
- *  reason when no page is losing clicks against its own positions, or when every drafted component fails a gate. */
-export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts: ProduceBundleOptions & { onlyPageUrl?: string | null } = {}): Promise<BundleOutcome> {
+ *  reason when no page is losing clicks against its own positions, when the results page for that exact search does
+ *  not accuse a field, or when the one draft it earned fails a gate. Zero ready is a real answer, not a failure. */
+export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts: ProduceBundleOptions & { onlyPageUrl?: string | null; bodyByUrl?: ReadonlyMap<string, OwnedBody> } = {}): Promise<BundleOutcome> {
   const now = opts.now ?? new Date();
   const tenantId = snapshot.scope.tenantId;
 
@@ -218,60 +237,44 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   if (!pick) return { status: "none", reason: "No page of yours is losing enough clicks against what its own positions should earn, so I have nothing honest to rewrite yet." };
 
   const { page, gaps } = pick; const lead = gaps[0]!; const queries = queriesOf(page); const primary = lead.query; const content = page.content!;
-  const receipt = buildReceipt(snapshot, page, queries, primary, weakAnchorsOf(snapshot));
+  const receipt = buildReceipt(snapshot, page, queries, primary, weakAnchorsOf(snapshot), opts.bodyByUrl?.get(canonicalUrlKey(page.url)) ?? null);
   // NOTHING to show is never a recommendation: an empty receipt refuses here rather than shipping a bare instruction.
   if (receipt.items.length === 0) return { status: "none", reason: "I hold nothing I can show you about this page yet, so I will not tell you to change it." };
-  const ready = readyForAction(receipt.readiness); // a rewrite is ready only when the evidence can name the cause
+  // NO DRAFT SPEND BEFORE A DIAGNOSIS. A click gap proves something is wrong and never
+  // what to change, so a page whose own results line does not accuse a specific field
+  // is handed back untouched: no completion call, no copy, no row. Zero ready is a real
+  // answer, and the reason is the sentence the operator reads.
+  const diagnosis = receipt.diagnosis;
+  if (!readyForAction(diagnosis) || diagnosis.action !== "title") return { status: "none", reason: diagnosis.explanation };
   const facts = receipt.items.map((it) => it.fact);
   const evidenceText = [...facts, ...content.outline, content.title ?? ""].filter(Boolean).join(" ");
   // The relevance gate asks "does the rewrite still name this page's topic". Ground it in THIS page's own words (query + title + h1), never a vertical vocabulary.
   const contextTokens = [...new Set(`${primary} ${content.title ?? ""} ${content.h1 ?? ""}`.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2))].sort(byText);
-  const demandKeys = receipt.items.filter((it) => it.kind === "gsc_demand" || it.kind === "page_extract").map((it) => it.key);
-  const contextOnly = new Set(receipt.contextOnlyKeys);
-  const researchKeys = receipt.items.filter((it) => !contextOnly.has(it.key)).map((it) => it.key);
-
-  const components: BundleComponent[] = []; const alternatives: { option: string; reason: string }[] = []; let heldForReview = false;
+  // A component cites the DIAGNOSIS's own keys: the exact search numbers, this page's
+  // stored copy, the results page, the line Google displays for it, and the recurring
+  // wording it lacks. No receipt item, no claim.
+  const alternatives = diagnosis.alternativesRuledOut.map((a) => ({ option: a.alternative, reason: a.reason }));
+  const components: BundleComponent[] = []; let heldForReview = false;
 
   const keep = (kind: BundleComponent["kind"], label: string, before: string | null, after: string, evidenceKeys: string[], change: RecommendedChange): void => {
-    const verdict = validateProposal(gateShape(tenantId, primary, change), { pageBodyText: PAGE_BODY_TEXT, evidenceText, contextTokens, now });
+    const verdict = validateProposal(gateShape(tenantId, primary, change), { pageBodyText: receipt.bodyText ?? null, evidenceText, contextTokens, now });
     // NEVER surface a raw validator reason: it is internal vocabulary.
     if (verdict.status === "rejected") { alternatives.push({ option: label, reason: "The rewrite I drafted failed one of my safety checks, so I left it out rather than risk it." }); return; }
     if (verdict.status === "needs_review") heldForReview = true;
     components.push({ kind, label, before, after, evidenceKeys, risk: verdict.status === "proposed" ? "safe" : "review" });
   };
 
-  for (const field of ["title", "meta"] as const) {
-    const before = field === "title" ? content.title : content.metaDescription;
-    const draft = await draftAtomicEditStructured(
-      { query: primary, pageLabel: content.h1 ?? content.title ?? page.url, field, currentValue: before, outline: content.outline, evidenceHints: facts, tenantId },
-      { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains },
-    );
-    if (draft.status !== "drafted") { alternatives.push({ option: field === "title" ? "Page title" : "Search description", reason: "I could not produce a draft I trust for this field on this pass." }); continue; }
-    keep(field, field === "title" ? "Page title" : "Search description", before ?? null, draft.value.after, demandKeys, { kind: "existing_edit", field, before: before ?? null, after: draft.value.after });
-  }
+  // ONE field, the one the diagnosis named. A description or an opening answer would
+  // need the line Google shows under the result or this page's own body words to
+  // accuse it, and I hold neither, so neither is drafted rather than guessed at.
+  const before = content.title;
+  const draft = await draftAtomicEditStructured(
+    { query: primary, pageLabel: content.h1 ?? content.title ?? page.url, field: "title", currentValue: before, outline: content.outline, evidenceHints: facts, tenantId },
+    { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains },
+  );
+  if (draft.status === "drafted") keep("title", "Page title", before ?? null, draft.value.after, diagnosis.evidenceKeys, { kind: "existing_edit", field: "title", before: before ?? null, after: draft.value.after });
+  if (components.length === 0) return { status: "none", reason: "I could not write a title for this page that passes my own checks, so I am handing you nothing rather than filler." };
 
-  if (!receipt.hasResearch) {
-    alternatives.push({ option: "Opening answer at the top of the page", reason: "I have no outside evidence on these searches yet, so I will not write an answer I cannot back." });
-  } else {
-    const draft = await draftAnswerBlockStructured(
-      { query: primary, pageLabel: content.h1 ?? content.title ?? page.url, brief: content.title, outline: content.outline, faqs: [], evidenceHints: facts, tenantId },
-      { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains },
-    );
-    if (draft.status !== "drafted") alternatives.push({ option: "Opening answer at the top of the page", reason: "I could not produce an opening answer I trust on this pass." });
-    else keep("opening_answer", "Opening answer", null, draft.value.answer, researchKeys, { kind: "existing_edit", field: "answer_block", before: null, after: draft.value.answer });
-  }
-
-  if (components.length === 0) return { status: "none", reason: "Every draft I wrote for this page failed a safety check, so I am handing you nothing rather than filler." };
-
-  // ATOMIC BY DEFAULT. Parts ship together only when they are ONE repair: a new opening answer changes what this page
-  // finally says, so the title and description that promise it move with it. Without it there are only independent edits,
-  // and bundling those hides that each is separately acceptable and separately measurable, so the strongest ships alone.
-  const cohesive = components.some((c) => c.kind === "opening_answer");
-  if (!cohesive && components.length > 1) {
-    for (const c of components.slice(1)) alternatives.push({ option: c.label,
-      reason: `This stands on its own and I would measure it on its own, so make ${components[0]!.label.toLowerCase()} first and bring this back once you have read the result.` });
-    components.length = 1;
-  }
   if (receipt.links.length > 0) alternatives.push({ option: "Links out to your own pages",
     reason: `I can see ${receipt.links.length} of your own ${receipt.links.length === 1 ? "page" : "pages"} worth linking to from here, but I do not hold this page's body text, so I cannot tell you where the link honestly belongs. Send me the page copy and I will place it.` });
 
@@ -279,7 +282,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   if (runnerUp) alternatives.push({ option: `Start with ${pathOf(runnerUp.page.url)} instead`,
     reason: `Its searches come up about ${Math.round(runnerUp.gap).toLocaleString()} clicks short against this page's ${Math.round(pick.gap).toLocaleString()}, so it is the smaller win today.` });
 
-  const confidence = confidenceFor(receipt.readiness);
+  const confidence = confidenceFor(receipt.readiness, diagnosis);
   const bundle: ChangeBundle = { // objective: Today renders it verbatim, so it is the MODELED shortfall, never a promise
     objective: `Close the gap on the one search "${primary}", which earns this page about ${Math.round(lead.recoverable).toLocaleString()} fewer clicks than pages at position ${Math.round(lead.position)} usually get.`,
     metric: `Clicks from search for "${primary}" over the next 28 days.`,
@@ -288,7 +291,6 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     receipt: { items: receipt.items, missing: receipt.missing, freshestObservedAt: receipt.freshestObservedAt },
     alternatives,
     risks: [
-      ...(cohesive ? ["These parts are one repair and belong together: the opening answer is what this page finally says, and the title and description are the promise that gets it read. Ship the title alone and the page still does not answer the search; ship the answer alone and search still shows the old promise."] : []),
       "Changing a title moves where the page ranks while search engines re-read it, so give this the full 28 days before you judge it.",
       "I do not hold this page's full body text, so read each line once before you paste it.",
     ],
@@ -298,25 +300,22 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       receipt.freshestObservedAt
         ? `The newest evidence I used was observed on ${receipt.freshestObservedAt.slice(0, 10)}.`
         : "Every figure here is a 90 day total, so none of it carries a single observation date.",
-      ...(ready ? [] : [`I have not seen the live results page for "${primary}" yet, so this is what I am still looking into rather than a finished answer.`]),
+      diagnosis.explanation,
     ],
     measurementPlan: "Once you make the change, record it on Results with the page address and I will read clicks, views, and average position for these searches at 7, 14, and 28 days, compared against pages you did not change.",
   };
 
   const primaryComponent = components[0]!;
-  const field: Extract<RecommendedChange, { kind: "existing_edit" }>["field"] = primaryComponent.kind === "title" ? "title" : primaryComponent.kind === "meta" ? "meta" : "answer_block";
-  const effort = components.reduce((a, c) => a + (c.kind === "title" || c.kind === "meta" ? 1 : c.kind === "opening_answer" ? 5 : 3), 0);
-
   return { status: "bundled", proposal: {
       id: `${tenantId}::${pathOf(page.url)}::existing_edit::bundle`,
-      tenantId, kind: "existing_edit", changeFamily: cohesive ? "bundle" : "single", publish: "manual",
+      tenantId, kind: "existing_edit", changeFamily: "single", publish: "manual",
       pagePath: pathOf(page.url), pageUrl: page.url.startsWith("http") ? page.url : `https://${page.url}`,
       pageLabel: content.h1 ?? content.title ?? page.url, primaryQuery: primary,
       opportunityType: "Rewrite the page that already has the demand",
-      status: heldForReview || !ready ? "needs_review" : "proposed", // an investigation I cannot close is never handed over as ready
-      recommendedChange: { kind: "existing_edit", field, before: primaryComponent.before, after: primaryComponent.after },
+      status: heldForReview ? "needs_review" : "proposed", // an investigation I cannot close never reaches here at all
+      recommendedChange: { kind: "existing_edit", field: "title", before: primaryComponent.before, after: primaryComponent.after },
       whyItMatters: `Searching "${primary}" brings this page ${lead.impressions.toLocaleString()} views and only ${lead.clicks.toLocaleString()} clicks over 90 days, about ${Math.round(lead.recoverable).toLocaleString()} clicks short of what position ${Math.round(lead.position)} usually earns, and that gap is big enough to look into.`,
-      estimatedEffortMinutes: effort, riskLevel: "low", confidence, limitations: receipt.missing,
+      estimatedEffortMinutes: 1, riskLevel: "low", confidence, limitations: receipt.missing,
       evidence: { query: primary, hints: facts.slice(0, 5), evidenceRefCount: receipt.items.length },
       impactScore: Math.round(pick.gap), upsidePerMonth: null, bundle, createdAt: now.toISOString(),
   } };
@@ -387,7 +386,8 @@ function buildTopicReceipt(res: TopicResearch): Receipt {
   const dates = items.map((it) => it.observedAt).filter((d): d is string => !!d).sort(byText);
   return { items, missing, freshestObservedAt: dates.length ? dates[dates.length - 1]! : null,
     prompts: [...new Set(prompts)].sort(byText), hasResearch: true, contextOnlyKeys: contextOnly, links: [],
-    readiness: { gsc: false, ownedCopy: false, serp: res.serps.length > 0, winners: res.winners.filter((w) => !!w.extract).length, body: !!PAGE_BODY_TEXT } };
+    readiness: { gsc: false, ownedCopy: false, serp: res.serps.length > 0, winners: res.winners.filter((w) => !!w.extract).length, body: false },
+    diagnosis: { status: "inconclusive", cause: "unknown", action: null, evidenceKeys: [], alternativesRuledOut: [], explanation: "" } }; // a page that does not exist has no results line of its own to read
 }
 
 /** Produce at most ONE new-page bundle per pass: the strongest demand-ranked topic that ALSO has
@@ -422,7 +422,7 @@ export async function produceNewPageBundleForSnapshot(snapshot: EvidenceSnapshot
     openingAnswer: brief.openingAnswer, outline: brief.outline, faqQuestions: brief.faqQuestions ?? [], schemaTypes: brief.schemaTypes ?? [] };
   // Ground the relevance gate in THIS topic's own words, never a vertical vocabulary.
   const contextTokens = [...new Set(`${topic} ${fanoutQueries.join(" ")}`.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2))].sort(byText);
-  const verdict = validateProposal(gateShape(tenantId, topic, change), { pageBodyText: PAGE_BODY_TEXT, contextTokens, sources: brief.sources,
+  const verdict = validateProposal(gateShape(tenantId, topic, change), { pageBodyText: null, contextTokens, sources: brief.sources,
     evidenceText: [...facts, ...fanoutQueries, ...competitorPages].join(" "), authoritativeSourceDomains: opts.authoritativeSourceDomains, now });
   // NEVER surface a raw validator reason: it is internal vocabulary.
   if (verdict.status === "rejected") return { status: "none", reason: `The page I drafted for "${topic}" failed one of my safety checks, so I am handing you nothing rather than filler.` };

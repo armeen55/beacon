@@ -34,8 +34,11 @@ import type { ChangeProposal } from "./contracts";
  *   2 = a proposal exists only where exact query rows proved a recoverable gap.
  *   3 = a proven gap is an INVESTIGATION until the live results page for that exact
  *       search is held; confidence follows evidence completeness, not the draft.
+ *   4 = holding that results page is not reading it. A change exists only where the
+ *       page was DIAGNOSED off what those results actually say, so every proposal
+ *       picked by whether the search words appeared in the stored title is history.
  */
-const DECISION_GENERATION = 3;
+const DECISION_GENERATION = 4;
 
 /**
  * The account's CURRENT research basis, or null when it cannot be read. Composes

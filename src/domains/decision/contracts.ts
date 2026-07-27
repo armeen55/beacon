@@ -74,6 +74,8 @@ export interface EvidenceInput {
     referenceCandidates?: string[];
     /** This tenant's curated authoritative-source domains. */
     authoritativeSourceDomains?: string[];
+    /** THE diagnosis that earned this action. No diagnosis, no drafter call. */
+    diagnosis?: ActionDiagnosis;
   };
   /** Honest value sizing for the ranker. All optional — a missing figure never
    *  fabricates a number, it just sinks in the ranking. */
@@ -146,16 +148,66 @@ export type EvidenceReadiness = {
   body: boolean;
 };
 
-/** A title or description edit is READY only when the evidence can name the cause.
- *  Without the live results page, the honest answer is that I am still looking. */
-export function readyForAction(r: EvidenceReadiness): boolean {
+/** EVIDENCE COMPLETENESS ONLY: do I hold the things a diagnosis would need to read?
+ *  This is a precondition, NEVER a permission to act. Holding a results page is not
+ *  the same as knowing what it says (a live counterexample: Google already displayed
+ *  this page's title with the searcher's exact words, so "the title is missing them"
+ *  was never the problem). ActionDiagnosis below decides what may become Ready. */
+export function evidenceComplete(r: EvidenceReadiness): boolean {
   return r.gsc && r.ownedCopy && r.serp;
+}
+
+/** WHY this page underperforms, in the vocabulary a diagnosis may conclude in. One
+ *  cause per candidate, chosen by reading the evidence, never by token containment. */
+export type DiagnosisCause =
+  | "snippet_intent_mismatch"
+  | "weak_value_promise"
+  | "result_format_mismatch"
+  | "wrong_page_ranking"
+  | "cannibalization"
+  | "content_coverage_gap"
+  | "stale_or_inaccurate_copy"
+  | "google_rewrite_already_matches"
+  | "serp_market_mismatch"
+  | "ambiguous_search_intent"
+  | "unknown";
+
+/** The single edit a diagnosed cause supports. `watch` and null are real answers. */
+export type DiagnosedAction =
+  | "title" | "meta" | "opening_answer" | "section"
+  | "full_page" | "new_page" | "consolidate" | "watch";
+
+/**
+ * THE reasoning step between "this page underperforms" and "change this". Held
+ * inside the existing candidate and receipt path: no new table, record, or route.
+ *
+ * `diagnosed` means the evidence NAMES a cause, the action follows from that cause,
+ * at least one competing explanation is ruled out with its own evidence, and every
+ * claim cites receipt keys. Anything else is `inconclusive`, which keeps the page
+ * under investigation and spends nothing on drafting copy nobody can justify.
+ */
+export type ActionDiagnosis = {
+  status: "diagnosed" | "inconclusive";
+  cause: DiagnosisCause;
+  action: DiagnosedAction | null;
+  /** Receipt item keys backing the cause. Empty = nothing may be claimed. */
+  evidenceKeys: string[];
+  alternativesRuledOut: Array<{ alternative: string; reason: string; evidenceKeys: string[] }>;
+  /** One plain first-person sentence the operator reads. No lab words. */
+  explanation: string;
+};
+
+/** A change may be drafted and shown as Ready only for a DIAGNOSED action naming a
+ *  real edit. Evidence completeness alone never earns it. */
+export function readyForAction(d: ActionDiagnosis | null | undefined): boolean {
+  return !!d && d.status === "diagnosed" && d.action != null && d.action !== "watch"
+    && d.evidenceKeys.length > 0 && d.alternativesRuledOut.length > 0;
 }
 
 /** Confidence follows EVIDENCE COMPLETENESS, never how good the draft reads. A
  *  proposal that admits it never saw the results page cannot be high confidence. */
-export function confidenceFor(r: EvidenceReadiness): ChangeProposal["confidence"] {
-  if (!readyForAction(r)) return "low";
+export function confidenceFor(r: EvidenceReadiness, d?: ActionDiagnosis | null): ChangeProposal["confidence"] {
+  if (!evidenceComplete(r) || (d !== undefined && !readyForAction(d))) return "low";
   return r.winners >= 2 && r.body ? "high" : "medium";
 }
 
@@ -231,7 +283,7 @@ export type BundleComponent = {
 export type BundleEvidenceItem = {
   /** Stable within the bundle; referenced by BundleComponent.evidenceKeys. */
   key: string;
-  kind: "gsc_demand" | "keyword" | "serp" | "ai_observation" | "winning_page" | "page_extract" | "competitor" | "internal_link";
+  kind: "gsc_demand" | "keyword" | "serp" | "ai_observation" | "winning_page" | "page_extract" | "competitor" | "internal_link" | "diagnosis";
   /** Plain-English fact (never a raw id, provider name, or lab word). */
   fact: string;
   /** Freshness; null = an undated aggregate. */
@@ -340,7 +392,7 @@ const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
   receipt: z.object({
     items: z.array(z.object({
       key: z.string().min(1),
-      kind: z.enum(["gsc_demand", "keyword", "serp", "ai_observation", "winning_page", "page_extract", "competitor", "internal_link"]),
+      kind: z.enum(["gsc_demand", "keyword", "serp", "ai_observation", "winning_page", "page_extract", "competitor", "internal_link", "diagnosis"]),
       fact: z.string().min(1),
       observedAt: z.string().nullable(),
     })),

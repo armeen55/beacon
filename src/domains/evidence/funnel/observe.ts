@@ -10,7 +10,7 @@ import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/p
 import type { CachedCallResult, CapabilityKey, FunnelCounters, FunnelUnitFn, FunnelUnitOutcome, ParsedAiAnswer, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { rankWinningPages, selectSerpAgenda } from "./normalize";
 import { type FunnelPair, type FunnelSerp, type FunnelState, type FunnelWinningPage } from "./state";
-import { type FunnelResearchEvidence, type ObservationMode, type ResearchEngine, type ResearchPageExtract, type ResearchWinningAppearance } from "./research-evidence";
+import { pageExtractFrom, pageExtractFromRecord, type FunnelResearchEvidence, type ObservationMode, type ResearchEngine, type ResearchPageExtract, type ResearchWinningAppearance } from "./research-evidence";
 import { basisFromCursor, beginCycle, CONFLICT_DETAIL, FRESH_MS, interp, type Interp, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
 
 // blocked = a HELD refusal at zero further spend; it ALWAYS pauses the run, so prefer the boundary's own detail.
@@ -393,13 +393,8 @@ function collectAppearances(state: FunnelState, fallbackIso: string): ResearchWi
   return out;
 }
 
-const extractFromRecord = (rec: Record<string, unknown>): ResearchPageExtract => ({
-  title: typeof rec.title === "string" ? rec.title : null, h1: typeof rec.h1 === "string" ? rec.h1 : null,
-  wordCount: typeof rec.wordCount === "number" ? rec.wordCount : 0, faqCount: typeof rec.faqCount === "number" ? rec.faqCount : 0,
-  headings: Array.isArray(rec.headings) ? (rec.headings as unknown[]).filter((x): x is string => typeof x === "string") : [],
-});
-
-export function winningPagesUnit(deps: FunnelDeps = {}): FunnelUnitFn {
+/** `priorityQueries`: plain strings from the caller (Evidence never reads Decision), the exact searches an open investigation cannot close without. Each banks its own top organic winners before the global fill, at the SAME total. */
+export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[] = []): FunnelUnitFn {
   const d = resolveDeps(deps);
   // Wrapper citations resolve to their REAL target before ranking, so one page is never two winners.
   const resolve = deps.resolveCitations ?? resolveCitationTargets;
@@ -421,7 +416,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     try {
       const raw = collectAppearances(state, nowIso);
       // A resolver failure (sync OR async) degrades to raw appearances; the unit deadline bounds it.
-      const resolved = await Promise.resolve().then(() => resolve(raw, undefined, deadline)).catch(() => raw); for (const c of rankWinningPages(resolved, ownDomain, 10)) {
+      const resolved = await Promise.resolve().then(() => resolve(raw, undefined, deadline)).catch(() => raw); for (const c of rankWinningPages(resolved, ownDomain, 10, priorityQueries)) {
         const engines = [...new Set(c.appearances.map((a) => a.engine).filter((e): e is string => !!e))].sort();
         const examplePrompts = [...new Set(c.appearances.map((a) => a.promptText).filter((t): t is string => !!t))].slice(0, 5);
         let extract: ResearchPageExtract | null = null;
@@ -429,13 +424,12 @@ export function winningPagesUnit(deps: FunnelDeps = {}): FunnelUnitFn {
         let has = false;
         // Reuse a cached public extract before any fetch; never refetch in freshness.
         const cached = await d.readPageExtract(c.url).catch(() => null);
-        if (cached) { extract = extractFromRecord(cached.extract); contentHash = cached.contentHash; has = true; }
+        if (cached) { extract = pageExtractFromRecord(cached.extract); contentHash = cached.contentHash; has = true; }
         else if (d.now() <= deadline) {
           try {
             const res = await d.fetchPage(c.url, new Map(), {});
             if (res.ok) {
-              const snap = extractPageSnapshot(res.html, c.url, `winpage-${sha16(c.url)}`, tenantId, res.status, profile);
-              extract = { title: snap.title, h1: snap.h1, wordCount: snap.word_count, headings: (snap.h2_list ?? []).slice(0, 20), faqCount: snap.faqs.length };
+              extract = pageExtractFrom(extractPageSnapshot(res.html, c.url, `winpage-${sha16(c.url)}`, tenantId, res.status, profile));
               contentHash = sha16(res.html);
               await d.writePageExtract(c.url, extract as unknown as Record<string, unknown>, contentHash).catch(() => {});
               fetched += 1;

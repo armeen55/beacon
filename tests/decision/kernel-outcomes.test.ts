@@ -24,8 +24,7 @@ import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 /** A completion fn that replays a fixed queue (last response repeats). The seam returns a PARSED structured VALUE (never text); an error carries its retryability. */
 function fakeComplete(responses: Array<{ value: unknown } | { error: string; retryable?: boolean }>): CompleteFn {
   let i = 0; return async () => { const r = responses[Math.min(i++, responses.length - 1)]!; return "error" in r ? { error: r.error, retryable: r.retryable ?? false } : { value: r.value }; };
-}
-const PROOF = { metrics: ["clicks", "position"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" };
+} const PROOF = { metrics: ["clicks", "position"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" };
 const VALID_ATOMIC_EDIT = {
   field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen", confidence: "high",
   rationale: "The current title is one word and misses the specific customs searchers ask about.", risks: ["keep the title concise"],
@@ -38,10 +37,13 @@ const VALID_CREATE_PAGE = {
   faqQuestions: ["What does Haft-Seen mean?", "When is the Haft-Seen table set?"], schemaTypes: ["Article", "FAQPage"], confidence: "high",
   evidenceRefs: [{ source: "dataforseo", detail: "AI is asked what goes on the haft-seen table for nowruz" }], risks: ["describe the items qualitatively, not by count"],
   operatorSteps: ["Create a new page with this title and outline"], proofPlan: { metrics: ["AI citations"], windowsDays: [7, 14, 28], controls: "comparable topic pages" } };
+const KEYS = ["demand-exact", "copy-current", "serp1", "serp-owned", "serp-pattern"];
+const DIAGNOSED: EvidenceInput["evidence"]["diagnosis"] = { status: "diagnosed", cause: "snippet_intent_mismatch", action: "title", evidenceKeys: KEYS, explanation: "I checked the results page.",
+  alternativesRuledOut: [{ alternative: "Google is already showing the words people search for", reason: "It is not.", evidenceKeys: ["serp-owned"] }] };
 const EXISTING_INPUT: EvidenceInput = {
   tenantId: "referencepedia", page: { path: "/nowruz", url: "https://fixture-content.example/nowruz", label: "Nowruz" }, sizing: { impactScore: 80, upsidePerMonth: 45 },
   opportunity: { query: "nowruz traditions", kind: "existing_edit", field: "title", opportunityType: "Capture clicks", currentValue: "Nowruz", intent: "what" },
-  evidence: { hints: ["Search Console shows strong demand for nowruz traditions, the persian new year customs"], outline: ["History of Nowruz", "Haft-Seen table", "Persian customs and foods"] } };
+  evidence: { hints: ["Search Console shows strong demand for nowruz traditions, the persian new year customs"], diagnosis: DIAGNOSED, outline: ["History of Nowruz", "Haft-Seen table", "Persian customs and foods"] } };
 const NEW_PAGE_INPUT: EvidenceInput = {
   tenantId: "referencepedia", page: { path: null, url: null, label: "Haft-Seen table" }, opportunity: { query: "haft-seen table", kind: "new_page", opportunityType: "Win AI citations" }, sizing: { impactScore: 60, upsidePerMonth: null },
   evidence: { hints: ["AI assistants are asked what goes on the haft-seen table for nowruz, the persian new year celebrated across iran"], fanoutQueries: ["what are the seven items", "what does each item mean"], competitorPages: ["https://example.com/haft-seen"] } };
@@ -53,8 +55,7 @@ function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal {
     recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen" },
     whyItMatters: "The title misses the customs searchers ask about.", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "high", limitations: [],
     impactScore: 50, upsidePerMonth: 20, publish: "manual", createdAt: "2026-07-22T00:00:00.000Z", ...over };
-}
-/** The exact-edit rewrite under test, with one field swapped. */
+} /** The exact-edit rewrite under test, with one field swapped. */
 const edited = (field: "title" | "meta", before: string | null, after: string): ChangeProposal => baseProposal({ recommendedChange: { kind: "existing_edit", field, before, after } });
 describe("existing-page cold proposal", () => {
   it("generates, validates, persists (serialize), and re-loads (deserialize)", async () => {
@@ -62,14 +63,16 @@ describe("existing-page cold proposal", () => {
     expect(out.status).toBe("proposed"); if (out.status !== "proposed") return;
     const p = out.proposal; // exact-edit outcome fields Changes/Today render
     if (p.recommendedChange.kind === "existing_edit") { expect(p.recommendedChange.before).toBe("Nowruz"); expect(p.recommendedChange.after).toContain("Nowruz Traditions"); } else throw new Error("expected an exact edit");
-    expect(p.whyItMatters).toMatch(/customs/i); expect(p.evidence.evidenceRefCount).toBe(1); expect(p.primaryQuery).toBe("nowruz traditions"); expect(p.opportunityType).toBe("Capture clicks");
+    expect(p.whyItMatters).toMatch(/customs/i); expect(p.evidence.evidenceRefCount).toBe(5); // the receipt keys the diagnosis cites, never the drafter\u0027s own claim expect(p.primaryQuery).toBe("nowruz traditions"); expect(p.opportunityType).toBe("Capture clicks");
     expect(out.validation.verdict).toBe("ready"); expect(p.status).toBe("proposed"); // validated safe → proposed, not rejected
     expect(deserializeChangeProposal(serializeChangeProposal(p))).toEqual(p); // persisted + loadable: round-trips + re-validates
     // a tampered persisted row is rejected on load (never served as trusted)
     expect(deserializeChangeProposal(JSON.stringify({ v: 1, proposal: { ...p, recommendedChange: { kind: "existing_edit", field: "title", before: null, after: "" } } }))).toBeNull(); });
   it("returns no_draft (fail-closed) when no key or completion transport exists", async () => { expect((await proposeExistingPageChange(EXISTING_INPUT)).status).toBe("no_draft"); });
-});
-describe("safety gates reject unsafe drafts", () => {
+  it("never calls the drafter for a candidate the results page has not accused", async () => { let called = 0; // no completion call, no copy, no row
+    const out = await proposeExistingPageChange({ ...EXISTING_INPUT, evidence: { ...EXISTING_INPUT.evidence, diagnosis: undefined } }, { complete: async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; } });
+    expect([out.status, called, out.status === "no_draft" && out.reason]).toEqual(["no_draft", 0, "I checked the results page, but it does not yet show that the title is the problem."]); });
+}); describe("safety gates reject unsafe drafts", () => {
   const LONG_META = "Nowruz is the Persian New Year celebrated with the Haft-Seen table, customs, and foods across Iran and the diaspora.";
   it.each([ // one gate per row: the flag it must raise
     ["a placeholder stub", edited("title", "Nowruz", "Nowruz [insert customs here]"), /placeholder|stub/i],
@@ -82,38 +85,41 @@ describe("safety gates reject unsafe drafts", () => {
     const p = edited("meta", "Nowruz is the Persian New Year celebrated across Iran.", "Nowruz is the Persian New Year, first celebrated exactly 3247 years ago in 1223 BCE.");
     const v = validateProposal(p, { evidenceText: "nowruz is the persian new year", pageBodyText: "Nowruz is the Persian New Year celebrated across Iran." }); // grounding carries no such figure
     expect(v.verdict).toBe("rejected"); expect(v.factViolations.length).toBeGreaterThan(0); });
-});
-// ── the diagnosis: only a proven, recoverable gap earns work ──────────────────
+}); // ── the diagnosis: only a proven, recoverable gap earns work ──────────────────
 function ownedPage(url: string, title: string, totals: { impressions: number; clicks: number }, topQueries: OwnedQuerySignal[], outline: string[] = []): OwnedPageEvidence {
   return { url, content: { title, metaDescription: null, h1: title, h2: [], outline, schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 800, internalLinks: [], fetchedAt: null },
     search: { clicks90d: totals.clicks, impressions90d: totals.impressions, ctr90d: totals.clicks / totals.impressions, position90d: 4, topQueries }, engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } };
-}
-function snap(ownedPages: OwnedPageEvidence[], research: FunnelResearchEvidence = emptyResearchEvidence()): EvidenceSnapshot {
+} function snap(ownedPages: OwnedPageEvidence[], research: FunnelResearchEvidence = emptyResearchEvidence()): EvidenceSnapshot {
   return { scope: { tenantId: "fixture-tenant", site: "fixture-outdoors.example", builtAt: "2026-07-26T00:00:00.000Z" }, sources: [], ownedPages, competitors: [], keywordDemand: [], questionDemand: [],
     intentClusters: [], cannibalization: [], contentGaps: [], internalLinkOpportunities: [], newPageOpportunities: [], aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 }, research, evidenceHash: "fixture" };
-}
-/** A live results page observed for these EXACT searches (the evidence that closes an investigation). */
-const looked = (queries: string[]): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), serpEvidence: queries.map((query) => ({ query, organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/a", title: "A" }], aiOverview: [], aiMode: [], paa: [], related: [] })) });
+} /** A live results page observed for these EXACT searches, carrying this page's OWN line on it and two rivals that share wording
+ *  that line does not: exactly what a diagnosis has to read before it may name the title. */
+const looked = (pairs: [string, string][]): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), serpEvidence: pairs.map(([query, url]) => ({ query, aiOverview: [], aiMode: [], paa: [], related: [],
+  organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/a", title: "Nowruz Traditions Explained" },
+    { rank: 2, domain: "other.example", url: "https://other.example/b", title: "Persian New Year Traditions and Food" }, { rank: 3, domain: "fixture-outdoors.example", url, title: "Nowruz" }] })) });
 /** A big winner: its main searches BEAT the clicks their positions earn, and even counting its one soft search it is ahead. */
 const WINNER = ownedPage("fixture-outdoors.example/trail-shoes", "Trail Shoes", { impressions: 75646, clicks: 3246 }, [
   { query: "trail running shoes", impressions: 25000, clicks: 2365, position: 3.96 }, { query: "womens trail shoes", impressions: 12000, clicks: 1012, position: 3.74 },
   { query: "trail shoes for women", impressions: 2110, clicks: 209, position: 2.66 }, { query: "trail shoe reviews", impressions: 1331, clicks: 40, position: 3.7 }]);
 /** A far smaller page with a REAL gap: 3.0 percent against the 8.0 percent that position usually earns. */
-const GAP = ownedPage("fixture-outdoors.example/nowruz-guide", "Nowruz", { impressions: 6400, clicks: 190 }, [{ query: "nowruz traditions", impressions: 6000, clicks: 180, position: 4.1 }], ["Persian New Year Customs", "Haft-Seen"]);
-const SEEN = () => snap([GAP], looked(["nowruz traditions"]));
-
+const GAP_URL = "fixture-outdoors.example/nowruz-guide"; const GAP = ownedPage(GAP_URL, "Nowruz", { impressions: 6400, clicks: 190 }, [{ query: "nowruz traditions", impressions: 6000, clicks: 180, position: 4.1 }], ["Persian New Year Customs", "Haft-Seen"]);
+const SEEN = () => snap([GAP], looked([["nowruz traditions", GAP_URL]]));
+/** THE LIVE PRODUCTION CASE, verified 2026-07-27: 2,451 views and 15 clicks at position 6.1 on one search, a stored title missing
+ *  the searcher's own word, and a results page where Google already displays that word back to them. */
+const ACTORS_URL = "iranopedia.example/iranian-actors-actresses"; const DISPLAYED = "Famous Iranian & Persian Actors, Actresses & Celebrities";
+const ACTORS = ownedPage(ACTORS_URL, "Top 20 Famous Persian Actresses and Actors | Iranopedia", { impressions: 2451, clicks: 15 }, [{ query: "iranian actors", impressions: 2451, clicks: 15, position: 6.1 }]);
+const actorsSerp = (ownedTitle: string): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), serpEvidence: [{ query: "iranian actors", aiOverview: [], aiMode: [], paa: [], related: [],
+  organic: [{ rank: 1, domain: "imdb.example", url: "https://imdb.example/list", title: "Iranian Actors" }, { rank: 2, domain: "wiki.example", url: "https://wiki.example/list", title: "List of Iranian male actors" },
+    { rank: 3, domain: "pantheon.example", url: "https://pantheon.example/iran", title: "Greatest Iranian Actors" }, { rank: 6, domain: "iranopedia.example", url: ACTORS_URL, title: ownedTitle }] }] });
 describe("what the evidence justifies before anything is drafted", () => {
   it("leaves a page that already beats the clicks its positions earn alone, however big it is", () => {
-    const c = compileCandidates(snap([WINNER]))[0]!;
-    expect([c.action, c.query, c.recoverableClicks]).toEqual(["watch", "trail shoe reviews", 66]); // one soft search on a winning page is watched, not worked
+    const c = compileCandidates(snap([WINNER]))[0]!; expect([c.action, c.query, c.recoverableClicks]).toEqual(["watch", "trail shoe reviews", 66]); // one soft search on a winning page is watched, not worked
     expect(c.reason).toContain("1,331"); expect(c.reason).not.toContain("75,646"); expect(c.reason).not.toContain("3,246"); // a page total is never quoted as a query number
     expect(snapshotToEvidenceInputs(snap([WINNER]))).toEqual([]); }); // no title, no description, no work
   it("earns exactly one action from a gap above every floor, carrying that query's own numbers", () => {
     expect(compileCandidates(SEEN()).map((c) => [c.action, c.gap, c.query, c.recoverableClicks])).toEqual([["act_existing_page", "ctr_deficit", "nowruz traditions", 300]]);
-    const inputs = snapshotToEvidenceInputs(SEEN());
-    expect(inputs.map((i) => i.opportunity.field)).toEqual(["title"]); expect(inputs[0]!.sizing!.impactScore).toBe(300); // ONE field, and recoverable clicks is the only value scalar
-    const hint = (inputs[0]!.evidence.hints ?? []).join(" ");
-    expect(hint).toContain("6,000"); expect(hint).toContain("8.0 percent"); expect(hint).toContain("3.0 percent"); expect(hint).not.toContain("6,400"); }); // a page total never stands in for the query
+    const inputs = snapshotToEvidenceInputs(SEEN()); expect(inputs.map((i) => i.opportunity.field)).toEqual(["title"]); expect(inputs[0]!.sizing!.impactScore).toBe(300); // ONE field, and recoverable clicks is the only value scalar
+    const hint = (inputs[0]!.evidence.hints ?? []).join(" "); expect(hint).toContain("6,000"); expect(hint).toContain("8.0 percent"); expect(hint).toContain("3.0 percent"); expect(hint).not.toContain("6,400"); }); // a page total never stands in for the query
   it("opens an INVESTIGATION on a gap it has never looked at, and sizes it without ever promising the clicks back", () => {
     const blind = compileCandidates(snap([GAP]))[0]!; // the SAME 300-click gap, with no live results page on file
     expect([blind.action, blind.recoverableClicks]).toEqual(["research_needed", 300]); // a gap opens an investigation, never a change
@@ -123,24 +129,37 @@ describe("what the evidence justifies before anything is drafted", () => {
     const seen = compileCandidates(SEEN())[0]!; // confidence follows EVIDENCE, never the draft
     expect(seen.readiness).toEqual({ gsc: true, ownedCopy: true, serp: true, winners: 0, body: false }); // no body store exists, so body is false everywhere
     expect(`${blind.reason} ${seen.reason}`).not.toMatch(/worth about|win back|fastest win|more clicks a month/i); });
+  it("refuses the title rewrite Google already performs for you, however badly the stored one reads", () => {
+    const c = compileCandidates(snap([ACTORS], actorsSerp(DISPLAYED)))[0]!; // the stored title misses "Iranian"; the line a searcher actually reads does not
+    expect([c.action, c.recoverableClicks, c.diagnosis!.cause, c.diagnosis!.action]).toEqual(["research_needed", 108, "google_rewrite_already_matches", null]);
+    expect(c.reason).toContain(`Google already shows this page as "${DISPLAYED}", which carries the words people are searching for, so rewriting the title would not change what a searcher reads.`);
+    expect(snapshotToEvidenceInputs(snap([ACTORS], actorsSerp(DISPLAYED)))).toEqual([]); }); // never drafted, so it can never render Ready
+  it("reads one rival as an anecdote and two that agree as the pattern that earns a title", () => {
+    const full = actorsSerp("Persian Screen | Iranopedia"); const lone = { ...full, serpEvidence: [{ ...full.serpEvidence[0]!, organic: full.serpEvidence[0]!.organic.slice(2) }] };
+    const anecdote = compileCandidates(snap([ACTORS], lone))[0]!; // one competing page's wording is that page's style, never a rule
+    expect([anecdote.action, anecdote.diagnosis!.cause]).toEqual(["research_needed", "ambiguous_search_intent"]);
+    expect(anecdote.reason).toContain("they share no wording this page is missing, so the title is not the problem I can prove");
+    const d = compileCandidates(snap([ACTORS], full))[0]!.diagnosis!; // three of them say it, and this page's own line does not
+    expect([d.status, d.cause, d.action, d.evidenceKeys]).toEqual(["diagnosed", "snippet_intent_mismatch", "title", KEYS]);
+    expect(d.alternativesRuledOut.map((a) => a.alternative)).toEqual(["Google is already showing the words people search for", "A different page of yours is the one ranking"]);
+    expect(d.explanation).toContain('Google shows this page as "Persian Screen | Iranopedia", and the other sites that come up share wording that line does not carry: "iranian", "actor".');
+    expect(d.explanation).not.toMatch(/result \d/); }); // rank_absolute counts ads and packs, so it is never printed as a search position
   it("never hands back a proposal this kernel could publish for you", () => { // PUBLISHING AUTHORITY IS MANUAL: structural, not a setting
     expect(edited("title", "Nowruz", "Nowruz Traditions").publish).toBe("manual"); });
   it("ranks a small page with a real gap above a huge page with none, and sinks a rejected row", () => {
-    expect(snapshotToEvidenceInputs(snap([WINNER, GAP], looked(["nowruz traditions"]))).map((i) => i.page.path)).toEqual(["/nowruz-guide"]);
+    expect(snapshotToEvidenceInputs(snap([WINNER, GAP], looked([["nowruz traditions", GAP_URL]]))).map((i) => i.page.path)).toEqual(["/nowruz-guide"]);
     const rejected = baseProposal({ id: "rej", status: "rejected", impactScore: 9999 }); // a rejected row never outranks a real one on clicks alone
     expect(rankProposals([baseProposal({ id: "huge-no-gap", impactScore: 0 }), rejected, baseProposal({ id: "small-real-gap", impactScore: 300 })]).map((p) => p.id)).toEqual(["small-real-gap", "huge-no-gap", "rej"]);
     expect(proposalValueScore(baseProposal({ impactScore: 300 }))).toBeGreaterThan(proposalValueScore(rejected)); });
   it("treats nothing worth doing as a SUCCESS with no proposals, and never calls the drafter", async () => {
-    reset(snap([WINNER])); let called = 0; // nothing earns an action, so nothing is drafted
-    const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async () => { called += 1; return { error: "the drafter must never run when nothing earned an action", retryable: false }; } });
+    reset(snap([WINNER])); let called = 0; const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async () => { called += 1; return { error: "the drafter must never run when nothing earned an action", retryable: false }; } }); // nothing earns an action, so nothing is drafted
     expect([res.outcome, res.actionable, res.proposals.length, res.candidates.length]).toEqual(["no_actionable_candidate", 0, 0, 1]);
     expect(called).toBe(0); expect(env.saved).toEqual([]); }); // no paid call, no persisted row
-});
-// ── one evidence basis, one decision generation, ONE material row ─────────────
+}); // ── one evidence basis, one decision generation, ONE material row ─────────────
 const NOW = new Date("2026-07-26T00:00:00.000Z");
 /** A REAL but smaller gap (169 clicks) that is listed FIRST, ahead of GAP's 300. */
 const WEAK = ownedPage("fixture-outdoors.example/nowruz-food", "Nowruz Food", { impressions: 3000, clicks: 60 }, [{ query: "nowruz food traditions", impressions: 2800, clicks: 55, position: 4.1 }], ["Persian New Year Customs", "Haft-Seen"]);
-const BOTH = () => snap([WEAK, GAP], looked(["nowruz food traditions", "nowruz traditions"]));
+const BOTH = () => snap([WEAK, GAP], looked([["nowruz food traditions", "fixture-outdoors.example/nowruz-food"], ["nowruz traditions", GAP_URL]]));
 const reset = (s: EvidenceSnapshot): void => { env.snap = s; env.saved = []; env.store = new Map(); env.failWrites = false; env.bundleTarget = null; };
 /** Count every drafter call a pass made, answering with one valid edit. */
 const counting = (): { complete: CompleteFn; calls: () => number } => { let n = 0; return { complete: async () => { n += 1; return { value: VALID_ATOMIC_EDIT }; }, calls: () => n }; };
@@ -155,15 +174,12 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     expect([again.outcome, again.persisted, again.reused, second.calls()]).toEqual(["proposals_persisted", 0, 2, 0]); // zero drafts, zero writes
     expect(env.saved).toEqual([]); expect(again.proposals.map((p) => p.id)).toEqual(one.proposals.map((p) => p.id)); });
   it("writes a new generation the moment the material content changes, and ignores a moved clock", () => {
-    const p = baseProposal();
-    expect(proposalFingerprint({ ...p, createdAt: "2026-07-27T09:00:00.000Z" })).toBe(proposalFingerprint(p)); // a new timestamp is not new thinking
+    const p = baseProposal(); expect(proposalFingerprint({ ...p, createdAt: "2026-07-27T09:00:00.000Z" })).toBe(proposalFingerprint(p)); // a new timestamp is not new thinking
     for (const changed of [{ ...p, status: "needs_review" as const }, { ...p, confidence: "low" as const }, { ...p, basis: "after the business changed" },
       { ...p, recommendedChange: { kind: "existing_edit" as const, field: "title" as const, before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" } }]) expect(proposalFingerprint(changed)).not.toBe(proposalFingerprint(p)); });
   it("calls a pass that saved nothing a FAILURE, and a real gap with no trusted draft exactly that", async () => {
-    reset(SEEN()); env.failWrites = true;
-    const failed = await run(counting().complete);
+    reset(SEEN()); env.failWrites = true; const failed = await run(counting().complete);
     expect([failed.outcome, failed.persisted, env.saved.length]).toEqual(["persistence_failed", 0, 1]); // it tried, and it says so
-    reset(SEEN());
-    const thin = await run(async () => ({ error: "the drafter is off", retryable: false }));
+    reset(SEEN()); const thin = await run(async () => ({ error: "the drafter is off", retryable: false }));
     expect([thin.outcome, thin.actionable, thin.noDraft, thin.proposals.length]).toEqual(["actionable_but_no_trusted_draft", 1, 1, 0]); });
 });

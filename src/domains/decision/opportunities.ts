@@ -25,9 +25,14 @@
  * (EvidenceReadiness in contracts.ts): the exact query rows, this page's own
  * current copy, and a live results page observed for THAT EXACT search. Without
  * all three the outcome is `research_needed`, whose reason names exactly what is
- * missing, so nothing is ever drafted for a search I have never looked at. The
- * readiness rides on the candidate, so the producer sets confidence from evidence
- * completeness rather than from how good the draft reads.
+ * missing, so nothing is ever drafted for a search I have never looked at.
+ *
+ * AND HOLDING A RESULTS PAGE IS NOT READING IT. Completeness is a precondition, so
+ * every complete candidate then goes through decision/diagnose, which reads what that
+ * page actually SAYS: where this page is displayed on it, worded how, and what recurs
+ * across the results beating it. Only a named cause with a competing explanation
+ * ruled out becomes work, and the cause names the field, so the old token-containment
+ * pick ("the search words are not in the title, so rewrite the title") is gone.
  *
  * MODELED OPPORTUNITY, NEVER PROMISED LIFT. `recoverableClicks` is the distance to
  * a generalized curve, so the copy says "this search earns about N fewer clicks
@@ -38,10 +43,11 @@
  */
 
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal, NewPageOpportunity } from "@/domains/evidence/snapshot";
-import { anchoredTopicMatch, canonicalQueryKey, scoreTopicMatch, topicTokens, weakAnchorTokens } from "@/domains/evidence/relevance-gate";
+import { anchoredTopicMatch, canonicalQueryKey, scoreTopicMatch, weakAnchorTokens } from "@/domains/evidence/relevance-gate";
 import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
-import { MIN_CTR_DEFICIT, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction,
-  type DecisionCandidate, type EvidenceInput, type EvidenceReadiness, type ProposalKind } from "./contracts";
+import { MIN_CTR_DEFICIT, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, evidenceComplete, readyForAction,
+  type ActionDiagnosis, type DecisionCandidate, type EvidenceInput, type EvidenceReadiness, type ProposalKind } from "./contracts";
+import { diagnoseCandidate, type DisplayedResult } from "./diagnose";
 
 /** Phrases an account must have on file before any word of its own can be called
  *  ubiquitous. Under this, a one-topic account keeps its honest overlaps. */
@@ -102,42 +108,26 @@ function bestGap(gaps: QueryGap[]): QueryGap | null {
   return [...gaps].sort((a, b) => b.recoverableClicks - a.recoverableClicks || b.impressions - a.impressions || a.query.localeCompare(b.query))[0] ?? null;
 }
 
-/** Which ONE field the gap justifies rewriting, or null when the copy cannot say.
- *  The searcher's own words missing from the title is a title job; a title that
- *  already carries them leaves the description as the remaining click lever. When
- *  both already say it, nothing in the copy explains the gap and the honest
- *  answer is to watch, not to rewrite something at random. */
-function fieldForGap(page: OwnedPageEvidence, query: string): "title" | "meta" | null {
-  const content = page.content;
-  if (!content) return null; // the page's own copy has not been read yet
-  const wanted = topicTokens(query);
-  if (wanted.length === 0) return null;
-  const says = (text: string | null): boolean => {
-    if (!text) return false;
-    const have = new Set(topicTokens(text));
-    return wanted.every((t) => have.has(t));
-  };
-  if (!says(content.title)) return "title";
-  if (!says(content.metaDescription)) return "meta";
-  return null;
-}
-
-const fieldLabel = (field: "title" | "meta"): string => (field === "title" ? "title" : "description");
-
 // ── evidence readiness (a gap opens an investigation, evidence closes it) ─────
 
-/** A candidate carrying what evidence the decision HOLDS. Structurally a
- *  DecisionCandidate (contracts.ts stays frozen); the extra field is read only
- *  inside Decision, to gate drafting and to set confidence. */
-export type QualifiedCandidate = DecisionCandidate & { readiness?: EvidenceReadiness };
+/** A candidate carrying what evidence the decision HOLDS and what it concluded from
+ *  it. Structurally a DecisionCandidate (contracts.ts stays frozen); the extra
+ *  fields are read only inside Decision, to gate drafting and to set confidence. */
+export type QualifiedCandidate = DecisionCandidate & { readiness?: EvidenceReadiness; diagnosis?: ActionDiagnosis };
 
 /** What research this snapshot holds, indexed once per pass. A live results page
  *  counts for a query only under EXACT/canonical identity: a neighbouring search
- *  never vouches for the one that is losing clicks. */
-type ResearchIndex = { serpQueries: Set<string>; winnersByQuery: Map<string, number> };
+ *  never vouches for the one that is losing clicks. The results themselves are
+ *  carried, not just the fact that a page was bought: holding a results page is not
+ *  knowing what it says, and the diagnosis has to READ it. */
+type ResearchIndex = { serpByQuery: Map<string, readonly DisplayedResult[]>; winnersByQuery: Map<string, number> };
 function indexResearch(snapshot: EvidenceSnapshot): ResearchIndex {
   const research = snapshot.research;
-  const serpQueries = new Set((research?.serpEvidence ?? []).map((e) => canonicalQueryKey(e.query)).filter(Boolean));
+  const serpByQuery = new Map<string, readonly DisplayedResult[]>();
+  for (const e of [...(research?.serpEvidence ?? [])].sort((a, b) => a.query.localeCompare(b.query))) {
+    const key = canonicalQueryKey(e.query);
+    if (key && !serpByQuery.has(key)) serpByQuery.set(key, e.organic);
+  }
   const winnersByQuery = new Map<string, number>();
   for (const page of research?.winningPages ?? []) {
     // A page I never READ vouches for nothing: only a fetched extract says WHY it
@@ -146,7 +136,7 @@ function indexResearch(snapshot: EvidenceSnapshot): ResearchIndex {
     const keys = new Set(page.appearances.map((a) => canonicalQueryKey(a.query)).filter(Boolean));
     for (const k of keys) winnersByQuery.set(k, (winnersByQuery.get(k) ?? 0) + 1);
   }
-  return { serpQueries, winnersByQuery };
+  return { serpByQuery, winnersByQuery };
 }
 
 /** What I hold for ONE page and ONE exact query. Never inferred from a neighbour. */
@@ -156,7 +146,7 @@ function readinessOf(page: OwnedPageEvidence, gap: QueryGap, index: ResearchInde
   return {
     gsc: gap.impressions > 0 && Number.isFinite(gap.position),
     ownedCopy: !!content && !!((content.title ?? "").trim() || (content.metaDescription ?? "").trim()),
-    serp: !!key && index.serpQueries.has(key),
+    serp: !!key && index.serpByQuery.has(key),
     winners: index.winnersByQuery.get(key) ?? 0,
     // FALSE until a page-body store exists. An outline is a list of headings, not the
     // page's words: produce-bundle holds PAGE_BODY_TEXT = null and every receipt says
@@ -226,7 +216,7 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
     // evidence I hold decides whether this is an action or an investigation.
     const readiness = readinessOf(page, best, index);
     const modeled = `This search earns about ${num(Math.max(0, best.recoverableClicks))} fewer clicks than pages at a similar position usually get`;
-    if (!readyForAction(readiness)) {
+    if (!evidenceComplete(readiness)) {
       return {
         action: "research_needed",
         pageUrl,
@@ -236,23 +226,22 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
         reason: `${scope}. ${rates}. ${modeled}, and that gap is big enough to look into. ${missingSentence(readiness)}`,
       };
     }
-    // Diagnosed: I hold the numbers, the page's own copy, and the live results page
-    // for this exact search, so I may name the lever the evidence supports. When the
-    // copy already carries the searcher's words, the words are not the problem: the
-    // page ranks and gives nobody a reason to click, and the title is the lever.
-    const field = fieldForGap(page, best.query);
-    const cause = field
-      ? `The ${fieldLabel(field)} does not carry what this search asks for`
-      : "The title already carries those words, so the words are not the problem: it is not giving anyone a reason to click";
-    return {
-      action: "act_existing_page",
-      gap: "ctr_deficit",
-      pageUrl,
-      query: best.query,
-      recoverableClicks: best.recoverableClicks,
-      readiness,
-      reason: `${scope}. ${rates}. ${modeled}. ${cause}, and I have read the live results page for it, so a sharper ${fieldLabel(field ?? "title")} is the strongest supported explanation I have.`,
-    };
+    // I hold the numbers, the page's own copy, and the live results page for this
+    // exact search. Holding it is not reading it, so the diagnosis reads what that
+    // page actually SAYS, and only a named cause with a competing explanation ruled
+    // out may become work. Anything short of that stays an investigation.
+    const diagnosis = diagnoseCandidate({
+      query: best.query, ownedUrl: pageUrl,
+      organic: index.serpByQuery.get(canonicalQueryKey(best.query)) ?? null, body: readiness.body,
+      gscPosition: best.position,
+    });
+    const common = { pageUrl, query: best.query, readiness, diagnosis };
+    if (!readyForAction(diagnosis)) {
+      return { action: "research_needed", ...common, recoverableClicks: Math.max(0, best.recoverableClicks),
+        reason: `${scope}. ${rates}. ${modeled}, and that gap is big enough to look into. ${diagnosis.explanation}` };
+    }
+    return { action: "act_existing_page", gap: "ctr_deficit", ...common, recoverableClicks: best.recoverableClicks,
+      reason: `${scope}. ${rates}. ${modeled}. ${diagnosis.explanation}` };
   }
 
   if (best.deficit > 0) {
@@ -292,7 +281,13 @@ function newPageGap(basis: NewPageOpportunity["basis"]): DecisionCandidate["gap"
 export function compileCandidates(snapshot: EvidenceSnapshot, opts: CompileOptions = {}): QualifiedCandidate[] {
   const expectedCtrAt = opts.curve?.expectedCtrAt ?? defaultExpectedCtrAt;
   const index = indexResearch(snapshot);
-  const pages = snapshot.ownedPages.map((page) => candidateForPage(page, expectedCtrAt, index));
+  // A row I hold NOTHING about is not a page I judged. 175 of this account's 398 owned
+  // rows are bare path fragments with no copy and no search data (a crawl frontier
+  // artifact), and counting each one as "do nothing" reported 175 judgments I never
+  // made. Silence about an unknown row is honest; a tally that includes it is not.
+  const pages = snapshot.ownedPages
+    .filter((p) => !!p.content || (p.search?.topQueries ?? []).length > 0 || (p.search?.impressions90d ?? 0) > 0)
+    .map((page) => candidateForPage(page, expectedCtrAt, index));
 
   const owned = ownedTopicSuppressor(snapshot);
   const topics = [...snapshot.newPageOpportunities]
@@ -333,17 +328,19 @@ function hintsFor(page: OwnedPageEvidence, candidate: DecisionCandidate): string
   return hints;
 }
 
-/** Build the one existing-page edit input a candidate earned, or null when the
- *  page has no copy to ground a rewrite. */
+/** Build the one existing-page edit input a DIAGNOSED candidate earned, or null.
+ *  The diagnosis names the field, so no drafter is ever paid to rewrite something
+ *  the evidence never accused: a candidate carrying no diagnosed edit yields null
+ *  and stays an investigation. */
 function existingEditInput(
   snapshot: EvidenceSnapshot,
   page: OwnedPageEvidence,
-  candidate: DecisionCandidate,
+  candidate: QualifiedCandidate,
 ): EvidenceInput | null {
   const content = page.content;
   const query = candidate.query ?? "";
-  const field = fieldForGap(page, query);
-  if (!field || !content) return null;
+  const diagnosis = candidate.diagnosis;
+  if (!content || !diagnosis || !readyForAction(diagnosis) || diagnosis.action !== "title") return null;
 
   return {
     tenantId: snapshot.scope.tenantId,
@@ -356,15 +353,16 @@ function existingEditInput(
       query,
       kind: "existing_edit",
       // A modeled gap, never a promised recovery: the label names the lever only.
-      opportunityType: `Sharpen the ${fieldLabel(field)}`,
-      field,
-      currentValue: field === "title" ? content.title : content.metaDescription,
+      opportunityType: "Sharpen the title",
+      field: "title",
+      currentValue: content.title,
       intent: intentOf(query),
     },
     evidence: {
       hints: hintsFor(page, candidate),
       pageBodyText: null,
       outline: content.outline ?? [],
+      diagnosis,
     },
     sizing: {
       // The ONE value scalar: the modeled click shortfall, never gross traffic.
@@ -462,7 +460,7 @@ function absoluteUrl(url: string): string | null {
  */
 export function candidatesToEvidenceInputs(
   snapshot: EvidenceSnapshot,
-  candidates: readonly DecisionCandidate[],
+  candidates: readonly QualifiedCandidate[],
 ): EvidenceInput[] {
   const pageByUrl = new Map(snapshot.ownedPages.map((p) => [absoluteUrl(p.url) ?? p.url, p]));
   const oppByTopic = new Map(snapshot.newPageOpportunities.map((o) => [o.topic.trim().toLowerCase(), o]));
