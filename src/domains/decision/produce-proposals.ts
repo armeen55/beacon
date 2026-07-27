@@ -242,13 +242,14 @@ export async function produceProposalsForTenant(
     // A refresh re-pays nothing. A current-generation row already covering this
     // candidate (its own row, or the deep bundle that replaced it) is carried
     // forward as-is: no drafter call, no write, no new timestamp.
-    // THE OPERATOR'S NO IS FINAL. A rejected or already-applied row for this exact
-    // change must never be redrafted: the newest row wins on read, so a redraft
-    // silently resurrected a change the operator turned down (and re-paid the
-    // drafter to do it). Basis-independent on purpose: a rejection is about the
-    // change itself, not about the rules that were current when it was made.
+    // SETTLED WORK IS NOT REDRAFTED. The newest row wins on read, so redrafting an
+    // APPLIED change would overwrite the record of something already shipped. A
+    // REJECTED row is the safety gate's verdict on that draft, so under the SAME
+    // basis the same evidence would fail the same way and re-paying the drafter buys
+    // nothing; once the basis moves the evidence really is different, and the page
+    // gets its fair second attempt.
     const settled = existing.get(proposalId(input));
-    if (settled && (settled.status === "rejected" || settled.status === "applied")) continue;
+    if (settled && (settled.status === "applied" || (settled.status === "rejected" && current(settled)))) continue;
     const held = currentById(proposalId(input))
       ?? (heldBundle && input.opportunity.kind === "existing_edit" && heldBundle.pagePath === input.page.path ? heldBundle : null);
     if (held) {
