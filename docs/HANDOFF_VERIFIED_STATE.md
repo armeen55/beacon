@@ -49,38 +49,38 @@
 
 - The seven-step onboarding and 50-core-prompt approval flow is live and CONNECTED (Slice 5 + closure, 2026-07-24)
   on `/onboard`: one basis, website to activation. Every `tracked_prompts` row carries a deterministic basis
-  fingerprint (account, domain, confirmed research fields, goal, generation version); only current-basis rows
-  render, count, approve, or activate, and approval's other-basis sweep (locally pending-only, 2026-07-26) keeps
-  stale prompts untracked pre-activation. Website replacement mid-onboarding is one atomic idempotent RPC: new
-  domain, goal cleared, prompts deactivated with history kept, profile reset, crawl restarted. Profile
-  confirmation is truthful (every section operator confirmed). The prompt step has include/exclude, edit, group,
-  remove behind group disclosure, server-validated per tenant and basis; new rows carry all four engines as scope
-  only; the deterministic fallback never pads. Pre-activation OpenAI spend durably reserves projected cost BEFORE
-  each call against the lifetime $2 cap, reconciling to actual (write failure overcounts and blocks);
-  live-validated for $0.0378 across two synthetic accounts. Page snapshots persist (14 real upserts). Connections
-  shows "Return to setup" while onboarding. Pending accounts start no Research Run at either boundary; activation
-  is idempotent, requires 10..100 current-basis approved prompts plus website, confirmed profile, goal, and terms,
+  fingerprint; only current-basis rows render, count, approve, or activate, and approval's other-basis sweep
+  (locally pending-only, 2026-07-26) keeps stale prompts untracked pre-activation. Website replacement
+  mid-onboarding is one atomic idempotent RPC: new domain, goal cleared, prompts deactivated with history kept,
+  profile reset, crawl restarted. Profile confirmation is truthful (every section operator confirmed). The prompt
+  step has include/exclude, edit, group, remove behind group disclosure, server-validated per tenant and basis;
+  new rows carry all four engines; the deterministic fallback never pads. Pre-activation OpenAI spend durably
+  reserves projected cost BEFORE each call against the lifetime $2 cap, reconciling to actual (write failure
+  overcounts and blocks); live-validated at $0.0378. Page snapshots persist (14 real upserts). Connections shows
+  "Return to setup" while onboarding. Pending accounts start no Research Run at either boundary; activation is
+  idempotent, requires 10..100 current-basis approved prompts plus website, confirmed profile, goal, and terms,
   starting exactly one durable Research Run. Verified end to end rendered, desktop and mobile, with real crawl,
-  real model calls, and mid-flow website/goal changes. One inert synthetic pending account
-  (`tenant-smoke-onboard`) remains for review.
+  real model calls, mid-flow website/goal changes. One inert synthetic pending account remains for review.
 - Durable visit-driven Research Runs exist (Slice 4, 2026-07-24): every authenticated visit renders the saved
   surfaces first, then claims or resumes the account's Research Run through an atomic database-time lease RPC. At
   most one unfinished run per account across all dates (partial unique index): the claim resumes it whatever day
   it started (same row, phase, cursor, progress; a live foreign lease blocks, an expired one reclaims), a
-  same-UTC-day completion blocks a redundant pass, and a new daily cycle (database-time key) starts only when none
-  is open. A partially failed refresh durably persists the providers that synced before pausing. Seven phases
-  mirror the real work (refresh sources, GSC backfill, keyword discovery, AI observation, search analysis, winning
-  pages, surface publish); progress, phase, and cursors are durable; a killed invocation resumes at the persisted
-  phase after lease expiry; concurrency cannot duplicate work; Today shows ONE stable status line (2026-07-26): an
-  open error-free run reads "Research in progress" with the durable AI-check count (only while that phase is
-  current), identical across lease states so it never flips on a healthy wait; a pause names its reason only for
-  the recording phase; a failed tracked-question read pauses as its own transient reason, never a false "no
-  questions". The scoreboard sentence carries no measuring count (the proof strip owns measurement). The truth
-  boundary holds: a failed connector, backfill, or publication pauses the run at its phase with a bounded error,
-  never advancing or presenting as completed; lease mutations are database-time security-definer RPCs (an expired
-  owner cannot mutate; completed rows reject mutation); each phase's idempotency key persists before its side
-  effect and survives interrupted retries; completion copy names its finish time and never claims research is
-  current. All three migrations applied; the claim RPC smoke-proven against the real database.
+  same-UTC-day completion blocks a redundant pass; a new daily cycle (database-time key) starts only when none is
+  open. A partially failed refresh durably persists the providers that synced before pausing. Seven phases mirror
+  the real work (refresh sources, GSC backfill, keyword discovery, AI observation, search analysis, winning pages,
+  surface publish); progress, phase, cursors durable; a killed invocation resumes at the persisted phase;
+  concurrency cannot duplicate work; Today shows ONE stable status line (2026-07-26): an open error-free run reads
+  "Research in progress" with the durable AI-check count (only while that phase is current), identical across
+  lease states; a pause names its reason only for the recording phase; a failed tracked-question read pauses as
+  its own transient reason, never a false "no questions". The scoreboard sentence carries no measuring count (the
+  proof strip owns measurement). The truth boundary holds: a failed connector, backfill, or publication pauses the
+  run with a bounded error, never advancing or presenting as completed; a phantom state conflict (a memoized stale
+  read once paused a healthy run and zeroed its receipt) retries its phase ONCE under the same lease and attempt
+  identity at $0, discarding stale counters; only a second conflict pauses; admin Supabase reads opt out of fetch
+  caching and request memoization so they always hit Postgres; lease mutations are database-time security-definer
+  RPCs (an expired owner cannot mutate; completed rows reject mutation); each phase's idempotency key persists
+  before its side effect and survives interrupted retries; completion copy names its finish time and never claims
+  research is current. All three migrations applied; the claim RPC smoke-proven against the real database.
 - The DataForSEO research funnel is lifecycle-true and feeds ONE canonical evidence input (Slice 6 + closures
   6B..6I, 2026-07-25). A TYPED registry (wrong fields fail tsc; model never caller-supplied) owns each ask:
   chatgpt llm_responses web_search ONLY (live o4-mini rejected force, 40501), claude web + force + US, gemini
