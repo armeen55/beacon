@@ -190,7 +190,7 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}): FunnelUnitFn {
       await save(d, tenantId, basis, state, ctx);
       return { status: "done", cursor: null, progress: discProgress(state), ...(softDetail ? { detail: softDetail } : {}) };
     } catch (e) {
-      if (e instanceof StateConflictError) return { status: "failed", cursor, progress: discProgress(state), detail: CONFLICT_DETAIL };
+      if (e instanceof StateConflictError) return { status: "failed", code: "state_conflict", cursor, progress: discProgress(state), detail: CONFLICT_DETAIL };
       throw e;
     }
   };

@@ -218,6 +218,11 @@ export type FunnelUnitOutcome = {
   cursor: Record<string, unknown> | null;
   progress: FunnelCounters;
   detail?: string;
+  /** STRUCTURED failure discriminant, set ONLY where an executor catches a state
+   *  conflict: the research notes moved underneath this writer, so NOTHING was
+   *  persisted and these counters are a stale snapshot (the per-run receipt reads
+   *  zero). Runtime decides on this CODE and never parses the customer copy. */
+  code?: "state_conflict";
 };
 
 /** Runtime injects the account's CURRENT onboarding basis into the cursor as

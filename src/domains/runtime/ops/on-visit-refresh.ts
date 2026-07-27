@@ -73,6 +73,13 @@ import {
  * of the same run+phase reuses the PERSISTED key (read-or-create); advancing to
  * the next phase clears the cursor so the next phase mints its own key.
  *
+ * CONFLICT: an evidence unit reporting the structured `state_conflict` code persisted
+ * NOTHING, so its counters are DISCARDED (a stale zeroed receipt must never overwrite
+ * proven spend) and the SAME phase attempt is re-invoked ONCE under the same lease,
+ * attempt key and unit cursor - the unit reloads canonical state and its cached call
+ * identities keep the retry $0. A second conflict in a row pauses honestly. Nothing
+ * else retries: blocked, waiting, capped and lost-lease behaviour are untouched.
+ *
  * LEASE: the lease is renewed at DATABASE time BEFORE every bounded phase, so no
  * phase inside the 210s cycle deadline can knowingly outlive its 240s lease. A
  * false return from renewLease / advancePhase / finishRun means our lease was
@@ -306,6 +313,8 @@ async function driveRun(
   let progress: ResearchRunProgress = run.progress ?? {};
   let phase = run.current_phase;
   let cursor: Record<string, unknown> | null = run.phase_cursor ?? null;
+  /** The phase whose attempt already spent its ONE state-conflict retry (never global). */
+  let conflictRetried: ResearchPhase | null = null;
 
   while (phase !== "done") {
     if (nowFn().getTime() >= deadline) {
@@ -340,7 +349,20 @@ async function driveRun(
         await finishRun(tenantId, run.id, ownerToken, "paused", { phase, message, at: nowFn().toISOString() });
         return;
       }
-      progress = { ...progress, funnel: { ...progress.funnel, ...unit.progress } };
+      // A state conflict persisted NOTHING, so the unit's counters are a stale snapshot
+      // (its per-run receipt read zero) and must never overwrite what this run already
+      // proved: DISCARD them either way. Then retry the SAME phase attempt exactly once
+      // - same run, same lease owner, same attempt key, same unit cursor - because the
+      // re-invoked unit reloads canonical state and every cached call identity makes its
+      // provider work $0. A second conflict in a row pauses honestly with the same copy.
+      // Narrowed to failed: a coded non-failed outcome must never enter the retry loop.
+      const conflicted = unit.status === "failed" && unit.code === "state_conflict";
+      if (!conflicted) progress = { ...progress, funnel: { ...progress.funnel, ...unit.progress } };
+      else if (conflictRetried !== phase) {
+        conflictRetried = phase;
+        log.warn("[research-run] research notes moved underneath the writer; retrying this phase once", { tenantId, phase });
+        continue; // loop top renews the SAME lease with the SAME attempt cursor
+      }
       const unitCursor = unit.cursor ? { ...attemptCursor, unit: unit.cursor } : { phase, attemptKey, seed: run.cycle_key };
       if (unit.status === "failed") {
         const saved = await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: unitCursor });

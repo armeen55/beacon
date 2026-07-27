@@ -211,7 +211,7 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
       else { status = "failed"; failedDetail = `${canon.length - complete} prompt checks are still outstanding. I will finish them on the next pass.`; }
       return { status, cursor: { runId }, progress: pairProgress(state), ...(failedDetail ? { detail: failedDetail } : {}) };
     } catch (e) {
-      if (e instanceof StateConflictError) return { status: "failed", cursor: { runId }, progress: pairProgress(state), detail: CONFLICT_DETAIL };
+      if (e instanceof StateConflictError) return { status: "failed", code: "state_conflict", cursor: { runId }, progress: pairProgress(state), detail: CONFLICT_DETAIL };
       throw e;
     }
   };
@@ -365,7 +365,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
       const detail = status === "failed" ? (failedDetail ?? "Some searches did not finish. I will retry them on the next pass.") : failedDetail;
       return { status, cursor, progress: serpProgress(state), ...(detail ? { detail } : {}) };
     } catch (e) {
-      if (e instanceof StateConflictError) return { status: "failed", cursor, progress: serpProgress(state), detail: CONFLICT_DETAIL };
+      if (e instanceof StateConflictError) return { status: "failed", code: "state_conflict", cursor, progress: serpProgress(state), detail: CONFLICT_DETAIL };
       throw e;
     }
   };
@@ -450,7 +450,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}): FunnelUnitFn {
       await save(d, tenantId, basis, state, ctx);
       return { status: "done", cursor: null, progress: { winningPagesFetched: fetched, cacheHits: state.cycle.cacheHits, spendUsd: round(state.cycle.spentUsd) } };
     } catch (e) {
-      if (e instanceof StateConflictError) return { status: "failed", cursor, progress: { winningPagesFetched: fetched }, detail: CONFLICT_DETAIL };
+      if (e instanceof StateConflictError) return { status: "failed", code: "state_conflict", cursor, progress: { winningPagesFetched: fetched }, detail: CONFLICT_DETAIL };
       throw e;
     }
   };

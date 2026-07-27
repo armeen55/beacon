@@ -11,6 +11,10 @@ import * as RR from "@/domains/runtime/research-run";
 import { runResearchCycle, ensureResearchRunOnVisit, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
 import { setAccountRepositoryForTests, type AccountRepository } from "@/domains/account/tenants/store";
 import type { AccountStatus } from "@/domains/account";
+import type { CachedCallResult, FunnelUnitOutcome } from "@/domains/evidence/dataforseo/funnel-boundary";
+import { promptObservationUnit } from "@/domains/evidence/funnel/observe";
+import { CONFLICT_DETAIL, type FunnelDeps } from "@/domains/evidence/funnel/shared";
+import { emptyFunnelState } from "@/domains/evidence/funnel/state";
 
 // Slice 5 pre-activation gate: the runtime + the RPC model both refuse research
 // work unless the account is active. The account status world defaults every
@@ -209,114 +213,66 @@ describe("research-run phase truth", () => {
   it("counts only synced sources as refreshed, and any connector failure pauses at refresh_sources without advancing to publish", async () => {
     const rows = withRun();
     await run({ ...BENIGN, refreshSources: async () => ({ attempted: 3, succeeded: ["google_gsc", "clarity"], failures: [{ provider: "google_ga4", detail: "429 quota" }] }) });
-    expect(rows[0]!.status).toBe("paused");
-    expect(rows[0]!.current_phase).toBe("refresh_sources"); // stuck in place → never published off a failed refresh
-    expect(rows[0]!.last_error?.phase).toBe("refresh_sources");
+    expect([rows[0]!.status, rows[0]!.current_phase, rows[0]!.last_error?.phase]).toEqual(["paused", "refresh_sources", "refresh_sources"]); // stuck in place → never published off a failed refresh
     expect(rows[0]!.last_error?.failures).toEqual([{ provider: "google_ga4", detail: "429 quota" }]);
     expect(rows[0]!.progress.surfacePublished).toBeUndefined();
   });
   it("treats zero stale sources as a healthy no-op and completes when every phase succeeds or no-ops", async () => {
     const rows = withRun();
     await run({ ...BENIGN, surfaceStale: async () => true }); // nothing refreshed, but the saved surface is stale
-    expect(rows[0]!.status).toBe("completed");
-    expect(rows[0]!.current_phase).toBe("done");
-    expect(rows[0]!.last_error).toBeNull();
+    expect([rows[0]!.status, rows[0]!.current_phase, rows[0]!.last_error]).toEqual(["completed", "done", null]);
     expect(rows[0]!.progress.surfacePublished).toBe(true);
   });
   it("pauses at the phase that throws, never marks it published, and never completes (backfill chunk, then publish build)", async () => {
     const backfill = withRun({ current_phase: "gsc_backfill_chunk" });
     await run({ ...BENIGN, backfillChunk: async () => { throw new Error("gsc backfill chunk did not advance: 429"); } });
-    expect(backfill[0]!.status).toBe("paused");
-    expect(backfill[0]!.current_phase).toBe("gsc_backfill_chunk"); // same window retries next visit
-    expect(backfill[0]!.last_error?.phase).toBe("gsc_backfill_chunk");
+    expect([backfill[0]!.status, backfill[0]!.current_phase, backfill[0]!.last_error?.phase]).toEqual(["paused", "gsc_backfill_chunk", "gsc_backfill_chunk"]); // same window retries next visit
     expect(backfill[0]!.progress.surfacePublished).toBeUndefined(); // never reached publish
     const publish = withRun({ current_phase: "publish_surface" }); // fresh repo + seed
     await run({ ...BENIGN, surfaceStale: async () => true, publishSurface: async () => { throw new Error("surface build failed"); } });
-    expect(publish[0]!.status).toBe("paused");
-    expect(publish[0]!.current_phase).toBe("publish_surface");
+    expect([publish[0]!.status, publish[0]!.current_phase]).toEqual(["paused", "publish_surface"]);
     expect(publish[0]!.progress.surfacePublished).not.toBe(true);
     expect(publish[0]!.completed_at).toBeNull();
   });
 });
 describe("research-run partial-success durability + deduped refreshed providers", () => {
-  it("persists the providers that DID sync durably before pausing, and never counts a failed provider", async () => {
-    const rows = withRun();
-    await run({ ...BENIGN, refreshSources: async () => ({ attempted: 2, succeeded: ["google_gsc"], failures: [{ provider: "google_ga4", detail: "429" }] }) });
-    expect(rows[0]!.status).toBe("paused");
-    expect(rows[0]!.current_phase).toBe("refresh_sources"); // retry stays at refresh_sources
-    expect(rows[0]!.progress.refreshedProviders).toEqual(["google_gsc"]); // the succeeded source is not stranded
-    expect(rows[0]!.progress.refreshedProviders).not.toContain("google_ga4"); // the failed source is not counted
+  it("persists the providers that DID sync before pausing, never counts a failed one, and counts a later success exactly once across the retry", async () => {
+    const rows = withRun(); let firstAttempt = true;
+    const steps: Partial<ResearchCycleSteps> = { ...BENIGN, refreshSources: async () => (firstAttempt
+      ? (firstAttempt = false, { attempted: 2, succeeded: ["google_gsc"], failures: [{ provider: "google_ga4", detail: "429" }] })
+      : { attempted: 2, succeeded: ["google_gsc", "google_ga4"], failures: [] }) };
+    await run(steps); // first attempt: gsc synced, ga4 failed
+    expect([rows[0]!.status, rows[0]!.current_phase]).toEqual(["paused", "refresh_sources"]); // the retry stays at refresh_sources
+    expect(rows[0]!.progress.refreshedProviders).toEqual(["google_gsc"]); // the succeeded source is not stranded; the failed one is never counted
     expect(rows[0]!.progress.sourcesRefreshed).toBe(1); // count derived from the unique set
-  });
-  it("counts a provider that succeeds after an earlier failure exactly once across the retry, and completes with the accurate union", async () => {
-    const rows = withRun();
-    let firstAttempt = true;
-    const steps: Partial<ResearchCycleSteps> = {
-      ...BENIGN,
-      refreshSources: async () => {
-        if (firstAttempt) { firstAttempt = false; return { attempted: 2, succeeded: ["google_gsc"], failures: [{ provider: "google_ga4", detail: "boom" }] }; }
-        return { attempted: 2, succeeded: ["google_gsc", "google_ga4"], failures: [] };
-      },
-    };
-    await run(steps); // first attempt: gsc synced, ga4 failed → pause with gsc persisted
-    expect(rows[0]!.progress.refreshedProviders).toEqual(["google_gsc"]);
     await run(steps); // retry: both synced → union, gsc counted once
-    expect(rows[0]!.status).toBe("completed");
-    expect(rows[0]!.progress.refreshedProviders).toEqual(["google_gsc", "google_ga4"]);
-    expect(rows[0]!.progress.sourcesRefreshed).toBe(2); // union of both attempts, no double count
-  });
+    expect([rows[0]!.status, rows[0]!.progress.sourcesRefreshed]).toEqual(["completed", 2]);
+    expect(rows[0]!.progress.refreshedProviders).toEqual(["google_gsc", "google_ga4"]); }); // union of both attempts, no double count
   it("decodes a legacy numeric-only progress row: projection and resume never crash and the number survives", async () => {
     const rows = withRun({ current_phase: "publish_surface", progress: { sourcesRefreshed: 2 } });
-    const view = await RR.researchRunStatus(T, new Date(NOW));
-    expect(view.counters.sourcesRefreshed).toBe(2); // projection decodes the bare number
+    expect((await RR.researchRunStatus(T, new Date(NOW))).counters.sourcesRefreshed).toBe(2); // projection decodes the bare number
     await run({ ...BENIGN, surfaceStale: async () => false });
-    expect(rows[0]!.status).toBe("completed");
-    expect(rows[0]!.progress.sourcesRefreshed).toBe(2); // legacy number survives the resume (refresh_sources not re-run)
-  });
+    expect([rows[0]!.status, rows[0]!.progress.sourcesRefreshed]).toEqual(["completed", 2]); }); // legacy number survives the resume (refresh_sources not re-run)
 });
 
 describe("research-run idempotency identity", () => {
-  it("hands each phase its persisted attempt key: an interrupted retry reuses the identical key, and the next phase gets a different one", async () => {
-    const rows = withRun();
-    const refreshKeys: string[] = [];
-    const backfillKeys: string[] = [];
-    let refreshFails = true;
-    const steps: Partial<ResearchCycleSteps> = {
-      ...BENIGN,
-      refreshSources: async (_t, _n, key) => {
-        refreshKeys.push(key);
-        return refreshFails ? { attempted: 1, succeeded: [], failures: [{ provider: "google_gsc", detail: "boom" }] } : { attempted: 1, succeeded: ["google_gsc"], failures: [] };
-      },
-      backfillChunk: async (_t, _n, key) => (backfillKeys.push(key), { kind: "no_work" }),
-    };
+  it("hands each phase its persisted attempt key: an interrupted retry reuses it even across a date change, the next phase gets a different one, and no second run opens", async () => {
+    const rows = withRun({ id: "seed", started_at: iso(NOW) });
+    const refreshKeys: string[] = [], backfillKeys: string[] = []; let refreshFails = true;
+    const steps: Partial<ResearchCycleSteps> = { ...BENIGN,
+      refreshSources: async (_t, _n, key) => (refreshKeys.push(key), refreshFails ? { attempted: 1, succeeded: [], failures: [{ provider: "google_gsc", detail: "boom" }] } : { attempted: 1, succeeded: ["google_gsc"], failures: [] }),
+      backfillChunk: async (_t, _n, key) => (backfillKeys.push(key), { kind: "no_work" }) };
     await run(steps); // first visit: refresh fails → pause at refresh_sources with the cursor persisted
-    expect(rows[0]!.status).toBe("paused");
-    expect(rows[0]!.current_phase).toBe("refresh_sources");
+    expect([rows[0]!.status, rows[0]!.current_phase]).toEqual(["paused", "refresh_sources"]);
+    NOW += DAY; // a new UTC day: the resumed run's ORIGINAL cycle key, not today's, still seeds the key
+    await run(steps);
+    expect([refreshKeys[1], rows.length]).toEqual([refreshKeys[0], 1]); // identical key after the date changed, and no second run on the new day
     refreshFails = false;
-    await run(steps); // second visit: refresh succeeds → resumes the SAME phase (identical key), then advances
-    expect(rows[0]!.status).toBe("completed");
-    expect(refreshKeys).toHaveLength(2);
-    expect(refreshKeys[0]).toBe(refreshKeys[1]); // interrupted retry reuses the identical key
-    expect(backfillKeys[0]).not.toBe(refreshKeys[1]); // the next phase gets a different key
-    expect(refreshKeys[0]).toMatch(/^rr_[0-9a-f]{32}$/);
-  });
-  it("resumes yesterday's run across a date change with an unchanged attempt key and opens no second run", async () => {
-    const rows = withRun({ id: "seed", cycle_key: RR.cycleKeyForUtc(T, new Date(NOW)), started_at: iso(NOW) });
-    const keys: string[] = [];
-    const failing: Partial<ResearchCycleSteps> = {
-      ...BENIGN,
-      refreshSources: async (_t, _n, key) => (keys.push(key), { attempted: 1, succeeded: [], failures: [{ provider: "google_gsc", detail: "boom" }] }),
-    };
-    await run(failing); // day 1: refresh fails → pause, cursor persisted under the day-1 cycle key
-    expect(rows[0]!.status).toBe("paused");
-    NOW += DAY; // a new UTC day
-    await run(failing); // resumes the SAME run; the original cycle key seeds the same attempt key
-    expect(keys).toHaveLength(2);
-    expect(keys[0]).toBe(keys[1]); // attempt key identical after the date changed
-    expect(rows).toHaveLength(1); // no second run on the new day
-    expect(rows[0]!.id).toBe("seed");
-    expect(rows[0]!.current_phase).toBe("refresh_sources");
-  });
+    await run(steps); // refresh succeeds → resumes the SAME phase (identical key), then advances
+    expect([rows[0]!.status, rows[0]!.id]).toEqual(["completed", "seed"]);
+    expect(refreshKeys[2]).toBe(refreshKeys[0]); // an interrupted retry reuses the identical key
+    expect(backfillKeys[0]).not.toBe(refreshKeys[2]); // the next phase gets a different key
+    expect(refreshKeys[0]).toMatch(/^rr_[0-9a-f]{32}$/); });
 });
 
 describe("research-run resume + status projection", () => {
@@ -379,6 +335,46 @@ describe("research-run Today copy", () => {
   });
 });
 
+describe("research-run conflict-free research closure", () => {
+  /** THE production incident, hermetic (run cd309823, 2026-07-27): ONE research_state row, a discovery phase that lands this run's
+   *  REAL receipt, and a prompt phase whose read is served the snapshot from BEFORE that write. The two writers interleave over one
+   *  row, so the prompt unit resets its per-run receipt to zero and its optimistic save conflicts. `staleLoads` = how many prompt
+   *  loads see the pre-discovery snapshot. The evidence executor here is the REAL one, driven by the real runResearchCycle. */
+  function funnelWorld(rows: RR.ResearchRun[], staleLoads: number) {
+    const pre = emptyFunnelState(T, "basis_test"); pre.cycle = { runId: "prev-run", cycleKey: "prev", spentUsd: 1.82, cacheHits: 0 }; // the PREVIOUS run's receipt
+    const live = { state: structuredClone(pre), rowVersion: 18 }; const seen: Record<string, unknown>[] = []; const bought = new Set<string>(); let loads = 0, paid = 0;
+    const answer = { answerText: "hi", modelServed: null, webSearchReported: null, citations: [], fanOutQueries: null, brands: null };
+    const deps: FunnelDeps = { loadActivePrompts: async () => [{ id: "p1", text: "best persian restaurant" }], syncHistory: async () => {}, now: () => NOW, parse: ((_c: unknown, env: unknown) => env) as FunnelDeps["parse"],
+      loadState: async () => (loads++ < staleLoads ? { state: structuredClone(pre), rowVersion: 18 } : { state: structuredClone(live.state), rowVersion: live.rowVersion }),
+      saveState: async (_t, _b, s, expected) => { if (expected !== live.rowVersion) return null; live.state = structuredClone(s); live.rowVersion = expected + 1; return live.rowVersion; },
+      // Cache identity makes any retry $0: a capability already bought comes back as a hit, never a second paid post.
+      callProvider: async (cap) => (bought.has(cap) ? { state: "hit", envelope: answer as never, costUsd: 0, cacheKey: `ck-${cap}`, modelServed: null }
+        : (bought.add(cap), paid += 1, { state: "ok", envelope: answer as never, costUsd: 0.01, cacheKey: `ck-${cap}`, modelServed: null })) as CachedCallResult };
+    const funnelUnit: ResearchCycleSteps["funnelUnit"] = async (phase, tenantId, cursor, budgetMs) => {
+      seen.push({ phase, owner: rows[0]!.lease_owner, attemptKey: (rows[0]!.phase_cursor as Record<string, unknown> | null)?.attemptKey });
+      if (phase === "keyword_discovery") { // the first writer: this run's proven spend lands at the next row version
+        live.state.cycle = { runId: String(cursor!.runId), cycleKey: "c", spentUsd: 0.09504, cacheHits: 8 }; live.rowVersion += 1;
+        return { status: "done", cursor: null, progress: { retainedKeywords: 700, cacheHits: 8, spendUsd: 0.09504 } }; }
+      return phase === "prompt_observations" ? promptObservationUnit(deps)(tenantId, cursor, budgetMs) : { status: "done", cursor: null, progress: {} }; };
+    return { funnelUnit, paid: () => paid, prompts: () => seen.filter((s) => s.phase === "prompt_observations") }; }
+  it("recovers the interleave: ONE retry on the same run, phase, lease and attempt key, no duplicate paid post, and the FRESH receipt persists", async () => {
+    const rows = withRun(); const w = funnelWorld(rows, 1); await run({ funnelUnit: w.funnelUnit }); // only the first prompt load is stale
+    expect(w.prompts()).toHaveLength(2); expect(w.prompts()[0]).toEqual(w.prompts()[1]); // one conflict, exactly one retry, identical run / lease owner / attempt key
+    expect([w.paid(), rows[0]!.status]).toEqual([5, "completed"]); // 5 pairs bought once: the retry reused every cache identity at $0, and the run closed instead of pausing
+    expect(rows[0]!.progress.funnel).toMatchObject({ retainedKeywords: 700, spendUsd: 0.095, cacheHits: 13 }); }); // the FRESH unit's numbers (4dp receipt), never the stale zeros
+  it("pauses ONCE with the bounded reason on a second consecutive conflict, and still never under-reports the run's spend", async () => {
+    const rows = withRun(); const w = funnelWorld(rows, 99); await run({ funnelUnit: w.funnelUnit }); // every prompt load is stale: the retry conflicts too
+    expect(w.prompts()).toHaveLength(2); expect([rows[0]!.status, rows[0]!.current_phase]).toEqual(["paused", "prompt_observations"]); // bounded: no third invocation, no loop
+    expect(rows[0]!.last_error).toMatchObject({ phase: "prompt_observations", message: CONFLICT_DETAIL });
+    expect(rows[0]!.progress.funnel).toMatchObject({ spendUsd: 0.09504, cacheHits: 8 }); }); // the conflicted attempt's zeros are DISCARDED, never merged over proven spend
+  it("retries ONLY a state conflict: a bounded failure, a durable wait and a lost lease each run the unit exactly once", async () => {
+    for (const unit of [{ status: "failed", cursor: null, progress: {}, detail: "One research request was turned down." }, { status: "waiting", cursor: null, progress: {} }] as FunnelUnitOutcome[]) {
+      const rows = withRun({ current_phase: "prompt_observations" }); let calls = 0;
+      await run({ funnelUnit: async () => (calls += 1, unit) }); expect([calls, rows[0]!.status]).toEqual([1, "paused"]); } // no code, no retry
+    const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests({ ...repo, renew: async () => false }); rows.push(mk({ current_phase: "prompt_observations" })); let ran = false; // a lost lease aborts BEFORE the side effect
+    await run({ funnelUnit: async () => (ran = true, { status: "done", cursor: null, progress: {} }) });
+    expect([ran, rows[0]!.last_error]).toEqual([false, null]); }); // the unit never ran and nothing was recorded
+});
 describe("research-run fail-closed + render path", () => {
   it("fails closed when the claim RPC throws, throws on an empty tenant before any I/O, and runs no phase on the render path", async () => {
     let touched = false;

@@ -48,6 +48,16 @@ export function getSupabaseAdmin(): SupabaseClient {
 
   _admin = createClient(url, serviceRoleKey, {
     auth: { persistSession: false },
+    global: {
+      // Next memoizes identical GET fetches within one request lifecycle and can
+      // cache them across it. Service-role reads are server TRUTH: a replayed
+      // response once handed a funnel unit a pre-write research_state row and
+      // paused a healthy run on a phantom conflict. cache no-store opts out of
+      // the data cache; a per-call AbortSignal (only when the caller sent none)
+      // defeats request memoization, so every admin read hits Postgres.
+      fetch: (input, init) =>
+        fetch(input, { ...init, cache: "no-store", signal: init?.signal ?? new AbortController().signal }),
+    },
   });
 
   return _admin;
