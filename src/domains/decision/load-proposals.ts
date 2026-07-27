@@ -120,7 +120,11 @@ export async function loadProposalQueue(
     if (p.status === "proposed" && isCurrent(p) && !holdsForUnresolvedSource(p)) ready.push(p);
     else {
       if (p.status === "proposed" && !isCurrent(p)) demotedStaleBasis += 1;
-      toDo.push(p);
+      // A stale-basis row keeps its words and its history, but its CONFIDENCE was
+      // measured against evidence rules that no longer hold, so it may not keep
+      // claiming High next to a limitation saying I never looked at that search.
+      // Presentation only: the stored row is untouched, exactly as the demotion is.
+      toDo.push(isCurrent(p) ? p : { ...p, confidence: "low" });
     }
   }
   return {
