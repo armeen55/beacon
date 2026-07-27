@@ -115,18 +115,21 @@ export type DraftQualityResult = {
 
 // ── shared vocabulary + helpers ───────────────────────────────────────────────
 
-/** Default content-context vocabulary (Iranopedia is the live tenant). Overridable
- *  per call via opts.contextTokens so the gate is not hard-wired to one vertical. */
-export const DEFAULT_CONTEXT_TOKENS = [
-  "iran", "iranian", "persia", "persian", "farsi", "tehran", "nowruz", "mehregan",
-  "yalda", "achaemenid", "safavid", "abbasid", "sassanid", "qajar", "pahlavi",
-  "sofreh", "haft-seen", "haft seen", "shiraz", "isfahan", "tabriz", "faravahar",
-];
+/** NO default vocabulary. A hardcoded vertical list here silently rejected every
+ *  shallow draft for any account outside that vertical ("drops the page's core
+ *  entity"), which is the founder-config leak in its purest form. Callers pass the
+ *  candidate's OWN words; an empty list means the entity check cannot run and must
+ *  not fabricate a verdict. */
+export const DEFAULT_CONTEXT_TOKENS: string[] = [];
 
-const PERSIAN_SCRIPT = /[؀-ۿ]/;
+/** Any non-Latin script carries its own subject words; token containment cannot judge it. */
+const NON_LATIN_SCRIPT = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u;
 
+/** With no vocabulary from the caller there is nothing to check against, so the
+ *  gate passes rather than inventing a verdict about words it was never given. */
 function hasContext(text: string, tokens: string[]): boolean {
-  if (PERSIAN_SCRIPT.test(text)) return true;
+  if (tokens.length === 0) return true;
+  if (NON_LATIN_SCRIPT.test(text)) return true;
   const lower = text.toLowerCase();
   return tokens.some((t) => lower.includes(t.toLowerCase()));
 }
@@ -359,7 +362,7 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
   if (DICTIONARY_FRAME.test(s1) && !hasContext(s1, tokens)) {
     return {
       status: "generic_rejected",
-      reasons: ["Opens with a context-free dictionary definition (no Iran/Persian framing) — reads generic, not page-specific."],
+      reasons: ["Opens with a context-free dictionary definition instead of this page's own subject, so it reads generic."],
       copyAllowed: false,
       canRegenerate: true,
       confidence: "high",
@@ -371,7 +374,7 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
   if (!hasContext(answer, tokens)) {
     return {
       status: "relevance_rejected",
-      reasons: ["No Iran/Persian context anywhere — likely off-topic for this page."],
+      reasons: ["None of this page's own subject words appear anywhere, so this is likely off-topic."],
       copyAllowed: false,
       canRegenerate: true,
       confidence: "medium",
@@ -550,7 +553,7 @@ export function evaluateTitleMetaQuality(input: EvaluateTitleInput): DraftQualit
   if (!hasContext(after, tokens)) {
     return {
       status: "relevance_rejected",
-      reasons: ["Rewrite drops the page’s core entity (no Iran/Persian term)."],
+      reasons: ["Rewrite drops the words this page is actually about."],
       copyAllowed: false,
       canRegenerate: true,
       confidence: "medium",
@@ -692,10 +695,10 @@ export function evaluateCreatePageBriefQuality(input: EvaluateBriefInput): Draft
   }
   // Generic dictionary opening with no content context.
   if (DICTIONARY_FRAME.test(firstSentence(opening)) && !hasContext(firstSentence(opening), tokens)) {
-    return { status: "generic_rejected", reasons: ["Opening is a context-free dictionary definition (no Iran/Persian framing)."], copyAllowed: false, canRegenerate: true, confidence: "high" };
+    return { status: "generic_rejected", reasons: ["Opening is a context-free dictionary definition instead of this page's own subject."], copyAllowed: false, canRegenerate: true, confidence: "high" };
   }
   if (!hasContext(opening, tokens)) {
-    return { status: "relevance_rejected", reasons: ["Opening carries no Iran/Persian context."], copyAllowed: false, canRegenerate: true, confidence: "medium" };
+    return { status: "relevance_rejected", reasons: ["The opening carries none of this page's own subject words."], copyAllowed: false, canRegenerate: true, confidence: "medium" };
   }
   if (announcingLead(opening)) {
     return { status: "too_thin", reasons: ["Opening announces the page instead of answering the question. Lead with the answer."], copyAllowed: false, canRegenerate: true, confidence: "high" };

@@ -273,11 +273,18 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // unrelated dates for what is really one schedule.
   const schedule = verdictSchedule(ledgerRows, new Date(nowMs));
   const firstReadOn = schedule.firstReadOn;
+  // The decision's OWN verdict for the blamed page, when this release judged it and
+  // declined to change it. Quoting it beats a generic "still checking": the operator
+  // reads why that page is not work today, in the same words Changes would use.
+  const declineVerdict = smokeAlarm
+    ? (today.declineNotes ?? []).find((n) => n.page === smokeAlarm.pageKey)?.note ?? null
+    : null;
   const command = buildTodayCommand({
     pipelineAlarms: [],
     smokeAlarm,
     scoreboardDeltaPct,
     topOpportunity: today.nextOpportunities[0] ?? null,
+    declineVerdict,
     firstReadOn,
     measuringCount,
   });

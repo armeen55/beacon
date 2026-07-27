@@ -16,6 +16,8 @@ import type { TodayComposite } from "./today-view-data";
 
 const STORE = "customer-surface";
 export const CUSTOMER_SURFACE_FRESH_MS = 15 * 60 * 1000;
+/** How many judged-but-declined pages one release carries a verdict for. */
+const DECLINE_NOTE_LIMIT = 20;
 
 /** One atomic customer-visible release. Engineering producers may update their
  * own caches independently, but Today and Changes only adopt a new release when
@@ -95,9 +97,28 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
     // release stays exactly as it was, and the phase fails where a human can see it.
     // A clean run that finds NO actionable candidate resolves normally and publishes
     // with zero new proposals: nothing to do is an answer, not an outage.
-    await produceProposalsForTenant(tenantId);
+    //
+    // PARTIAL FAILURE IS STILL FAILURE. When every write of this pass failed, the
+    // proposals exist only in memory: publishing would stamp a fresh timestamp on a
+    // release nobody can load back. That aborts here, so the previous release stays
+    // byte-identical and the phase pauses where a human can see it.
+    const produced = await produceProposalsForTenant(tenantId);
+    if (produced?.outcome === "persistence_failed") {
+      throw new Error("I produced changes this pass but could not save a single one, so I kept your last release instead of stamping a new time on work I cannot load back.");
+    }
     const changes = await buildChangesViewUncached(tenantId);
-    const today = await buildTodayCompositeFromChanges(changes);
+    // The verdicts for pages this pass JUDGED and declined to change, carried into the
+    // release so Today can quote the decision for the page it blames instead of a
+    // generic "still checking". Biggest measured gap first, bounded: Today quotes at
+    // most one, and a release is a blob, not a log.
+    const { normalizedFixKey } = await import("@/components/today/today-smoke-alarm");
+    const declineNotes = (produced?.candidates ?? [])
+      .filter((c) => c.action !== "act_existing_page" && c.action !== "act_new_page" && !!c.pageUrl)
+      .sort((a, b) => b.recoverableClicks - a.recoverableClicks)
+      .slice(0, DECLINE_NOTE_LIMIT)
+      .map((c) => ({ page: normalizedFixKey(c.pageUrl as string), note: c.reason }));
+    const today = await buildTodayCompositeFromChanges(changes, {
+      outcome: produced?.outcome, investigating: produced?.investigating, declineNotes });
     const computedAt = new Date().toISOString();
     const releaseId = `${tenantId}:${computedAt}`;
     const surface: CustomerSurface = {

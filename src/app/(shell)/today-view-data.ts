@@ -14,6 +14,7 @@ import { normalizedFixKey } from "@/components/today/today-smoke-alarm";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
 import { countTrackedQuestions } from "@/domains/runtime";
 import type { ChangeProposal } from "@/domains/decision";
+import type { ProducerOutcome } from "@/domains/decision";
 import type { TodayOpportunity, EvidenceStrength } from "@/domains/measurement/today/today-command";
 
 /** The minimal Today read model the Today page renders (headerSentence + the one
@@ -30,6 +31,12 @@ export type TodayView = {
    *  (so the claim stays honest) but /changes/<id> would 404 for it, so the CTA
    *  falls back to the Changes queue. */
   readyFixes?: { page: string; proposalId: string }[];
+  /** The kernel's OWN verdict for pages it judged and declined to change, keyed by
+   *  the same normalized path readyFixes uses. Today quotes the verdict for the
+   *  page it blames instead of a generic "still checking", so a page the decision
+   *  resolved to watch reads as a decision, not as an absence. Optional: a release
+   *  written before this field quotes nothing. */
+  declineNotes?: { page: string; note: string }[];
 };
 
 export type TodayComposite = {
@@ -76,11 +83,20 @@ export function proposalToOpportunity(p: ChangeProposal): TodayOpportunity {
 /** How many ready changes Today previews under its one command. */
 const TODAY_PREVIEW_LIMIT = 5;
 
+/** What THIS release's production pass actually concluded, so an empty queue can
+ *  say which empty it is. Optional: a release built without it says nothing new. */
+export type TodayProducerSignal = {
+  outcome?: ProducerOutcome;
+  /** How many proven gaps this pass is still investigating (research_needed). */
+  investigating?: number;
+  declineNotes?: { page: string; note: string }[];
+};
+
 /** PURE: build the Today slice from a ChangesView. Today's next opportunities are
  *  the ready (validated, exact-copy) proposals, best first. The COUNT is the full
  *  ready list; the preview is the top five, so Today can never under-report the
  *  queue it is drawing from (it used to count the sliced preview). */
-export function buildTodayViewFromChanges(view: ChangesView): TodayView {
+export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProducerSignal = {}): TodayView {
   const readyTotal = view.ready.length;
   const ready = view.ready.slice(0, TODAY_PREVIEW_LIMIT).map(proposalToOpportunity);
   const readyFixes = view.ready
@@ -88,6 +104,9 @@ export function buildTodayViewFromChanges(view: ChangesView): TodayView {
     .map((p) => ({ page: normalizedFixKey(p.pagePath ?? p.pageUrl ?? ""), proposalId: p.bundle ? p.id : "" }))
     .filter((f) => f.page.length > 0);
   const measuring = view.measuringCountCanonical;
+  // Carried verbatim from the pass that judged those pages; omitted when empty so a
+  // release stays as small as what it actually knows.
+  const declineNotes = producer.declineNotes?.length ? { declineNotes: producer.declineNotes } : {};
   let headerSentence: string;
   if (readyTotal > 0) {
     const lead =
@@ -98,7 +117,18 @@ export function buildTodayViewFromChanges(view: ChangesView): TodayView {
       measuring > 0
         ? `${lead} ${measuring} more ${measuring === 1 ? "is" : "are"} still measuring.`
         : lead;
-    return { headerSentence, nextOpportunities: ready, readyFixes };
+    return { headerSentence, nextOpportunities: ready, readyFixes, ...declineNotes };
+  } else if (producer.outcome === "investigating") {
+    // Proven losses whose CAUSE is not identified yet. This used to fall through to
+    // "Nothing needs a decision today", which is the one sentence that makes a paid
+    // tool read as broken while it is actually working. Name the number instead.
+    const n = producer.investigating ?? 0;
+    headerSentence = `${n > 0 ? `I found ${n} ${n === 1 ? "page" : "pages"} losing clicks and I am` : "I am"} checking the live results pages for ${n === 1 ? "it" : "them"} before asking you to change anything.${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
+  } else if (producer.outcome === "actionable_but_no_trusted_draft") {
+    // Real gaps, no change I can stand behind. Saying "nothing needs a decision"
+    // here would be a lie by omission, and showing yesterday's Ready work as
+    // newly generated would be worse.
+    headerSentence = `I found meaningful traffic gaps, but I am still checking the results pages and competing pages before asking you to change anything.${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
   } else if ((view.demotedStaleBasis ?? 0) > 0) {
     const n = view.demotedStaleBasis;
     headerSentence = `I raised the bar for what counts as worth your time, so I set aside ${n} earlier ${n === 1 ? "idea" : "ideas"} that no longer clear it.${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
@@ -110,7 +140,7 @@ export function buildTodayViewFromChanges(view: ChangesView): TodayView {
   } else {
     headerSentence = "Nothing needs a decision today. I am still gathering evidence, and I will rank your next moves as it lands.";
   }
-  return { headerSentence, nextOpportunities: ready, readyFixes };
+  return { headerSentence, nextOpportunities: ready, readyFixes, ...declineNotes };
 }
 
 async function loadTodayViewUncached(): Promise<TodayComposite> {
@@ -121,9 +151,10 @@ async function loadTodayViewUncached(): Promise<TodayComposite> {
   return { today: buildTodayViewFromChanges(view), hasChanges: view.proposals.length > 0 };
 }
 
-/** Compose Today from the exact Changes release that will ship beside it. */
-export async function buildTodayCompositeFromChanges(view: ChangesView): Promise<TodayComposite> {
-  return { today: buildTodayViewFromChanges(view), hasChanges: view.proposals.length > 0 };
+/** Compose Today from the exact Changes release that will ship beside it, and from
+ *  what that release's own production pass concluded. */
+export async function buildTodayCompositeFromChanges(view: ChangesView, producer: TodayProducerSignal = {}): Promise<TodayComposite> {
+  return { today: buildTodayViewFromChanges(view, producer), hasChanges: view.proposals.length > 0 };
 }
 
 export async function loadTodayView(): Promise<TodayComposite> {

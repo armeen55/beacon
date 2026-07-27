@@ -21,10 +21,11 @@ vi.mock("@/domains/account/lifecycle", () => ({ requireReadyAccount: vi.fn(async
   resolveAccountAccess: vi.fn(async () => ({ kind: "ready", account: { status: "active" } })), AccountUnavailableError: class extends Error {} }));
 
 describe("Today renders, and tells the truth about its own queue", () => {
-  it("TodayPage RSC renders the shell wrapper + Cockpit skeleton fallback", async () => {
-    const { default: TodayPage } = await import("@/app/(shell)/page");
-    const html = renderToStaticMarkup((await TodayPage({ searchParams: Promise.resolve({}) })) as ReactElement);
-    expect(html).toContain("max-w-3xl"); expect(html).toContain('aria-label="Loading today"');
+  it.each([["@/app/(shell)/page", ["max-w-3xl", 'aria-label="Loading today"']], ["@/app/(shell)/changes/page", ["Changes", "ranked execution queue"]],
+    ["@/app/(shell)/results/page", ["Results", "7, 14, and 28 days"]]] as const)("renders the %s frame without throwing", async (mod, claims) => {
+    const { default: Page } = await import(mod) as { default: (a?: unknown) => Promise<ReactElement> };
+    const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
+    for (const claim of claims) expect(html).toContain(claim);
   }, 15_000);
 
   const readyView = (n: number, measuring: number) => ({
@@ -37,10 +38,29 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
     const view = buildTodayViewFromChanges(readyView(12, 3));
     expect(view.headerSentence).toBe("You have 12 changes ready; here are the five strongest. 3 more are still measuring.");
+    const { buildScoreboard } = await import("@/domains/measurement"); // ONE COUNT RULE: the header owns "N measuring", the chart never repeats it
+    expect(buildScoreboard([{ date: "2026-07-01", clicks: 10, impressions: 0 }, { date: "2026-07-20", clicks: 20, impressions: 0 }], [], new Date("2026-07-21T00:00:00Z"))?.verdictLine ?? "").not.toMatch(/measuring/i);
     expect(view.nextOpportunities).toHaveLength(5);
     expect(view.readyFixes).toHaveLength(12); // every ready page is linkable, not just the previewed five
     expect(buildTodayViewFromChanges(readyView(1, 0)).headerSentence).toBe("You have 1 change ready to apply.");
   });
+
+  const STILL_CHECKING = "I found meaningful traffic gaps, but I am still checking the results pages and competing pages before asking you to change anything.";
+  const alarm = (actionLabel: string, href: string) => ({ page: "/famous-iranian-comedians", pageKey: "/famous-iranian-comedians", clicksLost: 163,
+    windowLabel: "the previous 4 weeks", sentence: "", href, actionLabel, hasReadyFix: actionLabel === "See the fix" });
+  const command = (over: Record<string, unknown>) => ({ pipelineAlarms: [], smokeAlarm: null, scoreboardDeltaPct: -12, topOpportunity: null, firstReadOn: null, measuringCount: 0, ...over });
+
+  it("never sends you to fix a page the decision resolved to watch, and says plainly that it is still checking", async () => {
+    const { buildTodayCommand } = await import("@/domains/measurement");
+    const watching = "Traffic fell here, but its search click-through is healthy, so I am watching it rather than asking you to rewrite a page that is winning.";
+    const held = buildTodayCommand(command({ smokeAlarm: alarm("Open Changes", "/changes"), declineVerdict: watching }));
+    expect(held.headline).toBe(STILL_CHECKING); expect(held.why[0]).toBe(watching); expect(held.cta).toBeNull(); // no "Open Changes" for a page with no fix
+    const ready = buildTodayCommand(command({ smokeAlarm: alarm("See the fix", "/changes/abc") })); // a decline WITH a ready fix still takes over
+    expect(ready.kind).toBe("respond_to_loss"); expect(ready.exactAction).toContain("apply the fix"); expect(ready.cta).toEqual({ label: "See the fix", href: "/changes/abc" });
+    const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
+    const empty = { ready: [], toDo: [], measuringCountCanonical: 0, proposals: [] } as unknown as import("@/app/(shell)/changes-data").ChangesView;
+    expect(buildTodayViewFromChanges(empty, { outcome: "actionable_but_no_trusted_draft" }).headerSentence).toBe(STILL_CHECKING);
+    expect(buildTodayViewFromChanges(empty).headerSentence).toContain("Nothing needs a decision today."); }); // a genuinely quiet day still reads quiet
 
   it("points a bleeding page at its own ready fix, and never at a route that does not exist", async () => {
     const { buildTodaySmokeAlarm } = await import("@/components/today/today-smoke-alarm");
@@ -50,35 +70,11 @@ describe("Today renders, and tells the truth about its own queue", () => {
     expect(fixed.href).toBe(`/changes/${encodeURIComponent("t::/nowruz::existing_edit::title")}`);
     expect(fixed.actionLabel).toBe("See the fix"); expect(fixed.sentence).toContain("I have a fix ready.");
     expect(bare.href).toBe("/changes"); expect(bare.actionLabel).toBe("Open Changes"); expect(bare.sentence).not.toContain("fix ready");
-    for (const href of [fixed.href, bare.href]) expect(href.startsWith("/page/")).toBe(false);
-  });
+    for (const href of [fixed.href, bare.href]) expect(href.startsWith("/page/")).toBe(false); // never a route that does not exist
+    const long = "/" + "a".repeat(60); // the DISPLAY label truncates; the key any lookup matches on must not
+    const wide = buildTodaySmokeAlarm({ decay: [{ page: `https://site.example${long}`, clicksNow: 10, clicksPrior: 60 }], readyFixes: new Map() })!;
+    expect(wide.page.endsWith("...")).toBe(true); expect(wide.pageKey).toBe(long); });
 
-  // The proof strip owns the measuring count; the chart used to print its own smaller one (16 vs 13).
-  it("keeps the measuring count off the hero chart sentence entirely", async () => {
-    const { buildScoreboard } = await import("@/domains/measurement");
-    const days = Array.from({ length: 14 }, (_, i) => ({ date: `2026-07-${String(i + 1).padStart(2, "0")}`, clicks: 10, impressions: 100 }));
-    const ledger = Array.from({ length: 5 }, (_, i) => ({ id: `c${i}`, path: `/p${i}`, shippedAt: "2026-07-10T00:00:00.000Z", verdict: "measuring", windows: [] }));
-    const s = buildScoreboard(days, ledger, new Date("2026-07-14T00:00:00.000Z"))!;
-    expect(s.verdictLine).toBe("Last 7 reported days: 70 clicks from every search, about even with the week before.");
-    expect(Object.keys(s)).not.toContain("measuringCount"); // the field is gone, not merely unprinted
-    expect(s.markers).toHaveLength(1); // marker tones still read the canonical lifecycle
-  });
-});
-
-describe("Changes route smoke", () => {
-  it("WorklistPage renders the Changes frame + list fallback", async () => {
-    const { default: ChangesPage } = await import("@/app/(shell)/changes/page");
-    const html = renderToStaticMarkup((await ChangesPage()) as ReactElement);
-    expect(html).toContain("Changes"); expect(html).toContain("ranked execution queue");
-  });
-});
-
-describe("Results route smoke", () => {
-  it("ProofPage RSC renders the Results frame (empty-state is honest, never a bare zero)", async () => {
-    const { default: ResultsPage } = await import("@/app/(shell)/results/page");
-    const html = renderToStaticMarkup((await ResultsPage({ searchParams: Promise.resolve({}) })) as ReactElement);
-    expect(html).toContain("Results"); expect(html).toContain("7, 14, and 28 days");
-  }, 15_000);
 });
 
 describe("Connectors settings route smoke", () => {

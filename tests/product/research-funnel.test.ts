@@ -1,10 +1,8 @@
-/**
- * PRODUCT - the research funnel: the four executors, the pure projector and the canonical snapshot, driven by injected
- * CAPABILITY fakes over an in-memory basis-scoped state repo. Pins CURRENT-SET truth (obsolete pairs and queries are
- * pruned and never inherit completion), OBSERVATION-MODE truth (canonical consumer/standardized coverage vs bounded
- * auxiliary research), weekly freshness, the DISPOSITION ladder (blocked stops the batch and pauses the run;
- * quarantined is plain unavailable coverage), distinct history identity, and the per-run receipt. No network.
- */
+/** PRODUCT - the research funnel: the four executors, the pure projector and the canonical snapshot, driven by injected CAPABILITY
+ *  fakes over an in-memory basis-scoped state repo. Pins CURRENT-SET truth (obsolete pairs and queries are pruned and never inherit
+ *  completion), OBSERVATION-MODE truth (canonical consumer/standardized coverage vs bounded auxiliary research), weekly freshness,
+ *  the DISPOSITION ladder (blocked stops the batch and pauses the run; quarantined is plain unavailable coverage), the SERP agenda
+ *  in the customer's own words with an open investigation bought first, distinct history identity, and the receipt. No network. */
 import { describe, it, expect } from "vitest";
 import { emptyBusinessProfile, type Account, type BusinessProfile, type ProfileSection } from "@/domains/account";
 import type { CachedCallResult, CapabilityKey, FailureDisposition, ParsedAiAnswer, ParsedKeywordItem, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
@@ -145,8 +143,7 @@ describe("research funnel - current-set truth + the disposition ladder", () => {
   it("pauses honestly when a pass processes nothing or coverage is unavailable, never a fake done", async () => { const store = memStore(); let t = 0; // the deadline passes immediately after it is set: zero pairs run
     const stalled = await promptObservationUnit(mk(store, { now: () => (t += 100_000), callProvider: async () => waiting("ck") }))("tp", cur(), 1_000);
     const unavailable = await promptObservationUnit(mk(store, { callProvider: async () => ({ state: "not_configured", cacheKey: null, detail: "not configured" }) }))("tp", cur(), 60_000);
-    expect([stalled.status, unavailable.status, !!stalled.detail, !!unavailable.detail]).toEqual(["failed", "failed", true, true]);
-  });
+    expect([stalled.status, unavailable.status, !!stalled.detail, !!unavailable.detail]).toEqual(["failed", "failed", true, true]); });
   it("a blocked POST stops the batch on the FIRST refusal, leaves every row exactly as it was, and pauses the run for review", async () => { const store = memStore(); let calls = 0; const pairs = () => store.peek("tp", BASIS)!.prompts.pairs;
     const d = mk(store, { callProvider: async () => { calls += 1; return err("blocked", "ck-blocked"); } });
     const r1 = await promptObservationUnit(d)("tp", cur(), 60_000); expect([r1.status, r1.detail, calls]).toEqual(["failed", "the provider could not finish it", 1]); // the boundary's own truth, never a canned line, and not one more paid request
@@ -155,8 +152,7 @@ describe("research funnel - current-set truth + the disposition ladder", () => {
     expect([r2.status, r2.detail, calls]).toEqual(["failed", "the provider could not finish it", 2]); // still paused, zero post-block calls
     let ecalls = 0; // a refusal carrying an EMPTY detail must still arm the block and the batch stop
     const empty = await promptObservationUnit(mk(memStore(), { callProvider: async () => { ecalls += 1; return { state: "error", cacheKey: null, disposition: "blocked", detail: "" } as CachedCallResult; } }))("tp", cur(), 60_000);
-    expect([empty.status, !!empty.detail, ecalls]).toEqual(["failed", true, 1]);
-  });
+    expect([empty.status, !!empty.detail, ecalls]).toEqual(["failed", true, 1]); });
   it("a quarantined POST is plain unavailable coverage: the pair is marked unsupported and the batch keeps running", async () => { const store = memStore(); let calls = 0;
     const out = await promptObservationUnit(mk(store, { callProvider: async () => { calls += 1; return err("quarantined", "ck-q"); } }))("tp", cur(), 60_000);
     expect([out.status, calls]).toEqual(["failed", 5]); // one ambiguous key never deadlocks the phase: every pair still got its turn
@@ -237,6 +233,11 @@ describe("research funnel - the SERP agenda buys my own words, never a lookalike
     expect(out.queries.slice(0, 4)).toEqual(["female baby names", "flag history timeline", "given name origins guide", "national holidays calendar"]);
     expect(out.uncoveredThemes).toEqual(["septic tank inspection"]); expect(out.queries.some((q) => q.includes("septic"))).toBe(false); // named, never faked
     expect(agenda({ themes: [] }, 40).queries).toHaveLength(8); }); // nothing trusted to check: a SHORTER agenda, never forty slots of padding
+  it("buys the searches an open question is stuck on FIRST, verbatim, and never more than three", () => {
+    const out = agenda({ priorityQueries: ["national flag 1979", "boys baby names", "given name origins", "septic tank inspection"], pageQueries: [{ query: "female baby names", impressions: 9000 }] }, 8);
+    expect(out.queries.slice(0, 3)).toEqual(["national flag 1979", "boys baby names", "given name origins"]); // the caller's own ranking, ahead of a 9,000-view first-party query
+    expect(out.queries).not.toContain("septic tank inspection"); expect(out.queries[3]).toBe("female baby names"); // a fourth is not a priority, and nothing trusted was displaced
+    expect(JSON.stringify(agenda({ priorityQueries: ["boys baby names", "boys names baby"] }, 8).queries.slice(0, 2))).toBe(JSON.stringify(["boys baby names", "female baby names"])); }); // one subject, ONE paid slot
   it("produces the same agenda from the same inputs in any array order", () => { const full: Agenda = { retained, themes: THEMES, prompts: [{ text: "what are popular baby names", fanOutQueries: ["most popular baby names 2026", "baby names by decade"] }], pageQueries: [{ query: "boys baby names", impressions: 100, declining: true }, { query: "national flag 1979", impressions: 900 }] };
     const rev: Agenda = { retained: [...retained].reverse(), themes: [...THEMES].reverse(), prompts: [...full.prompts].reverse(), pageQueries: [...full.pageQueries].reverse() };
     expect(JSON.stringify(selectSerpAgenda(rev, 10))).toBe(JSON.stringify(selectSerpAgenda(full, 10))); });

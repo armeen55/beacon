@@ -1,23 +1,19 @@
-/**
- * The ONE change contract, both archetypes: an existing-page repair (Slice 7) and a new page (Slice 8). Selection on a
- * PROVEN recoverable gap, receipt-first grounding, scope named on every number, QUERY IDENTITY per query, winners that
- * attach only on exact membership, provider-only fan-outs, atomic-by-default bundling, confidence by evidence class,
- * determinism, honest refusal, a release that publishes only on a real production result, dedupe, and a round trip.
- */
+/** The ONE change contract, both archetypes: an existing-page repair (Slice 7) and a new page (Slice 8). Selection on a PROVEN recoverable gap,
+ *  receipt-first grounding for the EXACT candidate search, scope named on every number, QUERY IDENTITY per query, winners attaching only on exact
+ *  membership, atomic bundling, confidence and readiness by EVIDENCE HELD, determinism, honest refusal, a release publishing only on a real production result, dedupe, and a round trip. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
-const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() }));
-const env = vi.hoisted(() => ({ snap: null as unknown }));
+const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) }));
 vi.mock("@/domains/decision/proposal-store", () => ({ loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); } }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap })); vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null }));
 import { produceBundleForSnapshot, produceNewPageBundleForSnapshot } from "@/domains/decision/produce-bundle";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals"; import { loadProposalQueue } from "@/domains/decision/load-proposals";
-import { serializeChangeProposal, deserializeChangeProposal } from "@/domains/decision/contracts";
+import { confidenceFor, serializeChangeProposal, deserializeChangeProposal } from "@/domains/decision/contracts";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { EvidenceSnapshot, NewPageOpportunity, OwnedPageEvidence } from "@/domains/evidence/snapshot";
-import { emptyResearchEvidence, type ResearchPageExtract } from "@/domains/evidence/funnel/research-evidence";
+import { emptyResearchEvidence, type ResearchPageExtract, type ResearchWinningAppearance } from "@/domains/evidence/funnel/research-evidence";
 const TENANT = "fixture-tenant"; const NOW = new Date("2026-07-25T00:00:00.000Z");
 const TITLE_AFTER = "Rain barrel sizing: gallons per storm by roof area";
 const META_AFTER = "Rain barrel sizing comes down to roof area and gallons per storm, and this page walks through the numbers so you can pick a size with confidence.";
@@ -29,58 +25,45 @@ const sent: string[] = [];
 const seam: CompleteFn = async ({ kind, system, user }) => {
   sent.push(system); if (kind === "answer_block") return { value: { answer: ANSWER_AFTER, citationHook: null, ...TAIL } };
   const field = user.includes("Field to edit: meta") ? "meta" : "title";
-  return { value: { field, before: null, after: field === "meta" ? META_AFTER : TITLE_AFTER, rationale: "The current copy does not say what the page answers.", ...TAIL } };
-};
-function page(over: Partial<OwnedPageEvidence> & { url: string }): OwnedPageEvidence {
-  return {
+  return { value: { field, before: null, after: field === "meta" ? META_AFTER : TITLE_AFTER, rationale: "The current copy does not say what the page answers.", ...TAIL } }; };
+const page = (over: Partial<OwnedPageEvidence> & { url: string }): OwnedPageEvidence => ({
     content: { title: "Rain Barrels", metaDescription: null, h1: "Rain Barrels", h2: [], outline: ["Rain barrel sizing", "Roof area and gallons", "Chaining a second barrel"], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 900, internalLinks: [], fetchedAt: "2026-07-20T00:00:00.000Z" },
     // "rain barrel sizing" earns 90 clicks where position 3 normally earns about 660: a 570-click gap. The second search sits at position 11 and earns about what that position should, so it is no gap at all.
     search: { clicks90d: 120, impressions90d: 9000, ctr90d: 0.013, position90d: 8, topQueries: [{ query: "rain barrel sizing", impressions: 6000, clicks: 90, position: 3 }, { query: "how many gallons rain barrel", impressions: 2000, clicks: 20, position: 11 }] },
-    engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] }, ...over,
-  };
-}
+    engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] }, ...over });
 const COMPOST = { clicks90d: 5, impressions90d: 1200, ctr90d: 0.004, position90d: 6, topQueries: [{ query: "compost bin sizing", impressions: 1200, clicks: 5, position: 6 }] };
 const WIN1 = "https://gardenguide.example/a";
-const RESEARCH = {
-  ...emptyResearchEvidence(),
+const RESEARCH = { ...emptyResearchEvidence(),
   retainedKeywords: [{ query: "rain barrel sizing", searchVolume: 4400, competition: 0.2, competitionLevel: "low" as const, difficulty: null, intent: "informational" },
     { query: "how many gallons rain barrel", searchVolume: 880, competition: 0.1, competitionLevel: "low" as const, difficulty: null, intent: "informational" }],
   serpEvidence: [{ query: "rain barrel sizing", organic: [{ rank: 1, domain: "gardenguide.example", url: WIN1, title: "A" }, { rank: 2, domain: "waterwise.example", url: "https://waterwise.example/b", title: "B" }], aiOverview: [{ url: WIN1, domain: "gardenguide.example", title: "A" }], aiMode: [], paa: [], related: [] }],
   aiObservations: [{ promptId: "p1", promptText: "what size rain barrel do I need", engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url: WIN1, domain: "gardenguide.example", title: "A" }], fanOutQueries: ["rain barrel gallons"], observedAt: "2026-07-22T00:00:00.000Z" },
   { promptId: "p2", promptText: "rain barrel sizing rule of thumb", engine: "gemini", observationMode: "standardized_response" as const, modelRequested: null, modelServed: null, webSearchReported: null, citationsObserved: false, citations: null, fanOutQueries: null, observedAt: "2026-07-21T00:00:00.000Z" }],
-  winningPages: [{ url: WIN1, domain: "gardenguide.example", engines: ["chatgpt"], examplePrompts: ["what size rain barrel do I need"], appearances: [{ kind: "ai_answer" as const, query: null, promptId: "p1", promptText: "what size rain barrel do I need", engine: "chatgpt", rank: null, citedUrl: WIN1, observedAt: "2026-07-22T00:00:00.000Z", modelServed: null }], extract: { title: "A", h1: "A", wordCount: 1400, headings: ["Sizing", "Overflow"], faqCount: 2 } }],
-};
+  winningPages: [{ url: WIN1, domain: "gardenguide.example", engines: ["chatgpt"], examplePrompts: ["what size rain barrel do I need"], appearances: [{ kind: "ai_answer" as const, query: null, promptId: "p1", promptText: "what size rain barrel do I need", engine: "chatgpt", rank: null, citedUrl: WIN1, observedAt: "2026-07-22T00:00:00.000Z", modelServed: null }], extract: { title: "A", h1: "A", wordCount: 1400, headings: ["Sizing", "Overflow"], faqCount: 2 } }] };
 // ── new-page fixture: one researched topic, one demand-only runner up ──────────
 const TOPIC = "rainwater harvesting permits"; const URL2 = "https://waterwise.example/permits"; const PROMPT2 = "rainwater harvesting permits by state";
 const OPP = { topic: TOPIC, demandWeight: 5200, basis: "mixed" as const, competitorUrls: [URL2], fanoutSeeds: ["do I need a permit for a rain barrel", "rainwater harvesting rules by county"], confidence: "medium" as const };
 const OPP2 = { topic: "downspout diverter install", demandWeight: 900, basis: "ai_attention" as const, competitorUrls: [], fanoutSeeds: [], confidence: "low" as const };
 const COMPETITOR = { url: URL2, domain: "waterwise.example", citationCount: 9, distinctPrompts: 4, engines: ["chatgpt"], examplePrompts: [PROMPT2] };
-const TOPIC_RESEARCH = {
-  ...RESEARCH,
+const TOPIC_RESEARCH = { ...RESEARCH,
   retainedKeywords: [...RESEARCH.retainedKeywords, { query: TOPIC, searchVolume: 1600, competition: 0.3, competitionLevel: "low" as const, difficulty: null, intent: "informational" }],
   serpEvidence: [...RESEARCH.serpEvidence, { query: TOPIC, organic: [{ rank: 1, domain: "waterwise.example", url: URL2, title: "P" }], aiOverview: [], aiMode: [], paa: [], related: [] }],
   aiObservations: [...RESEARCH.aiObservations, { promptId: "p3", promptText: PROMPT2, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url: URL2, domain: "waterwise.example", title: "P" }], fanOutQueries: null, observedAt: "2026-07-23T00:00:00.000Z" }],
-  winningPages: [...RESEARCH.winningPages, { url: URL2, domain: "waterwise.example", engines: ["chatgpt"], examplePrompts: [PROMPT2], appearances: [{ kind: "ai_answer" as const, query: null, promptId: "p3", promptText: PROMPT2, engine: "chatgpt", rank: null, citedUrl: URL2, observedAt: "2026-07-23T00:00:00.000Z", modelServed: null }], extract: { title: "P", h1: "P", wordCount: 1800, headings: ["Rules", "Rebates", "Limits"], faqCount: 3 } }],
-};
-const BRIEF = {
-  proposedTitle: "Rainwater harvesting permits: what the rules ask of you",
+  winningPages: [...RESEARCH.winningPages, { url: URL2, domain: "waterwise.example", engines: ["chatgpt"], examplePrompts: [PROMPT2], appearances: [{ kind: "ai_answer" as const, query: null, promptId: "p3", promptText: PROMPT2, engine: "chatgpt", rank: null, citedUrl: URL2, observedAt: "2026-07-23T00:00:00.000Z", modelServed: null }], extract: { title: "P", h1: "P", wordCount: 1800, headings: ["Rules", "Rebates", "Limits"], faqCount: 3 } }] };
+const BRIEF = { proposedTitle: "Rainwater harvesting permits: what the rules ask of you",
   metaDescription: "Rainwater harvesting permits differ by where you live, so this page walks through who needs one, what the rules cover, and how to check yours.",
   openingAnswer: "Rainwater harvesting permits are set locally, so whether you need one depends on where your barrel sits and how much water you plan to hold. Most households can put in a single barrel with no paperwork, while a larger cistern or any plumbed connection to the house usually needs a filed permit and an inspection. Check your county rules before you buy, because the limits are written per property rather than per barrel.",
   outline: ["Who needs a rainwater harvesting permit", "What the rules usually cover", "How to check your own county", "What an inspection looks for"],
-  faqQuestions: ["Do I need a permit for one rain barrel?", "What happens if I skip the permit?"], schemaTypes: ["Article", "FAQPage"],
-};
+  faqQuestions: ["Do I need a permit for one rain barrel?", "What happens if I skip the permit?"], schemaTypes: ["Article", "FAQPage"] };
 const SOURCE = { url: URL2, title: "County permit rules", domain: "waterwise.example", retrievedAt: "2026-07-23", claim: "Rainwater permit rules are set by county.", authority: "unverified" };
 const PLAN = [...BRIEF.outline, ...BRIEF.faqQuestions].join("\n");
 /** The same seam, plus the new-page brief with a chosen source list. */
 const briefSeam = (sources: unknown[]): CompleteFn => async (req) => { sent.push(req.system); return req.kind === "create_page_brief" ? { value: { ...BRIEF, sources, ...TAIL } } : seam(req); };
-function snapshot(over: Partial<EvidenceSnapshot> = {}): EvidenceSnapshot {
-  return {
+const snapshot = (over: Partial<EvidenceSnapshot> = {}): EvidenceSnapshot => ({
     scope: { tenantId: TENANT, site: "fixture-content.example", builtAt: NOW.toISOString() }, aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 },
     sources: [], competitors: [], keywordDemand: [], questionDemand: [], intentClusters: [], cannibalization: [],
     contentGaps: [], internalLinkOpportunities: [], newPageOpportunities: [], evidenceHash: "fixture", research: RESEARCH,
-    ownedPages: [page({ url: "fixture-content.example/rain-barrels" }), page({ url: "fixture-content.example/compost", search: COMPOST })], ...over,
-  };
-}
+    ownedPages: [page({ url: "fixture-content.example/rain-barrels" }), page({ url: "fixture-content.example/compost", search: COMPOST })], ...over });
 const topicSnapshot = (over: Partial<EvidenceSnapshot> = {}): EvidenceSnapshot => snapshot({ research: TOPIC_RESEARCH, newPageOpportunities: [OPP, OPP2], competitors: [COMPETITOR], ...over });
 const reverse = <T,>(a: readonly T[]): T[] => [...a].reverse();
 const OPTS = { now: NOW, bypassCache: true };
@@ -121,9 +104,11 @@ describe("produceBundleForSnapshot", () => {
     expect(bundle.components.map((c) => c.kind)).toEqual(["title"]); expect(out.proposal.changeFamily).toBe("single"); expect(bundle.scope.prompts).toEqual([]);
     expect(bundle.alternatives.some((a) => a.option === "Search description" && a.reason.includes("stands on its own"))).toBe(true);
     expect(bundle.risks.some((r) => r.includes("one repair"))).toBe(false); // nothing here belongs together, so nothing claims to
-    expect(bundle.receipt.missing).toEqual(expect.arrayContaining(["I do not have a monthly search count for these searches yet.", "I have not gathered an AI answer about this page's topic yet.",
-      "I have not looked at the live results page for these searches yet.", "I have not read the pages AI keeps citing on this topic yet."]));
-    expect(bundle.alternatives.some((a) => a.option.includes("Opening answer"))).toBe(true); });
+    expect(bundle.receipt.missing).toEqual(expect.arrayContaining(['I do not have a monthly search count for "rain barrel sizing" yet.', 'I have not gathered an AI answer about "rain barrel sizing" yet.',
+      'I have not looked at the live results page for "rain barrel sizing" yet, so I cannot yet name what is taking the clicks.', 'I have not read the pages that come up for "rain barrel sizing" yet.']));
+    expect(bundle.alternatives.some((a) => a.option.includes("Opening answer"))).toBe(true);
+    // A gap proves something is wrong, never what to change: with no results page seen this is an investigation, not a ready edit.
+    expect(out.proposal.status).toBe("needs_review"); expect(out.proposal.confidence).toBe("low"); expect(bundle.components).toHaveLength(1); });
   it("refuses a page with no proven gap and no current copy, and round-trips through persistence", async () => {
     const opt = { complete: seam, ...OPTS }; const healthy = page({ url: "fixture-content.example/rain-barrels", search: { ...page({ url: "x" }).search!, topQueries: [{ query: "rain barrel sizing", impressions: 6000, clicks: 700, position: 3 }] } });
     const noGap = await produceBundleForSnapshot(snapshot({ ownedPages: [healthy] }), opt);
@@ -171,18 +156,15 @@ const kwRow = (query: string, searchVolume: number | null) => ({ query, searchVo
 const obsRow = (promptText: string, observedAt: string, url = WIN1, fanOutQueries: string[] | null = null) => ({ promptId: promptText, promptText, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url, domain: url.split("/")[2]!, title: "P" }], fanOutQueries, observedAt });
 const GALLONS = "how many gallons does a rain barrel hold";
 const MOSQUITO = "do rain barrels attract mosquitoes"; // shares only the everywhere-words with every page this account owns
-const ANCHOR_RESEARCH = {
-  ...emptyResearchEvidence(), serpEvidence: TOPIC_RESEARCH.serpEvidence,
+const ANCHOR_RESEARCH = { ...emptyResearchEvidence(), serpEvidence: TOPIC_RESEARCH.serpEvidence,
   retainedKeywords: [kwRow("rain barrel sizing", 4400), kwRow("how many gallons rain barrel", 880), kwRow(TOPIC, 1600), kwRow("rain barrel winter care", 210), kwRow("rain barrel overflow hose", 140), kwRow("rain barrel mosquito screen", 90)],
-  aiObservations: [obsRow(GALLONS, "2026-07-22T00:00:00.000Z"), obsRow(MOSQUITO, "2026-07-21T00:00:00.000Z"), obsRow(PROMPT2, "2026-07-23T00:00:00.000Z", URL2), obsRow("how do I winterize a rain barrel", "2026-07-20T00:00:00.000Z"), obsRow("rain barrel overflow in a storm", "2026-07-19T00:00:00.000Z")],
-  winningPages: [{ ...RESEARCH.winningPages[0], examplePrompts: [GALLONS], extract: { title: GALLONS, h1: "Rain barrel gallons", wordCount: 1400, headings: ["Typical gallons", "Overflow hose"], faqCount: 2 } }, { ...TOPIC_RESEARCH.winningPages[1], examplePrompts: [MOSQUITO] }],
-};
+  aiObservations: [obsRow(GALLONS, "2026-07-22T00:00:00.000Z", WIN1, ["sizing rain barrel"]), obsRow(MOSQUITO, "2026-07-21T00:00:00.000Z"), obsRow(PROMPT2, "2026-07-23T00:00:00.000Z", URL2), obsRow("how do I winterize a rain barrel", "2026-07-20T00:00:00.000Z"), obsRow("rain barrel overflow in a storm", "2026-07-19T00:00:00.000Z")],
+  winningPages: [{ ...RESEARCH.winningPages[0], examplePrompts: [GALLONS], extract: { title: GALLONS, h1: "Rain barrel gallons", wordCount: 1400, headings: ["Typical gallons", "Overflow hose"], faqCount: 2 } }, { ...TOPIC_RESEARCH.winningPages[1], examplePrompts: [MOSQUITO] }] };
 const anchorSnap = (over: Partial<EvidenceSnapshot> = {}): EvidenceSnapshot => snapshot({ research: ANCHOR_RESEARCH, competitors: [COMPETITOR], ...over });
 describe("evidence attaches only where it is topically anchored", () => {
   it("keeps the AI answer and cited page that are about THIS page, drops the ones sharing only the everywhere-word", async () => {
     const opt = { complete: seam, ...OPTS }; const out = await produceBundleForSnapshot(anchorSnap(), opt); if (out.status !== "bundled") throw new Error("expected a bundle");
-    const b = out.proposal.bundle!; const facts = b.receipt.items.map((i) => i.fact).join(" ");
-    expect(b.scope.prompts).toEqual([GALLONS]); expect(facts).not.toMatch(/mosquito|winterize|permit/i); // the four broad prompts share only "rain barrel"
+    const b = out.proposal.bundle!; const facts = b.receipt.items.map((i) => i.fact).join(" "); expect(b.scope.prompts).toEqual([GALLONS]); expect(facts).not.toMatch(/mosquito|winterize|permit/i); // kept only because the assistant itself searched this page's own search
     expect(b.receipt.items.filter((i) => i.kind === "winning_page").map((i) => i.fact.split(" ")[0])).toEqual(["gardenguide.example"]);
     expect(b.receipt.items.some((i) => i.kind === "ai_observation")).toBe(true); expectKeysResolve(b); expectCleanCopy(out.proposal);
     const flipped = anchorSnap({ research: { ...ANCHOR_RESEARCH, retainedKeywords: reverse(ANCHOR_RESEARCH.retainedKeywords), aiObservations: reverse(ANCHOR_RESEARCH.aiObservations), winningPages: reverse(ANCHOR_RESEARCH.winningPages) } });
@@ -197,10 +179,9 @@ describe("evidence attaches only where it is topically anchored", () => {
   it("drops evidence that is not about the page, then says plainly what it no longer holds", async () => {
     const only = [page({ url: "fixture-content.example/compost", search: { clicks90d: 40, impressions90d: 9000, ctr90d: 0.004, position90d: 5, topQueries: [{ query: "compost bin sizing", impressions: 9000, clicks: 40, position: 5 }] } })];
     const out = await produceBundleForSnapshot(anchorSnap({ ownedPages: only }), { complete: seam, ...OPTS }); if (out.status !== "bundled") throw new Error("expected a bundle");
-    const b = out.proposal.bundle!;
-    expect(b.components.map((c) => c.kind)).toEqual(["title"]); // the opening answer needed research this page cannot claim
+    const b = out.proposal.bundle!; expect(b.components.map((c) => c.kind)).toEqual(["title"]); // the opening answer needed research this page cannot claim
     expect(b.alternatives.some((a) => a.option === "Opening answer at the top of the page" && a.reason.includes("no outside evidence"))).toBe(true);
-    expect(b.receipt.missing).toEqual(expect.arrayContaining(["I have not gathered an AI answer about this page's topic yet.", "I have not read the pages AI keeps citing on this topic yet."]));
+    expect(b.receipt.missing).toEqual(expect.arrayContaining(['I have not gathered an AI answer about "compost bin sizing" yet.', 'I have not read the pages that come up for "compost bin sizing" yet.']));
     expect(b.receipt.items.every((i) => i.kind === "gsc_demand" || i.kind === "page_extract")).toBe(true); expect(b.scope.prompts).toEqual([]); });
   it("suppresses a new page that overlaps an owned page on its distinguishing words, never on the everywhere-word", async () => {
     const { snapshotToEvidenceInputs } = await import("@/domains/decision/opportunities"); const owned = ["Harbor", "Harbor Girl Names|Harbor Female Names", "Harbor Tide Charts", "Harbor Ferry Schedule", "Harbor Whale Tours", "Harbor Seafood Market", "Harbor Parking Rates", "Harbor Fishing Permits"]
@@ -215,26 +196,26 @@ const winRow = (url: string, extract: ResearchPageExtract | null = null) => ({ u
 const linkRow = (toUrl: string, anchor: string) => ({ fromUrl: "fixture-content.example/rain-barrels", toUrl, anchor, reason: "" });
 describe("what a receipt will and will not accept", () => {
   it("takes the results page bought under the same words in any order, and no winner a shared domain alone vouches for", async () => {
-    const research = { ...RESEARCH, serpEvidence: [serpRow("sizing rain barrel"), serpRow("rain barrel sizing chart")],
-      winningPages: [winRow(WIN1, { title: "A", h1: "A", wordCount: 900, headings: ["Gallons per storm"], faqCount: 0 }), winRow("https://gardenguide.example/other"), winRow("https://opaque.example/rain-barrel-sizing")] };
+    const research = { ...RESEARCH, serpEvidence: [serpRow("sizing rain barrel"), serpRow("rain barrel sizing chart")], winningPages: [winRow(WIN1, { title: "A", h1: "A", wordCount: 900, headings: ["Gallons per storm"], faqCount: 0 }), winRow("https://gardenguide.example/other"), winRow("https://opaque.example/rain-barrel-sizing")] };
     const out = await produceBundleForSnapshot(snapshot({ research }), { complete: seam, ...OPTS }); if (out.status !== "bundled") throw new Error("expected a change");
-    const items = out.proposal.bundle!.receipt.items; const serps = items.filter((i) => i.kind === "serp").map((i) => i.fact).join(" ");
-    expect(serps).toContain('"sizing rain barrel"'); expect(serps).not.toMatch(/chart/); // same words reordered is the same search; a new modifier is a different one
+    const items = out.proposal.bundle!.receipt.items; const serps = items.filter((i) => i.kind === "serp").map((i) => i.fact).join(" "); expect(serps).toContain('"sizing rain barrel"'); expect(serps).not.toMatch(/chart/); // same words reordered is the same search; a new modifier is a different one
     // ONLY the exact URL that appeared for a member search attaches. Another page on that SAME domain never does.
     expect(items.filter((i) => i.kind === "winning_page")).toHaveLength(1); expect(items.find((i) => i.kind === "winning_page")!.fact).toContain("900 words");
-    expect(out.proposal.confidence).toBe("high"); expect(out.proposal.bundle!.confidenceReasons.join(" ")).toContain("a live results check");
+    expect(items.some((i) => i.key === "winpattern")).toBe(false); // one page's style is that page's style, never a pattern
+    expect(out.proposal.confidence).toBe("medium"); expect(out.proposal.bundle!.confidenceReasons.join(" ")).toContain("a live results check");
     const tracked = await produceNewPageBundleForSnapshot(topicSnapshot({ research: { ...TOPIC_RESEARCH, winningPages: [winRow("https://waterwise.example/other")] } }), { complete: briefSeam([SOURCE]), ...OPTS });
     if (tracked.status !== "bundled") throw new Error("expected a bundle"); expect(tracked.proposal.bundle!.receipt.items.some((i) => i.kind === "winning_page")).toBe(false); }); // a competitor's domain is not this page's provenance
   it("withholds a link it cannot place, and never calls my own data alone high confidence", async () => {
     const links = [linkRow("fixture-content.example/", "Home"), linkRow("fixture-content.example/contact", "Contact us"), linkRow("fixture-content.example/gallons", "Rain barrel gallons per storm")];
     const out = await produceBundleForSnapshot(snapshot({ research: emptyResearchEvidence(), internalLinkOpportunities: links }), { complete: seam, ...OPTS });
-    if (out.status !== "bundled") throw new Error("expected a change"); const b = out.proposal.bundle!; // one destination is on topic, but with no body text there is no honest placement
+    if (out.status !== "bundled") throw new Error("expected a change"); const b = out.proposal.bundle!; // one destination is on topic, but no body text means no honest placement
     expect(b.components.some((c) => c.kind === "internal_links")).toBe(false); expect(b.receipt.items.some((i) => i.kind === "internal_link")).toBe(false);
     expect(b.alternatives.find((a) => a.option === "Links out to your own pages")!.reason).toContain("I can see 1 of your own page worth linking to");
-    expect(out.proposal.confidence).toBe("medium"); const reasons = b.confidenceReasons.join(" "); // my own demand rows and copy are still only my own data
+    expect(out.proposal.confidence).toBe("low"); const reasons = b.confidenceReasons.join(" "); // my own demand rows and copy are still only my own data
     expect(reasons).toContain("your own search data"); expect(reasons).toContain("what the page says today"); expect(reasons).not.toMatch(/\d+ pieces/);
+    expect(reasons).toContain('I have not seen the live results page for "rain barrel sizing" yet');
     const aiOnly = await produceBundleForSnapshot(snapshot({ research: { ...emptyResearchEvidence(), aiObservations: RESEARCH.aiObservations }, internalLinkOpportunities: links }), { complete: seam, ...OPTS });
-    expect(aiOnly.status === "bundled" && aiOnly.proposal.confidence).toBe("medium"); }); // an AI answer alone, with no results check and no winning page, is not high
+    expect(aiOnly.status === "bundled" && aiOnly.proposal.confidence).toBe("low"); }); // an AI answer alone, with no results check, cannot name the cause
   it("hands on only the follow-up searches the provider actually ran, and anchors coverage to the account corpus", async () => {
     const { buildEvidenceSnapshot } = await import("@/domains/evidence/snapshot"); const src = <T,>(payload: T) => ({ status: "fresh" as const, lastSyncedAt: null, payload });
     const input = (titles: string[], queries: string[], fan: string[] | null = null) => ({
@@ -245,11 +226,27 @@ describe("what a receipt will and will not accept", () => {
     const real = buildEvidenceSnapshot(input([], [], ["rainwater permit cost", "greywater rules by county"])).newPageOpportunities[0];
     expect(real.topic).toBe(PROMPT2); expect(real.fanoutSeeds).toEqual(["rainwater permit cost", "greywater rules by county"]); // the prompt we track names the topic
     expect(real.fanoutSeeds).not.toContain(PROMPT2); // and a question we track is ours, never handed on as the provider's own search
-    const small = buildEvidenceSnapshot(input(["Harbor Tide Charts", "Harbor Whale Tours"], []));
-    expect(small.newPageOpportunities[0].fanoutSeeds).toEqual([]); // the provider reported none, so I claim none
+    const small = buildEvidenceSnapshot(input(["Harbor Tide Charts", "Harbor Whale Tours"], [])); expect(small.newPageOpportunities[0].fanoutSeeds).toEqual([]); // the provider reported none
     expect(small.internalLinkOpportunities).toHaveLength(2); expect(small.questionDemand[0].coverageStatus).toBe("answered"); // under ten phrases nothing is ubiquitous yet
     const big = buildEvidenceSnapshot(input(["Harbor Tide Charts", "Harbor Whale Tours", "Harbor Seafood Market", "Harbor Ferry Schedule", "Harbor Parking Rates", "Harbor Fishing Permits"], ["harbor kayak rentals", "harbor sunset cruise", "harbor bike hire", "harbor dog beach", "harbor live music", "harbor farmers market"]));
     expect(big.internalLinkOpportunities).toEqual([]); expect(big.questionDemand[0].coverageStatus).toBe("unanswered"); }); // the everywhere-word relates nothing
+});
+describe("confidence is the evidence I hold, never how the draft reads", () => {
+  const twin = (url: string, over: Partial<(typeof RESEARCH)["winningPages"][number]> = {}) => ({ ...RESEARCH.winningPages[0]!, url, domain: url.split("/")[2]!, ...over });
+  const ranElsewhere: ResearchWinningAppearance[] = [{ kind: "serp_organic", query: "how many gallons rain barrel", promptId: null, promptText: null, engine: null, rank: 1, citedUrl: "https://elsewhere.example/x", observedAt: "2026-07-22T00:00:00.000Z", modelServed: null }];
+  const elsewhere = { ...twin("https://elsewhere.example/x"), examplePrompts: [], appearances: ranElsewhere };
+  it("reads two winners as medium, names the one step left, and claims only a pattern both of them share", async () => {
+    const research = { ...RESEARCH, winningPages: [...RESEARCH.winningPages, twin("https://waterwise.example/b"), elsewhere] };
+    const out = await produceBundleForSnapshot(snapshot({ research }), { complete: seam, ...OPTS }); if (out.status !== "bundled") throw new Error("expected a change");
+    const items = out.proposal.bundle!.receipt.items; // the third page came up for the page's OTHER search, so it is not evidence about this one
+    expect(items.filter((i) => i.kind === "winning_page").map((i) => i.fact).join(" ")).not.toMatch(/elsewhere/);
+    expect(items.find((i) => i.key === "winpattern")!.fact).toBe('Of the 2 pages I read that come up for "rain barrel sizing", 2 of them answer it in a question and answer block, and this page has none, and the middle one runs 1,400 words against this page\'s 900.');
+    expect(out.proposal.status).toBe("proposed"); expect(out.proposal.confidence).toBe("medium"); expectCleanCopy(out.proposal);
+    expect(out.proposal.limitations).toContain("I do not hold this page's full body text, so I checked every draft against its title and section headings only.");
+    expect(confidenceFor({ gsc: true, ownedCopy: true, serp: true, winners: 2, body: true })).toBe("high"); }); // reading the page itself is the only step left to certain
+  it("hands over nothing at all rather than a change it can show you nothing for", async () => {
+    const blind: CompleteFn = async () => ({ value: {} as never }); const out = await produceBundleForSnapshot(snapshot(), { complete: blind, ...OPTS });
+    expect(out.status).toBe("none"); if (out.status !== "none") return; expect(out.reason).toContain("handing you nothing rather than filler"); });
 });
 describe("one pass, both changes, one row per change", () => {
   it("drops the shallow brief for a bundled topic at generation and again on load", async () => {
@@ -268,12 +265,10 @@ describe("one pass, both changes, one row per change", () => {
     [...store.rows.values()].forEach((p) => store.rows.set(p.id, { ...p, status: "proposed", basis: "basis_today", limitations: p.id === owingId ? [owing] : [] }));
     const rows = store.rows.size; const stale = await loadProposalQueue(TENANT, { currentBasis: "basis_after_the_operator_changed_the_business" });
     expect(stale.ready).toEqual([]); expect(stale.toDo.length).toBe(stale.ranked.length); // an old basis can never claim ready
-    const current = await loadProposalQueue(TENANT, { currentBasis: "basis_today" });
-    expect(current.ready.length).toBeGreaterThan(0); expect(current.ready.some((p) => p.limitations.includes(owing))).toBe(false);
+    const current = await loadProposalQueue(TENANT, { currentBasis: "basis_today" }); expect(current.ready.length).toBeGreaterThan(0); expect(current.ready.some((p) => p.limitations.includes(owing))).toBe(false);
     expect(current.toDo.some((p) => p.limitations.includes(owing))).toBe(true); expect(store.rows.size).toBe(rows); }); // demotion in presentation only: no row rewritten, no history lost
   it("never claims both sources when one is missing, and never proposes a page the tenant already owns", async () => {
-    const { snapshotToEvidenceInputs } = await import("@/domains/decision/opportunities");
-    const label = (over: Partial<NewPageOpportunity>) => snapshotToEvidenceInputs(topicSnapshot({ newPageOpportunities: [{ ...OPP, ...over }] })).filter((i) => i.opportunity.kind === "new_page");
+    const { snapshotToEvidenceInputs } = await import("@/domains/decision/opportunities"); const label = (over: Partial<NewPageOpportunity>) => snapshotToEvidenceInputs(topicSnapshot({ newPageOpportunities: [{ ...OPP, ...over }] })).filter((i) => i.opportunity.kind === "new_page");
     const aiOnly = label({ basis: "ai_attention" })[0]!; expect(aiOnly.opportunity.opportunityType).toBe("Build a page AI keeps asking about");
     expect(`${aiOnly.opportunity.opportunityType} ${(aiOnly.evidence.hints ?? []).join(" ")}`).not.toMatch(/people search|google/i);
     expect(label({ basis: "search_volume" })[0]!.opportunity.opportunityType).toBe("Build a page people search for");
@@ -281,20 +276,29 @@ describe("one pass, both changes, one row per change", () => {
     expect(label({ topic: "rain barrels" })).toEqual([]); }); // an owned page title: proposing a new page for it is self-cannibalization
 });
 // ── the release: a fresh timestamp may never sit on top of a failed production run ──
-const release = async (produce: () => Promise<unknown>) => {
-  vi.resetModules(); const published: { computedAt: string }[] = [];
+const release = async (produce: () => Promise<unknown>) => { vi.resetModules(); const published: { computedAt: string }[] = [];
   vi.doMock("@/lib/persistence/json-store", () => ({ readStore: async () => [], writeStore: async (_s: string, rows: { computedAt: string }[]) => { published.push(...rows); } }));
   vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => TENANT, runWithTenant: async (_t: string, fn: () => Promise<unknown>) => fn() }));
   vi.doMock("@/lib/single-flight", () => ({ runSingleFlight: async (_k: string, fn: () => Promise<unknown>) => fn() }));
   vi.doMock("@/domains/decision", () => ({ produceProposalsForTenant: produce }));
   vi.doMock("@/app/(shell)/changes-data", () => ({ buildChangesViewUncached: async () => ({ proposals: [] }) }));
-  vi.doMock("@/app/(shell)/today-view-data", () => ({ buildTodayCompositeFromChanges: async () => ({ headline: "" }) }));
-  return { ...(await import("@/app/(shell)/surface-release")), published };
+  const signals: { declineNotes?: { page: string; note: string }[] }[] = [];
+  vi.doMock("@/app/(shell)/today-view-data", () => ({ buildTodayCompositeFromChanges: async (_v: unknown, sig: { declineNotes?: { page: string; note: string }[] }) => { signals.push(sig); return { headline: "" }; } }));
+  return { ...(await import("@/app/(shell)/surface-release")), published, signals };
 };
 describe("a release publishes only on a real production result", () => {
   it("lets a production failure through instead of stamping stale work with a fresh timestamp", async () => {
     const { refreshCustomerSurface, published } = await release(async () => { throw new Error("evidence read failed"); });
     await expect(refreshCustomerSurface(TENANT)).rejects.toThrow("evidence read failed"); expect(published).toEqual([]); }); // the previous release is untouched, and the phase fails where a human can see it
   it("publishes cleanly when a healthy run finds nothing worth doing", async () => { const { refreshCustomerSurface, published } = await release(async () => ({ proposals: [], opportunities: 0, noDraft: 0 }));
-    const surface = await refreshCustomerSurface(TENANT);
-    expect(surface.tenantId).toBe(TENANT); expect(published).toHaveLength(1); }); }); // nothing to do is an answer, not an outage
+    const surface = await refreshCustomerSurface(TENANT); expect(surface.tenantId).toBe(TENANT); expect(published).toHaveLength(1); }); // nothing to do is an answer, not an outage
+  it("keeps the last loadable release when every write of the pass failed", async () => {
+    const { refreshCustomerSurface, published } = await release(async () => ({ proposals: [], outcome: "persistence_failed", candidates: [] }));
+    await expect(refreshCustomerSurface(TENANT)).rejects.toThrow(/could not save a single one/); expect(published).toEqual([]); });
+  it("carries the kernel's own verdict for judged-but-declined pages, biggest gap first", async () => {
+    const judged = [{ action: "watch", pageUrl: "https://s.example/a/", recoverableClicks: 12, reason: "small gap" },
+      { action: "research_needed", pageUrl: "https://s.example/b", recoverableClicks: 400, reason: "big gap" },
+      { action: "act_existing_page", pageUrl: "https://s.example/c", recoverableClicks: 900, reason: "acted" }];
+    const { refreshCustomerSurface, signals } = await release(async () => ({ proposals: [], outcome: "proposals_persisted", candidates: judged }));
+    await refreshCustomerSurface(TENANT);
+    expect(signals[0]?.declineNotes).toEqual([{ page: "/b", note: "big gap" }, { page: "/a", note: "small gap" }]); }); }); // an acted page is work, not a verdict

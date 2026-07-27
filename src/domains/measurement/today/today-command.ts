@@ -72,8 +72,14 @@ export type TodayCommandInput = {
   /** Week over week percent change in search clicks (rounded), or null when there is not enough
    *  history to say. A whole-site drop is a material loss even when no single page took the blame. */
   scoreboardDeltaPct: number | null;
-  /** The single best undone move, or null when the backlog has nothing actionable. */
+  /** The single best undone move, or null when the backlog has nothing actionable.
+   *  It comes from the SAME release's ready queue as everything else on Today, so the
+   *  action Today names is the action the decision kernel actually resolved. */
   topOpportunity: TodayOpportunity | null;
+  /** The kernel's own verdict for the declining page when it earned no change
+   *  ("...its search click-through is healthy, so I am watching it..."), in one plain
+   *  sentence. Absent = quote no verdict and say plainly that I am still checking. */
+  declineVerdict?: string | null;
   /** verdictSchedule.firstReadOn (YYYY-MM-DD, UTC): the soonest date the next results land. */
   firstReadOn: string | null;
   /** The canonical count of changes still measuring (countLedgerLifecycle). */
@@ -131,17 +137,27 @@ function fixDefect(input: TodayCommandInput): TodayCommand {
   };
 }
 
+/**
+ * ONE honest line about a page that lost clicks and earned NO change. A decline is
+ * evidence that something moved; it is not evidence of what to do. Today may MENTION
+ * it, and must carry the decision's own verdict when there is one, so a page the
+ * kernel resolved to watch is never dressed up as the next action.
+ */
+function declineNote(input: TodayCommandInput): string | null {
+  const a = input.smokeAlarm;
+  if (!a) return null;
+  const verdict = input.declineVerdict?.trim();
+  if (verdict) return verdict;
+  const lost = `${a.page} lost ${a.clicksLost.toLocaleString()} click${a.clicksLost === 1 ? "" : "s"} vs ${a.windowLabel}`;
+  return `${lost}, and I have not found a change on it my evidence supports yet, so I am watching it rather than sending you to rewrite a page that may be winning.`;
+}
+
 function respondToLoss(input: TodayCommandInput): TodayCommand {
   const alarm = input.smokeAlarm;
   const delta = input.scoreboardDeltaPct;
   if (alarm) {
-    const fixReady = alarm.actionLabel === "See the fix";
     const why: string[] = [];
-    why.push(
-      fixReady
-        ? "I already have a fix ready for this page."
-        : "This one is worth a look before it slides further.",
-    );
+    why.push("I already have a fix ready for this page.");
     // Name a DIFFERENT window than the 4-week page number above: the whole-site last-7-vs-
     // prior-7 delta. P2-c (2026-07-10, visual audit) - standardized to "vs the week before"
     // (the SAME phrase the no-single-page branch below uses for this identical delta), so the
@@ -162,9 +178,7 @@ function respondToLoss(input: TodayCommandInput): TodayCommand {
       // weeks" with no end date. See today-smoke-alarm.ts for why.
       headline: `Your biggest problem today: ${alarm.page} lost ${alarm.clicksLost.toLocaleString()} click${alarm.clicksLost === 1 ? "" : "s"} vs ${alarm.windowLabel}.`,
       why,
-      exactAction: fixReady
-        ? `Open ${alarm.page} and apply the fix.`
-        : `Open ${alarm.page} and see what changed.`,
+      exactAction: `Open ${alarm.page} and apply the fix.`,
       cta: { label: alarm.actionLabel, href: alarm.href },
     };
   }
@@ -192,19 +206,49 @@ function respondToLoss(input: TodayCommandInput): TodayCommand {
 function shipMove(input: TodayCommandInput): TodayCommand {
   const o = input.topOpportunity!;
   const why: string[] = [];
-  if (o.upside != null && Number.isFinite(o.upside) && o.upside > 0) {
-    why.push(`${o.pageLabel}: about ${Math.round(o.upside).toLocaleString()} more clicks a month if this works.`);
-  } else {
-    why.push(`This one is on ${o.pageLabel}.`);
-  }
+  // MODELED OPPORTUNITY, NEVER PROMISED LIFT. This line used to read "about N more
+  // clicks a month if this works", which forecast an edit against a generalized
+  // click curve that only ever measured a CEILING.
+  why.push(
+    o.upside != null && Number.isFinite(o.upside) && o.upside > 0
+      ? `${o.pageLabel}: this search earns about ${Math.round(o.upside).toLocaleString()} fewer clicks a month than pages at a similar position usually get.`
+      : `This one is on ${o.pageLabel}.`,
+  );
   why.push(COMMAND_EVIDENCE_WORD[o.evidenceStrength]);
   why.push(`About ${o.estimatedEffortMinutes} minute${o.estimatedEffortMinutes === 1 ? "" : "s"} of work.`);
+  const decline = declineNote(input);
+  if (decline) why.push(decline);
   return {
     kind: "ship_move",
     headline: `Do this next: ${stripPeriod(o.recommendation)}.`,
     why,
     exactAction: `Open ${o.pageLabel} on Changes to make this change.`,
     cta: { label: "See the change", href: CHANGES_HREF },
+  };
+}
+
+/**
+ * Traffic really moved and I have no change I can stand behind. Say exactly that.
+ * No CTA: sending an operator to Changes for a page that has no fix is the walk of
+ * shame this product exists to prevent.
+ */
+function stillChecking(input: TodayCommandInput): TodayCommand {
+  const why: string[] = [];
+  const decline = declineNote(input);
+  if (decline) why.push(decline);
+  if (input.measuringCount > 0) why.push("Your active changes are still measuring below.");
+  why.push("I will put a change in front of you the moment my evidence supports one.");
+  return {
+    kind: "observe",
+    // Only a BLAMED page earns the plural "traffic gaps": that loss is measured on a
+    // named page. A whole-site delta with no page behind it is one moving number, and
+    // dressing it as found gaps claimed research that had not happened.
+    headline: input.smokeAlarm
+      ? "I found meaningful traffic gaps, but I am still checking the results pages and competing pages before asking you to change anything."
+      : "Your search traffic moved this week, and I have not found a change I can stand behind yet.",
+    why,
+    exactAction: "Nothing to do here today. Give me one more research pass.",
+    cta: null,
   };
 }
 
@@ -240,22 +284,29 @@ function observe(input: TodayCommandInput): TodayCommand {
 
 /**
  * The one command for Today, by strict priority:
- *   1. a broken data pipe    -> fix_defect      (numbers are not trustworthy; fix it first)
- *   2. a material loss        -> respond_to_loss (a page bleeding clicks, or a >=10% site drop)
- *   3. the top ranked move    -> ship_move       (the single best undone change)
- *   4. nothing to decide      -> observe         (keep measuring; here is when results land)
+ *   1. a broken data pipe            -> fix_defect      (numbers are not trustworthy; fix it first)
+ *   2. a loss I CAN FIX               -> respond_to_loss (a bleeding page whose fix is ready, or a
+ *                                                        site-wide drop with a ranked move behind it)
+ *   3. the top ranked move            -> ship_move       (the single best undone change)
+ *   4. a loss I cannot fix yet        -> stillChecking   (say so, and ask for nothing)
+ *   5. nothing to decide              -> observe         (keep measuring; here is when results land)
  *
- * A defect always beats a larger loss (a loss read off a broken pipe is not trustworthy). A page
- * smoke alarm OR a whole-site drop of at least LOSS_DELTA_PCT counts as a material loss. ship_move
- * fires only when a real opportunity exists; otherwise observe.
+ * A DECLINE IS NOT AN ACTION (2026-07-27). Today used to promote any bleeding page to "your
+ * biggest problem today" straight off the click-decay signal, completely independent of what the
+ * decision kernel resolved for it: a page the kernel resolved to WATCH (its click-through is
+ * healthy) was handed to the operator as the next thing to do, pointed at a Changes queue that
+ * held no fix for it. Now a decline can only take over the command when THIS release actually
+ * holds a ready fix for that page; otherwise it is mentioned, with its verdict, under a command
+ * that is honest about what I can and cannot support.
  */
 export function buildTodayCommand(input: TodayCommandInput): TodayCommand {
   if (input.pipelineAlarms.length > 0) return fixDefect(input);
-  const materialLoss =
-    input.smokeAlarm != null ||
-    (input.scoreboardDeltaPct != null && input.scoreboardDeltaPct <= LOSS_DELTA_PCT);
-  if (materialLoss) return respondToLoss(input);
+  const fixReady = input.smokeAlarm?.hasReadyFix === true;
+  const siteWideDrop = input.scoreboardDeltaPct != null && input.scoreboardDeltaPct <= LOSS_DELTA_PCT;
+  if (fixReady) return respondToLoss(input);
+  if (siteWideDrop && input.smokeAlarm == null && input.topOpportunity) return respondToLoss(input);
   if (input.topOpportunity) return shipMove(input);
+  if (input.smokeAlarm != null || siteWideDrop) return stillChecking(input);
   return observe(input);
 }
 

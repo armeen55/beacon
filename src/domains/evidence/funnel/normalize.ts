@@ -183,6 +183,8 @@ function stableTopics(phrases: string[]): string[] {
 /** DataForSEO's SERP task_post documents keyword at up to 700 characters. A longer one
  *  is SKIPPED and named, never truncated: a truncated question is a different question. */
 const MAX_SERP_KEYWORD_CHARS = 700;
+/** A priority list answers "what is this run stuck on", never a second agenda. */
+const MAX_PRIORITY_QUERIES = 3;
 
 /**
  * THE agenda of keywords worth a paid search look, in the customer's OWN words. Volume
@@ -192,7 +194,8 @@ const MAX_SERP_KEYWORD_CHARS = 700;
  * one flag query became two near-duplicate flag queries, and a dated event query lost its
  * date. Both are gone. A trusted query is now bought VERBATIM and never needs to exist in
  * the retained set; only portfolio 3 may propose a researched keyword, and only on a
- * genuinely strong anchored match. Four bounded portfolios fill the cap in priority order:
+ * genuinely strong anchored match. Five bounded portfolios fill the cap in priority order:
+ *   P0 (<=3)  the exact searches an open investigation cannot close without: bought FIRST, always
  *   P1 (<=12) the EXACT queries my own strongest pages already rank for, slipping first
  *   P2 (<=22) my tracked questions: observed fan-out queries first, then the question text
  *   P3 (<=32) researched keywords, one per confirmed theme, round-robin, no theme faked
@@ -200,11 +203,14 @@ const MAX_SERP_KEYWORD_CHARS = 700;
  * If the trusted portfolios cannot fill the cap the agenda is SHORTER than the cap:
  * buying less is the honest outcome, never padding the bill with noise. Two queries are
  * the same subject only under canonicalQueryKey, so word order never buys twice and a
- * changed modifier is never collapsed away. Same inputs in ANY array order, same agenda.
- * Pure.
+ * changed modifier is never collapsed away. Same inputs in ANY array order, same agenda, except
+ * priorityQueries, whose order is the CALLER's own ranking and is honored exactly as given. Pure.
  */
 export function selectSerpAgenda(
-  input: { retained: FunnelKeyword[]; themes: string[]; prompts: SerpAgendaPrompt[]; pageQueries: SerpAgendaPageQuery[] },
+  input: { retained: FunnelKeyword[]; themes: string[]; prompts: SerpAgendaPrompt[]; pageQueries: SerpAgendaPageQuery[];
+    /** PLAIN STRINGS from whoever is asking (Evidence never reads Decision): the exact searches an open question
+     *  cannot be answered without. At most MAX_PRIORITY_QUERIES, first, verbatim, never swapped for a lookalike. */
+    priorityQueries?: string[] },
   cap = 40,
 ): SerpAgenda {
   const weak = weakAnchorTokens(input.themes ?? []);
@@ -247,6 +253,10 @@ export function selectSerpAgenda(
       if (!moved) break;
     }
   };
+
+  // P0: the searches an open investigation is stuck on. A diagnosed gap whose own results page is never checked can
+  // never be closed, so these are bought before anything else, in the caller's own ranking, and never substituted.
+  for (const q of (input.priorityQueries ?? []).slice(0, MAX_PRIORITY_QUERIES)) take(q, cap);
 
   // P1: my own strongest pages' queries, VERBATIM. First-party Search Console data is the
   // most trusted starting point I have, and the SERP call accepts any keyword string, so a

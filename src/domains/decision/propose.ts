@@ -168,7 +168,15 @@ export async function proposeExistingPageChange(
     now,
     validation: NEUTRAL_VALIDATION,
   });
+  // The gate judges "did the rewrite keep what this page is about" against the
+  // candidate's OWN words. Without them it once fell back to one tenant's
+  // vocabulary and rejected every draft for everyone else.
+  const contextTokens = [...new Set(
+    `${input.opportunity.query} ${input.page.label ?? ""} ${input.opportunity.currentValue ?? ""}`
+      .toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2),
+  )].sort();
   const validation = validateProposal(provisional, {
+    contextTokens,
     pageBodyText: input.evidence.pageBodyText,
     // Ground the validator on the SAME blob the drafter grounded on (outline +
     // current value + hints), so anything the drafter was allowed to draw on is

@@ -231,7 +231,8 @@ function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string): void {
 
 const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.serps.analyzed, cacheHits: s.cycle.cacheHits, spendUsd: round(s.cycle.spentUsd) });
 
-export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
+/** `priorityQueries`: plain strings from the caller (Evidence never reads Decision), the exact searches an open investigation cannot close without. Empty is honest and leaves the agenda exactly as it was. */
+export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[] = []): FunnelUnitFn {
   const d = resolveDeps(deps);
   return async (tenantId, cursor, budgetMs) => {
     const basis = basisFromCursor(cursor);
@@ -256,7 +257,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     // FAIL BEFORE SPEND: no readable business basics, no readable page queries and no tracked questions means I have
     // NO trusted starting point, so I buy nothing this pass and leave the research already saved exactly as it is.
     if (profile === null && pageQueries === null && prompts.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "I could not read any of your trusted starting points this pass, so I spent nothing. I will try again on your next visit." };
-    const agenda = selectSerpAgenda({ retained, themes, prompts, pageQueries: pageQueries ?? [] }, 40);
+    const agenda = selectSerpAgenda({ retained, themes, prompts, pageQueries: pageQueries ?? [], priorityQueries }, 40);
     const chosen = agenda.queries; // an empty researched set no longer blocks the phase: my own page queries are checked verbatim, researched or not
     if (chosen.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "I have no researched keywords to check in search yet." };
     // Internal progress truth only: what I could not defend and what the provider would refuse. Never customer copy.

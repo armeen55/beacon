@@ -124,6 +124,41 @@ export const MIN_QUERY_IMPRESSIONS = 500;
 export const MIN_CTR_DEFICIT = 0.02;
 export const MIN_RECOVERABLE_CLICKS = 50;
 
+/**
+ * EVIDENCE READINESS (evidence-qualified changes, 2026-07-27). A click gap proves
+ * something is WRONG. It never proves WHAT TO CHANGE: the same gap is explained by
+ * a weak title, a search feature eating the click, the wrong page ranking, an
+ * ambiguous query, or nothing at all. So a gap opens an INVESTIGATION, and only the
+ * exact evidence below can close it into an action.
+ */
+export type EvidenceReadiness = {
+  /** Exact GSC rows for this query on this page. */
+  gsc: boolean;
+  /** The page's current title and description, the thing an edit would replace. */
+  ownedCopy: boolean;
+  /** A live results page observed for the EXACT candidate query, not a neighbour. */
+  serp: boolean;
+  /** Inspectable extracts of pages that actually rank or are cited FOR that query. */
+  winners: number;
+  /** The page's own WORDS beyond its title, so a claim about the page can be checked.
+   *  No body store exists yet, so this is false everywhere today and High confidence
+   *  on an edit is currently unreachable. That is the truth, not a gap to paper over. */
+  body: boolean;
+};
+
+/** A title or description edit is READY only when the evidence can name the cause.
+ *  Without the live results page, the honest answer is that I am still looking. */
+export function readyForAction(r: EvidenceReadiness): boolean {
+  return r.gsc && r.ownedCopy && r.serp;
+}
+
+/** Confidence follows EVIDENCE COMPLETENESS, never how good the draft reads. A
+ *  proposal that admits it never saw the results page cannot be high confidence. */
+export function confidenceFor(r: EvidenceReadiness): ChangeProposal["confidence"] {
+  if (!readyForAction(r)) return "low";
+  return r.winners >= 2 && r.body ? "high" : "medium";
+}
+
 // ── ChangeProposal — the ONE persisted output ─────────────────────────────────
 
 export type ProposalKind = "existing_edit" | "new_page";

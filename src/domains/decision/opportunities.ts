@@ -4,42 +4,44 @@
  * BEFORE a single word is drafted, and DOING NOTHING IS THE DEFAULT ANSWER.
  *
  * What it replaced: a loop that manufactured a title AND a description proposal
- * for every owned page over 20 impressions, ranked by gross traffic, so the
- * pages that already win got the most "work". A page is not a problem because it
- * is big.
+ * for every owned page over 20 impressions, ranked by gross traffic, so the pages
+ * that already win got the most "work". A page is not a problem because it is big.
  *
  * How a page earns an action now: only its EXACT query rows (query, impressions,
  * clicks, position) are measured against the ONE click curve this repo already
- * owns (evidence/forecast/tenant-ctr-curve). A page earns `act_existing_page`
- * only when its best query clears ALL THREE floors in contracts.ts: enough
- * impressions to trust, a real click gap against that position, and enough
- * recoverable clicks to be worth an operator's morning. Everything else is
- * `watch` (a real but sub-floor gap) or `do_nothing` (it already beats the
- * curve), carried with the exact numbers so the receipt can show its work.
- * Page totals are never measured and never quoted as query numbers.
+ * owns (evidence/forecast/tenant-ctr-curve). A page earns `act_existing_page` only
+ * when its best query clears ALL THREE floors in contracts.ts: enough impressions
+ * to trust, a real click gap against that position, and enough recoverable clicks
+ * to be worth an operator's morning. Everything else is `watch` (a real but
+ * sub-floor gap) or `do_nothing` (it already beats the curve), carried with the
+ * exact numbers so the receipt can show its work. Page totals are never measured
+ * and never quoted as query numbers. `recoverableClicks` is the only value scalar
+ * that leaves this module: a small page with a real gap outranks a huge page with
+ * none.
  *
- * `recoverableClicks` is the only value scalar that leaves this module: a small
- * page with a real gap outranks a huge page with none.
+ * A GAP IS NOT AN ACTION (evidence-qualified changes, 2026-07-27). A click gap
+ * proves something is wrong; it never proves WHAT TO CHANGE. So every page that
+ * clears the floors is also asked what evidence I actually HOLD for it
+ * (EvidenceReadiness in contracts.ts): the exact query rows, this page's own
+ * current copy, and a live results page observed for THAT EXACT search. Without
+ * all three the outcome is `research_needed`, whose reason names exactly what is
+ * missing, so nothing is ever drafted for a search I have never looked at. The
+ * readiness rides on the candidate, so the producer sets confidence from evidence
+ * completeness rather than from how good the draft reads.
+ *
+ * MODELED OPPORTUNITY, NEVER PROMISED LIFT. `recoverableClicks` is the distance to
+ * a generalized curve, so the copy says "this search earns about N fewer clicks
+ * than pages at a similar position usually get", never "a sharper title is worth N
+ * clicks". Only a diagnosed action may name the edit as the strongest explanation.
  *
  * PURE + deterministic. No I/O, no LLM.
  */
 
-import type {
-  EvidenceSnapshot,
-  OwnedPageEvidence,
-  OwnedQuerySignal,
-  NewPageOpportunity,
-} from "@/domains/evidence/snapshot";
-import { anchoredTopicMatch, scoreTopicMatch, topicTokens, weakAnchorTokens } from "@/domains/evidence/relevance-gate";
+import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal, NewPageOpportunity } from "@/domains/evidence/snapshot";
+import { anchoredTopicMatch, canonicalQueryKey, scoreTopicMatch, topicTokens, weakAnchorTokens } from "@/domains/evidence/relevance-gate";
 import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
-import {
-  MIN_CTR_DEFICIT,
-  MIN_QUERY_IMPRESSIONS,
-  MIN_RECOVERABLE_CLICKS,
-  type DecisionCandidate,
-  type EvidenceInput,
-  type ProposalKind,
-} from "./contracts";
+import { MIN_CTR_DEFICIT, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction,
+  type DecisionCandidate, type EvidenceInput, type EvidenceReadiness, type ProposalKind } from "./contracts";
 
 /** Phrases an account must have on file before any word of its own can be called
  *  ubiquitous. Under this, a one-topic account keeps its honest overlaps. */
@@ -73,12 +75,7 @@ function intentOf(query: string): string | undefined {
 // ── query-level measurement (the ONLY thing that earns an action) ─────────────
 
 type QueryGap = {
-  query: string;
-  impressions: number;
-  clicks: number;
-  position: number;
-  expectedCtr: number;
-  actualCtr: number;
+  query: string; impressions: number; clicks: number; position: number; expectedCtr: number; actualCtr: number;
   /** expected minus actual, in click-rate points. Negative = beating the curve. */
   deficit: number;
   /** deficit x impressions, rounded. Negative = nothing to recover. */
@@ -97,25 +94,12 @@ function measureQuery(q: OwnedQuerySignal, expectedCtrAt: (position: number) => 
   const expectedCtr = expectedCtrAt(position);
   const actualCtr = Math.min(1, clicks / impressions);
   const deficit = expectedCtr - actualCtr;
-  return {
-    query: q.query,
-    impressions,
-    clicks,
-    position,
-    expectedCtr,
-    actualCtr,
-    deficit,
-    recoverableClicks: Math.round(deficit * impressions),
-  };
+  return { query: q.query, impressions, clicks, position, expectedCtr, actualCtr, deficit, recoverableClicks: Math.round(deficit * impressions) };
 }
 
 /** The query with the most recoverable clicks. Deterministic tiebreak. */
 function bestGap(gaps: QueryGap[]): QueryGap | null {
-  return [...gaps].sort((a, b) =>
-    b.recoverableClicks - a.recoverableClicks
-    || b.impressions - a.impressions
-    || a.query.localeCompare(b.query),
-  )[0] ?? null;
+  return [...gaps].sort((a, b) => b.recoverableClicks - a.recoverableClicks || b.impressions - a.impressions || a.query.localeCompare(b.query))[0] ?? null;
 }
 
 /** Which ONE field the gap justifies rewriting, or null when the copy cannot say.
@@ -140,27 +124,74 @@ function fieldForGap(page: OwnedPageEvidence, query: string): "title" | "meta" |
 
 const fieldLabel = (field: "title" | "meta"): string => (field === "title" ? "title" : "description");
 
+// ── evidence readiness (a gap opens an investigation, evidence closes it) ─────
+
+/** A candidate carrying what evidence the decision HOLDS. Structurally a
+ *  DecisionCandidate (contracts.ts stays frozen); the extra field is read only
+ *  inside Decision, to gate drafting and to set confidence. */
+export type QualifiedCandidate = DecisionCandidate & { readiness?: EvidenceReadiness };
+
+/** What research this snapshot holds, indexed once per pass. A live results page
+ *  counts for a query only under EXACT/canonical identity: a neighbouring search
+ *  never vouches for the one that is losing clicks. */
+type ResearchIndex = { serpQueries: Set<string>; winnersByQuery: Map<string, number> };
+function indexResearch(snapshot: EvidenceSnapshot): ResearchIndex {
+  const research = snapshot.research;
+  const serpQueries = new Set((research?.serpEvidence ?? []).map((e) => canonicalQueryKey(e.query)).filter(Boolean));
+  const winnersByQuery = new Map<string, number>();
+  for (const page of research?.winningPages ?? []) {
+    // A page I never READ vouches for nothing: only a fetched extract says WHY it
+    // wins. Counting bare appearances bought High confidence on unread pages.
+    if (!page.extract) continue;
+    const keys = new Set(page.appearances.map((a) => canonicalQueryKey(a.query)).filter(Boolean));
+    for (const k of keys) winnersByQuery.set(k, (winnersByQuery.get(k) ?? 0) + 1);
+  }
+  return { serpQueries, winnersByQuery };
+}
+
+/** What I hold for ONE page and ONE exact query. Never inferred from a neighbour. */
+function readinessOf(page: OwnedPageEvidence, gap: QueryGap, index: ResearchIndex): EvidenceReadiness {
+  const content = page.content;
+  const key = canonicalQueryKey(gap.query);
+  return {
+    gsc: gap.impressions > 0 && Number.isFinite(gap.position),
+    ownedCopy: !!content && !!((content.title ?? "").trim() || (content.metaDescription ?? "").trim()),
+    serp: !!key && index.serpQueries.has(key),
+    winners: index.winnersByQuery.get(key) ?? 0,
+    // FALSE until a page-body store exists. An outline is a list of headings, not the
+    // page's words: produce-bundle holds PAGE_BODY_TEXT = null and every receipt says
+    // so, and one contract read two ways always inflated in the same direction.
+    body: false,
+  };
+}
+
+/** Name exactly what is missing, in the operator's words. Never a lab word. */
+function missingSentence(r: EvidenceReadiness): string {
+  const missing: string[] = [];
+  if (!r.serp) missing.push("I have not looked at the live results page for that search yet");
+  if (!r.ownedCopy) missing.push("I do not hold this page's current title and description");
+  if (!r.gsc) missing.push("I do not hold trustworthy search numbers for that exact search");
+  return `I can see the gap but ${missing.join(", and ")}, so I cannot tell you what to change.`;
+}
+
 /** One page's honest outcome, measured on its exact queries only. */
-function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: number) => number): DecisionCandidate {
+function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: number) => number, index: ResearchIndex): QualifiedCandidate {
   const pageUrl = absoluteUrl(page.url);
   const gaps = (page.search?.topQueries ?? [])
     .map((q) => measureQuery(q, expectedCtrAt))
     .filter((g): g is QueryGap => g != null);
-  // Counting the weak query too, does this page already earn more clicks than its
-  // own positions predict? A title or description is ONE lever shared by every
-  // search the page serves, so rewriting it to chase a single soft query bets the
-  // searches that are winning against the one that is not. On a page that is
-  // already ahead of its curve that trade is not worth an operator's morning: the
-  // honest answer is watch. A gap big enough to matter drags the page under parity
-  // and the page earns its action then.
+  // Counting the weak query too, does this page already earn more clicks than its own
+  // positions predict? A title or description is ONE lever shared by every search the
+  // page serves, so rewriting it to chase a single soft query bets the searches that
+  // are winning against the one that is not, and on a page already ahead of its curve
+  // that trade is not worth an operator's morning: the honest answer is watch.
   const earned = gaps.reduce((s, g) => s + g.clicks, 0);
   const predicted = gaps.reduce((s, g) => s + g.expectedCtr * g.impressions, 0);
   const best = bestGap(gaps);
   // ...but only while the soft search is SMALL next to what the page already earns.
   // Enough winners can out-sum a genuinely broken search, and a gap worth a large
-  // share of the page's own clicks is never a rounding error to watch: measured
-  // against the page's own scale, so it needs no invented number and holds on a
-  // page of any size.
+  // share of the page's own clicks is never a rounding error: measured against the
+  // page's own scale, so it needs no invented number and holds at any size.
   const minor = !!best && best.recoverableClicks < PARITY_MINOR_SHARE * Math.max(earned, 1);
   const pageBeatsCurve = gaps.length > 1 && earned >= predicted && minor;
   if (!best) {
@@ -169,7 +200,7 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
       pageUrl,
       query: null,
       recoverableClicks: 0,
-      reason: "I have no searched-query data for this page yet, so I cannot say what a change would win back.",
+      reason: "I have no searched-query data for this page yet, so I cannot tell you what a change here would do.",
     };
   }
 
@@ -191,37 +222,36 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
   }
 
   if (clears) {
+    // The gap is real and big enough. It still does not say WHAT to change, so the
+    // evidence I hold decides whether this is an action or an investigation.
+    const readiness = readinessOf(page, best, index);
+    const modeled = `This search earns about ${num(Math.max(0, best.recoverableClicks))} fewer clicks than pages at a similar position usually get`;
+    if (!readyForAction(readiness)) {
+      return {
+        action: "research_needed",
+        pageUrl,
+        query: best.query,
+        recoverableClicks: Math.max(0, best.recoverableClicks),
+        readiness,
+        reason: `${scope}. ${rates}. ${modeled}, and that gap is big enough to look into. ${missingSentence(readiness)}`,
+      };
+    }
+    // Diagnosed: I hold the numbers, the page's own copy, and the live results page
+    // for this exact search, so I may name the lever the evidence supports. When the
+    // copy already carries the searcher's words, the words are not the problem: the
+    // page ranks and gives nobody a reason to click, and the title is the lever.
     const field = fieldForGap(page, best.query);
-    if (field) {
-      return {
-        action: "act_existing_page",
-        gap: "ctr_deficit",
-        pageUrl,
-        query: best.query,
-        recoverableClicks: best.recoverableClicks,
-        reason: `${scope}. ${rates}, so a sharper ${fieldLabel(field)} is worth about ${num(best.recoverableClicks)} clicks over the same 90 days.`,
-      };
-    }
-    // The words are already in the copy and the clicks still are not coming: that is
-    // the clearest proof the copy is not EARNING the click (a bare keyword line that
-    // ranks and says nothing). The title is the strongest lever, so it is the change.
-    // The one case I truly cannot act on is a page whose current copy I do not hold.
-    if (page.content) {
-      return {
-        action: "act_existing_page",
-        gap: "ctr_deficit",
-        pageUrl,
-        query: best.query,
-        recoverableClicks: best.recoverableClicks,
-        reason: `${scope}. ${rates}. The title already carries those words, so the words are not the problem: it is not giving anyone a reason to click. A sharper title is worth about ${num(best.recoverableClicks)} clicks over the same 90 days.`,
-      };
-    }
+    const cause = field
+      ? `The ${fieldLabel(field)} does not carry what this search asks for`
+      : "The title already carries those words, so the words are not the problem: it is not giving anyone a reason to click";
     return {
-      action: "research_needed",
+      action: "act_existing_page",
+      gap: "ctr_deficit",
       pageUrl,
       query: best.query,
       recoverableClicks: best.recoverableClicks,
-      reason: `${scope}. ${rates}, and I do not hold this page's current copy, so I cannot say what to rewrite until I read it.`,
+      readiness,
+      reason: `${scope}. ${rates}. ${modeled}. ${cause}, and I have read the live results page for it, so a sharper ${fieldLabel(field ?? "title")} is the strongest supported explanation I have.`,
     };
   }
 
@@ -259,14 +289,15 @@ function newPageGap(basis: NewPageOpportunity["basis"]): DecisionCandidate["gap"
  * Only the two `act_` outcomes may become a proposal; the rest are the honest
  * answer and belong in the run receipt. PURE.
  */
-export function compileCandidates(snapshot: EvidenceSnapshot, opts: CompileOptions = {}): DecisionCandidate[] {
+export function compileCandidates(snapshot: EvidenceSnapshot, opts: CompileOptions = {}): QualifiedCandidate[] {
   const expectedCtrAt = opts.curve?.expectedCtrAt ?? defaultExpectedCtrAt;
-  const pages = snapshot.ownedPages.map((page) => candidateForPage(page, expectedCtrAt));
+  const index = indexResearch(snapshot);
+  const pages = snapshot.ownedPages.map((page) => candidateForPage(page, expectedCtrAt, index));
 
   const owned = ownedTopicSuppressor(snapshot);
   const topics = [...snapshot.newPageOpportunities]
     .sort((a, b) => b.demandWeight - a.demandWeight || a.topic.localeCompare(b.topic))
-    .map((opp): DecisionCandidate =>
+    .map((opp): QualifiedCandidate =>
       owned(opp.topic)
         ? {
             action: "do_nothing",
@@ -324,7 +355,8 @@ function existingEditInput(
     opportunity: {
       query,
       kind: "existing_edit",
-      opportunityType: `Win back clicks with a sharper ${fieldLabel(field)}`,
+      // A modeled gap, never a promised recovery: the label names the lever only.
+      opportunityType: `Sharpen the ${fieldLabel(field)}`,
       field,
       currentValue: field === "title" ? content.title : content.metaDescription,
       intent: intentOf(query),
@@ -335,7 +367,7 @@ function existingEditInput(
       outline: content.outline ?? [],
     },
     sizing: {
-      // The ONE value scalar: clicks a fix could win back, never gross traffic.
+      // The ONE value scalar: the modeled click shortfall, never gross traffic.
       impactScore: candidate.recoverableClicks,
       upsidePerMonth: null,
       hasSerpVerdict: false,

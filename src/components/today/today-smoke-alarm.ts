@@ -29,8 +29,12 @@ export type SmokeAlarmDecayRow = {
 };
 
 export type TodaySmokeAlarm = {
-  /** The exact page taking the blame, e.g. "/nowruz". */
+  /** The blamed page as DISPLAYED (length-capped for tidiness), e.g. "/nowruz". */
   page: string;
+  /** The blamed page's FULL normalized key (normalizedFixKey, no length cap), for
+   *  matching this page against anything else keyed the one way. `page` is a label
+   *  and can be truncated, so matching on it silently misses long paths. */
+  pageKey: string;
   /** Absolute clicks lost across the two windows (a positive number). */
   clicksLost: number;
   /** The defined window phrase the clicksLost delta is measured against, so the
@@ -45,6 +49,11 @@ export type TodaySmokeAlarm = {
   href: string;
   /** The action link text. */
   actionLabel: string;
+  /** TRUE when THIS release holds a ready change for this page. The FACT, not the
+   *  label: a ready change with no detail page of its own still reads "Open Changes",
+   *  and inferring readiness from that label put "I have a fix ready" and "I have not
+   *  found a change" on one screen. */
+  hasReadyFix: boolean;
 };
 
 /**
@@ -71,7 +80,14 @@ function prettyPath(u: string): string {
  * whose path ran past the 44-char cap.
  */
 export function normalizedFixKey(u: string): string {
-  return (u.replace(/^https?:\/\/[^/]+/i, "").replace(/\/$/, "")) || "/";
+  const path = (u.replace(/^https?:\/\/[^/]+/i, "").replace(/\/$/, "")) || "/";
+  // One page written two ways is still one page: GSC reports percent-encoded paths
+  // while our own records hold the readable form, and a case difference is a
+  // representation artifact far more often than it is a second page. Both sides run
+  // through here, so decoding and lowercasing keeps the two representations equal.
+  let decoded = path;
+  try { decoded = decodeURIComponent(path); } catch { decoded = path; }
+  return decoded.toLowerCase();
 }
 
 /**
@@ -146,6 +162,8 @@ export function buildTodaySmokeAlarm(input: {
 
   return {
     page: label,
+    pageKey: fixKey,
+    hasReadyFix: mapped !== undefined,
     clicksLost: lost,
     windowLabel,
     sentence,

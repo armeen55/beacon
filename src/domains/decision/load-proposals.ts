@@ -32,8 +32,10 @@ import type { ChangeProposal } from "./contracts";
  * Bump ONLY when the rules that decide WHAT earns a proposal change.
  *   1 = every owned page over 20 impressions got a title and a description.
  *   2 = a proposal exists only where exact query rows proved a recoverable gap.
+ *   3 = a proven gap is an INVESTIGATION until the live results page for that exact
+ *       search is held; confidence follows evidence completeness, not the draft.
  */
-const DECISION_GENERATION = 2;
+const DECISION_GENERATION = 3;
 
 /**
  * The account's CURRENT research basis, or null when it cannot be read. Composes

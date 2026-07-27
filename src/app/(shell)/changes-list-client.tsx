@@ -117,7 +117,8 @@ function BundleRow({ proposal, bundle, rank, inReadyLane }: { proposal: ChangePr
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[12px] tabular-nums text-muted-foreground">{rank}</span>
         <span className="rounded bg-accent-primary/15 px-1.5 py-0.5 text-[11px] font-medium text-accent-primary">
-          {isNew ? "New page" : "Bundled change"}
+          {/* One component is one edit: only genuinely interdependent parts are a bundle. */}
+          {isNew ? "New page" : bundle.components.length > 1 ? "Bundled change" : "Edit"}
         </span>
         <span className="text-[14px] font-semibold text-foreground">{proposal.pageLabel}</span>
       </div>

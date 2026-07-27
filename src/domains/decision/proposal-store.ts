@@ -7,6 +7,14 @@
  * migration) under the synthetic kind `change_proposal`, keyed by the
  * proposal's own stable id. Latest write per id wins.
  *
+ * ONE MATERIAL ROW PER GENERATION (2026-07-27). The save used to be a plain
+ * insert, so every surface refresh appended another copy of an unchanged
+ * proposal: 500 rows for 31 distinct proposals, one of them written 27 times,
+ * each with a fresh timestamp that made yesterday's thinking read as today's
+ * work. A save now compares a CONTENT FINGERPRINT (the material fields an
+ * operator would act on) against the row already stored and writes nothing when
+ * they match. No new table, no migration, no history deleted.
+ *
  * DEGRADE-SAFE, exactly like move-draft-store.ts: if the table is absent
  * (PGRST205 / Postgres 42P01) reads return empty and writes return false; the
  * caller behaves as generate-on-demand. Never throws. Every LOAD re-validates
@@ -17,6 +25,8 @@
  */
 
 import "server-only";
+
+import { createHash } from "node:crypto";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
@@ -33,11 +43,39 @@ function isMissingTable(code?: string | null): boolean {
   return code === "PGRST205" || code === "42P01";
 }
 
-/** Persist one proposal. Fail-soft → false. */
-export async function saveChangeProposal(proposal: ChangeProposal): Promise<boolean> {
-  if (!proposal.tenantId || !proposal.id) return false;
+/** saved = a new material generation is durable. unchanged = the stored row already
+ *  says exactly this, so nothing was written. failed = the write did not land. */
+export type SaveResult = "saved" | "unchanged" | "failed";
+
+/**
+ * PURE: the fingerprint of everything an operator would act on. Deliberately
+ * EXCLUDES createdAt and anything else that moves on its own, so a pass that
+ * re-derives the same decision from the same evidence produces the same
+ * fingerprint and writes nothing.
+ */
+export function proposalFingerprint(p: ChangeProposal): string {
+  const material = {
+    id: p.id,
+    status: p.status,
+    confidence: p.confidence,
+    basis: p.basis ?? null,
+    change: p.recommendedChange,
+    limitations: p.limitations,
+    components: (p.bundle?.components ?? []).map((c) => [c.kind, c.before, c.after, c.evidenceKeys, c.risk]),
+    receipt: (p.bundle?.receipt.items ?? []).map((i) => [i.key, i.kind, i.fact, i.observedAt]),
+    missing: p.bundle?.receipt.missing ?? [],
+  };
+  return createHash("sha256").update(JSON.stringify(material)).digest("hex").slice(0, 16);
+}
+
+/** Persist one proposal, or NOTHING when the stored row is already this exact
+ *  proposal. Fail-soft → "failed". */
+export async function saveChangeProposal(proposal: ChangeProposal): Promise<SaveResult> {
+  if (!proposal.tenantId || !proposal.id) return "failed";
   const content = serializeChangeProposal(proposal);
   try {
+    const stored = await loadChangeProposal(proposal.tenantId, proposal.id);
+    if (stored && proposalFingerprint(stored) === proposalFingerprint(proposal)) return "unchanged";
     const sb = getSupabaseAdmin();
     const { error } = await sb.from("move_drafts").insert({
       tenant_id: proposal.tenantId,
@@ -49,15 +87,15 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<bool
       if (!isMissingTable(error.code)) {
         log.warn("[proposal-store] save failed", { tenantId: proposal.tenantId, id: proposal.id, error: error.message });
       }
-      return false;
+      return "failed";
     }
-    return true;
+    return "saved";
   } catch (e) {
     log.warn("[proposal-store] save threw", {
       id: proposal.id,
       error: e instanceof Error ? e.message : String(e),
     });
-    return false;
+    return "failed";
   }
 }
 
@@ -97,7 +135,7 @@ export async function loadChangeProposal(tenantId: string, id: string): Promise<
 export async function markProposalApplied(tenantId: string, id: string): Promise<boolean> {
   const proposal = await loadChangeProposal(tenantId, id);
   if (!proposal) return false;
-  return saveChangeProposal({ ...proposal, status: "applied" });
+  return (await saveChangeProposal({ ...proposal, status: "applied" })) !== "failed";
 }
 
 /** Load the latest valid proposal per id for a tenant. Fail-soft → empty map. */

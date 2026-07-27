@@ -11,7 +11,7 @@ import {
 import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
 import { log } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
-import { warmFreeSurfaces } from "./warm-caches";
+import { warmFreeSurfaces } from "./warm-caches"; import { topInvestigationQueries } from "./investigation-queries";
 import {
   advancePhase,
   claimRun,
@@ -188,14 +188,16 @@ const defaultSteps: ResearchCycleSteps = {
     }
   },
   async funnelUnit(phase, tenantId, cursor, budgetMs) {
+    // The results pages an OPEN INVESTIGATION cannot close without go first (see
+    // investigation-queries). Fail-soft: no priority, same agenda as before.
+    if (phase === "serp_analysis") return serpAnalysisUnit({},
+      await topInvestigationQueries(tenantId).catch(() => [] as string[]))(tenantId, cursor, budgetMs);
     const fn = {
       keyword_discovery: keywordDiscoveryUnit,
       prompt_observations: promptObservationUnit,
-      serp_analysis: serpAnalysisUnit,
       winning_pages: winningPagesUnit,
-    }[phase as "keyword_discovery" | "prompt_observations" | "serp_analysis" | "winning_pages"];
+    }[phase as "keyword_discovery" | "prompt_observations" | "winning_pages"];
     return fn()(tenantId, cursor, budgetMs); // each facade export is a deps factory returning the executor
-
   },
   async publishSurface(tenantId) {
     // warmFreeSurfaces now PROPAGATES failure (no internal swallow): a throw here

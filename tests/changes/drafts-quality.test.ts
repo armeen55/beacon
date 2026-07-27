@@ -23,6 +23,7 @@ const CHEETAH =
 describe("evaluateDraftQuality - answer blocks", () => {
   it("REJECTS a generic dictionary opening with no context (ab-1: gifts)", () => {
     const r = evaluateDraftQuality({
+      contextTokens: ["nowruz"], // the page's own words, exactly as the producer derives them
       answer:
         "A gift is a voluntarily transferred item, service, or gesture given without payment or legally required compensation. Gifts can be tangible or intangible and are exchanged in social, cultural, ceremonial, or commercial contexts. Legal, tax, and ethical considerations can affect gift giving.",
     });
@@ -268,7 +269,7 @@ describe("evaluateTitleMetaQuality - atomic edits", () => {
     expect(r.copyAllowed).toBe(true);
   });
   it("rejects a rewrite that drops the entity", () => {
-    const r = evaluateTitleMetaQuality({ before: "Persian Wolf Range and Behavior", after: "Range, Behavior, and Conservation Status", field: "title" });
+    const r = evaluateTitleMetaQuality({ before: "Persian Wolf Range and Behavior", after: "Range, Behavior, and Conservation Status", field: "title", contextTokens: ["wolf"] });
     expect(r.status).toBe("relevance_rejected");
     expect(r.copyAllowed).toBe(false);
   });

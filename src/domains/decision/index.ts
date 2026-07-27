@@ -48,8 +48,12 @@ export {
 export type {
   ProduceProposalsOptions,
   ProduceProposalsResult,
+  ProducerOutcome,
 } from "./produce-proposals";
 export { produceProposalsForTenant, DEFAULT_MAX_DRAFTS } from "./produce-proposals";
+// The honest diagnosis itself, so Runtime can ask what an open investigation needs
+// without reaching past this boundary into the kernel's files.
+export { compileCandidates, type QualifiedCandidate } from "./opportunities";
 
 // Proposing + ranking + validation entry points
 export type { ProposalOutcome, ProposeOptions } from "./propose";
