@@ -209,11 +209,11 @@ export function snapshotToEvidenceInputs(snapshot: EvidenceSnapshot): EvidenceIn
   const ownedTopicText = snapshot.ownedPages
     .map((p) => [p.content?.title, p.content?.h1].filter(Boolean).join(" ").trim())
     .filter((t) => t.length > 0);
-  // Threshold, not bare relevance: one shared token ("nowruz", "tehran") must not
-  // let a single owned page silently kill every adjacent topic. Suppress only when
-  // MOST of the topic's own distinguishing tokens are covered by the owned page.
-  // Anchored GATE, original SCORE: the account's own ubiquitous word ("iran" for an
-  // encyclopedia of Iran) can no longer be the whole overlap (an owned title that is
+  // Threshold, not bare relevance: one shared token must not let a single owned page
+  // silently kill every adjacent topic. Suppress only when MOST of the topic's own
+  // distinguishing tokens are covered by the owned page.
+  // Anchored GATE, original SCORE: the account's own ubiquitous word (the one subject an
+  // encyclopedia is about) can no longer be the whole overlap (an owned title that is
   // only that word once scored 1.0 and silently killed every adjacent topic), but a
   // pair that DOES share a strong token keeps the exact unanchored 0.6 calibration
   // the threshold was tuned on: reshrinking the denominator too loosened real

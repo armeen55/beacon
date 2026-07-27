@@ -28,7 +28,7 @@
 
 import { createHash } from "node:crypto";
 
-import { domainOf, internalLinkRelevance, scoreTopicMatch, topicTokens } from "./relevance-gate";
+import { anchoredTopicMatch, domainOf, topicTokens, weakAnchorTokens } from "./relevance-gate";
 import type { FunnelResearchEvidence } from "./funnel/research-evidence";
 
 // ── source identity + freshness ──────────────────────────────────────────────
@@ -218,7 +218,7 @@ export type NewPageOpportunity = {
 
 export type EvidenceSnapshotScope = {
   tenantId: string;
-  /** Site host (e.g. "iranopedia.com"), or null for a tenant-wide snapshot. */
+  /** Site host (e.g. "example.com"), or null for a tenant-wide snapshot. */
   site: string | null;
   builtAt: string;
 };
@@ -299,30 +299,23 @@ export function canonicalUrlKey(value: string | null | undefined): string {
   if (!value) return "";
   try {
     const parsed = new URL(value.startsWith("http") ? value : `https://${value}`);
-    return `${parsed.hostname.replace(/^www\./i, "").toLowerCase()}${
-      parsed.pathname.replace(/\/+$/, "") || "/"
-    }`;
+    return `${parsed.hostname.replace(/^www\./i, "").toLowerCase()}${parsed.pathname.replace(/\/+$/, "") || "/"}`;
   } catch {
-    return value
-      .replace(/^https?:\/\//i, "")
-      .replace(/^www\./i, "")
-      .replace(/\/+$/, "")
-      .toLowerCase();
+    return value.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/+$/, "").toLowerCase();
   }
 }
 
 const norm = (s: string): string => s.trim().toLocaleLowerCase("en-US");
 
+/** Phrases an account must have on file before any word of its own can be called ubiquitous. */
+const MIN_ANCHOR_CORPUS = 10;
+
 const COMMERCIAL = /\b(buy|price|cost|cheap|deal|discount|hire|near me|for sale|book|order|shop)\b/i;
 const TRANSACTIONAL = /\b(download|sign ?up|subscribe|checkout|apply|register|quote)\b/i;
 const NAVIGATIONAL = /\b(login|log in|contact|about|homepage|official site|dashboard)\b/i;
 
-function classifyIntent(label: string): IntentCluster["intent"] {
-  if (TRANSACTIONAL.test(label)) return "transactional";
-  if (NAVIGATIONAL.test(label)) return "navigational";
-  if (COMMERCIAL.test(label)) return "commercial";
-  return "informational";
-}
+const classifyIntent = (label: string): IntentCluster["intent"] =>
+  TRANSACTIONAL.test(label) ? "transactional" : NAVIGATIONAL.test(label) ? "navigational" : COMMERCIAL.test(label) ? "commercial" : "informational";
 
 /** Deterministic freshness row for a source, derived from its LoadedSource. */
 function freshnessOf(source: EvidenceSourceKind, loaded: LoadedSource<unknown>, rowsSeen: number): SourceFreshness {
@@ -495,9 +488,19 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
   const ownedContentText = ownedPages.map((p) =>
     [p.content?.title, p.content?.h1, ...(p.content?.outline ?? [])].filter(Boolean).join(" "),
   );
+  // WEAK ANCHORS: the one word this account puts on nearly everything it owns fits anything, so on its own it
+  // proves no topical connection and must never make every page look related to every other. Read from the
+  // account's OWN corpus each build (its page titles, the searches it retained, the prompts it observed);
+  // under MIN_ANCHOR_CORPUS phrases nothing has recurred often enough to earn the label, so the set is empty
+  // and a single-topic account keeps its honest overlaps unchanged.
+  const anchorCorpus = [...new Set([...ownedPages.map((p) => p.content?.title || p.content?.h1 || p.url),
+    ...input.research.payload.retainedKeywords.map((k) => k.query), ...input.research.payload.aiObservations.map((o) => o.promptText)]
+    .map((s) => (s ?? "").trim()).filter(Boolean))];
+  const weak = anchorCorpus.length < MIN_ANCHOR_CORPUS ? new Set<string>() : weakAnchorTokens(anchorCorpus);
+  const relatedTopic = (a: string, b: string): boolean => anchoredTopicMatch(a, b, weak).relevant;
   const questionDemand: QuestionDemandSignal[] = input.nativeAi.payload.questions
     .map((q) => {
-      const covered = ownedContentText.some((text) => scoreTopicMatch(q.text, text).relevant);
+      const covered = ownedContentText.some((text) => relatedTopic(q.text, text));
       const coverageStatus: QuestionDemandSignal["coverageStatus"] =
         ownedContentText.length === 0 ? "unknown" : covered ? "answered" : "unanswered";
       return {
@@ -547,7 +550,7 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
     .map(([query, urls]) => ({
       query,
       competingUrls: [...urls].sort(),
-      note: `${urls.size} of your pages compete for "${query}" — pick one owner and point the rest at it.`,
+      note: `${urls.size} of your pages compete for "${query}", so pick one owner and point the rest at it.`,
     }))
     .sort((a, b) => b.competingUrls.length - a.competingUrls.length || a.query.localeCompare(b.query));
 
@@ -567,7 +570,7 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
   // new-page gap: a competitor is cited for a topic no owned page covers.
   for (const comp of competitors) {
     const topic = comp.examplePrompts[0] ?? comp.domain;
-    const covered = ownedContentText.some((text) => scoreTopicMatch(topic, text).relevant);
+    const covered = ownedContentText.some((text) => relatedTopic(topic, text));
     if (!covered && comp.examplePrompts.length > 0) {
       contentGaps.push({
         kind: "missing_page",
@@ -591,15 +594,10 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
         .filter(Boolean)
         .join(" ");
       if (!toLabel || !fromText) continue;
-      const verdict = internalLinkRelevance(fromText, toLabel);
-      if (verdict.relevant) {
-        internalLinkOpportunities.push({
-          fromUrl: from.url,
-          toUrl: to.url,
-          anchor: toLabel,
-          reason: `"${from.url}" is on-topic for "${toLabel}" but does not link to it yet.`,
-        });
-      }
+      // Anchored, never bare: the site-wide word alone is not a reason to link one page to another.
+      if (!relatedTopic(fromText, toLabel)) continue;
+      internalLinkOpportunities.push({ fromUrl: from.url, toUrl: to.url, anchor: toLabel,
+        reason: `"${from.url}" is on-topic for "${toLabel}" but does not link to it yet.` });
     }
   }
   internalLinkOpportunities.sort(
@@ -610,7 +608,7 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
   const newPageOpportunities: NewPageOpportunity[] = [];
   for (const comp of competitors) {
     const topic = comp.examplePrompts[0] ?? comp.domain;
-    const covered = ownedContentText.some((text) => scoreTopicMatch(topic, text).relevant);
+    const covered = ownedContentText.some((text) => relatedTopic(topic, text));
     if (covered || comp.examplePrompts.length === 0) continue;
     const kw = keywordDemand.find((k) => norm(k.query) === norm(topic));
     const volume = kw?.searchVolume ?? null;

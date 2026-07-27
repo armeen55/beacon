@@ -10,9 +10,9 @@ import { emptyBusinessProfile, type Account, type BusinessProfile, type ProfileS
 import type { CachedCallResult, CapabilityKey, FailureDisposition, ParsedAiAnswer, ParsedKeywordItem, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { keywordDiscoveryUnit } from "@/domains/evidence/funnel/discovery";
 import { promptObservationUnit, serpAnalysisUnit, winningPagesUnit } from "@/domains/evidence/funnel/observe";
-import { selectSerpAgenda } from "@/domains/evidence/funnel/normalize";
+import { retainDiverse, selectSerpAgenda } from "@/domains/evidence/funnel/normalize"; import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
-import { emptyFunnelState, type FunnelKeyword, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
+import { emptyFunnelState, MAX_RETAINED, type FunnelKeyword, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
 import type { FunnelDeps } from "@/domains/evidence/funnel/shared";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 const BASIS = "basis_aaa";
@@ -48,13 +48,11 @@ describe("research funnel - basis-scoped discovery + isolation", () => {
     expect(new Set(st.discovery.rejected.map((r) => r.reason))).toEqual(new Set(["banned_term", "excluded_topic", "junk", "irrelevant"])); expect(store.peek("t1", "basis_other")).toBeUndefined();
     await keywordDiscoveryUnit({ ...base(profileOf("t2", ["persian recipes"], ["persian food"])), ...store.deps, callProvider })("t2", cur(), 60_000);
     expect(store.peek("t2", BASIS)!.discovery.retained.length).toBeGreaterThan(0); expect(store.peek("t1", BASIS)!.discovery.retained.length).toBe(st.discovery.retained.length);
-    const blind = await keywordDiscoveryUnit({ ...base(profile), ...memStore().deps, callProvider })("t1", cur(null), 60_000); expect([blind.status, !!blind.detail]).toEqual(["failed", true]); // fail closed with no basis
-  });
+    const blind = await keywordDiscoveryUnit({ ...base(profile), ...memStore().deps, callProvider })("t1", cur(null), 60_000); expect([blind.status, !!blind.detail]).toEqual(["failed", true]); }); // fail closed with no basis
   it("does not corrupt persisted state when an optimistic save conflicts (fail closed)", async () => { const seed = emptyFunnelState("t1", BASIS); // a concurrent writer moved the row: every save now conflicts
     seed.discovery.retained = [{ keyword: "keep me", searchVolume: 9, competition: 0.2, difficulty: null, intent: null, discoveredVia: "site" }];
     const store = memStore(seed); const out = await keywordDiscoveryUnit({ ...base(profile), ...store.deps, saveState: async () => null, callProvider })("t1", cur(), 60_000);
-    expect(out.status).toBe("failed"); expect(store.peek("t1", BASIS)!.discovery.retained[0]!.keyword).toBe("keep me"); // persisted row untouched
-  });
+    expect(out.status).toBe("failed"); expect(store.peek("t1", BASIS)!.discovery.retained[0]!.keyword).toBe("keep me"); }); // persisted row untouched
 });
 describe("research funnel - prompt observation honesty + history identity", () => {
   const prompts = [{ id: "p1", text: "best persian restaurant" }, { id: "p2", text: "where to buy saffron" }];
@@ -74,29 +72,25 @@ describe("research funnel - prompt observation honesty + history identity", () =
     const gem = st.prompts.pairs.find((p) => p.engine === "gemini" && p.status === "done")!; expect(gem.citations).toBeNull(); expect(gem.citationsObserved).toBe(false);
     const perpRow = rows.find((r) => r.platform === "perplexity")!, gemRow = rows.find((r) => r.platform === "gemini")!;
     expect(perpRow.citation_urls).toEqual([]); expect(perpRow.metadata.citationsObserved).toBe(true); expect(perpRow.metadata.observationMode).toBe("standardized_response");
-    expect(gemRow.citation_urls).toBeNull(); expect(gemRow.metadata.citationsObserved).toBe(false); expect(rows.some((r) => (r.search_queries ?? []).length > 0)).toBe(true);
-  });
+    expect(gemRow.citation_urls).toBeNull(); expect(gemRow.metadata.citationsObserved).toBe(false); expect(rows.some((r) => (r.search_queries ?? []).length > 0)).toBe(true); });
   it("hands each capability its own provider-valid ask: chatgpt web only, claude web+force+country, gemini web-only, perplexity plain, consumer search by keyword", async () => { const seen = new Map<string, unknown>(); const store = memStore();
     await promptObservationUnit({ ...deps(store, [], "claude-4"), callProvider: async (cap, input) => { if (!seen.has(cap)) seen.set(cap, input); return waiting("ck"); } })("tp", cur(), 60_000);
     expect(seen.get("llm_chatgpt")).toEqual({ user_prompt: "best persian restaurant", web_search: true }); // ChatGPT rejects force_web_search on its reasoning models (in-body 40501), so we never send it
     expect(seen.get("llm_claude")).toEqual({ user_prompt: "best persian restaurant", web_search: true, force_web_search: true, web_search_country_iso_code: "US" }); // documented for Claude
     expect(seen.get("llm_gemini")).toEqual({ user_prompt: "best persian restaurant", web_search: true }); expect(seen.get("llm_perplexity")).toEqual({ user_prompt: "best persian restaurant" });
-    expect(seen.get("llm_scraper_chatgpt")).toEqual({ keyword: "best persian restaurant", force_web_search: true, expand_citations: true }); // keyword-based, never user_prompt
-  });
+    expect(seen.get("llm_scraper_chatgpt")).toEqual({ keyword: "best persian restaurant", force_web_search: true, expand_citations: true }); }); // keyword-based, never user_prompt
   it("gives the consumer look and a changed served model their OWN history rows, never a merge", async () => { const rows: PromptAnswerObservation[] = []; const store = memStore(); await promptObservationUnit(deps(store, rows, "claude-3-5-sonnet"))("tp", cur(), 60_000);
     await promptObservationUnit(deps(store, rows, "claude-3-5-sonnet"))("tp", cur(), 60_000); // same day: collects the posted ChatGPT tasks
     const chat = rows.filter((r) => r.prompt_id === "p1" && r.platform === "chatgpt"); expect(chat.length).toBe(2); expect(new Set(chat.map((r) => r.id)).size).toBe(2); // same engine, day and model: still distinct ids
     expect(new Set(chat.map((r) => r.metadata.observationMode))).toEqual(new Set(["consumer_search", "standardized_response"])); expect(new Set(chat.map((r) => Boolean(r.metadata.scraper)))).toEqual(new Set([true, false])); // pre-6I readers still see the flag
     await promptObservationUnit({ ...deps(store, rows, "claude-4"), now: () => 5_000_000 + 8 * 24 * 3600 * 1000 })("tp", cur(), 60_000);
-    expect(new Set(rows.filter((r) => r.platform === "claude" && r.prompt_id === "p1").map((r) => r.id)).size).toBe(2);
-  });
+    expect(new Set(rows.filter((r) => r.platform === "claude" && r.prompt_id === "p1").map((r) => r.id)).size).toBe(2); });
   it("stamps history with the REAL run id and starts each cycle's receipt at zero", async () => { const rows: PromptAnswerObservation[] = []; const store = memStore(); const d: FunnelDeps = { ...deps(store, rows, "claude-4"), callProvider: async () => ok(aiAnswer({ citations: [] })) };
     const r1 = await promptObservationUnit(d)("tp", { basis: BASIS, runId: "run-1", cycle: "cycle-1" }, 60_000); expect(r1.status).toBe("done"); expect(rows.every((r) => r.run_id === "run-1")).toBe(true); // never a manufactured id
     const c1 = store.peek("tp", BASIS)!; expect(c1.cycle).toMatchObject({ runId: "run-1", cycleKey: "cycle-1" }); expect(c1.cycle.spentUsd).toBeCloseTo(0.1, 5); // 10 pairs at one cent
     const r2 = await promptObservationUnit(d)("tp", { basis: BASIS, runId: "run-2", cycle: "cycle-2" }, 60_000); const c2 = store.peek("tp", BASIS)!; expect(r2.status).toBe("done"); expect(r2.progress.spendUsd).toBe(0);
     expect(c2.cycle).toMatchObject({ runId: "run-2", spentUsd: 0, cacheHits: 0 }); // a new run gets a FRESH receipt
-    expect(c2.ledger.spentUsd).toBeCloseTo(0.1, 5); // the lifetime total is still true
-  });
+    expect(c2.ledger.spentUsd).toBeCloseTo(0.1, 5); }); // the lifetime total is still true
 });
 describe("research funnel - current-set truth + the disposition ladder", () => {
   const prompts = [{ id: "p1", text: "best persian restaurant" }];
@@ -106,8 +100,7 @@ describe("research funnel - current-set truth + the disposition ladder", () => {
   const many = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `p${String(i).padStart(2, "0")}`, text: `prompt ${i}` }));
   it("prunes pairs whose prompt left the active set, so old completions can never satisfy the new set", async () => { const store = seedWith(ENG.map((e) => donePair("p_gone", e, new Date(NOW).toISOString()))); const out = await promptObservationUnit(mk(store, { callProvider: async () => waiting("ck") }))("tp", cur(), 60_000);
     expect(out.status).toBe("waiting"); expect(out.progress.enginePairsIntended).toBe(4); // every CANONICAL pair of the NEW prompt is outstanding
-    const kept = store.peek("tp", BASIS)!.prompts.pairs; expect(kept.length).toBe(5); expect(kept.every((p) => p.promptId === "p1")).toBe(true); // 4 canonical + 1 auxiliary; obsolete rows dropped (history lives in observations)
-  });
+    const kept = store.peek("tp", BASIS)!.prompts.pairs; expect(kept.length).toBe(5); expect(kept.every((p) => p.promptId === "p1")).toBe(true); }); // 4 canonical + 1 auxiliary; obsolete rows dropped (history lives in observations)
   it("intends 4 canonical pairs per prompt plus a bounded 20-prompt auxiliary set, and migrates a pre-6I state without re-buying a fresh look", async () => { const fresh = new Date(NOW).toISOString(); const store = seedWith([...ENG.map((e) => donePair("p00", e, fresh)), { ...donePair("p00", "chatgpt", fresh), scraper: true }, donePair("p24", "chatgpt", fresh)]);
     const asked: string[] = []; const ask = (i: unknown) => (i as { user_prompt?: string; keyword?: string }).user_prompt ?? (i as { keyword?: string }).keyword;
     const out = await promptObservationUnit(mk(store, { loadActivePrompts: async () => many(25), callProvider: async (cap, i) => { asked.push(`${cap}|${ask(i)}`); return waiting("ck"); } }))("tp", cur(), 60_000);
@@ -121,21 +114,18 @@ describe("research funnel - current-set truth + the disposition ladder", () => {
     expect(pairs.some((p) => p.promptId === "p24")).toBe(true); expect(pairs.some((p) => p.promptId === "p24" && p.status === "done")).toBe(false); // the out-of-band auxiliary row is pruned from the working set
     const shuffled = memStore(); await promptObservationUnit(mk(shuffled, { loadActivePrompts: async () => many(25).reverse(), callProvider: async () => waiting("ck") }))("tp", cur(), 60_000);
     const shuffledAux = shuffled.peek("tp", BASIS)!.prompts.pairs.filter((p) => p.engine === "chatgpt" && p.mode === "standardized_response").map((p) => p.promptId);
-    expect(shuffledAux).toEqual(aux.map((p) => p.promptId)); // provider row order cannot rotate the paid auxiliary sample
-  });
+    expect(shuffledAux).toEqual(aux.map((p) => p.promptId)); }); // provider row order cannot rotate the paid auxiliary sample
   it("an auxiliary failure never fails the unit or blocks done, and even an auxiliary BLOCK never holds the run hostage", async () => {
     const run = (disposition: FailureDisposition) => { const store = memStore(); return promptObservationUnit(mk(store, { callProvider: async (cap) => (cap === "llm_chatgpt" ? err(disposition) : ok(aiAnswer({ citations: [] }))) }))("tp", cur(), 60_000).then((out) => ({ out, store })); };
     const q = await run("quarantined"); expect([q.out.status, q.out.detail, q.out.progress.enginePairsIntended]).toEqual(["done", undefined, 4]); // the four canonical looks are in: an auxiliary gap names nothing and blocks nothing
     const b = await run("blocked"); expect([b.out.status, b.out.detail]).toEqual(["done", undefined]); // an aux block reads unsupported (durable, free) and resurfaces on canonical work, never a permanent pause
     expect(b.store.peek("tp", BASIS)!.prompts.pairs.find((p) => p.engine === "chatgpt" && p.mode === "standardized_response")!.status).toBe("unsupported");
     const canon = await promptObservationUnit(mk(memStore(), { callProvider: async (cap) => (cap === "llm_scraper_chatgpt" ? err("blocked") : ok(aiAnswer({ citations: [] }))) }))("tp", cur(), 60_000);
-    expect([canon.status, canon.detail]).toEqual(["failed", "the provider could not finish it"]); // a CANONICAL block still pauses the run for review (6G)
-  });
+    expect([canon.status, canon.detail]).toEqual(["failed", "the provider could not finish it"]); }); // a CANONICAL block still pauses the run for review (6G)
   it("keeps working on a half-refreshed stale set instead of reporting done", async () => { const store = seedWith([...ENG.map((e) => donePair("p1", e, WEEKS_AGO)), { ...donePair("p1", "chatgpt", WEEKS_AGO), scraper: true }]);
     let landed = false; // the budget runs out right after the FIRST stale pair refreshes
     const out = await promptObservationUnit(mk(store, { now: () => (landed ? NOW + 9_000_000 : NOW), syncHistory: async () => { landed = true; }, callProvider: async () => ok(aiAnswer({ citations: [] })) }))("tp", cur(), 60_000);
-    expect(out.status).toBe("advanced"); expect(store.peek("tp", BASIS)!.prompts.pairs.filter((p) => p.observedAt === WEEKS_AGO).length).toBe(4); // NOT done: four looks are still stale
-  });
+    expect(out.status).toBe("advanced"); expect(store.peek("tp", BASIS)!.prompts.pairs.filter((p) => p.observedAt === WEEKS_AGO).length).toBe(4); }); // NOT done: four looks are still stale
   it("keeps a retry_free task posted on the SAME key; a blocked collect keeps it too and stops the paid batch dead", async () => { for (const disposition of ["retry_free", "blocked"] as const) {
       const store = seedWith([{ promptId: "p1", engine: "chatgpt", mode: "consumer_search", cacheKey: "ck-old", status: "posted" }]); let posts = 0;
       const d = mk(store, { collectTask: async () => err(disposition), callProvider: async () => { posts += 1; return waiting("ck-new"); } });
@@ -151,8 +141,7 @@ describe("research funnel - current-set truth + the disposition ladder", () => {
     const r1 = await promptObservationUnit(d)("tp", cur(), 60_000); expect(r1.status).toBe("waiting"); expect(chat()).toMatchObject({ status: "posted", cacheKey: "ck-new", reposts: 1 }); // ONE clean repost
     const r2 = await promptObservationUnit(d)("tp", cur(), 60_000); expect(chat().status).toBe("unsupported"); expect(r2.status).toBe("waiting"); // unavailable coverage named; the run is not stuck
     expect(posts).toBe(9); // 5 first-pass posts + the OTHER four pairs' single recovery; the dead key never reposts again
-    const r3 = await promptObservationUnit(d)("tp", cur(), 60_000); expect(posts).toBe(9); expect(r3.status).toBe("failed"); // every repost spent: zero further spend, honest failure, never done
-  });
+    const r3 = await promptObservationUnit(d)("tp", cur(), 60_000); expect(posts).toBe(9); expect(r3.status).toBe("failed"); }); // every repost spent: zero further spend, honest failure, never done
   it("pauses honestly when a pass processes nothing or coverage is unavailable, never a fake done", async () => { const store = memStore(); let t = 0; // the deadline passes immediately after it is set: zero pairs run
     const stalled = await promptObservationUnit(mk(store, { now: () => (t += 100_000), callProvider: async () => waiting("ck") }))("tp", cur(), 1_000);
     const unavailable = await promptObservationUnit(mk(store, { callProvider: async () => ({ state: "not_configured", cacheKey: null, detail: "not configured" }) }))("tp", cur(), 60_000);
@@ -189,6 +178,10 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     expect(kept.analyzed).toBe(1); // an old completion can never satisfy a due query
     const r2 = await serpAnalysisUnit(deps)("ts", cur(), 60_000); expect(posts).toBe(1); expect(collects).toBeGreaterThanOrEqual(1); expect(r2.status).toBe("done"); // resumed for free, never reposted
   });
+  it("spends NOTHING when every trusted starting point is unreadable, and keeps the research already saved", async () => { const store = memStore(retainedState(["a query"])); let calls = 0;
+    const out = await serpAnalysisUnit({ ...store.deps, ...serpBase, loadProfile: async () => { throw new Error("records down"); }, loadPageQueries: async () => null, callProvider: async () => { calls += 1; return waiting("ck"); } })("ts", cur(), 60_000);
+    expect([out.status, calls, out.detail]).toEqual(["failed", 0, "I could not read any of your trusted starting points this pass, so I spent nothing. I will try again on your next visit."]); // a failed read is never "you have nothing"
+    expect(store.peek("ts", BASIS)!.discovery.retained).toHaveLength(1); }); // prior saved research untouched
   it("recovers an expired search exactly once, then reports it unavailable instead of sticking failed", async () => { const seed = retainedState(["a query"]); seed.serps.queries = [{ query: "a query", cacheKey: "ck-old", status: "posted" }]; const store = memStore(seed); let posts = 0;
     const deps: FunnelDeps = { ...store.deps, ...serpBase, collectTask: async () => err("repost_once"), callProvider: async (cap: CapabilityKey) => { if (cap === "serp_organic") posts += 1; return waiting("ck-new"); } };
     const r1 = await serpAnalysisUnit(deps)("ts", cur(), 60_000); expect(r1.status).toBe("waiting"); expect(posts).toBe(1); // exactly ONE clean repost
@@ -220,36 +213,42 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     const answers = win[0]!.appearances.filter((a) => a.kind === "ai_answer"); expect(answers.map((a) => a.observationMode)).toEqual(["consumer_search"]); // one citation, two modes: credited ONCE to the consumer look, never double-counted
   });
 });
-describe("research funnel - the SERP agenda is decision-scoped, never volume-ranked", () => {
-  const THEMES = ["plumbing repair", "plumbing installation", "plumbing emergency service", "water heater plumbing", "drain cleaning plumbing"];
-  const NEWS = ["plumbing news today", "plumbing tv show", "famous plumbing memes", "plumbing wikipedia", "plumbing history documentary"]; // share ONLY the weak anchor "plumbing"
-  const THEMED: [string, number][] = [["water heater plumbing repair", 200], ["drain cleaning cost", 150], ["drain cleaning price", 120], ["emergency plumbing service near me", 90], ["plumbing installation guide", 80], ["toilet repair", 50], ["toilet repair diy", 40]];
-  const kw = (keyword: string, searchVolume: number): FunnelKeyword => ({ keyword, searchVolume, competition: null, difficulty: null, intent: null, discoveredVia: "site" });
-  const retained = [...NEWS.map((k, i) => kw(k, 400_000 - i * 50_000)), ...THEMED.map(([k, v]) => kw(k, v))];
-  type Agenda = Parameters<typeof selectSerpAgenda>[0];
-  const agenda = (over: Partial<Agenda>, cap: number) => selectSerpAgenda({ retained, themes: THEMES, promptTopics: [], pageQueries: [], ...over }, cap);
-  it("gives every confirmed theme a real query and stops a huge-volume news cluster from taking every slot", () => { const out = agenda({}, 8); // volume alone would have bought all five 150k-400k news queries first
-    expect(out.filter((q) => NEWS.includes(q))).toEqual(["plumbing news today"]); // ONE bounded exploration slot, never the whole agenda
-    expect(THEMED.every(([k]) => out.includes(k))).toBe(true); // every theme with a strongly anchored candidate is actually checked
-  });
-  it("checks the queries my own strongest pages already rank for first, the slipping ones before the steady ones", () => { const out = agenda({ pageQueries: [{ query: "plumbing installation guide", impressions: 900 }, { query: "toilet repair", impressions: 100, declining: true }] }, 8);
-    expect(out.slice(0, 2)).toEqual(["toilet repair", "plumbing installation guide"]); // declining first, then impressions, ahead of every other portfolio
-  });
-  it("covers one keyword per tracked question before any question's second", () => { expect(agenda({ promptTopics: ["drain cleaning", "toilet repair", "drain cleaning"] }, 4)).toEqual(["drain cleaning cost", "water heater plumbing repair", "drain cleaning price", "toilet repair"]);
-  });
-  it("produces the same agenda from the same inputs in any array order", () => { const full: Agenda = { retained, themes: THEMES, promptTopics: ["drain cleaning", "toilet repair"], pageQueries: [{ query: "toilet repair", impressions: 100, declining: true }, { query: "plumbing installation guide", impressions: 900 }] };
-    const shuffled: Agenda = { retained: [...retained].reverse(), themes: [...THEMES].reverse(), promptTopics: [...full.promptTopics].reverse(), pageQueries: [...full.pageQueries].reverse() };
-    expect(JSON.stringify(selectSerpAgenda(shuffled, 10))).toBe(JSON.stringify(selectSerpAgenda(full, 10)));
-  });
-  it("never exceeds the cap, never repeats a query across portfolios, and never fakes a theme it has nothing for", () => { const out = selectSerpAgenda({ retained, themes: [...THEMES, "septic tank inspection"], promptTopics: ["drain cleaning"], pageQueries: [{ query: "drain cleaning cost", impressions: 500 }] }, 5);
-    expect([out.length, new Set(out).size]).toEqual([5, 5]); // the same query wins P1 and P2 and is still bought once
-    expect(out.some((q) => q.includes("septic"))).toBe(false); // a theme with no strongly anchored candidate is skipped honestly
-    expect(out.every((q) => retained.some((r) => r.keyword === q))).toBe(true); // never a query I did not research
-  });
-  it("seeds paid discovery from EVERY confirmed theme, bounded at twelve", async () => { const store = memStore(); const topics = Array.from({ length: 15 }, (_, i) => `plumbing topic ${String(i).padStart(2, "0")}`);
-    await keywordDiscoveryUnit({ ...base(profileOf("td", [], topics)), ...store.deps, callProvider: async () => ok(parsedKw([])) })("td", cur(), 60_000);
+describe("research funnel - the SERP agenda buys my own words, never a lookalike", () => {
+  // A GENERIC reference site: no vertical token is privileged anywhere in the gate.
+  const THEMES = ["baby names", "flag history", "national holidays", "given name origins"];
+  const BIG = ["celebrity gossip today", "movie trailer news", "sports scores live", "weather forecast tomorrow", "stock market today"]; // huge volume, no theme of mine
+  const THEMED: [string, number][] = [["female baby names", 900], ["baby names 2026", 800], ["flag history timeline", 700], ["national holidays calendar", 600], ["given name origins guide", 500], ["political revolution 1979", 400], ["national flag history", 300]];
+  const kw = (keyword: string, searchVolume: number, over: Partial<FunnelKeyword> = {}): FunnelKeyword => ({ keyword, searchVolume, competition: null, difficulty: null, intent: null, discoveredVia: "site", ...over });
+  const retained = [...BIG.map((k, i) => kw(k, 400_000 - i * 10_000)), ...THEMED.map(([k, v]) => kw(k, v))]; type Agenda = Parameters<typeof selectSerpAgenda>[0];
+  const agenda = (over: Partial<Agenda>, cap: number) => selectSerpAgenda({ retained, themes: THEMES, prompts: [], pageQueries: [], ...over }, cap);
+  it("buys my own page's query EXACTLY, even when I never researched it, and never swaps in a lookalike", () => { const out = agenda({ pageQueries: [{ query: "boys baby names", impressions: 900 }, { query: "national flag 1979", impressions: 800 }] }, 2);
+    expect(out.queries).toEqual(["boys baby names", "national flag 1979"]); // a first-party query needs no researched twin: the search call takes any keyword string
+    expect(retained.some((r) => out.queries.includes(r.keyword))).toBe(false); }); // "female baby names" and "political revolution 1979" sat right there and were NOT substituted in
+  it("treats word order as one subject and a changed modifier as another, so nothing buys twice", () => { expect(canonicalQueryKey("baby male names")).toBe(canonicalQueryKey("baby names male"));
+    expect(canonicalQueryKey("national flag 1979")).not.toBe(canonicalQueryKey("political revolution 1979")); // a date is not an event: never collapsed together
+    const dup = agenda({ pageQueries: [{ query: "national flag 1979", impressions: 900 }, { query: "national flag 1979", impressions: 400 }, { query: "1979 national flag", impressions: 300 }] }, 12);
+    expect(dup.queries[0]).toBe("national flag 1979"); expect(new Set(dup.queries.map(canonicalQueryKey)).size).toBe(dup.queries.length); }); // one subject, ONE paid slot
+  it("checks a tracked question through its observed fan-out, else through its own approved words", () => {
+    expect(agenda({ prompts: [{ text: "what are popular baby names", fanOutQueries: ["most popular baby names 2026"] }, { text: "which flags changed in 1979" }] }, 2).queries).toEqual(["most popular baby names 2026", "which flags changed in 1979"]); });
+  it("skips a query the provider would refuse instead of truncating it into a different question", () => { const long = "a".repeat(701);
+    const out = agenda({ pageQueries: [{ query: long, impressions: 900 }, { query: "boys baby names", impressions: 10 }] }, 1);
+    expect(out.queries).toEqual(["boys baby names"]); expect(out.skipped).toEqual([{ query: long, reason: "over_provider_keyword_length" }]); });
+  it("gives every theme a real query, names the one it cannot defend, and bounds exploration at eight", () => { const out = agenda({ themes: [...THEMES, "septic tank inspection"] }, 8);
+    expect(out.queries.slice(0, 4)).toEqual(["female baby names", "flag history timeline", "given name origins guide", "national holidays calendar"]);
+    expect(out.uncoveredThemes).toEqual(["septic tank inspection"]); expect(out.queries.some((q) => q.includes("septic"))).toBe(false); // named, never faked
+    expect(agenda({ themes: [] }, 40).queries).toHaveLength(8); }); // nothing trusted to check: a SHORTER agenda, never forty slots of padding
+  it("produces the same agenda from the same inputs in any array order", () => { const full: Agenda = { retained, themes: THEMES, prompts: [{ text: "what are popular baby names", fanOutQueries: ["most popular baby names 2026", "baby names by decade"] }], pageQueries: [{ query: "boys baby names", impressions: 100, declining: true }, { query: "national flag 1979", impressions: 900 }] };
+    const rev: Agenda = { retained: [...retained].reverse(), themes: [...THEMES].reverse(), prompts: [...full.prompts].reverse(), pageQueries: [...full.pageQueries].reverse() };
+    expect(JSON.stringify(selectSerpAgenda(rev, 10))).toBe(JSON.stringify(selectSerpAgenda(full, 10))); });
+  it("retains with SOURCE diversity, so one broad pull cannot evict every seed's discovery", () => { const site = Array.from({ length: 10 }, (_, i) => kw(`site keyword ${i}`, 9000 - i));
+    const seeded = ["alpha", "beta"].map((s) => kw(`${s} niche keyword`, 10, { discoveredVia: "related", seed: s })); const out = retainDiverse([...site, ...seeded], 4).map((k) => k.keyword);
+    expect(out).toEqual(["alpha niche keyword", "beta niche keyword", "site keyword 0", "site keyword 1"]); expect(retainDiverse([...seeded, ...site].reverse(), 4).map((k) => k.keyword)).toEqual(out); // volume alone kept only the broad pull
+    expect([MAX_RETAINED, retainDiverse(Array.from({ length: 900 }, (_, i) => kw(`k${i}`, i)), MAX_RETAINED).length]).toEqual([700, 700]); });
+  it("seeds discovery from EVERY confirmed theme, bounded at twelve, and prices the retained set in ONE bounded request", async () => { const store = memStore(); const topics = Array.from({ length: 15 }, (_, i) => `gadget topic ${String(i).padStart(2, "0")}`);
+    const wordy = `gadget ${Array.from({ length: 11 }, (_, i) => `w${i}`).join(" ")}`, long = `gadget ${"x".repeat(80)}`; let batch: string[] = []; const found = parsedKw([{ keyword: "gadget topic 00 review" }, { keyword: wordy }, { keyword: long }]);
+    await keywordDiscoveryUnit({ ...base(profileOf("td", [], topics)), ...store.deps, callProvider: async (cap: CapabilityKey, input: unknown) => { if (cap === "labs_keyword_overview") batch = (input as { keywords: string[] }).keywords; return ok(cap === "labs_keywords_for_site" ? found : parsedKw([])); } })("td", cur(), 60_000);
     expect(store.peek("td", BASIS)!.discovery.seeds).toEqual(topics.slice(0, 12)); // the old five-seed truncation starved every theme after the fifth
-  });
+    expect(batch).toEqual(["gadget topic 00 review"]); }); // over 80 characters or over 10 words: dropped BEFORE the batch, never truncated into a different keyword
 });
 describe("research funnel - canonical snapshot carries the research bundle", () => {
   it("surfaces the current set, its provenance, and THIS run's receipt", async () => { const s = emptyFunnelState("tg", BASIS); s.discovery.retained = [{ keyword: "saffron price", searchVolume: 500, competition: 0.4, difficulty: null, intent: "commercial", discoveredVia: "site" }];

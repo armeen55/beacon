@@ -1,16 +1,17 @@
 /**
- * relevance-gate (2026-06-28 — Evidence Relevance + Source Truth) — a PURE, deterministic
+ * relevance-gate (2026-06-28, Evidence Relevance + Source Truth) - a PURE, deterministic
  * gate that decides whether one evidence atom (a competitor URL, a "what wins" teardown,
  * an internal-link target, an AI prompt) is actually ON-TOPIC for a Move before it reaches
  * a customer-facing card. No LLM, no I/O.
  *
- * The trust problem it kills: the demand graph + Profound + GSC cannibalization sometimes
- * join a real Move to junk evidence — Tehran → "Iranian Snacks" for "capital of Iran",
- * Safavid Flag → a TasteAtlas eggplant URL, Persian Numbers → baby-name competitor pages.
+ * The trust problem it kills: the demand graph, AI answers and GSC cannibalization
+ * sometimes join a real Move to junk evidence, a city guide to a snack listicle or a
+ * product page to a recipe aggregator.
  *
- * The core rule: two topics are related ONLY if they share a DISTINGUISHING token — not
- * just a generic brand term like "iran"/"persian". "Tehran" and "Iranian Snacks" share
- * only the (stripped) generic "iranian", so the join is suppressed. Plus: social / forum /
+ * The core rule: two topics are related ONLY if they share a DISTINGUISHING token. What
+ * is generic HERE is universal language (stopwords + SEO filler) and nothing else: an
+ * account's own ubiquitous vocabulary is derived from its OWN corpus by weakAnchorTokens,
+ * so this file carries no vertical and works for any business. Plus: social / forum /
  * marketplace / recipe domains are noise unless the topic itself is about them.
  */
 
@@ -31,21 +32,20 @@ export type RelevanceVerdict = {
   sharedTerms: string[];
 };
 
-/** Stopwords + GENERIC brand/SEO terms that must NOT count as a topic match on their own.
- *  "iran"/"persian" alone don't make two pages related on an Iranian-culture site. */
+/** UNIVERSAL language only: structural stopwords plus SEO filler that means the same
+ *  thing in every vertical. No account's subject words live here, ever: a hardcoded
+ *  vertical list would erase exactly the words that make one customer's topics distinct
+ *  (and it silently did). Per-account ubiquity is weakAnchorTokens' job. */
 const GENERIC = new Set([
-  // structural stopwords
   "the", "a", "an", "of", "in", "to", "and", "or", "for", "with", "on", "at", "by",
   "is", "are", "be", "your", "you", "it", "this", "that", "from", "as", "how", "what",
   "why", "when", "where", "who", "vs", "near", "me", "best", "top", "guide", "complete",
   "ultimate", "list", "page", "pages", "online", "free", "new", "all", "more", "about",
   "into", "out", "up", "do", "does", "can", "will", "vs.",
-  // brand / vertical-context terms (too generic alone on this tenant)
-  "iran", "iranian", "iranians", "persia", "persian", "persians", "farsi",
 ]);
 
 /** Domains that are noise for editorial intent (social / forum / UGC / recipe-aggregator /
- *  marketplace) — suppressed unless the Move topic is explicitly about them. */
+ *  marketplace), suppressed unless the Move topic is explicitly about them. */
 const NOISE_DOMAINS = [
   "facebook.com", "instagram.com", "twitter.com", "x.com", "tiktok.com", "youtube.com",
   "pinterest.com", "reddit.com", "quora.com", "linkedin.com", "tumblr.com",
@@ -93,12 +93,29 @@ export function isNoiseDomain(url: string): boolean {
 }
 
 /**
+ * CANONICAL QUERY IDENTITY (query fidelity closure, 2026-07-26). Two queries are
+ * the SAME research subject only when their full normalized token multisets are
+ * identical: "baby male names" and "baby names male" join (same words, any
+ * order), while "national flag 1979" and "political revolution 1979" never
+ * collapse (different words). ALL tokens count, stopwords included and every
+ * script (a Persian or Cyrillic modifier is a modifier). KNOWN LIMIT, accepted:
+ * a multiset cannot tell directions apart ("usd to eur" = "eur to usd"); no live
+ * query hits it and a thesaurus is out of bounds. Used for volume joins and
+ * dedupe ONLY; SERP observation identity stays the exact normalized string. Pure.
+ */
+export function canonicalQueryKey(query: string | null | undefined): string {
+  if (!query) return "";
+  return stripDiacritics(String(query).toLowerCase())
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(/\s+/).filter(Boolean).sort().join(" ");
+}
+
+/**
  * WEAK ANCHORS (relevance convergence slice, 2026-07-26). A token that recurs
- * across most of an account's own phrases ("iran" for an Iran encyclopedia,
- * "plumbing" for a plumber) matches nearly everything the account touches, so
- * it proves nothing about TOPICAL fit: on its own it let 368k-volume news
- * queries pass the research filter and let a broad culture prompt "support" a
- * names page. Derived per account from its OWN corpus, never hardcoded. Pure.
+ * across most of an account's own phrases ("plumbing" for a plumber, "dental"
+ * for a dentist) matches nearly everything that account touches, so it proves
+ * nothing about TOPICAL fit: on its own it let huge-volume news queries pass the
+ * research filter and let a broad prompt "support" an unrelated page. Derived
+ * per account from its OWN corpus, never hardcoded. Pure.
  * A token is weak when it appears in >= ceil(40% of phrases) and at least 3.
  */
 export function weakAnchorTokens(phrases: ReadonlyArray<string | null | undefined>): Set<string> {
@@ -157,14 +174,6 @@ export function competitorRelevance(
   const haystack = [candidate.title ?? "", url].filter(Boolean).join(" ");
   const v = scoreTopicMatch(moveTopic, haystack);
   if (!v.relevant) return { ...v, reason: "competitor_topic_mismatch" };
-  return v;
-}
-
-/** Gate an internal-link / cannibalization target page against a Move topic. The target
- *  page must be topically related to the source — never link Tehran → "Iranian Snacks". */
-export function internalLinkRelevance(moveTopic: string, targetLabelOrUrl: string): RelevanceVerdict {
-  const v = scoreTopicMatch(moveTopic, targetLabelOrUrl);
-  if (!v.relevant) return { ...v, reason: "bad_internal_link_target" };
   return v;
 }
 

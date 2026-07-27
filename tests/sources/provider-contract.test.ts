@@ -124,7 +124,8 @@ describe("envelope parsing + method-aware resolution", () => {
     const hit = harness(labsKeywordsForSiteLive, { claimEvidenceFetch: async () => ({ outcome: "ready", payload: stored, providerTaskId: null, modelServed: null, readyAt: NOW.toISOString(), costUsd: 0 }) });
     const r2 = await providerCall("labs_keywords_for_site", { target: "apple.com" }, IDS, hit.deps); if (r2.state !== "hit") throw new Error(r2.state);
     expect(hit.calls.fetch).toHaveLength(0); expect(parseCapability("labs_keywords_for_site", r2.envelope)).toEqual(parsed);
-  });
+    let reserved = 0; const ov = harness(labsKeywordsForSiteLive, { reserveProviderSpend: async (_t: string, _p: string, amount: number) => { reserved = amount; return true; } });
+    await providerCall("labs_keyword_overview", { keywords: ["a"] }, IDS, ov.deps); expect(reserved).toBeGreaterThanOrEqual(700 * 0.0003); }); // 150 keywords really charged $0.02988, so a FULL 700-keyword batch lands near $0.21: never reserved under it
   it("the SERP fixture yields organic, PAA, related, AI Overview; an LLM answer lists web citations", async () => {
     const serp = parseCapability("serp_organic", serpTaskGetAdvanced as unknown as ProviderEnvelope); expect(serp!.organic.map((o) => o.domain)).toEqual(["python.org", "w3schools.com"]);
     expect(serp!.paaQuestions).toHaveLength(2); expect(serp!.relatedSearches).toHaveLength(3); expect(serp!.aiOverview?.references.map((r) => r.domain)).toEqual(["python.org", "wikipedia.org"]);

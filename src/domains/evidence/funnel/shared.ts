@@ -50,8 +50,9 @@ export type FunnelDeps = {
   writePageExtract?: typeof writePublicPageExtract;
   loadProfile?: (tenantId: string) => Promise<BusinessProfile>;
   loadCrawl?: (tenantId: string) => Promise<CrawlFrontierState | null>;
-  /** Top queries of the account's own strongest pages: portfolio 1 of the SERP agenda. */
-  loadPageQueries?: (tenantId: string) => Promise<SerpAgendaPageQuery[]>;
+  /** Top queries of the account's own strongest pages: portfolio 1 of the SERP agenda.
+   *  null = the READ FAILED; [] = the account genuinely has none yet. */
+  loadPageQueries?: (tenantId: string) => Promise<SerpAgendaPageQuery[] | null>;
   /** Test seam for winning-page citation-target resolution (defaults to the real
    *  redirect-only resolver in competitor-intel/polite-fetch). */
   resolveCitations?: (appearances: ResearchWinningAppearance[], fetchImpl?: typeof fetch, deadlineMs?: number) => Promise<ResearchWinningAppearance[]>;
@@ -111,15 +112,14 @@ async function defaultActivePrompts(tenantId: string): Promise<{ id: string; tex
  *  ownedPages.search.topQueries comes from: the strongest pages by 90-day
  *  impressions, each carrying its own top queries. A page whose last 28 days of
  *  clicks fell against the 28 before marks its queries declining, so a slipping
- *  money query is checked in search before a steady one. Fail-soft by design: an
- *  unreadable read is [] (portfolio 1 simply contributes nothing), NEVER a throw
- *  that would take the whole SERP phase down with it. */
-async function defaultPageQueries(tenantId: string): Promise<SerpAgendaPageQuery[]> {
+ *  money query is checked in search before a steady one. null = the READ FAILED
+ *  (mirrors the tracked-questions read), [] = the account genuinely has no page
+ *  queries yet. A failure that read as [] once let a blind agenda buy anyway. */
+async function defaultPageQueries(tenantId: string): Promise<SerpAgendaPageQuery[] | null> {
   try {
-    const [signals, decay] = await Promise.all([
-      loadGscPageSignalsForTenant(tenantId).catch(() => new Map<string, GscPageSignal>()),
-      loadGscDecaySignalsForTenant(tenantId).catch(() => new Map<string, GscDecaySignal>()),
-    ]);
+    const signals: Map<string, GscPageSignal> = await loadGscPageSignalsForTenant(tenantId);
+    // Decay only ORDERS the portfolio, so its own failure is soft: nothing is lost.
+    const decay = await loadGscDecaySignalsForTenant(tenantId).catch(() => new Map<string, GscDecaySignal>());
     const out: SerpAgendaPageQuery[] = [];
     for (const p of [...signals.values()].sort((a, b) => b.impressions90d - a.impressions90d).slice(0, 25)) {
       const d = decay.get(p.page);
@@ -128,7 +128,7 @@ async function defaultPageQueries(tenantId: string): Promise<SerpAgendaPageQuery
     }
     return out;
   } catch {
-    return [];
+    return null;
   }
 }
 

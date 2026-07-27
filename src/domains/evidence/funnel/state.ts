@@ -13,7 +13,11 @@ import type { ObservationMode, ResearchPageExtract, ResearchWinningAppearance } 
 
 const FUNNEL_SCHEMA_VERSION = 3;
 
-export const MAX_RETAINED = 150;
+/** 150 threw away most of what discovery actually found: one broad whole-site pull filled
+ *  every slot on volume and whole themes discovered from other seeds were never seen
+ *  again. 700 is the enrichment batch's own documented ceiling, so the retained set and
+ *  the ONE keyword_overview request that prices it are the same size. */
+export const MAX_RETAINED = 700;
 export const MAX_REJECTED = 150;
 
 export type FunnelKeyword = {
@@ -23,6 +27,9 @@ export type FunnelKeyword = {
   difficulty: number | null;
   intent: string | null;
   discoveredVia: "site" | "ranked" | "related" | "suggestion" | "gsc" | "profile";
+  /** The confirmed theme this keyword was discovered FROM (per-seed sources only), so
+   *  retention can keep every seed's discovery alive instead of one seed's. */
+  seed?: string;
 };
 
 export type FunnelReject = { keyword: string; reason: string };

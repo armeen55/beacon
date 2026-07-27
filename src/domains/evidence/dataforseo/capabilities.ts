@@ -159,12 +159,18 @@ function llmDynamicEntry<K extends "llm_chatgpt" | "llm_gemini" | "llm_claude">(
 const REGISTRY: Registry = {
   // Labs live actually charged 0.018 for a 50-row suggestions call (live, 2026-07-25),
   // so the reservation stays deliberately ABOVE that, never under it.
-  labs_keywords_for_site: labsEntry("dataforseo_labs/google/keywords_for_site/live", "target", 0.02),
-  labs_ranked_keywords: labsEntry("dataforseo_labs/google/ranked_keywords/live", "target", 0.02),
+  // keywords_for_site and ranked_keywords each ACTUALLY charged $0.132 on file against the old
+  // $0.02 estimate: reserve above the observed worst case; reconcile drops to actual.
+  labs_keywords_for_site: labsEntry("dataforseo_labs/google/keywords_for_site/live", "target", 0.2),
+  labs_ranked_keywords: labsEntry("dataforseo_labs/google/ranked_keywords/live", "target", 0.2),
   labs_related_keywords: labsEntry("dataforseo_labs/google/related_keywords/live", "keyword", 0.02),
   labs_keyword_suggestions: labsEntry("dataforseo_labs/google/keyword_suggestions/live", "keyword", 0.02),
+  // RESERVATION arithmetic, NOT a flat price: a real keyword_overview call of at most 150
+  // keywords charged $0.02988, about $0.0002 per keyword, so a FULL 700-keyword request lands near
+  // 700 x 0.0003 = $0.21. Reserved at 0.25, rounded UP, so the ceiling is never held BELOW
+  // what the provider can charge; reconcile drops the reservation to the actual cost.
   labs_keyword_overview: {
-    ttlMs: 7 * DAY, estCostUsd: 0.02, dims: { device: false, model: false },
+    ttlMs: 7 * DAY, estCostUsd: 0.25, dims: { device: false, model: false },
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_overview/live", getPath: null, tasksReady: null }),
     build: (i) => [{ keywords: i.keywords, location_code: LOCATION_US, language_code: LANG_EN }],
     parse: parseKeywords,

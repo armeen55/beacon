@@ -51,7 +51,6 @@ export {
   isNoiseDomain,
   scoreTopicMatch,
   competitorRelevance,
-  internalLinkRelevance,
   promptRelevance,
 } from "./relevance-gate";
 

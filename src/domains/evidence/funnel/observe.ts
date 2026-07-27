@@ -1,10 +1,8 @@
 import "server-only";
-/**
- * funnel/observe (integrity closure) - the AI-answer, SERP and winning-page executors + the PURE snapshot
- * projector. Provider calls route through the frozen boundary by CAPABILITY; posted tasks resume via collect;
- * only a PROVEN-dead identity earns one repost per incident; a BLOCKED refusal stops the batch and pauses the
- * run. State is basis-scoped (optimistic row_version). Provenance is TRUE: every observation carries its
+/** funnel/observe (integrity closure) - the AI-answer, SERP and winning-page executors + the PURE snapshot projector. Provider calls route through the frozen boundary by CAPABILITY; posted tasks resume via collect;
+ * only a PROVEN-dead identity earns one repost per incident; a BLOCKED refusal stops the batch and pauses the run. State is basis-scoped (optimistic row_version). Provenance is TRUE: every observation carries its
  * retrieval MODE and query/prompt/engine; citations keep the null-vs-[]-vs-nonempty tri-state end to end. */
+import { log } from "@/lib/logger";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { resolveCitationTargets } from "@/domains/evidence/competitor-intel/polite-fetch";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
@@ -19,17 +17,15 @@ import { basisFromCursor, beginCycle, CONFLICT_DETAIL, FRESH_MS, interp, type In
 const blockedNote = (r: Interp) => r.detail || pauseDetail("blocked", "");
 // ── B3: prompt observation ──────────────────────────────────────────────────
 const ENGINES: ResearchEngine[] = ["chatgpt", "gemini", "claude", "perplexity"];
-/** CANONICAL coverage = the ChatGPT consumer search experience (the citation-grade look real people get) plus the standardized
- *  response on the other three. A chatgpt standardized_response pair is AUXILIARY: bounded, never engine coverage or a substitute. */
-const canonicalMode = (engine: ResearchEngine): ObservationMode => (engine === "chatgpt" ? "consumer_search" : "standardized_response");
+/** CANONICAL coverage = the ChatGPT consumer search experience (the citation-grade look real people get) plus the standardized response on the other three. A chatgpt standardized_response pair is AUXILIARY: bounded, never engine coverage or a substitute. */
+const canonicalMode = (e: ResearchEngine): ObservationMode => (e === "chatgpt" ? "consumer_search" : "standardized_response");
 /** Mode is stamped by normalization; the legacy scraper flag is decode input ONLY (nothing else reads it). */
 const modeOf = (p: FunnelPair): ObservationMode => p.mode ?? (p.scraper ? "consumer_search" : "standardized_response");
 const isCanonical = (p: FunnelPair) => modeOf(p) === canonicalMode(p.engine);
 const pairKey = (p: FunnelPair) => `${p.promptId}|${p.engine}|${modeOf(p)}`;
 const capabilityFor = (p: FunnelPair): CapabilityKey => (p.engine === "chatgpt" && modeOf(p) === "consumer_search" ? "llm_scraper_chatgpt" : (`llm_${p.engine}` as CapabilityKey));
 
-/** Each capability gets EXACTLY its documented ask: ChatGPT llm_responses web_search only (live o4-mini rejected force,
- *  40501); Claude force + country; Gemini web_search only; perplexity none; the scraper is KEYWORD-based. */
+/** Each capability gets EXACTLY its documented ask: ChatGPT llm_responses web_search only (live o4-mini rejected force, 40501); Claude force + country; Gemini web_search only; perplexity none; the scraper is KEYWORD-based. */
 function observeCall(callProvider: ResolvedDeps["callProvider"], p: FunnelPair, text: string, ids: { tenantId: string; unitKey: string }): Promise<CachedCallResult> {
   switch (capabilityFor(p)) {
     case "llm_scraper_chatgpt": return callProvider("llm_scraper_chatgpt", { keyword: text, force_web_search: true, expand_citations: true }, ids);
@@ -40,8 +36,7 @@ function observeCall(callProvider: ResolvedDeps["callProvider"], p: FunnelPair, 
   }
 }
 
-/** THE intended pair set, MODE-stamped: 4 canonical pairs per prompt + one auxiliary chatgpt standardized pair for the first 20
- *  prompts only. A persisted row carries forward by promptId|engine|MODE (legacy scraper = consumer_search, legacy bare chatgpt =
+/** THE intended pair set, MODE-stamped: 4 canonical pairs per prompt + one auxiliary chatgpt standardized pair for the first 20 prompts only. A persisted row carries forward by promptId|engine|MODE (legacy scraper = consumer_search, legacy bare chatgpt =
  *  standardized) so nothing fresh is re-bought; every other row is PRUNED (history lives in the pao table). */
 function normalizePairs(prompts: { id: string }[], persisted: FunnelPair[]): FunnelPair[] {
   const byKey = new Map(persisted.map((p) => [pairKey(p), p]));
@@ -64,9 +59,8 @@ function pairProgress(s: FunnelState): FunnelCounters {
 }
 
 /** ONE historical prompt_answer_observations row per completed answer. The id folds in the retrieval MODE (the consumer look is a
- *  distinct observation, never an overwrite; "+scraper" stays verbatim so pre-6I ids stay continuous), modelServed, and the day, so
- *  a changed served model yields a DISTINCT row. citation_urls is null (not []) when citations were NOT observable;
- *  metadata.citationsObserved records the tri-state a count-of-0 would flatten. */
+ *  distinct observation, never an overwrite; "+scraper" stays verbatim so pre-6I ids stay continuous), modelServed, and the day, so a changed served model yields a DISTINCT row.
+ *  citation_urls is null (not []) when citations were NOT observable; metadata.citationsObserved records the tri-state a count-of-0 would flatten. */
 function paoRow(p: FunnelPair, parsed: ParsedAiAnswer, tenantId: string, runId: string, nowIso: string): PromptAnswerObservation {
   const domains = (parsed.citations ?? []).map((c) => c.domain);
   const observed = parsed.citations !== null;
@@ -250,24 +244,29 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     beginCycle(state, cursor, unitKey);
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion };
     const retained = state.discovery.retained;
-    if (retained.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "I have no researched keywords to check in search yet." };
-
     // PRUNE to the CURRENT chosen set: an obsolete query can never satisfy a new one. The agenda is
-    // DECISION-scoped, never volume-ranked (page queries, tracked questions, every confirmed theme,
-    // bounded exploration); a failed profile/page-query read drops its portfolios, never the paid work.
+    // DECISION-scoped, never volume-ranked (my own page queries, my tracked questions, every confirmed
+    // theme, then bounded exploration), and every trusted query is bought in the customer's own words.
     const profile = await d.loadProfile(tenantId).catch(() => null);
     const themes = profile ? [...profile.offerings.value, ...profile.topicsToOwn.value, ...profile.customerProblems.value] : [];
-    const promptTopics = state.prompts.pairs.flatMap((p) => [p.promptText ?? "", ...(p.fanOutQueries ?? [])]).filter(Boolean);
-    const pageQueries = await d.loadPageQueries(tenantId).catch(() => []);
-    const chosen = selectSerpAgenda({ retained, themes, promptTopics, pageQueries }, 40);
+    const byPrompt = new Map<string, { text: string; fanOutQueries: string[] }>(); // ONE row per tracked question: approved text + every fan-out observed for it
+    for (const p of state.prompts.pairs) { const row = byPrompt.get(p.promptId) ?? { text: "", fanOutQueries: [] }; if (!row.text && p.promptText) row.text = p.promptText; row.fanOutQueries.push(...(p.fanOutQueries ?? [])); byPrompt.set(p.promptId, row); }
+    const prompts = [...byPrompt.values()].filter((p) => p.text || p.fanOutQueries.length > 0);
+    const pageQueries = await d.loadPageQueries(tenantId).catch(() => null);
+    // FAIL BEFORE SPEND: no readable business basics, no readable page queries and no tracked questions means I have
+    // NO trusted starting point, so I buy nothing this pass and leave the research already saved exactly as it is.
+    if (profile === null && pageQueries === null && prompts.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "I could not read any of your trusted starting points this pass, so I spent nothing. I will try again on your next visit." };
+    const agenda = selectSerpAgenda({ retained, themes, prompts, pageQueries: pageQueries ?? [] }, 40);
+    const chosen = agenda.queries; // an empty researched set no longer blocks the phase: my own page queries are checked verbatim, researched or not
+    if (chosen.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "I have no researched keywords to check in search yet." };
+    // Internal progress truth only: what I could not defend and what the provider would refuse. Never customer copy.
+    if (agenda.uncoveredThemes.length > 0 || agenda.skipped.length > 0) log.info("[research-funnel] serp agenda gaps", { tenantId, uncoveredThemes: agenda.uncoveredThemes, skipped: agenda.skipped });
     const byQ = new Map(state.serps.queries.map((s) => [s.query, s]));
     const serps: FunnelSerp[] = chosen.map((q) => byQ.get(q) ?? { query: q, cacheKey: null, status: "pending" });
     const top5 = new Set(chosen.slice(0, 5));
     const nowIso = () => new Date(d.now()).toISOString();
     const parseSerp = (payload: unknown) => d.parse("serp_organic", payload as never) as ParsedSerp | null;
-    // A blind agenda must SAY so: no profile AND no page queries degrades to plain volume.
-    let failedDetail: string | null = profile === null && pageQueries.length === 0
-      ? "I could not read your business basics this pass, so I checked the biggest searches instead. I will retry with your real topics on your next visit." : null;
+    let failedDetail: string | null = null;
     let blockedDetail: string | null = null;
     // A look older than the weekly window is DUE (done OR exhausted-failed): it re-enters with a fresh per-incident budget and its AI Mode observation re-opens, so nothing freezes forever.
     for (const s of serps) {
@@ -374,8 +373,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}): FunnelUnitFn {
 // ── B5: winning pages ───────────────────────────────────────────────────────
 
 /** Flatten every SERP + AI appearance into TRUE-provenance rows: each carries its own query or real prompt id + text, its engine, its rank
- *  and (for AI answers) its observation MODE. One citation seen through BOTH ChatGPT modes is ONE appearance credited to the consumer
- *  look, never counted twice. Pure. */
+ *  and (for AI answers) its observation MODE. One citation seen through BOTH ChatGPT modes is ONE appearance credited to the consumer look, never counted twice. Pure. */
 function collectAppearances(state: FunnelState, fallbackIso: string): ResearchWinningAppearance[] {
   const out: ResearchWinningAppearance[] = [];
   for (const s of state.serps.queries.filter((x) => x.status === "done")) {

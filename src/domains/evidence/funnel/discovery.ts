@@ -11,7 +11,8 @@ import "server-only";
 import type { BusinessProfile } from "@/domains/account";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import type { CapabilityInputByKey, FunnelCounters, FunnelUnitFn, ParsedKeywordItem } from "@/domains/evidence/dataforseo/funnel-boundary";
-import { applyFilters, dedupeKeywords, filterContextFrom, keywordsFromParsed, normalizeKeyword, rankAndCap } from "./normalize";
+import { log } from "@/lib/logger";
+import { applyFilters, dedupeKeywords, filterContextFrom, keywordsFromParsed, normalizeKeyword, retainDiverse } from "./normalize";
 import { type FunnelKeyword, type FunnelState, MAX_REJECTED, MAX_RETAINED } from "./state";
 import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, NO_BASIS_DETAIL, resolveDeps, round, save, StateConflictError, track, type FunnelDeps } from "./shared";
 
@@ -56,7 +57,7 @@ function discProgress(s: FunnelState): FunnelCounters {
 
 type DiscCapability = "labs_keywords_for_site" | "labs_ranked_keywords" | "labs_related_keywords" | "labs_keyword_suggestions";
 /** Discriminated so each step's input is TYPE-CHECKED against its capability. */
-type DiscStep = { [K in DiscCapability]: { capability: K; input: CapabilityInputByKey[K]; via: FunnelKeyword["discoveredVia"] } }[DiscCapability];
+type DiscStep = { [K in DiscCapability]: { capability: K; input: CapabilityInputByKey[K]; via: FunnelKeyword["discoveredVia"]; seed?: string } }[DiscCapability];
 
 function discoveryPlan(domain: string, seeds: string[]): DiscStep[] {
   const plan: DiscStep[] = [];
@@ -65,11 +66,18 @@ function discoveryPlan(domain: string, seeds: string[]): DiscStep[] {
     plan.push({ capability: "labs_ranked_keywords", input: { target: domain, limit: 1000 }, via: "ranked" });
   }
   for (const s of seeds) {
-    plan.push({ capability: "labs_related_keywords", input: { keyword: normalizeKeyword(s), depth: 2, limit: 1000 }, via: "related" });
-    plan.push({ capability: "labs_keyword_suggestions", input: { keyword: normalizeKeyword(s), limit: 1000 }, via: "suggestion" });
+    const keyword = normalizeKeyword(s);
+    plan.push({ capability: "labs_related_keywords", input: { keyword, depth: 2, limit: 1000 }, via: "related", seed: keyword });
+    plan.push({ capability: "labs_keyword_suggestions", input: { keyword, limit: 1000 }, via: "suggestion", seed: keyword });
   }
   return plan;
 }
+
+/** Labs keyword_overview documents its keywords array at up to 700 entries, each up to 80
+ *  characters and 10 words. A violator is DROPPED before the batch (counted internally,
+ *  never truncated into a different keyword) so one bad row cannot reject the whole
+ *  request and cost the entire retained set its search volume. */
+const overviewEligible = (k: string) => k.length > 0 && k.length <= 80 && k.split(" ").filter(Boolean).length <= 10;
 
 export function keywordDiscoveryUnit(deps: FunnelDeps = {}): FunnelUnitFn {
   const d = resolveDeps(deps);
@@ -123,13 +131,13 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           }
           if (r.kind === "evidence") {
             const parsed = d.parse(p.capability, r.payload as never) as ParsedKeywordItem[] | null;
-            if (parsed) raw.push(...keywordsFromParsed(parsed, p.via));
+            if (parsed) raw.push(...keywordsFromParsed(parsed, p.via, p.seed));
           }
         }
-        // narrow: normalize -> dedupe -> filter -> rank/cap (before any SERP spend)
+        // narrow: normalize -> dedupe -> filter -> diverse retain (before any SERP spend)
         const deduped = dedupeKeywords(raw);
         const { retained, rejected } = applyFilters(deduped, ctxFrom(profile), MAX_REJECTED);
-        const capped = rankAndCap(retained, MAX_RETAINED);
+        const capped = retainDiverse(retained, MAX_RETAINED);
         state.discovery.seeds = seeds;
         state.discovery.raw = raw.slice(0, 1200);
         state.discovery.normalized = deduped.map((k) => k.keyword).slice(0, 800);
@@ -148,11 +156,13 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}): FunnelUnitFn {
         if (d.now() > deadline) return { status: "advanced", cursor: { stage: "overview" }, progress: discProgress(state) };
       }
 
-      // overview: enrich retained with volume/intent/difficulty (<=700/batch)
+      // overview: enrich retained with volume/intent/difficulty (ONE request, <=700)
       const retained = state.discovery.retained;
       let softDetail: string | null = null;
-      if (retained.length > 0) {
-        const r = interp(await d.callProvider("labs_keyword_overview", { keywords: retained.map((k) => k.keyword).slice(0, 700) }, ids));
+      const batch = retained.map((k) => k.keyword).filter(overviewEligible).slice(0, 700);
+      if (batch.length < retained.length) log.info("[research-funnel] keywords left out of the overview batch", { tenantId, dropped: retained.length - batch.length, reason: "over_80_chars_or_10_words" });
+      if (batch.length > 0) {
+        const r = interp(await d.callProvider("labs_keyword_overview", { keywords: batch }, ids));
         track(state, r);
         if (r.kind === "waiting") {
           await save(d, tenantId, basis, state, ctx);
@@ -170,7 +180,7 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}): FunnelUnitFn {
             const e = byKw.get(k.keyword);
             return e ? { ...k, searchVolume: e.searchVolume ?? k.searchVolume, competition: e.competition ?? k.competition, difficulty: e.difficulty ?? k.difficulty, intent: e.intent ?? k.intent } : k;
           });
-          state.discovery.retained = rankAndCap(merged, MAX_RETAINED);
+          state.discovery.retained = retainDiverse(merged, MAX_RETAINED);
           state.discovery.counts.retained = state.discovery.retained.length;
         } else if (r.kind === "soft") {
           // Missing credentials: keep the retained keywords, labeled as unenriched.
