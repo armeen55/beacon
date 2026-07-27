@@ -118,28 +118,29 @@
   durable Supabase ledger authoritative); one account's spend never throttles another. A regression sweep converts
   every SCHEMA_BY_KIND entry through the strict-subset conversion. Transport and live behavior are validated; the
   OpenAI key enables this path directly, no secondary flag.
-- DOING NOTHING IS THE DEFAULT (2026-07-27): each page is diagnosed against its OWN exact query rows and the
-  shipped click curve BEFORE any draft; an action needs impressions to trust, a real gap at that position, and
-  enough recoverable clicks to be worth a morning, and everything else answers watch or do nothing WITH the
-  numbers. The title/meta factory (two proposals per page over 20 impressions, gross-traffic ranked, 24 serial
-  drafts) is DELETED. A proven gap whose words are already in the copy is the strongest rewrite case, not silence;
-  a page beating its curve is watched only while the soft search is small against what it earns; ranking sinks
-  older-generation rows whose impact numbers are not comparable. Live replay: 23 proven gaps, 164 watch, 211 do
-  nothing. ONE canonical path then produces the ranked queue AND at most one deep Change per archetype per pass
-  (Slices 7+8): the proven page and a researched topic, receipt-first, citable research REQUIRED, threshold-gated
-  cannibalization, thin evidence = refusal. Parts bundle ONLY when they are one repair and the bundle says what
-  breaks if one ships alone; independent edits stay atomic. A bundle REPLACES its shallow rows and drafts the page
-  the diagnosis proved. Proposals are BASIS-STAMPED: off-basis or source-owing rows demote to To do in
-  presentation only, and the surfaces name a raised bar as MINE, never blaming the operator's info. Evidence tells
-  the truth about itself: the receipt shares query identity (a reworded SERP attaches to its page), winners attach
-  ONLY on exact URL or exact member query/prompt, internal links are withheld while no page body is held, metric
-  sentences name their scope, fan-out seeds carry only provider-run queries, bought keyword difficulty is carried
-  rather than dropped, a producer failure cannot publish a fresh timestamp over stale proposals, drafting prompts
-  carry no vertical assumption, and High confidence needs a matched outside check with reasons naming evidence
-  classes. Page snapshots read Supabase. Business Info is provenance-safe. Results bands are maturity-true: early
+- DOING NOTHING IS THE DEFAULT AND A PROVEN GAP IS AN INVESTIGATION (2026-07-27): each page is diagnosed against its
+  OWN exact query rows and the shipped click curve BEFORE any draft; an action needs impressions to trust, a real
+  gap at that position, and enough recoverable clicks to be worth a morning, and everything else answers watch or do
+  nothing WITH the numbers. The title/meta factory is DELETED. A change reaches Ready only where the live results
+  page for that EXACT search on that EXACT page is held (readyForAction); otherwise the gap is an open investigation
+  that says in plain words what is missing, and confidence follows evidence completeness (confidenceFor), never how
+  the draft reads: a page never fetched vouches for nothing, no body store exists so High on an edit is currently
+  unreachable, readiness is keyed by page AND exact search, and a new page is held to the same bar. Decision
+  generation 3 demotes older-bar rows to To do in presentation only, reused rows are re-judged, applied work is
+  never redrafted, and a gate-rejected draft waits for new evidence rather than re-paying the drafter. Runtime buys
+  the results pages the top three open investigations need before anything exploratory. An investigation is VISIBLE:
+  Today names how many pages are losing clicks and carries the decision's own verdict for the page it blames,
+  quoting no promised lift anywhere (objectives state the modeled shortfall). Live replay 2026-07-27 (SHA 6bdd5838):
+  5 proven actions, 18 investigations, 164 watch, 211 do nothing, 3 proposals, every one Medium. ONE canonical path
+  produces the ranked queue AND at most one deep Change per archetype per pass (Slices 7+8): receipt-first, citable
+  research REQUIRED, threshold-gated cannibalization, thin evidence = refusal. Parts bundle ONLY when they are one
+  repair; a bundle REPLACES its shallow rows. Evidence tells the truth about itself: query identity on the receipt,
+  winners attaching ONLY on exact URL or exact member query or prompt, an answer that merely cites a page importing
+  nothing, internal links withheld while no page body is held, metric sentences naming their scope, fan-out seeds
+  carrying only provider-run queries, and a producer failure never publishing a fresh timestamp over stale
+  proposals. Page snapshots read Supabase. Business Info is provenance-safe. Results bands are maturity-true: early
   = Promising, Win = 28-day only, still-measuring carries no verdict. Today counts the full Ready list; the
-  bleeding-page alarm links to its fix; manual implementation and 7/14/28 stand.
-
+  bleeding-page alarm matches on a full page key and links to its fix; manual implementation and 7/14/28 stand.
 ## Known target mismatches
 
 - Profound and SEMrush survive only as historical-row reads and inert comments (Slice 2 removed the connector
