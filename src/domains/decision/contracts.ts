@@ -87,6 +87,43 @@ export interface EvidenceInput {
   };
 }
 
+// ── Candidate diagnosis (decision truth replacement, 2026-07-27) ──────────────
+
+/**
+ * What the evidence actually justifies for one page or topic, decided BEFORE any
+ * draft is written. Doing nothing is the default: a page is not a problem because
+ * it is big. Only the two `act_` outcomes may become a ChangeProposal; the rest
+ * are the honest answer and live in the run receipt, never as manufactured work.
+ * Internal to Decision: NOT persisted as its own record and never a public type.
+ */
+export type CandidateAction =
+  | "act_existing_page" | "act_new_page" | "consolidate"
+  | "watch" | "research_needed" | "do_nothing";
+
+/** The ONE action-specific gap that earns an action. Gross impressions are not here. */
+export type CandidateGap = "ctr_deficit" | "recent_decline" | "serp_mismatch" | "ai_gap" | "technical";
+
+export type DecisionCandidate = {
+  action: CandidateAction;
+  /** Required for every `act_` outcome; absent means nothing was proven. */
+  gap?: CandidateGap;
+  pageUrl?: string | null;
+  /** The EXACT query the gap was measured on (never a page total). */
+  query?: string | null;
+  /** Clicks a fix could plausibly recover, from exact query metrics. Ranks
+   *  opportunity: a huge page with no deficit ranks below a small real gap. */
+  recoverableClicks: number;
+  /** Plain-English why, carrying the exact numbers the receipt will show. */
+  reason: string;
+};
+
+/** Action floors. A gap under ANY of these is not worth the operator's attention,
+ *  so the honest answer is watch/do_nothing. Tuned against real data: a healthy
+ *  page whose best query gap was 23 clicks must not produce work. */
+export const MIN_QUERY_IMPRESSIONS = 500;
+export const MIN_CTR_DEFICIT = 0.02;
+export const MIN_RECOVERABLE_CLICKS = 50;
+
 // ── ChangeProposal — the ONE persisted output ─────────────────────────────────
 
 export type ProposalKind = "existing_edit" | "new_page";

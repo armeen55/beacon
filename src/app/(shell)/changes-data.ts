@@ -43,7 +43,7 @@ export type ChangesView = {
   summary: ChangesSummary;
   /** Whole-tenant measuring count (proof ledger, the ONE-COUNT RULE). */
   measuringCountCanonical: number;
-  /** Validator-passed rows set aside only because business info changed. */
+  /** Validator-passed rows set aside because they predate the current decision bar. */
   demotedStaleBasis: number;
   /** Whole-tenant decided count (proof ledger). */
   decidedCountCanonical: number;
@@ -154,7 +154,7 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
   let readyZeroHint: string | null = null;
   if (summary.ready === 0) {
     if (queue.demotedStaleBasis > 0) {
-      readyZeroHint = `Your business info changed, so I set aside ${queue.demotedStaleBasis} earlier ${queue.demotedStaleBasis === 1 ? "idea" : "ideas"} drafted against the old version. I will draft fresh recommendations from your confirmed info on the next research pass.`;
+      readyZeroHint = `I raised the bar for what counts as worth your time, so I set aside ${queue.demotedStaleBasis} earlier ${queue.demotedStaleBasis === 1 ? "idea" : "ideas"} that no longer clear it. I only bring you a change now when I can show the clicks it wins back.`;
     } else if (summary.todo > 0) {
       readyZeroHint =
         "None has cleared Ready yet. These ideas still need a human look before I hand you exact copy. Open one to review it.";

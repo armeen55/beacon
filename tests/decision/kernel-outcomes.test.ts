@@ -1,12 +1,21 @@
-/** DECISION kernel outcomes: generate -> validate -> rank -> persist round-trip, fail-closed
- *  validator rejections, and manual-only proposals. Each test name states its promise. */
+/** DECISION kernel outcomes: what the evidence justifies BEFORE anything is drafted, then
+ *  generate -> validate -> rank -> persist round-trip, fail-closed validator rejections, and
+ *  manual-only proposals. Each test name states its promise. */
 import { describe, it, expect, vi } from "vitest";
 
 // Budget is not this file's subject: always-allowed, no-op hermetic seam.
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
+const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as unknown[] }));
+vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
+vi.mock("@/domains/decision/proposal-store", () => ({ loadChangeProposals: async () => new Map(), saveChangeProposal: async (p: unknown) => { env.saved.push(p); return true; } }));
+vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => null, basisTag: () => "basis_test" }));
 import { proposeExistingPageChange, proposeNewPageChange } from "@/domains/decision/propose";
 import { validateProposal } from "@/domains/decision/validate-proposal";
 import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals";
+import { compileCandidates, snapshotToEvidenceInputs } from "@/domains/decision/opportunities";
+import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
+import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
+import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot";
 import { serializeChangeProposal, deserializeChangeProposal, type EvidenceInput, type ChangeProposal } from "@/domains/decision/contracts";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 /** A completion fn that replays a fixed queue (last response repeats). The seam returns a PARSED structured VALUE (never text); an error carries its retryability. */
@@ -89,15 +98,11 @@ describe("safety gates reject unsafe drafts", () => {
     const v = validateProposal(p, { evidenceText: "nowruz is the persian new year", pageBodyText: "Nowruz is the Persian New Year celebrated across Iran." }); // grounding carries no such figure
     expect(v.verdict).toBe("rejected"); expect(v.factViolations.length).toBeGreaterThan(0); });
 });
-describe("rankProposals orders by value", () => {
-  it("puts the higher honest upside first and sinks the rejected one", () => {
-    const low = baseProposal({ id: "low", upsidePerMonth: 10, impactScore: 30 }), high = baseProposal({ id: "high", upsidePerMonth: 90, impactScore: 30 }), rejected = baseProposal({ id: "rej", status: "rejected", upsidePerMonth: 999, impactScore: 999 });
+describe("rankProposals orders by recoverable clicks", () => {
+  it("puts the most recoverable clicks first and sinks the rejected one", () => {
+    const low = baseProposal({ id: "low", impactScore: 30 }), high = baseProposal({ id: "high", impactScore: 300 }), rejected = baseProposal({ id: "rej", status: "rejected", impactScore: 9999 });
     expect(rankProposals([low, rejected, high]).map((p) => p.id)).toEqual(["high", "low", "rej"]);
-    expect(proposalValueScore(high)).toBeGreaterThan(proposalValueScore(rejected)); // a rejected proposal never outranks a proposed one on upside alone
-  });
-  it("a real upside figure beats an unsized (null) one", () => {
-    const sized = baseProposal({ id: "sized", upsidePerMonth: 5 }), unsized = baseProposal({ id: "unsized", upsidePerMonth: null, impactScore: 100 });
-    expect(rankProposals([unsized, sized])[0].id).toBe("sized");
+    expect(proposalValueScore(high)).toBeGreaterThan(proposalValueScore(rejected)); // a rejected proposal never outranks a proposed one on clicks alone
   });
 });
 describe("manual publishing authority", () => {
@@ -105,4 +110,48 @@ describe("manual publishing authority", () => {
     const out = await proposeExistingPageChange(EXISTING_INPUT, { complete: fakeComplete([{ value: VALID_ATOMIC_EDIT }]) });
     expect(out.status).toBe("proposed"); if (out.status !== "proposed") return;
     expect(out.proposal.publish).toBe("manual"); expect(out.proposal.status).not.toBe("applied"); });
+});
+// ── the diagnosis: only a proven, recoverable gap earns work ──────────────────
+function ownedPage(url: string, title: string, totals: { impressions: number; clicks: number }, topQueries: OwnedQuerySignal[]): OwnedPageEvidence {
+  return { url, content: { title, metaDescription: null, h1: title, h2: [], outline: [], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 800, internalLinks: [], fetchedAt: null },
+    search: { clicks90d: totals.clicks, impressions90d: totals.impressions, ctr90d: totals.clicks / totals.impressions, position90d: 4, topQueries }, engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } };
+}
+function snap(ownedPages: OwnedPageEvidence[]): EvidenceSnapshot {
+  return { scope: { tenantId: "fixture-tenant", site: "fixture-outdoors.example", builtAt: "2026-07-26T00:00:00.000Z" }, sources: [], ownedPages, competitors: [], keywordDemand: [], questionDemand: [],
+    intentClusters: [], cannibalization: [], contentGaps: [], internalLinkOpportunities: [], newPageOpportunities: [], aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 }, research: emptyResearchEvidence(), evidenceHash: "fixture" };
+}
+/** A big winner: its main searches BEAT the clicks their positions earn, and even counting its one soft search it is ahead. */
+const WINNER = ownedPage("fixture-outdoors.example/trail-shoes", "Trail Shoes", { impressions: 75646, clicks: 3246 }, [
+  { query: "trail running shoes", impressions: 25000, clicks: 2365, position: 3.96 }, { query: "womens trail shoes", impressions: 12000, clicks: 1012, position: 3.74 },
+  { query: "trail shoes for women", impressions: 2110, clicks: 209, position: 2.66 }, { query: "trail shoe reviews", impressions: 1331, clicks: 40, position: 3.7 }]);
+/** A far smaller page with a REAL gap: 3.0 percent against the 8.0 percent that position usually earns. */
+const GAP = ownedPage("fixture-outdoors.example/boot-care", "Boot Care", { impressions: 6400, clicks: 190 }, [{ query: "how to clean hiking boots", impressions: 6000, clicks: 180, position: 4.1 }]);
+
+describe("what the evidence justifies before anything is drafted", () => {
+  it("leaves a page that already beats the clicks its positions earn alone, however big it is", () => {
+    const c = compileCandidates(snap([WINNER]))[0]!;
+    expect([c.action, c.query, c.recoverableClicks]).toEqual(["watch", "trail shoe reviews", 66]); // one soft search on a winning page is watched, not worked
+    expect(c.reason).toContain("1,331"); expect(c.reason).not.toContain("75,646"); expect(c.reason).not.toContain("3,246"); // a page total is never quoted as a query number
+    expect(snapshotToEvidenceInputs(snap([WINNER]))).toEqual([]); // no title, no description, no work
+  });
+  it("earns exactly one action from a gap above every floor, carrying that query's own numbers", () => {
+    expect(compileCandidates(snap([GAP])).map((c) => [c.action, c.gap, c.query, c.recoverableClicks])).toEqual([["act_existing_page", "ctr_deficit", "how to clean hiking boots", 300]]);
+    const inputs = snapshotToEvidenceInputs(snap([GAP]));
+    expect(inputs.map((i) => i.opportunity.field)).toEqual(["title"]); // ONE field, the one the gap justifies
+    expect(inputs[0]!.sizing!.impactScore).toBe(300); // recoverable clicks is the only value scalar
+    const hint = (inputs[0]!.evidence.hints ?? []).join(" ");
+    expect(hint).toContain("6,000"); expect(hint).toContain("8.0 percent"); expect(hint).toContain("3.0 percent"); expect(hint).toContain("300 clicks");
+    expect(hint).not.toContain("6,400"); // the page total never stands in for the query
+  });
+  it("ranks a small page with a real gap above a huge page with none", () => {
+    expect(snapshotToEvidenceInputs(snap([WINNER, GAP])).map((i) => i.page.path)).toEqual(["/boot-care"]);
+    expect(rankProposals([baseProposal({ id: "huge-no-gap", impactScore: 0 }), baseProposal({ id: "small-real-gap", impactScore: 300 })]).map((p) => p.id)).toEqual(["small-real-gap", "huge-no-gap"]);
+  });
+  it("treats nothing worth doing as a SUCCESS with no proposals, and never calls the drafter", async () => {
+    env.snap = snap([WINNER]); env.saved = [];
+    let called = 0; const complete: CompleteFn = async () => { called += 1; return { error: "the drafter must never run when nothing earned an action", retryable: false }; };
+    const res = await produceProposalsForTenant("fixture-tenant", { complete, now: new Date("2026-07-26T00:00:00.000Z") });
+    expect([res.noActionableCandidate, res.actionable, res.proposals.length, res.candidates.length]).toEqual([true, 0, 0, 1]);
+    expect(called).toBe(0); expect(env.saved).toEqual([]); // no paid call, no persisted row
+  });
 });

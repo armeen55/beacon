@@ -477,7 +477,7 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
     + state.serps.queries.filter((s) => s.aiModeFailed).length;
   const doneSerps = state.serps.queries.filter((s) => s.status === "done");
   return {
-    retainedKeywords: state.discovery.retained.map((k) => ({ query: k.keyword, searchVolume: k.searchVolume, competition: k.competition, competitionLevel: competitionLevel(k.competition), intent: k.intent })),
+    retainedKeywords: state.discovery.retained.map((k) => ({ query: k.keyword, searchVolume: k.searchVolume, competition: k.competition, competitionLevel: competitionLevel(k.competition), difficulty: k.difficulty ?? null, intent: k.intent })),
     aiObservations: donePairs.map((p) => ({
       promptId: p.promptId, promptText: p.promptText ?? "", engine: p.engine, observationMode: modeOf(p),
       modelRequested: p.modelRequested ?? null, modelServed: p.modelServed ?? null,

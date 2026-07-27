@@ -23,6 +23,9 @@ type ResearchKeyword = {
   searchVolume: number | null;
   competition: number | null;
   competitionLevel: "low" | "medium" | "high" | null;
+  /** Organic difficulty, bought with the volume and carried so Decision can weigh
+   *  how hard a win is. It was paid for and then dropped here; never re-buy it. */
+  difficulty: number | null;
   intent: string | null;
 };
 

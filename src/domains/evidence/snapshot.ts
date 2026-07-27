@@ -210,6 +210,11 @@ export type NewPageOpportunity = {
   demandWeight: number;
   basis: "search_volume" | "ai_attention" | "mixed";
   competitorUrls: string[];
+  /** Follow-up queries the PROVIDER itself ran while answering a tracked prompt on this
+   *  topic. A tracked prompt is NEVER one of these. Empty when the provider reported
+   *  none: honest absence, never a substitute. Their lineage (parent prompt text,
+   *  engine, observation mode, observed date) is the matching `research.aiObservations`
+   *  rows, which the change receipt reads under the same topic gate used here. */
   fanoutSeeds: string[];
   confidence: "high" | "medium" | "low";
 };
@@ -557,29 +562,16 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
   // ── content gaps: unanswered AI questions + owned-vs-competitor structure ──
   const contentGaps: ContentGap[] = [];
   for (const q of questionDemand) {
-    if (q.coverageStatus === "unanswered") {
-      contentGaps.push({
-        kind: "unanswered_question",
-        topic: q.question,
-        detail: `AI keeps getting asked "${q.question}" (${q.weight} prompts) and none of your pages answer it.`,
-        ownedUrl: null,
-        competitorUrl: null,
-      });
-    }
+    if (q.coverageStatus !== "unanswered") continue;
+    contentGaps.push({ kind: "unanswered_question", topic: q.question, ownedUrl: null, competitorUrl: null,
+      detail: `AI keeps getting asked "${q.question}" (${q.weight} prompts) and none of your pages answer it.` });
   }
   // new-page gap: a competitor is cited for a topic no owned page covers.
   for (const comp of competitors) {
     const topic = comp.examplePrompts[0] ?? comp.domain;
-    const covered = ownedContentText.some((text) => relatedTopic(topic, text));
-    if (!covered && comp.examplePrompts.length > 0) {
-      contentGaps.push({
-        kind: "missing_page",
-        topic,
-        detail: `AI cites ${comp.domain} for "${topic}" (${comp.citationCount}×) and you have no page on it.`,
-        ownedUrl: null,
-        competitorUrl: comp.url,
-      });
-    }
+    if (comp.examplePrompts.length === 0 || ownedContentText.some((text) => relatedTopic(topic, text))) continue;
+    contentGaps.push({ kind: "missing_page", topic, ownedUrl: null, competitorUrl: comp.url,
+      detail: `AI cites ${comp.domain} for "${topic}" (${comp.citationCount}×) and you have no page on it.` });
   }
 
   // ── internal-link opportunities: owned page A on-topic for owned page B ──
@@ -604,22 +596,30 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
     (a, b) => a.fromUrl.localeCompare(b.fromUrl) || a.toUrl.localeCompare(b.toUrl),
   );
 
+  // ── fan-outs: ONLY a query the provider itself ran while answering (the reported
+  // search_queries). A prompt we track is our own question, never the provider's
+  // follow-up, so it may never be handed on under a fan-out label. A topic the
+  // provider reported nothing for gets none: an honest gap beats a substitute.
+  const observedRuns = [...input.research.payload.aiObservations].sort(
+    (a, b) => a.promptText.localeCompare(b.promptText) || a.engine.localeCompare(b.engine) || a.observedAt.localeCompare(b.observedAt));
+  const fanoutsFor = (topic: string): string[] => {
+    const seen = new Map<string, string>();
+    for (const o of observedRuns) {
+      if (!o.fanOutQueries?.length || !relatedTopic(o.promptText, topic)) continue;
+      for (const q of o.fanOutQueries) { const k = norm(q); if (k && !seen.has(k)) seen.set(k, q.trim()); }
+    }
+    return [...seen.values()].slice(0, 6);
+  };
+
   // ── new-page opportunities: competitor-cited or high-demand topics with no owned page ──
   const newPageOpportunities: NewPageOpportunity[] = [];
   for (const comp of competitors) {
     const topic = comp.examplePrompts[0] ?? comp.domain;
-    const covered = ownedContentText.some((text) => relatedTopic(topic, text));
-    if (covered || comp.examplePrompts.length === 0) continue;
-    const kw = keywordDemand.find((k) => norm(k.query) === norm(topic));
-    const volume = kw?.searchVolume ?? null;
-    newPageOpportunities.push({
-      topic,
-      demandWeight: (volume ?? 0) + comp.citationCount * comp.distinctPrompts,
-      basis: volume != null ? "mixed" : "ai_attention",
-      competitorUrls: [comp.url],
-      fanoutSeeds: comp.examplePrompts.slice(0, 6),
-      confidence: comp.distinctPrompts >= 3 ? "medium" : "low",
-    });
+    if (comp.examplePrompts.length === 0 || ownedContentText.some((text) => relatedTopic(topic, text))) continue;
+    const volume = keywordDemand.find((k) => norm(k.query) === norm(topic))?.searchVolume ?? null;
+    newPageOpportunities.push({ topic, demandWeight: (volume ?? 0) + comp.citationCount * comp.distinctPrompts,
+      basis: volume != null ? "mixed" : "ai_attention", competitorUrls: [comp.url], fanoutSeeds: fanoutsFor(topic),
+      confidence: comp.distinctPrompts >= 3 ? "medium" : "low" });
   }
   newPageOpportunities.sort(
     (a, b) => b.demandWeight - a.demandWeight || a.topic.localeCompare(b.topic),

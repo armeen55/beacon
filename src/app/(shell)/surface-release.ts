@@ -89,9 +89,13 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
       ]);
     // PRODUCE first: the cold, gated, budgeted drafter turns cached evidence into
     // persisted ChangeProposals, so a newly drafted move is Ready in the release we
-    // are about to publish. Fail-soft: a production hiccup still publishes whatever
-    // proposals are already persisted.
-    await produceProposalsForTenant(tenantId).catch(() => null);
+    // are about to publish. A FAILURE HERE PROPAGATES on purpose. Swallowing it
+    // republished yesterday's proposals behind today's timestamp, so the operator
+    // read stale work as fresh. Now the throw aborts the publish, the previous
+    // release stays exactly as it was, and the phase fails where a human can see it.
+    // A clean run that finds NO actionable candidate resolves normally and publishes
+    // with zero new proposals: nothing to do is an answer, not an outage.
+    await produceProposalsForTenant(tenantId);
     const changes = await buildChangesViewUncached(tenantId);
     const today = await buildTodayCompositeFromChanges(changes);
     const computedAt = new Date().toISOString();

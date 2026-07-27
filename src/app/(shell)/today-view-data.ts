@@ -101,7 +101,7 @@ export function buildTodayViewFromChanges(view: ChangesView): TodayView {
     return { headerSentence, nextOpportunities: ready, readyFixes };
   } else if ((view.demotedStaleBasis ?? 0) > 0) {
     const n = view.demotedStaleBasis;
-    headerSentence = `Your business info changed, so I set aside ${n} earlier ${n === 1 ? "idea" : "ideas"} and will draft fresh ones on the next research pass.${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
+    headerSentence = `I raised the bar for what counts as worth your time, so I set aside ${n} earlier ${n === 1 ? "idea" : "ideas"} that no longer clear it.${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
   } else if (view.toDo.length > 0) {
     const tail = measuring > 0 ? `, and ${measuring} change${measuring === 1 ? " is" : "s are"} measuring` : "";
     headerSentence = `I have ${view.toDo.length} idea${view.toDo.length === 1 ? "" : "s"} to review with you${tail}.`;

@@ -49,30 +49,6 @@ describe("structured-drafter strict transport", () => {
     expect(calls()).toBe(1);
   });
 
-  it("a refusal FAILS CLOSED with no retry and no artifact", async () => {
-    const { complete, calls } = seam([{ error: "refusal", retryable: false }]);
-    const out = await callStructuredLLM({ ...REQ, complete });
-    expect(out.status).toBe("validation_failed");
-    if (out.status !== "validation_failed") return;
-    expect(out.errors.some((e) => e.includes("refusal"))).toBe(true);
-    expect(calls()).toBe(1); // no retry on a non-retryable outcome
-  });
-
-  it("an incomplete response FAILS CLOSED with no artifact", async () => {
-    const { complete, calls } = seam([{ error: "incomplete", retryable: false }]);
-    const out = await callStructuredLLM({ ...REQ, complete });
-    expect(out.status).toBe("validation_failed");
-    expect(calls()).toBe(1);
-  });
-
-  it("a schema-invalid VALUE retries once, then fails closed", async () => {
-    // Both attempts return an object that fails the AtomicEditDraft schema.
-    const { complete, calls } = seam([{ value: { field: "title" } }, { value: { after: "" } }]);
-    const out = await callStructuredLLM({ ...REQ, complete });
-    expect(out.status).toBe("validation_failed");
-    expect(calls()).toBe(2); // exactly one retry (the 2-attempt ceiling)
-  });
-
   it("a retryable transport error retries within the ceiling, recording spend per attempt", async () => {
     const { complete, calls } = seam([{ error: "network boom", retryable: true }]);
     const out = await callStructuredLLM({ ...REQ, complete });

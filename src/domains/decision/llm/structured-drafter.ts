@@ -149,9 +149,9 @@ const SUPERLATIVE_REPHRASE_INSTRUCTION =
   'DIFFERENT unproven superlative either (for example replacing "most famous" with "leading" or ' +
   '"best-known" is still ungrounded and will fail again) - introduce NO new superlative or ranking ' +
   "claim that was not in your first answer. REPHRASE it as a grounded, non-superlative fact using " +
-  'the specific honors, dates, roles, and works in the evidence: for example write "a defining ' +
-  'voice in classical Persian music, awarded the UNESCO Mozart Medal" instead of "the most ' +
-  'celebrated singer". A concrete grounded fact is always the better answer than any superlative - ' +
+  'the specific credentials, dates, roles, and work in the evidence: for example write "holds the ' +
+  'certification named on the page and has worked in it since the date given" instead of "the most ' +
+  'trusted provider". A concrete grounded fact is always the better answer than any superlative - ' +
   "prefer it every time. Only keep a superlative if a cited source explicitly asserts that exact " +
   "superlative. " +
   NO_NEW_NUMBERS_RETRY_REMINDER;
@@ -385,7 +385,7 @@ async function verifyStampedSources(
   // G6 (2026-07-10): the draft's own customer-facing prose (answer/openingAnswer/
   // after/...). Threaded so a fetchable authoritative page whose META-claim did
   // not span-match can STILL verify when its full page text entails the draft's
-  // sentences - the roundup case, where one Wikipedia list page backs many names.
+  // sentences - the roundup case, where one list page backs many named entities.
   draftText: string | null,
 ): Promise<unknown> {
   if (!value || typeof value !== "object") return value;
@@ -1014,7 +1014,7 @@ export type AnswerBlockStructuredInput = {
 };
 
 const ANSWER_BLOCK_SYSTEM =
-  "You write structured AEO answer blocks for an encyclopedia / content site. Return ONLY a JSON object with keys: " +
+  "You write structured AEO answer blocks for the page and business described in the grounding below. Return ONLY a JSON object with keys: " +
   // W5 (2026-07-09, J-71): 80-150 words WITH sources - "40-60 is too thin" per the
   // operator's own spec. Bumped from the old 40-60 word target (prompt-registry.ts
   // version bumped alongside this so the content-hash call cache never serves a
@@ -1030,7 +1030,7 @@ const ANSWER_BLOCK_SYSTEM =
   // answerable WITHOUT an unprovable superlative. Instruct grounding-by-facts up
   // front, so the drafter usually clears the verification-aware post-check on the
   // first attempt (the rephrase retry is the safety net, not the norm).
-  "If the topic is inherently superlative (a \"most famous\" or \"best\" roundup), do NOT assert a superlative you cannot cite; instead ground it in the specific honors, dates, works, and roles in the evidence (for example \"a defining voice in classical Persian music, awarded the UNESCO Mozart Medal\" rather than \"the most celebrated singer\"). Only use a superlative if a cited source explicitly states that exact superlative. " +
+  "If the topic is inherently superlative (a \"most famous\" or \"best\" roundup), do NOT assert a superlative you cannot cite; instead ground it in the specific honors, dates, works, and roles in the evidence (for example \"holds the certification the page names, and has done the work since the date in the evidence\" rather than \"the most trusted provider\"). Only use a superlative if a cited source explicitly states that exact superlative. " +
   // Pilot loop 4 (2026-07-10): the model was choosing correctly-authoritative
   // domains but the WRONG PAGE on that domain (a shared list/index page) to back
   // a specific person's fact. When the user message below includes a "Sources
@@ -1043,12 +1043,11 @@ const ANSWER_BLOCK_SYSTEM =
 /**
  * Pilot loop 4 (2026-07-10): appended to ANSWER_BLOCK_SYSTEM ONLY for an
  * entity-rich topic (isEntityRichTopic - a roundup naming 3+ distinct named
- * entities, e.g. "famous Iranian singers"). Proven gap from the pilot re-run:
- * the model correctly cited an authoritative, on-topic page (Wikipedia's
- * List_of_Iranian_singers) but that page is a bare INDEX - it names each
- * singer without discussing their honors/songs, so it cannot entail any
- * per-singer claim, while that SAME singer's own Wikipedia article covered 3
- * of 6 sentences in a live replay. This instructs the model to reach for the
+ * entities). Proven gap from the pilot re-run: the model correctly cited an
+ * authoritative, on-topic page, but that page was a bare INDEX - it names each
+ * entity without discussing any of them, so it cannot entail a per-entity
+ * claim, while that SAME entity's own dedicated page covered 3 of 6 sentences
+ * in a live replay. This instructs the model to reach for the
  * entity's own page in the first place, so per-claim coverage (source-
  * authority.ts's draftFactsCoveredBySources) has something that actually
  * entails the sentence instead of holding the whole roundup at
@@ -1056,7 +1055,7 @@ const ANSWER_BLOCK_SYSTEM =
 const ENTITY_REFERENCE_INSTRUCTION =
   " This topic names several different people, places, or things (a roundup). For EACH named " +
   "entity's own factual claim (an honor, a song, a role, a date, a work), cite that ENTITY'S OWN " +
-  "reference page (their own encyclopedia article, e.g. en.wikipedia.org/wiki/<Entity_Name>) - " +
+  "reference page (the page dedicated to that one entity, not a page about the whole set) - " +
   'never a bare list or index page (for example a page titled or path-shaped like "List of ...") ' +
   "for that claim. A list/index page can confirm an entity EXISTS or belongs to a group, but it " +
   "cannot back a specific fact ABOUT that entity. One citation may cover more than one claim only " +
@@ -1120,7 +1119,7 @@ export async function draftAnswerBlockStructured(
 
   // Pilot loop 4: known reference URLs for the entities this topic names -
   // deterministic, no new fetch. A bare list/index URL (the exact proven gap:
-  // the model citing "List_of_Iranian_singers" for one singer's facts) is
+  // the model citing a whole-set list page for one entity's own facts) is
   // filtered out here BEFORE it ever reaches the prompt, so the hint can only
   // ever point at a page that could plausibly entail a per-entity claim.
   // Deduped + capped; empty (or fully filtered) input renders no hint line at
@@ -1211,7 +1210,7 @@ export type AtomicEditStructuredInput = {
 };
 
 const ATOMIC_EDIT_SYSTEM =
-  "You improve ONE on-page field (a page title or meta description) for an encyclopedia / content site to better match the search intent and earn the click. " +
+  "You improve ONE on-page field (a page title or meta description) to better match the search intent and earn the click. " +
   'Return ONLY a JSON object: "field" (the field being edited), "before" (the exact current value, or null), "after" (the improved value), ' +
   '"rationale" (one sentence), "evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
@@ -1321,7 +1320,7 @@ export type CreatePageStructuredInput = {
 };
 
 const CREATE_PAGE_SYSTEM =
-  "You write the BRIEF for a brand-new encyclopedia / content page so an editor can build it. " +
+  "You write the BRIEF for a brand-new page so an editor can build it. " +
   'Return ONLY a JSON object: "proposedTitle" (<=70 chars, concise + descriptive, no boilerplate/year-stuffing), ' +
   '"metaDescription" (120-160 chars, page-specific, no overpromising), "openingAnswer" (a 40-80 word direct, extractable answer), ' +
   '"outline" (3-16 H2 section headings, specific to the topic), "faqQuestions" (real questions a reader asks, from the grounding), ' +
@@ -1332,9 +1331,9 @@ const CREATE_PAGE_SYSTEM =
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. " +
   "The openingAnswer's first sentence must name THIS specific topic (not a generic category) — no context-free dictionary definitions. Title must avoid boilerplate like \"(YYYY Guide)\" or \"Complete/Ultimate Guide\". Use the provided sub-questions to shape the outline and FAQ. " +
-  // Broad culture/history/topic tuning (2026-06-29): the #1 reason these briefs were
-  // rejected is an INVENTED count the firewall can't verify. State scope qualitatively.
-  "CRITICAL for broad culture/history topics: do NOT state any numeric count or quantity — no \"N provinces / ethnic groups / dynasties\", no \"over X years\", no \"thousands of\" — unless that exact figure is in the grounding; instead describe the SCOPE and name the concrete sub-topics qualitatively (e.g. \"spans cuisine, music, poetry, and festivals\"). Open by naming the subject and what the page covers, never \"<X> is a …\" dictionary phrasing.";
+  // Broad-topic tuning (2026-06-29): the #1 reason these briefs were rejected is an
+  // INVENTED count the firewall can't verify. State scope qualitatively instead.
+  "CRITICAL for any broad topic: do NOT state a numeric count, quantity, or age (no \"N types / locations / categories\", no \"over X years\", no \"thousands of\") unless that exact figure is in the grounding; instead describe the SCOPE and name the concrete sub-topics qualitatively. Open by naming the subject and what the page covers, never \"<X> is a ...\" dictionary phrasing.";
 
 /** Draft a schema-valid CreatePageBrief for one create_page / hub Move. */
 export async function draftCreatePageStructured(

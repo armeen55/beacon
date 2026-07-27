@@ -1,5 +1,5 @@
 /**
- * decision/load-proposals (CORE 100K cutover, 2026-07-22) — the ONE read path
+ * decision/load-proposals (CORE 100K cutover, 2026-07-22): the ONE read path
  * the live surfaces (Changes + Today) consume. It loads the persisted, re-
  * validated ChangeProposals for a tenant, ranks them by honest value, and
  * partitions them into the operator-facing lifecycle:
@@ -10,7 +10,7 @@
  *   (rejected proposals are never surfaced; applied ones have moved to measuring.)
  *
  * The "measuring / decided" side of the lifecycle lives in the proof-gsc ledger
- * (a shipped change under measurement), NOT here — a proposal the operator
+ * (a shipped change under measurement), NOT here: a proposal the operator
  * applied is recorded as a shipped change and measured there. This module owns
  * only the pre-ship queue. PURE partition over a fail-soft load.
  *
@@ -25,10 +25,22 @@ import { rankProposals } from "./rank-proposals";
 import type { ChangeProposal } from "./contracts";
 
 /**
+ * The DECISION generation this kernel proposes under. It rides on the basis
+ * stamp, so every proposal manufactured under an earlier generation's rules is
+ * unsupported history the moment those rules change: it can never render Ready,
+ * it is demoted in presentation only, and no row is rewritten or deleted.
+ * Bump ONLY when the rules that decide WHAT earns a proposal change.
+ *   1 = every owned page over 20 impressions got a title and a description.
+ *   2 = a proposal exists only where exact query rows proved a recoverable gap.
+ */
+const DECISION_GENERATION = 2;
+
+/**
  * The account's CURRENT research basis, or null when it cannot be read. Composes
  * exactly what Runtime and the Evidence funnel compose, so one basis serves every
- * kernel. Fail-soft to null on purpose: an unreadable account must never demote a
- * whole queue, it just means we cannot prove anything is stale this pass.
+ * kernel, plus the decision generation above. Fail-soft to null on purpose: an
+ * unreadable account must never demote a whole queue, it just means we cannot
+ * prove anything is stale this pass.
  */
 export async function resolveCurrentBasis(
   tenantId: string,
@@ -39,7 +51,7 @@ export async function resolveCurrentBasis(
     const domain = account?.domain?.trim();
     if (!account || !domain) return null;
     const p = profile ?? (await loadBusinessProfile(tenantId));
-    return basisTag(account.id, domain, p, account.growth_goal ?? null);
+    return `${basisTag(account.id, domain, p, account.growth_goal ?? null)}::d${DECISION_GENERATION}`;
   } catch {
     return null;
   }
@@ -92,7 +104,7 @@ export async function loadProposalQueue(
   const bundledTopics = new Set(live.filter((p) => p.bundle && p.kind === "new_page").map(topicOf));
   const all = live.filter((p) => p.bundle
     || (p.kind === "existing_edit" ? !bundledPages.has(p.pagePath) : !bundledTopics.has(topicOf(p))));
-  const ranked = rankProposals(all);
+  const ranked = rankProposals(all, currentBasis);
   // READY has to mean ready. A proposal earns it only when the validator passed it
   // (status "proposed"), it was generated under the account's CURRENT basis, and it
   // owes nobody a source. Everything else is DEMOTED IN PRESENTATION to to-do: the
