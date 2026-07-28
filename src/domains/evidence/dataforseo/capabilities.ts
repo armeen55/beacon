@@ -413,8 +413,8 @@ function parseKeywords(env: ProviderEnvelope): ParsedKeywordItem[] {
 }
 function parseSerp(env: ProviderEnvelope): ParsedSerp {
   const { items } = resultBlock(env);
-  const organic = items.filter((i) => i.type === "organic").map((i) => ({
-    rank: Number(i.rank_absolute ?? i.rank_group ?? 0), domain: String(i.domain ?? ""), url: String(i.url ?? ""), title: str(i.title),
+  const organic = items.filter((i) => i.type === "organic").map((i) => ({ // rank_group IS the organic position; rank_absolute counts ads and packs, so it read result 1 as "#2"
+    rank: Number(i.rank_group ?? i.rank_absolute ?? 0), domain: String(i.domain ?? ""), url: String(i.url ?? ""), title: str(i.title),
   }));
   const paaBlock = items.find((i) => i.type === "people_also_ask");
   const paaQuestions = (Array.isArray(paaBlock?.items) ? (paaBlock!.items as Record<string, unknown>[]) : [])

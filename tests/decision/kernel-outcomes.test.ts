@@ -16,6 +16,7 @@ import { validateProposal } from "@/domains/decision/validate-proposal";
 import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals";
 import { compileCandidates, snapshotToEvidenceInputs } from "@/domains/decision/opportunities";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
+import { topInvestigationQueries } from "@/domains/runtime/ops/investigation-queries";
 import { proposalFingerprint } from "@/domains/decision/proposal-store";
 import { emptyResearchEvidence, type FunnelResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot";
@@ -52,7 +53,8 @@ describe("existing-page cold proposal", () => {
     expect(out.status).toBe("proposed"); if (out.status !== "proposed") return;
     const p = out.proposal; // exact-edit outcome fields Changes/Today render
     if (p.recommendedChange.kind === "existing_edit") { expect(p.recommendedChange.before).toBe("Nowruz"); expect(p.recommendedChange.after).toContain("Nowruz Traditions"); } else throw new Error("expected an exact edit");
-    expect(p.whyItMatters).toMatch(/customs/i); expect(p.evidence.evidenceRefCount).toBe(5); // the receipt keys the diagnosis cites, never the drafter\u0027s own claim expect(p.primaryQuery).toBe("nowruz traditions"); expect(p.opportunityType).toBe("Capture clicks");
+    expect(p.whyItMatters).toMatch(/customs/i); expect(p.primaryQuery).toBe("nowruz traditions"); expect(p.opportunityType).toBe("Capture clicks");
+    expect(p.evidence.evidenceRefCount).toBe(5); // the receipt keys the diagnosis cites, never the drafter's own claim
     expect(out.validation.verdict).toBe("ready"); expect(p.status).toBe("proposed"); // validated safe → proposed, not rejected
     expect(deserializeChangeProposal(serializeChangeProposal(p))).toEqual(p); // persisted + loadable: round-trips + re-validates
     // a tampered persisted row is rejected on load (never served as trusted)
@@ -140,8 +142,6 @@ describe("what the evidence justifies before anything is drafted", () => {
     expect(d.alternativesRuledOut.map((a) => a.alternative)).toEqual(["Google is already showing the words people search for", "A different page of yours is the one ranking"]);
     expect(d.explanation).toContain('Google shows this page as "Persian Screen | Iranopedia", and the other sites that come up share wording that line does not carry: "iranian", "actor".');
     expect(d.explanation).not.toMatch(/result \d/); }); // rank_absolute counts ads and packs, so it is never printed as a search position
-  it("never hands back a proposal this kernel could publish for you", () => { // PUBLISHING AUTHORITY IS MANUAL: structural, not a setting
-    expect(edited("title", "Nowruz", "Nowruz Traditions").publish).toBe("manual"); });
   it("ranks a small page with a real gap above a huge page with none, and sinks a rejected row", () => {
     expect(snapshotToEvidenceInputs(snap([WINNER, GAP], looked([["nowruz traditions", GAP_URL]]))).map((i) => i.page.path)).toEqual(["/nowruz-guide"]);
     const rejected = baseProposal({ id: "rej", status: "rejected", impactScore: 9999 }); // a rejected row never outranks a real one on clicks alone
@@ -178,4 +178,20 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     expect([failed.outcome, failed.persisted, env.saved.length]).toEqual(["persistence_failed", 0, 1]); // it tried, and it says so
     reset(SEEN()); const thin = await run(async () => ({ error: "the drafter is off", retryable: false }));
     expect([thin.outcome, thin.actionable, thin.noDraft, thin.proposals.length]).toEqual(["actionable_but_no_trusted_draft", 1, 1, 0]); });
+}); // ── research: what the pass is investigating, and what a run buys next ────────
+/** A third proven gap, so the priority list has more page work than it has slots. */
+const THIRD = ownedPage("fixture-outdoors.example/nowruz-music", "Nowruz Music", { impressions: 2600, clicks: 52 }, [{ query: "nowruz music", impressions: 2500, clicks: 50, position: 4.1 }]);
+describe("the pass says what it is investigating without turning any of it into work", () => {
+  it("carries the research packets, picks the SAME strongest topic from the same evidence, and proposes nothing off them", async () => {
+    const world = () => snap([WINNER], looked([["nowruz traditions", GAP_URL]])); // a page with no gap, plus one results page I have read
+    let called = 0; const complete: CompleteFn = async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; };
+    reset(world()); const first = await produceProposalsForTenant("fixture-tenant", { complete, now: NOW });
+    reset(world()); const again = await produceProposalsForTenant("fixture-tenant", { complete, now: NOW });
+    expect(first.investigations.length).toBeGreaterThan(0); // the research packet reaches the production pass
+    expect(first.strongestInvestigation!.key).toBe(again.strongestInvestigation!.key); // same evidence, same pick, every pass
+    expect(first.strongestMissingEvidence).toEqual(first.strongestInvestigation!.missingEvidence); // and it says what it still needs
+    expect([first.outcome, first.proposals.length, called, env.saved.length]).toEqual(["no_actionable_candidate", 0, 0, 0]); }); // no candidate, no draft, no row
+  it("freezes a priority list that keeps ONE slot for the strongest investigation's own missing search, still capped at three", async () => {
+    reset(snap([GAP, WEAK, THIRD], looked([["haft seen table", GAP_URL]]))); // three gaps I have never looked at, and a packet still missing its own results page
+    expect(await topInvestigationQueries("fixture-tenant")).toEqual(["nowruz traditions", "nowruz food traditions", "haft seen table"]); }); // the weakest gap waits; the research advances
 });

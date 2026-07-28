@@ -80,15 +80,10 @@ describe("openAIStructuredResponse — request body", () => {
   it("sends EXACT Responses fields and omits Chat-Completions fields", async () => {
     const { impl, capture } = fakeFetch(completedEnvelope(JSON.stringify({ title: "T", note: null, score: 1 })));
     await openAIStructuredResponse(baseArgs({ fetchImpl: impl }));
-
     expect(capture.url).toBe("https://api.openai.com/v1/responses");
     const body = capture.body;
-    expect(body.instructions).toBe("You are a strict JSON generator.");
-    expect(body.input).toBe("Make a title.");
-    expect(body.max_output_tokens).toBe(512);
-    expect(body.text.format.type).toBe("json_schema");
-    expect(body.text.format.name).toBe("test_schema");
-    expect(body.text.format.strict).toBe(true);
+    expect([body.instructions, body.input, body.max_output_tokens]).toEqual(["You are a strict JSON generator.", "Make a title.", 512]);
+    expect([body.text.format.type, body.text.format.name, body.text.format.strict]).toEqual(["json_schema", "test_schema", true]);
     expect(body.text.format.schema.additionalProperties).toBe(false);
     // reasoning model gets reasoning.effort default
     expect(body.reasoning).toEqual({ effort: "low" });
@@ -165,11 +160,10 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
     if (res.kind === "invalid_response") expect(res.reason).toBe("no_structured_output");
   });
 
-  it("returns invalid_response when the structured text is not valid JSON", async () => {
-    const { impl } = fakeFetch(completedEnvelope("this is prose, not json"));
-    const res = await openAIStructuredResponse(baseArgs({ fetchImpl: impl }));
+  it("returns invalid_response when the structured text is not valid JSON", async () => { // never substring-hunt for JSON inside prose
+    const res = await openAIStructuredResponse(baseArgs({ fetchImpl: fakeFetch(completedEnvelope("this is prose, not json")).impl }));
     expect(res.kind).toBe("invalid_response");
-  });
+    if (res.kind === "invalid_response") expect(res.reason).toBe("structured output was not valid JSON"); });
 
   it("returns http_error(status) on a non-2xx response", async () => {
     const { impl } = fakeFetch(completedEnvelope("{}"), { ok: false, status: 429 });

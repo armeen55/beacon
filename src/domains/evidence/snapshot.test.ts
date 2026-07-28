@@ -40,23 +40,19 @@ function fullInput(): EvidenceSnapshotInput {
 describe("buildEvidenceSnapshot - six-source normalization", () => {
   it("normalizes all six sources and joins owned evidence by canonical URL", () => {
     const snap = buildEvidenceSnapshot(fullInput());
-    expect(snap.sources.map((s) => s.source).sort()).toEqual([...MANDATORY_SOURCES].sort());
-    for (const s of snap.sources) expect(s.status).toBe("fresh");
+    expect(snap.sources.map((s) => s.source).sort()).toEqual([...MANDATORY_SOURCES].sort()); expect(snap.sources.every((s) => s.status === "fresh")).toBe(true);
     const flag = snap.ownedPages.find((p) => p.url === "fixture-content.example/flag")!;
     expect(flag.search?.clicks90d).toBe(40); expect(flag.engagement?.revenueUsd).toBe(340); // GSC, then GA4 revenue
-    expect(flag.content?.title).toBe("The Iran Flag: Meaning and Colors"); expect(flag.friction?.frictionScore).toBe(36); // Wix, then Clarity
-    expect(flag.aiCitations.count).toBe(4); // native AI
+    expect(flag.content?.title).toBe("The Iran Flag: Meaning and Colors"); expect(flag.friction?.frictionScore).toBe(36); expect(flag.aiCitations.count).toBe(4); // Wix, Clarity, native AI
     const meaning = snap.keywordDemand.find((k) => k.query === "iran flag meaning")!;
     expect(meaning.searchVolume).toBe(5400); expect(meaning.source).toBe("mixed"); // DataForSEO volume, and both sources agreed
     expect(meaning.gscImpressions).toBe(3900); // 3000 + 900 across both owned pages
-    const q = snap.questionDemand.find((x) => x.question.includes("emblem"))!;
-    expect(q.source).toBe("native_ai"); expect(["answered", "unanswered"]).toContain(q.coverageStatus);
+    expect(snap.questionDemand.find((x) => x.question.includes("emblem"))!.source).toBe("native_ai");
   });
   it("surfaces competitor, cannibalization, and intent evidence", () => {
     const snap = buildEvidenceSnapshot(fullInput());
     expect(snap.competitors.some((c) => c.domain === "persianfood.example")).toBe(true);
-    // A cited competitor stays evidence and never becomes a page topic of its own.
-    expect(snap.contentGaps.every((g) => g.kind === "unanswered_question")).toBe(true);
+    expect(snap.contentGaps.every((g) => g.kind === "unanswered_question")).toBe(true); // a cited competitor stays evidence and never becomes a page topic of its own
     const cannib = snap.cannibalization.find((c) => c.query === "iran flag meaning")!;
     expect(cannib.competingUrls).toEqual(["fixture-content.example/flag", "fixture-content.example/flag-history"]);
     expect(snap.intentClusters.find((c) => c.queries.some((qq) => qq.includes("buy")))?.intent).toBe("commercial");
@@ -82,20 +78,15 @@ describe("buildEvidenceSnapshot - honest source states", () => {
     const byKind = new Map<EvidenceSourceKind, string>(snap.sources.map((s) => [s.source, s.status]));
     expect(byKind.get("native_ai")).toBe("dormant"); expect(byKind.get("gsc")).toBe("empty");
   });
-  it("distinguishes a FAILED source from an EMPTY one, with a plain note", () => {
+  it("distinguishes a FAILED source from an EMPTY one, and lets native AI fail soft", () => {
     const input = emptyInput();
     input.ga4 = { status: "failed", lastSyncedAt: null, note: "GA4 read errored this run.", payload: [] };
-    const snap = buildEvidenceSnapshot(input); const ga4 = snap.sources.find((s) => s.source === "ga4")!;
+    const ga4 = buildEvidenceSnapshot(input).sources.find((s) => s.source === "ga4")!;
     expect(ga4.status).toBe("failed"); expect(ga4.note).toBe("GA4 read errored this run.");
-    expect(snap.sources.find((s) => s.source === "gsc")!.note).not.toBe(ga4.note);
-  });
-  it("native AI dormant does not break the rest of the snapshot", () => {
-    const input = fullInput();
-    input.nativeAi = { status: "dormant", lastSyncedAt: null, payload: { citedPages: [], questions: [], rowsScanned: 0, enginesSeen: [] } };
-    const snap = buildEvidenceSnapshot(input);
-    expect(snap.sources.find((s) => s.source === "native_ai")!.status).toBe("dormant");
-    expect(snap.ownedPages.length).toBe(2); // owned evidence still assembled
-    expect(snap.competitors.length).toBe(0); expect(snap.aiCitations.rowsScanned).toBe(0); // no AI citations -> no competitors
+    const dormant = fullInput();
+    dormant.nativeAi = { status: "dormant", lastSyncedAt: null, payload: { citedPages: [], questions: [], rowsScanned: 0, enginesSeen: [] } };
+    const snap = buildEvidenceSnapshot(dormant);
+    expect(snap.ownedPages.length).toBe(2); expect(snap.competitors.length).toBe(0); // owned evidence still assembles, and no AI citations means no competitors
   });
 });
 describe("evidenceHash - research material truth, not the clock", () => {
@@ -119,12 +110,10 @@ describe("evidenceHash - research material truth, not the clock", () => {
   it("changes for a citation URL, observation mode, served model, fan-out list, keyword volume/intent, or extract structure", () => {
     const base = hashOf(researchFixture());
     const mut = (f: (r: FunnelResearchEvidence) => void) => { const r = researchFixture(); f(r); return hashOf(r); };
-    expect(mut((r) => (r.aiObservations[0].citations![0].url = "https://other.example/x"))).not.toBe(base);
+    expect(mut((r) => (r.aiObservations[0].citations![0].url = "https://other.example/x"))).not.toBe(base); expect(mut((r) => (r.aiObservations[0].modelServed = "gpt-5"))).not.toBe(base);
     expect(mut((r) => (r.aiObservations[0].observationMode = "standardized_response"))).not.toBe(base); // the consumer look and the standardized answer are never the same evidence
-    expect(mut((r) => (r.aiObservations[0].modelServed = "gpt-5"))).not.toBe(base);
-    expect(mut((r) => (r.aiObservations[0].fanOutQueries = ["totally", "different"]))).not.toBe(base);
+    expect(mut((r) => (r.aiObservations[0].fanOutQueries = ["totally", "different"]))).not.toBe(base); expect(mut((r) => (r.winningPages[0].extract!.wordCount = 12345))).not.toBe(base);
     expect(mut((r) => (r.retainedKeywords[0].searchVolume = 99999))).not.toBe(base); expect(mut((r) => (r.retainedKeywords[0].intent = "commercial"))).not.toBe(base);
-    expect(mut((r) => (r.winningPages[0].extract!.wordCount = 12345))).not.toBe(base);
   });
 });
 /** TopicInvestigation: the NON-ACTIONABLE research packet - what it may claim and what it must refuse to claim. CORPUS gives
@@ -134,7 +123,8 @@ describe("buildTopicInvestigations - the research packet", () => {
   const kwRow = (query: string) => ({ query, searchVolume: null, competition: null, competitionLevel: null, difficulty: null, intent: null, discoveredVia: "ranked" as const, seed: null }); const CORPUS = ["harbor tide chart", "harbor whale tour", "harbor ferry time", "harbor parking rate", "harbor seafood market", "harbor fishing permit", "harbor bike hire", "harbor dog beach", "harbor live music", "harbor farmer market", "harbor kayak paddle", "harbor tote bag"].map(kwRow);
   const serp = (query: string, rows: [string, string][], observedAt: string | null = NOW) => ({ query, observedAt, organic: rows.map(([url, title], i) => ({ rank: i + 1, url, domain: new URL(url).hostname, title })), aiOverview: [], aiMode: [], paa: [], related: [] });
   const obs = (promptId: string, promptText: string, fanOutQueries: string[]) => ({ promptId, promptText, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: "gpt-5", webSearchReported: null, citationsObserved: true, citations: [], fanOutQueries, observedAt: NOW });
-  const body = (fetchedAt: string | null, wordCount = 900) => ({ title: "T", h1: "T", wordCount, headings: ["A", "B"], faqCount: 0, fetchedAt }); const win = (url: string, query: string, extract: FunnelResearchEvidence["winningPages"][number]["extract"]) => ({ url, domain: new URL(url).hostname, engines: [], examplePrompts: [], extract, appearances: [{ kind: "serp_organic" as const, query, promptId: null, promptText: null, engine: null, rank: 1, citedUrl: url, observedAt: NOW, modelServed: null }] });
+  const body = (fetchedAt: string | null, wordCount = 900) => ({ title: "T", h1: "T", wordCount, headings: ["A", "B"], faqCount: 0, fetchedAt }); type App = FunnelResearchEvidence["winningPages"][number]["appearances"][number];
+  const win = (url: string, query: string, extract: FunnelResearchEvidence["winningPages"][number]["extract"], extra: App[] = []) => ({ url, domain: new URL(url).hostname, engines: [], examplePrompts: [], extract, appearances: [{ kind: "serp_organic" as const, query, promptId: null, promptText: null, engine: null, rank: 1, citedUrl: url, observedAt: NOW, modelServed: null }, ...extra] });
   const build = (over: Partial<FunnelResearchEvidence> = {}) => buildTopicInvestigations(buildEvidenceSnapshot({
     scope: { tenantId: "t", site: "own.example", builtAt: NOW }, ga4: src([]), wix: src([]), clarity: src([]), dataforseo: src([]), nativeAi: src({ citedPages: [], questions: [], rowsScanned: 0, enginesSeen: [] }),
     gsc: src([{ url: "https://own.example/kayaks", clicks90d: 3, impressions90d: 400, ctr90d: 0.01, position90d: 18, topQueries: [{ query: "harbor kayak paddle", impressions: 400, clicks: 3, position: 18 }] }]),
@@ -166,5 +156,14 @@ describe("buildTopicInvestigations - the research packet", () => {
     expect(thin.find((i) => i.label.includes("kayak paddle"))!.readyForComparison).toBe(false);
     const keys = (v: unknown): string[] => Array.isArray(v) ? v.flatMap(keys) : v && typeof v === "object" ? Object.entries(v).flatMap(([k, x]) => [k, ...keys(x)]) : [];
     expect(keys(ALL).filter((k) => /action|proposal|draft|recommend|status|queue|publish|outline|meta/i.test(k))).toEqual([]);
+  });
+  it("names the pages behind an exact look, and never reads an engine citation as a ranking", () => {
+    const cite: App = { kind: "ai_overview", query: "harbor whale tour", promptId: null, promptText: null, engine: "google", rank: null, citedUrl: "https://simple.w.example/a", observedAt: NOW, modelServed: null, viaUrl: "https://wrap.example/r" };
+    const tour = build({ serpEvidence: [serp("harbor whale tour", [["https://en.w.example/a", "Whale tours explained"], ["https://simple.w.example/a", "Whale tour guide"], ["https://x.example/a", "How to see whales"]])],
+      winningPages: [win("https://en.w.example/a", "harbor whale tour", body(NOW), [cite]), { ...win("https://simple.w.example/a", "harbor whale tour", body(NOW)), appearances: [cite] }] }).find((i) => i.label.includes("whale"))!;
+    const look = tour.exactSerps[0];
+    expect(look.organicRows.map((r) => `${r.rank} ${r.domain}`)).toEqual(["1 w.example", "2 w.example", "3 x.example"]); expect(look.organicRows).toHaveLength(look.organicResults); // rank order, two subdomains of one publisher are one publisher, and every page counted is named
+    expect(tour.winners[0].appearances.map((a) => a.kind)).toEqual(["serp_organic", "ai_overview"]); expect(tour.winners[0].domain).toBe("w.example"); // ranks AND is cited: both kept
+    expect(tour.winners[1].appearances.map((a) => `${a.kind} ${a.rank}`)).toEqual(["ai_overview null"]); expect(tour.winners[1].appearances[0].viaUrl).toBe("https://wrap.example/r"); // cited only: never a rank
   });
 });

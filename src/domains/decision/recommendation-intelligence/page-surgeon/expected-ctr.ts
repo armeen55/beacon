@@ -12,13 +12,9 @@
  */
 
 import {
-  DEFAULT_CTR_BY_POSITION,
   defaultExpectedCtrAt,
   type TenantCtrCurve,
 } from "@/domains/evidence/forecast/tenant-ctr-curve";
-
-/** Re-export of the canonical industry-default table (positions 1-10). */
-export const EXPECTED_CTR_BY_POSITION: Record<number, number> = DEFAULT_CTR_BY_POSITION;
 
 /** Expected organic CTR for a (possibly fractional) position. Coarse tail bands
  *  past position 10, from the canonical curve. Pass the tenant's own fitted

@@ -34,7 +34,7 @@
 
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
-import { rootDomain } from "@/domains/evidence/readers/serp-provider";
+import { publisherHost } from "@/domains/evidence/serp-shape";
 import type { ActionDiagnosis } from "./contracts";
 
 /** The receipt item keys a diagnosis cites. A claim with no item behind it is never
@@ -95,7 +95,10 @@ export function recurringPattern(input: DiagnosisInput, owned: DisplayedResult |
   const sites = new Map<string, Set<string>>();
   for (const r of input.organic ?? []) {
     if (canonicalUrlKey(r.url) === ownedKey) continue;
-    const site = rootDomain(r.url).toLowerCase() || r.domain.toLowerCase();
+    // ONE PUBLISHER IS ONE VOTE, the same rollup the packet uses: bare rootDomain kept
+    // en / simple / de of one encyclopedia as three sites, so one publisher agreeing with
+    // itself read as three sites agreeing, and that list is what the drafter is handed.
+    const site = publisherHost(r.url) || publisherHost(r.domain);
     const seen = sites.get(site) ?? new Set<string>();
     for (const t of topicTokens(r.title)) seen.add(t);
     sites.set(site, seen);

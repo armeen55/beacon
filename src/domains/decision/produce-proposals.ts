@@ -49,6 +49,7 @@ import { rankProposals } from "./rank-proposals";
 import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
+import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation";
 
 export type ProduceProposalsOptions = ProposeOptions & {
   /** Hard cap on how many opportunities we draft this pass (budget guard). */
@@ -84,7 +85,44 @@ export type ProduceProposalsResult = {
   persisted: number;
   /** Proposals carried forward unchanged: no draft, no write, no dollars. */
   reused: number;
+  /** What I have investigated about each topic, over the SAME evidence this pass
+   *  judged. Research only: nothing here is a change, a draft or a queue row. */
+  investigations: TopicInvestigation[];
+  /** The one topic my evidence is closest to being able to compare, so Runtime
+   *  and every later slice advance the SAME investigation instead of each
+   *  picking their own. Null when nothing has been investigated yet. */
+  strongestInvestigation: TopicInvestigation | null;
+  /** What that strongest investigation still needs, said plainly. */
+  strongestMissingEvidence: string[];
 };
+
+/**
+ * THE strongest investigation: fewest missing pieces first (evidence
+ * completeness), then the largest demand behind it, and the stable key last so
+ * the same evidence always picks the same one. It ranks research, never work.
+ */
+export function strongestInvestigation(investigations: TopicInvestigation[]): TopicInvestigation | null {
+  return [...investigations].sort((a, b) =>
+    a.missingEvidence.length - b.missingEvidence.length
+    || (b.demand.monthlySearchVolume ?? 0) - (a.demand.monthlySearchVolume ?? 0)
+    || (b.demand.gscImpressions ?? 0) - (a.demand.gscImpressions ?? 0)
+    || a.key.localeCompare(b.key))[0] ?? null;
+}
+
+/**
+ * The exact search an investigation cannot close without: the live results page I
+ * do not hold, or hold too old to trust. Null once the packet holds a current
+ * look, so a run never re-buys the page it just read.
+ */
+export function missingExactSearch(investigation: TopicInvestigation | null): string | null {
+  if (!investigation || investigation.serpFreshness === "current") return null;
+  // THE LOOK I DO NOT HOLD. Taking the first row returned whichever query sorted first,
+  // which on a group with one fresh look and one stale one asked for the FRESH page: the
+  // stale look stayed stale, the group stayed stale, and the same page was re-bought
+  // every run forever. Buy the one that is actually missing or out of date.
+  return investigation.exactSerps.find((e) => e.freshness !== "current")?.query
+    ?? investigation.queries[0] ?? null;
+}
 
 /** Bounded drafting: the strongest few, never a queue. */
 export const MAX_EXISTING_DRAFTS = 3;
@@ -128,6 +166,19 @@ export async function produceProposalsForTenant(
   // becomes history instead of silently current. Fail-soft to null: an
   // unreadable account stamps nothing rather than stamping a wrong basis.
   const basis = await resolveCurrentBasis(tenantId, profile);
+
+  // THE RESEARCH PACKETS, over the same evidence this pass judges. They are
+  // non-actionable by construction, so building them here cannot add a candidate,
+  // a proposal or a draft: they only say what I know about a topic and what is
+  // still missing. Fail-soft to none, so research can never break the producer.
+  let investigations: TopicInvestigation[] = [];
+  try {
+    investigations = buildTopicInvestigations(snapshot);
+  } catch (e) {
+    log.warn("[produce-proposals] investigations failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
+  }
+  const strongest = strongestInvestigation(investigations);
+  const research = { investigations, strongestInvestigation: strongest, strongestMissingEvidence: strongest?.missingEvidence ?? [] };
 
   // THE DIAGNOSIS FIRST. Doing nothing is the default; only a proven gap is work.
   const candidates = compileCandidates(snapshot);
@@ -218,7 +269,7 @@ export async function produceProposalsForTenant(
     // A proven gap I cannot yet explain is NOT a quiet day. Saying so here is what
     // keeps "Nothing needs a decision today" off a screen with real losses behind it.
     return { proposals: [], candidates, outcome: investigating > 0 ? "investigating" : "no_actionable_candidate",
-      actionable: 0, investigating, noDraft: 0, persisted: 0, reused: 0 };
+      actionable: 0, investigating, noDraft: 0, persisted: 0, reused: 0, ...research };
   }
 
   // THE STRONGEST PROVEN PAGE, never the first one the snapshot happened to list.
@@ -369,5 +420,6 @@ export async function produceProposalsForTenant(
     noDraft,
     persisted,
     reused,
+    ...research,
   };
 }

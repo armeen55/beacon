@@ -31,11 +31,11 @@
 
 import { createHash } from "node:crypto";
 
-import type { FunnelResearchEvidence } from "./funnel/research-evidence";
+import type { FunnelResearchEvidence, ResearchWinningAppearance } from "./funnel/research-evidence";
 import { canonicalQueryKey, topicTokens } from "./relevance-gate";
 import {
-  coherenceOf, dominantPageType, freshnessAt, pageTypeVotesOf, SERP_FRESH_MS, serpObservedAt, winnerStateOf,
-  type Freshness, type PageTypeVote, type SerpPageType, type SerpRow, type WinnerExtractState,
+  coherenceOf, dominantPageType, pageTypeVotesOf, serpRefOf, winnerRefOf,
+  type Freshness, type PageTypeVote, type SerpPageType, type SerpRef, type SerpRow, type WinnerRef,
 } from "./serp-shape";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot } from "./snapshot";
 
@@ -76,26 +76,6 @@ type FanOutRef = {
   engine: string;
   observationMode: string;
   observedAt: string;
-};
-
-type SerpRef = {
-  query: string;
-  observedAt: string | null;
-  freshness: Freshness;
-  organicResults: number;
-  distinctDomains: number;
-  aiOverviewCitations: number;
-  aiModeCitations: number;
-  paaQuestions: number;
-};
-
-type WinnerRef = {
-  url: string;
-  domain: string;
-  extractState: WinnerExtractState;
-  wordCount: number | null;
-  headings: number;
-  fetchedAt: string | null;
 };
 
 export type TopicInvestigation = {
@@ -358,20 +338,10 @@ function assemble(
     };
   }).sort((a, b) => a.promptText.localeCompare(b.promptText));
 
-  // ── the exact result pages I looked at, with when I looked ──
-  const exactSerps: SerpRef[] = serps.map((s) => {
-    const at = serpObservedAt(s, research.winningPages);
-    return {
-      query: s.query,
-      observedAt: at,
-      freshness: freshnessAt(at, builtAt, SERP_FRESH_MS),
-      organicResults: s.organic.length,
-      distinctDomains: new Set(s.organic.map((o) => o.domain)).size,
-      aiOverviewCitations: s.aiOverview.length,
-      aiModeCitations: s.aiMode.length,
-      paaQuestions: s.paa.length,
-    };
-  }).sort((a, b) => a.query.localeCompare(b.query));
+  // ── the exact result pages I looked at, the rows on them, and when I looked ──
+  const exactSerps: SerpRef[] = serps
+    .map((s) => serpRefOf(s, research.winningPages, builtAt))
+    .sort((a, b) => a.query.localeCompare(b.query));
   // THE WORST LOOK IN THE GROUP, never the best. One fresh look beside two from January
   // used to read "current" while two thirds of the page-type evidence was months old.
   const serpFreshness: Freshness =
@@ -379,20 +349,17 @@ function assemble(
       : exactSerps.some((s) => s.freshness === "stale") ? "stale"
         : exactSerps.some((s) => s.freshness === "undated") ? "undated" : "current";
 
-  const resultDomains = [...new Set(serps.flatMap((s) => s.organic.map((o) => o.domain.replace(/^www\./, "").toLowerCase())))].sort();
+  const resultDomains = [...new Set(exactSerps.flatMap((s) => s.organicRows.map((o) => o.domain)))].sort();
 
-  // ── winners: only pages whose OWN provenance points at this investigation ──
-  const winnerRows = research.winningPages.filter((w) =>
-    w.appearances.some((a) => (a.query && serpKeys.has(canonicalQueryKey(a.query))) || (a.promptId && promptIds.has(a.promptId))),
-  );
-  const winners: WinnerRef[] = winnerRows.map((w) => ({
-    url: w.url,
-    domain: w.domain.replace(/^www\./, "").toLowerCase(),
-    extractState: winnerStateOf(w, builtAt),
-    wordCount: w.extract?.wordCount ?? null,
-    headings: w.extract?.headings.length ?? 0,
-    fetchedAt: w.extract?.fetchedAt ?? null,
-  })).sort((a, b) => a.url.localeCompare(b.url));
+  // ── winners: only pages whose OWN provenance points at this investigation, and
+  // that provenance is KEPT so a reader can tell a ranking from a citation ──
+  const isMine = (a: ResearchWinningAppearance): boolean =>
+    (!!a.query && serpKeys.has(canonicalQueryKey(a.query))) || (!!a.promptId && promptIds.has(a.promptId));
+  const winners: WinnerRef[] = research.winningPages
+    .map((w) => ({ page: w, mine: w.appearances.filter(isMine) }))
+    .filter((x) => x.mine.length > 0)
+    .map((x) => winnerRefOf(x.page, x.mine, builtAt))
+    .sort((a, b) => a.url.localeCompare(b.url));
   // Counted by DISTINCT SITE. Three pages from one publisher are one publisher's view,
   // and the whole file's conservatism rests on agreement ACROSS sources.
   const currentReadableWinners = new Set(winners.filter((w) => w.extractState === "current").map((w) => w.domain)).size;

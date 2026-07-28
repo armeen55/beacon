@@ -41,6 +41,55 @@ export type PageTypeVote = { pageType: SerpPageType; domains: number };
 
 export type SerpRow = FunnelResearchEvidence["serpEvidence"][number];
 type WinRow = FunnelResearchEvidence["winningPages"][number];
+type WinAppearance = WinRow["appearances"][number];
+
+/** ONE ranked row on an exact results page: where it ranked, who published it. */
+export type SerpResultRow = { rank: number; url: string; domain: string; title: string | null };
+/** ONE engine citation observed on an exact results page. */
+export type SerpCitationRow = { url: string; domain: string; title: string | null };
+
+/** An exact results page AND the rows that shaped it. Counts alone let a packet say
+ *  nine topics had a settled shape without naming one page that settled it. */
+export type SerpRef = {
+  query: string;
+  observedAt: string | null;
+  freshness: Freshness;
+  organicResults: number;
+  distinctDomains: number;
+  aiOverviewCitations: number;
+  aiModeCitations: number;
+  paaQuestions: number;
+  organicRows: SerpResultRow[];
+  aiOverviewRows: SerpCitationRow[];
+  aiModeRows: SerpCitationRow[];
+};
+
+/** WHERE a winning page was actually seen. Ranking organically for a query and being
+ *  cited by an engine for a prompt are DIFFERENT facts, so a reader can always tell
+ *  which one it is holding and can never read a citation as a ranking. */
+export type WinnerAppearance = {
+  kind: WinAppearance["kind"];
+  query: string | null;
+  promptId: string | null;
+  promptText: string | null;
+  engine: string | null;
+  observationMode: string | null;
+  rank: number | null;
+  observedAt: string;
+  /** The provider URL a citation was resolved FROM; null when it was already raw. */
+  viaUrl: string | null;
+};
+
+/** A winning page as this projection carries it, with the provenance that put it here. */
+export type WinnerRef = {
+  url: string;
+  domain: string;
+  extractState: WinnerExtractState;
+  wordCount: number | null;
+  headings: number;
+  fetchedAt: string | null;
+  appearances: WinnerAppearance[];
+};
 
 // ── documented thresholds ────────────────────────────────────────────────────
 
@@ -59,12 +108,26 @@ const MIN_LEAD = 2;
 const MIN_SUBJECT_SHARE = 0.6;
 /** A readable extract has to carry something to compare. */
 const MIN_READABLE_WORDS = 120;
+/** The funnel banks at most ten organic results per look, so ten rows is the whole look. */
+const MAX_ROWS = 10;
+/** Enough appearances to show that a page both ranks and is cited, never a log. */
+const MAX_APPEARANCES = 8;
 
 const norm = (s: string): string => s.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
+/** Registrable suffixes that carry a country label, so bbc.co.uk keeps three parts. */
+const MULTI_SUFFIX = /\.(co|com|net|org|gov|edu|ac|or|ne)\.[a-z]{2}$/;
 /** ONE publisher is one vote: en.wikipedia.org and simple.wikipedia.org are the same
  *  source wearing two hostnames, and counting them twice fakes the agreement this whole
- *  file rests on. Same rootDomain the winner ranking already uses. */
-const host = (url: string): string => rootDomain(url).toLowerCase();
+ *  file rests on. The ONLY host helper here, built on the shared rootDomain, and used
+ *  for result rows, winner rows and every publisher-agreement count alike. */
+export const publisherHost = (url: string): string => {
+  const h = rootDomain(url).toLowerCase();
+  const labels = h.split(".");
+  const keep = MULTI_SUFFIX.test(h) ? 3 : 2;
+  return labels.length > keep ? labels.slice(-keep).join(".") : h;
+};
+/** The publisher behind one result row, falling back to the domain the provider named. */
+const publisherOf = (row: { url: string; domain: string }): string => publisherHost(row.url) || publisherHost(row.domain);
 const inter = <T,>(a: Set<T>, b: Set<T>): number => [...a].filter((t) => b.has(t)).length;
 
 const FORUM = /(^|\.)(reddit|quora|stackexchange|stackoverflow|discourse|answers)\.[a-z.]+$/;
@@ -81,7 +144,7 @@ const ENCYCLOPEDIC = /(^|\.)(wikipedia|britannica|wikiwand|scholarpedia)\.[a-z.]
 export function classifyResult(title: string | null, url: string): SerpPageType | null {
   const t = norm(title ?? "");
   const u = url.toLowerCase();
-  const h = host(u);
+  const h = publisherHost(u);
   const path = u.replace(/^https?:\/\/[^/]+/, "");
   if (/\bvs\.?\b|\bversus\b|difference between|compared to/.test(t)) return "comparison";
   // NO srsltid rule: that is a Google Merchant click id which rides on ANY url reached
@@ -109,7 +172,7 @@ export function pageTypeVotesOf(serps: SerpRow[]): PageTypeVote[] {
     for (const o of s.organic) {
       const type = classifyResult(o.title, o.url);
       if (!type) continue;
-      const d = host(o.url) || o.domain.replace(/^www\./, "").toLowerCase();
+      const d = publisherOf(o);
       if (!byDomain.has(d)) byDomain.set(d, new Map());
       const m = byDomain.get(d)!;
       m.set(type, (m.get(type) ?? 0) + 1);
@@ -144,7 +207,7 @@ export function dominantPageType(votes: PageTypeVote[]): SerpPageType {
  */
 export function coherenceOf(serps: SerpRow[], strong: Set<string>): "coherent" | "mixed" | "unknown" {
   const organic = serps.flatMap((s) => s.organic);
-  const domainsOf = (rows: typeof organic): Set<string> => new Set(rows.map((o) => host(o.url) || o.domain));
+  const domainsOf = (rows: typeof organic): Set<string> => new Set(rows.map(publisherOf));
   const domains = domainsOf(organic);
   if (organic.length === 0 || domains.size < MIN_DOMAIN_VOTES || strong.size === 0) return "unknown";
   const qualifiers: Set<string>[] = [];
@@ -191,4 +254,65 @@ export function winnerStateOf(win: WinRow, builtAt: number): WinnerExtractState 
   if (x.wordCount < MIN_READABLE_WORDS || (x.headings.length === 0 && !x.title)) return "unreadable";
   const f = freshnessAt(x.fetchedAt ?? null, builtAt, EXTRACT_FRESH_MS);
   return f === "current" ? "current" : f === "stale" ? "stale" : "undated";
+}
+
+// ── what I actually saw ──────────────────────────────────────────────────────
+
+const citationRows = (rows: { url: string; domain: string; title: string | null }[]): SerpCitationRow[] =>
+  rows.slice(0, MAX_ROWS).map((c) => ({ url: c.url, domain: publisherOf(c), title: c.title }));
+
+/** ONE exact results page projected WITH its rows: organic in rank order, the engine
+ *  citations beside them, every publisher rolled up to its root. The counts are the
+ *  same counts as before, so nothing reading them changes. */
+export function serpRefOf(serp: SerpRow, winners: WinRow[], builtAt: number): SerpRef {
+  const at = serpObservedAt(serp, winners);
+  return {
+    query: serp.query,
+    observedAt: at,
+    freshness: freshnessAt(at, builtAt, SERP_FRESH_MS),
+    organicResults: serp.organic.length,
+    distinctDomains: new Set(serp.organic.map(publisherOf)).size,
+    aiOverviewCitations: serp.aiOverview.length,
+    aiModeCitations: serp.aiMode.length,
+    paaQuestions: serp.paa.length,
+    organicRows: [...serp.organic]
+      .sort((a, b) => a.rank - b.rank)
+      .slice(0, MAX_ROWS)
+      .map((o) => ({ rank: o.rank, url: o.url, domain: publisherOf(o), title: o.title })),
+    aiOverviewRows: citationRows(serp.aiOverview),
+    aiModeRows: citationRows(serp.aiMode),
+  };
+}
+
+const KIND_ORDER: WinnerAppearance["kind"][] = ["serp_organic", "ai_overview", "ai_mode", "ai_answer"];
+
+/** A winning page WITH the provenance that put it here, instead of provenance read
+ *  once and thrown away. Deduplicated per source (the freshest look wins), organic
+ *  ranks before engine citations, bounded so this stays a fact and not a log. */
+export function winnerRefOf(win: WinRow, mine: WinAppearance[], builtAt: number): WinnerRef {
+  const best = new Map<string, WinnerAppearance>();
+  for (const a of mine) {
+    const key = `${a.kind}|${a.query ?? ""}|${a.promptId ?? ""}|${a.engine ?? ""}`;
+    const seen = best.get(key);
+    if (seen && seen.observedAt >= a.observedAt) continue;
+    best.set(key, {
+      kind: a.kind, query: a.query, promptId: a.promptId, promptText: a.promptText, engine: a.engine,
+      observationMode: a.observationMode ?? null, rank: a.rank, observedAt: a.observedAt, viaUrl: a.viaUrl ?? null,
+    });
+  }
+  const appearances = [...best.values()]
+    .sort((a, b) =>
+      KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) ||
+      (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER) ||
+      `${a.query ?? a.promptText ?? ""}`.localeCompare(`${b.query ?? b.promptText ?? ""}`))
+    .slice(0, MAX_APPEARANCES);
+  return {
+    url: win.url,
+    domain: publisherOf(win),
+    extractState: winnerStateOf(win, builtAt),
+    wordCount: win.extract?.wordCount ?? null,
+    headings: win.extract?.headings.length ?? 0,
+    fetchedAt: win.extract?.fetchedAt ?? null,
+    appearances,
+  };
 }

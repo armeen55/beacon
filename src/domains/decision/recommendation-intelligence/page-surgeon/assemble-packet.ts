@@ -17,8 +17,86 @@ import { loadClarityPageSignalsForTenant } from "@/domains/evidence/readers/clar
 import { loadGa4PageValuesForTenant } from "@/domains/evidence/readers/ga4-page-values";
 import type { PageSnapshot } from "@/domains/evidence/pages/types";
 
-import type { EvidencePacket } from "./contract";
 import { expectedCtrForPosition as expectedCtr } from "./expected-ctr";
+
+/**
+ * The evidence packet for ONE page, owned here because this is the only place
+ * that builds one. Every source is optional and absence is never zero: a page
+ * with no Clarity rows says so under sourcesConnectedButEmpty instead of
+ * reporting a fabricated 0. (The rest of the retired page-surgeon contract, a
+ * candidate/score/evaluator taxonomy nothing generated any more, is deleted.)
+ */
+export type EvidencePacket = {
+  current: {
+    tenantId: string;
+    pageUrl: string;
+    /** The only atomic change this packet describes today. */
+    changeType: "title";
+    elementKey: string | null;
+    sectionLabel: string | null;
+    currentText: string | null;
+    /** Is there a CMS field mapping that could publish this change? */
+    cmsFieldMapped: boolean;
+    publishChannel: PageSurgeonContext["publishChannel"];
+  };
+  gsc?: {
+    windowStart: string;
+    windowEnd: string;
+    impressions: number;
+    clicks: number;
+    ctr: number;
+    avgPosition: number;
+    topQueries: Array<{ query: string; impressions: number; clicks: number; ctr: number; position: number }>;
+    /** Expected CTR for the page's average position, from the position curve. */
+    expectedCtrForPosition: number | null;
+    /** expected minus actual CTR; positive means the snippet underperforms. */
+    ctrGap: number | null;
+  };
+  ga4?: {
+    sessions: number;
+    engagedSessions: number;
+    engagementRate: number | null;
+    avgSessionDurationSec: number | null;
+    keyEvents: number | null;
+    sessionKeyEventRate: number | null;
+    revenue: number | null;
+  };
+  clarity?: {
+    windowStart: string;
+    windowEnd: string;
+    scrollDepthMedian: number | null;
+    engagementTimeSec: number | null;
+    deadClicks: number | null;
+    rageClicks: number | null;
+    quickbacks: number | null;
+    scriptErrors: number | null;
+  };
+  crawl?: {
+    title: string | null;
+    h1: string | null;
+    metaDescription: string | null;
+    h2List: string[];
+    h3List: string[];
+    faqs: string[];
+    schemaTypes: string[];
+    wordCount: number | null;
+    internalLinkCount: number | null;
+    cardTexts: string[];
+    /** When this page was last crawled: a stale crawl means the before/after
+     *  diff may no longer match what is live. */
+    fetchedAt?: string | null;
+    /** "confirmed" when JSON-LD parsed; "uncertain" when the fetch may have
+     *  missed client-rendered content. */
+    extractionCertainty?: "confirmed" | "uncertain" | null;
+  };
+  /** Sources with usable data for THIS page. */
+  sourcesPresent: string[];
+  /** Sources CONNECTED but returning no rows, so missing never reads as absent. */
+  sourcesConnectedButEmpty: string[];
+  /** Lowercased terms this account's OWN pages repeat as chrome, derived from
+   *  the fleet rather than any fixed list. */
+  boilerplateTerms?: string[];
+};
 
 export type PageSurgeonContext = {
   tenantId: string;
