@@ -57,6 +57,9 @@ export const PROMPT_REGISTRY = {
   "draft.strategy_review": 1,
   "draft.section_draft": 1,
   "draft.outreach_pitch": 1,
+  // The coverage verdict (N3b, 2026-07-28): does this account already have the
+  // right page for a researched topic. Judgment only; it drafts nothing.
+  "draft.coverage_adjudication": 1,
   // Registered schema kinds with no bespoke production prompt yet (P8 targets);
   // callStructuredLLM derives draft.<kind>, so they must resolve to a version.
   "draft.tool_asset": 1,

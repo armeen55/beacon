@@ -54,6 +54,9 @@ export { produceProposalsForTenant, DEFAULT_MAX_DRAFTS } from "./produce-proposa
 // How the kernel ranks its own research, so Runtime advances the SAME investigation
 // the producer reports instead of choosing a different one.
 export { strongestInvestigation, missingExactSearch } from "./produce-proposals";
+// Does this account already have the right page? The deterministic candidates the adjudicator reasons over.
+export { ownedCandidatesFor, topicOutOfScope } from "./owned-coverage";
+export type { OwnedCandidate, OwnedSignal, OwnedSignalKind, OwnedSignalStrength } from "./owned-coverage";
 // The honest diagnosis itself, so Runtime can ask what an open investigation needs
 // without reaching past this boundary into the kernel's files.
 export { compileCandidates, type QualifiedCandidate } from "./opportunities";

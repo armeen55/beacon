@@ -84,8 +84,7 @@ describe("openAIStructuredResponse — request body", () => {
     const body = capture.body;
     expect([body.instructions, body.input, body.max_output_tokens]).toEqual(["You are a strict JSON generator.", "Make a title.", 512]);
     expect([body.text.format.type, body.text.format.name, body.text.format.strict]).toEqual(["json_schema", "test_schema", true]);
-    expect(body.text.format.schema.additionalProperties).toBe(false);
-    // reasoning model gets reasoning.effort default
+    expect(body.text.format.schema.additionalProperties).toBe(false); // reasoning model gets reasoning.effort default
     expect(body.reasoning).toEqual({ effort: "low" });
 
     // Chat-Completions fields MUST be absent.

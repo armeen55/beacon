@@ -321,6 +321,30 @@ export const OutreachPitchSchema = z.object({
 });
 export type OutreachPitch = z.infer<typeof OutreachPitchSchema>;
 
+// ── coverage adjudication (N3b, 2026-07-28) ─────────────────────────────────
+// ONE verdict on whether this account ALREADY has the right page for a topic it
+// researched. The model COMPARES the owned pages the caller supplied and picks a
+// verdict; it may not invent a page, a metric, a keyword or a competitor, and it
+// may not write copy: no field here can carry a title, a description, an outline
+// or a proposed address, so a drafted page is not representable. `ownedUrls` and
+// `evidenceKeys` are re-checked against the caller's allowlist AFTER validation,
+// so one unknown id refuses the whole call rather than shipping half of it.
+
+export const CoverageAdjudicationSchema = z.object({
+  verdict: z.enum(["improve_existing", "create_new", "consolidate_or_choose", "do_nothing", "research_needed"]),
+  /** Owned addresses the verdict names, echoed EXACTLY from the supplied list. */
+  ownedUrls: z.array(z.string().min(1).max(500)).max(8),
+  /** Evidence ids the verdict rests on, echoed EXACTLY from the supplied list. */
+  evidenceKeys: z.array(z.string().min(1).max(60)).min(1).max(24),
+  alternativesRuledOut: z.array(z.object({
+    alternative: z.string().min(1).max(160),
+    reason: z.string().min(1).max(400),
+  })).min(1).max(5),
+  /** One plain first-person sentence the operator reads. Never page copy. */
+  explanation: z.string().min(20).max(400),
+});
+export type CoverageAdjudication = z.infer<typeof CoverageAdjudicationSchema>;
+
 // ── registry: kind → schema (the structured-drafter dispatches on this) ──────
 
 export type StructuredDraftKind =
@@ -334,6 +358,7 @@ export type StructuredDraftKind =
   | "strategy_review"
   | "section_draft"
   | "outreach_pitch"
+  | "coverage_adjudication"
   | "business_profile_inference" | "business_profile_patch" | "prompt_candidates";
 
 export const SCHEMA_BY_KIND = {
@@ -347,6 +372,7 @@ export const SCHEMA_BY_KIND = {
   strategy_review: StrategyReviewSchema,
   section_draft: SectionDraftSchema,
   outreach_pitch: OutreachPitchSchema,
+  coverage_adjudication: CoverageAdjudicationSchema,
   business_profile_inference: BusinessProfileInferenceSchema,
   business_profile_patch: BusinessProfilePatchSchema,
   prompt_candidates: PromptCandidatesSchema,
@@ -527,7 +553,11 @@ export type LlmOutputSchemaName = keyof typeof LLM_OUTPUT_SCHEMAS;
 export function draftProseStringValues(value: unknown): string[] {
   // Non-prose methodology/procedural keys, skipped at every object level (see
   // the doc comment above for the one-line reason each is excluded).
-  const NON_PROSE_KEYS = new Set(["sources", "proofPlan", "operatorSteps", "risks"]);
+  // `ownedUrls` and `evidenceKeys` are IDENTIFIERS echoed back from an allowlist, not prose
+  // the model wrote. Scanning them meant a real customer address containing the word "best"
+  // tripped the superlative firewall and killed the verdict on every pass, forever, at two
+  // paid calls a time. A page address cannot make a claim.
+  const NON_PROSE_KEYS = new Set(["sources", "proofPlan", "operatorSteps", "risks", "ownedUrls", "evidenceKeys"]);
   const out: string[] = [];
   const walk = (v: unknown): void => {
     if (typeof v === "string") out.push(v);

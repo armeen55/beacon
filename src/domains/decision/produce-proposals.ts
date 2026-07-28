@@ -50,6 +50,9 @@ import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, t
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
 import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation";
+import { ownedCandidatesFor, topicOutOfScope } from "./owned-coverage";
+import { adjudicateCoverage } from "./coverage-adjudication";
+import type { CoverageDecision } from "./coverage-adjudication";
 
 export type ProduceProposalsOptions = ProposeOptions & {
   /** Hard cap on how many opportunities we draft this pass (budget guard). */
@@ -94,6 +97,11 @@ export type ProduceProposalsResult = {
   strongestInvestigation: TopicInvestigation | null;
   /** What that strongest investigation still needs, said plainly. */
   strongestMissingEvidence: string[];
+  /** THE verdict on whether this account already has the right page for that one
+   *  topic. A judgment only: it creates no proposal, no draft and no queue row,
+   *  and today it can never conclude that a new page is earned. Null when nothing
+   *  has been investigated yet. */
+  coverageVerdict: CoverageDecision | null;
 };
 
 /**
@@ -178,7 +186,29 @@ export async function produceProposalsForTenant(
     log.warn("[produce-proposals] investigations failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
   }
   const strongest = strongestInvestigation(investigations);
-  const research = { investigations, strongestInvestigation: strongest, strongestMissingEvidence: strongest?.missingEvidence ?? [] };
+
+  // THE COVERAGE VERDICT for that ONE topic: does this account already have the
+  // right page? It compares the topic against the account's own pages and returns
+  // a judgment, nothing else. It writes no proposal, no draft and no queue row,
+  // and by construction it cannot conclude that a new page is earned today. The
+  // deterministic gate inside it refuses for free, so an under-evidenced topic
+  // costs no model call. Fail-soft to null: a judgment I cannot make must never
+  // break the pass that produces the operator's actual work.
+  let coverageVerdict: CoverageDecision | null = null;
+  try {
+    if (strongest) {
+      coverageVerdict = await adjudicateCoverage(strongest, ownedCandidatesFor(snapshot, strongest), tenantId, {
+        outOfScopeTopics: topicOutOfScope(snapshot, strongest, profile),
+        complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache,
+        // The judgment call stays OFF until a surface renders its answer: this runs on the
+        // operator's own page load, and a reasoning model nobody reads is a bill nobody asked for.
+        ...(opts.complete ? {} : { model: "off" as const }),
+      });
+    }
+  } catch (e) {
+    log.warn("[produce-proposals] coverage verdict failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
+  }
+  const research = { investigations, strongestInvestigation: strongest, strongestMissingEvidence: strongest?.missingEvidence ?? [], coverageVerdict };
 
   // THE DIAGNOSIS FIRST. Doing nothing is the default; only a proven gap is work.
   const candidates = compileCandidates(snapshot);
