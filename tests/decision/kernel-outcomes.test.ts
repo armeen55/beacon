@@ -90,7 +90,7 @@ function ownedPage(url: string, title: string, totals: { impressions: number; cl
     intentClusters: [], cannibalization: [], contentGaps: [], internalLinkOpportunities: [], aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 }, research, evidenceHash: "fixture" };
 } /** A live results page observed for these EXACT searches, carrying this page's OWN line on it and two rivals that share wording
  *  that line does not: exactly what a diagnosis has to read before it may name the title. */
-const looked = (pairs: [string, string][]): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), serpEvidence: pairs.map(([query, url]) => ({ query, aiOverview: [], aiMode: [], paa: [], related: [],
+const looked = (pairs: [string, string][]): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), serpEvidence: pairs.map(([query, url]) => ({ query, observedAt: null, aiOverview: [], aiMode: [], paa: [], related: [],
   organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/a", title: "Nowruz Traditions Explained" },
     { rank: 2, domain: "other.example", url: "https://other.example/b", title: "Persian New Year Traditions and Food" }, { rank: 3, domain: "fixture-outdoors.example", url, title: "Nowruz" }] })) });
 /** A big winner: its main searches BEAT the clicks their positions earn, and even counting its one soft search it is ahead. */
@@ -104,7 +104,7 @@ const SEEN = () => snap([GAP], looked([["nowruz traditions", GAP_URL]]));
  *  the searcher's own word, and a results page where Google already displays that word back to them. */
 const ACTORS_URL = "iranopedia.example/iranian-actors-actresses"; const DISPLAYED = "Famous Iranian & Persian Actors, Actresses & Celebrities";
 const ACTORS = ownedPage(ACTORS_URL, "Top 20 Famous Persian Actresses and Actors | Iranopedia", { impressions: 2451, clicks: 15 }, [{ query: "iranian actors", impressions: 2451, clicks: 15, position: 6.1 }]);
-const actorsSerp = (ownedTitle: string): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), serpEvidence: [{ query: "iranian actors", aiOverview: [], aiMode: [], paa: [], related: [],
+const actorsSerp = (ownedTitle: string): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), serpEvidence: [{ observedAt: null, query: "iranian actors", aiOverview: [], aiMode: [], paa: [], related: [],
   organic: [{ rank: 1, domain: "imdb.example", url: "https://imdb.example/list", title: "Iranian Actors" }, { rank: 2, domain: "wiki.example", url: "https://wiki.example/list", title: "List of Iranian male actors" },
     { rank: 3, domain: "pantheon.example", url: "https://pantheon.example/iran", title: "Greatest Iranian Actors" }, { rank: 6, domain: "iranopedia.example", url: ACTORS_URL, title: ownedTitle }] }] });
 describe("what the evidence justifies before anything is drafted", () => {

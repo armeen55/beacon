@@ -20,6 +20,11 @@
  * in `sources[]` with an HONEST freshness/failure state so a dormant native-AI
  * adapter or a failed GA4 read is visible, never silently zeroed.
  *
+ * Derived views live NEXT to this contract, never inside it: `topic-investigation.ts`
+ * projects the same snapshot into non-actionable research packets (what has been
+ * investigated about a topic and whether it is enough to compare), computed on
+ * demand by the slice that needs it rather than on every snapshot build.
+ *
  * Build-pass note: this is ADDITIVE. The old per-move EvidencePacket /
  * ResearchDossier engines still exist; the destructive cutover that rewires
  * consumers onto this contract and deletes those engines is a later sequenced
@@ -305,6 +310,21 @@ const NAVIGATIONAL = /\b(login|log in|contact|about|homepage|official site|dashb
 const classifyIntent = (label: string): IntentCluster["intent"] =>
   TRANSACTIONAL.test(label) ? "transactional" : NAVIGATIONAL.test(label) ? "navigational" : COMMERCIAL.test(label) ? "commercial" : "informational";
 
+/**
+ * WEAK ANCHORS: the one word this account puts on nearly everything it owns fits anything, so on its own it
+ * proves no topical connection and must never make every page look related to every other. Read from the
+ * account's OWN corpus (its page titles, the searches it retained, the prompts it observed); under
+ * MIN_ANCHOR_CORPUS phrases nothing has recurred often enough to earn the label, so the set is empty and a
+ * single-topic account keeps its honest overlaps unchanged. ONE definition per account, shared by the
+ * snapshot's evidence joins and by the TopicInvestigation projection in `topic-investigation.ts`.
+ */
+export function weakAnchorsOf(ownedPages: OwnedPageEvidence[], research: FunnelResearchEvidence): Set<string> {
+  const corpus = [...new Set([...ownedPages.map((p) => p.content?.title || p.content?.h1 || p.url),
+    ...research.retainedKeywords.map((k) => k.query), ...research.aiObservations.map((o) => o.promptText)]
+    .map((s) => (s ?? "").trim()).filter(Boolean))];
+  return corpus.length < MIN_ANCHOR_CORPUS ? new Set<string>() : weakAnchorTokens(corpus);
+}
+
 /** Deterministic freshness row for a source, derived from its LoadedSource. */
 function freshnessOf(source: EvidenceSourceKind, loaded: LoadedSource<unknown>, rowsSeen: number): SourceFreshness {
   const defaultNote: Record<SourceStatus, string> = {
@@ -476,15 +496,7 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
   const ownedContentText = ownedPages.map((p) =>
     [p.content?.title, p.content?.h1, ...(p.content?.outline ?? [])].filter(Boolean).join(" "),
   );
-  // WEAK ANCHORS: the one word this account puts on nearly everything it owns fits anything, so on its own it
-  // proves no topical connection and must never make every page look related to every other. Read from the
-  // account's OWN corpus each build (its page titles, the searches it retained, the prompts it observed);
-  // under MIN_ANCHOR_CORPUS phrases nothing has recurred often enough to earn the label, so the set is empty
-  // and a single-topic account keeps its honest overlaps unchanged.
-  const anchorCorpus = [...new Set([...ownedPages.map((p) => p.content?.title || p.content?.h1 || p.url),
-    ...input.research.payload.retainedKeywords.map((k) => k.query), ...input.research.payload.aiObservations.map((o) => o.promptText)]
-    .map((s) => (s ?? "").trim()).filter(Boolean))];
-  const weak = anchorCorpus.length < MIN_ANCHOR_CORPUS ? new Set<string>() : weakAnchorTokens(anchorCorpus);
+  const weak = weakAnchorsOf(ownedPages, input.research.payload);
   const relatedTopic = (a: string, b: string): boolean => anchoredTopicMatch(a, b, weak).relevant;
   const questionDemand: QuestionDemandSignal[] = input.nativeAi.payload.questions
     .map((q) => {

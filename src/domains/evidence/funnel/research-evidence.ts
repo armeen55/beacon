@@ -18,6 +18,12 @@ export type ResearchEngine = "chatgpt" | "gemini" | "claude" | "perplexity";
  *  for missing consumer visibility). The two are never blended or collapsed. */
 export type ObservationMode = "consumer_search" | "standardized_response";
 
+/** HOW a keyword was found. ONE canonical vocabulary shared by the funnel's working
+ *  state and this projection, so nothing has to guess later: "site" and "ranked" are
+ *  whole-site pulls, "related" and "suggestion" and "ideas" come from a confirmed
+ *  theme, "gsc" is my own Search Console, "profile" is my own pages' words. */
+export type KeywordDiscoveryRoute = "site" | "ranked" | "related" | "suggestion" | "gsc" | "profile" | "ideas";
+
 type ResearchKeyword = {
   query: string;
   searchVolume: number | null;
@@ -27,6 +33,13 @@ type ResearchKeyword = {
    *  how hard a win is. It was paid for and then dropped here; never re-buy it. */
   difficulty: number | null;
   intent: string | null;
+  /** The route this keyword was ACTUALLY discovered through, recorded at discovery
+   *  and never inferred afterwards. Optional only so a payload persisted before
+   *  lineage existed still reads (as absent, never as a made-up route). */
+  discoveredVia?: KeywordDiscoveryRoute;
+  /** The confirmed theme it was discovered FROM; null = it came from no single theme
+   *  (a whole-site pull, my own pages, my own Search Console). */
+  seed?: string | null;
 };
 
 type ResearchCitation = { url: string; domain: string; title: string | null };
@@ -53,6 +66,10 @@ type ResearchAiObservation = {
 
 type ResearchSerpEvidence = {
   query: string;
+  /** When this look ACTUALLY landed. The funnel has always recorded it and the
+   *  projection used to drop it, so every consumer had to guess how old a results
+   *  page was, and a claim about what Google shows cannot be dated by guesswork. */
+  observedAt: string | null;
   organic: { rank: number; domain: string; url: string; title: string | null }[];
   aiOverview: ResearchCitation[];
   aiMode: ResearchCitation[];

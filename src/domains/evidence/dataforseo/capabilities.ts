@@ -26,6 +26,7 @@ const DFS_API_BASE = "https://api.dataforseo.com/v3";
 const LOCATION_US = 2840;
 const LANG_EN = "en";
 const DAY = 86_400_000;
+const MAX_IDEAS_SEEDS = 200, IDEAS_DEFAULT_LIMIT = 700, IDEAS_MAX_LIMIT = 1000; // documented keyword_ideas seed ceiling, default and max limit, in ONE place so the ask and the built body agree
 /** Bound the token-variable half of every LLM ask at the REQUEST. Documented on
  *  chat_gpt/claude/gemini llm_responses task_post AND live and on perplexity live:
  *  "maximum value: 4096; default value: 2048". NOT documented on llm_scraper, so
@@ -175,6 +176,17 @@ const REGISTRY: Registry = {
     build: (i) => [{ keywords: i.keywords, location_code: LOCATION_US, language_code: LANG_EN }],
     parse: parseKeywords,
   },
+  // RESERVATION arithmetic, NOT a price: the Labs live charges on file (50 rows $0.018,
+  // 150 rows $0.02988, 1000 rows $0.132) fit $0.012 per request plus $0.00012 per returned
+  // row, so 700 rows lands near 0.012 + 700 x 0.00012 = $0.096 and the 1000-row ceiling
+  // near $0.132. Reserved at 0.2, rounded UP past the largest response this endpoint can
+  // return, so the cap is never held under what it can charge; reconcile drops it to actual.
+  labs_keyword_ideas: {
+    ttlMs: 7 * DAY, estCostUsd: 0.2, dims: { device: false, model: false },
+    route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_ideas/live", getPath: null, tasksReady: null }),
+    build: (i) => [{ keywords: i.keywords.slice(0, MAX_IDEAS_SEEDS), location_code: LOCATION_US, language_code: LANG_EN, limit: Math.min(Math.max(1, Math.trunc(i.limit ?? IDEAS_DEFAULT_LIMIT)), IDEAS_MAX_LIMIT) }],
+    parse: parseKeywords,
+  },
   serp_organic: serpEntry("serp/google/organic", 0.0021),
   serp_ai_mode: serpEntry("serp/google/ai_mode", 0.01),
   llm_chatgpt: llmDynamicEntry("chatgpt", chatGptBuild),
@@ -230,6 +242,29 @@ export async function providerCall<K extends CapabilityKey>(
   // Stamp the requested model back so the executor records it without re-resolving.
   if (modelRequested && (result.state === "ok" || result.state === "waiting")) return { ...result, modelRequested };
   return result;
+}
+
+/** THE batched ideas ask: N seed themes cost ceil(N / 200) requests through the SAME
+ *  providerCall (one transport, cache identity, reserve-then-reconcile spend path,
+ *  tenant attribution and fail-closed cap), never one paid request per keyword. Seeds
+ *  are trimmed, lowercased, deduped and ordered, so the same themes in any order derive
+ *  the SAME cache identity and reuse what was already bought. One result per batch, in
+ *  order. A refusal, the spend cap or the daily ceiling stops the remaining batches. */
+export async function keywordIdeasBatched(
+  seeds: string[], ids: { tenantId: string; unitKey: string }, deps: FunnelBoundaryDeps = {}, limit?: number,
+): Promise<CachedCallResult[]> {
+  const cleaned = [...new Set((seeds ?? []).map((s) => String(s ?? "").trim().toLowerCase()).filter(Boolean))].sort();
+  const out: CachedCallResult[] = [];
+  // NORMALIZE THE ASK BEFORE IT BECOMES AN IDENTITY: an omitted limit, an explicit 700 and a
+  // 5000 all build ONE request, so keying on the raw ask bought identical rows three times.
+  const asked = Math.min(Math.max(1, Math.trunc(limit ?? IDEAS_DEFAULT_LIMIT)), IDEAS_MAX_LIMIT);
+  for (let i = 0; i < cleaned.length; i += MAX_IDEAS_SEEDS) {
+    const input = { keywords: cleaned.slice(i, i + MAX_IDEAS_SEEDS), limit: asked };
+    const r = await providerCall("labs_keyword_ideas", input, ids, deps);
+    out.push(r);
+    if (r.state === "capped" || (r.state === "error" && (r.disposition === "blocked" || r.disposition === "daily_limit"))) break;
+  }
+  return out;
 }
 
 /** Resume a waiting Standard task via the endpoint-derived FREE task_get path, or
@@ -363,12 +398,16 @@ function parseKeywords(env: ProviderEnvelope): ParsedKeywordItem[] {
     const ki = (it.keyword_info ?? {}) as Record<string, unknown>;
     const kp = (it.keyword_properties ?? {}) as Record<string, unknown>;
     const si = (it.search_intent_info ?? {}) as Record<string, unknown>;
-    const ms = Array.isArray(ki.monthly_searches) ? (ki.monthly_searches as Record<string, unknown>[]) : [];
+    // A metric the provider did not send stays NULL: "I do not know the difficulty" and
+    // "the difficulty is 0" are different claims and the second is a lie. An absent trend
+    // reads null rather than empty, and an absent month null rather than zero searches.
+    const ms = Array.isArray(ki.monthly_searches) ? (ki.monthly_searches as Record<string, unknown>[]) : null;
     return {
       keyword: String(it.keyword ?? raw.keyword ?? ""),
       searchVolume: num(ki.search_volume), cpcUsd: num(ki.cpc), competition: num(ki.competition),
+      competitionLevel: level(ki.competition_level),
       difficulty: num(kp.keyword_difficulty), intent: str(si.main_intent),
-      monthlySearches: ms.map((m) => ({ year: Number(m.year), month: Number(m.month), volume: Number(m.search_volume ?? 0) })).filter((m) => Number.isFinite(m.year) && Number.isFinite(m.month)),
+      monthlySearches: ms === null ? null : ms.map((m) => ({ year: Number(m.year), month: Number(m.month), volume: num(m.search_volume) })).filter((m) => Number.isFinite(m.year) && Number.isFinite(m.month)),
     };
   }).filter((k) => k.keyword.length > 0);
 }
@@ -447,6 +486,8 @@ function clean(o: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 function num(v: unknown): number | null { return typeof v === "number" && Number.isFinite(v) ? v : null; }
+/** The provider's OWN low/medium/high label; null when it sent none (never a guess). */
+function level(v: unknown): "low" | "medium" | "high" | null { const s = typeof v === "string" ? v.toLowerCase() : ""; return s === "low" || s === "medium" || s === "high" ? s : null; }
 function str(v: unknown): string | null { return typeof v === "string" && v.length > 0 ? v : null; }
 function arrStr(v: unknown): string[] | null { return Array.isArray(v) ? v.map((x) => String(x)).filter((s) => s.length > 0) : null; }
 function brandNames(v: unknown): string[] | null {

@@ -99,9 +99,9 @@ export interface EvidenceInput {
  * Internal to Decision: NOT persisted as its own record and never a public type.
  */
 export type CandidateAction =
-  // `act_new_page` is UNREACHABLE at generation 5: no producer emits it, and the drafter
-  // it used to reach is deleted. The member stays so historical receipts still decode.
-  | "act_existing_page" | "act_new_page" | "consolidate"
+  // No `act_new_page`: generation 5 deleted the machinery that proposed one, and this
+  // union is in-memory only (never persisted, so nothing historical decodes through it).
+  | "act_existing_page" | "consolidate"
   | "watch" | "research_needed" | "do_nothing";
 
 /** The ONE action-specific gap that earns an action. Gross impressions are not here. */

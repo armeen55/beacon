@@ -113,7 +113,7 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
     // most one, and a release is a blob, not a log.
     const { normalizedFixKey } = await import("@/components/today/today-smoke-alarm");
     const declineNotes = (produced?.candidates ?? [])
-      .filter((c) => c.action !== "act_existing_page" && c.action !== "act_new_page" && !!c.pageUrl)
+      .filter((c) => c.action !== "act_existing_page" && !!c.pageUrl)
       .sort((a, b) => b.recoverableClicks - a.recoverableClicks)
       .slice(0, DECLINE_NOTE_LIMIT)
       .map((c) => ({ page: normalizedFixKey(c.pageUrl as string), note: c.reason }));

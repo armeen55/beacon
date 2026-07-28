@@ -134,6 +134,20 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}): FunnelUnitFn {
             if (parsed) raw.push(...keywordsFromParsed(parsed, p.via, p.seed));
           }
         }
+        // IDEAS: the one ask that reaches beyond what the site already ranks for, batched
+        // at the documented 200 seeds per request rather than one paid request per theme.
+        // A batched ask cannot attribute WHICH seed produced an idea, so these rows carry
+        // discoveredVia "ideas" and NO seed: an unknown lineage is recorded as unknown.
+        if (seeds.length > 0) {
+          for (const r of await d.keywordIdeas(seeds, ids)) {
+            const t = interp(r);
+            track(state, t);
+            if (t.kind === "evidence") {
+              const parsed = d.parse("labs_keyword_ideas", t.payload as never) as ParsedKeywordItem[] | null;
+              if (parsed) raw.push(...keywordsFromParsed(parsed, "ideas", undefined));
+            }
+          }
+        }
         // narrow: normalize -> dedupe -> filter -> diverse retain (before any SERP spend)
         const deduped = dedupeKeywords(raw);
         const { retained, rejected } = applyFilters(deduped, ctxFrom(profile), MAX_REJECTED);
@@ -178,7 +192,10 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           const byKw = new Map(keywordsFromParsed(parsed ?? [], "profile").map((e) => [e.keyword, e]));
           const merged = retained.map((k) => {
             const e = byKw.get(k.keyword);
-            return e ? { ...k, searchVolume: e.searchVolume ?? k.searchVolume, competition: e.competition ?? k.competition, difficulty: e.difficulty ?? k.difficulty, intent: e.intent ?? k.intent } : k;
+            // competitionLevel is the PROVIDER's own band; dropping it here made an
+            // enriched row fall back to a derived guess while the bought value existed.
+            return e ? { ...k, searchVolume: e.searchVolume ?? k.searchVolume, competition: e.competition ?? k.competition,
+              competitionLevel: e.competitionLevel ?? k.competitionLevel, difficulty: e.difficulty ?? k.difficulty, intent: e.intent ?? k.intent } : k;
           });
           state.discovery.retained = retainDiverse(merged, MAX_RETAINED);
           state.discovery.counts.retained = state.discovery.retained.length;

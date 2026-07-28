@@ -5,7 +5,7 @@
  * routing, the envelope rule, and method-aware resolution.
  */
 import { describe, it, expect, vi } from "vitest";
-import { providerCall, collectCapability, parseCapability, resolveEngineModel } from "@/domains/evidence/dataforseo/capabilities";
+import { providerCall, keywordIdeasBatched, collectCapability, parseCapability, resolveEngineModel } from "@/domains/evidence/dataforseo/capabilities";
 import { identityCacheKey } from "@/domains/evidence/dataforseo/cached-call";
 import type { ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { classifyTaskStatus, classifyPaidResponse, type TaskStatusClass, type PaidResponseAction } from "@/domains/evidence/dataforseo/status-contract";
@@ -114,6 +114,39 @@ describe("web-enabled request bodies per engine (only documented fields)", () =>
     // @ts-expect-error the model is resolved, never caller-supplied
     const chosen = () => providerCall("llm_chatgpt", { user_prompt: "x", model_name: "gpt-4o" }, IDS);
     expect([typeof scraper, typeof chosen]).toEqual(["function", "function"]);
+  });
+});
+describe("keyword ideas: one request per 200 seeds, and nothing missing turned into a zero", () => {
+  const rich = { keyword: "saffron price", keyword_info: { search_volume: 1200, competition: 0.21, competition_level: "LOW", cpc: 0.9, monthly_searches: [{ year: 2026, month: 6, search_volume: 1100 }, { year: 2026, month: 5 }] }, keyword_properties: { keyword_difficulty: 34 }, search_intent_info: { main_intent: "commercial" } };
+  const sparse = { keyword: "saffron threads", keyword_info: {}, keyword_properties: {}, search_intent_info: {} }; // the provider knows nothing about this one
+  const ideas = { status_code: 20000, cost: 0.096, tasks: [{ status_code: 20000, id: "i1", cost: 0.096, result: [{ items: [rich, sparse] }] }] };
+  const seeds = (n: number) => Array.from({ length: n }, (_, i) => `theme ${String(i).padStart(3, "0")}`);
+  it("batches 250 seeds into 2 paid requests at the documented 200 ceiling, never one per keyword", async () => {
+    const h = harness(ideas); const results = await keywordIdeasBatched(seeds(250), IDS, h.deps);
+    expect([results.length, h.calls.fetch.length]).toEqual([2, 2]); expect(h.calls.fetch.every((u) => u === BASE + "dataforseo_labs/google/keyword_ideas/live")).toBe(true);
+    expect(h.calls.bodies.map((b) => (b[0].keywords as string[]).length)).toEqual([200, 50]); // ONE request per batch, not 250 requests
+    expect(h.calls.bodies[0][0]).toMatchObject({ location_code: 2840, language_code: "en", limit: 700 }); // the documented default, under the provider's 1000 ceiling
+    const capped = harness(ideas); await keywordIdeasBatched(seeds(3), IDS, capped.deps, 5000); expect(capped.calls.bodies[0][0].limit).toBe(1000); // a caller cannot ask past what the provider allows
+  });
+  it("keeps every metric the provider sent and leaves every one it did not as null, never 0", async () => {
+    const h = harness(ideas); const r = (await keywordIdeasBatched(["saffron"], IDS, h.deps))[0]!; if (r.state !== "ok") throw new Error(r.state);
+    const [got, blank] = parseCapability("labs_keyword_ideas", r.envelope)!;
+    expect(got).toMatchObject({ keyword: "saffron price", searchVolume: 1200, competition: 0.21, competitionLevel: "low", cpcUsd: 0.9, difficulty: 34, intent: "commercial" });
+    expect(got!.monthlySearches).toEqual([{ year: 2026, month: 6, volume: 1100 }, { year: 2026, month: 5, volume: null }]); // the trend survives; a month with no figure is unknown, not zero searches
+    expect([blank!.searchVolume, blank!.difficulty, blank!.intent, blank!.competition, blank!.competitionLevel, blank!.monthlySearches]).toEqual([null, null, null, null, null, null]); // no trend returned reads null, never an empty trend and never zeros
+  });
+  it("reserves BEFORE the call, reconciles down to the provider's actual, and reuses a cached equivalent instead of buying it twice", async () => {
+    const order: string[] = []; let reserved = 0, delta = 0;
+    const h = harness(ideas, { reserveProviderSpend: async (_t: string, _p: string, amount: number) => { order.push("reserve"); reserved = amount; return true; },
+      adjustProviderSpend: async (_t: string, _p: string, d: number) => { order.push("reconcile"); delta = d; return true; } });
+    h.deps.fetchImpl = vi.fn(async () => { order.push("call"); return new Response(JSON.stringify(ideas), { status: 200 }); }) as unknown as typeof fetch;
+    await keywordIdeasBatched(["saffron"], IDS, h.deps);
+    expect(order).toEqual(["reserve", "call", "reconcile"]); expect(reserved).toBeGreaterThanOrEqual(0.132); // never held under the biggest charge this endpoint has ever produced
+    expect(reserved + delta).toBeCloseTo(0.096, 5); // the reservation drops to what was actually charged
+    const keys: string[] = []; const hit = harness(ideas, { claimEvidenceFetch: async (p: { cacheKey: string }) => { keys.push(p.cacheKey); return { outcome: "ready", payload: ideas, providerTaskId: null, modelServed: null, readyAt: NOW.toISOString(), costUsd: 0 }; } });
+    const same = await keywordIdeasBatched([" Saffron ", "rosewater", "saffron"], IDS, hit.deps); const flipped = await keywordIdeasBatched(["rosewater", "saffron"], IDS, hit.deps);
+    expect([same[0]!.state, flipped[0]!.state, hit.calls.fetch.length]).toEqual(["hit", "hit", 0]); // a cached equivalent is served, nothing is re-bought
+    expect(new Set(keys).size).toBe(1); // the same themes in any order, spelling or duplication are ONE identity
   });
 });
 describe("envelope parsing + method-aware resolution", () => {

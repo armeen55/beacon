@@ -38,6 +38,11 @@ export {
   hashSnapshot,
 } from "./snapshot";
 
+// Topic investigation: the non-actionable research packet derived from a snapshot
+export type { TopicInvestigation } from "./topic-investigation";
+export { buildTopicInvestigations } from "./topic-investigation";
+export type { SerpPageType } from "./serp-shape";
+
 // Loader
 export type { LoadEvidenceSnapshotOptions } from "./snapshot-loader";
 export { loadEvidenceSnapshot } from "./snapshot-loader";

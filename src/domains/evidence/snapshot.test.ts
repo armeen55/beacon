@@ -7,6 +7,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { buildEvidenceSnapshot, MANDATORY_SOURCES, type EvidenceSnapshotInput, type EvidenceSourceKind } from "./snapshot";
+import { buildTopicInvestigations } from "./topic-investigation";
 import { emptyResearchEvidence, type FunnelResearchEvidence } from "./funnel/research-evidence";
 const RESEARCH_SOURCE = { status: "dormant" as const, lastSyncedAt: null, payload: emptyResearchEvidence() };
 const SCOPE = { tenantId: "t_iran", site: "fixture-content.example", builtAt: "2026-07-22T00:00:00.000Z" };
@@ -102,7 +103,7 @@ describe("evidenceHash - research material truth, not the clock", () => {
     return {
       retainedKeywords: [{ query: "koobideh recipe", searchVolume: 1200, competition: 0.3, competitionLevel: "low", difficulty: null, intent: "informational" }],
       aiObservations: [{ promptId: "p1", promptText: "best koobideh recipe", engine: "chatgpt", observationMode: "consumer_search", modelRequested: "gpt-4o", modelServed: "gpt-4o-2026", webSearchReported: true, citationsObserved: true, citations: [{ url: "https://persianfood.example/kebab", domain: "persianfood.example", title: "Kebab" }], fanOutQueries: ["koobideh", "kebab koobideh"], observedAt: "2026-07-22T00:00:00.000Z" }],
-      serpEvidence: [{ query: "koobideh recipe", organic: [{ rank: 1, domain: "persianfood.example", url: "https://persianfood.example/kebab", title: "Kebab" }], aiOverview: [{ url: "https://ao.example/x", domain: "ao.example", title: null }], aiMode: [], paa: [{ question: "what is koobideh", answeringDomain: "persianfood.example" }], related: ["kebab"] }],
+      serpEvidence: [{ observedAt: null, query: "koobideh recipe", organic: [{ rank: 1, domain: "persianfood.example", url: "https://persianfood.example/kebab", title: "Kebab" }], aiOverview: [{ url: "https://ao.example/x", domain: "ao.example", title: null }], aiMode: [], paa: [{ question: "what is koobideh", answeringDomain: "persianfood.example" }], related: ["kebab"] }],
       winningPages: [{ url: "https://persianfood.example/kebab", domain: "persianfood.example", engines: ["chatgpt"], examplePrompts: ["best koobideh recipe"], appearances: [], extract: { title: "Kebab", h1: "Koobideh Kebab", wordCount: 800, headings: ["Ingredients"], faqCount: 2 } }],
       receipt: { researched: 5, retained: 1, stale: 0, missing: 0, cached: 3, spentUsd: 0.02, freshestObservationAt: "2026-07-22T00:00:00.000Z" },
     };
@@ -122,8 +123,48 @@ describe("evidenceHash - research material truth, not the clock", () => {
     expect(mut((r) => (r.aiObservations[0].observationMode = "standardized_response"))).not.toBe(base); // the consumer look and the standardized answer are never the same evidence
     expect(mut((r) => (r.aiObservations[0].modelServed = "gpt-5"))).not.toBe(base);
     expect(mut((r) => (r.aiObservations[0].fanOutQueries = ["totally", "different"]))).not.toBe(base);
-    expect(mut((r) => (r.retainedKeywords[0].searchVolume = 99999))).not.toBe(base);
-    expect(mut((r) => (r.retainedKeywords[0].intent = "commercial"))).not.toBe(base);
+    expect(mut((r) => (r.retainedKeywords[0].searchVolume = 99999))).not.toBe(base); expect(mut((r) => (r.retainedKeywords[0].intent = "commercial"))).not.toBe(base);
     expect(mut((r) => (r.winningPages[0].extract!.wordCount = 12345))).not.toBe(base);
+  });
+});
+/** TopicInvestigation: the NON-ACTIONABLE research packet - what it may claim and what it must refuse to claim. CORPUS gives
+ *  this account 12 phrases, so "harbor" is its ubiquitous word and can never be the reason two topics merge. */
+describe("buildTopicInvestigations - the research packet", () => {
+  const NOW = "2026-07-27T00:00:00.000Z"; const OLD = "2026-01-01T00:00:00.000Z"; const src = <T,>(payload: T) => ({ status: "fresh" as const, lastSyncedAt: null, payload });
+  const kwRow = (query: string) => ({ query, searchVolume: null, competition: null, competitionLevel: null, difficulty: null, intent: null, discoveredVia: "ranked" as const, seed: null }); const CORPUS = ["harbor tide chart", "harbor whale tour", "harbor ferry time", "harbor parking rate", "harbor seafood market", "harbor fishing permit", "harbor bike hire", "harbor dog beach", "harbor live music", "harbor farmer market", "harbor kayak paddle", "harbor tote bag"].map(kwRow);
+  const serp = (query: string, rows: [string, string][], observedAt: string | null = NOW) => ({ query, observedAt, organic: rows.map(([url, title], i) => ({ rank: i + 1, url, domain: new URL(url).hostname, title })), aiOverview: [], aiMode: [], paa: [], related: [] });
+  const obs = (promptId: string, promptText: string, fanOutQueries: string[]) => ({ promptId, promptText, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: "gpt-5", webSearchReported: null, citationsObserved: true, citations: [], fanOutQueries, observedAt: NOW });
+  const body = (fetchedAt: string | null, wordCount = 900) => ({ title: "T", h1: "T", wordCount, headings: ["A", "B"], faqCount: 0, fetchedAt }); const win = (url: string, query: string, extract: FunnelResearchEvidence["winningPages"][number]["extract"]) => ({ url, domain: new URL(url).hostname, engines: [], examplePrompts: [], extract, appearances: [{ kind: "serp_organic" as const, query, promptId: null, promptText: null, engine: null, rank: 1, citedUrl: url, observedAt: NOW, modelServed: null }] });
+  const build = (over: Partial<FunnelResearchEvidence> = {}) => buildTopicInvestigations(buildEvidenceSnapshot({
+    scope: { tenantId: "t", site: "own.example", builtAt: NOW }, ga4: src([]), wix: src([]), clarity: src([]), dataforseo: src([]), nativeAi: src({ citedPages: [], questions: [], rowsScanned: 0, enginesSeen: [] }),
+    gsc: src([{ url: "https://own.example/kayaks", clicks90d: 3, impressions90d: 400, ctr90d: 0.01, position90d: 18, topQueries: [{ query: "harbor kayak paddle", impressions: 400, clicks: 3, position: 18 }] }]),
+    research: src({ ...emptyResearchEvidence(), retainedKeywords: CORPUS,
+      serpEvidence: [serp("harbor kayak paddle", [["https://a.example/g", "How to paddle a kayak"], ["https://b.example/g", "Kayak paddling guide"], ["https://c.example/g", "Paddle a kayak explained"], ["https://d.example/g", "Kayak paddle tutorial"], ["https://e.example/g", "kayak paddle : r/kayak"]]),
+        serp("kayak paddle harbor", [["https://f.example/x", "Kayak paddle basics"]]), // the same specific subject in other words
+        serp("harbor tote bag", [["https://shop.example/product/1", "Tote one"], ["https://shop.example/product/2", "Tote two"], ["https://shop.example/product/3", "Tote three"], ["https://shop.example/product/4", "Tote four"], ["https://g.example/a", "How to choose a tote"], ["https://h.example/a", "Tote bag guide"], ["https://i.example/a", "Totes explained"]], null), // never dated: an undated look supports no page type
+        serp("onager", [["https://zoo.example/onager", "Onager"], ["https://encyclo.example/onager-weapon", "Onager (weapon)"], ["https://fund.example/onager", "Onager herds of the steppe"]])],
+      aiObservations: [obs("p1", "how do harbor tides work", ["how do harbor tides work", "harbor tide table"]), obs("p2", "what harbor kayak gear do beginners need", ["harbor kayak gear"])],
+      winningPages: [win("https://a.example/g", "harbor kayak paddle", body(NOW)), win("https://b.example/g", "harbor kayak paddle", body(NOW)), win("https://c.example/g", "harbor kayak paddle", body(NOW)), win("https://zoo.example/onager", "onager", null), win("https://encyclo.example/onager-weapon", "onager", body(NOW, 40)), win("https://fund.example/onager", "onager", body(OLD))], ...over }) }));
+  const ALL = build(); const byLabel = (part: string) => ALL.find((i) => i.label.includes(part))!;
+  it("groups on real lineage or one specific subject, and claims only the demand it has", () => {
+    const tides = byLabel("tide"); const paddle = byLabel("kayak paddle"); expect(paddle.queries).toEqual(expect.arrayContaining(["harbor kayak paddle", "kayak paddle harbor"])); // one shared specific intent, one investigation
+    expect(tides.key).not.toBe(byLabel("kayak gear").key); expect(tides.fanOuts.map((f) => f.query)).toEqual(["harbor tide table"]); // a tracked prompt is never its own fan-out
+    expect(tides.fanOuts[0]).toMatchObject({ parentPromptId: "p1", parentPromptText: "how do harbor tides work", engine: "chatgpt" });
+    expect(tides.demandBasis).toBe("ai"); expect(tides.demand.monthlySearchVolume).toBeNull(); expect(tides.missingEvidence.some((m) => m.includes("monthly search volume"))).toBe(true); // AI demand never implies Google demand
+    expect(paddle.demandBasis).toBe("search"); expect(paddle.demand.trackedPrompts).toBe(0); expect(paddle.missingEvidence.some((m) => m.includes("AI engine"))).toBe(true); // and search demand never claims AI recurrence
+  });
+  it("reads what wins conservatively, and never counts a stale, thin or unread winner as present-day evidence", () => {
+    const shapes = byLabel("tote"); const onager = byLabel("onager"); expect(shapes.pageTypeVotes).toEqual([{ pageType: "informational_guide", domains: 3 }, { pageType: "product", domains: 1 }]); // 4 shop URLs are ONE vote, and a shop is not a guide
+    expect(shapes.pageType).toBe("unknown"); expect(shapes.serpFreshness).toBe("undated"); expect(onager.serpCoherence).toBe("mixed"); // no page type is supported without a current exact look
+    expect(onager.pageType).toBe("mixed"); // two meanings are never one page-shaped topic
+    expect(onager.winners.map((w) => w.extractState).sort()).toEqual(["missing", "stale", "unreadable"]); expect(onager.currentReadableWinners).toBe(0); expect(onager.readyForComparison).toBe(false);
+  });
+  it("is ready to compare only with a current look, a settled shape and three winners read recently, and never emits an action", () => {
+    const paddle = byLabel("kayak paddle"); expect(paddle.pageType).toBe("informational_guide"); // ready = nothing BLOCKING missing; an untested AI side is an honest gap, not a blocker
+    expect(paddle.currentReadableWinners).toBe(3); expect(paddle.readyForComparison).toBe(true); expect(paddle.missingEvidence.every((m) => m.includes("AI engine"))).toBe(true);
+    const thin = build({ winningPages: [win("https://a.example/g", "harbor kayak paddle", body(NOW)), win("https://b.example/g", "harbor kayak paddle", body(OLD))] });
+    expect(thin.find((i) => i.label.includes("kayak paddle"))!.readyForComparison).toBe(false);
+    const keys = (v: unknown): string[] => Array.isArray(v) ? v.flatMap(keys) : v && typeof v === "object" ? Object.entries(v).flatMap(([k, x]) => [k, ...keys(x)]) : [];
+    expect(keys(ALL).filter((k) => /action|proposal|draft|recommend|status|queue|publish|outline|meta/i.test(k))).toEqual([]);
   });
 });

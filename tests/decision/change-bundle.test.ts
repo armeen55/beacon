@@ -31,7 +31,7 @@ const WIN1 = "https://gardenguide.example/a"; const RESEARCH = { ...emptyResearc
   retainedKeywords: [{ query: "rain barrel sizing", searchVolume: 4400, competition: 0.2, competitionLevel: "low" as const, difficulty: null, intent: "informational" },
     { query: "how many gallons rain barrel", searchVolume: 880, competition: 0.1, competitionLevel: "low" as const, difficulty: null, intent: "informational" }],
   // The owned page is ON this results page, worded without the searcher's own word, while two rivals share it: the mismatch a diagnosis may name.
-  serpEvidence: [{ query: "rain barrel sizing", organic: [{ rank: 1, domain: "gardenguide.example", url: WIN1, title: "Rain barrel sizing guide" }, { rank: 2, domain: "waterwise.example", url: "https://waterwise.example/b", title: "Sizing a rain barrel by roof area" },
+  serpEvidence: [{ observedAt: null, query: "rain barrel sizing", organic: [{ rank: 1, domain: "gardenguide.example", url: WIN1, title: "Rain barrel sizing guide" }, { rank: 2, domain: "waterwise.example", url: "https://waterwise.example/b", title: "Sizing a rain barrel by roof area" },
     { rank: 3, domain: "fixture-content.example", url: "https://fixture-content.example/rain-barrels", title: "Rain Barrels" }], aiOverview: [{ url: WIN1, domain: "gardenguide.example", title: "A" }], aiMode: [], paa: [], related: [] }],
   aiObservations: [{ promptId: "p1", promptText: "what size rain barrel do I need", engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url: WIN1, domain: "gardenguide.example", title: "A" }], fanOutQueries: ["rain barrel gallons"], observedAt: "2026-07-22T00:00:00.000Z" },
   { promptId: "p2", promptText: "rain barrel sizing rule of thumb", engine: "gemini", observationMode: "standardized_response" as const, modelRequested: null, modelServed: null, webSearchReported: null, citationsObserved: false, citations: null, fanOutQueries: null, observedAt: "2026-07-21T00:00:00.000Z" }],
@@ -41,7 +41,7 @@ const TOPIC = "rainwater harvesting permits"; const URL2 = "https://waterwise.ex
 const COMPETITOR = { url: URL2, domain: "waterwise.example", citationCount: 9, distinctPrompts: 4, engines: ["chatgpt"], examplePrompts: [PROMPT2] };
 const TOPIC_RESEARCH = { ...RESEARCH,
   retainedKeywords: [...RESEARCH.retainedKeywords, { query: TOPIC, searchVolume: 1600, competition: 0.3, competitionLevel: "low" as const, difficulty: null, intent: "informational" }],
-  serpEvidence: [...RESEARCH.serpEvidence, { query: TOPIC, organic: [{ rank: 1, domain: "waterwise.example", url: URL2, title: "P" }], aiOverview: [], aiMode: [], paa: [], related: [] }],
+  serpEvidence: [...RESEARCH.serpEvidence, { observedAt: null, query: TOPIC, organic: [{ rank: 1, domain: "waterwise.example", url: URL2, title: "P" }], aiOverview: [], aiMode: [], paa: [], related: [] }],
   aiObservations: [...RESEARCH.aiObservations, { promptId: "p3", promptText: PROMPT2, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url: URL2, domain: "waterwise.example", title: "P" }], fanOutQueries: null, observedAt: "2026-07-23T00:00:00.000Z" }],
   winningPages: [...RESEARCH.winningPages, { url: URL2, domain: "waterwise.example", engines: ["chatgpt"], examplePrompts: [PROMPT2], appearances: [{ kind: "ai_answer" as const, query: null, promptId: "p3", promptText: PROMPT2, engine: "chatgpt", rank: null, citedUrl: URL2, observedAt: "2026-07-23T00:00:00.000Z", modelServed: null }], extract: { title: "P", h1: "P", wordCount: 1800, headings: ["Rules", "Rebates", "Limits"], faqCount: 3 } }] };
 const snapshot = (over: Partial<EvidenceSnapshot> = {}): EvidenceSnapshot => ({
@@ -120,7 +120,6 @@ describe("no evidence about a topic I own no page for may become a page", () => 
   ])("refuses to draft a page from %s", async (_what, research, drafted) => {
     env.snap = snapshot({ research, competitors: [COMPETITOR] });
     const res = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS });
-    expect(res.candidates.every((c) => c.action !== "act_new_page")).toBe(true); // the diagnosis cannot even reach for it
     expect(res.proposals.every((p) => p.kind === "existing_edit")).toBe(true); // nothing new-page is queued
     expect([...store.rows.values()].every((p) => p.kind !== "new_page")).toBe(true); // and nothing new-page is written
     expect(kinds).toEqual(drafted); }); // every completion this pass bought was an edit to a page that already exists
@@ -128,7 +127,7 @@ describe("no evidence about a topic I own no page for may become a page", () => 
 const CONTENT = page({ url: "x" }).content!; const kwRow = (query: string, searchVolume: number | null) => ({ query, searchVolume, competition: 0.2, competitionLevel: "low" as const, difficulty: null, intent: "informational" });
 const obsRow = (promptText: string, observedAt: string, url = WIN1, fanOutQueries: string[] | null = null) => ({ promptId: promptText, promptText, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url, domain: url.split("/")[2]!, title: "P" }], fanOutQueries, observedAt });
 const GALLONS = "how many gallons does a rain barrel hold"; const MOSQUITO = "do rain barrels attract mosquitoes"; // shares only the everywhere-words with every page this account owns
-const compostSerp = { query: "compost bin sizing", aiOverview: [], aiMode: [], paa: [], related: [], organic: [{ rank: 1, domain: "compostpro.example", url: "https://compostpro.example/a", title: "Compost bin sizing guide" },
+const compostSerp = { observedAt: null, query: "compost bin sizing", aiOverview: [], aiMode: [], paa: [], related: [], organic: [{ rank: 1, domain: "compostpro.example", url: "https://compostpro.example/a", title: "Compost bin sizing guide" },
   { rank: 2, domain: "binguide.example", url: "https://binguide.example/b", title: "Sizing a compost bin" }, { rank: 3, domain: "fixture-content.example", url: "https://fixture-content.example/compost", title: "Compost" }] };
 const ANCHOR_RESEARCH = { ...emptyResearchEvidence(), serpEvidence: [...TOPIC_RESEARCH.serpEvidence, compostSerp],
   retainedKeywords: [kwRow("rain barrel sizing", 4400), kwRow("how many gallons rain barrel", 880), kwRow(TOPIC, 1600), kwRow("rain barrel winter care", 210), kwRow("rain barrel overflow hose", 140), kwRow("rain barrel mosquito screen", 90)],
@@ -150,7 +149,7 @@ describe("evidence attaches only where it is topically anchored", () => {
     expect(b.receipt.missing).toEqual(expect.arrayContaining(['I have not gathered an AI answer about "compost bin sizing" yet.', 'I have not read the pages that come up for "compost bin sizing" yet.']));
     expect(b.receipt.items.every((i) => i.kind !== "ai_observation" && i.kind !== "winning_page")).toBe(true); expect(b.scope.prompts).toEqual([]); });
 }); // ── query identity for what is bought per query; confidence by evidence class ──
-const serpRow = (query: string) => ({ query, aiOverview: [], aiMode: [], paa: [], related: [], organic: [{ rank: 1, domain: "gardenguide.example", url: WIN1, title: "Rain barrel sizing guide" },
+const serpRow = (query: string) => ({ query, observedAt: null, aiOverview: [], aiMode: [], paa: [], related: [], organic: [{ rank: 1, domain: "gardenguide.example", url: WIN1, title: "Rain barrel sizing guide" },
   { rank: 2, domain: "waterwise.example", url: "https://waterwise.example/b", title: "Sizing a rain barrel by roof area" }, { rank: 3, domain: "fixture-content.example", url: "https://fixture-content.example/rain-barrels", title: "Rain Barrels" }] });
 const winRow = (url: string, extract: ResearchPageExtract | null = null) => ({ url, domain: url.split("/")[2]!, engines: ["chatgpt"], examplePrompts: [], appearances: [], extract });
 const linkRow = (toUrl: string, anchor: string) => ({ fromUrl: "fixture-content.example/rain-barrels", toUrl, anchor, reason: "" });

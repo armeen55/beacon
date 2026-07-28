@@ -222,13 +222,14 @@ const refs = (parsed: ParsedSerp | null) => (parsed?.aiOverview?.references ?? [
 function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string): void {
   s.status = "done";
   s.observedAt = nowIso;
-  s.reposts = undefined; // a landed look closes the incident: fresh budget next time
-  s.organic = parsed.organic.slice(0, 10).map((o) => ({ rank: o.rank, url: o.url, domain: o.domain, title: o.title }));
+  s.reposts = undefined; s.organic = parsed.organic.slice(0, 10).map((o) => ({ rank: o.rank, url: o.url, domain: o.domain, title: o.title })); // a landed look closes the incident
   s.aiOverview = refs(parsed);
   s.paa = parsed.paaQuestions.map((q) => ({ question: q.question, answeringDomain: q.answeringDomain }));
   s.related = parsed.relatedSearches.slice(0, 20);
 }
 
+/** Winning pages one cycle reads: 15, so three priority searches keep their own three. */
+const WINNER_READ_BUDGET = 15;
 const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.serps.analyzed, cacheHits: s.cycle.cacheHits, spendUsd: round(s.cycle.spentUsd) });
 
 /** `priorityQueries`: plain strings from the caller (Evidence never reads Decision), the exact searches an open investigation cannot close without. Empty is honest and leaves the agenda exactly as it was. */
@@ -416,7 +417,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
     try {
       const raw = collectAppearances(state, nowIso);
       // A resolver failure (sync OR async) degrades to raw appearances; the unit deadline bounds it.
-      const resolved = await Promise.resolve().then(() => resolve(raw, undefined, deadline)).catch(() => raw); for (const c of rankWinningPages(resolved, ownDomain, 10, priorityQueries)) {
+      const resolved = await Promise.resolve().then(() => resolve(raw, undefined, deadline)).catch(() => raw); for (const c of rankWinningPages(resolved, ownDomain, WINNER_READ_BUDGET, priorityQueries)) {
         const engines = [...new Set(c.appearances.map((a) => a.engine).filter((e): e is string => !!e))].sort();
         const examplePrompts = [...new Set(c.appearances.map((a) => a.promptText).filter((t): t is string => !!t))].slice(0, 5);
         let extract: ResearchPageExtract | null = null;
@@ -424,7 +425,10 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
         let has = false;
         // Reuse a cached public extract before any fetch; never refetch in freshness.
         const cached = await d.readPageExtract(c.url).catch(() => null);
-        if (cached) { extract = pageExtractFromRecord(cached.extract); contentHash = cached.contentHash; has = true; }
+        // Keep the CACHE ROW'S date when the extract predates the field: an undated winner never counts toward a comparison.
+        if (cached) { const e = pageExtractFromRecord(cached.extract);
+          extract = e ? { ...e, fetchedAt: e.fetchedAt ?? cached.fetchedAt ?? null } : e;
+          contentHash = cached.contentHash; has = true; }
         else if (d.now() <= deadline) {
           try {
             const res = await d.fetchPage(c.url, new Map(), {});
@@ -472,7 +476,9 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
     + state.serps.queries.filter((s) => s.aiModeFailed).length;
   const doneSerps = state.serps.queries.filter((s) => s.status === "done");
   return {
-    retainedKeywords: state.discovery.retained.map((k) => ({ query: k.keyword, searchVolume: k.searchVolume, competition: k.competition, competitionLevel: competitionLevel(k.competition), difficulty: k.difficulty ?? null, intent: k.intent })),
+    // LINEAGE rides along: how each keyword was found, and the confirmed theme it was
+    // found from. Both are recorded facts, so nothing downstream has to guess them.
+    retainedKeywords: state.discovery.retained.map((k) => ({ query: k.keyword, searchVolume: k.searchVolume, competition: k.competition, competitionLevel: k.competitionLevel ?? competitionLevel(k.competition), difficulty: k.difficulty ?? null, intent: k.intent, discoveredVia: k.discoveredVia, seed: k.seed ?? null })),
     aiObservations: donePairs.map((p) => ({
       promptId: p.promptId, promptText: p.promptText ?? "", engine: p.engine, observationMode: modeOf(p),
       modelRequested: p.modelRequested ?? null, modelServed: p.modelServed ?? null,
@@ -481,6 +487,7 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
     })),
     serpEvidence: doneSerps.map((s) => ({
       query: s.query,
+      observedAt: s.observedAt ?? null,
       organic: (s.organic ?? []).map((o) => ({ rank: o.rank, domain: o.domain, url: o.url, title: o.title ?? null })),
       aiOverview: (s.aiOverview ?? []).map((a) => ({ url: a.url, domain: a.domain, title: a.title ?? null })),
       aiMode: (s.aiMode ?? []).map((a) => ({ url: a.url, domain: a.domain, title: a.title ?? null })),

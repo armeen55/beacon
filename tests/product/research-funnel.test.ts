@@ -21,7 +21,7 @@ const WEEKS_AGO = new Date(NOW - 30 * 24 * 3600 * 1000).toISOString(); const ENG
 const cur = (basis: string | null = BASIS) => (basis ? { basis } : {}); const confirmed = <V>(value: V): ProfileSection<V> => ({ value, origin: "operator_confirmed", confidence: null, sourceUrls: [] });
 function profileOf(id: string, offerings: string[], topics: string[], exclude: string[] = [], banned: string[] = []): BusinessProfile { const p = emptyBusinessProfile(id); p.offerings = confirmed(offerings); p.topicsToOwn = confirmed(topics); p.constraints.value.bannedTerms = banned;
   p.topicsToExclude = { value: exclude, origin: "inferred", confidence: null, sourceUrls: [] }; return p; } const parse = ((_c: unknown, env: unknown) => env) as unknown as FunnelDeps["parse"];
-const parsedKw = (kws: { keyword: string; volume?: number }[]): ParsedKeywordItem[] => kws.map((k) => ({ keyword: k.keyword, searchVolume: k.volume ?? 100, cpcUsd: null, competition: 0.4, difficulty: null, intent: "informational", monthlySearches: [] }));
+const parsedKw = (kws: { keyword: string; volume?: number }[]): ParsedKeywordItem[] => kws.map((k) => ({ keyword: k.keyword, searchVolume: k.volume ?? 100, cpcUsd: null, competition: 0.4, competitionLevel: null, difficulty: null, intent: "informational", monthlySearches: null }));
 const aiAnswer = (over: Partial<ParsedAiAnswer> = {}): ParsedAiAnswer => ({ answerText: "hi", modelServed: null, webSearchReported: null, citations: null, fanOutQueries: null, brands: null, ...over });
 const serp = (organic: ParsedSerp["organic"]): ParsedSerp => ({ organic, aiOverview: null, snippetOwner: null, paaQuestions: [], relatedSearches: [] });
 const ok = (parsed: unknown, cacheKey = "ck", modelServed: string | null = null): CachedCallResult => ({ state: "ok", envelope: parsed as never, costUsd: 0.01, cacheKey, modelServed });
@@ -186,11 +186,11 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
   });
   it("banks each priority query its OWN fetched winners ahead of the global order, at the same bounded total", async () => { const s = emptyFunnelState("tw", BASIS); const at = new Date(NOW).toISOString();
     s.serps.queries = [{ query: "iranian actors", cacheKey: null, status: "done", observedAt: at, organic: Array.from({ length: 3 }, (_, i) => ({ rank: i + 1, url: `https://o${i}.com/p`, domain: `o${i}.com`, title: null })) }];
-    s.prompts.pairs = Array.from({ length: 12 }, (_, i) => ({ promptId: `pr${i}`, promptText: "q", engine: "chatgpt" as const, mode: "consumer_search" as const, cacheKey: null, status: "done" as const, observedAt: at, citationsObserved: true, citations: [{ url: `https://ai${i}.com/p`, domain: `ai${i}.com`, title: null }] }));
+    s.prompts.pairs = Array.from({ length: 18 }, (_, i) => ({ promptId: `pr${i}`, promptText: "q", engine: "chatgpt" as const, mode: "consumer_search" as const, cacheKey: null, status: "done" as const, observedAt: at, citationsObserved: true, citations: [{ url: `https://ai${i}.com/p`, domain: `ai${i}.com`, title: null }] }));
     const run = async (priority: string[]) => { const st = memStore(s); await winningPagesUnit({ ...st.deps, loadProfile: async () => emptyBusinessProfile("tw"), getAccount: async () => ({ domain: "own.com" } as Account), now: () => NOW, readPageExtract: async () => null, fetchPage: (async () => ({ ok: false })) as unknown as FunnelDeps["fetchPage"] }, priority)("tw", cur(), 60_000); return st.peek("tw", BASIS)!.winningPages.map((w) => w.url); };
-    expect(await run([])).not.toContain("https://o0.com/p"); // global weight alone: twelve AI-cited pages fill every slot and the query under investigation gets NOTHING
+    expect(await run([])).not.toContain("https://o0.com/p"); // global weight alone: the AI-cited pages fill every slot and the query under investigation gets NOTHING
     const hybrid = await run(["iranian actors"]); expect(hybrid.slice(0, 2)).toEqual(["https://o0.com/p", "https://o1.com/p"]); // its own top two, best rank first, before any global fill
-    expect([hybrid.length, new Set(hybrid).size]).toEqual([10, 10]); }); // the SAME bounded total: no extra fetch, and one page is never two winners
+    expect([hybrid.length, new Set(hybrid).size]).toEqual([15, 15]); }); // one bounded total, and one page is never two winners
 });
 describe("evidence - my own page's actual words, read narrowly", () => {
   const row = (over: Record<string, unknown> = {}) => ({ url: "https://own.com/actors", title: "T", meta_description: "M", fetched_at: "2026-06-11T00:00:00.000Z", body_paragraph_sample: ["Iran has a deep film history."], card_texts: ["Card"], schema_entity_names: ["Person"], internal_links: [{ href: "/a", anchor_text: "A" }], ...over });
@@ -267,4 +267,12 @@ describe("research funnel - canonical snapshot carries the research bundle", () 
     expect(snapshot.research.receipt.retained).toBe(1); expect(snapshot.research.receipt.missing).toBe(2); // one unanswered pair + one unavailable search
     expect(snapshot.research.receipt.spentUsd).toBe(0.5); expect(snapshot.research.receipt.cached).toBe(3); // THIS run, not the lifetime totals
     expect(snapshot.keywordDemand.some((k) => k.query === "saffron price")).toBe(true);
+  });
+  it("carries every keyword's OWN discovery route and seed theme through, and the provider's own competition label", async () => { const s = emptyFunnelState("tl", BASIS);
+    const routes = ["site", "ranked", "related", "suggestion", "gsc", "profile", "ideas"] as const; // every route a keyword can arrive by
+    s.discovery.retained = routes.map((discoveredVia, i) => ({ keyword: `kw ${discoveredVia}`, searchVolume: 10 + i, competition: 0.9, difficulty: null, intent: null, discoveredVia, ...(i % 2 ? { seed: `theme ${i}` } : {}) }));
+    s.discovery.retained[0]!.competitionLevel = "low"; s.discovery.counts.retained = routes.length;
+    const snapshot = await loadEvidenceSnapshot("tl", { resolveBasis: async () => BASIS, loadState: async () => ({ state: s, rowVersion: 1 }), now: new Date("2026-07-24T00:00:00.000Z") });
+    expect(snapshot.research.retainedKeywords.map((k) => [k.discoveredVia, k.seed])).toEqual(routes.map((r, i) => [r, i % 2 ? `theme ${i}` : null])); // recorded lineage, never inferred downstream
+    expect(snapshot.research.retainedKeywords.map((k) => k.competitionLevel).slice(0, 2)).toEqual(["low", "high"]); // the provider's OWN label wins; only an unlabeled row falls back to the derived band
   }); });

@@ -9,7 +9,7 @@ import "server-only";
  */
 
 import { loadResearchState, saveResearchState, type StateRepoDeps } from "./state-repo";
-import type { ObservationMode, ResearchPageExtract, ResearchWinningAppearance } from "./research-evidence";
+import type { KeywordDiscoveryRoute, ObservationMode, ResearchPageExtract, ResearchWinningAppearance } from "./research-evidence";
 
 const FUNNEL_SCHEMA_VERSION = 3;
 
@@ -24,9 +24,12 @@ export type FunnelKeyword = {
   keyword: string;
   searchVolume: number | null;
   competition: number | null;
+  /** The provider's OWN competition label when it sent one; a band derived from the
+   *  numeric score is only the fallback, never an overwrite of what it actually said. */
+  competitionLevel?: "low" | "medium" | "high" | null;
   difficulty: number | null;
   intent: string | null;
-  discoveredVia: "site" | "ranked" | "related" | "suggestion" | "gsc" | "profile";
+  discoveredVia: KeywordDiscoveryRoute;
   /** The confirmed theme this keyword was discovered FROM (per-seed sources only), so
    *  retention can keep every seed's discovery alive instead of one seed's. */
   seed?: string;

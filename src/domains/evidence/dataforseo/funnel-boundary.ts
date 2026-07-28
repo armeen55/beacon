@@ -32,6 +32,7 @@ export type CapabilityKey =
   | "labs_related_keywords"
   | "labs_keyword_suggestions"
   | "labs_keyword_overview"
+  | "labs_keyword_ideas"
   | "serp_organic"
   | "serp_ai_mode"
   | "llm_chatgpt"
@@ -60,9 +61,15 @@ export type ParsedKeywordItem = {
   searchVolume: number | null;
   cpcUsd: number | null;
   competition: number | null;
+  /** The provider's OWN competition label, kept because a band we derive from the
+   *  numeric score is a guess and this one is not. null = the provider sent none. */
+  competitionLevel: "low" | "medium" | "high" | null;
   difficulty: number | null;
   intent: string | null;
-  monthlySearches: { year: number; month: number; volume: number }[];
+  /** The 12-month trend, ONLY when the provider actually returned it. null = no
+   *  trend on this response; [] = an empty trend it really sent. A month whose
+   *  volume is absent stays null, because "unknown" is not "zero searches". */
+  monthlySearches: { year: number; month: number; volume: number | null }[] | null;
 };
 export type ParsedSerp = {
   organic: { rank: number; domain: string; url: string; title: string | null }[];
@@ -88,6 +95,7 @@ export type ParsedByCapability = {
   labs_related_keywords: ParsedKeywordItem[];
   labs_keyword_suggestions: ParsedKeywordItem[];
   labs_keyword_overview: ParsedKeywordItem[];
+  labs_keyword_ideas: ParsedKeywordItem[];
   serp_organic: ParsedSerp;
   serp_ai_mode: ParsedSerp;
   llm_chatgpt: ParsedAiAnswer;
@@ -117,6 +125,10 @@ export type CapabilityInputByKey = {
   labs_related_keywords: { keyword: string; depth?: number; limit?: number };
   labs_keyword_suggestions: { keyword: string; limit?: number };
   labs_keyword_overview: { keywords: string[] };
+  /** keyword_ideas takes SEED keywords (documented maximum 200 per request) and
+   *  returns ideas that share their topic. limit defaults to 700 and the provider
+   *  caps it at 1000. Callers use keywordIdeasBatched, never one request per seed. */
+  labs_keyword_ideas: { keywords: string[]; limit?: number };
   serp_organic: { keyword: string; device?: "desktop" | "mobile" };
   serp_ai_mode: { keyword: string; device?: "desktop" | "mobile" };
   llm_chatgpt: ChatGptWebInput;
@@ -175,6 +187,9 @@ export type FunnelBoundaryDeps = Record<string, unknown>;
  * path for the funnel.
  *   providerCall<K> - resolve/claim/pay/persist one capability request; input
  *     is CapabilityInputByKey[K], enforced at compile time.
+ *   keywordIdeasBatched - the SAME providerCall, run once per batch of at most
+ *     200 seed keywords (the provider's documented ceiling). Buying one request
+ *     per keyword is a defect, so no caller ever does.
  *   collectCapability - free GET resumption for a waiting Standard task row.
  *     Queue codes (40601/40602) stay waiting; terminal codes (40401/40403,
  *     auth/payment/contract) are bounded errors, never eternal waiting.
@@ -187,6 +202,7 @@ export type FunnelBoundaryDeps = Record<string, unknown>;
  */
 export {
   providerCall,
+  keywordIdeasBatched,
   collectCapability,
   parseCapability,
   resolveEngineModel,

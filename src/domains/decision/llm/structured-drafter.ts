@@ -1289,44 +1289,9 @@ export async function draftAtomicEditStructured(
   // rationale sentence is kept right after it, never replaced.
   if (result.status === "drafted" && result.fewShot) {
     // Re-apply the schema's own 400-char rationale cap so this stays a VALID
-    // AtomicEditDraft (deserializeStructuredDraft re-validates on every read).
+    // AtomicEditDraft.
     const merged = `${result.fewShot.sentence} ${result.value.rationale}`.trim().slice(0, 400);
     return { ...result, value: { ...result.value, rationale: merged } };
   }
   return result;
-}
-
-// ── persistence (projected, under the move_drafts size cap) ───────────────────
-
-const PERSIST_VERSION = 1;
-
-/** Serialize a validated draft for durable storage. */
-export function serializeStructuredDraft(kind: StructuredDraftKind, value: unknown): string {
-  return JSON.stringify({ v: PERSIST_VERSION, kind, value });
-}
-
-/** Parse + RE-VALIDATE a persisted draft (rejects tampered/legacy/fake content).
- *  Fail-soft → null. The Zod re-check means a hand-edited row with no evidenceRefs
- *  can never be served as a trusted draft. */
-export function deserializeStructuredDraft(
-  content: string | null | undefined,
-  tenantAllowlist?: readonly string[],
-): { kind: StructuredDraftKind; value: unknown } | null {
-  if (!content) return null;
-  try {
-    const obj = JSON.parse(content) as { v?: number; kind?: StructuredDraftKind; value?: unknown };
-    if (!obj || obj.v !== PERSIST_VERSION || !obj.kind || !(obj.kind in SCHEMA_BY_KIND)) return null;
-    const schema = SCHEMA_BY_KIND[obj.kind] as z.ZodTypeAny;
-    const res = schema.safeParse(obj.value);
-    if (!res.success) return null;
-    // W5 P2 (2026-07-09): re-derive authority on every read against the reading
-    // tenant's own allowlist so a persisted "authoritative" label can never be
-    // trusted under a DIFFERENT tenant's allowlist. `verified` and every other
-    // field survive (stampSourceAuthority only overwrites `authority`); with no
-    // allowlist supplied this conservatively keeps only the universal
-    // .gov/.edu + named set as authoritative.
-    return { kind: obj.kind, value: stampAnySources(res.data, tenantAllowlist) };
-  } catch {
-    return null;
-  }
 }

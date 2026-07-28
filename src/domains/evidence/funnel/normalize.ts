@@ -45,7 +45,7 @@ export function keywordsFromParsed(items: ParsedKeywordItem[], via: FunnelKeywor
   const out: FunnelKeyword[] = [];
   for (const it of items) {
     if (!it || typeof it.keyword !== "string" || !it.keyword.trim()) continue;
-    out.push({ keyword: it.keyword, searchVolume: it.searchVolume, competition: it.competition, difficulty: it.difficulty, intent: it.intent, discoveredVia: via, ...(seed ? { seed } : {}) });
+    out.push({ keyword: it.keyword, searchVolume: it.searchVolume, competition: it.competition, competitionLevel: it.competitionLevel, difficulty: it.difficulty, intent: it.intent, discoveredVia: via, ...(seed ? { seed } : {}) });
   }
   return out;
 }
@@ -357,9 +357,10 @@ function dedupeAppearances(appearances: ResearchWinningAppearance[]): ResearchWi
   return out;
 }
 
-/** At most this many exact-query winners per priority query, so a bounded reserve
- *  can never crowd out the global picture. */
-const PRIORITY_WINNERS_PER_QUERY = 2;
+/** Exact-query winners per priority query: THREE, the floor a comparison needs, and a
+ *  bounded reserve that cannot crowd out the global picture. Reading two meant no
+ *  investigation could clear its own bar: unready by arithmetic, not by evidence. */
+const PRIORITY_WINNERS_PER_QUERY = 3;
 
 /** The best organic rank this candidate holds for ONE exact query (null = none).
  *  Organic means a real page I can go and read, which is what a comparison needs. */

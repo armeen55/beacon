@@ -26,7 +26,7 @@ import type {
 } from "@/domains/evidence/dataforseo/funnel-boundary";
 import type { ResearchWinningAppearance } from "./research-evidence";
 import {
-  providerCall,
+  keywordIdeasBatched, providerCall,
   collectCapability,
   parseCapability,
   readPublicPageExtract,
@@ -60,6 +60,7 @@ export type FunnelDeps = {
   loadActivePrompts?: (tenantId: string) => Promise<{ id: string; text: string }[] | null>;
   syncHistory?: (rows: PromptAnswerObservation[], tenantId: string) => Promise<void>;
   fetchPage?: typeof fetchPageHtml;
+  keywordIdeas?: (seeds: string[], ids: { tenantId: string; unitKey: string }) => Promise<CachedCallResult[]>;
   loadState?: (tenantId: string, basisTag: string) => Promise<LoadedFunnelState>;
   saveState?: (tenantId: string, basisTag: string, state: FunnelState, expectedRowVersion: number) => Promise<number | null>;
   now?: () => number;
@@ -70,6 +71,7 @@ export type ResolvedDeps = ReturnType<typeof resolveDeps>;
 export function resolveDeps(deps: FunnelDeps) {
   return {
     callProvider: deps.callProvider ?? providerCall,
+    keywordIdeas: deps.keywordIdeas ?? ((seeds: string[], ids: { tenantId: string; unitKey: string }) => keywordIdeasBatched(seeds, ids)),
     collectTask: deps.collectTask ?? ((k: string) => collectCapability(k)),
     parse: deps.parse ?? parseCapability,
     readPageExtract: deps.readPageExtract ?? readPublicPageExtract,
