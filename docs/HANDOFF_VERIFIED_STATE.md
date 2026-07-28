@@ -177,9 +177,9 @@ New customer routes require operator approval.
 
 ## Next slice
 
-Slices 1 through 8 are complete and deployed. Next is Slice 9: one canonical Shipment with live
-implementation verification, which needs the eight `AGENTS.md` fields and explicit operator approval; production
-research needs only the existing DataForSEO credentials, no flag or parallel activation path.
+New-page generation stays DELETED (N1, generation 5). N2 built the non-actionable research packet; N3a gave it a
+production consumer naming the strongest of 53 live packets. NEXT is N3b, owned-page coverage mapping and the
+five-verdict adjudication, which nothing yet produces; then N3c, N4 (drafts only on an earned create_new), Shipment.
 
 ## Verification
 
