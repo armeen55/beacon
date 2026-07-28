@@ -39,14 +39,12 @@ import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, t
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
 import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation";
-import { ownedCandidatesFor, topicOutOfScope } from "./owned-coverage";
-import { adjudicateCoverage, intersectionComparison, rankInvestigations } from "./coverage-adjudication";
-import type { CoverageDecision, IntersectionEvidence } from "./coverage-adjudication";
-import { normalizePageIntersection, type PageIntersectionAsk } from "@/domains/evidence/page-intersection";
-import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
+import { earnedNewPage, type IntersectionEvidence } from "./coverage-adjudication";
+import { readCoverage, type DecidedTopic } from "./coverage-pass";
+import { buildNewPageProposal } from "./new-page";
 
 export type ProduceProposalsOptions = ProposeOptions & {
-  /** A TEST SEAM ONLY: production reads the stored comparison out of the canonical evidence below, nothing live passes this, and passing it skips that read. */
+  /** A TEST SEAM ONLY: production reads the stored comparison out of the canonical evidence, nothing live passes this, and passing it skips that read. */
   intersection?: IntersectionEvidence;
   /** Hard cap on how many opportunities we draft this pass (budget guard). */
   maxDrafts?: number;
@@ -84,33 +82,11 @@ export type ProduceProposalsResult = {
   /** What I have investigated about each topic, over the SAME evidence this pass judged.
    *  Research only: nothing here is a change, a draft or a queue row. */
   investigations: TopicInvestigation[];
-  /** The one topic my evidence is closest to being able to compare, so every step advances
-   *  the SAME investigation instead of each picking its own. */
-  strongestInvestigation: TopicInvestigation | null;
-  /** THE verdict on whether this account already has the right page for that one topic. A
-   *  judgment only: no proposal, no draft and no queue row, whichever way it lands. */
-  coverageVerdict: CoverageDecision | null;
-  /** THE ONE request worth paying for next, for the single topic that passed every cheaper
-   *  check. Null whenever nothing earned it, which is the normal answer. */
-  coverageComparison: PageIntersectionAsk | null;
+  /** THE topic whose evidence reached a final answer this pass, and that answer, read off
+   *  the one canonical pass Runtime buys evidence from. Null while every topic is still an
+   *  investigation, which is the normal answer. */
+  coverage: DecidedTopic | null;
 };
-
-/**
- * The CURRENT stored comparison for this topic, or the honest reason Evidence could not
- * get one, or null when neither is in hand. A comparison bought for a DIFFERENT topic or
- * about a DIFFERENT set of pages answers a question I am no longer asking, so it is
- * REFUSED rather than reused: `ask` is the exact comparison this pass would buy today and
- * only an answer to that one counts. BASIS: the stored rows are projected from the funnel
- * state scoped to the account's current basis, so an older bar's answers are not in this
- * snapshot at all; a basis I cannot read is refused outright rather than assumed current.
- */
-function storedComparisonFor(snapshot: EvidenceSnapshot, topicKey: string, basis: string | null, ask: PageIntersectionAsk): IntersectionEvidence | null {
-  if (!basis) return null;
-  const want = normalizePageIntersection(ask);
-  const held = (snapshot.research.pageComparisons ?? []).find((c) => c.topicKey === topicKey
-    && JSON.stringify(c.pages) === JSON.stringify(want.pages) && JSON.stringify(c.excludePages) === JSON.stringify(want.exclude_pages ?? []));
-  return held?.comparison ?? (held?.unavailable ? { unavailable: held.unavailable } : null);
-}
 
 /** Bounded drafting: the strongest few, never a queue. */
 export const DEFAULT_MAX_DRAFTS = 3;
@@ -163,43 +139,18 @@ export async function produceProposalsForTenant(
   } catch (e) {
     log.warn("[produce-proposals] investigations failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
   }
-  const strongest = rankInvestigations(investigations)[0] ?? null;
-
-  // THE COVERAGE VERDICT for that ONE topic: does this account already have the right page?
-  // It returns a judgment and nothing else - no proposal, no draft, no queue row, whichever
-  // way it lands - and its deterministic gate refuses for free, so an under-evidenced topic
-  // costs no model call and no provider call. Fail-soft to null: a judgment I cannot make
-  // must never break the pass that produces the operator's actual work.
-  let coverageVerdict: CoverageDecision | null = null;
-  let coverageComparison: PageIntersectionAsk | null = null;
+  // THE ONE CANONICAL COVERAGE PASS, the same one Runtime buys evidence off, so the topic
+  // this pass acts on is the topic the run paid for. It ranks every investigation once,
+  // gives each the comparison IT owns, and hands back the highest-ranked topic that reached
+  // a real verdict. Every call inside is $0 and deterministic. Fail-soft to null: a judgment
+  // I cannot make must never break the pass that produces the operator's actual work.
+  let coverage: DecidedTopic | null = null;
   try {
-    if (strongest) {
-      const owned = ownedCandidatesFor(snapshot, strongest);
-      const judge = {
-        outOfScopeTopics: topicOutOfScope(snapshot, strongest, profile),
-        complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache,
-        // The judgment call stays OFF until a surface renders its answer: this runs on the
-        // operator's own page load, and a reasoning model nobody reads is a bill nobody asked for.
-        ...(opts.complete ? {} : { model: "off" as const }),
-      };
-      coverageVerdict = await adjudicateCoverage(strongest, owned, tenantId, { ...judge, intersection: opts.intersection });
-      // THE MONEY GATE'S ANSWER, computed for free from evidence already in hand. Empty
-      // unless this one topic passed every cheaper check, so a pass that owes a results
-      // page, a shape, an intent or a third winner asks Evidence to buy nothing.
-      coverageComparison = intersectionComparison(coverageVerdict, strongest, owned);
-      // AND THE ANSWER I ALREADY BOUGHT, read back from the evidence. It used to arrive ONLY
-      // through an injected option no live pass passes, so the topic that earned the comparison
-      // re-asked for it every visit and no verdict ever moved past owing it.
-      const held = coverageComparison && !opts.intersection ? storedComparisonFor(snapshot, strongest.key, basis, coverageComparison) : null;
-      if (held) {
-        coverageVerdict = await adjudicateCoverage(strongest, owned, tenantId, { ...judge, intersection: held });
-        coverageComparison = intersectionComparison(coverageVerdict, strongest, owned);
-      }
-    }
+    coverage = (await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection })).decided;
   } catch (e) {
     log.warn("[produce-proposals] coverage verdict failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
   }
-  const research = { investigations, strongestInvestigation: strongest, coverageVerdict, coverageComparison };
+  const research = { investigations, coverage };
 
   // THE DIAGNOSIS FIRST. Doing nothing is the default; only a proven gap is work.
   const candidates = compileCandidates(snapshot);
@@ -277,6 +228,30 @@ export async function produceProposalsForTenant(
     existing.set(p.id, p);
   };
 
+  const proposals: ChangeProposal[] = [];
+  // A SUBJECT THIS ACCOUNT HAS NO PAGE FOR, and the ONLY road to one: an EARNED create_new
+  // verdict, which the coverage ladder reaches only once the page by page comparison has
+  // proved the winning pages share searches no page of yours comes up for. A keyword, a
+  // tracked question, a rival's page and an engine's fan-out reach none of this. One reuse
+  // rule, the same as every other change: a current-basis row for this topic is carried
+  // forward untouched, so a refresh re-pays nothing.
+  const decided = coverage;
+  if (decided && earnedNewPage(decided.decision)) {
+    const heldPage = live.find((p) => p.kind === "new_page" && current(p) && p.id.includes(`::${decided.investigation.key}::`)) ?? null;
+    if (heldPage) {
+      proposals.push(heldPage);
+      reused += 1;
+    } else {
+      const built = await buildNewPageProposal(decided, tenantId, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache })
+        .catch((e) => ({ status: "none" as const, reason: e instanceof Error ? e.message : String(e) }));
+      if (built.status === "built") {
+        const page = { ...built.proposal, ...(basis ? { basis } : {}) };
+        proposals.push(page);
+        await persistIfChanged(page);
+      } else log.info("[produce-proposals] no new page this pass", { tenantId, reason: built.reason });
+    }
+  }
+
   const inputs = candidatesToEvidenceInputs(snapshot, acted).slice(0, Math.min(DEFAULT_MAX_DRAFTS, maxDrafts));
 
   const investigating = candidates.filter((c) => c.action === "research_needed").length;
@@ -289,8 +264,9 @@ export async function produceProposalsForTenant(
     });
     // A proven gap I cannot yet explain is NOT a quiet day. Saying so here is what
     // keeps "Nothing needs a decision today" off a screen with real losses behind it.
-    return { proposals: [], candidates, outcome: investigating > 0 ? "investigating" : "no_actionable_candidate",
-      actionable: 0, investigating, noDraft: 0, persisted: 0, reused: 0, ...research };
+    return { proposals: rankProposals(proposals), candidates,
+      outcome: proposals.length > 0 ? "proposals_persisted" : investigating > 0 ? "investigating" : "no_actionable_candidate",
+      actionable: 0, investigating, noDraft: 0, persisted, reused, ...research };
   }
 
   // THE STRONGEST PROVEN PAGE, never the first one the snapshot happened to list.
@@ -317,7 +293,6 @@ export async function produceProposalsForTenant(
       limitations: [...new Set([...p.limitations, why ?? "My evidence no longer shows that this change is the fix, so I set it aside instead of leaving it on your list."])] });
   }
 
-  const proposals: ChangeProposal[] = [];
   let noDraft = 0;
   for (const input of inputs) {
     // A refresh re-pays nothing. A current-generation row already covering this

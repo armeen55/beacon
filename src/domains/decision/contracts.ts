@@ -68,10 +68,6 @@ export interface EvidenceInput {
     outline?: string[];
     /** Dated, sourced facts on file — back an allowed correction. */
     authoritativeFacts?: AuthoritativeFact[];
-    /** New-page seeds. */
-    competitorPages?: string[];
-    fanoutQueries?: string[];
-    referenceCandidates?: string[];
     /** This tenant's curated authoritative-source domains. */
     authoritativeSourceDomains?: string[];
     /** THE diagnosis that earned this action. No diagnosis, no drafter call. */
@@ -84,8 +80,6 @@ export interface EvidenceInput {
     impactScore?: number | null;
     /** Honest monthly opportunity midpoint (never a raw impressions sum). */
     upsidePerMonth?: number | null;
-    /** A DataForSEO verdict exists for this topic (new-page confidence input). */
-    hasSerpVerdict?: boolean;
   };
 }
 
@@ -99,8 +93,8 @@ export interface EvidenceInput {
  * Internal to Decision: NOT persisted as its own record and never a public type.
  */
 export type CandidateAction =
-  // No `act_new_page`: generation 5 deleted the machinery that proposed one, and this
-  // union is in-memory only (never persisted, so nothing historical decodes through it).
+  // No `act_new_page`: a page this account does not own is decided by the coverage ladder
+  // over researched TOPICS, never by this per-page diagnosis over pages it already has.
   | "act_existing_page" | "consolidate"
   | "watch" | "research_needed" | "do_nothing";
 
@@ -215,10 +209,8 @@ export function confidenceFor(r: EvidenceReadiness, d?: ActionDiagnosis | null):
 
 // ── ChangeProposal — the ONE persisted output ─────────────────────────────────
 
-/** `new_page` is HISTORY ONLY (generation 5, 2026-07-28): stored rows still decode and
- *  render, and Measurement still reads their results, but nothing proposes one. Turning
- *  a competitor's example prompt into a page shipped duplicates of pages the account
- *  already owned. Generation returns when the evidence can prove a distinct page. */
+/** `new_page` is earned, never assumed: only the page by page comparison can prove this
+ *  account reaches none of what the winning pages share (decision/new-page). */
 export type ProposalKind = "existing_edit" | "new_page";
 
 /** The proposal lifecycle. A proposal is NEVER an auto-write; `applied` is set

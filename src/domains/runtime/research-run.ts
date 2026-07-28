@@ -50,9 +50,13 @@ export type ResearchRunProgress = {
   refreshedProviders?: string[];
   sourcesRefreshed?: number;
   backfill?: { ran: boolean; complete?: boolean; daysPulled?: number };
-  /** THIS run's frozen investigation priorities, chosen ONCE at the results-page phase and reused by
-   *  winning-pages: recomputing per phase bought results pages for one set of searches and read
-   *  competitors for another. Durable on progress (the phase advance clears the cursor), dies with the run. */
+  /** THIS run's frozen INVESTIGATION, chosen ONCE at the results-page phase and reused unchanged by
+   *  winning-pages, the comparison and the verdict: the ordered topic, the exact search it owes when a
+   *  search is what it owes, the typed requirement that was open, and the basis it was all chosen under.
+   *  Freezing the STRINGS alone let a second independent pick buy a comparison for a DIFFERENT topic than
+   *  the searches were bought for. Durable on progress (the phase advance clears the cursor), dies with the run. */
+  focus?: { basis: string | null; topics: Array<{ topicKey: string | null; query: string | null; requirement: string | null }> };
+  /** LEGACY, read-only: a run frozen before `focus` existed carries only its query strings. Never written now. */
   priorityQueries?: string[];
   surfacePublished?: boolean;
   /** Slice 6: real persisted funnel counters (never fabricated). */
@@ -112,6 +116,12 @@ const STEP_ORDER: ResearchPhase[] = [
 ];
 export const RESEARCH_RUN_STEPS_TOTAL = 7 as const;
 
+/** The next phase after `phase` in THE one canonical order, or the terminal `done`. */
+export function nextPhase(phase: ResearchPhase): ResearchPhase {
+  const i = STEP_ORDER.indexOf(phase);
+  return i < 0 || i + 1 >= STEP_ORDER.length ? "done" : STEP_ORDER[i + 1]!;
+}
+
 /** Lease length for one claimed cycle. Renewed at DATABASE time BEFORE every
  *  bounded phase (renew_research_lease) so no phase inside the 210s cycle deadline
  *  can knowingly outlive its lease. */
@@ -127,11 +137,6 @@ function requireTenant(tenantId: string): string {
     throw new Error("[research-run] tenantId is required");
   }
   return tenantId;
-}
-
-/** The permitted daily opportunity key: "<tenant>:<UTC yyyy-mm-dd>". */
-export function cycleKeyForUtc(tenantId: string, now: Date = new Date()): string {
-  return `${requireTenant(tenantId)}:${now.toISOString().slice(0, 10)}`;
 }
 
 /** A fresh, globally-unique owner token for one invocation's lease. */
@@ -195,17 +200,7 @@ export function isLeaseDead(run: Pick<ResearchRun, "lease_expires_at">, nowMs: n
 /** PURE: project a persisted run (or none) into the compact Today view. A
  *  `running` row with a dead lease presents as paused. */
 export function projectStatusView(run: ResearchRun | null, nowMs: number): ResearchRunStatusView {
-  const none: ResearchRunStatusView = {
-    state: "none",
-    phaseLabel: "",
-    stepsDone: 0,
-    stepsTotal: RESEARCH_RUN_STEPS_TOTAL,
-    counters: {},
-    updatedAt: null,
-    completedAt: null,
-    pauseReason: null,
-  };
-  if (run == null) return none;
+  if (run == null) return { state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: RESEARCH_RUN_STEPS_TOTAL, counters: {}, updatedAt: null, completedAt: null, pauseReason: null };
 
   let state: ResearchRunStatusView["state"];
   if (run.status === "completed") state = "completed";

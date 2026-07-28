@@ -10,7 +10,7 @@ import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/p
 import type { CachedCallResult, CapabilityKey, FunnelCounters, FunnelUnitFn, FunnelUnitOutcome, ParsedAiAnswer, ParsedSerp, ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { rankWinningPages, selectSerpAgenda } from "./normalize";
 import { type FunnelPair, type FunnelSerp, type FunnelState, type FunnelWinningPage } from "./state";
-import { normalizePageIntersection, parsePageIntersection, type PageIntersectionAsk } from "@/domains/evidence/page-intersection";
+import { askIdentity, normalizePageIntersection, parsePageIntersection, type PageIntersectionAsk } from "@/domains/evidence/page-intersection";
 import { pageExtractFrom, pageExtractFromRecord, type FunnelResearchEvidence, type IntersectionUnavailable, type ObservationMode, type ResearchEngine, type ResearchPageComparison, type ResearchPageExtract, type ResearchWinningAppearance } from "./research-evidence";
 import { basisFromCursor, beginCycle, CONFLICT_DETAIL, FRESH_MS, interp, type Interp, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
 
@@ -352,7 +352,7 @@ const COMPARISON_GAP: Partial<Record<string, IntersectionUnavailable>> = { block
  *  serves it warm at zero network and zero spend. Under two usable pages is not a comparison and never pays. */
 async function buyComparison(d: ResolvedDeps, state: FunnelState, want: FunnelIntersectionAsk, ids: { tenantId: string; unitKey: string }, nowIso: string): Promise<ResearchPageComparison | null> {
   const ask = normalizePageIntersection(want.ask);
-  const askKey = sha16(JSON.stringify(ask));
+  const askKey = askIdentity(ask); // ONE definition, shared with the reader
   if (ask.pages.length < 2 || state.pageComparisons.some((c) => c.topicKey === want.topicKey && c.askKey === askKey && c.comparison)) return null;
   const raw = await d.callProvider("labs_page_intersection", ask, ids), r = interp(raw);
   track(state, r);
@@ -365,7 +365,8 @@ async function buyComparison(d: ResolvedDeps, state: FunnelState, want: FunnelIn
   return row;
 }
 
-/** `priorityQueries`: plain strings from the caller (Evidence never reads Decision), the exact searches an open investigation cannot close without. Each banks its own top organic winners before the global fill, at the SAME total. */
+/** `priorityQueries`: plain strings from the caller (Evidence never reads Decision), the exact searches an open investigation cannot close without. Each banks its own top organic winners before the global fill, at the SAME total.
+ *  TWO STAGES, one phase: the first reads and persists the winners and hands the run back; the caller renews the RUN lease and re-enters with `stage: "compare"`, so the ONE paid comparison is the first side effect of a live lease. */
 export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[] = [], intersection: FunnelIntersectionAsk | null = null): FunnelUnitFn {
   const d = resolveDeps(deps);
   // Wrapper citations resolve to their REAL target before ranking, so one page is never two winners.
@@ -377,11 +378,19 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
     const loaded = await d.loadState(tenantId, basis), state = loaded.state;
     beginCycle(state, cursor, `winning:${tenantId}`);
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion }, nowIso = new Date(d.now()).toISOString();
-    const account = await d.getAccount(tenantId).catch(() => null), profile = await d.loadProfile(tenantId).catch(() => null);
-    const ownDomain = account?.domain ? rootDomain(account.domain) : null;
-
     const pages: FunnelWinningPage[] = []; let fetched = 0;
     try {
+      // STAGE TWO of the SAME phase: the winners are already persisted and the caller renewed the RUN lease in
+      // between, so the ONE comparison is the FIRST side effect this invocation has. Newest first, ONE row per
+      // topic, bounded. No ask (none earned, or the frozen topic could not be reconfirmed) is a $0 pass.
+      if ((cursor as { stage?: string } | null)?.stage === "compare") {
+        const bought = intersection ? await buyComparison(d, state, intersection, { tenantId, unitKey: `winning:${tenantId}` }, nowIso) : null;
+        if (bought) { state.pageComparisons = [bought, ...state.pageComparisons.filter((c) => c.topicKey !== bought.topicKey)].slice(0, MAX_COMPARISONS);
+          await save(d, tenantId, basis, state, ctx); }
+        return { status: "done", cursor: null, progress: { cacheHits: state.cycle.cacheHits, spendUsd: round(state.cycle.spentUsd) } };
+      }
+      const account = await d.getAccount(tenantId).catch(() => null), profile = await d.loadProfile(tenantId).catch(() => null);
+      const ownDomain = account?.domain ? rootDomain(account.domain) : null;
       const raw = collectAppearances(state, nowIso);
       // A resolver failure (sync OR async) degrades to raw appearances; the unit deadline bounds it.
       const resolved = await Promise.resolve().then(() => resolve(raw, undefined, deadline)).catch(() => raw); for (const c of rankWinningPages(resolved, ownDomain, WINNER_READ_BUDGET, priorityQueries)) {
@@ -406,15 +415,11 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
         pages.push({ url: c.url, domain: c.domain, engines, examplePrompts, appearances: c.appearances, extract });
       }
       state.winningPages = pages;
-      // SAVE BEFORE THE COMPARISON SPENDS. This save is the lease: a moved row throws here, so losing
-      // the row stops the paid request instead of paying first and discovering it afterwards.
+      // The winners land BEFORE this phase hands the run back. This save is the FUNNEL ROW's optimistic
+      // row_version and nothing more: it proves only that no concurrent writer moved the research document.
+      // It is NOT the ResearchRun lease, a different guarantee the caller renews between the two stages.
       await save(d, tenantId, basis, state, ctx);
-      // ONE comparison per pass, only once the winners it compares are current. Newest first, ONE row per
-      // topic, bounded, so a persisted blob cannot grow and a re-asked topic never keeps a stale answer.
-      const bought = intersection ? await buyComparison(d, state, intersection, { tenantId, unitKey: `winning:${tenantId}` }, nowIso) : null;
-      if (bought) { state.pageComparisons = [bought, ...state.pageComparisons.filter((c) => c.topicKey !== bought.topicKey)].slice(0, MAX_COMPARISONS);
-        await save(d, tenantId, basis, state, ctx); }
-      return { status: "done", cursor: null, progress: { winningPagesFetched: fetched, cacheHits: state.cycle.cacheHits, spendUsd: round(state.cycle.spentUsd) } };
+      return { status: "advanced", cursor: { stage: "compare" }, progress: { winningPagesFetched: fetched, cacheHits: state.cycle.cacheHits, spendUsd: round(state.cycle.spentUsd) } };
     } catch (e) {
       if (e instanceof StateConflictError) return { status: "failed", code: "state_conflict", cursor, progress: { winningPagesFetched: fetched }, detail: CONFLICT_DETAIL };
       throw e;

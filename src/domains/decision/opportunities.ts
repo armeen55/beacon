@@ -334,7 +334,6 @@ function existingEditInput(
       // The ONE value scalar: the modeled click shortfall, never gross traffic.
       impactScore: candidate.recoverableClicks,
       upsidePerMonth: null,
-      hasSerpVerdict: false,
     },
   };
 }

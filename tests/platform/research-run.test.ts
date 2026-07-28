@@ -1,11 +1,8 @@
-/**
- * Durable visit-driven Research Run (Slice 4 + claim-semantics repair): the
- * one-open-run-per-account invariant (resume any unfinished run across dates before
- * a new daily cycle), the truth boundary (any failure PAUSES, never completes),
- * partial connector success surviving a pause, deduped refreshed providers across
- * retries, the lease guards, the idempotency identity, and the fail-closed render
- * path. The in-memory repo models the RPC guards and the partial unique index.
- */
+/** Durable visit-driven Research Run (Slice 4 + claim-semantics repair): the one-open-run-per-account invariant
+ *  (resume any unfinished run across dates before a new daily cycle), the truth boundary (any failure PAUSES,
+ *  never completes), partial connector success surviving a pause, deduped refreshed providers across retries,
+ *  the lease guards (including the ONE the paid comparison spends under), the frozen investigation, the
+ *  idempotency identity, and the fail-closed render path. The in-memory repo models the RPC guards. */
 import { describe, it, expect, beforeEach } from "vitest";
 import * as RR from "@/domains/runtime/research-run";
 import { runResearchCycle, ensureResearchRunOnVisit, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
@@ -16,38 +13,29 @@ import { promptObservationUnit } from "@/domains/evidence/funnel/observe";
 import { CONFLICT_DETAIL, type FunnelDeps } from "@/domains/evidence/funnel/shared";
 import { emptyFunnelState } from "@/domains/evidence/funnel/state";
 
-// Slice 5 pre-activation gate: the runtime + the RPC model both refuse research
-// work unless the account is active. The account status world defaults every
-// tenant to 'active' so every existing cycle test stands unchanged; a test opts
-// a tenant into 'pending_onboarding' to exercise the gate.
+// Slice 5 pre-activation gate: the runtime + the RPC model both refuse research work unless the account is
+// active. Every tenant defaults to 'active' so every cycle test stands unchanged; a test opts one into
+// 'pending_onboarding' to exercise the gate.
 const ACCOUNT_STATUS = new Map<string, AccountStatus>();
 const statusOf = (t: string): AccountStatus => ACCOUNT_STATUS.get(t) ?? "active";
 const setAccountStatus = (t: string, s: AccountStatus): void => void ACCOUNT_STATUS.set(t, s);
 function installAccountRepo(): void {
-  const byId = async (id: string) => ({
-    id, slug: id, provisional_name: "", domain: "example.com", status: statusOf(id),
-    signup_date: "", tos_accepted_at: null, daily_budget_usd: 0, growth_goal: null,
-    created_at: "", updated_at: "",
-  });
-  const repo: AccountRepository = { getAccountById: byId, getAccountBySlug: byId };
-  setAccountRepositoryForTests(repo);
+  const byId = async (id: string) => ({ id, slug: id, provisional_name: "", domain: "example.com", status: statusOf(id),
+    signup_date: "", tos_accepted_at: null, daily_budget_usd: 0, growth_goal: null, created_at: "", updated_at: "" });
+  setAccountRepositoryForTests({ getAccountById: byId, getAccountBySlug: byId } satisfies AccountRepository);
 }
 let NOW = 1_700_000_000_000;
 const iso = (ms = NOW) => new Date(ms).toISOString();
-const DAY = 24 * 3600 * 1000;
-const T = "acct-a";
-const U = "acct-b";
-const LEASE = RR.RESEARCH_RUN_LEASE_SECONDS * 1000;
+const DAY = 24 * 3600 * 1000, T = "acct-a", U = "acct-b", LEASE = RR.RESEARCH_RUN_LEASE_SECONDS * 1000;
+const ckey = (t: string, ms = NOW) => `${t}:${new Date(ms).toISOString().slice(0, 10)}`; // the daily key the DATABASE computes
 const mk = (o: Partial<RR.ResearchRun>): RR.ResearchRun => ({
-  id: "seed", tenant_id: T, cycle_key: RR.cycleKeyForUtc(T, new Date(NOW)), status: "paused",
+  id: "seed", tenant_id: T, cycle_key: ckey(T, NOW), status: "paused",
   current_phase: "refresh_sources", phase_cursor: null, progress: {}, spend_usd: 0, last_error: null,
   lease_owner: null, lease_expires_at: null, started_at: iso(), updated_at: iso(), completed_at: null, ...o,
 });
-/** In-memory repo modeling the RPC guards: claim resumes the account's single
- *  unfinished run (any date) before a new daily cycle, a foreign LIVE lease returns
- *  null, a same-UTC-day completed run blocks a fresh pass, resume-first keeps the
- *  one-open-run invariant, and the daily key is computed at database time from
- *  NOW; advance/renew need a live lease + 'running', finish a live lease + open. */
+/** In-memory repo modeling the RPC guards: claim resumes the account's single unfinished run (any date) before
+ *  a new daily cycle, a foreign LIVE lease returns null, a same-UTC-day completed run blocks a fresh pass, and
+ *  the daily key is computed at database time; advance/renew need a live lease + 'running', finish an open one. */
 function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } {
   const rows: RR.ResearchRun[] = [];
   const find = (id: string, t: string) => rows.find((x) => x.id === id && x.tenant_id === t);
@@ -69,7 +57,7 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } {
       const today = new Date(NOW).toISOString().slice(0, 10);
       if (rows.some((x) => x.tenant_id === tenantId && x.status === "completed" && (x.completed_at ?? "").slice(0, 10) === today)) return null;
       // mk defaults already give refresh_sources / null cursor / {} progress / null error.
-      rows.push(mk({ id: `r${rows.length}`, tenant_id: tenantId, cycle_key: RR.cycleKeyForUtc(tenantId, new Date(NOW)), status: "running", lease_owner: owner, lease_expires_at: exp }));
+      rows.push(mk({ id: `r${rows.length}`, tenant_id: tenantId, cycle_key: ckey(tenantId, NOW), status: "running", lease_owner: owner, lease_expires_at: exp }));
       return { ...rows[rows.length - 1]! };
     },
     async advance({ tenantId, id, owner, leaseSeconds, patch }) {
@@ -77,58 +65,42 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } {
       if (!r || !live(r, owner) || r.status !== "running") return false;
       // Like the SQL: phase_cursor is ALWAYS set to the patch value (null clears).
       Object.assign(r, { current_phase: patch.phase, progress: patch.progress ?? r.progress, phase_cursor: patch.cursor ?? null, lease_expires_at: iso(NOW + leaseSeconds * 1000) });
-      return true;
-    },
+      return true; },
     async renew({ tenantId, id, owner, leaseSeconds, cursor }) {
       const r = find(id, tenantId);
       if (!r || !live(r, owner) || r.status !== "running") return false;
       Object.assign(r, { phase_cursor: cursor ?? null, lease_expires_at: iso(NOW + leaseSeconds * 1000) });
-      return true;
-    },
+      return true; },
     async finish({ tenantId, id, owner, outcome, errorInfo }) {
-      const r = find(id, tenantId);
+      const r = find(id, tenantId), done = outcome === "completed";
       if (!r || !live(r, owner) || !(r.status === "running" || r.status === "paused")) return false;
-      const done = outcome === "completed";
       Object.assign(r, { status: outcome, lease_owner: null, lease_expires_at: null, last_error: done ? null : errorInfo ?? null, ...(done ? { current_phase: "done", completed_at: iso() } : {}) });
-      return true;
-    },
+      return true; },
     async latest(t) {
       const m = rows.filter((x) => x.tenant_id === t).sort((a, b) => b.started_at.localeCompare(a.started_at));
-      return m[0] ? { ...m[0] } : null;
-    },
+      return m[0] ? { ...m[0] } : null; },
   };
   return { repo, rows };
 }
-function freshRepo(): RR.ResearchRun[] {
-  const { repo, rows } = memRepo();
-  RR.setResearchRunRepoForTests(repo);
-  return rows;
-}
+function freshRepo(): RR.ResearchRun[] { const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests(repo); return rows; }
 /** A seeded paused (unleased) today-row a fresh claim can reclaim, plus its rows. */
-function withRun(o: Partial<RR.ResearchRun> = {}): RR.ResearchRun[] {
-  const rows = freshRepo();
-  rows.push(mk(o));
-  return rows;
-}
+function withRun(o: Partial<RR.ResearchRun> = {}): RR.ResearchRun[] { const rows = freshRepo(); rows.push(mk(o)); return rows; }
 /** Benign no-op steps; a phase-truth test overrides the ONE step under test. */
 const BENIGN: ResearchCycleSteps = {
   refreshSources: async () => ({ attempted: 0, succeeded: [], failures: [] }),
   backfillChunk: async () => ({ kind: "no_work" }),
   funnelUnit: async () => ({ status: "done", cursor: null, progress: {} }), // evidence phases no-op in these lease/truth tests
-  investigationPriorities: async () => [],
+  investigationFocus: async () => null,
   currentBasis: async () => "basis_test", // the account basis the funnel scopes to
   publishSurface: async () => {},
   surfaceStale: async () => false,
 };
 /** Healthy logging stub: each step logs its name so phase ordering is observable. */
-function healthySteps(log: string[]): Partial<ResearchCycleSteps> {
-  return {
-    refreshSources: async () => (log.push("refresh"), { attempted: 2, succeeded: ["google_gsc", "google_ga4"], failures: [] }),
-    backfillChunk: async () => (log.push("backfill"), { kind: "advanced", daysPulled: 30 }),
-    publishSurface: async () => void log.push("publish"),
-    surfaceStale: async () => false,
-  };
-}
+const healthySteps = (log: string[]): Partial<ResearchCycleSteps> => ({
+  refreshSources: async () => (log.push("refresh"), { attempted: 2, succeeded: ["google_gsc", "google_ga4"], failures: [] }),
+  backfillChunk: async () => (log.push("backfill"), { kind: "advanced", daysPulled: 30 }),
+  publishSurface: async () => void log.push("publish"), surfaceStale: async () => false,
+});
 const run = (steps: Partial<ResearchCycleSteps>, deadlineMs?: number) =>
   runResearchCycle(T, { now: () => new Date(NOW), steps: { ...BENIGN, ...steps }, ...(deadlineMs === undefined ? {} : { deadlineMs }) });
 
@@ -142,7 +114,7 @@ describe("research-run claim: one open run per account across all dates", () => 
   it("resumes the account's one unfinished run first: yesterday's paused run is reclaimed by the same id with phase and cursor untouched, a later-day visit reuses it, and no second row is ever created", async () => {
     const rows = freshRepo();
     const cursor = { phase: "gsc_backfill_chunk", attemptKey: "k" };
-    rows.push(mk({ id: "seed", status: "paused", current_phase: "gsc_backfill_chunk", phase_cursor: cursor, cycle_key: RR.cycleKeyForUtc(T, new Date(NOW - DAY)), started_at: iso(NOW - DAY) }));
+    rows.push(mk({ id: "seed", status: "paused", current_phase: "gsc_backfill_chunk", phase_cursor: cursor, cycle_key: ckey(T, NOW - DAY), started_at: iso(NOW - DAY) }));
     const first = await RR.claimRun(T, "o1");
     expect(first?.id).toBe("seed"); // resumed, not a new run
     expect(first?.current_phase).toBe("gsc_backfill_chunk"); // phase untouched on claim
@@ -181,7 +153,7 @@ describe("research-run pre-activation gate (Slice 5)", () => {
     const rows = withRun(); // a claimable paused today-row for T
     setAccountStatus(T, "pending_onboarding");
     await run(BENIGN);
-    expect(rows[0]!.status).toBe("paused"); // untouched — the cycle no-oped before claiming
+    expect(rows[0]!.status).toBe("paused"); // untouched: the cycle no-oped before claiming
     expect(rows[0]!.lease_owner).toBeNull(); // no lease was taken
     expect(rows).toHaveLength(1); // no second run was opened
   });
@@ -278,32 +250,53 @@ describe("research-run resume + status projection", () => {
     await run(healthySteps(log));
     expect(log).toEqual(["backfill", "publish"]); // never "refresh" (that phase was already done)
     expect([rows[0]!.status, rows[0]!.current_phase]).toEqual(["completed", "done"]); });
-  it("pays for one set of searches and reads competitors for that SAME set, across a pause", async () => {
-    const rows = withRun({ current_phase: "serp_analysis" }); const seen: Array<[string, string[]]> = []; let asked = 0;
-    const answers = [["a", "b", "c"], ["d", "e", "f"]]; // the second is what a fresh look says once those results pages land
-    const steps: Partial<ResearchCycleSteps> = { investigationPriorities: async () => answers[Math.min(asked++, 1)]!,
-      funnelUnit: async (phase, _t, _c, _b, priority) => { seen.push([phase, priority]); // the first look waits on the provider, the next visit finishes it
-        return phase === "serp_analysis" && seen.length === 1 ? { status: "waiting", cursor: null, progress: {} } : { status: "done", cursor: null, progress: {} }; } };
-    await run(steps); expect(rows[0]!.progress.priorityQueries).toEqual(["a", "b", "c"]); // durable BEFORE any paid work
-    await run(steps); // a later visit resumes and crosses into winning_pages
-    expect(seen).toEqual([["serp_analysis", ["a", "b", "c"]], ["serp_analysis", ["a", "b", "c"]], ["winning_pages", ["a", "b", "c"]]]);
-    expect(asked).toBe(1); }); // the run chose once; the second answer never reached a paid phase
-  it("does not let one empty read silence a run's priorities for the rest of its life", async () => {
-    const rows = withRun({ current_phase: "serp_analysis" }); const seen: string[][] = []; let asked = 0;
-    const steps: Partial<ResearchCycleSteps> = { investigationPriorities: async () => (asked++ === 0 ? [] : ["a"]), // the first read comes back cold
-      funnelUnit: async (_p, _t, _c, _b, priority) => { seen.push(priority);
-        return seen.length === 1 ? { status: "waiting", cursor: null, progress: {} } : { status: "done", cursor: null, progress: {} }; } };
-    await run(steps); expect(rows[0]!.progress.priorityQueries).toBeUndefined(); // nothing worth freezing, so nothing frozen
-    await run(steps); expect(seen).toEqual([[], ["a"], ["a"]]); }); // the next visit asks again and the run recovers
   it("projects persisted truth: a running row with a dead lease presents as paused; a live one runs", async () => {
     const rows = withRun({ status: "running", lease_owner: "o", lease_expires_at: iso(NOW - LEASE) }); // lease long dead
     expect((await RR.researchRunStatus(T, new Date(NOW))).state).toBe("paused");
     rows[0]!.lease_expires_at = iso(NOW + LEASE); // fresh lease
     const v = await RR.researchRunStatus(T, new Date(NOW));
-    expect(v.state).toBe("running");
-    expect(v.phaseLabel).toBe("refreshing your connected data");
-    expect(v.stepsTotal).toBe(7);
-  });
+    expect([v.state, v.phaseLabel, v.stepsTotal]).toEqual(["running", "refreshing your connected data", 7]); });
+});
+
+describe("research-run frozen investigation: ONE topic, and the lease the comparison spends under", () => {
+  const focusOf = (topicKey: string) => ({ basis: "basis_test", topics: [{ topicKey, query: "haft seen", requirement: "exact_serp" }] });
+  const FOCUS = focusOf("inv_haft");
+  /** A two-stage winning-pages double over the REAL cycle: stage one persists winners and hands the run back,
+   *  stage two is the one that would SPEND. Every invocation records its phase, the topic it was handed, and
+   *  how many REAL ResearchRun lease renewals had happened by then, so a spend sits against a countable renewal. */
+  function staged(renews: () => number) {
+    const seen: Array<[string, string | null, number]> = [], spent: string[] = [];
+    const funnelUnit: ResearchCycleSteps["funnelUnit"] = async (phase, _t, cursor, _b, focus) => {
+      const topic = focus?.topics[0]?.topicKey ?? null; seen.push([phase, topic, renews()]);
+      if (phase !== "winning_pages") return { status: "done", cursor: null, progress: {} };
+      if (cursor?.stage !== "compare") return { status: "advanced", cursor: { stage: "compare" }, progress: {} };
+      spent.push(String(topic)); return { status: "done", cursor: null, progress: {} }; };
+    return { funnelUnit, seen, spent }; }
+  /** memRepo plus a live count of REAL ResearchRun lease renewals. */
+  const counted = () => { const { repo, rows } = memRepo(); let n = 0; RR.setResearchRunRepoForTests({ ...repo, renew: async (i) => (n += 1, repo.renew(i)) }); return { rows, renews: () => n }; };
+  it("freezes ONE investigation and carries its topic through the searches, the winners and the comparison, never re-picking", async () => {
+    const { rows, renews } = counted(); rows.push(mk({ current_phase: "serp_analysis" })); const w = staged(renews); let asked = 0;
+    await run({ funnelUnit: w.funnelUnit, investigationFocus: async () => focusOf(asked++ === 0 ? "inv_haft" : "inv_second") });
+    expect(rows[0]!.progress.focus).toEqual(FOCUS); expect(JSON.parse(JSON.stringify(rows[0]!.progress)).focus).toEqual(FOCUS); // durable before any paid work, and it survives serialization
+    expect(w.seen.map((s) => s[1])).toEqual(["inv_haft", "inv_haft", "inv_haft"]); // searches, winners, comparison: ONE topic
+    expect([w.spent, asked, rows[0]!.status]).toEqual([["inv_haft"], 1, "completed"]); }); // the second, fresher answer never reached the paid stage
+  it("renews the RUN lease BETWEEN persisting the winners and the comparison, and buys nothing when that renewal fails", async () => {
+    const { rows, renews } = counted(); rows.push(mk({ current_phase: "winning_pages", progress: { focus: FOCUS } })); const w = staged(renews); // a RESUMED run reads its frozen focus back
+    await run({ funnelUnit: w.funnelUnit }); expect(w.seen[1]![2]).toBe(w.seen[0]![2] + 1); expect(w.spent).toEqual(["inv_haft"]);
+    const l = memRepo(); let n = 0; RR.setResearchRunRepoForTests({ ...l.repo, renew: async (i) => ((n += 1) < 2 ? l.repo.renew(i) : false) });
+    l.rows.push(mk({ current_phase: "winning_pages", progress: { focus: FOCUS } })); const dead = staged(() => n);
+    await run({ funnelUnit: dead.funnelUnit }); expect([dead.seen.length, dead.spent]).toEqual([1, []]); }); // the lease died after the winners landed: the paid stage never ran
+  it("resumes a run frozen before the focus existed, and one empty read never silences a run for the rest of its life", async () => {
+    const rows = withRun({ current_phase: "serp_analysis", progress: { priorityQueries: ["a", "b"] } }); const queries: string[][] = []; let asked = 0;
+    const unit: ResearchCycleSteps["funnelUnit"] = async (phase, _t, cursor, _b, focus) => { queries.push((focus?.topics ?? []).map((t) => String(t.query)));
+      return phase === "winning_pages" && cursor?.stage !== "compare" ? { status: "advanced", cursor: { stage: "compare" }, progress: {} } : { status: "done", cursor: null, progress: {} }; };
+    await run({ funnelUnit: unit, investigationFocus: async () => { throw new Error("a frozen run never re-picks"); } });
+    expect([queries[0], rows[0]!.status]).toEqual([["a", "b"], "completed"]); // its query strings resume verbatim; no topic identity is invented for them
+    const cold = withRun({ current_phase: "serp_analysis" });
+    const steps: Partial<ResearchCycleSteps> = { investigationFocus: async () => (asked++ === 0 ? null : FOCUS), // the first read comes back cold
+      funnelUnit: async (p, t, c, b, f) => (asked === 1 ? { status: "waiting", cursor: null, progress: {} } : unit(p, t, c, b, f)) };
+    await run(steps); expect(cold[0]!.progress.focus).toBeUndefined(); // nothing worth freezing, so nothing frozen
+    await run(steps); expect(cold[0]!.progress.focus).toEqual(FOCUS); }); // the next visit asks again and the run recovers
 });
 
 describe("research-run Today copy", () => {

@@ -7,7 +7,8 @@ import "server-only";
  * shipped duplicates of pages the account already owned. The missing step was never the
  * writing, it was the COMPARISON: nobody asked whether one of this account's own pages was
  * already the answer. That is the only question this file answers, once per topic, and it
- * drafts nothing, proposes nothing and persists nothing.
+ * drafts nothing, proposes nothing and persists nothing. An EARNED `create_new` here is the
+ * only thing decision/new-page will build from, and nothing else can open that door.
  *
  * DETERMINISTIC GATE FIRST, MODEL SECOND. Every refusal below is decided in code, makes
  * ZERO model calls, costs nothing, and names in `missing` exactly what is owed:
@@ -39,13 +40,12 @@ import "server-only";
  */
 
 import { log } from "@/lib/logger";
-import type { BusinessProfile } from "@/domains/account";
-import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
+import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { publisherHost } from "@/domains/evidence/serp-shape";
 import { comparePageCoverage, type PageCoverageReading, type PageIntersectionAsk, type ParsedPageIntersection } from "@/domains/evidence/page-intersection";
-import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation";
+import type { TopicInvestigation } from "@/domains/evidence/topic-investigation";
 import type { IntersectionUnavailable } from "@/domains/evidence/funnel/research-evidence";
-import { ownedCandidatesFor, topicOutOfScope, type OwnedCandidate } from "./owned-coverage";
+import type { OwnedCandidate } from "./owned-coverage";
 import type { CacheImpl } from "./llm/call-cache";
 import { callStructuredLLM, type CompleteFn } from "./llm/structured-drafter";
 
@@ -165,6 +165,15 @@ const day = (iso: string | null): string => (iso ? iso.slice(0, 10) : "a day I d
 /** A page COULD be the answer only on a strong signal. Shared wording is a hint,
  *  and a hint has never been a reason to leave a page out of the comparison. */
 const contender = (c: OwnedCandidate): boolean => c.strongSignals > 0;
+
+/** ONE reading of the bought comparison, counted by PUBLISHER inside Evidence. An answer I
+ *  cannot read is treated exactly like a call that never came back, and every step that
+ *  reasons over the comparison reads it through here so no two of them read it differently. */
+export function readComparison(x: IntersectionEvidence | undefined, candidates: readonly OwnedCandidate[]): PageCoverageReading | null {
+  if (!x || "unavailable" in x) return null;
+  const mine = candidates.filter(contender)[0];
+  try { return comparePageCoverage(x, mine ? absolute(mine.url) : null); } catch { return null; }
+}
 
 /** What the pages that win here ARE, in words an operator reads. */
 const SHAPE: Record<string, string> = { informational_guide: "guides that explain the subject", list: "lists", definition: "short definitions",
@@ -296,13 +305,7 @@ export async function adjudicateCoverage(
   opts: AdjudicateCoverageOptions = {},
 ): Promise<CoverageDecision> {
   const x = opts.intersection;
-  // ONE reading of the bought comparison, counted by PUBLISHER inside Evidence. An
-  // answer I cannot read is treated exactly like a call that never came back.
-  const strongestOwned = candidates.filter(contender)[0];
-  let reading: PageCoverageReading | null = null;
-  if (x && !("unavailable" in x)) {
-    try { reading = comparePageCoverage(x, strongestOwned ? absolute(strongestOwned.url) : null); } catch { reading = null; }
-  }
+  const reading = readComparison(x, candidates);
   const ev = evidenceOf(inv, candidates, reading);
   const ids = ev.map((e) => e.id);
 
@@ -392,59 +395,4 @@ export async function adjudicateCoverage(
     "I will not recommend a new page off a comparison that came back undecided.");
   return decide(inv, v.verdict, { ownedUrls: [...new Set(named.map((c) => c!.url))], evidenceKeys: v.evidenceKeys, explanation: v.explanation,
     alternativesRuledOut: v.alternativesRuledOut.map((a) => ({ alternative: a.alternative, reason: a.reason })) });
-}
-
-// ── what to research next: ONE topic order, ONE requirement, plain strings out ──
-/** THE order every step reads: fewest missing pieces first, then the largest demand behind it, then
- *  the stable key, so the same evidence always advances the SAME topic whether it is being bought
- *  for, compared or judged. It ranks research, never work. */
-export function rankInvestigations(investigations: readonly TopicInvestigation[]): TopicInvestigation[] {
-  return [...investigations].sort((a, b) => a.missingEvidence.length - b.missingEvidence.length
-    || (b.demand.monthlySearchVolume ?? 0) - (a.demand.monthlySearchVolume ?? 0)
-    || (b.demand.gscImpressions ?? 0) - (a.demand.gscImpressions ?? 0) || a.key.localeCompare(b.key));
-}
-
-/** ONE topic, the ONE thing it is stuck on, and the exact purchase that closes it: a search to look up, or the comparison. Never both, never neither. */
-export type ResearchNeed = { topicKey: string; requirement: MissingRequirement; query: string | null; comparison: PageIntersectionAsk | null };
-
-/** The exact search that closes what the verdict named, or null when no search can. A mixed
- *  shape and an unsettled meaning are already decided by the results page ON FILE, so
- *  queueing them sent runs to fetch competitor pages for topics they would refuse anyway
- *  (26 of 53 live topics); an unread page of mine is a page to READ; and the comparison is
- *  bought by its own ask. FRESHNESS: taking the first row asked for the page I already hold
- *  whenever a group carried a current look beside a stale one, so the stale one stayed
- *  stale forever. A `winners` topic re-lists its CURRENT search so the winner reads bank
- *  that topic's own top pages, and the look itself is held already, so it is not a buy. */
-function nextResearchQuery(d: CoverageDecision, inv: TopicInvestigation): string | null {
-  const need = d.topicKey === inv.key ? d.missing[0] : null;
-  if (need === "exact_serp" || need === "fresh_serp") return inv.exactSerps.find((s) => s.freshness !== "current")?.query ?? inv.queries[0] ?? null;
-  return need === "winners" ? inv.exactSerps.find((s) => s.freshness === "current")?.query ?? null : null;
-}
-
-/** WHAT THIS ACCOUNT'S RESEARCH IS STUCK ON: at most `max` searches plus at most ONE
- *  comparison, read off the free deterministic verdict instead of guessed from which topics
- *  look unfinished. Every call here is $0 (the judgment model stays off, no provider is
- *  reached). A topic no purchase can move is skipped rather than queued, two topics stuck
- *  on one search spend one slot, and an unreadable packet never stalls the agenda. The comparison
- *  is earned only where every cheaper check is behind it, so a topic still owing a search owes it
- *  first and nothing is compared on evidence I do not hold. The walk runs past the filled search
- *  slots until it has looked for that comparison, so three cheaper topics can never starve the one
- *  decision this whole ladder exists to reach. */
-export async function researchNeeds(snapshot: EvidenceSnapshot, tenantId: string, profile: BusinessProfile | null, max: number): Promise<ResearchNeed[]> {
-  const needs: ResearchNeed[] = [];
-  const seen = new Set<string>();
-  let queries = 0;
-  for (const inv of rankInvestigations(buildTopicInvestigations(snapshot))) {
-    const compared = needs.some((n) => n.comparison);
-    if (queries >= max && compared) break;
-    const owned = ownedCandidatesFor(snapshot, inv);
-    let d: CoverageDecision;
-    try { d = await adjudicateCoverage(inv, owned, tenantId, { model: "off", outOfScopeTopics: topicOutOfScope(snapshot, inv, profile) }); } catch { continue; }
-    const query = (nextResearchQuery(d, inv) ?? "").trim();
-    const comparison = query || compared ? null : intersectionComparison(d, inv, owned);
-    if (!query ? !comparison : queries >= max || seen.has(query.toLowerCase())) continue;
-    if (query) { seen.add(query.toLowerCase()); queries += 1; }
-    needs.push({ topicKey: inv.key, requirement: d.missing[0], query: query || null, comparison });
-  }
-  return needs;
 }

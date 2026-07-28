@@ -176,7 +176,7 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     const store = memStore(s); let fetchCalls = 0;
     const out = await winningPagesUnit({ ...store.deps, loadProfile: async () => emptyBusinessProfile("tw"), getAccount: async () => ({ domain: "own.com" } as Account), now: () => NOW,
       readPageExtract: async () => ({ extract: { title: "CACHED", h1: null, wordCount: 5, headings: [], faqCount: 0 }, contentHash: "h", fetchedAt: "x" }),
-      fetchPage: (async () => { fetchCalls += 1; return { ok: false }; }) as unknown as FunnelDeps["fetchPage"] })("tw", cur(), 60_000); expect(out.status).toBe("done"); expect(fetchCalls).toBe(0); // cached extract reused before any fetch
+      fetchPage: (async () => { fetchCalls += 1; return { ok: false }; }) as unknown as FunnelDeps["fetchPage"] })("tw", cur(), 60_000); expect(out.status).toBe("advanced"); expect(fetchCalls).toBe(0); // the winners are in and the run is handed back; cached extract reused before any fetch
     const win = store.peek("tw", BASIS)!.winningPages; expect(win.map((w) => w.domain)).not.toContain("own.com"); expect(win[0]!.domain).toBe("b.com"); expect(win[0]!.engines).toEqual(["chatgpt"]); // AI-cited (x2) outweighs organic; its OWN appearances only
     expect(win[0]!.examplePrompts).toEqual(["best persian restaurant"]); expect(win[0]!.extract!.title).toBe("CACHED"); // real text, never the id
     const answers = win[0]!.appearances.filter((a) => a.kind === "ai_answer"); expect(answers.map((a) => a.observationMode)).toEqual(["consumer_search"]); // one citation, two modes: credited ONCE to the consumer look, never double-counted
@@ -194,29 +194,32 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
   const answer = { status_code: 20000, tasks: [{ status_code: 20000, result: [{ items: [{ keyword_data: { keyword: "k", keyword_info: { search_volume: 9 } }, intersection_result: { "1": { url: W1, title: "t", rank_group: 3, rank_absolute: 6 } } }] }] }] };
   const cmpSeed = () => { const s = emptyFunnelState("tx", BASIS); s.serps.queries = [{ query: "q", cacheKey: null, status: "done", observedAt: new Date(NOW).toISOString(), organic: [{ rank: 1, url: W1, domain: "a.com", title: null }] }]; return s; };
   const cmpDeps = (st: ReturnType<typeof memStore>, callProvider: FunnelDeps["callProvider"], over: Partial<FunnelDeps> = {}): FunnelDeps => ({ ...st.deps, loadProfile: async () => emptyBusinessProfile("tx"), getAccount: async () => ({ domain: "own.com" } as Account), now: () => NOW, parse, readPageExtract: async () => null, fetchPage: (async () => ({ ok: false })) as unknown as FunnelDeps["fetchPage"], callProvider, ...over });
+  const CMP = { ...cur(), stage: "compare" }; // stage TWO: the winners are already saved and the caller renewed the RUN lease in between
   it("buys ONE comparison for the WHOLE page set, never buys a landed one twice, and a resumed crash costs nothing", async () => { const asks: unknown[] = [];
     const call = (async (cap: CapabilityKey, input: unknown) => { if (cap !== "labs_page_intersection") return ok(serp([])); asks.push(input); return asks.length > 1 ? { state: "hit", envelope: answer, costUsd: 0, cacheKey: "ck-pi", modelServed: null } as CachedCallResult : ok(answer, "ck-pi"); }) as FunnelDeps["callProvider"];
-    const st = memStore(cmpSeed()); const r1 = await winningPagesUnit(cmpDeps(st, call), [], ASK)("tx", cur(), 60_000); const held = st.peek("tx", BASIS)!.pageComparisons;
+    const st = memStore(cmpSeed()); const winners = await winningPagesUnit(cmpDeps(st, call), [], ASK)("tx", cur(), 60_000);
+    expect([winners.status, winners.cursor, asks.length]).toEqual(["advanced", { stage: "compare" }, 0]); // stage one banks the winners and spends NOTHING; the purchase waits for a renewed lease
+    const r1 = await winningPagesUnit(cmpDeps(st, call), [], ASK)("tx", { ...cur(), ...winners.cursor }, 60_000); const held = st.peek("tx", BASIS)!.pageComparisons;
     expect([r1.status, asks.length, asks[0]]).toEqual(["done", 1, { pages: [W1, W2], exclude_pages: [OWN], intersection_mode: "union", limit: 100 }]); // ONE request carries every page, normalized: a call per page or per keyword is a defect
     expect([held.length, held[0]!.topicKey, held[0]!.unavailable, held[0]!.receipt, held[0]!.comparison!.pages, held[0]!.comparison!.keywords[0]!.ranks]).toEqual([1, "t1", null, "ck-pi", [{ page: 1, url: W1 }, { page: 2, url: W2 }], [{ page: 1, url: W1, title: "t", rank: 3 }]]); // parsed WITH the ask, so the slot NAMES its page; rank_group, never rank_absolute
     const round = JSON.parse(JSON.stringify(st.peek("tx", BASIS)!)) as FunnelState; expect(round.pageComparisons[0]!.askKey).toBe(held[0]!.askKey); // survives storage unchanged
-    await winningPagesUnit(cmpDeps(memStore(round), call), [], { topicKey: "t1", ask: { pages: [W1, W2, W1], exclude_pages: [OWN], intersection_mode: "union" as const, limit: 100 } })("tx", cur(), 60_000);
+    await winningPagesUnit(cmpDeps(memStore(round), call), [], { topicKey: "t1", ask: { pages: [W1, W2, W1], exclude_pages: [OWN], intersection_mode: "union" as const, limit: 100 } })("tx", CMP, 60_000);
     expect(asks.length).toBe(1); // a reorder, a duplicate and a spelled-out default are the SAME ask: the landed answer is reused and nothing is re-bought
-    await winningPagesUnit(cmpDeps(memStore(round), call), [], { topicKey: "t2", ask: ASK.ask })("tx", cur(), 60_000); // another topic never inherits this one's answer
-    await winningPagesUnit(cmpDeps(memStore(round), call), [], { topicKey: "t1", ask: { pages: [W2, "https://c.com/z"] } })("tx", cur(), 60_000); expect(asks.length).toBe(3); // a different page set is a different question
-    const crashed = memStore(cmpSeed()); const spent = await winningPagesUnit(cmpDeps(crashed, call), [], ASK)("tx", cur(), 60_000); // the crash lost the row, so the phase asks again
+    await winningPagesUnit(cmpDeps(memStore(round), call), [], { topicKey: "t2", ask: ASK.ask })("tx", CMP, 60_000); // another topic never inherits this one's answer
+    await winningPagesUnit(cmpDeps(memStore(round), call), [], { topicKey: "t1", ask: { pages: [W2, "https://c.com/z"] } })("tx", CMP, 60_000); expect(asks.length).toBe(3); // a different page set is a different question
+    const crashed = memStore(cmpSeed()); const spent = await winningPagesUnit(cmpDeps(crashed, call), [], ASK)("tx", CMP, 60_000); // the crash lost the row, so the phase asks again
     expect([spent.progress.spendUsd, crashed.peek("tx", BASIS)!.cycle.cacheHits]).toEqual([0, 1]); }); // the money core serves the SAME identity warm: zero network, zero new spend
   it("persists a refusal, a ceiling, a wait and an unreadable answer as honest gaps, spends nothing on a lost lease, and refuses a set of one", async () => {
     const cases: [CachedCallResult, string][] = [[err("blocked"), "blocked"], [err("daily_limit"), "capped"], [{ state: "capped", cacheKey: null, detail: "ceiling" }, "capped"], [waiting("ck-pi"), "waiting"], [err("quarantined"), "quarantined"], [err("retry_free"), "ambiguous"], [err("none"), "failed"], [{ state: "not_configured", cacheKey: null, detail: "off" }, "failed"]];
     for (const [result, unavailable] of cases) { const st = memStore(cmpSeed());
-      const out = await winningPagesUnit(cmpDeps(st, (async (cap: CapabilityKey) => (cap === "labs_page_intersection" ? result : ok(serp([])))) as FunnelDeps["callProvider"]), [], ASK)("tx", cur(), 60_000);
+      const out = await winningPagesUnit(cmpDeps(st, (async (cap: CapabilityKey) => (cap === "labs_page_intersection" ? result : ok(serp([])))) as FunnelDeps["callProvider"]), [], ASK)("tx", CMP, 60_000);
       const row = st.peek("tx", BASIS)!.pageComparisons[0]!; expect([out.status, row.comparison, row.unavailable, row.pages]).toEqual(["done", null, unavailable, [W1, W2]]); } // the winners are still in; the comparison names its own gap and never reads as a finding
-    const unread = memStore(cmpSeed()); await winningPagesUnit(cmpDeps(unread, (async (cap: CapabilityKey) => (cap === "labs_page_intersection" ? ok(null, "ck-pi") : ok(serp([])))) as FunnelDeps["callProvider"]), [], ASK)("tx", cur(), 60_000);
+    const unread = memStore(cmpSeed()); await winningPagesUnit(cmpDeps(unread, (async (cap: CapabilityKey) => (cap === "labs_page_intersection" ? ok(null, "ck-pi") : ok(serp([])))) as FunnelDeps["callProvider"]), [], ASK)("tx", CMP, 60_000);
     expect(unread.peek("tx", BASIS)!.pageComparisons[0]!.unavailable).toBe("ambiguous"); // an answer I cannot read is not zero shared searches
     let calls = 0; const count = (async (cap: CapabilityKey) => { if (cap === "labs_page_intersection") calls += 1; return ok(serp([])); }) as FunnelDeps["callProvider"];
     const lost = await winningPagesUnit(cmpDeps(memStore(cmpSeed()), count, { saveState: async () => null }), [], ASK)("tx", cur(), 60_000);
-    expect([lost.status, lost.code, calls]).toEqual(["failed", "state_conflict", 0]); // losing the lease stops the side effect BEFORE it is paid for, never after
-    const one = memStore(cmpSeed()); await winningPagesUnit(cmpDeps(one, count), [], { topicKey: "t1", ask: { pages: [W1] } })("tx", cur(), 60_000);
+    expect([lost.status, lost.code, calls]).toEqual(["failed", "state_conflict", 0]); // a concurrent writer moved the research row: the winners never land, so the comparison stage is never reached
+    const one = memStore(cmpSeed()); await winningPagesUnit(cmpDeps(one, count), [], { topicKey: "t1", ask: { pages: [W1] } })("tx", CMP, 60_000);
     expect([calls, one.peek("tx", BASIS)!.pageComparisons]).toEqual([0, []]); }); // one page is not a comparison: refused before the money, and nothing stored
 });
 describe("evidence - my own page's actual words, read narrowly", () => {

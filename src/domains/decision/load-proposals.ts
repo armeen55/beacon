@@ -26,6 +26,7 @@ import "server-only";
 import { basisTag, getTenant, loadBusinessProfile, type BusinessProfile } from "@/domains/account";
 import { loadChangeProposals } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
+import { validateProposal } from "./validate-proposal";
 import type { ChangeProposal } from "./contracts";
 
 /**
@@ -43,10 +44,12 @@ import type { ChangeProposal } from "./contracts";
  *       picked by whether the search words appeared in the stored title is history.
  *   5 = no new page is proposed at all. Turning a competitor's example prompt into a
  *       page shipped duplicates of pages the account already owned, so generation is
- *       deleted until the evidence can prove a distinct page should exist. Every
- *       page brief drafted under the old rule is history.
+ *       deleted until the evidence can prove a distinct page should exist.
+ *   6 = a new page is proposed again, and ONLY where the page by page comparison proved
+ *       the winning pages share searches no page of this account reaches. Every page
+ *       brief drafted under any earlier rule is history.
  */
-const DECISION_GENERATION = 5;
+const DECISION_GENERATION = 6;
 
 /**
  * The account's CURRENT research basis, or null when it cannot be read. Composes
@@ -125,13 +128,14 @@ export async function loadProposalQueue(
   // proof I cannot tell, so I show you nothing rather than guess. A set-aside row keeps
   // its words, its status and its history: no stored row is rewritten or deleted, it
   // just stops presenting as work waiting on you, and it is counted below so I can say so.
-  // NEW PAGES ARE HISTORY, BY CONSTRUCTION (generation 5). The machinery that proposes
-  // one is deleted, so a `new_page` row can only be an older idea. Refusing the KIND
-  // here, not just the basis, means the guarantee stops resting on every future writer
-  // remembering: even a row stamped with today's basis cannot reach you as work. It is
-  // still COUNTED below, because an idea I withdrew is one I owe you an account of.
+  // A NEW PAGE PASSES THE SAME BAR TWICE. Under generation 6 a page brief may be work
+  // again, but only one built to today's evidence contract: the earned verdict it came
+  // from, an outline, and every piece tracing to a receipt item. A brief carrying none of
+  // that is an older idea however current its basis looks, and reviving the ones that
+  // turned a rival's example question into an article is the worst thing this queue could
+  // do, so it is refused here and still COUNTED below.
   const current = currentBasis == null ? []
-    : all.filter((p) => p.basis === currentBasis && p.kind !== "new_page");
+    : all.filter((p) => p.basis === currentBasis && (p.kind !== "new_page" || validateProposal(p).verdict !== "rejected"));
   const demotedStaleBasis = all.length - current.length;
   // WHY the queue is empty decides what I may say. "I raised the bar" is true of an
   // older or missing basis and a lie when I simply could not read the account, so the

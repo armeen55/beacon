@@ -12,6 +12,9 @@
  */
 import type { ProviderEnvelope } from "./dataforseo/funnel-boundary";
 import { publisherHost } from "@/domains/evidence/serp-shape";
+import { createHash } from "node:crypto";
+
+const sha16 = (s: string): string => createHash("sha256").update(s).digest("hex").slice(0, 16);
 
 // ── the ask (normalized BEFORE it becomes a cache identity) ───────────────────
 
@@ -74,6 +77,14 @@ const level = (v: unknown): "low" | "medium" | "high" | null => { const s = type
  * EMPTY rather than guessed. A metric the provider did not send stays NULL, never 0:
  * "I do not know the difficulty" and "the difficulty is 0" are different claims.
  */
+/** THE identity of one comparison ask: the complete normalized request, so the mode and the
+ *  limit count as much as the pages. The writer stamps it and the reader matches on it, from
+ *  ONE definition, because two spellings of "the same question" is how a stored answer starts
+ *  meaning something the verdict did not ask. */
+export function askIdentity(ask: PageIntersectionAsk): string {
+  return sha16(JSON.stringify(normalizePageIntersection(ask)));
+}
+
 export function parsePageIntersection(env: ProviderEnvelope, ask?: PageIntersectionAsk): ParsedPageIntersection {
   const a = ask ? normalizePageIntersection(ask) : null;
   const result = env.tasks?.[0]?.result;
