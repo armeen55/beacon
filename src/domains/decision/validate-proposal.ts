@@ -12,7 +12,9 @@
  *     sourced contradiction of the page is an allowed CORRECTION (surfaced, not
  *     blocked).
  *   - placeholder-detection.ts (looksLikePlaceholder) — "[insert X]" / lorem.
- *   - copy-sanitize.ts (containsUuid) — a raw id leaking into operator copy.
+ *   - copy-sanitize.ts (containsUuid, plus the SHARED host, autopublish and written-out
+ *     proportion nets this file used to keep a smaller private copy of: it knew thirteen public
+ *     suffixes where the drafter knew thirty-three, so an invented .wiki address passed both).
  *   - dash ban — no em/en dash ever reaches operator-facing copy.
  *   - destructive-change guard — an "edit" that guts the current value (empties
  *     it or truncates it to a fraction) is never presented as a safe rewrite.
@@ -29,8 +31,8 @@ import {
 import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/decision/drafts/factual-entailment";
 import type { ClassifiableSource } from "@/domains/decision/drafts/source-authority";
 import { looksLikePlaceholder } from "./placeholder-detection";
-import { containsUuid } from "./copy-sanitize";
-import type { ChangeProposal, ProposalStatus } from "./contracts";
+import { containsUuid, AUTOPUBLISH_RE, CODE_SUFFIX, HOST_RE, SPELLED_PROPORTION_RE } from "./copy-sanitize";
+import type { ChangeProposal, ProposalStatus, RecommendedChange } from "./contracts";
 
 /** Quality statuses that are HARD failures — never actionable, always rejected.
  *  These are inventions / garbage / off-topic / malformed drafts: unsafe copy.
@@ -73,6 +75,62 @@ function operatorFacingText(proposal: ChangeProposal): string[] {
   const c = proposal.recommendedChange;
   if (c.kind === "existing_edit") return [c.after];
   return [c.proposedTitle, c.metaDescription, c.openingAnswer, ...c.outline, ...c.faqQuestions];
+}
+
+const NUMBER_RE = /\d[\d,.]*/g;
+/** The proposal must say out loud that the operator is the one who publishes it. */
+const MANUAL_RE = /\byou\b[^.]{0,80}\bpublish/i;
+const digits = (s: string): string => s.replace(/,/g, "").replace(/\.$/, "");
+
+/**
+ * THE new-page gate (N4, 2026-07-28). A page brief is not quality-checked like a title
+ * rewrite: there is no current value to compare it against and no page body to entail it
+ * from. What CAN be checked is that it is a researched page rather than an idea somebody
+ * had, so this asks exactly that and rejects everything that cannot show it: the earned
+ * verdict it was built from, copy that is about this topic, an outline that is real and not
+ * repeated, every component tracing to a receipt item, and no number, address or promise the
+ * evidence does not carry. HISTORY FAILS HERE BY CONSTRUCTION: a brief drafted before this
+ * contract carries no bundle, so it can never be shown as work. PURE.
+ */
+function evaluateNewPageBrief(
+  proposal: ChangeProposal,
+  change: Extract<RecommendedChange, { kind: "new_page" }>,
+  evidenceText: string | null,
+): DraftQualityResult {
+  const bad = (reason: string): DraftQualityResult =>
+    ({ status: "malformed", reasons: [reason], copyAllowed: false, canRegenerate: false, confidence: "low" });
+  const bundle = proposal.bundle;
+  const items = bundle?.receipt.items ?? [];
+  // The earned verdict itself, carried as inspectable evidence beside the pages it compared.
+  if (!bundle || !items.some((i) => i.key === "verdict" && i.kind === "diagnosis") || bundle.alternatives.length === 0) {
+    return bad("I cannot show you the research that proved this page is missing, so I am not putting it in front of you.");
+  }
+  const keys = new Set(items.map((i) => i.key));
+  if (bundle.components.some((c) => c.evidenceKeys.length === 0 || c.evidenceKeys.some((k) => !keys.has(k)))) {
+    return bad("Part of this page cannot be traced back to anything I checked, so I am not putting it in front of you.");
+  }
+  const headings = change.outline.map((h) => h.trim().toLowerCase()).filter(Boolean);
+  if (headings.length < 3 || new Set(headings).size !== headings.length) {
+    return bad("This page's sections are too thin or repeat each other, so I am not putting it in front of you.");
+  }
+  const topic = new Set(proposal.primaryQuery.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2));
+  const about = (t: string): boolean => topic.size === 0 || t.toLowerCase().split(/[^a-z0-9]+/).some((w) => topic.has(w));
+  if (![change.proposedTitle, change.metaDescription, change.openingAnswer].every((t) => t.trim().length > 0 && about(t))) {
+    return bad("This page's title, description or opening does not say what the page is about, so I am not putting it in front of you.");
+  }
+  const grounding = [evidenceText ?? "", ...items.map((i) => i.fact), ...proposal.evidence.hints].join(" ").toLowerCase();
+  const copy = [...operatorFacingText(proposal), ...bundle.components.map((c) => c.after)].join(" ");
+  if (AUTOPUBLISH_RE.test(copy) || SPELLED_PROPORTION_RE.test(copy) || proposal.publish !== "manual" || !MANUAL_RE.test([proposal.whyItMatters, ...bundle.risks].join(" "))) {
+    return bad("This page does not say plainly that you are the one who publishes it, so I am not putting it in front of you.");
+  }
+  const grounded = new Set((grounding.match(NUMBER_RE) ?? []).map(digits));
+  const stray = (copy.match(NUMBER_RE) ?? []).map(digits).find((n) => !grounded.has(n));
+  if (stray) return bad(`This page quotes ${stray}, which is not a figure I actually hold, so I am not putting it in front of you.`);
+  const strayHost = (copy.match(HOST_RE) ?? []).map((h) => h.toLowerCase()).filter((h) => !CODE_SUFFIX.test(h)).find((h) => !grounding.includes(h));
+  if (strayHost) return bad(`This page names ${strayHost}, which is not a site I actually looked at, so I am not putting it in front of you.`);
+  // Everything this gate can check is checked. The caution a brand new page deserves rides
+  // on the bundle's own risks, where the operator reads it, not as a held status.
+  return { status: "ready", reasons: [], copyAllowed: true, canRegenerate: true, confidence: "medium" };
 }
 
 /** Destructive-change guard: an existing-page edit that empties or guts the
@@ -163,12 +221,7 @@ export function validateProposal(
       authoritativeSourceDomains: opts.authoritativeSourceDomains,
     });
   } else {
-    // UNREACHABLE at decision generation 5: nothing proposes a new page, and the
-    // drafter that wrote page briefs is deleted. A brief arriving here would be a bug,
-    // so it fails closed instead of being quality-checked into the queue. The variant
-    // itself stays on the contract because stored rows must still decode.
-    quality = { status: "malformed", reasons: ["I do not draft new pages right now, so I am not putting this in front of you."],
-      copyAllowed: false, canRegenerate: false, confidence: "high" };
+    quality = evaluateNewPageBrief(proposal, change, opts.evidenceText ?? null);
   }
 
   // ── compose the single verdict ──────────────────────────────────────────────

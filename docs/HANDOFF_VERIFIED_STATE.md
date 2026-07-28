@@ -177,9 +177,9 @@ New customer routes require operator approval.
 
 ## Next slice
 
-New-page generation stays DELETED (N1, generation 5). N2 built the non-actionable research packet; N3a gave it a
-production consumer naming the strongest of 53 live packets. NEXT is N3b, owned-page coverage mapping and the
-five-verdict adjudication, which nothing yet produces; then N3c, N4 (drafts only on an earned create_new), Shipment.
+Prompt-to-page generation stays DELETED (N1). N2 built the research packet, N3a its consumer, N3b owned-page
+mapping and the five-verdict adjudication, N3c the page comparison, N3d the run that buys and remembers ONE of
+them, and N4 the single page an earned create_new may draft (generation 6). NEXT is Shipment: nothing publishes.
 
 ## Verification
 

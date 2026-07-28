@@ -345,6 +345,37 @@ export const CoverageAdjudicationSchema = z.object({
 });
 export type CoverageAdjudication = z.infer<typeof CoverageAdjudicationSchema>;
 
+// ── new page brief (N4, 2026-07-28) ─────────────────────────────────────────
+// The ONE call a verdict of create_new may make, AFTER the comparison earned it. The
+// model writes the page's words and its section plan; it may not decide THAT the page
+// should exist, and no field here can carry a shape or an intent. Every address,
+// question and evidence id is echoed from the caller's lists and re-checked after.
+
+export const NewPageBriefSchema = z.object({
+  proposedTitle: z.string().min(10).max(120),
+  metaDescription: z.string().min(40).max(200),
+  /** The answer a searcher gets in the first paragraph, before anything else. */
+  openingAnswer: z.string().min(60).max(800),
+  /** Evidence ids, copied EXACTLY from the supplied list, that the title, description and
+   *  opening answer rest on. One generic set stapled on afterwards proved none of them. */
+  headKeys: z.array(z.string().min(1).max(40)).min(1).max(8),
+  /** Why the pages this account already owns cannot carry this. Must name one of them. */
+  whyExistingPagesLose: z.string().min(20).max(500),
+  sections: z.array(z.object({
+    heading: z.string().min(3).max(120),
+    covers: z.string().min(20).max(400),
+    /** Evidence ids copied EXACTLY from the supplied list. */
+    evidenceKeys: z.array(z.string().min(1).max(40)).min(1).max(8),
+  })).min(3).max(8),
+  /** What the writer must cite, and what must be checked before this goes live. */
+  sourceRequirements: z.array(z.string().min(10).max(240)).max(6),
+
+  factRequirements: z.array(z.string().min(10).max(240)).max(6),
+  /** Addresses and questions copied EXACTLY from the supplied OWN PAGES and OBSERVED QUESTIONS lists. */
+  internalLinks: z.array(z.object({ url: z.string().min(1).max(300), anchor: z.string().min(2).max(120) })).max(4),
+  faqQuestions: z.array(z.string().min(5).max(200)).max(6),
+});
+export type NewPageBrief = z.infer<typeof NewPageBriefSchema>;
 // ── registry: kind → schema (the structured-drafter dispatches on this) ──────
 
 export type StructuredDraftKind =
@@ -358,7 +389,7 @@ export type StructuredDraftKind =
   | "strategy_review"
   | "section_draft"
   | "outreach_pitch"
-  | "coverage_adjudication"
+  | "coverage_adjudication" | "new_page_brief"
   | "business_profile_inference" | "business_profile_patch" | "prompt_candidates";
 
 export const SCHEMA_BY_KIND = {
@@ -373,6 +404,7 @@ export const SCHEMA_BY_KIND = {
   section_draft: SectionDraftSchema,
   outreach_pitch: OutreachPitchSchema,
   coverage_adjudication: CoverageAdjudicationSchema,
+  new_page_brief: NewPageBriefSchema,
   business_profile_inference: BusinessProfileInferenceSchema,
   business_profile_patch: BusinessProfilePatchSchema,
   prompt_candidates: PromptCandidatesSchema,

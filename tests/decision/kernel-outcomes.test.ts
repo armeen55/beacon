@@ -3,7 +3,7 @@
 import { describe, it, expect, vi } from "vitest";
 // Budget is not this file's subject: always-allowed, no-op hermetic seam.
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
-const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as { id: string }[], store: new Map<string, ChangeProposal>(), failWrites: false, bundleTarget: null as string | null }));
+const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), failWrites: false, bundleTarget: null as string | null }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
 // The REAL fingerprint is under test; only the two I/O calls are seams. The deep bundle has its own suite, so here it only reports WHICH page it was aimed at.
 vi.mock("@/domains/decision/proposal-store", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision/proposal-store")>("@/domains/decision/proposal-store")), loadChangeProposals: async () => env.store,
@@ -16,8 +16,11 @@ import { validateProposal } from "@/domains/decision/validate-proposal";
 import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals";
 import { compileCandidates, snapshotToEvidenceInputs } from "@/domains/decision/opportunities";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
-import { topInvestigationQueries } from "@/domains/runtime/ops/investigation-queries";
-import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { ownedCandidatesFor } from "@/domains/decision/owned-coverage"; import { buildTopicInvestigations } from "@/domains/evidence/topic-investigation";
+import { chooseInvestigation, comparisonForFocus, focusQueries } from "@/domains/runtime/ops/investigation-queries";
+const queued = async (tenantId: string) => focusQueries(await chooseInvestigation(tenantId, null));
+import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { ownedCandidatesFor } from "@/domains/decision/owned-coverage"; import { askIdentity } from "@/domains/evidence/page-intersection";
+import { buildTopicInvestigations } from "@/domains/evidence/topic-investigation";
+import { readCoverage, rankInvestigations } from "@/domains/decision/coverage-pass"; import { loadProposalQueue } from "@/domains/decision/load-proposals";
 import { emptyResearchEvidence, type FunnelResearchEvidence, type ResearchPageComparison } from "@/domains/evidence/funnel/research-evidence";
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot";
 import { serializeChangeProposal, deserializeChangeProposal, type EvidenceInput, type ChangeProposal } from "@/domains/decision/contracts";
@@ -169,24 +172,117 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
 const HAFT = "haft seen table"; const LOOKED_AT = "2026-07-25T00:00:00.000Z"; const RIVAL = (n: number) => `https://r${n}.example/a`; const DEMAND: EvidenceSnapshot["keywordDemand"] = [{ query: HAFT, searchVolume: 900, source: "dataforseo", competition: null, competitionLevel: null, gscImpressions: null }]; const COMPARED = [`https://${GAP_URL}`, RIVAL(1), RIVAL(2), RIVAL(3)].sort();
 /** A dated look whose results agree on one meaning and one shape, with an intent on file: everything settled except the pages themselves. */ const GUIDED: FunnelResearchEvidence = { ...emptyResearchEvidence(), retainedKeywords: [{ query: HAFT, searchVolume: 900, competition: null, competitionLevel: null, difficulty: null, intent: "informational", discoveredVia: "gsc", seed: null }],
   serpEvidence: [{ query: HAFT, observedAt: LOOKED_AT, aiOverview: [], aiMode: [], paa: [], related: [], organic: [1, 2, 3].map((rank) => ({ rank, domain: `r${rank}.example`, url: RIVAL(rank), title: `${HAFT} guide` })) }] };
-/** Every cheaper check behind me: three publishers I read, my own page on those results, and the answer to exactly the comparison this pass would buy. */ const READY = (over: Partial<ResearchPageComparison> = {}): FunnelResearchEvidence => ({ ...GUIDED, serpEvidence: [{ ...GUIDED.serpEvidence[0]!, organic: [...GUIDED.serpEvidence[0]!.organic, { rank: 4, domain: "fixture-outdoors.example", url: GAP_URL, title: "Nowruz" }] }], winningPages: [1, 2, 3].map((n) => ({ url: RIVAL(n), domain: `r${n}.example`, engines: [], examplePrompts: [], appearances: [{ kind: "serp_organic" as const, query: HAFT, promptId: null, promptText: null, engine: null, rank: n, citedUrl: RIVAL(n), observedAt: LOOKED_AT, modelServed: null }], extract: { title: "g", h1: "g", wordCount: 900, headings: [], faqCount: 0, fetchedAt: LOOKED_AT } })), pageComparisons: [{ topicKey: "", askKey: "k", pages: COMPARED, excludePages: [], observedAt: LOOKED_AT, receipt: null, unavailable: null, comparison: { intersectionMode: "union", excludePages: [], pages: COMPARED.map((url, i) => ({ page: i + 1, url })), keywords: ["a", "b", "c"].map((keyword, i) => ({ keyword, searchVolume: 500, competition: null, competitionLevel: null, difficulty: null, mainIntent: "informational", ranks: (i === 2 ? [3, 4] : [2, 3]).map((page) => ({ page, url: COMPARED[page - 1]!, title: null, rank: page })) })) }, ...over }] });
+/** Every cheaper check behind me: three publishers I read, my own page on those results, and the answer to exactly the comparison this pass would buy. */ const READY = (over: Partial<ResearchPageComparison> = {}): FunnelResearchEvidence => ({ ...GUIDED, serpEvidence: [{ ...GUIDED.serpEvidence[0]!, organic: [...GUIDED.serpEvidence[0]!.organic, { rank: 4, domain: "fixture-outdoors.example", url: GAP_URL, title: "Nowruz" }] }], winningPages: [1, 2, 3].map((n) => ({ url: RIVAL(n), domain: `r${n}.example`, engines: [], examplePrompts: [], appearances: [{ kind: "serp_organic" as const, query: HAFT, promptId: null, promptText: null, engine: null, rank: n, citedUrl: RIVAL(n), observedAt: LOOKED_AT, modelServed: null }], extract: { title: "g", h1: "g", wordCount: 900, headings: [], faqCount: 0, fetchedAt: LOOKED_AT } })), pageComparisons: [{ topicKey: "", askKey: askIdentity({ pages: COMPARED, intersection_mode: "union" }), pages: COMPARED, excludePages: [], observedAt: LOOKED_AT, receipt: null, unavailable: null, comparison: { intersectionMode: "union", excludePages: [], pages: COMPARED.map((url, i) => ({ page: i + 1, url })), keywords: ["haft seen table on wikipedia.org", "b", "c"].map((keyword, i) => ({ keyword, searchVolume: 500, competition: null, competitionLevel: null, difficulty: null, mainIntent: "informational", ranks: (i === 2 ? [3, 4] : [2, 3]).map((page) => ({ page, url: COMPARED[page - 1]!, title: null, rank: page })) })) }, ...over }] });
+const keyOf = (research: FunnelResearchEvidence): string => buildTopicInvestigations(snap([GAP], research, DEMAND)).find((i) => i.label === HAFT)!.key;
+/** One bought comparison, written as which requested page ranks for which search (page 1 is my own). */
+const comparisonOf = (rows: Array<[string, number[]]>) => ({ intersectionMode: "union" as const, excludePages: [], pages: COMPARED.map((url, i) => ({ page: i + 1, url })),
+  keywords: rows.map(([keyword, ranks]) => ({ keyword, searchVolume: 500, competition: null, competitionLevel: null, difficulty: null, mainIntent: "informational",
+    ranks: ranks.map((page) => ({ page, url: COMPARED[page - 1]!, title: null, rank: page })) })) });
 describe("the pass says what it is investigating without turning any of it into work", () => {
   it("carries the research packets, picks the SAME strongest topic from the same evidence, and proposes nothing off them", async () => {
     const world = () => snap([WINNER], looked([["nowruz traditions", GAP_URL]])); // a page with no gap, plus one results page I have read
     let called = 0; const complete: CompleteFn = async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; };
     reset(world()); const first = await produceProposalsForTenant("fixture-tenant", { complete, now: NOW }); reset(world()); const again = await produceProposalsForTenant("fixture-tenant", { complete, now: NOW });
-    expect(first.investigations.length).toBeGreaterThan(0); expect(first.strongestInvestigation!.key).toBe(again.strongestInvestigation!.key); // the packet reaches the pass, and the same evidence picks the same topic every time
+    expect(first.investigations.length).toBeGreaterThan(0); expect(first.coverage).toEqual(again.coverage); // the packet reaches the pass, and the same evidence reaches the same answer every time
     expect([first.outcome, first.proposals.length, called, env.saved.length]).toEqual(["no_actionable_candidate", 0, 0, 0]); }); // no candidate, no draft, no row
   it("queues one search per topic and only what buying can actually close", async () => {
     const asked = { promptId: "p1", promptText: "where do I see nowruz fire jumping", engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [], fanOutQueries: ["nowruz fire jumping"], observedAt: LOOKED_AT };
     reset(snap([GAP, WEAK], { ...GUIDED, aiObservations: [asked] }, DEMAND)); // one topic settled but unread, one never looked at, and two page gaps that are no topic at all
-    expect(await topInvestigationQueries("fixture-tenant")).toEqual([HAFT, "nowruz fire jumping"]); // read that one's winners, buy the other one's missing look
-    reset(snap([GAP], looked([[HAFT, GAP_URL]], LOOKED_AT))); expect(await topInvestigationQueries("fixture-tenant")).toEqual([]); }); // a dated look answering two meanings of the phrase: no purchase settles that, so it queues nothing
-  it("reaches a final verdict from the comparison it already bought, and refuses one bought for a different topic", async () => {
-    const key = buildTopicInvestigations(snap([GAP], READY(), DEMAND))[0]!.key; reset(snap([GAP], READY({ topicKey: key }), DEMAND)); const held = await produceProposalsForTenant("fixture-tenant", { now: NOW });
-    expect([held.coverageVerdict!.verdict, held.coverageVerdict!.missing, held.coverageComparison]).toEqual(["create_new", [], null]); // nothing injected, and nothing bought twice
-    reset(snap([GAP], READY({ topicKey: "inv_somebody_else" }), DEMAND)); const other = await produceProposalsForTenant("fixture-tenant", { now: NOW }); // an answer to another question is no answer
-    expect([other.coverageVerdict!.verdict, other.coverageVerdict!.missing, other.coverageComparison !== null]).toEqual(["research_needed", ["page_intersection"], true]); }); }); // an answer to another question is no answer // ── do I already have the right page for what I investigated? ────────────────
+    expect(await queued("fixture-tenant")).toEqual([HAFT, "nowruz fire jumping"]); // read that one's winners, buy the other one's missing look
+    reset(snap([GAP], looked([[HAFT, GAP_URL]], LOOKED_AT))); expect(await queued("fixture-tenant")).toEqual([]); }); // a dated look answering two meanings of the phrase: no purchase settles that, so it queues nothing
+  it("reaches a final verdict from the comparison it already bought, and refuses one bought for a different topic, a different ask or a basis it cannot read", async () => {
+    const key = keyOf(READY()); reset(snap([GAP], READY({ topicKey: key }), DEMAND)); const held = await produceProposalsForTenant("fixture-tenant", { now: NOW });
+    expect([held.coverage!.investigation.key, held.coverage!.decision.verdict, held.coverage!.decision.missing]).toEqual([key, "create_new", []]); // nothing injected, and nothing bought twice
+    for (const drift of [{ topicKey: "inv_somebody_else" }, { topicKey: key, pages: [...COMPARED, "https://r9.example/a"] }]) { // an answer to another question, and an answer to another set of pages
+      const research = READY(drift); const stuck = await readCoverage(snap([GAP], research, DEMAND), "fixture-tenant", { basis: "basis_today", maxQueries: 1 });
+      expect([stuck.decided, stuck.needs[0]!.requirement, stuck.needs[0]!.comparison !== null]).toEqual([null, "page_intersection", true]); }
+    const blind = await readCoverage(snap([GAP], READY({ topicKey: key }), DEMAND), "fixture-tenant", { basis: null, maxQueries: 1 }); // a basis I cannot read proves nothing current
+    expect([blind.decided, blind.needs[0]!.requirement]).toEqual([null, "page_intersection"]);
+    const quiet = await readCoverage(snap([GAP], READY({ topicKey: "inv_nobody" }), DEMAND), "fixture-tenant", { basis: "basis_today" }); // asked for no research: none is queued, comparison included
+    expect(quiet.needs).toEqual([]); });
+  it("buys a comparison only for a topic THIS run froze, under the basis it froze it under, even when the plan holds several", async () => {
+    const key = keyOf(READY()); reset(snap([GAP], READY({ topicKey: "inv_bought_for_nobody" }), DEMAND)); // the comparison is still owed, and the plan is up to three topics, not one
+    const plan = await chooseInvestigation("fixture-tenant", "basis_today"); expect(plan!.topics.length).toBeGreaterThan(0);
+    const mixed = { basis: "basis_today", topics: [{ topicKey: "inv_not_this_run", query: "something else", requirement: "exact_search" }, ...plan!.topics] };
+    expect((await comparisonForFocus("fixture-tenant", mixed, "basis_today"))?.topicKey).toBe(key); // the earned one, picked out of a plan holding a stranger
+    const stranger = { basis: "basis_today", topics: mixed.topics.slice(0, 1) }; // a plan this run really did freeze, that simply never earned this comparison
+    expect(await comparisonForFocus("fixture-tenant", stranger, "basis_today")).toBeNull();
+    expect(await comparisonForFocus("fixture-tenant", mixed, "basis_moved_on")).toBeNull(); }); }); // frozen under a basis the account has since left // ── a subject I own no page for becomes ONE researched page ───────────────────
+/** A SECOND topic that outranks the one holding the comparison and that no purchase can move: bigger demand,
+ *  results I have read, and a page of my own that could already be the answer whose words I have never held. */
+const PARKED = "nowruz table settings"; const PARK_RIVAL = (n: number) => `https://p${n}.example/a`; const UNREAD_URL = "fixture-outdoors.example/nowruz-table";
+const UNREAD: OwnedPageEvidence = { ...ownedPage(UNREAD_URL, "T", { impressions: 10, clicks: 1 }, []), content: null };
+const PARKED_DEMAND: EvidenceSnapshot["keywordDemand"] = [{ query: PARKED, searchVolume: 2000, source: "dataforseo", competition: null, competitionLevel: null, gscImpressions: null }];
+const withParked = (r: FunnelResearchEvidence): FunnelResearchEvidence => ({ ...r,
+  retainedKeywords: [...r.retainedKeywords, { query: PARKED, searchVolume: 2000, competition: null, competitionLevel: null, difficulty: null, intent: "informational", discoveredVia: "gsc", seed: null }],
+  serpEvidence: [...r.serpEvidence, { query: PARKED, observedAt: LOOKED_AT, aiOverview: [], aiMode: [], paa: [], related: [], organic: [...[1, 2, 3].map((rank) => ({ rank, domain: `p${rank}.example`, url: PARK_RIVAL(rank), title: `${PARKED} guide` })), { rank: 4, domain: "fixture-outdoors.example", url: UNREAD_URL, title: "T" }] }],
+  winningPages: [...r.winningPages, ...[1, 2, 3].map((n) => ({ url: PARK_RIVAL(n), domain: `p${n}.example`, engines: [], examplePrompts: [], appearances: [{ kind: "serp_organic" as const, query: PARKED, promptId: null, promptText: null, engine: null, rank: n, citedUrl: PARK_RIVAL(n), observedAt: LOOKED_AT, modelServed: null }], extract: { title: "g", h1: "g", wordCount: 900, headings: [], faqCount: 0, fetchedAt: LOOKED_AT } }))] });
+/** A brief with no figure, no address and no question the evidence did not supply. */
+const BRIEF = { proposedTitle: "The haft seen table, and what belongs on it", metaDescription: "What a haft seen table is, what goes on it, and how families set one out for the new year.",
+  openingAnswer: "A haft seen table is the spread a household sets out for the new year, and each item on it stands for something the family hopes the year will bring.",
+  whyExistingPagesLose: "Your page fixture-outdoors.example/nowruz-guide covers the wider holiday and never sets out the table itself, so stretching it would bury the answer people are looking for.",
+  sections: ["What a haft seen table is", "What goes on the table", "How families set the table out"].map((heading) => ({ heading, covers: "Answer this plainly and name what belongs on it.", evidenceKeys: ["verdict"] })),
+  sourceRequirements: ["Cite a cultural reference for what each item stands for."], factRequirements: ["Check every item name against a source before this goes out."],
+  internalLinks: [{ url: GAP_URL, anchor: "the wider holiday" }], faqQuestions: [], headKeys: ["verdict"] };
+const briefSeam = (): { complete: CompleteFn; kinds: string[] } => { const kinds: string[] = []; return { kinds, complete: async ({ kind }) => { kinds.push(kind); return { value: (kind === "new_page_brief" ? BRIEF : VALID_ATOMIC_EDIT) as never }; } }; };
+describe("a subject I own no page for becomes ONE researched page, and nothing else does", () => {
+  it("judges the topic that OWNS the comparison, even while a topic that outranks it is parked and can never move", async () => {
+    const research = withParked(READY({ topicKey: keyOf(READY()) })); const world = snap([GAP, UNREAD], research, [...DEMAND, ...PARKED_DEMAND]);
+    const order = buildTopicInvestigations(world); const parked = order.find((i) => i.label === PARKED)!;
+    const read = await readCoverage(world, "fixture-tenant", { basis: "basis_today", maxQueries: 3 });
+    expect(rankInvestigations(order)[0]!.key).toBe(parked.key); // the parked topic ranks first and no purchase can move it
+    expect(read.needs.some((n) => n.topicKey === parked.key)).toBe(false); // so nothing is bought for it
+    expect([read.decided!.investigation.label, read.decided!.decision.verdict]).toEqual([HAFT, "create_new"]); }); // and the comparison I paid for is read for the topic that owns it
+  it("builds exactly ONE new page from the earned verdict, and it reaches Ready as current work", async () => {
+    reset(snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND)); const seam = briefSeam();
+    const res = await produceProposalsForTenant("fixture-tenant", { complete: seam.complete, now: NOW });
+    expect(seam.kinds).toEqual(["new_page_brief"]); // the ONE call an earned verdict makes, and no other draft this pass
+    const pages = res.proposals.filter((p) => p.kind === "new_page"); expect(pages).toHaveLength(1);
+    const page = pages[0]!; expect(page.recommendedChange).toEqual({ kind: "new_page", proposedTitle: BRIEF.proposedTitle, metaDescription: BRIEF.metaDescription,
+      openingAnswer: BRIEF.openingAnswer, outline: BRIEF.sections.map((s) => s.heading), faqQuestions: [], schemaTypes: [] }); // no markup is guessed for a page that does not exist yet
+    expect([page.status, page.pagePath, page.publish, validateProposal(page).verdict]).toEqual(["proposed", null, "manual", "ready"]);
+    expect(page.bundle!.receipt.items.some((i) => i.key === "verdict")).toBe(true); expect(page.bundle!.components.map((c) => c.kind)).toEqual(["title", "meta", "opening_answer", "section", "source_pack", "internal_links"]);
+    const queue = await loadProposalQueue("fixture-tenant", { currentBasis: page.basis! }); expect(queue.ready.map((p) => p.id)).toContain(page.id);
+    const again = await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW }); expect(again.reused).toBe(1); }); // a refresh re-pays nothing
+  it.each([["the winners share too little to be a pattern", [["a", [2, 3]], ["b", [2, 3]]], "do_nothing"],
+    ["a page I already have carries the cluster", [["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]], "improve_existing"],
+  ] as Array<[string, Array<[string, number[]]>, string]>)("answers %s without building anything", async (_what, rows, verdict) => {
+    const research = READY({ topicKey: keyOf(READY()), comparison: comparisonOf(rows) }); reset(snap([GAP], research, DEMAND)); const seam = briefSeam();
+    const res = await produceProposalsForTenant("fixture-tenant", { complete: seam.complete, now: NOW });
+    expect(res.coverage!.decision.verdict).toBe(verdict); expect(seam.kinds).not.toContain("new_page_brief"); expect(res.proposals.every((p) => p.kind !== "new_page")).toBe(true); });
+  it("throws away a brief that names a site, a page, a question or a figure nobody gave it", async () => {
+    const strays = [{ proposedTitle: "What r9.example says about the haft seen table" }, { internalLinks: [{ url: "fixture-outdoors.example/invented", anchor: "x" }] },
+      { faqQuestions: ["Where can I buy a haft seen table set"] }, { sections: BRIEF.sections.map((s) => ({ ...s, evidenceKeys: ["made-up"] })) },
+      { factRequirements: ["Check this against nowruz.ai before it goes out."] }, // a suffix the old fourteen-name list had never heard of
+      { sourceRequirements: ["Check every item name against persianculture.wiki first."] }, // and one the FINAL validator had never heard of either
+      { openingAnswer: `${BRIEF.openingAnswer} Nine in ten households set one out.` }, // a fabricated proportion that carries no digit at all
+      { metaDescription: `${BRIEF.metaDescription} I will put this page live for you once you accept.` }, // a promise no draft may make
+      { openingAnswer: `${BRIEF.openingAnswer} Around 91% of households set one out.` }, // a figure the evidence never supplied
+      { sourceRequirements: ["Cite the 4,500 searches a month this phrase gets."] }, // and one smuggled in as a requirement rather than a claim
+      { headKeys: ["made-up"] }];
+    for (const stray of strays) {
+      reset(snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND));
+      const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async ({ kind }) => ({ value: (kind === "new_page_brief" ? { ...BRIEF, ...stray } : VALID_ATOMIC_EDIT) as never }) });
+      expect(res.proposals.every((p) => p.kind !== "new_page")).toBe(true); expect(env.saved.every((p) => p.kind !== "new_page")).toBe(true); }
+    reset(snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND)); // a question I DID supply survives even though it names a site, because I am the one who showed it
+    const asked = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async ({ kind }) => ({ value: (kind === "new_page_brief"
+      ? { ...BRIEF, faqQuestions: ["haft seen table on wikipedia.org"] } : VALID_ATOMIC_EDIT) as never }) });
+    expect(asked.proposals.some((p) => p.kind === "new_page")).toBe(true);
+    reset(snap([GAP], READY({ topicKey: keyOf(READY()), comparison: comparisonOf([["k1", [1, 2, 3]], ["k2", [2, 3]], ["k3", [3, 4]], ["k4", [2, 3]]]) }), DEMAND));
+    const partly = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: briefSeam().complete }); // the SECOND branch that earns a page: I reach some of this, too little to build on
+    const obj = partly.proposals.find((p) => p.kind === "new_page")?.bundle?.objective ?? "";
+    expect(obj.includes("none of your own pages")).toBe(false); // never the claim and its contradiction on one screen
+    let fig = ""; reset(snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND)); // and the figure check is not "no digits allowed": one I DID supply survives
+    const ok = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async ({ kind, user }) => {
+      if (kind === "new_page_brief") fig = (user.match(/\d[\d,]*/) ?? [""])[0];
+      return { value: (kind === "new_page_brief" ? { ...BRIEF, openingAnswer: `${BRIEF.openingAnswer} I count ${fig} of them.` } : VALID_ATOMIC_EDIT) as never }; } });
+    expect([fig.length > 0, ok.proposals.some((p) => p.kind === "new_page")]).toEqual([true, true]);
+    // A row that looks current but carries none of that evidence is an older idea, and it stays off the queue.
+    const ghost: ChangeProposal = { ...baseProposal({ id: "ghost", kind: "new_page", pagePath: null, basis: "basis_today", bundle: undefined,
+      recommendedChange: { kind: "new_page", proposedTitle: "T", metaDescription: "M", openingAnswer: "A", outline: ["One"], faqQuestions: [], schemaTypes: [] } }) };
+    env.store = new Map([["ghost", ghost]]); const q = await loadProposalQueue("fixture-tenant", { currentBasis: "basis_today" });
+    expect([q.ranked, q.ready, q.toDo].map((l) => l.length)).toEqual([0, 0, 0]); expect(q.demotedStaleBasis).toBe(1); });
+}); // ── do I already have the right page for what I investigated? ────────────────
 const FOOD = "fixture-outdoors.example/nowruz-food"; const cands = (s: EvidenceSnapshot) => ownedCandidatesFor(s, buildTopicInvestigations(s)[0]!);
 const UBIQUITOUS = ["food", "music", "gifts", "fire", "dance", "poetry", "cards", "tables", "flowers", "travel"].map((w) => ({ query: `nowruz ${w}`, searchVolume: null, competition: null, competitionLevel: null, difficulty: null, intent: null })); const LOOKALIKE = ownedPage("fixture-outdoors.example/nowruz-gifts", "Nowruz Traditions and Gifts", { impressions: 400, clicks: 8 }, [{ query: "nowruz gifts", impressions: 400, clicks: 8, position: 9 }]); // every phrase this account owns carries one word, so that word proves nothing here
 describe("do I already have the right page for what I investigated", () => {

@@ -60,6 +60,9 @@ export const PROMPT_REGISTRY = {
   // The coverage verdict (N3b, 2026-07-28): does this account already have the
   // right page for a researched topic. Judgment only; it drafts nothing.
   "draft.coverage_adjudication": 1,
+  // The new page brief (N4, 2026-07-28): the one call an EARNED create_new verdict
+  // may make. It writes the page, never the decision that the page should exist.
+  "draft.new_page_brief": 1,
   // Registered schema kinds with no bespoke production prompt yet (P8 targets);
   // callStructuredLLM derives draft.<kind>, so they must resolve to a version.
   "draft.tool_asset": 1,

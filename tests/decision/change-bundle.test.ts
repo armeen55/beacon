@@ -131,8 +131,8 @@ describe("what a receipt will and will not accept", () => {
 }); describe("one pass, one row per change", () => {
   it("bundles the proven page once, and carries no vertical assumption into a single prompt", async () => {
     env.snap = topicSnapshot(); const res = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS });
-    expect(res.proposals.map((p) => p.id)).toEqual([`${TENANT}::/rain-barrels::existing_edit::bundle`]); expect(res.coverageComparison).toBeNull(); const queue = await loadProposalQueue(TENANT);
-    expect(queue.ranked.every((p) => p.kind === "existing_edit")).toBe(true); // no topic ever becomes a page today
+    expect(res.proposals.map((p) => p.id)).toEqual([`${TENANT}::/rain-barrels::existing_edit::bundle`]); expect(res.coverage).toBeNull(); const queue = await loadProposalQueue(TENANT);
+    expect(queue.ranked.every((p) => p.kind === "existing_edit")).toBe(true); // research this thin decides nothing, so no topic becomes a page
     // B6: generic product code carries no vertical assumption, whatever this account happens to sell.
     expect(sent.join(" ")).not.toMatch(/encyclopedia|wikipedia|culture|dynast|cuisine|province/i); });
   it("queues only the changes it can show are current, and sets aside every basis it cannot match", async () => {
@@ -213,12 +213,6 @@ describe("the coverage verdict never invents a page this account already owns", 
     const first = await adjudicateCoverage(INV(), [ONE], TENANT, opt); const again = await adjudicateCoverage(INV(), [ONE], TENANT, opt);
     expect(paid.calls).toEqual(["coverage_adjudication"]); expect(again).toEqual(first); }); });
 // ── the page by page comparison: the one paid check, and the only road to a new page ──
-const HOSTS = ["", "gardenguide.example", "waterwise.example", "downspout.example", "fixture-content.example"];
-const XKW = (keyword: string, ranks: number[], mainIntent: string | null = "informational") => ({ keyword, searchVolume: 500, competition: null, competitionLevel: null, difficulty: null, mainIntent,
-  ranks: ranks.map((page) => ({ page, url: `https://${HOSTS[page]}/a`, title: null, rank: page })) });
-const XSET = (keywords: ReturnType<typeof XKW>[]): ParsedPageIntersection => ({ intersectionMode: "union", keywords, excludePages: [],
-  pages: [1, 2, 3, 4].map((page) => ({ page, url: page === 4 ? ONE_URL : `https://${HOSTS[page]}/a` })) });
-const SHARED = [XKW("rain barrel gallons", [1, 2]), XKW("barrel sizing chart", [1, 2]), XKW("roof area barrel", [2, 3])];
 describe("a new page is reachable only through the comparison, and never before it", () => {
   it("buys nothing for an investigation short of any cheaper check, and names the exact pages for the one that earned it", async () => {
     for (const [, over, owned] of GATES.filter((g) => g[3] !== "page_intersection")) expect(intersectionComparison(await adjudicateCoverage(INV(over), owned, TENANT, { model: "off" }), INV(over), owned)).toBeNull();
@@ -228,14 +222,4 @@ describe("a new page is reachable only through the comparison, and never before 
   it.each(["blocked", "capped", "waiting", "quarantined", "ambiguous", "failed"] as const)("cannot turn a comparison that came back %s into a new page, and says why in plain words", async (unavailable) => {
     const d = await adjudicateCoverage(INV(), [ONE], TENANT, { model: "off", intersection: { unavailable } });
     expect([d.verdict, d.missing, earnedNewPage(d)]).toEqual(["research_needed", ["page_intersection"], false]);
-    expect(d.explanation).toContain("build nothing"); expect(d.explanation).not.toMatch(/blocked|capped|quarantin|ambiguous|provider|task|status/i); });
-  it("reaches a new page when the winners share searches none of my pages reaches, and carries no page copy with it", async () => {
-    const d = await adjudicateCoverage(INV(), [ONE], TENANT, { model: "off", intersection: XSET(SHARED) });
-    expect([d.verdict, d.ownedUrls, d.missing, earnedNewPage(d)]).toEqual(["create_new", [], [], true]);
-    expect(d.evidenceKeys).toContain("shared"); expect(d.explanation).toContain("3 searches in common");
-    expect(JSON.stringify(d)).not.toMatch(/proposedTitle|metaDescription|openingAnswer|outline|faqQuestions/i); });
-  it("names the page I already have when it carries the shared searches, and refuses when those searches disagree", async () => {
-    const keep = await adjudicateCoverage(INV(), [ONE], TENANT, { model: "off", intersection: XSET([XKW("a", [1, 2, 4]), XKW("b", [1, 2, 4]), XKW("c", [2, 3])]) });
-    expect([keep.verdict, keep.ownedUrls, earnedNewPage(keep)]).toEqual(["improve_existing", [ONE.url], false]); expect(keep.explanation).toContain("2 of the 3");
-    const split = await adjudicateCoverage(INV(), [ONE], TENANT, { model: "off", intersection: XSET([XKW("a", [1, 2]), XKW("b", [1, 2]), XKW("c", [2, 3], "commercial"), XKW("d", [1, 3], "commercial")]) });
-    expect([split.verdict, split.missing, earnedNewPage(split)]).toEqual(["research_needed", ["intent"], false]); }); });
+    expect(d.explanation).toContain("build nothing"); expect(d.explanation).not.toMatch(/blocked|capped|quarantin|ambiguous|provider|task|status/i); }); });

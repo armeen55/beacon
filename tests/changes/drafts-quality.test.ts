@@ -17,64 +17,22 @@ const CHEETAH =
   "Iran's national animal is the Asiatic cheetah, a critically endangered subspecies native to the country's central plateau and its arid steppe grasslands. Conservation programs coordinated by the Department of Environment work to protect the small remaining population across a network of protected reserves and national parks, including Miandasht and Touran. Camera-trap surveys and radio-collar tracking studies help researchers estimate population trends and identify the roads and fences that fragment the cheetah's remaining range. International partners have supported captive-breeding research as a hedge against further decline, though wild recovery remains the primary conservation goal for the coming decade.";
 
 describe("evaluateDraftQuality - answer blocks", () => {
-  it("REJECTS a generic dictionary opening with no context (ab-1: gifts)", () => {
-    // contextTokens are the page's own words, exactly as the producer derives them.
-    const r = evaluateDraftQuality({ contextTokens: ["nowruz"], answer: "A gift is a voluntarily transferred item, service, or gesture given without payment or legally required compensation. Gifts can be tangible or intangible and are exchanged in social, cultural, ceremonial, or commercial contexts. Legal, tax, and ethical considerations can affect gift giving." });
-    expect(r.status).toBe("generic_rejected"); expect(r.copyAllowed).toBe(false); expect(r.canRegenerate).toBe(true);
-  });
-  it("PASSES a contextual definitional opener, sourced (ab-2: Nowruz USA)", () => {
-    const r = evaluateDraftQuality({ answer: NOWRUZ_ANSWER, sources: [NOWRUZ_SOURCE] });
-    expect(r.status).toBe("ready"); expect(r.copyAllowed).toBe(true);
-  });
-  it("REJECTS a punt non-answer as too_thin (ab-5: most-followed Instagram)", () => {
-    const r = evaluateDraftQuality({ answer: "The most-followed Iranian on Instagram changes over time; follower counts and rankings vary. For an accurate answer, check the individual profiles or consult up-to-date social-media analytics sites." });
-    expect(r.status).toBe("too_thin"); expect(r.copyAllowed).toBe(false);
-  });
-  it("REJECTS a meta non-answer that talks about the page (rec-5/rec-12)", () => {
-    const r = evaluateDraftQuality({ answer: "The Referencepedia page summarizes reported designs, colors, and symbolic elements attributed to those banners. The team has documented this topic and cites wrmea.org as a source; consult that citation for details on Persian Empire flags and their history over time." });
-    expect(r.status).toBe("too_thin"); expect(r.copyAllowed).toBe(false);
-  });
-  it("HOLDS a specific unsourced factual claim as missing_source, never regeneratable (ab-9: cheetah, J-69)", () => {
-    const r = evaluateDraftQuality({ answer: CHEETAH, evidenceRefs: 0 });
-    expect(r.status).toBe("missing_source"); expect(r.copyAllowed).toBe(false); expect(r.canRegenerate).toBe(false);
-  });
-  it("the SAME cheetah claim is ready once a qualifying authoritative source is attached", () => {
-    const r = evaluateDraftQuality({ answer: CHEETAH, evidenceRefs: 0,
-      sources: [{ domain: "britannica.com", claim: "the Asiatic cheetah is Iran's national animal and is critically endangered", verified: true, supportingExcerpt: CHEETAH }] });
-    expect(r.status).toBe("ready"); expect(r.copyAllowed).toBe(true);
-  });
-  it("rejects an empty answer as malformed", () => {
-    expect(evaluateDraftQuality({ answer: "" }).status).toBe("malformed");
-    expect(evaluateDraftQuality({ answer: null }).status).toBe("malformed");
-  });
-  it("a formatting/technical draft with zero sources is NEVER source-gated (claim-free answer block)", () => {
-    const r = evaluateDraftQuality({ contextTokens: ["your first visit"], answer: "Plan ahead for your first visit by choosing your route, packing lightly, and leaving early so the trip goes smoothly from the moment you leave home until the moment you arrive back again. Give yourself extra time at the entrance during busy weekends, and check ahead for any schedule changes before you go so your plans do not need to change once you arrive at the gate with everyone ready to head inside together, and remember to bring comfortable shoes." });
-    expect(r.status).toBe("ready"); expect(r.copyAllowed).toBe(true);
-  });
+  /** contextTokens are the page's own words, exactly as the producer derives them. */
+  it("REJECTS a generic dictionary opening with no context (ab-1: gifts)", () => { const r = evaluateDraftQuality({ contextTokens: ["nowruz"], answer: "A gift is a voluntarily transferred item, service, or gesture given without payment or legally required compensation. Gifts can be tangible or intangible and are exchanged in social, cultural, ceremonial, or commercial contexts. Legal, tax, and ethical considerations can affect gift giving." }); expect(r.status).toBe("generic_rejected"); expect(r.copyAllowed).toBe(false); expect(r.canRegenerate).toBe(true); });
+  it("PASSES a contextual definitional opener, sourced (ab-2: Nowruz USA)", () => { const r = evaluateDraftQuality({ answer: NOWRUZ_ANSWER, sources: [NOWRUZ_SOURCE] }); expect(r.status).toBe("ready"); expect(r.copyAllowed).toBe(true); });
+  it("REJECTS a punt non-answer as too_thin (ab-5: most-followed Instagram)", () => { const r = evaluateDraftQuality({ answer: "The most-followed Iranian on Instagram changes over time; follower counts and rankings vary. For an accurate answer, check the individual profiles or consult up-to-date social-media analytics sites." }); expect(r.status).toBe("too_thin"); expect(r.copyAllowed).toBe(false); });
+  it("REJECTS a meta non-answer that talks about the page (rec-5/rec-12)", () => { const r = evaluateDraftQuality({ answer: "The Referencepedia page summarizes reported designs, colors, and symbolic elements attributed to those banners. The team has documented this topic and cites wrmea.org as a source; consult that citation for details on Persian Empire flags and their history over time." }); expect(r.status).toBe("too_thin"); expect(r.copyAllowed).toBe(false); });
+  it("HOLDS a specific unsourced factual claim as missing_source, never regeneratable (ab-9: cheetah, J-69)", () => { const r = evaluateDraftQuality({ answer: CHEETAH, evidenceRefs: 0 }); expect(r.status).toBe("missing_source"); expect(r.copyAllowed).toBe(false); expect(r.canRegenerate).toBe(false); });
+  it("the SAME cheetah claim is ready once a qualifying authoritative source is attached", () => { const r = evaluateDraftQuality({ answer: CHEETAH, evidenceRefs: 0, sources: [{ domain: "britannica.com", claim: "the Asiatic cheetah is Iran's national animal and is critically endangered", verified: true, supportingExcerpt: CHEETAH }] }); expect(r.status).toBe("ready"); expect(r.copyAllowed).toBe(true); });
+  it("rejects an empty answer as malformed", () => { expect(evaluateDraftQuality({ answer: "" }).status).toBe("malformed"); expect(evaluateDraftQuality({ answer: null }).status).toBe("malformed"); });
+  it("a formatting/technical draft with zero sources is NEVER source-gated (claim-free answer block)", () => { const r = evaluateDraftQuality({ contextTokens: ["your first visit"], answer: "Plan ahead for your first visit by choosing your route, packing lightly, and leaving early so the trip goes smoothly from the moment you leave home until the moment you arrive back again. Give yourself extra time at the entrance during busy weekends, and check ahead for any schedule changes before you go so your plans do not need to change once you arrive at the gate with everyone ready to head inside together, and remember to bring comfortable shoes." }); expect(r.status).toBe("ready"); expect(r.copyAllowed).toBe(true); });
 });
 describe("evaluateDraftQuality - G5 needs_source_check (honest unfetchable-source hold)", () => {
   const BLOCKED_CLAIM = "the Asiatic cheetah is Iran's national animal and is critically endangered";
-  it("holds as needs_source_check (NOT missing_source) when an authority-strong citation was robots-blocked", () => {
-    const r = evaluateDraftQuality({ answer: CHEETAH, evidenceRefs: 0,
-      sources: [{ url: "https://www.britannica.com/animal/asiatic-cheetah", domain: "britannica.com", verified: false, fetchBlocked: true, claim: BLOCKED_CLAIM }] });
-    expect(r.status).toBe("needs_source_check");
-    expect(r.reasons[0]).toBe("I could not read britannica.com myself (it blocks robots). Check this citation before you paste.");
-    expect(r.copyAllowed).toBe(false); expect(r.canRegenerate).toBe(false);
-  });
-  it("NEVER-READY-WITHOUT-VERIFICATION pin: a blocked authoritative source alone is never ready", () => {
-    const r = evaluateDraftQuality({ answer: CHEETAH, sources: [{ domain: "britannica.com", claim: "the Asiatic cheetah is Iran's national animal", verified: false, fetchBlocked: true }] });
-    expect(r.status).not.toBe("ready"); expect(r.copyAllowed).toBe(false);
-  });
-  it("a robots-block on a NON-authoritative domain is still plain missing_source (a block is no trust grant)", () => {
-    const r = evaluateDraftQuality({ answer: CHEETAH, sources: [{ domain: "some-blog.example", claim: "the Asiatic cheetah is Iran's national animal", verified: false, fetchBlocked: true }] });
-    expect(r.status).toBe("missing_source");
-  });
-  it("READY still requires verified coverage: a verified covering source wins even when a blocked one is also cited", () => {
-    const r = evaluateDraftQuality({ answer: CHEETAH, authoritativeSourceDomains: ["heritage-encyclopedia.example"], sources: [
-      { domain: "britannica.com", claim: "blocked one", verified: false, fetchBlocked: true },
-      { domain: "heritage-encyclopedia.example", verified: true, supportingExcerpt: CHEETAH, claim: BLOCKED_CLAIM }] });
-    expect(r.status).toBe("ready"); expect(r.copyAllowed).toBe(true);
-  });
+  it("holds as needs_source_check (NOT missing_source) when an authority-strong citation was robots-blocked", () => { const r = evaluateDraftQuality({ answer: CHEETAH, evidenceRefs: 0, sources: [{ url: "https://www.britannica.com/animal/asiatic-cheetah", domain: "britannica.com", verified: false, fetchBlocked: true, claim: BLOCKED_CLAIM }] }); expect(r.status).toBe("needs_source_check"); expect(r.reasons[0]).toBe("I could not read britannica.com myself (it blocks robots). Check this citation before you paste."); expect(r.copyAllowed).toBe(false); expect(r.canRegenerate).toBe(false); });
+  it("NEVER-READY-WITHOUT-VERIFICATION pin: a blocked authoritative source alone is never ready", () => { const r = evaluateDraftQuality({ answer: CHEETAH, sources: [{ domain: "britannica.com", claim: "the Asiatic cheetah is Iran's national animal", verified: false, fetchBlocked: true }] }); expect(r.status).not.toBe("ready"); expect(r.copyAllowed).toBe(false); });
+  it("a robots-block on a NON-authoritative domain is still plain missing_source (a block is no trust grant)", () => { const r = evaluateDraftQuality({ answer: CHEETAH, sources: [{ domain: "some-blog.example", claim: "the Asiatic cheetah is Iran's national animal", verified: false, fetchBlocked: true }] }); expect(r.status).toBe("missing_source"); });
+  it("READY still requires verified coverage: a verified covering source wins even when a blocked one is also cited", () => { const r = evaluateDraftQuality({ answer: CHEETAH, authoritativeSourceDomains: ["heritage-encyclopedia.example"], sources: [ { domain: "britannica.com", claim: "blocked one", verified: false, fetchBlocked: true }, { domain: "heritage-encyclopedia.example", verified: true, supportingExcerpt: CHEETAH, claim: BLOCKED_CLAIM }] }); expect(r.status).toBe("ready"); expect(r.copyAllowed).toBe(true); });
 });
 describe("evaluateDraftQuality - J-71 word band (80-150 words)", () => {
   // Deliberately claim-free so these isolate the LENGTH decision from J-69.
@@ -84,47 +42,19 @@ describe("evaluateDraftQuality - J-71 word band (80-150 words)", () => {
     const w = BASE.trim().split(/\s+/).slice(0, n).join(" ");
     return /[.!?]$/.test(w) ? w : `${w}.`;
   }
-  it("79 words is too_thin; 80 clears the floor and is ready (claim-free, no source needed)", () => {
-    const under = evaluateDraftQuality({ answer: words(79) });
-    expect(under.status).toBe("too_thin"); expect(under.reasons[0]).toContain("80-150");
-    expect(evaluateDraftQuality({ answer: words(80) }).status).toBe("ready");
-  });
-  it("150 words is still ready; 151 is not_quotable (trim, don't rewrite from scratch)", () => {
-    expect(evaluateDraftQuality({ answer: words(150) }).status).toBe("ready");
-    const over = evaluateDraftQuality({ answer: words(151) });
-    expect(over.status).toBe("not_quotable"); expect(over.canRegenerate).toBe(true);
-  });
+  it("79 words is too_thin; 80 clears the floor and is ready (claim-free, no source needed)", () => { const under = evaluateDraftQuality({ answer: words(79) }); expect(under.status).toBe("too_thin"); expect(under.reasons[0]).toContain("80-150"); expect(evaluateDraftQuality({ answer: words(80) }).status).toBe("ready"); });
+  it("150 words is still ready; 151 is not_quotable (trim, don't rewrite from scratch)", () => { expect(evaluateDraftQuality({ answer: words(150) }).status).toBe("ready"); const over = evaluateDraftQuality({ answer: words(151) }); expect(over.status).toBe("not_quotable"); expect(over.canRegenerate).toBe(true); });
 });
 describe("evaluateDraftQuality - quotability", () => {
-  it("rejects a well-formed, on-topic, sourced draft that opens with a pronoun", () => {
-    const r = evaluateDraftQuality({ sources: [NOWRUZ_SOURCE], answer: "It is a traditional Persian celebration held every year in the spring across Iran and neighboring countries, marked by family gatherings, music, and shared meals that continue for nearly two weeks each season. Extended families travel long distances to reunite for the occasion, often visiting several relatives' homes across a single week. Children receive small gifts of money from older relatives, and homes are cleaned and decorated well before the celebration begins. Markets fill with fresh herbs, pastries, and goldfish sold specifically for the holiday table, and many cities host public concerts and craft fairs timed to the same two-week window." });
-    expect(r.status).toBe("not_quotable");
-    expect(r.reasons.some((x) => x.toLowerCase().includes("name the subject"))).toBe(true);
-  });
-  it("does NOT reject a clean, on-topic, sourced draft with no number/date at all (matches the real corpus)", () => {
-    expect(evaluateDraftQuality({ answer: NOWRUZ_ANSWER, sources: [NOWRUZ_SOURCE] }).status).toBe("ready");
-  });
+  it("rejects a well-formed, on-topic, sourced draft that opens with a pronoun", () => { const r = evaluateDraftQuality({ sources: [NOWRUZ_SOURCE], answer: "It is a traditional Persian celebration held every year in the spring across Iran and neighboring countries, marked by family gatherings, music, and shared meals that continue for nearly two weeks each season. Extended families travel long distances to reunite for the occasion, often visiting several relatives' homes across a single week. Children receive small gifts of money from older relatives, and homes are cleaned and decorated well before the celebration begins. Markets fill with fresh herbs, pastries, and goldfish sold specifically for the holiday table, and many cities host public concerts and craft fairs timed to the same two-week window." }); expect(r.status).toBe("not_quotable"); expect(r.reasons.some((x) => x.toLowerCase().includes("name the subject"))).toBe(true); });
+  it("does NOT reject a clean, on-topic, sourced draft with no number/date at all (matches the real corpus)", () => { expect(evaluateDraftQuality({ answer: NOWRUZ_ANSWER, sources: [NOWRUZ_SOURCE] }).status).toBe("ready"); });
 });
 describe("evaluateDraftQuality - factual entailment (N8, additive/opt-in)", () => {
   const THREE_THOUSAND =
     "Nowruz has been celebrated in Iran for more than 3000 years, marking the arrival of spring with family gatherings, music, poetry readings, and shared meals across the region every March. It runs for nearly two weeks, and most families travel to visit relatives during that stretch, starting with grandparents first. The custom of a deep clean happens beforehand, and a table is set with seven symbolic items that each start with the same letter. The celebration closes with a shared picnic on the thirteenth day, out in the open air with the whole family together.";
-  it("REJECTS an otherwise-ready draft with a number the page body does not support", () => {
-    const r = evaluateDraftQuality({ answer: THREE_THOUSAND, evidenceRefs: 1, pageBodyText: "Nowruz is the Persian new year, celebrated in Iran with family gatherings, music, poetry readings, and shared meals marking the arrival of spring every March. The holiday runs for nearly two weeks with visits to relatives and closes with a picnic on the thirteenth day." });
-    expect(r.status).toBe("unverified_claim"); expect(r.copyAllowed).toBe(false);
-    expect(r.reasons[0]).toContain("3000"); expect(r.reasons[0]).toContain("could not find that number");
-  });
-  it("PASSES the same 3000-year claim when the page body actually supports it, sourced", () => {
-    const r = evaluateDraftQuality({ answer: THREE_THOUSAND, evidenceRefs: 1,
-      pageBodyText: "Nowruz is a 3000 year old Persian tradition celebrated in Iran, marking the arrival of spring every March with family gatherings, music, and poetry readings. The holiday runs for nearly two weeks and closes with a picnic on the thirteenth day.",
-      sources: [{ domain: "britannica.com", claim: "Nowruz has been celebrated in Iran for more than 3000 years", verified: true,
-        supportingExcerpt: "Nowruz has been celebrated in Iran for more than 3000 years, marking the arrival of spring with family gatherings, music, poetry readings, and shared meals across the region every March." }] });
-    expect(r.status).toBe("ready");
-  });
-  it("REJECTS an atomic title/meta rewrite that introduces an unsupported number", () => {
-    const r = evaluateTitleMetaQuality({ before: "Persian New Year Traditions", after: "Persian New Year: 3000 Years of Nowruz Traditions in Iran",
-      field: "title", pageBodyText: "Nowruz is the Persian new year, celebrated across Iran every spring." });
-    expect(r.status).toBe("unverified_claim"); expect(r.copyAllowed).toBe(false);
-  });
+  it("REJECTS an otherwise-ready draft with a number the page body does not support", () => { const r = evaluateDraftQuality({ answer: THREE_THOUSAND, evidenceRefs: 1, pageBodyText: "Nowruz is the Persian new year, celebrated in Iran with family gatherings, music, poetry readings, and shared meals marking the arrival of spring every March. The holiday runs for nearly two weeks with visits to relatives and closes with a picnic on the thirteenth day." }); expect(r.status).toBe("unverified_claim"); expect(r.copyAllowed).toBe(false); expect(r.reasons[0]).toContain("3000"); expect(r.reasons[0]).toContain("could not find that number"); });
+  it("PASSES the same 3000-year claim when the page body actually supports it, sourced", () => { const r = evaluateDraftQuality({ answer: THREE_THOUSAND, evidenceRefs: 1, pageBodyText: "Nowruz is a 3000 year old Persian tradition celebrated in Iran, marking the arrival of spring every March with family gatherings, music, and poetry readings. The holiday runs for nearly two weeks and closes with a picnic on the thirteenth day.", sources: [{ domain: "britannica.com", claim: "Nowruz has been celebrated in Iran for more than 3000 years", verified: true, supportingExcerpt: "Nowruz has been celebrated in Iran for more than 3000 years, marking the arrival of spring with family gatherings, music, poetry readings, and shared meals across the region every March." }] }); expect(r.status).toBe("ready"); });
+  it("REJECTS an atomic title/meta rewrite that introduces an unsupported number", () => { const r = evaluateTitleMetaQuality({ before: "Persian New Year Traditions", after: "Persian New Year: 3000 Years of Nowruz Traditions in Iran", field: "title", pageBodyText: "Nowruz is the Persian new year, celebrated across Iran every spring." }); expect(r.status).toBe("unverified_claim"); expect(r.copyAllowed).toBe(false); });
 });
 describe("operator correction (page is stale, dated evidence backs the draft)", () => {
   const RECIPES_ANSWER =
@@ -132,42 +62,17 @@ describe("operator correction (page is stale, dated evidence backs the draft)", 
   const STALE_PAGE =
     "Referencepedia lists 3000 Persian recipes in its growing collection, spanning regional dishes and everyday family meals across Iran. Readers can filter the collection by region, occasion, or main ingredient.";
 
-  it("a draft that CONTRADICTS the page but is backed by a dated authoritative fact stays ready AND carries the correction", () => {
-    const r = evaluateDraftQuality({ answer: RECIPES_ANSWER, evidenceRefs: 1, pageBodyText: STALE_PAGE,
-      authoritativeFacts: [{ source: "your site's recipe count (Wix connector)", date: "2026-07-01", detail: "4500 recipes are currently published" }],
-      sources: [{ domain: "britannica.com", claim: "Referencepedia's collection spans regional Persian dishes and holiday specialties", verified: true, supportingExcerpt: RECIPES_ANSWER }] });
-    expect(r.status).toBe("ready"); expect(r.corrections).toBeDefined();
-    expect(r.corrections!.some((c) => c.includes("4500") && c.includes("2026-07-01"))).toBe(true);
-  });
-  it("the SAME contradicting number with no authoritative fact stays unverified_claim (blocked)", () => {
-    const r = evaluateDraftQuality({ answer: RECIPES_ANSWER, evidenceRefs: 1, pageBodyText: STALE_PAGE });
-    expect(r.status).toBe("unverified_claim"); expect(r.copyAllowed).toBe(false); expect(r.corrections).toBeUndefined();
-  });
+  it("a draft that CONTRADICTS the page but is backed by a dated authoritative fact stays ready AND carries the correction", () => { const r = evaluateDraftQuality({ answer: RECIPES_ANSWER, evidenceRefs: 1, pageBodyText: STALE_PAGE, authoritativeFacts: [{ source: "your site's recipe count (Wix connector)", date: "2026-07-01", detail: "4500 recipes are currently published" }], sources: [{ domain: "britannica.com", claim: "Referencepedia's collection spans regional Persian dishes and holiday specialties", verified: true, supportingExcerpt: RECIPES_ANSWER }] }); expect(r.status).toBe("ready"); expect(r.corrections).toBeDefined(); expect(r.corrections!.some((c) => c.includes("4500") && c.includes("2026-07-01"))).toBe(true); });
+  it("the SAME contradicting number with no authoritative fact stays unverified_claim (blocked)", () => { const r = evaluateDraftQuality({ answer: RECIPES_ANSWER, evidenceRefs: 1, pageBodyText: STALE_PAGE }); expect(r.status).toBe("unverified_claim"); expect(r.copyAllowed).toBe(false); expect(r.corrections).toBeUndefined(); });
 });
 describe("J-70 first-mention rule (soft, tenant-configured)", () => {
-  it("a miss downgrades an otherwise-ready draft to useful_but_needs_review (never a hard block)", () => {
-    const r = evaluateDraftQuality({ answer: NOWRUZ_ANSWER, sources: [NOWRUZ_SOURCE],
-      firstMentionConfig: { native: "؀-ۿ", transliteration: false, englishContext: false } });
-    expect(r.status).toBe("useful_but_needs_review"); expect(r.copyAllowed).toBe(true); expect(r.canRegenerate).toBe(false);
-  });
+  it("a miss downgrades an otherwise-ready draft to useful_but_needs_review (never a hard block)", () => { const r = evaluateDraftQuality({ answer: NOWRUZ_ANSWER, sources: [NOWRUZ_SOURCE], firstMentionConfig: { native: "؀-ۿ", transliteration: false, englishContext: false } }); expect(r.status).toBe("useful_but_needs_review"); expect(r.copyAllowed).toBe(true); expect(r.canRegenerate).toBe(false); });
 });
 describe("evaluateTitleMetaQuality - atomic edits", () => {
-  it("PASSES an entity-forward rewrite (rec-0: Persian Wolf), no new specific fact, never source-gated", () => {
-    const r = evaluateTitleMetaQuality({ before: "Meet the Persian Wolf (Iranian Wolf) | Iran Animals & Wildlife", after: "Persian Wolf (Iranian Wolf): Range, Behavior, Conservation", field: "title" });
-    expect(r.status).toBe("ready"); expect(r.copyAllowed).toBe(true);
-  });
-  it("FLAGS a newly-introduced count as needs-review (rec-9: 150+ surnames)", () => {
-    const r = evaluateTitleMetaQuality({ before: "Popular Iranian First and Last Names with Meanings", after: "Persian Surnames: 150+ Last Names and Meanings", field: "title" });
-    expect(r.status).toBe("useful_but_needs_review"); expect(r.copyAllowed).toBe(true);
-  });
-  it("rejects a rewrite that drops the entity", () => {
-    const r = evaluateTitleMetaQuality({ before: "Persian Wolf Range and Behavior", after: "Range, Behavior, and Conservation Status", field: "title", contextTokens: ["wolf"] });
-    expect(r.status).toBe("relevance_rejected"); expect(r.copyAllowed).toBe(false);
-  });
-  it("a formatting-only edit is exempt: never missing_source, even with zero sources", () => {
-    const r = evaluateTitleMetaQuality({ before: "Persian Holidays: Explore the Traditions", after: "Persian Holidays and Traditions Explained", field: "title" });
-    expect(r.status).not.toBe("missing_source"); expect(r.status).toBe("ready");
-  });
+  it("PASSES an entity-forward rewrite (rec-0: Persian Wolf), no new specific fact, never source-gated", () => { const r = evaluateTitleMetaQuality({ before: "Meet the Persian Wolf (Iranian Wolf) | Iran Animals & Wildlife", after: "Persian Wolf (Iranian Wolf): Range, Behavior, Conservation", field: "title" }); expect(r.status).toBe("ready"); expect(r.copyAllowed).toBe(true); });
+  it("FLAGS a newly-introduced count as needs-review (rec-9: 150+ surnames)", () => { const r = evaluateTitleMetaQuality({ before: "Popular Iranian First and Last Names with Meanings", after: "Persian Surnames: 150+ Last Names and Meanings", field: "title" }); expect(r.status).toBe("useful_but_needs_review"); expect(r.copyAllowed).toBe(true); });
+  it("rejects a rewrite that drops the entity", () => { const r = evaluateTitleMetaQuality({ before: "Persian Wolf Range and Behavior", after: "Range, Behavior, and Conservation Status", field: "title", contextTokens: ["wolf"] }); expect(r.status).toBe("relevance_rejected"); expect(r.copyAllowed).toBe(false); });
+  it("a formatting-only edit is exempt: never missing_source, even with zero sources", () => { const r = evaluateTitleMetaQuality({ before: "Persian Holidays: Explore the Traditions", after: "Persian Holidays and Traditions Explained", field: "title" }); expect(r.status).not.toBe("missing_source"); expect(r.status).toBe("ready"); });
 });
 // Dormant-kind evaluators (section drafts, internal-link/CRO formatting,
 // prepared-pack dispatch) have zero production callers since the Foundation
