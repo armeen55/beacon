@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { isDataForSeoConfigured, runDataForSeoTransport } from "./client";
 import { collectResolvedTask, identityCacheKey, runResolvedCall, type ResolvedCall } from "./cached-call";
 import { resolveDeps } from "./default-deps";
+import { normalizePageIntersection, parsePageIntersection, MAX_INTERSECTION_PAGES } from "../page-intersection";
 import type {
   CachedCallResult, CapabilityInputByKey, CapabilityKey, EngineModelResolution, FunnelBoundaryDeps,
   ParsedAiAnswer, ParsedByCapability, ParsedKeywordItem, ParsedSerp, ProviderEnvelope,
@@ -11,15 +12,15 @@ import type {
 /**
  * capabilities - the typed DataForSEO provider registry behind the frozen
  * funnel-boundary contract. ONE entry per CapabilityKey owns the EXACT request
- * builder (only fields the docs document for that endpoint), the reservation, the
- * cache dimensions, the envelope parser, and its route (post + free task_get +
- * free tasks_ready). providerCall is the ONE model-resolution point: it resolves
- * the engine model ONCE, picks Standard vs Live from that resolution, and stamps
- * the requested model back on the result. The model is NEVER caller-supplied.
- * Executors never resolve models. Every field verified vs docs.dataforseo.com
- * 2026-07-26 (chat_gpt/claude/gemini llm_responses task_post + live, perplexity
- * live, chat_gpt llm_scraper task_post, serp organic + ai_mode, every family's
- * tasks_ready, and appendix/errors).
+ * builder (only fields the docs document for that endpoint), the optional ask
+ * NORMALIZATION that runs BEFORE the cache identity, the reservation, the cache
+ * dimensions, the envelope parser, and its route (post + free task_get + free
+ * tasks_ready). providerCall is the ONE model-resolution point: it resolves the
+ * engine model ONCE, picks Standard vs Live from that resolution, and stamps the
+ * requested model back on the result. The model is NEVER caller-supplied; executors
+ * never resolve models. Every field verified vs docs.dataforseo.com: 2026-07-26 for
+ * the llm_responses/llm_scraper/serp families, every family's tasks_ready and
+ * appendix/errors; 2026-07-28 for dataforseo_labs page_intersection.
  */
 
 const DFS_API_BASE = "https://api.dataforseo.com/v3";
@@ -51,6 +52,9 @@ type Entry<K extends CapabilityKey> = {
   /** Present = the call needs a resolved engine model (Standard vs Live routing). */
   engine?: LlmEngine;
   route: (r: EngineModelResolution | null) => Route;
+  /** Canonicalize the ask BEFORE it becomes a cache identity, so two spellings of one
+   *  request never buy the same rows twice. Registry-owned: no caller can skip it. */
+  normalize?: (input: CapabilityInputByKey[K]) => CapabilityInputByKey[K];
   build: (input: CapabilityInputByKey[K], r: EngineModelResolution | null) => unknown[];
   parse: (env: ProviderEnvelope) => ParsedByCapability[K];
 };
@@ -183,9 +187,27 @@ const REGISTRY: Registry = {
   // return, so the cap is never held under what it can charge; reconcile drops it to actual.
   labs_keyword_ideas: {
     ttlMs: 7 * DAY, estCostUsd: 0.2, dims: { device: false, model: false },
+    normalize: (i) => ({ ...i, keywords: [...new Set(i.keywords.map((k) => String(k ?? "").trim().toLowerCase()).filter(Boolean))].sort().slice(0, MAX_IDEAS_SEEDS), limit: Math.min(Math.max(1, Math.trunc(i.limit ?? IDEAS_DEFAULT_LIMIT)), IDEAS_MAX_LIMIT) }), // normalized BEFORE the identity: a direct call skipped the batched helper and re-bought the same rows
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_ideas/live", getPath: null, tasksReady: null }),
     build: (i) => [{ keywords: i.keywords.slice(0, MAX_IDEAS_SEEDS), location_code: LOCATION_US, language_code: LANG_EN, limit: Math.min(Math.max(1, Math.trunc(i.limit ?? IDEAS_DEFAULT_LIMIT)), IDEAS_MAX_LIMIT) }],
     parse: parseKeywords,
+  },
+  // RESERVATION arithmetic, NOT a price: page_intersection has never been bought here, so the
+  // reservation rides the Labs live charges on file (50 rows $0.018, 150 rows $0.02988, 1000 rows
+  // $0.132), which fit $0.012 per request plus $0.00012 per returned row: the 100-row default lands
+  // near $0.024 and the 1000-row ceiling near $0.132. Reserved at 0.2, rounded UP past the largest
+  // Labs live charge ever observed here, so the cap is never held under what ONE request can charge;
+  // reconcile drops it to the actual. ONE request carries the WHOLE page set, never one per page.
+  labs_page_intersection: {
+    ttlMs: 7 * DAY, estCostUsd: 0.2, dims: { device: false, model: false }, normalize: normalizePageIntersection,
+    route: () => ({ mode: "live", postPath: "dataforseo_labs/google/page_intersection/live", getPath: null, tasksReady: null }),
+    build: (i) => {
+      // A comparison of fewer than two pages is not a comparison: refuse it before the money, never after.
+      if (i.pages.length < 2) throw new MissingFieldsError("labs_page_intersection", [`pages (2 to ${MAX_INTERSECTION_PAGES} absolute http/https urls)`]);
+      return [clean({ pages: Object.fromEntries(i.pages.map((u, n) => [String(n + 1), u])), exclude_pages: i.exclude_pages?.length ? i.exclude_pages : undefined,
+        location_code: LOCATION_US, language_code: LANG_EN, intersection_mode: i.intersection_mode, item_types: ["organic"], limit: i.limit })];
+    },
+    parse: parsePageIntersection,
   },
   serp_organic: serpEntry("serp/google/organic", 0.0021),
   serp_ai_mode: serpEntry("serp/google/ai_mode", 0.01),
@@ -222,15 +244,18 @@ export async function providerCall<K extends CapabilityKey>(
     modelRequested = resolution.model;
   }
   const route = entry.route(resolution);
+  // The canonical ask is what gets built AND what gets keyed, so a reordered set or an
+  // omitted default can never derive a second identity for one and the same request.
+  const ask = (entry.normalize ? entry.normalize(input) : input) as CapabilityInputByKey[K];
   let payload: unknown[];
   try {
-    payload = entry.build(input, resolution);
+    payload = entry.build(ask, resolution);
   } catch (err) {
     return { state: "error", cacheKey: null, disposition: "none", detail: err instanceof Error ? err.message : String(err) };
   }
-  const device = entry.dims.device ? ((input as { device?: string }).device ?? "desktop") : null;
+  const device = entry.dims.device ? ((ask as { device?: string }).device ?? "desktop") : null;
   const modelDim = entry.dims.model ? modelRequested : null;
-  const publicInput = (input ?? {}) as Record<string, unknown>;
+  const publicInput = (ask ?? {}) as Record<string, unknown>;
   const cacheKey = identityCacheKey({ endpoint: route.postPath, publicInput, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim });
   const resolved: ResolvedCall = {
     cacheKey, endpoint: route.postPath, endpointVersion: "v3", postPath: route.postPath, getPath: route.getPath,
@@ -276,9 +301,7 @@ export async function collectCapability(cacheKey: string, deps: FunnelBoundaryDe
  *  family in the registry (SERP, AI Mode, llm_responses, llm_scraper) carries
  *  the 1-day ttl, so a due weekly re-observation re-buys instead of hitting a
  *  stale row. Null = not a task endpoint. */
-function ttlMsForEndpoint(endpoint: string): number | null {
-  return endpoint.endsWith("/task_post") ? DAY : null;
-}
+const ttlMsForEndpoint = (endpoint: string): number | null => (endpoint.endsWith("/task_post") ? DAY : null);
 /** The free task_get derivation from a stored task_post endpoint: serp + scraper
  *  use /task_get/advanced, llm_responses uses the plain /task_get. */
 function getPathForEndpoint(endpoint: string, id: string): string | null {
@@ -299,11 +322,7 @@ function tasksReadyForEndpoint(endpoint: string): string | null {
 
 /** Pure: the full bounded envelope -> the capability's frozen typed output. */
 export function parseCapability<K extends CapabilityKey>(capability: K, envelope: ProviderEnvelope): ParsedByCapability[K] | null {
-  try {
-    return REGISTRY[capability].parse(envelope) as ParsedByCapability[K];
-  } catch {
-    return null;
-  }
+  try { return REGISTRY[capability].parse(envelope) as ParsedByCapability[K]; } catch { return null; }
 }
 
 // ── model resolution (FREE models endpoint, method-aware, cached) ──────────────
@@ -413,32 +432,19 @@ function parseKeywords(env: ProviderEnvelope): ParsedKeywordItem[] {
 }
 function parseSerp(env: ProviderEnvelope): ParsedSerp {
   const { items } = resultBlock(env);
+  const sub = (t: string): Record<string, unknown>[] => { const b = items.find((i) => i.type === t); return Array.isArray(b?.items) ? (b!.items as Record<string, unknown>[]) : []; };
   const organic = items.filter((i) => i.type === "organic").map((i) => ({ // rank_group IS the organic position; rank_absolute counts ads and packs, so it read result 1 as "#2"
     rank: Number(i.rank_group ?? i.rank_absolute ?? 0), domain: String(i.domain ?? ""), url: String(i.url ?? ""), title: str(i.title),
   }));
-  const paaBlock = items.find((i) => i.type === "people_also_ask");
-  const paaQuestions = (Array.isArray(paaBlock?.items) ? (paaBlock!.items as Record<string, unknown>[]) : [])
-    .map((el) => ({ question: String(el.title ?? ""), answeringDomain: null as string | null })).filter((q) => q.question.length > 0);
-  const relBlock = items.find((i) => i.type === "related_searches");
-  const relatedSearches = (Array.isArray(relBlock?.items) ? (relBlock!.items as unknown[]) : []).map((s) => String(s)).filter((s) => s.length > 0);
+  const paaQuestions = sub("people_also_ask").map((el) => ({ question: String(el.title ?? ""), answeringDomain: null as string | null })).filter((q) => q.question.length > 0);
+  const relatedSearches = sub("related_searches").map((s) => String(s)).filter((s) => s.length > 0);
   const fs = items.find((i) => i.type === "featured_snippet");
   const snippetOwner = fs && fs.url ? { domain: String(fs.domain ?? hostname(String(fs.url))), url: String(fs.url) } : null;
-
-  const aiBlock = items.find((i) => i.type === "ai_overview");
-  let aiOverview: ParsedSerp["aiOverview"] = null;
-  if (aiBlock) {
-    const inner = Array.isArray(aiBlock.items) ? (aiBlock.items as Record<string, unknown>[]) : [];
-    const references: { url: string; domain: string; title: string | null }[] = [];
-    let excerpt: string | null = null;
-    for (const el of inner) {
-      if (excerpt === null) excerpt = str(el.text) ?? str(el.markdown);
-      for (const r of Array.isArray(el.references) ? (el.references as Record<string, unknown>[]) : []) {
-        const url = String(r.url ?? "");
-        if (url) references.push({ url, domain: String(r.domain ?? hostname(url)), title: str(r.title) });
-      }
-    }
-    aiOverview = { present: true, references, excerpt };
-  }
+  const inner = sub("ai_overview");
+  const references = inner.flatMap((el) => (Array.isArray(el.references) ? (el.references as Record<string, unknown>[]) : []))
+    .map((r) => { const url = String(r.url ?? ""); return { url, domain: String(r.domain ?? hostname(url)), title: str(r.title) }; }).filter((r) => r.url.length > 0);
+  const excerpt = inner.map((el) => str(el.text) ?? str(el.markdown)).find((t) => t != null) ?? null;
+  const aiOverview = items.some((i) => i.type === "ai_overview") ? { present: true, references, excerpt } : null;
   return { organic, aiOverview, snippetOwner, paaQuestions, relatedSearches };
 }
 function parseLlmAnswer(env: ProviderEnvelope): ParsedAiAnswer {
@@ -450,13 +456,9 @@ function parseLlmAnswer(env: ProviderEnvelope): ParsedAiAnswer {
     if (it.type !== "message") continue;
     for (const sec of Array.isArray(it.sections) ? (it.sections as Record<string, unknown>[]) : []) {
       if (sec.type === "text" && typeof sec.text === "string") texts.push(sec.text);
-      if (Array.isArray(sec.annotations)) {
-        citations = citations ?? [];
-        for (const a of sec.annotations as Record<string, unknown>[]) {
-          const url = String(a.url ?? "");
-          if (url) citations.push({ url, domain: hostname(url), title: str(a.title) });
-        }
-      }
+      if (!Array.isArray(sec.annotations)) continue;
+      citations = citations ?? [];
+      for (const a of sec.annotations as Record<string, unknown>[]) { const url = String(a.url ?? ""); if (url) citations.push({ url, domain: hostname(url), title: str(a.title) }); }
     }
   }
   return {
@@ -467,12 +469,10 @@ function parseLlmAnswer(env: ProviderEnvelope): ParsedAiAnswer {
 function parseScraper(env: ProviderEnvelope): ParsedAiAnswer {
   const { result0 } = resultBlock(env);
   const sources = Array.isArray(result0?.sources) ? (result0!.sources as Record<string, unknown>[]) : null;
-  const citations = sources
-    ? sources.map((s) => ({ url: String(s.url ?? ""), domain: String(s.domain ?? hostname(String(s.url ?? ""))), title: str(s.title) })).filter((c) => c.url.length > 0)
-    : null;
   return {
     answerText: str(result0?.markdown), modelServed: str(result0?.model), webSearchReported: null,
-    citations, fanOutQueries: arrStr(result0?.fan_out_queries), brands: brandNames(result0?.brand_entities),
+    citations: sources ? sources.map((s) => ({ url: String(s.url ?? ""), domain: String(s.domain ?? hostname(String(s.url ?? ""))), title: str(s.title) })).filter((c) => c.url.length > 0) : null,
+    fanOutQueries: arrStr(result0?.fan_out_queries), brands: brandNames(result0?.brand_entities),
   };
 }
 function modelObjects(env: ProviderEnvelope): Record<string, unknown>[] {

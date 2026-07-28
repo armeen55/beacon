@@ -1,4 +1,5 @@
 import "server-only";
+import type { PageIntersectionAsk, ParsedPageIntersection } from "../page-intersection";
 
 /**
  * funnel-boundary (Slice 6 + integrity closure) - THE frozen seam between the
@@ -33,6 +34,7 @@ export type CapabilityKey =
   | "labs_keyword_suggestions"
   | "labs_keyword_overview"
   | "labs_keyword_ideas"
+  | "labs_page_intersection"
   | "serp_organic"
   | "serp_ai_mode"
   | "llm_chatgpt"
@@ -96,6 +98,7 @@ export type ParsedByCapability = {
   labs_keyword_suggestions: ParsedKeywordItem[];
   labs_keyword_overview: ParsedKeywordItem[];
   labs_keyword_ideas: ParsedKeywordItem[];
+  labs_page_intersection: ParsedPageIntersection;
   serp_organic: ParsedSerp;
   serp_ai_mode: ParsedSerp;
   llm_chatgpt: ParsedAiAnswer;
@@ -129,6 +132,10 @@ export type CapabilityInputByKey = {
    *  returns ideas that share their topic. limit defaults to 700 and the provider
    *  caps it at 1000. Callers use keywordIdeasBatched, never one request per seed. */
   labs_keyword_ideas: { keywords: string[]; limit?: number };
+  /** ONE request carries the WHOLE page set (documented maximum 20 pages, 10
+   *  excludes): one call per page or per keyword is a defect, never a fallback. The
+   *  registry normalizes the ask BEFORE it becomes a cache identity. */
+  labs_page_intersection: PageIntersectionAsk;
   serp_organic: { keyword: string; device?: "desktop" | "mobile" };
   serp_ai_mode: { keyword: string; device?: "desktop" | "mobile" };
   llm_chatgpt: ChatGptWebInput;

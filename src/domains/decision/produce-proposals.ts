@@ -51,10 +51,14 @@ import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
 import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation";
 import { ownedCandidatesFor, topicOutOfScope } from "./owned-coverage";
-import { adjudicateCoverage } from "./coverage-adjudication";
-import type { CoverageDecision } from "./coverage-adjudication";
+import { adjudicateCoverage, intersectionComparison } from "./coverage-adjudication";
+import type { CoverageDecision, IntersectionEvidence } from "./coverage-adjudication";
+import type { PageIntersectionAsk } from "@/domains/evidence/page-intersection";
 
 export type ProduceProposalsOptions = ProposeOptions & {
+  /** The page by page comparison Evidence bought for the strongest topic, or the
+   *  honest reason it is not in hand. Absent = it was never asked for. */
+  intersection?: IntersectionEvidence;
   /** Hard cap on how many opportunities we draft this pass (budget guard). */
   maxDrafts?: number;
   /** Persist each landed proposal (default true). Tests pass false to stay pure. */
@@ -99,9 +103,13 @@ export type ProduceProposalsResult = {
   strongestMissingEvidence: string[];
   /** THE verdict on whether this account already has the right page for that one
    *  topic. A judgment only: it creates no proposal, no draft and no queue row,
-   *  and today it can never conclude that a new page is earned. Null when nothing
-   *  has been investigated yet. */
+   *  whichever way it lands. Null when nothing has been investigated yet. */
   coverageVerdict: CoverageDecision | null;
+  /** THE ONE request worth paying for next: the exact pages the page by page
+   *  comparison would put side by side, for the single topic that passed every
+   *  cheaper check. Null whenever nothing earned it, which is the normal answer and
+   *  the reason a research pass usually buys none of this. */
+  coverageComparison: PageIntersectionAsk | null;
 };
 
 /**
@@ -189,26 +197,32 @@ export async function produceProposalsForTenant(
 
   // THE COVERAGE VERDICT for that ONE topic: does this account already have the
   // right page? It compares the topic against the account's own pages and returns
-  // a judgment, nothing else. It writes no proposal, no draft and no queue row,
-  // and by construction it cannot conclude that a new page is earned today. The
-  // deterministic gate inside it refuses for free, so an under-evidenced topic
-  // costs no model call. Fail-soft to null: a judgment I cannot make must never
-  // break the pass that produces the operator's actual work.
+  // a judgment, nothing else: no proposal, no draft and no queue row, whichever way
+  // it lands. The deterministic gate inside it refuses for free, so an under-evidenced
+  // topic costs no model call and no provider call. Fail-soft to null: a judgment I
+  // cannot make must never break the pass that produces the operator's actual work.
   let coverageVerdict: CoverageDecision | null = null;
+  let coverageComparison: PageIntersectionAsk | null = null;
   try {
     if (strongest) {
-      coverageVerdict = await adjudicateCoverage(strongest, ownedCandidatesFor(snapshot, strongest), tenantId, {
+      const owned = ownedCandidatesFor(snapshot, strongest);
+      coverageVerdict = await adjudicateCoverage(strongest, owned, tenantId, {
         outOfScopeTopics: topicOutOfScope(snapshot, strongest, profile),
+        intersection: opts.intersection,
         complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache,
         // The judgment call stays OFF until a surface renders its answer: this runs on the
         // operator's own page load, and a reasoning model nobody reads is a bill nobody asked for.
         ...(opts.complete ? {} : { model: "off" as const }),
       });
+      // THE MONEY GATE'S ANSWER, computed for free from evidence already in hand. Empty
+      // unless this one topic passed every cheaper check, so a pass that owes a results
+      // page, a shape, an intent or a third winner asks Evidence to buy nothing.
+      coverageComparison = intersectionComparison(coverageVerdict, strongest, owned);
     }
   } catch (e) {
     log.warn("[produce-proposals] coverage verdict failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
   }
-  const research = { investigations, strongestInvestigation: strongest, strongestMissingEvidence: strongest?.missingEvidence ?? [], coverageVerdict };
+  const research = { investigations, strongestInvestigation: strongest, strongestMissingEvidence: strongest?.missingEvidence ?? [], coverageVerdict, coverageComparison };
 
   // THE DIAGNOSIS FIRST. Doing nothing is the default; only a proven gap is work.
   const candidates = compileCandidates(snapshot);
