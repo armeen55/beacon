@@ -67,20 +67,16 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
     expect([[r1.state, r2.state].sort(), calls.fetch.length, pending?.state === "waiting" && pending.costUsd]).toEqual([["ok", "waiting"], 1, 0]); // a bare pending claim charges nothing
   });
   it("no un-paid path (cap / reserve-throw / breaker / not_configured) ever touches the network", async () => {
-    const spy = vi.fn();
-    const cap = makeDeps({ reserveProviderSpend: async () => false });
-    const rerr = makeDeps({ reserveProviderSpend: async () => { throw new Error("db down"); } });
-    const brk = makeDeps({ breaker: async () => ({ tripped: true, reason: "ceiling reached" }) });
-    const nc = makeDeps({ env: {} as NodeJS.ProcessEnv, claimEvidenceFetch: spy as never });
-    const states = [];
+    const spy = vi.fn(), states = [];
+    const cap = makeDeps({ reserveProviderSpend: async () => false }), rerr = makeDeps({ reserveProviderSpend: async () => { throw new Error("db down"); } });
+    const brk = makeDeps({ breaker: async () => ({ tripped: true, reason: "ceiling reached" }) }), nc = makeDeps({ env: {} as NodeJS.ProcessEnv, claimEvidenceFetch: spy as never });
     for (const g of [cap, rerr, brk, nc]) { states.push((await runResolvedCall(resolved(), g.deps)).state); expect(g.calls.fetch).toHaveLength(0); }
     expect(states).toEqual(["capped", "error", "capped", "not_configured"]);
     for (const g of [brk, nc]) expect(g.calls.reserve).toHaveLength(0); // breaker/not-configured never reserve
     expect(spy).not.toHaveBeenCalled(); // not_configured never even claims
   });
   it("cache identity has NO tenant input and splits on location / model", async () => {
-    const a = identityCacheKey(resolved());
-    const others = [identityCacheKey(resolved({ locationCode: 2826 })), identityCacheKey(resolved({ modelRequested: "gpt-4o" }))];
+    const a = identityCacheKey(resolved()), others = [identityCacheKey(resolved({ locationCode: 2826 })), identityCacheKey(resolved({ modelRequested: "gpt-4o" }))];
     expect([identityCacheKey(resolved({ tenantId: "tenant-b" })), others.includes(a)]).toEqual([a, false]); // tenant never enters identity; location and model always split it
   });
   it("a REPORTED zero cost is refunded and BLOCKED durably unless the exact code is a documented temporary failure; an unknown cost quarantines", async () => {
@@ -96,23 +92,20 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
       expect([blockedHold(g.calls.writes), released(g.calls.writes), cleared(g.calls.writes), quarantined(g.calls.writes)]).toEqual([want === "blocked", want === "none", false, want !== "none"]); // never repost_once, never a dead-identity clear
       if (want === "none") expect(g.calls.writes.some((w) => w.status === "error" && w.posted_attempt_at === null)).toBe(true); // the release also clears the anti-repost receipt
       if (want !== "quarantined") expect(res.state === "error" && res.detail).toContain(String(code));
-    }
-  });
+    } });
   it("a raw HTTP 401/402/404 is refunded and held DURABLY, never released back into a silent retry; a 5xx stays uncertain", async () => {
     for (const status of [401, 402, 404]) {
       const g = makeDeps({ fetchImpl: httpFail(status) }); const res = await runResolvedCall(resolved(), g.deps);
       expect([res.state === "error" && res.disposition, g.calls.adjust, blockedHold(g.calls.writes), released(g.calls.writes)]).toEqual(["blocked", [-0.01], true, false]);
       expect(res.state === "error" && res.detail).toContain(String(status)); // a raw 404 NEVER reads as a dead task
     }
-    const five = makeDeps({ fetchImpl: httpFail(500) }); const r2 = await runResolvedCall(resolved(), five.deps);
-    expect([r2.state === "error" && r2.disposition, five.calls.adjust.length, quarantined(five.calls.writes), released(five.calls.writes)]).toEqual(["quarantined", 0, true, false]); // may have run and billed: hold the money
+    const five = makeDeps({ fetchImpl: httpFail(500) }), r2 = await runResolvedCall(resolved(), five.deps); expect([r2.state === "error" && r2.disposition, five.calls.adjust.length, quarantined(five.calls.writes), released(five.calls.writes)]).toEqual(["quarantined", 0, true, false]); // may have run and billed: hold the money
   });
   it("a BLOCKED row answers blocked on every later visit: zero fetches, zero reservations, no listing, never quarantined", async () => {
     for (const call of [resolved(), taskCall()]) {
       const g = makeDeps({ claimEvidenceFetch: claim("pending"), cacheRead: blockedRow(), now: () => new Date(NOW.getTime() + 30 * 86_400_000) }); const res = await runResolvedCall(call, g.deps);
       expect([res.state === "error" && res.disposition, g.calls.fetch, g.calls.reserve, g.calls.writes, res.state === "error" && res.detail.includes("50100")]).toEqual(["blocked", [], [], [], true]); // refunded already: nothing to collect, nothing to buy
-    }
-  });
+    } });
 });
 describe("Standard tasks - free resumption and the STRUCTURED dispositions", () => {
   it("posts once, persists the task id, and returns durable waiting with the provider cost exactly once", async () => {
@@ -126,8 +119,7 @@ describe("Standard tasks - free resumption and the STRUCTURED dispositions", () 
     expect([res.state, res.state === "ok" && res.costUsd, calls.reserve.length]).toEqual(["ok", 0, 0]); // no reservation on a free resume
     expect(calls.fetch).toEqual([expect.stringContaining("/task_get/advanced/task-123")]);
     // FRESHNESS truth: a collected row expires on the REGISTRY ttl (60s fixture), never the 30-day task retention, so a due re-observation re-buys.
-    expect(Date.parse(calls.writes.find((w) => w.status === "ready")!.expires_at as string) - NOW.getTime()).toBe(60_000);
-  });
+    expect(Date.parse(calls.writes.find((w) => w.status === "ready")!.expires_at as string) - NOW.getTime()).toBe(60_000); });
   it("maps every in-body task code onto the frozen disposition and clears ONLY a proven dead identity", async () => {
     const cases: [number, string, boolean][] = [
       [40601, "waiting", false], [40602, "waiting", false], [50000, "retry_free", false], [50301, "retry_free", false], // genuine queue: free GET, zero reposts. transient: the SAME id is kept
@@ -138,14 +130,12 @@ describe("Standard tasks - free resumption and the STRUCTURED dispositions", () 
       expect(res.state === "error" ? res.disposition : res.state).toBe(want);
       if (res.state === "error") expect(res.detail).toContain(String(code));
       expect([cleared(calls.writes), calls.fetch.every((u) => u.includes("task_get"))]).toEqual([clears, true]); // never a repost
-    }
-  });
+    } });
   it("on the FREE GET a raw 404 fails closed (identity kept, no repost); any other transport failure keeps the task", async () => {
     const dead = makeDeps({ cacheRead: row(), fetchImpl: httpFail(404) }); const d1 = await collectResolvedTask("k", PATHS, dead.deps);
     expect([d1.state === "error" && d1.disposition, cleared(dead.calls.writes)]).toEqual(["blocked", false]); // only in-body 40401/40403 ever authorize the repost
     const blip = makeDeps({ cacheRead: row(), fetchImpl: httpFail(503) }); const b1 = await collectResolvedTask("k", PATHS, blip.deps);
-    expect([b1.state, b1.state === "waiting" && b1.costUsd, b1.state === "waiting" && b1.providerTaskId, cleared(blip.calls.writes), b1.state === "waiting" && b1.detail.includes("503")]).toEqual(["waiting", 0, "task-9", false, true]);
-  });
+    expect([b1.state, b1.state === "waiting" && b1.costUsd, b1.state === "waiting" && b1.providerTaskId, cleared(blip.calls.writes), b1.state === "waiting" && b1.detail.includes("503")]).toEqual(["waiting", 0, "task-9", false, true]); });
 });
 describe("quarantine - indefinite, both modes, zero automatic paid retries", () => {
   it("an UNCERTAIN Standard post stays quarantined FOREVER: 30 days on it is still one free listing GET and zero posts", async () => {
@@ -161,15 +151,13 @@ describe("quarantine - indefinite, both modes, zero automatic paid retries", () 
     expect([calls.reserve, calls.adjust.length, quarantined(calls.writes), released(calls.writes)]).toEqual([[0.01], 0, true, false]); // never reconciled down: the provider may have charged it
     const g = makeDeps({ claimEvidenceFetch: claim("pending"), cacheRead: uncertainRow() });
     const later = await runResolvedCall(resolved(), g.deps); // a LATER visit reads the quarantined row and says so
-    expect([later.state === "error" && later.disposition, g.calls.fetch.length, g.calls.reserve.length]).toEqual(["quarantined", 0, 0]);
-  });
+    expect([later.state === "error" && later.disposition, g.calls.fetch.length, g.calls.reserve.length]).toEqual(["quarantined", 0, 0]); });
   it("an accepted post whose id could not be saved is quarantined, and later visits never post", async () => {
     const g = makeDeps(); let n = 0;
     g.deps.cacheWrite = async (_k: string, p: Record<string, unknown>) => { g.calls.writes.push(p); if (++n === 2) throw new Error("db down"); };
     g.deps.fetchImpl = postAccepted(g.calls); const res = await runResolvedCall(taskCall(), g.deps);
     expect([res.state === "error" && res.disposition, g.calls.adjust, quarantined(g.calls.writes)]).toEqual(["quarantined", [0.006 - 0.01], true]); // reconciled to actual; reservation kept
-    expect((await secondVisit(listing([]))).calls.fetch.some((u) => u.includes("task_post"))).toBe(false);
-  });
+    expect((await secondVisit(listing([]))).calls.fetch.some((u) => u.includes("task_post"))).toBe(false); });
   it("recovers the id for FREE from tasks_ready by our own tag, then collects it", async () => {
     const g = makeDeps({ cacheRead: uncertainRow() });
     g.deps.fetchImpl = fetcher(g.calls, (u) => (u.includes("tasks_ready") ? listing([{ id: "someone-else", tag: "other-key" }, { id: "task-77", tag: "k" }]) : liveOk(0)));
@@ -195,8 +183,7 @@ describe("fail-closed persistence - never report success, never re-buy, on an un
     for (const call of [taskCall(), resolved()]) {
       const { deps, calls } = makeDeps(); delete deps.cacheWrite; const res = await runResolvedCall(call, deps); // the production seam, whose UPDATE matches no row
       expect([res.state === "error" && res.disposition, calls.fetch.length, calls.adjust]).toEqual(["none", 0, [-0.01]]); // never called, never charged, reservation handed back
-    }
-  });
+    } });
   it("a paid LIVE answer that will not save is retried free, then quarantined: never released, never re-fetched", async () => {
     const g = makeDeps(); let tries = 0;
     g.deps.cacheWrite = async (_k: string, p: Record<string, unknown>) => { g.calls.writes.push(p); if (p.status === "ready") { tries++; throw new Error("db down"); } };
@@ -205,12 +192,10 @@ describe("fail-closed persistence - never report success, never re-buy, on an un
   it("a ready write that fails once then succeeds is a plain ok with exactly one paid fetch", async () => {
     const g = makeDeps(); let n = 0;
     g.deps.cacheWrite = async (_k: string, p: Record<string, unknown>) => { g.calls.writes.push(p); if (p.status === "ready" && n++ === 0) throw new Error("blip"); };
-    expect([(await runResolvedCall(resolved(), g.deps)).state, g.calls.fetch.length]).toEqual(["ok", 1]);
-  });
+    expect([(await runResolvedCall(resolved(), g.deps)).state, g.calls.fetch.length]).toEqual(["ok", 1]); });
   it("a records read that throws never becomes a cache miss: collect errors and calls nothing", async () => {
     const { deps, calls } = makeDeps({ cacheRead: async () => { throw new Error("db down"); } }); const res = await collectResolvedTask("k", PATHS, deps);
-    expect([res.state === "error" && res.disposition, calls.fetch.length, res.state === "error" && res.detail.includes("could not read my own records")]).toEqual(["none", 0, true]);
-  });
+    expect([res.state === "error" && res.disposition, calls.fetch.length, res.state === "error" && res.detail.includes("could not read my own records")]).toEqual(["none", 0, true]); });
   it("a collected result that will not save is retried free and stays free to collect again", async () => {
     const g = makeDeps({ cacheRead: row() }); let tries = 0;
     g.deps.cacheWrite = async (_k: string, p: Record<string, unknown>) => { g.calls.writes.push(p); if (p.status === "ready") { tries++; throw new Error("db down"); } };

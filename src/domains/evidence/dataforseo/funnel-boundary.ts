@@ -68,6 +68,11 @@ export type ParsedKeywordItem = {
   competitionLevel: "low" | "medium" | "high" | null;
   difficulty: number | null;
   intent: string | null;
+  /** ranked_keywords only: the page that ACTUALLY ranks for this keyword and its ORGANIC
+   *  position (rank_group; rank_absolute counts ads and packs). null on every other
+   *  endpoint, and null rather than a guess when the provider sent no element. */
+  rankedUrl: string | null;
+  rankedRank: number | null;
   /** The 12-month trend, ONLY when the provider actually returned it. null = no
    *  trend on this response; [] = an empty trend it really sent. A month whose
    *  volume is absent stays null, because "unknown" is not "zero searches". */
@@ -76,7 +81,6 @@ export type ParsedKeywordItem = {
 export type ParsedSerp = {
   organic: { rank: number; domain: string; url: string; title: string | null }[];
   aiOverview: { present: boolean; references: { url: string; domain: string; title: string | null }[]; excerpt: string | null } | null;
-  snippetOwner: { domain: string; url: string } | null;
   paaQuestions: { question: string; answeringDomain: string | null }[];
   relatedSearches: string[];
 };
@@ -89,7 +93,6 @@ export type ParsedAiAnswer = {
   citations: { url: string; domain: string; title: string | null }[] | null;
   /** null = not observable on this path. */
   fanOutQueries: string[] | null;
-  brands: string[] | null;
 };
 export type ParsedByCapability = {
   labs_keywords_for_site: ParsedKeywordItem[];

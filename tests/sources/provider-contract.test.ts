@@ -37,8 +37,7 @@ describe("exact task-status taxonomy (docs.dataforseo.com/v3/appendix/errors)", 
       ["ready", [20000]], ["waiting", [null, 20100, 40601, 40602]], ["missing", [40401, 40403]], // waiting = still the provider's turn; ONLY the two missing codes are proven dead -> the one repost
       ["transient", [50000, 50001, 50301, 50302, 50303]], ["limited", [40203]], // transient = FREE collect, id preserved; limited = the account's OWN daily ceiling, which resets
       ["blocked", [40000, 40100, 40103, 40200, 40202, 40400, 40402, 40404, 40405, 40406, 40407, 40408, 40501, 40506, 50100, 50304, 50401, 50402, 44999, 61234]]]; // never missing, never a paid repost: contract, account, duplicate, terminal, unknown
-    for (const [cls, codes] of groups) for (const code of codes) expect([code, classifyTaskStatus(code)]).toEqual([code, cls]);
-  });
+    for (const [cls, codes] of groups) for (const code of codes) expect([code, classifyTaskStatus(code)]).toEqual([code, cls]); });
   it("judges a PAID response on REPORTED cost first, then on BOTH statuses: every non-success status must be exact-temporary at a reported 0", () => {
     const paid: [number | null, number | null, number | null, PaidResponseAction][] = [ [20000, null, null, "uncertain"], [50301, null, null, "uncertain"], [20000, 50301, 0.02, "uncertain"], [20000, 50303, 0.001, "uncertain"], // unreported or nonzero cost: the provider may have charged
       [50301, null, 0, "retry_free_release"], [20000, 50000, 0, "retry_free_release"], [20000, 50303, 0, "retry_free_release"], [50303, null, 0, "retry_free_release"], [50301, 50303, 0, "retry_free_release"], // every non-success status exact-temporary + a REPORTED zero
@@ -49,20 +48,17 @@ describe("exact task-status taxonomy (docs.dataforseo.com/v3/appendix/errors)", 
       [20000, 61234, 0, "blocked"], // undocumented: fails closed
       [40203, null, 0, "daily_limit_release"], [20000, 40203, 0, "daily_limit_release"], // a ceiling that RESETS releases, never a hold needing an operator
       [40203, null, 0.01, "uncertain"], [40203, 50303, 0, "blocked"]]; // ...unless it may have charged, or is mixed with another refusal
-    for (const c of paid) expect([c[0], c[1], c[2], classifyPaidResponse(c[0], c[1], c[2])]).toEqual(c);
-  });
+    for (const c of paid) expect([c[0], c[1], c[2], classifyPaidResponse(c[0], c[1], c[2])]).toEqual(c); });
 });
 describe("exact provider paths + DYNAMIC method routing", () => {
   it("a Standard AI POST hits /task_post, the tag carries the cacheKey, and the model rides back; Perplexity is Live", async () => {
     const chat = harness(llmResponsesTaskPostAck, { modelsBody: STD }); const res = await providerCall("llm_chatgpt", { user_prompt: "hi", web_search: true }, IDS, chat.deps);
     if (res.state !== "waiting") throw new Error(res.state); expect(res.modelRequested).toBe("gpt-4o"); expect(chat.task()[0]).toBe(BASE + "ai_optimization/chat_gpt/llm_responses/task_post"); expect(chat.calls.bodies[0][0].tag).toBe(res.cacheKey);
-    const px = harness(perplexityLive, { modelsBody: modelsFor("sonar", false) }); await providerCall("llm_perplexity", { user_prompt: "hi" }, IDS, px.deps); expect(px.task()[0]).toBe(BASE + "ai_optimization/perplexity/llm_responses/live");
-  });
+    const px = harness(perplexityLive, { modelsBody: modelsFor("sonar", false) }); await providerCall("llm_perplexity", { user_prompt: "hi" }, IDS, px.deps); expect(px.task()[0]).toBe(BASE + "ai_optimization/perplexity/llm_responses/live"); });
   it("routes the SAME engine to Standard or to Live purely from the model resolution", async () => {
     for (const [post, path] of [[true, "task_post"], [false, "live"]] as [boolean, string][]) {
       const g = harness(post ? llmResponsesTaskPostAck : perplexityLive, { modelsBody: modelsFor("gemini-2.5-pro", post) }); await providerCall("llm_gemini", { user_prompt: "g", web_search: true }, IDS, g.deps); expect(g.task()[0]).toBe(`${BASE}ai_optimization/gemini/llm_responses/${path}`);
-    }
-  });
+    } });
   it("resumes Standard via /task_get/{id}, scraper via /task_get/advanced/{id}, and a raw 404 fails closed", async () => {
     const a = harness(llmResponsesTaskGet, { cacheRead: async () => taskRow("ai_optimization/chat_gpt/llm_responses/task_post") }); expect((await collectCapability("k", a.deps)).state).toBe("ok"); expect(a.calls.fetch[0]).toBe(BASE + "ai_optimization/chat_gpt/llm_responses/task_get/abc-123"); const b = harness({ status_code: 20000, tasks: [{ status_code: 20000, id: "sc-1", result: [{ items: [] }] }] }, { cacheRead: async () => taskRow("ai_optimization/chat_gpt/llm_scraper/task_post", { provider_task_id: "sc-1" }) }); expect((await collectCapability("k", b.deps)).state).toBe("ok"); expect(b.calls.fetch[0]).toBe(BASE + "ai_optimization/chat_gpt/llm_scraper/task_get/advanced/sc-1");
     const c = harness({}, { cacheRead: async () => taskRow("serp/google/organic/task_post"), fetchImpl: vi.fn(async () => new Response("nope", { status: 404 })) as unknown as typeof fetch }); const dead = await collectCapability("k", c.deps); expect(dead.state === "error" && dead.disposition).toBe("blocked"); // a raw HTTP 404 never reposts
@@ -71,8 +67,7 @@ describe("exact provider paths + DYNAMIC method routing", () => {
     for (const family of ["serp/google/organic", "serp/google/ai_mode", "ai_optimization/chat_gpt/llm_responses", "ai_optimization/claude/llm_responses", "ai_optimization/gemini/llm_responses", "ai_optimization/chat_gpt/llm_scraper"]) {
       const g = harness(serpTaskGetAdvanced, { cacheRead: async () => taskRow(`${family}/task_post`, { provider_task_id: null, quarantined_at: NOW.toISOString() }) }); g.deps.fetchImpl = vi.fn(async (u: string) => { g.calls.fetch.push(u); return new Response(JSON.stringify(u.includes("tasks_ready") ? { status_code: 20000, tasks: [{ status_code: 20000, result: [{ id: "found-1", tag: "k" }] }] } : serpTaskGetAdvanced), { status: 200 }); }) as unknown as typeof fetch;
       expect((await collectCapability("k", g.deps)).state).toBe("ok"); expect([g.calls.fetch[0], g.calls.fetch.some((u) => u.includes("task_post"))]).toEqual([`${BASE}${family}/tasks_ready`, false]); // FREE GET per family, never a paid repost
-    }
-  });
+    } });
 });
 describe("web-enabled request bodies per engine (only documented fields)", () => {
   it("ChatGPT sends web_search ONLY: force_web_search draws an in-body 40501 on its reasoning models, and no web field rides an unasked or unsupported search", async () => {
@@ -85,8 +80,7 @@ describe("web-enabled request bodies per engine (only documented fields)", () =>
   });
   it("Claude sends force_web_search + country when asked (documented; conflicts only with use_reasoning, which we never send) and neither when web search is off", async () => {
     const on = harness(llmResponsesTaskPostAck, { modelsBody: modelsFor("claude-sonnet-4-20250514", true) }); await providerCall("llm_claude", { user_prompt: "q", web_search: true, force_web_search: true, web_search_country_iso_code: "US" }, IDS, on.deps); expect(on.calls.bodies[0][0]).toMatchObject({ user_prompt: "q", model_name: "claude-sonnet-4-20250514", max_output_tokens: 2048, web_search: true, force_web_search: true, web_search_country_iso_code: "US" });
-    const off = harness(llmResponsesTaskPostAck, { modelsBody: modelsFor("claude-sonnet-4-20250514", true) }); await providerCall("llm_claude", { user_prompt: "q", force_web_search: true, web_search_country_iso_code: "US" }, IDS, off.deps); const ob = off.calls.bodies[0][0]; expect(["web_search" in ob, "force_web_search" in ob, "web_search_country_iso_code" in ob]).toEqual([false, false, false]);
-  });
+    const off = harness(llmResponsesTaskPostAck, { modelsBody: modelsFor("claude-sonnet-4-20250514", true) }); await providerCall("llm_claude", { user_prompt: "q", force_web_search: true, web_search_country_iso_code: "US" }, IDS, off.deps); const ob = off.calls.bodies[0][0]; expect(["web_search" in ob, "force_web_search" in ob, "web_search_country_iso_code" in ob]).toEqual([false, false, false]); });
   it("Gemini carries web_search ONLY; Perplexity never sends web_search; the scraper is keyword-based with no token field", async () => {
     const gem = harness(llmResponsesTaskPostAck, { modelsBody: modelsFor("gemini-2.5-pro", true) }); await providerCall("llm_gemini", { user_prompt: "g", web_search: true }, IDS, gem.deps); const gb = gem.calls.bodies[0][0]; expect(gb).toMatchObject({ user_prompt: "g", model_name: "gemini-2.5-pro", max_output_tokens: 2048, web_search: true }); expect(["force_web_search" in gb, "web_search_country_iso_code" in gb]).toEqual([false, false]);
     const px = harness(perplexityLive, { modelsBody: modelsFor("sonar", false) }); await providerCall("llm_perplexity", { user_prompt: "p", web_search_country_iso_code: "US" }, IDS, px.deps); const pb = px.calls.bodies[0][0]; expect(pb).toMatchObject({ user_prompt: "p", model_name: "sonar", max_output_tokens: 2048, web_search_country_iso_code: "US" }); expect(pb.web_search).toBeUndefined();
@@ -99,13 +93,12 @@ describe("web-enabled request bodies per engine (only documented fields)", () =>
     const scraper = () => providerCall("llm_scraper_chatgpt", { user_prompt: "x" }, IDS);
     // @ts-expect-error the model is resolved, never caller-supplied
     const chosen = () => providerCall("llm_chatgpt", { user_prompt: "x", model_name: "gpt-4o" }, IDS);
-    expect([typeof scraper, typeof chosen]).toEqual(["function", "function"]);
-  });
+    expect([typeof scraper, typeof chosen]).toEqual(["function", "function"]); });
 });
 describe("keyword ideas: one request per 200 seeds, and nothing missing turned into a zero", () => {
-  const rich = { keyword: "saffron price", keyword_info: { search_volume: 1200, competition: 0.21, competition_level: "LOW", cpc: 0.9, monthly_searches: [{ year: 2026, month: 6, search_volume: 1100 }, { year: 2026, month: 5 }] }, keyword_properties: { keyword_difficulty: 34 }, search_intent_info: { main_intent: "commercial" } };
+  const rich = { keyword: "saffron price", keyword_info: { search_volume: 1200, competition: 0.21, competition_level: "LOW", cpc: 0.9, monthly_searches: [{ year: 2026, month: 6, search_volume: 1100 }, { year: 2026, month: 5 }] }, keyword_properties: { keyword_difficulty: 34 }, search_intent_info: { main_intent: "commercial" } }, ranked = { ranked_serp_element: { serp_item: { rank_group: 4, rank_absolute: 7, url: "https://mysite.example/saffron-price" } } };
   const sparse = { keyword: "saffron threads", keyword_info: {}, keyword_properties: {}, search_intent_info: {} }; // the provider knows nothing about this one
-  const ideas = { status_code: 20000, cost: 0.096, tasks: [{ status_code: 20000, id: "i1", cost: 0.096, result: [{ items: [rich, sparse] }] }] };
+  const ideas = { status_code: 20000, cost: 0.096, tasks: [{ status_code: 20000, id: "i1", cost: 0.096, result: [{ items: [{ ...rich, ...ranked }, sparse] }] }] }; // a ranked row carries the page that ACTUALLY ranks beside the metrics
   const seeds = (n: number) => Array.from({ length: n }, (_, i) => `theme ${String(i).padStart(3, "0")}`);
   it("batches 250 seeds into 2 paid requests at the documented 200 ceiling, never one per keyword", async () => {
     const h = harness(ideas); const results = await keywordIdeasBatched(seeds(250), IDS, h.deps); expect([results.length, h.calls.fetch.length]).toEqual([2, 2]); expect(h.calls.fetch.every((u) => u === BASE + "dataforseo_labs/google/keyword_ideas/live")).toBe(true);
@@ -114,9 +107,9 @@ describe("keyword ideas: one request per 200 seeds, and nothing missing turned i
     const capped = harness(ideas); await keywordIdeasBatched(seeds(3), IDS, capped.deps, 5000); expect(capped.calls.bodies[0][0].limit).toBe(1000); // a caller cannot ask past what the provider allows
   });
   it("keeps every metric the provider sent and leaves every one it did not as null, never 0", async () => {
-    const h = harness(ideas); const r = (await keywordIdeasBatched(["saffron"], IDS, h.deps))[0]!; if (r.state !== "ok") throw new Error(r.state); const [got, blank] = parseCapability("labs_keyword_ideas", r.envelope)!; expect(got).toMatchObject({ keyword: "saffron price", searchVolume: 1200, competition: 0.21, competitionLevel: "low", cpcUsd: 0.9, difficulty: 34, intent: "commercial" });
+    const h = harness(ideas); const r = (await keywordIdeasBatched(["saffron"], IDS, h.deps))[0]!; if (r.state !== "ok") throw new Error(r.state); const [got, blank] = parseCapability("labs_keyword_ideas", r.envelope)!; expect(got).toMatchObject({ keyword: "saffron price", searchVolume: 1200, competition: 0.21, competitionLevel: "low", cpcUsd: 0.9, difficulty: 34, intent: "commercial", rankedUrl: "https://mysite.example/saffron-price", rankedRank: 4 }); // rank_group IS the position; rank_absolute (7) counts ads and packs and is never read
     expect(got!.monthlySearches).toEqual([{ year: 2026, month: 6, volume: 1100 }, { year: 2026, month: 5, volume: null }]); // the trend survives; a month with no figure is unknown, not zero searches
-    expect([blank!.searchVolume, blank!.difficulty, blank!.intent, blank!.competition, blank!.competitionLevel, blank!.monthlySearches]).toEqual([null, null, null, null, null, null]); // no trend returned reads null, never an empty trend and never zeros
+    expect([blank!.searchVolume, blank!.difficulty, blank!.intent, blank!.competition, blank!.competitionLevel, blank!.rankedUrl, blank!.rankedRank, blank!.monthlySearches]).toEqual([null, null, null, null, null, null, null, null]); // no trend returned reads null, never an empty trend and never zeros
   });
   it("reserves BEFORE the call, reconciles down to the provider's actual, and reuses a cached equivalent instead of buying it twice", async () => {
     const order: string[] = []; let reserved = 0, delta = 0; const h = harness(ideas, { reserveProviderSpend: async (_t: string, _p: string, amount: number) => { order.push("reserve"); reserved = amount; return true; }, adjustProviderSpend: async (_t: string, _p: string, d: number) => { order.push("reconcile"); delta = d; return true; } });
@@ -164,13 +157,11 @@ describe("envelope parsing + method-aware resolution", () => {
     let reserved = 0; const ov = harness(labsKeywordsForSiteLive, { reserveProviderSpend: async (_t: string, _p: string, amount: number) => { reserved = amount; return true; } }); await providerCall("labs_keyword_overview", { keywords: ["a"] }, IDS, ov.deps); expect(reserved).toBeGreaterThanOrEqual(700 * 0.0003); }); // 150 keywords really charged $0.02988, so a FULL 700-keyword batch lands near $0.21: never reserved under it
   it("the SERP fixture yields organic, PAA, related, AI Overview; an LLM answer lists web citations", async () => {
     const serp = parseCapability("serp_organic", serpTaskGetAdvanced as unknown as ProviderEnvelope); expect(serp!.organic.map((o) => o.domain)).toEqual(["python.org", "w3schools.com"]); expect(serp!.paaQuestions).toHaveLength(2); expect(serp!.relatedSearches).toHaveLength(3); expect(serp!.aiOverview?.references.map((r) => r.domain)).toEqual(["python.org", "wikipedia.org"]);
-    const { deps } = harness(llmResponsesTaskGet, { cacheRead: async () => taskRow("ai_optimization/chat_gpt/llm_responses/task_post", { cost_usd: 0 }) }); const res = await collectCapability("k", deps); if (res.state !== "ok") throw new Error(res.state); const ans = parseCapability("llm_chatgpt", res.envelope); expect([ans!.webSearchReported, ans!.citations?.map((c) => c.domain), ans!.fanOutQueries?.length]).toEqual([true, ["runnersworld.com", "wirecutter.com"], 2]);
-  });
+    const { deps } = harness(llmResponsesTaskGet, { cacheRead: async () => taskRow("ai_optimization/chat_gpt/llm_responses/task_post", { cost_usd: 0 }) }); const res = await collectCapability("k", deps); if (res.state !== "ok") throw new Error(res.state); const ans = parseCapability("llm_chatgpt", res.envelope); expect([ans!.webSearchReported, ans!.citations?.map((c) => c.domain), ans!.fanOutQueries?.length]).toEqual([true, ["runnersworld.com", "wirecutter.com"], 2]); });
   it("resolution prefers Standard + web, fails closed when unavailable, and uses the unconfigured fallback", async () => {
     expect(await resolveEngineModel("chatgpt", harness(chatgptModels).deps)).toMatchObject({ model: "gpt-4o", method: "standard", webSearch: true }); // NOT gpt-5
     expect(await resolveEngineModel("perplexity", harness(perplexityModels).deps)).toMatchObject({ model: "sonar-reasoning-pro", method: "live", webSearch: true }); expect(await resolveEngineModel("chatgpt", harness({}, { fetchImpl: vi.fn(async () => { throw new Error("down"); }) as unknown as typeof fetch }).deps)).toBeNull(); // fail closed
-    const off = harness({}, { env: {} }); expect(await resolveEngineModel("gemini", off.deps)).toMatchObject({ model: "gemini-2.5-flash", method: "live", webSearch: true }); expect(off.calls.fetch).toHaveLength(0);
-  });
+    const off = harness({}, { env: {} }); expect(await resolveEngineModel("gemini", off.deps)).toMatchObject({ model: "gemini-2.5-flash", method: "live", webSearch: true }); expect(off.calls.fetch).toHaveLength(0); });
   it("a model-cache READ FAILURE fails closed: no model, a bounded no-model result, and ZERO provider calls", async () => {
     const outage = harness(llmResponsesTaskPostAck, { modelsBody: STD, cacheRead: async () => { throw new Error("records down"); } }); expect(await resolveEngineModel("chatgpt", outage.deps)).toBeNull(); // a records outage is NOT a cache miss
     const noModel = await providerCall("llm_chatgpt", { user_prompt: "hi", web_search: true }, IDS, outage.deps); expect([noModel.state, noModel.state === "not_configured" && noModel.detail.includes("usable chatgpt model"), outage.calls.fetch.length]).toEqual(["not_configured", true, 0]); // not even the FREE models GET

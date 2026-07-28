@@ -1,21 +1,19 @@
 /**
- * owned-coverage (2026-07-28) - the DETERMINISTIC half of ONE question: does this
- * business ALREADY have the page that answers what I just investigated? This file
- * builds the bounded set of OWNED pages that could plausibly be that page, each
- * carrying the EVIDENCE that put it there. It never calls a model and it never
- * returns a verdict: the adjudicator reasons over these candidates.
- *
- * Every signal is labelled by STRENGTH so a hint can never be read as proof:
- *   STRONG - the page takes Search Console impressions for one of the exact queries;
- *            its own URL sits in the exact results I looked at; an engine cites it for
- *            a prompt here; my keyword research records me ranking for one of these
- *            queries; or its own words AND its page shape match what wins.
- *   WEAK   - the topic and the page's title or path merely share wording. It may
- *            shortlist a page. It may never establish coverage.
- *   UNKNOWN- I do not hold this page's words. That is NOT absence of coverage, and the
- *            difference decides whether Beacon builds a duplicate of a page I have.
- * A word this account puts on nearly everything (weakAnchorsOf, from its OWN corpus)
- * can never map a page on its own. One canonical URL identity and one publisher rollup
+ * owned-coverage (2026-07-28) - the DETERMINISTIC half of ONE question: does this business
+ * ALREADY have the page that answers what I just investigated? It builds the bounded set of
+ * OWNED pages that could plausibly be that page, each carrying the EVIDENCE that put it
+ * there. It never calls a model and never returns a verdict: the adjudicator reasons over
+ * these candidates. Every signal is labelled by STRENGTH so a hint can never read as proof:
+ *   STRONG  the page takes Search Console impressions for one of the exact queries; its own
+ *           URL sits in the exact results I looked at; an engine cites it for a prompt here;
+ *           my keyword research records me ranking for one of these queries; or its own
+ *           words AND its page shape match what wins.
+ *   WEAK    the topic and the page's title or path merely share wording. It may shortlist a
+ *           page. It may never establish coverage.
+ *   UNKNOWN I do not hold this page's words. That is NOT absence of coverage, and the
+ *           difference decides whether Beacon builds a duplicate of a page I have.
+ * A word this account puts on nearly everything (weakAnchorsOf, from its OWN corpus) can
+ * never map a page on its own. One canonical URL identity and one publisher rollup
  * throughout, so a page is never two pages and a subdomain is never a second publisher.
  * Pure and deterministic: same evidence in, same ordered candidates out.
  */

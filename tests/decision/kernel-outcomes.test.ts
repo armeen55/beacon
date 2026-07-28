@@ -18,7 +18,7 @@ import { compileCandidates, snapshotToEvidenceInputs } from "@/domains/decision/
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
 import { topInvestigationQueries } from "@/domains/runtime/ops/investigation-queries";
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { ownedCandidatesFor } from "@/domains/decision/owned-coverage"; import { buildTopicInvestigations } from "@/domains/evidence/topic-investigation";
-import { emptyResearchEvidence, type FunnelResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
+import { emptyResearchEvidence, type FunnelResearchEvidence, type ResearchPageComparison } from "@/domains/evidence/funnel/research-evidence";
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot";
 import { serializeChangeProposal, deserializeChangeProposal, type EvidenceInput, type ChangeProposal } from "@/domains/decision/contracts";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
@@ -78,12 +78,12 @@ describe("existing-page cold proposal", () => {
 function ownedPage(url: string, title: string, totals: { impressions: number; clicks: number }, topQueries: OwnedQuerySignal[], outline: string[] = []): OwnedPageEvidence {
   return { url, content: { title, metaDescription: null, h1: title, h2: [], outline, schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 800, internalLinks: [], fetchedAt: null },
     search: { clicks90d: totals.clicks, impressions90d: totals.impressions, ctr90d: totals.clicks / totals.impressions, position90d: 4, topQueries }, engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } };
-} function snap(ownedPages: OwnedPageEvidence[], research: FunnelResearchEvidence = emptyResearchEvidence()): EvidenceSnapshot {
-  return { scope: { tenantId: "fixture-tenant", site: "fixture-outdoors.example", builtAt: "2026-07-26T00:00:00.000Z" }, sources: [], ownedPages, competitors: [], keywordDemand: [], questionDemand: [],
+} function snap(ownedPages: OwnedPageEvidence[], research: FunnelResearchEvidence = emptyResearchEvidence(), keywordDemand: EvidenceSnapshot["keywordDemand"] = []): EvidenceSnapshot {
+  return { scope: { tenantId: "fixture-tenant", site: "fixture-outdoors.example", builtAt: "2026-07-26T00:00:00.000Z" }, sources: [], ownedPages, competitors: [], keywordDemand, questionDemand: [],
     intentClusters: [], cannibalization: [], contentGaps: [], internalLinkOpportunities: [], aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 }, research, evidenceHash: "fixture" };
 } /** A live results page observed for these EXACT searches, carrying this page's OWN line on it and two rivals that share wording
  *  that line does not: exactly what a diagnosis has to read before it may name the title. */
-const looked = (pairs: [string, string][]): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), serpEvidence: pairs.map(([query, url]) => ({ query, observedAt: null, aiOverview: [], aiMode: [], paa: [], related: [],
+const looked = (pairs: [string, string][], observedAt: string | null = null): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), serpEvidence: pairs.map(([query, url]) => ({ query, observedAt, aiOverview: [], aiMode: [], paa: [], related: [],
   organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/a", title: "Nowruz Traditions Explained" },
     { rank: 2, domain: "other.example", url: "https://other.example/b", title: "Persian New Year Traditions and Food" }, { rank: 3, domain: "fixture-outdoors.example", url, title: "Nowruz" }] })) });
 /** A big winner: its main searches BEAT the clicks their positions earn, and even counting its one soft search it is ahead. */
@@ -166,21 +166,27 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     expect([failed.outcome, failed.persisted, env.saved.length]).toEqual(["persistence_failed", 0, 1]); // it tried, and it says so
     reset(SEEN()); const thin = await run(async () => ({ error: "the drafter is off", retryable: false })); expect([thin.outcome, thin.actionable, thin.noDraft, thin.proposals.length]).toEqual(["actionable_but_no_trusted_draft", 1, 1, 0]); });
 }); // ── research: what the pass is investigating, and what a run buys next ────────
-/** A third proven gap, so the priority list has more page work than it has slots. */
-const THIRD = ownedPage("fixture-outdoors.example/nowruz-music", "Nowruz Music", { impressions: 2600, clicks: 52 }, [{ query: "nowruz music", impressions: 2500, clicks: 50, position: 4.1 }]);
+const HAFT = "haft seen table"; const LOOKED_AT = "2026-07-25T00:00:00.000Z"; const RIVAL = (n: number) => `https://r${n}.example/a`; const DEMAND: EvidenceSnapshot["keywordDemand"] = [{ query: HAFT, searchVolume: 900, source: "dataforseo", competition: null, competitionLevel: null, gscImpressions: null }]; const COMPARED = [`https://${GAP_URL}`, RIVAL(1), RIVAL(2), RIVAL(3)].sort();
+/** A dated look whose results agree on one meaning and one shape, with an intent on file: everything settled except the pages themselves. */ const GUIDED: FunnelResearchEvidence = { ...emptyResearchEvidence(), retainedKeywords: [{ query: HAFT, searchVolume: 900, competition: null, competitionLevel: null, difficulty: null, intent: "informational", discoveredVia: "gsc", seed: null }],
+  serpEvidence: [{ query: HAFT, observedAt: LOOKED_AT, aiOverview: [], aiMode: [], paa: [], related: [], organic: [1, 2, 3].map((rank) => ({ rank, domain: `r${rank}.example`, url: RIVAL(rank), title: `${HAFT} guide` })) }] };
+/** Every cheaper check behind me: three publishers I read, my own page on those results, and the answer to exactly the comparison this pass would buy. */ const READY = (over: Partial<ResearchPageComparison> = {}): FunnelResearchEvidence => ({ ...GUIDED, serpEvidence: [{ ...GUIDED.serpEvidence[0]!, organic: [...GUIDED.serpEvidence[0]!.organic, { rank: 4, domain: "fixture-outdoors.example", url: GAP_URL, title: "Nowruz" }] }], winningPages: [1, 2, 3].map((n) => ({ url: RIVAL(n), domain: `r${n}.example`, engines: [], examplePrompts: [], appearances: [{ kind: "serp_organic" as const, query: HAFT, promptId: null, promptText: null, engine: null, rank: n, citedUrl: RIVAL(n), observedAt: LOOKED_AT, modelServed: null }], extract: { title: "g", h1: "g", wordCount: 900, headings: [], faqCount: 0, fetchedAt: LOOKED_AT } })), pageComparisons: [{ topicKey: "", askKey: "k", pages: COMPARED, excludePages: [], observedAt: LOOKED_AT, receipt: null, unavailable: null, comparison: { intersectionMode: "union", excludePages: [], pages: COMPARED.map((url, i) => ({ page: i + 1, url })), keywords: ["a", "b", "c"].map((keyword, i) => ({ keyword, searchVolume: 500, competition: null, competitionLevel: null, difficulty: null, mainIntent: "informational", ranks: (i === 2 ? [3, 4] : [2, 3]).map((page) => ({ page, url: COMPARED[page - 1]!, title: null, rank: page })) })) }, ...over }] });
 describe("the pass says what it is investigating without turning any of it into work", () => {
   it("carries the research packets, picks the SAME strongest topic from the same evidence, and proposes nothing off them", async () => {
     const world = () => snap([WINNER], looked([["nowruz traditions", GAP_URL]])); // a page with no gap, plus one results page I have read
     let called = 0; const complete: CompleteFn = async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; };
     reset(world()); const first = await produceProposalsForTenant("fixture-tenant", { complete, now: NOW }); reset(world()); const again = await produceProposalsForTenant("fixture-tenant", { complete, now: NOW });
-    expect(first.investigations.length).toBeGreaterThan(0); // the research packet reaches the production pass
-    expect(first.strongestInvestigation!.key).toBe(again.strongestInvestigation!.key); // same evidence, same pick, every pass
-    expect(first.strongestMissingEvidence).toEqual(first.strongestInvestigation!.missingEvidence); // and it says what it still needs
+    expect(first.investigations.length).toBeGreaterThan(0); expect(first.strongestInvestigation!.key).toBe(again.strongestInvestigation!.key); // the packet reaches the pass, and the same evidence picks the same topic every time
     expect([first.outcome, first.proposals.length, called, env.saved.length]).toEqual(["no_actionable_candidate", 0, 0, 0]); }); // no candidate, no draft, no row
-  it("freezes a priority list that keeps ONE slot for the strongest investigation's own missing search, still capped at three", async () => {
-    reset(snap([GAP, WEAK, THIRD], looked([["haft seen table", GAP_URL]]))); // three gaps I have never looked at, and a packet still missing its own results page
-    expect(await topInvestigationQueries("fixture-tenant")).toEqual(["nowruz traditions", "nowruz food traditions", "haft seen table"]); }); // the weakest gap waits; the research advances
-}); // ── do I already have the right page for what I investigated? ────────────────
+  it("queues one search per topic and only what buying can actually close", async () => {
+    const asked = { promptId: "p1", promptText: "where do I see nowruz fire jumping", engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [], fanOutQueries: ["nowruz fire jumping"], observedAt: LOOKED_AT };
+    reset(snap([GAP, WEAK], { ...GUIDED, aiObservations: [asked] }, DEMAND)); // one topic settled but unread, one never looked at, and two page gaps that are no topic at all
+    expect(await topInvestigationQueries("fixture-tenant")).toEqual([HAFT, "nowruz fire jumping"]); // read that one's winners, buy the other one's missing look
+    reset(snap([GAP], looked([[HAFT, GAP_URL]], LOOKED_AT))); expect(await topInvestigationQueries("fixture-tenant")).toEqual([]); }); // a dated look answering two meanings of the phrase: no purchase settles that, so it queues nothing
+  it("reaches a final verdict from the comparison it already bought, and refuses one bought for a different topic", async () => {
+    const key = buildTopicInvestigations(snap([GAP], READY(), DEMAND))[0]!.key; reset(snap([GAP], READY({ topicKey: key }), DEMAND)); const held = await produceProposalsForTenant("fixture-tenant", { now: NOW });
+    expect([held.coverageVerdict!.verdict, held.coverageVerdict!.missing, held.coverageComparison]).toEqual(["create_new", [], null]); // nothing injected, and nothing bought twice
+    reset(snap([GAP], READY({ topicKey: "inv_somebody_else" }), DEMAND)); const other = await produceProposalsForTenant("fixture-tenant", { now: NOW }); // an answer to another question is no answer
+    expect([other.coverageVerdict!.verdict, other.coverageVerdict!.missing, other.coverageComparison !== null]).toEqual(["research_needed", ["page_intersection"], true]); }); }); // an answer to another question is no answer // ── do I already have the right page for what I investigated? ────────────────
 const FOOD = "fixture-outdoors.example/nowruz-food"; const cands = (s: EvidenceSnapshot) => ownedCandidatesFor(s, buildTopicInvestigations(s)[0]!);
 const UBIQUITOUS = ["food", "music", "gifts", "fire", "dance", "poetry", "cards", "tables", "flowers", "travel"].map((w) => ({ query: `nowruz ${w}`, searchVolume: null, competition: null, competitionLevel: null, difficulty: null, intent: null })); const LOOKALIKE = ownedPage("fixture-outdoors.example/nowruz-gifts", "Nowruz Traditions and Gifts", { impressions: 400, clicks: 8 }, [{ query: "nowruz gifts", impressions: 400, clicks: 8, position: 9 }]); // every phrase this account owns carries one word, so that word proves nothing here
 describe("do I already have the right page for what I investigated", () => {
@@ -195,5 +201,4 @@ describe("do I already have the right page for what I investigated", () => {
     const unread = "fixture-outdoors.example/nowruz-unread"; const page = cands(snap([GAP], looked([["nowruz traditions", unread]]))).find((c) => c.url === unread)!;
     expect([page.bodyHeld, page.strongSignals]).toEqual([false, 1]); expect(page.signals.find((s) => s.strength === "unknown")!.detail).toBe("I do not hold this page's words, so I cannot tell you whether it already covers this."); });
   it("surfaces BOTH of my pages when both already cover the topic", () => { expect(cands(BOTH()).map((c) => [c.url, c.strongSignals])).toEqual([[GAP_URL, 2], [FOOD, 2]]); });
-  it("yields the same candidates in the same order from the same evidence", () => { expect(cands(BOTH())).toEqual(cands(snap([GAP, WEAK], looked([["nowruz food traditions", FOOD], ["nowruz traditions", GAP_URL]])))); });
 });

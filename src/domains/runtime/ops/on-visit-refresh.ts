@@ -11,7 +11,7 @@ import {
 import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
 import { log } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
-import { warmFreeSurfaces } from "./warm-caches"; import { topInvestigationQueries } from "./investigation-queries";
+import { warmFreeSurfaces } from "./warm-caches"; import { comparisonAsk, topInvestigationQueries } from "./investigation-queries";
 import {
   advancePhase,
   claimRun,
@@ -175,13 +175,13 @@ const defaultSteps: ResearchCycleSteps = {
     return topInvestigationQueries(tenantId).catch(() => [] as string[]);
   },
   async funnelUnit(phase, tenantId, cursor, budgetMs, priorityQueries) {
-    // An OPEN INVESTIGATION needs BOTH halves of its evidence: the results page for that
-    // exact search AND the pages that actually win it. The list is the RUN's, frozen by
-    // the caller, never re-resolved here: landing a results page closes that search, so a
-    // second lookup handed winning-pages a different three than the ones just paid for.
-    if (phase === "serp_analysis" || phase === "winning_pages") {
-      return (phase === "serp_analysis" ? serpAnalysisUnit : winningPagesUnit)({}, priorityQueries)(tenantId, cursor, budgetMs);
-    }
+    // An OPEN INVESTIGATION needs BOTH halves: the results page for that exact search AND the
+    // pages that win it. The list is the RUN's, frozen by the caller, never re-resolved here:
+    // landing a results page closes that search, so a second lookup handed winning-pages a
+    // different three than the ones just paid for. The page COMPARISON rides the same phase
+    // that reads those winners, because the winners ARE the page set. Fail-soft: no ask, no buy.
+    if (phase === "serp_analysis") return serpAnalysisUnit({}, priorityQueries)(tenantId, cursor, budgetMs);
+    if (phase === "winning_pages") return winningPagesUnit({}, priorityQueries, await comparisonAsk(tenantId).catch(() => null))(tenantId, cursor, budgetMs);
     const fn = {
       keyword_discovery: keywordDiscoveryUnit,
       prompt_observations: promptObservationUnit,

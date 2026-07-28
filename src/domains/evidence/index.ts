@@ -80,7 +80,7 @@ export { loadNativeIntelForTenant } from "./readers/native-intel-loader";
 export type { FunnelUnitOutcome } from "./dataforseo/funnel-boundary";
 export { keywordDiscoveryUnit } from "./funnel/discovery";
 export { promptObservationUnit, serpAnalysisUnit, winningPagesUnit } from "./funnel/observe";
-export type { FunnelEvidence } from "./funnel/observe";
+export type { FunnelIntersectionAsk } from "./funnel/observe";
 
 // --- App/component surface re-exports (curated) ---
 

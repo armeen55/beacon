@@ -12,8 +12,7 @@ describe("DataForSEO env truth", () => {
     expect(isDataForSeoConfigured(ENV)).toBe(true);
     expect(isDataForSeoConfigured({} as never)).toBe(false);
     expect(resolveAuthB64({ ...ENV, DATAFORSEO_AUTH_B64: "Basic abc123" } as never)).toBe("abc123"); // prefix stripped, used verbatim
-    expect(resolveAuthB64(ENV)).toBe(Buffer.from("u:p").toString("base64"));
-  });
+    expect(resolveAuthB64(ENV)).toBe(Buffer.from("u:p").toString("base64")); });
   it("the cap never resolves to unlimited", () => {
     expect(monthlyCapUsd(ENV)).toBe(DEFAULT_MONTHLY_CAP_USD);
     expect(monthlyCapUsd({ ...ENV, DATAFORSEO_MONTHLY_CAP_USD: "12.5" } as never)).toBe(12.5);
@@ -30,12 +29,10 @@ describe("the shared transport core", () => {
     const bad = await runDataForSeoTransport({ url: "https://x/v3/e", payload: [], estCostUsd: 0.01, env: ENV, fetchImpl: (async () => new Response("x", { status: 500 })) as never });
     expect(bad).toEqual({ ok: false, status: 500, message: "http 500" });
     const threw = await runDataForSeoTransport({ url: "https://x/v3/e", payload: [], estCostUsd: 0.01, env: ENV, fetchImpl: (async () => { throw new Error("net down"); }) as never });
-    expect(threw.ok).toBe(false);
-  });
+    expect(threw.ok).toBe(false); });
   it("GET mode sends no body (the free Standard task_get path)", async () => {
     let captured: RequestInit | undefined;
     const fetchImpl = vi.fn(async (_u: string, init?: RequestInit) => { captured = init; return new Response("{}", { status: 200 }); });
     await runDataForSeoTransport({ url: "https://x/v3/task_get/1", payload: [], estCostUsd: 0, env: ENV, fetchImpl: fetchImpl as never, method: "GET" });
-    expect(captured?.method).toBe("GET"); expect(captured?.body).toBeUndefined();
-  });
+    expect(captured?.method).toBe("GET"); expect(captured?.body).toBeUndefined(); });
 });

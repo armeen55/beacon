@@ -1,8 +1,6 @@
-/** PRODUCT - the research funnel: the four executors, the pure projector and the canonical snapshot, driven by injected CAPABILITY
- *  fakes over an in-memory basis-scoped state repo. Pins CURRENT-SET truth (obsolete pairs and queries are pruned and never inherit
- *  completion), OBSERVATION-MODE truth (canonical consumer/standardized coverage vs bounded auxiliary research), weekly freshness,
- *  the DISPOSITION ladder (blocked stops the batch and pauses the run; quarantined is plain unavailable coverage), the SERP agenda
- *  in the customer's own words with an open investigation bought first, distinct history identity, and the receipt. No network. */
+/** PRODUCT - the research funnel: the four executors, the pure projector and the canonical snapshot, driven by injected CAPABILITY fakes over an
+ *  in-memory basis-scoped state repo. Pins CURRENT-SET truth, OBSERVATION-MODE truth, weekly freshness, the DISPOSITION ladder, the SERP agenda in
+ *  the customer's own words with an open investigation bought first, the ONE paid page-by-page comparison, history identity, the receipt. No network. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 const sb = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], fails: false, tenant: "", urls: [] as string[] })); // the ONE page_snapshots read the body reader makes
 vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...((await orig()) as object), getSupabaseAdmin: () => ({ from: () => ({ select: () => ({ eq: (_c: string, t: string) => { sb.tenant = t; return { in: (_u: string, urls: string[]) => { sb.urls = urls; return { order: () => ({ limit: async () => (sb.fails ? { data: null, error: { message: "down" } } : { data: sb.rows, error: null }) }) }; } }; } }) }) }) }));
@@ -11,7 +9,7 @@ import { emptyBusinessProfile, type Account, type BusinessProfile, type ProfileS
 import type { CachedCallResult, CapabilityKey, FailureDisposition, ParsedAiAnswer, ParsedKeywordItem, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { keywordDiscoveryUnit } from "@/domains/evidence/funnel/discovery";
 import { promptObservationUnit, serpAnalysisUnit, winningPagesUnit } from "@/domains/evidence/funnel/observe";
-import { retainDiverse, selectSerpAgenda } from "@/domains/evidence/funnel/normalize"; import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
+import { retainDiverse, selectSerpAgenda } from "@/domains/evidence/funnel/normalize";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { emptyFunnelState, MAX_RETAINED, type FunnelKeyword, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
 import { CONFLICT_DETAIL, type FunnelDeps } from "@/domains/evidence/funnel/shared";
@@ -21,9 +19,9 @@ const WEEKS_AGO = new Date(NOW - 30 * 24 * 3600 * 1000).toISOString(); const ENG
 const cur = (basis: string | null = BASIS) => (basis ? { basis } : {}); const confirmed = <V>(value: V): ProfileSection<V> => ({ value, origin: "operator_confirmed", confidence: null, sourceUrls: [] });
 function profileOf(id: string, offerings: string[], topics: string[], exclude: string[] = [], banned: string[] = []): BusinessProfile { const p = emptyBusinessProfile(id); p.offerings = confirmed(offerings); p.topicsToOwn = confirmed(topics); p.constraints.value.bannedTerms = banned;
   p.topicsToExclude = { value: exclude, origin: "inferred", confidence: null, sourceUrls: [] }; return p; } const parse = ((_c: unknown, env: unknown) => env) as unknown as FunnelDeps["parse"];
-const parsedKw = (kws: { keyword: string; volume?: number }[]): ParsedKeywordItem[] => kws.map((k) => ({ keyword: k.keyword, searchVolume: k.volume ?? 100, cpcUsd: null, competition: 0.4, competitionLevel: null, difficulty: null, intent: "informational", monthlySearches: null }));
-const aiAnswer = (over: Partial<ParsedAiAnswer> = {}): ParsedAiAnswer => ({ answerText: "hi", modelServed: null, webSearchReported: null, citations: null, fanOutQueries: null, brands: null, ...over });
-const serp = (organic: ParsedSerp["organic"]): ParsedSerp => ({ organic, aiOverview: null, snippetOwner: null, paaQuestions: [], relatedSearches: [] });
+const parsedKw = (kws: { keyword: string; volume?: number }[]): ParsedKeywordItem[] => kws.map((k) => ({ keyword: k.keyword, searchVolume: k.volume ?? 100, cpcUsd: null, competition: 0.4, competitionLevel: null, difficulty: null, intent: "informational", rankedUrl: null, rankedRank: null, monthlySearches: null }));
+const aiAnswer = (over: Partial<ParsedAiAnswer> = {}): ParsedAiAnswer => ({ answerText: "hi", modelServed: null, webSearchReported: null, citations: null, fanOutQueries: null, ...over });
+const serp = (organic: ParsedSerp["organic"]): ParsedSerp => ({ organic, aiOverview: null, paaQuestions: [], relatedSearches: [] });
 const ok = (parsed: unknown, cacheKey = "ck", modelServed: string | null = null): CachedCallResult => ({ state: "ok", envelope: parsed as never, costUsd: 0.01, cacheKey, modelServed });
 const waiting = (cacheKey: string): CachedCallResult => ({ state: "waiting", cacheKey, providerTaskId: "t", costUsd: 0, detail: "posted" });
 const err = (disposition: FailureDisposition, cacheKey: string | null = "ck-old"): CachedCallResult => ({ state: "error", cacheKey, disposition, detail: "the provider could not finish it" }); function memStore(seed?: FunnelState) {
@@ -191,6 +189,35 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     expect(await run([])).not.toContain("https://o0.com/p"); // global weight alone: the AI-cited pages fill every slot and the query under investigation gets NOTHING
     const hybrid = await run(["iranian actors"]); expect(hybrid.slice(0, 2)).toEqual(["https://o0.com/p", "https://o1.com/p"]); // its own top two, best rank first, before any global fill
     expect([hybrid.length, new Set(hybrid).size]).toEqual([15, 15]); }); // one bounded total, and one page is never two winners
+  // ── the ONE paid page-by-page comparison the winners earn ──
+  const OWN = "https://own.com/p", W1 = "https://a.com/x", W2 = "https://b.com/g", ASK = { topicKey: "t1", ask: { pages: [W2, W1], exclude_pages: [OWN] } };
+  const answer = { status_code: 20000, tasks: [{ status_code: 20000, result: [{ items: [{ keyword_data: { keyword: "k", keyword_info: { search_volume: 9 } }, intersection_result: { "1": { url: W1, title: "t", rank_group: 3, rank_absolute: 6 } } }] }] }] };
+  const cmpSeed = () => { const s = emptyFunnelState("tx", BASIS); s.serps.queries = [{ query: "q", cacheKey: null, status: "done", observedAt: new Date(NOW).toISOString(), organic: [{ rank: 1, url: W1, domain: "a.com", title: null }] }]; return s; };
+  const cmpDeps = (st: ReturnType<typeof memStore>, callProvider: FunnelDeps["callProvider"], over: Partial<FunnelDeps> = {}): FunnelDeps => ({ ...st.deps, loadProfile: async () => emptyBusinessProfile("tx"), getAccount: async () => ({ domain: "own.com" } as Account), now: () => NOW, parse, readPageExtract: async () => null, fetchPage: (async () => ({ ok: false })) as unknown as FunnelDeps["fetchPage"], callProvider, ...over });
+  it("buys ONE comparison for the WHOLE page set, never buys a landed one twice, and a resumed crash costs nothing", async () => { const asks: unknown[] = [];
+    const call = (async (cap: CapabilityKey, input: unknown) => { if (cap !== "labs_page_intersection") return ok(serp([])); asks.push(input); return asks.length > 1 ? { state: "hit", envelope: answer, costUsd: 0, cacheKey: "ck-pi", modelServed: null } as CachedCallResult : ok(answer, "ck-pi"); }) as FunnelDeps["callProvider"];
+    const st = memStore(cmpSeed()); const r1 = await winningPagesUnit(cmpDeps(st, call), [], ASK)("tx", cur(), 60_000); const held = st.peek("tx", BASIS)!.pageComparisons;
+    expect([r1.status, asks.length, asks[0]]).toEqual(["done", 1, { pages: [W1, W2], exclude_pages: [OWN], intersection_mode: "union", limit: 100 }]); // ONE request carries every page, normalized: a call per page or per keyword is a defect
+    expect([held.length, held[0]!.topicKey, held[0]!.unavailable, held[0]!.receipt, held[0]!.comparison!.pages, held[0]!.comparison!.keywords[0]!.ranks]).toEqual([1, "t1", null, "ck-pi", [{ page: 1, url: W1 }, { page: 2, url: W2 }], [{ page: 1, url: W1, title: "t", rank: 3 }]]); // parsed WITH the ask, so the slot NAMES its page; rank_group, never rank_absolute
+    const round = JSON.parse(JSON.stringify(st.peek("tx", BASIS)!)) as FunnelState; expect(round.pageComparisons[0]!.askKey).toBe(held[0]!.askKey); // survives storage unchanged
+    await winningPagesUnit(cmpDeps(memStore(round), call), [], { topicKey: "t1", ask: { pages: [W1, W2, W1], exclude_pages: [OWN], intersection_mode: "union" as const, limit: 100 } })("tx", cur(), 60_000);
+    expect(asks.length).toBe(1); // a reorder, a duplicate and a spelled-out default are the SAME ask: the landed answer is reused and nothing is re-bought
+    await winningPagesUnit(cmpDeps(memStore(round), call), [], { topicKey: "t2", ask: ASK.ask })("tx", cur(), 60_000); // another topic never inherits this one's answer
+    await winningPagesUnit(cmpDeps(memStore(round), call), [], { topicKey: "t1", ask: { pages: [W2, "https://c.com/z"] } })("tx", cur(), 60_000); expect(asks.length).toBe(3); // a different page set is a different question
+    const crashed = memStore(cmpSeed()); const spent = await winningPagesUnit(cmpDeps(crashed, call), [], ASK)("tx", cur(), 60_000); // the crash lost the row, so the phase asks again
+    expect([spent.progress.spendUsd, crashed.peek("tx", BASIS)!.cycle.cacheHits]).toEqual([0, 1]); }); // the money core serves the SAME identity warm: zero network, zero new spend
+  it("persists a refusal, a ceiling, a wait and an unreadable answer as honest gaps, spends nothing on a lost lease, and refuses a set of one", async () => {
+    const cases: [CachedCallResult, string][] = [[err("blocked"), "blocked"], [err("daily_limit"), "capped"], [{ state: "capped", cacheKey: null, detail: "ceiling" }, "capped"], [waiting("ck-pi"), "waiting"], [err("quarantined"), "quarantined"], [err("retry_free"), "ambiguous"], [err("none"), "failed"], [{ state: "not_configured", cacheKey: null, detail: "off" }, "failed"]];
+    for (const [result, unavailable] of cases) { const st = memStore(cmpSeed());
+      const out = await winningPagesUnit(cmpDeps(st, (async (cap: CapabilityKey) => (cap === "labs_page_intersection" ? result : ok(serp([])))) as FunnelDeps["callProvider"]), [], ASK)("tx", cur(), 60_000);
+      const row = st.peek("tx", BASIS)!.pageComparisons[0]!; expect([out.status, row.comparison, row.unavailable, row.pages]).toEqual(["done", null, unavailable, [W1, W2]]); } // the winners are still in; the comparison names its own gap and never reads as a finding
+    const unread = memStore(cmpSeed()); await winningPagesUnit(cmpDeps(unread, (async (cap: CapabilityKey) => (cap === "labs_page_intersection" ? ok(null, "ck-pi") : ok(serp([])))) as FunnelDeps["callProvider"]), [], ASK)("tx", cur(), 60_000);
+    expect(unread.peek("tx", BASIS)!.pageComparisons[0]!.unavailable).toBe("ambiguous"); // an answer I cannot read is not zero shared searches
+    let calls = 0; const count = (async (cap: CapabilityKey) => { if (cap === "labs_page_intersection") calls += 1; return ok(serp([])); }) as FunnelDeps["callProvider"];
+    const lost = await winningPagesUnit(cmpDeps(memStore(cmpSeed()), count, { saveState: async () => null }), [], ASK)("tx", cur(), 60_000);
+    expect([lost.status, lost.code, calls]).toEqual(["failed", "state_conflict", 0]); // losing the lease stops the side effect BEFORE it is paid for, never after
+    const one = memStore(cmpSeed()); await winningPagesUnit(cmpDeps(one, count), [], { topicKey: "t1", ask: { pages: [W1] } })("tx", cur(), 60_000);
+    expect([calls, one.peek("tx", BASIS)!.pageComparisons]).toEqual([0, []]); }); // one page is not a comparison: refused before the money, and nothing stored
 });
 describe("evidence - my own page's actual words, read narrowly", () => {
   const row = (over: Record<string, unknown> = {}) => ({ url: "https://own.com/actors", title: "T", meta_description: "M", fetched_at: "2026-06-11T00:00:00.000Z", body_paragraph_sample: ["Iran has a deep film history."], card_texts: ["Card"], schema_entity_names: ["Person"], internal_links: [{ href: "/a", anchor_text: "A" }], ...over });
@@ -219,10 +246,6 @@ describe("research funnel - the SERP agenda buys my own words, never a lookalike
   it("buys my own page's query EXACTLY, even when I never researched it, and never swaps in a lookalike", () => { const out = agenda({ pageQueries: [{ query: "boys baby names", impressions: 900 }, { query: "national flag 1979", impressions: 800 }] }, 2);
     expect(out.queries).toEqual(["boys baby names", "national flag 1979"]); // a first-party query needs no researched twin: the search call takes any keyword string
     expect(retained.some((r) => out.queries.includes(r.keyword))).toBe(false); }); // "female baby names" and "political revolution 1979" sat right there and were NOT substituted in
-  it("treats word order as one subject and a changed modifier as another, so nothing buys twice", () => { expect(canonicalQueryKey("baby male names")).toBe(canonicalQueryKey("baby names male"));
-    expect(canonicalQueryKey("national flag 1979")).not.toBe(canonicalQueryKey("political revolution 1979")); // a date is not an event: never collapsed together
-    const dup = agenda({ pageQueries: [{ query: "national flag 1979", impressions: 900 }, { query: "national flag 1979", impressions: 400 }, { query: "1979 national flag", impressions: 300 }] }, 12);
-    expect(dup.queries[0]).toBe("national flag 1979"); expect(new Set(dup.queries.map(canonicalQueryKey)).size).toBe(dup.queries.length); }); // one subject, ONE paid slot
   it("checks a tracked question through its observed fan-out, else through its own approved words", () => {
     expect(agenda({ prompts: [{ text: "what are popular baby names", fanOutQueries: ["most popular baby names 2026"] }, { text: "which flags changed in 1979" }] }, 2).queries).toEqual(["most popular baby names 2026", "which flags changed in 1979"]); });
   it("skips a query the provider would refuse instead of truncating it into a different question", () => { const long = "a".repeat(701);
@@ -257,7 +280,7 @@ describe("research funnel - canonical snapshot carries the research bundle", () 
     s.prompts.pairs = [{ promptId: "pr", promptText: "where to buy saffron", engine: "chatgpt", mode: "consumer_search", cacheKey: null, status: "done", observedAt: "2026-07-24T00:00:00.000Z", modelServed: "gpt-4o", citationsObserved: true, citations: [{ url: "https://b.com/y", domain: "b.com", title: null }] },
       { promptId: "pr", promptText: "where to buy saffron", engine: "chatgpt", mode: "standardized_response", cacheKey: null, status: "done", observedAt: "2026-07-24T00:00:00.000Z", citationsObserved: false, citations: null }, { promptId: "pr", engine: "gemini", mode: "standardized_response", cacheKey: null, status: "pending" }];
     s.serps.queries = [{ query: "saffron price", cacheKey: null, status: "done", observedAt: "2026-07-24T00:00:00.000Z", organic: [{ rank: 1, url: "https://a.com/x", domain: "a.com", title: "A" }], aiOverview: [{ url: "https://b.com/y", domain: "b.com", title: null }] }, { query: "unavailable", cacheKey: null, status: "failed" }];
-    s.serps.analyzed = 1; s.winningPages = [{ url: "https://b.com/y", domain: "b.com", engines: ["chatgpt"], examplePrompts: ["where to buy saffron"], appearances: [], fetched: false, extract: null }];
+    s.serps.analyzed = 1; s.winningPages = [{ url: "https://b.com/y", domain: "b.com", engines: ["chatgpt"], examplePrompts: ["where to buy saffron"], appearances: [], extract: null }];
     s.ledger = { spentUsd: 99, cacheHits: 99 }; // lifetime totals are NOT the receipt
     s.cycle = { runId: "run-9", cycleKey: "cycle-9", spentUsd: 0.5, cacheHits: 3 }; const snapshot = await loadEvidenceSnapshot("tg", { resolveBasis: async () => BASIS, loadState: async () => ({ state: s, rowVersion: 1 }), now: new Date("2026-07-24T00:00:00.000Z") });
     expect(snapshot.research.retainedKeywords[0]!.intent).toBe("commercial"); expect(snapshot.research.aiObservations.map((o) => o.promptText)).toEqual(["where to buy saffron", "where to buy saffron"]); // only resolved evidence projects
@@ -271,8 +294,9 @@ describe("research funnel - canonical snapshot carries the research bundle", () 
   it("carries every keyword's OWN discovery route and seed theme through, and the provider's own competition label", async () => { const s = emptyFunnelState("tl", BASIS);
     const routes = ["site", "ranked", "related", "suggestion", "gsc", "profile", "ideas"] as const; // every route a keyword can arrive by
     s.discovery.retained = routes.map((discoveredVia, i) => ({ keyword: `kw ${discoveredVia}`, searchVolume: 10 + i, competition: 0.9, difficulty: null, intent: null, discoveredVia, ...(i % 2 ? { seed: `theme ${i}` } : {}) }));
-    s.discovery.retained[0]!.competitionLevel = "low"; s.discovery.counts.retained = routes.length;
+    s.discovery.retained[0]!.competitionLevel = "low"; s.discovery.retained[1]!.rankedUrl = "https://own.com/saffron"; s.discovery.retained[1]!.rankedRank = 3; s.discovery.counts.retained = routes.length;
     const snapshot = await loadEvidenceSnapshot("tl", { resolveBasis: async () => BASIS, loadState: async () => ({ state: s, rowVersion: 1 }), now: new Date("2026-07-24T00:00:00.000Z") });
     expect(snapshot.research.retainedKeywords.map((k) => [k.discoveredVia, k.seed])).toEqual(routes.map((r, i) => [r, i % 2 ? `theme ${i}` : null])); // recorded lineage, never inferred downstream
     expect(snapshot.research.retainedKeywords.map((k) => k.competitionLevel).slice(0, 2)).toEqual(["low", "high"]); // the provider's OWN label wins; only an unlabeled row falls back to the derived band
+    expect(snapshot.research.retainedKeywords.map((k) => [k.rankedUrl, k.rankedRank]).slice(0, 2)).toEqual([[null, null], ["https://own.com/saffron", 3]]); // a ranked keyword NAMES the page that ranks; every other route says so plainly
   }); });

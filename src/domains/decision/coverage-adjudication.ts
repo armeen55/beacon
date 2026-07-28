@@ -1,51 +1,51 @@
 import "server-only";
 
 /**
- * decision/coverage-adjudication (N3b, 2026-07-28): the ONE verdict on whether
- * this account ALREADY has the right page for a topic it researched.
+ * decision/coverage-adjudication (N3b, 2026-07-28): the ONE verdict on whether this
+ * account ALREADY has the right page for a topic it researched. Generation 5 deleted the
+ * new-page generator because it turned a rival's example prompt into an article and
+ * shipped duplicates of pages the account already owned. The missing step was never the
+ * writing, it was the COMPARISON: nobody asked whether one of this account's own pages was
+ * already the answer. That is the only question this file answers, once per topic, and it
+ * drafts nothing, proposes nothing and persists nothing.
  *
- * Generation 5 deleted the new-page generator because it turned a rival's example
- * prompt into an article and shipped duplicates of pages the account already
- * owned. The missing step was never the writing. It was the COMPARISON: nobody
- * asked whether one of this account's own pages was already the answer. That is
- * the only question this file answers, once per topic. It drafts nothing,
- * proposes nothing and persists nothing.
+ * DETERMINISTIC GATE FIRST, MODEL SECOND. Every refusal below is decided in code, makes
+ * ZERO model calls, costs nothing, and names in `missing` exactly what is owed:
+ *   1 the account's own profile rules the topic out  -> do_nothing (a verdict, not a gap)
+ *   2 no exact results page for the topic            -> exact_serp
+ *   3 the results page is out of date                -> fresh_serp
+ *   4 the results answer two meanings of the phrase  -> intent
+ *   5 the winners do not settle on one kind of page  -> shape
+ *   6 what a searcher wants is not established        -> intent
+ *   7 under three current readable winners           -> winners
+ *   8 a page that could be the answer, unread        -> owned_content
+ *   9 the page by page comparison is not in hand     -> page_intersection
+ * Gate 9 is the LAST and the only paid one, so an investigation short of any cheaper
+ * requirement can never reach it. With that comparison in hand the verdict is final and
+ * deterministic, and `create_new` becomes reachable for the first time. A comparison that
+ * was refused, capped, still out, set aside, unconfirmed or failed is not a finding: it
+ * stays gate 9 and says why.
  *
- * DETERMINISTIC GATE FIRST, MODEL SECOND. Every refusal below is decided in code,
- * makes ZERO model calls, costs nothing, and names in `missing` exactly what
- * Runtime must go and buy:
- *   1 the account's own profile rules the topic out -> do_nothing (a verdict, not a gap)
- *   2 no exact results page for the topic           -> exact_serp
- *   3 the results page is out of date               -> fresh_serp
- *   4 under three current readable winners          -> winners
- *   5 mixed or unknown shape, or intent unresolved  -> intent
- *   6 a page that could be the answer whose words I do not hold -> owned_content
- *   7 the page by page comparison is not in hand      -> page_intersection
- * Gate 7 is the LAST one and the only paid one, so an investigation short of any
- * cheaper requirement can never reach it. Once that comparison IS in hand the
- * verdict is final and deterministic, and `create_new` becomes reachable for the
- * first time. A comparison that was refused, capped, still out, set aside,
- * unconfirmed or failed is not a finding: it stays gate 7 and says why.
- *
- * THE MODEL MAY compare the supplied owned pages, judge whether one already
- * covers the topic in the same shape, pick ONE verdict, name addresses FROM THE
- * SUPPLIED LIST, cite evidence ids FROM THE SUPPLIED LIST, and say why the
- * alternatives lost. IT MAY NOT invent a page, an address, a number, a phrase, a
- * competitor or a fact, change a threshold, recount anything, overrule the gate,
- * or write one word of page copy: no field in its schema could carry a title, a
- * description, an outline or a proposed address. A refusal, an incomplete answer,
- * a schema failure, an unknown id, an address outside the list, or a verdict
- * contradicting a deterministic fact all become `research_needed`, and nothing is
- * created. $0 REPEATS: the call is built ONLY from the topic's material evidence
- * and the candidate set, so identical input hits the cache and never pays twice.
+ * THE MODEL MAY compare the supplied owned pages, judge whether one already covers the
+ * topic in the same shape, pick ONE verdict, name addresses and cite evidence ids FROM THE
+ * SUPPLIED LISTS, and say why the alternatives lost. IT MAY NOT invent a page, an address,
+ * a number, a phrase, a competitor or a fact, change a threshold, recount anything,
+ * overrule the gate, or write one word of page copy: no field in its schema could carry a
+ * title, a description, an outline or a proposed address. A refusal, an incomplete answer,
+ * a schema failure, an unknown id, an address outside the list, or a verdict contradicting
+ * a deterministic fact all become `research_needed`, and nothing is created. $0 REPEATS:
+ * the call is built ONLY from the topic's material evidence and the candidate set, so
+ * identical input hits the cache and never pays twice.
  */
 
 import { log } from "@/lib/logger";
-import { canonicalUrlKey } from "@/domains/evidence/snapshot";
+import type { BusinessProfile } from "@/domains/account";
+import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { publisherHost } from "@/domains/evidence/serp-shape";
 import { comparePageCoverage, type PageCoverageReading, type PageIntersectionAsk, type ParsedPageIntersection } from "@/domains/evidence/page-intersection";
-import type { TopicInvestigation } from "@/domains/evidence/topic-investigation";
-import type { OwnedCandidate } from "./owned-coverage";
+import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation";
+import type { IntersectionUnavailable } from "@/domains/evidence/funnel/research-evidence";
+import { ownedCandidatesFor, topicOutOfScope, type OwnedCandidate } from "./owned-coverage";
 import type { CacheImpl } from "./llm/call-cache";
 import { callStructuredLLM, type CompleteFn } from "./llm/structured-drafter";
 
@@ -90,42 +90,32 @@ export function earnedNewPage(d: CoverageDecision | null | undefined): boolean {
     && d.ownedUrls.length === 0 && d.evidenceKeys.length > 0 && d.alternativesRuledOut.length > 0;
 }
 
-
-/** A comparison rests on three publishers agreeing, each read recently enough to
- *  trust. Two pages are two opinions, and this file never calls that a pattern. */
+/** A comparison rests on three publishers agreeing, each read recently enough to trust:
+ *  two pages are two opinions, and this file never calls that a pattern. */
 export const MIN_ADJUDICATION_WINNERS = 3;
 
-/** Why the comparison is not in hand. Every one of these is a call that produced NO
- *  evidence, so not one of them may ever harden into "build a new page". */
-export type IntersectionUnavailable = "blocked" | "capped" | "waiting" | "quarantined" | "ambiguous" | "failed";
-/** The bought comparison itself, or the honest reason it is missing. Evidence owns
- *  the parse and the publisher-counted reading; this file only picks the verdict. */
+/** The bought comparison itself, or the honest reason it is not in hand (Evidence owns both
+ *  that reason and the publisher-counted reading; this file only picks the verdict). */
 export type IntersectionEvidence = ParsedPageIntersection | { unavailable: IntersectionUnavailable };
 
-/** THE MONEY GATE, and it is deliberately not a second copy of the ladder: the
- *  comparison is earned exactly when the free deterministic verdict says the ONLY
- *  thing still owed is that comparison. An investigation short of a results page,
- *  a fresh look, a settled shape, a resolved intent, three current winners from
- *  distinct publishers, an unread page of its own, or the operator's own scope
- *  returns that cheaper requirement instead, so it can never reach this. */
-function intersectionEarned(d: CoverageDecision | null | undefined): boolean {
-  return !!d && d.verdict === "research_needed" && d.missing.length === 1 && d.missing[0] === "page_intersection";
-}
-
 /**
- * THE ONE request worth paying for, or null. It puts the three current winners, ONE
- * per publisher, side by side WITH this account's own contenders, so one answer says
- * both what the winners share and how much of it this account already reaches.
- * Holding the account's pages OUT instead would make "you cover none of this"
- * something I asked for rather than something I measured, and that is the shape of
- * mistake that ships duplicates. Null whenever the topic has not earned it, whenever
- * the verdict belongs to a different topic, or whenever three distinct publishers
- * cannot be named, so nothing is bought for an investigation that did not pay its way.
+ * THE ONE request worth paying for, or null. It puts the three current winners, ONE per
+ * publisher, side by side WITH this account's own contenders, so one answer says both what
+ * the winners share and how much of it this account already reaches. Holding the account's
+ * pages OUT would make "you cover none of this" something I asked for rather than something
+ * I measured, and that is the shape of mistake that ships duplicates.
+ *
+ * THE MONEY GATE, and deliberately not a second copy of the ladder: it is earned exactly
+ * when the free verdict says the ONLY thing still owed is this comparison, so an
+ * investigation short of a results page, a fresh look, a settled shape, a resolved meaning,
+ * three current winners from distinct publishers, an unread page of its own or the
+ * operator's own scope returns that cheaper requirement and never reaches here. Null too
+ * when the verdict belongs to another topic or three publishers cannot be named.
  */
 export function intersectionComparison(
   d: CoverageDecision | null | undefined, inv: TopicInvestigation, candidates: readonly OwnedCandidate[],
 ): PageIntersectionAsk | null {
-  if (!intersectionEarned(d) || d?.topicKey !== inv.key) return null;
+  if (!d || d.verdict !== "research_needed" || d.missing.length !== 1 || d.missing[0] !== "page_intersection" || d.topicKey !== inv.key) return null;
   const publishers = new Set<string>();
   const winners: string[] = [];
   for (const w of inv.winners) {
@@ -214,9 +204,8 @@ function evidenceOf(inv: TopicInvestigation, candidates: readonly OwnedCandidate
   inv.winners.filter((w) => w.extractState === "current").forEach((w, i) => out.push({ id: `winner${i + 1}`,
     fact: `${w.domain} wins here, and I read its page on ${day(w.fetchedAt)}${w.wordCount != null ? `, ${num(w.wordCount)} words` : ""}, ${w.headings} sections.` }));
   candidates.forEach((c, i) => out.push({ id: `owned${i + 1}`,
-    // ITS OWN WORDS, not just its address. Deciding "you already have this page" from a slug
-    // and a title is the guess this whole slice exists to replace, and the body was already
-    // bought: withholding it from the one step that needs it was the deepest defect here.
+    // ITS OWN WORDS, not just its address: deciding "you already have this page" from a slug
+    // and a title is the guess this slice exists to replace, and the body was already bought.
     fact: [`Your page ${c.url}${c.title ? ` ("${c.title}")` : ""}`,
       c.h1 && c.h1 !== c.title ? `Its heading reads "${c.h1}".` : null,
       c.wordCount != null ? `It runs ${num(c.wordCount)} words across ${c.outlineLength} sections.` : null,
@@ -289,6 +278,12 @@ const refuse = (
 ): CoverageDecision => decide(inv, "research_needed", { evidenceKeys: ids, missing: [missing], explanation,
   alternativesRuledOut: [{ alternative: "Write a new page for this", reason }] });
 
+/** THE one answer wherever the ladder lands on "the comparison is all that is still owed".
+ *  It was written out three times, and three copies of one sentence drift apart. */
+const owesComparison = (inv: TopicInvestigation, ids: string[]): CoverageDecision => refuse(inv, ids, "page_intersection",
+  `I know what wins for "${inv.label}", and I have not yet compared it page by page against what you already own, so I am buying that comparison before I tell you to build anything.`,
+  "The last time I skipped this comparison I shipped copies of pages this account already owned, so I am not skipping it again.");
+
 /**
  * ONE evidence-bound verdict for ONE researched topic. Deterministic refusals
  * cost nothing; at most one strict model call is ever made, and its answer is
@@ -319,9 +314,8 @@ export async function adjudicateCoverage(
     "I cannot call a page missing before I have seen what already answers the search.");
   if (inv.serpFreshness !== "current") return refuse(inv, ids, "fresh_serp", `${inv.serpFreshness === "undated" ? `I hold Google's results for "${inv.label}" but not when I looked at them` : `My last look at Google's results for "${inv.label}" is out of date`}, so I am checking again before I decide anything about your pages.`,
     "A decision made on an out of date look at Google is a guess, and I will not hand you one.");
-  // SHAPE AND INTENT FIRST. Both are already decided by the results page on file, so asking
-  // Runtime to go and read three more pages for a topic I will refuse anyway spends real
-  // fetches to arrive at the same no. 26 of 53 live topics were queued that way.
+  // SHAPE AND INTENT FIRST. Both are already decided by the results page on file, so reading
+  // three more pages for a topic I will refuse anyway spends fetches to reach the same no.
   if (inv.serpCoherence !== "coherent") return refuse(inv, ids, "intent", `The results for "${inv.label}" answer more than one meaning of the phrase, so I cannot yet say what a searcher actually wants and I will not judge your pages against it until I can.`,
     "A page built for a phrase that means two things answers neither of them well.");
   // A DIFFERENT PROBLEM, SAID DIFFERENTLY. "The winners do not agree on one shape" is not
@@ -341,15 +335,13 @@ export async function adjudicateCoverage(
   // comparison. With it in hand the verdict is final and free; without it the topic
   // stays an investigation, whichever way the rest of the evidence leans.
   if (x) return readIntersection(inv, ids, x, reading, contenders);
-  if (contenders.length === 0) return refuse(inv, ids, "page_intersection", `I know what wins for "${inv.label}", and I have not yet compared it page by page against what you already own, so I am buying that comparison before I tell you to build anything.`,
-    "The last time I skipped this comparison I shipped copies of pages this account already owned, so I am not skipping it again.");
+  if (contenders.length === 0) return owesComparison(inv, ids);
 
   // NOTHING READS A MODEL-QUALITY VERDICT YET, so nothing pays for one. The deterministic
   // half above is free and always runs; the judgment call stays off until the slice that
   // renders it turns it on. Running a reasoning model inside an operator's page load for an
   // answer no screen shows is a cost with no reader.
-  if (opts.model === "off") return refuse(inv, ids, "page_intersection", `I know what wins for "${inv.label}", and I have not yet compared it page by page against what you already own, so I am buying that comparison before I tell you to build anything.`,
-    "The last time I skipped this comparison I shipped copies of pages this account already owned, so I am not skipping it again.");
+  if (opts.model === "off") return owesComparison(inv, ids);
   const call = await callStructuredLLM({
     kind: "coverage_adjudication", tenantId, system: SYSTEM, user: buildUser(inv, candidates, ev),
     grounded: ev.map((e) => e.fact).join(" "), projectedCostUsd: 0.01, maxTokens: 1600,
@@ -381,8 +373,7 @@ export async function adjudicateCoverage(
                   : null;
   // F6: the model finding a genuine gap is NOT a contradiction. It is the same answer gate 7
   // gives, and it deserves the same honest reason rather than being thrown in with hallucinations.
-  if (conflict === "create_new") return refuse(inv, ids, "page_intersection", `I know what wins for "${inv.label}", and I have not yet compared it page by page against what you already own, so I am buying that comparison before I tell you to build anything.`,
-    "The last time I skipped this comparison I shipped copies of pages this account already owned, so I am not skipping it again.");
+  if (conflict === "create_new") return owesComparison(inv, ids);
   if (conflict) {
     log.warn("[coverage-adjudication] verdict disagrees with the evidence", { tenantId, topicKey: inv.key, conflict });
     return refuse(inv, ids, "conflicting_evidence", `My check on whether one of your pages already covers "${inv.label}" ${conflict}, so I threw it away and will look again.`,
@@ -401,4 +392,59 @@ export async function adjudicateCoverage(
     "I will not recommend a new page off a comparison that came back undecided.");
   return decide(inv, v.verdict, { ownedUrls: [...new Set(named.map((c) => c!.url))], evidenceKeys: v.evidenceKeys, explanation: v.explanation,
     alternativesRuledOut: v.alternativesRuledOut.map((a) => ({ alternative: a.alternative, reason: a.reason })) });
+}
+
+// ── what to research next: ONE topic order, ONE requirement, plain strings out ──
+/** THE order every step reads: fewest missing pieces first, then the largest demand behind it, then
+ *  the stable key, so the same evidence always advances the SAME topic whether it is being bought
+ *  for, compared or judged. It ranks research, never work. */
+export function rankInvestigations(investigations: readonly TopicInvestigation[]): TopicInvestigation[] {
+  return [...investigations].sort((a, b) => a.missingEvidence.length - b.missingEvidence.length
+    || (b.demand.monthlySearchVolume ?? 0) - (a.demand.monthlySearchVolume ?? 0)
+    || (b.demand.gscImpressions ?? 0) - (a.demand.gscImpressions ?? 0) || a.key.localeCompare(b.key));
+}
+
+/** ONE topic, the ONE thing it is stuck on, and the exact purchase that closes it: a search to look up, or the comparison. Never both, never neither. */
+export type ResearchNeed = { topicKey: string; requirement: MissingRequirement; query: string | null; comparison: PageIntersectionAsk | null };
+
+/** The exact search that closes what the verdict named, or null when no search can. A mixed
+ *  shape and an unsettled meaning are already decided by the results page ON FILE, so
+ *  queueing them sent runs to fetch competitor pages for topics they would refuse anyway
+ *  (26 of 53 live topics); an unread page of mine is a page to READ; and the comparison is
+ *  bought by its own ask. FRESHNESS: taking the first row asked for the page I already hold
+ *  whenever a group carried a current look beside a stale one, so the stale one stayed
+ *  stale forever. A `winners` topic re-lists its CURRENT search so the winner reads bank
+ *  that topic's own top pages, and the look itself is held already, so it is not a buy. */
+function nextResearchQuery(d: CoverageDecision, inv: TopicInvestigation): string | null {
+  const need = d.topicKey === inv.key ? d.missing[0] : null;
+  if (need === "exact_serp" || need === "fresh_serp") return inv.exactSerps.find((s) => s.freshness !== "current")?.query ?? inv.queries[0] ?? null;
+  return need === "winners" ? inv.exactSerps.find((s) => s.freshness === "current")?.query ?? null : null;
+}
+
+/** WHAT THIS ACCOUNT'S RESEARCH IS STUCK ON: at most `max` searches plus at most ONE
+ *  comparison, read off the free deterministic verdict instead of guessed from which topics
+ *  look unfinished. Every call here is $0 (the judgment model stays off, no provider is
+ *  reached). A topic no purchase can move is skipped rather than queued, two topics stuck
+ *  on one search spend one slot, and an unreadable packet never stalls the agenda. The comparison
+ *  is earned only where every cheaper check is behind it, so a topic still owing a search owes it
+ *  first and nothing is compared on evidence I do not hold. The walk runs past the filled search
+ *  slots until it has looked for that comparison, so three cheaper topics can never starve the one
+ *  decision this whole ladder exists to reach. */
+export async function researchNeeds(snapshot: EvidenceSnapshot, tenantId: string, profile: BusinessProfile | null, max: number): Promise<ResearchNeed[]> {
+  const needs: ResearchNeed[] = [];
+  const seen = new Set<string>();
+  let queries = 0;
+  for (const inv of rankInvestigations(buildTopicInvestigations(snapshot))) {
+    const compared = needs.some((n) => n.comparison);
+    if (queries >= max && compared) break;
+    const owned = ownedCandidatesFor(snapshot, inv);
+    let d: CoverageDecision;
+    try { d = await adjudicateCoverage(inv, owned, tenantId, { model: "off", outOfScopeTopics: topicOutOfScope(snapshot, inv, profile) }); } catch { continue; }
+    const query = (nextResearchQuery(d, inv) ?? "").trim();
+    const comparison = query || compared ? null : intersectionComparison(d, inv, owned);
+    if (!query ? !comparison : queries >= max || seen.has(query.toLowerCase())) continue;
+    if (query) { seen.add(query.toLowerCase()); queries += 1; }
+    needs.push({ topicKey: inv.key, requirement: d.missing[0], query: query || null, comparison });
+  }
+  return needs;
 }

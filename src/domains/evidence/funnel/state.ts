@@ -9,7 +9,7 @@ import "server-only";
  */
 
 import { loadResearchState, saveResearchState, type StateRepoDeps } from "./state-repo";
-import type { KeywordDiscoveryRoute, ObservationMode, ResearchPageExtract, ResearchWinningAppearance } from "./research-evidence";
+import type { KeywordDiscoveryRoute, ObservationMode, ResearchPageComparison, ResearchPageExtract, ResearchWinningAppearance } from "./research-evidence";
 
 const FUNNEL_SCHEMA_VERSION = 3;
 
@@ -33,6 +33,10 @@ export type FunnelKeyword = {
   /** The confirmed theme this keyword was discovered FROM (per-seed sources only), so
    *  retention can keep every seed's discovery alive instead of one seed's. */
   seed?: string;
+  /** The page that ACTUALLY ranks for this keyword and its ORGANIC position, from the
+   *  ranked pull. Optional: absent on every other route and on rows stored before it. */
+  rankedUrl?: string | null;
+  rankedRank?: number | null;
 };
 
 export type FunnelReject = { keyword: string; reason: string };
@@ -95,8 +99,6 @@ export type FunnelWinningPage = {
   /** real appearance prompt texts. */
   examplePrompts: string[];
   appearances: ResearchWinningAppearance[];
-  fetched: boolean;
-  contentHash?: string | null;
   extract: ResearchPageExtract | null;
 };
 
@@ -106,8 +108,6 @@ export type FunnelState = {
   basisTag: string;
   discovery: {
     seeds: string[];
-    raw: FunnelKeyword[];
-    normalized: string[];
     retained: FunnelKeyword[];
     rejected: FunnelReject[];
     counts: { raw: number; normalized: number; retained: number; rejected: number };
@@ -118,6 +118,8 @@ export type FunnelState = {
   /** The CURRENT chosen keyword set only; obsolete queries are pruned. */
   serps: { queries: FunnelSerp[]; analyzed: number };
   winningPages: FunnelWinningPage[];
+  /** Bought page-by-page comparisons, newest first, ONE per topic, bounded, in the canonical projected shape. */
+  pageComparisons: ResearchPageComparison[];
   /** LIFETIME totals for this basis (not the receipt). */
   ledger: { spentUsd: number; cacheHits: number };
   /** THIS run's receipt: reset whenever Runtime hands us a new run id. */
@@ -132,10 +134,11 @@ export function emptyFunnelState(tenantId: string, basisTag = "", now = ""): Fun
     schemaVersion: FUNNEL_SCHEMA_VERSION,
     tenantId,
     basisTag,
-    discovery: { seeds: [], raw: [], normalized: [], retained: [], rejected: [], counts: { raw: 0, normalized: 0, retained: 0, rejected: 0 } },
+    discovery: { seeds: [], retained: [], rejected: [], counts: { raw: 0, normalized: 0, retained: 0, rejected: 0 } },
     prompts: { pairs: [], intendedPairs: 0 },
     serps: { queries: [], analyzed: 0 },
     winningPages: [],
+    pageComparisons: [],
     ledger: { spentUsd: 0, cacheHits: 0 },
     cycle: { runId: null, cycleKey: null, spentUsd: 0, cacheHits: 0 },
     updatedAt: now,
@@ -156,6 +159,9 @@ function decodeFunnelState(tenantId: string, basisTag: string, raw: unknown): Fu
     prompts: r.prompts && typeof r.prompts === "object" ? { ...base.prompts, ...r.prompts } : base.prompts,
     serps: r.serps && typeof r.serps === "object" ? { ...base.serps, ...r.serps } : base.serps,
     winningPages: Array.isArray(r.winningPages) ? r.winningPages : base.winningPages,
+    // ADDITIVE, at the SAME schema version: a row stored before comparisons existed reads
+    // as none of them rather than being thrown away with every keyword and answer on it.
+    pageComparisons: Array.isArray(r.pageComparisons) ? r.pageComparisons : base.pageComparisons,
     ledger: r.ledger && typeof r.ledger === "object" ? { ...base.ledger, ...r.ledger } : base.ledger,
     cycle: r.cycle && typeof r.cycle === "object" ? { ...base.cycle, ...r.cycle } : base.cycle,
     updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : "",

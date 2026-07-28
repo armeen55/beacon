@@ -421,10 +421,14 @@ function parseKeywords(env: ProviderEnvelope): ParsedKeywordItem[] {
     // "the difficulty is 0" are different claims and the second is a lie. An absent trend
     // reads null rather than empty, and an absent month null rather than zero searches.
     const ms = Array.isArray(ki.monthly_searches) ? (ki.monthly_searches as Record<string, unknown>[]) : null;
+    // ranked_keywords carries the page that ACTUALLY ranks in ranked_serp_element.serp_item, and
+    // this dropped it, so a ranked keyword could never name its own page. rank_group is the organic
+    // position; rank_absolute counts ads and packs. Absent on every other keyword endpoint -> null.
+    const rse = ((raw.ranked_serp_element ?? {}) as Record<string, unknown>).serp_item as Record<string, unknown> | undefined;
     return {
       keyword: String(it.keyword ?? raw.keyword ?? ""),
       searchVolume: num(ki.search_volume), cpcUsd: num(ki.cpc), competition: num(ki.competition),
-      competitionLevel: level(ki.competition_level),
+      competitionLevel: level(ki.competition_level), rankedUrl: str(rse?.url), rankedRank: num(rse?.rank_group),
       difficulty: num(kp.keyword_difficulty), intent: str(si.main_intent),
       monthlySearches: ms === null ? null : ms.map((m) => ({ year: Number(m.year), month: Number(m.month), volume: num(m.search_volume) })).filter((m) => Number.isFinite(m.year) && Number.isFinite(m.month)),
     };
@@ -438,14 +442,12 @@ function parseSerp(env: ProviderEnvelope): ParsedSerp {
   }));
   const paaQuestions = sub("people_also_ask").map((el) => ({ question: String(el.title ?? ""), answeringDomain: null as string | null })).filter((q) => q.question.length > 0);
   const relatedSearches = sub("related_searches").map((s) => String(s)).filter((s) => s.length > 0);
-  const fs = items.find((i) => i.type === "featured_snippet");
-  const snippetOwner = fs && fs.url ? { domain: String(fs.domain ?? hostname(String(fs.url))), url: String(fs.url) } : null;
   const inner = sub("ai_overview");
   const references = inner.flatMap((el) => (Array.isArray(el.references) ? (el.references as Record<string, unknown>[]) : []))
     .map((r) => { const url = String(r.url ?? ""); return { url, domain: String(r.domain ?? hostname(url)), title: str(r.title) }; }).filter((r) => r.url.length > 0);
   const excerpt = inner.map((el) => str(el.text) ?? str(el.markdown)).find((t) => t != null) ?? null;
   const aiOverview = items.some((i) => i.type === "ai_overview") ? { present: true, references, excerpt } : null;
-  return { organic, aiOverview, snippetOwner, paaQuestions, relatedSearches };
+  return { organic, aiOverview, paaQuestions, relatedSearches };
 }
 function parseLlmAnswer(env: ProviderEnvelope): ParsedAiAnswer {
   const { result0, items } = resultBlock(env);
@@ -463,7 +465,7 @@ function parseLlmAnswer(env: ProviderEnvelope): ParsedAiAnswer {
   }
   return {
     answerText: texts.length ? texts.join("\n") : null, modelServed: str(result0?.model_name),
-    webSearchReported: web, citations, fanOutQueries: arrStr(result0?.fan_out_queries), brands: null,
+    webSearchReported: web, citations, fanOutQueries: arrStr(result0?.fan_out_queries),
   };
 }
 function parseScraper(env: ProviderEnvelope): ParsedAiAnswer {
@@ -472,7 +474,7 @@ function parseScraper(env: ProviderEnvelope): ParsedAiAnswer {
   return {
     answerText: str(result0?.markdown), modelServed: str(result0?.model), webSearchReported: null,
     citations: sources ? sources.map((s) => ({ url: String(s.url ?? ""), domain: String(s.domain ?? hostname(String(s.url ?? ""))), title: str(s.title) })).filter((c) => c.url.length > 0) : null,
-    fanOutQueries: arrStr(result0?.fan_out_queries), brands: brandNames(result0?.brand_entities),
+    fanOutQueries: arrStr(result0?.fan_out_queries),
   };
 }
 function modelObjects(env: ProviderEnvelope): Record<string, unknown>[] {
@@ -490,10 +492,6 @@ function num(v: unknown): number | null { return typeof v === "number" && Number
 function level(v: unknown): "low" | "medium" | "high" | null { const s = typeof v === "string" ? v.toLowerCase() : ""; return s === "low" || s === "medium" || s === "high" ? s : null; }
 function str(v: unknown): string | null { return typeof v === "string" && v.length > 0 ? v : null; }
 function arrStr(v: unknown): string[] | null { return Array.isArray(v) ? v.map((x) => String(x)).filter((s) => s.length > 0) : null; }
-function brandNames(v: unknown): string[] | null {
-  if (!Array.isArray(v)) return null;
-  return v.map((b) => (typeof b === "string" ? b : String((b as Record<string, unknown>)?.name ?? (b as Record<string, unknown>)?.entity ?? ""))).filter((s) => s.length > 0);
-}
 function hostname(url: string): string { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } }
 function canonicalUrl(url: string): string { try { const u = new URL(url); u.hash = ""; return u.toString(); } catch { return url.trim(); } }
 function sha256(s: string): string { return createHash("sha256").update(s).digest("hex"); }

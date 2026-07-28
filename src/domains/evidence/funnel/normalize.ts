@@ -45,7 +45,7 @@ export function keywordsFromParsed(items: ParsedKeywordItem[], via: FunnelKeywor
   const out: FunnelKeyword[] = [];
   for (const it of items) {
     if (!it || typeof it.keyword !== "string" || !it.keyword.trim()) continue;
-    out.push({ keyword: it.keyword, searchVolume: it.searchVolume, competition: it.competition, competitionLevel: it.competitionLevel, difficulty: it.difficulty, intent: it.intent, discoveredVia: via, ...(seed ? { seed } : {}) });
+    out.push({ keyword: it.keyword, searchVolume: it.searchVolume, competition: it.competition, competitionLevel: it.competitionLevel, difficulty: it.difficulty, intent: it.intent, rankedUrl: it.rankedUrl, rankedRank: it.rankedRank, discoveredVia: via, ...(seed ? { seed } : {}) });
   }
   return out;
 }
@@ -60,8 +60,12 @@ export function dedupeKeywords(raw: FunnelKeyword[]): FunnelKeyword[] {
     const id = coreIdentity(norm);
     const prev = byKey.get(id);
     const row: FunnelKeyword = { ...k, keyword: norm };
+    // The page that ranks is carried FORWARD through the merge either way: it arrives only on the
+    // ranked pull, and letting a higher-volume row from a different pull evict it would throw away
+    // the one fact that lets a ranked keyword name its own page.
     if (!prev) byKey.set(id, row);
-    else if ((row.searchVolume ?? -1) > (prev.searchVolume ?? -1)) byKey.set(id, row);
+    else if ((row.searchVolume ?? -1) > (prev.searchVolume ?? -1)) byKey.set(id, { ...row, rankedUrl: row.rankedUrl ?? prev.rankedUrl, rankedRank: row.rankedRank ?? prev.rankedRank });
+    else if (prev.rankedUrl == null && row.rankedUrl != null) byKey.set(id, { ...prev, rankedUrl: row.rankedUrl, rankedRank: row.rankedRank });
   }
   return [...byKey.values()];
 }

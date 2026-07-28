@@ -209,8 +209,15 @@ export async function loadEvidenceSnapshot(
     const h = domainOf(p.url);
     if (h) ownedHosts.set(h, (ownedHosts.get(h) ?? 0) + 1);
   }
+  // THE ACCOUNT OWNS ITS OWN ADDRESS. Deriving the site from whichever host appeared most
+  // often in the GSC rows meant a GSC timeout produced an EMPTY payload and therefore a null
+  // site, which reads as "this account has no website" rather than "I could not reach GSC".
+  // Everything downstream that splits owned pages from competitors then collapses, and the
+  // page comparison decides what to build from a broken idea of what you already own.
+  const accountHost = domainOf(`https://${(await getTenant(tenantId).catch(() => null))?.domain ?? ""}`);
   const site =
     options.site ??
+    accountHost ??
     [...ownedHosts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ??
     null;
   const ownedUrlKeys = new Set([

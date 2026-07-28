@@ -7,6 +7,8 @@
  * provenance, and the research receipt.
  */
 
+import type { ParsedPageIntersection } from "../page-intersection";
+
 export type ResearchEngine = "chatgpt" | "gemini" | "claude" | "perplexity";
 
 /** Provenance of an AI observation (frozen, Slice 6I). consumer_search = the
@@ -40,6 +42,10 @@ type ResearchKeyword = {
   /** The confirmed theme it was discovered FROM; null = it came from no single theme
    *  (a whole-site pull, my own pages, my own Search Console). */
   seed?: string | null;
+  /** For a keyword the account ALREADY ranks for: the page that actually ranks and its ORGANIC position
+   *  (rank_group; rank_absolute counts ads and packs). Both were sent on every ranked row and thrown
+   *  away here, so a "ranked" keyword could never NAME its own page. Absent on every other route. */
+  rankedUrl?: string | null; rankedRank?: number | null;
 };
 
 type ResearchCitation = { url: string; domain: string; title: string | null };
@@ -178,6 +184,26 @@ type ResearchWinningPage = {
   extract: ResearchPageExtract | null;
 };
 
+/** Why a bought page-by-page comparison is NOT in hand. Every one is a call that produced
+ *  no evidence, so not one of them may ever harden into "build a new page". */
+export type IntersectionUnavailable = "blocked" | "capped" | "waiting" | "quarantined" | "ambiguous" | "failed";
+
+/** ONE page-by-page comparison, stored beside the winners it compared and projected UNCHANGED (one
+ *  shape, never a translation). Its IDENTITY is four facts, so a later pass can tell "this answers THIS
+ *  topic and THIS ask" from somebody else's answer: the research basis (the row carrying it is
+ *  basis-scoped), the topic, the NORMALIZED ask (a reordered page set or an omitted default is the SAME
+ *  identity, never a second buy) and when it landed with the money core's receipt for the call that paid.
+ *  A null `comparison` beside an `unavailable` reason is an honest gap and never reads as a finding. */
+export type ResearchPageComparison = {
+  topicKey: string;
+  /** Hash of the NORMALIZED ask; the pages and excludes it stands for sit beside it. */
+  askKey: string; pages: string[]; excludePages: string[];
+  /** When it landed, and the money core's cache identity for the call that bought it. */
+  observedAt: string; receipt: string | null;
+  comparison: ParsedPageIntersection | null;
+  unavailable: IntersectionUnavailable | null;
+};
+
 type ResearchReceipt = {
   researched: number;
   retained: number;
@@ -193,6 +219,8 @@ export type FunnelResearchEvidence = {
   aiObservations: ResearchAiObservation[];
   serpEvidence: ResearchSerpEvidence[];
   winningPages: ResearchWinningPage[];
+  /** Optional so a bundle built before comparisons existed still reads (as none of them). */
+  pageComparisons?: ResearchPageComparison[];
   receipt: ResearchReceipt;
 };
 
@@ -202,6 +230,7 @@ export function emptyResearchEvidence(): FunnelResearchEvidence {
     aiObservations: [],
     serpEvidence: [],
     winningPages: [],
-    receipt: { researched: 0, retained: 0, stale: 0, missing: 0, cached: 0, spentUsd: 0, freshestObservationAt: null },
+    pageComparisons: [],
+    receipt:{ researched: 0, retained: 0, stale: 0, missing: 0, cached: 0, spentUsd: 0, freshestObservationAt: null },
   };
 }

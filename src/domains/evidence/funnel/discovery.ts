@@ -112,7 +112,6 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}): FunnelUnitFn {
         }
         for (const p of discoveryPlan(domain, seeds)) {
           if (d.now() > deadline) {
-            state.discovery.raw = raw.slice(0, 1200);
             state.discovery.seeds = seeds;
             await save(d, tenantId, basis, state, ctx);
             return { status: "advanced", cursor: { stage: "labs" }, progress: discProgress(state) };
@@ -120,12 +119,10 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           const r = interp(await d.callProvider(p.capability, p.input, ids));
           track(state, r);
           if (r.kind === "waiting") {
-            state.discovery.raw = raw.slice(0, 1200);
             await save(d, tenantId, basis, state, ctx);
             return { status: "waiting", cursor: { stage: "labs" }, progress: discProgress(state), detail: r.detail };
           }
           if (r.kind === "failed") {
-            state.discovery.raw = raw.slice(0, 1200);
             await save(d, tenantId, basis, state, ctx);
             return { status: "failed", cursor: { stage: "labs" }, progress: discProgress(state), detail: r.detail };
           }
@@ -153,8 +150,6 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}): FunnelUnitFn {
         const { retained, rejected } = applyFilters(deduped, ctxFrom(profile), MAX_REJECTED);
         const capped = retainDiverse(retained, MAX_RETAINED);
         state.discovery.seeds = seeds;
-        state.discovery.raw = raw.slice(0, 1200);
-        state.discovery.normalized = deduped.map((k) => k.keyword).slice(0, 800);
         state.discovery.retained = capped;
         state.discovery.rejected = rejected;
         state.discovery.counts = { raw: raw.length, normalized: deduped.length, retained: capped.length, rejected: rejected.length };

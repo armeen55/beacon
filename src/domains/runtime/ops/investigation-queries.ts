@@ -1,64 +1,44 @@
 import "server-only";
 
 /**
- * The exact searches an open investigation cannot close without (Slice: evidence
- * qualified changes, 2026-07-27). A proven traffic gap stays an investigation until
- * the live results page for THAT EXACT SEARCH is held, so those searches must be
- * bought before any exploratory one, or every gap opens a case that never closes.
+ * What THIS run buys, and why (one typed next requirement, 2026-07-28). Runtime asks
+ * Decision ONE question - what is the research actually stuck on - and hands Evidence
+ * plain strings and plain pages, so Decision never reaches a provider and Evidence never
+ * reads Decision. The answer comes from the SAME free verdict that decides whether this
+ * account already owns the right page, so the searches a run pays for, the winning pages
+ * it then reads, the one comparison it buys and the topic it judges are one topic.
  *
- * Runtime orchestrates this on purpose: it asks Decision what it is stuck on and
- * hands Evidence plain strings. Decision never reaches the provider, and Evidence
- * never reads Decision. Fail-soft everywhere: no answer means no priority, never a
+ * ONLY WHAT BUYING CAN CLOSE. The old list took every open page gap plus a reserved slot
+ * for whichever packet held no results page, so it queued topics whose blocker was a mixed
+ * shape or an unsettled meaning. No purchase moves either, and those runs spent real
+ * fetches to reach the same refusal. Fail-soft: no answer means no priority, never a
  * stalled agenda.
  */
+import { loadBusinessProfile } from "@/domains/account";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
-import { buildTopicInvestigations } from "@/domains/evidence/topic-investigation";
-import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
-import { compileCandidates, missingExactSearch, strongestInvestigation } from "@/domains/decision";
+import type { FunnelIntersectionAsk } from "@/domains/evidence";
+import { researchNeeds, type ResearchNeed } from "@/domains/decision";
+import { log } from "@/lib/logger";
 
 /** How many investigations one research pass may jump the queue for. */
 const MAX_PRIORITY_QUERIES = 3;
 
-export async function topInvestigationQueries(tenantId: string): Promise<string[]> {
+async function needs(tenantId: string): Promise<ResearchNeed[]> {
   const snapshot = await loadEvidenceSnapshot(tenantId);
-  // ONLY what buying evidence can actually close. An investigation that already holds
-  // its results page and concluded something else (Google's own rewrite already carries
-  // the search, nothing recurs across the winners, a different slice of Google) is not
-  // waiting on a purchase, and leaving it in this list made it re-buy the same page every
-  // week while the queries with no results page at all waited behind it.
-  const open = compileCandidates(snapshot)
-    .filter((c) => c.action === "research_needed" && !!c.query && (c.diagnosis == null || c.diagnosis.cause === "unknown"))
-    .sort((a, b) => b.recoverableClicks - a.recoverableClicks || (a.query ?? "").localeCompare(b.query ?? ""));
-  const seen = new Set<string>();
-  const queries: string[] = [];
-  const add = (raw: string | null | undefined): void => {
-    const q = (raw ?? "").trim();
-    const key = q.toLowerCase();
-    if (!q || seen.has(key) || queries.length >= MAX_PRIORITY_QUERIES) return;
-    seen.add(key);
-    queries.push(q);
-  };
-  // A RESERVED SLOT for the strongest research packet's own missing look. It is
-  // stuck on exactly one purchase too, and simply appending it behind the page
-  // gaps meant a week with three gaps advanced the research not at all.
-  for (const c of open.slice(0, MAX_PRIORITY_QUERIES - 1)) add(c.query);
-  add(researchGap(snapshot));
-  for (const c of open) add(c.query);
-  return queries;
+  const profile = await loadBusinessProfile(tenantId).catch(() => null);
+  const out = await researchNeeds(snapshot, tenantId, profile, MAX_PRIORITY_QUERIES);
+  log.info("[research-run] what the research is stuck on", { tenantId, needs: out.map((n) => `${n.requirement}:${n.query ?? "compare"}`) });
+  return out;
 }
 
-/** The exact search my strongest open investigation cannot close without, or null
- *  when it already holds a current look at that results page. Pure and fail-soft:
- *  no packet means no priority, never a stalled agenda. */
-function researchGap(snapshot: EvidenceSnapshot): string | null {
-  try {
-    // ASKABLE PACKETS ONLY. Ranking by fewest missing pieces picks the most COMPLETE
-    // packet, and a complete packet is by definition one whose results page is already
-    // current, so the winner had nothing to ask for and this whole reservation bought
-    // exactly nothing. Choose the strongest packet that actually needs a look.
-    const askable = buildTopicInvestigations(snapshot).filter((i) => missingExactSearch(i) != null);
-    return missingExactSearch(strongestInvestigation(askable));
-  } catch {
-    return null;
-  }
+/** The exact searches this run cannot close without, frozen once by the run executor. */
+export async function topInvestigationQueries(tenantId: string): Promise<string[]> {
+  return (await needs(tenantId)).map((n) => n.query).filter((q): q is string => !!q);
+}
+
+/** The ONE page by page comparison worth paying for, for the same topic, or null - which
+ *  is the normal answer, and the reason a research pass usually buys none of this. */
+export async function comparisonAsk(tenantId: string): Promise<FunnelIntersectionAsk | null> {
+  const earned = (await needs(tenantId)).find((n) => n.comparison);
+  return earned ? { topicKey: earned.topicKey, ask: earned.comparison! } : null;
 }

@@ -16,8 +16,7 @@ function stubFetch(chain: Record<string, { status: number; location?: string }>)
     calls.push({ url: String(url), init: (init ?? {}) as RequestInit });
     const hop = chain[String(url)] ?? { status: 200 };
     const headers = { get: (h: string) => (h.toLowerCase() === "location" ? hop.location ?? null : null) };
-    return { status: hop.status, headers, body: null } as unknown as Response;
-  });
+    return { status: hop.status, headers, body: null } as unknown as Response; });
   return { impl: impl as unknown as typeof fetch, calls };
 }
 describe("citation normalization (Slice 6I)", () => {
@@ -34,8 +33,7 @@ describe("citation normalization (Slice 6I)", () => {
     const { impl, calls } = stubFetch({ [WRAP]: { status: 500 } });
     const out = await resolveCitationTargets([app(WRAP)], impl);
     expect(out[0]!.citedUrl).toBe(WRAP); expect(out[0]!.viaUrl).toBeUndefined(); expect(calls).toHaveLength(1);
-    expect(rankWinningPages([...out, app(REAL)], "mysite.com", 10).map((c) => c.url)).toEqual([REAL]);
-  });
+    expect(rankWinningPages([...out, app(REAL)], "mysite.com", 10).map((c) => c.url)).toEqual([REAL]); });
   it("dedupes per URL, stops at the per-call resolution budget, and stops resolving past the deadline", async () => {
     const one = stubFetch({ [WRAP]: { status: 302, location: REAL } });
     await resolveCitationTargets([app(WRAP), app(WRAP)], one.impl);
@@ -53,6 +51,5 @@ describe("citation normalization (Slice 6I)", () => {
     expect(matrix.rows[0]!.byEngine).toHaveLength(1); expect(matrix.rows[0]!.byEngine[0]!.mentioned).toBe(true);
     expect(matrix.totals).toEqual({ promptsChecked: 1, present: 1, absent: 0 });
     // A lone auxiliary row never invents coverage: missing consumer stays missing.
-    expect(buildPresenceMatrix([obs({ observationMode: "standardized_response" })]).totals.promptsChecked).toBe(0);
-  });
+    expect(buildPresenceMatrix([obs({ observationMode: "standardized_response" })]).totals.promptsChecked).toBe(0); });
 });
