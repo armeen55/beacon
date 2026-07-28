@@ -41,8 +41,12 @@ import type { ChangeProposal } from "./contracts";
  *   4 = holding that results page is not reading it. A change exists only where the
  *       page was DIAGNOSED off what those results actually say, so every proposal
  *       picked by whether the search words appeared in the stored title is history.
+ *   5 = no new page is proposed at all. Turning a competitor's example prompt into a
+ *       page shipped duplicates of pages the account already owned, so generation is
+ *       deleted until the evidence can prove a distinct page should exist. Every
+ *       page brief drafted under the old rule is history.
  */
-const DECISION_GENERATION = 4;
+const DECISION_GENERATION = 5;
 
 /**
  * The account's CURRENT research basis, or null when it cannot be read. Composes
@@ -94,8 +98,6 @@ export type RankedProposalQueue = {
   /** TRUE when the account's current basis could not be read at all. The queue is
    *  empty because I cannot tell what is current, NOT because I raised the bar. */
   basisUnreadable: boolean;
-  /** New-page briefs among the ready+to-do set (kept distinct from edits). */
-  newPageBriefs: ChangeProposal[];
 };
 
 /** Load + rank + partition a tenant's proposal queue. Fail-soft → empty queue.
@@ -123,7 +125,13 @@ export async function loadProposalQueue(
   // proof I cannot tell, so I show you nothing rather than guess. A set-aside row keeps
   // its words, its status and its history: no stored row is rewritten or deleted, it
   // just stops presenting as work waiting on you, and it is counted below so I can say so.
-  const current = currentBasis == null ? [] : all.filter((p) => p.basis === currentBasis);
+  // NEW PAGES ARE HISTORY, BY CONSTRUCTION (generation 5). The machinery that proposes
+  // one is deleted, so a `new_page` row can only be an older idea. Refusing the KIND
+  // here, not just the basis, means the guarantee stops resting on every future writer
+  // remembering: even a row stamped with today's basis cannot reach you as work. It is
+  // still COUNTED below, because an idea I withdrew is one I owe you an account of.
+  const current = currentBasis == null ? []
+    : all.filter((p) => p.basis === currentBasis && p.kind !== "new_page");
   const demotedStaleBasis = all.length - current.length;
   // WHY the queue is empty decides what I may say. "I raised the bar" is true of an
   // older or missing basis and a lie when I simply could not read the account, so the
@@ -144,9 +152,5 @@ export async function loadProposalQueue(
     toDo,
     demotedStaleBasis,
     basisUnreadable,
-    // The new-page slice of the SAME partitioned rows (both lanes, edits excluded).
-    // Readiness is never read from here: a source-owing brief sits in toDo above,
-    // which is the only place readiness is decided.
-    newPageBriefs: ranked.filter((p) => p.kind === "new_page"),
   };
 }

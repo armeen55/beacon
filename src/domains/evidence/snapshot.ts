@@ -182,7 +182,6 @@ export type CannibalizationGroup = {
 };
 
 export type ContentGapKind =
-  | "missing_page"
   | "unanswered_question"
   | "missing_schema"
   | "missing_faq"
@@ -202,21 +201,6 @@ export type InternalLinkOpportunity = {
   /** Suggested anchor (the target's topic label). */
   anchor: string;
   reason: string;
-};
-
-export type NewPageOpportunity = {
-  topic: string;
-  /** Fused demand weight (volume + AI-ask breadth). */
-  demandWeight: number;
-  basis: "search_volume" | "ai_attention" | "mixed";
-  competitorUrls: string[];
-  /** Follow-up queries the PROVIDER itself ran while answering a tracked prompt on this
-   *  topic. A tracked prompt is NEVER one of these. Empty when the provider reported
-   *  none: honest absence, never a substitute. Their lineage (parent prompt text,
-   *  engine, observation mode, observed date) is the matching `research.aiObservations`
-   *  rows, which the change receipt reads under the same topic gate used here. */
-  fanoutSeeds: string[];
-  confidence: "high" | "medium" | "low";
 };
 
 // ── the snapshot ─────────────────────────────────────────────────────────────
@@ -240,7 +224,6 @@ export type EvidenceSnapshot = {
   cannibalization: CannibalizationGroup[];
   contentGaps: ContentGap[];
   internalLinkOpportunities: InternalLinkOpportunity[];
-  newPageOpportunities: NewPageOpportunity[];
   aiCitations: {
     ownedCited: number;
     competitorCited: number;
@@ -346,7 +329,7 @@ function freshnessOf(source: EvidenceSourceKind, loaded: LoadedSource<unknown>, 
  * Normalize the six loaded sources into ONE EvidenceSnapshot. PURE: same input
  * → same output (the only clock is scope.builtAt, supplied by the caller). Joins
  * owned pages by canonical URL, derives intent/clustering, cannibalization,
- * content gaps, internal-link + new-page opportunities, and a stable
+ * content gaps, internal-link opportunities, and a stable
  * evidenceHash. Every source occupies a freshness slot even when empty/failed/
  * dormant, so the snapshot never hides a missing source.
  */
@@ -566,13 +549,6 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
     contentGaps.push({ kind: "unanswered_question", topic: q.question, ownedUrl: null, competitorUrl: null,
       detail: `AI keeps getting asked "${q.question}" (${q.weight} prompts) and none of your pages answer it.` });
   }
-  // new-page gap: a competitor is cited for a topic no owned page covers.
-  for (const comp of competitors) {
-    const topic = comp.examplePrompts[0] ?? comp.domain;
-    if (comp.examplePrompts.length === 0 || ownedContentText.some((text) => relatedTopic(topic, text))) continue;
-    contentGaps.push({ kind: "missing_page", topic, ownedUrl: null, competitorUrl: comp.url,
-      detail: `AI cites ${comp.domain} for "${topic}" (${comp.citationCount}×) and you have no page on it.` });
-  }
 
   // ── internal-link opportunities: owned page A on-topic for owned page B ──
   const internalLinkOpportunities: InternalLinkOpportunity[] = [];
@@ -594,35 +570,6 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
   }
   internalLinkOpportunities.sort(
     (a, b) => a.fromUrl.localeCompare(b.fromUrl) || a.toUrl.localeCompare(b.toUrl),
-  );
-
-  // ── fan-outs: ONLY a query the provider itself ran while answering (the reported
-  // search_queries). A prompt we track is our own question, never the provider's
-  // follow-up, so it may never be handed on under a fan-out label. A topic the
-  // provider reported nothing for gets none: an honest gap beats a substitute.
-  const observedRuns = [...input.research.payload.aiObservations].sort(
-    (a, b) => a.promptText.localeCompare(b.promptText) || a.engine.localeCompare(b.engine) || a.observedAt.localeCompare(b.observedAt));
-  const fanoutsFor = (topic: string): string[] => {
-    const seen = new Map<string, string>();
-    for (const o of observedRuns) {
-      if (!o.fanOutQueries?.length || !relatedTopic(o.promptText, topic)) continue;
-      for (const q of o.fanOutQueries) { const k = norm(q); if (k && !seen.has(k)) seen.set(k, q.trim()); }
-    }
-    return [...seen.values()].slice(0, 6);
-  };
-
-  // ── new-page opportunities: competitor-cited or high-demand topics with no owned page ──
-  const newPageOpportunities: NewPageOpportunity[] = [];
-  for (const comp of competitors) {
-    const topic = comp.examplePrompts[0] ?? comp.domain;
-    if (comp.examplePrompts.length === 0 || ownedContentText.some((text) => relatedTopic(topic, text))) continue;
-    const volume = keywordDemand.find((k) => norm(k.query) === norm(topic))?.searchVolume ?? null;
-    newPageOpportunities.push({ topic, demandWeight: (volume ?? 0) + comp.citationCount * comp.distinctPrompts,
-      basis: volume != null ? "mixed" : "ai_attention", competitorUrls: [comp.url], fanoutSeeds: fanoutsFor(topic),
-      confidence: comp.distinctPrompts >= 3 ? "medium" : "low" });
-  }
-  newPageOpportunities.sort(
-    (a, b) => b.demandWeight - a.demandWeight || a.topic.localeCompare(b.topic),
   );
 
   // ── AI citation rollup ──
@@ -655,7 +602,6 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
     cannibalization,
     contentGaps,
     internalLinkOpportunities,
-    newPageOpportunities,
     aiCitations: {
       ownedCited,
       competitorCited: competitors.length,
@@ -690,7 +636,6 @@ export function hashSnapshot(snapshot: Omit<EvidenceSnapshot, "evidenceHash">): 
     kw: snapshot.keywordDemand.map((k) => [k.query, k.searchVolume, k.source, k.gscImpressions]),
     q: snapshot.questionDemand.map((q) => [q.question, q.weight, q.coverageStatus]),
     gap: snapshot.contentGaps.map((g) => [g.kind, g.topic]),
-    npo: snapshot.newPageOpportunities.map((n) => [n.topic, n.demandWeight, n.basis]),
     ilo: snapshot.internalLinkOpportunities.map((l) => [l.fromUrl, l.toUrl]),
     can: snapshot.cannibalization.map((c) => [c.query, c.competingUrls]),
     // MATERIAL research truth, not counters: the actual retained keyword metrics,

@@ -52,7 +52,6 @@ export const PROMPT_REGISTRY = {
   // guidance.
   "draft.answer_block": 6,
   "draft.atomic_edit": 1,
-  "draft.create_page_brief": 1,
   "draft.internal_link": 1,
   "draft.batch_adjudication": 1,
   "draft.strategy_review": 1,

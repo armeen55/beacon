@@ -1,7 +1,7 @@
 /**
  * Outcome tests for the EvidenceSnapshot kernel. These pin the CONTRACT downstream Decisions consume, not the
- * implementation. They prove: all six mandatory sources normalize in with an honest freshness slot; existing-page
- * and new-page evidence are both present; the assembler is deterministic; native AI can fail soft; and the
+ * implementation. They prove: all six mandatory sources normalize in with an honest freshness slot; owned-page
+ * and competitor evidence are both present; the assembler is deterministic; native AI can fail soft; and the
  * evidenceHash tracks MATERIAL evidence (including the research funnel's keywords / AI observations / SERP /
  * winning pages) while ignoring every timestamp and spend/cache counter.
  */
@@ -51,12 +51,11 @@ describe("buildEvidenceSnapshot - six-source normalization", () => {
     const q = snap.questionDemand.find((x) => x.question.includes("emblem"))!;
     expect(q.source).toBe("native_ai"); expect(["answered", "unanswered"]).toContain(q.coverageStatus);
   });
-  it("surfaces new-page, cannibalization, and intent evidence", () => {
+  it("surfaces competitor, cannibalization, and intent evidence", () => {
     const snap = buildEvidenceSnapshot(fullInput());
     expect(snap.competitors.some((c) => c.domain === "persianfood.example")).toBe(true);
-    expect(snap.newPageOpportunities.length).toBeGreaterThan(0); // cited competitor topic with no owned page
-    const gapKinds = new Set(snap.contentGaps.map((g) => g.kind));
-    expect(gapKinds.has("missing_page") || gapKinds.has("unanswered_question")).toBe(true);
+    // A cited competitor stays evidence and never becomes a page topic of its own.
+    expect(snap.contentGaps.every((g) => g.kind === "unanswered_question")).toBe(true);
     const cannib = snap.cannibalization.find((c) => c.query === "iran flag meaning")!;
     expect(cannib.competingUrls).toEqual(["fixture-content.example/flag", "fixture-content.example/flag-history"]);
     expect(snap.intentClusters.find((c) => c.queries.some((qq) => qq.includes("buy")))?.intent).toBe("commercial");
@@ -78,7 +77,7 @@ describe("buildEvidenceSnapshot - honest source states", () => {
   }
   it("keeps all six slots even when every source is empty/dormant", () => {
     const snap = buildEvidenceSnapshot(emptyInput());
-    expect(snap.sources).toHaveLength(6); expect(snap.ownedPages).toHaveLength(0); expect(snap.newPageOpportunities).toHaveLength(0);
+    expect(snap.sources).toHaveLength(6); expect(snap.ownedPages).toHaveLength(0);
     const byKind = new Map<EvidenceSourceKind, string>(snap.sources.map((s) => [s.source, s.status]));
     expect(byKind.get("native_ai")).toBe("dormant"); expect(byKind.get("gsc")).toBe("empty");
   });

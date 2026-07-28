@@ -39,7 +39,6 @@ export type ChangesView = {
   /** Generated but held for a human look (the To do tab). */
   toDo: ChangeProposal[];
   /** New-page briefs, kept distinct from existing-page edits. */
-  newPageBriefs: ChangeProposal[];
   summary: ChangesSummary;
   /** Whole-tenant measuring count (proof ledger, the ONE-COUNT RULE). */
   measuringCountCanonical: number;
@@ -104,7 +103,7 @@ export function withCurrentBasisOnly(view: ChangesView, currentBasis: string | n
   const toDo = view.toDo.filter((p) => id.has(p.id));
   // MAX, never a sum: an old-rule release counted rows it also listed, so adding inflates.
   const setAside = Math.max(view.demotedStaleBasis, view.proposals.length - keep.length);
-  return { ...view, proposals: keep, ready, toDo, newPageBriefs: view.newPageBriefs.filter((p) => id.has(p.id)),
+  return { ...view, proposals: keep, ready, toDo,
     summary: { ...view.summary, ready: ready.length, todo: toDo.length },
     demotedStaleBasis: setAside, basisUnreadable: currentBasis == null,
     readyZeroHint: ready.length === 0 && setAside > 0 ? setAsideHint(setAside, toDo.length) : view.readyZeroHint };
@@ -114,7 +113,6 @@ const EMPTY_CHANGES_VIEW: ChangesView = {
   proposals: [],
   ready: [],
   toDo: [],
-  newPageBriefs: [],
   summary: { todo: 0, ready: 0, measuring: 0, results: 0 },
   measuringCountCanonical: 0,
   demotedStaleBasis: 0,
@@ -173,7 +171,7 @@ export async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesV
  */
 export async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> {
   const [queue, ledgerRows] = await Promise.all([
-    loadProposalQueue(tenantId).catch(() => ({ ranked: [], ready: [], toDo: [], newPageBriefs: [], demotedStaleBasis: 0, basisUnreadable: true })),
+    loadProposalQueue(tenantId).catch(() => ({ ranked: [], ready: [], toDo: [], demotedStaleBasis: 0, basisUnreadable: true })),
     loadProofLedgerCached(tenantId).catch(() => []),
   ]);
 
@@ -213,7 +211,6 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
     proposals: queue.ranked,
     ready: queue.ready,
     toDo: queue.toDo,
-    newPageBriefs: queue.newPageBriefs,
     summary,
     basisUnreadable: queue.basisUnreadable,
     measuringCountCanonical: ledgerCounts.measuring,

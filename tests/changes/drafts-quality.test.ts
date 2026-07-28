@@ -3,7 +3,7 @@
  * accept/hold/reject promise it pins, with real prose fixtures as inputs.
  */
 import { describe, it, expect } from "vitest";
-import { evaluateDraftQuality, evaluateTitleMetaQuality, evaluateCreatePageBriefQuality } from "@/domains/decision/drafts/draft-quality";
+import { evaluateDraftQuality, evaluateTitleMetaQuality } from "@/domains/decision/drafts/draft-quality";
 
 const NOWRUZ_ANSWER =
   "Nowruz Activities USA refers to community and cultural events held across the United States to observe Nowruz, the Persian New Year, each spring. Local Iranian-American associations in cities such as Los Angeles, Washington, and Houston organize Haft-Seen table displays, traditional Persian music performances, and folk dance shows during the two-week celebration window that follows the spring equinox. Families gather for shared meals, poetry readings, and craft workshops for children, while community centers coordinate a public calendar of events. Many gatherings also host a small Nowruz market selling sweets, herbs, and handmade goods from Persian vendors.";
@@ -169,35 +169,6 @@ describe("evaluateTitleMetaQuality - atomic edits", () => {
     expect(r.status).not.toBe("missing_source"); expect(r.status).toBe("ready");
   });
 });
-describe("evaluateCreatePageBriefQuality", () => {
-  const goodBrief = {
-    title: "Persian wedding traditions and Sofreh Aghd rituals",
-    meta: "A concise guide to Persian wedding customs, Sofreh Aghd elements and their meanings, guest etiquette and regional variations across Iran.",
-    opening: "A Persian wedding blends pre-Islamic and Islamic customs centered on the Sofreh Aghd, a ceremonial spread with symbolic items such as a mirror, candelabras, sugar cones, and sweets.",
-    outline: ["What is a Persian wedding: overview and origins", "The Sofreh Aghd: meaning and layout", "Mirror and candelabras ceremony"],
-    faqQuestions: ["What is a sofreh aghd?", "What items go on the spread?", "How long is a Persian wedding?"],
-    schemaTypes: ["Article", "FAQPage"], hasSerpVerdict: true,
-    sources: [{ domain: "britannica.com", claim: "a Persian wedding centers on the sofreh aghd ceremonial spread", verified: true as const,
-      supportingExcerpt: "A Persian wedding blends pre-Islamic and Islamic customs centered on the Sofreh Aghd, a ceremonial spread with symbolic items such as a mirror, candelabras, sugar cones, and sweets." }],
-  };
-  it("PASSES the real brief; HOLDS the same brief with no source as missing_source (P1-4)", () => {
-    expect(evaluateCreatePageBriefQuality(goodBrief).status).toBe("ready");
-    const { sources: _s, ...noSource } = goodBrief;
-    const r = evaluateCreatePageBriefQuality(noSource);
-    expect(r.status).toBe("missing_source"); expect(r.canRegenerate).toBe(false);
-  });
-  it("rejects a boilerplate title", () => {
-    expect(evaluateCreatePageBriefQuality({ ...goodBrief, title: "Persian Weddings: The Complete Guide" }).status).toBe("generic_rejected");
-  });
-  it("rejects an opening that announces the page instead of answering the question", () => {
-    for (const lead of ["This page explains Persian wedding traditions.", "This guide covers the Sofreh Aghd.", "The following is a look at Persian weddings.", "What is a Persian wedding? This article explains it."]) {
-      const r = evaluateCreatePageBriefQuality({ ...goodBrief, opening: `${lead} ${goodBrief.opening}` });
-      expect(r.status).toBe("too_thin"); expect(r.copyAllowed).toBe(false);
-    }
-    expect(evaluateCreatePageBriefQuality(goodBrief).status).toBe("ready"); // an opening that leads with the answer still passes
-  });
-});
-
 // Dormant-kind evaluators (section drafts, internal-link/CRO formatting,
 // prepared-pack dispatch) have zero production callers since the Foundation
 // rebuild; their pins were retired 2026-07-24 with the dormant machinery.

@@ -42,16 +42,12 @@
  * PURE + deterministic. No I/O, no LLM.
  */
 
-import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal, NewPageOpportunity } from "@/domains/evidence/snapshot";
-import { anchoredTopicMatch, canonicalQueryKey, scoreTopicMatch, weakAnchorTokens } from "@/domains/evidence/relevance-gate";
+import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot";
+import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import { MIN_CTR_DEFICIT, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, evidenceComplete, readyForAction,
   type ActionDiagnosis, type DecisionCandidate, type EvidenceInput, type EvidenceReadiness, type ProposalKind } from "./contracts";
 import { diagnoseCandidate, type DisplayedResult } from "./diagnose";
-
-/** Phrases an account must have on file before any word of its own can be called
- *  ubiquitous. Under this, a one-topic account keeps its honest overlaps. */
-const MIN_ANCHOR_CORPUS = 10;
 
 /** How small a soft search must be, against the clicks the page already earns, to
  *  be watched rather than acted on when the page beats its curve overall. */
@@ -268,15 +264,10 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
   };
 }
 
-/** The gap a new-page topic answers, from the same basis its label comes from. */
-function newPageGap(basis: NewPageOpportunity["basis"]): DecisionCandidate["gap"] {
-  return basis === "search_volume" ? "serp_mismatch" : "ai_gap";
-}
-
 /**
- * THE diagnosis: what the evidence justifies, page by page and topic by topic.
- * Only the two `act_` outcomes may become a proposal; the rest are the honest
- * answer and belong in the run receipt. PURE.
+ * THE diagnosis: what the evidence justifies, page by page. Only
+ * `act_existing_page` may become a proposal; the rest are the honest answer and
+ * belong in the run receipt. PURE.
  */
 export function compileCandidates(snapshot: EvidenceSnapshot, opts: CompileOptions = {}): QualifiedCandidate[] {
   const expectedCtrAt = opts.curve?.expectedCtrAt ?? defaultExpectedCtrAt;
@@ -285,34 +276,9 @@ export function compileCandidates(snapshot: EvidenceSnapshot, opts: CompileOptio
   // rows are bare path fragments with no copy and no search data (a crawl frontier
   // artifact), and counting each one as "do nothing" reported 175 judgments I never
   // made. Silence about an unknown row is honest; a tally that includes it is not.
-  const pages = snapshot.ownedPages
+  return snapshot.ownedPages
     .filter((p) => !!p.content || (p.search?.topQueries ?? []).length > 0 || (p.search?.impressions90d ?? 0) > 0)
     .map((page) => candidateForPage(page, expectedCtrAt, index));
-
-  const owned = ownedTopicSuppressor(snapshot);
-  const topics = [...snapshot.newPageOpportunities]
-    .sort((a, b) => b.demandWeight - a.demandWeight || a.topic.localeCompare(b.topic))
-    .map((opp): QualifiedCandidate =>
-      owned(opp.topic)
-        ? {
-            action: "do_nothing",
-            pageUrl: null,
-            query: opp.topic,
-            recoverableClicks: 0,
-            reason: `You already have a page about "${opp.topic}", so building a second one would put your own pages against each other.`,
-          }
-        : {
-            action: "act_new_page",
-            gap: newPageGap(opp.basis),
-            pageUrl: null,
-            query: opp.topic,
-            // No page exists, so there is no measured click history to recover:
-            // never fabricate one. New pages are capped and ranked among themselves.
-            recoverableClicks: 0,
-            reason: newPageHint(opp),
-          });
-
-  return [...pages, ...topics];
 }
 
 // ── candidates → the kernel's ONE input shape ────────────────────────────────
@@ -373,72 +339,6 @@ function existingEditInput(
   };
 }
 
-/** The headline claim for a new page, matched to the receipts behind it. Never
- *  says both sources when only one produced evidence: an AI-attention topic has
- *  no measured search volume, and a volume-only topic has no AI question. */
-function newPageLabel(basis: NewPageOpportunity["basis"]): string {
-  if (basis === "ai_attention") return "Build a page AI keeps asking about";
-  if (basis === "search_volume") return "Build a page people search for";
-  return "Build a page people search for and AI asks about";
-}
-
-/** The one demand fact behind a new page, from the same basis as its label. */
-function newPageHint(opp: NewPageOpportunity): string {
-  if (opp.basis === "ai_attention") {
-    return `AI answers keep surfacing "${opp.topic}" and competitors get cited for it while you have no page on it.`;
-  }
-  if (opp.basis === "search_volume") {
-    return `There is real search demand for "${opp.topic}" and you have no page that answers it directly.`;
-  }
-  return `People search for "${opp.topic}" and AI gets asked about it too, and you have no page that answers it.`;
-}
-
-/** Build one new-page input from a NewPageOpportunity. */
-function newPageInput(snapshot: EvidenceSnapshot, opp: NewPageOpportunity): EvidenceInput {
-  return {
-    tenantId: snapshot.scope.tenantId,
-    page: { path: null, url: null, label: opp.topic },
-    opportunity: {
-      query: opp.topic,
-      kind: "new_page",
-      opportunityType: newPageLabel(opp.basis),
-      intent: intentOf(opp.topic),
-    },
-    evidence: {
-      hints: [newPageHint(opp)],
-      competitorPages: opp.competitorUrls,
-      fanoutQueries: opp.fanoutSeeds,
-    },
-    sizing: {
-      // Nothing measured to recover on a page that does not exist yet.
-      impactScore: 0,
-      upsidePerMonth: null,
-      hasSerpVerdict: opp.basis === "mixed",
-    },
-  };
-}
-
-/** Never propose building a page the tenant already owns. A topic that matches an
- *  owned page's own words is that page's job, and emitting a new_page as well would
- *  recommend competing with yourself for the same searches. Same relevance rule the
- *  rest of the product uses: an anchored GATE with the original 0.6 score threshold,
- *  so the account's own ubiquitous word can never be the whole overlap while a pair
- *  that DOES share a strong token keeps the calibration the threshold was tuned on.
- *  Under MIN_ANCHOR_CORPUS phrases the weak set is empty and behavior is unchanged. */
-function ownedTopicSuppressor(snapshot: EvidenceSnapshot): (topic: string) => boolean {
-  const ownedTopicText = snapshot.ownedPages
-    .map((p) => [p.content?.title, p.content?.h1].filter(Boolean).join(" ").trim())
-    .filter((t) => t.length > 0);
-  const corpus = [...new Set([...ownedTopicText, ...snapshot.newPageOpportunities.map((o) => o.topic.trim())].filter(Boolean))];
-  const weak = corpus.length < MIN_ANCHOR_CORPUS ? new Set<string>() : weakAnchorTokens(corpus);
-  return (topic: string) =>
-    ownedTopicText.some((text) => {
-      if (!anchoredTopicMatch(topic, text, weak).relevant) return false;
-      const v = scoreTopicMatch(topic, text);
-      return v.relevant && v.score >= 0.6;
-    });
-}
-
 function pathOf(url: string): string | null {
   try {
     return new URL(url.startsWith("http") ? url : `https://${url}`).pathname || "/";
@@ -455,17 +355,14 @@ function absoluteUrl(url: string): string | null {
 /**
  * Map the candidates that EARNED an action onto the kernel's one input shape.
  * Nothing else is drafted: a watch, a do_nothing, or a research_needed never
- * becomes work. Existing-page edits come first, strongest recoverable clicks
- * first; new pages follow in demand order. Deterministic.
+ * becomes work. Strongest recoverable clicks first. Deterministic.
  */
 export function candidatesToEvidenceInputs(
   snapshot: EvidenceSnapshot,
   candidates: readonly QualifiedCandidate[],
 ): EvidenceInput[] {
   const pageByUrl = new Map(snapshot.ownedPages.map((p) => [absoluteUrl(p.url) ?? p.url, p]));
-  const oppByTopic = new Map(snapshot.newPageOpportunities.map((o) => [o.topic.trim().toLowerCase(), o]));
-
-  const existing = candidates
+  return candidates
     .filter((c) => c.action === "act_existing_page")
     .sort((a, b) => b.recoverableClicks - a.recoverableClicks || (a.pageUrl ?? "").localeCompare(b.pageUrl ?? ""))
     .map((c) => {
@@ -473,14 +370,6 @@ export function candidatesToEvidenceInputs(
       return page ? existingEditInput(snapshot, page, c) : null;
     })
     .filter((i): i is EvidenceInput => i != null);
-
-  const fresh = candidates
-    .filter((c) => c.action === "act_new_page")
-    .map((c) => oppByTopic.get((c.query ?? "").trim().toLowerCase()))
-    .filter((o): o is NewPageOpportunity => o != null)
-    .map((o) => newPageInput(snapshot, o));
-
-  return [...existing, ...fresh];
 }
 
 /**

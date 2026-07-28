@@ -26,7 +26,6 @@ export type {
   ContentGapKind,
   ContentGap,
   InternalLinkOpportunity,
-  NewPageOpportunity,
   EvidenceSnapshotScope,
   EvidenceSnapshot,
   LoadedSource,

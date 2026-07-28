@@ -60,7 +60,7 @@ export { resolveCurrentBasis } from "./load-proposals";
 
 // Proposing + ranking + validation entry points
 export type { ProposalOutcome, ProposeOptions } from "./propose";
-export { proposeChange, proposeExistingPageChange, proposeNewPageChange } from "./propose";
+export { proposeExistingPageChange } from "./propose";
 export { rankProposals, proposalValueScore } from "./rank-proposals";
 export type { ProposalVerdict, ProposalValidation, ValidateProposalOptions } from "./validate-proposal";
 export { validateProposal } from "./validate-proposal";

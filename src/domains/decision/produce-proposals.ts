@@ -6,11 +6,11 @@
  *   loadEvidenceSnapshot (six cached sources, $0)
  *     → compileCandidates (the honest diagnosis: act / watch / do nothing)
  *       → candidatesToEvidenceInputs (only what EARNED an action)
- *         → proposeChange (cold, gated, budgeted drafter + the ONE validator)
+ *         → proposeExistingPageChange (cold, gated, budgeted drafter + the ONE validator)
  *           → saveChangeProposal (durable, fail-soft)
  *
- * BOUNDED. The pass drafts at most the strongest MAX_EXISTING_DRAFTS pages and
- * MAX_NEW_PAGE_DRAFTS topics, ranked by recoverable clicks. The old serial walk
+ * BOUNDED. The pass drafts at most the strongest MAX_EXISTING_DRAFTS pages,
+ * ranked by recoverable clicks. The old serial walk
  * over up to 55 manufactured opportunities is gone: a page with no proven gap
  * costs nothing here.
  *
@@ -42,8 +42,8 @@ import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { loadBusinessProfile } from "@/domains/account";
 import { resolveCurrentBasis } from "./load-proposals";
 import { candidatesToEvidenceInputs, compileCandidates, type QualifiedCandidate } from "./opportunities";
-import { produceBundleForSnapshot, produceNewPageBundleForSnapshot } from "./produce-bundle";
-import { proposeChange, type ProposeOptions } from "./propose";
+import { produceBundleForSnapshot } from "./produce-bundle";
+import { proposeExistingPageChange, type ProposeOptions } from "./propose";
 import { loadChangeProposals, proposalFingerprint, saveChangeProposal } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
 import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts";
@@ -74,7 +74,7 @@ export type ProduceProposalsResult = {
   candidates: QualifiedCandidate[];
   /** Which of the four honest endings this pass reached. */
   outcome: ProducerOutcome;
-  /** How many candidates earned an action (act_existing_page + act_new_page). */
+  /** How many candidates earned an action (act_existing_page). */
   actionable: number;
   /** Proven gaps whose cause is not identified yet: real work, not silence. */
   investigating: number;
@@ -88,8 +88,7 @@ export type ProduceProposalsResult = {
 
 /** Bounded drafting: the strongest few, never a queue. */
 export const MAX_EXISTING_DRAFTS = 3;
-export const MAX_NEW_PAGE_DRAFTS = 2;
-export const DEFAULT_MAX_DRAFTS = MAX_EXISTING_DRAFTS + MAX_NEW_PAGE_DRAFTS;
+export const DEFAULT_MAX_DRAFTS = MAX_EXISTING_DRAFTS;
 
 /** Normalized keys a candidate and a proposal can be matched on. */
 const pageKeys = (pageUrl: string | null | undefined): string[] => {
@@ -132,41 +131,35 @@ export async function produceProposalsForTenant(
 
   // THE DIAGNOSIS FIRST. Doing nothing is the default; only a proven gap is work.
   const candidates = compileCandidates(snapshot);
-  const acted = candidates.filter((c) => c.action === "act_existing_page" || c.action === "act_new_page");
+  const acted = candidates.filter((c) => c.action === "act_existing_page");
   const recoverableByKey = new Map<string, number>();
   const readinessByKey = new Map<string, EvidenceReadiness>();
   const diagnosisByKey = new Map<string, ActionDiagnosis>();
   for (const c of acted) {
-    if (c.action === "act_existing_page") {
-      for (const k of pageKeys(c.pageUrl)) {
-        recoverableByKey.set(k, c.recoverableClicks);
-        // Readiness is a fact about ONE page and ONE EXACT SEARCH. Keyed by page
-        // alone, a page whose strongest gap had a results page handed its
-        // confidence to a draft written for a DIFFERENT search on the same page,
-        // so a card read "high" directly above its own receipt saying I never
-        // looked at that search. The query is part of the key now.
-        if (c.readiness && c.query) readinessByKey.set(`${k}::${canonicalQueryKey(c.query)}`, c.readiness);
-        if (c.diagnosis && c.query) diagnosisByKey.set(`${k}::${canonicalQueryKey(c.query)}`, c.diagnosis);
-      }
-    } else recoverableByKey.set(`topic:${(c.query ?? "").trim().toLowerCase()}`, c.recoverableClicks);
+    for (const k of pageKeys(c.pageUrl)) {
+      recoverableByKey.set(k, c.recoverableClicks);
+      // Readiness is a fact about ONE page and ONE EXACT SEARCH. Keyed by page
+      // alone, a page whose strongest gap had a results page handed its
+      // confidence to a draft written for a DIFFERENT search on the same page,
+      // so a card read "high" directly above its own receipt saying I never
+      // looked at that search. The query is part of the key now.
+      if (c.readiness && c.query) readinessByKey.set(`${k}::${canonicalQueryKey(c.query)}`, c.readiness);
+      if (c.diagnosis && c.query) diagnosisByKey.set(`${k}::${canonicalQueryKey(c.query)}`, c.diagnosis);
+    }
   }
   /** Stamp the basis, the ONE ranking scalar (recoverable clicks), and CONFIDENCE
    *  BY EVIDENCE COMPLETENESS onto a proposal, whichever producer built it. A
    *  drafter used to hand itself "high" on a change whose receipt was empty; now
    *  the readiness the diagnosis measured decides it. Never invents a figure. */
   const stamp = (p: ChangeProposal): ChangeProposal => {
-    const key = p.kind === "new_page"
-      ? `topic:${p.primaryQuery.trim().toLowerCase()}`
-      : (p.pageUrl ?? "").trim().toLowerCase();
+    const key = (p.pageUrl ?? "").trim().toLowerCase();
     const pathKey = (p.pagePath ?? "").trim().toLowerCase();
     const recoverable = recoverableByKey.get(key) ?? recoverableByKey.get(pathKey);
     // Only the readiness measured for THIS proposal's own search may set its
     // confidence. No match means the diagnosis judged a different search here, so
     // the producer's own honest value stands rather than a neighbour's.
     const qk = canonicalQueryKey(p.primaryQuery);
-    const readiness = p.kind === "existing_edit"
-      ? (readinessByKey.get(`${key}::${qk}`) ?? readinessByKey.get(`${pathKey}::${qk}`))
-      : undefined;
+    const readiness = readinessByKey.get(`${key}::${qk}`) ?? readinessByKey.get(`${pathKey}::${qk}`);
     return {
       ...p,
       ...(basis ? { basis } : {}),
@@ -212,11 +205,7 @@ export async function produceProposalsForTenant(
     existing.set(p.id, p);
   };
 
-  const all = candidatesToEvidenceInputs(snapshot, acted);
-  const inputs = [
-    ...all.filter((i) => i.opportunity.kind === "existing_edit").slice(0, MAX_EXISTING_DRAFTS),
-    ...all.filter((i) => i.opportunity.kind === "new_page").slice(0, MAX_NEW_PAGE_DRAFTS),
-  ].slice(0, maxDrafts);
+  const inputs = candidatesToEvidenceInputs(snapshot, acted).slice(0, MAX_EXISTING_DRAFTS).slice(0, maxDrafts);
 
   const investigating = candidates.filter((c) => c.action === "research_needed").length;
   if (acted.length === 0) {
@@ -236,8 +225,7 @@ export async function produceProposalsForTenant(
   // `find` handed the deep bundle to whichever actionable page came back first, so
   // a 58-click page got the deep work while an 824-click gap sat untouched.
   // Deterministic: most recoverable clicks, then page address.
-  const provenPage = acted
-    .filter((c) => c.action === "act_existing_page")
+  const provenPage = [...acted]
     .sort((a, b) => b.recoverableClicks - a.recoverableClicks || (a.pageUrl ?? "").localeCompare(b.pageUrl ?? ""))[0]?.pageUrl ?? null;
   const provenKeys = pageKeys(provenPage);
   /** The deep bundle this page already has under the current basis, if any. */
@@ -249,7 +237,7 @@ export async function produceProposalsForTenant(
   // retitles, the page slips off the results page I check. Every live bundle whose
   // page no longer earns an action this pass is set aside, in the queue and in the
   // store, with the reason the operator can read. Its words and history are kept.
-  const provenNow = new Set(acted.filter((c) => c.action === "act_existing_page").flatMap((c) => pageKeys(c.pageUrl)));
+  const provenNow = new Set(acted.flatMap((c) => pageKeys(c.pageUrl)));
   for (const p of live) {
     if (!p.bundle || p.kind !== "existing_edit" || p.status !== "proposed" || !current(p)) continue;
     if (provenNow.has((p.pagePath ?? "").trim().toLowerCase())) continue;
@@ -286,7 +274,7 @@ export async function produceProposalsForTenant(
       }
       continue;
     }
-    const outcome = await proposeChange(input, {
+    const outcome = await proposeExistingPageChange(input, {
       complete: opts.complete,
       now: opts.now,
       bypassCache: opts.bypassCache,
@@ -308,11 +296,10 @@ export async function produceProposalsForTenant(
     await persistIfChanged(proposal);
   }
 
-  // ONE bundle per archetype per pass (strongest proven page + strongest proven
-  // topic). A bundle REPLACES its own shallow drafts (never the same change
-  // twice); a refusal is honest and silent and the shallow drafts stand. A bundle
-  // for a page or topic NO candidate proved is dropped: the deep form of a change
-  // nobody needs is still a change nobody needs.
+  // ONE bundle per pass (the strongest proven page). A bundle REPLACES its own
+  // shallow drafts (never the same change twice); a refusal is honest and silent
+  // and the shallow drafts stand. A bundle for a page NO candidate proved is
+  // dropped: the deep form of a change nobody needs is still a change nobody needs.
   const bundleOpts = {
     complete: opts.complete,
     now: opts.now,
@@ -361,35 +348,6 @@ export async function produceProposalsForTenant(
     proposals.push(proposal);
     reused += 1;
     await persistIfChanged(proposal);
-  }
-
-  const heldTopicBundle = currentBundleFor((p) => p.kind === "new_page"
-    && recoverableByKey.has(`topic:${p.primaryQuery.trim().toLowerCase()}`));
-  if (heldTopicBundle) {
-    for (let i = proposals.length - 1; i >= 0; i--) {
-      if (proposals[i]!.kind === "new_page" && proposals[i]!.primaryQuery === heldTopicBundle.primaryQuery) proposals.splice(i, 1);
-    }
-    const proposal = stamp(heldTopicBundle);
-    proposals.push(proposal);
-    reused += 1;
-    await persistIfChanged(proposal);
-  } else if (acted.some((c) => c.action === "act_new_page")) {
-    const newPageBundled = await produceNewPageBundleForSnapshot(snapshot, bundleOpts).catch(onThrow);
-    const topic = newPageBundled.status === "bundled" ? newPageBundled.proposal.primaryQuery.trim().toLowerCase() : "";
-    if (newPageBundled.status === "bundled" && recoverableByKey.has(`topic:${topic}`)) {
-      for (let i = proposals.length - 1; i >= 0; i--) {
-        const p = proposals[i]!;
-        if (p.kind === "new_page" && p.primaryQuery.trim().toLowerCase() === topic) proposals.splice(i, 1);
-      }
-      const proposal = stamp(newPageBundled.proposal);
-      proposals.push(proposal);
-      await persistIfChanged(proposal);
-    } else {
-      log.info("[produce-proposals] no new-page bundle this pass", {
-        tenantId,
-        reason: newPageBundled.status === "bundled" ? "topic has no proven gap" : newPageBundled.reason,
-      });
-    }
   }
 
   // The honest ending. A write that failed on EVERY attempt is a failure, not a

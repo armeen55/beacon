@@ -151,7 +151,7 @@ never up without explicit operator approval.
 
 ### Tests protect promises, not implementations
 Keep behavioral contracts: tenant isolation, six connector contracts, cold
-existing-page + new-page generation, factual/destructive safety, historical
+existing-page generation, factual/destructive safety, historical
 measurement, 7/14/28 + overlap honesty, four-surface smoke, spend-cap fail-closed.
 Delete exact-copy, layout, source-string-scanning, intermediate-pipeline, and
 one-test-per-helper tests. Structural guarantees live in the guard script, not in

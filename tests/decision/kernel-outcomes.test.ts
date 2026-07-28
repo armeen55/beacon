@@ -8,10 +8,10 @@ vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: asy
 // The REAL fingerprint is under test; only the two I/O calls are seams. The deep bundle has its own suite, so here it only reports WHICH page it was aimed at.
 vi.mock("@/domains/decision/proposal-store", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision/proposal-store")>("@/domains/decision/proposal-store")), loadChangeProposals: async () => env.store,
   saveChangeProposal: async (p: ChangeProposal) => { env.saved.push(p); if (env.failWrites) return "failed"; env.store.set(p.id, p); return "saved"; } }));
-vi.mock("@/domains/decision/produce-bundle", () => ({ produceNewPageBundleForSnapshot: async () => ({ status: "none", reason: "pinned in change-bundle.test" }),
+vi.mock("@/domains/decision/produce-bundle", () => ({
   produceBundleForSnapshot: async (_s: unknown, o: { onlyPageUrl?: string | null }) => { env.bundleTarget = o?.onlyPageUrl ?? null; return { status: "none", reason: "pinned in change-bundle.test" }; } }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "fixture-tenant", domain: "fixture-outdoors.example", growth_goal: null }), basisTag: () => "basis_test" }));
-import { proposeExistingPageChange, proposeNewPageChange } from "@/domains/decision/propose";
+import { proposeExistingPageChange } from "@/domains/decision/propose";
 import { validateProposal } from "@/domains/decision/validate-proposal";
 import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals";
 import { compileCandidates, snapshotToEvidenceInputs } from "@/domains/decision/opportunities";
@@ -29,14 +29,6 @@ const VALID_ATOMIC_EDIT = {
   field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen", confidence: "high",
   rationale: "The current title is one word and misses the specific customs searchers ask about.", risks: ["keep the title concise"],
   evidenceRefs: [{ source: "gsc", detail: "many impressions for nowruz traditions with a low click rate" }], operatorSteps: ["Replace the page title field with the new value"], proofPlan: PROOF };
-const VALID_CREATE_PAGE = {
-  proposedTitle: "Haft-Seen Table: The Symbolic Items of Nowruz",
-  metaDescription: "Learn what goes on the Haft-Seen table for the Persian New Year and what each symbolic item means for the year ahead.",
-  openingAnswer: "The Haft-Seen table is the centerpiece of Nowruz, the Persian New Year, arranged with symbolic items whose Persian names begin with the letter seen. Families gather the setting to wish for renewal, health, and prosperity, and sit before it together as the new year arrives.",
-  outline: ["What the Haft-Seen table is", "The symbolic items and their meanings", "How families arrange the setting", "Regional variations across Iran"],
-  faqQuestions: ["What does Haft-Seen mean?", "When is the Haft-Seen table set?"], schemaTypes: ["Article", "FAQPage"], confidence: "high",
-  evidenceRefs: [{ source: "dataforseo", detail: "AI is asked what goes on the haft-seen table for nowruz" }], risks: ["describe the items qualitatively, not by count"],
-  operatorSteps: ["Create a new page with this title and outline"], proofPlan: { metrics: ["AI citations"], windowsDays: [7, 14, 28], controls: "comparable topic pages" } };
 const KEYS = ["demand-exact", "copy-current", "serp1", "serp-owned", "serp-pattern"];
 const DIAGNOSED: EvidenceInput["evidence"]["diagnosis"] = { status: "diagnosed", cause: "snippet_intent_mismatch", action: "title", evidenceKeys: KEYS, explanation: "I checked the results page.",
   alternativesRuledOut: [{ alternative: "Google is already showing the words people search for", reason: "It is not.", evidenceKeys: ["serp-owned"] }] };
@@ -44,9 +36,6 @@ const EXISTING_INPUT: EvidenceInput = {
   tenantId: "referencepedia", page: { path: "/nowruz", url: "https://fixture-content.example/nowruz", label: "Nowruz" }, sizing: { impactScore: 80, upsidePerMonth: 45 },
   opportunity: { query: "nowruz traditions", kind: "existing_edit", field: "title", opportunityType: "Capture clicks", currentValue: "Nowruz", intent: "what" },
   evidence: { hints: ["Search Console shows strong demand for nowruz traditions, the persian new year customs"], diagnosis: DIAGNOSED, outline: ["History of Nowruz", "Haft-Seen table", "Persian customs and foods"] } };
-const NEW_PAGE_INPUT: EvidenceInput = {
-  tenantId: "referencepedia", page: { path: null, url: null, label: "Haft-Seen table" }, opportunity: { query: "haft-seen table", kind: "new_page", opportunityType: "Win AI citations" }, sizing: { impactScore: 60, upsidePerMonth: null },
-  evidence: { hints: ["AI assistants are asked what goes on the haft-seen table for nowruz, the persian new year celebrated across iran"], fanoutQueries: ["what are the seven items", "what does each item mean"], competitorPages: ["https://example.com/haft-seen"] } };
 /** A minimal safe existing-edit proposal, for constructing rejection variants. */
 function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal {
   return {
@@ -68,6 +57,13 @@ describe("existing-page cold proposal", () => {
     expect(deserializeChangeProposal(serializeChangeProposal(p))).toEqual(p); // persisted + loadable: round-trips + re-validates
     // a tampered persisted row is rejected on load (never served as trusted)
     expect(deserializeChangeProposal(JSON.stringify({ v: 1, proposal: { ...p, recommendedChange: { kind: "existing_edit", field: "title", before: null, after: "" } } }))).toBeNull(); });
+  it("still reads back a new-page change recorded before this kernel stopped writing them", () => { // nothing generates one now, and the operator's own history must not vanish
+    const historical = baseProposal({ id: "referencepedia::new::haft-seen table::new_page::bundle", kind: "new_page", pagePath: null, pageUrl: null, pageLabel: "Haft-Seen table", changeFamily: "new_page",
+      recommendedChange: { kind: "new_page", proposedTitle: "Haft-Seen Table: The Symbolic Items of Nowruz", metaDescription: "What goes on the Haft-Seen table and what each item means.",
+        openingAnswer: "The Haft-Seen table is the centerpiece of Nowruz, arranged with symbolic items whose Persian names begin with the letter seen.",
+        outline: ["What the table is", "The items and their meanings"], faqQuestions: ["What does Haft-Seen mean?"], schemaTypes: ["Article"] } });
+    const back = deserializeChangeProposal(serializeChangeProposal(historical)); expect(back).toEqual(historical);
+    expect(back!.recommendedChange.kind === "new_page" && back!.recommendedChange.outline).toEqual(["What the table is", "The items and their meanings"]); });
   it("returns no_draft (fail-closed) when no key or completion transport exists", async () => { expect((await proposeExistingPageChange(EXISTING_INPUT)).status).toBe("no_draft"); });
   it("never calls the drafter for a candidate the results page has not accused", async () => { let called = 0; // no completion call, no copy, no row
     const out = await proposeExistingPageChange({ ...EXISTING_INPUT, evidence: { ...EXISTING_INPUT.evidence, diagnosis: undefined } }, { complete: async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; } });
@@ -91,7 +87,7 @@ function ownedPage(url: string, title: string, totals: { impressions: number; cl
     search: { clicks90d: totals.clicks, impressions90d: totals.impressions, ctr90d: totals.clicks / totals.impressions, position90d: 4, topQueries }, engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } };
 } function snap(ownedPages: OwnedPageEvidence[], research: FunnelResearchEvidence = emptyResearchEvidence()): EvidenceSnapshot {
   return { scope: { tenantId: "fixture-tenant", site: "fixture-outdoors.example", builtAt: "2026-07-26T00:00:00.000Z" }, sources: [], ownedPages, competitors: [], keywordDemand: [], questionDemand: [],
-    intentClusters: [], cannibalization: [], contentGaps: [], internalLinkOpportunities: [], newPageOpportunities: [], aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 }, research, evidenceHash: "fixture" };
+    intentClusters: [], cannibalization: [], contentGaps: [], internalLinkOpportunities: [], aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 }, research, evidenceHash: "fixture" };
 } /** A live results page observed for these EXACT searches, carrying this page's OWN line on it and two rivals that share wording
  *  that line does not: exactly what a diagnosis has to read before it may name the title. */
 const looked = (pairs: [string, string][]): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), serpEvidence: pairs.map(([query, url]) => ({ query, aiOverview: [], aiMode: [], paa: [], related: [],

@@ -5,7 +5,7 @@
  * single verdict, so there is exactly one place that decides "is this draft
  * safe to put in front of a paying operator":
  *
- *   - draft-quality.ts (evaluateTitleMetaQuality / evaluateCreatePageBriefQuality)
+ *   - draft-quality.ts (evaluateTitleMetaQuality)
  *     — generic/thin/off-topic/relevance/missing-source/source-authority.
  *   - factual-entailment.ts (checkFactualEntailment) — an invented number or
  *     entity with no grounding is a VIOLATION and rejects the draft; a dated,
@@ -23,7 +23,6 @@
 
 import {
   evaluateTitleMetaQuality,
-  evaluateCreatePageBriefQuality,
   type DraftQualityResult,
   type DraftQualityStatus,
 } from "@/domains/decision/drafts/draft-quality";
@@ -164,18 +163,12 @@ export function validateProposal(
       authoritativeSourceDomains: opts.authoritativeSourceDomains,
     });
   } else {
-    quality = evaluateCreatePageBriefQuality({
-      title: change.proposedTitle,
-      meta: change.metaDescription,
-      opening: change.openingAnswer,
-      outline: change.outline,
-      faqQuestions: change.faqQuestions,
-      schemaTypes: change.schemaTypes,
-      hasSerpVerdict: false,
-      contextTokens: opts.contextTokens,
-      sources: opts.sources,
-      authoritativeSourceDomains: opts.authoritativeSourceDomains,
-    });
+    // UNREACHABLE at decision generation 5: nothing proposes a new page, and the
+    // drafter that wrote page briefs is deleted. A brief arriving here would be a bug,
+    // so it fails closed instead of being quality-checked into the queue. The variant
+    // itself stays on the contract because stored rows must still decode.
+    quality = { status: "malformed", reasons: ["I do not draft new pages right now, so I am not putting this in front of you."],
+      copyAllowed: false, canRegenerate: false, confidence: "high" };
   }
 
   // ── compose the single verdict ──────────────────────────────────────────────

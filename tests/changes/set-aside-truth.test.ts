@@ -37,8 +37,8 @@ const bundled = (basis: string, id = ID): ChangeProposal => ({
 // The queue CONTRACT this surface is written against: every lane holds current-basis
 // work only, and demotedStaleBasis carries how many rows were withheld.
 const queueOf = (rows: ChangeProposal[], demotedStaleBasis = 0) =>
-  ({ ranked: rows, ready: rows, toDo: [], newPageBriefs: [], demotedStaleBasis } as unknown as RankedProposalQueue);
-const emptyView = (demotedStaleBasis: number): ChangesView => ({ proposals: [], ready: [], toDo: [], newPageBriefs: [],
+  ({ ranked: rows, ready: rows, toDo: [], demotedStaleBasis } as unknown as RankedProposalQueue);
+const emptyView = (demotedStaleBasis: number): ChangesView => ({ proposals: [], ready: [], toDo: [],
   summary: { todo: 0, ready: 0, measuring: 0, results: 0 }, measuringCountCanonical: 0, demotedStaleBasis, decidedCountCanonical: 0,
   readyZeroHint: null, receiptLine: null, surfaceComputedAt: "2026-07-27T00:00:00.000Z", surfaceBuilding: false });
 

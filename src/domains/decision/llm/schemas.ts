@@ -143,22 +143,7 @@ export const AnswerBlockDraftSchema = z.object({
 });
 export type AnswerBlockDraft = z.infer<typeof AnswerBlockDraftSchema>;
 
-/** 2. CreatePageBrief — the brief for a brand-new page. */
-export const CreatePageBriefSchema = z.object({
-  proposedTitle: z.string().min(10).max(70),
-  metaDescription: z.string().min(50).max(170),
-  openingAnswer: z.string().min(120).max(700),
-  outline: z.array(z.string().min(2).max(160)).min(3).max(16),
-  faqQuestions: z.array(z.string().min(6).max(200)).max(8).default([]),
-  schemaTypes: z.array(z.string().min(2).max(60)).max(8).default([]),
-  /** W5 (J-69): same additive sources list as AnswerBlockDraftSchema. */
-  sources: z.array(SourceRefSchema).default([]),
-  proofPlan: ProofPlanSchema,
-  ...base,
-});
-export type CreatePageBrief = z.infer<typeof CreatePageBriefSchema>;
-
-/** 3. AtomicEditDraft — one precise field change on an existing page. */
+/** 2. AtomicEditDraft — one precise field change on an existing page. */
 export const AtomicEditDraftSchema = z.object({
   field: z.enum(["title", "meta", "h1", "answer_block", "section"]),
   before: z.string().max(2000).nullable().default(null),
@@ -340,7 +325,6 @@ export type OutreachPitch = z.infer<typeof OutreachPitchSchema>;
 
 export type StructuredDraftKind =
   | "answer_block"
-  | "create_page_brief"
   | "atomic_edit"
   | "tool_asset"
   | "commerce_asset"
@@ -354,7 +338,6 @@ export type StructuredDraftKind =
 
 export const SCHEMA_BY_KIND = {
   answer_block: AnswerBlockDraftSchema,
-  create_page_brief: CreatePageBriefSchema,
   atomic_edit: AtomicEditDraftSchema,
   tool_asset: ToolAssetSpecSchema,
   commerce_asset: CommerceAssetSpecSchema,

@@ -99,6 +99,8 @@ export interface EvidenceInput {
  * Internal to Decision: NOT persisted as its own record and never a public type.
  */
 export type CandidateAction =
+  // `act_new_page` is UNREACHABLE at generation 5: no producer emits it, and the drafter
+  // it used to reach is deleted. The member stays so historical receipts still decode.
   | "act_existing_page" | "act_new_page" | "consolidate"
   | "watch" | "research_needed" | "do_nothing";
 
@@ -213,6 +215,10 @@ export function confidenceFor(r: EvidenceReadiness, d?: ActionDiagnosis | null):
 
 // ── ChangeProposal — the ONE persisted output ─────────────────────────────────
 
+/** `new_page` is HISTORY ONLY (generation 5, 2026-07-28): stored rows still decode and
+ *  render, and Measurement still reads their results, but nothing proposes one. Turning
+ *  a competitor's example prompt into a page shipped duplicates of pages the account
+ *  already owned. Generation returns when the evidence can prove a distinct page. */
 export type ProposalKind = "existing_edit" | "new_page";
 
 /** The proposal lifecycle. A proposal is NEVER an auto-write; `applied` is set

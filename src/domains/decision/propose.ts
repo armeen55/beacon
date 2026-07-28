@@ -1,11 +1,10 @@
 /**
- * decision/propose (CORE 100K decision kernel, 2026-07-22) — the TWO proposal
- * paths. Each turns one `EvidenceInput` into a validated `ChangeProposal` by
+ * decision/propose (CORE 100K decision kernel, 2026-07-22) — the ONE proposal
+ * path. It turns one `EvidenceInput` into a validated `ChangeProposal` by
  * calling the EXISTING, trustworthy drafting harness (llm/structured-drafter)
  * — the kernel does NOT re-implement drafting or safety:
  *
  *   proposeExistingPageChange → draftAtomicEditStructured → AtomicEditDraft
- *   proposeNewPageChange       → draftCreatePageStructured → CreatePageBrief
  *
  * The drafter is gated + budgeted + schema-validated + fired through the
  * content firewalls; it FAILS CLOSED. Its `complete` fn is injectable, so the
@@ -24,10 +23,9 @@ import "server-only";
 
 import {
   draftAtomicEditStructured,
-  draftCreatePageStructured,
   type CompleteFn,
 } from "@/domains/decision/llm/structured-drafter";
-import type { AtomicEditDraft, CreatePageBrief } from "@/domains/decision/llm/schemas";
+import type { AtomicEditDraft } from "@/domains/decision/llm/schemas";
 import {
   type EvidenceInput,
   type ChangeProposal,
@@ -73,28 +71,22 @@ function assemble(args: {
 }): ChangeProposal {
   const { input, change, whyItMatters, confidence, draftRisks, evidenceRefCount, now, validation } = args;
   const family = proposalFamily(input);
-  const isNew = input.opportunity.kind === "new_page";
 
-  // Limitations = the draft's own risks + any validator caution + the honest
-  // "no clean before/after baseline yet" note for a brand-new page.
+  // Limitations = the draft's own risks + any validator caution.
   const limitations: string[] = [...draftRisks];
   if (validation.corrections.length) limitations.push(...validation.corrections);
   if (validation.verdict === "needs_review") {
     limitations.push(...validation.reasons);
   }
-  if (isNew) {
-    limitations.push("A brand-new page has no before/after baseline yet, so its first read is directional.");
-  }
 
-  const riskLevel: ChangeProposal["riskLevel"] =
-    validation.verdict === "rejected" ? "high" : isNew ? "medium" : "low";
+  const riskLevel: ChangeProposal["riskLevel"] = validation.verdict === "rejected" ? "high" : "low";
 
   return {
     id: proposalId(input),
     tenantId: input.tenantId,
     kind: input.opportunity.kind,
-    pagePath: isNew ? null : input.page.path,
-    pageUrl: isNew ? null : input.page.url,
+    pagePath: input.page.path,
+    pageUrl: input.page.url,
     pageLabel: input.page.label,
     primaryQuery: input.opportunity.query,
     opportunityType: input.opportunity.opportunityType,
@@ -216,95 +208,6 @@ export async function proposeExistingPageChange(
     validation,
   });
   return { status: "proposed", proposal, validation };
-}
-
-/**
- * COLD-GENERATE a full new-page brief and validate it into a ChangeProposal.
- * Returns `no_draft` on a fail-closed harness result.
- */
-export async function proposeNewPageChange(
-  input: EvidenceInput,
-  opts: ProposeOptions = {},
-): Promise<ProposalOutcome> {
-  const now = opts.now ?? new Date();
-  const draft = await draftCreatePageStructured(
-    {
-      tenantId: input.tenantId,
-      query: input.opportunity.query,
-      pageLabel: input.page.label,
-      competitorPages: input.evidence.competitorPages ?? [],
-      fanoutQueries: input.evidence.fanoutQueries ?? [],
-      evidenceHints: input.evidence.hints ?? [],
-      referenceCandidates: input.evidence.referenceCandidates ?? [],
-    },
-    {
-      complete: opts.complete,
-      now,
-      bypassCache: opts.bypassCache,
-      authoritativeSourceDomains: opts.authoritativeSourceDomains ?? input.evidence.authoritativeSourceDomains,
-    },
-  );
-
-  if (draft.status !== "drafted") {
-    return { status: "no_draft", reason: draftReason(draft), drafterStatus: draft.status };
-  }
-
-  const value = draft.value as CreatePageBrief;
-  const change: RecommendedChange = {
-    kind: "new_page",
-    proposedTitle: value.proposedTitle,
-    metaDescription: value.metaDescription,
-    openingAnswer: value.openingAnswer,
-    outline: value.outline,
-    faqQuestions: value.faqQuestions ?? [],
-    schemaTypes: value.schemaTypes ?? [],
-  };
-  const why = `AI and Google are asked about "${input.opportunity.query}" and we do not have a page that answers it directly.`;
-
-  const provisional = assemble({
-    input,
-    change,
-    whyItMatters: why,
-    confidence: value.confidence,
-    draftRisks: value.risks ?? [],
-    evidenceRefCount: (input.evidence.hints ?? []).length, // the grounding facts actually carried, never the drafter's own claim about them
-    now,
-    validation: NEUTRAL_VALIDATION,
-  });
-  const validation = validateProposal(provisional, {
-    // Same principle as the existing-page path: ground on the drafter's own blob
-    // (hints + fan-out sub-questions + competitor pages the brief studied).
-    evidenceText: [
-      ...(input.evidence.hints ?? []),
-      ...(input.evidence.fanoutQueries ?? []),
-      ...(input.evidence.competitorPages ?? []),
-    ]
-      .filter(Boolean)
-      .join(" "),
-    authoritativeFacts: input.evidence.authoritativeFacts,
-    sources: value.sources,
-    authoritativeSourceDomains: opts.authoritativeSourceDomains ?? input.evidence.authoritativeSourceDomains,
-    now,
-  });
-
-  const proposal = assemble({
-    input,
-    change,
-    whyItMatters: why,
-    confidence: value.confidence,
-    draftRisks: value.risks ?? [],
-    evidenceRefCount: (input.evidence.hints ?? []).length, // the grounding facts actually carried, never the drafter's own claim about them
-    now,
-    validation,
-  });
-  return { status: "proposed", proposal, validation };
-}
-
-/** Route to the right path from the evidence's declared kind. */
-export function proposeChange(input: EvidenceInput, opts: ProposeOptions = {}): Promise<ProposalOutcome> {
-  return input.opportunity.kind === "new_page"
-    ? proposeNewPageChange(input, opts)
-    : proposeExistingPageChange(input, opts);
 }
 
 // ── internals ─────────────────────────────────────────────────────────────────

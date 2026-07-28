@@ -34,7 +34,6 @@ import {
   type StructuredDraftKind,
   type AnswerBlockDraft,
   type AtomicEditDraft,
-  type CreatePageBrief,
 } from "./schemas";
 
 /**
@@ -213,7 +212,6 @@ function primaryCustomerText(kind: StructuredDraftKind, value: unknown): string 
   switch (kind) {
     case "answer_block": return pick("answer");
     case "atomic_edit": return pick("after");
-    case "create_page_brief": return pick("openingAnswer");
     case "section_draft": return pick("body");
     case "outreach_pitch": return pick("body");
     case "internal_link": return pick("linkSentence");
@@ -225,8 +223,8 @@ function primaryCustomerText(kind: StructuredDraftKind, value: unknown): string 
  * W5 (2026-07-09, J-69), re-stamp any `sources` array on a validated draft
  * with the DETERMINISTIC authority classification, discarding whatever the
  * LLM proposed. "ONLY this module [source-authority.ts] stamps authority",  * this is the one place that rule is enforced for every LLM-drafted kind
- * that carries a `sources` field (answer_block, create_page_brief,
- * atomic_edit). A draft with no `sources` array is returned unchanged.
+ * that carries a `sources` field (answer_block, atomic_edit). A draft with no
+ * `sources` array is returned unchanged.
  */
 function stampAnySources(value: unknown, tenantAllowlist?: readonly string[]): unknown {
   if (!value || typeof value !== "object") return value;
@@ -1296,98 +1294,6 @@ export async function draftAtomicEditStructured(
     return { ...result, value: { ...result.value, rationale: merged } };
   }
   return result;
-}
-
-// ── concrete drafter: CreatePageBrief (a brand-new page) ──────────────────────
-
-export type CreatePageStructuredInput = {
-  /** The owning account (Slice 3: REQUIRED, threaded for cache + budget scoping). */
-  tenantId: string;
-  /** The topic / demand cluster the new page targets. */
-  query: string;
-  /** Suggested slug or label for the page. */
-  pageLabel: string;
-  /** Competitor pages AI/Google cite for this topic (to study + beat). */
-  competitorPages: string[];
-  /** Fan-out sub-questions / grounded section seeds. */
-  fanoutQueries: string[];
-  /** Evidence the team established (GSC demand, a tracked AI prompt, etc.). */
-  evidenceHints?: string[];
-  /** Exact cached pages Beacon already found while researching this topic. The
-   * model may cite only a page that supports its claim; the existing fetch and
-   * entailment boundary still decides whether it is verified. */
-  referenceCandidates?: string[];
-};
-
-const CREATE_PAGE_SYSTEM =
-  "You write the BRIEF for a brand-new page so an editor can build it. " +
-  'Return ONLY a JSON object: "proposedTitle" (<=70 chars, concise + descriptive, no boilerplate/year-stuffing), ' +
-  '"metaDescription" (120-160 chars, page-specific, no overpromising), "openingAnswer" (a 40-80 word direct, extractable answer), ' +
-  '"outline" (3-16 H2 section headings, specific to the topic), "faqQuestions" (real questions a reader asks, from the grounding), ' +
-  '"schemaTypes" (relevant schema.org types, e.g. Article, FAQPage — only if warranted), ' +
-  '"sources" (array of 1-2 {"url","title","domain","retrievedAt","claim","authority"} authoritative sources backing factual opening claims; use a real exact URL from the provided candidates when it supports the claim, leave authority "unverified" for the caller), ' +
-  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
-  '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (concrete build steps), ' +
-  '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
-  "Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. " +
-  "The openingAnswer's first sentence must name THIS specific topic (not a generic category) — no context-free dictionary definitions. Title must avoid boilerplate like \"(YYYY Guide)\" or \"Complete/Ultimate Guide\". Use the provided sub-questions to shape the outline and FAQ. " +
-  // Broad-topic tuning (2026-06-29): the #1 reason these briefs were rejected is an
-  // INVENTED count the firewall can't verify. State scope qualitatively instead.
-  "CRITICAL for any broad topic: do NOT state a numeric count, quantity, or age (no \"N types / locations / categories\", no \"over X years\", no \"thousands of\") unless that exact figure is in the grounding; instead describe the SCOPE and name the concrete sub-topics qualitatively. Open by naming the subject and what the page covers, never \"<X> is a ...\" dictionary phrasing.";
-
-/** Draft a schema-valid CreatePageBrief for one create_page / hub Move. */
-export async function draftCreatePageStructured(
-  input: CreatePageStructuredInput,
-  opts: {
-    complete?: CompleteFn;
-    now?: Date;
-    bypassCache?: boolean;
-    authoritativeSourceDomains?: readonly string[];
-    sourceFetch?: SourceTextFetcher;
-  } = {},
-): Promise<StructuredDraftResult<CreatePageBrief>> {
-  // R16 injection firewall: competitor pages + fan-out questions are untrusted.
-  const competitorPages = sanitizeEvidenceTexts(input.competitorPages);
-  const fanoutQueries = sanitizeEvidenceTexts(input.fanoutQueries);
-  const evidenceHints = sanitizeEvidenceTexts(input.evidenceHints ?? []);
-  const referenceCandidates = [
-    ...new Set(sanitizeEvidenceTexts(input.referenceCandidates ?? []).filter((url) => !looksLikeListOrIndexUrl(url))),
-  ].slice(0, MAX_REFERENCE_CANDIDATES);
-  const grounded = [
-    input.query,
-    competitorPages.join(" "),
-    fanoutQueries.join(" "),
-    evidenceHints.join(" "),
-    referenceCandidates.join(" "),
-  ].join(" ");
-  const user = [
-    `New-page topic: "${input.query}"`,
-    `Working label/slug: ${input.pageLabel}`,
-    fanoutQueries.length ? `Sub-questions AI is asked: ${fanoutQueries.slice(0, 10).join("; ")}` : "",
-    competitorPages.length ? `Competitor pages cited now (study + beat): ${competitorPages.slice(0, 6).join("; ")}` : "",
-    evidenceHints.length ? `Evidence the team established: ${evidenceHints.join("; ")}` : "",
-    referenceCandidates.length
-      ? `Exact source pages already found during research (cite only when the page supports the specific claim): ${referenceCandidates.join("; ")}`
-      : "",
-    "",
-    "Return the JSON now.",
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  return callStructuredLLM({
-    kind: "create_page_brief",
-    tenantId: input.tenantId,
-    system: CREATE_PAGE_SYSTEM,
-    user,
-    grounded,
-    projectedCostUsd: 0.03,
-    complete: opts.complete,
-    now: opts.now,
-    bypassCache: opts.bypassCache,
-    authoritativeSourceDomains: opts.authoritativeSourceDomains,
-    sourceFetch: opts.sourceFetch,
-  });
 }
 
 // ── persistence (projected, under the move_drafts size cap) ───────────────────

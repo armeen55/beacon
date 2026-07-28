@@ -636,112 +636,6 @@ export function evaluateTitleMetaQuality(input: EvaluateTitleInput): DraftQualit
   };
 }
 
-// ── create-page brief quality ─────────────────────────────────────────────────
-
-export type EvaluateBriefInput = {
-  title?: string | null;
-  meta?: string | null;
-  opening?: string | null;
-  outline?: string[] | null;
-  faqQuestions?: string[] | null;
-  schemaTypes?: string[] | null;
-  /** True when a DataForSEO verdict has been computed for this topic. */
-  hasSerpVerdict?: boolean;
-  contextTokens?: string[];
-  /** W5 P1-4 (2026-07-09): the brief's own cited sources. Same contract as
-   *  EvaluateDraftInput.sources - a FACTUAL openingAnswer with no qualifying
-   *  authoritative source is held as missing_source, exactly like an answer
-   *  block. Omitted/empty = no sources (the honest default). */
-  sources?: readonly ClassifiableSource[];
-  /** W5 P1-4: this tenant's own curated authoritative-domain allowlist. */
-  authoritativeSourceDomains?: readonly string[];
-};
-
-const ALLOWED_SCHEMA = new Set(["article", "faqpage", "webpage", "blogposting", "howto", "itemlist"]);
-
-/** An opening that ANNOUNCES the page instead of ANSWERING the question. The
- *  reader asked something; a page that opens by describing itself has spent the
- *  one extractable paragraph AI and Google read on nothing. Bounded literal
- *  starts, no NLP, so a real answer that happens to contain these words passes. */
-const OPENING_ANNOUNCES =
-  /^\s*(?:this (?:page|article|guide|post)|in this (?:page|article|guide|post)|the following)\b/i;
-
-/** The lead sentence to judge: a bare restated question ("What are X?") is a
- *  frame, so the announcement check moves to the sentence that follows it. */
-function announcingLead(opening: string): boolean {
-  const sentences = opening.split(/(?<=[.?!])\s+/);
-  const first = sentences[0] ?? "";
-  if (OPENING_ANNOUNCES.test(first)) return true;
-  return /\?\s*$/.test(first.trim()) && OPENING_ANNOUNCES.test(sentences[1] ?? "");
-}
-
-/** Evaluate a structured new-page brief. */
-export function evaluateCreatePageBriefQuality(input: EvaluateBriefInput): DraftQualityResult {
-  const tokens = input.contextTokens ?? DEFAULT_CONTEXT_TOKENS;
-  const title = (input.title ?? "").trim();
-  const meta = (input.meta ?? "").trim();
-  const opening = (input.opening ?? "").trim();
-  const outline = Array.isArray(input.outline) ? input.outline.filter((s) => (s ?? "").trim()) : [];
-  const faqs = Array.isArray(input.faqQuestions) ? input.faqQuestions.filter((s) => (s ?? "").trim()) : [];
-  const schema = Array.isArray(input.schemaTypes) ? input.schemaTypes : [];
-
-  const reasons: string[] = [];
-
-  if (!title || !meta || !opening || outline.length === 0) {
-    return { status: "malformed", reasons: ["Brief is missing a required field (title/meta/opening/outline)."], copyAllowed: false, canRegenerate: true, confidence: "high" };
-  }
-  if (TITLE_BOILERPLATE.test(title)) {
-    return { status: "generic_rejected", reasons: ["Title is boilerplate spam (“Complete Guide” / “(YYYY Guide)”)."], copyAllowed: false, canRegenerate: true, confidence: "high" };
-  }
-  // Generic dictionary opening with no content context.
-  if (DICTIONARY_FRAME.test(firstSentence(opening)) && !hasContext(firstSentence(opening), tokens)) {
-    return { status: "generic_rejected", reasons: ["Opening is a context-free dictionary definition instead of this page's own subject."], copyAllowed: false, canRegenerate: true, confidence: "high" };
-  }
-  if (!hasContext(opening, tokens)) {
-    return { status: "relevance_rejected", reasons: ["The opening carries none of this page's own subject words."], copyAllowed: false, canRegenerate: true, confidence: "medium" };
-  }
-  if (announcingLead(opening)) {
-    return { status: "too_thin", reasons: ["Opening announces the page instead of answering the question. Lead with the answer."], copyAllowed: false, canRegenerate: true, confidence: "high" };
-  }
-  if (outline.length < 3) {
-    return { status: "too_thin", reasons: [`Outline has only ${outline.length} sections.`], copyAllowed: false, canRegenerate: true, confidence: "high" };
-  }
-
-  // W5 P1-4 (J-69, no exceptions): a FACTUAL openingAnswer with no qualifying
-  // authoritative source is HELD, exactly like an answer block. The opening is
-  // the extractable claim the new page leads with, so it earns the same
-  // source floor. canRegenerate is false - redrafting cannot invent authority;
-  // the honest fix is "add a source."
-  if (isFactualClaim(opening)) {
-    const coverage = draftFactsCoveredBySources(opening, input.sources, input.authoritativeSourceDomains);
-    if (!coverage.covered) {
-      const claim = coverage.uncovered[0];
-      return {
-        status: "missing_source",
-        reasons: [
-          claim
-            ? `This claim still needs a cited authoritative source: "${shortClaim(claim)}". Add 1-2 before this is paste-ready.`
-            : "States a claim with no cited authoritative source yet. Add 1-2 before this is paste-ready.",
-        ],
-        copyAllowed: false,
-        canRegenerate: false,
-        confidence: "medium",
-      };
-    }
-  }
-
-  // Soft flags → useful_but_needs_review (copyable, but worth a look).
-  if (faqs.length < 3) reasons.push("Fewer than 3 FAQ questions.");
-  const badSchema = schema.filter((s) => !ALLOWED_SCHEMA.has(s.toLowerCase()));
-  if (badSchema.length) reasons.push(`Schema type may not fit a content page: ${badSchema.join(", ")}.`);
-  if (input.hasSerpVerdict === false) reasons.push("I have not checked what Google shows for this topic yet, so confirm the demand before you build.");
-
-  if (reasons.length) {
-    return { status: "useful_but_needs_review", reasons, copyAllowed: true, canRegenerate: false, confidence: "medium" };
-  }
-  return { status: "ready", reasons: ["Page-specific brief: contextual opening, real outline, FAQs, fitting schema."], copyAllowed: true, canRegenerate: false, confidence: "high" };
-}
-
 // ── section draft quality (BEACON 500 item 55 - outline-to-draft pipeline) ────
 
 export type EvaluateSectionInput = {
@@ -920,20 +814,6 @@ function evaluatePreparedPackQualityBase(input: EvaluatePackInput): DraftQuality
       pageBodyText: input.pageBodyText,
       evidenceText: input.evidenceText,
       authoritativeFacts: input.authoritativeFacts,
-      sources: Array.isArray(v.sources) ? (v.sources as ClassifiableSource[]) : undefined,
-      authoritativeSourceDomains: input.authoritativeSourceDomains,
-    });
-  }
-  if (sd.kind === "create_page_brief") {
-    return evaluateCreatePageBriefQuality({
-      title: typeof v.proposedTitle === "string" ? v.proposedTitle : null,
-      meta: typeof v.metaDescription === "string" ? v.metaDescription : null,
-      opening: typeof v.openingAnswer === "string" ? v.openingAnswer : null,
-      outline: Array.isArray(v.outline) ? (v.outline as string[]) : null,
-      faqQuestions: Array.isArray(v.faqQuestions) ? (v.faqQuestions as string[]) : null,
-      schemaTypes: Array.isArray(v.schemaTypes) ? (v.schemaTypes as string[]) : null,
-      contextTokens: input.contextTokens,
-      // W5 P1-4: the brief's OWN sources[] drive its openingAnswer source gate.
       sources: Array.isArray(v.sources) ? (v.sources as ClassifiableSource[]) : undefined,
       authoritativeSourceDomains: input.authoritativeSourceDomains,
     });
