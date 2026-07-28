@@ -28,13 +28,11 @@ const STATUS_TIER: Record<ProposalStatus, number> = {
 
 const CONFIDENCE_RANK: Record<ProposalConfidence, number> = { high: 3, medium: 2, low: 1 };
 
-/** The clicks this proposal's diagnosis proved are recoverable (0 when it
- *  carries no proven figure, never a fabricated one). A row drafted under an
- *  EARLIER decision generation carries an impact number from the old formula
- *  (page impressions, thousands) which is not comparable to recoverable clicks,
- *  so it scores 0 and can never outrank proven work it does not beat. */
-function recoverableClicks(p: ChangeProposal, currentBasis?: string | null): number {
-  if (currentBasis && p.basis && p.basis !== currentBasis) return 0;
+/** The clicks this proposal's diagnosis proved are recoverable (0 when it carries no
+ *  proven figure, never a fabricated one). The old-generation sink lived here; it is
+ *  gone because an off-basis row is now withheld from the queue outright and can
+ *  never reach a ranking. */
+function recoverableClicks(p: ChangeProposal): number {
   return p.impactScore != null && Number.isFinite(p.impactScore) ? Math.max(0, p.impactScore) : 0;
 }
 
@@ -42,12 +40,12 @@ function recoverableClicks(p: ChangeProposal, currentBasis?: string | null): num
  *  Exposed so a caller can log/inspect exactly why the order came out as it
  *  did. Keeps the actionability tier dominant (a rejected draft can never
  *  outrank a proposed one on recoverable clicks alone). */
-export function proposalValueScore(p: ChangeProposal, currentBasis?: string | null): number {
-  return (STATUS_TIER[p.status] ?? 0) * 1e9 + recoverableClicks(p, currentBasis);
+export function proposalValueScore(p: ChangeProposal): number {
+  return (STATUS_TIER[p.status] ?? 0) * 1e9 + recoverableClicks(p);
 }
 
 /** Rank proposals by value, most-valuable first. Stable + deterministic. */
-export function rankProposals(proposals: readonly ChangeProposal[], currentBasis?: string | null): ChangeProposal[] {
+export function rankProposals(proposals: readonly ChangeProposal[]): ChangeProposal[] {
   return proposals
     .map((p, i) => ({ p, i }))
     .sort((a, b) => {
@@ -55,8 +53,8 @@ export function rankProposals(proposals: readonly ChangeProposal[], currentBasis
       const bt = STATUS_TIER[b.p.status] ?? 0;
       if (at !== bt) return bt - at;
 
-      const ar = recoverableClicks(a.p, currentBasis);
-      const br = recoverableClicks(b.p, currentBasis);
+      const ar = recoverableClicks(a.p);
+      const br = recoverableClicks(b.p);
       if (ar !== br) return br - ar;
 
       if (a.p.estimatedEffortMinutes !== b.p.estimatedEffortMinutes) {

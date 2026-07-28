@@ -9,10 +9,11 @@ import "server-only";
  */
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadChangesView, sanitizeSurfaceComputedAt, type ChangesView } from "./changes-data";
+import { loadChangesView, sanitizeSurfaceComputedAt, setAsideClause, withCurrentBasisOnly, type ChangesView } from "./changes-data";
 import { normalizedFixKey } from "@/components/today/today-smoke-alarm";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
 import { countTrackedQuestions } from "@/domains/runtime";
+import { resolveCurrentBasis } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import type { ProducerOutcome } from "@/domains/decision";
 import type { TodayOpportunity, EvidenceStrength } from "@/domains/measurement/today/today-command";
@@ -129,12 +130,15 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     // here would be a lie by omission, and showing yesterday's Ready work as
     // newly generated would be worse.
     headerSentence = `I found meaningful traffic gaps, but I am still checking the results pages and competing pages before asking you to change anything.${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
-  } else if ((view.demotedStaleBasis ?? 0) > 0) {
-    const n = view.demotedStaleBasis;
-    headerSentence = `I raised the bar for what counts as worth your time, so I set aside ${n} earlier ${n === 1 ? "idea" : "ideas"} that no longer clear it.${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
   } else if (view.toDo.length > 0) {
+    // WORK WAITING OUTRANKS HOUSEKEEPING. Saying I set old ideas aside while ideas sit
+    // in To do buried the only thing the operator could actually pick up.
     const tail = measuring > 0 ? `, and ${measuring} change${measuring === 1 ? " is" : "s are"} measuring` : "";
     headerSentence = `I have ${view.toDo.length} idea${view.toDo.length === 1 ? "" : "s"} to review with you${tail}.`;
+  } else if ((view.demotedStaleBasis ?? 0) > 0) {
+    // ONE sentence, owned by Changes: two copies of the same claim drift apart, and
+    // the operator reads both on the same visit.
+    headerSentence = `${setAsideClause(view.demotedStaleBasis)}${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
   } else if (measuring > 0) {
     headerSentence = `Nothing needs a decision today. ${measuring} change${measuring === 1 ? " is" : "s are"} measuring.`;
   } else {
@@ -189,8 +193,17 @@ export async function loadTodayViewWithSwr(
 
   if (customer) {
     if (isCustomerSurfaceStale(customer.computedAt, Date.now())) scheduleReleaseRebuild();
+    // THE SAME BAR CHANGES APPLIES. Serving today's slice straight off the stored
+    // release let Today promise "I have a fix ready" and link to a change the detail
+    // page then called set aside, on one click. The release is re-checked against the
+    // basis this account holds now, and Today is rebuilt from what survives.
+    const gated = withCurrentBasisOnly(customer.changes, await resolveCurrentBasis(tenantId).catch(() => null));
+    const today = gated.proposals.length === customer.changes.proposals.length
+      ? customer.today.today
+      : buildTodayViewFromChanges(gated);
     return {
       ...customer.today,
+      today,
       ...paused,
       surfaceVersion: customer.releaseId,
       surfaceComputedAt: sanitizeSurfaceComputedAt(customer.computedAt) ?? undefined,

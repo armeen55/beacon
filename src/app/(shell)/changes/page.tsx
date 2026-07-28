@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { requireReadyAccount } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import { PageHeader } from "@/components/data/page-header";
-import { loadChangesView, toClientView } from "../changes-data";
+import { loadChangesView, setAsideHint, toClientView } from "../changes-data";
 import { ChangesListClient } from "../changes-list-client";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { checkedAgoLabel } from "@/components/data/receipt-line";
@@ -52,6 +52,17 @@ export async function ChangesSection() {
           <div className="h-9 animate-pulse rounded-lg bg-surface-inset/50" />
           <div className="h-9 animate-pulse rounded-lg bg-surface-inset/50" />
         </div>
+      );
+    }
+    // A queue I emptied MYSELF is a decision, not an empty screen: name the count. A bar
+    // I could not READ is not a bar I raised, so that case says what actually happened.
+    if (view.demotedStaleBasis > 0) {
+      return view.basisUnreadable ? (
+        <HonestDelay message="I could not confirm which of your saved ideas still hold just now. Beacon is checking again automatically." />
+      ) : (
+        <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-6 text-[13px] leading-relaxed text-muted-foreground">
+          {setAsideHint(view.demotedStaleBasis)}
+        </p>
       );
     }
     return (

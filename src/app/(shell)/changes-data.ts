@@ -21,7 +21,7 @@ import "server-only";
 import { cache } from "react";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadProposalQueue } from "@/domains/decision";
+import { loadProposalQueue, resolveCurrentBasis } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { loadProofLedgerCached } from "@/domains/measurement";
 import { countLedgerLifecycle } from "@/domains/decision";
@@ -45,6 +45,8 @@ export type ChangesView = {
   measuringCountCanonical: number;
   /** Validator-passed rows set aside because they predate the current decision bar. */
   demotedStaleBasis: number;
+  /** True when I could not read the current bar, so the count above is not a raised bar. */
+  basisUnreadable?: boolean;
   /** Whole-tenant decided count (proof ledger). */
   decidedCountCanonical: number;
   /** Set only when Ready is 0, so the tab is never a bare "0" with no reason. */
@@ -74,6 +76,38 @@ export function sanitizeSurfaceComputedAt(iso: string | null | undefined): strin
   const t = Date.parse(iso);
   if (!Number.isFinite(t) || t < MIN_VALID_COMPUTED_AT_MS) return null;
   return iso;
+}
+
+/** THE one sentence Changes tells when earlier ideas no longer clear my evidence bar. */
+export function setAsideClause(n: number): string {
+  return `I raised the bar for what counts as worth your time, so I set aside ${n} earlier ${n === 1 ? "idea" : "ideas"} that no longer clear it.`;
+}
+export function setAsideHint(n: number, toDo = 0): string {
+  // "Nothing needs your time today" is FALSE with review work waiting, and it was
+  // printed directly above a tab labelled To do.
+  return `${setAsideClause(n)} ${toDo > 0
+    ? `The ${toDo} ${toDo === 1 ? "idea" : "ideas"} still on your To do list are the ones I can back today.`
+    : "Nothing needs your time today: I am still checking your pages and I will rank your next change here as soon as one earns it."}`;
+}
+
+/** A STORED release is a photograph, and the bar may have moved since it was taken.
+ *  Every row is checked against the basis the account holds RIGHT NOW: same basis
+ *  stays, anything else is withheld. Comparing the release only against ITSELF was
+ *  the hole: a release whose rows are uniformly stale looks perfectly consistent and
+ *  sailed through with exact copy and an implement button. A basis I cannot read
+ *  withholds everything: I would rather show you nothing than yesterday's work. */
+export function withCurrentBasisOnly(view: ChangesView, currentBasis: string | null): ChangesView {
+  const keep = currentBasis == null ? [] : view.proposals.filter((p) => p.basis === currentBasis);
+  if (keep.length === view.proposals.length && currentBasis != null) return view;
+  const id = new Set(keep.map((p) => p.id));
+  const ready = view.ready.filter((p) => id.has(p.id));
+  const toDo = view.toDo.filter((p) => id.has(p.id));
+  // MAX, never a sum: an old-rule release counted rows it also listed, so adding inflates.
+  const setAside = Math.max(view.demotedStaleBasis, view.proposals.length - keep.length);
+  return { ...view, proposals: keep, ready, toDo, newPageBriefs: view.newPageBriefs.filter((p) => id.has(p.id)),
+    summary: { ...view.summary, ready: ready.length, todo: toDo.length },
+    demotedStaleBasis: setAside, basisUnreadable: currentBasis == null,
+    readyZeroHint: ready.length === 0 && setAside > 0 ? setAsideHint(setAside, toDo.length) : view.readyZeroHint };
 }
 
 const EMPTY_CHANGES_VIEW: ChangesView = {
@@ -121,12 +155,12 @@ export async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesV
     customer != null && Array.isArray((customer.changes as ChangesView | undefined)?.proposals);
   if (customer && changesShapeOk) {
     if (isCustomerSurfaceStale(customer.computedAt, Date.now())) scheduleReleaseRebuild("background-refresh");
-    return {
+    return withCurrentBasisOnly({
       ...customer.changes,
       surfaceComputedAt: sanitizeSurfaceComputedAt(customer.computedAt),
       surfaceBuilding: false,
       surfaceVersion: customer.releaseId,
-    };
+    }, await resolveCurrentBasis(tenantId).catch(() => null));
   }
   scheduleReleaseRebuild("cold-rebuild");
   return EMPTY_CHANGES_VIEW;
@@ -139,7 +173,7 @@ export async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesV
  */
 export async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> {
   const [queue, ledgerRows] = await Promise.all([
-    loadProposalQueue(tenantId).catch(() => ({ ranked: [], ready: [], toDo: [], newPageBriefs: [], demotedStaleBasis: 0 })),
+    loadProposalQueue(tenantId).catch(() => ({ ranked: [], ready: [], toDo: [], newPageBriefs: [], demotedStaleBasis: 0, basisUnreadable: true })),
     loadProofLedgerCached(tenantId).catch(() => []),
   ]);
 
@@ -154,7 +188,7 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
   let readyZeroHint: string | null = null;
   if (summary.ready === 0) {
     if (queue.demotedStaleBasis > 0) {
-      readyZeroHint = `I raised the bar for what counts as worth your time, so I set aside ${queue.demotedStaleBasis} earlier ${queue.demotedStaleBasis === 1 ? "idea" : "ideas"} that no longer clear it. I only bring you a change now when I can show the clicks it wins back.`;
+      readyZeroHint = setAsideHint(queue.demotedStaleBasis, summary.todo);
     } else if (summary.todo > 0) {
       readyZeroHint =
         "None has cleared Ready yet. These ideas still need a human look before I hand you exact copy. Open one to review it.";
@@ -181,6 +215,7 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
     toDo: queue.toDo,
     newPageBriefs: queue.newPageBriefs,
     summary,
+    basisUnreadable: queue.basisUnreadable,
     measuringCountCanonical: ledgerCounts.measuring,
     demotedStaleBasis: queue.demotedStaleBasis,
     decidedCountCanonical: ledgerCounts.decided,

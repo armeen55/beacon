@@ -9,7 +9,7 @@ import {
   editLifecycleStatus,
   markRecommendedEditsAsShipped,
 } from "@/domains/decision";
-import { markProposalApplied } from "@/domains/decision";
+import { loadChangeProposal, markProposalApplied, resolveCurrentBasis } from "@/domains/decision";
 import { invalidateCoreSurfaces } from "../surface-release";
 
 /**
@@ -43,6 +43,15 @@ export async function markProposalImplementedAction(args: {
 
   const tenantId = await currentTenantId();
   try {
+    // A SET-ASIDE CHANGE MAY NOT BE RECORDED AS WORK YOU DID. The button lives on a
+    // page that could have been open since before the bar moved, and recording it
+    // would push a change I no longer stand behind into the proof ledger, where it
+    // would be measured and counted for weeks. Refuse in the operator's own words.
+    const basis = await resolveCurrentBasis(tenantId).catch(() => null);
+    const stored = await loadChangeProposal(tenantId, args.proposalId).catch(() => null);
+    if (stored && stored.status !== "applied" && (basis == null || stored.basis !== basis)) {
+      return { success: false, error: "I set this change aside, so I am not recording it. Open Changes for the work I stand behind now." };
+    }
     const ok = await markProposalApplied(tenantId, args.proposalId);
     if (!ok) {
       return { success: false, error: "I couldn't find that change to mark it implemented." };

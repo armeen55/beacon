@@ -10,10 +10,9 @@ import {
 } from "@/lib/perf-trace";
 import { loadProofLedgerPersisted } from "@/domains/measurement";
 import { findProofForChange, proofResultHref } from "@/domains/measurement";
-import { loadProposalQueue } from "@/domains/decision";
+import { loadChangeProposal, loadProposalQueue } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
-import { loadChangesView } from "../../changes-data";
 import { MarkImplemented } from "../../changes-list-client";
 
 // Phase 1.6 (Sprint 1 follow-up, 2026-04-24): force dynamic render so every
@@ -48,13 +47,18 @@ export default async function ChangeDetailPage({
     const { access } = await requireReadyAccount(tenantId);
     if (access.kind === "suspended") redirect("/");
 
-    // Slice 7: a ranked proposal carrying a Change Bundle owns this route and
-    // renders its two-layer detail from saved data (the SAME cached surface the
-    // list reads; the kernel is never called on the render path). Anything else,
-    // including a proposal with no bundle, falls through to the unchanged
-    // changelog → Results redirect below.
-    const bundled = await findBundledProposal(tenantId, id);
-    if (bundled) return <BundleDetail proposal={bundled} bundle={bundled.bundle} />;
+    // A ranked proposal carrying a Change Bundle owns this route and renders its
+    // two-layer detail from the CURRENT-basis queue; one I have set aside renders a
+    // single honest page instead. Anything else, including a proposal with no bundle,
+    // falls through to the unchanged changelog to Results redirect below.
+    // ONE queue read serves both answers: the CURRENT-basis queue is the only source
+    // of a rendered bundle, so no cached release can resurrect copy I set aside.
+    const queue = await loadProposalQueue(tenantId).catch(() => null);
+    const found = queue?.ranked.find((p) => p.id === id) ?? null;
+    if (found?.bundle) return <BundleDetail proposal={found} bundle={found.bundle} />;
+    // A bar I could not READ is not a bar I raised: claiming I judged this idea when
+    // I never resolved the account would be a lie the operator cannot check.
+    if (await isSetAside(tenantId, id)) return <SetAsideDetail unreadable={queue?.basisUnreadable === true} />;
 
     // Phase 1.6 (Sprint 1 follow-up, 2026-04-24): fresh per-request repo read.
     // The prior implementation called `changelogEntries.find(...)` against the
@@ -84,22 +88,30 @@ export default async function ChangeDetailPage({
   }
 }
 
-/** Resolve this id to a ranked proposal that carries a bundle. Prefers the same
- *  cached customer surface the list renders; falls back to the persisted queue. */
-/** Both reads are tenant-scoped internally (the surface blob rejects foreign
- *  rows; the queue query filters on tenant_id), and the id is only ever matched
- *  by equality inside that already-scoped data. */
-async function findBundledProposal(
-  tenantId: string,
-  id: string,
-): Promise<(ChangeProposal & { bundle: ChangeBundle }) | null> {
-  const view = await loadChangesView().catch(() => null);
-  let found = view?.proposals.find((p) => p.id === id) ?? null;
-  if (!found) {
-    const queue = await loadProposalQueue(tenantId).catch(() => null);
-    found = queue?.ranked.find((p) => p.id === id) ?? null;
-  }
-  return found?.bundle ? { ...found, bundle: found.bundle } : null;
+/** A saved proposal the current queue no longer carries. An APPLIED one is not set aside. */
+async function isSetAside(tenantId: string, id: string): Promise<boolean> {
+  const stored = await loadChangeProposal(tenantId, id).catch(() => null);
+  return stored != null && stored.status !== "applied";
+}
+
+/** The honest end of a stale direct link: no exact copy, no before and after, and
+ *  no way to record work I no longer stand behind. One decision, one way back. */
+function SetAsideDetail({ unreadable }: { unreadable: boolean }) {
+  return (
+    <div className="max-w-3xl">
+      <section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5">
+        <h1 className="text-[14px] font-semibold text-foreground">{unreadable ? "I cannot show you this one right now" : "I set this idea aside"}</h1>
+        <p className="text-[13px] leading-relaxed text-muted-foreground">
+          {unreadable
+            ? "I could not confirm which of your saved ideas still hold just now, so I am not handing you copy I cannot back. I am checking again automatically, and every change I stand behind is ranked on Changes."
+            : "I raised the bar for what counts as worth your time, and this idea no longer clears it, so I am not handing you copy I cannot back with evidence. I am still checking your pages, and every change that earns its place is ranked on Changes."}
+        </p>
+        <Link href="/changes" className="inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2">
+          See what I am working on now
+        </Link>
+      </section>
+    </div>
+  );
 }
 
 const EVIDENCE_GROUP: Record<BundleEvidenceItem["kind"], string> = {

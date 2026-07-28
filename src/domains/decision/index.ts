@@ -54,6 +54,9 @@ export { produceProposalsForTenant, DEFAULT_MAX_DRAFTS } from "./produce-proposa
 // The honest diagnosis itself, so Runtime can ask what an open investigation needs
 // without reaching past this boundary into the kernel's files.
 export { compileCandidates, type QualifiedCandidate } from "./opportunities";
+// The account's CURRENT evidence basis. Surfaces need it to refuse serving a stored
+// release that was built under an older bar; they may not deep-import the kernel.
+export { resolveCurrentBasis } from "./load-proposals";
 
 // Proposing + ranking + validation entry points
 export type { ProposalOutcome, ProposeOptions } from "./propose";

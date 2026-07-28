@@ -7,7 +7,7 @@ const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); c
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) }));
 vi.mock("@/domains/decision/proposal-store", () => ({ loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); } }));
-vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap })); vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null }));
+vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap })); vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "fixture-tenant", domain: "fixture-content.example", growth_goal: null }), basisTag: () => "basis_test" }));
 import { produceBundleForSnapshot, produceNewPageBundleForSnapshot } from "@/domains/decision/produce-bundle";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals"; import { loadProposalQueue } from "@/domains/decision/load-proposals";
 import { confidenceFor, serializeChangeProposal, deserializeChangeProposal } from "@/domains/decision/contracts";
@@ -243,14 +243,14 @@ describe("what a receipt will and will not accept", () => {
     expect(queue.newPageBriefs.filter((p) => p.primaryQuery === TOPIC).map((p) => p.id)).toEqual([bundleId]);
     // B6: generic product code carries no vertical assumption, whatever this account happens to sell.
     expect(sent.join(" ")).not.toMatch(/encyclopedia|wikipedia|culture|dynast|cuisine|province/i); });
-  it("READY means ready: an older-basis row and a row still owing a source both drop to to-do, and neither is deleted", async () => {
-    env.snap = topicSnapshot(); await produceProposalsForTenant(TENANT, { complete: briefSeam([SOURCE]), ...OPTS });
-    const owing = "Add one before this is paste-ready.", owingId = `${TENANT}::/rain-barrels::existing_edit::bundle`;
-    [...store.rows.values()].forEach((p) => store.rows.set(p.id, { ...p, status: "proposed", basis: "basis_today", limitations: p.id === owingId ? [owing] : [] }));
-    const rows = store.rows.size; const stale = await loadProposalQueue(TENANT, { currentBasis: "basis_after_the_operator_changed_the_business" });
-    expect(stale.ready).toEqual([]); expect(stale.toDo.length).toBe(stale.ranked.length); // an old basis can never claim ready
-    const current = await loadProposalQueue(TENANT, { currentBasis: "basis_today" }); expect(current.ready.length).toBeGreaterThan(0); expect(current.ready.some((p) => p.limitations.includes(owing))).toBe(false);
-    expect(current.toDo.some((p) => p.limitations.includes(owing))).toBe(true); expect(store.rows.size).toBe(rows); }); // demotion in presentation only: no row rewritten, no history lost
+  it("queues only the changes it can show are current, and sets aside every basis it cannot match", async () => {
+    env.snap = topicSnapshot(); await produceProposalsForTenant(TENANT, { complete: briefSeam([SOURCE]), ...OPTS }); const seed = [...store.rows.values()].find((p) => p.kind === "existing_edit")!; store.rows.clear();
+    const put = (id: string, over: Partial<ChangeProposal>) => store.rows.set(id, { ...seed, id, status: "proposed", basis: "basis_today", limitations: [], ...over });
+    put("ready", {}); put("review", { status: "needs_review" }); put("owing", { limitations: ["Add one before this is paste-ready."] }); put("older", { basis: "basis_last_week", kind: "new_page" }); put("historical", { basis: undefined });
+    const rows = store.rows.size, q = await loadProposalQueue(TENANT, { currentBasis: "basis_today" }), blind = await loadProposalQueue(TENANT, { currentBasis: null });
+    expect(q.ready.map((p) => p.id)).toEqual(["ready"]); expect(q.toDo.map((p) => p.id)).toEqual(["owing", "review"]); expect(q.ranked.map((p) => p.id)).toEqual(["ready", "owing", "review"]); expect([q.newPageBriefs.length, q.demotedStaleBasis]).toEqual([0, 2]);
+    expect([blind.ranked, blind.ready, blind.toDo, blind.newPageBriefs].map((l) => l.length)).toEqual([0, 0, 0, 0]); // a basis I cannot read proves nothing current, so it shows you nothing
+    expect([blind.demotedStaleBasis, store.rows.size]).toEqual([5, rows]); }); // every set-aside row is still counted, and not one stored row is rewritten
   it("never claims both sources when one is missing, and never proposes a page the tenant already owns", async () => {
     const { snapshotToEvidenceInputs } = await import("@/domains/decision/opportunities"); const label = (over: Partial<NewPageOpportunity>) => snapshotToEvidenceInputs(topicSnapshot({ newPageOpportunities: [{ ...OPP, ...over }] })).filter((i) => i.opportunity.kind === "new_page");
     const aiOnly = label({ basis: "ai_attention" })[0]!; expect(aiOnly.opportunity.opportunityType).toBe("Build a page AI keeps asking about");

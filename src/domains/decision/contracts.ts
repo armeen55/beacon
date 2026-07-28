@@ -348,9 +348,9 @@ export type ChangeProposal = {
    *  every pre-bundle persisted row; ONE decoder serves both generations. */
   bundle?: ChangeBundle;
   /** The onboarding/research basis this proposal was generated under (truth
-   *  convergence slice). A proposal whose basis is not the account's CURRENT
-   *  basis can never render Ready; it is demoted at load, never deleted.
-   *  Absent on pre-basis rows, which read as stale by definition. */
+   *  convergence slice). A proposal whose basis is not the account's CURRENT basis
+   *  is WITHHELD from the customer queue entirely at load, never deleted and never
+   *  rewritten. Absent on pre-basis rows, which read as stale by definition. */
   basis?: string;
   /** STRUCTURAL: this is a proposal. The kernel never writes a live page. */
   publish: "manual";

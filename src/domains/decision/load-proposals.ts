@@ -4,10 +4,14 @@
  * validated ChangeProposals for a tenant, ranks them by honest value, and
  * partitions them into the operator-facing lifecycle:
  *
- *   ready     validated safe, current basis, owes no source: act now.
- *   toDo      everything else still live: held for review, generated under an
- *             older basis, or still waiting on a source.
+ *   ready     validated safe, owes no source: act now.
+ *   toDo      still live under the same basis: held for review or waiting on a source.
  *   (rejected proposals are never surfaced; applied ones have moved to measuring.)
+ *
+ * Every lane above holds CURRENT-BASIS work only. A proposal drafted under an
+ * older basis, one carrying no basis, and every proposal at all when the current
+ * basis cannot be read are withheld from the queue and counted, never shown as
+ * work to do.
  *
  * The "measuring / decided" side of the lifecycle lives in the proof-gsc ledger
  * (a shipped change under measurement), NOT here: a proposal the operator
@@ -43,9 +47,9 @@ const DECISION_GENERATION = 4;
 /**
  * The account's CURRENT research basis, or null when it cannot be read. Composes
  * exactly what Runtime and the Evidence funnel compose, so one basis serves every
- * kernel, plus the decision generation above. Fail-soft to null on purpose: an
- * unreadable account must never demote a whole queue, it just means we cannot
- * prove anything is stale this pass.
+ * kernel, plus the decision generation above. Null on purpose when the account
+ * cannot be read: I cannot prove a single stored proposal is current, and the
+ * queue below treats that as nothing to show rather than everything to show.
  */
 export async function resolveCurrentBasis(
   tenantId: string,
@@ -78,15 +82,18 @@ export function holdsForUnresolvedSource(p: ChangeProposal): boolean {
 }
 
 export type RankedProposalQueue = {
-  /** Every non-rejected, non-applied proposal, ranked most-valuable first. */
+  /** Every live CURRENT-BASIS proposal, ranked most-valuable first. */
   ranked: ChangeProposal[];
   /** Validated-safe, exact-copy-ready proposals (status "proposed"). */
   ready: ChangeProposal[];
   /** Generated but held for a human look (status "needs_review"). */
   toDo: ChangeProposal[];
-  /** How many validator-passed rows sit in toDo ONLY because your business info
-   *  changed since they were drafted (surfaces explain this honestly). */
+  /** How many live rows I set aside instead of queueing, because I cannot show
+   *  they were drafted under the basis I hold now (surfaces say this out loud). */
   demotedStaleBasis: number;
+  /** TRUE when the account's current basis could not be read at all. The queue is
+   *  empty because I cannot tell what is current, NOT because I raised the bar. */
+  basisUnreadable: boolean;
   /** New-page briefs among the ready+to-do set (kept distinct from edits). */
   newPageBriefs: ChangeProposal[];
 };
@@ -109,35 +116,37 @@ export async function loadProposalQueue(
   const bundledTopics = new Set(live.filter((p) => p.bundle && p.kind === "new_page").map(topicOf));
   const all = live.filter((p) => p.bundle
     || (p.kind === "existing_edit" ? !bundledPages.has(p.pagePath) : !bundledTopics.has(topicOf(p))));
-  const ranked = rankProposals(all, currentBasis);
-  // READY has to mean ready. A proposal earns it only when the validator passed it
-  // (status "proposed"), it was generated under the account's CURRENT basis, and it
-  // owes nobody a source. Everything else is DEMOTED IN PRESENTATION to to-do: the
-  // stored row is never rewritten and never deleted, it just stops claiming to be
-  // finished work. A basis we could not read demotes nothing (currentBasis null).
-  const isCurrent = (p: ChangeProposal) => currentBasis == null || p.basis === currentBasis;
+  // Your queue is CURRENT WORK ONLY. A proposal enters it only when I can show it was
+  // drafted under the basis this account holds right now. An older basis, no basis at
+  // all, and a current basis I could not read all SET THE ROW ASIDE. Unreadable fails
+  // closed: being unable to read the basis is not proof anything is current, it is
+  // proof I cannot tell, so I show you nothing rather than guess. A set-aside row keeps
+  // its words, its status and its history: no stored row is rewritten or deleted, it
+  // just stops presenting as work waiting on you, and it is counted below so I can say so.
+  const current = currentBasis == null ? [] : all.filter((p) => p.basis === currentBasis);
+  const demotedStaleBasis = all.length - current.length;
+  // WHY the queue is empty decides what I may say. "I raised the bar" is true of an
+  // older or missing basis and a lie when I simply could not read the account, so the
+  // surfaces get the reason, not just the number.
+  const basisUnreadable = currentBasis == null;
+  const ranked = rankProposals(current);
+  // READY has to mean ready: the validator passed it (status "proposed") and it owes
+  // nobody a source. Every other current-basis row is a to-do.
   const ready: ChangeProposal[] = [];
   const toDo: ChangeProposal[] = [];
-  let demotedStaleBasis = 0;
   for (const p of ranked) {
-    if (p.status === "proposed" && isCurrent(p) && !holdsForUnresolvedSource(p)) ready.push(p);
-    else {
-      if (p.status === "proposed" && !isCurrent(p)) demotedStaleBasis += 1;
-      // A stale-basis row keeps its words and its history, but its CONFIDENCE was
-      // measured against evidence rules that no longer hold, so it may not keep
-      // claiming High next to a limitation saying I never looked at that search.
-      // Presentation only: the stored row is untouched, exactly as the demotion is.
-      toDo.push(isCurrent(p) ? p : { ...p, confidence: "low" });
-    }
+    if (p.status === "proposed" && !holdsForUnresolvedSource(p)) ready.push(p);
+    else toDo.push(p);
   }
   return {
     ranked,
     ready,
     toDo,
     demotedStaleBasis,
+    basisUnreadable,
     // The new-page slice of the SAME partitioned rows (both lanes, edits excluded).
-    // Readiness is never read from here: a stale-basis or source-owing brief sits in
-    // toDo above, which is the only place readiness is decided.
+    // Readiness is never read from here: a source-owing brief sits in toDo above,
+    // which is the only place readiness is decided.
     newPageBriefs: ranked.filter((p) => p.kind === "new_page"),
   };
 }
