@@ -48,13 +48,11 @@ export async function chooseInvestigation(tenantId: string, basis: string | null
   return out.length === 0 ? null : { basis, topics: out.map((n) => ({ topicKey: n.topicKey, query: n.query, requirement: n.requirement })) };
 }
 
-/** The run's frozen focus, read forward. A run frozen before `focus` existed carries only its query
- *  STRINGS: those resume verbatim as topics with no key, so its searches and winner reads keep going and
- *  no topic identity is invented for it - and an unkeyed topic simply never earns a comparison. */
+/** The run's frozen plan, read forward. The pre-focus resume path is DELETED: it existed for runs
+ *  frozen before `focus` was persisted, only an UNFINISHED run ever resumes, and production holds
+ *  none. Carrying it meant keeping a second, keyless plan shape alive to serve nobody. */
 export function runFocus(progress: ResearchRunProgress): ResearchFocus | null {
-  if (progress.focus) return progress.focus;
-  const legacy = progress.priorityQueries ?? [];
-  return legacy.length === 0 ? null : { basis: null, topics: legacy.map((query) => ({ topicKey: null, query, requirement: null })) };
+  return progress.focus ?? null;
 }
 
 /** The exact searches the frozen focus owes, in its own order (Evidence gets strings, never a topic). */

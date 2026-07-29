@@ -286,12 +286,10 @@ describe("research-run frozen investigation: ONE topic, and the lease the compar
     const l = memRepo(); let n = 0; RR.setResearchRunRepoForTests({ ...l.repo, renew: async (i) => ((n += 1) < 2 ? l.repo.renew(i) : false) });
     l.rows.push(mk({ current_phase: "winning_pages", progress: { focus: FOCUS } })); const dead = staged(() => n);
     await run({ funnelUnit: dead.funnelUnit }); expect([dead.seen.length, dead.spent]).toEqual([1, []]); }); // the lease died after the winners landed: the paid stage never ran
-  it("resumes a run frozen before the focus existed, and one empty read never silences a run for the rest of its life", async () => {
-    const rows = withRun({ current_phase: "serp_analysis", progress: { priorityQueries: ["a", "b"] } }); const queries: string[][] = []; let asked = 0;
-    const unit: ResearchCycleSteps["funnelUnit"] = async (phase, _t, cursor, _b, focus) => { queries.push((focus?.topics ?? []).map((t) => String(t.query)));
-      return phase === "winning_pages" && cursor?.stage !== "compare" ? { status: "advanced", cursor: { stage: "compare" }, progress: {} } : { status: "done", cursor: null, progress: {} }; };
-    await run({ funnelUnit: unit, investigationFocus: async () => { throw new Error("a frozen run never re-picks"); } });
-    expect([queries[0], rows[0]!.status]).toEqual([["a", "b"], "completed"]); // its query strings resume verbatim; no topic identity is invented for them
+  it("one empty read never silences a run for the rest of its life", async () => {
+    let asked = 0;
+    const unit: ResearchCycleSteps["funnelUnit"] = async (phase, _t, cursor, _b, _f) =>
+      (phase === "winning_pages" && cursor?.stage !== "compare" ? { status: "advanced", cursor: { stage: "compare" }, progress: {} } : { status: "done", cursor: null, progress: {} });
     const cold = withRun({ current_phase: "serp_analysis" });
     const steps: Partial<ResearchCycleSteps> = { investigationFocus: async () => (asked++ === 0 ? null : FOCUS), // the first read comes back cold
       funnelUnit: async (p, t, c, b, f) => (asked === 1 ? { status: "waiting", cursor: null, progress: {} } : unit(p, t, c, b, f)) };

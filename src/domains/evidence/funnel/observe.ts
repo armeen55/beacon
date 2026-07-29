@@ -11,7 +11,8 @@ import type { CachedCallResult, CapabilityKey, FunnelCounters, FunnelUnitFn, Fun
 import { rankWinningPages, selectSerpAgenda } from "./normalize";
 import { type FunnelPair, type FunnelSerp, type FunnelState, type FunnelWinningPage } from "./state";
 import { askIdentity, normalizePageIntersection, parsePageIntersection, type PageIntersectionAsk } from "@/domains/evidence/page-intersection";
-import { pageExtractFrom, pageExtractFromRecord, type FunnelResearchEvidence, type IntersectionUnavailable, type ObservationMode, type ResearchEngine, type ResearchPageComparison, type ResearchPageExtract, type ResearchWinningAppearance } from "./research-evidence";
+import { publisherHost } from "@/domains/evidence/serp-shape";
+import { pageExtractFrom, pageExtractFromRecord, type FunnelResearchEvidence, type IntersectionUnavailable, type ObservationMode, type ResearchEngine, type ResearchPageComparison, type ResearchPageExtract, type ResearchWinningAppearance, type WinnerReadOutcome } from "./research-evidence";
 import { basisFromCursor, beginCycle, CONFLICT_DETAIL, FRESH_MS, interp, type Interp, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
 
 // blocked = a HELD refusal at zero further spend; it ALWAYS pauses the run, so prefer the boundary's own detail.
@@ -56,9 +57,8 @@ function pairProgress(s: FunnelState): FunnelCounters {
     enginePairsIntended: s.prompts.intendedPairs, cacheHits: s.cycle.cacheHits, spendUsd: round(s.cycle.spentUsd) };
 }
 
-/** ONE historical prompt_answer_observations row per completed answer. The id folds in the retrieval MODE (the consumer look is a
- *  distinct observation, never an overwrite; "+scraper" stays verbatim so pre-6I ids stay continuous), modelServed, and the day, so a changed served model yields a DISTINCT row.
- *  citation_urls is null (not []) when citations were NOT observable; metadata.citationsObserved records the tri-state a count-of-0 would flatten. */
+/** ONE historical prompt_answer_observations row per completed answer. The id folds in the retrieval MODE (the consumer look is a distinct observation, never an overwrite; "+scraper" stays verbatim so pre-6I ids
+ *  stay continuous), modelServed, and the day, so a changed served model yields a DISTINCT row. citation_urls is null (not []) when citations were NOT observable; metadata.citationsObserved records the tri-state. */
 function paoRow(p: FunnelPair, parsed: ParsedAiAnswer, tenantId: string, runId: string, nowIso: string): PromptAnswerObservation {
   const domains = (parsed.citations ?? []).map((c) => c.domain), observed = parsed.citations !== null;
   const model = parsed.modelServed ?? p.modelRequested ?? p.engine, consumer = modeOf(p) === "consumer_search";
@@ -105,8 +105,7 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
     const textOf = new Map(prompts.map((p) => [p.id, p.text]));
     const nowIso = () => new Date(d.now()).toISOString();
     let failedDetail: string | null = null, blockedDetail: string | null = null, limitDetail: string | null = null, softUnavailable = false;
-    /** Only a CANONICAL pair can pause the unit (auxiliary gaps block nothing); blocked is the one
-     *  exception, handled separately as account-level truth from ANY pair. */
+    /** Only a CANONICAL pair can pause the unit (auxiliary gaps block nothing); blocked is the one exception, handled separately as account-level truth from ANY pair. */
     const fail = (p: FunnelPair, detail?: string | null) => { if (isCanonical(p) && detail) failedDetail = detail; };
     // Budgets are per INCIDENT: a stale unsupported pair re-enters weekly with a fresh repost budget.
     for (const p of pairs) if (p.status === "unsupported" && p.observedAt && d.now() - Date.parse(p.observedAt) > FRESH_MS) { p.status = "pending"; p.cacheKey = null; p.reposts = undefined; }
@@ -122,8 +121,7 @@ export function promptObservationUnit(deps: FunnelDeps = {}): FunnelUnitFn {
           if (parsed) await landAnswer(p, r, parsed, textOf.get(p.promptId) ?? p.promptText ?? "", tenantId, runId, nowIso(), d.syncHistory);
           else fail(p, "I collected an answer I could not read. I will retry it on the next pass.");
         } else if (r.kind === "failed") {
-          // The DISPOSITION decides. blocked on a CANONICAL pair = held refusal (row untouched, batch stops, run
-          // pauses); on an AUXILIARY pair it reads unsupported and never holds the run hostage. repost_once = ONE.
+          // The DISPOSITION decides. blocked on a CANONICAL pair = held refusal (row untouched, batch stops, run pauses); on an AUXILIARY pair it reads unsupported and never holds the run hostage. repost_once = ONE.
           if (r.disposition === "daily_limit") { limitDetail = r.detail ?? null; break; }
           if (r.disposition === "blocked") { if (isCanonical(p)) { blockedDetail = blockedNote(r); break; } p.status = "unsupported"; p.observedAt = nowIso(); continue; }
           if (r.disposition === "repost_once") { if ((p.reposts ?? 0) >= 1) { p.status = "unsupported"; p.cacheKey = null; p.observedAt = nowIso(); } else { p.status = "pending"; p.cacheKey = null; p.reposts = 1; } }
@@ -196,6 +194,11 @@ function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string): void {
 
 /** Winning pages one cycle reads: 15, so three priority searches keep their own three. Bought comparisons kept: 8. */
 const WINNER_READ_BUDGET = 15, MAX_COMPARISONS = 8;
+/** How long a failed read holds its URL out of the read budget. A robots denial is the publisher's own answer, so I honor it for a month and never ask a provider to go around it; my one paid read of a body is
+ *  held a week; a site that simply did not answer me is retried tomorrow. Without this memory the same dead URL was refetched on every single pass forever, because "403" and "not tried yet" looked alike. */
+const RETRY_MS: Record<WinnerReadOutcome["state"], number> = { robots_blocked: 30 * 86_400_000, provider_unavailable: 7 * 86_400_000, temporarily_unavailable: 86_400_000 };
+const readOutcomeAt = (state: WinnerReadOutcome["state"], at: number): WinnerReadOutcome =>
+  ({ state, attemptedAt: new Date(at).toISOString(), retryAfter: new Date(at + RETRY_MS[state]).toISOString() });
 const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.serps.analyzed, cacheHits: s.cycle.cacheHits, spendUsd: round(s.cycle.spentUsd) });
 
 /** `priorityQueries`: plain strings from the caller (Evidence never reads Decision), the exact searches an open investigation cannot close without. Empty is honest and leaves the agenda exactly as it was. */
@@ -344,12 +347,9 @@ export type FunnelIntersectionAsk = { topicKey: string; ask: PageIntersectionAsk
 /** Every disposition that produced NO comparison. `failed` is the fallback, so an unmapped one can never read as a finding. */
 const COMPARISON_GAP: Partial<Record<string, IntersectionUnavailable>> = { blocked: "blocked", daily_limit: "capped", quarantined: "quarantined", retry_free: "ambiguous", repost_once: "ambiguous" };
 
-/** THE page-by-page comparison: at most ONE request, carrying the WHOLE page set (one call per page or per
- *  keyword is a defect). It rides the same money core as every other unit, so the reservation, the deterministic
- *  identity, the reconcile to actual and the cache reuse are the boundary's, not a second copy here. TWO guards
- *  stop a second buy: a landed answer for this topic AND this normalized ask is never re-requested, and a crash
- *  after the provider answered but before this phase saved re-derives the SAME identity, so the money core
- *  serves it warm at zero network and zero spend. Under two usable pages is not a comparison and never pays. */
+/** THE page-by-page comparison: at most ONE request, carrying the WHOLE page set (one call per page or per keyword is a defect). It rides the same money core as every other unit, so the reservation, the
+ *  deterministic identity, the reconcile to actual and the cache reuse are the boundary's, not a second copy here. TWO guards stop a second buy: a landed answer for this topic AND this normalized ask is never
+ *  re-requested, and a crash after the provider answered but before this phase saved re-derives the SAME identity, so the money core serves it warm. Under two usable pages is not a comparison and never pays. */
 async function buyComparison(d: ResolvedDeps, state: FunnelState, want: FunnelIntersectionAsk, ids: { tenantId: string; unitKey: string }, nowIso: string): Promise<ResearchPageComparison | null> {
   const ask = normalizePageIntersection(want.ask);
   const askKey = askIdentity(ask); // ONE definition, shared with the reader
@@ -374,9 +374,9 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
   return async (tenantId, cursor, budgetMs) => {
     const basis = basisFromCursor(cursor);
     if (!basis) return { status: "failed", cursor, progress: {}, detail: NO_BASIS_DETAIL };
-    const deadline = d.now() + Math.max(1000, budgetMs);
+    const deadline = d.now() + Math.max(1000, budgetMs), ids = { tenantId, unitKey: `winning:${tenantId}` };
     const loaded = await d.loadState(tenantId, basis), state = loaded.state;
-    beginCycle(state, cursor, `winning:${tenantId}`);
+    beginCycle(state, cursor, ids.unitKey);
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion }, nowIso = new Date(d.now()).toISOString();
     const pages: FunnelWinningPage[] = []; let fetched = 0;
     try {
@@ -384,7 +384,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       // between, so the ONE comparison is the FIRST side effect this invocation has. Newest first, ONE row per
       // topic, bounded. No ask (none earned, or the frozen topic could not be reconfirmed) is a $0 pass.
       if ((cursor as { stage?: string } | null)?.stage === "compare") {
-        const bought = intersection ? await buyComparison(d, state, intersection, { tenantId, unitKey: `winning:${tenantId}` }, nowIso) : null;
+        const bought = intersection ? await buyComparison(d, state, intersection, ids, nowIso) : null;
         if (bought) { state.pageComparisons = [bought, ...state.pageComparisons.filter((c) => c.topicKey !== bought.topicKey)].slice(0, MAX_COMPARISONS);
           await save(d, tenantId, basis, state, ctx); }
         return { status: "done", cursor: null, progress: { cacheHits: state.cycle.cacheHits, spendUsd: round(state.cycle.spentUsd) } };
@@ -393,28 +393,53 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       const ownDomain = account?.domain ? rootDomain(account.domain) : null;
       const raw = collectAppearances(state, nowIso);
       // A resolver failure (sync OR async) degrades to raw appearances; the unit deadline bounds it.
-      const resolved = await Promise.resolve().then(() => resolve(raw, undefined, deadline)).catch(() => raw); for (const c of rankWinningPages(resolved, ownDomain, WINNER_READ_BUDGET, priorityQueries)) {
+      const resolved = await Promise.resolve().then(() => resolve(raw, undefined, deadline)).catch(() => raw);
+      const held = new Map(state.winningPages.map((w) => [w.url, w.readOutcome ?? null])); // what stopped me last time
+      const robots = new Map<string, string[]>(), readPublishers = new Set<string>(); let freed = 0; // ONE robots.txt read per origin
+      const bank = async (url: string, x: ResearchPageExtract, hash: string) => { fetched += 1; await d.writePageExtract(url, x as unknown as Record<string, unknown>, hash).catch(() => {}); };
+      for (const c of rankWinningPages(resolved, ownDomain, WINNER_READ_BUDGET, priorityQueries)) {
+        // A standby is the next ranked DISTINCT publisher, promoted in THIS run and ONLY into a slot an unreadable page freed. A publisher whose body I already hold teaches me nothing new.
+        if (c.standby && (freed <= 0 || readPublishers.has(publisherHost(c.url)))) continue;
         const engines = [...new Set(c.appearances.map((a) => a.engine).filter((e): e is string => !!e))].sort(),
           examplePrompts = [...new Set(c.appearances.map((a) => a.promptText).filter((t): t is string => !!t))].slice(0, 5);
-        let extract: ResearchPageExtract | null = null, contentHash: string | null = null;
-        // Reuse a cached public extract before any fetch; never refetch in freshness.
+        let extract: ResearchPageExtract | null = null, outcome: WinnerReadOutcome | null = held.get(c.url) ?? null;
+        // Reuse a cached public extract before any read; never re-read in freshness. Keep the CACHE ROW'S date when the extract predates the field: an undated winner never counts toward a comparison.
         const cached = await d.readPageExtract(c.url).catch(() => null);
-        // Keep the CACHE ROW'S date when the extract predates the field: an undated winner never counts toward a comparison.
         if (cached) { const e = pageExtractFromRecord(cached.extract);
-          extract = e ? { ...e, fetchedAt: e.fetchedAt ?? cached.fetchedAt ?? null } : e; contentHash = cached.contentHash; }
-        else if (d.now() <= deadline) {
+          extract = e ? { ...e, fetchedAt: e.fetchedAt ?? cached.fetchedAt ?? null } : e; outcome = null; }
+        // A URL whose last read failed keeps that answer until retryAfter and spends no slot before it.
+        else if (d.now() <= deadline && !(outcome && d.now() < Date.parse(outcome.retryAfter))) {
           try {
-            const res = await d.fetchPage(c.url, new Map(), {});
-            if (res.ok) {
+            const res = await d.fetchPage(c.url, robots, {});
+            if (res.ok) { outcome = null;
               extract = pageExtractFrom(extractPageSnapshot(res.html, c.url, `winpage-${sha16(c.url)}`, tenantId, res.status, profile));
-              contentHash = sha16(res.html); fetched += 1;
-              await d.writePageExtract(c.url, extract as unknown as Record<string, unknown>, contentHash).catch(() => {});
+              await bank(c.url, extract, sha16(res.html));
+            // The publisher's OWN answer is final: a robots denial is NEVER sent through a provider.
+            } else if (res.reason === "robots_blocked") outcome = readOutcomeAt("robots_blocked", d.now());
+            else {
+              // An ordinary refusal or timeout earns exactly ONE paid read of the body, US/English, on the same money core, cache identity
+              // and cap as every other call. An empty parse is not a body, so it stays a named gap and never becomes a fake extract.
+              const r = interp(await d.callProvider("onpage_content_parsing", { url: c.url }, ids)); track(state, r);
+              const got = r.kind === "evidence" ? (d.parse("onpage_content_parsing", r.payload as never) as ResearchPageExtract | null) : null;
+              if (got && got.wordCount > 0) { extract = { ...got, fetchedAt: nowIso }; outcome = null; await bank(c.url, extract, sha16(c.url)); }
+              // A CAP OR A DAILY LIMIT IS NOT THE PAGE'S FAULT. Those cost nothing and read nothing, so
+              // stamping the 7 day hold on them froze pages the provider never even looked at, and one cap
+              // event stamped every remaining winner in the cycle. They wait a day, like any other retry.
+              else outcome = readOutcomeAt(r.kind === "evidence" ? "provider_unavailable" : "temporarily_unavailable", d.now());
             }
-          } catch { /* a fetch or extract failure leaves the winner unread; nothing is invented for it */ }
+          } catch { outcome = readOutcomeAt("temporarily_unavailable", d.now()); }
         }
-        pages.push({ url: c.url, domain: c.domain, engines, examplePrompts, appearances: c.appearances, extract });
+        // The ranked URL is evidence in its own right, so an unreadable body never deletes a winner.
+        if (extract) readPublishers.add(publisherHost(c.url)); else freed += 1;
+        pages.push({ url: c.url, domain: c.domain, engines, examplePrompts, appearances: c.appearances, extract, readOutcome: outcome });
       }
-      state.winningPages = pages;
+      // CARRY THE MEMORY, NOT JUST THE PAGES. Replacing the list wholesale forgot the read outcome of any
+      // URL that fell out of this cycle's top set, so its 403 was re-paid INSIDE the hold meant to stop that.
+      const banked = new Set(pages.map((p) => p.url));
+      // A carried row is MEMORY, not evidence: its appearances go with it, or a page that has since fallen
+      // out of the results would still count as one of the three addresses a comparison PAYS to compare.
+      state.winningPages = [...pages, ...state.winningPages.filter((w) => !banked.has(w.url) && w.readOutcome
+        && d.now() < Date.parse(w.readOutcome.retryAfter)).map((w) => ({ ...w, extract: null, appearances: [] }))].slice(0, WINNER_READ_BUDGET * 2);
       // The winners land BEFORE this phase hands the run back. This save is the FUNNEL ROW's optimistic
       // row_version and nothing more: it proves only that no concurrent writer moved the research document.
       // It is NOT the ResearchRun lease, a different guarantee the caller renews between the two stages.
@@ -443,8 +468,7 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
     + state.serps.queries.filter((s) => s.status !== "done").length + state.serps.queries.filter((s) => s.aiModeFailed).length;
   const doneSerps = state.serps.queries.filter((s) => s.status === "done");
   return {
-    // LINEAGE rides along: how each keyword was found, and the confirmed theme it was
-    // found from. Both are recorded facts, so nothing downstream has to guess them.
+    // LINEAGE rides along: how each keyword was found, and the confirmed theme it was found from. Both are recorded facts, so nothing downstream has to guess them.
     retainedKeywords: state.discovery.retained.map((k) => ({ query: k.keyword, searchVolume: k.searchVolume, competition: k.competition, competitionLevel: k.competitionLevel ?? competitionLevel(k.competition), difficulty: k.difficulty ?? null, intent: k.intent, discoveredVia: k.discoveredVia, seed: k.seed ?? null, rankedUrl: k.rankedUrl ?? null, rankedRank: k.rankedRank ?? null })),
     aiObservations: donePairs.map((p) => ({
       promptId: p.promptId, promptText: p.promptText ?? "", engine: p.engine, observationMode: modeOf(p),
@@ -460,7 +484,7 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
       aiMode: (s.aiMode ?? []).map((a) => ({ url: a.url, domain: a.domain, title: a.title ?? null })),
       paa: s.paa ?? [], related: s.related ?? [],
     })),
-    winningPages: state.winningPages.map((w) => ({ url: w.url, domain: w.domain, engines: w.engines, examplePrompts: w.examplePrompts, appearances: w.appearances, extract: w.extract })),
+    winningPages: state.winningPages.map((w) => ({ url: w.url, domain: w.domain, engines: w.engines, examplePrompts: w.examplePrompts, appearances: w.appearances, extract: w.extract, readOutcome: w.readOutcome ?? null })),
     // Stored in the canonical shape, so this carries it through UNTRANSLATED: a reader matches on the
     // topic AND the normalized ask, and never has to trust that an answer in hand is the one it asked for.
     pageComparisons: state.pageComparisons,

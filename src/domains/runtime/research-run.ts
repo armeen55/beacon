@@ -57,7 +57,6 @@ export type ResearchRunProgress = {
    *  the searches were bought for. Durable on progress (the phase advance clears the cursor), dies with the run. */
   focus?: { basis: string | null; topics: Array<{ topicKey: string | null; query: string | null; requirement: string | null }> };
   /** LEGACY, read-only: a run frozen before `focus` existed carries only its query strings. Never written now. */
-  priorityQueries?: string[];
   surfacePublished?: boolean;
   /** Slice 6: real persisted funnel counters (never fabricated). */
   funnel?: {

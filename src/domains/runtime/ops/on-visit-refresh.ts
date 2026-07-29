@@ -324,7 +324,7 @@ async function driveRun(
       // phase and reused unchanged by winning-pages and the comparison. Persisted through advancePhase on the
       // SAME phase. Only a REAL focus is frozen: an open run can span days, so one transient empty read must
       // not silence it for that whole life. Empty stays unfrozen and both units keep the broad agenda.
-      if (phase === "serp_analysis" && progress.focus == null && progress.priorityQueries == null) {
+      if (phase === "serp_analysis" && progress.focus == null) {
         const frozen = await steps.investigationFocus(tenantId, basis).catch(() => null);
         if (frozen && frozen.topics.length > 0) { progress = { ...progress, focus: frozen };
           if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return; }

@@ -1,11 +1,10 @@
 import "server-only";
 
 /**
- * funnel/normalize (integrity closure, Agent B) - the PURE broad-then-narrow
- * core: keyword normalize + dedupe, deterministic relevance/constraint/junk
- * filters with a bounded reject taxonomy, a thin mapper from the registry's typed
- * ParsedKeywordItem onto the funnel row, and winning-page ranking that preserves
- * TRUE per-appearance provenance. No I/O, no envelope-poking, never throws.
+ * funnel/normalize (integrity closure, Agent B) - the PURE broad-then-narrow core: keyword normalize +
+ * dedupe, deterministic relevance/constraint/junk filters with a bounded reject taxonomy, a thin mapper
+ * from the registry's typed ParsedKeywordItem onto the funnel row, and winning-page ranking that
+ * preserves TRUE per-appearance provenance. No I/O, no envelope-poking, never throws.
  */
 
 import { GEMINI_WRAPPER_HOST } from "@/domains/evidence/competitor-intel/polite-fetch";
@@ -13,6 +12,7 @@ import type { ParsedKeywordItem } from "@/domains/evidence/dataforseo/funnel-bou
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { isNoiseDomain } from "@/domains/evidence/relevance-gate";
 import { anchoredTopicMatch, canonicalQueryKey, topicTokens, weakAnchorTokens } from "@/domains/evidence/relevance-gate";
+import { publisherHost } from "@/domains/evidence/serp-shape";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import type { ResearchWinningAppearance } from "./research-evidence";
 import type { FunnelKeyword, FunnelReject } from "./state";
@@ -138,12 +138,11 @@ export function applyFilters(
   return { retained, rejected };
 }
 
-/** Retain up to `cap` keywords with SOURCE DIVERSITY, not volume alone. Volume-only
- *  retention threw away most of an account's research: the biggest source (a whole-site
- *  pull) filled every slot and whole themes discovered from other seeds vanished before
- *  anything could ever check them. So each discovery source, and each SEED inside the
- *  per-seed sources, gets its best keyword before any source gets its second, volume
- *  ordering inside each group. Deterministic under any input order. Pure. */
+/** Retain up to `cap` keywords with SOURCE DIVERSITY, not volume alone. Volume-only retention threw away
+ *  most of an account's research: the biggest source (a whole-site pull) filled every slot and whole
+ *  themes discovered from other seeds vanished. So each discovery source, and each SEED inside the
+ *  per-seed sources, gets its best keyword before any source gets its second, volume ordering inside each
+ *  group. Deterministic under any input order. Pure. */
 export function retainDiverse(retained: FunnelKeyword[], cap: number): FunnelKeyword[] {
   const groups = new Map<string, FunnelKeyword[]>();
   for (const k of retained) {
@@ -193,24 +192,21 @@ const MAX_SERP_KEYWORD_CHARS = 700;
 const MAX_PRIORITY_QUERIES = 3;
 
 /**
- * THE agenda of keywords worth a paid search look, in the customer's OWN words. Volume
- * alone once bought all 40 slots on huge national-news queries while the account's money
- * themes sat unchecked; the fix that followed then substituted a merely similar RETAINED
- * keyword for a trusted first-party query, so "boy names" was bought as "last names",
- * one flag query became two near-duplicate flag queries, and a dated event query lost its
- * date. Both are gone. A trusted query is now bought VERBATIM and never needs to exist in
- * the retained set; only portfolio 3 may propose a researched keyword, and only on a
- * genuinely strong anchored match. Five bounded portfolios fill the cap in priority order:
+ * THE agenda of keywords worth a paid search look, in the customer's OWN words. Volume alone once bought
+ * all 40 slots on national-news queries while the money themes sat unchecked; the fix that followed then
+ * substituted a merely similar RETAINED keyword for a trusted first-party query, so "boy names" was
+ * bought as "last names". Both are gone: a trusted query is bought VERBATIM and never needs to exist in
+ * the retained set, and only portfolio 3 may propose a researched keyword, on a strong anchored match
+ * alone. Five bounded portfolios fill the cap in priority order:
  *   P0 (<=3)  the exact searches an open investigation cannot close without: bought FIRST, always
  *   P1 (<=12) the EXACT queries my own strongest pages already rank for, slipping first
  *   P2 (<=22) my tracked questions: observed fan-out queries first, then the question text
  *   P3 (<=32) researched keywords, one per confirmed theme, round-robin, no theme faked
  *   P4 (<=8 more) plain volume exploration, so genuinely huge demand still gets a look
- * If the trusted portfolios cannot fill the cap the agenda is SHORTER than the cap:
- * buying less is the honest outcome, never padding the bill with noise. Two queries are
- * the same subject only under canonicalQueryKey, so word order never buys twice and a
- * changed modifier is never collapsed away. Same inputs in ANY array order, same agenda, except
- * priorityQueries, whose order is the CALLER's own ranking and is honored exactly as given. Pure.
+ * If the trusted portfolios cannot fill the cap the agenda is SHORTER than the cap: buying less is the
+ * honest outcome, never padding the bill with noise. Two queries are the same subject only under
+ * canonicalQueryKey, so word order never buys twice and a changed modifier is never collapsed away. Same
+ * inputs in ANY array order, same agenda, except priorityQueries, whose order is the CALLER's own. Pure.
  */
 export function selectSerpAgenda(
   input: { retained: FunnelKeyword[]; themes: string[]; prompts: SerpAgendaPrompt[]; pageQueries: SerpAgendaPageQuery[];
@@ -325,7 +321,9 @@ export function selectSerpAgenda(
 
 // ── winning-page ranking (pure, TRUE provenance) ────────────────────────────
 
-type WinningCandidate = { url: string; domain: string; weight: number; appearances: ResearchWinningAppearance[] };
+/** `standby` = a deeper distinct publisher held in reserve at the END of the list. A caller may read it
+ *  ONLY in a slot an unreadable preferred page freed, so the total page work never grows. */
+type WinningCandidate = { url: string; domain: string; weight: number; appearances: ResearchWinningAppearance[]; standby?: boolean };
 
 /** Exact host of a URL, lowercased ("" when unparseable). */
 function exactHost(url: string): string {
@@ -336,11 +334,10 @@ function exactHost(url: string): string {
   }
 }
 
-/** Defensive mode-blind dedupe for AI answers (Slice 6I). The chatgpt consumer
- *  look and the standardized ask are TWO observations of one engine, so the same
- *  prompt + engine + url must count ONCE; consumer_search wins the tie. Collection
- *  already dedupes, so this only stops a duplicate from ever inflating weight.
- *  SERP appearances are untouched. Order preserved. Pure. */
+/** Defensive mode-blind dedupe for AI answers (Slice 6I). The chatgpt consumer look and the standardized
+ *  ask are TWO observations of one engine, so the same prompt + engine + url must count ONCE;
+ *  consumer_search wins the tie. Collection already dedupes, so this only stops a duplicate from
+ *  inflating weight. SERP appearances are untouched. Order preserved. Pure. */
 function dedupeAppearances(appearances: ResearchWinningAppearance[]): ResearchWinningAppearance[] {
   const slotOf = new Map<string, number>();
   const out: ResearchWinningAppearance[] = [];
@@ -361,10 +358,11 @@ function dedupeAppearances(appearances: ResearchWinningAppearance[]): ResearchWi
   return out;
 }
 
-/** Exact-query winners per priority query: THREE, the floor a comparison needs, and a
- *  bounded reserve that cannot crowd out the global picture. Reading two meant no
- *  investigation could clear its own bar: unready by arithmetic, not by evidence. */
-const PRIORITY_WINNERS_PER_QUERY = 3;
+/** Exact-query winners per priority query: THREE DISTINCT PUBLISHERS, the floor a comparison needs, plus
+ *  TWO deeper distinct publishers held as standbys. Reserving by URL let one publisher hold two of the
+ *  three slots (two wikipedia.org pages are ONE source), so a topic could never clear its own
+ *  three-publisher bar by arithmetic. The reserve counts against topN; the standby bench is bounded on its own. */
+const PRIORITY_WINNERS_PER_QUERY = 3, PRIORITY_STANDBYS_PER_QUERY = 2;
 
 /** The best organic rank this candidate holds for ONE exact query (null = none).
  *  Organic means a real page I can go and read, which is what a comparison needs. */
@@ -378,18 +376,14 @@ function organicRankFor(c: WinningCandidate, key: string): number | null {
   return best;
 }
 
-/** Aggregate winning pages from a flat appearance stream, each appearance carrying
- *  its ACTUAL source (query or real prompt id + text, engine, rank). AI surfaces
- *  weight double; organic top-10 single; the account's own domain is excluded. A
- *  page's engines/prompts derive from ITS OWN appearances only.
+/** Aggregate winning pages from a flat appearance stream, each appearance carrying its ACTUAL source
+ *  (query or real prompt id + text, engine, rank). AI surfaces weight double; organic top-10 single; the
+ *  account's own domain is excluded. A page's engines/prompts derive from ITS OWN appearances only.
  *
- *  Ranking is HYBRID, not global. A purely global weight order once returned ten
- *  winners for an account and not one of them came from the query under
- *  investigation: the AI-cited pages outweighed every organic result, so the
- *  question that actually needed competitors got zero. Now each priority query
- *  banks its own top few fetchable organic winners FIRST, in the caller's own
- *  ranking, and the global order fills whatever capacity is left. The TOTAL is
- *  unchanged, so this buys no extra fetch. Pure. */
+ *  Ranking is HYBRID, not global: a purely global weight order returned ten winners of which not one came
+ *  from the query under investigation. Each priority query banks its own top DISTINCT PUBLISHERS first, in
+ *  real organic rank order, then its standbys, then the global order fills what is left. The TOTAL is
+ *  unchanged, so this buys no extra page work. Standbys are returned LAST, marked. Pure. */
 export function rankWinningPages(
   appearances: ResearchWinningAppearance[],
   ownDomain: string | null,
@@ -417,26 +411,34 @@ export function rankWinningPages(
   }
   if (topN <= 0) return [];
   const ranked = [...byUrl.values()].sort((x, y) => y.weight - x.weight || x.url.localeCompare(y.url));
-  const picked: WinningCandidate[] = [];
+  const picked: WinningCandidate[] = [], standbys: WinningCandidate[] = [];
   const taken = new Set<string>(); // canonical identity: one page is never two winners
-  const claim = (c: WinningCandidate): void => {
+  // STANDBYS ARE A SUBSTITUTE BENCH, NOT PART OF THE READ BUDGET. Counting them against topN
+  // spent 6 of 15 slots on pages that are only read when a preferred one turns out unreadable,
+  // so the global fill got nothing and every topic outside the frozen plan banked zero winners.
+  // The bench is bounded on its own and the picked total is exactly what it was before.
+  const claim = (c: WinningCandidate, into: WinningCandidate[]): void => {
     const id = canonicalUrlKey(c.url);
-    if (picked.length >= topN || taken.has(id)) return;
+    if (taken.has(id) || (into === picked ? picked.length >= topN : standbys.length >= MAX_PRIORITY_QUERIES * PRIORITY_STANDBYS_PER_QUERY)) return;
     taken.add(id);
-    picked.push(c);
+    into.push(c);
   };
   for (const q of (priorityQueries ?? []).slice(0, MAX_PRIORITY_QUERIES)) {
     const key = canonicalQueryKey(normalizeKeyword(q));
     if (!key) continue;
-    ranked
+    const seen = new Set<string>();
+    const byPublisher = ranked
       .map((c) => ({ c, rank: organicRankFor(c, key) }))
-      // A social or forum profile that happens to rank is not a page to learn from, and
-      // the priority reserve used to promote three of them past every real competitor.
+      // A social or forum profile that happens to rank is not a page to learn from.
       .filter((r): r is { c: WinningCandidate; rank: number } => r.rank != null && !isNoiseDomain(r.c.url) && !taken.has(canonicalUrlKey(r.c.url)))
       .sort((a, b) => a.rank - b.rank || a.c.url.localeCompare(b.c.url))
-      .slice(0, PRIORITY_WINNERS_PER_QUERY)
-      .forEach((r) => claim(r.c));
+      // ONE reserve slot per publisher, best organic rank first: a second page from a source I already
+      // hold teaches me nothing new and used to eat the slot the third opinion needed.
+      .filter((r) => { const p = publisherHost(r.c.url) || r.c.domain; return seen.has(p) ? false : !!seen.add(p); });
+    byPublisher.slice(0, PRIORITY_WINNERS_PER_QUERY).forEach((r) => claim(r.c, picked));
+    byPublisher.slice(PRIORITY_WINNERS_PER_QUERY, PRIORITY_WINNERS_PER_QUERY + PRIORITY_STANDBYS_PER_QUERY)
+      .forEach((r) => claim({ ...r.c, standby: true }, standbys));
   }
-  for (const c of ranked) claim(c);
-  return picked;
+  for (const c of ranked) claim(c, picked);
+  return [...picked, ...standbys];
 }

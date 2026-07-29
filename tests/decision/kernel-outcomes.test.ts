@@ -5,6 +5,7 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), failWrites: false, bundleTarget: null as string | null }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
+vi.mock("@/domains/evidence/pages/owned-context", () => ({ loadOwnedPageBodies: async (_t: string, urls: string[]) => new Map(urls.map((u) => [u, { url: u, title: "T", metaDescription: null, openingSample: "How a nowruz table is set.", cardTexts: [], entityNames: [], internalLinks: [], fetchedAt: "2026-07-25T00:00:00.000Z" }])) }));
 // The REAL fingerprint is under test; only the two I/O calls are seams. The deep bundle has its own suite, so here it only reports WHICH page it was aimed at.
 vi.mock("@/domains/decision/proposal-store", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision/proposal-store")>("@/domains/decision/proposal-store")), loadChangeProposals: async () => env.store,
   saveChangeProposal: async (p: ChangeProposal) => { env.saved.push(p); if (env.failWrites) return "failed"; env.store.set(p.id, p); return "saved"; } }));
@@ -21,7 +22,7 @@ const queued = async (tenantId: string) => focusQueries(await chooseInvestigatio
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { ownedCandidatesFor } from "@/domains/decision/owned-coverage"; import { askIdentity } from "@/domains/evidence/page-intersection";
 import { buildTopicInvestigations } from "@/domains/evidence/topic-investigation";
 import { readCoverage, rankInvestigations } from "@/domains/decision/coverage-pass"; import { loadProposalQueue } from "@/domains/decision/load-proposals";
-import { emptyResearchEvidence, type FunnelResearchEvidence, type ResearchPageComparison } from "@/domains/evidence/funnel/research-evidence";
+import { emptyResearchEvidence, type FunnelResearchEvidence, type ResearchPageComparison, type WinnerReadOutcome } from "@/domains/evidence/funnel/research-evidence";
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot";
 import { serializeChangeProposal, deserializeChangeProposal, type EvidenceInput, type ChangeProposal } from "@/domains/decision/contracts";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
@@ -200,14 +201,18 @@ describe("the pass says what it is investigating without turning any of it into 
     expect([blind.decided, blind.needs[0]!.requirement]).toEqual([null, "page_intersection"]);
     const quiet = await readCoverage(snap([GAP], READY({ topicKey: "inv_nobody" }), DEMAND), "fixture-tenant", { basis: "basis_today" }); // asked for no research: none is queued, comparison included
     expect(quiet.needs).toEqual([]); });
+  it("keeps ONE identity for a case when a fresh look lands, so a plan frozen mid-run can still reconfirm its own topic", () => {
+    const aiObservations = [{ promptId: "p9", promptText: HAFT, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [], fanOutQueries: [], observedAt: LOOKED_AT }];
+    const at = (r: FunnelResearchEvidence) => buildTopicInvestigations(snap([GAP], { ...r, aiObservations }, DEMAND))[0]!; // the case before I looked at Google at all, then after I bought the very look it was owed
+    const one = at(emptyResearchEvidence()), two = at(GUIDED); // before the look, and after it
+    expect([two.key, two.queries[0] === one.queries[0]]).toEqual([one.key, true]); }); // the case is never renamed when the look it asked for lands
   it("buys a comparison only for a topic THIS run froze, under the basis it froze it under, even when the plan holds several", async () => {
     const key = keyOf(READY()); reset(snap([GAP], READY({ topicKey: "inv_bought_for_nobody" }), DEMAND)); // the comparison is still owed, and the plan is up to three topics, not one
     const plan = await chooseInvestigation("fixture-tenant", "basis_today"); expect(plan!.topics.length).toBeGreaterThan(0);
     const mixed = { basis: "basis_today", topics: [{ topicKey: "inv_not_this_run", query: "something else", requirement: "exact_search" }, ...plan!.topics] };
-    expect((await comparisonForFocus("fixture-tenant", mixed, "basis_today"))?.topicKey).toBe(key); // the earned one, picked out of a plan holding a stranger
-    const stranger = { basis: "basis_today", topics: mixed.topics.slice(0, 1) }; // a plan this run really did freeze, that simply never earned this comparison
-    expect(await comparisonForFocus("fixture-tenant", stranger, "basis_today")).toBeNull();
-    expect(await comparisonForFocus("fixture-tenant", mixed, "basis_moved_on")).toBeNull(); }); }); // frozen under a basis the account has since left // ── a subject I own no page for becomes ONE researched page ───────────────────
+    expect([(await comparisonForFocus("fixture-tenant", mixed, "basis_today"))?.topicKey, // the earned one, picked out of a plan holding a stranger
+      await comparisonForFocus("fixture-tenant", { basis: "basis_today", topics: mixed.topics.slice(0, 1) }, "basis_today"), // a plan this run froze that never earned this comparison
+      await comparisonForFocus("fixture-tenant", mixed, "basis_moved_on")]).toEqual([key, null, null]); }); }); // and one frozen under a basis the account has left
 /** A SECOND topic that outranks the one holding the comparison and that no purchase can move: bigger demand,
  *  results I have read, and a page of my own that could already be the answer whose words I have never held. */
 const PARKED = "nowruz table settings"; const PARK_RIVAL = (n: number) => `https://p${n}.example/a`; const UNREAD_URL = "fixture-outdoors.example/nowruz-table";
@@ -226,12 +231,12 @@ const BRIEF = { proposedTitle: "The haft seen table, and what belongs on it", me
   internalLinks: [{ url: GAP_URL, anchor: "the wider holiday" }], faqQuestions: [], headKeys: ["verdict"] };
 const briefSeam = (): { complete: CompleteFn; kinds: string[] } => { const kinds: string[] = []; return { kinds, complete: async ({ kind }) => { kinds.push(kind); return { value: (kind === "new_page_brief" ? BRIEF : VALID_ATOMIC_EDIT) as never }; } }; };
 describe("a subject I own no page for becomes ONE researched page, and nothing else does", () => {
-  it("judges the topic that OWNS the comparison, even while a topic that outranks it is parked and can never move", async () => {
+  it("reads a page of mine whose words are already stored, decides again in the SAME pass, and still judges the topic that OWNS the comparison", async () => {
     const research = withParked(READY({ topicKey: keyOf(READY()) })); const world = snap([GAP, UNREAD], research, [...DEMAND, ...PARKED_DEMAND]);
     const order = buildTopicInvestigations(world); const parked = order.find((i) => i.label === PARKED)!;
     const read = await readCoverage(world, "fixture-tenant", { basis: "basis_today", maxQueries: 3 });
-    expect(rankInvestigations(order)[0]!.key).toBe(parked.key); // the parked topic ranks first and no purchase can move it
-    expect(read.needs.some((n) => n.topicKey === parked.key)).toBe(false); // so nothing is bought for it
+    expect(rankInvestigations(order)[0]!.key).toBe(parked.key); // it ranks first, and its own page sat unread while its words were already on file
+    expect(read.needs.find((n) => n.topicKey === parked.key)?.requirement).toBe("page_intersection"); // one bounded read moved it on without sending the operator away
     expect([read.decided!.investigation.label, read.decided!.decision.verdict]).toEqual([HAFT, "create_new"]); }); // and the comparison I paid for is read for the topic that owns it
   it("builds exactly ONE new page from the earned verdict, and it reaches Ready as current work", async () => {
     reset(snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND)); const seam = briefSeam();
@@ -250,13 +255,14 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     const research = READY({ topicKey: keyOf(READY()), comparison: comparisonOf(rows) }); reset(snap([GAP], research, DEMAND)); const seam = briefSeam();
     const res = await produceProposalsForTenant("fixture-tenant", { complete: seam.complete, now: NOW });
     expect(res.coverage!.decision.verdict).toBe(verdict); expect(seam.kinds).not.toContain("new_page_brief"); expect(res.proposals.every((p) => p.kind !== "new_page")).toBe(true); });
+  it("proves the gap from addresses, asks for the bodies it can still read, and parks for good when no winner will let me read one", async () => {
+    const thin = READY({ topicKey: keyOf(READY()) }); const blind = (readOutcome: WinnerReadOutcome | null) => snap([GAP], { ...thin, winningPages: thin.winningPages.map((w) => ({ ...w, extract: null, readOutcome })) }, DEMAND); reset(blind(null)); const asks = await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW });
+    reset(blind({ state: "robots_blocked", attemptedAt: LOOKED_AT, retryAfter: "2099-01-01T00:00:00.000Z" })); const shut = await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW }); reset(blind({ state: "temporarily_unavailable", attemptedAt: LOOKED_AT, retryAfter: "1999-01-01T00:00:00.000Z" })); const due = await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW });
+    expect([asks.coverage, due.coverage, shut.coverage!.decision.verdict, shut.proposals.some((p) => p.kind === "new_page")]).toEqual([null, null, "do_nothing", false]); }); // ask while a read is left, park when every winner has refused me
   it("throws away a brief that names a site, a page, a question or a figure nobody gave it", async () => {
-    const strays = [{ proposedTitle: "What r9.example says about the haft seen table" }, { internalLinks: [{ url: "fixture-outdoors.example/invented", anchor: "x" }] },
-      { faqQuestions: ["Where can I buy a haft seen table set"] }, { sections: BRIEF.sections.map((s) => ({ ...s, evidenceKeys: ["made-up"] })) },
-      { factRequirements: ["Check this against nowruz.ai before it goes out."] }, // a suffix the old fourteen-name list had never heard of
-      { sourceRequirements: ["Check every item name against persianculture.wiki first."] }, // and one the FINAL validator had never heard of either
-      { openingAnswer: `${BRIEF.openingAnswer} Nine in ten households set one out.` }, // a fabricated proportion that carries no digit at all
-      { metaDescription: `${BRIEF.metaDescription} I will put this page live for you once you accept.` }, // a promise no draft may make
+    const strays = [{ proposedTitle: "What r9.example says about the haft seen table" }, { internalLinks: [{ url: "fixture-outdoors.example/invented", anchor: "x" }] }, { faqQuestions: ["Where can I buy a haft seen table set"] }, { sections: BRIEF.sections.map((s) => ({ ...s, evidenceKeys: ["made-up"] })) },
+      { factRequirements: ["Check this against nowruz.ai before it goes out."] }, { sourceRequirements: ["Check every item name against persianculture.wiki first."] }, // suffixes neither net had heard of
+      { openingAnswer: `${BRIEF.openingAnswer} Nine in ten households set one out.` }, { metaDescription: `${BRIEF.metaDescription} I will put this page live for you once you accept.` }, // a proportion with no digit in it, and a promise no draft may make
       { openingAnswer: `${BRIEF.openingAnswer} Around 91% of households set one out.` }, // a figure the evidence never supplied
       { sourceRequirements: ["Cite the 4,500 searches a month this phrase gets."] }, // and one smuggled in as a requirement rather than a claim
       { headKeys: ["made-up"] }];
@@ -265,16 +271,13 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
       const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async ({ kind }) => ({ value: (kind === "new_page_brief" ? { ...BRIEF, ...stray } : VALID_ATOMIC_EDIT) as never }) });
       expect(res.proposals.every((p) => p.kind !== "new_page")).toBe(true); expect(env.saved.every((p) => p.kind !== "new_page")).toBe(true); }
     reset(snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND)); // a question I DID supply survives even though it names a site, because I am the one who showed it
-    const asked = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async ({ kind }) => ({ value: (kind === "new_page_brief"
-      ? { ...BRIEF, faqQuestions: ["haft seen table on wikipedia.org"] } : VALID_ATOMIC_EDIT) as never }) });
-    expect(asked.proposals.some((p) => p.kind === "new_page")).toBe(true);
+    expect((await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async ({ kind }) => ({ value: (kind === "new_page_brief" ? { ...BRIEF, faqQuestions: ["haft seen table on wikipedia.org"] } : VALID_ATOMIC_EDIT) as never }) })).proposals.some((p) => p.kind === "new_page")).toBe(true);
     reset(snap([GAP], READY({ topicKey: keyOf(READY()), comparison: comparisonOf([["k1", [1, 2, 3]], ["k2", [2, 3]], ["k3", [3, 4]], ["k4", [2, 3]]]) }), DEMAND));
     const partly = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: briefSeam().complete }); // the SECOND branch that earns a page: I reach some of this, too little to build on
     const obj = partly.proposals.find((p) => p.kind === "new_page")?.bundle?.objective ?? "";
     expect(obj.includes("none of your own pages")).toBe(false); // never the claim and its contradiction on one screen
     let fig = ""; reset(snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND)); // and the figure check is not "no digits allowed": one I DID supply survives
-    const ok = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async ({ kind, user }) => {
-      if (kind === "new_page_brief") fig = (user.match(/\d[\d,]*/) ?? [""])[0];
+    const ok = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async ({ kind, user }) => { if (kind === "new_page_brief") fig = (user.match(/\d[\d,]*/) ?? [""])[0];
       return { value: (kind === "new_page_brief" ? { ...BRIEF, openingAnswer: `${BRIEF.openingAnswer} I count ${fig} of them.` } : VALID_ATOMIC_EDIT) as never }; } });
     expect([fig.length > 0, ok.proposals.some((p) => p.kind === "new_page")]).toEqual([true, true]);
     // A row that looks current but carries none of that evidence is an older idea, and it stays off the queue.

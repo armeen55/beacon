@@ -34,7 +34,10 @@ const KIND_PILL: Record<TodayCommandKind, { intent: PillIntent; label: string }>
   background_recovery: { intent: "measuring", label: "Working in background" },
   respond_to_loss: { intent: "attention", label: "Losing clicks" },
   ship_move: { intent: "neutral", label: "Do this next" },
-  observe: { intent: "measuring", label: "All clear" },
+  // NEVER "All clear". This chip read all clear on a day the very same screen reported pages
+  // losing clicks and topics I had not finished checking. It now says only what is true of
+  // every observe day: I am holding nothing back, and I have nothing for you to ship yet.
+  observe: { intent: "measuring", label: "Nothing to ship yet" },
 };
 
 const KIND_LABEL: Record<TodayCommandKind, string> = {
@@ -42,7 +45,7 @@ const KIND_LABEL: Record<TodayCommandKind, string> = {
   background_recovery: "Background work is continuing",
   respond_to_loss: "Today's biggest problem",
   ship_move: "Today's move",
-  observe: "Nothing needs a decision",
+  observe: "Nothing to ship yet",
 };
 
 export function TodayCommandCard({ command }: { command: TodayCommand }) {

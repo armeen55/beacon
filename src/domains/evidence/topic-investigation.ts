@@ -79,8 +79,9 @@ type FanOutRef = {
 };
 
 export type TopicInvestigation = {
-  /** Stable while the same evidence is grouped; it moves only when what I am
-   *  investigating moves. */
+  /** THE CASE, not the packet: one identity per subject, frozen on the case's own anchor
+   *  search, so grouping, labels and packet composition may all move without renaming an
+   *  open case. It moves only when what I am investigating moves. */
   key: string;
   label: string;
   demandBasis: "search" | "ai" | "mixed" | "none";
@@ -419,9 +420,21 @@ function assemble(
   // Representative queries: what was searched, in evidence order (priced demand,
   // then the exact looks, then the engines' own fan-outs when nothing else exists).
   const queries = [...new Set([...keywords.map((k) => k.query), ...exactSerps.map((s) => s.query), ...fanOuts.map((f) => f.query)])];
-  const key = `inv_${createHash("sha256").update([...new Set([...serpKeys, ...promptIds])].sort().join("|")).digest("hex").slice(0, 12)}`;
+  // THE ANCHOR SEARCH NAMES THE CASE. Keying on which result pages and prompts happen to be
+  // members renamed an open case the moment a run bought the very look it had asked for, which
+  // stranded the frozen plan mid-run and left it unable to reconfirm its own topic. Demand does
+  // not move when I buy a look, so the case's anchor search is the identity and membership is
+  // not.
+  const id = (s: string): string => `inv_${createHash("sha256").update(s).digest("hex").slice(0, 12)}`;
+  // THE ANCHOR IS THE CASE'S SMALLEST QUERY, NOT ITS BIGGEST. Keying on the top-volume keyword
+  // moved the identity whenever the DEMAND ORDER moved: a second keyword getting priced, or the
+  // anchor losing its own volume, renamed an open case as surely as the packet hash did. The
+  // sorted union of everything this case is about does not move when a look lands for a query
+  // the case already owned, which is the exact renaming that stranded a frozen plan mid-run.
+  const anchor = [...queries].map((q) => canonicalQueryKey(q)).filter(Boolean).sort()[0]
+    ?? [...promptIds].sort()[0] ?? label;
   return {
-    key,
+    key: id(canonicalQueryKey(anchor) || norm(anchor)),
     label: labelOf(label),
     demandBasis,
     groupedBy: [...new Set(idx.flatMap((i) => reasons[i]))],

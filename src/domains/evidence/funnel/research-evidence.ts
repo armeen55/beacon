@@ -1,29 +1,23 @@
 /**
- * research-evidence (integrity closure, Agent B) - the funnel's snapshot-facing
- * evidence contract. PURE types (no I/O, no server-only) so both the pure
- * EvidenceSnapshot kernel and the server-only funnel projector share one shape:
- * retained keyword metrics WITH intent, exact AI observations with tri-state
- * citations, per-query SERP evidence, winning pages with TRUE per-page
- * provenance, and the research receipt.
+ * research-evidence (integrity closure, Agent B) - the funnel's snapshot-facing evidence contract. PURE
+ * types (no I/O, no server-only) so both the pure EvidenceSnapshot kernel and the server-only funnel
+ * projector share one shape: retained keyword metrics WITH intent, exact AI observations with tri-state
+ * citations, per-query SERP evidence, winning pages with TRUE per-page provenance, and the receipt.
  */
 
 import type { ParsedPageIntersection } from "../page-intersection";
 
 export type ResearchEngine = "chatgpt" | "gemini" | "claude" | "perplexity";
 
-/** Provenance of an AI observation (frozen, Slice 6I). consumer_search = the
- *  ChatGPT scraper look at the consumer search experience: citation-grade
- *  evidence for citations, brands, sources, and fan-outs, and THE canonical
- *  ChatGPT visibility signal. standardized_response = the llm_responses ask:
- *  natural/base response visibility, canonical for gemini/claude/perplexity but
- *  AUXILIARY research for chatgpt (never engine coverage, never a substitute
- *  for missing consumer visibility). The two are never blended or collapsed. */
+/** Provenance of an AI observation (frozen, Slice 6I). consumer_search = the ChatGPT scraper look at the
+ *  consumer search experience: citation-grade evidence and THE canonical ChatGPT visibility signal.
+ *  standardized_response = the llm_responses ask, canonical for gemini/claude/perplexity and AUXILIARY
+ *  research for chatgpt (never engine coverage). The two are never blended or collapsed. */
 export type ObservationMode = "consumer_search" | "standardized_response";
 
-/** HOW a keyword was found. ONE canonical vocabulary shared by the funnel's working
- *  state and this projection, so nothing has to guess later: "site" and "ranked" are
- *  whole-site pulls, "related" and "suggestion" and "ideas" come from a confirmed
- *  theme, "gsc" is my own Search Console, "profile" is my own pages' words. */
+/** HOW a keyword was found. ONE canonical vocabulary shared by the funnel's working state and this
+ *  projection, so nothing has to guess later: "site" and "ranked" are whole-site pulls, "related",
+ *  "suggestion" and "ideas" come from a confirmed theme, "gsc" is Search Console, "profile" my own pages. */
 export type KeywordDiscoveryRoute = "site" | "ranked" | "related" | "suggestion" | "gsc" | "profile" | "ideas";
 
 type ResearchKeyword = {
@@ -43,8 +37,7 @@ type ResearchKeyword = {
    *  (a whole-site pull, my own pages, my own Search Console). */
   seed?: string | null;
   /** For a keyword the account ALREADY ranks for: the page that actually ranks and its ORGANIC position
-   *  (rank_group; rank_absolute counts ads and packs). Both were sent on every ranked row and thrown
-   *  away here, so a "ranked" keyword could never NAME its own page. Absent on every other route. */
+   *  (rank_group; rank_absolute counts ads and packs). Absent on every other route. */
   rankedUrl?: string | null; rankedRank?: number | null;
 };
 
@@ -105,12 +98,10 @@ export type ResearchWinningAppearance = {
   viaUrl?: string | null;
 };
 
-/** What a winning page is actually MADE OF, from the one fetch that was already
- *  paid for. A title, a word count and a heading list cannot tell anyone why a
- *  page wins, so the same extraction the fetch already computes is carried
- *  through instead of being thrown away. Every field below the original five is
- *  OPTIONAL: an extract persisted before they existed still deserializes and
- *  simply reads as "not captured". No second fetch, no page HTML, no new call. */
+/** What a winning page is actually MADE OF, from the one read that was already paid for: the same
+ *  extraction the read already computes, carried through instead of thrown away. Every field below the
+ *  original five is OPTIONAL, so an extract persisted before they existed still deserializes and reads as
+ *  "not captured". THE one readable truth: a non-null extract at current freshness, and nothing else. */
 export type ResearchPageExtract = {
   title: string | null;
   h1: string | null;
@@ -173,6 +164,12 @@ export function pageExtractFromRecord(rec: Record<string, unknown>): ResearchPag
   };
 }
 
+/** Why a winner's BODY is not in hand, and the earliest I may spend a read slot on that URL again. A read
+ *  outcome NEVER makes a page readable (only `extract` does that) and it never removes the ranked URL:
+ *  robots_blocked = the publisher said no and is never sent through any provider; temporarily_unavailable
+ *  = the site did not answer me; provider_unavailable = my one paid read of the body did not come back. */
+export type WinnerReadOutcome = { state: "robots_blocked" | "temporarily_unavailable" | "provider_unavailable"; attemptedAt: string; retryAfter: string };
+
 type ResearchWinningPage = {
   url: string;
   domain: string;
@@ -182,18 +179,19 @@ type ResearchWinningPage = {
   examplePrompts: string[];
   appearances: ResearchWinningAppearance[];
   extract: ResearchPageExtract | null;
+  /** Optional: absent on a row stored before read memory existed, and read as "never tried". */
+  readOutcome?: WinnerReadOutcome | null;
 };
 
 /** Why a bought page-by-page comparison is NOT in hand. Every one is a call that produced
  *  no evidence, so not one of them may ever harden into "build a new page". */
 export type IntersectionUnavailable = "blocked" | "capped" | "waiting" | "quarantined" | "ambiguous" | "failed";
 
-/** ONE page-by-page comparison, stored beside the winners it compared and projected UNCHANGED (one
- *  shape, never a translation). Its IDENTITY is four facts, so a later pass can tell "this answers THIS
- *  topic and THIS ask" from somebody else's answer: the research basis (the row carrying it is
- *  basis-scoped), the topic, the NORMALIZED ask (a reordered page set or an omitted default is the SAME
- *  identity, never a second buy) and when it landed with the money core's receipt for the call that paid.
- *  A null `comparison` beside an `unavailable` reason is an honest gap and never reads as a finding. */
+/** ONE page-by-page comparison, stored beside the winners it compared and projected UNCHANGED. Its
+ *  IDENTITY is four facts, so a later pass can tell this answer from somebody else's: the basis (the row
+ *  is basis-scoped), the topic, the NORMALIZED ask (a reordered set or an omitted default is the SAME
+ *  identity, never a second buy) and when it landed with the money core's receipt. A null `comparison`
+ *  beside an `unavailable` reason is an honest gap and never reads as a finding. */
 export type ResearchPageComparison = {
   topicKey: string;
   /** Hash of the NORMALIZED ask; the pages and excludes it stands for sit beside it. */

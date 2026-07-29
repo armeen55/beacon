@@ -4,16 +4,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 const sb = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], fails: false, tenant: "", urls: [] as string[] })); // the ONE page_snapshots read the body reader makes
 vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...((await orig()) as object), getSupabaseAdmin: () => ({ from: () => ({ select: () => ({ eq: (_c: string, t: string) => { sb.tenant = t; return { in: (_u: string, urls: string[]) => { sb.urls = urls; return { order: () => ({ limit: async () => (sb.fails ? { data: null, error: { message: "down" } } : { data: sb.rows, error: null }) }) }; } }; } }) }) }) }));
-import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
-import { emptyBusinessProfile, type Account, type BusinessProfile, type ProfileSection } from "@/domains/account";
+import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context"; import { emptyBusinessProfile, type Account, type BusinessProfile, type ProfileSection } from "@/domains/account";
 import type { CachedCallResult, CapabilityKey, FailureDisposition, ParsedAiAnswer, ParsedKeywordItem, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
-import { keywordDiscoveryUnit } from "@/domains/evidence/funnel/discovery";
-import { promptObservationUnit, serpAnalysisUnit, winningPagesUnit } from "@/domains/evidence/funnel/observe";
-import { retainDiverse, selectSerpAgenda } from "@/domains/evidence/funnel/normalize";
-import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
+import { keywordDiscoveryUnit } from "@/domains/evidence/funnel/discovery"; import { promptObservationUnit, serpAnalysisUnit, winningPagesUnit } from "@/domains/evidence/funnel/observe";
+import { retainDiverse, selectSerpAgenda } from "@/domains/evidence/funnel/normalize"; import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { emptyFunnelState, MAX_RETAINED, type FunnelKeyword, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
-import { CONFLICT_DETAIL, type FunnelDeps } from "@/domains/evidence/funnel/shared";
-import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
+import { CONFLICT_DETAIL, type FunnelDeps } from "@/domains/evidence/funnel/shared"; import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 const BASIS = "basis_aaa"; const NOW = 1_700_000_000_000; // a fixed clock far past the 7-day freshness window
 const WEEKS_AGO = new Date(NOW - 30 * 24 * 3600 * 1000).toISOString(); const ENG = ["chatgpt", "gemini", "claude", "perplexity"] as const;
 const cur = (basis: string | null = BASIS) => (basis ? { basis } : {}); const confirmed = <V>(value: V): ProfileSection<V> => ({ value, origin: "operator_confirmed", confidence: null, sourceUrls: [] });
@@ -70,8 +66,7 @@ describe("research funnel - prompt observation honesty + history identity", () =
     const r1 = await promptObservationUnit(d)("tp", { basis: BASIS, runId: "run-1", cycle: "cycle-1" }, 60_000); expect(r1.status).toBe("done"); expect(rows.every((r) => r.run_id === "run-1")).toBe(true); // never a manufactured id
     const c1 = store.peek("tp", BASIS)!; expect(c1.cycle).toMatchObject({ runId: "run-1", cycleKey: "cycle-1" }); expect(c1.cycle.spentUsd).toBeCloseTo(0.1, 5); // 10 pairs at one cent
     const r2 = await promptObservationUnit(d)("tp", { basis: BASIS, runId: "run-2", cycle: "cycle-2" }, 60_000); const c2 = store.peek("tp", BASIS)!; expect(r2.status).toBe("done"); expect(r2.progress.spendUsd).toBe(0);
-    expect(c2.cycle).toMatchObject({ runId: "run-2", spentUsd: 0, cacheHits: 0 }); // a new run gets a FRESH receipt
-    expect(c2.ledger.spentUsd).toBeCloseTo(0.1, 5); }); // the lifetime total is still true
+    expect(c2.cycle).toMatchObject({ runId: "run-2", spentUsd: 0, cacheHits: 0 }); expect(c2.ledger.spentUsd).toBeCloseTo(0.1, 5); }); // a new run gets a FRESH receipt; the lifetime total is still true
 });
 describe("research funnel - current-set truth + the disposition ladder", () => {
   const prompts = [{ id: "p1", text: "best persian restaurant" }]; const donePair = (promptId: string, engine: FunnelPair["engine"], observedAt: string): FunnelPair => ({ promptId, engine, cacheKey: null, status: "done", observedAt, citationsObserved: true, citations: [] });
@@ -134,9 +129,8 @@ describe("research funnel - current-set truth + the disposition ladder", () => {
   });
 });
 describe("research funnel - SERP current set, freshness, and recovery", () => {
-  const retainedState = (keywords: string[]): FunnelState => { const s = emptyFunnelState("ts", BASIS);
+  const retainedState = (keywords: string[]): FunnelState => { const s = emptyFunnelState("ts", BASIS); // the agenda reads the profile and my own page queries; both injected, so nothing reaches the network
     s.discovery.retained = keywords.map((keyword, i) => ({ keyword, searchVolume: 90 - i, competition: 0.3, difficulty: null, intent: null, discoveredVia: "site" as const })); return s; };
-  // The agenda reads the profile and my own page queries; both are injected here so nothing reaches the network.
   const serpBase = { parse, now: () => NOW, loadProfile: async () => emptyBusinessProfile("ts"), loadPageQueries: async () => [] } satisfies FunnelDeps;
   it("prunes obsolete queries, re-observes only a week-old look, resumes via collect, and never reposts a live key", async () => {
     const seed = retainedState(["a query", "b query"]); seed.serps.queries = [{ query: "dropped query", cacheKey: null, status: "done", observedAt: new Date(NOW).toISOString() }, { query: "a query", cacheKey: null, status: "done", observedAt: WEEKS_AGO }, { query: "b query", cacheKey: null, status: "done", observedAt: new Date(NOW - 3_600_000).toISOString() }];
@@ -161,8 +155,7 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
   });
   it("a blocked refusal outranks the done arithmetic and stops the batch; a quarantined one only names the gap", async () => {
     const seed = retainedState(["a query", "b query"]); const fresh = new Date(NOW).toISOString(); seed.serps.queries = [{ query: "a query", cacheKey: null, status: "done", observedAt: fresh }, { query: "b query", cacheKey: null, status: "done", observedAt: fresh }];
-    seed.serps.analyzed = 2; // both looks already landed: analyzed + unavailable would otherwise satisfy done
-    const run = async (disposition: FailureDisposition) => { const s = memStore(seed); let calls = 0;
+    seed.serps.analyzed = 2; const run = async (disposition: FailureDisposition) => { const s = memStore(seed); let calls = 0; // both looks landed: analyzed + unavailable would otherwise satisfy done
       const out = await serpAnalysisUnit({ ...s.deps, ...serpBase, callProvider: async () => { calls += 1; return err(disposition); } })("ts", cur(), 60_000); return { out, calls, rows: s.peek("ts", BASIS)!.serps.queries }; };
     const b = await run("blocked"); expect([b.out.status, b.out.detail, b.calls]).toEqual(["failed", "the provider could not finish it", 1]); // every look is in and the run STILL pauses for review
     expect(b.rows.every((r) => r.status === "done" && !r.aiModeFailed)).toBe(true); // a block never turns into unavailable coverage
@@ -173,27 +166,35 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     s.serps.queries = [{ query: "q1", cacheKey: null, status: "done", observedAt: new Date(NOW).toISOString(), organic: [{ rank: 1, url: "https://own.com/p", domain: "own.com", title: null }, { rank: 2, url: "https://a.com/x", domain: "a.com", title: "A" }], aiOverview: [{ url: "https://b.com/y", domain: "b.com", title: null }] }];
     const cite = { url: "https://b.com/y", domain: "b.com", title: null }; // the SAME citation seen through both ChatGPT modes
     s.prompts.pairs = (["standardized_response", "consumer_search"] as const).map((mode) => ({ promptId: "pr", promptText: "best persian restaurant", engine: "chatgpt" as const, mode, cacheKey: null, status: "done" as const, observedAt: new Date(NOW).toISOString(), modelServed: "gpt-4o", citationsObserved: true, citations: [cite] }));
-    const store = memStore(s); let fetchCalls = 0;
-    const out = await winningPagesUnit({ ...store.deps, loadProfile: async () => emptyBusinessProfile("tw"), getAccount: async () => ({ domain: "own.com" } as Account), now: () => NOW,
+    const store = memStore(s); let fetchCalls = 0; const out = await winningPagesUnit({ ...store.deps, loadProfile: async () => emptyBusinessProfile("tw"), getAccount: async () => ({ domain: "own.com" } as Account), now: () => NOW,
       readPageExtract: async () => ({ extract: { title: "CACHED", h1: null, wordCount: 5, headings: [], faqCount: 0 }, contentHash: "h", fetchedAt: "x" }),
-      fetchPage: (async () => { fetchCalls += 1; return { ok: false }; }) as unknown as FunnelDeps["fetchPage"] })("tw", cur(), 60_000); expect(out.status).toBe("advanced"); expect(fetchCalls).toBe(0); // the winners are in and the run is handed back; cached extract reused before any fetch
+      fetchPage: (async () => { fetchCalls += 1; return { ok: false, reason: "robots_blocked" }; }) as unknown as FunnelDeps["fetchPage"] })("tw", cur(), 60_000); expect(out.status).toBe("advanced"); expect(fetchCalls).toBe(0); // the winners are in and the run is handed back; cached extract reused before any fetch
     const win = store.peek("tw", BASIS)!.winningPages; expect(win.map((w) => w.domain)).not.toContain("own.com"); expect(win[0]!.domain).toBe("b.com"); expect(win[0]!.engines).toEqual(["chatgpt"]); // AI-cited (x2) outweighs organic; its OWN appearances only
     expect(win[0]!.examplePrompts).toEqual(["best persian restaurant"]); expect(win[0]!.extract!.title).toBe("CACHED"); // real text, never the id
     const answers = win[0]!.appearances.filter((a) => a.kind === "ai_answer"); expect(answers.map((a) => a.observationMode)).toEqual(["consumer_search"]); // one citation, two modes: credited ONCE to the consumer look, never double-counted
     expect([win[0]!.extract!.openingSample, win[0]!.extract!.hasList]).toEqual([null, undefined]); // an extract persisted before the richer fields still loads: absent, never a fake zero
   });
-  it("banks each priority query its OWN fetched winners ahead of the global order, at the same bounded total", async () => { const s = emptyFunnelState("tw", BASIS); const at = new Date(NOW).toISOString();
-    s.serps.queries = [{ query: "iranian actors", cacheKey: null, status: "done", observedAt: at, organic: Array.from({ length: 3 }, (_, i) => ({ rank: i + 1, url: `https://o${i}.com/p`, domain: `o${i}.com`, title: null })) }];
+  it("reserves each priority query THREE DISTINCT PUBLISHERS, holds a deeper one in standby, and keeps the same bounded total", async () => { const s = emptyFunnelState("tw", BASIS); const at = new Date(NOW).toISOString();
+    s.serps.queries = [{ query: "iranian actors", cacheKey: null, status: "done", observedAt: at, organic: ["en.wikipedia.org", "simple.wikipedia.org", "b.com", "c.com", "d.com"].map((h, i) => ({ rank: i + 1, url: `https://${h}/p`, domain: h, title: null })) }];
     s.prompts.pairs = Array.from({ length: 18 }, (_, i) => ({ promptId: `pr${i}`, promptText: "q", engine: "chatgpt" as const, mode: "consumer_search" as const, cacheKey: null, status: "done" as const, observedAt: at, citationsObserved: true, citations: [{ url: `https://ai${i}.com/p`, domain: `ai${i}.com`, title: null }] }));
-    const run = async (priority: string[]) => { const st = memStore(s); await winningPagesUnit({ ...st.deps, loadProfile: async () => emptyBusinessProfile("tw"), getAccount: async () => ({ domain: "own.com" } as Account), now: () => NOW, readPageExtract: async () => null, fetchPage: (async () => ({ ok: false })) as unknown as FunnelDeps["fetchPage"] }, priority)("tw", cur(), 60_000); return st.peek("tw", BASIS)!.winningPages.map((w) => w.url); };
-    expect(await run([])).not.toContain("https://o0.com/p"); // global weight alone: the AI-cited pages fill every slot and the query under investigation gets NOTHING
-    const hybrid = await run(["iranian actors"]); expect(hybrid.slice(0, 2)).toEqual(["https://o0.com/p", "https://o1.com/p"]); // its own top two, best rank first, before any global fill
-    expect([hybrid.length, new Set(hybrid).size]).toEqual([15, 15]); }); // one bounded total, and one page is never two winners
+    const run = async (priority: string[]) => { const st = memStore(s); await winningPagesUnit({ ...st.deps, loadProfile: async () => emptyBusinessProfile("tw"), getAccount: async () => ({ domain: "own.com" } as Account), now: () => NOW, readPageExtract: async () => null, fetchPage: (async () => ({ ok: false, reason: "robots_blocked" })) as unknown as FunnelDeps["fetchPage"] }, priority)("tw", cur(), 60_000); return st.peek("tw", BASIS)!.winningPages.map((w) => w.url); };
+    expect(await run([])).not.toContain("https://en.wikipedia.org/p"); // global weight alone: the AI-cited pages fill every slot and the query under investigation gets NOTHING
+    const hybrid = await run(["iranian actors"]); expect(hybrid.slice(0, 3)).toEqual(["https://en.wikipedia.org/p", "https://b.com/p", "https://c.com/p"]); // ONE reserve slot per publisher: the second wikipedia page never eats the third opinion's slot
+    expect([hybrid.length, new Set(hybrid).size, hybrid.at(-1)]).toEqual([16, 16, "https://d.com/p"]); }); // 15 to read, unchanged, plus a bounded substitutes bench that only spends a slot when a preferred page cannot be read
+  it("never bypasses a robots denial, pays for at most ONE read of a body per URL, keeps the ranked URL either way, and honors retryAfter", async () => { const at = new Date(NOW).toISOString(); const s = emptyFunnelState("tr", BASIS);
+    s.serps.queries = [{ query: "iran leader", cacheKey: null, status: "done", observedAt: at, organic: ["no.com", "dead.com", "thin.com"].map((h, i) => ({ rank: i + 1, url: `https://${h}/p`, domain: h, title: null })) }];
+    const st = memStore(s); let reads = 0; const paid: string[] = []; const deps = (): FunnelDeps => ({ ...st.deps, loadProfile: async () => emptyBusinessProfile("tr"), getAccount: async () => ({ domain: "own.com" } as Account), now: () => NOW, parse, readPageExtract: async () => null,
+      callProvider: (async (cap: CapabilityKey, input: { url: string }) => { if (cap === "onpage_content_parsing") paid.push(input.url); return ok({ title: "T", h1: "H", wordCount: 0, headings: [], faqCount: 0 }); }) as FunnelDeps["callProvider"],
+      fetchPage: (async (url: string) => { reads += 1; return { ok: false, reason: url.includes("no.com") ? "robots_blocked" : "fetch_failed" }; }) as unknown as FunnelDeps["fetchPage"] });
+    await winningPagesUnit(deps(), ["iran leader"])("tr", cur(), 60_000); const win = () => st.peek("tr", BASIS)!.winningPages;
+    expect(win().map((w) => [w.url, w.extract, w.readOutcome!.state])).toEqual([["https://no.com/p", null, "robots_blocked"], ["https://dead.com/p", null, "provider_unavailable"], ["https://thin.com/p", null, "provider_unavailable"]]); // the ranked URL survives an unreadable body
+    expect(paid).toEqual(["https://dead.com/p", "https://thin.com/p"]); // a robots denial is NEVER sent through the provider; an ordinary refusal earns exactly one paid read, and an empty parse is a named gap
+    await winningPagesUnit(deps(), ["iran leader"])("tr", cur(), 60_000); expect([reads, paid.length]).toEqual([3, 2]); }); // retryAfter holds: the second pass spends no read slot and no money on a URL that already answered
   // ── the ONE paid page-by-page comparison the winners earn ──
   const OWN = "https://own.com/p", W1 = "https://a.com/x", W2 = "https://b.com/g", ASK = { topicKey: "t1", ask: { pages: [W2, W1], exclude_pages: [OWN] } };
   const answer = { status_code: 20000, tasks: [{ status_code: 20000, result: [{ items: [{ keyword_data: { keyword: "k", keyword_info: { search_volume: 9 } }, intersection_result: { "1": { url: W1, title: "t", rank_group: 3, rank_absolute: 6 } } }] }] }] };
   const cmpSeed = () => { const s = emptyFunnelState("tx", BASIS); s.serps.queries = [{ query: "q", cacheKey: null, status: "done", observedAt: new Date(NOW).toISOString(), organic: [{ rank: 1, url: W1, domain: "a.com", title: null }] }]; return s; };
-  const cmpDeps = (st: ReturnType<typeof memStore>, callProvider: FunnelDeps["callProvider"], over: Partial<FunnelDeps> = {}): FunnelDeps => ({ ...st.deps, loadProfile: async () => emptyBusinessProfile("tx"), getAccount: async () => ({ domain: "own.com" } as Account), now: () => NOW, parse, readPageExtract: async () => null, fetchPage: (async () => ({ ok: false })) as unknown as FunnelDeps["fetchPage"], callProvider, ...over });
+  const cmpDeps = (st: ReturnType<typeof memStore>, callProvider: FunnelDeps["callProvider"], over: Partial<FunnelDeps> = {}): FunnelDeps => ({ ...st.deps, loadProfile: async () => emptyBusinessProfile("tx"), getAccount: async () => ({ domain: "own.com" } as Account), now: () => NOW, parse, readPageExtract: async () => null, fetchPage: (async () => ({ ok: false, reason: "robots_blocked" })) as unknown as FunnelDeps["fetchPage"], callProvider, ...over });
   const CMP = { ...cur(), stage: "compare" }; // stage TWO: the winners are already saved and the caller renewed the RUN lease in between
   it("buys ONE comparison for the WHOLE page set, never buys a landed one twice, and a resumed crash costs nothing", async () => { const asks: unknown[] = [];
     const call = (async (cap: CapabilityKey, input: unknown) => { if (cap !== "labs_page_intersection") return ok(serp([])); asks.push(input); return asks.length > 1 ? { state: "hit", envelope: answer, costUsd: 0, cacheKey: "ck-pi", modelServed: null } as CachedCallResult : ok(answer, "ck-pi"); }) as FunnelDeps["callProvider"];

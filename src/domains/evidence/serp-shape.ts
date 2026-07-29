@@ -1,17 +1,13 @@
 /**
- * serp-shape (research packet, 2026-07-27) - how ONE exact set of Google results
- * READS: what the winning pages are, whether they answer a single subject, and
- * when I actually looked. PURE and deterministic (no I/O, no LLM, no clock beyond
- * the caller's `builtAt`). Consumed by `topic-investigation.ts`; it decides
- * nothing about what to do next.
- *
- * The conservative rule that governs the whole file: a claim needs agreement
- * across DISTINCT DOMAINS. One domain holding four of the top ten is ONE vote,
- * not four. Below the thresholds below the honest answer is `mixed` or `unknown`,
- * and that is a real answer, not a failure.
+ * serp-shape (research packet, 2026-07-27) - how ONE exact set of Google results READS: what the winning
+ * pages are, whether they answer a single subject, and when I actually looked. PURE and deterministic (no
+ * I/O, no LLM, no clock beyond the caller's `builtAt`). Consumed by `topic-investigation.ts`; it decides
+ * nothing about what to do next. The conservative rule that governs the whole file: a claim needs
+ * agreement across DISTINCT PUBLISHERS. One publisher holding four of the top ten is ONE vote, not four.
+ * Below the thresholds the honest answer is `mixed` or `unknown`, and that is a real answer.
  */
 
-import type { FunnelResearchEvidence } from "./funnel/research-evidence";
+import type { FunnelResearchEvidence, WinnerReadOutcome } from "./funnel/research-evidence";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { canonicalQueryKey, topicTokens } from "./relevance-gate";
 
@@ -89,6 +85,9 @@ export type WinnerRef = {
   headings: number;
   fetchedAt: string | null;
   appearances: WinnerAppearance[];
+  /** Why the body is missing and when the URL may be read again; null/absent = nothing stopped me. It
+   *  explains an extractState, never overrides one: only a current extract makes a page readable. */
+  readOutcome?: WinnerReadOutcome | null;
 };
 
 // ── documented thresholds ────────────────────────────────────────────────────
@@ -116,10 +115,10 @@ const MAX_APPEARANCES = 8;
 const norm = (s: string): string => s.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
 /** Registrable suffixes that carry a country label, so bbc.co.uk keeps three parts. */
 const MULTI_SUFFIX = /\.(co|com|net|org|gov|edu|ac|or|ne)\.[a-z]{2}$/;
-/** ONE publisher is one vote: en.wikipedia.org and simple.wikipedia.org are the same
- *  source wearing two hostnames, and counting them twice fakes the agreement this whole
- *  file rests on. The ONLY host helper here, built on the shared rootDomain, and used
- *  for result rows, winner rows and every publisher-agreement count alike. */
+/** ONE publisher is one vote: en.wikipedia.org and simple.wikipedia.org are the same source wearing two
+ *  hostnames, and counting them twice fakes the agreement this whole file rests on. THE one host helper,
+ *  built on the shared rootDomain, used for result rows, winner rows, the winning-page reserve and every
+ *  publisher-agreement count alike. */
 export const publisherHost = (url: string): string => {
   const h = rootDomain(url).toLowerCase();
   const labels = h.split(".");
@@ -136,10 +135,9 @@ const DICTIONARY = /(^|\.)(merriam-webster|dictionary|vocabulary|wordnik|thefree
 const ENCYCLOPEDIC = /(^|\.)(wikipedia|britannica|wikiwand|scholarpedia)\.[a-z.]+$/;
 
 /**
- * What ONE result IS, or null when it gives no honest signal (null votes for
- * nothing rather than padding the majority). Order is precedence: the first cue
- * that matches wins, so a shop listing on a forum domain reads as the shop
- * listing it is.
+ * What ONE result IS, or null when it gives no honest signal (null votes for nothing rather than padding
+ * the majority). Order is precedence: the first cue that matches wins, so a shop listing on a forum
+ * domain reads as the shop listing it is.
  */
 export function classifyResult(title: string | null, url: string): SerpPageType | null {
   const t = norm(title ?? "");
@@ -199,10 +197,9 @@ export function dominantPageType(votes: PageTypeVote[]): SerpPageType {
 }
 
 /**
- * Do these results read as ONE subject? `mixed` when the results themselves say
- * the word carries a second meaning (an entry for the plain subject beside an
- * entry that brackets a different sense, the way an encyclopedia separates an
- * animal from a siege weapon) or when the results drift off the subject.
+ * Do these results read as ONE subject? `mixed` when the results themselves say the word carries a second
+ * meaning (an entry for the plain subject beside an entry that brackets a different sense, the way an
+ * encyclopedia separates an animal from a siege weapon) or when the results drift off the subject.
  * `unknown` when there is too little to judge.
  */
 export function coherenceOf(serps: SerpRow[], strong: Set<string>): "coherent" | "mixed" | "unknown" {
@@ -286,9 +283,8 @@ export function serpRefOf(serp: SerpRow, winners: WinRow[], builtAt: number): Se
 
 const KIND_ORDER: WinnerAppearance["kind"][] = ["serp_organic", "ai_overview", "ai_mode", "ai_answer"];
 
-/** A winning page WITH the provenance that put it here, instead of provenance read
- *  once and thrown away. Deduplicated per source (the freshest look wins), organic
- *  ranks before engine citations, bounded so this stays a fact and not a log. */
+/** A winning page WITH the provenance that put it here, instead of provenance read once and thrown away.
+ *  Deduplicated per source (the freshest look wins), organic ranks before engine citations, bounded. */
 export function winnerRefOf(win: WinRow, mine: WinAppearance[], builtAt: number): WinnerRef {
   const best = new Map<string, WinnerAppearance>();
   for (const a of mine) {
@@ -314,5 +310,6 @@ export function winnerRefOf(win: WinRow, mine: WinAppearance[], builtAt: number)
     headings: win.extract?.headings.length ?? 0,
     fetchedAt: win.extract?.fetchedAt ?? null,
     appearances,
+    readOutcome: win.readOutcome ?? null,
   };
 }

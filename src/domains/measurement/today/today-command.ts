@@ -247,7 +247,11 @@ function stillChecking(input: TodayCommandInput): TodayCommand {
       ? "I found meaningful traffic gaps, but I am still checking the results pages and competing pages before asking you to change anything."
       : "Your search traffic moved this week, and I have not found a change I can stand behind yet.",
     why,
-    exactAction: "Nothing to do here today. Give me one more research pass.",
+    // NOT "give me one more research pass". That asked the operator for something they cannot
+    // give, promised nothing back, and hid whether I would ever return to it. This says what is
+    // still open, that I carry it forward myself, and what would have to change for a topic I
+    // have already closed. No progress bar, and no number I have not measured.
+    exactAction: "There is nothing for you to do here today. I carry these searches forward and check them again on your next visit, and where the results never settle on one kind of page I close the topic and reopen it only if that changes.",
     cta: null,
   };
 }
@@ -274,7 +278,7 @@ function observe(input: TodayCommandInput): TodayCommand {
     kind: "observe",
     headline: "Nothing needs a decision today. Keep measuring.",
     why: [
-      "Everything I am tracking is quiet, and nothing needs a decision.",
+      "Nothing I am tracking has moved enough to need a decision from you.",
       "Ship a change from Changes and I will start measuring it.",
     ],
     exactAction: "Pick your next move from Changes when you are ready.",

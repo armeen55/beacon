@@ -171,7 +171,7 @@ describe("a release publishes only on a real production result", () => {
     await refreshCustomerSurface(TENANT);
     expect(signals[0]?.declineNotes).toEqual([{ page: "/b", note: "big gap" }, { page: "/a", note: "small gap" }]); }); }); // an acted page is work, not a verdict
 // ── the coverage verdict: has this account already got the right page? ────────
-const WIN = ["gardenguide.example", "waterwise.example", "downspout.example"].map((domain): TopicInvestigation["winners"][number] => ({ url: `https://${domain}/a`, domain, extractState: "current", wordCount: 1400, headings: 4, fetchedAt: "2026-07-24T00:00:00.000Z", appearances: [] }));
+const WIN = ["gardenguide.example", "waterwise.example", "downspout.example"].map((domain): TopicInvestigation["winners"][number] => ({ url: `https://${domain}/a`, domain, extractState: "current", wordCount: 1400, headings: 4, fetchedAt: "2026-07-24T00:00:00.000Z", appearances: [{ kind: "serp_organic" as const, query: "rain barrel sizing", promptId: null, promptText: null, engine: null, observationMode: null, rank: 1, observedAt: "2026-07-24T00:00:00.000Z", viaUrl: null }], readOutcome: null }));
 const LOOK: TopicInvestigation["exactSerps"] = [{ query: "rain barrel sizing", observedAt: "2026-07-24T00:00:00.000Z", freshness: "current", organicResults: 9, distinctDomains: 8, aiOverviewCitations: 0, aiModeCitations: 0, paaQuestions: 0, organicRows: [], aiOverviewRows: [], aiModeRows: [] }];
 const INV = (over: Partial<TopicInvestigation> = {}): TopicInvestigation => ({ key: "inv_rain", label: "rain barrel sizing", demandBasis: "search", groupedBy: [], queries: ["rain barrel sizing"], keywords: [], trackedPrompts: [], fanOuts: [], exactSerps: LOOK, serpFreshness: "current",
   demand: { monthlySearchVolume: 4400, queriesWithVolume: 1, gscImpressions: 6000, difficulty: null, intent: "informational", trackedPrompts: 0, fanOuts: 0, engines: [] }, distinctResultDomains: 8, resultDomains: [], pageType: "informational_guide", pageTypeVotes: [], serpCoherence: "coherent",
@@ -186,40 +186,36 @@ const SAYS = (over: Record<string, unknown> = {}) => ({ verdict: "improve_existi
 const GATES: Array<[string, Partial<TopicInvestigation>, OwnedCandidate[], string]> = [
   ["no look at Google's results at all", { exactSerps: [], serpFreshness: "missing" }, [ONE], "exact_serp"],
   ["a look I took too long ago", { serpFreshness: "stale" }, [ONE], "fresh_serp"],
-  ["two publishers where three is the floor", { currentReadableWinners: 2 }, [ONE], "winners"],
+  ["two publishers where three is the floor", { winners: WIN.slice(0, 2) }, [ONE], "winners"],
   ["results that answer two different questions", { serpCoherence: "mixed" }, [ONE], "intent"],
   ["a page that could be the answer whose words I do not hold", {}, [OWNED("fixture-content.example/rain-barrels", { bodyHeld: false })], "owned_content"],
   ["nothing of my own that could be the answer", {}, [OWNED("fixture-content.example/blog", { strongSignals: 0 })], "page_intersection"]];
 describe("the coverage verdict never invents a page this account already owns", () => {
-  it("names the one page that already answers it, and throws away a verdict naming a page I never supplied", async () => {
-    const good = asked(SAYS()); const d = await adjudicateCoverage(INV(), [ONE], TENANT, { complete: good.complete });
-    expect([d.verdict, d.ownedUrls, d.missing]).toEqual(["improve_existing", [ONE.url], []]); expect([d.topicKey, d.alternativesRuledOut.length]).toEqual(["inv_rain", 1]);
-    expect(JSON.stringify(d)).not.toMatch(/proposedTitle|metaDescription|openingAnswer|outline|faqQuestions/i);
-    const bad = asked(SAYS({ ownedUrls: ["https://waterwise.example/permits"] })); const refused = await adjudicateCoverage(INV(), [ONE], TENANT, { complete: bad.complete });
-    expect([refused.verdict, refused.missing, refused.ownedUrls]).toEqual(["research_needed", ["conflicting_evidence"], []]); });
-  it("sends two competing pages to a choice, and refuses to turn a researched topic into a new page", async () => {
-    const both = asked(SAYS({ verdict: "consolidate_or_choose", ownedUrls: [ONE.url, TWO.url], evidenceKeys: ["owned1", "owned2"] }));
-    expect((await adjudicateCoverage(INV(), [ONE, TWO], TENANT, { complete: both.complete })).ownedUrls).toEqual([ONE.url, TWO.url]);
-    const wants = asked(SAYS({ verdict: "create_new", ownedUrls: [] })); const n = await adjudicateCoverage(INV(), [ONE], TENANT, { complete: wants.complete });
-    expect([n.verdict, n.missing]).toEqual(["research_needed", ["page_intersection"]]); }); // a real gap is not a contradiction: it owes the comparison, and is told so
-  it.each(GATES)("refuses on %s, buys nothing, and names exactly what is missing", async (_what, over, owned, missing) => {
-    const seam = asked(SAYS()); const d = await adjudicateCoverage(INV(over), owned, TENANT, { complete: seam.complete });
-    expect([d.verdict, d.missing]).toEqual(["research_needed", [missing]]); expect(seam.calls).toEqual([]); expect(d.alternativesRuledOut).toHaveLength(1); });
-  it("leaves a topic the operator ruled out alone, and pays for the same comparison only once", async () => {
-    const off = asked(SAYS()); const skipped = await adjudicateCoverage(INV(), [ONE], TENANT, { complete: off.complete, outOfScopeTopics: ["rain barrels"] });
-    expect([skipped.verdict, skipped.missing, off.calls]).toEqual(["do_nothing", [], []]); expect(skipped.explanation).toContain("rain barrels");
-    const rows = new Map<string, LlmCallCacheEntry>(); const cacheImpl = { read: async (_t: string, k: string) => rows.get(k) ?? null, write: async (_t: string, e: LlmCallCacheEntry) => { rows.set(e.key, e); }, recentTexts: async () => [] };
-    const paid = asked(SAYS()); const opt = { complete: paid.complete, cacheImpl };
-    const first = await adjudicateCoverage(INV(), [ONE], TENANT, opt); const again = await adjudicateCoverage(INV(), [ONE], TENANT, opt);
-    expect(paid.calls).toEqual(["coverage_adjudication"]); expect(again).toEqual(first); }); });
+  it.each(GATES)("refuses on %s, spends nothing, and names exactly what is missing", async (_what, over, owned, missing) => {
+    const seam = asked(SAYS()); const d = await adjudicateCoverage(INV(over), owned, TENANT, {});
+    expect([d.verdict, d.missing]).toEqual(["research_needed", [missing]]); expect(seam.calls).toEqual([]); expect(d.alternativesRuledOut).toHaveLength(1);
+    expect(JSON.stringify(d)).not.toMatch(/proposedTitle|metaDescription|openingAnswer|outline|faqQuestions/i); }); // a verdict is never a page
+  it("leaves a topic the operator ruled out alone, and never reaches a model to say so", async () => {
+    const off = asked(SAYS()); const skipped = await adjudicateCoverage(INV(), [ONE], TENANT, { outOfScopeTopics: ["rain barrels"] });
+    expect([skipped.verdict, skipped.missing, off.calls]).toEqual(["do_nothing", [], []]); expect(skipped.explanation).toContain("rain barrels"); });
+  it("CLOSES a topic whose winners will not settle on one kind of page, instead of asking for research nothing can buy", async () => {
+    for (const pageType of ["mixed", "unknown"] as const) {
+      const d = await adjudicateCoverage(INV({ pageType, pageTypeVotes: [{ pageType: "list", domains: 2 }, { pageType: "informational_guide", domains: 2 }] }), [ONE], TENANT, {});
+      expect([d.verdict, d.missing, earnedNewPage(d), /experiment|control|baseline|treatment|SERP|[—–]/.test(d.explanation)]).toEqual(["do_nothing", [], false, false]); // terminal: nothing owed, so it is never queued again
+      expect(d.explanation).toContain("I will pick this back up on its own the day one kind of page takes the lead"); } }); }); // and it says exactly what would reopen it
 // ── the page by page comparison: the one paid check, and the only road to a new page ──
 describe("a new page is reachable only through the comparison, and never before it", () => {
   it("buys nothing for an investigation short of any cheaper check, and names the exact pages for the one that earned it", async () => {
-    for (const [, over, owned] of GATES.filter((g) => g[3] !== "page_intersection")) expect(intersectionComparison(await adjudicateCoverage(INV(over), owned, TENANT, { model: "off" }), INV(over), owned)).toBeNull();
-    const earned = await adjudicateCoverage(INV(), [ONE], TENANT, { model: "off" });
+    for (const [, over, owned] of GATES.filter((g) => g[3] !== "page_intersection")) expect(intersectionComparison(await adjudicateCoverage(INV(over), owned, TENANT, {}), INV(over), owned)).toBeNull();
+    const earned = await adjudicateCoverage(INV(), [ONE], TENANT, {});
     expect(intersectionComparison(earned, INV(), [ONE])).toEqual({ pages: [...WIN.map((w) => w.url), ONE_URL], intersection_mode: "union" });
-    expect(intersectionComparison(earned, INV({ key: "inv_other" }), [ONE])).toBeNull(); });
+    expect(intersectionComparison(earned, INV({ key: "inv_other" }), [ONE])).toBeNull();
+    // A BODY I COULD NOT FETCH IS NOT A REASON TO WITHHOLD A COMPARISON OF ADDRESSES: three ranked publishers still earn it, and a page only ever CITED never counts as one of them.
+    const blind = INV({ winners: WIN.map((w) => ({ ...w, extractState: "unreadable" as const, wordCount: null, fetchedAt: null })) });
+    expect(intersectionComparison(await adjudicateCoverage(blind, [ONE], TENANT, {}), blind, [ONE])).toEqual({ pages: [...WIN.map((w) => w.url), ONE_URL], intersection_mode: "union" });
+    const cited = INV({ winners: WIN.map((w) => ({ ...w, appearances: [{ ...w.appearances[0]!, kind: "ai_overview" as const, rank: null }] })) });
+    expect((await adjudicateCoverage(cited, [ONE], TENANT, {})).missing).toEqual(["winners"]); });
   it.each(["blocked", "capped", "waiting", "quarantined", "ambiguous", "failed"] as const)("cannot turn a comparison that came back %s into a new page, and says why in plain words", async (unavailable) => {
-    const d = await adjudicateCoverage(INV(), [ONE], TENANT, { model: "off", intersection: { unavailable } });
+    const d = await adjudicateCoverage(INV(), [ONE], TENANT, { intersection: { unavailable } });
     expect([d.verdict, d.missing, earnedNewPage(d)]).toEqual(["research_needed", ["page_intersection"], false]);
     expect(d.explanation).toContain("build nothing"); expect(d.explanation).not.toMatch(/blocked|capped|quarantin|ambiguous|provider|task|status/i); }); });

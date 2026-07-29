@@ -1,28 +1,23 @@
 import "server-only";
 import type { PageIntersectionAsk, ParsedPageIntersection } from "../page-intersection";
+import type { ResearchPageExtract } from "../funnel/research-evidence";
 
 /**
  * funnel-boundary (Slice 6 + integrity closure) - THE frozen seam between the
  * DataForSEO transport/cache/money core (dataforseo/) and the research funnel.
  *
  * Frozen rules:
- *   - No caller constructs provider URLs or request bodies. Every provider call
- *     names a CAPABILITY from the typed registry; the registry owns the exact
- *     POST/Live path, the GET derivation, the request builder with the
- *     provider's REQUIRED fields (model_name where the endpoint demands it),
- *     the response parser, cache dimensions, freshness, and the conservative
- *     reservation.
- *   - ENVELOPE RULE: the boundary caches and returns the FULL bounded provider
- *     envelope ({ status_code, cost?, tasks: [...] }); ONLY registry parsers
- *     read inside it. Cache hits and fresh results normalize identically.
- *   - CACHE identity is PUBLIC (endpoint + version + normalized input +
- *     location + language + device + model). PAID-ATTEMPT identity is
- *     account-scoped (tenantId + unitKey). A hit reserves and records $0.
+ *   - No caller constructs provider URLs or request bodies. Every provider call names a CAPABILITY from
+ *     the typed registry; the registry owns the exact POST/Live path, the GET derivation, the request
+ *     builder with the provider's REQUIRED fields, the parser, cache dimensions, freshness, reservation.
+ *   - ENVELOPE RULE: the boundary caches and returns the FULL bounded provider envelope ({ status_code,
+ *     cost?, tasks: [...] }); ONLY registry parsers read inside it. Hits and fresh results normalize alike.
+ *   - CACHE identity is PUBLIC (endpoint + version + normalized input + location + language + device +
+ *     model). PAID-ATTEMPT identity is account-scoped (tenantId + unitKey). A hit reserves and records $0.
  *   - Money order is reserve -> network -> reconcile, atomic in Postgres.
  *   - "waiting" is durable and resumable; never an error, never completion.
- *   - Standard task posts carry the deterministic cacheKey as the provider
- *     `tag`, and a pre-post attempt receipt is persisted so an uncertain post
- *     outcome is never silently reposted.
+ *   - Standard task posts carry the deterministic cacheKey as the provider `tag`, and a pre-post attempt
+ *     receipt is persisted so an uncertain post outcome is never silently reposted.
  */
 
 // ── capability registry (frozen keys + shape; entries live in capabilities.ts) ──
@@ -35,6 +30,7 @@ export type CapabilityKey =
   | "labs_keyword_overview"
   | "labs_keyword_ideas"
   | "labs_page_intersection"
+  | "onpage_content_parsing"
   | "serp_organic"
   | "serp_ai_mode"
   | "llm_chatgpt"
@@ -63,14 +59,14 @@ export type ParsedKeywordItem = {
   searchVolume: number | null;
   cpcUsd: number | null;
   competition: number | null;
-  /** The provider's OWN competition label, kept because a band we derive from the
-   *  numeric score is a guess and this one is not. null = the provider sent none. */
+  /** The provider's OWN competition label, kept because a band we derive from the numeric score is a
+   *  guess and this one is not. null = the provider sent none. */
   competitionLevel: "low" | "medium" | "high" | null;
   difficulty: number | null;
   intent: string | null;
-  /** ranked_keywords only: the page that ACTUALLY ranks for this keyword and its ORGANIC
-   *  position (rank_group; rank_absolute counts ads and packs). null on every other
-   *  endpoint, and null rather than a guess when the provider sent no element. */
+  /** ranked_keywords only: the page that ACTUALLY ranks for this keyword and its ORGANIC position
+   *  (rank_group; rank_absolute counts ads and packs). null on every other endpoint, and null rather
+   *  than a guess when the provider sent no element. */
   rankedUrl: string | null;
   rankedRank: number | null;
   /** The 12-month trend, ONLY when the provider actually returned it. null = no
@@ -102,6 +98,8 @@ export type ParsedByCapability = {
   labs_keyword_overview: ParsedKeywordItem[];
   labs_keyword_ideas: ParsedKeywordItem[];
   labs_page_intersection: ParsedPageIntersection;
+  /** Parsed DIRECTLY into the ONE extract shape every winner already carries: no second extract model. */
+  onpage_content_parsing: ResearchPageExtract;
   serp_organic: ParsedSerp;
   serp_ai_mode: ParsedSerp;
   llm_chatgpt: ParsedAiAnswer;
@@ -139,6 +137,8 @@ export type CapabilityInputByKey = {
    *  excludes): one call per page or per keyword is a defect, never a fallback. The
    *  registry normalizes the ask BEFORE it becomes a cache identity. */
   labs_page_intersection: PageIntersectionAsk;
+  /** ONE public page read of a body my own fetch could not get. NEVER used after a robots denial. */
+  onpage_content_parsing: { url: string };
   serp_organic: { keyword: string; device?: "desktop" | "mobile" };
   serp_ai_mode: { keyword: string; device?: "desktop" | "mobile" };
   llm_chatgpt: ChatGptWebInput;
@@ -149,33 +149,27 @@ export type CapabilityInputByKey = {
   llm_scraper_chatgpt: { keyword: string; force_web_search?: boolean; expand_citations?: boolean };
 };
 
-/** Method-aware model resolution: the exact current model, the retrieval method
- *  it supports, and whether it can do web search, from the FREE models endpoint.
- *  Routing is CAPABILITY DRIVEN per engine: a web-capable task_post_supported
- *  model -> resumable Standard; else a valid Live model -> Live. Null = fail
- *  closed (no simulated coverage). providerCall is the ONE resolution point:
- *  executors never resolve; the requested model travels back on the result. */
+/** Method-aware model resolution: the exact current model, the retrieval method it supports, and whether
+ *  it can do web search, from the FREE models endpoint. Routing is CAPABILITY DRIVEN per engine: a
+ *  web-capable task_post_supported model -> resumable Standard; else a valid Live model -> Live. Null =
+ *  fail closed. providerCall is the ONE resolution point; the requested model travels back on the result. */
 export type EngineModelResolution = { model: string; method: "standard" | "live"; webSearch: boolean };
 
-/** THE structured lifecycle vocabulary. Callers NEVER parse detail strings or
- *  treat every error identically; the disposition alone decides retry behavior.
- *    retry_free  - an exactly documented temporary provider failure on a FREE
- *                  collect: the task id is PRESERVED; retry later; ZERO reposts.
- *    repost_once - the task is proven missing/expired by an EXACT in-body
- *                  40401/40403 on a collect (never a raw HTTP status, never a
- *                  POST response): identity cleared; at most ONE clean repost.
- *    blocked     - a terminal, malformed, auth/payment, or unknown outcome.
- *                  On a PAID response the refusal is held DURABLY (refunded when
- *                  the provider reported cost 0) and nothing automatic retries
- *                  it; on a FREE collect the task id is kept and re-checked for
- *                  free. The funnel surfaces it as explicit unavailable coverage.
- *    quarantined - an uncertain POST or an accepted task whose id could not be
- *                  persisted: ZERO automatic reposts ever; recovery ONLY via the
- *                  provider's FREE tasks_ready listing matched by tag=cacheKey.
- *    none        - a plain recoverable failure (claim/reserve/persist): retry
- *                  the whole call on a later visit. */
-/** daily_limit = the account's own daily spend ceiling refused the call at zero charge.
- *  It stops the batch for the day like a refusal, but holds nothing and clears itself. */
+/** THE structured lifecycle vocabulary. Callers NEVER parse detail strings or treat every error
+ *  identically; the disposition alone decides retry behavior.
+ *    retry_free  - an exactly documented temporary provider failure on a FREE collect: the task id is
+ *                  PRESERVED; retry later; ZERO reposts.
+ *    repost_once - the task is proven missing/expired by an EXACT in-body 40401/40403 on a collect (never
+ *                  a raw HTTP status, never a POST response): identity cleared; at most ONE clean repost.
+ *    blocked     - a terminal, malformed, auth/payment, or unknown outcome. On a PAID response the
+ *                  refusal is held DURABLY (refunded when the provider reported cost 0) and nothing
+ *                  automatic retries it; on a FREE collect the task id is kept and re-checked for free.
+ *                  The funnel surfaces it as explicit unavailable coverage.
+ *    quarantined - an uncertain POST or an accepted task whose id could not be persisted: ZERO automatic
+ *                  reposts ever; recovery ONLY via the FREE tasks_ready listing matched by tag=cacheKey.
+ *    none        - a plain recoverable failure (claim/reserve/persist): retry the whole call later.
+ *    daily_limit - the account's own daily spend ceiling refused the call at zero charge. It stops the
+ *                  batch for the day like a refusal, but holds nothing and clears itself. */
 export type FailureDisposition = "retry_free" | "repost_once" | "blocked" | "quarantined" | "daily_limit" | "none";
 
 export type CachedCallResult =
@@ -192,32 +186,23 @@ export type CachedCallResult =
 export type FunnelBoundaryDeps = Record<string, unknown>;
 
 /**
- * THE one cached, money-safe provider call, by capability. Implemented in
- * cached-call.ts + capabilities.ts; these re-exports are the frozen import
- * path for the funnel.
- *   providerCall<K> - resolve/claim/pay/persist one capability request; input
- *     is CapabilityInputByKey[K], enforced at compile time.
- *   keywordIdeasBatched - the SAME providerCall, run once per batch of at most
- *     200 seed keywords (the provider's documented ceiling). Buying one request
- *     per keyword is a defect, so no caller ever does.
- *   collectCapability - free GET resumption for a waiting Standard task row.
- *     Queue codes (40601/40602) stay waiting; terminal codes (40401/40403,
- *     auth/payment/contract) are bounded errors, never eternal waiting.
+ * THE one cached, money-safe provider call, by capability. Implemented in cached-call.ts +
+ * capabilities.ts; these re-exports are the frozen import path for the funnel.
+ *   providerCall<K> - resolve/claim/pay/persist one capability request; input is
+ *     CapabilityInputByKey[K], enforced at compile time.
+ *   keywordIdeasBatched - the SAME providerCall, run once per batch of at most 200 seed keywords (the
+ *     provider's documented ceiling). Buying one request per keyword is a defect, so no caller does.
+ *   collectCapability - free GET resumption for a waiting Standard task row. Queue codes (40601/40602)
+ *     stay waiting; terminal codes (40401/40403, auth/payment/contract) are bounded errors.
  *   parseCapability - envelope -> the capability's typed parse output.
- *   resolveEngineModel - EngineModelResolution (model + supported method) from
- *     the FREE models endpoint (cached); null = fail closed.
- *   readPublicPageExtract / writePublicPageExtract - content-hash-aware reuse
- *     of fetched public competitor pages on the SAME evidence cache (no second
- *     crawler subsystem, no refetch inside freshness).
+ *   resolveEngineModel - EngineModelResolution (model + supported method) from the FREE models endpoint
+ *     (cached); null = fail closed.
+ *   readPublicPageExtract / writePublicPageExtract - content-hash-aware reuse of read public competitor
+ *     pages on the SAME evidence cache (no second crawler subsystem, no re-read inside freshness).
  */
 export {
-  providerCall,
-  keywordIdeasBatched,
-  collectCapability,
-  parseCapability,
-  resolveEngineModel,
-  readPublicPageExtract,
-  writePublicPageExtract,
+  providerCall, keywordIdeasBatched, collectCapability, parseCapability, resolveEngineModel,
+  readPublicPageExtract, writePublicPageExtract,
 } from "./capabilities";
 
 // ── funnel phase executor contract (consumed by Runtime via the facade) ─────

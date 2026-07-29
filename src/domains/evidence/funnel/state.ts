@@ -9,14 +9,12 @@ import "server-only";
  */
 
 import { loadResearchState, saveResearchState, type StateRepoDeps } from "./state-repo";
-import type { KeywordDiscoveryRoute, ObservationMode, ResearchPageComparison, ResearchPageExtract, ResearchWinningAppearance } from "./research-evidence";
+import type { KeywordDiscoveryRoute, ObservationMode, ResearchPageComparison, ResearchPageExtract, ResearchWinningAppearance, WinnerReadOutcome } from "./research-evidence";
 
 const FUNNEL_SCHEMA_VERSION = 3;
 
-/** 150 threw away most of what discovery actually found: one broad whole-site pull filled
- *  every slot on volume and whole themes discovered from other seeds were never seen
- *  again. 700 is the enrichment batch's own documented ceiling, so the retained set and
- *  the ONE keyword_overview request that prices it are the same size. */
+/** 700 is the enrichment batch's own documented ceiling, so the retained set and the ONE
+ *  keyword_overview request that prices it are the same size. */
 export const MAX_RETAINED = 700;
 export const MAX_REJECTED = 150;
 
@@ -100,6 +98,8 @@ export type FunnelWinningPage = {
   examplePrompts: string[];
   appearances: ResearchWinningAppearance[];
   extract: ResearchPageExtract | null;
+  /** Why the BODY is not in hand and when this URL may spend a read slot again; null = it is in hand. */
+  readOutcome?: WinnerReadOutcome | null;
 };
 
 export type FunnelState = {

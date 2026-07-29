@@ -10,15 +10,15 @@ import "server-only";
  * drafts nothing, proposes nothing and persists nothing. An EARNED `create_new` here is the
  * only thing decision/new-page will build from, and nothing else can open that door.
  *
- * DETERMINISTIC GATE FIRST, MODEL SECOND. Every refusal below is decided in code, makes
- * ZERO model calls, costs nothing, and names in `missing` exactly what is owed:
+ * EVERY VERDICT IS DECIDED IN CODE. Nothing here calls a model, so the ladder is free,
+ * repeatable and checkable, and `missing` names exactly what is owed:
  *   1 the account's own profile rules the topic out  -> do_nothing (a verdict, not a gap)
  *   2 no exact results page for the topic            -> exact_serp
  *   3 the results page is out of date                -> fresh_serp
  *   4 the results answer two meanings of the phrase  -> intent
- *   5 the winners do not settle on one kind of page  -> shape
- *   6 what a searcher wants is not established        -> intent
- *   7 under three current readable winners           -> winners
+ *   5 the winners will not settle on one kind of page-> do_nothing, PARKED (see `park`)
+ *   6 what a searcher wants is not established       -> intent
+ *   7 under three ranked winners I can address       -> winners
  *   8 a page that could be the answer, unread        -> owned_content
  *   9 the page by page comparison is not in hand     -> page_intersection
  * Gate 9 is the LAST and the only paid one, so an investigation short of any cheaper
@@ -27,27 +27,19 @@ import "server-only";
  * was refused, capped, still out, set aside, unconfirmed or failed is not a finding: it
  * stays gate 9 and says why.
  *
- * THE MODEL MAY compare the supplied owned pages, judge whether one already covers the
- * topic in the same shape, pick ONE verdict, name addresses and cite evidence ids FROM THE
- * SUPPLIED LISTS, and say why the alternatives lost. IT MAY NOT invent a page, an address,
- * a number, a phrase, a competitor or a fact, change a threshold, recount anything,
- * overrule the gate, or write one word of page copy: no field in its schema could carry a
- * title, a description, an outline or a proposed address. A refusal, an incomplete answer,
- * a schema failure, an unknown id, an address outside the list, or a verdict contradicting
- * a deterministic fact all become `research_needed`, and nothing is created. $0 REPEATS:
- * the call is built ONLY from the topic's material evidence and the candidate set, so
- * identical input hits the cache and never pays twice.
+ * EVERY REQUIREMENT MUST BE BUYABLE, OR IT IS A DECISION. Gate 5 used to name a requirement
+ * no search could ever close, so the topic was silently re-refused on every visit forever;
+ * it is now a terminal park that says what would reopen it. Gate 7 counts winners I can
+ * ADDRESS rather than winners I have READ, because gate 9 compares addresses and the
+ * provider reads those pages itself; the readable-body floor now sits in decision/new-page,
+ * where the words of a competing page are actually what gets used.
  */
 
-import { log } from "@/lib/logger";
-import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { publisherHost } from "@/domains/evidence/serp-shape";
 import { comparePageCoverage, type PageCoverageReading, type PageIntersectionAsk, type ParsedPageIntersection } from "@/domains/evidence/page-intersection";
 import type { TopicInvestigation } from "@/domains/evidence/topic-investigation";
 import type { IntersectionUnavailable } from "@/domains/evidence/funnel/research-evidence";
 import type { OwnedCandidate } from "./owned-coverage";
-import type { CacheImpl } from "./llm/call-cache";
-import { callStructuredLLM, type CompleteFn } from "./llm/structured-drafter";
 
 // ── Coverage adjudication (N3b, 2026-07-28) ──────────────────────────────────
 
@@ -61,11 +53,7 @@ export type CoverageVerdict =
  *  generic error bucket: "I have no results page" and "the model refused" are different
  *  problems with different fixes, and the operator is owed the difference. */
 export type MissingRequirement =
-  | "exact_serp" | "fresh_serp" | "winners" | "owned_content" | "intent"
-  | "keyword_data" | "page_intersection" | "model_refusal" | "conflicting_evidence"
-  /** The winners do not agree on ONE kind of page yet. Different from `intent`: the phrase is
-   *  clear, the shape a competing page would need is not. */
-  | "shape";
+  | "exact_serp" | "fresh_serp" | "winners" | "owned_content" | "intent" | "page_intersection";
 
 /** One verdict for one researched topic. Carries NO page copy, NO proposed URL and no
  *  proposal: deciding whether a page should exist is a separate job from writing it. */
@@ -90,8 +78,9 @@ export function earnedNewPage(d: CoverageDecision | null | undefined): boolean {
     && d.ownedUrls.length === 0 && d.evidenceKeys.length > 0 && d.alternativesRuledOut.length > 0;
 }
 
-/** A comparison rests on three publishers agreeing, each read recently enough to trust:
- *  two pages are two opinions, and this file never calls that a pattern. */
+/** Three publishers, wherever agreement is claimed: to buy the comparison I need three I can
+ *  ADDRESS, and to write a page decision/new-page needs three I have READ. Two pages are two
+ *  opinions, and nothing downstream of this file ever calls that a pattern. */
 export const MIN_ADJUDICATION_WINNERS = 3;
 
 /** The bought comparison itself, or the honest reason it is not in hand (Evidence owns both
@@ -99,7 +88,7 @@ export const MIN_ADJUDICATION_WINNERS = 3;
 export type IntersectionEvidence = ParsedPageIntersection | { unavailable: IntersectionUnavailable };
 
 /**
- * THE ONE request worth paying for, or null. It puts the three current winners, ONE per
+ * THE ONE request worth paying for, or null. It puts the three ranked winners, ONE per
  * publisher, side by side WITH this account's own contenders, so one answer says both what
  * the winners share and how much of it this account already reaches. Holding the account's
  * pages OUT would make "you cover none of this" something I asked for rather than something
@@ -108,7 +97,7 @@ export type IntersectionEvidence = ParsedPageIntersection | { unavailable: Inter
  * THE MONEY GATE, and deliberately not a second copy of the ladder: it is earned exactly
  * when the free verdict says the ONLY thing still owed is this comparison, so an
  * investigation short of a results page, a fresh look, a settled shape, a resolved meaning,
- * three current winners from distinct publishers, an unread page of its own or the
+ * three ranked winners from distinct publishers, an unread page of its own or the
  * operator's own scope returns that cheaper requirement and never reaches here. Null too
  * when the verdict belongs to another topic or three publishers cannot be named.
  */
@@ -116,16 +105,24 @@ export function intersectionComparison(
   d: CoverageDecision | null | undefined, inv: TopicInvestigation, candidates: readonly OwnedCandidate[],
 ): PageIntersectionAsk | null {
   if (!d || d.verdict !== "research_needed" || d.missing.length !== 1 || d.missing[0] !== "page_intersection" || d.topicKey !== inv.key) return null;
-  const publishers = new Set<string>();
-  const winners: string[] = [];
-  for (const w of inv.winners) {
-    if (w.extractState !== "current" || publishers.has(w.domain)) continue;
-    publishers.add(w.domain);
-    winners.push(absolute(w.url));
-  }
+  const winners = rankedPublishers(inv);
   if (winners.length < MIN_ADJUDICATION_WINNERS) return null;
   return { pages: [...winners.slice(0, MIN_ADJUDICATION_WINNERS), ...candidates.filter(contender).map((c) => absolute(c.url))], intersection_mode: "union" };
 }
+
+/** ONE ranked winning page per publisher, by address. This comparison is bought on ADDRESSES
+ *  and the provider reads those pages itself, so a body I could not fetch never had any
+ *  business holding it back: gating on a readable extract left topics owing a comparison I
+ *  could have bought at any time. Rankedness comes from the winner's own appearances, so a
+ *  page that was only ever cited by an engine is never counted as one of these. */
+const rankedPublishers = (inv: TopicInvestigation): string[] => {
+  const byPublisher = new Map<string, string>();
+  for (const w of inv.winners) {
+    if (byPublisher.has(w.domain) || !w.appearances.some((a) => a.kind === "serp_organic" && (a.rank ?? 0) > 0)) continue;
+    byPublisher.set(w.domain, absolute(w.url));
+  }
+  return [...byPublisher.values()];
+};
 
 /** Owned pages are stored as a canonical key; the endpoint documents absolute urls. */
 const absolute = (u: string): string => (/^https?:\/\//i.test(u) ? u : `https://${u}`);
@@ -144,19 +141,14 @@ const UNAVAILABLE: Record<IntersectionUnavailable, string> = {
 };
 
 export type AdjudicateCoverageOptions = {
-  /** "off" keeps the free deterministic verdict and never pays for the judgment call. */
-  model?: "off";
   /** The account's OWN profile topics this investigation collides with
    *  (topicOutOfScope). Non-empty means the operator already ruled it out. */
   outOfScopeTopics?: readonly string[];
   /** The page by page comparison, once Evidence has bought it for THIS topic, or
    *  the honest reason it is not in hand. Absent = it was never asked for. */
   intersection?: IntersectionEvidence;
-  /** Injected for tests; defaults to the real transport inside the drafter. */
-  complete?: CompleteFn;
+  /** Injected so a retry hold is judged against the caller's clock, never the wall. */
   now?: Date;
-  bypassCache?: boolean;
-  cacheImpl?: CacheImpl;
 };
 
 type Ev = { id: string; fact: string };
@@ -178,21 +170,6 @@ export function readComparison(x: IntersectionEvidence | undefined, candidates: 
 /** What the pages that win here ARE, in words an operator reads. */
 const SHAPE: Record<string, string> = { informational_guide: "guides that explain the subject", list: "lists", definition: "short definitions",
   comparison: "comparisons", product: "product pages", category: "category pages", tool: "tools people use", forum: "discussion threads" };
-
-const SYSTEM = [
-  "You answer ONE question: does this business already have the right page for a topic it researched? You never write a page, a title, a description, an outline or an address, and you never propose one.",
-  "Pick exactly one verdict.",
-  "improve_existing: exactly ONE supplied page already answers this topic in the same shape. Name that one address, say what it already covers, what it does not, and why a second page would compete with it.",
-  "consolidate_or_choose: two or more supplied pages answer the same thing and compete with each other. Name every one of them.",
-  "do_nothing: the coverage is good enough, the opportunity is too small to be worth a person's time, or the results do not support a separate page.",
-  "create_new: none of the supplied pages could be the answer.", "research_needed: you cannot decide from what you were given.", "Rules you may not break.",
-  "1. Use ONLY the facts below. Never add a page, an address, a number, a search phrase, a competitor or a claim that is not written there.",
-  "2. Every address in ownedUrls must be copied exactly from OWNED PAGES. Every id in evidenceKeys must be copied exactly from EVIDENCE.",
-  "3. Never restate a count differently from how it is written, and never change a rule you were given.",
-  "4. improve_existing names exactly one address. consolidate_or_choose names two or more.",
-  "5. Write the explanation in the first person, one plain sentence a business owner reads. No em dash and no en dash. Never use the words experiment, control, baseline, treatment or SERP.",
-  "6. Rule out at least one alternative and say in one sentence why it lost.",
-].join("\n");
 
 /** The evidence a verdict may cite, each id paired with the plain fact behind it.
  *  Nothing enters this list that was not observed. */
@@ -233,7 +210,7 @@ function evidenceOf(inv: TopicInvestigation, candidates: readonly OwnedCandidate
  * facts. This is the only place `create_new` is reachable.
  */
 function readIntersection(
-  inv: TopicInvestigation, ids: string[], x: IntersectionEvidence, r: PageCoverageReading | null, contenders: readonly OwnedCandidate[],
+  inv: TopicInvestigation, ids: string[], x: IntersectionEvidence, r: PageCoverageReading | null, contenders: readonly OwnedCandidate[], at: number,
 ): CoverageDecision {
   if (r == null || "unavailable" in x) return refuse(inv, ids, "page_intersection",
     `I have not been able to compare the pages that win for "${inv.label}" against your own yet because ${"unavailable" in x ? UNAVAILABLE[x.unavailable] : "I could not read what came back"}, so I am telling you to build nothing until I have. I will try it again on your next visit.`,
@@ -253,6 +230,21 @@ function readIntersection(
   if (r.ownedHoldsMaterialShare === true && held) return decide(inv, "improve_existing", { ownedUrls: [held.url], evidenceKeys: ids,
     explanation: `Your page ${held.url} already comes up for ${r.ownedCoveredKeywords} of the ${n} searches the winning pages for "${inv.label}" share, so I would strengthen that page rather than add a second one that competes with it.`,
     alternativesRuledOut: [{ alternative: "Write a new page for this", reason: "You already reach this cluster on a page of your own, and a second page would split it." }] });
+  // THE GAP IS PROVED FROM ADDRESSES; THE PAGE IS WRITTEN FROM WORDS. A create_new I cannot write
+  // holds the one decided slot and blocks every topic that could be acted on, so the bodies are asked
+  // for BEFORE the verdict, and when every winner has refused me there is nothing left to ask and it parks.
+  if (inv.currentReadableWinners < MIN_ADJUDICATION_WINNERS) {
+    // A READ DUE TOMORROW IS NOT A REFUSAL: testing only that an outcome EXISTS parked a case whose
+    // reads were merely queued, and told the operator its winners had refused me, which was false.
+    const reachable = inv.winners.some((w) => w.extractState !== "current"
+      && (!w.readOutcome || Date.parse(w.readOutcome.retryAfter) <= at));
+    return reachable
+      ? refuse(inv, ids, "winners", `I proved you have no page for "${inv.label}", and I have read ${inv.currentReadableWinners} of the ${MIN_ADJUDICATION_WINNERS} winning pages I need before I write one, so I am reading the rest next.`,
+        "A page written without reading what already wins is a guess, however well it is written.")
+      : decide(inv, "do_nothing", { evidenceKeys: ids,
+        explanation: `I proved you have no page for "${inv.label}", but the sites that win it will not let me read their pages, so I cannot show you what a page of yours would have to cover. I am leaving this alone rather than guessing at it.`,
+        alternativesRuledOut: [{ alternative: "Write the page anyway", reason: "Writing it blind is a guess, and I will not hand you one. I pick this back up on its own the day a different site I can read comes up for this search." }] });
+  }
   return decide(inv, "create_new", { evidenceKeys: ids,
     explanation: r.ownedCoveredKeywords === 0
       ? `The pages that win for "${inv.label}" have ${n} searches in common that no page of yours comes up for at all, so this is a real gap and a page of your own is the right answer.`
@@ -261,20 +253,6 @@ function readIntersection(
       reason: r.ownedCoveredKeywords === 0
         ? "Not one page of yours comes up for a single search in that cluster, so there is nothing here to strengthen."
         : "The pages of yours that touch this cluster reach too little of it to carry the rest." }] });
-}
-
-function buildUser(inv: TopicInvestigation, candidates: readonly OwnedCandidate[], ev: readonly Ev[]): string {
-  return [
-    `TOPIC: ${inv.label} (id ${inv.key})`,
-    `WHAT PEOPLE SEARCH: ${inv.queries.slice(0, 8).map((q) => `"${q}"`).join(", ")}`,
-    `WHAT A SEARCHER WANTS: ${inv.demand.intent ?? "not established"}`,
-    `WHAT WINS HERE: ${SHAPE[inv.pageType] ?? inv.pageType}`,
-    "EVIDENCE (cite these ids and no others)",
-    ...ev.map((e) => `  ${e.id}: ${e.fact}`),
-    "OWNED PAGES (the only addresses you may name)",
-    ...candidates.map((c) => `  ${c.url}`),
-    "Decide whether one of these owned pages is already the answer for this topic.",
-  ].join("\n");
 }
 
 const decide = (inv: TopicInvestigation, verdict: CoverageDecision["verdict"], parts: Partial<CoverageDecision>): CoverageDecision =>
@@ -286,6 +264,13 @@ const refuse = (
   inv: TopicInvestigation, ids: string[], missing: MissingRequirement, explanation: string, reason: string,
 ): CoverageDecision => decide(inv, "research_needed", { evidenceKeys: ids, missing: [missing], explanation,
   alternativesRuledOut: [{ alternative: "Write a new page for this", reason }] });
+
+/** A TERMINAL PARK: this case is closed on the evidence I hold, it owes nothing, no purchase
+ *  can move it, and it names the exact evidence change that would reopen it on its own. It is
+ *  a decision, not a queue entry, so the same impossible requirement is never asked for twice. */
+const park = (inv: TopicInvestigation, ids: string[], explanation: string, reopens: string): CoverageDecision =>
+  decide(inv, "do_nothing", { evidenceKeys: ids, explanation: `${explanation} ${reopens}`,
+    alternativesRuledOut: [{ alternative: "Keep researching this", reason: "No search I could run settles this; only Google's own results changing does, and I check those every week anyway." }] });
 
 /** THE one answer wherever the ladder lands on "the comparison is all that is still owed".
  *  It was written out three times, and three copies of one sentence drift apart. */
@@ -321,13 +306,22 @@ export async function adjudicateCoverage(
   // three more pages for a topic I will refuse anyway spends fetches to reach the same no.
   if (inv.serpCoherence !== "coherent") return refuse(inv, ids, "intent", `The results for "${inv.label}" answer more than one meaning of the phrase, so I cannot yet say what a searcher actually wants and I will not judge your pages against it until I can.`,
     "A page built for a phrase that means two things answers neither of them well.");
-  // A DIFFERENT PROBLEM, SAID DIFFERENTLY. "The winners do not agree on one shape" is not
-  // "this phrase means two things", and telling a coherent topic the second is simply false.
-  if (inv.pageType === "mixed" || inv.pageType === "unknown") return refuse(inv, ids, "shape", `The pages that win for "${inv.label}" do not settle into one kind of page yet, so I cannot say what shape a page of yours would have to be to compete.`,
-    "Building the wrong shape of page for a search is work that cannot win, however well it is written.");
+  // A SHAPE THAT WILL NOT SETTLE IS AN ANSWER, NOT AN ERRAND. This used to be a research
+  // requirement nothing could ever buy: no search closes it, so the topic was silently
+  // re-refused on every visit forever. The current look already settled it, so it is parked
+  // here with the exact evidence change that would reopen it and is never queued again.
+  if (inv.pageType === "mixed" || inv.pageType === "unknown") return park(inv, ids,
+    inv.pageType === "mixed"
+      ? `The pages that win for "${inv.label}" are split across ${inv.pageTypeVotes.length} different kinds of page, so there is no one shape a page of yours could take to compete, and I am leaving this alone rather than guessing.`
+      : `Too few of the ${inv.distinctResultDomains} sites that come up for "${inv.label}" land on a kind of page I recognise, so I cannot tell you what a page of yours would have to be.`,
+    `I will pick this back up on its own the day one kind of page takes the lead in Google's results for "${inv.label}".`);
   if (inv.demand.intent == null) return refuse(inv, ids, "intent", `I do not yet know what someone searching "${inv.label}" is actually trying to do, so I am not judging your pages against a goal I cannot name.`,
     "A page aimed at a purpose I am guessing at is a page aimed at nothing.");
-  if (inv.currentReadableWinners < MIN_ADJUDICATION_WINNERS) return refuse(inv, ids, "winners", `I have read ${inv.currentReadableWinners} of the ${MIN_ADJUDICATION_WINNERS} winning pages I need before I can compare "${inv.label}" against your own, so I am reading the rest next.`,
+  // THREE PUBLISHERS I CAN NAME AND ADDRESS. This counted READ pages, and the comparison it
+  // gates compares addresses, so a topic whose winners I could not fetch owed a purchase I
+  // could always have made. Reading those pages matters when a page gets WRITTEN, not here.
+  const named = rankedPublishers(inv);
+  if (named.length < MIN_ADJUDICATION_WINNERS) return refuse(inv, ids, "winners", `I can name ${named.length} of the ${MIN_ADJUDICATION_WINNERS} sites that win for "${inv.label}", so I do not yet have enough to compare against your own pages. I am looking those results up again next.`,
     `One or two pages are one or two publishers' opinions, and I need ${MIN_ADJUDICATION_WINNERS} sites agreeing before I call anything a pattern.`);
 
   const contenders = candidates.filter(contender);
@@ -337,62 +331,12 @@ export async function adjudicateCoverage(
   // EVERY CHEAPER CHECK IS BEHIND US, so this is the one topic that earned the paid
   // comparison. With it in hand the verdict is final and free; without it the topic
   // stays an investigation, whichever way the rest of the evidence leans.
-  if (x) return readIntersection(inv, ids, x, reading, contenders);
+  if (x) return readIntersection(inv, ids, x, reading, contenders, (opts.now ?? new Date()).getTime());
   if (contenders.length === 0) return owesComparison(inv, ids);
 
-  // NOTHING READS A MODEL-QUALITY VERDICT YET, so nothing pays for one. The deterministic
-  // half above is free and always runs; the judgment call stays off until the slice that
-  // renders it turns it on. Running a reasoning model inside an operator's page load for an
-  // answer no screen shows is a cost with no reader.
-  if (opts.model === "off") return owesComparison(inv, ids);
-  const call = await callStructuredLLM({
-    kind: "coverage_adjudication", tenantId, system: SYSTEM, user: buildUser(inv, candidates, ev),
-    grounded: ev.map((e) => e.fact).join(" "), projectedCostUsd: 0.01, maxTokens: 1600,
-    complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, cacheImpl: opts.cacheImpl,
-  });
-  if (call.status !== "drafted") {
-    log.warn("[coverage-adjudication] no usable verdict", { tenantId, topicKey: inv.key, status: call.status });
-    return refuse(inv, ids, "model_refusal", `I could not get a straight answer on whether one of your pages already covers "${inv.label}", so I am holding off rather than guessing.`,
-      "I do not recommend building a page on the back of an answer I could not check.");
-  }
-  const v = call.value;
-  const known = new Set(ids);
-  const byKey = new Map(candidates.map((c) => [canonicalUrlKey(c.url), c]));
-  const named = v.ownedUrls.map((u) => byKey.get(canonicalUrlKey(u)));
-  // TWO SPELLINGS OF ONE PAGE ARE ONE PAGE: without this, "these two pages of yours compete"
-  // was shown to an operator with the same page listed twice.
-  const distinct = new Set(named.filter(Boolean).map((c) => canonicalUrlKey(c!.url))).size;
-  const conflict =
-    named.some((c) => !c) ? "named a page I never gave it"
-      : v.evidenceKeys.some((k) => !known.has(k)) ? "leaned on something I never gave it"
-        // A HINT IS NOT COVERAGE, AND AN UNREAD PAGE IS NOT AN ANSWER. Shared wording put a
-        // merchandise page on the shortlist for an informational topic; without this it could
-        // be returned as the page that already covers it, unread.
-        : named.some((c) => c!.strongSignals === 0) ? "answered with a page nothing but shared wording connects to this"
-          : named.some((c) => c!.bodyHeld === false) ? "answered with a page whose own words I have never read"
-            : v.verdict === "create_new" ? "create_new"
-              : v.verdict === "improve_existing" && distinct !== 1 ? "did not name the one page it says already covers this"
-                : v.verdict === "consolidate_or_choose" && distinct < 2 ? "said your pages compete without naming both"
-                  : null;
-  // F6: the model finding a genuine gap is NOT a contradiction. It is the same answer gate 7
-  // gives, and it deserves the same honest reason rather than being thrown in with hallucinations.
-  if (conflict === "create_new") return owesComparison(inv, ids);
-  if (conflict) {
-    log.warn("[coverage-adjudication] verdict disagrees with the evidence", { tenantId, topicKey: inv.key, conflict });
-    return refuse(inv, ids, "conflicting_evidence", `My check on whether one of your pages already covers "${inv.label}" ${conflict}, so I threw it away and will look again.`,
-      "An answer I cannot trace back to the pages and the evidence I hold is not a reason to build anything.");
-  }
-  // ONE SENTENCE, NEVER A PAGE. A 400-character prose field accepted a title, an opening, a
-  // section list and a meta description, all of which are the NEXT slice's job and none of
-  // which this verdict is allowed to hand anybody.
-  const looksDrafted = (t: string): boolean => /\n/.test(t) || (t.match(/[.!?](\s|$)/g)?.length ?? 0) > 2 || /:\s*\d\s/.test(t);
-  if (looksDrafted(v.explanation) || v.alternativesRuledOut.some((a) => looksDrafted(a.reason) || looksDrafted(a.alternative))) {
-    log.warn("[coverage-adjudication] verdict came back carrying page copy", { tenantId, topicKey: inv.key });
-    return refuse(inv, ids, "conflicting_evidence", `My check on whether one of your pages already covers "${inv.label}" came back writing the page instead of answering the question, so I threw it away.`,
-      "A decision about whether a page should exist is not the page, and I will not let one arrive dressed as the other.");
-  }
-  if (v.verdict === "research_needed") return refuse(inv, ids, "model_refusal", `I could not decide whether one of your pages already covers "${inv.label}" from what I hold today, so I am gathering more before I say.`,
-    "I will not recommend a new page off a comparison that came back undecided.");
-  return decide(inv, v.verdict, { ownedUrls: [...new Set(named.map((c) => c!.url))], evidenceKeys: v.evidenceKeys, explanation: v.explanation,
-    alternativesRuledOut: v.alternativesRuledOut.map((a) => ({ alternative: a.alternative, reason: a.reason })) });
+  // NO MODEL RUNS HERE, AND NONE IS NEEDED. Every verdict above is arithmetic over facts
+  // the provider already reported, so the ladder is free, repeatable and checkable. The
+  // judgment-model path this file once carried was never reachable (nothing ever turned it
+  // on, and no screen read a model-quality verdict), so it is gone rather than dormant.
+  return owesComparison(inv, ids);
 }

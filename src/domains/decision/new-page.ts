@@ -118,6 +118,8 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   if (!earnedNewPage(decision) || decision.topicKey !== inv.key || !reading) {
     return { status: "none", reason: "I have not proved you are missing a page here, so I am building nothing." };
   }
+  // The three-publishers-I-have-READ floor lives in the coverage ladder now, one gate above the only
+  // door into this file, so a second copy here would just be a second place for that number to drift.
   const now = opts.now ?? new Date();
   const { items, missing } = receiptOf(inv, owned, decision, reading);
   const keys = new Set(items.map((i) => i.key));
