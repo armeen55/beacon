@@ -41,9 +41,33 @@ export function rankInvestigations(investigations: readonly TopicInvestigation[]
 
 /** The whole pass may read at most this many of my own pages' words, once each. */
 const MAX_BODY_READS = 3;
+/** A page that did not answer me today is worth one more try tomorrow, never on this same visit. */
+const RETRY_MS = 24 * 3600 * 1000;
+/** An opening sample is a sample, not a page (the same bound the stored body reader uses). */
+const MAX_SAMPLE = 1200;
 
-/** ONE topic, the ONE thing it is stuck on, and the exact purchase that closes it: a search to look up, or the comparison. Never both, never neither. */
-export type ResearchNeed = { topicKey: string; requirement: MissingRequirement; query: string | null; comparison: PageIntersectionAsk | null };
+/** ONE topic, the ONE thing it is stuck on, and either the exact purchase that closes it (a search to look
+ *  up, or the comparison) or the date I may try again. A case that can only WAIT is still listed, because a
+ *  requirement nobody can see is a requirement nobody fixes. */
+export type ResearchNeed = { topicKey: string; requirement: MissingRequirement; query: string | null; comparison: PageIntersectionAsk | null; retryAfter: string | null };
+
+/** ONE owned page, read live and persisted through the SAME page snapshot every other read of my own pages
+ *  writes to. The last resort, at most once per pass, and only for a page my own results already name:
+ *  never a crawl and never a second crawler. Null when the publisher's robots file says no or the page did
+ *  not answer, and that is a visible park with a date on it rather than a case dropped where nobody sees it. */
+async function acquireOwnedBody(tenantId: string, url: string): Promise<OwnedPageBody | null> {
+  const [fetcher, extractor, store, scan] = await Promise.all([
+    import("@/domains/evidence/competitor-intel/polite-fetch"), import("@/domains/evidence/pages/extractor"),
+    import("@/lib/persistence/dual-write"), import("@/domains/evidence/scanning/in-process-scan")]);
+  const absolute = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  const res = await fetcher.fetchPageHtml(absolute, new Map(), {});
+  if (!res.ok) return null;
+  const snap = extractor.extractPageSnapshot(res.html, absolute, scan.pageIdFor(url), tenantId, res.status);
+  await store.syncPageSnapshots([snap], tenantId);
+  return { url: absolute, title: snap.title, metaDescription: snap.meta_description, cardTexts: snap.card_texts ?? [],
+    openingSample: (snap.body_paragraph_sample ?? []).join(" ").slice(0, MAX_SAMPLE) || null,
+    entityNames: snap.schema_entity_names ?? [], internalLinks: [], fetchedAt: snap.fetched_at };
+}
 
 /** A topic whose evidence reached a FINAL answer, with everything that answer rests on, so
  *  the step that acts on it never has to re-derive the candidates or re-read the comparison. */
@@ -71,6 +95,8 @@ export type ReadCoverageOptions = {
   profile?: BusinessProfile | null;
   /** A TEST SEAM ONLY: production reads the stored comparison out of the snapshot. */
   intersection?: IntersectionEvidence;
+  /** A TEST SEAM ONLY: production reads the page off the live web through acquireOwnedBody. */
+  acquireBody?: (tenantId: string, url: string) => Promise<OwnedPageBody | null>;
   now?: Date;
 };
 
@@ -97,7 +123,10 @@ function storedComparisonFor(snapshot: EvidenceSnapshot, inv: TopicInvestigation
   // answer to a different question be read as the answer to this one.
   // NO BACKWARD READ. A prior-key fallback was carried for rows bought under the old packet hash,
   // and this account holds zero stored comparisons, so it was compatibility for nobody.
-  const held = (snapshot.research.pageComparisons ?? []).find((c) => c.topicKey === inv.key && c.askKey === want
+  // AN ALIAS IS STILL THIS CASE: reading only `key` made a comparison bought under an absorbed id
+  // invisible, and bought it a second time for real money.
+  const mine = new Set([inv.key, ...inv.aliasKeys]);
+  const held = (snapshot.research.pageComparisons ?? []).find((c) => mine.has(c.topicKey) && c.askKey === want
     && JSON.stringify(c.pages) === JSON.stringify(norm.pages)
     && JSON.stringify(c.excludePages) === JSON.stringify(norm.exclude_pages ?? []));
   return held?.comparison ?? (held?.unavailable ? { unavailable: held.unavailable } : null);
@@ -132,14 +161,14 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
   // asked for once each, never the site. Every candidate rebuild reads out of this map.
   const bodies = new Map<string, OwnedPageBody>();
   const asked = new Set<string>();
-  let queries = 0;
+  let queries = 0, fetched = false;
   let decided: DecidedTopic | null = null;
   for (const inv of rankInvestigations(buildTopicInvestigations(snapshot))) {
     // STOPPING ON A PARK IS HOW THE RULE BELOW BECAME DEAD CODE: production reads this pass with
     // no research budget, so the walk ended the moment ANY verdict landed, and a park ranks first.
     if (decided && ACTS.has(decided.decision.verdict) && queries >= max && (max <= 0 || needs.some((n) => n.comparison))) break;
     let candidates = ownedCandidatesFor(snapshot, inv, bodies);
-    const judge = { outOfScopeTopics: topicOutOfScope(snapshot, inv, opts.profile ?? null) };
+    const judge = { outOfScopeTopics: topicOutOfScope(snapshot, inv, opts.profile ?? null), now: opts.now, site: snapshot.scope?.site ?? null };
     let decision: CoverageDecision;
     try { decision = await adjudicateCoverage(inv, candidates, tenantId, judge); } catch { continue; }
     // A PAGE OF MINE WHOSE WORDS ARE ALREADY STORED IS NOT AN UNREAD PAGE. This pass asked for
@@ -147,12 +176,23 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
     // two engines and sitting in the body store still read "I have never read this" and parked
     // its topic forever. Read the strong ones now and decide again in the SAME pass, because a
     // requirement I can close in this breath is not a reason to send the operator away.
+    let unreadable: string | null = null;
     if (decision.missing[0] === "owned_content") {
       const want = candidates.filter((c) => c.strongSignals > 0 && !c.bodyHeld && !asked.has(c.url)).slice(0, MAX_BODY_READS - asked.size).map((c) => c.url);
       for (const u of want) asked.add(u);
       const read = want.length > 0 ? await loadOwnedPageBodies(tenantId, want).catch(() => null) : null;
-      if (read && read.size > 0) {
-        for (const [key, body] of read) bodies.set(key, body);
+      for (const [key, body] of read ?? []) bodies.set(key, body);
+      // AN EMPTY BODY STORE IS UNKNOWN COVERAGE, NEVER PROOF A PAGE HAS NO WORDS, and the two are not even
+      // the same problem: a store that failed to answer is retryable, an absent body is a page I have never
+      // read. Both used to `continue` here, so the case was neither queued nor parked and vanished off every
+      // surface. A page my own results already name earns ONE live read of its own, once per whole pass.
+      const owed = want.find((u) => !bodies.has(u));
+      if (owed && !fetched) {
+        fetched = true;
+        const got = await (opts.acquireBody ?? acquireOwnedBody)(tenantId, owed).catch(() => null);
+        if (got) bodies.set(owed, got); else unreadable = owed;
+      }
+      if (want.some((u) => bodies.has(u))) {
         candidates = ownedCandidatesFor(snapshot, inv, bodies);
         try { decision = await adjudicateCoverage(inv, candidates, tenantId, judge); } catch { continue; }
       }
@@ -178,9 +218,18 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
     }
     const query = (nextResearchQuery(decision, inv) ?? "").trim();
     const comparison = max <= 0 || query || needs.some((n) => n.comparison) ? null : ask;
-    if (!query ? !comparison : queries >= max || seen.has(query.toLowerCase())) continue;
-    if (query) { seen.add(query.toLowerCase()); queries += 1; }
-    needs.push({ topicKey: inv.key, requirement: decision.missing[0]!, query: query || null, comparison });
+    // A CASE THAT CAN ONLY WAIT IS STILL A CASE. A winner read due tomorrow and a page of my own I could
+    // not read both buy nothing today, and dropping them here is exactly how a topic stopped being visible
+    // anywhere at all. `owned_content` is always listed; everything else waiting carries its own date.
+    const retryAfter = decision.hold ?? (unreadable ? new Date((opts.now ?? new Date()).getTime() + RETRY_MS).toISOString() : null);
+    const owedBody = decision.missing[0] === "owned_content";
+    // EVERY QUEUED NEED COUNTS AGAINST THE SAME CEILING. A body I owe and a page I am waiting on cost
+    // no search, but they still enter the run's frozen plan, and leaving them uncounted let EVERY topic
+    // into it: the plan header promises three, the drift guard that gates the one paid comparison is
+    // only as narrow as that plan, and the run's durable progress grew without bound.
+    if (query ? queries >= max || seen.has(query.toLowerCase()) : (!comparison && !retryAfter && !owedBody) || queries >= max) continue;
+    seen.add(query.toLowerCase()); queries += 1;
+    needs.push({ topicKey: inv.key, requirement: decision.missing[0]!, query: query || null, comparison, retryAfter });
   }
   return { decided, needs };
 }
@@ -191,11 +240,12 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
  *  shape that will not settle is CLOSED upstream and never arrives here at all; an unread page
  *  of mine is read inside this pass; and the comparison is bought by its own ask. FRESHNESS:
  *  taking the first row asked for the page I already hold whenever a group carried a current
- *  look beside a stale one, so the stale one stayed
- *  stale forever. A `winners` topic re-lists its CURRENT search so the winner reads bank
- *  that topic's own top pages, and the look itself is held already, so it is not a buy. */
+ *  look beside a stale one, so the stale one stayed stale forever. A `winners` topic re-lists its
+ *  CURRENT search so the winner reads bank that topic's own top pages, and the look itself is held
+ *  already, so it is not a buy. A topic merely WAITING on a page-body retry lists nothing: re-listing
+ *  its search would buy another results page just to sit out somebody else's timeout. */
 function nextResearchQuery(d: CoverageDecision, inv: TopicInvestigation): string | null {
-  const need = d.topicKey === inv.key ? d.missing[0] : null;
+  const need = d.topicKey === inv.key && !d.hold ? d.missing[0] : null;
   if (need === "exact_serp" || need === "fresh_serp") return inv.exactSerps.find((s) => s.freshness !== "current")?.query ?? inv.queries[0] ?? null;
   return need === "winners" ? inv.exactSerps.find((s) => s.freshness === "current")?.query ?? null : null;
 }

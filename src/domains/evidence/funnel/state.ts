@@ -9,7 +9,7 @@ import "server-only";
  */
 
 import { loadResearchState, saveResearchState, type StateRepoDeps } from "./state-repo";
-import type { KeywordDiscoveryRoute, ObservationMode, ResearchPageComparison, ResearchPageExtract, ResearchWinningAppearance, WinnerReadOutcome } from "./research-evidence";
+import type { KeywordDiscoveryRoute, ObservationMode, ResearchCase, ResearchPageComparison, ResearchPageExtract, ResearchWinningAppearance, WinnerReadOutcome } from "./research-evidence";
 
 const FUNNEL_SCHEMA_VERSION = 3;
 
@@ -120,6 +120,8 @@ export type FunnelState = {
   winningPages: FunnelWinningPage[];
   /** Bought page-by-page comparisons, newest first, ONE per topic, bounded, in the canonical projected shape. */
   pageComparisons: ResearchPageComparison[];
+  /** The case identities Runtime reconciled, so an id minted today is the same id tomorrow. */
+  cases: ResearchCase[];
   /** LIFETIME totals for this basis (not the receipt). */
   ledger: { spentUsd: number; cacheHits: number };
   /** THIS run's receipt: reset whenever Runtime hands us a new run id. */
@@ -138,7 +140,7 @@ export function emptyFunnelState(tenantId: string, basisTag = "", now = ""): Fun
     prompts: { pairs: [], intendedPairs: 0 },
     serps: { queries: [], analyzed: 0 },
     winningPages: [],
-    pageComparisons: [],
+    pageComparisons: [], cases: [],
     ledger: { spentUsd: 0, cacheHits: 0 },
     cycle: { runId: null, cycleKey: null, spentUsd: 0, cacheHits: 0 },
     updatedAt: now,
@@ -162,6 +164,7 @@ function decodeFunnelState(tenantId: string, basisTag: string, raw: unknown): Fu
     // ADDITIVE, at the SAME schema version: a row stored before comparisons existed reads
     // as none of them rather than being thrown away with every keyword and answer on it.
     pageComparisons: Array.isArray(r.pageComparisons) ? r.pageComparisons : base.pageComparisons,
+    cases: Array.isArray(r.cases) ? r.cases : base.cases,
     ledger: r.ledger && typeof r.ledger === "object" ? { ...base.ledger, ...r.ledger } : base.ledger,
     cycle: r.cycle && typeof r.cycle === "object" ? { ...base.cycle, ...r.cycle } : base.cycle,
     updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : "",

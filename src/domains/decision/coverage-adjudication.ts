@@ -35,6 +35,7 @@ import "server-only";
  * where the words of a competing page are actually what gets used.
  */
 
+import { isNoiseDomain } from "@/domains/evidence/relevance-gate";
 import { publisherHost } from "@/domains/evidence/serp-shape";
 import { comparePageCoverage, type PageCoverageReading, type PageIntersectionAsk, type ParsedPageIntersection } from "@/domains/evidence/page-intersection";
 import type { TopicInvestigation } from "@/domains/evidence/topic-investigation";
@@ -66,6 +67,9 @@ export type CoverageDecision = {
   /** Evidence ids behind it. A claim with no id behind it is never made. */
   evidenceKeys: string[];
   missing: MissingRequirement[];
+  /** When the requirement is merely WAITING on a retry, the earliest I may try again; null = nothing is
+   *  waiting. A queued read is not a publisher refusal, and this is how a surface says WHEN, not why not. */
+  hold?: string | null;
   alternativesRuledOut: Array<{ alternative: string; reason: string }>;
   /** One plain first-person sentence the operator reads. No lab words. */
   explanation: string;
@@ -110,11 +114,11 @@ export function intersectionComparison(
   return { pages: [...winners.slice(0, MIN_ADJUDICATION_WINNERS), ...candidates.filter(contender).map((c) => absolute(c.url))], intersection_mode: "union" };
 }
 
-/** ONE ranked winning page per publisher, by address. This comparison is bought on ADDRESSES
- *  and the provider reads those pages itself, so a body I could not fetch never had any
- *  business holding it back: gating on a readable extract left topics owing a comparison I
- *  could have bought at any time. Rankedness comes from the winner's own appearances, so a
- *  page that was only ever cited by an engine is never counted as one of these. */
+/** ONE ranked winning page per publisher, by address, and it is the publisher's BEST-RANKED page here:
+ *  Evidence hands these over in real organic order, so taking the first is taking rank 1 rather than
+ *  whichever url sorted first in the alphabet. This comparison is bought on ADDRESSES and the provider
+ *  reads those pages itself, so a body I could not fetch never had any business holding it back.
+ *  Rankedness comes from the winner's own appearances: a page only ever cited by an engine is never one. */
 const rankedPublishers = (inv: TopicInvestigation): string[] => {
   const byPublisher = new Map<string, string>();
   for (const w of inv.winners) {
@@ -126,6 +130,21 @@ const rankedPublishers = (inv: TopicInvestigation): string[] => {
 
 /** Owned pages are stored as a canonical key; the endpoint documents absolute urls. */
 const absolute = (u: string): string => (/^https?:\/\//i.test(u) ? u : `https://${u}`);
+/** Publishers on the CURRENT results page I could actually learn from, filtered exactly as the read path
+ *  filters: top ten, not a social or discussion profile, not a page of this account's own. Under three of
+ *  these, no search will ever bank three winners, so asking the same question again just asks forever. */
+const eligiblePublishers = (inv: TopicInvestigation, candidates: readonly OwnedCandidate[], site: string | null): number => {
+  // COUNT WHAT THE READ PATH CAN ACTUALLY BANK, or the supply is a promise I cannot keep. It re-lists
+  // ONE search, not every look on file, and it never banks this account's own domain, so summing across
+  // looks and forgetting the account's own site reported a supply of three from two bankable pages and
+  // asked the same impossible question forever.
+  const mine = new Set([...candidates.map((c) => publisherHost(absolute(c.url))), ...(site ? [publisherHost(absolute(site))] : [])]);
+  return new Set(inv.exactSerps.filter((s) => s.freshness === "current").slice(0, 1).flatMap((s) => s.organicRows)
+    .filter((r) => r.rank > 0 && r.rank <= TOP_TEN && !isNoiseDomain(r.url))
+    .map((r) => publisherHost(r.url) || r.domain).filter((h) => !!h && !mine.has(h))).size;
+};
+/** The read path banks organic winners from the first page of results only. */
+const TOP_TEN = 10;
 /** Under this, the compared pages merely overlap; they do not share a subject. */
 const MIN_SHARED_SEARCHES = 3;
 
@@ -149,6 +168,8 @@ export type AdjudicateCoverageOptions = {
   intersection?: IntersectionEvidence;
   /** Injected so a retry hold is judged against the caller's clock, never the wall. */
   now?: Date;
+  /** This account's own site, so its own pages never count toward the winner supply. */
+  site?: string | null;
 };
 
 type Ev = { id: string; fact: string };
@@ -234,13 +255,17 @@ function readIntersection(
   // holds the one decided slot and blocks every topic that could be acted on, so the bodies are asked
   // for BEFORE the verdict, and when every winner has refused me there is nothing left to ask and it parks.
   if (inv.currentReadableWinners < MIN_ADJUDICATION_WINNERS) {
-    // A READ DUE TOMORROW IS NOT A REFUSAL: testing only that an outcome EXISTS parked a case whose
-    // reads were merely queued, and told the operator its winners had refused me, which was false.
-    const reachable = inv.winners.some((w) => w.extractState !== "current"
-      && (!w.readOutcome || Date.parse(w.readOutcome.retryAfter) <= at));
-    return reachable
-      ? refuse(inv, ids, "winners", `I proved you have no page for "${inv.label}", and I have read ${inv.currentReadableWinners} of the ${MIN_ADJUDICATION_WINNERS} winning pages I need before I write one, so I am reading the rest next.`,
-        "A page written without reading what already wins is a guess, however well it is written.")
+    // A READ DUE TOMORROW IS NOT A REFUSAL. Only the publisher's own robots answer refuses me; a timeout,
+    // a provider miss, a spending ceiling and a daily limit are all WAITS, and a hold that has run out is
+    // a page I may read right now. Treating any outcome at all as terminal told the operator that sites
+    // which had refused nothing would not let me read them, which was simply untrue.
+    const unread = inv.winners.filter((w) => w.extractState !== "current" && w.readOutcome?.state !== "robots_blocked");
+    const holds = unread.map((w) => w.readOutcome?.retryAfter).filter((t): t is string => !!t && Date.parse(t) > at).sort();
+    if (unread.length > holds.length) return refuse(inv, ids, "winners", `I proved you have no page for "${inv.label}", and I have read ${inv.currentReadableWinners} of the ${MIN_ADJUDICATION_WINNERS} winning pages I need before I write one, so I am reading the rest next.`,
+      "A page written without reading what already wins is a guess, however well it is written.");
+    return holds.length > 0
+      ? { ...refuse(inv, ids, "winners", `I proved you have no page for "${inv.label}", and I have not finished reading the pages that win it, so I am picking those reads back up on ${day(holds[0]!)} rather than writing you a page I would be guessing at.`,
+          "A read that has not happened yet is not a page anybody refused me, and I will not treat it as one."), hold: holds[0]! }
       : decide(inv, "do_nothing", { evidenceKeys: ids,
         explanation: `I proved you have no page for "${inv.label}", but the sites that win it will not let me read their pages, so I cannot show you what a page of yours would have to cover. I am leaving this alone rather than guessing at it.`,
         alternativesRuledOut: [{ alternative: "Write the page anyway", reason: "Writing it blind is a guess, and I will not hand you one. I pick this back up on its own the day a different site I can read comes up for this search." }] });
@@ -320,9 +345,18 @@ export async function adjudicateCoverage(
   // THREE PUBLISHERS I CAN NAME AND ADDRESS. This counted READ pages, and the comparison it
   // gates compares addresses, so a topic whose winners I could not fetch owed a purchase I
   // could always have made. Reading those pages matters when a page gets WRITTEN, not here.
+  // A REQUIREMENT THE CURRENT RESULTS PAGE CANNOT SUPPLY IS A DECISION, NOT AN ERRAND. This re-asked the
+  // topic's OWN already-current search, so a results page whose sites are all profiles and discussion
+  // threads asked the identical question forever. Count what that page can actually give me first.
   const named = rankedPublishers(inv);
-  if (named.length < MIN_ADJUDICATION_WINNERS) return refuse(inv, ids, "winners", `I can name ${named.length} of the ${MIN_ADJUDICATION_WINNERS} sites that win for "${inv.label}", so I do not yet have enough to compare against your own pages. I am looking those results up again next.`,
-    `One or two pages are one or two publishers' opinions, and I need ${MIN_ADJUDICATION_WINNERS} sites agreeing before I call anything a pattern.`);
+  if (named.length < MIN_ADJUDICATION_WINNERS) {
+    const supply = eligiblePublishers(inv, candidates, opts.site ?? null);
+    return supply >= MIN_ADJUDICATION_WINNERS
+      ? refuse(inv, ids, "winners", `I can name ${named.length} of the ${MIN_ADJUDICATION_WINNERS} sites that win for "${inv.label}", and ${supply} of them are on the results I already hold, so I am banking those pages next.`,
+        `One or two pages are one or two publishers' opinions, and I need ${MIN_ADJUDICATION_WINNERS} sites agreeing before I call anything a pattern.`)
+      : park(inv, ids, `${supply === 0 ? "None" : `Only ${supply}`} of the sites that come up for "${inv.label}" are pages I could learn anything from, and the rest are profiles and discussion threads, so I have nothing to hold your own pages against.`,
+        `I will pick this back up on its own the day Google's results for "${inv.label}" bring different sites.`);
+  }
 
   const contenders = candidates.filter(contender);
   const unread = contenders.find((c) => !c.bodyHeld);

@@ -88,6 +88,7 @@ function withRun(o: Partial<RR.ResearchRun> = {}): RR.ResearchRun[] { const rows
 /** Benign no-op steps; a phase-truth test overrides the ONE step under test. */
 const BENIGN: ResearchCycleSteps = {
   refreshSources: async () => ({ attempted: 0, succeeded: [], failures: [] }),
+  reconcileCases: async () => {},
   backfillChunk: async () => ({ kind: "no_work" }),
   funnelUnit: async () => ({ status: "done", cursor: null, progress: {} }), // evidence phases no-op in these lease/truth tests
   investigationFocus: async () => null,

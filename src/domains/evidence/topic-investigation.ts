@@ -26,12 +26,11 @@
  * so it can never be the reason two queries were grouped. Priority decides WHICH
  * reason is recorded; the weak-anchor check decides whether ANY merge is allowed.
  * Unity that cannot be established leaves the two sides SEPARATE. Honest
- * fragmentation beats a false mega-topic.
- */
+ * fragmentation beats a false mega-topic. */
 
 import { createHash } from "node:crypto";
 
-import type { FunnelResearchEvidence, ResearchWinningAppearance } from "./funnel/research-evidence";
+import type { FunnelResearchEvidence, ResearchCase, ResearchWinningAppearance } from "./funnel/research-evidence";
 import { canonicalQueryKey, topicTokens } from "./relevance-gate";
 import {
   coherenceOf, dominantPageType, pageTypeVotesOf, serpRefOf, winnerRefOf,
@@ -45,24 +44,18 @@ type MergeReason = "seed_lineage" | "gsc_owned_page" | "prompt_fanout" | "shared
 
 type InvestigationKeyword = {
   query: string;
-  /** The DataForSEO capability that produced this row; null when it did not come
-   *  from a provider call (a Search Console query, or the account's own profile). */
-  providerCapability: string | null;
   discoveredVia: string | null;
   seed: string | null;
   searchVolume: number | null;
   difficulty: number | null;
   intent: string | null;
   gscImpressions: number | null;
-  /** Provider-reported volume series, ONLY when the provider returned one. */
-  trend: number[] | null;
 };
 
 type TrackedPromptRef = {
   promptId: string;
   promptText: string;
   engines: string[];
-  observationModes: string[];
   observedAt: string | null;
 };
 
@@ -79,10 +72,10 @@ type FanOutRef = {
 };
 
 export type TopicInvestigation = {
-  /** THE CASE, not the packet: one identity per subject, frozen on the case's own anchor
-   *  search, so grouping, labels and packet composition may all move without renaming an
-   *  open case. It moves only when what I am investigating moves. */
+  /** THE CASE, not the packet: one durable identity per subject, resolved by `foldCases` below. */
   key: string;
+  /** Ids this case absorbed in a merge: an answer bought under one is STILL this case's answer. */
+  aliasKeys: string[];
   label: string;
   demandBasis: "search" | "ai" | "mixed" | "none";
   /** How unity was established, in the order the rules fired. */
@@ -115,15 +108,15 @@ export type TopicInvestigation = {
   distinctWinners: number;
   currentReadableWinners: number;
   missingEvidence: string[];
-  /** True ONLY when the next slice has enough to COMPARE. Never permission to
-   *  build, publish, or propose anything. */
-  readyForComparison: boolean;
 };
 
 // ── documented thresholds ────────────────────────────────────────────────────
 
-/** A comparison needs three distinct winners that were actually read. */
+/** Three distinct publishers, wherever agreement is claimed (see missingEvidence below). */
 const MIN_WINNERS = 3;
+/** Identity must be durable, not unbounded: the anchors one case may carry, and the cases on file. */
+const MAX_ANCHORS = 40;
+const MAX_CASES = 60;
 /** Two exact looks are the same subject when they return the same pages: this
  *  many shared results, and that share of the smaller result set. */
 const OVERLAP_MIN_URLS = 2;
@@ -138,21 +131,6 @@ type ObsRow = FunnelResearchEvidence["aiObservations"][number];
 const norm = (s: string): string => s.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
 const eq = (a: Set<string>, b: Set<string>): boolean => a.size === b.size && [...a].every((t) => b.has(t));
 const inter = <T,>(a: Set<T>, b: Set<T>): number => [...a].filter((t) => b.has(t)).length;
-
-/** A provider-reported volume series, ONLY if the provider ever returns one; the
- *  keyword rows on file carry no series today, and an absent series stays null
- *  rather than becoming a made-up trend. */
-const readTrend = (row: object): number[] | null => {
-  const v = (row as Record<string, unknown>).monthlySearches;
-  return Array.isArray(v) && v.length > 0 && v.every((n) => typeof n === "number") ? (v as number[]) : null;
-};
-
-/** The provider capability behind a discovery route; null when no provider call
- *  produced the row (Search Console demand, or the account's own profile). */
-const PROVIDER_CAPABILITY: Record<string, string> = {
-  related: "labs_related_keywords", suggestion: "labs_keyword_suggestions", ideas: "labs_keyword_ideas",
-  site: "labs_keywords_for_site", ranked: "labs_ranked_keywords",
-};
 
 const QUESTION_STEM = /^(what|which|who|where|when|why|how)\s+(are|is|was|do|does|did|can|should)\s+(the\s+)?/i;
 /** Plain topic language: no question stem, no trailing punctuation, and no orphan
@@ -169,9 +147,6 @@ type Anchor = {
 
 type Rule = { reason: MergeReason; test: (a: Anchor, b: Anchor) => boolean };
 
-/** A token-based merge is only allowed on a token this account does NOT put on
- *  everything, so a nationality, a language, a city or the business name can
- *  never be the reason two queries became one investigation. */
 const RULES: Rule[] = [
   { reason: "seed_lineage", test: (a, b) => inter(a.seeds, b.seeds) > 0 && inter(a.strong, b.strong) > 0 },
   { reason: "gsc_owned_page", test: (a, b) => !!a.ownedTopPage && a.ownedTopPage === b.ownedTopPage && inter(a.strong, b.strong) > 0 },
@@ -183,14 +158,82 @@ const RULES: Rule[] = [
     } },
 ];
 
+type CaseFold = { id: string; anchors: string[]; merged: string[] };
+
+const mintCaseId = (keys: readonly string[]): string => `inv_${createHash("sha256").update(keys[0] ?? "").digest("hex").slice(0, 12)}`;
+
+/**
+ * THE CASE IDENTITY, RESOLVED AGAINST WHAT IS ALREADY ON FILE AND NEVER RECOMPUTED. A case is matched
+ * by anchor overlap, so an enrichment pass that adds an alphabetically earlier query, prices a bigger
+ * one, or lands the very look the case asked for cannot rename it, strand a frozen plan, orphan a
+ * comparison that cost real money, or let one subject open a second live row. MERGE: an investigation
+ * matching two cases on file keeps the id with the most anchors (ties to the smaller id) and records the
+ * other as an alias, never a third id. SPLIT: a case is awarded to exactly ONE branch, the one holding
+ * the anchor it was minted from, and the genuinely new branch mints exactly one id. Pure, and
+ * independent of the order the groups arrive in, so the same evidence always resolves the same way. */
+function foldCases(groups: readonly string[][], cases: readonly ResearchCase[]): CaseFold[] {
+  const canonical = new Map(cases.map((c) => [c.id, c.aliasOf ?? c.id]));
+  const live = new Map<string, { anchors: Set<string>; minted: string }>();
+  for (const c of cases) {
+    const id = canonical.get(c.id) ?? c.id;
+    const row = live.get(id) ?? { anchors: new Set<string>(), minted: "" };
+    for (const a of c.anchors) row.anchors.add(a);
+    if (c.id === id && c.anchors[0]) row.minted = c.anchors[0];
+    live.set(id, row);
+  }
+  const want = groups.map((g) => new Set(g));
+  const tag = groups.map((g) => g.join("|"));
+  const won = new Map<number, string[]>();
+  for (const [id, row] of [...live].sort((a, b) => a[0].localeCompare(b[0]))) {
+    let at = -1, best: [number, number, string] = [-1, -1, ""];
+    for (let i = 0; i < groups.length; i += 1) {
+      const n = [...row.anchors].filter((a) => want[i].has(a)).length;
+      const score: [number, number, string] = [want[i].has(row.minted) ? 1 : 0, n, tag[i]];
+      if (n === 0 || (at >= 0 && (score[0] < best[0] || (score[0] === best[0] && (score[1] < best[1] || (score[1] === best[1] && score[2] >= best[2])))))) continue;
+      at = i; best = score;
+    }
+    if (at >= 0) won.set(at, [...(won.get(at) ?? []), id]);
+  }
+  return groups.map((g, i) => {
+    const held = (won.get(i) ?? []).sort((a, b) => live.get(b)!.anchors.size - live.get(a)!.anchors.size || a.localeCompare(b));
+    return { id: held[0] ?? mintCaseId(g), merged: held.slice(1),
+      anchors: [...new Set([...held.flatMap((h) => [...live.get(h)!.anchors]), ...g])].slice(0, MAX_ANCHORS) };
+  });
+}
+
+/** What the grouping pass established, shared by the packet build and the case reconcile so neither
+ *  can group the same evidence differently from the other. */
+type Grouped = {
+  anchors: Anchor[]; members: InvestigationKeyword[][]; reasons: MergeReason[][]; groups: number[][];
+  folded: CaseFold[]; builtAt: number; strongOf: (text: string | null | undefined) => Set<string>;
+};
+
 /**
  * Project the canonical evidence into research packets. PURE and deterministic:
  * same snapshot in, same packets out, and the only clock is the snapshot's own
  * builtAt. An investigation exists only where something was actually
  * investigated: an exact result page I looked at, or a prompt I tracked. Demand
- * with neither stays demand and is never dressed up as research.
- */
+ * with neither stays demand and is never dressed up as research. */
 export function buildTopicInvestigations(snapshot: EvidenceSnapshot): TopicInvestigation[] {
+  const g = groupEvidence(snapshot);
+  return g.groups.map((idx, i) => assemble(idx, g, snapshot, g.folded[i]!.id, g.folded[i]!.merged))
+    .sort((a, b) => a.label.localeCompare(b.label) || a.key.localeCompare(b.key));
+}
+
+/** Runtime's ONE reconcile: the case rows this evidence proves, folded onto the rows on file, so an id
+ *  minted today is the same id tomorrow. A case this snapshot does not reach keeps its row untouched,
+ *  because out of today's evidence is not retired. Pure; Runtime persists it through the funnel save
+ *  path, and Decision never writes research state. */
+export function reconcileResearchCases(snapshot: EvidenceSnapshot): ResearchCase[] {
+  const folded = groupEvidence(snapshot).folded;
+  const held: ResearchCase[] = folded.map((f) => ({ id: f.id, anchors: f.anchors }));
+  const aliases: ResearchCase[] = folded.flatMap((f) => f.merged.map((id) => ({ id, anchors: [], aliasOf: f.id })));
+  const touched = new Set([...held, ...aliases].map((c) => c.id));
+  // A LIVE ID OUTRANKS AN ALIAS WHEN THE CAP BITES: a retired identity re-mints from today's smallest query.
+  return [...held, ...(snapshot.research.cases ?? []).filter((c) => !touched.has(c.id)), ...aliases].slice(0, MAX_CASES);
+}
+
+function groupEvidence(snapshot: EvidenceSnapshot): Grouped {
   const research = snapshot.research;
   const builtAt = Date.parse(snapshot.scope.builtAt);
   const weak = weakAnchorsOf(snapshot.ownedPages, research);
@@ -208,9 +251,9 @@ export function buildTopicInvestigations(snapshot: EvidenceSnapshot): TopicInves
   }
 
   // Lineage as the funnel recorded it at discovery, never re-derived here.
-  const lineageByQuery = new Map<string, { seed: string | null; via: string | null; difficulty: number | null; intent: string | null; trend: number[] | null }>();
+  const lineageByQuery = new Map<string, { seed: string | null; via: string | null; difficulty: number | null; intent: string | null }>();
   for (const k of research.retainedKeywords) {
-    lineageByQuery.set(canonicalQueryKey(k.query), { seed: k.seed ?? null, via: k.discoveredVia ?? null, difficulty: k.difficulty, intent: k.intent, trend: readTrend(k) });
+    lineageByQuery.set(canonicalQueryKey(k.query), { seed: k.seed ?? null, via: k.discoveredVia ?? null, difficulty: k.difficulty, intent: k.intent });
   }
 
   // ── anchors: one per exact result page looked at, one per tracked prompt ──
@@ -239,8 +282,6 @@ export function buildTopicInvestigations(snapshot: EvidenceSnapshot): TopicInves
     );
     anchors.push({ ...blank(), promptIds: new Set([promptId]), obs, fanOutKeys, qkeys: new Set(selfKey ? [selfKey] : []), strong: strongOf(text) });
   }
-  if (anchors.length === 0) return [];
-
   // ── keyword membership (lineage first, then the account's specific tokens) ──
   const members: InvestigationKeyword[][] = anchors.map(() => []);
   for (const kw of snapshot.keywordDemand) {
@@ -256,9 +297,8 @@ export function buildTopicInvestigations(snapshot: EvidenceSnapshot): TopicInves
       if (!bySeed && !byIdentity && !byTokens) continue;
       if (seedKey) a.seeds.add(seedKey);
       members[i].push({
-        query: kw.query, providerCapability: lin?.via ? PROVIDER_CAPABILITY[lin.via] ?? null : null,
-        discoveredVia: lin?.via ?? null, seed: lin?.seed ?? null, searchVolume: kw.searchVolume,
-        difficulty: lin?.difficulty ?? null, intent: lin?.intent ?? null, gscImpressions: kw.gscImpressions, trend: lin?.trend ?? null,
+        query: kw.query, discoveredVia: lin?.via ?? null, seed: lin?.seed ?? null, searchVolume: kw.searchVolume,
+        difficulty: lin?.difficulty ?? null, intent: lin?.intent ?? null, gscImpressions: kw.gscImpressions,
       });
     }
   }
@@ -278,39 +318,32 @@ export function buildTopicInvestigations(snapshot: EvidenceSnapshot): TopicInves
     }
   }
 
-  const groups = new Map<number, number[]>();
-  for (let i = 0; i < anchors.length; i += 1) groups.set(find(i), [...(groups.get(find(i)) ?? []), i]);
-
-  const out = [...groups.values()].map((idx) => assemble(idx, anchors, members, reasons, research, snapshot, builtAt, strongOf));
-  return out.sort((a, b) => a.label.localeCompare(b.label) || a.key.localeCompare(b.key));
+  const byRoot = new Map<number, number[]>();
+  for (let i = 0; i < anchors.length; i += 1) byRoot.set(find(i), [...(byRoot.get(find(i)) ?? []), i]);
+  const groups = [...byRoot.values()];
+  // THE ANCHORS OF ONE CASE: every exact search, tracked prompt and priced keyword it is about, which
+  // is what the identity on file is matched against. Membership may grow all it likes; the id may not.
+  const keys = groups.map((idx) => [...new Set(idx.flatMap((i) =>
+    [...anchors[i].qkeys, ...members[i].map((k) => canonicalQueryKey(k.query))]))].filter(Boolean).sort());
+  return { anchors, members, reasons, groups, folded: foldCases(keys, research.cases ?? []), builtAt, strongOf };
 }
 
 // ── one packet ───────────────────────────────────────────────────────────────
 
-function assemble(
-  idx: number[],
-  anchors: Anchor[],
-  members: InvestigationKeyword[][],
-  reasons: MergeReason[][],
-  research: FunnelResearchEvidence,
-  snapshot: EvidenceSnapshot,
-  builtAt: number,
-  strongOf: (text: string | null | undefined) => Set<string>,
-): TopicInvestigation {
+function assemble(idx: number[], g: Grouped, snapshot: EvidenceSnapshot, key: string, aliasKeys: string[]): TopicInvestigation {
+  const { anchors, members, reasons, builtAt, strongOf } = g;
+  const research = snapshot.research;
   const serps = idx.flatMap((i) => anchors[i].serps);
   const obs = idx.flatMap((i) => anchors[i].obs);
   const promptIds = new Set(idx.flatMap((i) => [...anchors[i].promptIds]));
   const serpKeys = new Set(serps.map((s) => canonicalQueryKey(s.query)));
 
-  const keywords: InvestigationKeyword[] = [];
-  const seenQuery = new Set<string>();
+  const byQuery = new Map<string, InvestigationKeyword>();
   for (const k of idx.flatMap((i) => members[i])) {
-    const key = canonicalQueryKey(k.query);
-    if (seenQuery.has(key)) continue;
-    seenQuery.add(key);
-    keywords.push(k);
+    const q = canonicalQueryKey(k.query);
+    if (!byQuery.has(q)) byQuery.set(q, k);
   }
-  keywords.sort((a, b) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0) || a.query.localeCompare(b.query));
+  const keywords = [...byQuery.values()].sort((a, b) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0) || a.query.localeCompare(b.query));
 
   // ── fan-outs keep the exact parent prompt that produced them ──
   const fanOuts: FanOutRef[] = [];
@@ -334,7 +367,6 @@ function assemble(
       promptId: id,
       promptText: rows.map((r) => r.promptText).find((t) => !!t) ?? "",
       engines: [...new Set(rows.map((r) => r.engine))].sort(),
-      observationModes: [...new Set(rows.map((r) => r.observationMode))].sort(),
       observedAt: rows.map((r) => r.observedAt).filter(Boolean).sort().at(-1) ?? null,
     };
   }).sort((a, b) => a.promptText.localeCompare(b.promptText));
@@ -360,10 +392,14 @@ function assemble(
     .map((w) => ({ page: w, mine: w.appearances.filter(isMine) }))
     .filter((x) => x.mine.length > 0)
     .map((x) => winnerRefOf(x.page, x.mine, builtAt))
-    .sort((a, b) => a.url.localeCompare(b.url));
+    // REAL ORGANIC ORDER, never the alphabet: sorting by url handed the comparison a rank 8 page
+    // while the rank 1 page from the same publisher sat behind it. An engine citation is not a
+    // ranking, so a cited-only page sorts after every ranked one and can never pass for one.
+    .sort((a, b) => organicRank(a) - organicRank(b) || a.url.localeCompare(b.url));
   // Counted by DISTINCT SITE. Three pages from one publisher are one publisher's view,
   // and the whole file's conservatism rests on agreement ACROSS sources.
   const currentReadableWinners = new Set(winners.filter((w) => w.extractState === "current").map((w) => w.domain)).size;
+  const rankedPublishers = new Set(winners.filter((w) => organicRank(w) < Number.MAX_SAFE_INTEGER).map((w) => w.domain)).size;
 
   // ── label: what the evidence itself calls this, never the first prompt ──
   const label =
@@ -402,39 +438,20 @@ function assemble(
   if (!aiDemand) missingEvidence.push("No AI engine I track has been asked this yet, so I cannot say it recurs in AI answers.");
   if (serpCoherence === "mixed") missingEvidence.push("These results answer more than one meaning of the phrase, so I am not calling it one topic.");
   if (serpCoherence === "unknown") missingEvidence.push("I have too few results here to tell whether they agree on one subject.");
-  if (winners.length < MIN_WINNERS) missingEvidence.push(`I have found ${winners.length} of the ${MIN_WINNERS} winning pages I need before I can compare.`);
-  else if (currentReadableWinners < MIN_WINNERS) missingEvidence.push(`I have read ${currentReadableWinners} of these ${winners.length} winning pages recently enough to trust; I need ${MIN_WINNERS}.`);
+  // THE COMPARISON IS BOUGHT ON ADDRESSES; A PAGE IS WRITTEN FROM WORDS. Saying I needed readable
+  // bodies "before I can compare" contradicted the address-based comparison that actually ships.
+  if (rankedPublishers < MIN_WINNERS) missingEvidence.push(`I can name ${rankedPublishers} of the ${MIN_WINNERS} sites that win here, so I cannot compare them against your own pages yet.`);
+  else if (currentReadableWinners < MIN_WINNERS) missingEvidence.push(`I have read ${currentReadableWinners} of the ${MIN_WINNERS} winning pages I would need before writing a page of your own.`);
   const lineageIntact = keywords.every((k) => !!k.discoveredVia || k.gscImpressions != null) && fanOuts.every((f) => !!f.parentPromptText);
   if (!lineageIntact) missingEvidence.push("I cannot trace every keyword here back to how I found it.");
   if (pageType === "mixed") missingEvidence.push("The pages that win here do not agree on one shape.");
 
-  const readyForComparison =
-    serpCoherence === "coherent" &&
-    (searchDemand || aiDemand) &&
-    serpFreshness === "current" &&
-    pageType !== "mixed" && pageType !== "unknown" &&
-    winners.length >= MIN_WINNERS &&
-    currentReadableWinners >= MIN_WINNERS &&
-    lineageIntact;
-
   // Representative queries: what was searched, in evidence order (priced demand,
   // then the exact looks, then the engines' own fan-outs when nothing else exists).
   const queries = [...new Set([...keywords.map((k) => k.query), ...exactSerps.map((s) => s.query), ...fanOuts.map((f) => f.query)])];
-  // THE ANCHOR SEARCH NAMES THE CASE. Keying on which result pages and prompts happen to be
-  // members renamed an open case the moment a run bought the very look it had asked for, which
-  // stranded the frozen plan mid-run and left it unable to reconfirm its own topic. Demand does
-  // not move when I buy a look, so the case's anchor search is the identity and membership is
-  // not.
-  const id = (s: string): string => `inv_${createHash("sha256").update(s).digest("hex").slice(0, 12)}`;
-  // THE ANCHOR IS THE CASE'S SMALLEST QUERY, NOT ITS BIGGEST. Keying on the top-volume keyword
-  // moved the identity whenever the DEMAND ORDER moved: a second keyword getting priced, or the
-  // anchor losing its own volume, renamed an open case as surely as the packet hash did. The
-  // sorted union of everything this case is about does not move when a look lands for a query
-  // the case already owned, which is the exact renaming that stranded a frozen plan mid-run.
-  const anchor = [...queries].map((q) => canonicalQueryKey(q)).filter(Boolean).sort()[0]
-    ?? [...promptIds].sort()[0] ?? label;
   return {
-    key: id(canonicalQueryKey(anchor) || norm(anchor)),
+    key,
+    aliasKeys,
     label: labelOf(label),
     demandBasis,
     groupedBy: [...new Set(idx.flatMap((i) => reasons[i]))],
@@ -467,9 +484,13 @@ function assemble(
     distinctWinners: new Set(winners.map((w) => w.domain)).size,
     currentReadableWinners,
     missingEvidence,
-    readyForComparison,
   };
 }
+
+/** The best organic position this page holds for THIS investigation; a page only ever cited by an
+ *  engine has none, so it sorts last and is never counted as one of the ranked winners. */
+const organicRank = (w: WinnerRef): number =>
+  Math.min(...w.appearances.filter((a) => a.kind === "serp_organic" && (a.rank ?? 0) > 0).map((a) => a.rank!), Number.MAX_SAFE_INTEGER);
 
 function mostRepeated(values: string[]): string | undefined {
   const freq = new Map<string, number>();

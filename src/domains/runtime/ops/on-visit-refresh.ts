@@ -8,6 +8,9 @@ import {
   keywordDiscoveryUnit, promptObservationUnit, serpAnalysisUnit, winningPagesUnit,
   type FunnelUnitOutcome,
 } from "@/domains/evidence";
+import { loadFunnelState, saveFunnelState } from "@/domains/evidence/funnel/state";
+import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
+import { reconcileResearchCases } from "@/domains/evidence/topic-investigation";
 import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
 import { log } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -74,8 +77,7 @@ import {
  * WHAT THE LEASE IS AND IS NOT: it bounds WHICH invocation may proceed. It does not make a purchase idempotent,
  * and it is not what stops the same comparison being bought twice when a save fails after the money moved. That
  * is the evidence cache: a durable receipt keyed on the normalized ask, written BEFORE the network call, so the
- * retry is a $0 hit. Read this paragraph before trusting the split above to protect a bill.
- */
+ * retry is a $0 hit. Read this paragraph before trusting the split above to protect a bill. */
 
 /** Leave enough of the shell's 300-second lifetime to finish the surface build. */
 export const RESEARCH_CYCLE_DEADLINE_MS = 210_000;
@@ -117,6 +119,8 @@ export type ResearchCycleSteps = {
   /** The account's CURRENT onboarding basis (the one Account fingerprint); the
    *  funnel scopes every derived read/write to it. Null = not resolvable. */
   currentBasis: (tenantId: string) => Promise<string | null>;
+  /** Freeze every case's identity on file before anything reads or spends against it. */
+  reconcileCases: (tenantId: string, basis: string | null) => Promise<void>;
   publishSurface: (tenantId: string, attemptKey: string) => Promise<void>;
   surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
 };
@@ -127,13 +131,21 @@ export type ResearchCycleOptions = {
   steps?: Partial<ResearchCycleSteps>;
 };
 
+/** Fold this account's case identities onto the ones already on file and persist the result. */
+async function reconcileCases(tenantId: string, basis: string | null): Promise<void> {
+  if (!basis) return;
+  const cases = reconcileResearchCases(await loadEvidenceSnapshot(tenantId));
+  const loaded = await loadFunnelState(tenantId, basis);
+  if (JSON.stringify(loaded.state.cases) === JSON.stringify(cases)) return;
+  await saveFunnelState(tenantId, basis, { ...loaded.state, cases }, loaded.rowVersion);
+}
+
 const defaultSteps: ResearchCycleSteps = {
   async refreshSources(tenantId, now) {
-    // autoRefreshStaleConnectorsForTenant is fail-soft PER SOURCE and returns one
-    // { ok } result per ATTEMPTED stale source. We count ONLY the ok:true ones as
-    // refreshed; any ok:false is a bounded failure the runner pauses on. We do NOT
-    // .catch here: a THROW means the whole refresh could not run, and the runner
-    // must pause rather than record a false "0 sources, all healthy".
+    // autoRefreshStaleConnectorsForTenant is fail-soft PER SOURCE and returns one { ok } result per
+    // ATTEMPTED stale source, which is what the refresh_sources contract above is counting. We do NOT
+    // .catch here: a THROW means the whole refresh could not run, and the runner must pause rather
+    // than record a false "0 sources, all healthy".
     const results = await autoRefreshStaleConnectorsForTenant(tenantId, now);
     const succeeded = results.filter((r) => r.ok).map((r) => String(r.provider));
     const failures = results
@@ -156,9 +168,8 @@ const defaultSteps: ResearchCycleSteps = {
       return { kind: "advanced", complete: result.complete, daysPulled: result.daysPulled };
     }
     if (BENIGN_BACKFILL_SKIPS.has(result.reason)) return { kind: "no_work" };
-    // A real failure (auth / quota / network / unexpected): throw so the runner
-    // pauses AT gsc_backfill_chunk. deep-backfill leaves its cursor untouched on a
-    // failed pull, so the retry is the identical window.
+    // A real failure (auth / quota / network / unexpected) throws so the runner pauses AT
+    // gsc_backfill_chunk with the cursor untouched, making the retry the identical window.
     throw new Error(`gsc backfill chunk did not advance: ${result.reason}`.slice(0, 200));
   },
   async currentBasis(tenantId) {
@@ -171,9 +182,13 @@ const defaultSteps: ResearchCycleSteps = {
       return null;
     }
   },
-  async investigationFocus(tenantId, basis) {
-    return chooseInvestigation(tenantId, basis).catch(() => null);
-  },
+  // RUNTIME IS THE ONLY WRITER OF A CASE IDENTITY, and it writes them BEFORE the plan names one. Evidence
+  // resolves the id against what is already on file (foldCases in topic-investigation.ts carries the whole
+  // rule and the incident behind it); this persists that answer through the funnel's own save path.
+  // Fail-soft throughout: an unreadable basis, snapshot or row leaves ids exactly as they were, and a
+  // losing row version simply reconciles again on the next visit.
+  async reconcileCases(tenantId, basis) { await reconcileCases(tenantId, basis).catch(() => {}); },
+  async investigationFocus(tenantId, basis) { return chooseInvestigation(tenantId, basis).catch(() => null); },
   async funnelUnit(phase, tenantId, cursor, budgetMs, focus) {
     // An OPEN INVESTIGATION needs BOTH halves: the results page for that exact search AND the pages that
     // win it. The topic is the RUN's, frozen by the caller, never re-picked here: landing a results page
@@ -283,8 +298,7 @@ function resolveAttemptKey(
 /**
  * Execute the claimed run from its current_phase to done, or pause durably. The
  * DATABASE lease we hold (via ownerToken) is renewed BEFORE every phase; if a
- * renew / advance / finish reports our lease was lost, we abort immediately.
- */
+ * renew / advance / finish reports our lease was lost, we abort immediately. */
 async function driveRun(
   run: ResearchRun,
   ownerToken: string,
@@ -324,6 +338,9 @@ async function driveRun(
       // phase and reused unchanged by winning-pages and the comparison. Persisted through advancePhase on the
       // SAME phase. Only a REAL focus is frozen: an open run can span days, so one transient empty read must
       // not silence it for that whole life. Empty stays unfrozen and both units keep the broad agenda.
+      // IDENTITY IS RECONCILED ON EVERY PHASE, not only when a plan is frozen: an account whose run pauses
+      // earlier never persisted a case row, and an unpersisted case re-mints from today's smallest query.
+      await steps.reconcileCases(tenantId, basis).catch(() => {});
       if (phase === "serp_analysis" && progress.focus == null) {
         const frozen = await steps.investigationFocus(tenantId, basis).catch(() => null);
         if (frozen && frozen.topics.length > 0) { progress = { ...progress, focus: frozen };

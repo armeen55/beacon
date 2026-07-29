@@ -321,9 +321,11 @@ export function selectSerpAgenda(
 
 // ── winning-page ranking (pure, TRUE provenance) ────────────────────────────
 
-/** `standby` = a deeper distinct publisher held in reserve at the END of the list. A caller may read it
- *  ONLY in a slot an unreadable preferred page freed, so the total page work never grows. */
-type WinningCandidate = { url: string; domain: string; weight: number; appearances: ResearchWinningAppearance[]; standby?: boolean };
+/** `standby` = a deeper distinct publisher held in reserve at the END of the list, and `ownerQuery` is the
+ *  canonical priority search it belongs to (set on that search's own winners AND on its bench, absent on
+ *  the global fill). A caller may read a standby ONLY as the substitute for an unreadable page of the SAME
+ *  search: without the owner a single failure anywhere unlocked every bench on every topic at once. */
+type WinningCandidate = { url: string; domain: string; weight: number; appearances: ResearchWinningAppearance[]; standby?: boolean; ownerQuery?: string };
 
 /** Exact host of a URL, lowercased ("" when unparseable). */
 function exactHost(url: string): string {
@@ -413,10 +415,8 @@ export function rankWinningPages(
   const ranked = [...byUrl.values()].sort((x, y) => y.weight - x.weight || x.url.localeCompare(y.url));
   const picked: WinningCandidate[] = [], standbys: WinningCandidate[] = [];
   const taken = new Set<string>(); // canonical identity: one page is never two winners
-  // STANDBYS ARE A SUBSTITUTE BENCH, NOT PART OF THE READ BUDGET. Counting them against topN
-  // spent 6 of 15 slots on pages that are only read when a preferred one turns out unreadable,
-  // so the global fill got nothing and every topic outside the frozen plan banked zero winners.
-  // The bench is bounded on its own and the picked total is exactly what it was before.
+  // STANDBYS ARE A SUBSTITUTE BENCH, NOT PART OF THE READ BUDGET. Counting them against topN spent 6 of 15 slots on pages
+  // read only when a preferred one is unreadable, so the global fill got nothing. The bench is bounded on its own.
   const claim = (c: WinningCandidate, into: WinningCandidate[]): void => {
     const id = canonicalUrlKey(c.url);
     if (taken.has(id) || (into === picked ? picked.length >= topN : standbys.length >= MAX_PRIORITY_QUERIES * PRIORITY_STANDBYS_PER_QUERY)) return;
@@ -435,9 +435,9 @@ export function rankWinningPages(
       // ONE reserve slot per publisher, best organic rank first: a second page from a source I already
       // hold teaches me nothing new and used to eat the slot the third opinion needed.
       .filter((r) => { const p = publisherHost(r.c.url) || r.c.domain; return seen.has(p) ? false : !!seen.add(p); });
-    byPublisher.slice(0, PRIORITY_WINNERS_PER_QUERY).forEach((r) => claim(r.c, picked));
+    byPublisher.slice(0, PRIORITY_WINNERS_PER_QUERY).forEach((r) => claim({ ...r.c, ownerQuery: key }, picked));
     byPublisher.slice(PRIORITY_WINNERS_PER_QUERY, PRIORITY_WINNERS_PER_QUERY + PRIORITY_STANDBYS_PER_QUERY)
-      .forEach((r) => claim({ ...r.c, standby: true }, standbys));
+      .forEach((r) => claim({ ...r.c, ownerQuery: key, standby: true }, standbys));
   }
   for (const c of ranked) claim(c, picked);
   return [...picked, ...standbys];

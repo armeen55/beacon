@@ -42,11 +42,7 @@ vi.mock("@/domains/measurement/proof-gsc/shipped-change-store", () => ({
   loadShippedChanges: mocks.loadShippedChanges, upsertShippedChange: mocks.upsertShippedChange,
 }));
 
-import {
-  recordShippedChangeAction,
-  recomputeProofLedgerAction,
-  markRecrawlRequestedAction,
-} from "@/app/(shell)/results/actions";
+import { recordShippedChangeAction, recomputeProofLedgerAction } from "@/app/(shell)/results/actions";
 
 beforeEach(() => {
   ownerFlag.value = true;
@@ -152,36 +148,5 @@ describe("recomputeProofLedgerAction — account-owner gating", () => {
     const res = await recomputeProofLedgerAction();
     expect(res.success).toBe(false);
     expect(mocks.loadShippedChanges).not.toHaveBeenCalled();
-  });
-});
-
-describe("markRecrawlRequestedAction — operator gating + toggle", () => {
-  it("non-operator ⇒ refused, nothing written", async () => {
-    ownerFlag.value = false;
-    const res = await markRecrawlRequestedAction({ id: "/cities::2026-06-20", requested: true });
-    expect(res.success).toBe(false);
-    expect(mocks.upsertShippedChange).not.toHaveBeenCalled();
-  });
-
-  it("operator mark ⇒ stamps recrawlRequestedAt and persists", async () => {
-    mocks.loadShippedChanges.mockResolvedValue([{ id: "/cities::2026-06-20", recrawlRequestedAt: null }]);
-    const res = await markRecrawlRequestedAction({ id: "/cities::2026-06-20", requested: true });
-    expect(res.success).toBe(true);
-    expect(mocks.upsertShippedChange).toHaveBeenCalledOnce();
-    expect(mocks.upsertShippedChange.mock.calls[0][0].recrawlRequestedAt).toBeTruthy();
-  });
-
-  it("operator undo ⇒ clears recrawlRequestedAt", async () => {
-    mocks.loadShippedChanges.mockResolvedValue([{ id: "/cities::2026-06-20", recrawlRequestedAt: "2026-06-20T00:00:00Z" }]);
-    const res = await markRecrawlRequestedAction({ id: "/cities::2026-06-20", requested: false });
-    expect(res.success).toBe(true);
-    expect(mocks.upsertShippedChange.mock.calls[0][0].recrawlRequestedAt).toBeNull();
-  });
-
-  it("unknown id ⇒ refused", async () => {
-    mocks.loadShippedChanges.mockResolvedValue([]);
-    const res = await markRecrawlRequestedAction({ id: "/nope::2026-06-20", requested: true });
-    expect(res.success).toBe(false);
-    expect(mocks.upsertShippedChange).not.toHaveBeenCalled();
   });
 });

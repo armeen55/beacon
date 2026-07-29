@@ -237,7 +237,10 @@ export async function produceProposalsForTenant(
   // forward untouched, so a refresh re-pays nothing.
   const decided = coverage;
   if (decided && earnedNewPage(decided.decision)) {
-    const heldPage = live.find((p) => p.kind === "new_page" && current(p) && p.id.includes(`::${decided.investigation.key}::`)) ?? null;
+    // An id this case ABSORBED still names this case's page. Matching the current key alone built a
+    // SECOND live page for one subject the first time two investigations merged.
+    const ids = [decided.investigation.key, ...decided.investigation.aliasKeys];
+    const heldPage = live.find((p) => p.kind === "new_page" && current(p) && ids.some((k) => p.id.includes(`::${k}::`))) ?? null;
     if (heldPage) {
       proposals.push(heldPage);
       reused += 1;

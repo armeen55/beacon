@@ -93,7 +93,8 @@ async function loadResearch(
   const basis = await resolveBasis(tenantId).catch(() => null);
   if (!basis) return { basis: null, evidence: emptyResearchEvidence() };
   const { state } = await loadState(tenantId, basis);
-  return { basis, evidence: projectFunnelEvidence(state, now.getTime()) };
+  // The case identities ride along UNPROJECTED: they are Runtime's own reconcile output, not evidence.
+  return { basis, evidence: { ...projectFunnelEvidence(state, now.getTime()), cases: state.cases ?? [] } };
 }
 
 /**

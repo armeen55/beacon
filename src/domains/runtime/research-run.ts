@@ -62,7 +62,7 @@ export type ResearchRunProgress = {
   funnel?: {
     rawKeywords?: number; normalizedKeywords?: number; retainedKeywords?: number;
     rejectedKeywords?: number; promptsChecked?: number; enginePairsDone?: number;
-    enginePairsIntended?: number; serpsAnalyzed?: number; winningPagesFetched?: number;
+    enginePairsIntended?: number; serpsAnalyzed?: number; pageReadsAttempted?: number;
     cacheHits?: number; spendUsd?: number;
   };
 };

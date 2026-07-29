@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { buildEvidenceSnapshot, MANDATORY_SOURCES, type EvidenceSnapshotInput, type EvidenceSourceKind } from "./snapshot";
-import { buildTopicInvestigations } from "./topic-investigation";
+import { buildTopicInvestigations, reconcileResearchCases } from "./topic-investigation";
 import { emptyResearchEvidence, type FunnelResearchEvidence } from "./funnel/research-evidence";
 const RESEARCH_SOURCE = { status: "dormant" as const, lastSyncedAt: null, payload: emptyResearchEvidence() };
 const SCOPE = { tenantId: "t_iran", site: "fixture-content.example", builtAt: "2026-07-22T00:00:00.000Z" };
@@ -125,7 +125,7 @@ describe("buildTopicInvestigations - the research packet", () => {
   const obs = (promptId: string, promptText: string, fanOutQueries: string[]) => ({ promptId, promptText, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: "gpt-5", webSearchReported: null, citationsObserved: true, citations: [], fanOutQueries, observedAt: NOW });
   const body = (fetchedAt: string | null, wordCount = 900) => ({ title: "T", h1: "T", wordCount, headings: ["A", "B"], faqCount: 0, fetchedAt }); type App = FunnelResearchEvidence["winningPages"][number]["appearances"][number];
   const win = (url: string, query: string, extract: FunnelResearchEvidence["winningPages"][number]["extract"], extra: App[] = []) => ({ url, domain: new URL(url).hostname, engines: [], examplePrompts: [], extract, appearances: [{ kind: "serp_organic" as const, query, promptId: null, promptText: null, engine: null, rank: 1, citedUrl: url, observedAt: NOW, modelServed: null }, ...extra] });
-  const build = (over: Partial<FunnelResearchEvidence> = {}) => buildTopicInvestigations(buildEvidenceSnapshot({
+  const world = (over: Partial<FunnelResearchEvidence> = {}) => buildEvidenceSnapshot({
     scope: { tenantId: "t", site: "own.example", builtAt: NOW }, ga4: src([]), wix: src([]), clarity: src([]), dataforseo: src([]), nativeAi: src({ citedPages: [], questions: [], rowsScanned: 0, enginesSeen: [] }),
     gsc: src([{ url: "https://own.example/kayaks", clicks90d: 3, impressions90d: 400, ctr90d: 0.01, position90d: 18, topQueries: [{ query: "harbor kayak paddle", impressions: 400, clicks: 3, position: 18 }] }]),
     research: src({ ...emptyResearchEvidence(), retainedKeywords: CORPUS,
@@ -134,7 +134,8 @@ describe("buildTopicInvestigations - the research packet", () => {
         serp("harbor tote bag", [["https://shop.example/product/1", "Tote one"], ["https://shop.example/product/2", "Tote two"], ["https://shop.example/product/3", "Tote three"], ["https://shop.example/product/4", "Tote four"], ["https://g.example/a", "How to choose a tote"], ["https://h.example/a", "Tote bag guide"], ["https://i.example/a", "Totes explained"]], null), // never dated: an undated look supports no page type
         serp("onager", [["https://zoo.example/onager", "Onager"], ["https://encyclo.example/onager-weapon", "Onager (weapon)"], ["https://fund.example/onager", "Onager herds of the steppe"]])],
       aiObservations: [obs("p1", "how do harbor tides work", ["how do harbor tides work", "harbor tide table"]), obs("p2", "what harbor kayak gear do beginners need", ["harbor kayak gear"])],
-      winningPages: [win("https://a.example/g", "harbor kayak paddle", body(NOW)), win("https://b.example/g", "harbor kayak paddle", body(NOW)), win("https://c.example/g", "harbor kayak paddle", body(NOW)), win("https://zoo.example/onager", "onager", null), win("https://encyclo.example/onager-weapon", "onager", body(NOW, 40)), win("https://fund.example/onager", "onager", body(OLD))], ...over }) }));
+      winningPages: [win("https://a.example/g", "harbor kayak paddle", body(NOW)), win("https://b.example/g", "harbor kayak paddle", body(NOW)), win("https://c.example/g", "harbor kayak paddle", body(NOW)), win("https://zoo.example/onager", "onager", null), win("https://encyclo.example/onager-weapon", "onager", body(NOW, 40)), win("https://fund.example/onager", "onager", body(OLD))], ...over }) });
+  const build = (over: Partial<FunnelResearchEvidence> = {}) => buildTopicInvestigations(world(over));
   const ALL = build(); const byLabel = (part: string) => ALL.find((i) => i.label.includes(part))!;
   it("groups on real lineage or one specific subject, and claims only the demand it has", () => {
     const tides = byLabel("tide"); const paddle = byLabel("kayak paddle"); expect(paddle.queries).toEqual(expect.arrayContaining(["harbor kayak paddle", "kayak paddle harbor"])); // one shared specific intent, one investigation
@@ -147,16 +148,38 @@ describe("buildTopicInvestigations - the research packet", () => {
     const shapes = byLabel("tote"); const onager = byLabel("onager"); expect(shapes.pageTypeVotes).toEqual([{ pageType: "informational_guide", domains: 3 }, { pageType: "product", domains: 1 }]); // 4 shop URLs are ONE vote, and a shop is not a guide
     expect(shapes.pageType).toBe("unknown"); expect(shapes.serpFreshness).toBe("undated"); expect(onager.serpCoherence).toBe("mixed"); // no page type is supported without a current exact look
     expect(onager.pageType).toBe("mixed"); // two meanings are never one page-shaped topic
-    expect(onager.winners.map((w) => w.extractState).sort()).toEqual(["missing", "stale", "unreadable"]); expect(onager.currentReadableWinners).toBe(0); expect(onager.readyForComparison).toBe(false);
+    expect(onager.winners.map((w) => w.extractState).sort()).toEqual(["missing", "stale", "unreadable"]); expect(onager.currentReadableWinners).toBe(0);
   });
-  it("is ready to compare only with a current look, a settled shape and three winners read recently, and never emits an action", () => {
-    const paddle = byLabel("kayak paddle"); expect(paddle.pageType).toBe("informational_guide"); // ready = nothing BLOCKING missing; an untested AI side is an honest gap, not a blocker
-    expect(paddle.currentReadableWinners).toBe(3); expect(paddle.readyForComparison).toBe(true); expect(paddle.missingEvidence.every((m) => m.includes("AI engine"))).toBe(true);
-    const thin = build({ winningPages: [win("https://a.example/g", "harbor kayak paddle", body(NOW)), win("https://b.example/g", "harbor kayak paddle", body(OLD))] });
-    expect(thin.find((i) => i.label.includes("kayak paddle"))!.readyForComparison).toBe(false);
+  it("owes three ranked ADDRESSES before it can compare and three read BODIES before anything is written, and never emits an action", () => {
+    const paddle = byLabel("kayak paddle"); expect(paddle.pageType).toBe("informational_guide"); // three read and three named: nothing about the winners is owed
+    expect(paddle.currentReadableWinners).toBe(3); expect(paddle.missingEvidence.every((m) => m.includes("AI engine"))).toBe(true);
+    const only = (over: Parameters<typeof build>[0]) => build(over).find((i) => i.label.includes("kayak paddle"))!.missingEvidence.filter((m) => m.includes("win"));
+    expect(only({ winningPages: [win("https://a.example/g", "harbor kayak paddle", body(NOW)), win("https://b.example/g", "harbor kayak paddle", body(NOW))] }))
+      .toEqual(["I can name 2 of the 3 sites that win here, so I cannot compare them against your own pages yet."]); // two addresses: the comparison is what is owed
+    expect(only({ winningPages: ["a", "b", "c"].map((h, i) => win(`https://${h}.example/g`, "harbor kayak paddle", body(i === 0 ? NOW : OLD))) }))
+      .toEqual(["I have read 1 of the 3 winning pages I would need before writing a page of your own."]); // three addresses, one body: only the WRITING is blocked
     const keys = (v: unknown): string[] => Array.isArray(v) ? v.flatMap(keys) : v && typeof v === "object" ? Object.entries(v).flatMap(([k, x]) => [k, ...keys(x)]) : [];
     expect(keys(ALL).filter((k) => /action|proposal|draft|recommend|status|queue|publish|outline|meta/i.test(k))).toEqual([]);
   });
+  it("keeps ONE frozen case id through enrichment, merges two on file into one canonical id plus an alias, and splits without minting a third", () => {
+    const cases = reconcileResearchCases(world()); const anchorsOf = (part: string) => cases.find((c) => c.id === byLabel(part).key)!.anchors;
+    const keyOf = (over: Partial<FunnelResearchEvidence>, part = "kayak paddle") => build({ cases, ...over }).find((i) => i.label.includes(part))!.key;
+    // An alphabetically EARLIER query for the same subject, and a new tracked prompt beside it: the old id was a hash of the smallest query it held, so both used to rename an open case.
+    const earlier = serp("aaa harbor kayak paddle", [["https://a.example/g", "x"], ["https://b.example/g", "y"], ["https://c.example/g", "z"]]);
+    const frozen = byLabel("kayak paddle").key; const base = world().research.serpEvidence;
+    const grown = { serpEvidence: [...base, earlier] }, fresher = { ...grown, aiObservations: [obs("p3", "harbor kayak paddle guide", [])] };
+    expect([keyOf({}), keyOf(grown), keyOf(fresher)]).toEqual([frozen, frozen, frozen]);
+    const two = [{ id: "inv_alpha", anchors: anchorsOf("kayak paddle").slice(0, 1) }, { id: "inv_beta", anchors: [...anchorsOf("kayak paddle"), "zz", "yy"] }];
+    expect(build({ cases: two }).find((i) => i.label.includes("kayak paddle"))!.key).toBe("inv_beta"); // a merge keeps the id with the most anchors
+    expect(reconcileResearchCases(world({ cases: two })).find((c) => c.id === "inv_alpha")).toEqual({ id: "inv_alpha", anchors: [], aliasOf: "inv_beta" }); // the other is a durable alias, never a third id
+    const split = build({ cases: [{ id: "inv_split", anchors: [...anchorsOf("kayak paddle"), ...anchorsOf("tote")] }] });
+    expect(split.filter((i) => i.key === "inv_split").map((i) => i.label)).toEqual([byLabel("kayak paddle").label]); // the branch holding the minting anchor keeps the identity
+    expect(new Set(split.map((i) => i.key)).size).toBe(split.length); }); // and no two live cases ever share an id
+  it("puts the pages that actually rank first, so an alphabetically earlier rank 8 is never compared instead of rank 1", () => {
+    const at = (url: string, rank: number | null, kind: App["kind"] = "serp_organic") => ({ ...win(url, "harbor kayak paddle", body(NOW)),
+      appearances: [{ kind, query: "harbor kayak paddle", promptId: null, promptText: null, engine: null, rank, citedUrl: url, observedAt: NOW, modelServed: null }] });
+    const out = build({ winningPages: [at("https://aaa.example/g", 8), at("https://m.example/g", 1), at("https://z.example/g", 2), at("https://b.example/g", null, "ai_overview")] });
+    expect(out.find((i) => i.label.includes("kayak paddle"))!.winners.map((w) => w.domain)).toEqual(["m.example", "z.example", "aaa.example", "b.example"]); }); // and a page only ever cited sorts last
   it("names the pages behind an exact look, and never reads an engine citation as a ranking", () => {
     const cite: App = { kind: "ai_overview", query: "harbor whale tour", promptId: null, promptText: null, engine: "google", rank: null, citedUrl: "https://simple.w.example/a", observedAt: NOW, modelServed: null, viaUrl: "https://wrap.example/r" };
     const tour = build({ serpEvidence: [serp("harbor whale tour", [["https://en.w.example/a", "Whale tours explained"], ["https://simple.w.example/a", "Whale tour guide"], ["https://x.example/a", "How to see whales"]])],

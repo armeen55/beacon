@@ -202,6 +202,11 @@ export type ResearchPageComparison = {
   unavailable: IntersectionUnavailable | null;
 };
 
+/** ONE identity per case, minted the first time the case is seen and never recomputed. `anchors`
+ *  are canonical query keys that have ever belonged to it. A merge keeps ONE canonical id and
+ *  records the other as an alias rather than minting a third. */
+export type ResearchCase = { id: string; anchors: string[]; aliasOf?: string };
+
 type ResearchReceipt = {
   researched: number;
   retained: number;
@@ -219,6 +224,8 @@ export type FunnelResearchEvidence = {
   winningPages: ResearchWinningPage[];
   /** Optional so a bundle built before comparisons existed still reads (as none of them). */
   pageComparisons?: ResearchPageComparison[];
+  /** The case identities on file. Optional for the same reason; absent reads as none of them. */
+  cases?: ResearchCase[];
   receipt: ResearchReceipt;
 };
 
@@ -228,7 +235,7 @@ export function emptyResearchEvidence(): FunnelResearchEvidence {
     aiObservations: [],
     serpEvidence: [],
     winningPages: [],
-    pageComparisons: [],
+    pageComparisons: [], cases: [],
     receipt:{ researched: 0, retained: 0, stale: 0, missing: 0, cached: 0, spentUsd: 0, freshestObservationAt: null },
   };
 }

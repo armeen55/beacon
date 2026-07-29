@@ -216,7 +216,8 @@ export type FunnelCounters = {
   enginePairsDone?: number;
   enginePairsIntended?: number;
   serpsAnalyzed?: number;
-  winningPagesFetched?: number;
+  /** Pages I actually went out and read this cycle, successes and failures alike. */
+  pageReadsAttempted?: number;
   cacheHits?: number;
   spendUsd?: number;
 };
