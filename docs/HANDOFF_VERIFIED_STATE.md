@@ -177,9 +177,9 @@ New customer routes require operator approval.
 
 ## Next slice
 
-Prompt-to-page generation stays DELETED (N1). N2 built the research packet, N3a its consumer, N3b owned-page
-mapping and the five-verdict adjudication, N3c the page comparison, N3d the run that buys and remembers ONE of
-them, and N4 the single page an earned create_new may draft (generation 6). NEXT is Shipment: nothing publishes.
+N1-N4 shipped the research packet, the five-verdict adjudication, the page comparison and the ONE page an
+earned create_new may draft. Decision Liveness then made a pass end every case at a verdict, an acquirable
+requirement or a park. NEXT: three named liveness holes remain open, listed in the 2026-07-29 commit body.
 
 ## Verification
 
