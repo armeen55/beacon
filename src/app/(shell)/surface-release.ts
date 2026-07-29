@@ -118,7 +118,7 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
       .slice(0, DECLINE_NOTE_LIMIT)
       .map((c) => ({ page: normalizedFixKey(c.pageUrl as string), note: c.reason }));
     const today = await buildTodayCompositeFromChanges(changes, {
-      outcome: produced?.outcome, investigating: produced?.investigating, declineNotes });
+      outcome: produced?.outcome, investigating: produced?.investigating, waitingUntil: produced?.waitingUntil, declineNotes });
     const computedAt = new Date().toISOString();
     const releaseId = `${tenantId}:${computedAt}`;
     const surface: CustomerSurface = {

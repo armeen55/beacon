@@ -82,6 +82,9 @@ export type TodayCommandInput = {
   declineVerdict?: string | null;
   /** verdictSchedule.firstReadOn (YYYY-MM-DD, UTC): the soonest date the next results land. */
   firstReadOn: string | null;
+  /** The earliest date a page I could not read may legally be tried again, or null when nothing is
+   *  waiting. While it is set I am not checking anything: I am waiting, and I have to say so. */
+  waitingUntil?: string | null;
   /** The canonical count of changes still measuring (countLedgerLifecycle). */
   measuringCount: number;
 };
@@ -238,26 +241,39 @@ function stillChecking(input: TodayCommandInput): TodayCommand {
   if (decline) why.push(decline);
   if (input.measuringCount > 0) why.push("Your active changes are still measuring below.");
   why.push("I will put a change in front of you the moment my evidence supports one.");
+  // A WAIT IS NOT A CHECK. "Still checking" over a cooldown promised activity that could not happen today,
+  // so a page that did not answer me reads as the wait it is, with the date I pick it back up.
+  const waiting = input.waitingUntil && Number.isFinite(Date.parse(input.waitingUntil)) ? input.waitingUntil : null;
   return {
     kind: "observe",
     // Only a BLAMED page earns the plural "traffic gaps": that loss is measured on a
     // named page. A whole-site delta with no page behind it is one moving number, and
     // dressing it as found gaps claimed research that had not happened.
-    headline: input.smokeAlarm
-      ? "I found meaningful traffic gaps, but I am still checking the results pages and competing pages before asking you to change anything."
-      : "Your search traffic moved this week, and I have not found a change I can stand behind yet.",
+    headline: waiting
+      ? `I could not read some of the pages I need, so I am waiting until ${waitingDay(waiting)} to try them again.`
+      : input.smokeAlarm
+        ? "I found meaningful traffic gaps, but I am still checking the results pages and competing pages before asking you to change anything."
+        : "Your search traffic moved this week, and I have not found a change I can stand behind yet.",
     why,
     // NOT "give me one more research pass". That asked the operator for something they cannot
     // give, promised nothing back, and hid whether I would ever return to it. This says what is
     // still open, that I carry it forward myself, and what would have to change for a topic I
     // have already closed. No progress bar, and no number I have not measured.
-    exactAction: "There is nothing for you to do here today. I carry these searches forward and check them again on your next visit, and where the results never settle on one kind of page I close the topic and reopen it only if that changes.",
+    exactAction: waiting
+      ? `There is nothing for you to do here today. I retry those pages myself from ${waitingDay(waiting)} and rank whatever they earn on Changes.`
+      : "There is nothing for you to do here today. I carry these searches forward and check them again on your next visit, and where the results never settle on one kind of page I close the topic and reopen it only if that changes.",
     cta: null,
   };
 }
 
+/** A retry date in the operator's words: the day, never a timestamp and never a countdown. */
+const waitingDay = (iso: string): string =>
+  new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "America/Los_Angeles" });
+
 function observe(input: TodayCommandInput): TodayCommand {
   const why: string[] = [];
+  const hold = input.waitingUntil && Number.isFinite(Date.parse(input.waitingUntil)) ? input.waitingUntil : null;
+  const quietWait = hold ? `I could not read some of the pages I need, so I am waiting until ${waitingDay(hold)} to try them again.` : null;
   if (input.measuringCount > 0) {
     // P2-b (2026-07-10, visual audit) - the measuring count + next-read date are the proof
     // strip's job (slot 5, right below this card); this line used to repeat both, so an
@@ -268,7 +284,7 @@ function observe(input: TodayCommandInput): TodayCommand {
     why.push("I will tell you the moment one of them needs a decision.");
     return {
       kind: "observe",
-      headline: "Nothing needs a decision today. Keep measuring.",
+      headline: quietWait ?? "Nothing needs a decision today. Keep measuring.",
       why,
       exactAction: "Check back tomorrow, or peek at what is measuring.",
       cta: { label: "See what's measuring", href: "/results" },
@@ -276,7 +292,9 @@ function observe(input: TodayCommandInput): TodayCommand {
   }
   return {
     kind: "observe",
-    headline: "Nothing needs a decision today. Keep measuring.",
+    // A LIVE WAIT OWNS THIS LINE. The brief above the card was already saying I am waiting on pages I
+    // could not read, and this card answered "nothing needs a decision", on one screen, in one release.
+    headline: quietWait ?? "Nothing needs a decision today. Keep measuring.",
     why: [
       "Nothing I am tracking has moved enough to need a decision from you.",
       "Ship a change from Changes and I will start measuring it.",

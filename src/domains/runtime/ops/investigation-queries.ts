@@ -45,7 +45,11 @@ async function needs(tenantId: string): Promise<ResearchNeed[]> {
 /** The plan this run freezes: chosen ONCE by the run executor, before a cent moves, never re-picked. */
 export async function chooseInvestigation(tenantId: string, basis: string | null): Promise<ResearchFocus | null> {
   const out = await needs(tenantId);
-  return out.length === 0 ? null : { basis, topics: out.map((n) => ({ topicKey: n.topicKey, query: n.query, requirement: n.requirement })) };
+  // THE COOLDOWN TRAVELS WITH THE PLAN. Decision computes the earliest legal retry for every topic and this
+  // used to drop it on the floor, so no surface could tell a live acquisition from a page I am waiting on,
+  // and nothing stopped a run buying the same search again the same day it was told to wait.
+  return out.length === 0 ? null
+    : { basis, topics: out.map((n) => ({ topicKey: n.topicKey, query: n.query, requirement: n.requirement, retryAfter: n.retryAfter })) };
 }
 
 /** The run's frozen plan, read forward. The pre-focus resume path is DELETED: it existed for runs
@@ -55,9 +59,12 @@ export function runFocus(progress: ResearchRunProgress): ResearchFocus | null {
   return progress.focus ?? null;
 }
 
-/** The exact searches the frozen focus owes, in its own order (Evidence gets strings, never a topic). */
-export function focusQueries(focus: ResearchFocus | null): string[] {
-  return (focus?.topics ?? []).map((t) => t.query).filter((q): q is string => !!q);
+/** The exact searches the frozen focus owes, in its own order (Evidence gets strings, never a topic). A topic
+ *  whose next legal read is still ahead of `nowMs` contributes NOTHING: a cooldown is a date I promised the
+ *  operator, and jumping the queue for a search I said I would not run until tomorrow breaks it. */
+export function focusQueries(focus: ResearchFocus | null, nowMs: number): string[] {
+  return (focus?.topics ?? []).filter((t) => !(t.retryAfter && Date.parse(t.retryAfter) > nowMs))
+    .map((t) => t.query).filter((q): q is string => !!q);
 }
 
 /** The ONE page by page comparison worth paying for, RECONFIRMED before a cent moves: it must be earned by

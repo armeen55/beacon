@@ -28,8 +28,7 @@
  * Unity that cannot be established leaves the two sides SEPARATE. Honest
  * fragmentation beats a false mega-topic. */
 
-import { createHash } from "node:crypto";
-
+import { caseRows, foldCases, type CaseFold } from "./case-identity";
 import type { FunnelResearchEvidence, ResearchCase, ResearchWinningAppearance } from "./funnel/research-evidence";
 import { canonicalQueryKey, topicTokens } from "./relevance-gate";
 import {
@@ -74,7 +73,8 @@ type FanOutRef = {
 export type TopicInvestigation = {
   /** THE CASE, not the packet: one durable identity per subject, resolved by `foldCases` below. */
   key: string;
-  /** Ids this case absorbed in a merge: an answer bought under one is STILL this case's answer. */
+  /** EVERY id this case still answers to, for as long as it is retained: an answer bought under one, or a
+   *  live proposal filed under one, is STILL this case's, on this build and on every build after it. */
   aliasKeys: string[];
   label: string;
   demandBasis: "search" | "ai" | "mixed" | "none";
@@ -114,9 +114,6 @@ export type TopicInvestigation = {
 
 /** Three distinct publishers, wherever agreement is claimed (see missingEvidence below). */
 const MIN_WINNERS = 3;
-/** Identity must be durable, not unbounded: the anchors one case may carry, and the cases on file. */
-const MAX_ANCHORS = 40;
-const MAX_CASES = 60;
 /** Two exact looks are the same subject when they return the same pages: this
  *  many shared results, and that share of the smaller result set. */
 const OVERLAP_MIN_URLS = 2;
@@ -158,49 +155,6 @@ const RULES: Rule[] = [
     } },
 ];
 
-type CaseFold = { id: string; anchors: string[]; merged: string[] };
-
-const mintCaseId = (keys: readonly string[]): string => `inv_${createHash("sha256").update(keys[0] ?? "").digest("hex").slice(0, 12)}`;
-
-/**
- * THE CASE IDENTITY, RESOLVED AGAINST WHAT IS ALREADY ON FILE AND NEVER RECOMPUTED. A case is matched
- * by anchor overlap, so an enrichment pass that adds an alphabetically earlier query, prices a bigger
- * one, or lands the very look the case asked for cannot rename it, strand a frozen plan, orphan a
- * comparison that cost real money, or let one subject open a second live row. MERGE: an investigation
- * matching two cases on file keeps the id with the most anchors (ties to the smaller id) and records the
- * other as an alias, never a third id. SPLIT: a case is awarded to exactly ONE branch, the one holding
- * the anchor it was minted from, and the genuinely new branch mints exactly one id. Pure, and
- * independent of the order the groups arrive in, so the same evidence always resolves the same way. */
-function foldCases(groups: readonly string[][], cases: readonly ResearchCase[]): CaseFold[] {
-  const canonical = new Map(cases.map((c) => [c.id, c.aliasOf ?? c.id]));
-  const live = new Map<string, { anchors: Set<string>; minted: string }>();
-  for (const c of cases) {
-    const id = canonical.get(c.id) ?? c.id;
-    const row = live.get(id) ?? { anchors: new Set<string>(), minted: "" };
-    for (const a of c.anchors) row.anchors.add(a);
-    if (c.id === id && c.anchors[0]) row.minted = c.anchors[0];
-    live.set(id, row);
-  }
-  const want = groups.map((g) => new Set(g));
-  const tag = groups.map((g) => g.join("|"));
-  const won = new Map<number, string[]>();
-  for (const [id, row] of [...live].sort((a, b) => a[0].localeCompare(b[0]))) {
-    let at = -1, best: [number, number, string] = [-1, -1, ""];
-    for (let i = 0; i < groups.length; i += 1) {
-      const n = [...row.anchors].filter((a) => want[i].has(a)).length;
-      const score: [number, number, string] = [want[i].has(row.minted) ? 1 : 0, n, tag[i]];
-      if (n === 0 || (at >= 0 && (score[0] < best[0] || (score[0] === best[0] && (score[1] < best[1] || (score[1] === best[1] && score[2] >= best[2])))))) continue;
-      at = i; best = score;
-    }
-    if (at >= 0) won.set(at, [...(won.get(at) ?? []), id]);
-  }
-  return groups.map((g, i) => {
-    const held = (won.get(i) ?? []).sort((a, b) => live.get(b)!.anchors.size - live.get(a)!.anchors.size || a.localeCompare(b));
-    return { id: held[0] ?? mintCaseId(g), merged: held.slice(1),
-      anchors: [...new Set([...held.flatMap((h) => [...live.get(h)!.anchors]), ...g])].slice(0, MAX_ANCHORS) };
-  });
-}
-
 /** What the grouping pass established, shared by the packet build and the case reconcile so neither
  *  can group the same evidence differently from the other. */
 type Grouped = {
@@ -216,21 +170,16 @@ type Grouped = {
  * with neither stays demand and is never dressed up as research. */
 export function buildTopicInvestigations(snapshot: EvidenceSnapshot): TopicInvestigation[] {
   const g = groupEvidence(snapshot);
-  return g.groups.map((idx, i) => assemble(idx, g, snapshot, g.folded[i]!.id, g.folded[i]!.merged))
+  return g.groups.map((idx, i) => assemble(idx, g, snapshot, g.folded[i]!.id, g.folded[i]!.aliases))
     .sort((a, b) => a.label.localeCompare(b.label) || a.key.localeCompare(b.key));
 }
 
-/** Runtime's ONE reconcile: the case rows this evidence proves, folded onto the rows on file, so an id
- *  minted today is the same id tomorrow. A case this snapshot does not reach keeps its row untouched,
- *  because out of today's evidence is not retired. Pure; Runtime persists it through the funnel save
- *  path, and Decision never writes research state. */
+/** Runtime's ONE reconcile: the case rows this evidence proves, folded onto the rows on file (case-identity
+ *  carries the whole rule), so an id minted today is the same id tomorrow and every alias it answers to is
+ *  written back flat beside it. Pure; Runtime persists it through the funnel save path, and Decision never
+ *  writes research state. */
 export function reconcileResearchCases(snapshot: EvidenceSnapshot): ResearchCase[] {
-  const folded = groupEvidence(snapshot).folded;
-  const held: ResearchCase[] = folded.map((f) => ({ id: f.id, anchors: f.anchors }));
-  const aliases: ResearchCase[] = folded.flatMap((f) => f.merged.map((id) => ({ id, anchors: [], aliasOf: f.id })));
-  const touched = new Set([...held, ...aliases].map((c) => c.id));
-  // A LIVE ID OUTRANKS AN ALIAS WHEN THE CAP BITES: a retired identity re-mints from today's smallest query.
-  return [...held, ...(snapshot.research.cases ?? []).filter((c) => !touched.has(c.id)), ...aliases].slice(0, MAX_CASES);
+  return caseRows(groupEvidence(snapshot).folded, snapshot.research.cases ?? []);
 }
 
 function groupEvidence(snapshot: EvidenceSnapshot): Grouped {

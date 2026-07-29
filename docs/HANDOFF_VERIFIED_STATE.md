@@ -133,10 +133,10 @@
   receipt items, and every count is derived from real items. A held Ready change is re-judged and set aside when the
   evidence stops supporting it. Copy is honest about its own limits: search averages cover every country and device,
   so a page missing from one collected results page is a different slice of Google and never proof it does not rank,
-  and a rank counting ads and packs is never printed as a position. Decision generation 5: NEW-PAGE GENERATION IS
-  DELETED (2026-07-28), because turning a competitor's example prompt into a page shipped duplicates of pages the
-  account already owned. Nothing creates, drafts or resurrects one; stored rows still decode, render and measure,
-  and the queue refuses the kind as well as the basis. Live replay 2026-07-27 (SHA
+  and a rank counting ads and packs is never printed as a position. Decision generation 6: PROMPT-TO-PAGE
+  GENERATION STAYS DELETED (2026-07-28), because turning a competitor's example prompt into a page shipped
+  duplicates of pages the account already owned. The ONLY door to a new page is an EARNED create_new, proved by
+  a bought page comparison; no other trigger creates, drafts or resurrects one. Live replay 2026-07-27 (SHA
   e92bdbd1): 0 actionable, 23 investigations, 164 watch, 31 do nothing, 0 Ready; the next pass buys the three
   searches with no results page yet. ONE canonical path produces the ranked queue AND at most one deep
   existing-page Change per pass: receipt-first, citable research REQUIRED, thin evidence = refusal.

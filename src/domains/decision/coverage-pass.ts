@@ -27,7 +27,7 @@ import { ownedCandidatesFor, topicOutOfScope, type OwnedCandidate } from "./owne
 import { resolveCurrentBasis } from "./load-proposals";
 import {
   adjudicateCoverage, intersectionComparison, readComparison,
-  type CoverageDecision, type CoverageVerdict, type IntersectionEvidence, type MissingRequirement,
+  type CoverageDecision, type CoverageVerdict, type IntersectionEvidence, type MissingRequirement, type OwnedReadFailure,
 } from "./coverage-adjudication";
 
 /** THE order every step reads: fewest missing pieces first, then the largest demand behind it, then
@@ -51,23 +51,34 @@ const MAX_SAMPLE = 1200;
  *  requirement nobody can see is a requirement nobody fixes. */
 export type ResearchNeed = { topicKey: string; requirement: MissingRequirement; query: string | null; comparison: PageIntersectionAsk | null; retryAfter: string | null };
 
-/** ONE owned page, read live and persisted through the SAME page snapshot every other read of my own pages
- *  writes to. The last resort, at most once per pass, and only for a page my own results already name:
- *  never a crawl and never a second crawler. Null when the publisher's robots file says no or the page did
- *  not answer, and that is a visible park with a date on it rather than a case dropped where nobody sees it. */
-async function acquireOwnedBody(tenantId: string, url: string): Promise<OwnedPageBody | null> {
+/** ONE live read of my own page: its words, or the STRUCTURED reason they are not in hand. `if (!res.ok)
+ *  return null` collapsed a robots refusal and a timeout into one shrug, although the fetcher had already
+ *  told the two apart, so the plan could name neither and the operator was left with a page that simply
+ *  stopped moving. An acquired body is persisted through the SAME page snapshot every other read of my own
+ *  pages writes to, and adjudicated in the same breath. */
+type OwnedRead = { body: OwnedPageBody } | { failure: OwnedReadFailure };
+
+/** The last resort, at most once per pass, and only for a page my own results already name: never a crawl
+ *  and never a second crawler. */
+async function acquireOwnedBody(tenantId: string, url: string, now: Date): Promise<OwnedRead> {
   const [fetcher, extractor, store, scan] = await Promise.all([
     import("@/domains/evidence/competitor-intel/polite-fetch"), import("@/domains/evidence/pages/extractor"),
     import("@/lib/persistence/dual-write"), import("@/domains/evidence/scanning/in-process-scan")]);
   const absolute = /^https?:\/\//i.test(url) ? url : `https://${url}`;
   const res = await fetcher.fetchPageHtml(absolute, new Map(), {});
-  if (!res.ok) return null;
+  if (!res.ok) return { failure: readFailure(url, res.reason === "robots_blocked", now) };
   const snap = extractor.extractPageSnapshot(res.html, absolute, scan.pageIdFor(url), tenantId, res.status);
   await store.syncPageSnapshots([snap], tenantId);
-  return { url: absolute, title: snap.title, metaDescription: snap.meta_description, cardTexts: snap.card_texts ?? [],
+  return { body: { url: absolute, title: snap.title, metaDescription: snap.meta_description, cardTexts: snap.card_texts ?? [],
     openingSample: (snap.body_paragraph_sample ?? []).join(" ").slice(0, MAX_SAMPLE) || null,
-    entityNames: snap.schema_entity_names ?? [], internalLinks: [], fetchedAt: snap.fetched_at };
+    entityNames: snap.schema_entity_names ?? [], internalLinks: [], fetchedAt: snap.fetched_at } };
 }
+
+/** A refusal carries NO retry date (only the operator lifting it changes anything); everything else is due
+ *  again tomorrow and says so. Nothing here blames the provider, and nothing blames a publisher falsely. */
+const readFailure = (url: string, blocked: boolean, now: Date): OwnedReadFailure =>
+  blocked ? { url, state: "robots_blocked", retryAfter: null }
+    : { url, state: "temporarily_unavailable", retryAfter: new Date(now.getTime() + RETRY_MS).toISOString() };
 
 /** A topic whose evidence reached a FINAL answer, with everything that answer rests on, so
  *  the step that acts on it never has to re-derive the candidates or re-read the comparison. */
@@ -79,9 +90,11 @@ export type DecidedTopic = {
   reading: PageCoverageReading | null;
 };
 
-/** THE one interpretation of this account's coverage: the highest-ranked topic that is
- *  actually decided, and separately what the rest of the research is stuck on. */
-export type CoverageRead = { decided: DecidedTopic | null; needs: ResearchNeed[] };
+/** THE one interpretation of this account's coverage: the highest-ranked topic that is actually decided,
+ *  what the rest of the research is stuck on, and the EARLIEST date any of it may legally be read again.
+ *  That last one is computed over the whole ranked walk, whatever the research budget was, because a
+ *  surface that says "checking" while the next legal read is tomorrow is lying about a wait. */
+export type CoverageRead = { decided: DecidedTopic | null; needs: ResearchNeed[]; waitingUntil: string | null };
 
 export type ReadCoverageOptions = {
   /** How much research the caller may queue. 0 queues NOTHING, searches and comparison
@@ -96,7 +109,7 @@ export type ReadCoverageOptions = {
   /** A TEST SEAM ONLY: production reads the stored comparison out of the snapshot. */
   intersection?: IntersectionEvidence;
   /** A TEST SEAM ONLY: production reads the page off the live web through acquireOwnedBody. */
-  acquireBody?: (tenantId: string, url: string) => Promise<OwnedPageBody | null>;
+  acquireBody?: (tenantId: string, url: string, now: Date) => Promise<OwnedRead>;
   now?: Date;
 };
 
@@ -163,6 +176,8 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
   const asked = new Set<string>();
   let queries = 0, fetched = false;
   let decided: DecidedTopic | null = null;
+  let waitingUntil: string | null = null;
+  const now = opts.now ?? new Date();
   for (const inv of rankInvestigations(buildTopicInvestigations(snapshot))) {
     // STOPPING ON A PARK IS HOW THE RULE BELOW BECAME DEAD CODE: production reads this pass with
     // no research budget, so the walk ended the moment ANY verdict landed, and a park ranks first.
@@ -176,7 +191,7 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
     // two engines and sitting in the body store still read "I have never read this" and parked
     // its topic forever. Read the strong ones now and decide again in the SAME pass, because a
     // requirement I can close in this breath is not a reason to send the operator away.
-    let unreadable: string | null = null;
+    let ownedRead: OwnedReadFailure | null = null;
     if (decision.missing[0] === "owned_content") {
       const want = candidates.filter((c) => c.strongSignals > 0 && !c.bodyHeld && !asked.has(c.url)).slice(0, MAX_BODY_READS - asked.size).map((c) => c.url);
       for (const u of want) asked.add(u);
@@ -189,12 +204,15 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
       const owed = want.find((u) => !bodies.has(u));
       if (owed && !fetched) {
         fetched = true;
-        const got = await (opts.acquireBody ?? acquireOwnedBody)(tenantId, owed).catch(() => null);
-        if (got) bodies.set(owed, got); else unreadable = owed;
+        const got = await (opts.acquireBody ?? acquireOwnedBody)(tenantId, owed, now).catch(() => null);
+        if (got && "body" in got) bodies.set(owed, got.body);
+        else ownedRead = got?.failure ?? readFailure(owed, false, now);
       }
-      if (want.some((u) => bodies.has(u))) {
+      // DECIDE AGAIN IN THE SAME PASS, whichever way the read went: a body I just acquired is judged in this
+      // breath, and a read that failed hands the verdict the reason so it says which failure this was.
+      if (ownedRead || want.some((u) => bodies.has(u))) {
         candidates = ownedCandidatesFor(snapshot, inv, bodies);
-        try { decision = await adjudicateCoverage(inv, candidates, tenantId, judge); } catch { continue; }
+        try { decision = await adjudicateCoverage(inv, candidates, tenantId, { ...judge, ownedRead }); } catch { continue; }
       }
     }
     let ask = intersectionComparison(decision, inv, candidates);
@@ -218,10 +236,13 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
     }
     const query = (nextResearchQuery(decision, inv) ?? "").trim();
     const comparison = max <= 0 || query || needs.some((n) => n.comparison) ? null : ask;
-    // A CASE THAT CAN ONLY WAIT IS STILL A CASE. A winner read due tomorrow and a page of my own I could
-    // not read both buy nothing today, and dropping them here is exactly how a topic stopped being visible
-    // anywhere at all. `owned_content` is always listed; everything else waiting carries its own date.
-    const retryAfter = decision.hold ?? (unreadable ? new Date((opts.now ?? new Date()).getTime() + RETRY_MS).toISOString() : null);
+    // A CASE THAT CAN ONLY WAIT IS STILL A CASE. A winner read due tomorrow and a page of my own that did
+    // not answer both buy nothing today, and dropping them here is exactly how a topic stopped being visible
+    // anywhere at all. `owned_content` is always listed; everything else waiting carries its own date. The
+    // EARLIEST of those dates is the whole account's waiting truth, counted over every topic walked rather
+    // than only the ones that fit the research budget, because Today reads it whatever the budget was.
+    const retryAfter = decision.hold ?? null;
+    if (retryAfter && (waitingUntil == null || retryAfter < waitingUntil)) waitingUntil = retryAfter;
     const owedBody = decision.missing[0] === "owned_content";
     // EVERY QUEUED NEED COUNTS AGAINST THE SAME CEILING. A body I owe and a page I am waiting on cost
     // no search, but they still enter the run's frozen plan, and leaving them uncounted let EVERY topic
@@ -231,7 +252,7 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
     seen.add(query.toLowerCase()); queries += 1;
     needs.push({ topicKey: inv.key, requirement: decision.missing[0]!, query: query || null, comparison, retryAfter });
   }
-  return { decided, needs };
+  return { decided, needs, waitingUntil };
 }
 
 /** The exact search that closes what the verdict named, or null when no search can. An

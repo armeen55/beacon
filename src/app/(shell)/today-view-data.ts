@@ -38,6 +38,9 @@ export type TodayView = {
    *  resolved to watch reads as a decision, not as an absence. Optional: a release
    *  written before this field quotes nothing. */
   declineNotes?: { page: string; note: string }[];
+  /** The earliest date a page I could not read may be tried again, or absent when nothing is waiting.
+   *  Today says the date instead of "checking", because a wait is not activity. */
+  waitingUntil?: string;
 };
 
 export type TodayComposite = {
@@ -91,7 +94,13 @@ export type TodayProducerSignal = {
   /** How many proven gaps this pass is still investigating (research_needed). */
   investigating?: number;
   declineNotes?: { page: string; note: string }[];
+  /** The earliest retry date from the SAME canonical coverage pass; absent when nothing is waiting. */
+  waitingUntil?: string | null;
 };
+
+/** A retry date in the operator's words: the day, never a timestamp and never a countdown. */
+const retryDay = (iso: string): string =>
+  new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "America/Los_Angeles" });
 
 /** PURE: build the Today slice from a ChangesView. Today's next opportunities are
  *  the ready (validated, exact-copy) proposals, best first. The COUNT is the full
@@ -108,6 +117,8 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   // Carried verbatim from the pass that judged those pages; omitted when empty so a
   // release stays as small as what it actually knows.
   const declineNotes = producer.declineNotes?.length ? { declineNotes: producer.declineNotes } : {};
+  const waiting = producer.waitingUntil && Number.isFinite(Date.parse(producer.waitingUntil)) ? producer.waitingUntil : null;
+  const rest = { ...declineNotes, ...(waiting ? { waitingUntil: waiting } : {}) };
   let headerSentence: string;
   if (readyTotal > 0) {
     const lead =
@@ -118,7 +129,12 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
       measuring > 0
         ? `${lead} ${measuring} more ${measuring === 1 ? "is" : "are"} still measuring.`
         : lead;
-    return { headerSentence, nextOpportunities: ready, readyFixes, ...declineNotes };
+    return { headerSentence, nextOpportunities: ready, readyFixes, ...rest };
+  } else if (waiting) {
+    // A WAIT IS NOT ACTIVITY. Saying I am "checking" while the next legal read is tomorrow made a cooldown
+    // read as work in flight, and left the operator refreshing a page that could not change today. Name the
+    // date, own the pause, and ask for nothing: the retry is mine to make, not theirs.
+    headerSentence = `I could not read some of the pages I need, so I am waiting until ${retryDay(waiting)} to try them again.${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
   } else if (producer.outcome === "investigating") {
     // Proven losses whose CAUSE is not identified yet. This used to fall through to
     // "Nothing needs a decision today", which is the one sentence that makes a paid
@@ -144,7 +160,7 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   } else {
     headerSentence = "Nothing needs a decision today. I am still gathering evidence, and I will rank your next moves as it lands.";
   }
-  return { headerSentence, nextOpportunities: ready, readyFixes, ...declineNotes };
+  return { headerSentence, nextOpportunities: ready, readyFixes, ...rest };
 }
 
 async function loadTodayViewUncached(): Promise<TodayComposite> {

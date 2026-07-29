@@ -55,7 +55,10 @@ export type ResearchRunProgress = {
    *  search is what it owes, the typed requirement that was open, and the basis it was all chosen under.
    *  Freezing the STRINGS alone let a second independent pick buy a comparison for a DIFFERENT topic than
    *  the searches were bought for. Durable on progress (the phase advance clears the cursor), dies with the run. */
-  focus?: { basis: string | null; topics: Array<{ topicKey: string | null; query: string | null; requirement: string | null }> };
+  /** `retryAfter` is the earliest moment that topic may legally be read again (a page of yours that did not
+   *   answer, a winning page due tomorrow). It is carried, not recomputed: it decides both what this run may
+   *   still search for and what Today is allowed to call "checking". Null = nothing is waiting on it. */
+  focus?: { basis: string | null; topics: Array<{ topicKey: string | null; query: string | null; requirement: string | null; retryAfter?: string | null }> };
   /** LEGACY, read-only: a run frozen before `focus` existed carries only its query strings. Never written now. */
   surfacePublished?: boolean;
   /** Slice 6: real persisted funnel counters (never fabricated). */

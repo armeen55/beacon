@@ -20,19 +20,15 @@ const ACCOUNT_STATUS = new Map<string, AccountStatus>();
 const statusOf = (t: string): AccountStatus => ACCOUNT_STATUS.get(t) ?? "active";
 const setAccountStatus = (t: string, s: AccountStatus): void => void ACCOUNT_STATUS.set(t, s);
 function installAccountRepo(): void {
-  const byId = async (id: string) => ({ id, slug: id, provisional_name: "", domain: "example.com", status: statusOf(id),
-    signup_date: "", tos_accepted_at: null, daily_budget_usd: 0, growth_goal: null, created_at: "", updated_at: "" });
-  setAccountRepositoryForTests({ getAccountById: byId, getAccountBySlug: byId } satisfies AccountRepository);
-}
+  const byId = async (id: string) => ({ id, slug: id, provisional_name: "", domain: "example.com", status: statusOf(id), signup_date: "", tos_accepted_at: null, daily_budget_usd: 0, growth_goal: null, created_at: "", updated_at: "" });
+  setAccountRepositoryForTests({ getAccountById: byId, getAccountBySlug: byId } satisfies AccountRepository); }
 let NOW = 1_700_000_000_000;
 const iso = (ms = NOW) => new Date(ms).toISOString();
 const DAY = 24 * 3600 * 1000, T = "acct-a", U = "acct-b", LEASE = RR.RESEARCH_RUN_LEASE_SECONDS * 1000;
 const ckey = (t: string, ms = NOW) => `${t}:${new Date(ms).toISOString().slice(0, 10)}`; // the daily key the DATABASE computes
-const mk = (o: Partial<RR.ResearchRun>): RR.ResearchRun => ({
-  id: "seed", tenant_id: T, cycle_key: ckey(T, NOW), status: "paused",
+const mk = (o: Partial<RR.ResearchRun>): RR.ResearchRun => ({ id: "seed", tenant_id: T, cycle_key: ckey(T, NOW), status: "paused",
   current_phase: "refresh_sources", phase_cursor: null, progress: {}, spend_usd: 0, last_error: null,
-  lease_owner: null, lease_expires_at: null, started_at: iso(), updated_at: iso(), completed_at: null, ...o,
-});
+  lease_owner: null, lease_expires_at: null, started_at: iso(), updated_at: iso(), completed_at: null, ...o });
 /** In-memory repo modeling the RPC guards: claim resumes the account's single unfinished run (any date) before
  *  a new daily cycle, a foreign LIVE lease returns null, a same-UTC-day completed run blocks a fresh pass, and
  *  the daily key is computed at database time; advance/renew need a live lease + 'running', finish an open one. */
@@ -105,12 +101,8 @@ const healthySteps = (log: string[]): Partial<ResearchCycleSteps> => ({
 const run = (steps: Partial<ResearchCycleSteps>, deadlineMs?: number) =>
   runResearchCycle(T, { now: () => new Date(NOW), steps: { ...BENIGN, ...steps }, ...(deadlineMs === undefined ? {} : { deadlineMs }) });
 
-beforeEach(() => {
-  NOW = 1_700_000_000_000;
-  RR.setResearchRunRepoForTests(null);
-  ACCOUNT_STATUS.clear(); // every tenant defaults to active
-  installAccountRepo();
-});
+// ACCOUNT_STATUS is cleared so every tenant defaults to active.
+beforeEach(() => { NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null); ACCOUNT_STATUS.clear(); installAccountRepo(); });
 describe("research-run claim: one open run per account across all dates", () => {
   it("resumes the account's one unfinished run first: yesterday's paused run is reclaimed by the same id with phase and cursor untouched, a later-day visit reuses it, and no second row is ever created", async () => {
     const rows = freshRepo();
@@ -287,6 +279,19 @@ describe("research-run frozen investigation: ONE topic, and the lease the compar
     const l = memRepo(); let n = 0; RR.setResearchRunRepoForTests({ ...l.repo, renew: async (i) => ((n += 1) < 2 ? l.repo.renew(i) : false) });
     l.rows.push(mk({ current_phase: "winning_pages", progress: { focus: FOCUS } })); const dead = staged(() => n);
     await run({ funnelUnit: dead.funnelUnit }); expect([dead.seen.length, dead.spent]).toEqual([1, []]); }); // the lease died after the winners landed: the paid stage never ran
+  it("pauses the SAME phase and spends nothing when the case identities could not be persisted, at the searches and at the winners alike", async () => {
+    const refused = async () => { throw new Error("I could not save which of your topics are which, so I stopped before spending anything on them. I pick this up again on your next visit."); };
+    for (const [phase, progress] of [["serp_analysis", {}], ["winning_pages", { focus: FOCUS }]] as const) {
+      const rows = withRun({ current_phase: phase, progress }); let units = 0, asked = 0;
+      await run({ reconcileCases: refused, investigationFocus: async () => (asked += 1, FOCUS), funnelUnit: async () => (units += 1, { status: "done", cursor: null, progress: {} }) });
+      expect([rows[0]!.status, rows[0]!.current_phase, units, asked]).toEqual(["paused", phase, 0, 0]); // no funnel unit, no plan chosen, no purchase
+      expect([rows[0]!.progress.focus, rows[0]!.last_error!.phase]).toEqual([progress.focus, phase]); // an existing frozen plan buys nothing either
+      expect(rows[0]!.last_error!.message).toContain("I could not save which of your topics are which"); } });
+  it("reconciles FIRST and only then freezes the plan, so a retry spends against an identity it has written", async () => {
+    const rows = withRun({ current_phase: "serp_analysis" }); const order: string[] = []; let refuse = true;
+    const steps = { reconcileCases: async () => { order.push("reconcile"); if (refuse) throw new Error("could not save"); }, investigationFocus: async () => (order.push("focus"), FOCUS) };
+    await run(steps); expect([order, rows[0]!.progress.focus, rows[0]!.status]).toEqual([["reconcile"], undefined, "paused"]); refuse = false; await run(steps);
+    expect([order, rows[0]!.progress.focus, rows[0]!.status]).toEqual([["reconcile", "reconcile", "focus", "reconcile"], FOCUS, "completed"]); }); // written first, every funnel phase, and only then chosen
   it("one empty read never silences a run for the rest of its life", async () => {
     let asked = 0;
     const unit: ResearchCycleSteps["funnelUnit"] = async (phase, _t, cursor, _b, _f) =>
@@ -371,19 +376,11 @@ describe("research-run conflict-free research closure", () => {
 });
 describe("research-run fail-closed + render path", () => {
   it("fails closed when the claim RPC throws, throws on an empty tenant before any I/O, and runs no phase on the render path", async () => {
-    let touched = false;
-    const log: string[] = [];
+    let touched = false; const log: string[] = [];
     RR.setResearchRunRepoForTests({ ...memRepo().repo, claim: async () => { touched = true; throw new Error("db down"); } });
-    await run(healthySteps(log));
-    expect(log).toEqual([]); // no phase ran
-    expect(touched).toBe(true); // it did try to claim
-    touched = false;
-    await expect(RR.claimRun("", "o1")).rejects.toThrow(/tenantId is required/);
-    expect(touched).toBe(false); // never reached the repo
-    const { repo, rows } = memRepo();
-    RR.setResearchRunRepoForTests(repo);
+    await run(healthySteps(log)); expect([log, touched]).toEqual([[], true]); // no phase ran, and it did try to claim
+    touched = false; await expect(RR.claimRun("", "o1")).rejects.toThrow(/tenantId is required/); expect(touched).toBe(false); // never reached the repo
+    const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests(repo);
     expect(() => ensureResearchRunOnVisit(T)).not.toThrow(); // after() invalid outside a request → caught
-    await Promise.resolve();
-    expect(rows).toHaveLength(0); // no phase work on the render path
-  });
+    await Promise.resolve(); expect(rows).toHaveLength(0); }); // no phase work on the render path
 });

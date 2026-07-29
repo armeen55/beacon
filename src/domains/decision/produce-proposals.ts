@@ -86,6 +86,9 @@ export type ProduceProposalsResult = {
    *  the one canonical pass Runtime buys evidence from. Null while every topic is still an
    *  investigation, which is the normal answer. */
   coverage: DecidedTopic | null;
+  /** The earliest date any page this pass could not read may be tried again, from the SAME canonical
+   *  coverage pass. Null when nothing is waiting. It is what stops a surface saying "checking". */
+  waitingUntil: string | null;
 };
 
 /** Bounded drafting: the strongest few, never a queue. */
@@ -145,12 +148,15 @@ export async function produceProposalsForTenant(
   // a real verdict. Every call inside is $0 and deterministic. Fail-soft to null: a judgment
   // I cannot make must never break the pass that produces the operator's actual work.
   let coverage: DecidedTopic | null = null;
+  let waitingUntil: string | null = null;
   try {
-    coverage = (await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection })).decided;
+    const read = await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection });
+    coverage = read.decided;
+    waitingUntil = read.waitingUntil;
   } catch (e) {
     log.warn("[produce-proposals] coverage verdict failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
   }
-  const research = { investigations, coverage };
+  const research = { investigations, coverage, waitingUntil };
 
   // THE DIAGNOSIS FIRST. Doing nothing is the default; only a proven gap is work.
   const candidates = compileCandidates(snapshot);

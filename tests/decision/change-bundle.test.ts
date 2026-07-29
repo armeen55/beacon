@@ -197,6 +197,12 @@ describe("the coverage verdict never invents a page this account already owns", 
     const seam = asked(SAYS()); const d = await adjudicateCoverage(INV(over), owned, TENANT, {});
     expect([d.verdict, d.missing]).toEqual(["research_needed", [missing]]); expect(seam.calls).toEqual([]); expect(d.alternativesRuledOut).toHaveLength(1);
     expect(JSON.stringify(d)).not.toMatch(/proposedTitle|metaDescription|openingAnswer|outline|faqQuestions/i); }); // a verdict is never a page
+  it("says WHY a page of mine is unread, and promises a retry date on neither, because that failure is stored nowhere", async () => {
+    const blind = [OWNED(ONE.url, { bodyHeld: false })]; const read = (o: Record<string, unknown>) => adjudicateCoverage(INV(), blind, TENANT, { ownedRead: { url: ONE.url, ...o } as never });
+    const shut = await read({ state: "robots_blocked", retryAfter: null }); const down = await read({ state: "temporarily_unavailable", retryAfter: "2026-07-27T00:00:00.000Z" });
+    expect([shut.missing, shut.hold, down.missing, down.hold]).toEqual([["owned_content"], undefined, ["owned_content"], undefined]); // a date I cannot honor is worse than no date
+    expect(shut.explanation).toContain("Your own robots file tells me not to read"); expect(down.explanation).toContain("did not answer me when I tried to read it"); expect(down.explanation).toContain("on your next visit");
+    expect(`${shut.explanation} ${down.explanation}`).not.toMatch(/provider|refused|blocked|[—–]/i); }); // a timeout is never dressed as a refusal, and nobody else is blamed for either
   it("leaves a topic the operator ruled out alone, and never reaches a model to say so", async () => {
     const off = asked(SAYS()); const skipped = await adjudicateCoverage(INV(), [ONE], TENANT, { outOfScopeTopics: ["rain barrels"] });
     expect([skipped.verdict, skipped.missing, off.calls]).toEqual(["do_nothing", [], []]); expect(skipped.explanation).toContain("rain barrels"); });

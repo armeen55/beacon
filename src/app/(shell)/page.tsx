@@ -286,6 +286,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     topOpportunity: today.nextOpportunities[0] ?? null,
     declineVerdict,
     firstReadOn,
+    // The same waiting truth the header sentence carries, from the SAME release, so the two can never
+    // say "checking" and "waiting until the 4th" on one screen.
+    waitingUntil: today.waitingUntil ?? null,
     measuringCount,
   });
 

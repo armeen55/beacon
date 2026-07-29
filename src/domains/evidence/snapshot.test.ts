@@ -172,6 +172,11 @@ describe("buildTopicInvestigations - the research packet", () => {
     const two = [{ id: "inv_alpha", anchors: anchorsOf("kayak paddle").slice(0, 1) }, { id: "inv_beta", anchors: [...anchorsOf("kayak paddle"), "zz", "yy"] }];
     expect(build({ cases: two }).find((i) => i.label.includes("kayak paddle"))!.key).toBe("inv_beta"); // a merge keeps the id with the most anchors
     expect(reconcileResearchCases(world({ cases: two })).find((c) => c.id === "inv_alpha")).toEqual({ id: "inv_alpha", anchors: [], aliasOf: "inv_beta" }); // the other is a durable alias, never a third id
+    // THE WHOLE LIFECYCLE: save the merged registry, come back to it in a fresh process, and the absorbed id is STILL this case's, so an answer bought under it is found rather than bought again.
+    const saved = JSON.parse(JSON.stringify(reconcileResearchCases(world({ cases: two })))) as typeof cases;
+    expect(build({ cases: saved }).find((i) => i.label.includes("kayak paddle"))!.aliasKeys).toEqual(["inv_alpha"]); expect(reconcileResearchCases(world({ cases: saved }))).toEqual(saved); // and a fixpoint, never a growing pile
+    expect(reconcileResearchCases(world({ cases: [...two, { id: "inv_gamma", anchors: [], aliasOf: "inv_alpha" }] })).filter((c) => c.aliasOf).map((c) => `${c.id} ${c.aliasOf}`).sort()).toEqual(["inv_alpha inv_beta", "inv_gamma inv_beta"]); // alpha absorbed gamma and beta absorbed alpha: ONE canonical id, written back flat
+    expect(reconcileResearchCases(world({ cases: [...two, ...Array.from({ length: 70 }, (_, i) => ({ id: `inv_old${i}`, anchors: [`old${i}`] }))] })).filter((c) => c.aliasOf === "inv_beta").map((c) => c.id)).toEqual(["inv_alpha"]); // the cap spends itself on dormant rows, never on an alias of a case it keeps
     const split = build({ cases: [{ id: "inv_split", anchors: [...anchorsOf("kayak paddle"), ...anchorsOf("tote")] }] });
     expect(split.filter((i) => i.key === "inv_split").map((i) => i.label)).toEqual([byLabel("kayak paddle").label]); // the branch holding the minting anchor keeps the identity
     expect(new Set(split.map((i) => i.key)).size).toBe(split.length); }); // and no two live cases ever share an id

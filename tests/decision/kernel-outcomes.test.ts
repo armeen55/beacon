@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), failWrites: false, bundleTarget: null as string | null }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
-vi.mock("@/domains/evidence/pages/owned-context", () => ({ loadOwnedPageBodies: async (_t: string, urls: string[]) => new Map(urls.map((u) => [u, { url: u, title: "T", metaDescription: null, openingSample: "How a nowruz table is set.", cardTexts: [], entityNames: [], internalLinks: [], fetchedAt: "2026-07-25T00:00:00.000Z" }])) }));
+vi.mock("@/domains/evidence/pages/owned-context", () => ({ loadOwnedPageBodies: async (_t: string, urls: string[]) => new Map(urls.filter((u) => !u.includes("unreadable")).map((u) => [u, { url: u, title: "T", metaDescription: null, openingSample: "How a nowruz table is set.", cardTexts: [], entityNames: [], internalLinks: [], fetchedAt: "2026-07-25T00:00:00.000Z" }])) }));
 // The REAL fingerprint is under test; only the two I/O calls are seams. The deep bundle has its own suite, so here it only reports WHICH page it was aimed at.
 vi.mock("@/domains/decision/proposal-store", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision/proposal-store")>("@/domains/decision/proposal-store")), loadChangeProposals: async () => env.store,
   saveChangeProposal: async (p: ChangeProposal) => { env.saved.push(p); if (env.failWrites) return "failed"; env.store.set(p.id, p); return "saved"; } }));
@@ -18,7 +18,8 @@ import { rankProposals, proposalValueScore } from "@/domains/decision/rank-propo
 import { compileCandidates, snapshotToEvidenceInputs } from "@/domains/decision/opportunities";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
 import { chooseInvestigation, comparisonForFocus, focusQueries } from "@/domains/runtime/ops/investigation-queries";
-const queued = async (tenantId: string) => focusQueries(await chooseInvestigation(tenantId, null));
+import { reconcileResearchCases } from "@/domains/evidence/topic-investigation";
+const queued = async (tenantId: string, at = 0) => focusQueries(await chooseInvestigation(tenantId, null), at);
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { ownedCandidatesFor } from "@/domains/decision/owned-coverage"; import { askIdentity } from "@/domains/evidence/page-intersection";
 import { buildTopicInvestigations } from "@/domains/evidence/topic-investigation";
 import { readCoverage, rankInvestigations } from "@/domains/decision/coverage-pass"; import { loadProposalQueue } from "@/domains/decision/load-proposals";
@@ -238,6 +239,28 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     expect(rankInvestigations(order)[0]!.key).toBe(parked.key); // it ranks first, and its own page sat unread while its words were already on file
     expect(read.needs.find((n) => n.topicKey === parked.key)?.requirement).toBe("page_intersection"); // one bounded read moved it on without sending the operator away
     expect([read.decided!.investigation.label, read.decided!.decision.verdict]).toEqual([HAFT, "create_new"]); }); // and the comparison I paid for is read for the topic that owns it
+  it("tells a robots refusal from a page that did not answer, retries neither before its date, and judges a body it just acquired in the SAME pass", async () => {
+    const dark: OwnedPageEvidence = { ...ownedPage("fixture-outdoors.example/nowruz-unreadable", "T", { impressions: 400, clicks: 4 }, [{ query: PARKED, impressions: 400, clicks: 4, position: 6 }]), content: null };
+    const world = snap([GAP, UNREAD, dark], withParked(READY({ topicKey: keyOf(READY()) })), [...DEMAND, ...PARKED_DEMAND]);
+    const at = (acquireBody: NonNullable<Parameters<typeof readCoverage>[2]>["acquireBody"]) => readCoverage(world, "fixture-tenant", { basis: "basis_today", maxQueries: 3, now: NOW, acquireBody });
+    const owed = (r: Awaited<ReturnType<typeof readCoverage>>) => r.needs.find((n) => n.requirement === "owned_content");
+    const shut = await at(async (_t, url) => ({ failure: { url, state: "robots_blocked", retryAfter: null } }));
+    const down = await at(async (_t, url) => ({ failure: { url, state: "temporarily_unavailable", retryAfter: "2026-07-27T00:00:00.000Z" } }));
+    expect([owed(shut)!.retryAfter, shut.waitingUntil]).toEqual([null, null]); // a refusal carries no date at all, so it never enters the daily retry loop
+    expect([owed(down)!.retryAfter, down.waitingUntil]).toEqual([null, null]); // and a page that did not answer promises NO day, because that failure is not stored anywhere and a date would slide forward on every visit
+    const got = await at(async (_t, url) => ({ body: { url, title: "T", metaDescription: null, openingSample: "How a nowruz table is set out, item by item.", cardTexts: [], entityNames: [], internalLinks: [], fetchedAt: LOOKED_AT } }));
+    expect([owed(got), got.waitingUntil]).toEqual([undefined, null]); // the body I just read is judged in this same breath, not next visit
+    const plan = { basis: "b", topics: [{ topicKey: "t1", query: "still cooling off", requirement: "owned_content", retryAfter: "2026-07-27T00:00:00.000Z" }, { topicKey: "t2", query: "due now", requirement: "exact_serp", retryAfter: null }] }; // no URL is read before its cooldown expires
+    expect([focusQueries(plan, Date.parse("2026-07-26T00:00:00Z")), focusQueries(plan, Date.parse("2026-07-28T00:00:00Z"))]).toEqual([["due now"], ["still cooling off", "due now"]]); });
+  it("finds the comparison AND the live page filed under an id this case absorbed, so neither is bought or built a second time", async () => {
+    const key = keyOf(READY()); const anchors = reconcileResearchCases(snap([GAP], READY(), DEMAND)).find((c) => c.id === key)!.anchors;
+    const cases = [{ id: "inv_absorbed", anchors: anchors.slice(0, 1) }, { id: key, anchors }]; // two ids on file for one subject, already merged and SAVED
+    const world = () => snap([GAP], { ...READY({ topicKey: "inv_absorbed" }), cases }, DEMAND); // the comparison was paid for under the absorbed id
+    reset(world()); const built = await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW });
+    expect([built.coverage!.investigation.aliasKeys, built.coverage!.decision.verdict, built.coverage!.decision.missing]).toEqual([["inv_absorbed"], "create_new", []]); // read, not re-bought
+    const page = built.proposals.find((p) => p.kind === "new_page")!; const under = { ...page, id: page.id.replace(key, "inv_absorbed") };
+    reset(world()); env.store = new Map([[under.id, under]]); const again = briefSeam(); const res = await produceProposalsForTenant("fixture-tenant", { complete: again.complete, now: NOW });
+    expect([again.kinds, res.reused, res.proposals.filter((p) => p.kind === "new_page").map((p) => p.id)]).toEqual([[], 1, [under.id]]); }); // zero brief calls, and ONE page for one subject
   it("builds exactly ONE new page from the earned verdict, and it reaches Ready as current work", async () => {
     reset(snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND)); const seam = briefSeam();
     const res = await produceProposalsForTenant("fixture-tenant", { complete: seam.complete, now: NOW });
