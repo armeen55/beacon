@@ -39,7 +39,7 @@ import { isNoiseDomain } from "@/domains/evidence/relevance-gate";
 import { publisherHost } from "@/domains/evidence/serp-shape";
 import { comparePageCoverage, type PageCoverageReading, type PageIntersectionAsk, type ParsedPageIntersection } from "@/domains/evidence/page-intersection";
 import type { TopicInvestigation } from "@/domains/evidence/topic-investigation";
-import type { IntersectionUnavailable } from "@/domains/evidence/funnel/research-evidence";
+import type { IntersectionUnavailable, OwnedPageReadOutcome } from "@/domains/evidence/funnel/research-evidence";
 import type { OwnedCandidate } from "./owned-coverage";
 
 // ── Coverage adjudication (N3b, 2026-07-28) ──────────────────────────────────
@@ -159,12 +159,6 @@ const UNAVAILABLE: Record<IntersectionUnavailable, string> = {
   failed: "it did not come back",
 };
 
-/** Why I do not hold MY OWN page's words after trying to read it live, and the earliest I may try that URL
- *  again. The two are different problems with different fixes: a robots refusal is the operator's own site
- *  telling me no, and it never enters a daily retry loop; a page that did not answer is a wait with a date on
- *  it. Collapsing them into one null told the operator neither, and blamed neither honestly. */
-export type OwnedReadFailure = { url: string; state: "robots_blocked" | "temporarily_unavailable"; retryAfter: string | null };
-
 export type AdjudicateCoverageOptions = {
   /** The account's OWN profile topics this investigation collides with
    *  (topicOutOfScope). Non-empty means the operator already ruled it out. */
@@ -172,8 +166,10 @@ export type AdjudicateCoverageOptions = {
   /** The page by page comparison, once Evidence has bought it for THIS topic, or
    *  the honest reason it is not in hand. Absent = it was never asked for. */
   intersection?: IntersectionEvidence;
-  /** The ONE live read of my own page this pass attempted and could not finish, if any. */
-  ownedRead?: OwnedReadFailure | null;
+  /** The PERSISTED reason a page of my own is unread, read back off the research row (never fetched here):
+   *  a robots refusal is the operator's own site telling me no, a page that did not answer is a wait. Both
+   *  carry the date I already promised, so repeat visits read the SAME date rather than a sliding one. */
+  ownedRead?: OwnedPageReadOutcome | null;
   /** Injected so a retry hold is judged against the caller's clock, never the wall. */
   now?: Date;
   /** This account's own site, so its own pages never count toward the winner supply. */
@@ -369,19 +365,21 @@ export async function adjudicateCoverage(
   const contenders = candidates.filter(contender);
   const unread = contenders.find((c) => !c.bodyHeld);
   if (unread) {
-    // A PAGE I COULD NOT READ IS NOT A PAGE I HAVE NOT TRIED, and the two reasons are not one reason. The
-    // NO DATE IS PROMISED ON THIS BRANCH. A failed read of the operator's OWN page is not persisted
-    // anywhere, so a date printed here would be retried on the very next visit and would slide forward
-    // every time the operator looked. The winners branch names a day because its outcome IS durable
-    // (readOutcome on the winner row); this one says what is true today and nothing more. The date
-    // returns when a failed owned read is stored, which is the next slice, not a sentence here.
-    const failed = opts.ownedRead && opts.ownedRead.url === unread.url ? opts.ownedRead : null;
-    if (failed?.state === "robots_blocked") return refuse(inv, ids, "owned_content",
-      `Your own robots file tells me not to read ${unread.url}, so I cannot check whether it already answers "${inv.label}". Let me read that page and I will finish this.`,
-      "I will not call a page missing while a page of yours that might already answer it is one you have told me not to read.");
-    if (failed) return refuse(inv, ids, "owned_content",
-      `${unread.url} did not answer me when I tried to read it, so I cannot yet say whether it already answers "${inv.label}". I try that page again on your next visit.`,
-      "A page that did not answer me today is not a page anybody refused me, and I will not treat it as one.");
+    const at = (opts.now ?? new Date()).getTime();
+    // A PAGE I COULD NOT READ IS NOT A PAGE I HAVE NOT TRIED, and the two reasons are not one reason. BOTH
+    // NAME A DAY NOW, and it is the day already stored against that URL, so it is identical on every visit
+    // and across every deploy until the retry is genuinely due. It used to promise nothing at all, because
+    // the failure lived only inside one render and the same URL was refetched on the very next visit.
+    // AN EXPIRED HOLD IS NOT A PROMISE. The winners branch already drops a date that has passed; this
+    // one printed a stored July 20 to an operator standing in July 26, which is stable and still false.
+    const stored = opts.ownedRead && opts.ownedRead.url === unread.url ? opts.ownedRead : null;
+    const failed = stored && Date.parse(stored.retryAfter) > at ? stored : null;
+    if (failed?.state === "robots_blocked") return { ...refuse(inv, ids, "owned_content",
+      `Your site's robots rules stopped me from reading ${unread.url}, so I cannot check whether it already answers "${inv.label}". I will check again on ${day(failed.retryAfter)}.`,
+      "I will not call a page missing while a page of yours that might already answer it is one your own site tells me not to read."), hold: failed.retryAfter };
+    if (failed) return { ...refuse(inv, ids, "owned_content",
+      `I could not read ${unread.url}, so I cannot yet say whether it already answers "${inv.label}". I will try it again on ${day(failed.retryAfter)}.`,
+      "A page that did not answer me today is not a page anybody refused me, and I will not treat it as one."), hold: failed.retryAfter };
     return refuse(inv, ids, "owned_content", `Your page ${unread.url} could already be the answer to "${inv.label}", and I do not hold its own words yet, so I am reading it before I say anything about it.`,
       "I will not call a page missing while one of yours that might already answer it sits unread.");
   }

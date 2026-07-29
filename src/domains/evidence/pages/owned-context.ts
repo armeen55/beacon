@@ -85,7 +85,12 @@ function openingOf(row: Row): string | null {
 function variantsOf(urls: string[]): string[] {
   const out = new Set<string>();
   for (const raw of urls) {
-    const hosts = [raw, /^https?:\/\/www\./i.test(raw) ? raw.replace(/^(https?:\/\/)www\./i, "$1") : raw.replace(/^(https?:\/\/)/i, "$1www.")];
+    // A SCHEME-LESS ASK IS THE NORMAL ASK. Coverage holds canonical keys ("own.com/page"), and the
+    // research run writes the row under its absolute address, so synthesising scheme variants only
+    // for inputs that ALREADY had one returned zero rows for every real caller: a page the run had
+    // just read looked unread, and it was fetched again on the next run, forever.
+    const schemes = /^https?:\/\//i.test(raw) ? [raw] : [raw, `https://${raw}`, `http://${raw}`];
+    const hosts = schemes.flatMap((u) => [u, /^https?:\/\/www\./i.test(u) ? u.replace(/^(https?:\/\/)www\./i, "$1") : u.replace(/^(https?:\/\/)/i, "$1www.")]);
     for (const u of hosts) out.add(u.endsWith("/") ? u.replace(/\/+$/, "") : `${u}/`), out.add(u.replace(/\/+$/, ""));
   }
   return [...out];

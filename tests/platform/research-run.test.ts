@@ -105,98 +105,61 @@ const run = (steps: Partial<ResearchCycleSteps>, deadlineMs?: number) =>
 beforeEach(() => { NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null); ACCOUNT_STATUS.clear(); installAccountRepo(); });
 describe("research-run claim: one open run per account across all dates", () => {
   it("resumes the account's one unfinished run first: yesterday's paused run is reclaimed by the same id with phase and cursor untouched, a later-day visit reuses it, and no second row is ever created", async () => {
-    const rows = freshRepo();
-    const cursor = { phase: "gsc_backfill_chunk", attemptKey: "k" };
+    const rows = freshRepo(); const cursor = { phase: "gsc_backfill_chunk", attemptKey: "k" };
     rows.push(mk({ id: "seed", status: "paused", current_phase: "gsc_backfill_chunk", phase_cursor: cursor, cycle_key: ckey(T, NOW - DAY), started_at: iso(NOW - DAY) }));
-    const first = await RR.claimRun(T, "o1");
-    expect(first?.id).toBe("seed"); // resumed, not a new run
-    expect(first?.current_phase).toBe("gsc_backfill_chunk"); // phase untouched on claim
-    expect(first?.phase_cursor).toEqual(cursor); // cursor untouched
-    expect(first?.status).toBe("running"); // paused flips to running
+    const first = await RR.claimRun(T, "o1"); // resumed, not a new run: phase and cursor untouched, paused flips to running
+    expect([first?.id, first?.current_phase, first?.phase_cursor, first?.status]).toEqual(["seed", "gsc_backfill_chunk", cursor, "running"]);
     NOW += 2 * DAY; // two UTC days later, o1's lease long dead
-    const later = await RR.claimRun(T, "o2");
-    expect(later?.id).toBe("seed"); // reuses the one open run, never opens another
-    expect(rows).toHaveLength(1); // no current-day row was ever created
-  });
+    expect([(await RR.claimRun(T, "o2"))?.id, rows.length]).toEqual(["seed", 1]); }); // reuses the one open run; no current-day row was ever created
   it("lets an older run's lease state govern the claim: a live foreign lease blocks a new run, an expired one is reclaimed on the same row", async () => {
     const rows = freshRepo();
     rows.push(mk({ id: "seed", status: "running", lease_owner: "other", lease_expires_at: iso(NOW + LEASE), started_at: iso(NOW - DAY) }));
-    expect(await RR.claimRun(T, "me")).toBeNull(); // live foreign lease blocks a second run
-    expect(rows).toHaveLength(1);
+    expect([await RR.claimRun(T, "me"), rows.length]).toEqual([null, 1]); // live foreign lease blocks a second run
     rows[0]!.lease_expires_at = iso(NOW - 1); // the lease expires
-    expect((await RR.claimRun(T, "me"))?.id).toBe("seed"); // expired lease reclaimed on the same row
-    expect(rows).toHaveLength(1);
-  });
+    expect([(await RR.claimRun(T, "me"))?.id, rows.length]).toEqual(["seed", 1]); }); // expired lease reclaimed on the same row
   it("keeps accounts independent, blocks a redundant same-day pass after completion, and opens a fresh run only on a later day", async () => {
-    const rows = freshRepo();
-    const a = await RR.claimRun(T, "o1");
-    const b = await RR.claimRun(U, "o2");
-    expect(a!.id).not.toBe(b!.id); // one account's open run never blocks another
-    expect(rows).toHaveLength(2);
+    const rows = freshRepo(); const a = await RR.claimRun(T, "o1"), b = await RR.claimRun(U, "o2");
+    expect([a!.id === b!.id, rows.length]).toEqual([false, 2]); // one account's open run never blocks another
     await RR.finishRun(T, a!.id, "o1", "completed"); // T completes today
     expect(await RR.claimRun(T, "o3")).toBeNull(); // no redundant same-UTC-day pass
-    NOW += DAY; // a later eligible day
-    const next = await RR.claimRun(T, "o4");
-    expect(next).not.toBeNull();
-    expect(next!.id).not.toBe(a!.id); // a genuinely new run once none is open
-  });
+    NOW += DAY; const next = await RR.claimRun(T, "o4"); // a later eligible day
+    expect([next == null, next!.id === a!.id]).toEqual([false, false]); }); // a genuinely new run once none is open
 });
 describe("research-run pre-activation gate (Slice 5)", () => {
   it("a pending account runs no research at the runtime level: the seeded run is never claimed, no lease is taken, and no new run is created", async () => {
-    const rows = withRun(); // a claimable paused today-row for T
-    setAccountStatus(T, "pending_onboarding");
-    await run(BENIGN);
-    expect(rows[0]!.status).toBe("paused"); // untouched: the cycle no-oped before claiming
-    expect(rows[0]!.lease_owner).toBeNull(); // no lease was taken
-    expect(rows).toHaveLength(1); // no second run was opened
-  });
+    const rows = withRun(); setAccountStatus(T, "pending_onboarding"); await run(BENIGN); // a claimable paused today-row for T
+    expect([rows[0]!.status, rows[0]!.lease_owner, rows.length]).toEqual(["paused", null, 1]); }); // untouched, unleased, and no second run opened
   it("the claim model returns null for a non-active tenant, mirroring the database tenant-active guard", async () => {
-    freshRepo();
-    setAccountStatus(T, "pending_onboarding");
-    expect(await RR.claimRun(T, "o1")).toBeNull(); // nothing claimed or created before activation
-  });
+    freshRepo(); setAccountStatus(T, "pending_onboarding");
+    expect(await RR.claimRun(T, "o1")).toBeNull(); }); // nothing claimed or created before activation
 });
 describe("research-run database-time lease guards", () => {
   it("guards every mutation at database time: foreign and expired owners cannot advance / renew / finish, a live owner can, and a completed row rejects mutation", async () => {
-    const rows = withRun({ status: "running", lease_owner: "o1", lease_expires_at: iso(NOW + LEASE) });
-    const id = rows[0]!.id;
-    expect(await RR.advancePhase(T, id, "intruder", { phase: "done" })).toBe(false);
-    expect(await RR.renewLease(T, id, "intruder", { phase: "refresh_sources" })).toBe(false);
-    expect(await RR.finishRun(T, id, "intruder", "completed")).toBe(false);
+    const rows = withRun({ status: "running", lease_owner: "o1", lease_expires_at: iso(NOW + LEASE) }); const id = rows[0]!.id;
+    expect([await RR.advancePhase(T, id, "intruder", { phase: "done" }), await RR.renewLease(T, id, "intruder", { phase: "refresh_sources" }), await RR.finishRun(T, id, "intruder", "completed")]).toEqual([false, false, false]);
     expect(await RR.renewLease(T, id, "o1", { phase: "refresh_sources", attemptKey: "k" })).toBe(true);
-    expect(rows[0]!.lease_owner).toBe("o1");
-    expect(rows[0]!.phase_cursor).toEqual({ phase: "refresh_sources", attemptKey: "k" });
+    expect([rows[0]!.lease_owner, rows[0]!.phase_cursor]).toEqual(["o1", { phase: "refresh_sources", attemptKey: "k" }]);
     NOW += LEASE + 1; // the owner's lease is now dead
-    expect(await RR.advancePhase(T, id, "o1", { phase: "done" })).toBe(false);
-    expect(await RR.finishRun(T, id, "o1", "completed")).toBe(false);
-    NOW -= LEASE + 1;
-    await RR.finishRun(T, id, "o1", "completed");
-    expect(await RR.advancePhase(T, id, "o1", { phase: "refresh_sources" })).toBe(false); // completed row rejects mutation
-    expect(await RR.finishRun(T, id, "o1", "paused")).toBe(false);
-  });
+    expect([await RR.advancePhase(T, id, "o1", { phase: "done" }), await RR.finishRun(T, id, "o1", "completed")]).toEqual([false, false]);
+    NOW -= LEASE + 1; await RR.finishRun(T, id, "o1", "completed"); // a completed row rejects every mutation
+    expect([await RR.advancePhase(T, id, "o1", { phase: "refresh_sources" }), await RR.finishRun(T, id, "o1", "paused")]).toEqual([false, false]); });
 });
 describe("research-run phase truth", () => {
   it("counts only synced sources as refreshed, and any connector failure pauses at refresh_sources without advancing to publish", async () => {
     const rows = withRun();
     await run({ ...BENIGN, refreshSources: async () => ({ attempted: 3, succeeded: ["google_gsc", "clarity"], failures: [{ provider: "google_ga4", detail: "429 quota" }] }) });
     expect([rows[0]!.status, rows[0]!.current_phase, rows[0]!.last_error?.phase]).toEqual(["paused", "refresh_sources", "refresh_sources"]); // stuck in place → never published off a failed refresh
-    expect(rows[0]!.last_error?.failures).toEqual([{ provider: "google_ga4", detail: "429 quota" }]);
-    expect(rows[0]!.progress.surfacePublished).toBeUndefined();
-  });
+    expect([rows[0]!.last_error?.failures, rows[0]!.progress.surfacePublished]).toEqual([[{ provider: "google_ga4", detail: "429 quota" }], undefined]); });
   it("treats zero stale sources as a healthy no-op and completes when every phase succeeds or no-ops", async () => {
-    const rows = withRun();
-    await run({ ...BENIGN, surfaceStale: async () => true }); // nothing refreshed, but the saved surface is stale
-    expect([rows[0]!.status, rows[0]!.current_phase, rows[0]!.last_error]).toEqual(["completed", "done", null]);
-    expect(rows[0]!.progress.surfacePublished).toBe(true); });
+    const rows = withRun(); await run({ ...BENIGN, surfaceStale: async () => true }); // nothing refreshed, but the saved surface is stale
+    expect([rows[0]!.status, rows[0]!.current_phase, rows[0]!.last_error, rows[0]!.progress.surfacePublished]).toEqual(["completed", "done", null, true]); });
   it("pauses at the phase that throws, never marks it published, and never completes (backfill chunk, then publish build)", async () => {
     const backfill = withRun({ current_phase: "gsc_backfill_chunk" });
     await run({ ...BENIGN, backfillChunk: async () => { throw new Error("gsc backfill chunk did not advance: 429"); } });
-    expect([backfill[0]!.status, backfill[0]!.current_phase, backfill[0]!.last_error?.phase]).toEqual(["paused", "gsc_backfill_chunk", "gsc_backfill_chunk"]); // same window retries next visit
-    expect(backfill[0]!.progress.surfacePublished).toBeUndefined(); // never reached publish
+    expect([backfill[0]!.status, backfill[0]!.current_phase, backfill[0]!.last_error?.phase, backfill[0]!.progress.surfacePublished]).toEqual(["paused", "gsc_backfill_chunk", "gsc_backfill_chunk", undefined]); // same window retries next visit, and publish was never reached
     const publish = withRun({ current_phase: "publish_surface" }); // fresh repo + seed
     await run({ ...BENIGN, surfaceStale: async () => true, publishSurface: async () => { throw new Error("surface build failed"); } });
-    expect([publish[0]!.status, publish[0]!.current_phase]).toEqual(["paused", "publish_surface"]);
-    expect(publish[0]!.progress.surfacePublished).not.toBe(true); expect(publish[0]!.completed_at).toBeNull(); });
+    expect([publish[0]!.status, publish[0]!.current_phase, publish[0]!.progress.surfacePublished === true, publish[0]!.completed_at]).toEqual(["paused", "publish_surface", false, null]); });
 });
 describe("research-run partial-success durability + deduped refreshed providers", () => {
   it("persists the providers that DID sync before pausing, never counts a failed one, and counts a later success exactly once across the retry", async () => {
@@ -292,6 +255,16 @@ describe("research-run frozen investigation: ONE topic, and the lease the compar
     const steps = { reconcileCases: async () => { order.push("reconcile"); if (refuse) throw new Error("could not save"); }, investigationFocus: async () => (order.push("focus"), FOCUS) };
     await run(steps); expect([order, rows[0]!.progress.focus, rows[0]!.status]).toEqual([["reconcile"], undefined, "paused"]); refuse = false; await run(steps);
     expect([order, rows[0]!.progress.focus, rows[0]!.status]).toEqual([["reconcile", "reconcile", "focus", "reconcile"], FOCUS, "completed"]); }); // written first, every funnel phase, and only then chosen
+  it("pauses a funnel phase before EVERYTHING when the account basis cannot be read, then reconciles first and proceeds once it can", async () => {
+    const rows = withRun({ current_phase: "serp_analysis" }); const order: string[] = []; let basis: string | null = null;
+    const steps: Partial<ResearchCycleSteps> = { currentBasis: async () => basis, reconcileCases: async () => void order.push("reconcile"),
+      investigationFocus: async () => (order.push("focus"), FOCUS), funnelUnit: async () => (order.push("unit"), { status: "done", cursor: null, progress: {} }),
+      publishSurface: async () => void order.push("publish"), surfaceStale: async () => true };
+    await run(steps); // no basis: identity could not be scoped, so NOTHING may be reconciled, frozen, bought, fetched or published against it
+    expect([order, rows[0]!.status, rows[0]!.current_phase, rows[0]!.progress.focus]).toEqual([[], "paused", "serp_analysis", undefined]);
+    expect(rows[0]!.last_error!.message).toContain("confirmed business details"); // the existing pause vocabulary, not a new status
+    basis = "basis_test"; await run(steps); // the retry re-resolves the basis, reconciles FIRST, and only then freezes and runs
+    expect([order[0], order.includes("focus"), order.includes("publish"), rows[0]!.status, rows[0]!.progress.focus]).toEqual(["reconcile", true, true, "completed", FOCUS]); });
   it("one empty read never silences a run for the rest of its life", async () => {
     let asked = 0;
     const unit: ResearchCycleSteps["funnelUnit"] = async (phase, _t, cursor, _b, _f) =>

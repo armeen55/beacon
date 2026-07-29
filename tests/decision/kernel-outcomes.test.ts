@@ -17,7 +17,7 @@ import { validateProposal } from "@/domains/decision/validate-proposal";
 import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals";
 import { compileCandidates, snapshotToEvidenceInputs } from "@/domains/decision/opportunities";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
-import { chooseInvestigation, comparisonForFocus, focusQueries } from "@/domains/runtime/ops/investigation-queries";
+import { chooseInvestigation, comparisonForFocus, focusOwnedUrl, focusQueries } from "@/domains/runtime/ops/investigation-queries";
 import { reconcileResearchCases } from "@/domains/evidence/topic-investigation";
 const queued = async (tenantId: string, at = 0) => focusQueries(await chooseInvestigation(tenantId, null), at);
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { ownedCandidatesFor } from "@/domains/decision/owned-coverage"; import { askIdentity } from "@/domains/evidence/page-intersection";
@@ -239,19 +239,24 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     expect(rankInvestigations(order)[0]!.key).toBe(parked.key); // it ranks first, and its own page sat unread while its words were already on file
     expect(read.needs.find((n) => n.topicKey === parked.key)?.requirement).toBe("page_intersection"); // one bounded read moved it on without sending the operator away
     expect([read.decided!.investigation.label, read.decided!.decision.verdict]).toEqual([HAFT, "create_new"]); }); // and the comparison I paid for is read for the topic that owns it
-  it("tells a robots refusal from a page that did not answer, retries neither before its date, and judges a body it just acquired in the SAME pass", async () => {
-    const dark: OwnedPageEvidence = { ...ownedPage("fixture-outdoors.example/nowruz-unreadable", "T", { impressions: 400, clicks: 4 }, [{ query: PARKED, impressions: 400, clicks: 4, position: 6 }]), content: null };
-    const world = snap([GAP, UNREAD, dark], withParked(READY({ topicKey: keyOf(READY()) })), [...DEMAND, ...PARKED_DEMAND]);
-    const at = (acquireBody: NonNullable<Parameters<typeof readCoverage>[2]>["acquireBody"]) => readCoverage(world, "fixture-tenant", { basis: "basis_today", maxQueries: 3, now: NOW, acquireBody });
+  it("NAMES the page of mine it cannot judge without, fetches no website at all doing it, and repeats the stored retry date instead of sliding it", async () => {
+    const DARK_URL = "fixture-outdoors.example/nowruz-unreadable"; const HOLD = "2026-07-27T00:00:00.000Z";
+    const dark: OwnedPageEvidence = { ...ownedPage(DARK_URL, "T", { impressions: 400, clicks: 4 }, [{ query: PARKED, impressions: 400, clicks: 4, position: 6 }]), content: null };
+    const world = (ownedReads: FunnelResearchEvidence["ownedReads"] = []) => snap([GAP, UNREAD, dark], { ...withParked(READY({ topicKey: keyOf(READY()) })), ownedReads }, [...DEMAND, ...PARKED_DEMAND]);
+    const read = (w: EvidenceSnapshot) => readCoverage(w, "fixture-tenant", { basis: "basis_today", maxQueries: 3, now: NOW });
     const owed = (r: Awaited<ReturnType<typeof readCoverage>>) => r.needs.find((n) => n.requirement === "owned_content");
-    const shut = await at(async (_t, url) => ({ failure: { url, state: "robots_blocked", retryAfter: null } }));
-    const down = await at(async (_t, url) => ({ failure: { url, state: "temporarily_unavailable", retryAfter: "2026-07-27T00:00:00.000Z" } }));
-    expect([owed(shut)!.retryAfter, shut.waitingUntil]).toEqual([null, null]); // a refusal carries no date at all, so it never enters the daily retry loop
-    expect([owed(down)!.retryAfter, down.waitingUntil]).toEqual([null, null]); // and a page that did not answer promises NO day, because that failure is not stored anywhere and a date would slide forward on every visit
-    const got = await at(async (_t, url) => ({ body: { url, title: "T", metaDescription: null, openingSample: "How a nowruz table is set out, item by item.", cardTexts: [], entityNames: [], internalLinks: [], fetchedAt: LOOKED_AT } }));
-    expect([owed(got), got.waitingUntil]).toEqual([undefined, null]); // the body I just read is judged in this same breath, not next visit
-    const plan = { basis: "b", topics: [{ topicKey: "t1", query: "still cooling off", requirement: "owned_content", retryAfter: "2026-07-27T00:00:00.000Z" }, { topicKey: "t2", query: "due now", requirement: "exact_serp", retryAfter: null }] }; // no URL is read before its cooldown expires
-    expect([focusQueries(plan, Date.parse("2026-07-26T00:00:00Z")), focusQueries(plan, Date.parse("2026-07-28T00:00:00Z"))]).toEqual([["due now"], ["still cooling off", "due now"]]); });
+    const net: string[] = []; const realFetch = globalThis.fetch; // ANY website read, by any module, through the one socket a render could use
+    globalThis.fetch = (async (u: RequestInfo | URL) => { net.push(String(u)); throw new Error("a render may never reach a website"); }) as typeof fetch;
+    try {
+      const named = await read(world()); reset(world()); const produced = await produceProposalsForTenant("fixture-tenant", { now: NOW });
+      expect([owed(named)!.ownedUrl, named.waitingUntil, produced.waitingUntil, net]).toEqual([DARK_URL, null, null, []]); // NAMED as plain data; the coverage pass AND a whole surface build fetch nothing
+      const first = await read(world([{ url: DARK_URL, state: "temporarily_unavailable", attemptedAt: "2026-07-26T00:00:00.000Z", retryAfter: HOLD }]));
+      const again = await read(world([{ url: DARK_URL, state: "temporarily_unavailable", attemptedAt: "2026-07-26T00:00:00.000Z", retryAfter: HOLD }])); // a second visit, one stored outcome
+      expect([owed(first)!.retryAfter, first.waitingUntil, owed(again)!.retryAfter, net]).toEqual([HOLD, HOLD, HOLD, []]); // the date is READ off the row, so it is identical every visit and still costs no fetch
+    } finally { globalThis.fetch = realFetch; }
+    const plan = { basis: "b", topics: [{ topicKey: "t1", query: "still cooling off", requirement: "owned_content", retryAfter: HOLD, ownedUrl: DARK_URL }, { topicKey: "t2", query: "due now", requirement: "exact_serp", retryAfter: null }] };
+    expect([focusQueries(plan, Date.parse("2026-07-26T00:00:00Z")), focusQueries(plan, Date.parse("2026-07-28T00:00:00Z"))]).toEqual([["due now"], ["still cooling off", "due now"]]); // no search before its cooldown expires
+    expect([focusOwnedUrl(plan, Date.parse("2026-07-26T00:00:00Z"), "b"), focusOwnedUrl(plan, Date.parse("2026-07-28T00:00:00Z"), "b"), focusOwnedUrl(plan, Date.parse("2026-07-28T00:00:00Z"), "moved_on")]).toEqual([null, DARK_URL, null]); }); // not before its date, and never for a basis the account has left
   it("finds the comparison AND the live page filed under an id this case absorbed, so neither is bought or built a second time", async () => {
     const key = keyOf(READY()); const anchors = reconcileResearchCases(snap([GAP], READY(), DEMAND)).find((c) => c.id === key)!.anchors;
     const cases = [{ id: "inv_absorbed", anchors: anchors.slice(0, 1) }, { id: key, anchors }]; // two ids on file for one subject, already merged and SAVED

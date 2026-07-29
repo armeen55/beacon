@@ -12,8 +12,8 @@ import { rankWinningPages, selectSerpAgenda } from "./normalize";
 import { type FunnelPair, type FunnelSerp, type FunnelState, type FunnelWinningPage } from "./state";
 import { askIdentity, normalizePageIntersection, parsePageIntersection, type PageIntersectionAsk } from "@/domains/evidence/page-intersection";
 import { publisherHost } from "@/domains/evidence/serp-shape";
-import { pageExtractFrom, pageExtractFromRecord, type FunnelResearchEvidence, type IntersectionUnavailable, type ObservationMode, type ResearchEngine, type ResearchPageComparison, type ResearchPageExtract, type ResearchWinningAppearance, type WinnerReadOutcome } from "./research-evidence";
-import { basisFromCursor, beginCycle, CONFLICT_DETAIL, FRESH_MS, interp, type Interp, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
+import { pageExtractFrom, pageExtractFromRecord, type FunnelResearchEvidence, type IntersectionUnavailable, type ObservationMode, type OwnedPageReadOutcome, type ResearchEngine, type ResearchPageComparison, type ResearchPageExtract, type ResearchWinningAppearance, type WinnerReadOutcome } from "./research-evidence";
+import { basisFromCursor, beginCycle, CONFLICT_DETAIL, FRESH_MS, interp, type Interp, NO_BASIS_DETAIL, pauseDetail, readOutcomeAt, readOwnedPage, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
 
 // blocked = a HELD refusal at zero further spend; it ALWAYS pauses the run, so prefer the boundary's own detail.
 const blockedNote = (r: Interp) => r.detail || pauseDetail("blocked", "");
@@ -197,10 +197,6 @@ const WINNER_READ_BUDGET = 15, MAX_COMPARISONS = 8, MAX_PAGE_ATTEMPTS = 18, MAX_
 /** CONTENT identity, never the address: the same parsed extract in any key order hashes the SAME, and a changed title, heading, opening or body hashes DIFFERENTLY. Banking sha16(url) on the provider path froze
  *  a page's identity at its address forever, so a rewritten page looked unchanged to a store whose whole point is content-hash-aware reuse. fetchedAt is when I looked, not what the page says, so it is excluded. */
 const extractHash = (x: ResearchPageExtract): string => sha16(JSON.stringify(Object.entries(x).filter(([k, v]) => k !== "fetchedAt" && v !== undefined).sort((a, b) => a[0].localeCompare(b[0]))));
-/** How long a failed read holds its URL out of the read budget. A robots denial is the publisher's own answer, so I honor it for a month and never ask a provider to go around it; my one paid read of a body is
- *  held a week; a site that simply did not answer me is retried tomorrow. Without this memory the same dead URL was refetched on every single pass forever, because "403" and "not tried yet" looked alike. */
-const RETRY_MS: Record<WinnerReadOutcome["state"], number> = { robots_blocked: 30 * 86_400_000, provider_unavailable: 7 * 86_400_000, temporarily_unavailable: 86_400_000 };
-const readOutcomeAt = (state: WinnerReadOutcome["state"], at: number): WinnerReadOutcome => ({ state, attemptedAt: new Date(at).toISOString(), retryAfter: new Date(at + RETRY_MS[state]).toISOString() });
 const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.serps.analyzed, cacheHits: s.cycle.cacheHits, spendUsd: round(s.cycle.spentUsd) });
 
 /** `priorityQueries`: plain strings from the caller (Evidence never reads Decision), the exact searches an open investigation cannot close without. Empty is honest and leaves the agenda exactly as it was. */
@@ -366,7 +362,7 @@ async function buyComparison(d: ResolvedDeps, state: FunnelState, want: FunnelIn
 
 /** `priorityQueries`: plain strings from the caller (Evidence never reads Decision), the exact searches an open investigation cannot close without. Each banks its own top organic winners before the global fill, at the SAME total.
  *  TWO STAGES, one phase: the first reads and persists the winners and hands the run back; the caller renews the RUN lease and re-enters with `stage: "compare"`, so the ONE paid comparison is the first side effect of a live lease. */
-export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[] = [], intersection: FunnelIntersectionAsk | null = null): FunnelUnitFn {
+export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[] = [], intersection: FunnelIntersectionAsk | null = null, ownedUrl: string | null = null): FunnelUnitFn {
   const d = resolveDeps(deps);
   const resolve = deps.resolveCitations ?? resolveCitationTargets; // wrapper citations resolve to their REAL target before ranking, so one page is never two winners
   return async (tenantId, cursor, budgetMs) => {
@@ -441,6 +437,8 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       // out of the results would still count as one of the three addresses a comparison PAYS to compare.
       state.winningPages = [...pages, ...state.winningPages.filter((w) => !banked.has(w.url) && w.readOutcome
         && d.now() < Date.parse(w.readOutcome.retryAfter)).map((w) => ({ ...w, extract: null, appearances: [] }))].slice(0, WINNER_READ_BUDGET * 2);
+      // AT MOST ONE page of the account's OWN, named by the caller, read here rather than anywhere a render can reach.
+      if (ownedUrl) state.ownedReads = await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile);
       // The winners land BEFORE this phase hands the run back. This save is the FUNNEL ROW's optimistic
       // row_version and nothing more: it proves only that no concurrent writer moved the research document.
       // It is NOT the ResearchRun lease, a different guarantee the caller renews between the two stages.
@@ -487,7 +485,7 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
     })),
     winningPages: state.winningPages.map((w) => ({ url: w.url, domain: w.domain, engines: w.engines, examplePrompts: w.examplePrompts, appearances: w.appearances, extract: w.extract, readOutcome: w.readOutcome ?? null })),
     // Stored in the canonical shape, so this carries it through UNTRANSLATED: a reader matches on the topic AND the normalized ask, and never trusts that an answer in hand is the one it asked for.
-    pageComparisons: state.pageComparisons,
+    pageComparisons: state.pageComparisons, ownedReads: state.ownedReads ?? [],
     receipt: { researched: state.discovery.counts.raw, retained: state.discovery.counts.retained, stale, missing, cached: state.cycle.cacheHits, spentUsd: round(state.cycle.spentUsd), freshestObservationAt: observedTimes.at(-1) ?? null },
   };
 }

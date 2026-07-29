@@ -14,9 +14,11 @@ import "server-only";
  * the exact ask that bought it, under the account's current basis, so drifted evidence is
  * refused rather than read as an answer to a question nobody asked.
  *
- * $0: no model runs and no provider is paid, so walking every topic costs arithmetic plus at
- * most ONE bounded read of my OWN already-stored page text (three pages, never the site).
- */
+ * $0 AND $0 OF THE WEB: no model runs, no provider is paid and NO WEBSITE IS FETCHED. This pass used to read
+ * the customer's own page live, from an ordinary render, outside any lease, and because nothing was persisted
+ * the same dead URL was refetched on every visit and no honest retry date could be given. Acquisition and
+ * persistence belong to Evidence under Runtime's lease: here the owed page is NAMED as plain data, and its
+ * stored body, or the stored reason it is unread, is READ. Nothing else. */
 
 import type { BusinessProfile } from "@/domains/account";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
@@ -25,10 +27,9 @@ import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/page
 import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation";
 import { ownedCandidatesFor, topicOutOfScope, type OwnedCandidate } from "./owned-coverage";
 import { resolveCurrentBasis } from "./load-proposals";
-import {
-  adjudicateCoverage, intersectionComparison, readComparison,
-  type CoverageDecision, type CoverageVerdict, type IntersectionEvidence, type MissingRequirement, type OwnedReadFailure,
-} from "./coverage-adjudication";
+import { adjudicateCoverage, intersectionComparison, readComparison,
+  type CoverageDecision, type CoverageVerdict, type IntersectionEvidence, type MissingRequirement } from "./coverage-adjudication";
+import type { OwnedPageReadOutcome } from "@/domains/evidence/funnel/research-evidence";
 
 /** THE order every step reads: fewest missing pieces first, then the largest demand behind it, then
  *  the stable key, so the same evidence always advances the SAME topic whether it is being bought
@@ -39,46 +40,13 @@ export function rankInvestigations(investigations: readonly TopicInvestigation[]
     || (b.demand.gscImpressions ?? 0) - (a.demand.gscImpressions ?? 0) || a.key.localeCompare(b.key));
 }
 
-/** The whole pass may read at most this many of my own pages' words, once each. */
+/** The whole pass may read at most this many of my own pages' STORED words, once each. */
 const MAX_BODY_READS = 3;
-/** A page that did not answer me today is worth one more try tomorrow, never on this same visit. */
-const RETRY_MS = 24 * 3600 * 1000;
-/** An opening sample is a sample, not a page (the same bound the stored body reader uses). */
-const MAX_SAMPLE = 1200;
-
 /** ONE topic, the ONE thing it is stuck on, and either the exact purchase that closes it (a search to look
- *  up, or the comparison) or the date I may try again. A case that can only WAIT is still listed, because a
- *  requirement nobody can see is a requirement nobody fixes. */
-export type ResearchNeed = { topicKey: string; requirement: MissingRequirement; query: string | null; comparison: PageIntersectionAsk | null; retryAfter: string | null };
-
-/** ONE live read of my own page: its words, or the STRUCTURED reason they are not in hand. `if (!res.ok)
- *  return null` collapsed a robots refusal and a timeout into one shrug, although the fetcher had already
- *  told the two apart, so the plan could name neither and the operator was left with a page that simply
- *  stopped moving. An acquired body is persisted through the SAME page snapshot every other read of my own
- *  pages writes to, and adjudicated in the same breath. */
-type OwnedRead = { body: OwnedPageBody } | { failure: OwnedReadFailure };
-
-/** The last resort, at most once per pass, and only for a page my own results already name: never a crawl
- *  and never a second crawler. */
-async function acquireOwnedBody(tenantId: string, url: string, now: Date): Promise<OwnedRead> {
-  const [fetcher, extractor, store, scan] = await Promise.all([
-    import("@/domains/evidence/competitor-intel/polite-fetch"), import("@/domains/evidence/pages/extractor"),
-    import("@/lib/persistence/dual-write"), import("@/domains/evidence/scanning/in-process-scan")]);
-  const absolute = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-  const res = await fetcher.fetchPageHtml(absolute, new Map(), {});
-  if (!res.ok) return { failure: readFailure(url, res.reason === "robots_blocked", now) };
-  const snap = extractor.extractPageSnapshot(res.html, absolute, scan.pageIdFor(url), tenantId, res.status);
-  await store.syncPageSnapshots([snap], tenantId);
-  return { body: { url: absolute, title: snap.title, metaDescription: snap.meta_description, cardTexts: snap.card_texts ?? [],
-    openingSample: (snap.body_paragraph_sample ?? []).join(" ").slice(0, MAX_SAMPLE) || null,
-    entityNames: snap.schema_entity_names ?? [], internalLinks: [], fetchedAt: snap.fetched_at } };
-}
-
-/** A refusal carries NO retry date (only the operator lifting it changes anything); everything else is due
- *  again tomorrow and says so. Nothing here blames the provider, and nothing blames a publisher falsely. */
-const readFailure = (url: string, blocked: boolean, now: Date): OwnedReadFailure =>
-  blocked ? { url, state: "robots_blocked", retryAfter: null }
-    : { url, state: "temporarily_unavailable", retryAfter: new Date(now.getTime() + RETRY_MS).toISOString() };
+ *  up, the comparison, or the page of my own Evidence must go and read) or the date I may try again. A case
+ *  that can only WAIT is still listed, because a requirement nobody can see is a requirement nobody fixes.
+ *  `ownedUrl` is a NAME, not an action: this pass fetches nothing, and the run's page phase does the read. */
+export type ResearchNeed = { topicKey: string; requirement: MissingRequirement; query: string | null; comparison: PageIntersectionAsk | null; ownedUrl: string | null; retryAfter: string | null };
 
 /** A topic whose evidence reached a FINAL answer, with everything that answer rests on, so
  *  the step that acts on it never has to re-derive the candidates or re-read the comparison. */
@@ -108,8 +76,6 @@ export type ReadCoverageOptions = {
   profile?: BusinessProfile | null;
   /** A TEST SEAM ONLY: production reads the stored comparison out of the snapshot. */
   intersection?: IntersectionEvidence;
-  /** A TEST SEAM ONLY: production reads the page off the live web through acquireOwnedBody. */
-  acquireBody?: (tenantId: string, url: string, now: Date) => Promise<OwnedRead>;
   now?: Date;
 };
 
@@ -174,10 +140,11 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
   // asked for once each, never the site. Every candidate rebuild reads out of this map.
   const bodies = new Map<string, OwnedPageBody>();
   const asked = new Set<string>();
-  let queries = 0, fetched = false;
+  let queries = 0;
   let decided: DecidedTopic | null = null;
   let waitingUntil: string | null = null;
-  const now = opts.now ?? new Date();
+  // WHY A PAGE OF MINE IS UNREAD, off the research row Evidence persisted it to. Not a fetch, and not a guess.
+  const ownedReads = new Map((snapshot.research.ownedReads ?? []).map((o) => [o.url, o]));
   for (const inv of rankInvestigations(buildTopicInvestigations(snapshot))) {
     // STOPPING ON A PARK IS HOW THE RULE BELOW BECAME DEAD CODE: production reads this pass with
     // no research budget, so the walk ended the moment ANY verdict landed, and a park ranks first.
@@ -191,7 +158,8 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
     // two engines and sitting in the body store still read "I have never read this" and parked
     // its topic forever. Read the strong ones now and decide again in the SAME pass, because a
     // requirement I can close in this breath is not a reason to send the operator away.
-    let ownedRead: OwnedReadFailure | null = null;
+    let ownedRead: OwnedPageReadOutcome | null = null;
+    let ownedUrl: string | null = null;
     if (decision.missing[0] === "owned_content") {
       const want = candidates.filter((c) => c.strongSignals > 0 && !c.bodyHeld && !asked.has(c.url)).slice(0, MAX_BODY_READS - asked.size).map((c) => c.url);
       for (const u of want) asked.add(u);
@@ -201,15 +169,12 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
       // the same problem: a store that failed to answer is retryable, an absent body is a page I have never
       // read. Both used to `continue` here, so the case was neither queued nor parked and vanished off every
       // surface. A page my own results already name earns ONE live read of its own, once per whole pass.
+      // A page my own results already name, whose words are not on file, is NAMED for the run's page phase to
+      // go and read under its lease. Naming it here is free and safe; fetching it here was the whole defect.
       const owed = want.find((u) => !bodies.has(u));
-      if (owed && !fetched) {
-        fetched = true;
-        const got = await (opts.acquireBody ?? acquireOwnedBody)(tenantId, owed, now).catch(() => null);
-        if (got && "body" in got) bodies.set(owed, got.body);
-        else ownedRead = got?.failure ?? readFailure(owed, false, now);
-      }
-      // DECIDE AGAIN IN THE SAME PASS, whichever way the read went: a body I just acquired is judged in this
-      // breath, and a read that failed hands the verdict the reason so it says which failure this was.
+      if (owed) { ownedUrl = owed; ownedRead = ownedReads.get(owed) ?? null; }
+      // DECIDE AGAIN IN THE SAME PASS: a body already stored is judged in this breath, and a read that failed
+      // hands the verdict its persisted reason so the verdict says which failure this was and on what date.
       if (ownedRead || want.some((u) => bodies.has(u))) {
         candidates = ownedCandidatesFor(snapshot, inv, bodies);
         try { decision = await adjudicateCoverage(inv, candidates, tenantId, { ...judge, ownedRead }); } catch { continue; }
@@ -250,7 +215,7 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
     // only as narrow as that plan, and the run's durable progress grew without bound.
     if (query ? queries >= max || seen.has(query.toLowerCase()) : (!comparison && !retryAfter && !owedBody) || queries >= max) continue;
     seen.add(query.toLowerCase()); queries += 1;
-    needs.push({ topicKey: inv.key, requirement: decision.missing[0]!, query: query || null, comparison, retryAfter });
+    needs.push({ topicKey: inv.key, requirement: decision.missing[0]!, query: query || null, comparison, ownedUrl: owedBody ? ownedUrl : null, retryAfter });
   }
   return { decided, needs, waitingUntil };
 }

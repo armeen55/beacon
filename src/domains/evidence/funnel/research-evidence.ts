@@ -170,6 +170,12 @@ export function pageExtractFromRecord(rec: Record<string, unknown>): ResearchPag
  *  = the site did not answer me; provider_unavailable = my one paid read of the body did not come back. */
 export type WinnerReadOutcome = { state: "robots_blocked" | "temporarily_unavailable" | "provider_unavailable"; attemptedAt: string; retryAfter: string };
 
+/** Why I could not read a page of MY OWN, and the earliest I may spend a read on that URL again. A SUCCESS
+ *  needs no record here (the persisted page snapshot IS the success truth, and acquiring a body clears this),
+ *  and my own pages never go through a paid provider, so there is no provider state. Because it is persisted,
+ *  the date an operator reads stays identical across visits and deploys until the retry is genuinely due. */
+export type OwnedPageReadOutcome = { url: string; state: "robots_blocked" | "temporarily_unavailable"; attemptedAt: string; retryAfter: string };
+
 type ResearchWinningPage = {
   url: string;
   domain: string;
@@ -226,6 +232,8 @@ export type FunnelResearchEvidence = {
   pageComparisons?: ResearchPageComparison[];
   /** The case identities on file. Optional for the same reason; absent reads as none of them. */
   cases?: ResearchCase[];
+  /** Failed reads of MY OWN pages, so a verdict names a retry date it will actually keep. Absent = none. */
+  ownedReads?: OwnedPageReadOutcome[];
   receipt: ResearchReceipt;
 };
 
@@ -235,7 +243,7 @@ export function emptyResearchEvidence(): FunnelResearchEvidence {
     aiObservations: [],
     serpEvidence: [],
     winningPages: [],
-    pageComparisons: [], cases: [],
+    pageComparisons: [], cases: [], ownedReads: [],
     receipt:{ researched: 0, retained: 0, stale: 0, missing: 0, cached: 0, spentUsd: 0, freshestObservationAt: null },
   };
 }

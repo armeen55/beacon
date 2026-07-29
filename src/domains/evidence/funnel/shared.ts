@@ -16,7 +16,8 @@ import { fetchPageHtml } from "@/domains/evidence/competitor-intel/polite-fetch"
 import { loadGscDecaySignalsForTenant, loadGscPageSignalsForTenant, type GscDecaySignal, type GscPageSignal } from "@/domains/evidence/readers/gsc-page-signals";
 import type { SerpAgendaPageQuery } from "./normalize";
 import { loadCrawlFrontier, type CrawlFrontierState } from "@/domains/evidence/scanning/crawl-frontier";
-import { syncPromptAnswerObservations } from "@/lib/persistence/dual-write";
+import { syncPageSnapshots, syncPromptAnswerObservations } from "@/lib/persistence/dual-write";
+import type { PageSnapshot } from "@/domains/evidence/pages/types";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type {
   CachedCallResult,
@@ -24,7 +25,9 @@ import type {
   CapabilityKey,
   FailureDisposition,
 } from "@/domains/evidence/dataforseo/funnel-boundary";
-import type { ResearchWinningAppearance } from "./research-evidence";
+import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
+import { pageIdFor } from "@/domains/evidence/scanning/in-process-scan";
+import type { OwnedPageReadOutcome, ResearchWinningAppearance, WinnerReadOutcome } from "./research-evidence";
 import {
   keywordIdeasBatched, providerCall,
   collectCapability,
@@ -60,6 +63,9 @@ export type FunnelDeps = {
   loadActivePrompts?: (tenantId: string) => Promise<{ id: string; text: string }[] | null>;
   syncHistory?: (rows: PromptAnswerObservation[], tenantId: string) => Promise<void>;
   fetchPage?: typeof fetchPageHtml;
+  /** The ONE canonical persistence of a page of the ACCOUNT'S OWN: the same page_snapshots row every other
+   *  read of my own pages writes, so a body acquired here is the body Decision reads back. */
+  writeOwnedPage?: (snapshot: PageSnapshot, tenantId: string) => Promise<void>;
   keywordIdeas?: (seeds: string[], ids: { tenantId: string; unitKey: string }) => Promise<CachedCallResult[]>;
   loadState?: (tenantId: string, basisTag: string) => Promise<LoadedFunnelState>;
   saveState?: (tenantId: string, basisTag: string, state: FunnelState, expectedRowVersion: number) => Promise<number | null>;
@@ -83,6 +89,7 @@ export function resolveDeps(deps: FunnelDeps) {
     loadActivePrompts: deps.loadActivePrompts ?? defaultActivePrompts,
     syncHistory: deps.syncHistory ?? syncPromptAnswerObservations,
     fetchPage: deps.fetchPage ?? fetchPageHtml,
+    writeOwnedPage: deps.writeOwnedPage ?? ((snapshot: PageSnapshot, tenantId: string) => syncPageSnapshots([snapshot], tenantId)),
     loadState: deps.loadState ?? loadFunnelState,
     saveState: deps.saveState ?? saveFunnelState,
     now: deps.now ?? Date.now,
@@ -132,6 +139,35 @@ async function defaultPageQueries(tenantId: string): Promise<SerpAgendaPageQuery
   } catch {
     return null;
   }
+}
+
+/** How long a failed read holds its URL out of the read budget. A robots denial is the publisher's own answer, so I honor it for a month and never ask a provider to go around it; my one paid read of a body is
+ *  held a week; a site that simply did not answer me is retried tomorrow. Without this memory the same dead URL was refetched on every single pass forever, because "403" and "not tried yet" looked alike. */
+const RETRY_MS: Record<WinnerReadOutcome["state"], number> = { robots_blocked: 30 * 86_400_000, provider_unavailable: 7 * 86_400_000, temporarily_unavailable: 86_400_000 };
+export const readOutcomeAt = <S extends WinnerReadOutcome["state"]>(state: S, at: number) => ({ state, attemptedAt: new Date(at).toISOString(), retryAfter: new Date(at + RETRY_MS[state]).toISOString() });
+/** How many failed reads of MY OWN pages the research row remembers. A handful, never a log. */
+const MAX_OWNED_READS = 10;
+/** THE read of ONE page of the account's OWN, at most once per run, under the caller's live lease, and NEVER through a paid provider: the publisher here is the customer. Decision NAMES the URL and reads the result, so
+ *  nothing about a page render ever reaches the customer's website. A success persists the canonical page snapshot and CLEARS the failure memory for that URL; a failure is remembered on the SAME retry policy a winning
+ *  page gets, so the same dead URL is not refetched on every visit and the date I promised the operator stays that same date until the retry is genuinely due. */
+export async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageReadOutcome[], url: string,
+  deadline: number, profile: BusinessProfile | null): Promise<OwnedPageReadOutcome[]> {
+  const prior = held.find((o) => o.url === url);
+  // Inside its own hold, or out of time: no fetch, and no new date. The winner loop has always checked the
+  // deadline before every read; without the same check here the customer's own site was fetched twice, at ten
+  // seconds apiece, AFTER the unit's budget was spent and often after the lease it was supposed to run under.
+  if ((prior && d.now() < Date.parse(prior.retryAfter)) || d.now() > deadline) return held;
+  const rest = held.filter((o) => o.url !== url), absolute = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  const remember = (state: OwnedPageReadOutcome["state"]) => [{ url, ...readOutcomeAt(state, d.now()) }, ...rest].slice(0, MAX_OWNED_READS);
+  let res;
+  try { res = await d.fetchPage(absolute, new Map(), {}); } catch { return remember("temporarily_unavailable"); }
+  if (!res.ok) return remember(res.reason === "robots_blocked" ? "robots_blocked" : "temporarily_unavailable");
+  // THE PROFILE TRAVELS WITH THE READ, like every other crawl of this account's pages. Extracting blind left
+  // the location and service terms empty, and this row upserts on the SAME id the crawlers use, so a blind
+  // read quietly degraded the richer row the account already had. A WRITE that fails is not a page that did
+  // not answer: it read fine, so its failure never becomes "I could not read your page".
+  await d.writeOwnedPage(extractPageSnapshot(res.html, absolute, pageIdFor(url), tenantId, res.status, profile ?? undefined), tenantId).catch(() => {});
+  return rest;
 }
 
 export const sha16 = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16);

@@ -49,7 +49,7 @@ export async function chooseInvestigation(tenantId: string, basis: string | null
   // used to drop it on the floor, so no surface could tell a live acquisition from a page I am waiting on,
   // and nothing stopped a run buying the same search again the same day it was told to wait.
   return out.length === 0 ? null
-    : { basis, topics: out.map((n) => ({ topicKey: n.topicKey, query: n.query, requirement: n.requirement, retryAfter: n.retryAfter })) };
+    : { basis, topics: out.map((n) => ({ topicKey: n.topicKey, query: n.query, requirement: n.requirement, retryAfter: n.retryAfter, ownedUrl: n.ownedUrl })) };
 }
 
 /** The run's frozen plan, read forward. The pre-focus resume path is DELETED: it existed for runs
@@ -59,12 +59,23 @@ export function runFocus(progress: ResearchRunProgress): ResearchFocus | null {
   return progress.focus ?? null;
 }
 
-/** The exact searches the frozen focus owes, in its own order (Evidence gets strings, never a topic). A topic
- *  whose next legal read is still ahead of `nowMs` contributes NOTHING: a cooldown is a date I promised the
- *  operator, and jumping the queue for a search I said I would not run until tomorrow breaks it. */
+/** The frozen topics that are actually DUE. A topic whose next legal read is still ahead of `nowMs` contributes
+ *  NOTHING: a cooldown is a date I promised the operator, and jumping the queue for a read I said I would not
+ *  make until tomorrow breaks it, whether the read is a search or a page of the account's own. */
+const due = (focus: ResearchFocus | null, nowMs: number) => (focus?.topics ?? []).filter((t) => !(t.retryAfter && Date.parse(t.retryAfter) > nowMs));
+
+/** The exact searches the frozen focus owes, in its own order (Evidence gets strings, never a topic). */
 export function focusQueries(focus: ResearchFocus | null, nowMs: number): string[] {
-  return (focus?.topics ?? []).filter((t) => !(t.retryAfter && Date.parse(t.retryAfter) > nowMs))
-    .map((t) => t.query).filter((q): q is string => !!q);
+  return due(focus, nowMs).map((t) => t.query).filter((q): q is string => !!q);
+}
+
+/** The ONE page of the account's OWN this run may go and read, or null. Evidence gets an address, never a topic.
+ *  BOUND TO THE BASIS IT WAS FROZEN UNDER, exactly like the comparison. A run can span days, so a plan frozen
+ *  before the operator changed their site or their goal would otherwise send me to read the OLD basis's page,
+ *  and the new basis holds none of the retry memory that promised a date for it. */
+export function focusOwnedUrl(focus: ResearchFocus | null, nowMs: number, basis: string | null): string | null {
+  if (!basis || !focus || focus.basis !== basis) return null;
+  return due(focus, nowMs).map((t) => t.ownedUrl).find((u): u is string => !!u) ?? null;
 }
 
 /** The ONE page by page comparison worth paying for, RECONFIRMED before a cent moves: it must be earned by

@@ -197,11 +197,14 @@ describe("the coverage verdict never invents a page this account already owns", 
     const seam = asked(SAYS()); const d = await adjudicateCoverage(INV(over), owned, TENANT, {});
     expect([d.verdict, d.missing]).toEqual(["research_needed", [missing]]); expect(seam.calls).toEqual([]); expect(d.alternativesRuledOut).toHaveLength(1);
     expect(JSON.stringify(d)).not.toMatch(/proposedTitle|metaDescription|openingAnswer|outline|faqQuestions/i); }); // a verdict is never a page
-  it("says WHY a page of mine is unread, and promises a retry date on neither, because that failure is stored nowhere", async () => {
-    const blind = [OWNED(ONE.url, { bodyHeld: false })]; const read = (o: Record<string, unknown>) => adjudicateCoverage(INV(), blind, TENANT, { ownedRead: { url: ONE.url, ...o } as never });
-    const shut = await read({ state: "robots_blocked", retryAfter: null }); const down = await read({ state: "temporarily_unavailable", retryAfter: "2026-07-27T00:00:00.000Z" });
-    expect([shut.missing, shut.hold, down.missing, down.hold]).toEqual([["owned_content"], undefined, ["owned_content"], undefined]); // a date I cannot honor is worse than no date
-    expect(shut.explanation).toContain("Your own robots file tells me not to read"); expect(down.explanation).toContain("did not answer me when I tried to read it"); expect(down.explanation).toContain("on your next visit");
+  it("says WHY a page of mine is unread and names the STORED retry date, identically however often it is asked, and never a date already past", async () => {
+    const blind = [OWNED(ONE.url, { bodyHeld: false })]; const read = (o: Record<string, unknown>) => adjudicateCoverage(INV(), blind, TENANT, { now: new Date("2026-07-26T00:00:00.000Z"), ownedRead: { url: ONE.url, attemptedAt: "2026-07-26T00:00:00.000Z", ...o } as never });
+    const shut = await read({ state: "robots_blocked", retryAfter: "2026-08-25T00:00:00.000Z" }); const down = await read({ state: "temporarily_unavailable", retryAfter: "2026-07-27T00:00:00.000Z" });
+    expect([shut.missing, shut.hold, down.missing, down.hold]).toEqual([["owned_content"], "2026-08-25T00:00:00.000Z", ["owned_content"], "2026-07-27T00:00:00.000Z"]); // the date is carried from the row, never minted here
+    expect((await read({ state: "temporarily_unavailable", retryAfter: "2026-07-20T00:00:00.000Z" })).hold).toBeUndefined(); // a day that has already passed is not a promise, it is just a stale number
+    expect(shut.explanation).toContain(`Your site's robots rules stopped me from reading ${ONE.url}`); expect(shut.explanation).toContain("I will check again on 2026-08-25");
+    expect(down.explanation).toContain(`I could not read ${ONE.url}`); expect(down.explanation).toContain("I will try it again on 2026-07-27"); // the SAME date on every visit, because the outcome is persisted
+    expect((await read({ state: "temporarily_unavailable", retryAfter: "2026-07-27T00:00:00.000Z" })).explanation).toBe(down.explanation); // asked twice, worded and dated identically
     expect(`${shut.explanation} ${down.explanation}`).not.toMatch(/provider|refused|blocked|[—–]/i); }); // a timeout is never dressed as a refusal, and nobody else is blamed for either
   it("leaves a topic the operator ruled out alone, and never reaches a model to say so", async () => {
     const off = asked(SAYS()); const skipped = await adjudicateCoverage(INV(), [ONE], TENANT, { outOfScopeTopics: ["rain barrels"] });

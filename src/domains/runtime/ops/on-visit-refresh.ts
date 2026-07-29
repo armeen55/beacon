@@ -14,7 +14,8 @@ import { reconcileResearchCases } from "@/domains/evidence/topic-investigation";
 import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
 import { log } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
-import { warmFreeSurfaces } from "./warm-caches"; import { chooseInvestigation, comparisonForFocus, focusQueries, runFocus, type ResearchFocus } from "./investigation-queries";
+import { NO_BASIS_DETAIL } from "@/domains/evidence/funnel/shared";
+import { warmFreeSurfaces } from "./warm-caches"; import { chooseInvestigation, comparisonForFocus, focusOwnedUrl, focusQueries, runFocus, type ResearchFocus } from "./investigation-queries";
 import {
   advancePhase,
   claimRun,
@@ -117,7 +118,7 @@ export type ResearchCycleSteps = {
   currentBasis: (tenantId: string) => Promise<string | null>;
   /** Freeze every case's identity on file before anything reads or spends against it. RESOLVES only when
    *  that identity is actually persisted; a THROW pauses the phase before a focus, a unit or a cent. */
-  reconcileCases: (tenantId: string, basis: string | null) => Promise<void>;
+  reconcileCases: (tenantId: string, basis: string) => Promise<void>;
   publishSurface: (tenantId: string, attemptKey: string) => Promise<void>;
   surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
 };
@@ -132,8 +133,7 @@ export type ResearchCycleOptions = {
  *  swallow every failure, so a run whose identities were never written went straight on to freeze a plan and
  *  spend against them: the comparison it bought belonged to an id nothing on file agreed with. A losing row
  *  version is a failure too, because nothing was saved. Nothing here is a partial success. */
-async function reconcileCases(tenantId: string, basis: string | null): Promise<void> {
-  if (!basis) return;
+async function reconcileCases(tenantId: string, basis: string): Promise<void> {
   const saved = await (async () => {
     const cases = reconcileResearchCases(await loadEvidenceSnapshot(tenantId));
     const loaded = await loadFunnelState(tenantId, basis);
@@ -150,11 +150,8 @@ const defaultSteps: ResearchCycleSteps = {
     // .catch here: a THROW means the whole refresh could not run, and the runner must pause rather
     // than record a false "0 sources, all healthy".
     const results = await autoRefreshStaleConnectorsForTenant(tenantId, now);
-    const succeeded = results.filter((r) => r.ok).map((r) => String(r.provider));
-    const failures = results
-      .filter((r) => !r.ok)
-      .map((r) => ({ provider: String(r.provider), detail: String(r.detail).slice(0, 200) }));
-    return { attempted: results.length, succeeded, failures };
+    return { attempted: results.length, succeeded: results.filter((r) => r.ok).map((r) => String(r.provider)),
+      failures: results.filter((r) => !r.ok).map((r) => ({ provider: String(r.provider), detail: String(r.detail).slice(0, 200) })) };
   },
   async backfillChunk(tenantId, now) {
     // No deadline race: the chunk is bounded by design and its GSC fetch has no
@@ -163,11 +160,7 @@ const defaultSteps: ResearchCycleSteps = {
     // into { ran:false, reason }, so a non-benign reason here is a real failure.
     const result = await continueDeepBackfillIfStarted(tenantId, now);
     if (result.ran) {
-      log.info("[research-run] gsc deep backfill chunk advanced", {
-        tenantId,
-        daysPulled: result.daysPulled,
-        complete: result.complete,
-      });
+      log.info("[research-run] gsc deep backfill chunk advanced", { tenantId, daysPulled: result.daysPulled, complete: result.complete });
       return { kind: "advanced", complete: result.complete, daysPulled: result.daysPulled };
     }
     if (BENIGN_BACKFILL_SKIPS.has(result.reason)) return { kind: "no_work" };
@@ -179,11 +172,8 @@ const defaultSteps: ResearchCycleSteps = {
     try {
       const account = await getTenant(tenantId);
       if (!account?.domain?.trim()) return null;
-      const profile = await loadBusinessProfile(tenantId);
-      return basisTag(account.id, account.domain.trim(), profile, account.growth_goal ?? null);
-    } catch {
-      return null;
-    }
+      return basisTag(account.id, account.domain.trim(), await loadBusinessProfile(tenantId), account.growth_goal ?? null);
+    } catch { return null; }
   },
   // RUNTIME IS THE ONLY WRITER OF A CASE IDENTITY, and it writes them BEFORE the plan names one. Evidence
   // resolves the id against what is already on file (evidence/case-identity carries the whole rule and the
@@ -204,21 +194,19 @@ const defaultSteps: ResearchCycleSteps = {
       // The ask is recomputed for the SAME frozen topic under the CURRENT basis, and only at the comparison
       // stage: nothing is asked for before winners exist. Fail-soft, and no reconfirmed ask means no buy.
       const ask = cursor?.stage === "compare" ? await comparisonForFocus(tenantId, focus, (cursor.basis as string) ?? null).catch(() => null) : null;
-      return winningPagesUnit({}, queries, ask)(tenantId, cursor, budgetMs);
+      // AT MOST ONE page of the account's OWN per run, and only one the frozen plan named and is due to read.
+      return winningPagesUnit({}, queries, ask, focusOwnedUrl(focus, Date.now(), (cursor?.basis as string) ?? null))(tenantId, cursor, budgetMs);
     }
     const fn = { keyword_discovery: keywordDiscoveryUnit, prompt_observations: promptObservationUnit }[phase as "keyword_discovery" | "prompt_observations"];
     return fn()(tenantId, cursor, budgetMs); // each facade export is a deps factory returning the executor
   },
-  async publishSurface(tenantId) {
-    // warmFreeSurfaces now PROPAGATES failure (no internal swallow): a throw here
-    // pauses publish_surface and the previously saved surface stays visible.
-    await warmFreeSurfaces(tenantId);
-  },
+  // warmFreeSurfaces PROPAGATES failure (no internal swallow): a throw pauses publish_surface and the
+  // previously saved surface stays visible.
+  async publishSurface(tenantId) { await warmFreeSurfaces(tenantId); },
   async surfaceStale(tenantId, nowMs) {
     const { readCustomerSurface, isCustomerSurfaceStale } = await import("@/app/(shell)/surface-release");
     const surface = await readCustomerSurface(tenantId).catch(() => null);
-    if (surface == null) return true; // no saved release yet → genuinely needs a first publish
-    return isCustomerSurfaceStale(surface.computedAt, nowMs);
+    return surface == null || isCustomerSurfaceStale(surface.computedAt, nowMs); // no saved release yet = a first publish is genuinely due
   },
 };
 
@@ -330,6 +318,12 @@ async function driveRun(
       // Every funnel unit runs under the account's CURRENT basis; a change in website/profile/goal mints a
       // new basis and strands prior derived state.
       const basis = await steps.currentBasis(tenantId);
+      // NO BASIS, NO WORK OF ANY KIND. Reconciliation used to return quietly when the basis was unreadable,
+      // reporting SUCCESS for identities it could not possibly have persisted, and the run went on to freeze a
+      // null-basis plan, spend against it and publish off it. A basis I cannot read PAUSES this same phase before
+      // reconciliation, before any focus is chosen, and before a unit, a provider, a website fetch or a publication.
+      // The retry re-resolves the basis, then reconciles, then freezes.
+      if (!basis) { await finishRun(tenantId, run.id, ownerToken, "paused", { phase, message: NO_BASIS_DETAIL, at: nowFn().toISOString() }); return; }
       // FREEZE THE INVESTIGATION ONCE PER RUN, durably, BEFORE a cent is spent: the ordered topic, the exact
       // search it owes, the date it may next be retried and the basis it was chosen under, picked when this run
       // first reaches the results-page phase and reused unchanged by winning-pages and the comparison, through
@@ -356,7 +350,7 @@ async function driveRun(
       try {
         // The REAL run identity travels with the cursor: history rows carry this
         // run's id, and the funnel's receipt resets per cycle instead of drifting.
-        unit = await steps.funnelUnit(phase, tenantId, { ...(priorUnit ?? {}), ...(basis ? { basis } : {}), runId: run.id, cycle: run.cycle_key },
+        unit = await steps.funnelUnit(phase, tenantId, { ...(priorUnit ?? {}), basis, runId: run.id, cycle: run.cycle_key },
           deadline - nowFn().getTime(), runFocus(progress));
       } catch (error) {
         const message = (error instanceof Error ? error.message : String(error)).slice(0, 300);

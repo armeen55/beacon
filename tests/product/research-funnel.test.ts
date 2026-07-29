@@ -223,18 +223,45 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     const one = memStore(cmpSeed()); await winningPagesUnit(cmpDeps(one, count), [], { topicKey: "t1", ask: { pages: [W1] } })("tx", CMP, 60_000);
     expect([calls, one.peek("tx", BASIS)!.pageComparisons]).toEqual([0, []]); }); // one page is not a comparison: refused before the money, and nothing stored
 });
+describe("research funnel - the ONE page of the account's OWN a run may read", () => {
+  const U = "own.com/nowruz", ABS = `https://${U}`, DAY = 86_400_000, at = (ms: number) => new Date(ms).toISOString();
+  const page = { ok: true, html: "<html><body><h1>Nowruz</h1><p>How a nowruz table is set out.</p></body></html>", status: 200 };
+  const seeded = (ownedReads: FunnelState["ownedReads"]) => { const s = emptyFunnelState("to", BASIS); s.ownedReads = ownedReads; return memStore(s); };
+  /** ONE stage-one pass with no winners at all, so the only page work it can do is the owned read under test. */
+  const run = async (store: ReturnType<typeof memStore>, now: number, answer: unknown, ownedUrl: string | null = U, tenant = "to") => {
+    const tried: string[] = [], saved: string[][] = [], paid: string[] = [];
+    await winningPagesUnit({ ...store.deps, loadProfile: async () => emptyBusinessProfile(tenant), getAccount: async () => ({ domain: "own.com" } as Account), now: () => now, parse, readPageExtract: async () => null,
+      callProvider: (async (cap: CapabilityKey) => { paid.push(cap); return ok(serp([])); }) as FunnelDeps["callProvider"],
+      fetchPage: (async (url: string) => { tried.push(url); return answer; }) as unknown as FunnelDeps["fetchPage"],
+      writeOwnedPage: async (snap, t) => void saved.push([snap.id, snap.url, t]) }, [], null, ownedUrl)(tenant, cur(), 60_000);
+    return { tried, saved, paid, held: store.peek(tenant, BASIS)!.ownedReads }; };
+  it("reads the named page ONCE, persists the page snapshot itself, never pays a provider for it, and clears what stopped me last time", async () => {
+    const store = seeded([{ url: U, state: "temporarily_unavailable", attemptedAt: at(NOW - 2 * DAY), retryAfter: at(NOW - DAY) }]); const r = await run(store, NOW, page);
+    expect([r.tried, r.saved.map((s) => s.slice(1)), r.held, r.paid]).toEqual([[ABS], [[ABS, "to"]], [], []]); // one read, the canonical snapshot under my own tenant, the memory cleared, and the customer's own page never sent to a provider
+    expect((await run(store, NOW, page, null)).tried).toEqual([]); }); // no page named, no page read
+  it("remembers a page that did not answer for a day, spends nothing inside it, keeps the SAME date, and allows exactly ONE more attempt when it expires", async () => {
+    const store = memStore(emptyFunnelState("to", BASIS)); const first = await run(store, NOW, { ok: false, reason: "fetch_failed" });
+    expect([first.tried.length, first.held.map((o) => [o.state, o.retryAfter])]).toEqual([1, [["temporarily_unavailable", at(NOW + DAY)]]]);
+    const inside = await run(store, NOW + DAY - 1, page); expect([inside.tried, inside.held[0]!.retryAfter]).toEqual([[], at(NOW + DAY)]); // no fetch, and the date I promised did not slide
+    const due = await run(store, NOW + DAY + 1, { ok: false, reason: "fetch_failed" }); expect([due.tried.length, due.held[0]!.retryAfter]).toEqual([1, at(NOW + 2 * DAY + 1)]); }); // exactly one new attempt, and a new honest date
+  it("honors my own site's robots rules for a month, reads nothing inside it, and never holds another account or basis to it", async () => {
+    const store = memStore(); const shut = await run(store, NOW, { ok: false, reason: "robots_blocked" });
+    expect(shut.held.map((o) => [o.state, o.retryAfter])).toEqual([["robots_blocked", at(NOW + 30 * DAY)]]);
+    expect((await run(store, NOW + 29 * DAY, page)).tried).toEqual([]); expect((await run(store, NOW + 31 * DAY, page)).tried).toEqual([ABS]); // one month held, then exactly one new attempt
+    expect((await run(store, NOW, { ok: false, reason: "fetch_failed" }, U, "tb")).tried).toEqual([ABS]); // another account is never held by my refusal
+    expect([store.peek("tb", BASIS)!.ownedReads[0]!.state, store.peek("to", "basis_other")]).toEqual(["temporarily_unavailable", undefined]); });
+});
 describe("evidence - my own page's actual words, read narrowly", () => {
   const row = (over: Record<string, unknown> = {}) => ({ url: "https://own.com/actors", title: "T", meta_description: "M", fetched_at: "2026-06-11T00:00:00.000Z", body_paragraph_sample: ["Iran has a deep film history."], card_texts: ["Card"], schema_entity_names: ["Person"], internal_links: [{ href: "/a", anchor_text: "A" }], ...over });
   beforeEach(() => { sb.rows = []; sb.fails = false; sb.tenant = ""; sb.urls = []; });
-  it("reads only the asked tenant and the asked URLs, and refuses a wider ask instead of fanning out", async () => { sb.rows = [row(), row({ url: "https://own.com/other" })];
+  it("reads only the asked tenant and the asked URLs, refuses a wider ask instead of fanning out, and fails closed to no bodies", async () => { sb.rows = [row(), row({ url: "https://own.com/other" })];
     const got = await loadOwnedPageBodies("t1", ["https://own.com/actors"]);
     expect([sb.tenant, sb.urls.includes("https://own.com/actors")]).toEqual(["t1", true]); // tenant AND url scoped in the query itself, never filtered after a wide read
     expect([...got.keys()]).toEqual(["own.com/actors"]); expect(got.get("own.com/actors")!.openingSample).toContain("deep film history"); // a page I did not ask about is never keyed in
-    expect((await loadOwnedPageBodies("t1", ["a", "b", "c", "d"])).size).toBe(0); }); // four is past the bound: refused, never fanned out
-  it("fails closed to no bodies on a broken read, and gives no body for a page with no snapshot", async () => { sb.fails = true;
-    expect((await loadOwnedPageBodies("t1", ["https://own.com/actors"])).size).toBe(0); // a broken read is never an empty page
-    sb.fails = false; sb.rows = [row()]; const got = await loadOwnedPageBodies("t1", ["https://own.com/actors", "https://own.com/missing"]);
-    expect([got.size, got.has("own.com/missing"), got.get("own.com/actors")!.fetchedAt]).toEqual([1, false, "2026-06-11T00:00:00.000Z"]); }); // the date rides along so the caller can judge staleness
+    expect((await loadOwnedPageBodies("t1", ["a", "b", "c", "d"])).size).toBe(0); // four is past the bound: refused, never fanned out
+    sb.fails = true; expect((await loadOwnedPageBodies("t1", ["https://own.com/actors"])).size).toBe(0); // a broken read is never an empty page
+    sb.fails = false; sb.rows = [row()]; const two = await loadOwnedPageBodies("t1", ["https://own.com/actors", "https://own.com/missing"]);
+    expect([two.size, two.has("own.com/missing"), two.get("own.com/actors")!.fetchedAt]).toEqual([1, false, "2026-06-11T00:00:00.000Z"]); }); // no snapshot, no body; the date rides along so the caller can judge staleness
   it("never passes headings off as body text", async () => { sb.rows = [row({ body_paragraph_sample: undefined, h2_list: ["Famous Actors"], card_texts: ["Golshifteh Farahani"] })];
     const body = (await loadOwnedPageBodies("t1", ["https://own.com/actors"])).get("own.com/actors")!;
     expect([body.openingSample, body.cardTexts]).toEqual([null, ["Golshifteh Farahani"]]); }); // no body text on file is said plainly, never filled in from labels
