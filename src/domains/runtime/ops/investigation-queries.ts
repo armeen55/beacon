@@ -4,8 +4,14 @@ import "server-only";
  * What THIS run buys, and why (ONE frozen research plan, 2026-07-28). Runtime asks Decision ONE question -
  * what is the research actually stuck on - and hands Evidence plain strings and plain pages, so Decision
  * never reaches a provider and Evidence never reads Decision. The answer comes from the SAME free verdict
- * that decides whether this account already owns the right page, so the searches a run pays for, the winning
- * pages it reads and the one comparison it buys all belong to topics this run itself chose.
+ * that decides whether this account already owns the right page.
+ *
+ * WHAT THE PLAN DOES AND DOES NOT BIND. It JUMPS THE QUEUE for searches and winner reads: the frozen
+ * queries go to `selectSerpAgenda` and `rankWinningPages` as priorities beside the account's own page
+ * queries, tracked questions and retained keywords, and the agenda still runs to 40. The live run of
+ * 2026-07-29 paid for two searches outside its plan, at $0.0006 each, exactly as designed. An earlier
+ * version of this header claimed every search a run pays for belongs to a frozen topic; it does not,
+ * and only the COMPARISON is bound that way. Saying otherwise made a queue-jump read as a spend cap.
  *
  * ONE SELECTOR, AND IT IS A PLAN, NOT A SINGLE TOPIC. A pass freezes up to three topics in priority order
  * (see MAX_PRIORITY_QUERIES) and never re-picks them; it only recomputes the next requirement for THOSE
