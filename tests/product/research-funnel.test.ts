@@ -4,9 +4,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 const sb = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], fails: false, tenant: "", urls: [] as string[] })); // the ONE page_snapshots read the body reader makes
 vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...((await orig()) as object), getSupabaseAdmin: () => ({ from: () => ({ select: () => ({ eq: (_c: string, t: string) => { sb.tenant = t; return { in: (_u: string, urls: string[]) => { sb.urls = urls; return { order: () => ({ limit: async () => (sb.fails ? { data: null, error: { message: "down" } } : { data: sb.rows, error: null }) }) }; } }; } }) }) }) }));
-import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context"; import { emptyBusinessProfile, type Account, type BusinessProfile, type ProfileSection } from "@/domains/account";
+import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context"; import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { emptyBusinessProfile, type Account, type BusinessProfile, type ProfileSection } from "@/domains/account";
 import type { CachedCallResult, CapabilityKey, FailureDisposition, ParsedAiAnswer, ParsedKeywordItem, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
-import { keywordDiscoveryUnit } from "@/domains/evidence/funnel/discovery"; import { promptObservationUnit, serpAnalysisUnit, winningPagesUnit } from "@/domains/evidence/funnel/observe";
+import { keywordDiscoveryUnit } from "@/domains/evidence/funnel/discovery"; import { promptObservationUnit, serpAnalysisUnit } from "@/domains/evidence/funnel/observe"; import { winningPagesUnit } from "@/domains/evidence/funnel/winning-pages";
 import { retainDiverse, selectSerpAgenda } from "@/domains/evidence/funnel/normalize"; import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { emptyFunnelState, MAX_RETAINED, type FunnelKeyword, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
 import { CONFLICT_DETAIL, type FunnelDeps } from "@/domains/evidence/funnel/shared"; import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
@@ -227,29 +227,52 @@ describe("research funnel - the ONE page of the account's OWN a run may read", (
   const U = "own.com/nowruz", ABS = `https://${U}`, DAY = 86_400_000, at = (ms: number) => new Date(ms).toISOString();
   const page = { ok: true, html: "<html><body><h1>Nowruz</h1><p>How a nowruz table is set out.</p></body></html>", status: 200 };
   const seeded = (ownedReads: FunnelState["ownedReads"]) => { const s = emptyFunnelState("to", BASIS); s.ownedReads = ownedReads; return memStore(s); };
-  /** ONE stage-one pass with no winners at all, so the only page work it can do is the owned read under test. */
-  const run = async (store: ReturnType<typeof memStore>, now: number, answer: unknown, ownedUrl: string | null = U, tenant = "to") => {
+  const hold = (url: string, state: "robots_blocked" | "temporarily_unavailable", ms: number) => ({ url, state, attemptedAt: at(NOW), retryAfter: at(NOW + ms) });
+  /** ONE stage-one pass with no winners at all, so the only page work it can do is the owned read under test. `bodies` IS the canonical page_snapshots row: the
+   *  snapshot write lands in it and the read-before-fetch reads it back, so a body I persisted a moment ago is a body I hold, not a page I have to fetch again. */
+  const run = async (store: ReturnType<typeof memStore>, now: number, answer: unknown, ownedUrl: string | null = U, tenant = "to", over: Partial<FunnelDeps> = {}, bodies = new Map<string, { fetchedAt: string }>()) => {
     const tried: string[] = [], saved: string[][] = [], paid: string[] = [];
-    await winningPagesUnit({ ...store.deps, loadProfile: async () => emptyBusinessProfile(tenant), getAccount: async () => ({ domain: "own.com" } as Account), now: () => now, parse, readPageExtract: async () => null,
+    const out = await winningPagesUnit({ ...store.deps, loadProfile: async () => emptyBusinessProfile(tenant), getAccount: async () => ({ domain: "own.com" } as Account), now: () => now, parse, readPageExtract: async () => null,
       callProvider: (async (cap: CapabilityKey) => { paid.push(cap); return ok(serp([])); }) as FunnelDeps["callProvider"],
-      fetchPage: (async (url: string) => { tried.push(url); return answer; }) as unknown as FunnelDeps["fetchPage"],
-      writeOwnedPage: async (snap, t) => void saved.push([snap.id, snap.url, t]) }, [], null, ownedUrl)(tenant, cur(), 60_000);
-    return { tried, saved, paid, held: store.peek(tenant, BASIS)!.ownedReads }; };
+      fetchPage: (async (url: string) => { tried.push(url); return answer; }) as unknown as FunnelDeps["fetchPage"], readOwnedBodies: (async () => bodies) as unknown as FunnelDeps["readOwnedBodies"],
+      writeOwnedPage: async (snap, t) => { saved.push([snap.id, snap.url, t]); bodies.set(canonicalUrlKey(snap.url), { fetchedAt: at(now) }); }, ...over }, [], null, ownedUrl)(tenant, cur(), 60_000);
+    return { out, tried, saved, paid, held: store.peek(tenant, BASIS)!.ownedReads }; };
   it("reads the named page ONCE, persists the page snapshot itself, never pays a provider for it, and clears what stopped me last time", async () => {
     const store = seeded([{ url: U, state: "temporarily_unavailable", attemptedAt: at(NOW - 2 * DAY), retryAfter: at(NOW - DAY) }]); const r = await run(store, NOW, page);
     expect([r.tried, r.saved.map((s) => s.slice(1)), r.held, r.paid]).toEqual([[ABS], [[ABS, "to"]], [], []]); // one read, the canonical snapshot under my own tenant, the memory cleared, and the customer's own page never sent to a provider
     expect((await run(store, NOW, page, null)).tried).toEqual([]); }); // no page named, no page read
+  it("counts a page I just saved as read: a conflict on the research row sends the retry to the body I persisted, never back out to the website", async () => {
+    const store = seeded([]), bodies = new Map<string, { fetchedAt: string }>();
+    const first = await run(store, NOW, page, U, "to", { saveState: async () => null }, bodies); // the snapshot landed; the funnel row moved underneath the save
+    expect([first.out.status, first.out.code, first.tried, [...bodies.keys()]]).toEqual(["failed", "state_conflict", [ABS], [U]]);
+    const second = await run(store, NOW + 1000, page, U, "to", {}, bodies); // Runtime re-invokes the SAME phase
+    expect([second.out.status, second.tried, second.held]).toEqual(["advanced", [], []]); }); // ONE website fetch across both passes, and no failure hold for a page I can read
+  it("a page I could not SAVE is not a page I read: the phase pauses in my own words and that URL still earns a date, so a broken write cannot refetch it every visit", async () => {
+    const prior = { url: U, state: "temporarily_unavailable" as const, attemptedAt: at(NOW - 2 * DAY), retryAfter: at(NOW - DAY) };
+    const r = await run(seeded([prior]), NOW, page, U, "to", { writeOwnedPage: async () => { throw new Error("the row was rejected"); } });
+    expect([r.out.status, r.out.cursor, r.tried, r.held.map((o) => [o.url, o.state, o.retryAfter])]).toEqual(["failed", null, [ABS], [[U, "temporarily_unavailable", at(NOW + DAY)]]]); // never a robots denial, never "your page did not answer", and never a clean slate
+    expect(r.out.detail).toBe("I read your page but I could not save what it says, so I am not counting it as read yet. I will read it again on your next visit.");
+    const amb = seeded([]), bodies = new Map<string, { fetchedAt: string }>(); // the row DID land and the write's own answer was lost
+    const one = await run(amb, NOW, page, U, "to", { writeOwnedPage: async (snap) => { bodies.set(canonicalUrlKey(snap.url), { fetchedAt: at(NOW) }); throw new Error("timed out"); } }, bodies);
+    const two = await run(amb, NOW + DAY + 1000, page, U, "to", {}, bodies); // a day later, past the hold, so it is READ-BEFORE-FETCH doing the work and not the date
+    expect([one.out.status, one.tried.length, two.out.status, two.tried, two.held]).toEqual(["failed", 1, "advanced", [], []]); }); // the body I persisted IS the read: still exactly ONE fetch
+  it("honors my own site's robots rules for a month, never lets newer failures crowd that promise out, and never holds another account or basis to it", async () => {
+    const store = memStore(); const shut = await run(store, NOW, { ok: false, reason: "robots_blocked" });
+    expect(shut.held.map((o) => [o.state, o.retryAfter])).toEqual([["robots_blocked", at(NOW + 30 * DAY)]]);
+    expect((await run(store, NOW + 29 * DAY, page)).tried).toEqual([]); expect((await run(store, NOW + 31 * DAY, page)).tried).toEqual([ABS]); // one month held, then exactly one new attempt
+    const day = Array.from({ length: 9 }, (_, i) => hold(`own.com/x${i}`, "temporarily_unavailable", DAY)), month = hold(U, "robots_blocked", 30 * DAY);
+    const full = seeded([...day, month]); // every slot in the bounded memory is a live promise
+    for (const u of ["own.com/n1", "own.com/n2", "own.com/n3"]) expect((await run(full, NOW + 1000, page, u)).tried).toEqual([]); // FAIL CLOSED: never a read whose failure I could not remember
+    expect([full.peek("to", BASIS)!.ownedReads.length, (await run(full, NOW + 1000, page, U)).tried]).toEqual([10, []]); // the month-long promise is still on file, and still unfetched
+    const room = await run(seeded([...day, month]), NOW + DAY + 1, page, "own.com/n1"); // a day later the nine day-holds are memory of nothing
+    expect([room.tried, room.held]).toEqual([["https://own.com/n1"], [month]]); // expired rows pruned, room made, and the month-long hold survived
+    expect((await run(memStore(), NOW, { ok: false, reason: "fetch_failed" }, U, "tb")).tried).toEqual([ABS]); }); // another account is never held by my refusal
   it("remembers a page that did not answer for a day, spends nothing inside it, keeps the SAME date, and allows exactly ONE more attempt when it expires", async () => {
     const store = memStore(emptyFunnelState("to", BASIS)); const first = await run(store, NOW, { ok: false, reason: "fetch_failed" });
     expect([first.tried.length, first.held.map((o) => [o.state, o.retryAfter])]).toEqual([1, [["temporarily_unavailable", at(NOW + DAY)]]]);
     const inside = await run(store, NOW + DAY - 1, page); expect([inside.tried, inside.held[0]!.retryAfter]).toEqual([[], at(NOW + DAY)]); // no fetch, and the date I promised did not slide
-    const due = await run(store, NOW + DAY + 1, { ok: false, reason: "fetch_failed" }); expect([due.tried.length, due.held[0]!.retryAfter]).toEqual([1, at(NOW + 2 * DAY + 1)]); }); // exactly one new attempt, and a new honest date
-  it("honors my own site's robots rules for a month, reads nothing inside it, and never holds another account or basis to it", async () => {
-    const store = memStore(); const shut = await run(store, NOW, { ok: false, reason: "robots_blocked" });
-    expect(shut.held.map((o) => [o.state, o.retryAfter])).toEqual([["robots_blocked", at(NOW + 30 * DAY)]]);
-    expect((await run(store, NOW + 29 * DAY, page)).tried).toEqual([]); expect((await run(store, NOW + 31 * DAY, page)).tried).toEqual([ABS]); // one month held, then exactly one new attempt
-    expect((await run(store, NOW, { ok: false, reason: "fetch_failed" }, U, "tb")).tried).toEqual([ABS]); // another account is never held by my refusal
-    expect([store.peek("tb", BASIS)!.ownedReads[0]!.state, store.peek("to", "basis_other")]).toEqual(["temporarily_unavailable", undefined]); });
+    const due = await run(store, NOW + DAY + 1, { ok: false, reason: "fetch_failed" }); expect([due.tried.length, due.held[0]!.retryAfter]).toEqual([1, at(NOW + 2 * DAY + 1)]); // one new attempt, one new honest date
+    expect([store.peek("tb", BASIS), store.peek("to", "basis_other")]).toEqual([undefined, undefined]); }); // never another account's row, never another basis
 });
 describe("evidence - my own page's actual words, read narrowly", () => {
   const row = (over: Record<string, unknown> = {}) => ({ url: "https://own.com/actors", title: "T", meta_description: "M", fetched_at: "2026-06-11T00:00:00.000Z", body_paragraph_sample: ["Iran has a deep film history."], card_texts: ["Card"], schema_entity_names: ["Person"], internal_links: [{ href: "/a", anchor_text: "A" }], ...over });

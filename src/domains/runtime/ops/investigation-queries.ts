@@ -64,18 +64,16 @@ export function runFocus(progress: ResearchRunProgress): ResearchFocus | null {
  *  make until tomorrow breaks it, whether the read is a search or a page of the account's own. */
 const due = (focus: ResearchFocus | null, nowMs: number) => (focus?.topics ?? []).filter((t) => !(t.retryAfter && Date.parse(t.retryAfter) > nowMs));
 
-/** The exact searches the frozen focus owes, in its own order (Evidence gets strings, never a topic). */
-export function focusQueries(focus: ResearchFocus | null, nowMs: number): string[] {
-  return due(focus, nowMs).map((t) => t.query).filter((q): q is string => !!q);
-}
-
-/** The ONE page of the account's OWN this run may go and read, or null. Evidence gets an address, never a topic.
- *  BOUND TO THE BASIS IT WAS FROZEN UNDER, exactly like the comparison. A run can span days, so a plan frozen
- *  before the operator changed their site or their goal would otherwise send me to read the OLD basis's page,
- *  and the new basis holds none of the retry memory that promised a date for it. */
-export function focusOwnedUrl(focus: ResearchFocus | null, nowMs: number, basis: string | null): string | null {
-  if (!basis || !focus || focus.basis !== basis) return null;
-  return due(focus, nowMs).map((t) => t.ownedUrl).find((u): u is string => !!u) ?? null;
+/** EVERYTHING the frozen focus owes the reading side, in ONE answer (Evidence gets strings and an address,
+ *  never a topic): `queries` is the exact searches, in the plan's own order; `ownedUrl` is the single page of
+ *  the account's OWN this run may go and read, or null. The page is BOUND TO THE BASIS IT WAS FROZEN UNDER,
+ *  exactly like the comparison. A run can span days, so a plan frozen before the operator changed their site
+ *  or their goal would otherwise send me to read the OLD basis's page, and the new basis holds none of the
+ *  retry memory that promised a date for it. */
+export function focusReads(focus: ResearchFocus | null, nowMs: number, basis: string | null): { queries: string[]; ownedUrl: string | null } {
+  const topics = due(focus, nowMs), bound = !!basis && !!focus && focus.basis === basis;
+  return { queries: topics.map((t) => t.query).filter((q): q is string => !!q),
+    ownedUrl: bound ? topics.map((t) => t.ownedUrl).find((u): u is string => !!u) ?? null : null };
 }
 
 /** The ONE page by page comparison worth paying for, RECONFIRMED before a cent moves: it must be earned by

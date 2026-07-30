@@ -1,19 +1,14 @@
 import "server-only";
-/** funnel/observe (integrity closure) - the AI-answer, SERP and winning-page executors + the PURE snapshot projector. Provider calls route through the frozen boundary by CAPABILITY; posted tasks resume via collect;
+/** funnel/observe (integrity closure) - the AI-answer and SERP executors + the PURE snapshot projector (the winning-page executor is funnel/winning-pages). Provider calls route through the frozen boundary by CAPABILITY; posted tasks resume via collect;
  * only a PROVEN-dead identity earns one repost per incident; a BLOCKED refusal stops the batch and pauses the run. State is basis-scoped (optimistic row_version). Provenance is TRUE: every observation carries its
  * retrieval MODE and query/prompt/engine; citations keep the null-vs-[]-vs-nonempty tri-state end to end. */
 import { log } from "@/lib/logger";
-import { rootDomain } from "@/domains/evidence/readers/serp-provider";
-import { resolveCitationTargets } from "@/domains/evidence/competitor-intel/polite-fetch";
-import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
-import type { CachedCallResult, CapabilityKey, FunnelCounters, FunnelUnitFn, FunnelUnitOutcome, ParsedAiAnswer, ParsedSerp, ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
-import { rankWinningPages, selectSerpAgenda } from "./normalize";
-import { type FunnelPair, type FunnelSerp, type FunnelState, type FunnelWinningPage } from "./state";
-import { askIdentity, normalizePageIntersection, parsePageIntersection, type PageIntersectionAsk } from "@/domains/evidence/page-intersection";
-import { publisherHost } from "@/domains/evidence/serp-shape";
-import { pageExtractFrom, pageExtractFromRecord, type FunnelResearchEvidence, type IntersectionUnavailable, type ObservationMode, type OwnedPageReadOutcome, type ResearchEngine, type ResearchPageComparison, type ResearchPageExtract, type ResearchWinningAppearance, type WinnerReadOutcome } from "./research-evidence";
-import { basisFromCursor, beginCycle, CONFLICT_DETAIL, FRESH_MS, interp, type Interp, NO_BASIS_DETAIL, pauseDetail, readOutcomeAt, readOwnedPage, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
+import type { CachedCallResult, CapabilityKey, FunnelCounters, FunnelUnitFn, FunnelUnitOutcome, ParsedAiAnswer, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
+import { selectSerpAgenda } from "./normalize";
+import { type FunnelPair, type FunnelSerp, type FunnelState } from "./state";
+import { type FunnelResearchEvidence, type ObservationMode, type ResearchEngine } from "./research-evidence";
+import { basisFromCursor, beginCycle, CONFLICT_DETAIL, FRESH_MS, interp, type Interp, modeOf, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
 
 // blocked = a HELD refusal at zero further spend; it ALWAYS pauses the run, so prefer the boundary's own detail.
 const blockedNote = (r: Interp) => r.detail || pauseDetail("blocked", "");
@@ -21,8 +16,6 @@ const blockedNote = (r: Interp) => r.detail || pauseDetail("blocked", "");
 const ENGINES: ResearchEngine[] = ["chatgpt", "gemini", "claude", "perplexity"];
 /** CANONICAL coverage = the ChatGPT consumer search experience (the citation-grade look real people get) plus the standardized response on the other three. A chatgpt standardized_response pair is AUXILIARY: bounded, never engine coverage or a substitute. */
 const canonicalMode = (e: ResearchEngine): ObservationMode => (e === "chatgpt" ? "consumer_search" : "standardized_response");
-/** Mode is stamped by normalization; the legacy scraper flag is decode input ONLY (nothing else reads it). */
-const modeOf = (p: FunnelPair): ObservationMode => p.mode ?? (p.scraper ? "consumer_search" : "standardized_response");
 const isCanonical = (p: FunnelPair) => modeOf(p) === canonicalMode(p.engine);
 const pairKey = (p: FunnelPair) => `${p.promptId}|${p.engine}|${modeOf(p)}`;
 const capabilityFor = (p: FunnelPair): CapabilityKey => (p.engine === "chatgpt" && modeOf(p) === "consumer_search" ? "llm_scraper_chatgpt" : (`llm_${p.engine}` as CapabilityKey));
@@ -190,13 +183,6 @@ function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string): void {
   s.paa = parsed.paaQuestions.map((q) => ({ question: q.question, answeringDomain: q.answeringDomain }));
 }
 
-/** ONE explicit acquisition budget per cycle, never a global free-for-all. 15 winning pages are ranked, so three priority searches keep their own three, and 18 is the MOST I ever go out and read: those 15 plus at
- *  most ONE substitute for each of the three priority searches, every one of them spending an ATTEMPT from the same total. Paid body reads are bounded SEPARATELY at 6, because they are the only page work that
- *  costs money, so a cycle where every publisher refuses can no longer buy a paid read for all fifteen. Bought comparisons kept: 8. */
-const WINNER_READ_BUDGET = 15, MAX_COMPARISONS = 8, MAX_PAGE_ATTEMPTS = 18, MAX_PAID_BODY_READS = 6;
-/** CONTENT identity, never the address: the same parsed extract in any key order hashes the SAME, and a changed title, heading, opening or body hashes DIFFERENTLY. Banking sha16(url) on the provider path froze
- *  a page's identity at its address forever, so a rewritten page looked unchanged to a store whose whole point is content-hash-aware reuse. fetchedAt is when I looked, not what the page says, so it is excluded. */
-const extractHash = (x: ResearchPageExtract): string => sha16(JSON.stringify(Object.entries(x).filter(([k, v]) => k !== "fetchedAt" && v !== undefined).sort((a, b) => a[0].localeCompare(b[0]))));
 const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.serps.analyzed, cacheHits: s.cycle.cacheHits, spendUsd: round(s.cycle.spentUsd) });
 
 /** `priorityQueries`: plain strings from the caller (Evidence never reads Decision), the exact searches an open investigation cannot close without. Empty is honest and leaves the agenda exactly as it was. */
@@ -315,138 +301,6 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
       return { status, cursor, progress: serpProgress(state), ...(detail ? { detail } : {}) };
     } catch (e) {
       if (e instanceof StateConflictError) return { status: "failed", code: "state_conflict", cursor, progress: serpProgress(state), detail: CONFLICT_DETAIL };
-      throw e;
-    }
-  };
-}
-// ── B5: winning pages ───────────────────────────────────────────────────────
-
-/** Flatten every SERP + AI appearance into TRUE-provenance rows: each carries its own query or real prompt id + text, its engine, its rank and (for AI answers) its observation MODE. One citation seen through BOTH ChatGPT modes is ONE appearance credited to the consumer look, never counted twice. Pure. */
-function collectAppearances(state: FunnelState, fallbackIso: string): ResearchWinningAppearance[] {
-  const out: ResearchWinningAppearance[] = [], seen = new Set<string>();
-  for (const s of state.serps.queries.filter((x) => x.status === "done")) {
-    const at = s.observedAt || state.updatedAt || fallbackIso;
-    for (const o of s.organic ?? []) out.push({ kind: "serp_organic", query: s.query, promptId: null, promptText: null, engine: null, rank: o.rank, citedUrl: o.url, observedAt: at, modelServed: null, observationMode: null });
-    for (const a of s.aiOverview ?? []) out.push({ kind: "ai_overview", query: s.query, promptId: null, promptText: null, engine: null, rank: null, citedUrl: a.url, observedAt: at, modelServed: null, observationMode: null });
-    for (const a of s.aiMode ?? []) out.push({ kind: "ai_mode", query: s.query, promptId: null, promptText: null, engine: null, rank: null, citedUrl: a.url, observedAt: at, modelServed: null, observationMode: null });
-  }
-  const cited = state.prompts.pairs.filter((x) => x.status === "done" && x.citations && x.citations.length > 0)
-    .sort((a, b) => Number(modeOf(b) === "consumer_search") - Number(modeOf(a) === "consumer_search")); // consumer look first: it wins the duplicate
-  for (const p of cited) for (const c of p.citations!) {
-    const key = `${p.promptId}|${p.engine}|${c.url}`; if (seen.has(key)) continue; seen.add(key);
-    out.push({ kind: "ai_answer", query: null, promptId: p.promptId, promptText: p.promptText ?? null, engine: p.engine, rank: null, citedUrl: c.url, observedAt: p.observedAt ?? fallbackIso, modelServed: p.modelServed ?? null, observationMode: modeOf(p) });
-  }
-  return out;
-}
-
-/** What the caller wants compared page by page, in plain Evidence terms (Evidence never reads Decision): the topic it belongs to and the page set. */
-export type FunnelIntersectionAsk = { topicKey: string; ask: PageIntersectionAsk };
-/** Every disposition that produced NO comparison. `failed` is the fallback, so an unmapped one can never read as a finding. */
-const COMPARISON_GAP: Partial<Record<string, IntersectionUnavailable>> = { blocked: "blocked", daily_limit: "capped", quarantined: "quarantined", retry_free: "ambiguous", repost_once: "ambiguous" };
-
-/** THE page-by-page comparison: at most ONE request, carrying the WHOLE page set (one call per page or per keyword is a defect). It rides the same money core as every other unit, so the reservation, the
- *  deterministic identity, the reconcile to actual and the cache reuse are the boundary's, not a second copy here. TWO guards stop a second buy: a landed answer for this topic AND this normalized ask is never
- *  re-requested, and a crash after the provider answered but before this phase saved re-derives the SAME identity, so the money core serves it warm. Under two usable pages is not a comparison and never pays. */
-async function buyComparison(d: ResolvedDeps, state: FunnelState, want: FunnelIntersectionAsk, ids: { tenantId: string; unitKey: string }, nowIso: string): Promise<ResearchPageComparison | null> {
-  const ask = normalizePageIntersection(want.ask), askKey = askIdentity(ask); // ONE definition, shared with the reader
-  if (ask.pages.length < 2 || state.pageComparisons.some((c) => c.topicKey === want.topicKey && c.askKey === askKey && c.comparison)) return null;
-  const raw = await d.callProvider("labs_page_intersection", ask, ids), r = interp(raw);
-  track(state, r);
-  const row: ResearchPageComparison = { topicKey: want.topicKey, askKey, pages: ask.pages, excludePages: ask.exclude_pages ?? [], observedAt: nowIso, receipt: r.cacheKey, comparison: null, unavailable: null };
-  // Parsed WITH the ask: the envelope carries numbered slots and the money core strips the request echo, so without it the answer knows the ranks but not WHICH page took them. An unreadable answer says so.
-  if (r.kind === "evidence") { try { row.comparison = parsePageIntersection(r.payload as ProviderEnvelope, ask); } catch { row.unavailable = "ambiguous"; } }
-  else if (r.kind === "waiting") row.unavailable = "waiting";
-  else row.unavailable = raw.state === "capped" ? "capped" : COMPARISON_GAP[r.disposition ?? ""] ?? "failed";
-  return row;
-}
-
-/** `priorityQueries`: plain strings from the caller (Evidence never reads Decision), the exact searches an open investigation cannot close without. Each banks its own top organic winners before the global fill, at the SAME total.
- *  TWO STAGES, one phase: the first reads and persists the winners and hands the run back; the caller renews the RUN lease and re-enters with `stage: "compare"`, so the ONE paid comparison is the first side effect of a live lease. */
-export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[] = [], intersection: FunnelIntersectionAsk | null = null, ownedUrl: string | null = null): FunnelUnitFn {
-  const d = resolveDeps(deps);
-  const resolve = deps.resolveCitations ?? resolveCitationTargets; // wrapper citations resolve to their REAL target before ranking, so one page is never two winners
-  return async (tenantId, cursor, budgetMs) => {
-    const basis = basisFromCursor(cursor);
-    if (!basis) return { status: "failed", cursor, progress: {}, detail: NO_BASIS_DETAIL };
-    const deadline = d.now() + Math.max(1000, budgetMs), ids = { tenantId, unitKey: `winning:${tenantId}` };
-    const loaded = await d.loadState(tenantId, basis), state = loaded.state;
-    beginCycle(state, cursor, ids.unitKey);
-    const ctx: SaveCtx = { rowVersion: loaded.rowVersion }, nowIso = new Date(d.now()).toISOString();
-    const pages: FunnelWinningPage[] = []; let attempts = 0; // attempts = pages I actually went out and read this cycle, the bounded total the counter reports
-    try {
-      // STAGE TWO of the SAME phase: the winners are already persisted and the caller renewed the RUN lease in between, so the ONE comparison is the FIRST side effect
-      // this invocation has. Newest first, ONE row per topic, bounded. No ask (none earned, or the frozen topic could not be reconfirmed) is a $0 pass.
-      if ((cursor as { stage?: string } | null)?.stage === "compare") {
-        const bought = intersection ? await buyComparison(d, state, intersection, ids, nowIso) : null;
-        if (bought) { state.pageComparisons = [bought, ...state.pageComparisons.filter((c) => c.topicKey !== bought.topicKey)].slice(0, MAX_COMPARISONS);
-          await save(d, tenantId, basis, state, ctx); }
-        return { status: "done", cursor: null, progress: { cacheHits: state.cycle.cacheHits, spendUsd: round(state.cycle.spentUsd) } };
-      }
-      const account = await d.getAccount(tenantId).catch(() => null), profile = await d.loadProfile(tenantId).catch(() => null);
-      const ownDomain = account?.domain ? rootDomain(account.domain) : null;
-      const raw = collectAppearances(state, nowIso);
-      const resolved = await Promise.resolve().then(() => resolve(raw, undefined, deadline)).catch(() => raw); // a resolver failure (sync OR async) degrades to raw appearances; the unit deadline bounds it
-      const held = new Map(state.winningPages.map((w) => [w.url, w.readOutcome ?? null])); // what stopped me last time
-      const robots = new Map<string, string[]>(), readPublishers = new Set<string>(); // ONE robots.txt read per origin
-      const bank = async (url: string, x: ResearchPageExtract) => { await d.writePageExtract(url, x as unknown as Record<string, unknown>, extractHash(x)).catch(() => {}); };
-      const ranked = rankWinningPages(resolved, ownDomain, WINNER_READ_BUDGET, priorityQueries), bench = new Map<string, typeof ranked>(), substituted = new Set<string>();
-      for (const c of ranked) if (c.standby && c.ownerQuery) bench.set(c.ownerQuery, [...(bench.get(c.ownerQuery) ?? []), c]);
-      // FOCUS BEFORE BREADTH: each priority search's own winners, then the substitutes their unreadable pages earn, then the global fill, every one of them spending from the SAME attempt total.
-      const focus = ranked.filter((c) => !c.standby && c.ownerQuery), queue = [...focus, ...ranked.filter((c) => !c.standby && !c.ownerQuery)]; let focusEnd = focus.length, paidReads = 0;
-      for (let i = 0; i < queue.length; i += 1) { const c = queue[i]!;
-        const engines = [...new Set(c.appearances.map((a) => a.engine).filter((e): e is string => !!e))].sort(),
-          examplePrompts = [...new Set(c.appearances.map((a) => a.promptText).filter((t): t is string => !!t))].slice(0, 5);
-        let extract: ResearchPageExtract | null = null, outcome: WinnerReadOutcome | null = held.get(c.url) ?? null;
-        // Reuse a cached public extract before any read; never re-read in freshness. Keep the CACHE ROW'S date when the extract predates the field: an undated winner never counts toward a comparison.
-        const cached = await d.readPageExtract(c.url).catch(() => null);
-        if (cached) { const e = pageExtractFromRecord(cached.extract); extract = { ...e, fetchedAt: e.fetchedAt ?? cached.fetchedAt ?? null }; outcome = null; }
-        // A URL whose last read failed keeps that answer until retryAfter and spends no attempt before it.
-        else if (attempts < MAX_PAGE_ATTEMPTS && d.now() <= deadline && !(outcome && d.now() < Date.parse(outcome.retryAfter))) {
-          attempts += 1;
-          try {
-            const res = await d.fetchPage(c.url, robots, {});
-            if (res.ok) { outcome = null;
-              extract = pageExtractFrom(extractPageSnapshot(res.html, c.url, `winpage-${sha16(c.url)}`, tenantId, res.status, profile));
-              await bank(c.url, extract);
-            // The publisher's OWN answer is final: a robots denial is NEVER sent through a provider.
-            } else if (res.reason === "robots_blocked") outcome = readOutcomeAt("robots_blocked", d.now());
-            // An ordinary refusal or timeout earns exactly ONE paid read of the body, US/English, on the same money core, cache identity and cap as every other call, and only while this cycle's own paid ceiling is unspent.
-            else if (paidReads >= MAX_PAID_BODY_READS) outcome = readOutcomeAt("temporarily_unavailable", d.now());
-            else {
-              paidReads += 1;
-              const r = interp(await d.callProvider("onpage_content_parsing", { url: c.url }, ids)); track(state, r);
-              const got = r.kind === "evidence" ? (d.parse("onpage_content_parsing", r.payload as never) as ResearchPageExtract | null) : null;
-              // An empty parse is not a body: it stays a named gap, never a fake extract. Never invent freshness either, so the provider's OWN fetch time wins whenever it sends one.
-              if (got && got.wordCount > 0) { extract = { ...got, fetchedAt: got.fetchedAt ?? nowIso }; outcome = null; await bank(c.url, extract); }
-              // A CAP OR A DAILY LIMIT IS NOT THE PAGE'S FAULT. Those cost nothing and read nothing, so stamping the 7 day hold on them froze pages the provider never even looked at, and one cap event stamped every remaining winner. They wait a day.
-              else outcome = readOutcomeAt(r.kind === "evidence" ? "provider_unavailable" : "temporarily_unavailable", d.now());
-            }
-          } catch { outcome = readOutcomeAt("temporarily_unavailable", d.now()); }
-        }
-        // The ranked URL is evidence in its own right, so an unreadable body never deletes a winner. An unreadable page frees ONE substitute, for ITS OWN search only, from that search's own bench, and admitting
-        // it SPENDS that opportunity: one failure buys one substitute, and a publisher whose body I already hold teaches me nothing new. Anything else let a single failure unlock every bench on every topic.
-        if (extract) readPublishers.add(publisherHost(c.url));
-        else if (c.ownerQuery && !substituted.has(c.ownerQuery)) { const sub = (bench.get(c.ownerQuery) ?? []).find((b) => !readPublishers.has(publisherHost(b.url)));
-          if (sub) { substituted.add(c.ownerQuery); queue.splice(focusEnd, 0, sub); focusEnd += 1; } }
-        pages.push({ url: c.url, domain: c.domain, engines, examplePrompts, appearances: c.appearances, extract, readOutcome: outcome });
-      }
-      // CARRY THE MEMORY, NOT JUST THE PAGES. Replacing the list wholesale forgot the read outcome of any
-      // URL that fell out of this cycle's top set, so its 403 was re-paid INSIDE the hold meant to stop that.
-      const banked = new Set(pages.map((p) => p.url));
-      // A carried row is MEMORY, not evidence: its appearances go with it, or a page that has since fallen
-      // out of the results would still count as one of the three addresses a comparison PAYS to compare.
-      state.winningPages = [...pages, ...state.winningPages.filter((w) => !banked.has(w.url) && w.readOutcome
-        && d.now() < Date.parse(w.readOutcome.retryAfter)).map((w) => ({ ...w, extract: null, appearances: [] }))].slice(0, WINNER_READ_BUDGET * 2);
-      // AT MOST ONE page of the account's OWN, named by the caller, read here rather than anywhere a render can reach.
-      if (ownedUrl) state.ownedReads = await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile);
-      // The winners land BEFORE this phase hands the run back. This save is the FUNNEL ROW's optimistic
-      // row_version and nothing more: it proves only that no concurrent writer moved the research document.
-      // It is NOT the ResearchRun lease, a different guarantee the caller renews between the two stages.
-      await save(d, tenantId, basis, state, ctx);
-      log.info("[research-funnel] page read budget", { tenantId, attempts, paidReads, ceilings: [MAX_PAGE_ATTEMPTS, MAX_PAID_BODY_READS] }); // internal progress truth: both ceilings, never silent
-      return { status: "advanced", cursor: { stage: "compare" }, progress: { pageReadsAttempted: attempts, cacheHits: state.cycle.cacheHits, spendUsd: round(state.cycle.spentUsd) } };
-    } catch (e) {
-      if (e instanceof StateConflictError) return { status: "failed", code: "state_conflict", cursor, progress: { pageReadsAttempted: attempts }, detail: CONFLICT_DETAIL };
       throw e;
     }
   };

@@ -17,9 +17,9 @@ import { validateProposal } from "@/domains/decision/validate-proposal";
 import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals";
 import { compileCandidates, snapshotToEvidenceInputs } from "@/domains/decision/opportunities";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
-import { chooseInvestigation, comparisonForFocus, focusOwnedUrl, focusQueries } from "@/domains/runtime/ops/investigation-queries";
+import { chooseInvestigation, comparisonForFocus, focusReads } from "@/domains/runtime/ops/investigation-queries";
 import { reconcileResearchCases } from "@/domains/evidence/topic-investigation";
-const queued = async (tenantId: string, at = 0) => focusQueries(await chooseInvestigation(tenantId, null), at);
+const queued = async (tenantId: string, at = 0) => focusReads(await chooseInvestigation(tenantId, null), at, null).queries;
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { ownedCandidatesFor } from "@/domains/decision/owned-coverage"; import { askIdentity } from "@/domains/evidence/page-intersection";
 import { buildTopicInvestigations } from "@/domains/evidence/topic-investigation";
 import { readCoverage, rankInvestigations } from "@/domains/decision/coverage-pass"; import { loadProposalQueue } from "@/domains/decision/load-proposals";
@@ -255,8 +255,9 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
       expect([owed(first)!.retryAfter, first.waitingUntil, owed(again)!.retryAfter, net]).toEqual([HOLD, HOLD, HOLD, []]); // the date is READ off the row, so it is identical every visit and still costs no fetch
     } finally { globalThis.fetch = realFetch; }
     const plan = { basis: "b", topics: [{ topicKey: "t1", query: "still cooling off", requirement: "owned_content", retryAfter: HOLD, ownedUrl: DARK_URL }, { topicKey: "t2", query: "due now", requirement: "exact_serp", retryAfter: null }] };
-    expect([focusQueries(plan, Date.parse("2026-07-26T00:00:00Z")), focusQueries(plan, Date.parse("2026-07-28T00:00:00Z"))]).toEqual([["due now"], ["still cooling off", "due now"]]); // no search before its cooldown expires
-    expect([focusOwnedUrl(plan, Date.parse("2026-07-26T00:00:00Z"), "b"), focusOwnedUrl(plan, Date.parse("2026-07-28T00:00:00Z"), "b"), focusOwnedUrl(plan, Date.parse("2026-07-28T00:00:00Z"), "moved_on")]).toEqual([null, DARK_URL, null]); }); // not before its date, and never for a basis the account has left
+    const reads = (at: string, basis: string | null = "b") => focusReads(plan, Date.parse(at), basis);
+    expect([reads("2026-07-26T00:00:00Z").queries, reads("2026-07-28T00:00:00Z").queries]).toEqual([["due now"], ["still cooling off", "due now"]]); // no search before its cooldown expires
+    expect([reads("2026-07-26T00:00:00Z").ownedUrl, reads("2026-07-28T00:00:00Z").ownedUrl, reads("2026-07-28T00:00:00Z", "moved_on").ownedUrl]).toEqual([null, DARK_URL, null]); }); // not before its date, and never for a basis the account has left
   it("finds the comparison AND the live page filed under an id this case absorbed, so neither is bought or built a second time", async () => {
     const key = keyOf(READY()); const anchors = reconcileResearchCases(snap([GAP], READY(), DEMAND)).find((c) => c.id === key)!.anchors;
     const cases = [{ id: "inv_absorbed", anchors: anchors.slice(0, 1) }, { id: key, anchors }]; // two ids on file for one subject, already merged and SAVED

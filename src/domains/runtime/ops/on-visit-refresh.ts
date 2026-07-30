@@ -15,7 +15,7 @@ import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfil
 import { log } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { NO_BASIS_DETAIL } from "@/domains/evidence/funnel/shared";
-import { warmFreeSurfaces } from "./warm-caches"; import { chooseInvestigation, comparisonForFocus, focusOwnedUrl, focusQueries, runFocus, type ResearchFocus } from "./investigation-queries";
+import { warmFreeSurfaces } from "./warm-caches"; import { chooseInvestigation, comparisonForFocus, focusReads, runFocus, type ResearchFocus } from "./investigation-queries";
 import {
   advancePhase,
   claimRun,
@@ -80,7 +80,7 @@ import {
  * is the evidence cache: a durable receipt keyed on the normalized ask, written BEFORE the network call. */
 
 /** Leave enough of the shell's 300-second lifetime to finish the surface build. */
-export const RESEARCH_CYCLE_DEADLINE_MS = 210_000;
+const RESEARCH_CYCLE_DEADLINE_MS = 210_000;
 
 /** Reasons the deep-backfill continuation returns when there is simply nothing to do (no backfill started,
  *  already finished, or no synced property yet): healthy no-ops that advance the phase without a failure.
@@ -188,14 +188,14 @@ const defaultSteps: ResearchCycleSteps = {
     // paid for. The page COMPARISON rides the same phase that reads those winners, because the winners ARE
     // the page set, but as its SECOND stage, so a real lease renewal sits in front of it. A topic whose next
     // legal read is still in the future contributes no search at all: a cooldown is not a queue position.
-    const queries = focusQueries(focus, Date.now());
+    const { queries, ownedUrl } = focusReads(focus, Date.now(), (cursor?.basis as string) ?? null);
     if (phase === "serp_analysis") return serpAnalysisUnit({}, queries)(tenantId, cursor, budgetMs);
     if (phase === "winning_pages") {
       // The ask is recomputed for the SAME frozen topic under the CURRENT basis, and only at the comparison
       // stage: nothing is asked for before winners exist. Fail-soft, and no reconfirmed ask means no buy.
       const ask = cursor?.stage === "compare" ? await comparisonForFocus(tenantId, focus, (cursor.basis as string) ?? null).catch(() => null) : null;
       // AT MOST ONE page of the account's OWN per run, and only one the frozen plan named and is due to read.
-      return winningPagesUnit({}, queries, ask, focusOwnedUrl(focus, Date.now(), (cursor?.basis as string) ?? null))(tenantId, cursor, budgetMs);
+      return winningPagesUnit({}, queries, ask, ownedUrl)(tenantId, cursor, budgetMs);
     }
     const fn = { keyword_discovery: keywordDiscoveryUnit, prompt_observations: promptObservationUnit }[phase as "keyword_discovery" | "prompt_observations"];
     return fn()(tenantId, cursor, budgetMs); // each facade export is a deps factory returning the executor
@@ -314,16 +314,20 @@ async function driveRun(
     if (!held) return; // lease lost/expired → abort BEFORE any side effect
     cursor = attemptCursor;
 
+    // Every funnel unit runs under the account's CURRENT basis; a change in website/profile/goal mints a
+    // new basis and strands prior derived state. PUBLISHING NEEDS THAT BASIS TOO: the gate below sat inside
+    // the funnel branch, and publish_surface is not a funnel phase, so a run resumed straight at
+    // publish_surface reached the staleness check and the release build with a basis nobody could read.
+    // NO BASIS, NO WORK OF ANY KIND. Reconciliation used to return quietly when the basis was unreadable,
+    // reporting SUCCESS for identities it could not possibly have persisted, and the run went on to freeze a
+    // null-basis plan, spend against it and publish off it. A basis I cannot read PAUSES this same phase before
+    // reconciliation, before any focus, unit, provider call, website fetch or surface write, so surfacePublished
+    // is never set and the release already saved stays visible. The retry re-resolves the basis, reconciles, then
+    // freezes, and it re-runs no completed evidence phase to get there.
+    const basis = FUNNEL_PHASES.has(phase) || phase === "publish_surface" ? (await steps.currentBasis(tenantId)) || null : "";
+    if (basis === null) { await finishRun(tenantId, run.id, ownerToken, "paused", { phase, message: NO_BASIS_DETAIL, at: nowFn().toISOString() }); return; }
+
     if (FUNNEL_PHASES.has(phase)) {
-      // Every funnel unit runs under the account's CURRENT basis; a change in website/profile/goal mints a
-      // new basis and strands prior derived state.
-      const basis = await steps.currentBasis(tenantId);
-      // NO BASIS, NO WORK OF ANY KIND. Reconciliation used to return quietly when the basis was unreadable,
-      // reporting SUCCESS for identities it could not possibly have persisted, and the run went on to freeze a
-      // null-basis plan, spend against it and publish off it. A basis I cannot read PAUSES this same phase before
-      // reconciliation, before any focus is chosen, and before a unit, a provider, a website fetch or a publication.
-      // The retry re-resolves the basis, then reconciles, then freezes.
-      if (!basis) { await finishRun(tenantId, run.id, ownerToken, "paused", { phase, message: NO_BASIS_DETAIL, at: nowFn().toISOString() }); return; }
       // FREEZE THE INVESTIGATION ONCE PER RUN, durably, BEFORE a cent is spent: the ordered topic, the exact
       // search it owes, the date it may next be retried and the basis it was chosen under, picked when this run
       // first reaches the results-page phase and reused unchanged by winning-pages and the comparison, through
