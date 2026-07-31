@@ -16,7 +16,7 @@ const cur = (basis: string | null = BASIS) => (basis ? { basis } : {}); const co
 function profileOf(id: string, offerings: string[], topics: string[], exclude: string[] = [], banned: string[] = []): BusinessProfile { const p = emptyBusinessProfile(id); p.offerings = confirmed(offerings); p.topicsToOwn = confirmed(topics); p.constraints.value.bannedTerms = banned;
   p.topicsToExclude = { value: exclude, origin: "inferred", confidence: null, sourceUrls: [] }; return p; } const parse = ((_c: unknown, env: unknown) => env) as unknown as FunnelDeps["parse"];
 const parsedKw = (kws: { keyword: string; volume?: number }[]): ParsedKeywordItem[] => kws.map((k) => ({ keyword: k.keyword, searchVolume: k.volume ?? 100, cpcUsd: null, competition: 0.4, competitionLevel: null, difficulty: null, intent: "informational", rankedUrl: null, rankedRank: null, monthlySearches: null }));
-const aiAnswer = (over: Partial<ParsedAiAnswer> = {}): ParsedAiAnswer => ({ answerText: "hi", modelServed: null, webSearchReported: null, citations: null, fanOutQueries: null, ...over });
+const aiAnswer = (over: Partial<ParsedAiAnswer> = {}): ParsedAiAnswer => ({ answerText: "hi", modelServed: null, webSearchReported: null, citations: null, fanOutQueries: null, retrievedResults: null, brandMentions: null, ...over });
 const serp = (organic: ParsedSerp["organic"]): ParsedSerp => ({ organic, aiOverview: null, paaQuestions: [], relatedSearches: [] });
 const ok = (parsed: unknown, cacheKey = "ck", modelServed: string | null = null): CachedCallResult => ({ state: "ok", envelope: parsed as never, costUsd: 0.01, cacheKey, modelServed });
 const waiting = (cacheKey: string): CachedCallResult => ({ state: "waiting", cacheKey, providerTaskId: "t", costUsd: 0, detail: "posted" });
@@ -39,7 +39,7 @@ describe("research funnel - basis-scoped discovery + isolation", () => {
 });
 describe("research funnel - prompt observation honesty + history identity", () => {
   const prompts = [{ id: "p1", text: "best persian restaurant" }, { id: "p2", text: "where to buy saffron" }]; function deps(store: ReturnType<typeof memStore>, rows: PromptAnswerObservation[], claudeModel: string): FunnelDeps {
-    return { ...store.deps, loadProfile: async () => profileOf("tp", ["persian food"], ["saffron"]), parse, loadActivePrompts: async () => prompts, syncHistory: async (r) => { rows.push(...r); }, now: () => 5_000_000,
+    return { ...store.deps, loadProfile: async () => profileOf("tp", ["persian food"], ["saffron"]), parse, loadActivePrompts: async () => prompts, syncHistory: async (r) => { rows.push(...r); }, recordObservation: async () => {}, getAccount: async () => ({ domain: "iranopedia.com" } as Account), now: () => 5_000_000,
       collectTask: async () => ok(aiAnswer({ modelServed: "gpt-4o", citations: [{ url: "https://a.com/1", domain: "a.com", title: null }] }), "ck-chat"),
       callProvider: async (cap: CapabilityKey) => { if (cap === "llm_perplexity") return ok(aiAnswer({ modelServed: "sonar", webSearchReported: true, citations: [] }));
         if (cap === "llm_scraper_chatgpt") return ok(aiAnswer({ modelServed: "gpt-4o", citations: [{ url: "https://c.com/2", domain: "c.com", title: null }], fanOutQueries: ["persian food near me"] }));
@@ -71,7 +71,7 @@ describe("research funnel - prompt observation honesty + history identity", () =
 describe("research funnel - current-set truth + the disposition ladder", () => {
   const prompts = [{ id: "p1", text: "best persian restaurant" }]; const donePair = (promptId: string, engine: FunnelPair["engine"], observedAt: string): FunnelPair => ({ promptId, engine, cacheKey: null, status: "done", observedAt, citationsObserved: true, citations: [] });
   const seedWith = (pairs: FunnelPair[]) => { const s = emptyFunnelState("tp", BASIS); s.prompts = { pairs, intendedPairs: pairs.length }; return memStore(s); };
-  const mk = (store: ReturnType<typeof memStore>, over: Partial<FunnelDeps> = {}): FunnelDeps => ({ ...store.deps, loadProfile: async () => profileOf("tp", ["persian food"], ["saffron"]), loadActivePrompts: async () => prompts, parse, syncHistory: async () => {}, now: () => NOW, ...over });
+  const mk = (store: ReturnType<typeof memStore>, over: Partial<FunnelDeps> = {}): FunnelDeps => ({ ...store.deps, loadProfile: async () => profileOf("tp", ["persian food"], ["saffron"]), loadActivePrompts: async () => prompts, parse, syncHistory: async () => {}, recordObservation: async () => {}, getAccount: async () => ({ domain: "iranopedia.com" } as Account), now: () => NOW, ...over });
   const many = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `p${String(i).padStart(2, "0")}`, text: `prompt ${i}` }));
   it("prunes pairs whose prompt left the active set, so old completions can never satisfy the new set", async () => { const store = seedWith(ENG.map((e) => donePair("p_gone", e, new Date(NOW).toISOString()))); const out = await promptObservationUnit(mk(store, { callProvider: async () => waiting("ck") }))("tp", cur(), 60_000);
     expect(out.status).toBe("waiting"); expect(out.progress.enginePairsIntended).toBe(4); // every CANONICAL pair of the NEW prompt is outstanding

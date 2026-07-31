@@ -303,7 +303,7 @@ export async function generatePromptCandidates(tenantId: string, deps?: Onboardi
       topic_id: c.groupSlug, location_scope: null, service_scope: null, intent_type: c.intent,
       platforms: [...ALL_ENGINES],
       tags: c.recommended ? [PROMPT_TAGS.candidate, PROMPT_TAGS.set, PROMPT_TAGS.recommended, basis] : [PROMPT_TAGS.candidate, PROMPT_TAGS.set, basis],
-      is_active: false, created_at: nowIso, updated_at: nowIso,
+      is_active: false, version: 1, core: false, created_at: nowIso, updated_at: nowIso,
     });
   }
   // In the SAME write, deactivate any still-active rows from OTHER bases so a changed basis never leaves an old prompt tracked.
@@ -401,7 +401,7 @@ function coreRow(canonicalId: string, basis: string, text: string, topicId: stri
     id: promptIdFor(canonicalId, basis, text), tenant_id: canonicalId, account_id: canonicalId, text: text.trim(),
     topic_id: topicId, location_scope: null, service_scope: null, intent_type: intent,
     platforms: [...ALL_ENGINES], tags: [PROMPT_TAGS.candidate, PROMPT_TAGS.set, kind, PROMPT_TAGS.core, basis], is_active: true,
-    created_at: nowIso, updated_at: nowIso,
+    version: 1, core: true, created_at: nowIso, updated_at: nowIso,
   };
 }
 

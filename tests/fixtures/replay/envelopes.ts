@@ -21,46 +21,61 @@ const envelope = (result: unknown[], id = "fx-task"): ProviderEnvelope =>
   ({ status_code: 20000, status_message: "Ok.", cost: 0, tasks: [{ id, status_code: 20000, status_message: "Ok.", cost: 0, result }] });
 
 // ── the ChatGPT consumer look (llm_scraper task_get/advanced) ────────────────
+/** Field names anchored to docs.dataforseo.com/v3/ai_optimization/chat_gpt/llm_scraper/task_get/advanced
+ *  on 2026-07-31: the result carries `sources` (CITED), `search_results` (RETRIEVED, type
+ *  "chatgpt_search_result"), `brand_entities` (type "chat_gpt_brand_entity"), `fan_out_queries`, `markdown`,
+ *  `model`, `check_url` and `se_results_count`. There is NO web_search field on this endpoint. */
 export type ScraperOver = {
   keyword?: string; model?: string; markdown?: string; fanOut?: string[];
   /** CITED sources: the only thing parseScraper may turn into citations. */
-  sources?: { url: string; domain: string; title: string | null }[];
-  /** RETRIEVED but not cited. No parser reads this; nothing here may reach a citation. */
-  searchResults?: { url: string; domain: string; rank: number }[];
-  brandMentions?: { brand: string; sentiment: string }[];
+  sources?: { url: string; domain: string; title: string | null }[] | null;
+  /** RETRIEVED but not cited. A retrieved page may NEVER reach the citation list. */
+  searchResults?: { url: string; domain: string; title: string }[] | null;
+  /** The brands the engine itself named, verbatim from brand_entities. */
+  brandEntities?: { title: string; category: string }[] | null;
 };
 export const CITED_SOURCES = [
   { url: RIVAL_A, domain: "rival-a.example", title: "Kite Festival Traditions Explained" },
   { url: `https://${GAP_URL}`, domain: SITE, title: "Kite Festival" },
 ];
 export const RETRIEVED_ONLY = [
-  { url: "https://retrieved-only.example/kites", domain: "retrieved-only.example", rank: 1 },
-  { url: "https://second-retrieval.example/festivals", domain: "second-retrieval.example", rank: 2 },
+  { url: "https://retrieved-only.example/kites", domain: "retrieved-only.example", title: "Kites of the world" },
+  { url: "https://second-retrieval.example/festivals", domain: "second-retrieval.example", title: "Festival calendar" },
 ];
+export const BRAND_ENTITIES = [{ title: "Atlaspedia", category: "Reference" }, { title: "Rival A", category: "Travel" }];
 export function scraperAnswer(over: ScraperOver = {}): ProviderEnvelope {
+  const list = <T>(v: T[] | null | undefined, fallback: T[]) => (v === null ? undefined : (v ?? fallback));
   return envelope([{
     keyword: over.keyword ?? GAP_QUERY, type: "llm_scraper", se_domain: "chatgpt.com",
     location_code: 2840, language_code: "en", datetime: "2026-07-20 09:00:00 +00:00",
-    model: over.model ?? "gpt-4o-search",
+    model: over.model ?? "gpt-4o-search", check_url: "https://chatgpt.com/?q=kite%20festival%20traditions",
     fan_out_queries: over.fanOut ?? ["what happens at a kite festival", "kite festival food traditions"],
     markdown: over.markdown ?? "## Kite festival traditions\n\nFamilies fly kites at dawn, share flatbread, and set paper lanterns loose after dark.\n\n- Dawn flying\n- Shared meal\n- Lanterns at night",
-    sources: over.sources ?? CITED_SOURCES,
-    search_results: over.searchResults ?? RETRIEVED_ONLY,
-    brand_mentions: over.brandMentions ?? [{ brand: "Atlaspedia", sentiment: "neutral" }],
+    sources: list(over.sources, CITED_SOURCES)?.map((s) => ({ type: "chat_gpt_source", ...s, snippet: s.title, source_name: s.domain, publication_date: null })),
+    search_results: list(over.searchResults, RETRIEVED_ONLY)?.map((s) => ({ type: "chatgpt_search_result", ...s, description: s.title, breadcrumb: s.domain })),
+    brand_entities: list(over.brandEntities, BRAND_ENTITIES)?.map((b) => ({ type: "chat_gpt_brand_entity", ...b, markdown: `**${b.title}**`, urls: null })),
+    se_results_count: (over.searchResults ?? RETRIEVED_ONLY)?.length ?? 0,
   }]);
 }
 
 // ── the standardized ask (llm_responses task_get / live) ─────────────────────
 export type LlmOver = { model?: string; webSearch?: boolean | null; text?: string; fanOut?: string[] | null; annotations?: { title: string; url: string }[] };
-/** ONE shape for chatgpt, claude, gemini and perplexity: they differ in the REQUEST, never the response. */
+/** ONE shape for chatgpt, claude, gemini and perplexity: they differ in the REQUEST, never the response.
+ *  Anchored to docs.dataforseo.com/v3/ai_optimization/chat_gpt/llm_responses/live on 2026-07-31:
+ *  result[0] carries model_name, input_tokens, output_tokens, reasoning_tokens, web_search, money_spent,
+ *  datetime, items and fan_out_queries; an item is type "message" OR type "reasoning", and a section is
+ *  type "text" or "summary_text". This endpoint documents NO retrieval list and NO brand list. */
 export function llmAnswer(over: LlmOver = {}): ProviderEnvelope {
   const result: Record<string, unknown> = {
-    model_name: over.model ?? "gpt-4o-2024-08-06", input_tokens: 14, output_tokens: 96, money_spent: 0.03,
+    model_name: over.model ?? "gpt-4o-2024-08-06", input_tokens: 14, output_tokens: 96, reasoning_tokens: 32, money_spent: 0.03,
     datetime: "2026-07-20 09:05:00 +00:00",
-    items: [{ type: "message", sections: [{
-      type: "text", text: over.text ?? "Kite festivals usually open at dawn and close with paper lanterns.",
-      annotations: (over.annotations ?? [{ title: "Kite Festival Traditions Explained", url: RIVAL_A }]).map((a, i) => ({ ...a, start_index: i, end_index: i + 4, text: a.title })),
-    }] }],
+    items: [
+      // A reasoning item carries no answer and no citation: the parser must walk past it, never read it as text.
+      { type: "reasoning", sections: [{ type: "summary_text", text: "Checking what happens at a kite festival.", annotations: null }] },
+      { type: "message", sections: [{
+        type: "text", text: over.text ?? "Kite festivals usually open at dawn and close with paper lanterns.",
+        annotations: (over.annotations ?? [{ title: "Kite Festival Traditions Explained", url: RIVAL_A }]).map((a, i) => ({ ...a, start_index: i, end_index: i + 4, text: a.title })),
+      }] }],
   };
   if (over.webSearch !== null) result.web_search = over.webSearch ?? true;
   if (over.fanOut !== null) result.fan_out_queries = over.fanOut ?? ["kite festival opening times"];

@@ -52,10 +52,19 @@ export type FunnelPair = {
   /** LEGACY decode input only (pre-6I blobs): normalization derives mode from it
    *  (chatgpt scraper true = consumer_search) and nothing else may read it. */
   scraper?: boolean;
+  /** Which deliberate SAMPLE of this pair on one day this row is (0, 1 or 2). Absent = slot 0, so every
+   *  row stored before sampling existed keeps its identity. A new slot is a new observation, never a retry. */
+  slot?: number;
+  /** The version of the prompt text that was actually asked, so a reworded question never silently
+   *  overwrites the answers the old wording earned. Absent on rows stored before versioning. */
+  promptVersion?: number;
   cacheKey: string | null;
   status: "pending" | "posted" | "done" | "unsupported";
   /** Terminal-collect recoveries: ONE clean repost, then unsupported. */
   reposts?: number;
+  /** When the request that produced this row was actually made (a posted task keeps it across the free
+   *  collect), so the canonical observation records asked-at and answered-at as different moments. */
+  requestedAt?: string;
   observedAt?: string;
   modelRequested?: string | null;
   modelServed?: string | null;

@@ -63,6 +63,11 @@ export const PROMPT_REGISTRY = {
   // The new page brief (N4, 2026-07-28): the one call an EARNED create_new verdict
   // may make. It writes the page, never the decision that the page should exist.
   "draft.new_page_brief": 1,
+  // Reading one AI engine's answer back (2026-07-31, V1 Truth Convergence Phase
+  // 1): what it said, who it named, what it left out. It restates the answer and
+  // decides nothing, so the wording that forbids inventing is the whole contract
+  // and any change to it must bump this version.
+  "draft.answer_analysis": 1,
   // Registered schema kinds with no bespoke production prompt yet (P8 targets);
   // callStructuredLLM derives draft.<kind>, so they must resolve to a version.
   "draft.tool_asset": 1,

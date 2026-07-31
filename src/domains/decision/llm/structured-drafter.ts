@@ -546,8 +546,9 @@ function runContentFirewalls(
   // here and handled instead by the verification-aware superlative post-check
   // after source verification (a superlative IS allowed when a qualifying
   // verified source asserts it; an ungrounded one triggers ONE rephrase retry,
-  // then fails closed). The drafter passes this for `answer_block` only; every
-  // other kind keeps the byte-identical hard reject below.
+  // then fails closed). The drafter defers it for `answer_block` and for
+  // `answer_analysis`, which RESTATES somebody else's AI answer and may quote a
+  // superlative that answer used; every other kind keeps the hard reject below.
   opts?: { deferSuperlativeCheck?: boolean },
 ): { ok: true } | { ok: false; reason: string } {
   const blob = strings.join("  ");
@@ -835,8 +836,13 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     // W5 (J-69): the LLM may PROPOSE sources, but only source-authority.ts
     // decides `authority`, re-stamp before any firewall/cache/return step.
     const result = { ...parsed, data: stampAnySources(parsed.data, req.authoritativeSourceDomains) as typeof parsed.data };
+    // answer_analysis is a RESTATEMENT of somebody else's AI answer, never copy this
+    // product publishes, so the flat marketing-superlative reject does not apply to
+    // it: a verbatim "the best sushi in town" is the observed fact being recorded.
+    // The numeric firewall still applies, grounded on the answer text itself, so an
+    // invented figure is still caught.
     const fw = runContentFirewalls(draftProseStringValues(result.data), ledger, {
-      deferSuperlativeCheck: req.kind === "answer_block",
+      deferSuperlativeCheck: req.kind === "answer_block" || req.kind === "answer_analysis",
     });
     if (!fw.ok) {
       errors.push(`firewall:${fw.reason}`);

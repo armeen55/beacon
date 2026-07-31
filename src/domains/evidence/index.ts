@@ -111,5 +111,15 @@ export { fetchPageHtml } from "./competitor-intel/polite-fetch";
 // AI-visibility citation canonicalization
 export { canonicalizeCitationUrl } from "./ai-visibility/canonicalize-citation-url";
 
+// Full-fidelity AI observations: the canonical stored answer + its journey, and the
+// zero-cost re-analysis path over text that was already bought once.
+export type {
+  AiObservationRecord,
+  AiObservationStatus,
+  AiObservationView,
+  DueObservation,
+} from "./ai-visibility/ai-observations";
+export { persistAnswerAnalysis, readAiObservations, readAiObservationViews } from "./ai-visibility/ai-observations";
+
 // AI engines the tenant prompt library is tracked across (canonical union)
 export { ALL_ENGINES, type EngineId } from "./readers/engine-types";

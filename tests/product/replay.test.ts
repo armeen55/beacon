@@ -14,6 +14,7 @@ vi.mock("@/domains/decision/proposal-store", async () => ({ ...(await vi.importA
 vi.mock("@/domains/decision/produce-bundle", () => ({ produceBundleForSnapshot: async () => ({ status: "none", reason: "the deep bundle has its own suite" }) }));
 vi.mock("@/domains/account", async (orig) => ({ ...(await orig() as object), loadBusinessProfile: async () => null, getTenant: async () => ({ id: "replay-tenant", domain: "atlaspedia.example", growth_goal: null }), basisTag: () => "basis_replay" }));
 import type { Account } from "@/domains/account";
+import type { AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations";
 import { parseCapability, type CachedCallResult, type CapabilityKey, type ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { parsePageIntersection } from "@/domains/evidence/page-intersection";
 import { dominantPageType, freshnessAt, pageTypeVotesOf, SERP_FRESH_MS, type SerpRow } from "@/domains/evidence/serp-shape";
@@ -43,7 +44,11 @@ describe("fixture envelopes drive the REAL registry parsers", () => {
     expect(a.fanOutQueries).not.toContain(GAP_QUERY);
     expect(a.citations!.map((c) => c.url)).toEqual(fx.CITED_SOURCES.map((s) => s.url)); // CITED sources only
     for (const r of fx.RETRIEVED_ONLY) expect(JSON.stringify(a.citations)).not.toContain(r.domain); // retrieved and cited are different claims
-    expect([a.modelServed, a.webSearchReported, a.answerText!.includes("Dawn flying")]).toEqual(["gpt-4o-search", null, true]); // the whole markdown answer, and no invented web-search claim
+    expect(a.retrievedResults!.map((r) => r.domain)).toEqual(fx.RETRIEVED_ONLY.map((r) => r.domain)); // retrieved pages are KEPT, on their own channel
+    expect(a.brandMentions).toEqual(["Atlaspedia", "Rival A"]); // the brands the engine itself named
+    expect([a.modelServed, a.webSearchReported, a.answerText!.includes("Dawn flying")]).toEqual(["gpt-4o-search", true, true]); // the whole markdown answer, and web results really in hand
+    const dry = parsed("llm_scraper_chatgpt", fx.scraperAnswer({ sources: null, searchResults: null, brandEntities: null }));
+    expect([dry.citations, dry.retrievedResults, dry.brandMentions, dry.webSearchReported]).toEqual([null, null, null, null]); // this endpoint reports no web-search flag, so silence stays silence
   });
   it("reads one standardized answer shape for all four engines, and keeps not-observable apart from observed-zero", () => {
     const four = (["llm_chatgpt", "llm_claude", "llm_gemini", "llm_perplexity"] as const).map((k) => parsed(k, fx.llmAnswer()));
@@ -103,11 +108,13 @@ const replayProvider: NonNullable<FunnelDeps["callProvider"]> = async (cap: Capa
   if (cap.startsWith("serp_")) return evidenceOf(fx.serpOrganic({ keyword: kw }), `ck-serp-${kw}`);
   return evidenceOf(fx.keywordBatch([{}, { keyword: WINNER_QUERY, volume: 900, intent: "commercial" }, { keyword: "kite festival food", volume: 480 }]), `ck-${cap}`);
 };
-async function replayFunnel(): Promise<{ evidence: FunnelResearchEvidence; statuses: string[] }> {
+async function replayFunnel(): Promise<{ evidence: FunnelResearchEvidence; statuses: string[]; observed: AiObservationRecord[] }> {
   const store = fx.memFunnelStore();
+  const observed: AiObservationRecord[] = [];
   const deps: FunnelDeps = { ...store.deps, callProvider: replayProvider, keywordIdeas: async () => [], now: () => NOW_MS,
     loadProfile: async () => fx.replayProfile(), getAccount: async () => ({ domain: SITE } as Account), loadCrawl: async () => null,
-    loadActivePrompts: async () => PROMPTS, syncHistory: async () => {}, collectTask: async () => evidenceOf(fx.llmAnswer(), "ck-collect"),
+    loadActivePrompts: async () => PROMPTS, syncHistory: async () => {}, recordObservation: async (rec) => { observed.push(rec); },
+    collectTask: async () => evidenceOf(fx.llmAnswer(), "ck-collect"),
     loadPageQueries: async () => fx.agendaFromDecay([{ decay: fx.gscGain(), queries: [{ query: WINNER_QUERY, impressions: 25000, clicks: 2365, position: 4 }] },
       { decay: fx.gscDecline(), queries: [{ query: GAP_QUERY, impressions: 6000, clicks: 180, position: 4.1 }] }]) };
   const cursor = { basis: BASIS };
@@ -116,7 +123,7 @@ async function replayFunnel(): Promise<{ evidence: FunnelResearchEvidence; statu
   const state = store.peek()!;
   // The winners are the SAME fixture bodies, read through the SAME parser: one readable, one the publisher refused.
   state.winningPages = [fx.winningPage(RIVAL_A, GAP_QUERY, parsed("onpage_content_parsing", fx.competitorPageBody())), fx.blockedWinner("https://rival-b.example/blog/spring-kites", GAP_QUERY)];
-  return { evidence: projectFunnelEvidence(state, NOW_MS), statuses };
+  return { evidence: projectFunnelEvidence(state, NOW_MS), statuses, observed };
 }
 
 describe("the replay drives the REAL funnel executors, not a mock of them", () => {
@@ -134,6 +141,17 @@ describe("the replay drives the REAL funnel executors, not a mock of them", () =
     expect([serp.organic.find((o) => o.domain === SITE)!.rank, serp.paa.length, serp.related.length, serp.aiOverview.length]).toEqual([6, 2, 3, 2]);
     expect(evidence.winningPages.map((w) => [w.extract !== null, w.readOutcome?.state ?? null])).toEqual([[true, null], [false, "robots_blocked"]]); // a body in hand, and one honestly refused
     expect(evidence.receipt.retained).toBeGreaterThan(0);
+  });
+  it("stores the consumer answer WHOLE: the full text, the journey, the receipt and the identity of what it was read from", async () => {
+    const { observed } = await replayFunnel();
+    const consumer = observed.find((o) => o.observation_mode === "consumer_search" && o.status === "observed")!;
+    expect([consumer.engine, consumer.site, consumer.reporting_day, consumer.sample_slot]).toEqual(["chatgpt", SITE, "2026-07-21", 0]);
+    expect(consumer.answer_text).toBe(parsed("llm_scraper_chatgpt", fx.scraperAnswer()).answerText); // the ANSWER, not a hash of one
+    expect(consumer.journey.cited_sources!.map((c) => c.domain)).toEqual(["rival-a.example", SITE]);
+    expect(consumer.journey.retrieved_results!.map((r) => r.domain)).toEqual(fx.RETRIEVED_ONLY.map((r) => r.domain)); // read and not credited, kept apart from cited
+    expect([consumer.journey.brand_mentions, consumer.journey.fan_outs!.length, consumer.journey.web_search_reported]).toEqual([["Atlaspedia", "Rival A"], 2, true]);
+    expect([consumer.cache_key, consumer.cost_usd, consumer.analysis]).toEqual(["ck-scraper", 0.01, null]); // the envelope it came from, what it cost, and no verdict yet
+    expect(consumer.prompt_text).toBe(PROMPTS[0]!.text);
   });
   it("checks the search that is SLIPPING before the one that is climbing", async () => {
     const { evidence } = await replayFunnel();

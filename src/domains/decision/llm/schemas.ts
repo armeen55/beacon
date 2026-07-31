@@ -20,15 +20,7 @@ import { BusinessProfileInferenceSchema, BusinessProfilePatchSchema, PromptCandi
 /** Where a claim is grounded — points at a real signal/source the team read.
  *  `source` mirrors the EvidenceRef sources used by the specialist layer. */
 export const EvidenceRefSchema = z.object({
-  source: z.enum([
-    "gsc",
-    "ga4",
-    "clarity",
-    "dataforseo",
-    "competitor_teardown",
-    "owned_snapshot",
-    "fanout",
-  ]),
+  source: z.enum(["gsc", "ga4", "clarity", "dataforseo", "competitor_teardown", "owned_snapshot", "fanout"]),
   detail: z.string().min(1).max(300),
 });
 export type EvidenceRef = z.infer<typeof EvidenceRefSchema>;
@@ -376,6 +368,29 @@ export const NewPageBriefSchema = z.object({
   faqQuestions: z.array(z.string().min(5).max(200)).max(6),
 });
 export type NewPageBrief = z.infer<typeof NewPageBriefSchema>;
+
+// ── answer analysis (V1 Truth Convergence Phase 1, 2026-07-31) ──────────────
+// What one AI engine's answer to one tracked question ACTUALLY said. The model here
+// is a READER, never an author: every claim carries the answer's own wording, every
+// entity and competitor is one the answer named, and no URL, number, ranking or fact
+// may appear that the answer text does not contain. Nothing in this shape is ever
+// published; it is the evidence a later decision reads. `position` is an ORDINAL
+// within the answer (1 = named first), never a search rank.
+export const AnswerAnalysisSchema = z.object({
+  sections: z.array(z.object({ heading: z.string().min(1).max(200), covers: z.string().min(1).max(600) })).max(12),
+  /** Each claim restated in the ANSWER'S OWN WORDING, plus what it is about. */
+  claims: z.array(z.object({ subject: z.string().min(1).max(160), text: z.string().min(1).max(400) })).max(24),
+  topicEntities: z.array(z.string().min(1).max(120)).max(30),
+  /** Was the account's own brand named, where in the answer, and in what light. */
+  ownedBrandMention: z.object({ mentioned: z.boolean(), position: z.number().int().min(1).max(100).nullable(), context: z.string().max(400).nullable() }),
+  competitors: z.array(z.object({ name: z.string().min(1).max(160), position: z.number().int().min(1).max(100).nullable() })).max(20),
+  contentTypesRecommended: z.array(z.string().min(1).max(80)).max(12),
+  questionsAnswered: z.array(z.string().min(1).max(300)).max(15),
+  /** What this answer leaves a reader still not knowing. Named, never invented. */
+  materialOmissions: z.array(z.string().min(1).max(300)).max(10),
+  caveats: z.array(z.string().min(1).max(300)).max(10),
+});
+export type AnswerAnalysis = z.infer<typeof AnswerAnalysisSchema>;
 // ── registry: kind → schema (the structured-drafter dispatches on this) ──────
 
 export type StructuredDraftKind =
@@ -389,7 +404,7 @@ export type StructuredDraftKind =
   | "strategy_review"
   | "section_draft"
   | "outreach_pitch"
-  | "coverage_adjudication" | "new_page_brief"
+  | "coverage_adjudication" | "new_page_brief" | "answer_analysis"
   | "business_profile_inference" | "business_profile_patch" | "prompt_candidates";
 
 export const SCHEMA_BY_KIND = {
@@ -405,6 +420,7 @@ export const SCHEMA_BY_KIND = {
   outreach_pitch: OutreachPitchSchema,
   coverage_adjudication: CoverageAdjudicationSchema,
   new_page_brief: NewPageBriefSchema,
+  answer_analysis: AnswerAnalysisSchema,
   business_profile_inference: BusinessProfileInferenceSchema,
   business_profile_patch: BusinessProfilePatchSchema,
   prompt_candidates: PromptCandidatesSchema,
@@ -429,18 +445,13 @@ export type FaqPairs = z.infer<typeof FaqPairsSchema>;
 /** CTR Title Lab variants (demand-graph/ctr-title-scorer.ts - deterministic today,
  *  registered so any future LLM-generated variant list validates the same shape). */
 export const TitleVariantsSchema = z.object({
-  variants: z
-    .array(
-      z.object({
-        title: z.string().min(3).max(200),
-        score: z.number(),
-        signals: z.array(z.string().min(1).max(120)).max(12).default([]),
-        strategy: z.string().min(1).max(60).optional(),
-        reason: z.string().min(1).max(300).optional(),
-      }),
-    )
-    .min(1)
-    .max(12),
+  variants: z.array(z.object({
+    title: z.string().min(3).max(200),
+    score: z.number(),
+    signals: z.array(z.string().min(1).max(120)).max(12).default([]),
+    strategy: z.string().min(1).max(60).optional(),
+    reason: z.string().min(1).max(300).optional(),
+  })).min(1).max(12),
 });
 export type TitleVariants = z.infer<typeof TitleVariantsSchema>;
 
@@ -452,17 +463,12 @@ const JudgeChangeSchema = z.object({
   evidence: z.string().max(2000).default(""),
   hypothesis: z.string().max(1000).default(""),
   risk: z.string().max(1000).default(""),
-  before_after: z
-    .object({ before: z.string().nullable().default(null), after: z.string().nullable().default(null) })
-    .default({ before: null, after: null }),
+  before_after: z.object({ before: z.string().nullable().default(null), after: z.string().nullable().default(null) }).default({ before: null, after: null }),
   measurement: z.string().max(1000).default(""),
   rollback: z.string().max(1000).default(""),
   dependency_order: z.number().int().default(1),
   artifact_text: z.string().max(6000).nullable().default(null),
-  faq_items: z
-    .array(z.object({ question: z.string().min(1), answer: z.string().min(1) }))
-    .nullable()
-    .default(null),
+  faq_items: z.array(z.object({ question: z.string().min(1), answer: z.string().min(1) })).nullable().default(null),
 });
 export const JudgeVerdictSchema = z.object({
   diagnosis: z.object({
@@ -474,10 +480,7 @@ export const JudgeVerdictSchema = z.object({
   primary_atomic_change: JudgeChangeSchema.nullable(),
   supporting_atomic_changes: z.array(JudgeChangeSchema).max(12).default([]),
   rejected_changes: z.array(z.object({ action: z.string(), reason: z.string() })).max(20).default([]),
-  wording_research: z
-    .array(z.object({ variant: z.string(), evidence: z.string().default(""), best_placement: z.string().default("") }))
-    .max(20)
-    .default([]),
+  wording_research: z.array(z.object({ variant: z.string(), evidence: z.string().default(""), best_placement: z.string().default("") })).max(20).default([]),
   confidence: z.enum(["high", "medium", "low", "needs_more_evidence"]),
   operator_insight: z.string().max(2000).default(""),
   what_normal_seo_misses: z.string().max(2000).default(""),
@@ -515,24 +518,16 @@ export type CriticReviewShape = z.infer<typeof CriticReviewSchema>;
 
 /** Synthetic SERP hypothesis (page-surgeon/serp-hypothesis.ts raw JSON contract). */
 export const SerpHypothesisSchema = z.object({
-  queries: z
-    .array(
-      z.object({
-        query: z.string().min(1).max(300),
-        likely_features: z.array(z.string().min(1).max(40)).max(10).default([]),
-        feature_likely_owns_answer: z.boolean(),
-        click_loss_cause: z.string().max(500).default(""),
-        confidence: z.enum(["low", "medium"]),
-        rationale: z.string().max(500).default(""),
-        recommended_check: z.string().max(500).default(""),
-      }),
-    )
-    .min(1)
-    .max(10),
-  overall: z.object({
+  queries: z.array(z.object({
+    query: z.string().min(1).max(300),
+    likely_features: z.array(z.string().min(1).max(40)).max(10).default([]),
     feature_likely_owns_answer: z.boolean(),
-    summary: z.string().max(1000).default(""),
-  }),
+    click_loss_cause: z.string().max(500).default(""),
+    confidence: z.enum(["low", "medium"]),
+    rationale: z.string().max(500).default(""),
+    recommended_check: z.string().max(500).default(""),
+  })).min(1).max(10),
+  overall: z.object({ feature_likely_owns_answer: z.boolean(), summary: z.string().max(1000).default("") }),
 });
 export type SerpHypothesisShape = z.infer<typeof SerpHypothesisSchema>;
 

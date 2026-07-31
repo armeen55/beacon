@@ -1,7 +1,7 @@
 "use server";
 
 import { log } from "@/lib/logger";
-import { warmFreeSurfaces } from "@/domains/runtime";
+import { requestExtraSample, utcReportingDay, warmFreeSurfaces } from "@/domains/runtime";
 import {
   getConnectorInfo,
   getGoogleConnectorToken,
@@ -1189,6 +1189,14 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
       warmFreeSurfaces(tenantId).catch(() => {}),
       new Promise<void>((resolve) => setTimeout(resolve, WARM_AFTER_REFRESH_DEADLINE_MS)),
     ]);
+
+    // Pressing Update data IS the ask for a second reading of today's AI answers. The
+    // planner answers honestly: it refuses while today's one canonical round is still
+    // owed (an extra read of a few questions would tilt the day's average) and refuses
+    // once every pair already has three. No new button, no new surface: the verdict is
+    // internal truth and the granted extra readings are planned on the next pass.
+    const extra = await requestExtraSample(tenantId, utcReportingDay(Date.now())).catch(() => null);
+    if (extra) log.info("Action extra AI reading", { action, granted: extra.granted, due: extra.due.length, reason: extra.reason });
 
     revalidatePath("/");
     revalidatePath("/settings/connectors");

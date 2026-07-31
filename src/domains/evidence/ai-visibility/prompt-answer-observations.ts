@@ -119,20 +119,3 @@ export type PromptAnswerObservation = {
   citation_urls?: string[] | null;
 };
 
-/** Citation domain classes emitted by classifyCitationDomains. */
-export type CitationDomainClass =
-  | "owned"
-  | "competitor"
-  | "directory"
-  | "news"
-  | "review"
-  | "social"
-  | "other";
-
-/** Answer structure enum values emitted by extractAnswerStructure. */
-export type AnswerStructure =
-  | "ranked_list"
-  | "bullet_list"
-  | "narrative"
-  | "comparison"
-  | "mixed";

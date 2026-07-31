@@ -14,6 +14,16 @@ import "server-only";
  * "superseded:<oldRowId>" tag while the old row stays as inactive history. A row
  * WITHOUT the core tag is never touched: legacy seed rows are somebody else's
  * history, not my tracked set.
+ *
+ * VERSION rule (2026-07-31, V1 Truth Convergence): a tracked question is a
+ * measurement series, and `version` is which series an observation belongs to.
+ * Any wording edit, any change to the engines a question is asked on, and any
+ * add or revival of a question starts a NEW series, so it bumps the version and
+ * the daily planner treats (prompt id, version, engine, day) as a fresh identity
+ * from that day on. Nothing is backfilled across the seam: the old series keeps
+ * its rows and the trend line breaks where the question changed, instead of
+ * bending through a discontinuity nobody can see. Dropping a question does NOT
+ * bump (it just stops); bringing it back does, because the gap is real.
  */
 
 import { createHash } from "node:crypto";
@@ -23,6 +33,10 @@ export type TrackedPromptRow = {
   id: string; tenant_id: string; account_id: string; text: string;
   topic_id: string | null; location_scope: string | null; service_scope: string | null;
   intent_type: string; platforms: string[]; tags: string[]; is_active: boolean;
+  /** Measurement series number (migration 2026-07-31). Always >= 1. */
+  version: number;
+  /** True only for the operator's approved set; mirrors the core_v1 tag. */
+  core: boolean;
   created_at: string; updated_at: string;
 };
 
@@ -44,13 +58,32 @@ export function promptIdFor(tenantId: string, basis: string, text: string): stri
 /** BASIS-AGNOSTIC projection: exactly the rows defaultActivePrompts hands the
  *  research funnel (active + core-tagged, created_at then id, capped at 100), so
  *  the list the operator reads and the list I check can never disagree. */
-export function projectTrackedQuestions(rows: readonly TrackedPromptRow[]): { active: { id: string; text: string }[]; count: number } {
+export function projectTrackedQuestions(rows: readonly TrackedPromptRow[]): { active: TrackedQuestion[]; count: number } {
   const active = rows
     .filter((r) => r.is_active && r.tags?.includes(PROMPT_TAGS.core) && Boolean(r.id) && Boolean(r.text))
     .sort((a, b) => (a.created_at === b.created_at ? a.id.localeCompare(b.id) : String(a.created_at).localeCompare(String(b.created_at))))
     .slice(0, LIMITS.maxActive)
-    .map((r) => ({ id: r.id, text: r.text }));
+    .map((r) => ({ id: r.id, text: r.text, version: versionOf(r), core: true, createdAt: String(r.created_at ?? "") }));
   return { active, count: active.length };
+}
+
+/** One approved question as the daily planner reads it: which series it is on
+ *  (version) and when it first appeared (the oldest-first tiebreak). */
+export type TrackedQuestion = { id: string; text: string; version: number; core: boolean; createdAt: string };
+
+/** A row written before the version column existed reads as series 1. */
+const versionOf = (r: { version?: number | null }): number =>
+  Number.isFinite(r.version) && (r.version as number) >= 1 ? Math.trunc(r.version as number) : 1;
+
+/** Does this save start a NEW measurement series for a row that already exists?
+ *  Changed wording, a changed engine set, or a revival from inactive all do; an
+ *  untouched keep does not. A brand new id starts at series 1. */
+function nextVersion(existing: TrackedPromptRow | undefined, text: string, platforms: readonly string[]): number {
+  if (!existing) return 1;
+  const current = versionOf(existing);
+  const reworded = normalizePromptText(existing.text) !== normalizePromptText(text);
+  const enginesChanged = [...(existing.platforms ?? [])].sort().join("|") !== [...platforms].sort().join("|");
+  return reworded || enginesChanged || existing.is_active === false ? current + 1 : current;
 }
 
 type TrackedSelection = { keepIds: string[]; edits: { id: string; newText: string }[]; additions: string[] };
@@ -62,13 +95,18 @@ type TrackedOutcome =
 /** Mint (or revive) the current-basis row for one wording, carrying an existing
  *  row's tags/topic forward so a saved question never loses what it already was. */
 function mintRow(existing: TrackedPromptRow | undefined, source: TrackedPromptRow | null, id: string, text: string, ctx: TrackedCtx, kindTags: string[]): TrackedPromptRow {
+  const platforms = [...ALL_ENGINES];
   return {
     id, tenant_id: ctx.tenantId, account_id: ctx.tenantId, text: text.trim(),
     topic_id: existing?.topic_id ?? source?.topic_id ?? null, location_scope: null, service_scope: null,
     intent_type: existing?.intent_type ?? source?.intent_type ?? "category",
-    platforms: [...ALL_ENGINES],
+    platforms,
     tags: [...new Set([...(existing?.tags ?? []), PROMPT_TAGS.core, ...kindTags, ctx.basis])],
     is_active: true,
+    // A reused id whose wording, engines, or active life changed starts a new
+    // measurement series; the planner then asks it as a fresh identity tomorrow.
+    version: nextVersion(existing, text, platforms),
+    core: true,
     created_at: existing?.created_at ?? ctx.nowIso,
     updated_at: ctx.nowIso,
   };
@@ -92,7 +130,9 @@ export function applyTrackedSelection(rows: readonly TrackedPromptRow[], input: 
 
   const hold = (r: TrackedPromptRow) => {
     active.add(r.id);
-    if (!r.is_active) writes.set(r.id, { ...r, is_active: true, updated_at: ctx.nowIso });
+    // A revival is a real gap in the series, so it starts a new one. An
+    // already-active keep is untouched: same id, same version, same history.
+    if (!r.is_active) writes.set(r.id, { ...r, is_active: true, core: true, version: versionOf(r) + 1, updated_at: ctx.nowIso });
   };
   // 1. Kept wording: SAME row, SAME id, untouched. This is the continuity rule.
   for (const r of coreRows) {
@@ -112,7 +152,7 @@ export function applyTrackedSelection(rows: readonly TrackedPromptRow[], input: 
     seen.add(norm);
     if (norm === normalizePromptText(src.text)) { hold(src); continue; }
     const id = promptIdFor(ctx.tenantId, ctx.basis, norm);
-    writes.set(src.id, { ...src, is_active: false, updated_at: ctx.nowIso });
+    writes.set(src.id, { ...src, is_active: false, core: true, version: versionOf(src), updated_at: ctx.nowIso });
     writes.set(id, mintRow(byId.get(id), src, id, e.newText, ctx, [PROMPT_TAGS.edited, `superseded:${src.id}`]));
     active.add(id);
   }
@@ -128,8 +168,10 @@ export function applyTrackedSelection(rows: readonly TrackedPromptRow[], input: 
   }
   // 4. Anything this selection dropped stops being tracked. Rows without the core
   //    tag are never in coreRows, so a legacy seed row is never written at all.
+  //    Stopping does NOT bump the version: the series simply ends here. Bringing
+  //    the question back later is what starts the next one (see hold).
   for (const r of coreRows) {
-    if (r.is_active && !active.has(r.id) && !writes.has(r.id)) writes.set(r.id, { ...r, is_active: false, updated_at: ctx.nowIso });
+    if (r.is_active && !active.has(r.id) && !writes.has(r.id)) writes.set(r.id, { ...r, is_active: false, core: true, version: versionOf(r), updated_at: ctx.nowIso });
   }
 
   const activeCount = active.size;
@@ -142,7 +184,7 @@ export function applyTrackedSelection(rows: readonly TrackedPromptRow[], input: 
  *  recommended when nothing is tracked yet (so the zero state has a one-click fix).
  *  `unknown: true` means the read FAILED: the caller must stay silent, never claim
  *  zero (a false zero arms the one-click recovery that replaces the live set). */
-export async function readTrackedQuestions(tenantId: string): Promise<{ active: { id: string; text: string }[]; count: number; recommended: string[]; unknown?: boolean }> {
+export async function readTrackedQuestions(tenantId: string): Promise<{ active: TrackedQuestion[]; count: number; recommended: string[]; unknown?: boolean }> {
   const failed = { active: [], count: 0, recommended: [], unknown: true as const };
   try {
     const admin = (await import("@/lib/persistence/supabase")).getSupabaseAdmin();
@@ -171,6 +213,35 @@ export async function readTrackedQuestions(tenantId: string): Promise<{ active: 
     return { active, count, recommended };
   } catch {
     return failed;
+  }
+}
+
+/**
+ * THE daily planner's read: the approved questions with the series each one is
+ * currently on. Same predicate and same ordering as the funnel, so what the
+ * operator sees listed, what I check, and what I chart can never disagree.
+ * `null` means the READ FAILED; a caller must not treat that as "no questions".
+ * The retry without version/core covers the window between a deploy and its
+ * migration: those rows read as series 1 and core-by-tag, which is exactly what
+ * the migration's own defaults and backfill would have written.
+ */
+export async function readActiveTrackedPrompts(tenantId: string): Promise<TrackedQuestion[] | null> {
+  const run = async (cols: string) => {
+    const admin = (await import("@/lib/persistence/supabase")).getSupabaseAdmin();
+    return admin
+      .from("tracked_prompts")
+      .select(cols)
+      .eq("tenant_id", tenantId).eq("is_active", true).contains("tags", JSON.stringify([PROMPT_TAGS.core]))
+      .order("created_at", { ascending: true }).order("id", { ascending: true })
+      .limit(LIMITS.maxActive);
+  };
+  try {
+    let res = await run("id,text,tags,is_active,created_at,version,core");
+    if (res.error) res = await run("id,text,tags,is_active,created_at");
+    if (res.error) return null;
+    return projectTrackedQuestions((res.data ?? []) as unknown as TrackedPromptRow[]).active;
+  } catch {
+    return null;
   }
 }
 

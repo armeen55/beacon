@@ -442,18 +442,20 @@ function parseLlmAnswer(env: ProviderEnvelope): ParsedAiAnswer {
       for (const a of sec.annotations as Record<string, unknown>[]) { const url = String(a.url ?? ""); if (url) citations.push({ url, domain: hostname(url), title: str(a.title) }); }
     }
   }
-  return {
-    answerText: texts.length ? texts.join("\n") : null, modelServed: str(result0?.model_name),
-    webSearchReported: web, citations, fanOutQueries: arrStr(result0?.fan_out_queries),
-  };
+  // llm_responses documents NEITHER a retrieval list nor a brand list (llm_responses live + task_get, all four engines, 2026-07-31): not observable here reads null, never an observed empty.
+  return { answerText: texts.length ? texts.join("\n") : null, modelServed: str(result0?.model_name), webSearchReported: web, citations, fanOutQueries: arrStr(result0?.fan_out_queries), retrievedResults: null, brandMentions: null };
 }
+/** llm_scraper carries the WHOLE consumer journey and keeps its three claims apart: `sources` are the CITED pages, `search_results` are pages retrieved and NOT credited, `brand_entities` are the brands it named
+ *  itself. It reports NO web_search field, so the only honest evidence the ask reached the web is web results actually in hand; nothing returned at all reads null, never a claimed false. (docs: task_get/advanced, 2026-07-31) */
 function parseScraper(env: ProviderEnvelope): ParsedAiAnswer {
   const { result0 } = resultBlock(env);
-  const sources = Array.isArray(result0?.sources) ? (result0!.sources as Record<string, unknown>[]) : null;
+  const citations = links(result0?.sources), retrievedResults = links(result0?.search_results);
+  const brands = Array.isArray(result0?.brand_entities) ? (result0!.brand_entities as Record<string, unknown>[]) : null;
   return {
-    answerText: str(result0?.markdown), modelServed: str(result0?.model), webSearchReported: null,
-    citations: sources ? sources.map((s) => ({ url: String(s.url ?? ""), domain: String(s.domain ?? hostname(String(s.url ?? ""))), title: str(s.title) })).filter((c) => c.url.length > 0) : null,
+    answerText: str(result0?.markdown), modelServed: str(result0?.model), citations, retrievedResults,
+    webSearchReported: (citations?.length ?? 0) + (retrievedResults?.length ?? 0) > 0 ? true : null,
     fanOutQueries: arrStr(result0?.fan_out_queries),
+    brandMentions: brands ? brands.map((b) => str(b.title) ?? "").filter((t) => t.length > 0) : null,
   };
 }
 /** on_page content_parsing -> the SAME extract a directly read winner carries, so a page read through the
@@ -485,6 +487,10 @@ function num(v: unknown): number | null { return typeof v === "number" && Number
 function level(v: unknown): "low" | "medium" | "high" | null { const s = typeof v === "string" ? v.toLowerCase() : ""; return s === "low" || s === "medium" || s === "high" ? s : null; }
 function str(v: unknown): string | null { return typeof v === "string" && v.length > 0 ? v : null; }
 function arrStr(v: unknown): string[] | null { return Array.isArray(v) ? v.map((x) => String(x)).filter((s) => s.length > 0) : null; }
+/** A provider list of web pages -> the ONE link shape every observation keeps. null = the provider sent no such list. */
+function links(v: unknown): { url: string; domain: string; title: string | null }[] | null {
+  return Array.isArray(v) ? (v as Record<string, unknown>[]).map((s) => { const url = String(s.url ?? ""); return { url, domain: String(s.domain ?? hostname(url)), title: str(s.title) }; }).filter((c) => c.url.length > 0) : null;
+}
 function hostname(url: string): string { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } }
 function canonicalUrl(url: string): string { try { const u = new URL(url); u.hash = ""; return u.toString(); } catch { return url.trim(); } }
 function sha256(s: string): string { return createHash("sha256").update(s).digest("hex"); }

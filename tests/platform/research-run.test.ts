@@ -91,6 +91,7 @@ const BENIGN: ResearchCycleSteps = {
   currentBasis: async () => "basis_test", // the account basis the funnel scopes to
   publishSurface: async () => {},
   surfaceStale: async () => false,
+  analyzeAnswers: async () => 0, // no new answers to read back in these lease/truth tests
 };
 /** Healthy logging stub: each step logs its name so phase ordering is observable. */
 const healthySteps = (log: string[]): Partial<ResearchCycleSteps> => ({
@@ -325,7 +326,7 @@ describe("research-run conflict-free research closure", () => {
     const pre = emptyFunnelState(T, "basis_test"); pre.cycle = { runId: "prev-run", cycleKey: "prev", spentUsd: 1.82, cacheHits: 0 }; // the PREVIOUS run's receipt
     const live = { state: structuredClone(pre), rowVersion: 18 }; const seen: Record<string, unknown>[] = []; const bought = new Set<string>(); let loads = 0, paid = 0;
     const answer = { answerText: "hi", modelServed: null, webSearchReported: null, citations: [], fanOutQueries: null, brands: null };
-    const deps: FunnelDeps = { loadActivePrompts: async () => [{ id: "p1", text: "best persian restaurant" }], syncHistory: async () => {}, now: () => NOW, parse: ((_c: unknown, env: unknown) => env) as FunnelDeps["parse"],
+    const deps: FunnelDeps = { loadActivePrompts: async () => [{ id: "p1", text: "best persian restaurant" }], syncHistory: async () => {}, recordObservation: async () => {}, getAccount: async () => null, now: () => NOW, parse: ((_c: unknown, env: unknown) => env) as FunnelDeps["parse"],
       loadState: async () => (loads++ < staleLoads ? { state: structuredClone(pre), rowVersion: 18 } : { state: structuredClone(live.state), rowVersion: live.rowVersion }),
       saveState: async (_t, _b, s, expected) => { if (expected !== live.rowVersion) return null; live.state = structuredClone(s); live.rowVersion = expected + 1; return live.rowVersion; },
       // Cache identity makes any retry $0: a capability already bought comes back as a hit, never a second paid post.
@@ -355,6 +356,14 @@ describe("research-run conflict-free research closure", () => {
     const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests({ ...repo, renew: async () => false }); rows.push(mk({ current_phase: "prompt_observations" })); let ran = false; // a lost lease aborts BEFORE the side effect
     await run({ funnelUnit: async () => (ran = true, { status: "done", cursor: null, progress: {} }) });
     expect([ran, rows[0]!.last_error]).toEqual([false, null]); }); // the unit never ran and nothing was recorded
+  it("reads the new answers back on the observation phase only, records what persisted, and never turns a read-back failure into a pause", async () => {
+    const seen: Array<[string, string]> = []; const rows = withRun();
+    await run({ analyzeAnswers: async (t, day) => (seen.push([t, day]), 2) });
+    expect(seen).toEqual([[T, ckey(T).slice(-10)]]); // once, on prompt_observations, for the run's own UTC day
+    expect([rows[0]!.status, rows[0]!.progress.funnel?.answersAnalyzed]).toEqual(["completed", 2]);
+    const failed = withRun(); // the answers are already safely stored, so a read-back that throws must not pause the run
+    await run({ analyzeAnswers: async () => { throw new Error("openai down"); } });
+    expect([failed[0]!.status, failed[0]!.progress.funnel?.answersAnalyzed]).toEqual(["completed", undefined]); });
 });
 describe("research-run fail-closed + render path", () => {
   it("fails closed when the claim RPC throws, throws on an empty tenant before any I/O, and runs no phase on the render path", async () => {

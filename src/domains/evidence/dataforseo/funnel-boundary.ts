@@ -89,6 +89,13 @@ export type ParsedAiAnswer = {
   citations: { url: string; domain: string; title: string | null }[] | null;
   /** null = not observable on this path. */
   fanOutQueries: string[] | null;
+  /** Pages the engine RETRIEVED and did NOT cite (llm_scraper search_results). Kept
+   *  strictly apart from citations: "it read this" and "it credited this" are
+   *  different claims. null = not observable on this path; [] = observed zero. */
+  retrievedResults: { url: string; domain: string; title: string | null }[] | null;
+  /** Brands the provider itself named in the answer (llm_scraper brand_entities),
+   *  never a name we matched ourselves. null = not observable; [] = observed zero. */
+  brandMentions: string[] | null;
 };
 export type ParsedByCapability = {
   labs_keywords_for_site: ParsedKeywordItem[];

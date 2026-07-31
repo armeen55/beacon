@@ -25,6 +25,10 @@ export {
 // Cache warming (used by the connectors "Update data" action + the publish phase)
 export { warmFreeSurfaces } from "./ops/warm-caches";
 
+// The daily AI-answer plan: one canonical reading per question, per engine, per
+// UTC day. The "Update data" action asks the extra-sample gate for a verdict.
+export { requestExtraSample, utcReportingDay } from "./ops/daily-observations";
+
 // Onboarding facade (Slice 5) - the seven-step /onboard flow's command surface.
 export {
   loadOnboardingState,
