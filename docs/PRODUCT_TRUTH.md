@@ -215,8 +215,8 @@ The default recommendation is based on available evidence, but the user decides.
 ### Step 5: Topics and AI prompts
 
 Beacon generates a broad prompt candidate universe, organizes it into understandable topic groups, and
-recommends 50 core prompts. The user can approve the recommendation by group, edit exceptions, add prompts,
-or remove prompts. The user is never required to review 150 individual rows.
+recommends 20 to 50 core prompts. The user approves the recommendation by group, edits exceptions, adds
+prompts, or removes prompts. The user is never required to review 150 individual rows.
 
 ### Step 6: Optional connections
 
@@ -234,18 +234,18 @@ Beacon maintains two deliberately different sets.
 
 ### Core tracking prompts
 
-- Start with 50.
+- Start with 20 to 50 operator-approved prompts.
 - Represent the account's most important category, problem, comparison, commercial, factual, trust, and
   brand questions.
 - Run repeatedly across supported AI engines so movement is comparable over time.
 - Remain stable unless evidence supports a deliberate replacement.
 - Every addition, removal, or wording change is versioned so trend discontinuities are visible.
 
-Beacon targets seven-day freshness for every core prompt and engine pair and never refreshes a pair that
-is still fresh. Research Runs refresh stale pairs by prompt importance and oldest observation first, within
-per-run and monthly spend caps. If the cap prevents a complete sweep, Beacon shows the exact checked
-coverage and staleness rather than implying full coverage. A fixed sweep cost must not be promised until it
-has been benchmarked against the pinned models using actual provider cost receipts.
+Core prompts are tracked daily on active account days. One canonical daily sample per prompt and engine
+begins automatically on the first authenticated visit of the account's reporting day; a day the app is
+never opened records no observation and is never fabricated or backfilled. The existing Update data control
+may request up to two additional same-day samples after the canonical one, labeled sample 2 and sample 3;
+they measure volatility and never pretend to be separate days. Cost is proven by actual provider receipts.
 
 ### Research queries
 
@@ -256,7 +256,7 @@ has been benchmarked against the pinned models using actual provider cost receip
 - Are cached and deduplicated.
 - Do not automatically become permanent tracking prompts.
 
-Beacon may maintain 100 to 200 core-prompt candidates behind the approved 50. It periodically proposes a
+Beacon may maintain 100 to 200 core-prompt candidates behind the approved set. It periodically proposes a
 small justified replacement when a candidate becomes materially more important.
 
 ## Beacon-owned research providers
@@ -527,7 +527,7 @@ The MVP is complete only when a brand-new account can:
 1. Sign up and enter one website.
 2. Receive and confirm a structured Business Profile.
 3. Choose a goal.
-4. Approve Beacon's recommended 50 core prompts by topic group.
+4. Approve Beacon's recommended 20 to 50 core prompts by topic group.
 5. Skip or connect customer-owned sources.
 6. See a real first finding and durable research progress.
 7. Receive deeply researched existing-page and new-page Changes.
@@ -567,7 +567,7 @@ Do not build until separately approved:
    Outputs gateway.
 4. Build durable visit-driven Research Runs with Supabase phases, leases, idempotency, progress, pause,
    and resume.
-5. Build the complete onboarding and 50-core-prompt approval flow on those real foundations.
+5. Build the complete onboarding and core-prompt approval flow on those real foundations.
 6. Build the complete DataForSEO research funnel and caching.
 7. Produce one deeply evidenced existing-page Change Bundle.
 8. Produce one deeply evidenced new-page Change.

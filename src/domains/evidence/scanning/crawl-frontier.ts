@@ -531,31 +531,19 @@ export async function runCrawlBatch(args: {
 
     // Persist inventory FIRST (pages registry is a prerequisite for
     // snapshots - same contract as in-process-scan audit-6 #4), and only
-    // then advance the durable cursor for those rows.
+    // then advance the durable cursor for those rows. Neither write is
+    // optional: if either fails the cursor must NOT advance, or these pages
+    // are marked visited forever and never read again.
+    const notPersisted = (kind: string, e: unknown): CrawlBatchResult => ({
+      ran: true, status: "in_progress", crawled: 0, failed,
+      totalCrawled: state.pages_crawled, remaining: state.frontier.length, complete: false,
+      detail: `${kind}:${e instanceof Error ? e.message.slice(0, 120) : "?"}`,
+    });
     if (pages.length > 0) {
-      try {
-        await syncPagesImpl(pages, args.tenantId);
-      } catch (e) {
-        // Registry write failed: do NOT mark these pages visited, so the
-        // next batch retries them instead of orphaning their snapshots.
-        return {
-          ran: true,
-          status: "in_progress",
-          crawled: 0,
-          failed,
-          totalCrawled: state.pages_crawled,
-          remaining: state.frontier.length,
-          complete: false,
-          detail: `pages_registry_write_failed:${e instanceof Error ? e.message.slice(0, 120) : "?"}`,
-        };
-      }
-      try {
-        await syncSnapshotsImpl(snapshots, args.tenantId);
-      } catch (e) {
-        console.error(
-          `[crawl-frontier] snapshot write failed (tenant=${args.tenantId}): ${e instanceof Error ? e.message : e}`,
-        );
-      }
+      try { await syncPagesImpl(pages, args.tenantId); }
+      catch (e) { return notPersisted("pages_registry_write_failed", e); }
+      try { await syncSnapshotsImpl(snapshots, args.tenantId); }
+      catch (e) { return notPersisted("snapshot_write_failed", e); }
     }
 
     const capReached = visited.size >= state.page_cap;

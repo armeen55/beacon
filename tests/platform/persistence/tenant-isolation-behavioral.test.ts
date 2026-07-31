@@ -1,21 +1,26 @@
-/** PLATFORM — tenant isolation, behavioral layer: repo facade scoping, dual-write
- *  validation before I/O, and the canonical Account/BusinessProfile + lifecycle
- *  promises. Structural pushdown lives in the foundation guard, not source scans. */
+/** PLATFORM — tenant isolation + write durability: repo facade scoping, dual-write
+ *  validation before I/O, the fail-closed write contract, and the canonical
+ *  Account/BusinessProfile + lifecycle promises. Structural pushdown lives in the
+ *  foundation guard, not source scans. */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-// Inert supabase stub: dual-write is a no-op in every section here because
-// DUAL_WRITE is unset in the vitest env; nothing may reach a real client.
+// ONE in-memory repository seam for every write in this file: `mem.upsert` is null
+// by default, so an unexpected write hits a client it cannot reach and fails loud.
+const mem = vi.hoisted(() => ({ upsert: null as null | ((table: string, rows: unknown[]) => { data: unknown[] | null; error: { message: string } | null }) }));
 vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => {
-    throw new Error("test: no section may reach the supabase client");
+    const handler = mem.upsert;
+    if (!handler) throw new Error("test: no section may reach the supabase client");
+    return { from: (table: string) => ({ upsert: (rows: unknown[]) => ({ select: async () => handler(table, rows) }) }) };
   },
 }));
 
 import { buildTenantRepo } from "@/lib/persistence/repositories/tenant-repo";
 import type { SeedDataRepository } from "@/lib/persistence/repositories/types";
+import type { CrawlFrontierState } from "@/domains/evidence/scanning/crawl-frontier";
 import {
   assertRowsScopedToTenant,
   dualWriteUpsertScoped,
@@ -87,8 +92,8 @@ describe("dual-write tenant validation (fires before any I/O)", () => {
     await expect(dualWriteUpsertScoped("tenants", [{ tenant_id: TENANT, id: "x" }], "id", TENANT)).rejects.toThrow(/is a global table/);
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: OTHER, id: "r1" }], "id", TENANT)).rejects.toThrow(/tenant mismatch/);
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", "")).rejects.toThrow(/tenantId must be a non-empty string/);
-    // Valid input with DUAL_WRITE off is a silent no-op success.
-    await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", TENANT)).resolves.toBeUndefined();
+    // Valid input with an unreachable client FAILS CLOSED — never a silent no-op success.
+    await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", TENANT)).rejects.toThrow(/no section may reach the supabase client/);
   });
 
   it("GLOBAL_TABLES holds the registry + shared config, never per-tenant data tables", () => {
@@ -110,6 +115,42 @@ describe("dual-write tenant validation (fires before any I/O)", () => {
     expect(() => tenantizeRows([{ id: "r1", tenant_id: OTHER }], TENANT, "results")).toThrow(/tenant mismatch/);
     expect(() => tenantizeRows([], "", "results")).toThrow(/tenantId must be a non-empty string/);
   });
+});
+
+describe("a canonical write that did not land never reads as done", () => {
+  const ROW = [{ tenant_id: TENANT, id: "r1" }];
+  it("only rows Postgres hands back count as written: an error throws, zero rows throws, an empty batch never reaches the client", async () => {
+    const seen: string[] = [];
+    try {
+      // Schema-shaped error: throws on the first attempt, no retry sleep.
+      mem.upsert = () => ({ data: null, error: { message: 'column "id" does not exist' } });
+      await expect(dualWriteUpsertScoped("results", ROW, "id", TENANT)).rejects.toThrow(/does not exist/);
+      // No error, no rows back: the same lie as a swallowed failure.
+      mem.upsert = () => ({ data: [], error: null });
+      await expect(dualWriteUpsertScoped("results", ROW, "id", TENANT)).rejects.toThrow(/1 row\(s\) sent, 0 written/);
+      // Rows confirmed back is the ONE success shape.
+      mem.upsert = (table, rows) => { seen.push(table); return { data: rows.map(() => ({ id: "r1" })), error: null }; };
+      await expect(dualWriteUpsertScoped("results", ROW, "id", TENANT)).resolves.toBeUndefined();
+      // Nothing asked for is nothing owed: no client call at all.
+      await expect(dualWriteUpsertScoped("results", [], "id", TENANT)).resolves.toBeUndefined();
+    } finally { mem.upsert = null; }
+    expect(seen).toEqual(["results"]); });
+
+  it("a crawled page whose snapshot write failed stays unvisited, so the next batch reads it again", async () => {
+    const { runCrawlBatch } = await import("@/domains/evidence/scanning/crawl-frontier");
+    const html = "<html><head><title>A page</title></head><body><h1>A page</h1><p>Some words on the page.</p></body></html>";
+    const fetchImpl = (async (u: string) => (String(u).endsWith("/robots.txt") ? { ok: false, status: 404, text: async () => "" }
+      : { ok: true, status: 200, url: String(u), text: async () => html })) as unknown as typeof fetch;
+    const ISO = "2026-07-31T00:00:00.000Z";
+    const state = { tenant_id: TENANT, domain: "own.example", status: "in_progress", frontier: ["https://own.example/a"], visited: [], pages_crawled: 0,
+      pages_failed: 0, page_cap: 10, source: "homepage", started_at: ISO, updated_at: ISO, last_batch_at: null, batches_run: 0, page_facts: [] } as CrawlFrontierState;
+    const saved: CrawlFrontierState[] = [];
+    const out = await runCrawlBatch({ tenantId: TENANT, deps: { fetchImpl, sleep: async () => {},
+      loadState: async () => ({ ...state }), saveState: async (s) => { saved.push(s); },
+      syncPagesImpl: async () => {}, syncPageSnapshotsImpl: async () => { throw new Error("the snapshot rows were rejected"); } } });
+    // The cursor never advanced: no saved state, nothing counted as crawled.
+    expect([out.status, out.crawled, out.complete, saved.length]).toEqual(["in_progress", 0, false, 0]);
+    expect(out.detail).toMatch(/^snapshot_write_failed:/); });
 });
 
 describe("Tier A sync* helpers stay tenant-wired", () => {

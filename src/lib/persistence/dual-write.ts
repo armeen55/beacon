@@ -1,14 +1,14 @@
 /**
- * Dual-write engine — file-first, Supabase-second.
+ * The ONE production write path: canonical records go straight to Supabase,
+ * unconditionally, and a write that did not land throws.
  *
- * When DUAL_WRITE=true, every persist call that writes to a .data/*.json
- * file store also upserts the same rows to Supabase.
- *
- * 2026-07-21 (CORE 100K Lane O): the dead import-cluster writers
- * (results/opportunities/competitors/attribution/candidate-link syncs,
- * change-contract + page-issue syncs, guardrail-alert syncs, truncate +
- * clear-all) were deleted — zero prod callers. Surviving writers are the
- * LIVE nightly/scan/poll paths listed below.
+ * 2026-07-31 (V1 Truth Convergence, Phase 0): the `DUAL_WRITE === "true"`
+ * gate that used to front every writer here was deleted. Unset anywhere, it
+ * made each of these calls a SUCCESS-SHAPED NO-OP — page snapshots, the
+ * in-process scan, the extractor persist path and the research run's owned-page
+ * read all resolved having written nothing while their callers advanced as
+ * though the rows were durable. Nothing on a canonical path consults an
+ * environment variable to decide whether to persist.
  */
 
 import "server-only";
@@ -34,18 +34,18 @@ function isNonRetryableError(msg: string): boolean {
   );
 }
 
-export function isDualWriteEnabled(): boolean {
-  return process.env.DUAL_WRITE === "true";
-}
-
 export async function dualWriteUpsert(
   table: string,
   rows: Record<string, unknown>[],
   primaryKey: string,
 ): Promise<void> {
-  if (!isDualWriteEnabled() || rows.length === 0) return;
+  if (rows.length === 0) return;
 
   const sb = getSupabaseAdmin();
+  // Proof of the write is the rows Postgres hands back, never the absence of an
+  // error. A lean projection of the conflict key's first column keeps the
+  // confirmation read to one small field per row.
+  const confirmColumn = primaryKey.split(",")[0]!.trim();
 
   try {
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
@@ -54,12 +54,15 @@ export async function dualWriteUpsert(
 
       // Retry loop — up to MAX_RETRY_ATTEMPTS total attempts per chunk.
       let lastErr: unknown = null;
+      let written = 0;
       for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
         try {
-          const { error } = await sb
+          const { data, error } = await sb
             .from(table)
-            .upsert(chunk, { onConflict: primaryKey });
+            .upsert(chunk, { onConflict: primaryKey })
+            .select(confirmColumn);
           if (!error) {
+            written = Array.isArray(data) ? data.length : 0;
             lastErr = null;
             break;
           }
@@ -89,19 +92,19 @@ export async function dualWriteUpsert(
             lastErr instanceof Error ? lastErr.message : String(lastErr)
           }`,
         );
-        // Bug-1 fix (2026-05-04): Supabase is now THE source of truth (W4
-        // core publish landed; CLAUDE.md's "Optimize for premium internal
-        // app" + the Supabase migration handoff). A persistent write
-        // failure that's silently swallowed causes data loss on restart
-        // AND produces the false-completed-poll signature that
-        // surfaced on May 2-4 (observation_runs stamped completed,
-        // observations rows never landed). Always throw.
-        //
-        // The previous `process.env.DATA_SOURCE === "supabase"` gate was
-        // a transitional safety net during the json-store → Supabase
-        // migration. That migration is done.
+        // A persistent write failure that is silently swallowed loses data and
+        // produces the false-completed signature seen on May 2-4 2026 (runs
+        // stamped completed, rows never landed). Always throw.
         throw new Error(
           `[dual-write] ${table}: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
+        );
+      }
+
+      // No error and no rows back: the batch did not land. Silent zero is the
+      // same lie as a swallowed failure, so it fails closed too.
+      if (written === 0) {
+        throw new Error(
+          `[dual-write] ${table}: ${chunk.length} row(s) sent, 0 written`,
         );
       }
     }
@@ -109,10 +112,8 @@ export async function dualWriteUpsert(
     console.error(
       `[dual-write] ${table}: unexpected error — ${e instanceof Error ? e.message : e}`,
     );
-    // Bug-1 fix (2026-05-04): see comment above. Always re-throw so the
-    // caller (and the cron handler / poll-health pipeline) can mark the
-    // run as failed instead of swallowing the error and showing a false
-    // "complete" status.
+    // Always re-throw so the caller marks its run failed instead of showing a
+    // false "complete".
     throw e;
   }
 }
@@ -475,7 +476,6 @@ export async function syncScanFindings(
   findings: Finding[],
   tenantId: string,
 ): Promise<void> {
-  if (!isDualWriteEnabled() || findings.length === 0) return;
   // Phase 7.7b Commit 3 (2026-04-25): validate cross-tenant mismatch and
   // stamp tenant_id before mapping to DB rows. mapFindingToRow's
   // `f.tenant_id ?? ""` fallback below now passes the resolved tenant
@@ -531,7 +531,6 @@ export async function syncRecommendationResponses(
   rows: RecommendationResponse[],
   tenantId: string,
 ): Promise<void> {
-  if (!isDualWriteEnabled() || rows.length === 0) return;
   // Phase 7.7b Commit 5 (2026-04-25): RecommendationResponse type doesn't
   // carry tenant_id natively — the prior mapper used a defensive cast. We
   // still validate any row that DOES carry a stray tenant_id field via
@@ -578,16 +577,14 @@ export async function syncRecommendationResponses(
  * `create_cluster_page:geo:Los Altos` — never lets one tenant's Undo
  * remove another tenant's response.
  *
- * Best-effort: errors logged, never thrown (matches the rest of this
- * module's posture). Caller has already removed the row from in-memory
- * state by the time this fires; if the Supabase delete fails, the
- * stale row is the worst case.
+ * The ONE best-effort call left in this module: errors are logged, never
+ * thrown. The caller has already removed the row from in-memory state by the
+ * time this fires, so a failed delete leaves a stale row, not a lost one.
  */
 export async function deleteRecommendationResponseByRecId(
   recId: string,
   tenantId: string,
 ): Promise<void> {
-  if (!isDualWriteEnabled()) return;
   if (!tenantId) {
     throw new Error(
       "[dual-write/recommendation_responses] deleteRecommendationResponseByRecId: tenantId must be a non-empty string",
@@ -616,7 +613,6 @@ export async function syncUrlChangeOutcomes(
   rows: UrlChangeOutcome[],
   tenantId: string,
 ): Promise<void> {
-  if (!isDualWriteEnabled() || rows.length === 0) return;
   const stamped = tenantizeRows(rows, tenantId, "url_change_outcomes");
   // Shape is already snake_case — pass through, compound PK.
   await dualWriteUpsert(
@@ -669,7 +665,7 @@ export async function syncRecommendedEdits(
   rows: import("@/domains/decision/changes/recommended-edits-persistence").RecommendedEditRow[],
   tenantId: string,
 ): Promise<void> {
-  if (!isDualWriteEnabled() || rows.length === 0) return;
+  if (rows.length === 0) return;
   await dualWriteUpsertScoped(
     "recommended_edits",
     rows as unknown as Array<{ tenant_id?: string | null } & Record<string, unknown>>,
@@ -709,7 +705,6 @@ export async function syncPageElementInventory(
   rows: import("@/domains/evidence/pages/extractors/persist").PageElementInventoryRow[],
   tenantId: string,
 ): Promise<void> {
-  if (!isDualWriteEnabled() || rows.length === 0) return;
   const stamped = tenantizeRows(rows, tenantId, "page_element_inventory");
 
   // 2026-04-27 onConflict-audit follow-up: dedupe by the compound

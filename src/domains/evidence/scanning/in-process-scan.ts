@@ -336,21 +336,30 @@ export async function runInProcessColdStartScan(args: {
         detail: "pages_registry_write_failed",
       });
     }
-    let snapshotsWritten = 0;
+    // Snapshots are the evidence the whole scan exists to produce. A failed
+    // write used to log and still report "scanned" with zero snapshots, which
+    // reads downstream as a site that has nothing to say. Fail closed.
     try {
       await syncSnapshotsImpl(snapshots, tenantId);
-      snapshotsWritten = snapshots.length;
     } catch (e) {
       console.error(
         `[in-process-scan] syncPageSnapshots failed (tenant=${tenantId}): ${e instanceof Error ? e.message : e}`,
       );
+      return result({
+        status: "error",
+        pagesDiscovered: candidates.length,
+        pagesCrawled: crawled,
+        snapshotsWritten: 0,
+        source,
+        detail: "snapshot_write_failed",
+      });
     }
 
     return result({
       status: "scanned",
       pagesDiscovered: candidates.length,
       pagesCrawled: crawled,
-      snapshotsWritten,
+      snapshotsWritten: snapshots.length,
       source,
     });
   } catch (e) {

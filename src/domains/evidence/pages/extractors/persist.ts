@@ -3,20 +3,13 @@
  *
  * Wraps the pure-output of `extractAllElements` with the DB-layer fields
  * required by `page_element_inventory` (id / tenant_id / page_id / url /
- * observed_at / source_snapshot_id) and dual-writes the resulting rows.
+ * observed_at / source_snapshot_id) and writes the resulting rows.
  *
  * Two entry points:
  *
  *   - `buildPageElementRows({ snapshot, html, tenantId, ... })` — pure.
- *     Used by both the scan CLI (where dual-write happens later in
- *     orchestrate-scan after the CLI exits) and the in-process verify
- *     action.
- *
- *   - `persistPageElements({ snapshot, html, tenantId, ... })` —
- *     in-process variant that also calls `syncPageElementInventory(rows)`
- *     for the dual-write. Wraps the whole flow in try/catch so an
- *     extractor failure NEVER blocks the snapshot persistence path
- *     upstream of this call.
+ *   - `persistPageElements({ ... })` — builds, then writes to Supabase and
+ *     throws when the write does not land.
  *
  * The `id` column is deterministic — `${snapshot.id}__${element_key}` —
  * so re-running with the same inputs produces the same id and the
@@ -29,7 +22,6 @@
 
 import "server-only";
 
-import { log } from "@/lib/logger";
 import { syncPageElementInventory } from "@/lib/persistence/dual-write";
 import type { PageSnapshot } from "../types";
 import { extractAllElements } from "./dispatcher";
@@ -125,29 +117,17 @@ export function buildPageElementRows(
 }
 
 /**
- * In-process variant: builds rows + dual-writes to Supabase. Returns
- * the rows for caller-side persistence (e.g. file write) or assertions.
+ * In-process variant: builds the rows and writes them to Supabase. Returns the
+ * rows that landed.
  *
- * Try/catch around the whole flow — a thrown extractor or a Supabase
- * outage MUST NOT block the snapshot-persistence path that wraps this
- * call (verify-action.ts already calls `syncPageSnapshots` BEFORE this
- * helper, so the snapshot is already durable by the time we run).
- *
- * Intentionally returns `[]` on failure rather than re-throwing.
+ * Fail-closed: a Supabase outage throws instead of returning `[]`. Returning an
+ * empty array on a failed write told the caller "this page has no elements",
+ * which is indistinguishable from a page that genuinely has none.
  */
 export async function persistPageElements(
   args: BuildPageElementRowsArgs,
 ): Promise<PageElementInventoryRow[]> {
-  try {
-    const rows = buildPageElementRows(args);
-    await syncPageElementInventory(rows, args.tenantId);
-    return rows;
-  } catch (err) {
-    log.error("Page element persist failed", {
-      url: args.snapshot.url,
-      snapshotId: args.snapshot.id,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return [];
-  }
+  const rows = buildPageElementRows(args);
+  await syncPageElementInventory(rows, args.tenantId);
+  return rows;
 }

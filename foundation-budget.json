@@ -1,15 +1,15 @@
 {
-  "_doc": "Bloat firewall. Ceilings are NON-INCREASING: ratchet DOWN as code shrinks, never up without operator approval. Enforced by scripts/check-foundation-budget.mjs (npm run guard:foundation). Foundation is frozen; see AGENTS.md for the growth policy and the 8-field feature rule.",
+  "_doc": "Bloat firewall. Ceilings are NON-INCREASING (V1 Truth Convergence program 2026-07-30: operator-authorized temporary raise to prod 85000 / tests 10000 / combined 95000; ratchet down to final verified counts at program completion): ratchet DOWN as code shrinks, never up without operator approval. Enforced by scripts/check-foundation-budget.mjs (npm run guard:foundation). Foundation is frozen; see AGENTS.md for the growth policy and the 8-field feature rule.",
   "production": {
-    "max": 71000,
+    "max": 85000,
     "target": 55000
   },
   "tests": {
-    "max": 4750,
+    "max": 10000,
     "target": 4000
   },
   "combined": {
-    "hardCap": 100000,
+    "hardCap": 95000,
     "target": 60000
   },
   "domains": {
@@ -51,7 +51,7 @@
       "src/lib/connector-store.ts": 1166,
       "src/domains/decision/drafts/draft-quality.ts": 983,
       "src/lib/persistence/dual-write.ts": 905,
-            "src/domains/measurement/attribution/url-change-outcome.ts": 820,
+      "src/domains/measurement/attribution/url-change-outcome.ts": 820,
       "src/domains/measurement/attribution/url-verdict.ts": 772,
       "src/domains/measurement/proof-gsc/kernel.ts": 768,
       "src/lib/persistence/repositories/supabase-backend.ts": 741,
