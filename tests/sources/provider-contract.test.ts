@@ -88,6 +88,38 @@ describe("web-enabled request bodies per engine (only documented fields)", () =>
     expect(sc.calls.bodies[0][0].user_prompt).toBeUndefined(); expect(sc.calls.bodies[0][0].max_output_tokens).toBeUndefined(); // undocumented on llm_scraper: never sent
     const bad = harness({}); expect((await providerCall("llm_scraper_chatgpt", { keyword: "x", expand_citations: true }, IDS, bad.deps)).state).toBe("error"); expect(bad.calls.fetch).toHaveLength(0); // expand_citations without force_web_search rejected pre-network
   });
+  it("keys an AI reading on the day it belongs to and the sample slot it is, and sends NEITHER to the provider", async () => {
+    const day = "2026-07-25", next = "2026-07-26";
+    const post = async (over: Record<string, unknown>) => {
+      const h = harness(llmResponsesTaskPostAck, { modelsBody: modelsFor("gpt-4o", true) });
+      const r = await providerCall("llm_gemini", { user_prompt: "q", web_search: true, ...over }, IDS, h.deps);
+      return { key: "cacheKey" in r ? r.cacheKey : null, body: h.calls.bodies[0]![0]! };
+    };
+    const slot0 = await post({ observation_day: day, sample_slot: 0 });
+    const slot1 = await post({ observation_day: day, sample_slot: 1 });
+    const tomorrow = await post({ observation_day: next, sample_slot: 0 });
+    const retry = await post({ observation_day: day, sample_slot: 0 });
+    expect(slot0.key).toBe(retry.key);           // the same reading retried the same day is ONE ask and stays $0
+    expect(slot0.key).not.toBe(slot1.key);       // a second sample is a SECOND question, never a free replay of the first
+    expect(slot0.key).not.toBe(tomorrow.key);    // and tomorrow is a new question, so a 23:00 answer is never served as tomorrow's
+    // Neither field is a provider field: the request body is identical to one asked without them (the only
+    // difference is `tag`, which IS the cache identity and is how a quarantined task is recovered for free).
+    expect([slot1.body.observation_day, slot1.body.sample_slot]).toEqual([undefined, undefined]);
+    const plain = (b: Record<string, unknown>) => ({ ...b, tag: undefined });
+    expect(plain(slot1.body)).toEqual(plain((await post({})).body));
+    // Slot 0 is not merely ignored, it is ABSENT from the identity, so an omitted slot and an explicit 0 agree.
+    expect(slot0.key).toBe((await post({ observation_day: day })).key);
+    const key = (publicInput: Record<string, unknown>) => identityCacheKey({ endpoint: "ai_optimization/gemini/llm_responses/task_post", publicInput, locationCode: 2840, languageCode: "en", device: null, modelRequested: "gpt-4o" });
+    expect(slot0.key).toBe(key({ user_prompt: "q", web_search: true, observation_day: day }));
+  });
+  it("reads the brands the consumer answer named itself, however the provider shaped the list, and never turns unreadable into none", () => {
+    const scraped = (brand_entities: unknown): ProviderEnvelope => ({ status_code: 20000, tasks: [{ status_code: 20000, result: [{ markdown: "an answer", brand_entities }] }] } as unknown as ProviderEnvelope);
+    expect(parseCapability("llm_scraper_chatgpt", scraped([{ title: "Acme" }, { title: "Rival" }]))!.brandMentions).toEqual(["Acme", "Rival"]);
+    expect(parseCapability("llm_scraper_chatgpt", scraped(["Acme", "Rival"]))!.brandMentions).toEqual(["Acme", "Rival"]); // a plain string list is the same claim
+    expect(parseCapability("llm_scraper_chatgpt", scraped([]))!.brandMentions).toEqual([]); // it looked and named none
+    expect(parseCapability("llm_scraper_chatgpt", scraped([{ name: "Acme" }]))!.brandMentions).toBeNull(); // unreadable is "I do not know", never "it named none"
+    expect(parseCapability("llm_scraper_chatgpt", scraped(undefined))!.brandMentions).toBeNull();
+  });
   it("rejects cross-engine fields and caller-chosen models at COMPILE time", () => {
     // @ts-expect-error a scraper is keyword-based; user_prompt is not its field
     const scraper = () => providerCall("llm_scraper_chatgpt", { user_prompt: "x" }, IDS);

@@ -63,6 +63,9 @@ export type ResearchRunProgress = {
   focus?: { basis: string | null; topics: Array<{ topicKey: string | null; query: string | null; requirement: string | null; retryAfter?: string | null; ownedUrl?: string | null }> };
   /** LEGACY, read-only: a run frozen before `focus` existed carries only its query strings. Never written now. */
   surfacePublished?: boolean;
+  /** The operator's durable ask for extra readings of today's AI answers: the day, and how many EXTRA
+   *  readings per pair were granted (max two). The press and the pass that acts on it are different requests. */
+  extraSamples?: { day: string; granted: number };
   /** Slice 6: real persisted funnel counters (never fabricated). */
   funnel?: {
     rawKeywords?: number; normalizedKeywords?: number; retainedKeywords?: number;
@@ -126,12 +129,10 @@ export function nextPhase(phase: ResearchPhase): ResearchPhase {
   return i < 0 || i + 1 >= STEP_ORDER.length ? "done" : STEP_ORDER[i + 1]!;
 }
 
-/** Lease length for one claimed cycle. Renewed at DATABASE time BEFORE every
- *  bounded phase (renew_research_lease) so no phase inside the 210s cycle deadline
- *  can knowingly outlive its lease. */
+/** Lease length for one claimed cycle. Renewed at DATABASE time BEFORE every bounded phase
+ *  (renew_research_lease) so no phase inside the 210s cycle deadline can knowingly outlive its lease. */
 export const RESEARCH_RUN_LEASE_SECONDS = 240;
-/** A `running` row whose lease expired this long ago is a dead invocation; the
- *  Today line presents it as paused (derived from persisted lease, not hope). */
+/** A `running` row whose lease expired this long ago is a dead invocation; the Today line presents it as paused. */
 export const RESEARCH_RUN_LEASE_GRACE_MS = 30_000;
 
 // ── Pure helpers ───────────────────────────────────────────────────────────
@@ -201,8 +202,7 @@ export function isLeaseDead(run: Pick<ResearchRun, "lease_expires_at">, nowMs: n
   return !Number.isFinite(t) || nowMs - t > RESEARCH_RUN_LEASE_GRACE_MS;
 }
 
-/** PURE: project a persisted run (or none) into the compact Today view. A
- *  `running` row with a dead lease presents as paused. */
+/** PURE: a persisted run (or none) -> the compact Today view. A `running` row with a dead lease reads paused. */
 export function projectStatusView(run: ResearchRun | null, nowMs: number): ResearchRunStatusView {
   if (run == null) return { state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: RESEARCH_RUN_STEPS_TOTAL, counters: {}, updatedAt: null, completedAt: null, pauseReason: null };
 

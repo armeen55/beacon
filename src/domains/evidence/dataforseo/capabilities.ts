@@ -6,7 +6,7 @@ import { resolveDeps } from "./default-deps";
 import { normalizePageIntersection, parsePageIntersection, MAX_INTERSECTION_PAGES } from "../page-intersection";
 import type {
   CachedCallResult, CapabilityInputByKey, CapabilityKey, EngineModelResolution, FunnelBoundaryDeps,
-  ParsedAiAnswer, ParsedByCapability, ParsedKeywordItem, ParsedSerp, ProviderEnvelope,
+  ObservationIdentity, ParsedAiAnswer, ParsedByCapability, ParsedKeywordItem, ParsedSerp, ProviderEnvelope,
 } from "./funnel-boundary";
 
 /**
@@ -68,43 +68,45 @@ function chatGptBuild(i: CapabilityInputByKey["llm_chatgpt"], r: EngineModelReso
   const web = r?.webSearch === true && i.web_search === true;
   return [clean({ user_prompt: i.user_prompt, model_name: r?.model, max_output_tokens: LLM_MAX_OUTPUT_TOKENS, web_search: web ? true : undefined })];
 }
-/** Claude llm_responses: a DIFFERENT contract from ChatGPT. force_web_search and
- *  web_search_country_iso_code are both documented here and conflict only with use_reasoning, which
- *  Beacon never sends. Both ride an ENABLED web search, so neither is emitted when it is off.
- *  (docs: claude llm_responses task_post + live, 2026-07-26) */
+/** Claude llm_responses: a DIFFERENT contract from ChatGPT. force_web_search and web_search_country_iso_code
+ *  are both documented here and conflict only with use_reasoning, which Beacon never sends. Both ride an
+ *  ENABLED web search, so neither is emitted when it is off. (docs: claude task_post + live, 2026-07-26) */
 function claudeBuild(i: CapabilityInputByKey["llm_claude"], r: EngineModelResolution | null): unknown[] {
   const web = r?.webSearch === true && i.web_search === true;
-  return [clean({
-    user_prompt: i.user_prompt, model_name: r?.model, max_output_tokens: LLM_MAX_OUTPUT_TOKENS,
-    web_search: web ? true : undefined,
-    force_web_search: web && i.force_web_search === true ? true : undefined,
-    web_search_country_iso_code: web ? i.web_search_country_iso_code : undefined,
-  })];
+  return [clean({ user_prompt: i.user_prompt, model_name: r?.model, max_output_tokens: LLM_MAX_OUTPUT_TOKENS,
+    web_search: web ? true : undefined, force_web_search: web && i.force_web_search === true ? true : undefined,
+    web_search_country_iso_code: web ? i.web_search_country_iso_code : undefined })];
 }
-/** Gemini: web_search ONLY; never force_web_search/country (undocumented for
- *  Gemini). (docs: gemini llm_responses/task_post + /live, 2026-07-26) */
+/** Gemini: web_search ONLY; never force_web_search/country (undocumented for Gemini).
+ *  (docs: gemini llm_responses/task_post + /live, 2026-07-26) */
 function geminiBuild(i: CapabilityInputByKey["llm_gemini"], r: EngineModelResolution | null): unknown[] {
   const web = r?.webSearch === true && i.web_search === true;
   return [clean({ user_prompt: i.user_prompt, model_name: r?.model, max_output_tokens: LLM_MAX_OUTPUT_TOKENS, web_search: web ? true : undefined })];
 }
-/** Perplexity Live: web_search is on by default (not a request field); only
- *  web_search_country_iso_code is documented. (docs: perplexity live, 2026-07-26) */
+/** Perplexity Live: web_search is on by default (not a request field); only web_search_country_iso_code
+ *  is documented. (docs: perplexity live, 2026-07-26) */
 function perplexityBuild(i: CapabilityInputByKey["llm_perplexity"], r: EngineModelResolution | null): unknown[] {
   return [clean({ user_prompt: i.user_prompt, model_name: r?.model, max_output_tokens: LLM_MAX_OUTPUT_TOKENS, web_search_country_iso_code: i.web_search_country_iso_code })];
 }
-/** Scraper is KEYWORD-based (never user_prompt/model_name) and REQUIRES location +
- *  language; expand_citations REQUIRES force_web_search. (docs: chat_gpt
- *  llm_scraper/task_post, 2026-07-24) */
+/** Scraper is KEYWORD-based (never user_prompt/model_name) and REQUIRES location + language;
+ *  expand_citations REQUIRES force_web_search. (docs: chat_gpt llm_scraper/task_post, 2026-07-24) */
 function scraperBuild(i: CapabilityInputByKey["llm_scraper_chatgpt"]): unknown[] {
   const forceWeb = i.force_web_search === true;
-  if (i.expand_citations === true && !forceWeb) {
-    throw new MissingFieldsError("llm_scraper_chatgpt", ["force_web_search (required to enable expand_citations)"]);
-  }
-  return [clean({
-    keyword: i.keyword, location_code: LOCATION_US, language_code: LANG_EN,
+  if (i.expand_citations === true && !forceWeb) throw new MissingFieldsError("llm_scraper_chatgpt", ["force_web_search (required to enable expand_citations)"]);
+  return [clean({ keyword: i.keyword, location_code: LOCATION_US, language_code: LANG_EN,
     force_web_search: forceWeb ? true : undefined,
-    expand_citations: forceWeb && i.expand_citations === true ? true : undefined,
-  })];
+    expand_citations: forceWeb && i.expand_citations === true ? true : undefined })];
+}
+
+/** THE LLM OBSERVATION IDENTITY, applied BEFORE the cache identity and to the LLM capabilities ONLY (no
+ *  builder ever emits it). The plan's reporting day always rides the identity, so tomorrow's reading is a new
+ *  question and not a replay of tonight's answer out of the one-day cache; a deliberate second sample rides it
+ *  too, so slot 1 is a real second opinion at real cost. Slot 0 is left OUT, so a same-day retry is still a $0
+ *  replay of one identical ask. No day is ever invented: an ask without one keys exactly as it did before. */
+function llmIdentity<T extends ObservationIdentity>(i: T): T {
+  const { observation_day: day, sample_slot: slot, ...rest } = i;
+  return { ...rest, ...(typeof day === "string" && day.length > 0 ? { observation_day: day } : {}),
+    ...(typeof slot === "number" && slot > 0 ? { sample_slot: Math.trunc(slot) } : {}) } as T;
 }
 
 function labsEntry<K extends "labs_keywords_for_site" | "labs_ranked_keywords" | "labs_related_keywords" | "labs_keyword_suggestions">(
@@ -133,14 +135,12 @@ function llmDynamicRoute(engine: LlmEngine): (r: EngineModelResolution | null) =
   const live: Route = { mode: "live", postPath: `ai_optimization/${slug}/llm_responses/live`, getPath: null, tasksReady: null };
   return (r) => (r?.method === "standard" ? standard : live);
 }
-/** PRICING EVIDENCE for the 0.035 reservation (dataforseo.com/pricing/ai-optimization/
- *  llm-responses + the task_post docs, read 2026-07-26): a Standard-queue LLM task
- *  costs $0.0002 plus a $0.01 prepayment refunded down to the LLM's actual charge;
- *  Live adds $0.0006 plus the LLM charge, token-based and NOT capped by
- *  max_output_tokens when web_search is on. So 0.035 is a deliberate high estimate,
- *  not a proven bound; the monthly cap is reservation-based with bounded overshoot. */
+/** PRICING EVIDENCE for the 0.035 reservation (dataforseo.com/pricing/ai-optimization/llm-responses + the
+ *  task_post docs, read 2026-07-26): a Standard-queue LLM task costs $0.0002 plus a $0.01 prepayment refunded
+ *  down to the LLM's actual charge; Live adds $0.0006 plus the LLM charge, token-based and NOT capped by
+ *  max_output_tokens when web_search is on. So 0.035 is a deliberate high estimate, not a proven bound. */
 function llmDynamicEntry<K extends "llm_chatgpt" | "llm_gemini" | "llm_claude">(engine: LlmEngine, build: Entry<K>["build"]): Entry<K> {
-  return { ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: true }, engine, route: llmDynamicRoute(engine), build, parse: parseLlmAnswer };
+  return { ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: true }, engine, route: llmDynamicRoute(engine), normalize: llmIdentity, build, parse: parseLlmAnswer };
 }
 
 // ── the registry ─────────────────────────────────────────────────────────────
@@ -157,8 +157,7 @@ const REGISTRY: Registry = {
   labs_keyword_overview: {
     ttlMs: 7 * DAY, estCostUsd: 0.25, dims: { device: false, model: false },
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_overview/live", getPath: null, tasksReady: null }),
-    build: (i) => [{ keywords: i.keywords, location_code: LOCATION_US, language_code: LANG_EN }],
-    parse: parseKeywords,
+    build: (i) => [{ keywords: i.keywords, location_code: LOCATION_US, language_code: LANG_EN }], parse: parseKeywords,
   },
   // RESERVATION arithmetic, NOT a price: the Labs live charges on file (50 rows $0.018, 150 rows $0.02988, 1000 rows $0.132) fit $0.012 per request plus $0.00012 per returned row, so 700 rows lands near
   // 0.012 + 700 x 0.00012 = $0.096 and the 1000-row ceiling near $0.132. Reserved at 0.2, rounded UP past the largest response this endpoint can return; reconcile drops it to actual.
@@ -166,8 +165,7 @@ const REGISTRY: Registry = {
     ttlMs: 7 * DAY, estCostUsd: 0.2, dims: { device: false, model: false },
     normalize: (i) => ({ ...i, keywords: [...new Set(i.keywords.map((k) => String(k ?? "").trim().toLowerCase()).filter(Boolean))].sort().slice(0, MAX_IDEAS_SEEDS), limit: Math.min(Math.max(1, Math.trunc(i.limit ?? IDEAS_DEFAULT_LIMIT)), IDEAS_MAX_LIMIT) }), // normalized BEFORE the identity: a direct call skipped the batched helper and re-bought the same rows
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_ideas/live", getPath: null, tasksReady: null }),
-    build: (i) => [{ keywords: i.keywords.slice(0, MAX_IDEAS_SEEDS), location_code: LOCATION_US, language_code: LANG_EN, limit: Math.min(Math.max(1, Math.trunc(i.limit ?? IDEAS_DEFAULT_LIMIT)), IDEAS_MAX_LIMIT) }],
-    parse: parseKeywords,
+    build: (i) => [{ keywords: i.keywords.slice(0, MAX_IDEAS_SEEDS), location_code: LOCATION_US, language_code: LANG_EN, limit: Math.min(Math.max(1, Math.trunc(i.limit ?? IDEAS_DEFAULT_LIMIT)), IDEAS_MAX_LIMIT) }], parse: parseKeywords,
   },
   // RESERVATION arithmetic, NOT a price: page_intersection has never been bought here, so it rides the
   // Labs live charges on file (50 rows $0.018, 150 rows $0.02988, 1000 rows $0.132), which fit $0.012 per
@@ -191,8 +189,7 @@ const REGISTRY: Registry = {
     ttlMs: 7 * DAY, estCostUsd: 0.002, dims: { device: false, model: false },
     normalize: (i) => ({ url: canonicalUrl(i.url) }), // one URL, one identity: a #fragment never buys twice
     route: () => ({ mode: "live", postPath: "on_page/content_parsing/live", getPath: null, tasksReady: null }),
-    build: (i) => [{ url: i.url, enable_javascript: true, accept_language: LANG_EN, ip_pool_for_scan: "us" }],
-    parse: parseContentParsing,
+    build: (i) => [{ url: i.url, enable_javascript: true, accept_language: LANG_EN, ip_pool_for_scan: "us" }], parse: parseContentParsing,
   },
   serp_organic: serpEntry("serp/google/organic", 0.0021),
   serp_ai_mode: serpEntry("serp/google/ai_mode", 0.01),
@@ -204,12 +201,12 @@ const REGISTRY: Registry = {
     // Perplexity models are Live-only (task_post_supported=false for all), so this
     // stays Live-only; providerCall still resolves the model once for the id.
     route: () => ({ mode: "live", postPath: "ai_optimization/perplexity/llm_responses/live", getPath: null, tasksReady: null }),
-    build: perplexityBuild, parse: parseLlmAnswer,
+    normalize: llmIdentity, build: perplexityBuild, parse: parseLlmAnswer,
   },
   llm_scraper_chatgpt: {
     ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: false },
     route: () => ({ mode: "task", postPath: "ai_optimization/chat_gpt/llm_scraper/task_post", getPath: (id) => `ai_optimization/chat_gpt/llm_scraper/task_get/advanced/${id}`, tasksReady: "ai_optimization/chat_gpt/llm_scraper/tasks_ready" }),
-    build: scraperBuild, parse: parseScraper,
+    normalize: llmIdentity, build: scraperBuild, parse: parseScraper,
   },
 };
 
@@ -282,9 +279,8 @@ export async function keywordIdeasBatched(
 export async function collectCapability(cacheKey: string, deps: FunnelBoundaryDeps = {}): Promise<CachedCallResult> {
   return collectResolvedTask(cacheKey, { getPath: getPathForEndpoint, tasksReadyPath: tasksReadyForEndpoint, ttlMsFor: ttlMsForEndpoint }, deps);
 }
-/** Ready-payload freshness for a collected task, by endpoint: every Standard family in the registry
- *  (SERP, AI Mode, llm_responses, llm_scraper) carries the 1-day ttl, so a due weekly re-observation
- *  re-buys instead of hitting a stale row. Null = not a task endpoint. */
+/** Ready-payload freshness for a collected task, by endpoint: every Standard family in the registry (SERP,
+ *  AI Mode, llm_responses, llm_scraper) carries the 1-day ttl. Null = not a task endpoint. */
 const ttlMsForEndpoint = (endpoint: string): number | null => (endpoint.endsWith("/task_post") ? DAY : null);
 /** The free task_get derivation from a stored task_post endpoint: serp + scraper
  *  use /task_get/advanced, llm_responses uses the plain /task_get. */
@@ -305,12 +301,10 @@ function tasksReadyForEndpoint(endpoint: string): string | null {
 
 /** Pure: the full bounded envelope -> the capability's frozen typed output. */
 export function parseCapability<K extends CapabilityKey>(capability: K, envelope: ProviderEnvelope): ParsedByCapability[K] | null {
-  try { return REGISTRY[capability].parse(envelope) as ParsedByCapability[K]; } catch { return null; }
-}
+  try { return REGISTRY[capability].parse(envelope) as ParsedByCapability[K]; } catch { return null; } }
 
 // ── model resolution (FREE models endpoint, method-aware, cached) ──────────────
-/** Labeled fallbacks (docs.dataforseo.com, 2026-07-24), used only when credentials are absent:
- *  chatgpt/claude standard, gemini/perplexity live. */
+/** Labeled fallbacks (docs, 2026-07-24), used only when credentials are absent: chatgpt/claude standard, gemini/perplexity live. */
 const FALLBACK: Record<LlmEngine, EngineModelResolution> = {
   chatgpt: { model: "gpt-4o", method: "standard", webSearch: true },
   claude: { model: "claude-sonnet-4-20250514", method: "standard", webSearch: true },
@@ -350,8 +344,7 @@ export async function resolveEngineModel(engine: LlmEngine, deps: FunnelBoundary
   return selectResolution(modelObjects(envelope));
 }
 
-/** Prefer a Standard + web model (resumable AND current); else web-only (Live);
- *  else any Standard; else any (Live). method follows the chosen model. */
+/** Prefer Standard + web (resumable AND current); else web-only (Live); else any Standard; else any (Live). */
 function selectResolution(models: Record<string, unknown>[]): EngineModelResolution | null {
   if (models.length === 0) return null;
   const web = (m: Record<string, unknown>) => m.web_search_supported === true;
@@ -450,12 +443,11 @@ function parseLlmAnswer(env: ProviderEnvelope): ParsedAiAnswer {
 function parseScraper(env: ProviderEnvelope): ParsedAiAnswer {
   const { result0 } = resultBlock(env);
   const citations = links(result0?.sources), retrievedResults = links(result0?.search_results);
-  const brands = Array.isArray(result0?.brand_entities) ? (result0!.brand_entities as Record<string, unknown>[]) : null;
   return {
     answerText: str(result0?.markdown), modelServed: str(result0?.model), citations, retrievedResults,
     webSearchReported: (citations?.length ?? 0) + (retrievedResults?.length ?? 0) > 0 ? true : null,
     fanOutQueries: arrStr(result0?.fan_out_queries),
-    brandMentions: brands ? brands.map((b) => str(b.title) ?? "").filter((t) => t.length > 0) : null,
+    brandMentions: brandTitles(result0?.brand_entities),
   };
 }
 /** on_page content_parsing -> the SAME extract a directly read winner carries, so a page read through the
@@ -490,6 +482,14 @@ function arrStr(v: unknown): string[] | null { return Array.isArray(v) ? v.map((
 /** A provider list of web pages -> the ONE link shape every observation keeps. null = the provider sent no such list. */
 function links(v: unknown): { url: string; domain: string; title: string | null }[] | null {
   return Array.isArray(v) ? (v as Record<string, unknown>[]).map((s) => { const url = String(s.url ?? ""); return { url, domain: String(s.domain ?? hostname(url)), title: str(s.title) }; }).filter((c) => c.url.length > 0) : null;
+}
+/** The brands the answer named itself, read whether the provider sent objects with a title or plain strings.
+ *  An observed empty list is []; a list whose every element is unreadable is NULL, because "I do not know
+ *  which brands it named" and "it named none" are different claims (mapping blindly to "" conflated them). */
+function brandTitles(v: unknown): string[] | null {
+  if (!Array.isArray(v)) return null;
+  const titles = v.map((b) => (typeof b === "string" ? str(b) : str((b as Record<string, unknown> | null)?.title))).filter((t): t is string => t != null);
+  return titles.length > 0 || v.length === 0 ? titles : null;
 }
 function hostname(url: string): string { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } }
 function canonicalUrl(url: string): string { try { const u = new URL(url); u.hash = ""; return u.toString(); } catch { return url.trim(); } }

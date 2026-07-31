@@ -223,8 +223,16 @@ export async function readTrackedQuestions(tenantId: string): Promise<{ active: 
  * `null` means the READ FAILED; a caller must not treat that as "no questions".
  * The retry without version/core covers the window between a deploy and its
  * migration: those rows read as series 1 and core-by-tag, which is exactly what
- * the migration's own defaults and backfill would have written.
+ * the migration's own defaults and backfill would have written. It fires ONLY on
+ * a genuinely MISSING COLUMN. On any other error it would have read live rows as
+ * series 1 and minted a duplicate same-day identity under a different version, so
+ * every other error propagates as the failed read it is.
  */
+const columnMissing = (e: { code?: string; message?: string } | null | undefined): boolean => {
+  const code = String(e?.code ?? ""), message = String(e?.message ?? "").toLowerCase();
+  return code === "42703" || message.includes("42703") || (message.includes("column") && message.includes("does not exist"));
+};
+
 export async function readActiveTrackedPrompts(tenantId: string): Promise<TrackedQuestion[] | null> {
   const run = async (cols: string) => {
     const admin = (await import("@/lib/persistence/supabase")).getSupabaseAdmin();
@@ -237,7 +245,7 @@ export async function readActiveTrackedPrompts(tenantId: string): Promise<Tracke
   };
   try {
     let res = await run("id,text,tags,is_active,created_at,version,core");
-    if (res.error) res = await run("id,text,tags,is_active,created_at");
+    if (res.error && columnMissing(res.error)) res = await run("id,text,tags,is_active,created_at");
     if (res.error) return null;
     return projectTrackedQuestions((res.data ?? []) as unknown as TrackedPromptRow[]).active;
   } catch {

@@ -130,6 +130,11 @@ export type ParsedByCapability = {
  *  dedicated ChatGPT SCRAPER is a separate API where force is documented. */
 export type ChatGptWebInput = { user_prompt: string; web_search?: boolean };
 export type ClaudeWebInput = { user_prompt: string; web_search?: boolean; force_web_search?: boolean; web_search_country_iso_code?: string };
+/** THE observation identity every LLM ask carries: which reporting day this reading belongs to, and which
+ *  deliberate sample of that day it is. NEITHER is ever sent to the provider (no builder emits them); they
+ *  exist so the cache identity tells three different questions apart. Without them a second sample was a
+ *  byte-identical $0 replay of the first, and a 23:00 Monday answer could be re-served as Tuesday's. */
+export type ObservationIdentity = { observation_day?: string; sample_slot?: number };
 export type CapabilityInputByKey = {
   labs_keywords_for_site: { target: string; limit?: number };
   labs_ranked_keywords: { target: string; limit?: number };
@@ -148,12 +153,12 @@ export type CapabilityInputByKey = {
   onpage_content_parsing: { url: string };
   serp_organic: { keyword: string; device?: "desktop" | "mobile" };
   serp_ai_mode: { keyword: string; device?: "desktop" | "mobile" };
-  llm_chatgpt: ChatGptWebInput;
-  llm_claude: ClaudeWebInput;
+  llm_chatgpt: ChatGptWebInput & ObservationIdentity;
+  llm_claude: ClaudeWebInput & ObservationIdentity;
   /** Gemini supports web_search only; never send ChatGPT/Claude-only fields. */
-  llm_gemini: { user_prompt: string; web_search?: boolean };
-  llm_perplexity: { user_prompt: string; web_search_country_iso_code?: string };
-  llm_scraper_chatgpt: { keyword: string; force_web_search?: boolean; expand_citations?: boolean };
+  llm_gemini: { user_prompt: string; web_search?: boolean } & ObservationIdentity;
+  llm_perplexity: { user_prompt: string; web_search_country_iso_code?: string } & ObservationIdentity;
+  llm_scraper_chatgpt: { keyword: string; force_web_search?: boolean; expand_citations?: boolean } & ObservationIdentity;
 };
 
 /** Method-aware model resolution: the exact current model, the retrieval method it supports, and whether

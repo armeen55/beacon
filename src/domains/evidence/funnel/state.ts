@@ -58,6 +58,9 @@ export type FunnelPair = {
   /** The version of the prompt text that was actually asked, so a reworded question never silently
    *  overwrites the answers the old wording earned. Absent on rows stored before versioning. */
   promptVersion?: number;
+  /** THE reporting day the plan put this reading on. Part of the working identity, so a row from another
+   *  day can never be mistaken for this one's retry, and a task posted yesterday lands on YESTERDAY. */
+  day?: string;
   cacheKey: string | null;
   status: "pending" | "posted" | "done" | "unsupported";
   /** Terminal-collect recoveries: ONE clean repost, then unsupported. */

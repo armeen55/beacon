@@ -3,13 +3,21 @@
  *  twice; extra readings only on an explicit ask, only after the canonical round, never past three; a version
  *  bump is a NEW measurement identity; an engine I cannot ask is excluded and blocks nobody. Plus the read-back
  *  step: one gateway call per NEW answer hash, and zero calls on a re-run. Fixtures only, zero network. */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+/** The ONE fake in this file: Postgres, and only for the tracked-question read below. Every other test here
+ *  is pure fixtures and injects its own readers, so nothing else ever reaches it. */
+const pg = vi.hoisted(() => ({ queued: [] as { data: unknown; error: unknown }[], queries: 0, cols: [] as string[] }));
+vi.mock("@/lib/persistence/supabase", () => ({
+  getSupabaseAdmin: () => ({ from: () => { const q: Record<string, unknown> = {
+    select: (c: string) => { pg.queries += 1; pg.cols.push(c); return q; }, eq: () => q, contains: () => q, order: () => q, limit: () => q,
+    then: (res: (v: unknown) => void) => res(pg.queued.shift() ?? { data: [], error: null }) }; return q; } }),
+}));
 import type { AiObservationView, DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import {
-  DAILY_OBSERVATION_BATCH, MAX_SAMPLES_PER_DAY, extraSampleVerdict, planObservations, requestExtraSample,
-  runAnswerAnalyses, selectAnalysisTargets, utcReportingDay,
+  DAILY_OBSERVATION_BATCH, MAX_SAMPLES_PER_DAY, dueObservations, extraSampleVerdict, planObservations,
+  requestExtraSample, runAnswerAnalyses, selectAnalysisTargets, utcReportingDay, type ExtraSampleGrant,
 } from "@/domains/runtime/ops/daily-observations";
-import { applyTrackedSelection, type TrackedPromptRow } from "@/domains/runtime/prompt-set";
+import { applyTrackedSelection, readActiveTrackedPrompts, type TrackedPromptRow } from "@/domains/runtime/prompt-set";
 import type { AnswerAnalysis } from "@/domains/decision/llm/schemas";
 
 const DAY = "2026-07-31", ENGINES: DueObservation["engine"][] = ["chatgpt", "claude", "gemini", "perplexity"];
@@ -106,10 +114,10 @@ describe("extra readings", () => {
     expect(after.due).toHaveLength(12);
     expect(after.due.every((d) => d.slot === 1)).toBe(true);
 
-    const twice = extraSampleVerdict(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)] });
+    const twice = extraSampleVerdict(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)], extraSamples: 1 }); // one already granted; this is the second press
     expect(twice.granted && twice.due.every((d) => d.slot === 2)).toBe(true);
 
-    const full = extraSampleVerdict(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1), ...fullDay(DAY, 2)] });
+    const full = extraSampleVerdict(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1), ...fullDay(DAY, 2)], extraSamples: 2 });
     expect(full.granted).toBe(false);
     expect(full.due).toEqual([]);
     expect(full.reason).toContain(`${MAX_SAMPLES_PER_DAY} readings`);
@@ -117,10 +125,13 @@ describe("extra readings", () => {
 
   it("never plans slot 1 or 2 without an explicit ask, and stops at three even when asked", () => {
     expect(planObservations(DAY, { ...base, observed: fullDay(), maxBatch: 99 })).toEqual([]); // complete day, no ask, no work
-    const capped = planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1), ...fullDay(DAY, 2)], extraSample: true, maxBatch: 99 });
+    const capped = planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1), ...fullDay(DAY, 2)], extraSamples: 2, maxBatch: 99 });
     expect(capped).toEqual([]);
-    const one = planObservations(DAY, { ...base, observed: fullDay(), extraSample: true, maxBatch: 99 });
+    const one = planObservations(DAY, { ...base, observed: fullDay(), extraSamples: 1, maxBatch: 99 });
     expect(new Set(one.map(key)).size).toBe(12);
+    // ONE grant buys ONE extra round: with slot 1 in, a second slot needs a second ask.
+    expect(planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)], extraSamples: 1, maxBatch: 99 })).toEqual([]);
+    expect(planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)], extraSamples: 2, maxBatch: 99 }).every((d) => d.slot === 2)).toBe(true);
   });
 
   it("refuses honestly rather than guessing when it cannot read where today stands", async () => {
@@ -130,6 +141,51 @@ describe("extra readings", () => {
     });
     expect([out.granted, out.due]).toEqual([false, []]);
     expect(out.reason).toContain("could not read");
+  });
+
+  it("SAVES the grant so the next pass actually plans it, and refuses rather than promising a reading it could not record", async () => {
+    let stored: ExtraSampleGrant | null = null;
+    const world = { readPrompts: async () => PROMPTS, readObservations: async () => fullDay(), readGrant: async () => stored, writeGrant: async (_t: string, g: ExtraSampleGrant) => { stored = g; return true; } };
+    const first = await requestExtraSample(T, DAY, world);
+    expect([first.granted, stored]).toEqual([true, { day: DAY, granted: 1 }]);
+    // THE POINT: a NEW request cycle, nothing in memory, and the planner still knows a second reading is owed.
+    const plan = await dueObservations(T, DAY, world);
+    expect(plan).toHaveLength(12);
+    expect(plan!.every((d) => d.slot === 1 && d.day === DAY)).toBe(true);
+    // Yesterday's grant never spends today's money.
+    expect(await dueObservations(T, "2026-08-01", { ...world, readObservations: async () => fullDay("2026-08-01") })).toEqual([]);
+    // A grant I could not record is a refusal, never a promise.
+    const lost = await requestExtraSample(T, DAY, { ...world, writeGrant: async () => false });
+    expect([lost.granted, lost.due]).toEqual([false, []]);
+    expect(lost.reason).toContain("could not save");
+  });
+
+  it("plans NOTHING and says so when it cannot read the questions or the answers already on file", async () => {
+    const prompts = async () => PROMPTS, observed = async () => [], readGrant = async () => null;
+    expect(await dueObservations(T, DAY, { readPrompts: async () => null, readObservations: observed, readGrant })).toBeNull();
+    expect(await dueObservations(T, DAY, { readPrompts: prompts, readObservations: async () => { throw new Error("store down"); }, readGrant })).toBeNull();
+    expect(await dueObservations(T, DAY, { readPrompts: async () => [], readObservations: observed, readGrant })).toEqual([]); // no questions is a real, empty answer
+    expect(await dueObservations(T, DAY, { readPrompts: prompts, readObservations: observed, readGrant })).toHaveLength(12);
+  });
+});
+
+describe("reading the approved questions", () => {
+  beforeEach(() => { pg.queued = []; pg.queries = 0; pg.cols = []; });
+  const missingColumn = { data: null, error: { code: "42703", message: 'column tracked_prompts.version does not exist' } };
+  const rows = [{ id: "p1", text: "question p1", tags: ["core_v1"], is_active: true, created_at: "2026-01-01" }];
+
+  it("retries without the version columns ONLY when they are genuinely missing, and never reads a live row as series 1 on a transient failure", async () => {
+    // The deploy-before-migration window: the columns really are absent, so the retry is the honest read.
+    pg.queued = [missingColumn, { data: rows, error: null }];
+    const migrating = await readActiveTrackedPrompts(T);
+    expect(migrating).toEqual([{ id: "p1", text: "question p1", version: 1, core: true, createdAt: "2026-01-01" }]);
+    expect([pg.queries, pg.cols[1]]).toEqual([2, "id,text,tags,is_active,created_at"]);
+    // Any OTHER error is a FAILED READ. Retrying it once read live rows as series 1 and minted a duplicate
+    // same-day identity under a version the question had already moved past.
+    pg.queued = [{ data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } }, { data: rows, error: null }];
+    pg.queries = 0;
+    expect(await readActiveTrackedPrompts(T)).toBeNull();
+    expect(pg.queries).toBe(1); // one query, one honest null
   });
 });
 
@@ -155,7 +211,7 @@ describe("reading the answers back", () => {
     const deps = {
       readObservations: async () => [fresh, stale, done],
       analyze: async (i: { question: string }) => { calls.push(i.question); return analysis; },
-      persist: async (_t: string, id: string, _a: AnswerAnalysis, hash: string) => void saved.push([id, hash]),
+      persist: async (_t: string, id: string, _a: Record<string, unknown>, hash: string) => void saved.push([id, hash]),
       readPrompts: async () => null,
     };
     expect(await runAnswerAnalyses(T, DAY, deps)).toBe(2);
@@ -171,15 +227,34 @@ describe("reading the answers back", () => {
 
   it("is bounded per pass, counts only what actually persisted, and never lets a failure become a saved analysis", async () => {
     const many = Array.from({ length: 9 }, (_, i) => row(`r${i}`, `h${i}`, null, false));
-    let attempts = 0;
+    let attempts = 0, tries = 0;
     const written = await runAnswerAnalyses(T, DAY, {
       readObservations: async () => many,
       analyze: async () => { attempts += 1; return attempts === 1 ? null : analysis; }, // the first answer could not be read back
-      persist: async (_t, id) => { if (id === "r2") throw new Error("write lost"); },
+      persist: async (_t, id) => { tries += 1; if (id === "r2") throw new Error("write lost"); },
       readPrompts: async () => null,
     });
     expect(attempts).toBe(5);   // bounded per pass
     expect(written).toBe(3);    // 5 attempted, 1 produced nothing, 1 write was lost
+    expect(tries).toBe(6);      // and the lost write got exactly ONE retry, never a loop
+  });
+
+  it("records a refusal against the answer it was refused on, so the same answer is never bought twice", async () => {
+    const rejected = row("x", "h-x", null, false);
+    const saved: Array<[string, Record<string, unknown>, string]> = [];
+    const written = await runAnswerAnalyses(T, DAY, {
+      readObservations: async () => [rejected],
+      analyze: async () => null, // the firewall or the schema refused it
+      persist: async (_t, id, a, hash) => void saved.push([id, a, hash]),
+      readPrompts: async () => null,
+    });
+    expect([written, saved.length]).toEqual([0, 1]); // a refusal is not an analysis, but it IS recorded
+    expect(saved[0]![0]).toBe("x");
+    expect(saved[0]![1]).toMatchObject({ rejected: true });
+    expect(saved[0]![2]).toBe("h-x"); // stamped with the answer hash, so this row leaves the worklist
+    // Which is exactly what the next pass reads: the row is settled, and only a NEW answer re-qualifies it.
+    expect(selectAnalysisTargets([{ ...rejected, analysis: { rejected: true }, analysisHash: "h-x" }])).toEqual([]);
+    expect(selectAnalysisTargets([{ ...rejected, answerHash: "h-new", analysis: { rejected: true }, analysisHash: "h-x" }]).map((r) => r.id)).toEqual(["x"]);
   });
 
   it("reports the reporting day as the UTC day the cycle key is built from", () => {

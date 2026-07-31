@@ -322,11 +322,13 @@ describe("research-run conflict-free research closure", () => {
    *  REAL receipt, and a prompt phase whose read is served the snapshot from BEFORE that write. The two writers interleave over one
    *  row, so the prompt unit resets its per-run receipt to zero and its optimistic save conflicts. `staleLoads` = how many prompt
    *  loads see the pre-discovery snapshot. The evidence executor here is the REAL one, driven by the real runResearchCycle. */
+  /** Runtime's daily plan, the observation unit's ONLY input: one question on the four engines, one day. */
+  const DUE = (["chatgpt", "claude", "gemini", "perplexity"] as const).map((engine) => ({ promptId: "p1", version: 1, text: "best persian restaurant", engine, slot: 0 as const, day: "2026-07-21" }));
   function funnelWorld(rows: RR.ResearchRun[], staleLoads: number) {
     const pre = emptyFunnelState(T, "basis_test"); pre.cycle = { runId: "prev-run", cycleKey: "prev", spentUsd: 1.82, cacheHits: 0 }; // the PREVIOUS run's receipt
     const live = { state: structuredClone(pre), rowVersion: 18 }; const seen: Record<string, unknown>[] = []; const bought = new Set<string>(); let loads = 0, paid = 0;
     const answer = { answerText: "hi", modelServed: null, webSearchReported: null, citations: [], fanOutQueries: null, brands: null };
-    const deps: FunnelDeps = { loadActivePrompts: async () => [{ id: "p1", text: "best persian restaurant" }], syncHistory: async () => {}, recordObservation: async () => {}, getAccount: async () => null, now: () => NOW, parse: ((_c: unknown, env: unknown) => env) as FunnelDeps["parse"],
+    const deps: FunnelDeps = { syncHistory: async () => {}, recordObservation: async () => {}, getAccount: async () => null, now: () => NOW, parse: ((_c: unknown, env: unknown) => env) as FunnelDeps["parse"],
       loadState: async () => (loads++ < staleLoads ? { state: structuredClone(pre), rowVersion: 18 } : { state: structuredClone(live.state), rowVersion: live.rowVersion }),
       saveState: async (_t, _b, s, expected) => { if (expected !== live.rowVersion) return null; live.state = structuredClone(s); live.rowVersion = expected + 1; return live.rowVersion; },
       // Cache identity makes any retry $0: a capability already bought comes back as a hit, never a second paid post.
@@ -337,13 +339,13 @@ describe("research-run conflict-free research closure", () => {
       if (phase === "keyword_discovery") { // the first writer: this run's proven spend lands at the next row version
         live.state.cycle = { runId: String(cursor!.runId), cycleKey: "c", spentUsd: 0.09504, cacheHits: 8 }; live.rowVersion += 1;
         return { status: "done", cursor: null, progress: { retainedKeywords: 700, cacheHits: 8, spendUsd: 0.09504 } }; }
-      return phase === "prompt_observations" ? promptObservationUnit(deps)(tenantId, cursor, budgetMs) : { status: "done", cursor: null, progress: {} }; };
+      return phase === "prompt_observations" ? promptObservationUnit(deps, DUE)(tenantId, cursor, budgetMs) : { status: "done", cursor: null, progress: {} }; };
     return { funnelUnit, paid: () => paid, prompts: () => seen.filter((s) => s.phase === "prompt_observations") }; }
   it("recovers the interleave: ONE retry on the same run, phase, lease and attempt key, no duplicate paid post, and the FRESH receipt persists", async () => {
     const rows = withRun(); const w = funnelWorld(rows, 1); await run({ funnelUnit: w.funnelUnit }); // only the first prompt load is stale
     expect(w.prompts()).toHaveLength(2); expect(w.prompts()[0]).toEqual(w.prompts()[1]); // one conflict, exactly one retry, identical run / lease owner / attempt key
-    expect([w.paid(), rows[0]!.status]).toEqual([5, "completed"]); // 5 pairs bought once: the retry reused every cache identity at $0, and the run closed instead of pausing
-    expect(rows[0]!.progress.funnel).toMatchObject({ retainedKeywords: 700, spendUsd: 0.095, cacheHits: 13 }); }); // the FRESH unit's numbers (4dp receipt), never the stale zeros
+    expect([w.paid(), rows[0]!.status]).toEqual([4, "completed"]); // the 4 planned readings bought once: the retry reused every cache identity at $0, and the run closed instead of pausing
+    expect(rows[0]!.progress.funnel).toMatchObject({ retainedKeywords: 700, spendUsd: 0.095, cacheHits: 12 }); }); // the FRESH unit's numbers (4dp receipt), never the stale zeros
   it("pauses ONCE with the bounded reason on a second consecutive conflict, and still never under-reports the run's spend", async () => {
     const rows = withRun(); const w = funnelWorld(rows, 99); await run({ funnelUnit: w.funnelUnit }); // every prompt load is stale: the retry conflicts too
     expect(w.prompts()).toHaveLength(2); expect([rows[0]!.status, rows[0]!.current_phase]).toEqual(["paused", "prompt_observations"]); // bounded: no third invocation, no loop

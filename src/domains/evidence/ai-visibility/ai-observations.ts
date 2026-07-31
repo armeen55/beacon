@@ -23,13 +23,17 @@ import type { PromptAnswerObservation } from "./prompt-answer-observations";
  * derived by the same writer at the same moment, so the native-intel readers keep working off one truth.
  */
 
-/** THE frozen seam with Runtime's planner: exactly the pairs that are due, nothing implied. */
+/** THE frozen seam with Runtime's planner: exactly the pairs that are due, nothing implied. `day` is the
+ *  REPORTING DAY the planner filtered on, carried so the row is stored on the day the plan meant. It used to
+ *  be re-derived from the wall clock at write time, so a run resumed past midnight landed rows on a day the
+ *  planner and the analysis pass never looked at, and nothing on a resumed run was ever analyzed. */
 export type DueObservation = {
   promptId: string;
   version: number;
   text: string;
   engine: "chatgpt" | "claude" | "gemini" | "perplexity";
   slot: 0 | 1 | 2;
+  day: string;
 };
 
 /** observed = a real answer in hand. unavailable = the engine had nothing to give. unsupported = I cannot
@@ -94,7 +98,10 @@ export type AiObservationDraft = {
   engine: ResearchEngine;
   mode: ObservationMode;
   slot: number;
-  /** Full ISO instant; the reporting day is derived from it, never passed separately. */
+  /** THE reporting day this reading belongs to, taken from the PLAN and never from a clock: one run, one
+   *  day, whatever hour the request actually left. */
+  day: string;
+  /** Full ISO instant the request was made. It records WHEN, never WHICH DAY THIS COUNTS FOR. */
   requestedAt: string;
   completedAt?: string | null;
   capability: string;
@@ -115,7 +122,7 @@ export function aiObservationId(i: { tenantId: string; promptId: string; promptV
 
 /** Pure: one draft -> the canonical row. Nothing is invented; what the provider did not report stays null. */
 export function buildAiObservation(d: AiObservationDraft): AiObservationRecord {
-  const day = d.requestedAt.slice(0, 10);
+  const day = d.day;
   const p = d.parsed ?? null;
   const text = p?.answerText ?? null;
   return {

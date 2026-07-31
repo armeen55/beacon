@@ -36,13 +36,11 @@ import {
   writePublicPageExtract,
 } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { loadFunnelState, saveFunnelState, type FunnelPair, type FunnelState, type LoadedFunnelState } from "./state";
-// ONE tag vocabulary: the set Settings writes is byte-for-byte the set I check.
-import { PROMPT_TAGS } from "@/domains/runtime/prompt-set";
 
-/** THE one freshness window for every observation the funnel keeps: AI answers and
- *  search looks are re-observed WEEKLY. A done row older than this is due and
- *  re-enters the same boundary; OUR one-day evidence cache (the collected row's
- *  ttl) still deduplicates a repeat inside a day, never double-paying per day. */
+/** THE freshness window for the SEARCH looks the funnel keeps (results pages and the
+ *  pages that win them): re-observed WEEKLY. A done row older than this is due and
+ *  re-enters the same boundary. AI ANSWERS DO NOT USE IT: Runtime's daily planner is
+ *  the one freshness authority there, because it reads the stored observations. */
 export const FRESH_MS = 7 * 24 * 3600 * 1000;
 
 export type FunnelDeps = {
@@ -60,7 +58,6 @@ export type FunnelDeps = {
    *  redirect-only resolver in competitor-intel/polite-fetch). */
   resolveCitations?: (appearances: ResearchWinningAppearance[], fetchImpl?: typeof fetch, deadlineMs?: number) => Promise<ResearchWinningAppearance[]>;
   getAccount?: (tenantId: string) => Promise<Account | null>;
-  loadActivePrompts?: (tenantId: string) => Promise<{ id: string; text: string }[] | null>;
   syncHistory?: (rows: PromptAnswerObservation[], tenantId: string) => Promise<void>;
   /** THE canonical full-fidelity observation write (ai_observations). Separate seam from syncHistory
    *  because the history row is a PROJECTION of this record, derived from it at the same instant. */
@@ -91,7 +88,6 @@ export function resolveDeps(deps: FunnelDeps) {
     loadCrawl: deps.loadCrawl ?? loadCrawlFrontier,
     loadPageQueries: deps.loadPageQueries ?? defaultPageQueries,
     getAccount: deps.getAccount ?? getTenant,
-    loadActivePrompts: deps.loadActivePrompts ?? defaultActivePrompts,
     syncHistory: deps.syncHistory ?? syncPromptAnswerObservations,
     recordObservation: deps.recordObservation ?? recordAiObservation,
     fetchPage: deps.fetchPage ?? fetchPageHtml,
@@ -101,27 +97,6 @@ export function resolveDeps(deps: FunnelDeps) {
     saveState: deps.saveState ?? saveFunnelState,
     now: deps.now ?? Date.now,
   };
-}
-
-/** null = the READ FAILED. A transient failure must never masquerade as "zero
- *  questions": that once wrote a false no-questions pause onto a live run. */
-async function defaultActivePrompts(tenantId: string): Promise<{ id: string; text: string }[] | null> {
-  try {
-    const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
-    const { data, error } = await getSupabaseAdmin()
-      .from("tracked_prompts")
-      .select("id,text")
-      .eq("tenant_id", tenantId)
-      .eq("is_active", true)
-      .contains("tags", JSON.stringify([PROMPT_TAGS.core]))
-      .order("created_at", { ascending: true })
-      .order("id", { ascending: true })
-      .limit(100);
-    if (error) return null;
-    return ((data ?? []) as { id: string; text: string }[]).filter((r) => r.id && r.text);
-  } catch {
-    return null;
-  }
 }
 
 /** The SAME canonical Search Console read the evidence snapshot's

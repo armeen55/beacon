@@ -14,7 +14,7 @@ vi.mock("@/domains/decision/proposal-store", async () => ({ ...(await vi.importA
 vi.mock("@/domains/decision/produce-bundle", () => ({ produceBundleForSnapshot: async () => ({ status: "none", reason: "the deep bundle has its own suite" }) }));
 vi.mock("@/domains/account", async (orig) => ({ ...(await orig() as object), loadBusinessProfile: async () => null, getTenant: async () => ({ id: "replay-tenant", domain: "atlaspedia.example", growth_goal: null }), basisTag: () => "basis_replay" }));
 import type { Account } from "@/domains/account";
-import type { AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations";
+import type { AiObservationRecord, DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import { parseCapability, type CachedCallResult, type CapabilityKey, type ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { parsePageIntersection } from "@/domains/evidence/page-intersection";
 import { dominantPageType, freshnessAt, pageTypeVotesOf, SERP_FRESH_MS, type SerpRow } from "@/domains/evidence/serp-shape";
@@ -99,6 +99,8 @@ describe("fixture envelopes drive the REAL registry parsers", () => {
 
 // ── the replay through the REAL funnel executors ─────────────────────────────
 const PROMPTS = [{ id: "p1", text: "where can I see a kite festival" }];
+/** Runtime's daily plan: the ONLY thing the observation unit will act on. */
+const DUE: DueObservation[] = PROMPTS.flatMap((p) => (["chatgpt", "claude", "gemini", "perplexity"] as const).map((engine) => ({ promptId: p.id, version: 1, text: p.text, engine, slot: 0 as const, day: "2026-07-21" })));
 const evidenceOf = (envelope: ProviderEnvelope, cacheKey: string): CachedCallResult => ({ state: "ok", envelope, costUsd: 0.01, cacheKey, modelServed: null });
 /** The ONE provider seam: a capability in, a fixture ENVELOPE out. The real registry parser runs behind it. */
 const replayProvider: NonNullable<FunnelDeps["callProvider"]> = async (cap: CapabilityKey, input: unknown) => {
@@ -113,12 +115,12 @@ async function replayFunnel(): Promise<{ evidence: FunnelResearchEvidence; statu
   const observed: AiObservationRecord[] = [];
   const deps: FunnelDeps = { ...store.deps, callProvider: replayProvider, keywordIdeas: async () => [], now: () => NOW_MS,
     loadProfile: async () => fx.replayProfile(), getAccount: async () => ({ domain: SITE } as Account), loadCrawl: async () => null,
-    loadActivePrompts: async () => PROMPTS, syncHistory: async () => {}, recordObservation: async (rec) => { observed.push(rec); },
+    syncHistory: async () => {}, recordObservation: async (rec) => { observed.push(rec); },
     collectTask: async () => evidenceOf(fx.llmAnswer(), "ck-collect"),
     loadPageQueries: async () => fx.agendaFromDecay([{ decay: fx.gscGain(), queries: [{ query: WINNER_QUERY, impressions: 25000, clicks: 2365, position: 4 }] },
       { decay: fx.gscDecline(), queries: [{ query: GAP_QUERY, impressions: 6000, clicks: 180, position: 4.1 }] }]) };
   const cursor = { basis: BASIS };
-  const statuses = [(await keywordDiscoveryUnit(deps)(TENANT, cursor, 60_000)).status, (await promptObservationUnit(deps)(TENANT, cursor, 60_000)).status,
+  const statuses = [(await keywordDiscoveryUnit(deps)(TENANT, cursor, 60_000)).status, (await promptObservationUnit(deps, DUE)(TENANT, cursor, 60_000)).status,
     (await serpAnalysisUnit(deps)(TENANT, cursor, 60_000)).status];
   const state = store.peek()!;
   // The winners are the SAME fixture bodies, read through the SAME parser: one readable, one the publisher refused.
