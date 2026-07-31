@@ -25,7 +25,6 @@
 
 import "server-only";
 
-import { log } from "@/lib/logger";
 import {
   readDotDataJson,
   writeDotDataJson,
@@ -308,16 +307,10 @@ export async function markRecommendedEditsAsShipped(args: {
   }
 
   await writeDotDataJson(STORE, next);
-  try {
-    await syncRecommendedEdits(flipped, args.tenantId);
-  } catch (err) {
-    log.warn("markRecommendedEditsAsShipped: dual-write failed", {
-      tenantId: args.tenantId,
-      flippedCount: flipped.length,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    // File-first contract: same semantics as markRecommendedEditsAccepted.
-  }
+  // THE OPERATOR'S CLICK IS A CANONICAL WRITE. Swallowing this sync reported "flipped" while
+  // Supabase kept the old lifecycle row, so the one action a paying operator takes on a change
+  // could silently not happen. A throw here surfaces in the action instead of vanishing.
+  await syncRecommendedEdits(flipped, args.tenantId);
   return { flipped: flipped.length, skipped };
 }
 

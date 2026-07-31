@@ -1,5 +1,5 @@
 /**
- * Sprint 6A.1 Phase 6 (2026-04-24) — Page element persistence.
+ * Sprint 6A.1 Phase 6 (2026-04-24) - Page element persistence.
  *
  * Wraps the pure-output of `extractAllElements` with the DB-layer fields
  * required by `page_element_inventory` (id / tenant_id / page_id / url /
@@ -7,11 +7,11 @@
  *
  * Two entry points:
  *
- *   - `buildPageElementRows({ snapshot, html, tenantId, ... })` — pure.
- *   - `persistPageElements({ ... })` — builds, then writes to Supabase and
+ *   - `buildPageElementRows({ snapshot, html, tenantId, ... })` - pure.
+ *   - `persistPageElements({ ... })` - builds, then writes to Supabase and
  *     throws when the write does not land.
  *
- * The `id` column is deterministic — `${snapshot.id}__${element_key}` —
+ * The `id` column is deterministic - `${snapshot.id}__${element_key}` -
  * so re-running with the same inputs produces the same id and the
  * Postgres unique-index upsert on `(source_snapshot_id, element_key)`
  * stays idempotent.
@@ -30,7 +30,7 @@ import type { ExtractedElement, ExtractorContext } from "./types";
 
 /**
  * One row in the `page_element_inventory` table. Shape mirrors the
- * migration's column list exactly — Phase 6A.1.1 schema test asserts
+ * migration's column list exactly - Phase 6A.1.1 schema test asserts
  * the column set, so any drift here will surface there too.
  */
 export type PageElementInventoryRow = {
@@ -51,7 +51,7 @@ export type PageElementInventoryRow = {
 /**
  * Inputs to the per-snapshot extract+wrap step.
  *
- * Dictionaries are passed in by the caller — the helper does NOT reach
+ * Dictionaries are passed in by the caller - the helper does NOT reach
  * for `getBusinessProfile()` itself. This keeps the function pure +
  * tenant-agnostic + safe to import from the scan CLI without dragging
  * server-only config readers into the child process.
@@ -62,9 +62,9 @@ export type BuildPageElementRowsArgs = {
   tenantId: string;
   cityDictionary?: string[];
   serviceDictionary?: string[];
-  /** Reserved for Sprint 6A.2 — entity_mention extractor. */
+  /** Reserved for Sprint 6A.2 - entity_mention extractor. */
   entityDictionary?: string[];
-  /** Reserved for Sprint 6A.2 — competitor_mention extractor. */
+  /** Reserved for Sprint 6A.2 - competitor_mention extractor. */
   competitorDictionary?: string[];
 };
 

@@ -4,7 +4,7 @@
  *
  * 2026-07-31 (V1 Truth Convergence, Phase 0): the `DUAL_WRITE === "true"`
  * gate that used to front every writer here was deleted. Unset anywhere, it
- * made each of these calls a SUCCESS-SHAPED NO-OP — page snapshots, the
+ * made each of these calls a SUCCESS-SHAPED NO-OP - page snapshots, the
  * in-process scan, the extractor persist path and the research run's owned-page
  * read all resolved having written nothing while their callers advanced as
  * though the rows were durable. Nothing on a canonical path consults an
@@ -21,7 +21,7 @@ const CHUNK_SIZE = 500;
 // uploads (seen at chunk 9 of 29 on prompt_answer_observations) aborts the
 // whole import. Per-chunk retry with exponential backoff absorbs transient
 // network / TLS / connection-reset failures. Schema/constraint errors bypass
-// retry — they won't improve with time and need a migration, not another
+// retry - they won't improve with time and need a migration, not another
 // attempt.
 const MAX_RETRY_ATTEMPTS = 4; // 1 initial + 3 retries
 const RETRY_BACKOFF_BASE_MS = 500; // 500 → 1000 → 2000 between attempts
@@ -52,7 +52,7 @@ export async function dualWriteUpsert(
       const chunk = rows.slice(i, i + CHUNK_SIZE);
       const chunkLabel = `${table} chunk ${i}-${i + chunk.length}`;
 
-      // Retry loop — up to MAX_RETRY_ATTEMPTS total attempts per chunk.
+      // Retry loop - up to MAX_RETRY_ATTEMPTS total attempts per chunk.
       let lastErr: unknown = null;
       let written = 0;
       for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
@@ -80,7 +80,7 @@ export async function dualWriteUpsert(
           console.error(
             `[dual-write] ${chunkLabel}: attempt ${attempt} transient failure (${
               lastErr instanceof Error ? lastErr.message : String(lastErr)
-            }) — retrying in ${backoffMs}ms`,
+            }) - retrying in ${backoffMs}ms`,
           );
           await new Promise((r) => setTimeout(r, backoffMs));
         }
@@ -88,7 +88,7 @@ export async function dualWriteUpsert(
 
       if (lastErr) {
         console.error(
-          `[dual-write] ${chunkLabel} failed after ${MAX_RETRY_ATTEMPTS} attempts — ${
+          `[dual-write] ${chunkLabel} failed after ${MAX_RETRY_ATTEMPTS} attempts - ${
             lastErr instanceof Error ? lastErr.message : String(lastErr)
           }`,
         );
@@ -110,7 +110,7 @@ export async function dualWriteUpsert(
     }
   } catch (e) {
     console.error(
-      `[dual-write] ${table}: unexpected error — ${e instanceof Error ? e.message : e}`,
+      `[dual-write] ${table}: unexpected error - ${e instanceof Error ? e.message : e}`,
     );
     // Always re-throw so the caller marks its run failed instead of showing a
     // false "complete".
@@ -124,7 +124,7 @@ export async function dualWriteUpsert(
 // paths still upsert mixed-tenant rows without validation: row mappers
 // stamp `tenant_id`, but the dual-write layer doesn't verify it matches
 // the caller's tenant. Phase 7.7a adds the validation infrastructure
-// ONLY — assertion + scoped-upsert wrapper + the explicit list of
+// ONLY - assertion + scoped-upsert wrapper + the explicit list of
 // cross-tenant tables. No caller uses these yet; that lands in 7.7b.
 
 /**
@@ -149,7 +149,7 @@ export const GLOBAL_TABLES: ReadonlySet<string> = new Set([
   "tenants",
   "business_config",
   // Night-shift (2026-06-11): citation_evidence_index +
-  // answer_intelligence_index were REMOVED from this set — both tables
+  // answer_intelligence_index were REMOVED from this set - both tables
   // are per-tenant now (tenant_id + (tenant_id,id) PK; migrations
   // applied 2026-06-11) and their sync wrappers stamp tenant_id.
   // tracked_prompts/tracked_entities remain listed pending a daylight
@@ -168,7 +168,7 @@ export const GLOBAL_TABLES: ReadonlySet<string> = new Set([
  * I/O. Use as the first step of every tenant-scoped writer; failing
  * fast on mismatch is the leak-prevention contract.
  *
- * Treats missing/null `tenant_id` as a mismatch — defense against
+ * Treats missing/null `tenant_id` as a mismatch - defense against
  * row mappers that forgot to stamp the field. An empty `tenantId`
  * argument is also rejected so callers can't "validate" with the wrong
  * fail-open value.
@@ -212,7 +212,7 @@ export async function dualWriteUpsertScoped(
   if (rows.length === 0) return;
   if (GLOBAL_TABLES.has(table)) {
     throw new Error(
-      `[dual-write/${table}] is a global table — use dualWriteUpsert, not dualWriteUpsertScoped`,
+      `[dual-write/${table}] is a global table - use dualWriteUpsert, not dualWriteUpsertScoped`,
     );
   }
   assertRowsScopedToTenant(rows, tenantId, table);
@@ -228,8 +228,8 @@ export async function dualWriteUpsertScoped(
  * sites still stamp `tenant_id: ""` literally (~40 sites verified by
  * audit). Tier A `sync*` wrappers wrap their input through `tenantizeRows`
  * so the resolved tenant ends up on every row before the upsert, while
- * any pre-stamped non-empty mismatch — the actual cross-tenant leak
- * vector — fails loud.
+ * any pre-stamped non-empty mismatch - the actual cross-tenant leak
+ * vector - fails loud.
  *
  * Once row-creation sites are clean (Phase 7.7b.1 or 7.8 cleanup), Tier
  * A wrappers move from `dualWriteUpsert(tenantizeRows(...))` to
@@ -293,7 +293,7 @@ export async function syncImportRuns(
 // orchestrator's Supabase mirror path was retired; zero prod callers.
 
 // syncChangelogEntries + mapChangelogEntryToRow removed 2026-07-22 (CORE 100K
-// persistence collapse): zero live callers — the changelog write path that fed
+// persistence collapse): zero live callers - the changelog write path that fed
 // it was retired with the 28-domain strip. The tenant-scoped READ path
 // (getChangelogEntries) stays live.
 
@@ -314,14 +314,14 @@ export async function syncPages(
 // singleton "current" row is never written again (historical row preserved).
 
 // mapChangeContractToRow + syncChangeContracts and mapPersistedIssueToRow +
-// syncPageIssues removed 2026-07-21 (CORE 100K Lane O): zero prod callers —
+// syncPageIssues removed 2026-07-21 (CORE 100K Lane O): zero prod callers -
 // the contract/issue write paths that fed them were retired in earlier
 // campaigns. The tenant-scoped READ paths (getChangeContracts) stay live.
 
 
 /** The per-day uniqueness index on prompt_answer_observations:
  *  (tenant_id, prompt_id, platform, (observed_at AT TIME ZONE 'UTC')::date).
- *  An EXPRESSION index — supabase-js `onConflict` can't target it, so the
+ *  An EXPRESSION index - supabase-js `onConflict` can't target it, so the
  *  primary upsert keys on `id` and same-day collisions are recovered below. */
 const PAO_DAY_CONSTRAINT = "ux_pao_tenant_prompt_platform_day";
 
@@ -341,17 +341,17 @@ function paoDayKey(row: {
 }
 
 /**
- * 2026-06-09 — same-day re-poll recovery (root cause of the June 3
+ * 2026-06-09 - same-day re-poll recovery (root cause of the June 3
  * persistence-gate latch). When two polls fire on the same UTC day
  * (double cron fire / retry-after-partial), the second run's rows carry
- * NEW ids but the SAME (tenant, prompt, platform, day) — the id-keyed
+ * NEW ids but the SAME (tenant, prompt, platform, day) - the id-keyed
  * upsert INSERTs and trips the day-uniqueness constraint, which used to
  * throw, mark the run PERSISTENCE FAILED, and latch the paid-poll gate.
  *
  * A same-day duplicate is skippable BY DEFINITION (that prompt's answer
  * for that day is already recorded). On this specific collision we
  * fetch the day's existing keys and write ONLY the genuinely-missing
- * rows — which also lets a re-run fill prompts an earlier partial run
+ * rows - which also lets a re-run fill prompts an earlier partial run
  * missed. Any other error still throws (the gate's job is real
  * failures, not re-poll collisions).
  */
@@ -405,7 +405,7 @@ export async function syncPromptAnswerObservations(
       await dualWriteUpsert("prompt_answer_observations", missing, "id");
     }
     console.error(
-      `[dual-write] prompt_answer_observations: same-day re-poll collision — ` +
+      `[dual-write] prompt_answer_observations: same-day re-poll collision - ` +
         `${stamped.length - missing.length} duplicate row(s) skipped, ` +
         `${missing.length} missing row(s) written`,
     );
@@ -420,7 +420,7 @@ export async function syncPromptAnswerObservations(
 // ── Scan output sync (Phases 2 & 4) ──
 
 // syncObservationRuns removed 2026-07-22 (CORE 100K persistence collapse): zero
-// live callers — the scan/poll orchestrators that wrote observation_runs through
+// live callers - the scan/poll orchestrators that wrote observation_runs through
 // it were retired with the 28-domain strip. The tenant-scoped READ path
 // (getObservationRuns) stays live.
 
@@ -433,7 +433,7 @@ export async function syncPageSnapshots(
 }
 
 // syncGuardrailAlerts + syncGuardrailAlertsForUrl removed 2026-07-21 (CORE
-// 100K Lane O): zero prod callers — the orchestrate-scan writer path and the
+// 100K Lane O): zero prod callers - the orchestrate-scan writer path and the
 // verify-action URL-scoped path were both retired in earlier campaigns.
 // The guardrail_alerts READ paths (getGuardrailAlerts) stay live.
 
@@ -532,7 +532,7 @@ export async function syncRecommendationResponses(
   tenantId: string,
 ): Promise<void> {
   // Phase 7.7b Commit 5 (2026-04-25): RecommendationResponse type doesn't
-  // carry tenant_id natively — the prior mapper used a defensive cast. We
+  // carry tenant_id natively - the prior mapper used a defensive cast. We
   // still validate any row that DOES carry a stray tenant_id field via
   // tenantizeRows (catches a hypothetical cross-tenant leak), but the
   // mapper now stamps tenantId directly.
@@ -542,7 +542,7 @@ export async function syncRecommendationResponses(
     "recommendation_responses",
   );
   const mapped = rows.map((r) => mapRecommendationResponseToRow(r, tenantId));
-  // 2026-04-27 Accept-bug fix — analogous to Sprint 6A.2f's fix on
+  // 2026-04-27 Accept-bug fix - analogous to Sprint 6A.2f's fix on
   // syncRecommendedEdits. The Phase 7.2 multi-tenant migration swapped
   // the recommendation_responses PRIMARY KEY from `(rec_id)` to
   // `(tenant_id, rec_id)` to allow two tenants to hold independent
@@ -564,17 +564,17 @@ export async function syncRecommendationResponses(
 }
 
 /**
- * Sprint 6A.1.16 (2026-04-25) — delete a recommendation_responses row by
+ * Sprint 6A.1.16 (2026-04-25) - delete a recommendation_responses row by
  * rec_id. Required for the Undo path: the in-memory + on-disk arrays
  * splice the row out, but `syncRecommendationResponses` is upsert-only
- * — without an explicit delete, the row stays in Supabase and the
+ * - without an explicit delete, the row stays in Supabase and the
  * /recommendations page surfaces a stale "accepted" state on the next
  * cross-lambda render.
  *
  * Phase 7.7c (2026-04-25): tenant-scoped. The DELETE now carries
  * `.eq("tenant_id", tenantId)` so a cross-tenant `rec_id` collision
- * — e.g. two tenants both producing
- * `create_cluster_page:geo:Los Altos` — never lets one tenant's Undo
+ * - e.g. two tenants both producing
+ * `create_cluster_page:geo:Los Altos` - never lets one tenant's Undo
  * remove another tenant's response.
  *
  * The ONE best-effort call left in this module: errors are logged, never
@@ -599,12 +599,12 @@ export async function deleteRecommendationResponseByRecId(
       .eq("tenant_id", tenantId);
     if (error) {
       console.error(
-        `[dual-write] recommendation_responses delete (rec_id=${recId}, tenant=${tenantId}) failed — ${error.message}`,
+        `[dual-write] recommendation_responses delete (rec_id=${recId}, tenant=${tenantId}) failed - ${error.message}`,
       );
     }
   } catch (e) {
     console.error(
-      `[dual-write] recommendation_responses delete (rec_id=${recId}, tenant=${tenantId}) error — ${e instanceof Error ? e.message : e}`,
+      `[dual-write] recommendation_responses delete (rec_id=${recId}, tenant=${tenantId}) error - ${e instanceof Error ? e.message : e}`,
     );
   }
 }
@@ -614,7 +614,7 @@ export async function syncUrlChangeOutcomes(
   tenantId: string,
 ): Promise<void> {
   const stamped = tenantizeRows(rows, tenantId, "url_change_outcomes");
-  // Shape is already snake_case — pass through, compound PK.
+  // Shape is already snake_case - pass through, compound PK.
   await dualWriteUpsert(
     "url_change_outcomes",
     stamped as unknown as AnyRow[],
@@ -627,7 +627,7 @@ export async function syncUrlChangeOutcomes(
 // ── Recommended edits sync (Sprint 6A.1 Phase 11) ──
 
 /**
- * Sprint 6A.1 Phase 11 (2026-04-24) — recommended_edits dual-write.
+ * Sprint 6A.1 Phase 11 (2026-04-24) - recommended_edits dual-write.
  *
  * Idempotent on `(tenant_id, rec_id, action_type, target_element_key)`
  * matching the production `ux_re_tenant_rec_action_element` unique
@@ -637,22 +637,22 @@ export async function syncUrlChangeOutcomes(
  * duplicates.
  *
  * Rows arrive already snake_cased + DB-shaped from
- * `mapSpecificEditToRow` — pass-through, no further mapping.
+ * `mapSpecificEditToRow` - pass-through, no further mapping.
  *
  * Phase 7.7d (2026-04-25): tenant-bound via STRICT `dualWriteUpsertScoped`
- * (not lenient `tenantizeRows`). The row source is already clean — every
+ * (not lenient `tenantizeRows`). The row source is already clean - every
  * row carries `tenant_id` stamped from `packet.tenantId` at construction
  * time, with no `""` legacy values to coerce. This helper is the first
  * production caller of `dualWriteUpsertScoped`; the contract is "every
- * row's `tenant_id` MUST equal `tenantId` — empty / null / undefined
+ * row's `tenant_id` MUST equal `tenantId` - empty / null / undefined
  * counts as mismatch and throws".
  *
  * Sprint 6A.2f follow-up (2026-04-26): the `onConflict` column list
  * fixed to `"tenant_id,rec_id,action_type,target_element_key"` (was
  * missing `tenant_id`). The Phase 7.7d tenant-binding migration
  * extended the unique index to include `tenant_id` as the leading
- * column — `ux_re_rec_action_element` (3 cols) was renamed to
- * `ux_re_tenant_rec_action_element` (4 cols) — but the dual-write
+ * column - `ux_re_rec_action_element` (3 cols) was renamed to
+ * `ux_re_tenant_rec_action_element` (4 cols) - but the dual-write
  * spec wasn't updated alongside. Result: the first live LLM-sourced
  * `--write` against the Ritz tenant threw
  * `"there is no unique or exclusion constraint matching the ON CONFLICT
@@ -675,9 +675,9 @@ export async function syncRecommendedEdits(
 }
 
 /**
- * Sprint 6A.1 Phase 6 (2026-04-24) — page_element_inventory dual-write.
+ * Sprint 6A.1 Phase 6 (2026-04-24) - page_element_inventory dual-write.
  *
- * Idempotent on `(tenant_id, source_snapshot_id, element_key)` — re-
+ * Idempotent on `(tenant_id, source_snapshot_id, element_key)` - re-
  * extracting the same snapshot for the same tenant replaces existing
  * rows in place rather than accumulating duplicates. The unique index
  * `ux_pei_tenant_snapshot_element_key` enforces this at the DB level.
@@ -685,7 +685,7 @@ export async function syncRecommendedEdits(
  * so the table doubles as a per-scan audit trail.
  *
  * 2026-04-27 onConflict-audit fix: the spec was previously
- * `"source_snapshot_id,element_key"` (missing `tenant_id`) — same bug
+ * `"source_snapshot_id,element_key"` (missing `tenant_id`) - same bug
  * class as the recommendation_responses + recommended_edits Sprint
  * 6A.2f fixes. The Phase 7.7d multi-tenant migration extended the
  * unique index to include `tenant_id` as the leading column, but the
@@ -698,7 +698,7 @@ export async function syncRecommendedEdits(
  *     ON page_element_inventory (tenant_id, source_snapshot_id, element_key)
  *
  * Rows arrive already snake_cased + DB-shaped from
- * `buildPageElementRows` in `src/domains/evidence/pages/extractors/persist.ts` —
+ * `buildPageElementRows` in `src/domains/evidence/pages/extractors/persist.ts` -
  * pass-through, no mapping needed.
  */
 export async function syncPageElementInventory(
@@ -736,5 +736,5 @@ export async function syncPageElementInventory(
   );
 }
 
-// (clearAllImportTables removed 2026-07-21 with dualWriteTruncate — see the
+// (clearAllImportTables removed 2026-07-21 with dualWriteTruncate - see the
 // dated note above the typed convenience wrappers.)

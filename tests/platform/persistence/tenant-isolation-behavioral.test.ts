@@ -1,4 +1,4 @@
-/** PLATFORM — tenant isolation + write durability: repo facade scoping, dual-write
+/** PLATFORM - tenant isolation + write durability: repo facade scoping, dual-write
  *  validation before I/O, the fail-closed write contract, and the canonical
  *  Account/BusinessProfile + lifecycle promises. Structural pushdown lives in the
  *  foundation guard, not source scans. */
@@ -92,7 +92,7 @@ describe("dual-write tenant validation (fires before any I/O)", () => {
     await expect(dualWriteUpsertScoped("tenants", [{ tenant_id: TENANT, id: "x" }], "id", TENANT)).rejects.toThrow(/is a global table/);
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: OTHER, id: "r1" }], "id", TENANT)).rejects.toThrow(/tenant mismatch/);
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", "")).rejects.toThrow(/tenantId must be a non-empty string/);
-    // Valid input with an unreachable client FAILS CLOSED — never a silent no-op success.
+    // Valid input with an unreachable client FAILS CLOSED - never a silent no-op success.
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", TENANT)).rejects.toThrow(/no section may reach the supabase client/);
   });
 
