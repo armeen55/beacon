@@ -262,3 +262,8 @@ describe("reading the answers back", () => {
     expect(utcReportingDay(Date.parse("2026-08-01T00:00:01.000Z"))).toBe("2026-08-01");
   });
 });
+it("never plans more perplexity than one pass can drain, and fills the freed slots with finishable work", () => {
+  const prompts = Array.from({ length: 35 }, (_, i) => q(`px${String(i).padStart(2, "0")}`, "2026-01-01")); // 35 x 4 = 140 candidates, batch 20
+  const plan = planObservations(DAY, { prompts, observed: [] });
+  const perp = plan.filter((d) => d.engine === "perplexity").length;
+  expect([plan.length, perp]).toEqual([20, 3]); }); // the old plan carried 5+, the pass drained 3, and the skipped rows re-sorted to the head forever

@@ -54,6 +54,8 @@ type AnalyzableObservation = AiObservationView;
 /** How many engine reads ONE pass may plan. Matches the observation unit's own
  *  per-pass ceiling, so a plan never hands over more work than a pass can do. */
 export const DAILY_OBSERVATION_BATCH = 20;
+/** The executor's own per-pass perplexity ceiling (observe.ts drains three, then skips). */
+const PERPLEXITY_PER_PASS = 3;
 /** The hard ceiling on readings of one question, one engine, one day. */
 export const MAX_SAMPLES_PER_DAY = 3;
 /** How many answers ONE pass may read back. Zero new answers costs zero. */
@@ -149,9 +151,21 @@ export function planObservations(day: string, input: ObservationPlanInput): DueO
     || a.prompt.id.localeCompare(b.prompt.id)
     || engineRank(a.engine) - engineRank(b.engine));
 
+  // THE PLANNER KNOWS THE EXECUTOR'S CEILINGS. The unit drains at most three perplexity asks per
+  // pass, and a skipped pair writes no row, so it re-sorted to the head of the very next plan: the
+  // perplexity block grew until it owned half the batch and every other engine's coverage decayed
+  // with it. The plan now carries at most one pass's worth of perplexity and fills the rest of the
+  // batch with work the pass can actually finish.
+  const picked: typeof candidates = []; let perp = 0;
+  for (const c of candidates) {
+    if (picked.length >= maxBatch) break;
+    if (c.engine === "perplexity" && perp >= PERPLEXITY_PER_PASS) continue;
+    if (c.engine === "perplexity") perp += 1;
+    picked.push(c);
+  }
   // THE REPORTING DAY TRAVELS WITH THE PLAN. The executor stores it verbatim, so a run resumed past midnight
   // lands its rows on the day it was planning for, which is the day the analysis pass then reads.
-  return candidates.slice(0, maxBatch).map((c) => ({
+  return picked.map((c) => ({
     promptId: c.prompt.id, version: c.prompt.version, text: c.prompt.text, engine: c.engine, slot: c.slot, day,
   }));
 }

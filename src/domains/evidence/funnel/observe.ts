@@ -144,7 +144,9 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
     const planned = pairsFromDue(askable, state.prompts.pairs), plannedKeys = new Set(planned.map(pairKey));
     // A task posted on an EARLIER day is collected FREE and lands on ITS OWN day: the money already moved, so
     // abandoning it would be waste. It is never re-posted, because a missed day is gone.
-    const carried = state.prompts.pairs.filter((p) => p.status === "posted" && p.cacheKey && p.day && !plannedKeys.has(pairKey(p))).slice(0, 40);
+    // A pre-repair posted pair carries no day; its money is already spent, so it is collected ONCE
+    // onto the day it lands rather than abandoned (legacy rows only, they die out after one collect).
+    const carried = state.prompts.pairs.filter((p) => p.status === "posted" && p.cacheKey && !plannedKeys.has(pairKey(p))).slice(0, 40);
     const pairs = [...carried, ...planned];
     state.prompts.intendedPairs = planned.length;
     const textOf = new Map(askable.map((x) => [x.promptId, x.text]));
