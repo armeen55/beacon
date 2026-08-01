@@ -40,6 +40,7 @@ import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
 import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation";
 import { earnedNewPage, type IntersectionEvidence } from "./coverage-adjudication";
+import { extractPageFacts, readWinningPattern } from "./winning-pattern";
 import { readCoverage, type DecidedTopic } from "./coverage-pass";
 import { buildNewPageProposal } from "./new-page";
 
@@ -153,6 +154,21 @@ export async function produceProposalsForTenant(
     const read = await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection });
     coverage = read.decided;
     waitingUntil = read.waitingUntil;
+    // THE PATTERN IS COMPUTED HERE, IN THE DRAFTING PASS, never inside readCoverage: the reading is a
+    // render-path function and a model call has no business on it. One bounded, cached call for the ONE
+    // topic that earned an actionable verdict with enough read publishers, then one free re-read so the
+    // verdict's receipt carries what the winning pages have in common. Fail-soft: no pattern, same verdict.
+    if (coverage && (coverage.decision.verdict === "create_new" || coverage.decision.verdict === "improve_existing")
+      && coverage.investigation.currentReadableWinners >= 3 && !coverage.decision.pattern) {
+      const mine = new Set(coverage.investigation.winners.map((w) => w.url));
+      const facts = extractPageFacts((snapshot.research.winningPages ?? []).filter((r) => mine.has(r.url)));
+      const pattern = await readWinningPattern(facts, null, tenantId, { complete: opts.complete, now: opts.now }).catch(() => null);
+      if (pattern) {
+        const again = await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection,
+          patternFor: { topicKey: coverage.investigation.key, pattern } }).catch(() => null);
+        if (again?.decided) { coverage = again.decided; waitingUntil = again.waitingUntil; }
+      }
+    }
   } catch (e) {
     log.warn("[produce-proposals] coverage verdict failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
   }

@@ -204,7 +204,7 @@ const defaultSteps: ResearchCycleSteps = {
     // the ones just paid for. The page COMPARISON rides the same phase that reads those winners, because the winners ARE the page set, but as its SECOND
     // stage, so a real lease renewal sits in front of it. A topic whose next legal read is still in the future contributes no search at all: a cooldown is
     // not a queue position.
-    const { queries, ownedUrl } = focusReads(focus, Date.now(), (cursor?.basis as string) ?? null);
+    const { queries, cases, ownedUrl } = focusReads(focus, Date.now(), (cursor?.basis as string) ?? null);
     if (phase === "serp_analysis") return serpAnalysisUnit({}, queries)(tenantId, cursor, budgetMs);
     if (phase === "winning_pages") {
       // The ask is recomputed for the SAME frozen topic under the CURRENT basis, and only at the comparison stage: nothing is asked for before winners exist.
@@ -222,7 +222,8 @@ const defaultSteps: ResearchCycleSteps = {
       const day = String(cursor?.cycle ?? "").slice(-10) || utcReportingDay(Date.now());
       return promptObservationUnit({}, await dueObservations(tenantId, day))(tenantId, cursor, budgetMs);
     }
-    return keywordDiscoveryUnit()(tenantId, cursor, budgetMs); // the facade export is a deps factory returning the executor
+    // The plan's own cases ride into discovery, so every keyword is filed under the case it belongs to and the recurring winning domains are bought once per case set.
+    return keywordDiscoveryUnit({}, cases)(tenantId, cursor, budgetMs); // the facade export is a deps factory returning the executor
   },
   async analyzeAnswers(tenantId, reportingDay) { return runAnswerAnalyses(tenantId, reportingDay); },
   // warmFreeSurfaces PROPAGATES failure (no internal swallow): a throw pauses publish_surface and the previously saved surface stays visible.

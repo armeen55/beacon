@@ -2,19 +2,13 @@
  * llm/prompt-registry (2026-07-03, BEACON 500 R16 / P6) - every production
  * prompt has a NAME and a VERSION, and every gateway call carries them.
  *
- * Why: prompts are load-bearing product logic, but until now editing one was
- * invisible to CI - a reworded system prompt could silently break the parsing/
- * validation path that consumes the model's output. This registry + the
- * regression harness (tests/llm-regression/) close that hole:
- *
- *   - Each entry maps a stable promptId to its CURRENT version.
- *   - tests/llm-regression/prompt-regression.test.ts requires a recorded
- *     fixture at fixtures/prompts/<promptId>.v<version>.json for EVERY entry
- *     and runs it through the REAL parsing/validation path (no live calls).
- *   - Bumping a version here without adding the new fixture fails a named
- *     test. Editing prompt WORDING that changes the output contract must bump
- *     the version (reviewers can hold that line because the version sits in
- *     the same diff as the prompt text's call site).
+ * Why: prompts are load-bearing product logic, and a reworded system prompt can
+ * silently break the parsing/validation path that consumes the model's output.
+ * Each entry maps a stable promptId to its CURRENT version, and the version is
+ * folded into the call cache key, so wording that changes the output contract
+ * MUST bump the version here: a stale answer taken under the old wording can
+ * then never be served under the new one. The version sits in the same diff as
+ * the prompt text's call site, so a reviewer can hold that line.
  *
  * PURE - constants only, no I/O, importable from anywhere (including tests).
  */
@@ -74,6 +68,13 @@ export const PROMPT_REGISTRY = {
   // on its own, so the wording that forbids inventing an id, an address or a
   // fact is the whole contract; any change to it must bump this version.
   "draft.case_synthesis": 1,
+  // What the pages that WIN a search have in common (2026-07-31, V1 Truth Convergence
+  // Phase 3): the shape, the sections, the named things and the questions three or more
+  // publishers agree on, plus what my own page lacks against them. It abstracts a pattern
+  // and never copies a page, so the wording that forbids quoting a heading, naming a page
+  // it was not shown, or writing a figure of its own is the whole contract; any change to
+  // it must bump this version.
+  "draft.winning_pattern": 1,
   // Registered schema kinds with no bespoke production prompt yet (P8 targets);
   // callStructuredLLM derives draft.<kind>, so they must resolve to a version.
   "draft.tool_asset": 1,
@@ -103,13 +104,3 @@ export const PROMPT_REGISTRY = {
 } as const;
 
 export type PromptId = keyof typeof PROMPT_REGISTRY;
-
-/** The current version for a registered prompt. */
-export function promptVersion(id: PromptId): number {
-  return PROMPT_REGISTRY[id];
-}
-
-/** Fixture basename the regression harness expects for a registry entry. */
-export function promptFixtureName(id: PromptId): string {
-  return `${id}.v${PROMPT_REGISTRY[id]}.json`;
-}

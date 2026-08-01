@@ -9,14 +9,21 @@ import "server-only";
  */
 
 import { loadResearchState, saveResearchState, type StateRepoDeps } from "./state-repo";
-import type { KeywordDiscoveryRoute, ObservationMode, OwnedPageReadOutcome, ResearchCase, ResearchPageComparison, ResearchPageExtract, ResearchWinningAppearance, WinnerReadOutcome } from "./research-evidence";
+import type { FunnelResearchEvidence, KeywordDiscoveryRoute, ObservationMode, OwnedPageReadOutcome, ResearchCase, ResearchPageComparison, ResearchPageExtract, ResearchWinningAppearance, WinnerReadOutcome } from "./research-evidence";
 
 const FUNNEL_SCHEMA_VERSION = 3;
 
-/** 700 is the enrichment batch's own documented ceiling, so the retained set and the ONE
- *  keyword_overview request that prices it are the same size. */
-export const MAX_RETAINED = 700;
+/** TWO FULL keyword_overview requests, at that endpoint's own documented ceiling of 700 keywords each. The
+ *  cap used to BE 700, so the retained set was the size of ONE request and every candidate past it was
+ *  dropped rather than priced; now that the funnel also harvests what the account already observed, that
+ *  ceiling threw away real cases and the enrichment simply runs ceil(n / 700) requests. */
+export const MAX_RETAINED = 1400;
 export const MAX_REJECTED = 150;
+/** Case sets on file. Bounded because each one is a paid answer stored beside the case it belongs to. */
+const MAX_CASE_COMPETITORS = 12;
+
+/** The recurring winning domains bought for ONE case set, in the canonical projected shape. */
+type FunnelCaseCompetitors = NonNullable<FunnelResearchEvidence["caseCompetitors"]>[number];
 
 export type FunnelKeyword = {
   keyword: string;
@@ -31,10 +38,15 @@ export type FunnelKeyword = {
   /** The confirmed theme this keyword was discovered FROM (per-seed sources only), so
    *  retention can keep every seed's discovery alive instead of one seed's. */
   seed?: string;
-  /** The page that ACTUALLY ranks for this keyword and its ORGANIC position, from the
+  /** The page OF THE ACCOUNT'S OWN that ACTUALLY ranks for this keyword and its ORGANIC position, from the
    *  ranked pull. Optional: absent on every other route and on rows stored before it. */
-  rankedUrl?: string | null;
-  rankedRank?: number | null;
+  ownedRankingUrl?: string | null;
+  ownedPosition?: number | null;
+  /** The registry case this keyword joined, resolved through the case identity on file. */
+  caseId?: string | null;
+  /** Deterministic from the owned rankings: one owned page ranks, more than one does, or none does.
+   *  null = the ranked pull did not land this run, so I have not checked. */
+  supports?: "existing_page" | "consolidation" | "new_page" | null;
 };
 
 export type FunnelReject = { keyword: string; reason: string };
@@ -123,6 +135,8 @@ export type FunnelState = {
     retained: FunnelKeyword[];
     rejected: FunnelReject[];
     counts: { raw: number; normalized: number; retained: number; rejected: number };
+    /** ONE bought answer per case set: the domains that keep winning across that case's whole keyword set. */
+    caseCompetitors: FunnelCaseCompetitors[];
   };
   /** The CURRENT working set only: pairs whose prompt or engine left the intended
    *  set are pruned. True history lives in prompt_answer_observations. */
@@ -150,7 +164,7 @@ export function emptyFunnelState(tenantId: string, basisTag = "", now = ""): Fun
     schemaVersion: FUNNEL_SCHEMA_VERSION,
     tenantId,
     basisTag,
-    discovery: { seeds: [], retained: [], rejected: [], counts: { raw: 0, normalized: 0, retained: 0, rejected: 0 } },
+    discovery: { seeds: [], retained: [], rejected: [], counts: { raw: 0, normalized: 0, retained: 0, rejected: 0 }, caseCompetitors: [] },
     prompts: { pairs: [], intendedPairs: 0 },
     serps: { queries: [], analyzed: 0 },
     winningPages: [],
@@ -159,6 +173,14 @@ export function emptyFunnelState(tenantId: string, basisTag = "", now = ""): Fun
     cycle: { runId: null, cycleKey: null, spentUsd: 0, cacheHits: 0 },
     updatedAt: now,
   };
+}
+
+/** ADDITIVE, at the SAME schema version: a keyword stored while the owned ranking was called rankedUrl keeps that
+ *  ranking under its current name instead of reading as one no page of mine ranks for. Nothing here invents support. */
+function decodeKeyword(k: FunnelKeyword): FunnelKeyword {
+  const legacy = k as FunnelKeyword & { rankedUrl?: string | null; rankedRank?: number | null };
+  if (k.ownedRankingUrl != null || legacy.rankedUrl == null) return k;
+  return { ...k, ownedRankingUrl: legacy.rankedUrl, ownedPosition: k.ownedPosition ?? legacy.rankedRank ?? null };
 }
 
 /** Decode an unknown persisted blob into a safe, current-shape state. Never throws.
@@ -171,7 +193,11 @@ function decodeFunnelState(tenantId: string, basisTag: string, raw: unknown): Fu
   const d = r.discovery;
   return {
     ...base,
-    discovery: d && typeof d === "object" ? { ...base.discovery, ...d, counts: { ...base.discovery.counts, ...d.counts } } : base.discovery,
+    discovery: d && typeof d === "object"
+      ? { ...base.discovery, ...d, counts: { ...base.discovery.counts, ...d.counts },
+        retained: Array.isArray(d.retained) ? d.retained.map(decodeKeyword) : base.discovery.retained,
+        caseCompetitors: Array.isArray(d.caseCompetitors) ? d.caseCompetitors.slice(0, MAX_CASE_COMPETITORS) : base.discovery.caseCompetitors }
+      : base.discovery,
     prompts: r.prompts && typeof r.prompts === "object" ? { ...base.prompts, ...r.prompts } : base.prompts,
     serps: r.serps && typeof r.serps === "object" ? { ...base.serps, ...r.serps } : base.serps,
     winningPages: Array.isArray(r.winningPages) ? r.winningPages : base.winningPages,

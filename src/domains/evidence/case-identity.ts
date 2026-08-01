@@ -64,6 +64,21 @@ function flatten(id: string, aliasOf: ReadonlyMap<string, string>): string {
   return at;
 }
 
+/** THE join every consumer makes against the registry, in ONE place: which case a search belongs to. Keyed by
+ *  ANCHOR (a canonical query key) and ALSO by every id on file, so an id a merge absorbed answers with the id
+ *  that answers for it now instead of pointing at a row that is no longer a case. Alias chains are flattened
+ *  exactly as `foldCases` flattens them, so nothing re-implements that walk. First writer wins per anchor. Pure. */
+export function caseIdByAnchor(cases: readonly ResearchCase[]): Map<string, string> {
+  const aliasOf = new Map(cases.filter((c) => c.aliasOf && c.aliasOf !== c.id).map((c) => [c.id, c.aliasOf!]));
+  const out = new Map<string, string>();
+  for (const c of cases) {
+    const id = flatten(c.id, aliasOf);
+    out.set(c.id, id);
+    for (const a of c.anchors) if (!out.has(a)) out.set(a, id);
+  }
+  return out;
+}
+
 /** Resolve each group of anchors onto the identities on file (see the header for merge, split and alias). */
 export function foldCases(groups: readonly string[][], cases: readonly ResearchCase[]): CaseFold[] {
   const aliasOf = new Map(cases.filter((c) => c.aliasOf && c.aliasOf !== c.id).map((c) => [c.id, c.aliasOf!]));

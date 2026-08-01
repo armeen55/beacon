@@ -42,6 +42,8 @@ export {
 export type { TopicInvestigation } from "./topic-investigation";
 export { buildTopicInvestigations } from "./topic-investigation";
 export type { SerpPageType } from "./serp-shape";
+// The per-case research receipt: what was found, what it cost, and why nothing more was bought
+export { caseResearchReceipt } from "./case-receipt";
 
 // Loader
 export type { LoadEvidenceSnapshotOptions } from "./snapshot-loader";

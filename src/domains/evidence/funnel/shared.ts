@@ -19,7 +19,7 @@ import { loadCrawlFrontier, type CrawlFrontierState } from "@/domains/evidence/s
 import { syncPageSnapshots, syncPromptAnswerObservations } from "@/lib/persistence/dual-write";
 import type { PageSnapshot } from "@/domains/evidence/pages/types";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
-import { recordAiObservation, type AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations";
+import { readAiObservationViews, recordAiObservation, type AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations";
 import type {
   CachedCallResult,
   CapabilityInputByKey,
@@ -53,6 +53,9 @@ export type FunnelDeps = {
   /** Top queries of the account's own strongest pages: portfolio 1 of the SERP agenda.
    *  null = the READ FAILED; [] = the account genuinely has none yet. */
   loadPageQueries?: (tenantId: string) => Promise<SerpAgendaPageQuery[] | null>;
+  /** The analyses ALREADY stored beside the answers this account bought: what each answer was about and
+   *  what it actually answered. Read-only and bounded; nothing here is ever re-purchased or re-analyzed. */
+  loadAnswerAnalyses?: (tenantId: string) => Promise<Record<string, unknown>[]>;
   /** Test seam for winning-page citation-target resolution (defaults to the real
    *  redirect-only resolver in competitor-intel/polite-fetch). */
   resolveCitations?: (appearances: ResearchWinningAppearance[], fetchImpl?: typeof fetch, deadlineMs?: number) => Promise<ResearchWinningAppearance[]>;
@@ -86,6 +89,7 @@ export function resolveDeps(deps: FunnelDeps) {
     loadProfile: deps.loadProfile ?? loadBusinessProfile,
     loadCrawl: deps.loadCrawl ?? loadCrawlFrontier,
     loadPageQueries: deps.loadPageQueries ?? defaultPageQueries,
+    loadAnswerAnalyses: deps.loadAnswerAnalyses ?? defaultAnswerAnalyses,
     getAccount: deps.getAccount ?? getTenant,
     syncHistory: deps.syncHistory ?? syncPromptAnswerObservations,
     recordObservation: deps.recordObservation ?? recordAiObservation,
@@ -120,6 +124,14 @@ async function defaultPageQueries(tenantId: string): Promise<SerpAgendaPageQuery
   } catch {
     return null;
   }
+}
+
+/** The analyses already stored beside answers this account paid for, newest first and deliberately FEW: a
+ *  full-row read of this table is megabytes and a bounded handful is plenty of candidate language. An
+ *  unreadable table costs the pass that one free source, and never claims the account has none. */
+async function defaultAnswerAnalyses(tenantId: string): Promise<Record<string, unknown>[]> {
+  const rows = await readAiObservationViews(tenantId, { limit: 25 });
+  return rows.map((r) => r.analysis).filter((a): a is Record<string, unknown> => !!a);
 }
 
 /** Mode is stamped by normalization; the legacy scraper flag is decode input ONLY (nothing else reads it).

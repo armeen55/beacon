@@ -17,8 +17,14 @@ export type ObservationMode = "consumer_search" | "standardized_response";
 
 /** HOW a keyword was found. ONE canonical vocabulary shared by the funnel's working state and this
  *  projection, so nothing has to guess later: "site" and "ranked" are whole-site pulls, "related",
- *  "suggestion" and "ideas" come from a confirmed theme, "gsc" is Search Console, "profile" my own pages. */
-export type KeywordDiscoveryRoute = "site" | "ranked" | "related" | "suggestion" | "gsc" | "profile" | "ideas";
+ *  "suggestion" and "ideas" come from a confirmed theme, "gsc" is Search Console, "profile" my own pages.
+ *  The five below are the OBSERVED routes, everything this account already paid to see: "prompt" is a
+ *  question I track, "fanout" a search an engine ran for itself, "paa" a question Google put on the results
+ *  page, "related_search" one it suggested beside them, "answer_entity" a subject or question an AI answer
+ *  named, read back off the analysis already on file. */
+export type KeywordDiscoveryRoute =
+  | "site" | "ranked" | "related" | "suggestion" | "gsc" | "profile" | "ideas"
+  | "prompt" | "fanout" | "paa" | "related_search" | "answer_entity";
 
 type ResearchKeyword = {
   query: string;
@@ -36,9 +42,16 @@ type ResearchKeyword = {
   /** The confirmed theme it was discovered FROM; null = it came from no single theme
    *  (a whole-site pull, my own pages, my own Search Console). */
   seed?: string | null;
-  /** For a keyword the account ALREADY ranks for: the page that actually ranks and its ORGANIC position
-   *  (rank_group; rank_absolute counts ads and packs). Absent on every other route. */
-  rankedUrl?: string | null; rankedRank?: number | null;
+  /** For a keyword the account ALREADY ranks for: the page OF ITS OWN that actually ranks and that page's
+   *  ORGANIC position (rank_group; rank_absolute counts ads and packs). Absent on every other route. */
+  ownedRankingUrl?: string | null; ownedPosition?: number | null;
+  /** The registry case this keyword joined, resolved through the case identity on file, so one that joined
+   *  under an id since absorbed lands on the case answering for it now. null = no case is about it yet. */
+  parentCaseId?: string | null;
+  /** What acting on this keyword would MEAN, read off the owned rankings above and nothing else: one owned
+   *  page ranks (strengthen that page), more than one does (consolidate them), none does (a page of its
+   *  own). null = I have not checked this account's own rankings, which is NOT the same claim as "none". */
+  supports?: "existing_page" | "consolidation" | "new_page" | null;
 };
 
 type ResearchCitation = { url: string; domain: string; title: string | null };
@@ -218,6 +231,18 @@ export type ResearchPageComparison = {
 export type ResearchCase = { id: string; anchors: string[]; aliasOf?: string;
   pages?: { url: string; relation: "covers" | "partially_covers" | "does_not_cover" }[]; parentId?: string };
 
+/** THE domains that keep winning across a WHOLE case's keyword set, bought in ONE request for the set and
+ *  never one per keyword. DOMAIN evidence, never a keyword: nothing here ever enters the keyword funnel.
+ *  `served` is the one place cache-versus-paid is recorded per call, because the executor that made it knew,
+ *  and `receipt` is the money core's own cache identity for it. */
+type ResearchCaseCompetitors = {
+  caseId: string;
+  /** How many of the case's keywords the one request actually carried (the provider ceiling is 200). */
+  keywordsAsked: number;
+  domains: { domain: string; avgPosition: number | null; rating: number | null; keywordsCount: number | null }[];
+  observedAt: string; receipt: string | null; served: "paid" | "cache";
+};
+
 type ResearchReceipt = {
   researched: number;
   retained: number;
@@ -239,6 +264,8 @@ export type FunnelResearchEvidence = {
   cases?: ResearchCase[];
   /** Failed reads of MY OWN pages, so a verdict names a retry date it will actually keep. Absent = none. */
   ownedReads?: OwnedPageReadOutcome[];
+  /** The recurring winning domains bought per case set. Optional and additive; absent reads as none. */
+  caseCompetitors?: ResearchCaseCompetitors[];
   receipt: ResearchReceipt;
 };
 
@@ -248,7 +275,7 @@ export function emptyResearchEvidence(): FunnelResearchEvidence {
     aiObservations: [],
     serpEvidence: [],
     winningPages: [],
-    pageComparisons: [], cases: [], ownedReads: [],
+    pageComparisons: [], cases: [], ownedReads: [], caseCompetitors: [],
     receipt:{ researched: 0, retained: 0, stale: 0, missing: 0, cached: 0, spentUsd: 0, freshestObservationAt: null },
   };
 }

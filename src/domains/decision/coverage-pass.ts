@@ -77,6 +77,9 @@ export type ReadCoverageOptions = {
   profile?: BusinessProfile | null;
   /** A TEST SEAM ONLY: production reads the stored comparison out of the snapshot. */
   intersection?: IntersectionEvidence;
+  /** A pattern already computed for ONE topic (the drafting pass supplies it; this pass never calls a
+   *  model). Attached only when the topic matches, so no case can wear another case's pattern. */
+  patternFor?: { topicKey: string; pattern: import("./winning-pattern").WinningPattern } | null;
   now?: Date;
 };
 
@@ -152,7 +155,8 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
     // no research budget, so the walk ended the moment ANY verdict landed, and a park ranks first.
     if (decided && ACTS.has(decided.decision.verdict) && queries >= max && (max <= 0 || needs.some((n) => n.comparison))) break;
     let candidates = ownedCandidatesFor(snapshot, inv, bodies);
-    const judge = { outOfScopeTopics: topicOutOfScope(snapshot, inv, opts.profile ?? null), now: opts.now, site: snapshot.scope?.site ?? null };
+    const judge = { outOfScopeTopics: topicOutOfScope(snapshot, inv, opts.profile ?? null), now: opts.now, site: snapshot.scope?.site ?? null,
+      ...(opts.patternFor && opts.patternFor.topicKey === inv.key ? { pattern: opts.patternFor.pattern } : {}) };
     let decision: CoverageDecision;
     try { decision = await adjudicateCoverage(inv, candidates, tenantId, judge); } catch { continue; }
     // A PAGE OF MINE WHOSE WORDS ARE ALREADY STORED IS NOT AN UNREAD PAGE. This pass asked for

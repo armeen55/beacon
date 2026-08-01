@@ -41,6 +41,7 @@ import { comparePageCoverage, type PageCoverageReading, type PageIntersectionAsk
 import type { TopicInvestigation } from "@/domains/evidence/topic-investigation";
 import type { IntersectionUnavailable, OwnedPageReadOutcome } from "@/domains/evidence/funnel/research-evidence";
 import type { OwnedCandidate } from "./owned-coverage";
+import type { WinningPattern } from "./winning-pattern";
 
 // ── Coverage adjudication (N3b, 2026-07-28) ──────────────────────────────────
 
@@ -73,6 +74,10 @@ export type CoverageDecision = {
   alternativesRuledOut: Array<{ alternative: string; reason: string }>;
   /** One plain first-person sentence the operator reads. No lab words. */
   explanation: string;
+  /** WHAT THE PAGES THAT WIN HERE HAVE IN COMMON, carried on the verdict that can still become work so
+   *  the diagnosis and the page brief read the SAME pattern this receipt was written from. Absent means
+   *  I hold no pattern, which changes no verdict: every gate above is decided without it. */
+  pattern?: WinningPattern | null;
 };
 
 /** A verdict may name a new page only when it is diagnosed, names no owned page as the
@@ -85,7 +90,7 @@ export function earnedNewPage(d: CoverageDecision | null | undefined): boolean {
 /** Three publishers, wherever agreement is claimed: to buy the comparison I need three I can
  *  ADDRESS, and to write a page decision/new-page needs three I have READ. Two pages are two
  *  opinions, and nothing downstream of this file ever calls that a pattern. */
-export const MIN_ADJUDICATION_WINNERS = 3;
+const MIN_ADJUDICATION_WINNERS = 3;
 
 /** The bought comparison itself, or the honest reason it is not in hand (Evidence owns both
  *  that reason and the publisher-counted reading; this file only picks the verdict). */
@@ -159,7 +164,7 @@ const UNAVAILABLE: Record<IntersectionUnavailable, string> = {
   failed: "it did not come back",
 };
 
-export type AdjudicateCoverageOptions = {
+type AdjudicateCoverageOptions = {
   /** The account's OWN profile topics this investigation collides with
    *  (topicOutOfScope). Non-empty means the operator already ruled it out. */
   outOfScopeTopics?: readonly string[];
@@ -174,6 +179,10 @@ export type AdjudicateCoverageOptions = {
   now?: Date;
   /** This account's own site, so its own pages never count toward the winner supply. */
   site?: string | null;
+  /** What the pages that win here have in common, read once by decision/winning-pattern off the bodies
+   *  already banked. It is EVIDENCE, never a gate: no verdict below turns on it, and its absence is
+   *  simply a shorter receipt. */
+  pattern?: WinningPattern | null;
 };
 
 type Ev = { id: string; fact: string };
@@ -198,7 +207,7 @@ const SHAPE: Record<string, string> = { informational_guide: "guides that explai
 
 /** The evidence a verdict may cite, each id paired with the plain fact behind it.
  *  Nothing enters this list that was not observed. */
-function evidenceOf(inv: TopicInvestigation, candidates: readonly OwnedCandidate[], x?: PageCoverageReading | null): Ev[] {
+function evidenceOf(inv: TopicInvestigation, candidates: readonly OwnedCandidate[], x?: PageCoverageReading | null, p?: WinningPattern | null): Ev[] {
   const out: Ev[] = [];
   const d = inv.demand;
   const demand = [
@@ -225,6 +234,16 @@ function evidenceOf(inv: TopicInvestigation, candidates: readonly OwnedCandidate
       c.signals.map((sg) => sg.detail).join(" "),
     ].filter(Boolean).join(" ") }));
   if (x) out.push({ id: "shared", fact: `I put the pages that win here side by side search by search: ${num(x.shared.length)} searches come up on pages from at least two of ${x.winnerPublishers.length} sites${x.uncoveredByOwned.length > 0 ? `, and you come up for none of ${x.uncoveredByOwned.length} of those` : ""}.` });
+  // WHAT THOSE PAGES HAVE IN COMMON, in my own words and counted from the pages the reading cited. Not one
+  // line here carries a competing page's own wording: the pattern is what several of them agree on, said
+  // plainly, which is the only form of it an operator can act on without copying anybody.
+  if (p) {
+    out.push({ id: "pattern", fact: `I read the ${p.winners} pages that win here side by side, and they settle on ${SHAPE[p.archetype] ?? "one kind of page"}.` });
+    if (p.openingPattern) out.push({ id: "opening", fact: `Those pages open the same way: ${p.openingPattern}` });
+    p.commonHeadings.slice(0, 4).forEach((h, i) => out.push({ id: `common${i + 1}`, fact: `${h.seenOn.length} of the ${p.winners} cover ${h.heading}.` }));
+    p.ownedGaps.slice(0, 4).forEach((g, i) => out.push({ id: `gap${i + 1}`, fact: `Your own page does not do what ${g.seenOn.length} of them do: ${g.gap}` }));
+    p.disagreements.slice(0, 2).forEach((d, i) => out.push({ id: `split${i + 1}`, fact: `The winning pages do not agree here, so I am not settling it for them: ${d}` }));
+  }
   return out;
 }
 
@@ -318,9 +337,22 @@ export async function adjudicateCoverage(
   tenantId: string,
   opts: AdjudicateCoverageOptions = {},
 ): Promise<CoverageDecision> {
+  const d = await ladder(inv, candidates, tenantId, opts);
+  // THE PATTERN RIDES THE VERDICT THAT CAN STILL BECOME WORK, and no other. A refusal or a park is a
+  // decision to build nothing, so hanging a page plan off it would hand the next step a plan for a page
+  // this ladder just declined. The receipt above already carries the same pattern as plain facts.
+  return opts.pattern && (d.verdict === "create_new" || d.verdict === "improve_existing") ? { ...d, pattern: opts.pattern } : d;
+}
+
+async function ladder(
+  inv: TopicInvestigation,
+  candidates: readonly OwnedCandidate[],
+  tenantId: string,
+  opts: AdjudicateCoverageOptions,
+): Promise<CoverageDecision> {
   const x = opts.intersection;
   const reading = readComparison(x, candidates);
-  const ev = evidenceOf(inv, candidates, reading);
+  const ev = evidenceOf(inv, candidates, reading, opts.pattern);
   const ids = ev.map((e) => e.id);
 
   const outOfScope = (opts.outOfScopeTopics ?? [])[0];

@@ -70,9 +70,12 @@ const due = (focus: ResearchFocus | null, nowMs: number) => (focus?.topics ?? []
  *  exactly like the comparison. A run can span days, so a plan frozen before the operator changed their site
  *  or their goal would otherwise send me to read the OLD basis's page, and the new basis holds none of the
  *  retry memory that promised a date for it. */
-export function focusReads(focus: ResearchFocus | null, nowMs: number, basis: string | null): { queries: string[]; ownedUrl: string | null } {
+export function focusReads(focus: ResearchFocus | null, nowMs: number, basis: string | null): { queries: string[]; cases: { caseId: string; query: string | null }[]; ownedUrl: string | null } {
   const topics = due(focus, nowMs), bound = !!basis && !!focus && focus.basis === basis;
   return { queries: topics.map((t) => t.query).filter((q): q is string => !!q),
+    // The same frozen topics, WITH their case ids, for the side that files keywords under a case. Discovery
+    // resolves each id through the registry itself, so an id this plan froze before a merge still lands right.
+    cases: topics.filter((t) => !!t.topicKey).map((t) => ({ caseId: t.topicKey!, query: t.query })),
     ownedUrl: bound ? topics.map((t) => t.ownedUrl).find((u): u is string => !!u) ?? null : null };
 }
 

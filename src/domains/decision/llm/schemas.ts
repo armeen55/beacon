@@ -384,6 +384,19 @@ export type AnswerAnalysis = z.infer<typeof AnswerAnalysisSchema>;
 // `reason` rather than resolving it. Advisory: one unknown id refuses it all, and the registry stands.
 const CaseSynthesisSchema = z.object({ merges: z.array(z.object({ keepId: z.string().min(1).max(60), absorbIds: z.array(z.string().min(1).max(60)).min(1).max(4), reason: z.string().min(1).max(300) })).max(6), splits: z.array(z.object({ fromId: z.string().min(1).max(60), moveQueries: z.array(z.string().min(1).max(200)).min(1).max(12), reason: z.string().min(1).max(300) })).max(3), pageLinks: z.array(z.object({ caseId: z.string().min(1).max(60), url: z.string().min(1).max(500), relation: z.enum(["covers", "partially_covers", "does_not_cover"]), reason: z.string().min(1).max(300) })).max(24), parentOf: z.array(z.object({ parentId: z.string().min(1).max(60), childId: z.string().min(1).max(60) })).max(12) });
 export type CaseSynthesis = z.infer<typeof CaseSynthesisSchema>;
+// ── winning pattern (V1 Truth Convergence Phase 3, 2026-07-31): what the pages that WIN a search have in
+// common ── The model reads bounded FACTS about pages numbered from 0 upward, never their prose. It may cite
+// only the numbers it was handed, writes every pattern in its own plain words, and a heading copied word for
+// word is thrown away by the caller: a pattern is an abstraction, not a quote. `archetype` speaks the same
+// page-shape vocabulary the results already speak, and no field can carry a title, a body or an address.
+const SeenOnSchema = z.array(z.number().int().min(0).max(11)).min(1).max(12);
+const WinningPatternSchema = z.object({
+  archetype: z.enum(["informational_guide", "list", "definition", "comparison", "product", "category", "tool", "forum", "mixed", "unknown"]),
+  commonHeadings: z.array(z.object({ heading: z.string().min(1).max(160), seenOn: SeenOnSchema })).max(10), commonEntities: z.array(z.object({ entity: z.string().min(1).max(120), seenOn: SeenOnSchema })).max(15),
+  questionsAnswered: z.array(z.string().min(1).max(300)).max(10), openingPattern: z.string().max(300), disagreements: z.array(z.string().min(1).max(300)).max(5),
+  ownedGaps: z.array(z.object({ gap: z.string().min(1).max(300), seenOn: SeenOnSchema })).max(8), uniqueNotCommon: z.array(z.object({ detail: z.string().min(1).max(300), seenOn: SeenOnSchema })).max(5),
+});
+export type WinningPatternRead = z.infer<typeof WinningPatternSchema>;
 // ── registry: kind → schema (the structured-drafter dispatches on this) ──────
 
 export type StructuredDraftKind =
@@ -397,7 +410,7 @@ export type StructuredDraftKind =
   | "strategy_review"
   | "section_draft"
   | "outreach_pitch"
-  | "coverage_adjudication" | "new_page_brief" | "answer_analysis" | "case_synthesis"
+  | "coverage_adjudication" | "new_page_brief" | "answer_analysis" | "case_synthesis" | "winning_pattern"
   | "business_profile_inference" | "business_profile_patch" | "prompt_candidates";
 
 export const SCHEMA_BY_KIND = {
@@ -413,7 +426,7 @@ export const SCHEMA_BY_KIND = {
   outreach_pitch: OutreachPitchSchema,
   coverage_adjudication: CoverageAdjudicationSchema,
   new_page_brief: NewPageBriefSchema,
-  answer_analysis: AnswerAnalysisSchema, case_synthesis: CaseSynthesisSchema,
+  answer_analysis: AnswerAnalysisSchema, case_synthesis: CaseSynthesisSchema, winning_pattern: WinningPatternSchema,
   business_profile_inference: BusinessProfileInferenceSchema,
   business_profile_patch: BusinessProfilePatchSchema,
   prompt_candidates: PromptCandidatesSchema,

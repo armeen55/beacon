@@ -384,8 +384,8 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
     + state.serps.queries.filter((s) => s.status !== "done").length + state.serps.queries.filter((s) => s.aiModeFailed).length;
   const doneSerps = state.serps.queries.filter((s) => s.status === "done");
   return {
-    // LINEAGE rides along: how each keyword was found, and the confirmed theme it was found from. Both are recorded facts, so nothing downstream has to guess them.
-    retainedKeywords: state.discovery.retained.map((k) => ({ query: k.keyword, searchVolume: k.searchVolume, competition: k.competition, competitionLevel: k.competitionLevel ?? competitionLevel(k.competition), difficulty: k.difficulty ?? null, intent: k.intent, discoveredVia: k.discoveredVia, seed: k.seed ?? null, rankedUrl: k.rankedUrl ?? null, rankedRank: k.rankedRank ?? null })),
+    // LINEAGE rides along: how each keyword was found, the confirmed theme it was found from, the case it joined, the page of my own that already ranks for it, and what acting on it would mean. Every one is a recorded fact, so nothing downstream has to guess them.
+    retainedKeywords: state.discovery.retained.map((k) => ({ query: k.keyword, searchVolume: k.searchVolume, competition: k.competition, competitionLevel: k.competitionLevel ?? competitionLevel(k.competition), difficulty: k.difficulty ?? null, intent: k.intent, discoveredVia: k.discoveredVia, seed: k.seed ?? null, ownedRankingUrl: k.ownedRankingUrl ?? null, ownedPosition: k.ownedPosition ?? null, parentCaseId: k.caseId ?? null, supports: k.supports ?? null })),
     aiObservations: donePairs.map((p) => ({
       promptId: p.promptId, promptText: p.promptText ?? "", engine: p.engine, observationMode: modeOf(p),
       modelRequested: p.modelRequested ?? null, modelServed: p.modelServed ?? null,
@@ -402,7 +402,7 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
     })),
     winningPages: state.winningPages.map((w) => ({ url: w.url, domain: w.domain, engines: w.engines, examplePrompts: w.examplePrompts, appearances: w.appearances, extract: w.extract, readOutcome: w.readOutcome ?? null })),
     // Stored in the canonical shape, so this carries it through UNTRANSLATED: a reader matches on the topic AND the normalized ask, and never trusts that an answer in hand is the one it asked for.
-    pageComparisons: state.pageComparisons, ownedReads: state.ownedReads ?? [],
+    pageComparisons: state.pageComparisons, ownedReads: state.ownedReads ?? [], caseCompetitors: state.discovery.caseCompetitors ?? [],
     receipt: { researched: state.discovery.counts.raw, retained: state.discovery.counts.retained, stale, missing, cached: state.cycle.cacheHits, spentUsd: round(state.cycle.spentUsd), freshestObservationAt: observedTimes.at(-1) ?? null },
   };
 }

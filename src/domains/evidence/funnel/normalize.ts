@@ -45,7 +45,7 @@ export function keywordsFromParsed(items: ParsedKeywordItem[], via: FunnelKeywor
   const out: FunnelKeyword[] = [];
   for (const it of items) {
     if (!it || typeof it.keyword !== "string" || !it.keyword.trim()) continue;
-    out.push({ keyword: it.keyword, searchVolume: it.searchVolume, competition: it.competition, competitionLevel: it.competitionLevel, difficulty: it.difficulty, intent: it.intent, rankedUrl: it.rankedUrl, rankedRank: it.rankedRank, discoveredVia: via, ...(seed ? { seed } : {}) });
+    out.push({ keyword: it.keyword, searchVolume: it.searchVolume, competition: it.competition, competitionLevel: it.competitionLevel, difficulty: it.difficulty, intent: it.intent, ownedRankingUrl: it.rankedUrl, ownedPosition: it.rankedRank, discoveredVia: via, ...(seed ? { seed } : {}) });
   }
   return out;
 }
@@ -64,8 +64,8 @@ export function dedupeKeywords(raw: FunnelKeyword[]): FunnelKeyword[] {
     // ranked pull, and letting a higher-volume row from a different pull evict it would throw away
     // the one fact that lets a ranked keyword name its own page.
     if (!prev) byKey.set(id, row);
-    else if ((row.searchVolume ?? -1) > (prev.searchVolume ?? -1)) byKey.set(id, { ...row, rankedUrl: row.rankedUrl ?? prev.rankedUrl, rankedRank: row.rankedRank ?? prev.rankedRank });
-    else if (prev.rankedUrl == null && row.rankedUrl != null) byKey.set(id, { ...prev, rankedUrl: row.rankedUrl, rankedRank: row.rankedRank });
+    else if ((row.searchVolume ?? -1) > (prev.searchVolume ?? -1)) byKey.set(id, { ...row, ownedRankingUrl: row.ownedRankingUrl ?? prev.ownedRankingUrl, ownedPosition: row.ownedPosition ?? prev.ownedPosition });
+    else if (prev.ownedRankingUrl == null && row.ownedRankingUrl != null) byKey.set(id, { ...prev, ownedRankingUrl: row.ownedRankingUrl, ownedPosition: row.ownedPosition });
   }
   return [...byKey.values()];
 }
@@ -138,15 +138,17 @@ export function applyFilters(
   return { retained, rejected };
 }
 
-/** Retain up to `cap` keywords with SOURCE DIVERSITY, not volume alone. Volume-only retention threw away
- *  most of an account's research: the biggest source (a whole-site pull) filled every slot and whole
- *  themes discovered from other seeds vanished. So each discovery source, and each SEED inside the
- *  per-seed sources, gets its best keyword before any source gets its second, volume ordering inside each
- *  group. Deterministic under any input order. Pure. */
+/** Retain up to `cap` keywords with SOURCE AND CASE DIVERSITY, not volume alone. Volume-only retention threw
+ *  away most of an account's research: the biggest source (a whole-site pull) filled every slot and whole
+ *  themes discovered from other seeds vanished. So each discovery source, each SEED inside the per-seed
+ *  sources, and each CASE the keyword belongs to, gets its best keyword before any group gets its second,
+ *  volume ordering inside each group. The case is part of the group key because the universe is case-scoped
+ *  now: without it, one busy case's own suggestions could fill the set and a case under investigation could
+ *  be left with no priced keyword at all. Deterministic under any input order. Pure. */
 export function retainDiverse(retained: FunnelKeyword[], cap: number): FunnelKeyword[] {
   const groups = new Map<string, FunnelKeyword[]>();
   for (const k of retained) {
-    const key = `${k.discoveredVia}|${k.seed ?? ""}`;
+    const key = `${k.caseId ?? ""}|${k.discoveredVia}|${k.seed ?? ""}`;
     const list = groups.get(key);
     if (list) list.push(k);
     else groups.set(key, [k]);
