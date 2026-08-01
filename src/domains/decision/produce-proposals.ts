@@ -30,7 +30,7 @@ import { log } from "@/lib/logger";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { loadBusinessProfile } from "@/domains/account";
-import { resolveCurrentBasis } from "./load-proposals";
+import { pagesUnderMeasurement, resolveCurrentBasis } from "./load-proposals";
 import { candidatesToEvidenceInputs, compileCandidates, type QualifiedCandidate } from "./opportunities";
 import { produceBundleForSnapshot } from "./produce-bundle";
 import { proposeExistingPageChange, type ProposeOptions } from "./propose";
@@ -71,7 +71,8 @@ export type ProduceProposalsResult = {
   candidates: QualifiedCandidate[];
   /** Which of the four honest endings this pass reached. */
   outcome: ProducerOutcome;
-  /** How many candidates earned an action (act_existing_page). */
+  /** How many candidates earned an action: a page to edit, plus every consolidation this kernel
+   *  cannot draft yet. A consolidation counted nowhere at all before, so a proven loss read as silence. */
   actionable: number;
   /** Proven gaps whose cause is not identified yet: real work, not silence. */
   investigating: number;
@@ -151,6 +152,16 @@ export async function produceProposalsForTenant(
   // unreadable account stamps nothing rather than stamping a wrong basis.
   const basis = await resolveCurrentBasis(tenantId, profile);
 
+  // ONE read of what is already durable, taken BEFORE anything is judged. It answers three questions: which
+  // pages are still measuring an applied change (the diagnosis and the ranking both read that fact, and
+  // production used to pass neither, so every receipt claimed "nothing is being measured on this page"
+  // unchecked), may I skip the DRAFT, and may I skip the WRITE.
+  const existing = persist
+    ? await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>())
+    : new Map<string, ChangeProposal>();
+  /** THE measurement context, derived exactly once and shared by the diagnosis and both rankings. */
+  const measuring = { measuringPagePaths: pagesUnderMeasurement(existing.values(), opts.now) };
+
   // THE RESEARCH PACKETS, over the same evidence this pass judges. Non-actionable by
   // construction, so building them here cannot add a candidate, a proposal or a draft: they
   // only say what I know about a topic and what is still missing. Fail-soft to none.
@@ -201,7 +212,7 @@ export async function produceProposalsForTenant(
 
   // THE DIAGNOSIS FIRST. Doing nothing is the default; only a proven gap is work. The decided topic rides
   // in so the cause ladder can ask the page that verdict NAMES what the winning pages do that it does not.
-  const candidates = compileCandidates(snapshot, { coverage });
+  const candidates = compileCandidates(snapshot, { coverage, ...measuring });
   const acted = candidates.filter((c) => c.action === "act_existing_page");
   const recoverableByKey = new Map<string, number>();
   const readinessByKey = new Map<string, EvidenceReadiness>();
@@ -243,12 +254,6 @@ export async function produceProposalsForTenant(
     };
   };
 
-  // ONE read of what is already durable. It answers both idempotence questions:
-  // may I skip the DRAFT (a current-generation proposal already covers this
-  // candidate), and may I skip the WRITE (the material content is unchanged).
-  const existing = persist
-    ? await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>())
-    : new Map<string, ChangeProposal>();
   const live = [...existing.values()].filter((p) => p.status !== "rejected" && p.status !== "applied");
   /** A stored row generated under THIS basis. Null basis proves nothing, so it
    *  reuses nothing: an account I cannot read must never freeze its own queue. */
@@ -306,18 +311,28 @@ export async function produceProposalsForTenant(
   const inputs = candidatesToEvidenceInputs(snapshot, acted).slice(0, Math.min(DEFAULT_MAX_DRAFTS, maxDrafts));
 
   const investigating = candidates.filter((c) => c.action === "research_needed").length;
+  // A CONSOLIDATION IS WORK, NOT SILENCE. The ladder names two of your own pages splitting one search, and
+  // no producer in this kernel can write that change yet, so it counted as nothing at all: the pass reported
+  // a quiet day over a proven loss. It is counted with what I am watching, and it carries its cause and its
+  // own reason onto the run receipt, so the operator can read the consolidation even while nothing drafts it.
+  // DEFERRED TO PHASE 5: decide_and_prepare owns emitting the consolidation component itself.
+  const consolidating = candidates.filter((c) => c.action === "consolidate").length;
   if (acted.length === 0) {
     log.info("[produce-proposals] nothing earned an action this pass", {
       tenantId,
       judged: candidates.length,
-      watching: candidates.filter((c) => c.action === "watch").length,
+      watching: candidates.filter((c) => c.action === "watch").length + consolidating,
       researching: investigating,
     });
-    // A proven gap I cannot yet explain is NOT a quiet day. Saying so here is what
-    // keeps "Nothing needs a decision today" off a screen with real losses behind it.
-    return { proposals: rankProposals(proposals), candidates,
-      outcome: proposals.length > 0 ? "proposals_persisted" : investigating > 0 ? "investigating" : "no_actionable_candidate",
-      actionable: 0, investigating, noDraft: 0, persisted, reused, ...research };
+    // A proven gap I cannot yet explain is NOT a quiet day, and neither is one I CAN explain and cannot
+    // draft. Saying so here is what keeps "Nothing needs a decision today" off a screen with real losses
+    // behind it. An unnamed cause reports the number it is investigating; a named one I cannot draft is
+    // exactly the honest "real gaps, no change I can stand behind" ending.
+    return { proposals: rankProposals(proposals, measuring), candidates,
+      outcome: proposals.length > 0 ? "proposals_persisted"
+        : investigating > 0 ? "investigating"
+          : consolidating > 0 ? "actionable_but_no_trusted_draft" : "no_actionable_candidate",
+      actionable: consolidating, investigating, noDraft: 0, persisted, reused, ...research };
   }
 
   // THE STRONGEST PROVEN PAGE, never the first one the snapshot happened to list.
@@ -458,10 +473,10 @@ export async function produceProposalsForTenant(
     log.warn("[produce-proposals] pass produced no durable work", { tenantId, outcome, actionable: acted.length, noDraft, writeFailures });
   }
   return {
-    proposals: rankProposals(proposals),
+    proposals: rankProposals(proposals, measuring),
     candidates,
     outcome,
-    actionable: acted.length,
+    actionable: acted.length + consolidating,
     investigating,
     noDraft,
     persisted,

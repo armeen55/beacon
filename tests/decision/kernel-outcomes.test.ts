@@ -22,7 +22,7 @@ import { reconcileResearchCases } from "@/domains/evidence/topic-investigation";
 const queued = async (tenantId: string, at = 0) => focusReads(await chooseInvestigation(tenantId, null), at, null).queries;
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { ownedCandidatesFor } from "@/domains/decision/owned-coverage"; import { askIdentity } from "@/domains/evidence/page-intersection";
 import { buildTopicInvestigations } from "@/domains/evidence/topic-investigation";
-import { readCoverage, rankInvestigations } from "@/domains/decision/coverage-pass"; import { loadProposalQueue } from "@/domains/decision/load-proposals";
+import { readCoverage, rankInvestigations } from "@/domains/decision/coverage-pass"; import { loadProposalQueue, pagesUnderMeasurement } from "@/domains/decision/load-proposals";
 import { emptyResearchEvidence, type FunnelResearchEvidence, type ResearchPageComparison, type WinnerReadOutcome } from "@/domains/evidence/funnel/research-evidence";
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot";
 import { serializeChangeProposal, deserializeChangeProposal, type EvidenceInput, type ChangeProposal } from "@/domains/decision/contracts";
@@ -417,7 +417,7 @@ describe("why this page loses the click, one named cause at a time", () => {
     expect(stopped.cause.notConsidered.map((n) => n.cause)).toEqual(expect.arrayContaining(["weak_opening", "serp_shape_shift", "internal_link_weakness", "ai_citation_gap"])); }); // each one named, none of them guessed
   it("says when an engine cites everybody but this page, and only where an answer with its sources is on file", () => {
     const c = compileCandidates(snap([GAP], CITED_ELSEWHERE()))[0]!;
-    expect([c.action, c.cause.cause]).toEqual(["watch", "ai_citation_gap"]); expect(c.reason).toContain("chatgpt answered");
+    expect([c.action, c.cause.cause]).toEqual(["watch", "ai_citation_gap"]); expect(c.reason).toContain("chatgpt answered"); expect(c.reason).toContain("named 1 other site without"); // one site is one site, never "1 other sites"
     expect(compileCandidates(snap([GAP]))[0]!.cause.notConsidered.find((n) => n.cause === "ai_citation_gap")!.missing).toContain("no AI answer"); });
   it("tells a page the engine READ and passed over from one it never found, and only when the retrieval list was recorded", () => {
     const seen = { ...CITED_ELSEWHERE(), aiObservations: CITED_ELSEWHERE().aiObservations.map((o) => ({ ...o,
@@ -428,6 +428,39 @@ describe("why this page loses the click, one named cause at a time", () => {
   it("answers a page that is losing nothing with no problem, and still says what it ruled out", () => {
     const c = compileCandidates(snap([WINNER]))[0]!; expect([c.action, c.cause.cause]).toEqual(["watch", "no_problem"]);
     expect(c.cause.competingExplanations.map((x) => x.cause)).toEqual(["ctr_snippet"]); expect(c.cause.falsifier).toContain("click rate"); });
+  it("accuses THIS page of being read and passed over, never the page next door on the same site", () => {
+    const retrieved = (url: string): FunnelResearchEvidence => ({ ...CITED_ELSEWHERE(),
+      aiObservations: CITED_ELSEWHERE().aiObservations.map((o) => ({ ...o, retrievedResults: [{ url, domain: "fixture-outdoors.example", title: null }] })) });
+    expect(compileCandidates(snap([GAP], retrieved("https://fixture-outdoors.example/nowruz-food")))[0]!.cause.cause).toBe("ai_citation_gap"); // a hit on another page of mine proves nothing about this one
+    const mine = compileCandidates(snap([GAP], retrieved(`https://www.${GAP_URL}/`)))[0]!; // and a www or trailing-slash spelling of THIS page still is this page
+    expect([mine.cause.cause, mine.reason.includes("cited 1 other site instead")]).toEqual(["retrieved_not_cited", true]); });
+  it("leaves a pair of my pages splitting a DIFFERENT search as not considered, never as ruled out", () => {
+    const elsewhere = { ...ACTORS_SEEN(), cannibalization: [{ query: "persian actresses", competingUrls: ["iranopedia.example/a", "iranopedia.example/b"], note: "" }] };
+    const c = compileCandidates(elsewhere)[0]!; expect(c.cause.cause).toBe("ctr_snippet"); // the search I measured was never checked for competing pages of mine
+    expect(c.cause.notConsidered.find((n) => n.cause === "cannibalization")!.missing).toContain("that exact search");
+    expect(c.cause.competingExplanations.map((x) => x.cause)).not.toContain("cannibalization"); });
+  it("stops recommending a page whose last change is still being measured, and admits when nobody told it", () => {
+    const measuring = compileCandidates(ACTORS_SEEN(), { measuringPagePaths: ["/iranian-actors-actresses"] })[0]!;
+    expect([measuring.action, measuring.cause.cause, measuring.cause.action]).toEqual(["watch", "measuring_change", null]);
+    expect(measuring.cause.explanation).toContain("still being measured, so I am not stacking another one on top of it");
+    const quiet = compileCandidates(ACTORS_SEEN(), { measuringPagePaths: ["/somewhere-else"] })[0]!; // told, and this page is not one of them
+    expect([quiet.action, quiet.cause.cause]).toEqual(["act_existing_page", "ctr_snippet"]);
+    expect(compileCandidates(ACTORS_SEEN())[0]!.cause.notConsidered.find((n) => n.cause === "measuring_change")!.missing).toContain("I do not hold which of your pages"); });
+  it("counts a consolidation it cannot draft as work, and never reports a quiet day over it", async () => {
+    const world = { ...ACTORS_SEEN(), cannibalization: [{ query: "iranian actors", competingUrls: [ACTORS_URL, "iranopedia.example/actors"], note: "" }] };
+    reset(world); let called = 0;
+    const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; } });
+    expect([res.outcome, res.actionable, res.proposals.length, called]).toEqual(["actionable_but_no_trusted_draft", 1, 0, 0]); // named, counted, and not one paid call
+    expect(res.candidates.find((c) => c.action === "consolidate")!.cause.cause).toBe("cannibalization"); });
+  it("discounts a page only while its applied change is still being measured", async () => {
+    const day = 24 * 60 * 60 * 1000; const applied = (ageDays: number): ChangeProposal =>
+      baseProposal({ id: "applied", status: "applied", basis: "b", createdAt: new Date(Date.now() - ageDays * day).toISOString() });
+    expect(pagesUnderMeasurement([applied(10), applied(180)].map((p, i) => ({ ...p, pagePath: `/p${i}` })), new Date())).toEqual(["/p0"]);
+    const overlapOf = async (ageDays: number) => { env.store = new Map([["live", baseProposal({ id: "live", basis: "b" })], ["applied", applied(ageDays)]]);
+      return (await loadProposalQueue("fixture-tenant", { currentBasis: "b" })).ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "overlap")!; };
+    const fresh = await overlapOf(10); const stale = await overlapOf(180); // the production read, not an injected context
+    expect([fresh.contribution, stale.contribution]).toEqual([-30, 0]);
+    expect(stale.input).toBe("nothing is being measured on this page"); });
   it("never emits a diagnosis without a competing explanation, a falsifier, and every unheld cause named", () => {
     for (const world of [snap([WINNER]), SEEN(), snap([GAP]), snap([ACTORS], actorsSerp(DISPLAYED)), snap([GAP], CITED_ELSEWHERE()), BOTH()]) {
       for (const c of compileCandidates(world)) {

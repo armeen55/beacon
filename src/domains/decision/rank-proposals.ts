@@ -65,18 +65,22 @@ const MAX = { actionability: 500, visibility: 40, evidence: 15, causeFit: 25, st
  * An EMPTY set is a real answer, not an omission: nothing you can write on the page fixes a
  * search fewer people run, or a change that is already being measured. A cause with no lever
  * matches nothing and discounts nothing, so those proposals rank on their other factors.
+ *
+ * THE OLDER SEVEN KINDS BELONG IN THESE SETS TOO. `section`, `internal_links` and `source_pack` are the
+ * undifferentiated components persisted rows still carry, and leaving them out of every set meant a stored
+ * change was discounted the full 25 for the age of its vocabulary rather than for what it does.
  */
 const CAUSE_LEVERS: Record<Cause, ReadonlySet<BundleComponentKind>> = {
-  cannibalization: new Set(["consolidation", "canonical", "redirect", "noindex", "internal_link_remove"]),
+  cannibalization: new Set(["consolidation", "canonical", "redirect", "noindex", "internal_link_remove", "internal_links"]),
   ctr_snippet: new Set(["title", "meta", "h1", "anchor_text"]),
-  competitor_content_gap: new Set(["section_add", "entity_expansion", "full_rewrite", "table_or_list_add", "new_page"]),
-  incomplete_coverage: new Set(["section_add", "entity_expansion", "table_or_list_add", "full_rewrite", "new_page"]),
+  competitor_content_gap: new Set(["section_add", "entity_expansion", "full_rewrite", "table_or_list_add", "new_page", "section"]),
+  incomplete_coverage: new Set(["section_add", "entity_expansion", "table_or_list_add", "full_rewrite", "new_page", "section"]),
   weak_opening: new Set(["opening_answer", "h1", "paragraph_correction", "restructure"]),
-  serp_shape_shift: new Set(["restructure", "table_or_list_add", "schema", "section_rewrite", "opening_answer"]),
-  intent_shift: new Set(["full_rewrite", "restructure", "section_rewrite", "title", "new_page"]),
-  internal_link_weakness: new Set(["internal_link_add", "anchor_text", "navigation", "internal_link_remove"]),
-  ai_citation_gap: new Set(["source_update", "factual_correction", "entity_expansion", "schema", "opening_answer"]),
-  retrieved_not_cited: new Set(["opening_answer", "table_or_list_add", "schema", "source_update", "entity_expansion"]),
+  serp_shape_shift: new Set(["restructure", "table_or_list_add", "schema", "section_rewrite", "opening_answer", "section"]),
+  intent_shift: new Set(["full_rewrite", "restructure", "section_rewrite", "title", "new_page", "section"]),
+  internal_link_weakness: new Set(["internal_link_add", "anchor_text", "navigation", "internal_link_remove", "internal_links"]),
+  ai_citation_gap: new Set(["source_update", "factual_correction", "entity_expansion", "schema", "opening_answer", "source_pack"]),
+  retrieved_not_cited: new Set(["opening_answer", "table_or_list_add", "schema", "source_update", "entity_expansion", "source_pack"]),
   technical_indexability: new Set(["noindex", "canonical", "redirect", "navigation"]),
   demand_decline: new Set([]),
   ranking_loss: new Set([]),
@@ -101,6 +105,13 @@ const LEVER_WORD: Partial<Record<Cause, string>> = {
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const num = (n: number): string => Math.round(n).toLocaleString();
+
+/** HOW MUCH RECEIPT THIS ONE CAN SHOW, clamped to its own floor. Every other factor already clamps its
+ *  input (clicks, upside, prompts, minutes) or contributes a fixed value inside its band; this one read a
+ *  stored count straight off the row, so a tampered `evidenceRefCount` of -1,000 contributed -1,500 and
+ *  dragged a change down through the lifecycle tiers on nothing but a bad number. */
+const shownEvidence = (p: ChangeProposal): number =>
+  Math.max(0, p.bundle?.receipt.items.length ?? p.evidence.evidenceRefCount);
 
 /** The component kinds this proposal actually touches. A bundled change says so
  *  directly; a pre-bundle row is read off its one exact edit. */
@@ -137,7 +148,7 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean): { fac
     add("visibility", "no proven figure for what this wins back", 0, MAX.visibility);
   }
 
-  const items = p.bundle?.receipt.items.length ?? p.evidence.evidenceRefCount;
+  const items = shownEvidence(p);
   add("evidence", `${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence on the receipt`, Math.min(MAX.evidence, items * 1.5), MAX.evidence);
 
   const cause = p.diagnosisCause;
@@ -176,7 +187,7 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean): { fac
 function receiptFor(p: ChangeProposal, peers: number, measuring: boolean): Receipt {
   const { factors, directional } = factorsFor(p, peers, measuring);
   const score = round2(factors.reduce((a, x) => a + x.contribution, 0));
-  const items = p.bundle?.receipt.items.length ?? p.evidence.evidenceRefCount;
+  const items = shownEvidence(p);
   const basis = directional
     ? `I have no proven click figure for this one, so this is the order I would work in, not a promise about size. I ranked it on ${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence and what it takes you to do.`
     : `I ranked this on about ${num(Math.max(0, p.impactScore ?? 0))} clicks I can show are recoverable, ${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence, and what it takes you to do.`;

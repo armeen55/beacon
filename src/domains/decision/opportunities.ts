@@ -63,6 +63,9 @@ type CompileOptions = {
    *  people searching it want, and the reading of what the winning pages share, so the cause ladder can
    *  ask those questions of the page that verdict NAMES. Absent, those causes are simply not considered. */
   coverage?: DecidedTopic | null;
+  /** The pages already carrying a change under measurement. The ladder reads exactly this fact, so a page
+   *  whose last edit is still being read is watched rather than handed a second change to stack on it. */
+  measuringPagePaths?: readonly (string | null)[];
 };
 
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
@@ -175,7 +178,7 @@ function missingSentence(r: EvidenceReadiness): string {
 
 /** One page's honest outcome, measured on its exact queries only. */
 function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: number) => number, index: ResearchIndex,
-  snapshot: EvidenceSnapshot, coverage: DecidedTopic | null): QualifiedCandidate {
+  snapshot: EvidenceSnapshot, opts: CompileOptions): QualifiedCandidate {
   const pageUrl = absoluteUrl(page.url);
   const gaps = (page.search?.topQueries ?? [])
     .map((q) => measureQuery(q, expectedCtrAt))
@@ -238,7 +241,8 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
       organic: index.serpByQuery.get(canonicalQueryKey(best.query)) ?? null, body: readiness.body,
       gscPosition: best.position,
     });
-    const cause = diagnoseCauses({ snapshot, page, query: best.query, serpRead: diagnosis, coverage });
+    const cause = diagnoseCauses({ snapshot, page, query: best.query, serpRead: diagnosis,
+      coverage: opts.coverage ?? null, measuringPagePaths: opts.measuringPagePaths });
     const common = { pageUrl, query: best.query, readiness, diagnosis, cause,
       recoverableClicks: Math.max(0, best.recoverableClicks) };
     const opening = `${scope}. ${rates}. ${modeled}`;
@@ -298,7 +302,7 @@ export function compileCandidates(snapshot: EvidenceSnapshot, opts: CompileOptio
   // made. Silence about an unknown row is honest; a tally that includes it is not.
   return snapshot.ownedPages
     .filter((p) => !!p.content || (p.search?.topQueries ?? []).length > 0 || (p.search?.impressions90d ?? 0) > 0)
-    .map((page) => candidateForPage(page, expectedCtrAt, index, snapshot, opts.coverage ?? null));
+    .map((page) => candidateForPage(page, expectedCtrAt, index, snapshot, opts));
 }
 
 // ── candidates → the kernel's ONE input shape ────────────────────────────────

@@ -149,6 +149,24 @@ function evaluateNewPageBrief(
 const LEGACY_KINDS: ReadonlySet<BundleComponentKind> =
   new Set<BundleComponentKind>(["title", "meta", "h1", "opening_answer", "section", "internal_links", "source_pack"]);
 
+/**
+ * THE PROSE NET. The gate above decides danger by KIND, and a kind is a label somebody typed: a legacy
+ * `section` component whose copy said "301 redirect this to the guide and noindex the old one" was a
+ * redirect, a de-indexing and a merge, and it validated as a paste-ready section rewrite. So the proposed
+ * copy itself is read: an instruction to move, hide, canonicalize, delete or merge a page, filed as
+ * anything other than the kind that names that change, is a MISLABELLED change and is rejected. Bounded,
+ * case insensitive, and matched on the proposal only, never on the current value it replaces.
+ */
+const MISLABELLED: ReadonlyArray<{ kind: BundleComponentKind; re: RegExp; what: string }> = [
+  { kind: "redirect", re: /\b30[12]\s*(?:permanent\s*)?redirect|\bredirect(?:s|ed|ing)?\s+(?:this|that|the|it|to)\b/i,
+    what: "sends this page's address somewhere else" },
+  { kind: "noindex", re: /\bno[\s-]?index(?:ed|ing)?\b/i, what: "stops people finding this page in search" },
+  { kind: "canonical", re: /\brel\s*=\s*["']?\s*canonical|\bcanonical\s+(?:tag|link|url)\b|\bcanonicali[sz]e/i,
+    what: "points this page at another one as the real address" },
+  { kind: "consolidation", re: /\b(?:delete|remove|merge|consolidate|combine|fold|retire)\s+(?:this|that|the)\s+(?:page|url|article|post)\b/i,
+    what: "deletes this page or merges it into another" },
+];
+
 function componentFailures(components: readonly BundleComponent[]): string[] {
   const out: string[] = [];
   const marked = new Set(components.filter((c) => c.risk === "dangerous"));
@@ -156,6 +174,11 @@ function componentFailures(components: readonly BundleComponent[]): string[] {
     const what = c.label.trim().toLowerCase() || c.kind.replace(/_/g, " ");
     if (c.evidenceKeys.length === 0) { out.push(`I cannot show you anything behind the ${what}, so I am not putting it in front of you.`); continue; }
     if (needsSourcePack(c) && !c.sourcePack) out.push(`The ${what} changes a fact and carries no sources to check it against, so I am not putting it in front of you.`);
+    for (const m of MISLABELLED) {
+      if (c.kind !== m.kind && m.re.test(c.after)) {
+        out.push(`The ${what} ${m.what}, and it is filed as an ordinary edit instead of that change, so I am not putting it in front of you.`);
+      }
+    }
     if (!LEGACY_KINDS.has(c.kind)) {
       const owed = [!c.where && "where on the page it goes", !c.objective && "what it is meant to achieve",
         !c.mechanism && "why it fixes what I diagnosed", !c.measurementPlan && "what I will measure afterwards"].filter((x): x is string => !!x);

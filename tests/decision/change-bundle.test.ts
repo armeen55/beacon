@@ -275,6 +275,17 @@ describe("the complete change universe answers for itself", () => {
     const sneaky = validateProposal(prop({ bundle: bundleOf([comp({ kind: "redirect", risk: "safe" })]) }));
     expect([sneaky.verdict, sneaky.reasons.some((r) => r.includes("not marked as one that needs your confirmation"))]).toEqual(["rejected", true]);
   });
+  it("refuses a page move, a de-indexing or a merge smuggled through an ordinary component", () => {
+    // the kind is a label somebody typed, and the copy is the change: a section rewrite that redirects and de-indexes the page is neither
+    const smuggled = validateProposal(prop({ bundle: bundleOf([comp({ kind: "section", after: "Add a 301 redirect to the sizing guide and noindex this page." })]) }));
+    expect([smuggled.verdict, smuggled.reasons.some((r) => r.includes("sends this page's address somewhere else")), smuggled.reasons.some((r) => r.includes("stops people finding this page in search"))]).toEqual(["rejected", true, true]);
+    const canonical = validateProposal(prop({ bundle: bundleOf([comp({ kind: "internal_links", after: "Point the canonical tag at the sizing guide instead." })]) }));
+    expect([canonical.verdict, canonical.reasons.some((r) => r.includes("as the real address"))]).toEqual(["rejected", true]);
+    const merged = validateProposal(prop({ bundle: bundleOf([comp({ kind: "section", after: "Merge this page into the sizing guide once the copy is moved." })]) }));
+    expect([merged.verdict, merged.reasons.some((r) => r.includes("merges it into another"))]).toEqual(["rejected", true]);
+    // and an honest section rewrite that names none of them is still a safe paste
+    expect(validateProposal(prop({ bundle: bundleOf([comp({ kind: "section", after: "Add a short section on roof area, with the gallons each one collects per storm." })]) })).verdict).not.toBe("rejected");
+  });
   it("keeps a legal or medical correction dangerous however small the edit reads", () => {
     const legal = (risk: BundleComponent["risk"]): BundleComponent => comp({ kind: "factual_correction", risk,
       after: "Under the county statute the permit is required above 60 gallons.",
@@ -320,6 +331,17 @@ describe("one score orders every kind of change, and says why", () => {
     expect(ranked[0]!.whyRankedAboveNext).toContain("/measuring already has a change I am measuring");
     // every factor stays inside its own ceiling, so no single input can quietly decide the order
     for (const p of ranked) for (const f of p.rankingReceipt!.factors) expect(Math.abs(f.contribution)).toBeLessThanOrEqual(f.max);
+  });
+  it("holds every factor on its own floor, and never punishes a stored change for the age of its vocabulary", () => {
+    // a tampered evidence count used to contribute -1,500 and drag a safe change down through the lifecycle tiers
+    const [floored] = rankProposals([prop({ id: "floored", evidence: { query: "rain barrel sizing", hints: [], evidenceRefCount: -1000 } })]);
+    expect(factorOf(floored!, "evidence")).toBe(0);
+    expect(floored!.rankingReceipt!.factors.every((f) => f.contribution >= -f.max)).toBe(true);
+    expect(proposalValueScore(floored!)).toBeGreaterThan(proposalValueScore(prop({ status: "rejected", impactScore: 9999 })));
+    // the older undifferentiated kinds ARE the levers their newer names describe, on a bundle and on a pre-bundle row alike
+    const bundled = rankProposals([prop({ diagnosisCause: "incomplete_coverage", bundle: bundleOf([comp({ kind: "section" })]) })]);
+    const stored = rankProposals([prop({ diagnosisCause: "incomplete_coverage", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A section on roof area." } })]);
+    expect([factorOf(bundled[0]!, "causeFit"), factorOf(stored[0]!, "causeFit")]).toEqual([25, 25]);
   });
   it("ranks a change it holds no proven figure for as a direction, never a size, and says so", () => {
     const [blind] = rankProposals([prop({ impactScore: null, upsidePerMonth: null })]);

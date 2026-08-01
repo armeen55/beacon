@@ -64,7 +64,9 @@ export type CauseFinding = {
   action: DiagnosedAction | null;
   /** Receipt item ids behind the cause. Empty = nothing may be claimed from it. */
   evidenceKeys: string[];
-  /** Other causes considered and why each lost, strongest first. Bounded to three. */
+  /** Other causes considered and why each lost, strongest first. Bounded to three.
+   *  DEFERRED TO PHASE 8: rendering this list, and the receipt beside it, is that phase's surface work.
+   *  Nothing on a customer screen reads these fields yet; they are carried so it can. */
   competingExplanations: Array<{ cause: CandidateCause; reason: string }>;
   /** The one observation that would prove this diagnosis wrong. */
   falsifier: string;
@@ -90,6 +92,10 @@ type LadderInput = {
   /** The ONE topic this pass decided, when it decided one. Only the page that verdict NAMES may be judged
    *  by it: a pattern read against somebody else's page proves nothing about this one. */
   coverage: DecidedTopic | null;
+  /** The pages that already carry a change the operator applied and I am still reading, inside the
+   *  measurement window. ABSENT means I was not told, which is why `measuring_change` is then not
+   *  considered rather than ruled out: silence about a fact is never proof of its opposite. */
+  measuringPagePaths?: readonly (string | null)[];
 };
 
 /** Derived once per page so no rule below re-derives it and no two rules can disagree. */
@@ -141,10 +147,25 @@ function serpLoss(d: ActionDiagnosis): string {
 
 const RULES: Rule[] = [
   {
+    // A CHANGE OF YOURS ALREADY UNDER MEASUREMENT outranks every other reading on this page: a second edit
+    // here makes the first one unreadable, whatever the rest of the evidence says. Asked first for exactly
+    // that reason, and only ever when I was told which pages are measuring.
+    cause: "measuring_change",
+    held: (c) => (c.measuringPagePaths ? null : NOT_TOLD_MEASURING.missing),
+    read: (c) => ((c.measuringPagePaths ?? []).some((p) => namesPage(p, c.urlKey))
+      ? { fired: true, action: null, evidenceKeys: [RECEIPT.gsc],
+        explanation: "The change you applied here is still being measured, so I am not stacking another one on top of it." }
+      : { fired: false, reason: "nothing you applied to this page is still being measured, so nothing here is waiting on a reading" }),
+    falsifier: () => "If the change recorded on this page was never actually applied, this is not the explanation.",
+    rulesOut: { cause: "ctr_snippet", reason: "a second edit here would make the first one unreadable, whatever its wording does" },
+  },
+  {
     // TWO OF YOUR OWN PAGES ON ONE SEARCH is the one cause no wording change can touch, so it is asked
     // before every wording question. Read off the account's own rankings, never off a family of URLs.
+    // SCOPED TO THIS SEARCH, exactly like the read below it: an unrelated pair splitting a different query
+    // says nothing about this one, and counting it as considered turned "never checked" into "ruled out".
     cause: "cannibalization",
-    held: (c) => (c.snapshot.cannibalization.length > 0
+    held: (c) => (c.snapshot.cannibalization.some((g) => canonicalQueryKey(g.query) === c.queryKey)
       || c.snapshot.research.retainedKeywords.some((k) => canonicalQueryKey(k.query) === c.queryKey && k.supports != null)
       ? null
       : "I have not checked which of your own pages Google serves for that exact search."),
@@ -270,7 +291,9 @@ const RULES: Rule[] = [
       return middle < MIN_LINK_FLOOR || mine * 2 >= middle
         ? { fired: false, reason: "this page points readers on to as much of your site as the winning pages do of theirs" }
         : { fired: true, action: null, evidenceKeys: [RECEIPT.winners, RECEIPT.links],
-          explanation: `The pages that win this subject point readers on to about ${num(middle)} more of their own pages and this one points to ${num(mine)}, so people who land here have nowhere to go next.` };
+          // THE DIFFERENCE, never the winners' own total said as if it were the gap: this used to read
+          // "about 12 more of their own pages" off a median of 12, which overstates the gap every time.
+          explanation: `The pages that win this subject point readers on to about ${num(middle - mine)} more of their own pages than this one does, ${num(middle)} against ${num(mine)}, so people who land here have nowhere to go next.` };
     },
     falsifier: () => "If this page's links are on file and I simply read too few of them, this is not the explanation.",
     rulesOut: { cause: "incomplete_coverage", reason: "the page covers the subject and then strands the reader on it" },
@@ -283,12 +306,14 @@ const RULES: Rule[] = [
       ? null : "I hold what the engines cited, and none of these observations recorded what was read before answering."),
     read: (c) => {
       const hosts = ownHosts(c.snapshot);
-      const seen = aiAnswers(c).find((o) => (o.retrievedResults ?? []).some((r) => hosts.has(publisherHost(r.url)))
+      // THIS PAGE, not this domain. A retrieval hit on any page of mine used to fire the accusation on
+      // every other page of mine, so a page an engine never touched was told it had been read and declined.
+      const seen = aiAnswers(c).find((o) => (o.retrievedResults ?? []).some((r) => canonicalUrlKey(r.url) === c.urlKey)
         && (o.citations ?? []).length > 0 && (o.citations ?? []).every((x) => !hosts.has(publisherHost(x.url))));
-      return !seen
-        ? { fired: false, reason: "no engine read this page and then cited only other sites" }
-        : { fired: true, action: null, evidenceKeys: [RECEIPT.ai],
-          explanation: `${seen.engine} read this page while answering ${quote(seen.promptText)} and cited ${num((seen.citations ?? []).length)} other sites instead, so the page was seen and passed over, not missed.` };
+      if (!seen) return { fired: false, reason: "no engine read this page and then cited only other sites" };
+      const cited = (seen.citations ?? []).length;
+      return { fired: true, action: null, evidenceKeys: [RECEIPT.ai],
+        explanation: `${seen.engine} read this page while answering ${quote(seen.promptText)} and cited ${num(cited)} other ${cited === 1 ? "site" : "sites"} instead, so the page was seen and passed over, not missed.` };
     },
     falsifier: () => "If an engine that reads this page starts citing it, this is not the explanation.",
     rulesOut: { cause: "ai_citation_gap", reason: "a page the engine read and declined is a harder problem than one it never found" },
@@ -302,10 +327,10 @@ const RULES: Rule[] = [
       const hosts = ownHosts(c.snapshot);
       const rival = aiAnswers(c).find((o) => (o.citations ?? []).length > 0
         && (o.citations ?? []).every((x) => !hosts.has(publisherHost(x.url))));
-      return !rival || c.page.aiCitations.count > 0
-        ? { fired: false, reason: "AI answers about that search already cite this page" }
-        : { fired: true, action: null, evidenceKeys: [RECEIPT.ai],
-          explanation: `I read the AI answers about that search: ${rival.engine} answered ${quote(rival.promptText)} and named ${num((rival.citations ?? []).length)} other sites without ever citing this page.` };
+      if (!rival || c.page.aiCitations.count > 0) return { fired: false, reason: "AI answers about that search already cite this page" };
+      const named = (rival.citations ?? []).length;
+      return { fired: true, action: null, evidenceKeys: [RECEIPT.ai],
+        explanation: `I read the AI answers about that search: ${rival.engine} answered ${quote(rival.promptText)} and named ${num(named)} other ${named === 1 ? "site" : "sites"} without ever citing this page.` };
     },
     falsifier: () => "If an engine cites this page for that subject on my next look, this is not the explanation.",
     rulesOut: { cause: "ctr_snippet", reason: "an engine that never names this page is not choosing against its wording" },
@@ -316,6 +341,16 @@ const RULES: Rule[] = [
 const SELLING = new Set(["product", "category", "comparison", "tool"]);
 /** Under this many links, nobody on that results page is pointing readers anywhere, so nobody is accused. */
 const MIN_LINK_FLOOR = 5;
+
+/** Does one stored page address NAME this page? A bare path is matched as the tail of this page's own
+ *  key, so "/guide" and "https://site.example/guide" both name it and "/other-guide" never does. */
+const namesPage = (path: string | null, urlKey: string): boolean => {
+  const p = (path ?? "").trim().toLowerCase();
+  if (!p) return false;
+  if (!p.startsWith("/")) return canonicalUrlKey(p) === urlKey;
+  const tail = p.replace(/\/+$/, "") || "/";
+  return urlKey === tail || urlKey.endsWith(tail);
+};
 
 /** This page's own opening words, from the ONE place the pass already read them. */
 const openingOf = (c: Ctx): string | null =>
@@ -346,9 +381,15 @@ const aiAnswers = (c: Ctx): EvidenceSnapshot["research"]["aiObservations"] => {
 const UNHELD: Array<{ cause: CandidateCause; missing: string }> = [
   { cause: "demand_decline", missing: "I hold one 90 day total for that search and nothing earlier, so I cannot tell a quiet season from a real fall in demand." },
   { cause: "ranking_loss", missing: "I hold one average position for that search and nothing earlier, so I cannot see whether this page moved." },
+  // PREREQUISITE, NAMED: nothing in Evidence captures a page's index, canonical or robots state today, so
+  // this cause stays honestly unheld until that capture exists. It is not a gap in the ladder.
   { cause: "technical_indexability", missing: "I do not hold this page's indexing or canonical state." },
-  { cause: "measuring_change", missing: "I hold no change on this page that is still being measured." },
 ];
+
+/** The one cause that is a RULE rather than a permanent silence: a full run of the ladder answers it from
+ *  what it was told. A finding built without running the ladder was told nothing, and says exactly that. */
+const NOT_TOLD_MEASURING = { cause: "measuring_change" as const,
+  missing: "I do not hold which of your pages already carry a change I am measuring, so I cannot say whether this one does." };
 
 const MAX_COMPETING = 3;
 
@@ -420,7 +461,7 @@ const LABEL: Record<CandidateCause, string> = {
 /** The finding for a page nothing accuses: a real answer, carrying the same four things as every other one,
  *  because "leave it alone" deserves a reason and an alternative exactly as much as "change this" does. */
 export function noProblemFinding(explanation: string, ruledOut: string): CauseFinding {
-  return { cause: "no_problem", action: null, evidenceKeys: [RECEIPT.gsc], explanation, notConsidered: [...UNHELD],
+  return { cause: "no_problem", action: null, evidenceKeys: [RECEIPT.gsc], explanation, notConsidered: [...UNHELD, NOT_TOLD_MEASURING],
     competingExplanations: [{ cause: "ctr_snippet", reason: ruledOut }],
     falsifier: "If this page's click rate falls below what pages at its position usually earn, this stops being the answer." };
 }

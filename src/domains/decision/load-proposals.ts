@@ -83,9 +83,32 @@ export async function resolveCurrentBasis(
 const UNRESOLVED_SOURCE =
   /paste-ready|cited authoritative source|carries no source|add (?:a |an |one |1-2 )?(?:cited |authoritative )?sources?|verify (?:this|the) (?:claim|fact)/i;
 
-/** PURE: does this proposal still owe a source before anyone can paste it? */
-export function holdsForUnresolvedSource(p: ChangeProposal): boolean {
+/** PURE: does this proposal still owe a source before anyone can paste it? Internal to this queue: the
+ *  public surface asks for the partition below, never for one row's source hold. */
+function holdsForUnresolvedSource(p: ChangeProposal): boolean {
   return p.limitations.some((l) => UNRESOLVED_SOURCE.test(l));
+}
+
+/** THE MEASUREMENT WINDOW: the longest reading Beacon takes on an applied change. Past it, that page is
+ *  no longer measuring anything, so it may not discount the next change forever. */
+const MEASUREMENT_WINDOW_DAYS = 28;
+
+/**
+ * THE PAGES STILL UNDER MEASUREMENT, out of rows the caller already holds (no read, no kernel crossed).
+ * A page counts only while its applied change is inside the window above: an applied row of ANY age used
+ * to discount its page forever, so a change shipped six months ago quietly buried every later change to
+ * the same page. A proposal carries no applied-at stamp of its own, so its `createdAt` is the only date
+ * on file and it is read as the earliest the measurement can have started; a row with no readable date
+ * counts as nothing, because "I cannot tell when" is never proof that something is being read now. PURE.
+ */
+export function pagesUnderMeasurement(
+  proposals: Iterable<ChangeProposal>,
+  now: Date = new Date(),
+): string[] {
+  const floor = now.getTime() - MEASUREMENT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  return [...proposals]
+    .filter((p) => p.status === "applied" && !!p.pagePath && Date.parse(p.createdAt) >= floor)
+    .map((p) => p.pagePath as string);
 }
 
 export type RankedProposalQueue = {
@@ -141,12 +164,11 @@ export async function loadProposalQueue(
   // older or missing basis and a lie when I simply could not read the account, so the
   // surfaces get the reason, not just the number.
   const basisUnreadable = currentBasis == null;
-  // A page whose change the operator already applied is a page under measurement. Ranking
-  // a second change onto it would make the first one unreadable, so the ranker discounts
-  // it hard and says so on the card. The applied rows are already in hand here, so this
-  // costs no read and reaches past no kernel boundary.
-  const measuringPagePaths = [...byId.values()].filter((p) => p.status === "applied").map((p) => p.pagePath);
-  const ranked = rankProposals(current, { measuringPagePaths });
+  // A page whose change the operator already applied IS a page under measurement, for as long as the
+  // measurement runs. Ranking a second change onto it would make the first one unreadable, so the ranker
+  // discounts it hard and says so on the card. The applied rows are already in hand here, so this costs
+  // no read and reaches past no kernel boundary.
+  const ranked = rankProposals(current, { measuringPagePaths: pagesUnderMeasurement(byId.values()) });
   // READY has to mean ready: the validator passed it (status "proposed") and it owes
   // nobody a source. Every other current-basis row is a to-do.
   const ready: ChangeProposal[] = [];
