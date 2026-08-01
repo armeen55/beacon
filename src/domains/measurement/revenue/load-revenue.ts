@@ -10,7 +10,6 @@
  * HONESTY CONTRACT: every dollar leaving this module carries its source,
  * and `revenueBasisPhrase` / `combinedBasisPhrase` are the ONLY approved
  * labels. Estimated dollars (unit_economics) must never read as measured.
- * Pinned by tests/domains/measurement/revenue/load-revenue.test.ts.
  */
 
 import "server-only";
@@ -20,7 +19,7 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 import type { RevenueSource } from "./compute-unit-economics";
 
-export type RevenueFact = {
+type RevenueFact = {
   pagePath: string;
   /** YYYY-MM-DD. */
   day: string;
@@ -72,8 +71,8 @@ export function combinedBasisPhrase(sources: ReadonlyArray<RevenueSource>): stri
   return "your rate x real traffic";
 }
 
-/** Raw row shape from PostgREST. Exported mapping is pure for tests. */
-export type RawRevenueFactRow = {
+/** Raw row shape from PostgREST. Internal: the mapping below is the only reader. */
+type RawRevenueFactRow = {
   page_path: string;
   day: string;
   source: string;
@@ -89,7 +88,7 @@ const KNOWN_SOURCES: ReadonlySet<string> = new Set([
 ]);
 
 /** Pure row mapping: numeric coercion + unknown-source drop. */
-export function mapRevenueFactRow(row: RawRevenueFactRow): RevenueFact | null {
+function mapRevenueFactRow(row: RawRevenueFactRow): RevenueFact | null {
   if (!row || !row.page_path || !row.day) return null;
   if (!KNOWN_SOURCES.has(row.source)) return null;
   const revenueUsd = Number(row.revenue_usd);
@@ -152,8 +151,8 @@ async function loadRevenueFactsForTenantUncached(
   return out;
 }
 
-/** Pure aggregation to per-page summaries; exported for tests. */
-export function summarizeRevenueByPage(facts: ReadonlyArray<RevenueFact>): Map<string, PageRevenueSummary> {
+/** Pure aggregation to per-page summaries. */
+function summarizeRevenueByPage(facts: ReadonlyArray<RevenueFact>): Map<string, PageRevenueSummary> {
   type Acc = { revenueUsd: number; days: Set<string>; sources: Set<RevenueSource> };
   const accs = new Map<string, Acc>();
   for (const f of facts) {
@@ -181,8 +180,8 @@ export function summarizeRevenueByPage(facts: ReadonlyArray<RevenueFact>): Map<s
   return out;
 }
 
-/** Pure aggregation to per-day summaries (ascending by day); exported for tests. */
-export function summarizeRevenueByDay(facts: ReadonlyArray<RevenueFact>): DayRevenueSummary[] {
+/** Pure aggregation to per-day summaries (ascending by day). */
+function summarizeRevenueByDay(facts: ReadonlyArray<RevenueFact>): DayRevenueSummary[] {
   type Acc = { revenueUsd: number; sources: Set<RevenueSource> };
   const accs = new Map<string, Acc>();
   for (const f of facts) {

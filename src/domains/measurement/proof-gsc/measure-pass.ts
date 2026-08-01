@@ -30,6 +30,7 @@ import {
 } from "./types";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import { addDays, evaluateWindows, readLedger } from "./kernel";
+import { day56Followup, FOLLOW_UP_WINDOW_DAY } from "./measure-lifecycle";
 
 const NULL_METRICS: GscWindowMetrics = { clicks: 0, impressions: 0, ctr: 0, position: 0 };
 
@@ -124,10 +125,16 @@ function storedVerdictFor(record: ShippedChangeRecord, now: Date, lastFinal: str
 }
 
 /**
- * Recompute the 7/14/28-day outcome for a shipped change from GSC. Reads the pre
- * window once and each post window once, for the treated page + all controls.
- * Returns a NEW record with windows/verdict/confidence/measuredAt updated. A
- * control that is itself an active treatment can be excluded from the diff.
+ * Recompute the outcome for a shipped change from GSC. Reads the pre window once and each
+ * post window once, for the treated page + all controls. Returns a NEW record with
+ * windows/verdict/confidence/measuredAt updated. A control that is itself an active
+ * treatment can be excluded from the diff.
+ *
+ * EVERY CHECKPOINT COUNTS FROM THE STAMP (implementedAt), because that is the day the
+ * change actually went live; a record written before there was a stamp counts from its
+ * ship date exactly as it always did. The day-56 read is CONDITIONAL: it runs only for a
+ * change whose 28-day read did not settle, or that moved or hid the page. A clean 28-day
+ * read closes measurement and no day-56 read is taken.
  */
 export async function measureRecord(
   tenantId: string,
@@ -136,7 +143,7 @@ export async function measureRecord(
   lastFinalizedDate?: string | null,
   excludeControlPaths: Set<string> = new Set(),
 ): Promise<ShippedChangeRecord> {
-  const shipDate = dateOnly(record.shippedAt);
+  const shipDate = dateOnly(record.implementedAt ?? record.shippedAt);
   const lastFinal = lastFinalizedDate !== undefined ? lastFinalizedDate : await readLastFinalizedDate(tenantId);
   const controlPages = record.controlPages.filter((c) => !excludeControlPaths.has(toPath(c)));
   const pages = [record.page, ...controlPages];
@@ -144,21 +151,23 @@ export async function measureRecord(
   const preStart = addDays(shipDate, -BASELINE_WINDOW_DAYS);
   const pre = await readWindowForPages({ tenantId, pages, start: preStart, end: shipDate });
 
-  const windowStates = evaluateWindows(record.shippedAt, now, lastFinal);
-  const windows: ProofWindowResult[] = [];
-  for (const day of PROOF_WINDOW_DAYS) {
-    const state = windowStates.find((w) => w.day === day)!;
-    const checkOn = addDays(shipDate, day);
-    const ran = state.state === "closed";
+  const readWindow = async (day: ProofWindowDay, ran: boolean): Promise<ProofWindowResult> => {
     const post = ran ? await readWindowForPages({ tenantId, pages, start: shipDate, end: addDays(shipDate, day) }) : null;
     const treatedPre = pre.get(record.page) ?? NULL_METRICS;
     const treatedPost = post?.get(record.page) ?? NULL_METRICS;
     const controls = controlPages
       .map((c) => ({ pre: pre.get(c) ?? NULL_METRICS, post: post?.get(c) ?? NULL_METRICS }))
       .filter((c) => c.pre.impressions > 0 && (!ran || c.post.impressions > 0));
-    windows.push(
-      computeWindowLift({ day, checkOn, ran, treatedPre, treatedPost, controls, preWindowDays: BASELINE_WINDOW_DAYS }),
-    );
+    return computeWindowLift({
+      day, checkOn: addDays(shipDate, day), ran, treatedPre, treatedPost, controls,
+      preWindowDays: BASELINE_WINDOW_DAYS,
+    });
+  };
+
+  const windowStates = evaluateWindows(shipDate, now, lastFinal);
+  const windows: ProofWindowResult[] = [];
+  for (const day of PROOF_WINDOW_DAYS) {
+    windows.push(await readWindow(day, windowStates.find((w) => w.day === day)!.state === "closed"));
   }
 
   const measured: ShippedChangeRecord = {
@@ -167,10 +176,20 @@ export async function measureRecord(
     measuredAt: windows.some((w) => w.ran) ? now.toISOString() : record.measuredAt,
     updatedAt: now.toISOString(),
   };
-  const { verdict, confidence } = storedVerdictFor(measured, now, lastFinal);
-  // Operator "exclude from learning" pins the stored verdict to inconclusive.
-  measured.verdict = record.operatorVerdictOverride === "inconclusive" ? "inconclusive" : verdict;
-  measured.confidence = confidence;
+  const settle = (): void => {
+    const { verdict, confidence } = storedVerdictFor(measured, now, lastFinal);
+    // Operator "exclude from learning" pins the stored verdict to inconclusive.
+    measured.verdict = record.operatorVerdictOverride === "inconclusive" ? "inconclusive" : verdict;
+    measured.confidence = confidence;
+  };
+  settle();
+
+  // The conditional fourth checkpoint, decided on the 28-day read that just landed.
+  const followUp = day56Followup(measured, lastFinal, now);
+  if (followUp.due) {
+    measured.windows = [...windows, await readWindow(FOLLOW_UP_WINDOW_DAY, true)];
+    settle();
+  }
   return measured;
 }
 

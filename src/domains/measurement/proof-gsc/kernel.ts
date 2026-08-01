@@ -1,24 +1,18 @@
 /**
  * Measurement kernel (CORE 100K replacement). PURE + one thin loader.
  *
- * This is the small, honest replacement for the sprawling proof-gsc engine. It
- * does exactly nine things and nothing more:
- *   1. Load a shipped change + its tenant/site/page identity.
- *   2. Evaluate the available 7/14/28-day windows.
- *   3. Compare before vs after (GSC clicks, CTR, position; impressions carried
- *      through for visibility; GA4 traffic where trustworthy).
- *   4. Account for Google reporting lag + missing data.
- *   5. Detect overlapping actions on the same page over overlapping windows.
- *   6. Produce an individual directional read, a bundle read for overlaps, and
- *      an explicit confounded / insufficient state when separation is impossible.
- *   7. Never claim clean causality from observational data.
- *   8. Feed a small outcome signal back into recommendation ranking.
- *   9. Render the Results information an average operator needs.
+ * This is the small, honest replacement for the sprawling proof-gsc engine. It does
+ * exactly nine things and nothing more: (1) load a shipped change and its page identity;
+ * (2) evaluate the checkpoints, counted from the stamp; (3) compare before vs after (GSC
+ * clicks, CTR, position, impressions for visibility, GA4 where trustworthy); (4) account
+ * for Google's reporting lag and missing data; (5) detect overlapping changes on one page;
+ * (6) produce a directional read, a bundle read for overlaps, and an explicit confounded
+ * or insufficient state when separation is impossible; (7) never claim clean causality;
+ * (8) feed a small outcome signal back into ranking; (9) render what an operator needs.
  *
  * Confidence is derived from transparent conditions ONLY: window maturity, data
  * availability, sample size, baseline stability, overlap/confounding, and source
- * freshness. No permutation-null, FDR, calibration self-tests, or forecast
- * machinery. Honest conservative output is the whole requirement.
+ * freshness. No permutation-null, FDR, calibration self-tests, or forecast machinery.
  *
  * Beacon voice on every operator-facing string: first person, concrete numbers,
  * honest about misses, no em or en dashes.
@@ -28,6 +22,7 @@ import "server-only";
 
 import { loadShippedChangesForTenant } from "./shipped-change-store";
 import { readLastFinalizedDate } from "./gsc-window";
+import { buildHeadline, learningShape, overlapClosures } from "./read-honesty";
 
 // ── The kernel's own small verdict vocabulary ──────────────────────────────
 
@@ -48,16 +43,23 @@ export type KernelVerdict =
  *  move position, everything else moves clicks. */
 export type KernelMetric = "clicks" | "ctr" | "position";
 
-export type KernelConfidence = "low" | "medium" | "high";
+type KernelConfidence = "low" | "medium" | "high";
 
 /** One window's state after accounting for Google's reporting lag. */
-export type WindowState = "waiting" | "closed" | "pending_data";
+type WindowState = "waiting" | "closed" | "pending_data";
+
+/** The checkpoints. 7/14/28 always; 56 ONLY when the 28-day read did not settle or the
+ *  change was a dangerous one (Product Truth omits it otherwise). */
+export type CheckpointDay = 7 | 14 | 28 | 56;
 
 export type KernelWindowRead = {
-  day: 7 | 14 | 28;
-  /** The calendar date this window closes (shippedAt + day), YYYY-MM-DD. */
+  day: CheckpointDay;
+  /** The calendar date this window closes (the stamp + day), YYYY-MM-DD. */
   closesOn: string;
   state: WindowState;
+  /** Set when a LATER change on this page closed the clean window before this checkpoint:
+   *  the days behind it belong to both changes, so this read is not this change's alone. */
+  confounded?: "overlapping_change";
 };
 
 /**
@@ -71,11 +73,14 @@ export type KernelInput = {
   path: string;
   actionType: string;
   shippedAt: string;
+  /** THE STAMP: when the operator marked the change done. Every checkpoint counts from
+   *  here; a pre-Shipment row has none and counts from its ship date exactly as before. */
+  implementedAt?: string | null;
   baselineImpressions: number;
   baselineClicks: number;
   /** Per closed-or-open window: the observational diff in diff readings. */
   windows: ReadonlyArray<{
-    day: 7 | 14 | 28;
+    day: CheckpointDay;
     ran: boolean;
     adjustedClicksLift: number;
     adjustedCtrLift: number;
@@ -90,6 +95,12 @@ export type KernelInput = {
   ga4ExtraSessions?: number | null;
   /** Whether GA4 traffic is trustworthy/available for this property. */
   ga4Trustworthy?: boolean;
+  /** The bundle components the operator applied, for the learning shape below. */
+  componentKinds?: readonly string[];
+  /** What the proposal said was wrong with the page, where the row holds it. */
+  diagnosisCause?: string | null;
+  /** How many receipt items the draft carried, where the row holds it. */
+  evidenceItemCount?: number | null;
 };
 
 /** The full render + ranking read for one change. */
@@ -99,10 +110,10 @@ export type KernelRead = {
   path: string;
   actionType: string;
   metric: KernelMetric;
-  /** The 7/14/28 window states, honest about Google's lag. */
+  /** The checkpoint states, honest about Google's lag. */
   windows: KernelWindowRead[];
-  /** The longest window that has closed AND has data (the basis), or null. */
-  basisDay: 7 | 14 | 28 | null;
+  /** The longest CLEAN window that has closed AND has data (the basis), or null. */
+  basisDay: CheckpointDay | null;
   /** The basis window's adjusted lift on the judged metric. */
   lift: number;
   /** The basis window's adjusted impressions (visibility) lift. */
@@ -117,6 +128,16 @@ export type KernelRead = {
   caveats: string[];
   /** Ids of other changes on the same page whose windows overlap this one. */
   overlappingIds: string[];
+  /** The day a LATER change on this page closed this one's clean window, or null. */
+  cleanUntil: string | null;
+  /** What this read carries forward for later account-scoped learning. Shape only:
+   *  nothing here is aggregated, scored, or compared across accounts. */
+  learning: {
+    actionFamily: string;
+    diagnosisCause: string | null;
+    evidenceCompleteness: number | null;
+    outcomeDirection: "up" | "down" | "flat" | "unclear";
+  };
   /** The small outcome signal fed back into recommendation ranking, in [-1, 1].
    *  Zero for anything not cleanly settled (waiting / insufficient / confounded /
    *  no clear movement). Never claims clean causality. */
@@ -126,7 +147,7 @@ export type KernelRead = {
 // ── Thresholds (conservative, observational, named so they are auditable) ────
 
 /** A page needs at least this many baseline impressions before any read. */
-export const MIN_BASELINE_IMPRESSIONS = 200;
+const MIN_BASELINE_IMPRESSIONS = 200;
 /** At least this many comparable (control) pages before a directional read. */
 export const MIN_CONTROLS = 2;
 /** Comparable pages for a stronger, higher-confidence read. */
@@ -149,6 +170,9 @@ const BASELINE_WINDOW_DAYS = 28;
 export const GSC_LAG_DAYS = 3;
 
 const WINDOW_DAYS: Array<7 | 14 | 28> = [7, 14, 28];
+/** The conditional fourth checkpoint. It exists on a read ONLY when the record carries a
+ *  day-56 measurement, and measure-lifecycle is the one place that decides it is owed. */
+const FOLLOW_UP_DAY = 56;
 
 const CTR_ACTIONS = new Set([
   "title", "edit_title", "meta", "edit_meta", "h1", "change_h1",
@@ -191,19 +215,21 @@ function daysBetween(fromIso: string, toIso: string): number {
 // ── Point 2 + 4: window evaluation with reporting lag ────────────────────────
 
 /**
- * Evaluate every 7/14/28 window against the ship date, "now", and Google's
- * finalized-data watermark. A window is `closed` (readable) only when its close
- * date is at least GSC_LAG_DAYS behind the finalized data. Between calendar
- * close and finalized data it is `pending_data` (the honest "waiting on Google",
- * not "stalled"). Pure.
+ * Evaluate every checkpoint against the stamp, "now", and Google's finalized-data
+ * watermark. A window is `closed` (readable) only when its close date is at least
+ * GSC_LAG_DAYS behind the finalized data. Between calendar close and finalized data it is
+ * `pending_data` (the honest "waiting on Google", not "stalled"). The day-56 checkpoint is
+ * only evaluated when the caller says this change earned one. Pure.
  */
 export function evaluateWindows(
   shippedAt: string,
   now: Date,
   latestGscDate: string | null,
+  includeFollowUp = false,
 ): KernelWindowRead[] {
   const nowIso = now.toISOString().slice(0, 10);
-  return WINDOW_DAYS.map((day) => {
+  const days: CheckpointDay[] = includeFollowUp ? [...WINDOW_DAYS, FOLLOW_UP_DAY] : [...WINDOW_DAYS];
+  return days.map((day) => {
     const closesOn = addDays(shippedAt, day);
     let state: WindowState = "waiting";
     if (daysBetween(closesOn, nowIso) >= 0) {
@@ -221,33 +247,25 @@ export function evaluateWindows(
 // ── Point 5: overlap detection ───────────────────────────────────────────────
 
 /**
- * Detect overlapping changes: two changes on the SAME page whose 28-day
- * measurement windows overlap in time cannot be cleanly separated. Returns a map
- * of change id to the ids it overlaps. Pure. This is the ONLY confounding signal
- * the kernel needs: same page, overlapping dates.
+ * Detect overlapping changes: two changes on the SAME page whose 28-day measurement
+ * windows overlap in time cannot be cleanly separated. Returns a map of change id to the
+ * ids it overlaps. Pure. Same page, overlapping dates, and nothing else. The DATE a later
+ * change closed an earlier one's clean window comes from the same pass (read-honesty).
  */
 export function detectOverlaps(
   changes: ReadonlyArray<{ id: string; path: string; shippedAt: string }>,
 ): Map<string, string[]> {
-  const out = new Map<string, string[]>();
-  for (const a of changes) out.set(a.id, []);
-  for (let i = 0; i < changes.length; i += 1) {
-    for (let j = i + 1; j < changes.length; j += 1) {
-      const a = changes[i];
-      const b = changes[j];
-      if (a.path !== b.path) continue;
-      const aStart = Date.parse(a.shippedAt);
-      const bStart = Date.parse(b.shippedAt);
-      if (!Number.isFinite(aStart) || !Number.isFinite(bStart)) continue;
-      const aEnd = aStart + 28 * 86_400_000;
-      const bEnd = bStart + 28 * 86_400_000;
-      if (aStart <= bEnd && bStart <= aEnd) {
-        out.get(a.id)!.push(b.id);
-        out.get(b.id)!.push(a.id);
-      }
-    }
-  }
-  return out;
+  const closures = overlapClosures(
+    changes.map((c) => ({ id: c.id, path: c.path, anchoredAt: c.shippedAt })),
+  );
+  return new Map([...closures].map(([id, o]) => [id, o.ids]));
+}
+
+/** The stamp every checkpoint counts from: when the operator marked the change done,
+ *  falling back to the ship date on a row written before there was a stamp. Pure. */
+function anchorOf(input: Pick<KernelInput, "implementedAt" | "shippedAt">): string {
+  const stamp = input.implementedAt ?? input.shippedAt;
+  return stamp.length > 10 ? stamp.slice(0, 10) : stamp;
 }
 
 // ── Point 3 + 6 + 7: the verdict producer ────────────────────────────────────
@@ -272,17 +290,6 @@ function floorFor(
   return Math.max(MIN_LIFT_CLICKS, windowBaseline * MIN_LIFT_FRACTION);
 }
 
-/** The SIZE of a move, never its sign: the sentence owns the direction. A signed number
- *  inside a sentence that already said "down" printed "+0.5pp" on a losing change. */
-function formatLift(metric: KernelMetric, lift: number): string {
-  if (metric === "ctr") {
-    const pp = Math.abs(Math.round(lift * 1000) / 10);
-    return `${pp} percentage point${pp === 1 ? "" : "s"} of click rate`;
-  }
-  const size = metric === "position" ? Math.round(Math.abs(lift) * 10) / 10 : Math.abs(Math.round(lift));
-  return `${size} ${metric === "position" ? "rank" : "click"}${size === 1 ? "" : "s"}`;
-}
-
 /** Human phrase for a verdict, Beacon voice, concrete numbers folded in by the
  *  caller via `headline`. This is the short label. */
 export function verdictPhrase(v: KernelVerdict): string {
@@ -298,30 +305,47 @@ export function verdictPhrase(v: KernelVerdict): string {
 }
 
 /**
- * Produce the full read for one change. Pure. This is points 3, 6, 7, 8, 9 in
- * one deterministic pass. `overlappingIds` is supplied by detectOverlaps; when a
- * change overlaps another on the same page and would otherwise read directional,
- * the verdict becomes `confounded` (honest: cannot separate the two).
+ * Produce the full read for one change. Pure. This is points 3, 6, 7, 8, 9 in one
+ * deterministic pass. `overlappingIds` is supplied by detectOverlaps. `cleanUntil` is the
+ * day a LATER change landed on the same page and CLOSED this one's clean window:
+ * checkpoints that closed on or before that day are this change's alone and stay valid,
+ * every checkpoint behind it is confounded by the overlap and says so. When no clean
+ * checkpoint is left, a directional read becomes `confounded` (honest: I cannot separate
+ * the two, and I never split page movement between components).
  */
 export function evaluateChange(
   input: KernelInput,
   windows: KernelWindowRead[],
   overlappingIds: string[],
+  cleanUntil: string | null = null,
 ): KernelRead {
   const metric = metricFor(input.actionType);
-  const closed = windows.filter((w) => w.state === "closed").map((w) => w.day);
-  // Basis = longest window that has BOTH closed and has a ran reading with data.
-  const basisWindow = [...input.windows]
-    .filter((w) => w.ran && closed.includes(w.day))
-    .sort((a, b) => b.day - a.day)[0];
+  const marked: KernelWindowRead[] = cleanUntil == null ? windows
+    : windows.map((w) => (w.closesOn > cleanUntil ? { ...w, confounded: "overlapping_change" as const } : w));
+  const closed = marked.filter((w) => w.state === "closed");
+  const cleanDays = new Set(closed.filter((w) => w.confounded == null).map((w) => w.day));
+  // Basis = longest CLEAN window that has both closed and a ran reading with data. With no
+  // clean one left, the longest confounded window is still read, and named as confounded.
+  const readable = [...input.windows]
+    .filter((w) => w.ran && closed.some((c) => c.day === w.day))
+    .sort((a, b) => b.day - a.day);
+  const basisWindow = readable.find((w) => cleanDays.has(w.day)) ?? readable[0];
   const basisDay = basisWindow ? basisWindow.day : null;
+  const basisConfounded = basisWindow != null && !cleanDays.has(basisWindow.day);
 
   const caveats: string[] = [];
   const confidenceReasons: string[] = [];
+  const shape = (direction: "up" | "down" | "flat" | "unclear") => learningShape({
+    componentKinds: input.componentKinds ?? [],
+    actionType: input.actionType,
+    diagnosisCause: input.diagnosisCause ?? null,
+    evidenceItemCount: input.evidenceItemCount ?? null,
+    direction,
+  });
 
   // Point 4: honest lag caveat when a calendar window closed but Google has not
   // caught up.
-  const pendingData = windows.some((w) => w.state === "pending_data");
+  const pendingData = marked.some((w) => w.state === "pending_data");
   if (pendingData && !basisWindow) {
     caveats.push("A check window has closed on the calendar, but I am still waiting on Google to finalize those days. Google reports a few days behind.");
   }
@@ -334,7 +358,7 @@ export function evaluateChange(
       path: input.path,
       actionType: input.actionType,
       metric,
-      windows,
+      windows: marked,
       basisDay: null,
       lift: 0,
       impressionsLift: 0,
@@ -344,6 +368,8 @@ export function evaluateChange(
       confidenceReasons: ["No check window has closed with finalized data yet."],
       caveats,
       overlappingIds,
+      cleanUntil,
+      learning: shape("unclear"),
       rankingSignal: 0,
     };
   }
@@ -367,7 +393,7 @@ export function evaluateChange(
       path: input.path,
       actionType: input.actionType,
       metric,
-      windows,
+      windows: marked,
       basisDay,
       lift,
       impressionsLift,
@@ -377,6 +403,8 @@ export function evaluateChange(
       confidenceReasons,
       caveats,
       overlappingIds,
+      cleanUntil,
+      learning: shape("unclear"),
       rankingSignal: 0,
     };
   }
@@ -395,35 +423,47 @@ export function evaluateChange(
     verdict = "no_clear_movement";
   }
 
-  // Point 5 + 6: overlapping changes on the same page over overlapping windows
-  // make a single change impossible to isolate. Only downgrade a real
-  // directional read to confounded (a "no clear movement" stays honest as is,
-  // and does not need a confounding caveat to be true).
+  // Point 5 + 6: overlapping changes on the same page over overlapping windows make a
+  // single change impossible to isolate. Only downgrade a real directional read (a "no
+  // clear movement" stays honest as is). A read whose basis window closed BEFORE the page
+  // was changed again keeps its verdict and carries the honest cut-off line instead.
   const isDirectional =
     verdict === "directional_improvement" ||
     verdict === "stronger_improvement" ||
     verdict === "directional_decline";
-  if (overlappingIds.length > 0 && isDirectional) {
+  if (isDirectional && basisConfounded) {
+    caveats.push(`I changed this page again on ${cleanUntil}, so everything after that day belongs to both changes and I stopped reading this one there.`);
+    verdict = "confounded";
+  } else if (isDirectional && cleanUntil == null && overlappingIds.length > 0) {
     caveats.push(`I made ${overlappingIds.length} other change${overlappingIds.length === 1 ? "" : "s"} on this page in the same window, so I cannot pin this movement on one change alone.`);
     verdict = "confounded";
+  } else if (cleanUntil != null && marked.some((w) => w.confounded != null)) {
+    caveats.push(`This is the ${basisDay}-day read, which closed before I changed the page again on ${cleanUntil}. I am not counting the days after that against this change.`);
   }
 
   // Point 7: never claim clean causality. Every directional headline says
   // "compared to similar pages" and never "caused".
-  const headline = buildHeadline(verdict, metric, lift, impressionsLift, basisDay!, input, overlappingIds.length);
+  const headline = buildHeadline({
+    verdict, metric, lift, impressionsLift, basisDay: basisDay!,
+    overlapCount: overlappingIds.length,
+    overlapClosedOn: basisConfounded ? cleanUntil : null,
+    ga4ExtraSessions: input.ga4ExtraSessions ?? null,
+    ga4Trustworthy: input.ga4Trustworthy === true,
+  });
 
   // Confidence from transparent conditions only (point: window maturity, data
   // availability, sample size, baseline stability, overlap).
+  const mature = basisDay === 28 || basisDay === FOLLOW_UP_DAY;
   let confidence: KernelConfidence = "low";
   if (verdict === "confounded" || verdict === "no_clear_movement") {
     confidence = "low";
-  } else if (controls >= CONTROLS_FOR_STRONG && input.baselineImpressions >= IMPRESSIONS_FOR_STRONG && basisDay === 28) {
+  } else if (controls >= CONTROLS_FOR_STRONG && input.baselineImpressions >= IMPRESSIONS_FOR_STRONG && mature) {
     confidence = "high";
   } else if (controls >= MIN_CONTROLS && input.baselineImpressions >= 800) {
     confidence = "medium";
   }
   confidenceReasons.push(`Read on the ${basisDay}-day window against ${controls} similar page${controls === 1 ? "" : "s"}.`);
-  if (basisDay !== 28) confidenceReasons.push("This will firm up when the 28-day window closes.");
+  if (!mature) confidenceReasons.push("This will firm up when the 28-day window closes.");
 
   // Point 8: the ranking outcome signal. Only a cleanly settled directional read
   // feeds ranking; confounded / no-clear / insufficient / waiting are all zero.
@@ -440,7 +480,7 @@ export function evaluateChange(
     path: input.path,
     actionType: input.actionType,
     metric,
-    windows,
+    windows: marked,
     basisDay,
     lift,
     impressionsLift,
@@ -450,89 +490,14 @@ export function evaluateChange(
     confidenceReasons,
     caveats,
     overlappingIds,
+    cleanUntil,
+    learning: shape(
+      verdict === "stronger_improvement" || verdict === "directional_improvement" ? "up"
+        : verdict === "directional_decline" ? "down"
+          : verdict === "no_clear_movement" ? "flat" : "unclear",
+    ),
     rankingSignal: Math.round(rankingSignal * 100) / 100,
   };
-}
-
-function buildHeadline(
-  verdict: KernelVerdict,
-  metric: KernelMetric,
-  lift: number,
-  impressionsLift: number,
-  basisDay: number,
-  input: KernelInput,
-  overlapCount: number,
-): string {
-  const win = `${basisDay}-day`;
-  const ga4 =
-    input.ga4Trustworthy && typeof input.ga4ExtraSessions === "number" && input.ga4ExtraSessions !== 0
-      ? ` GA4 shows ${input.ga4ExtraSessions > 0 ? "+" : ""}${Math.round(input.ga4ExtraSessions)} sessions since the change.`
-      : "";
-  switch (verdict) {
-    case "confounded":
-      return `This page moved over the ${win} window, but I made ${overlapCount} other change${overlapCount === 1 ? "" : "s"} on it at the same time, so I cannot say which one did it.${ga4}`;
-    // Observational, never causal: the page MOVED after the change. A pre-28-day read is still measuring, so it never closes with a verdict.
-    case "stronger_improvement":
-      return `This page moved up after the change: ${formatLift(metric, lift)} ahead of similar pages over the ${win} window.${basisDay === 28 ? " A clear, well supported move." : " I will call it when the 28-day window closes."}${ga4}`;
-    case "directional_improvement":
-      return `This page moved up after the change: ${formatLift(metric, lift)} ahead of similar pages over the ${win} window. Still observational, not proof.${ga4}`;
-    case "directional_decline":
-      return `This page moved down after the change: ${formatLift(metric, lift)} behind similar pages over the ${win} window.${basisDay === 28 ? " Worth trying a different angle on this page." : " Still measuring, so I will call it when the 28-day window closes."}${ga4}`;
-    case "no_clear_movement":
-    default: {
-      const vis = impressionsLift > 50 ? ` The page is showing for more searches though (+${Math.round(impressionsLift)} impressions vs similar pages).` : "";
-      return `No clear change yet: the movement sits inside the range of similar pages over the ${win} window.${vis}${ga4}`;
-    }
-  }
-}
-
-// ── Bundle read for overlaps (point 6) ───────────────────────────────────────
-
-export type BundleRead = {
-  path: string;
-  changeIds: string[];
-  /** The bundle's combined directional read on clicks vs comparable pages, when
-   *  every member shares a closed basis window. Null when the bundle can not be
-   *  read as a group yet. */
-  verdict: KernelVerdict;
-  headline: string;
-};
-
-/**
- * A same-page bundle of overlapping changes gets ONE honest group read: the
- * changes cannot be separated, but their combined effect on the page can still
- * be reported. Pure. Returns one BundleRead per overlapping group of 2+.
- */
-export function bundleReads(reads: ReadonlyArray<KernelRead>): BundleRead[] {
-  const byPath = new Map<string, KernelRead[]>();
-  for (const r of reads) {
-    if (r.overlappingIds.length === 0) continue;
-    const arr = byPath.get(r.path) ?? [];
-    arr.push(r);
-    byPath.set(r.path, arr);
-  }
-  const out: BundleRead[] = [];
-  for (const [path, group] of byPath) {
-    if (group.length < 2) continue;
-    const withBasis = group.filter((g) => g.basisDay != null);
-    const combinedLift = withBasis.reduce((s, g) => s + g.lift, 0);
-    let verdict: KernelVerdict = "insufficient_evidence";
-    let headline = `I made ${group.length} changes on this page in the same window. I am still gathering enough data to read them as a group.`;
-    if (withBasis.length === group.length && withBasis.length > 0) {
-      if (combinedLift > 0) {
-        verdict = "directional_improvement";
-        headline = `As a group, the ${group.length} changes on this page are pointing up compared to similar pages. I cannot split the credit between them, but the page as a whole is improving.`;
-      } else if (combinedLift < 0) {
-        verdict = "directional_decline";
-        headline = `As a group, the ${group.length} changes on this page are pointing down compared to similar pages. Worth a look at what changed together here.`;
-      } else {
-        verdict = "no_clear_movement";
-        headline = `As a group, the ${group.length} changes on this page have not clearly moved it compared to similar pages.`;
-      }
-    }
-    out.push({ path, changeIds: group.map((g) => g.id), verdict, headline });
-  }
-  return out;
 }
 
 // ── Point 8: the ranking outcome signal, aggregated per action type ──────────
@@ -544,7 +509,7 @@ export function bundleReads(reads: ReadonlyArray<KernelRead>): BundleRead[] {
  * clear movement are all zero-signal and ignored). An action type needs at least
  * MIN_RANKING_SAMPLES contributing reads before it earns a prior. Pure.
  */
-export const MIN_RANKING_SAMPLES = 3;
+const MIN_RANKING_SAMPLES = 3;
 
 export function rankingPriors(
   reads: ReadonlyArray<{ actionType: string; read: Pick<KernelRead, "rankingSignal"> }>,
@@ -592,6 +557,15 @@ export type LedgerRecordLike = {
    *  module; absent => no GA4 line. */
   ga4ExtraSessions?: number | null;
   ga4Trustworthy?: boolean;
+  /** THE STAMP, on every Shipment and on no record written before there was one. */
+  implementedAt?: string | null;
+  /** What the operator says they applied. One record is ONE treatment however many
+   *  components it carries, and page movement is never split between them. */
+  componentsApplied?: ReadonlyArray<{ kind: string }> | null;
+  /** Held on the proposal rather than the ledger today, so they ride the read when a
+   *  caller has them and read null when nobody does. Never guessed. */
+  diagnosisCause?: string | null;
+  evidenceItemCount?: number | null;
 };
 
 /** Map a historical record to the kernel's normalized input. Pure. Reads only
@@ -599,9 +573,10 @@ export type LedgerRecordLike = {
  *  ignored (preserved in the store, untouched). */
 export function toKernelInput(r: LedgerRecordLike): KernelInput {
   const windows = (r.windows ?? [])
-    .filter((w): w is NonNullable<typeof w> => w != null && (w.day === 7 || w.day === 14 || w.day === 28))
+    .filter((w): w is NonNullable<typeof w> =>
+      w != null && (w.day === 7 || w.day === 14 || w.day === 28 || w.day === FOLLOW_UP_DAY))
     .map((w) => ({
-      day: w.day as 7 | 14 | 28,
+      day: w.day as CheckpointDay,
       ran: w.ran === true,
       adjustedClicksLift: w.adjustedLift ?? 0,
       adjustedCtrLift: w.adjustedCtrLift ?? 0,
@@ -616,11 +591,15 @@ export function toKernelInput(r: LedgerRecordLike): KernelInput {
     path: r.path,
     actionType: r.actionType,
     shippedAt: r.shippedAt,
+    implementedAt: r.implementedAt ?? null,
     baselineImpressions: r.baseline?.impressions ?? 0,
     baselineClicks: r.baseline?.clicks ?? 0,
     windows,
     ga4ExtraSessions: r.ga4ExtraSessions ?? null,
     ga4Trustworthy: r.ga4Trustworthy === true,
+    componentKinds: (r.componentsApplied ?? []).map((c) => c.kind),
+    diagnosisCause: r.diagnosisCause ?? null,
+    evidenceItemCount: r.evidenceItemCount ?? null,
   };
 }
 
@@ -637,28 +616,37 @@ export function readLedger(
   latestGscDate: string | null,
 ): KernelRead[] {
   const inputs = records.map(toKernelInput);
-  const overlaps = detectOverlaps(
-    inputs.map((i) => ({ id: i.id, path: i.path, shippedAt: i.shippedAt })),
+  const overlaps = overlapClosures(
+    inputs.map((i) => ({ id: i.id, path: i.path, anchoredAt: anchorOf(i) })),
   );
   return inputs.map((input) => {
-    const windows = evaluateWindows(input.shippedAt, now, latestGscDate);
-    return evaluateChange(input, windows, overlaps.get(input.id) ?? []);
+    const o = overlaps.get(input.id) ?? { ids: [], cleanUntil: null };
+    // The fourth checkpoint exists only on a record that actually earned a day-56 read.
+    const followUp = input.windows.some((w) => w.day === FOLLOW_UP_DAY);
+    const windows = evaluateWindows(anchorOf(input), now, latestGscDate, followUp);
+    return evaluateChange(input, windows, o.ids, o.cleanUntil);
   });
 }
 
 // ── UI bands + labels (point 9) ──────────────────────────────────────────────
 
-export type ResultBand = "won" | "promising" | "learned" | "measuring";
+type ResultBand = "won" | "promising" | "learned" | "measuring";
 
-/** Which Results band a read belongs to. Pure. "won" = a MATURE (28-day)
- *  improvement; "promising" = an earlier improvement whose window has not
- *  closed (never sold as a win); "learned" = a mature decline or settled
- *  no-movement; "measuring" = everything else still in flight. */
+/** A read is MATURE once its basis is the 28-day window, or the day-56 follow up that
+ *  only an unsettled or dangerous change earns. Pure. */
+function isMature(basisDay: CheckpointDay | null): boolean {
+  return basisDay === 28 || basisDay === FOLLOW_UP_DAY;
+}
+
+/** Which Results band a read belongs to. Pure. "won" = a MATURE improvement;
+ *  "promising" = an earlier improvement whose window has not closed (never sold
+ *  as a win); "learned" = a mature decline or settled no-movement; "measuring" =
+ *  everything else still in flight. */
 export function bandOf(read: Pick<KernelRead, "verdict" | "basisDay">): ResultBand {
   if (read.verdict === "directional_improvement" || read.verdict === "stronger_improvement") {
-    return read.basisDay === 28 ? "won" : "promising";
+    return isMature(read.basisDay) ? "won" : "promising";
   }
-  if (read.basisDay === 28 && (read.verdict === "directional_decline" || read.verdict === "no_clear_movement")) {
+  if (isMature(read.basisDay) && (read.verdict === "directional_decline" || read.verdict === "no_clear_movement")) {
     return "learned";
   }
   return "measuring";
@@ -677,7 +665,7 @@ export function splitReads<T extends { read: Pick<KernelRead, "verdict" | "basis
 export function windowStateLine(windows: ReadonlyArray<KernelWindowRead>): string {
   const closed = windows.filter((w) => w.state === "closed").map((w) => w.day);
   const pending = windows.some((w) => w.state === "pending_data");
-  if (closed.length === 3) return "All three check windows (7, 14, 28 days) have closed.";
+  if (closed.length === windows.length && closed.length > 0) return `All ${closed.length} check windows (${closed.join(", ")} days) have closed.`;
   if (closed.length > 0) return `${closed.join(" and ")}-day window${closed.length === 1 ? "" : "s"} closed; the rest are still open.`;
   if (pending) return "A check window has closed on the calendar, but Google has not finalized those days yet.";
   return "Still waiting on the first check window to close.";
@@ -691,11 +679,13 @@ export function windowStateLine(windows: ReadonlyArray<KernelWindowRead>): strin
  * re-derive Google's lag; it trusts the stored measurement. Pure.
  */
 function windowsFromRanFlags(input: KernelInput): KernelWindowRead[] {
-  return WINDOW_DAYS.map((day) => {
+  const days: CheckpointDay[] = input.windows.some((w) => w.day === FOLLOW_UP_DAY)
+    ? [...WINDOW_DAYS, FOLLOW_UP_DAY] : [...WINDOW_DAYS];
+  return days.map((day) => {
     const w = input.windows.find((x) => x.day === day);
     return {
       day,
-      closesOn: addDays(input.shippedAt, day),
+      closesOn: addDays(anchorOf(input), day),
       state: (w && w.ran ? "closed" : "waiting") as WindowState,
     };
   });
@@ -703,12 +693,12 @@ function windowsFromRanFlags(input: KernelInput): KernelWindowRead[] {
 
 /**
  * The legacy learning vocabulary ("won" / "lost" / "measuring") the ranking
- * priors consume, derived from a kernel read. Only a MATURE (28-day basis)
- * directional read is decided; everything weaker or confounded is held as
+ * priors consume, derived from a kernel read. Only a MATURE (28-day or day-56
+ * basis) directional read is decided; everything weaker or confounded is held as
  * "measuring" (never trains ranking on an early or unseparable signal). Pure.
  */
 export function learningVerdictOf(read: KernelRead): "won" | "lost" | "measuring" {
-  if (read.basisDay !== 28) return "measuring";
+  if (!isMature(read.basisDay)) return "measuring";
   if (read.verdict === "directional_improvement" || read.verdict === "stronger_improvement") return "won";
   if (read.verdict === "directional_decline") return "lost";
   return "measuring";
@@ -725,25 +715,17 @@ export function readRecordsForLearning(
   _now: Date = new Date(),
 ): KernelRead[] {
   const inputs = records.map(toKernelInput);
-  const overlaps = detectOverlaps(
-    inputs.map((i) => ({ id: i.id, path: i.path, shippedAt: i.shippedAt })),
+  const overlaps = overlapClosures(
+    inputs.map((i) => ({ id: i.id, path: i.path, anchoredAt: anchorOf(i) })),
   );
   return inputs.map((input, idx) => {
     if (records[idx].operatorVerdictOverride === "inconclusive") {
       // Operator pinned out of learning: read it as no clear movement (measuring).
       return evaluateChange({ ...input, windows: [] }, windowsFromRanFlags(input), []);
     }
-    return evaluateChange(input, windowsFromRanFlags(input), overlaps.get(input.id) ?? []);
+    const o = overlaps.get(input.id) ?? { ids: [], cleanUntil: null };
+    return evaluateChange(input, windowsFromRanFlags(input), o.ids, o.cleanUntil);
   });
-}
-
-/** The settled learning verdict for one stored record, in the legacy vocabulary.
- *  Convenience for callers that only have one record in hand. Pure. */
-export function recordLearningVerdict(
-  record: LedgerRecordLike & { operatorVerdictOverride?: string | null },
-  now: Date = new Date(),
-): "won" | "lost" | "measuring" {
-  return learningVerdictOf(readRecordsForLearning([record], now)[0]);
 }
 
 // ── The one thin loader (point 1) ────────────────────────────────────────────

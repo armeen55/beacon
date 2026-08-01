@@ -17,7 +17,10 @@ import { GSC_LAG_DAYS } from "@/domains/measurement/proof-gsc/change-family";
 
 /** The check-in dates after a ship date, one per window day. Pure (UTC). */
 function proofCheckDates(shippedAtIso: string): Record<ProofWindowDay, string> {
-  return { 7: addDays(shippedAtIso, 7), 14: addDays(shippedAtIso, 14), 28: addDays(shippedAtIso, 28) };
+  return {
+    7: addDays(shippedAtIso, 7), 14: addDays(shippedAtIso, 14),
+    28: addDays(shippedAtIso, 28), 56: addDays(shippedAtIso, 56),
+  };
 }
 import { splitLedgerLifecycle, type LedgerLifecycleRow } from "@/domains/decision/changes/lifecycle-counts";
 

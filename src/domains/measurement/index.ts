@@ -1,5 +1,5 @@
 /**
- * Measurement kernel — public facade.
+ * Measurement kernel: the public facade.
  *
  * Owns honest measurement: the proof-gsc sub-kernel (verdicts, ledger,
  * shipped-change store, GSC windows, auto-measure), the scoreboard + money
@@ -37,6 +37,15 @@ export {
   type ShippedChangeRecord,
   type ShipmentVerification,
 } from "./proof-gsc";
+
+// AI outcomes: the daily trend over stored answers, and what they did around one shipped change
+export {
+  aiOutcomes,
+  aiOutcomeForShipment,
+  visibilitySeries,
+  type AiOutcomeReport,
+  type ShipmentAiOutcome,
+} from "./ai-outcomes";
 
 // Scoreboard + money line
 export { buildScoreboard, buildMoneyLine, type Scoreboard } from "./scoreboard/scoreboard";

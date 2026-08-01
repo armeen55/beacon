@@ -80,6 +80,9 @@ export type LedgerLifecycleRow = {
   path: string;
   page?: string;
   shippedAt: string;
+  /** THE STAMP the measurement windows count from, on every Shipment. Optional so a
+   *  legacy row still reads exactly as it did, counting from its ship date. */
+  implementedAt?: string | null;
   verdict: string;
   windows: ReadonlyArray<{
     day: number;
@@ -143,6 +146,7 @@ function toLedgerRecordLike(row: LedgerLifecycleRow): LedgerRecordLike & { opera
     path: row.path,
     actionType: row.actionType ?? "change",
     shippedAt: row.shippedAt,
+    implementedAt: row.implementedAt ?? null,
     baseline: { impressions: row.baseline?.impressions ?? 0, clicks: row.baseline?.clicks ?? 0 },
     windows: row.windows.map((w) => ({
       day: w.day,

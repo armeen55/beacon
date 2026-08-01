@@ -12,27 +12,20 @@
 export type {
   KernelVerdict,
   KernelMetric,
-  KernelConfidence,
-  WindowState,
   KernelWindowRead,
   KernelInput,
   KernelRead,
-  BundleRead,
   LedgerRecordLike,
-  ResultBand,
 } from "./kernel";
 export {
-  MIN_BASELINE_IMPRESSIONS,
   MIN_CONTROLS,
   GSC_LAG_DAYS,
-  MIN_RANKING_SAMPLES,
   metricFor,
   addDays,
   evaluateWindows,
   detectOverlaps,
   verdictPhrase,
   evaluateChange,
-  bundleReads,
   rankingPriors,
   toKernelInput,
   readLedger,
@@ -41,9 +34,12 @@ export {
   windowStateLine,
   learningVerdictOf,
   readRecordsForLearning,
-  recordLearningVerdict,
   loadKernelLedger,
 } from "./kernel";
+
+// Read honesty: the group read for overlapping same-page changes
+export type { BundleRead } from "./read-honesty";
+export { bundleReads } from "./read-honesty";
 
 // Ledger loading
 export {

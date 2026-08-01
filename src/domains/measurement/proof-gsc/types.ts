@@ -14,9 +14,11 @@ export type GscWindowMetrics = {
   position: number;
 };
 
-/** The measurement cadence: 7 / 14 / 28 days after ship. */
-export type ProofWindowDay = 7 | 14 | 28;
-export const PROOF_WINDOW_DAYS: ProofWindowDay[] = [7, 14, 28];
+/** The measurement cadence: 7 / 14 / 28 days after the stamp, plus the CONDITIONAL day-56
+ *  follow up an unsettled or dangerous change earns (measure-lifecycle owns that rule, and
+ *  it is the reason 56 is not part of the standard cadence below). */
+export type ProofWindowDay = 7 | 14 | 28 | 56;
+export const PROOF_WINDOW_DAYS: Array<7 | 14 | 28> = [7, 14, 28];
 /** The pre-ship baseline window the diff in diff pro-rates from. */
 export const BASELINE_WINDOW_DAYS = 28;
 

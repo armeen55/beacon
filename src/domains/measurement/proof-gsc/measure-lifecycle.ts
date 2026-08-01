@@ -10,25 +10,49 @@ import { addDays } from "./kernel";
 import { PROOF_WINDOW_DAYS, type ProofWindowDay } from "./types";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 
-/** The check-in dates after a ship date, one per window day. Pure (UTC). */
-function proofCheckDates(shippedAtIso: string): Record<ProofWindowDay, string> {
-  return { 7: addDays(shippedAtIso, 7), 14: addDays(shippedAtIso, 14), 28: addDays(shippedAtIso, 28) };
+/** The check-in dates after the stamp, one per checkpoint. Pure (UTC). */
+function proofCheckDates(anchorIso: string): Record<ProofWindowDay, string> {
+  return {
+    7: addDays(anchorIso, 7), 14: addDays(anchorIso, 14),
+    28: addDays(anchorIso, 28), 56: addDays(anchorIso, FOLLOW_UP_WINDOW_DAY),
+  };
+}
+
+/**
+ * THE STAMP every checkpoint counts from: when the operator marked the change done. A
+ * record written before there was a stamp counts from its ship date exactly as it always
+ * did, so no historical row moves. Pure.
+ */
+function anchorOf(record: ShippedChangeRecord): string {
+  return record.implementedAt ?? record.shippedAt;
 }
 
 const MAX_MEASURE_WINDOW_DAYS = Math.max(...PROOF_WINDOW_DAYS);
 /** Grace after the last window before a still-"measuring" record is "stale". */
-export const STALE_GRACE_DAYS = 7;
+const STALE_GRACE_DAYS = 7;
 /** E-39 D4: how long past the 28-day + grace horizon Beacon keeps FAIRLY retrying
  *  a recompute of a still-unsettled measurement whose GSC data has not yet
  *  arrived. Bounded so a page is never re-scanned forever, but long enough that a
  *  genuine GSC finalization delay still gets its verdict once the data lands. */
-export const MAX_VERDICT_LAG_RETRY_DAYS = 28;
+const MAX_VERDICT_LAG_RETRY_DAYS = 28;
+
+/** THE CONDITIONAL FOURTH CHECKPOINT (Product Truth). A day-56 read runs ONLY when the
+ *  day-28 read did not settle, or the change was a dangerous one. A clean 28-day read
+ *  CLOSES measurement and no 56-day read is taken. */
+export const FOLLOW_UP_WINDOW_DAY = 56;
+
+/** The component kinds that move where a page LIVES or whether it is findable at all.
+ *  Spelled out rather than imported: Measurement must not import Decision, and this closed
+ *  list is the one in the Decision contract (canonical, redirect, noindex, consolidation). */
+const DANGEROUS_COMPONENT_KINDS: ReadonlySet<string> = new Set([
+  "canonical", "redirect", "noindex", "consolidation",
+]);
 
 /** The operator-facing lifecycle state of an applied Move (deliverable 1). */
 export type OutcomeState = "measuring" | "win" | "loss" | "inconclusive" | "stale";
 
 function ageDaysOf(record: ShippedChangeRecord, now: Date): number {
-  return Math.floor((now.getTime() - Date.parse(record.shippedAt)) / 86_400_000);
+  return Math.floor((now.getTime() - Date.parse(anchorOf(record))) / 86_400_000);
 }
 
 /** Map the GSC verdict + age onto the spec's lifecycle states. PURE. */
@@ -82,13 +106,13 @@ export function outcomeStateOf(record: ShippedChangeRecord, now: Date = new Date
  * longer needs a boolean threaded through this type. Narrowed to the shape
  * that is actually consumed; dead fields removed.
  */
-export type VerdictLagAction =
+type VerdictLagAction =
   | { kind: "in_window" }
   | { kind: "settled" }
   | { kind: "recompute" }
   | { kind: "release_unresolved" };
 
-export function resolveVerdictLag(
+function resolveVerdictLag(
   record: ShippedChangeRecord,
   lastFinalizedDate: string | null,
   now: Date = new Date(),
@@ -109,7 +133,7 @@ export function resolveVerdictLag(
 
   // Inside the bounded retry window: can the 28-day window run NOW (its required
   // GSC data has finally arrived)? If so, recompute + persist + settle + release.
-  const checks = proofCheckDates(record.shippedAt);
+  const checks = proofCheckDates(anchorOf(record));
   const required28 = addDays(checks[MAX_MEASURE_WINDOW_DAYS as ProofWindowDay], -1);
   const dataAvailable = lastFinalizedDate != null && lastFinalizedDate >= required28;
   if (dataAvailable) return { kind: "recompute" };
@@ -151,7 +175,7 @@ export function gscLagStatus(
   lastFinalizedDate: string | null,
   now: Date = new Date(),
 ): GscLagStatus {
-  const checks = proofCheckDates(record.shippedAt);
+  const checks = proofCheckDates(anchorOf(record));
   const ranByDay = new Map<number, boolean>((record.windows ?? []).map((w) => [w.day, w.ran]));
   const today = dayStr(now);
   const nextDay = (PROOF_WINDOW_DAYS.find((d) => !(ranByDay.get(d) ?? false)) ?? null) as ProofWindowDay | null;
@@ -176,7 +200,7 @@ export function gscLagStatus(
 
   let reasonCopy: string;
   if (gscWindowAvailable) {
-    reasonCopy = `Ready — recompute to read the ${nextDay}-day Search verdict.`;
+    reasonCopy = `Ready: recompute to read the ${nextDay}-day Search verdict.`;
   } else if (!calendarWindowClosed) {
     reasonCopy = `${nextDay}-day check opens ${checkOn}.`;
   } else if (lastFinalizedDate) {
@@ -223,6 +247,47 @@ export function maturityLabelForRecord(
   return proofMaturityLabel(record.verdict, basisDay);
 }
 
+/**
+ * THE CONDITIONAL DAY-56 READ. Product Truth: 7, 14 and 28 always; 56 only when the
+ * 28-day read was confounded, insufficient or unclear, or when the change was a dangerous
+ * one (it moves the page or hides it, and those take longer to show their real cost).
+ * A CLEAN 28-day read closes measurement, and no day-56 read is taken at all. PURE.
+ *
+ * `runs`   the change earned a fourth checkpoint (and has not had it yet).
+ * `due`    it earned it AND Google has finalized the days that read needs.
+ * `reason` what earned it, in the vocabulary Product Truth uses, or null.
+ */
+export function day56Followup(
+  record: ShippedChangeRecord,
+  lastFinalizedDate: string | null,
+  now: Date = new Date(),
+): {
+  runs: boolean;
+  due: boolean;
+  reason: "confounded_28" | "insufficient_28" | "unclear_28" | "dangerous_change" | null;
+  checkOn: string;
+} {
+  const checkOn = addDays(anchorOf(record), FOLLOW_UP_WINDOW_DAY);
+  const windows = record.windows ?? [];
+  const ran28 = windows.some((w) => w.day === 28 && w.ran);
+  const ran56 = windows.some((w) => w.day === FOLLOW_UP_WINDOW_DAY && w.ran);
+  // A 28-day read that settled on won or lost is the primary directional read, and it is
+  // the whole answer. Anything else after a 28-day window that HAS run is unsettled.
+  const settled28 = record.verdict === "won" || record.verdict === "lost";
+  const dangerous = (record.componentsApplied ?? []).some((c) => DANGEROUS_COMPONENT_KINDS.has(c.kind));
+  const reason = !ran28 ? null
+    : record.verdict === "insufficient_data" ? "insufficient_28" as const
+      : record.verdict === "inconclusive" ? "unclear_28" as const
+        : !settled28 ? "confounded_28" as const
+          : dangerous ? "dangerous_change" as const : null;
+  const runs = ran28 && !ran56 && reason != null;
+  const due = runs
+    && lastFinalizedDate != null
+    && lastFinalizedDate >= addDays(checkOn, -1)
+    && now.toISOString().slice(0, 10) >= checkOn;
+  return { runs, due, reason, checkOn };
+}
+
 /** The answers that let measurement begin: I saw the change on the page, I saw part of it, or the
  *  operator told me on purpose that it is live. Product Truth: "Start measurement only after
  *  implementation is verified or explicitly operator-confirmed." */
@@ -248,6 +313,8 @@ export function isDueForMeasure(
 ): boolean {
   if (record.implementedAt != null && !MEASURABLE_VERIFICATION.has(record.verification?.status ?? "")) return false;
   if (lastFinalizedDate == null) return false; // no finalized GSC data → can't measure
+  // The conditional day-56 read comes AFTER the ordinary horizon, so it is asked first.
+  if (day56Followup(record, lastFinalizedDate, now).due) return true;
   if (ageDaysOf(record, now) > MAX_MEASURE_WINDOW_DAYS + STALE_GRACE_DAYS) {
     // E-39 D4: past the ordinary horizon, still due ONLY when the verdict-lag
     // repair says a recompute can now settle a still-unresolved measurement whose
@@ -255,7 +322,7 @@ export function isDueForMeasure(
     return resolveVerdictLag(record, lastFinalizedDate, now).kind === "recompute";
   }
 
-  const checks = proofCheckDates(record.shippedAt);
+  const checks = proofCheckDates(anchorOf(record));
   const ranByDay = new Map<number, boolean>((record.windows ?? []).map((w) => [w.day, w.ran]));
   return PROOF_WINDOW_DAYS.some((day) => {
     const checkOn = checks[day as ProofWindowDay];
