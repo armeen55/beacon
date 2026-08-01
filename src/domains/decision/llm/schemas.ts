@@ -386,9 +386,9 @@ const CaseSynthesisSchema = z.object({ merges: z.array(z.object({ keepId: z.stri
 export type CaseSynthesis = z.infer<typeof CaseSynthesisSchema>;
 // ── winning pattern (V1 Truth Convergence Phase 3, 2026-07-31): what the pages that WIN a search have in
 // common ── The model reads bounded FACTS about pages numbered from 0 upward, never their prose. It may cite
-// only the numbers it was handed, writes every pattern in its own plain words, and a heading copied word for
-// word is thrown away by the caller: a pattern is an abstraction, not a quote. `archetype` speaks the same
-// page-shape vocabulary the results already speak, and no field can carry a title, a body or an address.
+// only the numbers it was handed and writes every pattern in its own words. The caller throws the WHOLE reading away on
+// any of five: an eight-word run off a supplied line in ANY field, a heading over five words handed back verbatim, a
+// section or thing no cited page carries, a gap with no page of mine supplied, or an `archetype` re-voting the shape.
 const SeenOnSchema = z.array(z.number().int().min(0).max(11)).min(1).max(12);
 const WinningPatternSchema = z.object({
   archetype: z.enum(["informational_guide", "list", "definition", "comparison", "product", "category", "tool", "forum", "mixed", "unknown"]),
@@ -436,8 +436,8 @@ export const SCHEMA_BY_KIND = {
 // used ANYWHERE in the product, as a named entry - including the shapes whose production parsers are hand-rolled and
 // pinned (judge, strategist, critic, SERP hypothesis) and the deterministic title-lab variants. The gateway
 // (callStructuredLLM) dispatches on SCHEMA_BY_KIND above (validate -> retry once -> fail closed); the extra entries
-// below are the canonical contract each hand-rolled parser must keep producing, pinned by
-// tests/llm-regression/schema-registry.test.ts (every entry must parse its recorded fixture).
+// below are the canonical contract each hand-rolled parser must keep producing. The recorded-fixture harness that once
+// pinned every entry is gone: the gateway's validate-retry-fail-closed path and each consumer's own test hold it now.
 
 /** FAQ Q/A pairs (llm-answer-block's FAQPage JSON-LD generator). */
 export const FaqPairsSchema = z.object({
@@ -534,8 +534,8 @@ export const SerpHypothesisSchema = z.object({
 });
 export type SerpHypothesisShape = z.infer<typeof SerpHypothesisSchema>;
 
-/** The complete named registry: every structured LLM output shape in the product.
- *  tests/llm-regression/schema-registry.test.ts requires a parsed fixture per entry. */
+/** The complete named registry: every structured LLM output shape in the product. It is the one list a reader
+ *  can check a hand-rolled parser against; no fixture harness enforces it any more (see the note above). */
 export const LLM_OUTPUT_SCHEMAS = {
   ...SCHEMA_BY_KIND,
   faq_pairs: FaqPairsSchema,

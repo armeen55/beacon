@@ -337,7 +337,8 @@ describe("research funnel - the CASE-SCOPED keyword universe", () => {
   const disc = (store: ReturnType<typeof memStore>, over: Partial<FunnelDeps> = {}, plan = PLAN) => keywordDiscoveryUnit({
     ...base(profileOf("tc", ["saffron"], ["saffron price"])), ...store.deps, keywordIdeas: async () => [], loadPageQueries: async () => [{ query: "saffron benefits", impressions: 90 }],
     loadAnswerAnalyses: async () => [{ topicEntities: ["iranian saffron"], questionsAnswered: ["does saffron expire"] }],
-    callProvider: async (cap: CapabilityKey) => ok(cap === "labs_ranked_keywords" ? ranked([["price saffron", "https://own.com/a", 4], ["price saffron", "https://own.com/b", 9], ["saffron threads", "https://own.com/t", 7]]) : parsedKw([])), ...over }, plan)("tc", cur(), 60_000);
+    // The last two rows are ONE page of mine reported twice for one search: rows, not pages.
+    callProvider: async (cap: CapabilityKey) => ok(cap === "labs_ranked_keywords" ? ranked([["price saffron", "https://own.com/a", 4], ["price saffron", "https://own.com/b", 9], ["saffron threads", "https://own.com/t", 7], ["saffron threads", "https://own.com/t", 2]]) : parsedKw([])), ...over }, plan)("tc", cur(), 60_000);
   it("takes every source the account already observed, tagged with the route it actually arrived by, and never buys one subject twice", async () => {
     const store = memStore(observed()); let batch: string[] = [];
     const out = await disc(store, { callProvider: async (cap: CapabilityKey, input: unknown) => { if (cap === "labs_keyword_overview") batch = (input as { keywords: string[] }).keywords;
@@ -356,7 +357,8 @@ describe("research funnel - the CASE-SCOPED keyword universe", () => {
     const store = memStore(observed()); await disc(store);
     const rows = new Map(store.peek("tc", BASIS)!.discovery.retained.map((k) => [k.keyword, [k.supports, k.ownedRankingUrl, k.ownedPosition]]));
     expect(rows.get("price saffron")).toEqual(["consolidation", "https://own.com/a", 4]); // two of my pages rank for one search, and the BEST position is the one named
-    expect(rows.get("saffron threads")).toEqual(["existing_page", "https://own.com/t", 7]); expect(rows.get("saffron benefits")).toEqual(["new_page", null, null]);
+    expect(rows.get("saffron threads")).toEqual(["existing_page", "https://own.com/t", 2]); // ONE page reported twice is one page, never two of mine competing, and its BEST position is the one named
+    expect(rows.get("saffron benefits")).toEqual(["new_page", null, null]);
     const blind = memStore(observed()); await disc(blind, { getAccount: async () => null }); // no domain, so the ranked pull never runs
     expect(blind.peek("tc", BASIS)!.discovery.retained.every((k) => k.supports == null)).toBe(true); }); // never checked is NOT "no page of mine ranks"
   it("fills the provider's own batch ceilings: ceil(n / 700) enrichment requests and ONE bounded competitors request per case set", async () => {
@@ -401,6 +403,16 @@ describe("evidence - the per-case research receipt", () => {
     expect(r.notBought.map((n) => n.reason)).toEqual(["capped", "fresh"]);
     expect(r.notBought[0]!.detail).toContain("spending ceiling"); expect(r.notBought[1]!.detail).toContain("all 1 of this case's searches");
     expect(caseResearchReceipt(snapshot, "inv_nobody")).toBeNull(); }); // a case I do not hold gets no receipt, never an empty one that reads as researched
+  it("answers for a TWO-HOP chain, so nothing a merge absorbed twice falls out of the receipt", async () => {
+    const DEEP = "inv_older", s = seeded(); // A absorbed B, and B had already absorbed C
+    s.cases = [...s.cases!, { id: DEEP, anchors: [], aliasOf: ABSORBED }];
+    s.discovery.retained = [...s.discovery.retained, { keyword: "saffron threads", searchVolume: null, competition: null, difficulty: null, intent: null, discoveredVia: "gsc", caseId: DEEP }];
+    s.pageComparisons = [...s.pageComparisons!, { topicKey: DEEP, askKey: "ak2", pages: ["https://a.com/x", "https://c.com/z"], excludePages: [], observedAt: at, receipt: "ck-deep", comparison: null, unavailable: null }];
+    const snapshot = await loadEvidenceSnapshot("tr2", { resolveBasis: async () => BASIS, loadState: async () => ({ state: s, rowVersion: 1 }), now: new Date(NOW) });
+    const r = caseResearchReceipt(snapshot, DEEP)!;
+    expect([r.caseId, r.aliasKeys]).toEqual([CASE, [ABSORBED, DEEP]]); // asked under the deepest id, answered by the case that answers for all three
+    expect(r.keywords.map((k) => k.query).sort()).toEqual(["saffron price", "saffron threads"]); // the keyword filed two hops down is still this case's keyword
+    expect(r.calls.filter((c) => c.kind === "page_comparison").map((c) => c.identity).sort()).toEqual(["ck-deep", "ck-pi"]); }); // and so is the money spent under it
 });
 describe("research funnel - canonical snapshot carries the research bundle", () => {
   it("surfaces the current set, its provenance, and THIS run's receipt", async () => { const s = emptyFunnelState("tg", BASIS); s.discovery.retained = [{ keyword: "saffron price", searchVolume: 500, competition: 0.4, difficulty: null, intent: "commercial", discoveredVia: "site" }];

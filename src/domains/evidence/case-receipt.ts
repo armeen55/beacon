@@ -54,14 +54,21 @@ const day = (at: string | null): string => (at ?? "").slice(0, 10);
 export function caseResearchReceipt(snapshot: EvidenceSnapshot, caseId: string): CaseResearchReceipt | null {
   const research = snapshot.research;
   const cases = research.cases ?? [];
+  // THE WHOLE CHAIN, NOT ONE HOP. `caseIdByAnchor` already flattens A absorbed B absorbed C onto A, exactly
+  // as the identity file folds it, so this reuses that walk rather than keeping a second, shallower copy of
+  // it. Reading `aliasOf === id` alone saw only the ids absorbed DIRECTLY, so a two-hop id's keywords and its
+  // paid calls fell out of the receipt entirely: evidence real money bought, invisible to the only page that
+  // is supposed to prove it was bought.
   const index = caseIdByAnchor(cases);
   const id = index.get(caseId) ?? caseId;
   const row = cases.find((c) => c.id === id) ?? null;
-  const keywords = research.retainedKeywords.filter((k) => k.parentCaseId === id);
-  if (!row && keywords.length === 0) return null;
-  const aliasKeys = cases.filter((c) => c.aliasOf === id).map((c) => c.id).sort();
-  const owns = new Set([...(row?.anchors ?? []), ...keywords.map((k) => canonicalQueryKey(k.query))].filter(Boolean));
+  const aliasKeys = cases.filter((c) => c.id !== id && index.get(c.id) === id).map((c) => c.id).sort();
   const mine = new Set([id, ...aliasKeys]);
+  // A KEYWORD FILED UNDER ANY ID IN THE CHAIN IS THIS CASE'S KEYWORD, for the same reason.
+  const keywords = research.retainedKeywords.filter((k) => !!k.parentCaseId && mine.has(k.parentCaseId));
+  if (!row && keywords.length === 0) return null;
+  const owns = new Set([...(row?.anchors ?? []), ...cases.filter((c) => mine.has(c.id)).flatMap((c) => c.anchors),
+    ...keywords.map((k) => canonicalQueryKey(k.query))].filter(Boolean));
   const now = Date.parse(snapshot.scope.builtAt);
 
   const calls: CaseResearchCall[] = [];

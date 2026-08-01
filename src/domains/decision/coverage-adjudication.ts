@@ -67,6 +67,11 @@ export type CoverageDecision = {
   ownedUrls: string[];
   /** Evidence ids behind it. A claim with no id behind it is never made. */
   evidenceKeys: string[];
+  /** THE SAME EVIDENCE, IN WORDS. The ids alone left every receipt line this file writes stranded inside
+   *  it, so the page built on the verdict re-derived its own receipt and the pattern's contribution never
+   *  reached the operator at all. Bounded and OPTIONAL, so a decision decoded from anywhere older simply
+   *  carries none rather than failing to read. Ids match `evidenceKeys` one for one. */
+  evidence?: Array<{ id: string; fact: string }>;
   missing: MissingRequirement[];
   /** When the requirement is merely WAITING on a retry, the earliest I may try again; null = nothing is
    *  waiting. A queued read is not a publisher refusal, and this is how a surface says WHEN, not why not. */
@@ -186,6 +191,9 @@ type AdjudicateCoverageOptions = {
 };
 
 type Ev = { id: string; fact: string };
+/** The receipt lines one verdict may carry. Enough for every look, every winner, every page of mine and the
+ *  whole pattern, and never an unbounded blob riding a decision. */
+const MAX_EVIDENCE = 24;
 const num = (n: number): string => n.toLocaleString("en-US");
 const day = (iso: string | null): string => (iso ? iso.slice(0, 10) : "a day I did not record");
 /** A page COULD be the answer only on a strong signal. Shared wording is a hint,
@@ -337,7 +345,11 @@ export async function adjudicateCoverage(
   tenantId: string,
   opts: AdjudicateCoverageOptions = {},
 ): Promise<CoverageDecision> {
-  const d = await ladder(inv, candidates, tenantId, opts);
+  // ONE reading of the comparison and ONE receipt for the whole verdict, built here rather than inside the
+  // ladder so the words leave with the decision instead of dying in the function that wrote them.
+  const reading = readComparison(opts.intersection, candidates);
+  const ev = evidenceOf(inv, candidates, reading, opts.pattern);
+  const d = { ...(await ladder(inv, candidates, tenantId, opts, ev, reading)), evidence: ev.slice(0, MAX_EVIDENCE) };
   // THE PATTERN RIDES THE VERDICT THAT CAN STILL BECOME WORK, and no other. A refusal or a park is a
   // decision to build nothing, so hanging a page plan off it would hand the next step a plan for a page
   // this ladder just declined. The receipt above already carries the same pattern as plain facts.
@@ -349,10 +361,10 @@ async function ladder(
   candidates: readonly OwnedCandidate[],
   tenantId: string,
   opts: AdjudicateCoverageOptions,
+  ev: readonly Ev[],
+  reading: PageCoverageReading | null,
 ): Promise<CoverageDecision> {
   const x = opts.intersection;
-  const reading = readComparison(x, candidates);
-  const ev = evidenceOf(inv, candidates, reading, opts.pattern);
   const ids = ev.map((e) => e.id);
 
   const outOfScope = (opts.outOfScopeTopics ?? [])[0];

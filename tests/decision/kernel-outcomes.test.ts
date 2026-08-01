@@ -314,6 +314,45 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
       recommendedChange: { kind: "new_page", proposedTitle: "T", metaDescription: "M", openingAnswer: "A", outline: ["One"], faqQuestions: [], schemaTypes: [] } }) };
     env.store = new Map([["ghost", ghost]]); const q = await loadProposalQueue("fixture-tenant", { currentBasis: "basis_today" });
     expect([q.ranked, q.ready, q.toDo].map((l) => l.length)).toEqual([0, 0, 0]); expect(q.demotedStaleBasis).toBe(1); });
+}); // ── what the winning pages share, computed on the drafting pass ──────────────
+const HEADS = ["What a haft seen table is", "Setting out the table", "What each item stands for"];
+const OPENS = "Families set one of these out at the turn of the year, and every piece on it carries a meaning.";
+const rich = (w: FunnelResearchEvidence["winningPages"][number], i: number) => ({ ...w, extract: { title: `${HAFT} guide`, h1: `${HAFT} guide`, wordCount: 900 + i,
+  headings: HEADS, faqCount: 2, fetchedAt: LOOKED_AT, openingSample: OPENS, entityNames: ["Nowruz"] } });
+/** A FOURTH ranked winner whose read is months old: it ranks, and I do not currently hold its words. */
+const STALE = { url: RIVAL(4), domain: "r4.example", engines: [], examplePrompts: [], appearances: [{ kind: "serp_organic" as const, query: HAFT, promptId: null, promptText: null, engine: null, rank: 4, citedUrl: RIVAL(4), observedAt: LOOKED_AT, modelServed: null }],
+  extract: { title: `${HAFT} guide`, h1: null, wordCount: 200, headings: [], faqCount: 0, fetchedAt: "2026-01-04T00:00:00.000Z" } };
+const READABLE = (over: Partial<ResearchPageComparison> = {}): FunnelResearchEvidence => { const r = READY(over); return { ...r, winningPages: [...r.winningPages.map(rich), STALE] }; };
+/** A reading in its OWN words: it repeats the settled shape it was handed, names only what every cited page
+ *  carries, and writes a gap ONLY when a page of mine was actually put in front of it. */
+const PATTERN = (user: string) => ({ archetype: user.match(/SETTLED: (\w+)/)?.[1] ?? "unknown",
+  commonHeadings: [{ heading: "what each piece means", seenOn: [0, 1, 2] }], commonEntities: [{ entity: "Nowruz", seenOn: [0, 1, 2] }],
+  questionsAnswered: ["What belongs on it?"], openingPattern: "Each of them answers the question in its first sentence.",
+  disagreements: ["Some of them call it a custom and others call it a shopping list."],
+  ownedGaps: user.includes("I hold no page of my own") ? [] : [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }],
+  uniqueNotCommon: [{ detail: "one of them prices the pieces", seenOn: [1] }] });
+describe("what the winning pages share reaches the operator, and never one of their own sentences", () => {
+  it("shows the reading MY OWN page before it may name a gap in it, counts only the winners I currently hold, and carries its lines onto the verdict", async () => {
+    const research = READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) });
+    reset(snap([GAP], research, DEMAND)); let shown = "";
+    const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async ({ kind, user }) => {
+      if (kind !== "winning_pattern") return { value: VALID_ATOMIC_EDIT as never };
+      shown = user; return { value: PATTERN(user) as never }; } });
+    const d = res.coverage!.decision; expect(d.verdict).toBe("improve_existing");
+    expect(shown).toContain("Persian New Year Customs"); expect(shown).not.toContain("I hold no page of my own"); // the page the gap is about was really put in front of it
+    expect(shown).toContain(`SETTLED: ${res.coverage!.investigation.pageType}`); // the shape arrives decided, never as a second vote
+    expect([d.pattern!.winners, d.pattern!.publishers]).toEqual([3, ["r1.example", "r2.example", "r3.example"]]); // the months-old fourth read is not one of the pages I read
+    expect(d.pattern!.ownedGaps[0]!.gap).toContain("piece"); // and the gap stands only because the page it is about was supplied
+    expect(d.evidence!.find((e) => e.id === "gap1")!.fact).toContain("Your own page does not do what 3 of them do");
+    expect(d.evidence!.find((e) => e.id === "pattern")!.fact).toContain("I read the 3 pages that win here"); });
+  it("puts what each winner contributed into the page it drafts, in the verdict's own words", async () => {
+    reset(snap([GAP], READABLE({ topicKey: keyOf(READY()) }), DEMAND));
+    const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async ({ kind, user }) =>
+      ({ value: (kind === "winning_pattern" ? PATTERN(user) : kind === "new_page_brief" ? BRIEF : VALID_ATOMIC_EDIT) as never }) });
+    const page = res.proposals.find((p) => p.kind === "new_page")!; const keys = page.bundle!.receipt.items.map((i) => i.key);
+    expect(keys).toEqual(expect.arrayContaining(["pattern", "opening", "common1"])); // the verdict's OWN lines, not a second paraphrase of one reading
+    expect(keys).not.toContain("gap1"); // I own no page for this subject, so none was supplied and no gap was ever written
+    expect(page.bundle!.receipt.items.find((i) => i.key === "common1")!.fact).toBe("3 of the 3 cover what each piece means."); });
 }); // ── do I already have the right page for what I investigated? ────────────────
 const FOOD = "fixture-outdoors.example/nowruz-food"; const cands = (s: EvidenceSnapshot) => ownedCandidatesFor(s, buildTopicInvestigations(s)[0]!);
 const UBIQUITOUS = ["food", "music", "gifts", "fire", "dance", "poetry", "cards", "tables", "flowers", "travel"].map((w) => ({ query: `nowruz ${w}`, searchVolume: null, competition: null, competitionLevel: null, difficulty: null, intent: null })); const LOOKALIKE = ownedPage("fixture-outdoors.example/nowruz-gifts", "Nowruz Traditions and Gifts", { impressions: 400, clicks: 8 }, [{ query: "nowruz gifts", impressions: 400, clicks: 8, position: 9 }]); // every phrase this account owns carries one word, so that word proves nothing here

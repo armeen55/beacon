@@ -56,6 +56,9 @@ const SHAPE: Record<string, string> = { informational_guide: "a guide that expla
  *  actually speaks to eligibility, which nothing on file does today. */
 /** Any written figure: a count, a money amount, a percentage, a year. */
 const FIGURE_RE = /\d[\d,.]*%?/g;
+/** The verdict's receipt ids that came from the winning-page pattern, and only those: the rest of its
+ *  evidence is already rebuilt above from the investigation itself and would land here twice. */
+const PATTERN_KEY = /^(pattern|opening|common\d+|gap\d+|split\d+)$/;
 
 const SYSTEM = [
   "You write ONE page brief for a page that does not exist yet. The decision that this page should exist is already made and is not yours to revisit.",
@@ -105,6 +108,11 @@ function receiptOf(inv: TopicInvestigation, owned: readonly OwnedCandidate[], d:
   if (owned.length === 0) missing.push("You own no page my evidence connects to this at all, so there was nothing of yours to strengthen instead.");
   add("verdict", "diagnosis", d.explanation, null);
   d.alternativesRuledOut.slice(0, 4).forEach((a, i) => add(`ruledout${i + 1}`, "diagnosis", `${a.alternative}: ${a.reason}`, null));
+  // WHAT THE WINNING PAGES SHARE, IN THE VERDICT'S OWN WORDS. The adjudicator wrote these lines from the
+  // pattern and then kept only their ids, so the page brief was drafted, and its receipt rendered, with no
+  // trace of what each winner actually contributed. They are copied verbatim rather than rebuilt here, so
+  // the diagnosis and the page read the SAME sentences instead of two paraphrases of one reading.
+  for (const e of d.evidence ?? []) if (PATTERN_KEY.test(e.id) && !items.some((i) => i.key === e.id)) add(e.id, "winning_page", e.fact, null);
   if (inv.trackedPrompts.length === 0) missing.push("No AI engine I track has been asked about this, so I cannot tell you how assistants answer it today.");
   return { items, missing };
 }

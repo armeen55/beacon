@@ -74,7 +74,13 @@ export const PROMPT_REGISTRY = {
   // and never copies a page, so the wording that forbids quoting a heading, naming a page
   // it was not shown, or writing a figure of its own is the whole contract; any change to
   // it must bump this version.
-  "draft.winning_pattern": 1,
+  // Bumped to v2 (2026-07-31, Phase 3 repair): the rules now cap a verbatim heading at
+  // five words rather than sixty characters, forbid an eight-word run from ANY supplied
+  // line in ANY field, require every named section and thing to exist on every page cited
+  // for it, order ownedGaps empty when no page of mine is supplied, and hand the model the
+  // already-settled page shape to repeat rather than re-vote. A contract change, so a
+  // stale v1 answer must never be served under it.
+  "draft.winning_pattern": 2,
   // Registered schema kinds with no bespoke production prompt yet (P8 targets);
   // callStructuredLLM derives draft.<kind>, so they must resolve to a version.
   "draft.tool_asset": 1,

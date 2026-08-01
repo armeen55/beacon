@@ -16,18 +16,20 @@ import "server-only";
  * gateway's own per-account cache serves it at $0 and a case whose winners did not move never buys a second
  * one. Under three publishers I can actually learn from there is no pattern to find, so it costs nothing.
  *
- * IT IS A PATTERN, NOT A COPY. The reading names no website and quotes no page: the model sees pages
- * numbered from 0 upward, may cite only those numbers, and writes every commonality in its own plain words.
- * A heading handed back word for word, an opening that carries a run of a winner's own sentence, or ONE
- * number cited for a page nobody supplied throws the WHOLE reading away rather than shipping the half of it
- * that checks out. Null is a complete answer: the verdict and its receipt stand exactly as they were.
+ * IT IS A PATTERN, NOT A COPY, AND EVERY FIELD ANSWERS FOR ITSELF. The reading names no website and quotes
+ * no page: the model sees pages numbered from 0 upward, may cite only those numbers, and writes every
+ * commonality in its own plain words. FIVE things throw the WHOLE reading away rather than shipping the half
+ * of it that checks out: a run of eight words off ANY line I showed it, in ANY prose field; a heading longer
+ * than a section name handed back word for word; a section or a named thing that is not actually ON every
+ * page cited for it; a gap about a page of my own I never supplied; and an archetype that disagrees with the
+ * shape the results already settled. Null is a complete answer: the verdict and its receipt stand as they were.
  */
 
 import { createHash } from "node:crypto";
 
 import { log } from "@/lib/logger";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
-import { publisherHost } from "@/domains/evidence/serp-shape";
+import { publisherHost, type SerpPageType } from "@/domains/evidence/serp-shape";
 import { callStructuredLLM, type StructuredDraftRequest } from "./llm/structured-drafter";
 import type { WinningPatternRead } from "./llm/schemas";
 
@@ -83,9 +85,11 @@ const MAX_ENTITIES = 10;
 const MAX_TOKENS = 12;
 const MAX_HEADING_CHARS = 160;
 const OPENING_CHARS = 240;
-/** Longer than this and an exact heading is a quote of one page, not a pattern across several. */
-const VERBATIM_HEADING_CHARS = 60;
-/** This many words in a row off a winner's own opening is that winner's sentence, however it is framed. */
+/** A verbatim heading is a shared section NAME only while it is this short; beyond it, handing one back is
+ *  quoting one page at ANY length in characters. The old sixty-character bar let every real heading through:
+ *  "How a Persian rug is made from wool and silk" is one page's own line and is under sixty characters. */
+const VERBATIM_HEADING_WORDS = 5;
+/** This many words in a row off ANY line I showed it is that page's own wording, however it is framed. */
 const QUOTE_RUN_WORDS = 8;
 const PATTERN_COST_USD = 0.02;
 
@@ -132,12 +136,14 @@ const SYSTEM = [
   "Rules you may not break.",
   "1. Use ONLY the facts written below. Never name a website, a company, a person or a place that is not written there, and never add knowledge of your own about this subject.",
   "2. Cite pages by the numbers you were given and by no others. Every seenOn number must be a page you can see below.",
-  "3. Write every commonality in your OWN plain words. Never hand back a heading word for word, and never quote a sentence from any page's opening.",
+  "3. Write every commonality in your OWN plain words. Never hand back a section heading of more than five words as it was written, and never carry a run of eight words from ANY line written below into ANY sentence you write.",
   "4. Never write a figure, a count or a percentage in any sentence. I count the pages myself from the numbers you cite.",
-  "5. ownedGaps say what MY OWN PAGE does not do that the winning pages agree on, and each one cites the numbers of the pages that show it.",
+  "5. ownedGaps say what MY OWN PAGE does not do that the winning pages agree on, and each one cites the numbers of the pages that show it. When no page of my own is written below, ownedGaps MUST be empty.",
   "6. Where the winning pages disagree, say so in disagreements and leave it unsettled. Never settle it by quietly picking a side.",
-  "7. Return every field. An empty list is the right answer whenever the pages honestly share nothing there.",
-  "8. No em dash and no en dash anywhere. Never use the words experiment, control, baseline, treatment or SERP.",
+  "7. A section you name in commonHeadings must actually be on EVERY page you cite for it, and a thing you name in commonEntities must actually be named by EVERY page you cite for it. Cite only the pages that really carry it.",
+  "8. When I write below that the kind of page winning here is already settled, archetype must be exactly that word. It is decided and yours to repeat, never to vote on again.",
+  "9. Return every field. An empty list is the right answer whenever the pages honestly share nothing there.",
+  "10. No em dash and no en dash anywhere. Never use the words experiment, control, baseline, treatment or SERP.",
 ].join("\n");
 
 /** The facts, written the same way every time so the same pages ask the same question. */
@@ -158,18 +164,31 @@ function factLines(pages: readonly PageFacts[], owned: PageFacts | null): string
   ];
 }
 
-/** Does this sentence carry a run of one page's own opening? Then it is that page's sentence,
- *  however it is introduced, and a pattern is never somebody else's sentence. */
-function quotesAnOpening(text: string, pages: readonly PageFacts[]): boolean {
-  const said = words(text);
-  if (said.length < QUOTE_RUN_WORDS) return false;
+/** EVERY word run I showed it, from EVERY line I showed it: sections, what each page calls itself, and how
+ *  each one opens. Checking openings alone left the headings and the titles free to be handed straight back. */
+function runsOf(texts: readonly string[]): Set<string> {
   const runs = new Set<string>();
-  for (const f of pages) {
-    const o = words(f.opening ?? "");
-    for (let i = 0; i + QUOTE_RUN_WORDS <= o.length; i += 1) runs.add(o.slice(i, i + QUOTE_RUN_WORDS).join(" "));
+  for (const t of texts) {
+    const w = words(t);
+    for (let i = 0; i + QUOTE_RUN_WORDS <= w.length; i += 1) runs.add(w.slice(i, i + QUOTE_RUN_WORDS).join(" "));
   }
+  return runs;
+}
+
+/** Does this sentence carry a run of one page's own wording? Then it is that page's sentence, however it is
+ *  introduced, and a pattern is never somebody else's sentence. */
+function quotes(text: string, runs: ReadonlySet<string>): boolean {
+  const said = words(text);
   for (let i = 0; i + QUOTE_RUN_WORDS <= said.length; i += 1) if (runs.has(said.slice(i, i + QUOTE_RUN_WORDS).join(" "))) return true;
   return false;
+}
+
+/** Is what it named actually ON every page it cited for it? A valid index is not existence: three real
+ *  numbers beside a section no page carries counts pages that never had it, and the receipt line then says
+ *  "three of the four cover X" about an X nobody wrote. Content tokens, so wording may still be its own. */
+function holdsOnEvery(text: string, seenOn: readonly number[], on: readonly ReadonlySet<string>[]): boolean {
+  const t = topicTokens(text);
+  return t.length > 0 && seenOn.every((i) => !!on[i] && t.some((x) => on[i]!.has(x)));
 }
 
 /**
@@ -181,7 +200,10 @@ export async function readWinningPattern(
   winners: readonly PageFacts[],
   owned: PageFacts | null,
   tenantId: string,
-  opts: Pick<StructuredDraftRequest<"winning_pattern">, "complete" | "cacheImpl" | "now"> = {},
+  opts: Pick<StructuredDraftRequest<"winning_pattern">, "complete" | "cacheImpl" | "now">
+  /** The shape the results ALREADY settled, counted in code one gate earlier. Supplied, it is told to the
+   *  model AND enforced on the answer: the model repeats a settled shape, it never re-votes one. */
+  & { pageType?: SerpPageType | null } = {},
 ): Promise<WinningPattern | null> {
   // ONLY PAGES I ACTUALLY READ, and only one vote per publisher: three pages from one site are one site's
   // house style, and nothing downstream of this file may ever call that a pattern.
@@ -194,7 +216,10 @@ export async function readWinningPattern(
   }
   if (pages.length < MIN_PATTERN_PUBLISHERS) return null; // no agreement is buyable here: no call, no cent
 
-  const lines = factLines(pages, owned);
+  // A SETTLED SHAPE IS PART OF THE ASK, so it rides the fingerprint too: the same pages under a shape that
+  // has since changed are a different question and must not be answered out of the old reading's cache.
+  const settled = opts.pageType && opts.pageType !== "mixed" && opts.pageType !== "unknown" ? opts.pageType : null;
+  const lines = [...factLines(pages, owned), ...(settled ? [`THE KIND OF PAGE THAT ALREADY WINS HERE, SETTLED: ${settled}`] : [])];
   const fingerprint = createHash("sha256").update(lines.join("\n")).digest("hex").slice(0, 16);
   const user = [
     "THE PAGES THAT WIN THIS SEARCH (cite these numbers and no others)",
@@ -217,17 +242,37 @@ export async function readWinningPattern(
   // ── every cited number back against the pages I actually supplied ──
   const cited = [...v.commonHeadings, ...v.commonEntities, ...v.ownedGaps, ...v.uniqueNotCommon].flatMap((r) => r.seenOn);
   const stray = cited.find((i) => !Number.isInteger(i) || i < 0 || i >= pages.length);
+  // EVERY PROSE FIELD, AGAINST EVERY LINE I SHOWED IT. The run check used to read openingPattern alone and
+  // the copy check used to read commonHeadings alone, so a winner's own sentence reached the operator through
+  // a disagreement, a gap, an answered question or a unique detail without one gate looking at it.
+  const said = [...v.commonHeadings.map((h) => h.heading), ...v.ownedGaps.map((g) => g.gap), ...v.uniqueNotCommon.map((u) => u.detail),
+    ...v.disagreements, ...v.questionsAnswered, v.openingPattern].filter((s) => !!s);
+  const shown = [...pages, ...(owned ? [owned] : [])];
+  const runs = runsOf(shown.flatMap((f) => [...f.headings, f.titleTokens.join(" "), f.opening ?? ""]));
+  const quoted = said.find((t) => quotes(t, runs));
   // A PATTERN IS AN ABSTRACTION. A heading handed back word for word is one page's wording, and putting a
   // competitor's own line into an operator-facing receipt is the one thing this whole file exists to avoid.
-  const supplied = new Set([...pages, ...(owned ? [owned] : [])].flatMap((f) => f.headings).map(norm));
-  const copied = v.commonHeadings.map((h) => h.heading)
-    .find((h) => h.length > VERBATIM_HEADING_CHARS && supplied.has(norm(h)));
-  const quoted = quotesAnOpening(v.openingPattern, pages);
-  if (stray !== undefined || copied || quoted) {
+  // Five words is a shared section NAME; anything longer is a quotation whatever it measures in characters.
+  const supplied = new Set(shown.flatMap((f) => f.headings).map(norm));
+  const copied = v.commonHeadings.map((h) => h.heading).find((h) => supplied.has(norm(h)) && words(h).length > VERBATIM_HEADING_WORDS);
+  // EXISTENCE, NOT MERELY A VALID INDEX (checked only once every index is real, so nothing indexes past the end).
+  const headTokens = pages.map((f) => topicTokens(f.headings.join(" ")));
+  const sections = pages.map((f, i) => new Set([...headTokens[i]!, ...f.titleTokens]));
+  const names = pages.map((f, i) => new Set([...headTokens[i]!, ...topicTokens(f.entities.join(" "))]));
+  const invented = stray !== undefined ? undefined
+    : v.commonHeadings.find((h) => !holdsOnEvery(h.heading, h.seenOn, sections))?.heading
+      ?? v.commonEntities.find((e) => !holdsOnEvery(e.entity, e.seenOn, names))?.entity;
+  // A GAP IS MEASURED AGAINST A PAGE, NOT IMAGINED FOR ONE. With no page of my own supplied the model was
+  // still ordered to produce ownedGaps, so it invented what my page does not do and that invention rendered
+  // to the operator as a claim about a page it had never seen.
+  const blindGaps = owned == null && v.ownedGaps.length > 0;
+  // THE SHAPE WAS SETTLED IN CODE ONE GATE EARLIER, and the deterministic count wins every time.
+  const wrongShape = settled != null && v.archetype !== settled;
+  if (stray !== undefined || copied || quoted || invented || blindGaps || wrongShape) {
     // ONE of these throws the WHOLE reading away. Keeping the half that checks out would file a real case
     // under a pattern half of which was invented or copied, and no diagnosis is worth that.
-    log.warn("[winning-pattern] the reading cited a page I never showed it or copied one of them, so I kept none of it",
-      { tenantId, stray, copied: copied?.slice(0, 80), quoted });
+    log.warn("[winning-pattern] the reading copied a page, named something no page carries, or overruled a settled shape, so I kept none of it",
+      { tenantId, stray, copied: copied?.slice(0, 80), quoted: quoted?.slice(0, 80), invented: invented?.slice(0, 80), blindGaps, wrongShape });
     return null;
   }
   return { ...v, winners: pages.length, publishers: pages.map((f) => f.domain), fingerprint };

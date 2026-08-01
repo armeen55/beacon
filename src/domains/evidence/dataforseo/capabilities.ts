@@ -106,12 +106,12 @@ function llmIdentity<T extends ObservationIdentity>(i: T): T {
 }
 
 function labsEntry<K extends "labs_keywords_for_site" | "labs_ranked_keywords" | "labs_related_keywords" | "labs_keyword_suggestions">(
-  postPath: string, keyField: "target" | "keyword", estCostUsd: number,
+  postPath: string, keyField: "target" | "keyword", estCostUsd: number, fixed: Record<string, unknown> = {},
 ): Entry<K> {
   return {
     ttlMs: 7 * DAY, estCostUsd, dims: { device: false, model: false },
     route: () => ({ mode: "live", postPath, getPath: null, tasksReady: null }),
-    build: (i) => [{ [keyField]: (i as Record<string, unknown>)[keyField], location_code: LOCATION_US, language_code: LANG_EN, limit: (i as { limit?: number }).limit ?? 200 }],
+    build: (i) => [{ [keyField]: (i as Record<string, unknown>)[keyField], location_code: LOCATION_US, language_code: LANG_EN, limit: (i as { limit?: number }).limit ?? 200, ...fixed }],
     parse: parseKeywords,
   };
 }
@@ -145,7 +145,12 @@ const REGISTRY: Registry = {
   // keywords_for_site and ranked_keywords each ACTUALLY charged $0.132 on file against the old $0.02 estimate: reserve above the observed worst case;
   // reconcile drops to actual.
   labs_keywords_for_site: labsEntry("dataforseo_labs/google/keywords_for_site/live", "target", 0.2),
-  labs_ranked_keywords: labsEntry("dataforseo_labs/google/ranked_keywords/live", "target", 0.2),
+  // item_types organic ONLY, the same doc-verified field serp_competitors sends: ranked_keywords defaults to
+  // organic AND paid, so an ad this account bought came back as one of its own rankings and one page that
+  // ranked once organically and once as an ad read as two pages, which is the arithmetic behind
+  // "consolidation". A bought placement is not a page that wins a search.
+  // (docs: dataforseo_labs/google/ranked_keywords/live, item_types, read 2026-07-31)
+  labs_ranked_keywords: labsEntry("dataforseo_labs/google/ranked_keywords/live", "target", 0.2, { item_types: ["organic"] }),
   labs_related_keywords: labsEntry("dataforseo_labs/google/related_keywords/live", "keyword", 0.02),
   labs_keyword_suggestions: labsEntry("dataforseo_labs/google/keyword_suggestions/live", "keyword", 0.02),
   // RESERVATION arithmetic, NOT a flat price: a real keyword_overview call of at most 150 keywords charged $0.02988, about $0.0002 per keyword, so a FULL
@@ -168,8 +173,9 @@ const REGISTRY: Registry = {
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_ideas/live", getPath: null, tasksReady: null }),
     build: (i) => [{ keywords: i.keywords.slice(0, MAX_IDEAS_SEEDS), location_code: LOCATION_US, language_code: LANG_EN, limit: Math.min(Math.max(1, Math.trunc(i.limit ?? IDEAS_DEFAULT_LIMIT)), IDEAS_MAX_LIMIT) }], parse: parseKeywords,
   },
-  // THE RECURRING WINNING DOMAINS across a case's whole keyword set, in ONE request. Nothing consumes it yet; it is registered now because the contract, the
-  // identity and the reservation are what make it safe to consume. RESERVATION arithmetic, NOT a price: the documented example response reports cost 0.0105,
+  // THE RECURRING WINNING DOMAINS across a case's whole keyword set, in ONE request. Its consumer is the discovery unit's competitors stage: one bounded
+  // request per case set, at most once a week per case, stored as DOMAIN evidence beside the case and never as a keyword. RESERVATION arithmetic, NOT a
+  // price: the documented example response reports cost 0.0105,
   // and the Labs live charges on file (50 rows $0.018, 150 rows $0.02988) fit $0.012 per request plus $0.00012 per row, so 50 rows lands near $0.018.
   // Reserved at 0.05, rounded well past both; reconcile drops it to actual. (docs: dataforseo_labs/google/serp_competitors/live, verified 2026-07-31)
   labs_serp_competitors: {

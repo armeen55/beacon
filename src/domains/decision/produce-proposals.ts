@@ -28,6 +28,7 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
+import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { loadBusinessProfile } from "@/domains/account";
 import { resolveCurrentBasis } from "./load-proposals";
 import { candidatesToEvidenceInputs, compileCandidates, type QualifiedCandidate } from "./opportunities";
@@ -95,6 +96,22 @@ export type ProduceProposalsResult = {
 /** Bounded drafting: the strongest few, never a queue. */
 export const DEFAULT_MAX_DRAFTS = 3;
 
+/** THE ONE PAGE OF MINE A VERDICT DECIDED TO IMPROVE, as facts, out of words this pass ALREADY holds: the
+ *  candidate the ladder itself named, plus that page's outline off the same snapshot row. Nothing is fetched
+ *  and nothing is inferred. Null for `create_new`, which by definition names no page of mine, and null when I
+ *  do not hold that page's own words, because the reading must then be told there is no page rather than be
+ *  handed an outline of nulls to write gaps against. */
+function ownedFactsFor(snapshot: EvidenceSnapshot, decided: DecidedTopic): ReturnType<typeof extractPageFacts>[number] | null {
+  if (decided.decision.verdict !== "improve_existing") return null;
+  const url = decided.decision.ownedUrls[0];
+  const held = decided.candidates.find((c) => c.url === url && c.bodyHeld);
+  if (!held) return null;
+  const at = (u: string): string => { try { return new URL(u.startsWith("http") ? u : `https://${u}`).pathname.replace(/\/+$/, "") || "/"; } catch { return u; } };
+  const row = snapshot.ownedPages.find((p) => at(p.url) === at(held.url))?.content ?? null;
+  return extractPageFacts([{ url: held.url, extract: { title: held.title, h1: held.h1, wordCount: held.wordCount,
+    headings: row?.outline ?? null, faqCount: row?.faqCount ?? null, openingSample: held.openingSample, entityNames: held.entities } }])[0] ?? null;
+}
+
 /** Normalized keys a candidate and a proposal can be matched on. */
 const pageKeys = (pageUrl: string | null | undefined): string[] => {
   const url = (pageUrl ?? "").trim().toLowerCase();
@@ -160,9 +177,17 @@ export async function produceProposalsForTenant(
     // verdict's receipt carries what the winning pages have in common. Fail-soft: no pattern, same verdict.
     if (coverage && (coverage.decision.verdict === "create_new" || coverage.decision.verdict === "improve_existing")
       && coverage.investigation.currentReadableWinners >= 3 && !coverage.decision.pattern) {
-      const mine = new Set(coverage.investigation.winners.map((w) => w.url));
+      // ONLY THE WINNERS I CURRENTLY HOLD A READ OF. Every row matching by address went in before, and the
+      // facts honestly accept a title-only page, so a receipt line said "3 of the 5" while the 5 counted a
+      // months-old title nobody has re-read. The denominator is now exactly what I read and still hold.
+      const mine = new Set(coverage.investigation.winners.filter((w) => w.extractState === "current").map((w) => w.url));
       const facts = extractPageFacts((snapshot.research.winningPages ?? []).filter((r) => mine.has(r.url)));
-      const pattern = await readWinningPattern(facts, null, tenantId, { complete: opts.complete, now: opts.now }).catch(() => null);
+      // THE PAGE I AM COMPARING AGAINST IS SHOWN, OR NO GAP MAY BE WRITTEN. improve_existing names a page of
+      // my own and this handed the reading nothing at all, so the model invented what "your page" does not do
+      // about a page it had never seen, and that invention rendered as an operator-facing claim.
+      const owned = ownedFactsFor(snapshot, coverage);
+      const pattern = await readWinningPattern(facts, owned, tenantId,
+        { complete: opts.complete, now: opts.now, pageType: coverage.investigation.pageType }).catch(() => null);
       if (pattern) {
         const again = await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection,
           patternFor: { topicKey: coverage.investigation.key, pattern } }).catch(() => null);

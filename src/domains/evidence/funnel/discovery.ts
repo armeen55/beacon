@@ -56,6 +56,13 @@ function profileConfirmed(p: BusinessProfile): boolean {
 const MAX_SEEDS = 12;
 /** Candidates one OBSERVED route may contribute in a pass. Each is free, so this bounds the pool and the
  *  stored blob, never money. Case sets on file match the decoder's own bound. */
+/** RESERVE ARITHMETIC AT THE CEILING, stated once so it is checkable. A case set is ONE labs_serp_competitors
+ *  request reserved at $0.05, the run's frozen plan is what the loop below walks, and MAX_CASE_SETS is the most
+ *  this state ever holds, so the absolute worst pass reserves 12 x 0.05 = $0.60 of competitor work (a normal
+ *  three-topic plan reserves $0.15). The un-truncated overview batching adds one further $0.25 request at
+ *  MAX_RETAINED, because 1,400 keywords is ceil(1400 / 700) = 2 requests where the old path bought 1. So this
+ *  unit's per-pass reservation ceiling went up by $0.85. Reservations, never charges: reconcile drops each one
+ *  to actual, and the account's own spend cap is still the thing that fails closed. */
 const MAX_PER_ROUTE = 300, MAX_CASE_SETS = 12;
 /** The two documented request ceilings, verified on docs.dataforseo.com 2026-07-31: keyword_overview takes up
  *  to 700 keywords ("The maximum number of keywords you can specify: 700") and serp_competitors up to 200. A
@@ -236,7 +243,11 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
         raw.push(...observedCandidates(state, gscQueries, analyses));
         // narrow: normalize -> dedupe -> join to a case -> filter -> diverse retain (before any SERP spend)
         const deduped = dedupeKeywords(raw).map((k) => {
-          const owned = (ownedRanks.get(k.keyword) ?? []).sort((a, b) => a.rank - b.rank);
+          // DISTINCT PAGES, NEVER ROWS. Counting rows made ONE page appearing twice for a search look like two
+          // pages of mine competing, which is precisely the arithmetic "consolidation" is supposed to prove.
+          // Best position first, so the surviving row for a page is its best one.
+          const rows = (ownedRanks.get(k.keyword) ?? []).sort((a, b) => a.rank - b.rank);
+          const owned = rows.filter((o, i) => rows.findIndex((x) => x.url === o.url) === i);
           const best = owned[0] ?? (k.ownedRankingUrl ? { url: k.ownedRankingUrl, rank: k.ownedPosition ?? 0 } : null);
           const held = owned.length > 0 ? owned.length : best ? 1 : 0;
           return { ...k, caseId: cases.of(k.keyword), ownedRankingUrl: best?.url ?? null, ownedPosition: best?.rank ?? null,
@@ -325,6 +336,12 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
         const r = interp(await d.callProvider("labs_serp_competitors", { keywords }, ids));
         track(state, r);
         if (r.kind === "waiting" || r.kind === "failed") {
+          // DEFERRED TO PHASE 5 (the run's durable due-work state), NAMED HERE so it is not lost: the pass
+          // stops honestly and the unit reports why, but nothing per CASE is persisted, so the case receipt
+          // cannot yet say "I did not buy this one because the ceiling was reached" the way it already can
+          // for a page by page comparison. That needs a durable per-case marker with a due date on it, which
+          // is the state Phase 5 introduces; inventing a second, private one here would be the parallel
+          // progress store the Foundation freeze exists to prevent.
           await save(d, tenantId, basis, state, ctx);
           return { status: r.kind === "waiting" ? "waiting" : "failed", cursor: { stage: "competitors" }, progress: discProgress(state),
             detail: r.detail ?? pauseDetail(r.disposition, "I could not check who keeps winning these searches this pass. I will try again on your next visit.") };
