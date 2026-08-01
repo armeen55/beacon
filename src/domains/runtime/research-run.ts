@@ -72,6 +72,11 @@ export type ResearchRunProgress = {
    *  clears by rollover rather than by a cleanup nobody runs, and the case receipt can say
    *  "capped" about the pass that was actually capped instead of about every pass since. */
   capped?: { day: string; caseIds: string[] };
+  /** How many continuation hops this account has already been given on `day`. SERVER-COUNTED: the
+   *  hop number a browser sends back is a number it made up, so the bound that stops a live tab
+   *  looping forever cannot be built on it. Day-scoped like the grant above, and inherited by every
+   *  pass that opens the same day, so a new row never hands out a fresh allowance. */
+  continuations?: { day: string; count: number };
   /** The watermark the LAST decide-and-publish pass ran against: which basis, and which version
    *  of the research notes. Notes that moved past it are new evidence, which is what makes a
    *  second pass on the same day legitimate instead of redundant. */
@@ -218,34 +223,39 @@ export type ResearchRunRepo = {
   }): Promise<boolean>;
   /** Latest run for the tenant by started_at desc, or null. */
   latest(tenantId: string): Promise<ResearchRun | null>;
+  /** This account's rows for ONE reporting day, newest first, lean (id + progress). It answers both
+   *  questions a day asks: how many passes have already opened today, and what day-scoped state a
+   *  new one inherits. */
+  sameDay(input: { tenantId: string; day: string; limit: number }): Promise<Array<{ id: string; progress: ResearchRunProgress }>>;
+  /** Count ONE continuation hop for `day` on the account's latest row and return the day's new
+   *  total, or null when it could not be counted (no row yet, or the write did not land). */
+  countContinuation(input: { tenantId: string; day: string }): Promise<number | null>;
 };
 
 function mapRow(r: Record<string, unknown>): ResearchRun {
   return {
-    id: String(r.id),
-    tenant_id: String(r.tenant_id),
-    cycle_key: String(r.cycle_key),
-    status: r.status as ResearchRunStatus,
-    current_phase: r.current_phase as ResearchPhase,
+    id: String(r.id), tenant_id: String(r.tenant_id), cycle_key: String(r.cycle_key),
+    status: r.status as ResearchRunStatus, current_phase: r.current_phase as ResearchPhase,
     phase_cursor: (r.phase_cursor as Record<string, unknown> | null) ?? null,
-    progress: (r.progress as ResearchRunProgress | null) ?? {},
-    spend_usd: Number(r.spend_usd ?? 0),
+    progress: (r.progress as ResearchRunProgress | null) ?? {}, spend_usd: Number(r.spend_usd ?? 0),
     last_error: (r.last_error as ResearchRunError | null) ?? null,
-    lease_owner: (r.lease_owner as string | null) ?? null,
-    lease_expires_at: (r.lease_expires_at as string | null) ?? null,
-    started_at: String(r.started_at),
-    updated_at: String(r.updated_at ?? r.started_at),
+    lease_owner: (r.lease_owner as string | null) ?? null, lease_expires_at: (r.lease_expires_at as string | null) ?? null,
+    started_at: String(r.started_at), updated_at: String(r.updated_at ?? r.started_at),
     completed_at: (r.completed_at as string | null) ?? null,
   };
 }
 
+/** Every guarded mutation is one RPC that answers true when a row matched. */
+async function rpcBool(fn: string, args: Record<string, unknown>): Promise<boolean> {
+  const { data, error } = await getSupabaseAdmin().rpc(fn, args);
+  if (error != null) throw new Error(error.message ?? String(error));
+  return data === true;
+}
+
 const supabaseRepo: ResearchRunRepo = {
   async claim({ tenantId, owner, leaseSeconds }) {
-    const { data, error } = await getSupabaseAdmin().rpc("claim_research_run", {
-      p_tenant_id: tenantId,
-      p_owner: owner,
-      p_lease_seconds: leaseSeconds,
-    });
+    const { data, error } = await getSupabaseAdmin()
+      .rpc("claim_research_run", { p_tenant_id: tenantId, p_owner: owner, p_lease_seconds: leaseSeconds });
     if (error != null) throw new Error(error.message ?? String(error));
     const rows = (data ?? []) as Array<Record<string, unknown>>;
     return rows.length > 0 ? mapRow(rows[0]!) : null;
@@ -258,11 +268,8 @@ const supabaseRepo: ResearchRunRepo = {
     const { count } = await admin.from("research_runs").select("id", { count: "exact", head: true })
       .eq("tenant_id", tenantId).like("cycle_key", `%${day}`);
     const { data, error } = await admin.from("research_runs").insert({
-      tenant_id: tenantId,
-      cycle_key: `${tenantId}:p${(count ?? 1) + 1}:${day}`,
-      status: "running",
-      current_phase: "refresh_sources",
-      lease_owner: owner,
+      tenant_id: tenantId, cycle_key: `${tenantId}:p${(count ?? 1) + 1}:${day}`, status: "running",
+      current_phase: "refresh_sources", lease_owner: owner,
       lease_expires_at: new Date(Date.now() + leaseSeconds * 1000).toISOString(),
     }).select("*").maybeSingle();
     // A unique violation is the expected LOSS (another pass is open, or another tab inserted
@@ -271,50 +278,39 @@ const supabaseRepo: ResearchRunRepo = {
     return mapRow(data as Record<string, unknown>);
   },
   async advance({ tenantId, id, owner, leaseSeconds, patch }) {
-    const { data, error } = await getSupabaseAdmin().rpc("advance_research_run", {
-      p_tenant_id: tenantId,
-      p_run_id: id,
-      p_owner: owner,
-      p_next_phase: patch.phase,
-      p_progress: patch.progress ?? null,
-      p_cursor: patch.cursor ?? null,
-      p_lease_seconds: leaseSeconds,
-    });
-    if (error != null) throw new Error(error.message ?? String(error));
-    return data === true;
+    return rpcBool("advance_research_run", { p_tenant_id: tenantId, p_run_id: id, p_owner: owner,
+      p_next_phase: patch.phase, p_progress: patch.progress ?? null, p_cursor: patch.cursor ?? null, p_lease_seconds: leaseSeconds });
   },
   async renew({ tenantId, id, owner, leaseSeconds, cursor }) {
-    const { data, error } = await getSupabaseAdmin().rpc("renew_research_lease", {
-      p_tenant_id: tenantId,
-      p_run_id: id,
-      p_owner: owner,
-      p_cursor: cursor ?? null,
-      p_lease_seconds: leaseSeconds,
-    });
-    if (error != null) throw new Error(error.message ?? String(error));
-    return data === true;
+    return rpcBool("renew_research_lease", { p_tenant_id: tenantId, p_run_id: id, p_owner: owner, p_cursor: cursor ?? null, p_lease_seconds: leaseSeconds });
   },
   async finish({ tenantId, id, owner, outcome, errorInfo }) {
-    const { data, error } = await getSupabaseAdmin().rpc("finish_research_run", {
-      p_tenant_id: tenantId,
-      p_run_id: id,
-      p_owner: owner,
-      p_outcome: outcome,
-      p_error: errorInfo ?? null,
-    });
-    if (error != null) throw new Error(error.message ?? String(error));
-    return data === true;
+    return rpcBool("finish_research_run", { p_tenant_id: tenantId, p_run_id: id, p_owner: owner, p_outcome: outcome, p_error: errorInfo ?? null });
   },
   async latest(tenantId) {
-    const { data, error } = await getSupabaseAdmin()
-      .from("research_runs")
-      .select("*")
-      .eq("tenant_id", tenantId)
-      .order("started_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const { data, error } = await getSupabaseAdmin().from("research_runs").select("*")
+      .eq("tenant_id", tenantId).order("started_at", { ascending: false }).limit(1).maybeSingle();
     if (error != null) throw new Error(error.message ?? String(error));
     return data ? mapRow(data as Record<string, unknown>) : null;
+  },
+  // The reporting day rides on the TAIL of both cycle-key shapes (the daily "<tenant>:<day>" and an
+  // extra pass's "<tenant>:p<n>:<day>"), which is exactly why it lives there.
+  async sameDay({ tenantId, day, limit }) {
+    const { data, error } = await getSupabaseAdmin().from("research_runs").select("id,progress")
+      .eq("tenant_id", tenantId).like("cycle_key", `%${day}`).order("started_at", { ascending: false }).limit(limit);
+    if (error != null) throw new Error(error.message ?? String(error));
+    return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({ id: String(r.id), progress: (r.progress as ResearchRunProgress | null) ?? {} }));
+  },
+  async countContinuation({ tenantId, day }) {
+    const admin = getSupabaseAdmin();
+    const { data, error } = await admin.from("research_runs").select("id,progress")
+      .eq("tenant_id", tenantId).order("started_at", { ascending: false }).limit(1).maybeSingle();
+    if (error != null || data == null) return null;
+    const row = data as { id: string; progress: ResearchRunProgress | null }, held = row.progress?.continuations;
+    const count = (held?.day === day ? held.count : 0) + 1;
+    const { error: failed } = await admin.from("research_runs")
+      .update({ progress: { ...(row.progress ?? {}), continuations: { day, count } } }).eq("tenant_id", tenantId).eq("id", row.id);
+    return failed == null ? count : null;
   },
 };
 
@@ -323,6 +319,54 @@ let repo: ResearchRunRepo = supabaseRepo;
 /** Tests inject an in-memory repo modeling the RPC contract; null restores prod. */
 export function setResearchRunRepoForTests(next: ResearchRunRepo | null): void {
   repo = next ?? supabaseRepo;
+}
+
+// ── The reporting day's own memory ─────────────────────────────────────────
+
+/** How many research passes ONE account may open in ONE reporting day. A topic that can never be
+ *  satisfied reads as genuinely due on every look, so without a ceiling every navigation all day
+ *  opened another full pass on it. Past the ceiling I say so and open nothing until the day rolls. */
+const MAX_PASSES_PER_DAY = 8;
+
+type DayRow = { id: string; progress: ResearchRunProgress };
+
+/** THE DAY'S STATE BELONGS TO THE DAY, NOT TO A ROW. Both row-creating paths (the fresh daily claim and
+ *  an extra pass) are born with progress {}, so the operator's extra-sample grant, the ceiling marker,
+ *  the advisory-reading receipt and the decide watermark all died the moment the pass they justified
+ *  opened: the planner reads the LATEST row, so the grant that bought the pass was orphaned by it, and a
+ *  vanished watermark made deciding due forever. Inherited here from the passes that already ran the SAME
+ *  reporting day; the day-stamped markers only when they name that day, so they still clear by rollover. */
+function carriedDayState(priors: readonly ResearchRunProgress[], day: string): ResearchRunProgress {
+  const out: ResearchRunProgress = {};
+  for (const p of priors) {
+    if (out.decided == null && p.decided != null) out.decided = p.decided;
+    if (out.extraSamples == null && p.extraSamples?.day === day) out.extraSamples = p.extraSamples;
+    if (out.capped == null && p.capped?.day === day) out.capped = p.capped;
+    if (out.continuations == null && p.continuations?.day === day) out.continuations = p.continuations;
+    if (out.synthesisAttempted !== true && p.synthesisAttempted === true) out.synthesisAttempted = true;
+  }
+  return out;
+}
+
+/** Persist the inherited state onto the row we just took, under the lease we took with it. The row's OWN
+ *  progress always wins, and a carry that could not be written leaves the row exactly as the database made it. */
+async function inheritDayState(run: ResearchRun, owner: string, priors: readonly DayRow[]): Promise<ResearchRun> {
+  const carried = carriedDayState(priors.filter((p) => p.id !== run.id).map((p) => p.progress), run.cycle_key.slice(-10));
+  if (Object.keys(carried).length === 0) return run;
+  const progress: ResearchRunProgress = { ...carried, ...(run.progress ?? {}) };
+  const saved = await repo.advance({ tenantId: run.tenant_id, id: run.id, owner, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS,
+    patch: { phase: run.current_phase, cursor: run.phase_cursor, progress } }).catch(() => false);
+  return saved ? { ...run, progress } : run;
+}
+
+/** Inherit the day's state, but ONLY for a row that cannot already know it: a resumed run carrying any of
+ *  it IS the day's memory and pays for no read. */
+async function withDayState(run: ResearchRun, owner: string): Promise<ResearchRun> {
+  const p = run.progress ?? {};
+  if (p.decided != null || p.extraSamples != null || p.capped != null || p.continuations != null || p.synthesisAttempted != null) return run;
+  const priors = await repo.sameDay({ tenantId: run.tenant_id, day: run.cycle_key.slice(-10), limit: MAX_PASSES_PER_DAY * 2 })
+    .catch(() => [] as DayRow[]);
+  return inheritDayState(run, owner, priors);
 }
 
 // ── Public operations (explicit tenant, fail-closed) ───────────────────────
@@ -342,12 +386,11 @@ export function setResearchRunRepoForTests(next: ResearchRunRepo | null): void {
 export async function claimRun(tenantId: string, ownerToken: string): Promise<ResearchRun | null> {
   requireTenant(tenantId);
   try {
-    return await repo.claim({ tenantId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS });
+    const run = await repo.claim({ tenantId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS });
+    // A row born blank inherits what the day already knows, before any phase reads it.
+    return run == null ? null : await withDayState(run, ownerToken);
   } catch (error) {
-    log.warn("[research-run] claim failed; fail closed (no background work)", {
-      tenantId,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    log.warn("[research-run] claim failed; fail closed (no background work)", { tenantId, error: error instanceof Error ? error.message : String(error) });
     throw error instanceof Error ? error : new Error(String(error));
   }
 }
@@ -356,17 +399,24 @@ export async function claimRun(tenantId: string, ownerToken: string): Promise<Re
  * Open ANOTHER pass on a day that already completed one. The caller must already know work is
  * genuinely due (see due-work): a day is not a unit of work, but nor is a visit, so nothing here
  * decides that question. Returns the claimed row, or null when a pass must not open (any
- * unfinished run, a concurrent tab, or unavailable persistence). Never throws.
+ * unfinished run, a concurrent tab, the day's pass ceiling, or unavailable persistence). Never throws.
+ *
+ * THE DAY HAS A CEILING. "Due" is computed from persisted state, and some state stays due however
+ * often it is looked at, so a due list that cannot be cleared used to open a full pass on every
+ * navigation for the rest of the day. MAX_PASSES_PER_DAY is the honest stop.
  */
 export async function startExtraPass(tenantId: string, ownerToken: string, day: string): Promise<ResearchRun | null> {
   requireTenant(tenantId);
   try {
-    return await repo.startPass({ tenantId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS, day });
+    const priors = await repo.sameDay({ tenantId, day, limit: MAX_PASSES_PER_DAY * 2 });
+    if (priors.length >= MAX_PASSES_PER_DAY) { // the honest ceiling, not a claim that nothing is due
+      log.info("[research-run] this account has opened all of today's research passes; the next one opens tomorrow", { tenantId, day, passes: priors.length });
+      return null;
+    }
+    const run = await repo.startPass({ tenantId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS, day });
+    return run == null ? null : await inheritDayState(run, ownerToken, priors);
   } catch (error) {
-    log.warn("[research-run] extra same-day pass could not open; nothing runs", {
-      tenantId,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    log.warn("[research-run] extra same-day pass could not open; nothing runs", { tenantId, error: error instanceof Error ? error.message : String(error) });
     return null;
   }
 }
@@ -376,20 +426,11 @@ export async function startExtraPass(tenantId: string, ownerToken: string, day: 
  * lease still held and the row was updated; false when the lease was lost (a
  * concurrent instance recovered our expired lease) - the caller must abort.
  */
-export async function advancePhase(
-  tenantId: string,
-  runId: string,
-  ownerToken: string,
-  patch: AdvancePatch,
-): Promise<boolean> {
+export async function advancePhase(tenantId: string, runId: string, ownerToken: string, patch: AdvancePatch): Promise<boolean> {
   requireTenant(tenantId);
-  try {
-    return await repo.advance({ tenantId, id: runId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS, patch });
-  } catch (error) {
-    log.warn("[research-run] advancePhase failed", {
-      tenantId,
-      error: error instanceof Error ? error.message : String(error),
-    });
+  try { return await repo.advance({ tenantId, id: runId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS, patch }); }
+  catch (error) {
+    log.warn("[research-run] advancePhase failed", { tenantId, error: error instanceof Error ? error.message : String(error) });
     return false;
   }
 }
@@ -400,20 +441,11 @@ export async function advancePhase(
  * ⇒ our lease was lost or expired, so the caller aborts before any side-effecting work.
  * Never throws to the caller.
  */
-export async function renewLease(
-  tenantId: string,
-  runId: string,
-  ownerToken: string,
-  cursor: Record<string, unknown> | null,
-): Promise<boolean> {
+export async function renewLease(tenantId: string, runId: string, ownerToken: string, cursor: Record<string, unknown> | null): Promise<boolean> {
   requireTenant(tenantId);
-  try {
-    return await repo.renew({ tenantId, id: runId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS, cursor });
-  } catch (error) {
-    log.warn("[research-run] renewLease failed", {
-      tenantId,
-      error: error instanceof Error ? error.message : String(error),
-    });
+  try { return await repo.renew({ tenantId, id: runId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS, cursor }); }
+  catch (error) {
+    log.warn("[research-run] renewLease failed", { tenantId, error: error instanceof Error ? error.message : String(error) });
     return false;
   }
 }
@@ -423,21 +455,31 @@ export async function renewLease(
  * whether our lease still held. Never throws to the caller.
  */
 export async function finishRun(
-  tenantId: string,
-  runId: string,
-  ownerToken: string,
-  outcome: Exclude<ResearchRunStatus, "running">,
-  errorInfo?: ResearchRunError | null,
+  tenantId: string, runId: string, ownerToken: string,
+  outcome: Exclude<ResearchRunStatus, "running">, errorInfo?: ResearchRunError | null,
 ): Promise<boolean> {
   requireTenant(tenantId);
-  try {
-    return await repo.finish({ tenantId, id: runId, owner: ownerToken, outcome, errorInfo: errorInfo ?? null });
-  } catch (error) {
-    log.warn("[research-run] finishRun failed", {
-      tenantId,
-      error: error instanceof Error ? error.message : String(error),
-    });
+  try { return await repo.finish({ tenantId, id: runId, owner: ownerToken, outcome, errorInfo: errorInfo ?? null }); }
+  catch (error) {
+    log.warn("[research-run] finishRun failed", { tenantId, error: error instanceof Error ? error.message : String(error) });
     return false;
+  }
+}
+
+/**
+ * Count ONE continuation hop for this reporting day, SERVER-SIDE, and return the day's new total. The
+ * hop a browser sends back is a number it made up, so a tab that kept claiming hop 0 bought itself an
+ * unbounded chain of research requests. The count lives on the account's own row and is inherited by
+ * every pass that opens the same day, so a new row hands out no fresh allowance. Null = it could not be
+ * counted (no row yet, or the write did not land), which the caller treats as its own first hop rather
+ * than as permission to loop. Never throws.
+ */
+export async function countContinuationHop(tenantId: string, day: string): Promise<number | null> {
+  requireTenant(tenantId);
+  try { return await repo.countContinuation({ tenantId, day }); }
+  catch (error) {
+    log.warn("[research-run] continuation hop could not be counted", { tenantId, error: error instanceof Error ? error.message : String(error) });
+    return null;
   }
 }
 
@@ -450,10 +492,7 @@ export async function researchRunStatus(tenantId: string, now: Date = new Date()
     const run = await repo.latest(tenantId);
     return projectStatusView(run, now.getTime());
   } catch (error) {
-    log.warn("[research-run] status read failed; rendering none", {
-      tenantId,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    log.warn("[research-run] status read failed; rendering none", { tenantId, error: error instanceof Error ? error.message : String(error) });
     return projectStatusView(null, now.getTime());
   }
 }

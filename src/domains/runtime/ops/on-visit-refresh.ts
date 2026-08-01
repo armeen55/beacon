@@ -17,6 +17,7 @@ export type { ResearchCycleSteps } from "./research-steps";
 import {
   advancePhase,
   claimRun,
+  countContinuationHop,
   finishRun,
   newOwnerToken,
   nextPhase,
@@ -396,9 +397,9 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
   });
 }
 
-/** How many continuations ONE trigger may chain. The bound is the whole safety story: each hop is its own
- *  request with its own lease claim, so a closed tab simply stops, and this stops a live one from looping
- *  forever on a due list it can never clear. */
+/** How many continuations ONE account may chain in ONE reporting day. The bound is the whole safety story:
+ *  each hop is its own request with its own lease claim, so a closed tab simply stops, and this stops a live
+ *  one from looping forever on a due list it can never clear. */
 const MAX_CONTINUATIONS = 6;
 
 /**
@@ -408,14 +409,26 @@ const MAX_CONTINUATIONS = 6;
  * response. What is new is that a hop reports back, so the surface that asked for it can ask again while
  * work remains. Each hop is a SEPARATE request that claims the lease for itself, which is why a closed tab
  * stops safely, a reopened one resumes exactly where the row says, and two tabs cannot both advance a run.
+ *
+ * THE HOP IS NOT THE CLIENT'S TO COUNT. It arrives from the browser, so a caller that kept sending 0 got a
+ * fresh allowance every time and the bound bounded nothing. The count is kept on the account's own row,
+ * scoped to the reporting day, inherited by every pass that opens that day, and the ceiling is enforced
+ * against THAT number; the client's claim is a fallback for the one case where nothing can be counted yet.
  */
 export async function continueResearch(tenantId: string, hop = 0, options: ResearchCycleOptions = {}): Promise<{ hop: number; more: boolean }> {
-  const next = Math.max(0, Math.trunc(hop)) + 1;
-  if (!tenantId || next > MAX_CONTINUATIONS) return { hop: Math.max(0, Math.trunc(hop)), more: false };
+  const claimed = Math.max(0, Math.trunc(hop));
+  if (!tenantId) return { hop: claimed, more: false };
+  const nowFn = options.now ?? (() => new Date());
+  const counted = await countContinuationHop(tenantId, utcReportingDay(nowFn().getTime()));
+  const next = counted ?? claimed + 1;
+  if (next > MAX_CONTINUATIONS) {
+    log.debug("[research-run] today's continuation bound is spent; this hop runs nothing", { tenantId, hop: next });
+    return { hop: next, more: false };
+  }
   await runResearchCycle(tenantId, options).catch((error) => {
     log.warn("[research-run] continuation hop failed (non-blocking)", { tenantId, hop: next, error: error instanceof Error ? error.message.slice(0, 200) : String(error) });
   });
-  const work = await (options.steps?.dueWork ?? dueWork)(tenantId, (options.now ?? (() => new Date()))()).catch(() => null);
+  const work = await (options.steps?.dueWork ?? dueWork)(tenantId, nowFn()).catch(() => null);
   return { hop: next, more: next < MAX_CONTINUATIONS && !!work?.readable && work.due.length > 0 };
 }
 

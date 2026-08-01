@@ -46,8 +46,11 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } {
   const rows: RR.ResearchRun[] = [];
   const find = (id: string, t: string) => rows.find((x) => x.id === id && x.tenant_id === t);
   const live = (r: RR.ResearchRun, o: string) => r.lease_owner === o && r.lease_expires_at != null && Date.parse(r.lease_expires_at) >= NOW;
-  const openRun = (t: string) =>
-    rows.filter((x) => x.tenant_id === t && (x.status === "running" || x.status === "paused")).sort((a, b) => b.started_at.localeCompare(a.started_at))[0];
+  /** started_at desc, insertion order breaking a tie: several rows of one test day share a timestamp,
+   *  and "the latest row" is the question the day-scoped state and the hop count both ask. */
+  const newestFirst = (t: string) => rows.map((r, i) => [r, i] as const).filter(([r]) => r.tenant_id === t)
+    .sort((a, b) => b[0].started_at.localeCompare(a[0].started_at) || b[1] - a[1]).map(([r]) => r);
+  const openRun = (t: string) => newestFirst(t).find((x) => x.status === "running" || x.status === "paused");
   const repo: RR.ResearchRunRepo = {
     async claim({ tenantId, owner, leaseSeconds }) {
       // Mirror the RPC's new leading guard: no claim unless the account is active.
@@ -92,9 +95,18 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } {
       if (!r || !live(r, owner) || !(r.status === "running" || r.status === "paused")) return false;
       Object.assign(r, { status: outcome, lease_owner: null, lease_expires_at: null, last_error: done ? null : errorInfo ?? null, ...(done ? { current_phase: "done", completed_at: iso() } : {}) });
       return true; },
-    async latest(t) {
-      const m = rows.filter((x) => x.tenant_id === t).sort((a, b) => b.started_at.localeCompare(a.started_at));
-      return m[0] ? { ...m[0] } : null; },
+    async latest(t) { const m = newestFirst(t)[0]; return m ? { ...m } : null; },
+    // The reporting day rides on the tail of BOTH cycle-key shapes, which is how the day's rows are found.
+    async sameDay({ tenantId, day, limit }) {
+      return newestFirst(tenantId).filter((x) => x.cycle_key.endsWith(day)).slice(0, limit)
+        .map((x) => ({ id: x.id, progress: x.progress ?? {} })); },
+    async countContinuation({ tenantId, day }) {
+      const row = newestFirst(tenantId)[0];
+      if (!row) return null;
+      const held = row.progress?.continuations;
+      const count = (held?.day === day ? held.count : 0) + 1;
+      row.progress = { ...row.progress, continuations: { day, count } };
+      return count; },
   };
   return { repo, rows };
 }
@@ -345,6 +357,16 @@ describe("research-run Today copy", () => {
     const stale = mk({ ...stuck, current_phase: "serp_analysis" });
     expect(RR.researchStatusLine(RR.projectStatusView(stale, NOW))).toBe("Research in progress: reading the results pages for your strongest topics.");
   });
+  it("stops calling a dead process work in progress: a freshly-touched running row reads in progress, one untouched for ten minutes reads interrupted", () => {
+    const fresh = mk({ status: "running", current_phase: "serp_analysis", updated_at: iso(NOW - 60_000) }); // a minute since the last real write
+    expect(RR.researchStatusLine(RR.projectStatusView(fresh, NOW))).toBe("Research in progress: reading the results pages for your strongest topics.");
+    // The SAME row, untouched past the stale bound: the owner died, and saying so is the honest read.
+    const dead = RR.projectStatusView(mk({ ...fresh, updated_at: iso(NOW - 11 * 60_000) }), NOW);
+    expect([dead.state, dead.pauseReason]).toEqual(["paused", "I was interrupted mid research. I pick this back up on your next visit."]);
+    expect(RR.researchStatusLine(dead)).toBe("Research paused after 4 of 7 steps. I was interrupted mid research. I pick this back up on your next visit.");
+    // It reads off updated_at alone, so a lease that lived or died still moves nothing: no flicker.
+    expect(RR.projectStatusView(mk({ ...fresh, lease_owner: "o", lease_expires_at: iso(NOW - LEASE) }), NOW))
+      .toEqual(RR.projectStatusView(fresh, NOW)); });
 });
 
 describe("research-run conflict-free research closure", () => {
@@ -456,13 +478,48 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     expect([log, rows.length]).toEqual([["refresh", "backfill", "publish"], 2]); }); // tomorrow is untouched by today's empty pass
 
   it("chains bounded continuations: it re-schedules only while work is due, and never past the bound", async () => {
-    completedToday(); let hops = 0;
-    const chain = async (due: () => DueWork) => { let hop = 0, ran = 0;
-      for (;;) { const step = await continueResearch(T, hop, { now: () => new Date(NOW), steps: { ...BENIGN, dueWork: async () => (hops += 1, due()) } });
-        ran += 1; if (!step.more) return { hop: step.hop, ran }; hop = step.hop; } };
+    let hops = 0;
+    const chain = async (due: () => DueWork) => { completedToday(); let hop = 0, ran = 0;
+      // Bounded well past the ceiling so a regression FAILS instead of looping: the day's hop count is
+      // what makes this terminate, and it only survives because a new pass row inherits it.
+      while (ran < 12) { const step = await continueResearch(T, hop, { now: () => new Date(NOW), steps: { ...BENIGN, dueWork: async () => (hops += 1, due()) } });
+        ran += 1; if (!step.more) return { hop: step.hop, ran }; hop = step.hop; }
+      return { hop, ran } };
     expect((await chain(() => NOTHING_DUE)).ran).toBe(1); // nothing due after the first hop: no second request is asked for
     hops = 0; const forever = await chain(() => SOMETHING_DUE);
     expect([forever.hop, forever.ran]).toEqual([6, 6]); }); // due forever still stops at the bound
+
+  it("carries the day's own state onto the pass it justified: the grant, the ceiling marker, the reading receipt and the decide watermark all survive a new row, and none of them survives the day", async () => {
+    const rows = freshRepo(); const day = today();
+    const dayState = { extraSamples: { day, granted: 1 }, capped: { day, caseIds: ["inv_haft"] },
+      synthesisAttempted: true, decided: { basis: "basis_test", rowVersion: 12 } };
+    rows.push(mk({ id: "done1", status: "completed", completed_at: iso(), current_phase: "done", progress: dayState }));
+    await run({ dueWork: async () => SOMETHING_DUE });
+    // The planner, the case receipt and the watermark all read the LATEST row. Before this, the pass the
+    // grant paid for was born blank, so the grant it opened on could never be spent and the watermark it
+    // needed to close the day was gone.
+    expect([rows.length, rows[1]!.status]).toEqual([2, "completed"]);
+    expect(rows[1]!.progress).toMatchObject(dayState);
+    NOW += DAY; await run({ dueWork: async () => SOMETHING_DUE }); // a new reporting day inherits none of it
+    expect([rows.length, rows[2]!.progress.extraSamples, rows[2]!.progress.capped, rows[2]!.progress.synthesisAttempted])
+      .toEqual([3, undefined, undefined, undefined]); });
+
+  it("refuses to open a ninth pass on one day, however due the work still looks", async () => {
+    const rows = freshRepo(); const day = today();
+    for (let i = 0; i < 8; i += 1) rows.push(mk({ id: `p${i}`, status: "completed", completed_at: iso(), current_phase: "done", cycle_key: `${T}:p${i + 1}:${day}` }));
+    expect(await RR.startExtraPass(T, "tab-9", day)).toBeNull(); // the honest ceiling, not a claim that nothing is due
+    await run({ dueWork: async () => SOMETHING_DUE, refreshSources: async () => { throw new Error("no phase may run"); } });
+    expect(rows).toHaveLength(8); }); // an unsatisfiable topic stops costing a pass per navigation
+
+  it("counts continuation hops on the account's own row, so a client that keeps claiming hop 0 is refused once the day's bound is spent", async () => {
+    const rows = completedToday(); let cycles = 0; const seen: Array<{ hop: number; more: boolean }> = [];
+    const steps = { ...BENIGN, dueWork: async () => SOMETHING_DUE,
+      refreshSources: async () => (cycles += 1, { attempted: 0, succeeded: [], failures: [] }) };
+    for (let i = 0; i < 8; i += 1) seen.push(await continueResearch(T, 0, { now: () => new Date(NOW), steps })); // the same made-up hop, every time
+    expect(seen.map((s) => s.hop)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]); // the SERVER counts, and the count survives every new pass row
+    expect(seen.map((s) => s.more)).toEqual([true, true, true, true, true, false, false, false]);
+    expect(cycles).toBe(6); // the last two hops ran nothing at all
+    expect(rows[rows.length - 1]!.progress.continuations).toEqual({ day: today(), count: 8 }); });
 
   it("two tabs cannot both open a same-day pass: the second insert loses to the one-open-run invariant", async () => {
     const rows = completedToday();
@@ -505,6 +562,16 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     // An OPEN run with no plan bound to this basis owes one; an idle account with no plan owes nothing.
     expect(await due({ run: async () => ({ open: true, progress: { decided: { basis: "b1", rowVersion: 7 } } }) })).toEqual(["plan_cases"]);
     expect(await due({ run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 } } }) })).toEqual([]); });
+
+  it("treats a completed pass's frozen plan as a receipt, not a standing queue: only an arrived retry date or a still-open run makes a topic owed", async () => {
+    const plan = { basis: "b1", topics: [{ topicKey: "t1", query: "haft seen", requirement: "exact_serp" }] }; // frozen, no date promised
+    const decided = { basis: "b1", rowVersion: 7 };
+    const due = async (open: boolean) => (await dueWork(T, new Date(NOW), { ...base, run: async () => ({ open, progress: { decided, focus: plan } }) })).due;
+    expect(await due(false)).toEqual([]); // the pass that froze it CONSUMED it: a quiet account takes the zero-cost exit
+    expect(await due(true)).toEqual(["acquire_case_evidence"]); // the run that froze it is still open and genuinely owes the work
+    // And a date I promised that has ARRIVED is owed whether or not a run is open.
+    expect((await dueWork(T, new Date(NOW), { ...base, run: async () => ({ open: false, progress: { decided, focus: parked(NOW - 1) } }) })).due)
+      .toEqual(["acquire_case_evidence"]); });
 
   it("says UNREADABLE rather than empty when the durable state cannot be read, so a caller never mistakes a failed read for a finished day", async () => {
     const blind = await dueWork(T, new Date(NOW), { ...base, run: async () => { throw new Error("db down"); } });

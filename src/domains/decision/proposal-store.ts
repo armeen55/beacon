@@ -27,6 +27,11 @@
  * under the SAME basis is refused, and a re-draft under a NEW basis is allowed,
  * because that is genuinely a different reading of a different world.
  *
+ * A CHANGE THE OPERATOR APPLIED IS NEVER RETIRED FOR A NEWER IDEA. Only a row still
+ * waiting on them (proposed / needs_review) may be superseded; an applied row is
+ * being measured and a rejected one was already answered, so a new draft for that
+ * hypothesis is refused instead.
+ *
  * HISTORY IS READABLE, NEVER RESURRECTED. Nothing writes `move_drafts` anymore.
  * Those rows are read as history for ids the canonical table has never heard of
  * (a pre-cutover proposal Results still needs), and a row the canonical table
@@ -67,8 +72,11 @@ type TerminalDisposition = "dismissed" | "withdrawn" | "superseded";
 
 /** saved = a new version is durable. unchanged = the stored row already says exactly
  *  this, so nothing was written. refused = this hypothesis was dismissed and the
- *  evidence has not moved since. failed = the write did not land. */
-export type SaveResult = "saved" | "unchanged" | "refused" | "failed";
+ *  evidence has not moved since. blocked = the row holding this hypothesis is one the
+ *  operator already acted on, so it is being measured and may not be retired for a
+ *  fresh idea. failed = the write did not land. Internal: the four calling surfaces
+ *  branch on the literals, and nothing outside this file names the type. */
+type SaveResult = "saved" | "unchanged" | "refused" | "blocked" | "failed";
 
 // ── canonical identity ────────────────────────────────────────────────────────
 
@@ -191,10 +199,16 @@ function decisionReceipt(p: ChangeProposal): Record<string, unknown> {
 type CanonRow = {
   id: string;
   proposal_version: number;
+  status: ChangeProposal["status"];
   terminal_disposition: TerminalDisposition | null;
+  superseded_by: string | null;
   basis: string | null;
   payload: unknown;
 };
+
+/** The columns every canonical read needs: the identity, the lifecycle status the
+ *  handover rule leans on, the disposition and its pointer, and the payload itself. */
+const CANON_COLUMNS = "id, proposal_version, status, terminal_disposition, superseded_by, basis, payload";
 
 /** Re-validate a stored payload on EVERY load: a hand-edited row can never be
  *  served as a trusted proposal. */
@@ -253,7 +267,7 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<Save
     // Everything already filed under this hypothesis, in one read.
     const { data, error } = await sb
       .from(TABLE)
-      .select("id, proposal_version, terminal_disposition, basis, payload")
+      .select(CANON_COLUMNS)
       .eq("tenant_id", proposal.tenantId)
       .eq("case_id", ident.case_id)
       .eq("page_key", ident.page_key)
@@ -272,8 +286,12 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<Save
 
     // A CHANGE THE OPERATOR PUT AWAY STAYS AWAY until the evidence itself moves. Same
     // basis, same dismissal. A new basis is a genuinely different reading, so it may try again.
-    const dismissed = [mine, ...rows].find((r) => r?.terminal_disposition === "dismissed") ?? null;
-    if (dismissed && (dismissed.basis ?? null) === (proposal.basis ?? null)) return "refused";
+    // ASK EVERY DISMISSAL, NOT WHICHEVER ONE THE DATABASE HAPPENED TO RETURN FIRST: these rows
+    // come back unordered, so picking one and comparing its basis let a page dismissed under
+    // today's basis be re-drafted under today's basis whenever an older dismissal sorted ahead
+    // of it. The dismissal WRITER is still the operator control Phase 8 builds; nothing in this
+    // file sets 'dismissed', and this gate is what that control will lean on.
+    if ([mine, ...rows].some((r) => r?.terminal_disposition === "dismissed" && (r.basis ?? null) === (proposal.basis ?? null))) return "refused";
 
     // Nothing material changed: no write, no new timestamp, so a refreshed surface never
     // reads yesterday's thinking as today's work.
@@ -286,6 +304,17 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<Save
     // One identity, one current row: the predecessor steps aside BEFORE the successor
     // lands, because the index will not hold both at once.
     const handover = current && current.id !== proposal.id ? current : null;
+    // A CHANGE THE OPERATOR ALREADY MADE IS NOT MINE TO RETIRE. Supersession had no status guard,
+    // so a fresh idea about the same page could push an APPLIED row into history while its
+    // measurement window was still running: the change being measured stopped being the current
+    // answer, and the proof it was collecting lost the row it belonged to. Only a row still
+    // waiting on the operator (proposed / needs_review) may step aside. Everything else keeps its
+    // place and the new draft is refused, honestly and countably.
+    if (handover && handover.status !== "proposed" && handover.status !== "needs_review") {
+      log.info("[proposal-store] this page already carries a change I am measuring, so the new draft is not saved", {
+        tenantId: proposal.tenantId, holding: handover.id, status: handover.status, draft: proposal.id });
+      return "blocked";
+    }
     if (handover) {
       log.info("[proposal-store] superseding", { id: handover.id, by: proposal.id, version });
       if (!(await setDisposition(proposal.tenantId, handover.id, "superseded", proposal.id))) return "failed";
@@ -326,7 +355,7 @@ export async function markProposalApplied(tenantId: string, id: string): Promise
 async function rowById(tenantId: string, id: string): Promise<CanonRow | null> {
   const { data, error } = await getSupabaseAdmin()
     .from(TABLE)
-    .select("id, proposal_version, terminal_disposition, basis, payload")
+    .select(CANON_COLUMNS)
     .eq("tenant_id", tenantId)
     .eq("id", id)
     .limit(1);
@@ -376,33 +405,93 @@ export async function loadChangeProposal(tenantId: string, id: string): Promise<
 export async function loadChangeProposals(tenantId: string, limit = 500): Promise<Map<string, ChangeProposal>> {
   const out = new Map<string, ChangeProposal>();
   if (!tenantId) return out;
-  let known: Set<string> | null = null;
+  const sb = getSupabaseAdmin();
+  let canonical = false;
   try {
-    const { data, error } = await getSupabaseAdmin()
+    // THE QUEUE READ ASKS FOR THE QUEUE. It used to ask for everything and filter in memory, so a
+    // few hundred superseded versions could fill the row budget and push the account's actual
+    // current work off the end: history is not competing for this read any more.
+    const { data, error } = await sb
       .from(TABLE)
       .select("id, terminal_disposition, payload")
       .eq("tenant_id", tenantId)
+      .is("terminal_disposition", null)
       .order("updated_at", { ascending: false })
       .limit(limit);
     if (error) {
       log.error("[proposal-store] canonical read failed, showing history only", { tenantId, error: error.message });
     } else {
-      known = new Set<string>();
+      canonical = true;
       for (const r of (data ?? []) as CanonRow[]) {
-        known.add(r.id);
-        if (r.terminal_disposition != null) continue;
         const proposal = decode(r.payload);
         if (proposal) out.set(r.id, proposal);
       }
+      for (const [id, proposal] of await strandedHandovers(tenantId, out)) out.set(id, proposal);
     }
   } catch (e) {
     log.error("[proposal-store] canonical read threw, showing history only", {
       tenantId, error: e instanceof Error ? e.message : String(e) });
   }
-  for (const row of await readLegacy(tenantId, limit)) {
-    if (out.has(row.id) || known?.has(row.id)) continue; // first seen = newest; never revive what the canon retired
+  // HISTORY IS NEVER RESURRECTED. A legacy row may only fill an id the canonical table has never
+  // heard of AT ALL, so a row it holds as superseded, dismissed or withdrawn cannot come back
+  // through the old store. When the canonical read itself failed there is nothing to check against,
+  // and showing the history is the honest degrade.
+  const legacy = (await readLegacy(tenantId, limit)).filter((r) => !out.has(r.id));
+  const retired = canonical && legacy.length > 0 ? await idsOnFile(tenantId, legacy.map((r) => r.id)) : new Set<string>();
+  for (const row of legacy) {
+    if (out.has(row.id) || retired.has(row.id)) continue; // first seen = newest
     const proposal = decode(row.content);
     if (proposal) out.set(row.id, proposal);
   }
   return out;
+}
+
+/** Which of these ids the canonical table holds in ANY state. One bounded lookup, asked only about
+ *  ids a legacy row wants to fill. */
+async function idsOnFile(tenantId: string, ids: string[]): Promise<Set<string>> {
+  try {
+    const { data, error } = await getSupabaseAdmin()
+      .from(TABLE).select("id").eq("tenant_id", tenantId).in("id", ids.slice(0, 500));
+    if (error || !data) return new Set<string>();
+    return new Set((data as Array<{ id: string }>).map((r) => r.id));
+  } catch {
+    return new Set<string>();
+  }
+}
+
+/**
+ * REPAIR ON READ: a handover whose successor never landed. Superseding is two writes (the
+ * predecessor steps aside, then the successor lands), and a crash between them leaves a row
+ * pointing at a proposal that does not exist, so the hypothesis has no current answer at all and
+ * the operator silently loses the change. The in-process rollback still runs; this covers the
+ * crash it cannot. A superseded row whose successor is not on file is treated as current again,
+ * and the next successful save fixes the disposition durably. Bounded to the newest handovers,
+ * which is where a stranded one always is: stepping aside stamps updated_at.
+ */
+async function strandedHandovers(tenantId: string, current: Map<string, ChangeProposal>): Promise<Array<[string, ChangeProposal]>> {
+  try {
+    const { data, error } = await getSupabaseAdmin()
+      .from(TABLE)
+      .select("id, superseded_by, payload")
+      .eq("tenant_id", tenantId)
+      .eq("terminal_disposition", "superseded")
+      .order("updated_at", { ascending: false })
+      .limit(25);
+    if (error || !data) return [];
+    const rows = (data as CanonRow[]).filter((r) => !!r.superseded_by && !current.has(r.superseded_by));
+    if (rows.length === 0) return [];
+    const landed = await idsOnFile(tenantId, rows.map((r) => r.superseded_by as string));
+    const out: Array<[string, ChangeProposal]> = [];
+    for (const r of rows) {
+      if (landed.has(r.superseded_by as string)) continue;
+      const proposal = decode(r.payload);
+      if (!proposal) continue;
+      log.warn("[proposal-store] a superseded change points at a successor that never landed; reading it as current again", {
+        tenantId, id: r.id, missing: r.superseded_by });
+      out.push([r.id, proposal]);
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }

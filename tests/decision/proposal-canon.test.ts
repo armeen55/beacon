@@ -12,13 +12,21 @@ const db = vi.hoisted(() => {
   const client = {
     from(table: string) {
       const filters: Array<[string, unknown]> = [];
+      const sets: Array<[string, readonly unknown[]]> = [];
       let op: "select" | "update" | "upsert" = "select";
       let patch: Row = {}, sent: Row[] = [];
+      // The row budget and the sort order are part of what the queue read is being asked to prove,
+      // so the fake honours order + limit instead of returning everything it holds.
+      let sortBy: [string, boolean] | null = null, max = Number.MAX_SAFE_INTEGER;
       const rows = () => (table === CANON ? state.rows : state.legacy);
-      const hit = (r: Row) => filters.every(([c, v]) => r[c] === v);
+      const hit = (r: Row) => filters.every(([c, v]) => (r[c] ?? null) === v) && sets.every(([c, vs]) => vs.includes(r[c]));
       const run = () => {
         if (table === CANON && state.missing) return { data: null, error: { code: "PGRST205", message: "table not found in schema cache" } };
-        if (op === "select") return { data: rows().filter(hit).map((r) => ({ ...r })), error: null };
+        if (op === "select") {
+          const found = rows().filter(hit).map((r) => ({ ...r }));
+          if (sortBy) { const [col, asc] = sortBy; found.sort((a, b) => (asc ? 1 : -1) * String(a[col] ?? "").localeCompare(String(b[col] ?? ""))); }
+          return { data: found.slice(0, max), error: null };
+        }
         if (op === "update") { const affected = rows().filter(hit); for (const r of affected) Object.assign(r, patch); return { data: affected.map((r) => ({ id: r.id })), error: null }; }
         if (state.breakWrite) return { data: [], error: null }; // accepted, landed nothing
         for (const row of sent) {
@@ -32,8 +40,12 @@ const db = vi.hoisted(() => {
         return { data: sent.map((r) => ({ id: r.id })), error: null };
       };
       const q: Record<string, unknown> = {
-        select: () => q, order: () => q, limit: () => q,
+        select: () => q,
+        order: (c: string, o?: { ascending?: boolean }) => { sortBy = [c, o?.ascending !== false]; return q; },
+        limit: (n: number) => { max = n; return q; },
         eq: (c: string, v: unknown) => { filters.push([c, v]); return q; },
+        is: (c: string, v: unknown) => { filters.push([c, v]); return q; },
+        in: (c: string, vs: readonly unknown[]) => { sets.push([c, vs]); return q; },
         update: (p: Row) => { op = "update"; patch = p; return q; },
         upsert: (r: Row[]) => { op = "upsert"; sent = r; return q; },
         then: (resolve: (v: unknown) => void) => resolve(run()),
@@ -133,6 +145,45 @@ describe("canonical proposal persistence", () => {
     expect((await loadChangeProposals(T)).size).toBe(2);
     expect(await saveChangeProposal(proposal({ status: "applied" }))).toBe("failed");
   });
+
+  it("never retires a change the operator already acted on: a newer draft for that hypothesis is refused and the applied row keeps its place", async () => {
+    expect(await saveChangeProposal(proposal({ status: "applied" }))).toBe("saved"); // the operator marked it implemented
+    expect(await saveChangeProposal(deep())).toBe("blocked"); // the same page, the same family, a fresh idea
+    expect(db.state.rows).toHaveLength(1);
+    expect([db.state.rows[0]!.status, db.state.rows[0]!.terminal_disposition, db.state.rows[0]!.superseded_by])
+      .toEqual(["applied", null, null]); // the change being measured is still the current answer
+    expect([...(await loadChangeProposals(T)).keys()]).toEqual([proposal().id]); // the queue is exactly what it was
+    // A rejected row was already answered, so it is not shoved aside for a new draft either.
+    Object.assign(db.state.rows[0]!, { status: "rejected" });
+    expect(await saveChangeProposal(deep())).toBe("blocked"); });
+
+  it("asks EVERY dismissal, not whichever row came back first: a redraft under a basis this hypothesis was dismissed under is refused", async () => {
+    await saveChangeProposal(proposal({ basis: "basis_a" }));
+    Object.assign(db.state.rows[0]!, { terminal_disposition: "dismissed" }); // put away under basis_a
+    expect(await saveChangeProposal(deep({ basis: "basis_b" }))).toBe("saved"); // a new reading, so it may try again
+    Object.assign(db.state.rows[1]!, { terminal_disposition: "dismissed" }); // put away under basis_b too
+    // The dismissal that decides is the one under THIS basis, wherever it sits in an unordered read.
+    expect(await saveChangeProposal(proposal({ basis: "basis_b" }))).toBe("refused");
+    expect(await saveChangeProposal(proposal({ basis: "basis_c" }))).toBe("saved"); });
+
+  it("repairs a handover whose successor never landed: the predecessor reads as current again until a real successor exists", async () => {
+    await saveChangeProposal(proposal());
+    // The crash the in-process rollback cannot cover: the predecessor stepped aside, the insert never landed.
+    Object.assign(db.state.rows[0]!, { terminal_disposition: "superseded", superseded_by: deep().id });
+    expect([...(await loadChangeProposals(T)).keys()]).toEqual([proposal().id]); // the hypothesis is not stranded
+    await saveChangeProposal(deep()); // the successor lands for real
+    expect([...(await loadChangeProposals(T)).keys()]).toEqual([deep().id]); }); // and the repair stops applying
+
+  it("reads the queue, not the archive: hundreds of retired versions never crowd out the current work, and none of them comes back through the old store", async () => {
+    const canonRow = (id: string, over: Row = {}): Row => ({ id, tenant_id: T, site: "", case_id: "", page_key: id, action_family: "title-family",
+      proposal_version: 1, basis: "basis_today::d6", status: "proposed", terminal_disposition: null, superseded_by: null,
+      payload: JSON.parse(serializeChangeProposal(proposal({ id }))), updated_at: "2026-07-31T09:00:00.000Z", ...over });
+    const live = [0, 1, 2, 3, 4].map((i) => `${T}::/live-${i}::existing_edit::title`);
+    for (const id of live) db.state.rows.push(canonRow(id, { updated_at: "2026-07-30T09:00:00.000Z" })); // the oldest-touched rows of all
+    for (let i = 0; i < 600; i += 1) { const id = `${T}::/old-${i}::existing_edit::title`;
+      db.state.rows.push(canonRow(id, { terminal_disposition: "superseded", superseded_by: live[i % 5]! })); }
+    seedLegacy(proposal({ id: `${T}::/old-7::existing_edit::title` })); // the old store still holds a copy of a retired row
+    expect([...(await loadChangeProposals(T)).keys()].sort()).toEqual([...live].sort()); }); // five current rows, and not one resurrection
 
   it("calls a write that landed no row a FAILURE and gives the predecessor its place back", async () => {
     await saveChangeProposal(proposal());

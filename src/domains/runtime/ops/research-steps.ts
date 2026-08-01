@@ -168,6 +168,7 @@ export const defaultSteps: ResearchCycleSteps = {
       const ask = cursor?.stage === "compare" ? await comparisonForFocus(tenantId, focus, (cursor.basis as string) ?? null).catch(() => null) : null;
       // AT MOST ONE page of the account's OWN per run, and only one the frozen plan named and is due to read.
       // The unit's fifth argument `ownedBustedAt` (when that page's truth changed underneath me) has NO production supplier yet and is deliberately left unpassed: its supplier is the Shipment record, which Phase 6 builds.
+      // The SAME deferral runs the other way for the ceiling marker this run persists onto its own row (progress.capped): `caseResearchReceipt`'s `cappedToday` argument has no production CALLER yet, because the surface that shows one case's receipt is Phase 8 work. The marker is written now so that surface has something true to read the day it is built, and it is day-scoped so it cannot go stale waiting.
       return winningPagesUnit({}, queries, ask, ownedUrl)(tenantId, cursor, budgetMs);
     }
     if (phase === "prompt_observations") {

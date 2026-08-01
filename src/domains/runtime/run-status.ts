@@ -6,8 +6,10 @@ import "server-only";
  * the ONE honest status line. Split out of research-run.ts, which owns the record and the
  * repository and nothing about how it reads.
  *
- * EVERY FIELD COMES OFF THE PERSISTED ROW. Nothing here consults a lease, a clock or a cache,
- * so two requests reading the same unchanged row always say the same thing.
+ * EVERY FIELD COMES OFF THE PERSISTED ROW. Nothing here consults a lease or a cache, so two
+ * requests reading the same unchanged row always say the same thing. The ONE clock-dependent
+ * reading is the interruption below, and it is taken against a persisted column that moves only
+ * when real work happens, never against transient lease state.
  */
 
 import type { ResearchPhase, ResearchRun } from "./research-run";
@@ -43,6 +45,15 @@ export type ResearchRunStatusView = {
   cases?: { active: number; parked: number };
 };
 
+/** How long a `running` row may sit UNTOUCHED before I stop calling it work in progress. Every unit
+ *  of a live pass renews its lease and writes progress, so ten minutes of silence on the row means
+ *  the process that held it died (a lambda timeout, a deploy, a closed tab mid-phase). */
+const STALE_RUN_MS = 10 * 60 * 1000;
+
+/** What a dead process is honestly told. It cannot flicker: `updated_at` moves only on a real
+ *  progress write, so the same row reads the same way on every request until work actually resumes. */
+const INTERRUPTED_REASON = "I was interrupted mid research. I pick this back up on your next visit.";
+
 /** Human step index for a phase; `done` maps to all 7 steps done. */
 function stepsDoneForPhase(phase: ResearchPhase): number {
   if (phase === "done") return RESEARCH_RUN_STEPS_TOTAL;
@@ -68,13 +79,19 @@ const PHASE_LABEL: Record<ResearchPhase, string> = {
  * paused, which meant two requests seconds apart could read the same unchanged row and report
  * different things, and the operator watched a status flicker while nothing had happened. The
  * lease decides WHICH invocation may work; it says nothing about what the account should be
- * told. Every field below now comes from the row's own persisted columns and progress.
+ * told. Every field below comes from the row's own persisted columns and progress.
+ *
+ * A DEAD PROCESS IS NOT WORK IN PROGRESS EITHER. Deleting the lease projection also deleted the
+ * honesty that came with it: a `running` row whose owner died read "Research in progress" forever.
+ * A row that has not been TOUCHED in STALE_RUN_MS is reported as interrupted, which is true and
+ * cannot flicker, because updated_at only ever moves forward on a real write.
  */
 export function projectStatusView(run: ResearchRun | null, nowMs: number): ResearchRunStatusView {
-  void nowMs; // nothing here is clock-dependent any more: the row IS the answer
   if (run == null) return { state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: RESEARCH_RUN_STEPS_TOTAL, counters: {}, updatedAt: null, completedAt: null, pauseReason: null };
 
-  const state: ResearchRunStatusView["state"] = run.status;
+  const touchedAt = Date.parse(run.updated_at ?? "");
+  const interrupted = run.status === "running" && Number.isFinite(touchedAt) && nowMs - touchedAt >= STALE_RUN_MS;
+  const state: ResearchRunStatusView["state"] = interrupted ? "paused" : run.status;
   const persisted = run.progress?.state ?? {};
 
   const counters: ResearchRunStatusView["counters"] = {};
@@ -107,9 +124,10 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
     updatedAt: run.updated_at ?? null,
     completedAt: run.completed_at ?? null,
     // A reason belongs to the phase that recorded it (claim preserves last_error): a stale
-    // reason from an already-passed phase must never resurrect.
-    pauseReason:
-      state === "paused" && run.last_error?.phase === run.current_phase ? (run.last_error?.message?.trim() || null) : null,
+    // reason from an already-passed phase must never resurrect. An interrupted run has no
+    // recorded reason at all, because nothing got the chance to write one.
+    pauseReason: interrupted ? INTERRUPTED_REASON
+      : state === "paused" && run.last_error?.phase === run.current_phase ? (run.last_error?.message?.trim() || null) : null,
   };
 }
 

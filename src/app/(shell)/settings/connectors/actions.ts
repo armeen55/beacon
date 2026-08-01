@@ -1093,8 +1093,9 @@ export type RefreshAllConnectedResult = {
  */
 /** ONE bounded research hop, and whether another is owed. This is the SAME entry point the
  *  Update data button already uses, so the continuation needs no route, no cron and no
- *  background promise: each hop is its own request that claims the lease for itself, the
- *  server owns the bound, and a closed tab simply stops asking. */
+ *  background promise: each hop is its own request that claims the lease for itself and a closed
+ *  tab simply stops asking. The `hop` a caller passes is a REPORT, not an authority: the server
+ *  keeps the day's real count on the account's own row and enforces the bound against that. */
 export async function continueResearchNow(hop = 0): Promise<{ hop: number; more: boolean }> {
   const tenantId = await currentTenantId().catch(() => "");
   return tenantId ? continueResearch(tenantId, hop) : { hop: 0, more: false };

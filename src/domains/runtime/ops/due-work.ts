@@ -176,7 +176,14 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   const topics = bound ? focus!.topics : [];
   // 5. EXTERNAL WAITS. A promised retry date is the reason nothing is due, never work.
   const parked = topics.filter((t) => !!t.retryAfter && Date.parse(t.retryAfter) > nowMs);
-  const active = topics.filter((t) => !parked.includes(t) && (!!t.query || !!t.requirement));
+  // A FROZEN PLAN IS NOT A STANDING DEBT. The pass that froze it CONSUMED it: to a completed run the
+  // plan is a receipt, not a queue. Reading it as owed work meant an account whose plan named a topic
+  // nothing could satisfy opened a full pass on every navigation, all day, forever. A topic is owed on
+  // exactly two proofs: a retry date I promised has actually ARRIVED, or the run that froze the plan is
+  // still OPEN and genuinely owes the work. Never merely because a finished pass once wrote it down.
+  const arrived = (t: { retryAfter?: string | null }): boolean => !!t.retryAfter && Date.parse(t.retryAfter) <= nowMs;
+  const openRun = run.value?.open === true;
+  const active = topics.filter((t) => !parked.includes(t) && (!!t.query || !!t.requirement) && (openRun || arrived(t)));
   const nextDueAt = parked.map((t) => t.retryAfter!).sort()[0] ?? null;
 
   // 2. EVIDENCE FRESHNESS as a WATERMARK, not as a feeling: the research notes moved past the version
@@ -193,7 +200,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   // A plan is owed when the notes moved (what is stuck may have changed) or when a run is still OPEN and
   // has no plan bound to this basis: that run genuinely owes one. An idle account with no plan owes
   // nothing, because re-planning unchanged notes reaches the identical answer at the same price.
-  if (notesMoved || (run.value?.open === true && !bound)) due.push("plan_cases");
+  if (notesMoved || (openRun && !bound)) due.push("plan_cases");
   if (active.length > 0) due.push("acquire_case_evidence");
   if (notesMoved) due.push("decide_and_prepare");
   if (measurable.value > 0) due.push("verify_and_measure");
