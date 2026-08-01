@@ -15,6 +15,8 @@ import {
   applyTrackedSelection, projectTrackedQuestions,
 } from "@/domains/runtime";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
+import { CONNECTOR_REGISTRY } from "@/lib/connectors/registry";
+import { historyNote } from "@/app/(shell)/settings/config/tracked-prompts-section";
 import { reserveOnboardingSpend, reconcileOnboardingSpend } from "@/domains/decision/llm/adjudicator-budget";
 import { getTenantLifetimeSpendUsd } from "@/lib/cost/budget-ledger-supabase";
 // Durable ledger: one accumulating aggregate row. Reads sum it; a write applies the row recordSpendSupabase computed (clamped at zero). ledgerThrows = unreadable; ledgerWriteFails = rejected write.
@@ -300,5 +302,69 @@ describe("onboarding contract (Slice 5)", () => {
     expect([n(9), n(10), n(100), n(101)]).toEqual([false, true, true, false]);
     const funnelWay = rows.filter((p) => p.is_active && p.tags.includes("core_v1")).sort((a, b) => (a.created_at === b.created_at ? a.id.localeCompare(b.id) : a.created_at.localeCompare(b.created_at))).map((p) => p.id).slice(0, 100);
     expect(projectTrackedQuestions(rows).active.map((q) => q.id)).toEqual(funnelWay); // what the operator reads is exactly what I check
+  });
+});
+
+/**
+ * PHASE 8 SURFACES. The three promises the setup and settings screens make to a customer: approving
+ * the recommendation is ONE action over topics rather than a hundred and fifty rows, an account that
+ * stopped halfway comes back to the step it actually reached, and Connections offers the customer's
+ * own tools and nothing Beacon runs on its own account.
+ */
+/** Fourteen topics of five questions: a broad candidate universe (70) an operator must never be
+ *  asked to read row by row. The first seven topics are the ones approved as a group below. */
+const TOPICS = [
+  ...INTENTS.map((intent) => ({ slug: `${intent}first`, half: "first", intent, size: 5 })),
+  ...INTENTS.slice(0, 5).map((intent) => ({ slug: `${intent}second`, half: "second", intent, size: 7 })),
+];
+const FIVE_PER_TOPIC: CompleteFn = async () => ({ value: { groups: TOPICS.map((t, gi) => ({
+  slug: t.slug, name: `${t.intent} ${t.half} topics`, intent: t.intent,
+  prompts: WORDS.slice(0, t.size).map((word) => ({ text: `${t.intent} ${t.half} ${word} question`, recommended: gi < 7 })) })) } });
+const FIRST_SEVEN_TOPICS = TOPICS.slice(0, 7).map((t) => t.slug);
+
+describe("setup and settings surfaces (Phase 8)", () => {
+  it("approves 35 grouped questions in ONE action, without the operator reading a single row", async () => {
+    const w = makeWorld(); seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
+    const built = await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC });
+    expect(built.ok && built.candidateCount).toBe(70);
+    // ONE call, seven topic slugs, no individual ids: the group IS the unit of approval.
+    const r = await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
+    expect(r.ok && r.approvedCount).toBe(35);
+    expect(activeCore(w, A)).toHaveLength(35);
+    // And the approved total sits inside the 20 to 50 core set Beacon starts an account on.
+    expect(activeCore(w, A).length).toBeGreaterThanOrEqual(20);
+    expect(activeCore(w, A).length).toBeLessThanOrEqual(50);
+  });
+
+  it("brings an account that stopped halfway back to the step it actually reached, not to the start", async () => {
+    const w = makeWorld(); seedPending(w, A, { domain: "acme.com" }); seedConfirmedProfile(w, A);
+    // Website, understanding and confirmation are done; the goal is not.
+    expect((await loadOnboardingState(A, w.deps)).currentStep).toBe(4);
+    await saveGoal(A, "grow", w.deps);
+    expect((await loadOnboardingState(A, w.deps)).currentStep).toBe(5); // questions are what is left
+    await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC });
+    await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
+    // Connections are skippable, so a finished question set lands on the last optional step.
+    const resumed = await loadOnboardingState(A, w.deps);
+    expect(resumed.currentStep).toBe(6);
+    expect(resumed.connections.every((c) => !c.connected)).toBe(true); // and none of them is required to get here
+  });
+
+  it("offers the customer's own four sources on Connections, and nothing Beacon runs on its own account", () => {
+    expect(CONNECTOR_REGISTRY.map((c) => c.id).sort()).toEqual(["clarity", "google_ga4", "google_gsc", "wix"]);
+    const words = CONNECTOR_REGISTRY.map((c) => `${c.label} ${c.summary}`).join(" ").toLowerCase();
+    expect(words).not.toMatch(/openai|dataforseo|crawler|perplexity|gemini/);
+    expect(CONNECTOR_REGISTRY.find((c) => c.id === "google_gsc")!.summary).toContain("Strongly recommended");
+  });
+
+  it("tells an operator where each tracked question's trend starts, so a rewording never looks like a drop", () => {
+    expect(historyNote({ version: 1, createdAt: "2026-05-10T00:00:00Z" }))
+      .toBe("I have asked this exact question since May 10, and its trend runs from there.");
+    expect(historyNote({ version: 3, createdAt: "2026-05-10T00:00:00Z" }))
+      .toBe("This is version 3 of this question. I changed it 2 times, and each change restarts its trend, so I only compare it against readings of the wording it has now.");
+    for (const note of [historyNote({ version: 1, createdAt: "2026-05-10T00:00:00Z" }), historyNote({ version: 2, createdAt: "2026-05-10T00:00:00Z" })]) {
+      expect(note!).not.toMatch(/[–—]/);
+      expect(note!).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    }
   });
 });

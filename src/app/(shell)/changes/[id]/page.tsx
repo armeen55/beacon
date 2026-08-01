@@ -10,10 +10,10 @@ import {
 } from "@/lib/perf-trace";
 import { loadProofLedgerPersisted } from "@/domains/measurement";
 import { findProofForChange, proofResultHref } from "@/domains/measurement";
-import { loadChangeProposal, loadProposalQueue } from "@/domains/decision";
+import { causeLabel, loadChangeProposal, loadProposalQueue } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
-import { MarkImplemented } from "../../changes-list-client";
+import { MarkImplemented, SetAsideChange } from "../../changes-list-client";
 
 // Phase 1.6 (Sprint 1 follow-up, 2026-04-24): force dynamic render so every
 // request runs the fresh-repo-read pattern below. Matches /changes main list.
@@ -220,6 +220,8 @@ function BundleDetail({ proposal, bundle }: { proposal: ChangeProposal; bundle: 
         </section>
       ) : null}
 
+      <Investigation proposal={proposal} />
+
       {bundle.risks.length > 0 ? (
         <section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5">
           <Heading>Risks</Heading>
@@ -233,13 +235,106 @@ function BundleDetail({ proposal, bundle }: { proposal: ChangeProposal; bundle: 
         <p className="text-[13px] text-muted-foreground">I will watch: {bundle.metric}</p>
       </section>
 
-      <section className="rounded-2xl border border-border bg-surface-raised p-5">
-        <MarkImplemented proposalId={proposal.id} label={isNew ? "I built this page" : "I made this change"} />
-        <p className="mt-2 text-[12px] text-muted-foreground">
-          After you make it, record this page on Results and the measurement starts.
+      <section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
+        <MarkImplemented
+          proposalId={proposal.id}
+          label={isNew ? "I built this page" : "I made this change"}
+          components={bundle.components.map((c) => ({ kind: c.kind, label: c.label }))}
+        />
+        <p className="text-[12px] text-muted-foreground">
+          After you make it, I check the page myself and the measurement starts from what I find.
         </p>
+        <SetAsideChange proposalId={proposal.id} />
       </section>
     </div>
+  );
+}
+
+/** What one ranking factor did to the order, in words rather than a raw score. A factor is
+ *  bounded by its own ceiling, so the operator can see that no single input can run away with
+ *  the queue, and a factor that changed nothing says so instead of printing a zero. */
+function weightWord(contribution: number, max: number): string {
+  const n = Math.round(Math.abs(contribution) * 10) / 10;
+  const ceiling = Math.round(max * 10) / 10;
+  if (n === 0) return "did not move this one either way";
+  return contribution > 0 ? `moved it up ${n} of a possible ${ceiling}` : `moved it down ${n} of a possible ${ceiling}`;
+}
+
+/**
+ * LAYER 2: THE INVESTIGATION. Everything above this decides; this proves. It is behind one
+ * expander because an operator who trusts the recommendation should never have to scroll past
+ * the reasoning to reach the copy, and an operator who does not trust it must be able to see
+ * every step without asking anyone.
+ *
+ * All four parts are computed by the cause ladder (decision/diagnosis) and were carried on the
+ * proposal with nothing rendering them: the named cause and its explanation, what else was on
+ * the table and why each lost, what would prove the whole thing wrong, and every cause that was
+ * never weighed at all because its evidence is not on file. That last one is the honest one:
+ * "not considered" is a finding, never a silence, and it is never dressed up as ruled out.
+ *
+ * The ranking receipt sits with them, so the operator can see which inputs put this change where
+ * it is, and how much each one could ever contribute.
+ */
+function Investigation({ proposal }: { proposal: ChangeProposal }) {
+  const finding = proposal.causeFinding;
+  const receipt = proposal.rankingReceipt;
+  const hints = (proposal.evidence?.hints ?? []).filter((h) => h.trim().length > 0);
+  if (!finding && !receipt && hints.length === 0) return null;
+  return (
+    <details className="rounded-2xl border border-border bg-surface-raised p-5" data-investigation="true">
+      <summary className="cursor-pointer text-[14px] font-semibold text-foreground">
+        Show me how you worked this out
+      </summary>
+      <div className="mt-4 space-y-4">
+        {finding ? (
+          <>
+            <div className="space-y-1">
+              <p className="text-[12px] font-semibold text-foreground">What I think is wrong</p>
+              <p className="text-[13px] leading-relaxed text-muted-foreground">
+                {causeLabel(finding.cause)}. {finding.explanation}
+              </p>
+            </div>
+            {finding.competingExplanations.length > 0 ? (
+              <div className="space-y-1">
+                <p className="text-[12px] font-semibold text-foreground">What else I considered and why it lost</p>
+                <Bullets items={finding.competingExplanations.map((c) => `${causeLabel(c.cause)}: ${c.reason}.`)} />
+              </div>
+            ) : null}
+            <div className="space-y-1">
+              <p className="text-[12px] font-semibold text-foreground">What would change my mind</p>
+              <p className="text-[13px] leading-relaxed text-muted-foreground">{finding.falsifier}</p>
+            </div>
+            {finding.notConsidered.length > 0 ? (
+              <div className="space-y-1">
+                <p className="text-[12px] font-semibold text-foreground">What I could not test, and why</p>
+                <Bullets items={finding.notConsidered.map((n) => `${causeLabel(n.cause)}: ${n.missing}`)} />
+              </div>
+            ) : null}
+          </>
+        ) : null}
+
+        {hints.length > 0 ? (
+          <div className="space-y-1">
+            <p className="text-[12px] font-semibold text-foreground">What I read to get here</p>
+            <Bullets items={hints} />
+          </div>
+        ) : null}
+
+        {receipt ? (
+          <div className="space-y-1">
+            <p className="text-[12px] font-semibold text-foreground">Why this one ranks where it does</p>
+            <ul className="space-y-1 text-[13px] leading-relaxed text-muted-foreground">
+              {receipt.factors.map((f, i) => (
+                <li key={i} className="tabular-nums">
+                  {f.input} ({weightWord(f.contribution, f.max)})
+                </li>
+              ))}
+            </ul>
+            <p className="text-[12px] leading-relaxed text-muted-foreground">{receipt.basis}</p>
+          </div>
+        ) : null}
+      </div>
+    </details>
   );
 }
 

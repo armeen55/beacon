@@ -11,7 +11,7 @@ import {
   editLifecycleStatus,
   markRecommendedEditsAsShipped,
 } from "@/domains/decision";
-import { loadChangeProposal, markProposalApplied, resolveCurrentBasis, type ChangeProposal } from "@/domains/decision";
+import { dismissChangeProposal, loadChangeProposal, markProposalApplied, resolveCurrentBasis, type ChangeProposal } from "@/domains/decision";
 import { captureChangeMeta, loadShippedChanges, recordShippedChange, upsertShippedChange } from "@/domains/measurement";
 import { invalidateCoreSurfaces } from "../surface-release";
 
@@ -139,11 +139,10 @@ async function recordShipment(
 }
 
 /**
- * DEFERRED TO PHASE 8, and named so nobody has to guess what is missing: the CONTROLS. The Changes card
- * still presses this with a proposal id and nothing else, because the component PICKER (tick the pieces you
- * actually applied) and the OVERRIDE control (say this is live and skip the check, with your reason) are
- * that phase's surface work. Both are honest arguments here today, so the day those controls are built they
- * hand this action a value it already records rather than needing the action reopened.
+ * Record that the operator applied a change. Phase 8 built the two controls this action was
+ * already written for: the component PICKER (tick the pieces you actually applied, all ticked by
+ * default) and the OVERRIDE (say it is live and ask me not to check the page, with your reason).
+ * Both arrive here as the arguments they were always declared as.
  */
 export async function markProposalImplementedAction(args: {
   proposalId: string;
@@ -203,6 +202,44 @@ export async function markProposalImplementedAction(args: {
       error: err instanceof Error ? err.message : String(err),
     });
     return { success: false, error: `Failed to mark implemented: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
+ * THE operator's "put this aside". A Suggested change the operator does not want takes the one
+ * terminal disposition that means exactly that: dismissed. It is not a rejection by Beacon and
+ * not a lifecycle stage, so the change keeps its status and simply stops being the current
+ * answer, and the store refuses to re-draft the same hypothesis until the evidence itself moves.
+ *
+ * ONLY WORK STILL WAITING ON THE OPERATOR. A change already marked implemented is being measured,
+ * so it is refused here in the operator's own words rather than quietly ignored.
+ */
+export async function dismissProposalAction(args: {
+  proposalId: string;
+}): Promise<MarkProposalImplementedResponse> {
+  const action = "dismissProposal";
+  if (!(await canPublishForCurrentTenant())) {
+    return { success: false, error: "You do not have permission to change this." };
+  }
+  if (!args.proposalId) return { success: false, error: "No change was specified." };
+  const tenantId = await currentTenantId();
+  try {
+    const stored = await loadChangeProposal(tenantId, args.proposalId).catch(() => null);
+    if (stored == null) return { success: false, error: "I couldn't find that change to put it aside." };
+    if (stored.status === "applied") {
+      return { success: false, error: "You already marked this one done, so I am measuring it. I am not putting it away while a reading is running." };
+    }
+    if (!(await dismissChangeProposal(tenantId, args.proposalId))) {
+      return { success: false, error: "I couldn't put that one aside just now. Press it again in a moment." };
+    }
+    await invalidateCoreSurfaces().catch(() => {});
+    revalidatePath("/changes");
+    revalidatePath("/", "layout");
+    log.info("Action completed", { action, params: { proposalId: args.proposalId } });
+    return { success: true };
+  } catch (err) {
+    log.error("dismissProposal: failed", { proposalId: args.proposalId, error: err instanceof Error ? err.message : String(err) });
+    return { success: false, error: "I couldn't put that one aside just now. Press it again in a moment." };
   }
 }
 

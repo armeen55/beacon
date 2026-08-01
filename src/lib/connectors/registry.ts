@@ -111,7 +111,7 @@ export const CONNECTOR_REGISTRY: readonly ConnectorRegistryEntry[] = [
     label: "Google Search Console",
     activityLabel: "Google Search Console",
     freshnessLabel: "Search Console",
-    summary: "Feeds what people search to find you.",
+    summary: "Feeds what people search to find you. Strongly recommended, and never required to use Beacon.",
     capabilities: { readsData: true, publishes: false },
     requiresPropertySelection: false,
     capabilityCopy: {

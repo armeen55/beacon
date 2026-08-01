@@ -101,9 +101,8 @@ export type ShippedChangeRecord = {
   preChangeContentHash: string | null;
   /** Where this page stood at mark time. Write-once. */
   shipmentBaseline: ShipmentBaseline | null;
-  /** Null until the live check runs, and null is the due marker. DEFERRED TO PHASE 8: the SURFACES that
-   *  render what the check found (the Changes card line, the Results row) are that phase's work; the answer
-   *  accumulates now so the day they are built they read truth instead of an empty column. */
+  /** Null until the live check runs, and null is the due marker. Results renders what the check found,
+   *  component by component, and says plainly when I have not looked yet. */
   verification: ShipmentVerification | null;
   /** Why the operator overrode what the check found. */
   operatorOverrideReason: string | null;

@@ -1,25 +1,26 @@
 /**
- * today-command (Wave 3B, 2026-07-10) - THE one command model for Today. Today's job is to
- * answer one question in under five seconds: "what is the single best thing I should do now?".
- * This PURE selector collapses every Today signal into ONE ranked directive so the operator is
- * never handed three competing "do this" cards again.
+ * today-command (V1 Truth Convergence Phase 8, 2026-08-01) - THE one command model for Today.
+ * Today answers one question in under five seconds: "what is the single best thing I should do
+ * now?".
  *
- * It SUBSUMES the three separate lead widgets Today used to stack:
- *   - the smoke alarm card (a page bleeding clicks)
- *   - the lead headline card (biggest win + next move)
- *   - the lead of the "What to do next" opportunities list
- * ...into a single command whose kind is chosen by a strict priority so two of them can never
- * shout at once.
+ * FOUR PRIMARY STATES, AND EXACTLY ONE AT A TIME:
+ *   needs_attention - something genuinely blocks me, so today's numbers are not trustworthy yet.
+ *   act_now         - I hold at least one change that is ready to apply, best first.
+ *   researching     - work is running or waiting on a date, with the numbers the run persisted.
+ *   monitoring      - changes you applied are measuring and nothing stronger is ready.
  *
- * PURE, no I/O. Deterministic for a fixed input. Beacon voice: first person where it speaks, a
- * concrete number, a next step; no lab jargon; no em or en dashes.
+ * THIS REPLACES the five overlapping command kinds that came before it (fix_defect,
+ * background_recovery, respond_to_loss, ship_move, observe), where a losing page and a ready
+ * move were two different "do this" cards competing for the same slot, and a quiet day could
+ * read as all clear on a screen that also reported pages losing clicks.
  *
- * P2-b (2026-07-10, visual audit) - the observe copy never repeats a number or date the proof
- * strip (Today slot 5, right below this card) already owns: "N changes measuring" and "next
- * results land around X" used to render on BOTH the command and the strip at once. The observe
- * command now only points at what is measuring, in plain words, with no digit or date of its
- * own - firstReadOn stays on the input type (verdictSchedule's date, still useful context for a
- * future caller) but is deliberately not rendered here anymore.
+ * NEVER ALL CLEAR WITH LOSSES. `losingNote` is computed independently of the state and renders
+ * in every one of them, so a page bleeding clicks is said out loud whether I have a fix for it
+ * or not. A loss is evidence that something moved; it was never evidence of what to do, so it
+ * informs the card and never takes it over.
+ *
+ * PURE, no I/O. Deterministic for a fixed input. Beacon voice: first person, a concrete number
+ * when one exists, always a next step; no lab jargon; no em or en dashes.
  */
 
 import type { TodaySmokeAlarm } from "@/components/today/today-smoke-alarm";
@@ -28,7 +29,7 @@ import type { TodaySmokeAlarm } from "@/components/today/today-smoke-alarm";
  *  that the changes-domain today-view/canonical-change types were retired). */
 export type EvidenceStrength = "strong" | "directional" | "tracking";
 
-/** The one ranked "do this next" opportunity Today reads, derived from a ranked
+/** One ranked "do this next" change Today reads, derived from a ranked
  *  ChangeProposal (see today-view-data). */
 export type TodayOpportunity = {
   changeId: string;
@@ -38,77 +39,115 @@ export type TodayOpportunity = {
   estimatedEffortMinutes: number;
   upside: number | null;
   evidenceStrength: EvidenceStrength;
+  /** WHY THIS SITS WHERE IT SITS, stamped by the ONE ranker (rank-proposals) and rendered
+   *  rather than recomputed. Absent on the last ranked row, which has nothing below it. */
+  whyRankedAboveNext?: string;
 };
 
-export type TodayCommandKind = "fix_defect" | "background_recovery" | "respond_to_loss" | "ship_move" | "observe";
-
-/** The one accent call to action. The card renders exactly one of these; it is the only accent
- *  element above the fold. */
-export type TodayCommandCta = { label: string; href: string };
+/** The four states Today may be in. There is no fifth, and no two at once. */
+export type TodayPrimaryState = "needs_attention" | "act_now" | "researching" | "monitoring";
 
 export type TodayCommand = {
-  kind: TodayCommandKind;
+  state: TodayPrimaryState;
   /** One bold directive: the single best thing to do now. */
   headline: string;
   /** The evidence lines under the headline (up to five, only as many as are true). */
   why: string[];
   /** One exact next step, in plain first person. */
   exactAction: string;
-  /** The one accent CTA (never more than one). */
-  cta: TodayCommandCta | null;
+  /** The one accent call to action (never more than one). */
+  cta: { label: string; href: string } | null;
+  /** The top three ranked changes. Only `act_now` ever carries any. */
+  ranked: TodayOpportunity[];
+  /** A page or a whole site losing clicks, in one sentence, whatever the state.
+   *  Null only when nothing is actually losing. */
+  losingNote: string | null;
+};
+
+/** What the persisted Research Run row says about work in flight, straight off the
+ *  columns run-status projects. Nothing here is recomputed or guessed. */
+type TodayResearchProgress = {
+  /** The run is open and being worked right now. */
+  running?: boolean;
+  /** The plain-language phase the row records ("researching what your customers search for"). */
+  phaseLabel?: string;
+  /** Today's AI checks, as the planner's own arithmetic persisted them. */
+  checksDone?: number;
+  checksTotal?: number;
+  /** Topics the frozen plan still has open. */
+  casesActive?: number;
+  /** The earliest date a promised retry becomes legal. */
+  nextDueAt?: string | null;
 };
 
 export type TodayCommandInput = {
-  /** First-person sentences for each RED-tier pipeline violation (a genuinely broken pipe).
-   *  Empty when the pipe is healthy. A stale-but-connected warning is NOT a defect and must be
-   *  filtered out by the caller before it lands here. */
-  pipelineAlarms: readonly string[];
-  /** True only when the defect invalidates measurement itself. A failed draft
-   * or page-factory job is operationally real but must not discredit valid GSC. */
-  dataTrustBroken?: boolean;
+  /** First-person sentences for each genuine blocker: a connection that failed, a spending
+   *  breaker that tripped, a business profile I do not hold. Empty on a healthy account.
+   *  A stale-but-connected warning is NOT a blocker and must be filtered out upstream. */
+  blockers: readonly string[];
+  /** Where the operator fixes the blocker above. */
+  blockerHref?: string;
   /** The page-blame smoke alarm (a specific page losing real clicks), or null. Already gated at
    *  its own floor (MIN_CLICKS_LOST = 10) upstream, so its mere presence is a material loss. */
   smokeAlarm: TodaySmokeAlarm | null;
   /** Week over week percent change in search clicks (rounded), or null when there is not enough
-   *  history to say. A whole-site drop is a material loss even when no single page took the blame. */
+   *  history to say. A whole-site drop is a material loss even when no single page took blame. */
   scoreboardDeltaPct: number | null;
-  /** The single best undone move, or null when the backlog has nothing actionable.
-   *  It comes from the SAME release's ready queue as everything else on Today, so the
-   *  action Today names is the action the decision kernel actually resolved. */
-  topOpportunity: TodayOpportunity | null;
+  /** The ranked ready queue, best first. One or more of these IS the act-now state. */
+  readyChanges: readonly TodayOpportunity[];
   /** The kernel's own verdict for the declining page when it earned no change
    *  ("...its search click-through is healthy, so I am watching it..."), in one plain
-   *  sentence. Absent = quote no verdict and say plainly that I am still checking. */
+   *  sentence. Absent = quote no verdict and say plainly that I have not found a change. */
   declineVerdict?: string | null;
   /** verdictSchedule.firstReadOn (YYYY-MM-DD, UTC): the soonest date the next results land. */
   firstReadOn: string | null;
-  /** The earliest date a page I could not read may legally be tried again, or null when nothing is
-   *  waiting. While it is set I am not checking anything: I am waiting, and I have to say so. */
+  /** The earliest date a page I could not read may legally be tried again, or null when nothing
+   *  is waiting. While it is set I am not checking anything: I am waiting, and I have to say so. */
   waitingUntil?: string | null;
   /** The canonical count of changes still measuring (countLedgerLifecycle). */
   measuringCount: number;
+  /** The persisted run row, when there is one. */
+  research?: TodayResearchProgress;
+  /** Drafts this pass held back because the page already carries a change I am measuring. */
+  heldForMeasurement?: number;
+  /** Proven losses whose cause I am still identifying. */
+  investigating?: number;
 };
 
 /**
- * The material-loss threshold: a whole-site week-over-week drop this steep is today's biggest
- * problem even without a single blamed page. Deliberately NOT the -2 amber COLOR threshold the
- * scoreboard uses to tint its delta (scoreboard-section.tsx): a small dip changes the color, but
- * only a real drop takes over the command.
+ * The material-loss threshold: a whole-site week-over-week drop this steep is a real loss even
+ * with no single blamed page. Deliberately NOT the -2 amber COLOR threshold the scoreboard uses
+ * to tint its delta (scoreboard-section.tsx): a small dip changes the color, only a real drop
+ * earns a sentence of its own.
  */
-export const LOSS_DELTA_PCT = -10;
+const LOSS_DELTA_PCT = -10;
 
 /** Drop a single trailing period so a directive never reads with two dots. */
 function stripPeriod(s: string): string {
   return s.replace(/\.\s*$/, "");
 }
 
+/** A date in the operator's words: the day, never a timestamp and never a countdown. A bare
+ *  YYYY-MM-DD is a FINALIZED DAY (the measurement schedule's own unit) and is read in UTC, so
+ *  the day I promise is the day I named; a full timestamp is a moment and is read where the
+ *  operator lives, which is the same rule today-view-data's retry sentence follows. */
+const dayLabel = (iso: string): string => {
+  const dateOnly = iso.length === 10;
+  return new Date(dateOnly ? `${iso}T00:00:00Z` : iso).toLocaleDateString("en-US", {
+    month: "long", day: "numeric", timeZone: dateOnly ? "UTC" : "America/Los_Angeles",
+  });
+};
+
+/** A date I can actually say, or null. An unparseable stamp promises nothing. */
+const usableDay = (iso: string | null | undefined): string | null =>
+  iso && Number.isFinite(Date.parse(iso.length === 10 ? `${iso}T00:00:00Z` : iso)) ? iso : null;
+
+const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
+
 /**
- * P2-d (2026-07-10, visual audit) - the command card's own evidence words, mapped from the
- * SAME evidenceStrength field the Changes list's EVIDENCE_LABEL reads (canonical-change.ts),
- * but plainer: "Directional signal." and "Tracking only." read as lab jargon sitting inside
- * the ONE command's evidence bullet, even though EVIDENCE_LABEL is fine on a dense Changes row
- * next to other short chips. This map is used ONLY here, on the command card - EVIDENCE_LABEL
- * itself is unchanged for every other surface.
+ * The command card's own evidence words, mapped from the SAME evidenceStrength field the
+ * Changes list reads, but plainer: "Directional signal." and "Tracking only." read as lab
+ * jargon inside the one command's evidence bullet.
  */
 const COMMAND_EVIDENCE_WORD: Record<EvidenceStrength, string> = {
   strong: "Strong comparison behind it.",
@@ -116,231 +155,184 @@ const COMMAND_EVIDENCE_WORD: Record<EvidenceStrength, string> = {
   tracking: "Still building evidence for this one.",
 };
 
-/** The command's CTA opens the ranked Changes queue with the recommended move on top.
- *  It used to carry ?focus=<id>, which nothing on /changes has ever read. */
+/** The command's CTA opens the ranked Changes queue with the recommended move on top. */
 const CHANGES_HREF = "/changes";
 
-function fixDefect(input: TodayCommandInput): TodayCommand {
-  if (input.dataTrustBroken === false) {
-    return {
-      kind: "background_recovery",
-      headline: "I am finishing some background work. Your Google numbers are still trustworthy.",
-      why: input.pipelineAlarms.slice(0, 4).map((s) => s.trim()).filter(Boolean),
-      exactAction: "I am retrying the failed work automatically while you use Beacon. Refresh once in a moment to see the recovered state.",
-      cta: null,
-    };
-  }
-  return {
-    kind: "fix_defect",
-    headline: "Something is broken, so today's numbers are not trustworthy yet.",
-    // The exact broken stages, in the pipe's own first-person sentences (up to four).
-    why: input.pipelineAlarms.slice(0, 4).map((s) => s.trim()).filter(Boolean),
-    exactAction: "Reconnect the source flagged above, then refresh so I can trust the numbers again.",
-    cta: { label: "Check your connections", href: "/settings/connectors" },
-  };
-}
-
 /**
- * ONE honest line about a page that lost clicks and earned NO change. A decline is
- * evidence that something moved; it is not evidence of what to do. Today may MENTION
- * it, and must carry the decision's own verdict when there is one, so a page the
- * kernel resolved to watch is never dressed up as the next action.
+ * ONE honest sentence about what is losing clicks, computed for EVERY state. A page the
+ * decision kernel resolved to watch carries the kernel's own verdict; a page with no verdict
+ * says plainly that I have not found a change for it; a whole-site drop with nobody to blame
+ * says exactly that. This is what makes an all-clear-with-losses screen impossible.
  */
-function declineNote(input: TodayCommandInput): string | null {
-  const a = input.smokeAlarm;
-  if (!a) return null;
-  const verdict = input.declineVerdict?.trim();
-  if (verdict) return verdict;
-  const lost = `${a.page} lost ${a.clicksLost.toLocaleString()} click${a.clicksLost === 1 ? "" : "s"} vs ${a.windowLabel}`;
-  return `${lost}, and I have not found a change on it my evidence supports yet, so I am watching it rather than sending you to rewrite a page that may be winning.`;
-}
-
-function respondToLoss(input: TodayCommandInput): TodayCommand {
+function losingNoteOf(input: TodayCommandInput): string | null {
   const alarm = input.smokeAlarm;
-  const delta = input.scoreboardDeltaPct;
   if (alarm) {
-    const why: string[] = [];
-    why.push("I already have a fix ready for this page.");
-    // Name a DIFFERENT window than the 4-week page number above: the whole-site last-7-vs-
-    // prior-7 delta. P2-c (2026-07-10, visual audit) - standardized to "vs the week before"
-    // (the SAME phrase the no-single-page branch below uses for this identical delta), so the
-    // two never read as two different measurements of the same number.
-    if (delta != null && delta <= -3) {
-      why.push(`Your whole site is down ${Math.abs(delta)}% vs the week before too.`);
-    }
-    if (input.measuringCount > 0) {
-      why.push(
-        `${input.measuringCount} other change${input.measuringCount === 1 ? " is" : "s are"} still measuring.`,
-      );
-    }
-    return {
-      kind: "respond_to_loss",
-      // The clicksLost delta and its window phrase both come from the ONE smoke
-      // alarm (windowLabel), so this headline and the alarm sentence name the same
-      // number over the same defined, reproducible window - never "the last 4
-      // weeks" with no end date. See today-smoke-alarm.ts for why.
-      headline: `Your biggest problem today: ${alarm.page} lost ${alarm.clicksLost.toLocaleString()} click${alarm.clicksLost === 1 ? "" : "s"} vs ${alarm.windowLabel}.`,
-      why,
-      exactAction: `Open ${alarm.page} and apply the fix.`,
-      cta: { label: alarm.actionLabel, href: alarm.href },
-    };
+    const verdict = input.declineVerdict?.trim();
+    if (verdict) return verdict;
+    const lost = `${alarm.page} lost ${alarm.clicksLost.toLocaleString()} ${plural(alarm.clicksLost, "click", "clicks")} vs ${alarm.windowLabel}`;
+    return alarm.hasReadyFix
+      ? `${lost}, and the change I have ready for it is in your queue.`
+      : `${lost}, and I have not found a change on it my evidence supports yet, so I am watching it rather than sending you to rewrite a page that may be winning.`;
   }
+  const delta = input.scoreboardDeltaPct;
+  if (delta != null && delta <= LOSS_DELTA_PCT) {
+    return `Your search clicks are down ${Math.abs(delta)}% vs the week before, and no single page took the blame, so this is a whole-site dip.`;
+  }
+  return null;
+}
 
-  // Whole-site drop with no single blamed page.
-  const pct = Math.abs(delta ?? 0);
-  const why: string[] = ["No single page took all the blame, so this is a whole-site dip."];
-  if (input.measuringCount > 0) {
-    why.push(
-      `${input.measuringCount} change${input.measuringCount === 1 ? " is" : "s are"} measuring, which may already be turning this around.`,
-    );
-  }
+// ── the four states ───────────────────────────────────────────────────────────
+
+/** 1. Something blocks me, so the numbers on this screen are not trustworthy yet. */
+function needsAttention(input: TodayCommandInput): TodayCommand {
   return {
-    kind: "respond_to_loss",
-    // P2-c (2026-07-10, visual audit) - "vs the week before" (not "over the last 7 days"),
-    // matching the SAME last-7-vs-prior-7 delta's phrasing above so the two never read as two
-    // different measurements.
-    headline: `Your search clicks are down ${pct}% vs the week before. That is today's biggest problem.`,
-    why,
-    exactAction: "Open Changes and ship the top recovery move.",
-    cta: { label: "See what to fix", href: "/changes" },
+    state: "needs_attention",
+    headline: "Something needs you before I can trust today's numbers.",
+    why: input.blockers.slice(0, 4).map((s) => s.trim()).filter(Boolean),
+    exactAction: "Fix the one flagged above, then refresh so I can trust the numbers again.",
+    cta: { label: "Fix this now", href: input.blockerHref ?? "/settings/connectors" },
+    ranked: [],
+    losingNote: losingNoteOf(input),
   };
 }
 
-function shipMove(input: TodayCommandInput): TodayCommand {
-  const o = input.topOpportunity!;
+/** 2. I hold work that is ready to apply. The top three ride the card, best first. */
+function actNow(input: TodayCommandInput): TodayCommand {
+  const ranked = input.readyChanges.slice(0, 3);
+  const top = ranked[0]!;
   const why: string[] = [];
-  // MODELED OPPORTUNITY, NEVER PROMISED LIFT. This line used to read "about N more
-  // clicks a month if this works", which forecast an edit against a generalized
-  // click curve that only ever measured a CEILING.
+  // MODELED OPPORTUNITY, NEVER PROMISED LIFT. This line used to read "about N more clicks a
+  // month if this works", which forecast an edit against a curve that only ever measured a
+  // ceiling.
   why.push(
-    o.upside != null && Number.isFinite(o.upside) && o.upside > 0
-      ? `${o.pageLabel}: this search earns about ${Math.round(o.upside).toLocaleString()} fewer clicks a month than pages at a similar position usually get.`
-      : `This one is on ${o.pageLabel}.`,
+    top.upside != null && Number.isFinite(top.upside) && top.upside > 0
+      ? `${top.pageLabel}: this search earns about ${Math.round(top.upside).toLocaleString()} fewer clicks a month than pages at a similar position usually get.`
+      : `This one is on ${top.pageLabel}.`,
   );
-  why.push(COMMAND_EVIDENCE_WORD[o.evidenceStrength]);
-  why.push(`About ${o.estimatedEffortMinutes} minute${o.estimatedEffortMinutes === 1 ? "" : "s"} of work.`);
-  const decline = declineNote(input);
-  if (decline) why.push(decline);
-  return {
-    kind: "ship_move",
-    headline: `Do this next: ${stripPeriod(o.recommendation)}.`,
-    why,
-    exactAction: `Open ${o.pageLabel} on Changes to make this change.`,
-    cta: { label: "See the change", href: CHANGES_HREF },
-  };
-}
-
-/**
- * Traffic really moved and I have no change I can stand behind. Say exactly that.
- * No CTA: sending an operator to Changes for a page that has no fix is the walk of
- * shame this product exists to prevent.
- */
-function stillChecking(input: TodayCommandInput): TodayCommand {
-  const why: string[] = [];
-  const decline = declineNote(input);
-  if (decline) why.push(decline);
-  if (input.measuringCount > 0) why.push("Your active changes are still measuring below.");
-  why.push("I will put a change in front of you the moment my evidence supports one.");
-  // A WAIT IS NOT A CHECK. "Still checking" over a cooldown promised activity that could not happen today,
-  // so a page that did not answer me reads as the wait it is, with the date I pick it back up.
-  const waiting = input.waitingUntil && Number.isFinite(Date.parse(input.waitingUntil)) ? input.waitingUntil : null;
-  return {
-    kind: "observe",
-    // Only a BLAMED page earns the plural "traffic gaps": that loss is measured on a
-    // named page. A whole-site delta with no page behind it is one moving number, and
-    // dressing it as found gaps claimed research that had not happened.
-    headline: waiting
-      ? `I could not read some of the pages I need, so I am waiting until ${waitingDay(waiting)} to try them again.`
-      : input.smokeAlarm
-        ? "I found meaningful traffic gaps, but I am still checking the results pages and competing pages before asking you to change anything."
-        : "Your search traffic moved this week, and I have not found a change I can stand behind yet.",
-    why,
-    // NOT "give me one more research pass". That asked the operator for something they cannot
-    // give, promised nothing back, and hid whether I would ever return to it. This says what is
-    // still open, that I carry it forward myself, and what would have to change for a topic I
-    // have already closed. No progress bar, and no number I have not measured.
-    exactAction: waiting
-      ? `There is nothing for you to do here today. I retry those pages myself from ${waitingDay(waiting)} and rank whatever they earn on Changes.`
-      : "There is nothing for you to do here today. I carry these searches forward and check them again on your next visit, and where the results never settle on one kind of page I close the topic and reopen it only if that changes.",
-    cta: null,
-  };
-}
-
-/** A retry date in the operator's words: the day, never a timestamp and never a countdown. */
-const waitingDay = (iso: string): string =>
-  new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "America/Los_Angeles" });
-
-function observe(input: TodayCommandInput): TodayCommand {
-  const why: string[] = [];
-  const hold = input.waitingUntil && Number.isFinite(Date.parse(input.waitingUntil)) ? input.waitingUntil : null;
-  const quietWait = hold ? `I could not read some of the pages I need, so I am waiting until ${waitingDay(hold)} to try them again.` : null;
-  if (input.measuringCount > 0) {
-    // P2-b (2026-07-10, visual audit) - the measuring count + next-read date are the proof
-    // strip's job (slot 5, right below this card); this line used to repeat both, so an
-    // observe day said "N changes are measuring... next results land around X" twice on the
-    // same screen. The command now only points at what is measuring, with no repeated number
-    // or date - the strip is the sole owner of both.
-    why.push("Your active changes are still measuring below.");
-    why.push("I will tell you the moment one of them needs a decision.");
-    return {
-      kind: "observe",
-      headline: quietWait ?? "Nothing needs a decision today. Keep measuring.",
-      why,
-      exactAction: "Check back tomorrow, or peek at what is measuring.",
-      cta: { label: "See what's measuring", href: "/results" },
-    };
+  why.push(COMMAND_EVIDENCE_WORD[top.evidenceStrength]);
+  why.push(`About ${top.estimatedEffortMinutes} ${plural(top.estimatedEffortMinutes, "minute", "minutes")} of work.`);
+  if (input.readyChanges.length > 1) {
+    const rest = input.readyChanges.length - 1;
+    why.push(`${rest} more ${plural(rest, "change is", "changes are")} ranked under it, and I say below why this one goes first.`);
   }
   return {
-    kind: "observe",
-    // A LIVE WAIT OWNS THIS LINE. The brief above the card was already saying I am waiting on pages I
-    // could not read, and this card answered "nothing needs a decision", on one screen, in one release.
-    headline: quietWait ?? "Nothing needs a decision today. Keep measuring.",
-    why: [
-      "Nothing I am tracking has moved enough to need a decision from you.",
-      "Ship a change from Changes and I will start measuring it.",
-    ],
-    exactAction: "Pick your next move from Changes when you are ready.",
-    cta: { label: "Open Changes", href: "/changes" },
+    state: "act_now",
+    headline: `Do this next: ${stripPeriod(top.recommendation)}.`,
+    why,
+    exactAction: `Open ${top.pageLabel} on Changes to make this change.`,
+    cta: { label: "See the change", href: CHANGES_HREF },
+    ranked,
+    losingNote: losingNoteOf(input),
+  };
+}
+
+/** 3. Work is running or waiting on a date, in the run's own persisted numbers. */
+function researching(input: TodayCommandInput): TodayCommand {
+  const r = input.research ?? {};
+  const waiting = usableDay(input.waitingUntil);
+  const due = usableDay(r.nextDueAt);
+  const investigating = input.investigating ?? 0;
+
+  // A WAIT IS NOT A CHECK. Saying I am "checking" while the next legal read is tomorrow made a
+  // cooldown read as work in flight and left the operator refreshing a page that could not change.
+  const headline = waiting
+    ? `I could not read some of the pages I need, so I am waiting until ${dayLabel(waiting)} to try them again.`
+    : r.running && r.phaseLabel
+      ? `I am researching right now: ${r.phaseLabel}.`
+      : investigating > 0
+        ? `I found ${investigating} ${plural(investigating, "page", "pages")} losing clicks and I am checking the live results ${plural(investigating, "page", "pages")} before asking you to change anything.`
+        : due
+          ? `My last research pass is finished, and nothing more is due until ${dayLabel(due)}.`
+          : "I am still gathering evidence, and I will rank your next move here as soon as one earns it.";
+
+  const why: string[] = [];
+  if (typeof r.checksDone === "number" && typeof r.checksTotal === "number" && r.checksTotal > 0) {
+    why.push(`${r.checksDone} of ${r.checksTotal} AI checks done today.`);
+  }
+  if (typeof r.casesActive === "number" && r.casesActive > 0) {
+    why.push(`${r.casesActive} ${plural(r.casesActive, "topic is", "topics are")} still open.`);
+  }
+  // A DRAFT HELD BACK IS NOT A DRAFT THAT FAILED. The store refuses a fresh idea for a page whose
+  // last change is still being measured, and saying so beats letting that page look forgotten.
+  const held = input.heldForMeasurement ?? 0;
+  if (held > 0) {
+    why.push(`I am holding ${held} new ${plural(held, "idea", "ideas")} back because ${plural(held, "that page", "those pages")} already ${plural(held, "carries", "carry")} a change I am measuring.`);
+  }
+  if (input.measuringCount > 0) {
+    why.push(`${input.measuringCount} of your ${plural(input.measuringCount, "change is", "changes are")} still measuring.`);
+  }
+  if (why.length === 0) why.push("I pick this back up on your next visit, and nothing here needs you first.");
+
+  return {
+    state: "researching",
+    headline,
+    why: why.slice(0, 5),
+    // NOT "give me one more research pass". That asked the operator for something they cannot
+    // give and hid whether I would ever return to it.
+    exactAction: waiting
+      ? `There is nothing for you to do here today. I retry those pages myself from ${dayLabel(waiting)} and rank whatever they earn on Changes.`
+      : "There is nothing for you to do here today. I carry this forward and rank whatever it earns on Changes.",
+    cta: null,
+    ranked: [],
+    losingNote: losingNoteOf(input),
+  };
+}
+
+/** 4. Changes you applied are live and measuring, and nothing stronger is ready. */
+function monitoring(input: TodayCommandInput): TodayCommand {
+  const n = input.measuringCount;
+  const why: string[] = [];
+  const read = usableDay(input.firstReadOn);
+  if (read) why.push(`The first read lands around ${dayLabel(read)}.`);
+  why.push("Nothing I am tracking has moved enough to need a decision from you.");
+  why.push("I will tell you the moment one of them needs one.");
+  return {
+    state: "monitoring",
+    headline: `${n} ${plural(n, "change is", "changes are")} live and measuring.`,
+    why,
+    exactAction: "Check back tomorrow, or look at what is measuring.",
+    cta: { label: "See what's measuring", href: "/results" },
+    ranked: [],
+    losingNote: losingNoteOf(input),
   };
 }
 
 /**
- * The one command for Today, by strict priority:
- *   1. a broken data pipe            -> fix_defect      (numbers are not trustworthy; fix it first)
- *   2. a loss I CAN FIX               -> respond_to_loss (a bleeding page whose fix is ready, or a
- *                                                        site-wide drop with a ranked move behind it)
- *   3. the top ranked move            -> ship_move       (the single best undone change)
- *   4. a loss I cannot fix yet        -> stillChecking   (say so, and ask for nothing)
- *   5. nothing to decide              -> observe         (keep measuring; here is when results land)
+ * THE one command for Today. Exactly one of four states, by strict priority:
+ *   1. a genuine blocker  -> needs_attention (numbers are not trustworthy; fix it first)
+ *   2. a ready change     -> act_now         (the top three, best first)
+ *   3. work in flight     -> researching     (running, waiting on a date, or investigating)
+ *   4. otherwise          -> monitoring      (what you applied is measuring)
  *
- * A DECLINE IS NOT AN ACTION (2026-07-27). Today used to promote any bleeding page to "your
- * biggest problem today" straight off the click-decay signal, completely independent of what the
- * decision kernel resolved for it: a page the kernel resolved to WATCH (its click-through is
- * healthy) was handed to the operator as the next thing to do, pointed at a Changes queue that
- * held no fix for it. Now a decline can only take over the command when THIS release actually
- * holds a ready fix for that page; otherwise it is mentioned, with its verdict, under a command
- * that is honest about what I can and cannot support.
+ * The last two are total between them: `researching` also owns the cold account with nothing
+ * measuring yet, so there is never a fifth answer and never a bare zero.
+ *
+ * A DECLINE IS NOT AN ACTION. A bleeding page cannot take over the command on its own: it
+ * rides `losingNote` in whatever state is true, with the kernel's own verdict when there is
+ * one, so a page the kernel resolved to WATCH is never handed over as the next thing to do.
  */
 export function buildTodayCommand(input: TodayCommandInput): TodayCommand {
-  if (input.pipelineAlarms.length > 0) return fixDefect(input);
-  const fixReady = input.smokeAlarm?.hasReadyFix === true;
-  const siteWideDrop = input.scoreboardDeltaPct != null && input.scoreboardDeltaPct <= LOSS_DELTA_PCT;
-  if (fixReady) return respondToLoss(input);
-  if (siteWideDrop && input.smokeAlarm == null && input.topOpportunity) return respondToLoss(input);
-  if (input.topOpportunity) return shipMove(input);
-  if (input.smokeAlarm != null || siteWideDrop) return stillChecking(input);
-  return observe(input);
+  if (input.blockers.length > 0) return needsAttention(input);
+  if (input.readyChanges.length > 0) return actNow(input);
+  const r = input.research ?? {};
+  const researchDue =
+    r.running === true
+    || usableDay(input.waitingUntil) != null
+    || usableDay(r.nextDueAt) != null
+    || (input.investigating ?? 0) > 0
+    || (input.heldForMeasurement ?? 0) > 0
+    || input.measuringCount === 0;
+  return researchDue ? researching(input) : monitoring(input);
 }
 
 /**
- * P1-5 (2026-07-10, visual audit) - whether the Today greeting's own streak clause ("you are on
- * a roll") may celebrate for this command kind. The audit's exact live contradiction: the
- * greeting said "16 changes shipped in the last 14 days, you are on a roll." directly above the
- * command's "Your biggest problem today: ... lost 163 clicks." A win-streak celebration must
- * never sit next to a command that says something is broken (fix_defect) or actively losing
- * (respond_to_loss) - the streak COUNT itself still renders either way (it stays true), only the
- * celebratory clause is suppressed. PURE.
+ * Whether the Today greeting's own streak clause ("you are on a roll") may celebrate in this
+ * state. The exact live contradiction this exists for: the greeting said "16 changes shipped in
+ * the last 14 days, you are on a roll." directly above a command naming a page that lost 163
+ * clicks. A celebration must never sit next to a blocker, and never next to a real loss. The
+ * streak COUNT itself still renders either way (it stays true), only the clause is suppressed.
+ * PURE.
  */
-export function commandAllowsCelebration(kind: TodayCommandKind): boolean {
-  return kind !== "fix_defect" && kind !== "background_recovery" && kind !== "respond_to_loss";
+export function commandAllowsCelebration(command: TodayCommand): boolean {
+  return command.state !== "needs_attention" && command.losingNote == null;
 }

@@ -44,9 +44,14 @@ export default async function OnboardPage({
     firstWin: state.findings.firstWin,
   };
 
+  // RESUME. An account whose lifecycle state is still incomplete is sent here by the one account
+  // gate, and the state machine above already resolves its REAL step. Landing on that step without
+  // asking for it IS a resume, so the screen says so rather than looking like a restart.
+  const resumed = requested === null && current > 1;
+
   return (
     <div className="mx-auto w-full max-w-2xl px-6 py-10">
-      <OnboardWizard state={state} step={rendered} firstFindings={firstFindings} />
+      <OnboardWizard state={state} step={rendered} firstFindings={firstFindings} resumed={resumed} />
     </div>
   );
 }

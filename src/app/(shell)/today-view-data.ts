@@ -41,6 +41,13 @@ export type TodayView = {
   /** The earliest date a page I could not read may be tried again, or absent when nothing is waiting.
    *  Today says the date instead of "checking", because a wait is not activity. */
   waitingUntil?: string;
+  /** Proven losses this pass is still identifying a cause for, carried so Today's researching
+   *  state can name the number instead of looking quiet. */
+  investigating?: number;
+  /** New ideas the store refused to file because the page already carries a change I am
+   *  measuring. A held draft is not a failed draft, and a page holding one must not look
+   *  forgotten. Absent when this pass held nothing back. */
+  heldForMeasurement?: number;
 };
 
 export type TodayComposite = {
@@ -71,8 +78,10 @@ function recommendationOf(p: ChangeProposal): string {
   return `Update the ${field} on ${p.pageLabel} to sharpen it for "${p.primaryQuery}"`;
 }
 
-/** PURE: map a ranked proposal to Today's opportunity shape. */
-export function proposalToOpportunity(p: ChangeProposal): TodayOpportunity {
+/** PURE: map a ranked proposal to Today's opportunity shape. `whyRankedAboveNext` is
+ *  RENDERED, never recomputed: the ONE ranker stamped it, so Today and Changes give the
+ *  operator the same reason for the same order. */
+function proposalToOpportunity(p: ChangeProposal): TodayOpportunity {
   return {
     changeId: p.id,
     pageLabel: p.pageLabel,
@@ -81,6 +90,7 @@ export function proposalToOpportunity(p: ChangeProposal): TodayOpportunity {
     estimatedEffortMinutes: p.estimatedEffortMinutes,
     upside: p.upsidePerMonth,
     evidenceStrength: CONFIDENCE_TO_STRENGTH[p.confidence],
+    ...(p.whyRankedAboveNext ? { whyRankedAboveNext: p.whyRankedAboveNext } : {}),
   };
 }
 
@@ -96,6 +106,8 @@ export type TodayProducerSignal = {
   declineNotes?: { page: string; note: string }[];
   /** The earliest retry date from the SAME canonical coverage pass; absent when nothing is waiting. */
   waitingUntil?: string | null;
+  /** Drafts the store refused because the page already carries a change under measurement. */
+  heldForMeasurement?: number;
 };
 
 /** A retry date in the operator's words: the day, never a timestamp and never a countdown. */
@@ -118,7 +130,13 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   // release stays as small as what it actually knows.
   const declineNotes = producer.declineNotes?.length ? { declineNotes: producer.declineNotes } : {};
   const waiting = producer.waitingUntil && Number.isFinite(Date.parse(producer.waitingUntil)) ? producer.waitingUntil : null;
-  const rest = { ...declineNotes, ...(waiting ? { waitingUntil: waiting } : {}) };
+  const held = producer.heldForMeasurement ?? 0;
+  const rest = {
+    ...declineNotes,
+    ...(waiting ? { waitingUntil: waiting } : {}),
+    ...((producer.investigating ?? 0) > 0 ? { investigating: producer.investigating } : {}),
+    ...(held > 0 ? { heldForMeasurement: held } : {}),
+  };
   let headerSentence: string;
   if (readyTotal > 0) {
     const lead =
@@ -183,8 +201,7 @@ export async function loadTodayView(): Promise<TodayComposite> {
 
 type TodayViewBuilder = (tenantId: string) => Promise<TodayComposite>;
 
-/** Exported for tests; render paths go through loadTodayView above. */
-export async function loadTodayViewWithSwr(
+async function loadTodayViewWithSwr(
   tenantId: string,
   deps: { build?: TodayViewBuilder } = {},
 ): Promise<TodayComposite> {

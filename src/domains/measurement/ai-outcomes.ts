@@ -22,10 +22,9 @@ import "server-only";
  * and the break is named, so a step in the line reads as "the instrument changed here", never as a silent
  * win or loss.
  *
- * DEFERRED TO PHASE 8, and named so nobody has to guess what is missing: NOTHING RENDERS THIS YET. The AI
- * half of Results (the visibility trend with its instrument breaks drawn, and the AI line on a shipped
- * change) is that phase's surface work. Every number below is computed, tested and honest today, so the day
- * those surfaces are built they read truth instead of being written against an empty column.
+ * RENDERED ON RESULTS: the visibility trend draws each segment on its own and names every instrument
+ * break in words, and each shipped change carries its own AI direction, coverage and before-and-after
+ * line. Nothing here is drawn across a break, because a step caused by the instrument is not a result.
  */
 
 import {

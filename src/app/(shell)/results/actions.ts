@@ -32,9 +32,8 @@ import {
   upsertShippedChange,
   type ShippedChangeRecord,
 } from "@/domains/measurement";
-import { readLastFinalizedDate } from "@/domains/measurement";
-import { readLedger } from "@/domains/measurement";
 import { writeResultsSurface } from "./results-surface-store";
+import { presentShipments } from "./results-ledger-data";
 
 export type ProofLedgerActionResponse = { success: boolean; error?: string };
 
@@ -233,9 +232,7 @@ export async function recomputeProofLedgerAction(): Promise<ProofLedgerActionRes
     // the fresh snapshot now instead of making the very next render re-measure the
     // whole ledger a second time. Measurement history itself lives in the upserts.
     if (measuredAll.length > 0) {
-      const latestGscDate = await readLastFinalizedDate(tenantId).catch(() => null);
-      const reads = readLedger(measuredAll, new Date(), latestGscDate);
-      await writeResultsSurface(reads, new Date().toISOString(), tenantId);
+      await writeResultsSurface(await presentShipments(tenantId, measuredAll), new Date().toISOString(), tenantId);
     }
     revalidatePath("/results");
     revalidatePath("/changes");

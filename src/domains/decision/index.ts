@@ -42,6 +42,7 @@ export {
   loadChangeProposal,
   loadChangeProposals,
   markProposalApplied,
+  dismissChangeProposal,
 } from "./proposal-store";
 
 // Cold drafting entry point (produce ranked proposals for a tenant)
@@ -60,6 +61,8 @@ export type { OwnedCandidate, OwnedSignal, OwnedSignalKind, OwnedSignalStrength 
 // The honest diagnosis itself, so Runtime can ask what an open investigation needs
 // without reaching past this boundary into the kernel's files.
 export { compileCandidates, type QualifiedCandidate } from "./opportunities";
+// The one operator-facing phrase for a diagnosed cause, so no surface ever prints a raw slug.
+export { causeLabel, type CauseFinding } from "./diagnosis";
 // The account's CURRENT evidence basis. Surfaces need it to refuse serving a stored
 // release that was built under an older bar; they may not deep-import the kernel.
 export { resolveCurrentBasis } from "./load-proposals";

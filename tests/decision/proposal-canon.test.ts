@@ -57,7 +57,7 @@ const db = vi.hoisted(() => {
 });
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client }));
 
-import { loadChangeProposal, loadChangeProposals, saveChangeProposal } from "@/domains/decision/proposal-store";
+import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, saveChangeProposal } from "@/domains/decision/proposal-store";
 import { serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
 
 const T = "acct-a", PAGE = "/nowruz-guide";
@@ -131,6 +131,19 @@ describe("canonical proposal persistence", () => {
     // A different basis is a genuinely different reading of the account, so the change may be made again.
     expect(await saveChangeProposal(proposal({ basis: "basis_tomorrow::d6" }))).toBe("saved");
     expect([db.state.rows[0]!.terminal_disposition, db.state.rows[0]!.proposal_version]).toEqual([null, 2]);
+  });
+
+  it("the operator's own put-this-aside writes the dismissal, and refuses to retire a change already being measured", async () => {
+    await saveChangeProposal(proposal());
+    expect(await dismissChangeProposal(T, proposal().id)).toBe(true);
+    expect(db.state.rows[0]!.terminal_disposition).toBe("dismissed");
+    expect((await loadChangeProposals(T)).size).toBe(0); // it stops being the current answer immediately
+    expect(await dismissChangeProposal(T, proposal().id)).toBe(false); // already put away, nothing to write
+    // A change the operator marked implemented is under measurement, so it is not theirs to put away.
+    Object.assign(db.state.rows[0]!, { terminal_disposition: null, status: "applied" });
+    expect(await dismissChangeProposal(T, proposal().id)).toBe(false);
+    expect(db.state.rows[0]!.terminal_disposition).toBeNull();
+    expect(await dismissChangeProposal(T, "an-id-nobody-holds")).toBe(false);
   });
 
   it("reads pre-cutover rows as history, never revives one the canonical table retired, and never crosses accounts", async () => {

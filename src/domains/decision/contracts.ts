@@ -1,11 +1,9 @@
 /**
- * decision/contracts (CORE 100K decision kernel): the ONE input and the ONE output of
- * the recommendation-intelligence collapse. The kernel turns exactly one normalized
- * `EvidenceInput` (a small structural interface this module OWNS; the evidence
- * assembler maps its own output onto this shape) into a ranked, exact, safe
- * `ChangeProposal`: the page, the opportunity, the frozen evidence that grounds it, the
- * exact change, why it matters, effort/risk/confidence/limitations, the ranking receipt,
- * and the proposal status.
+ * decision/contracts (CORE 100K decision kernel): the ONE input and the ONE output of the
+ * recommendation-intelligence collapse. The kernel turns exactly one normalized `EvidenceInput`
+ * (a small structural interface this module OWNS) into a ranked, exact, safe `ChangeProposal`:
+ * the page, the opportunity, the frozen evidence that grounds it, the exact change, why it
+ * matters, effort/risk/confidence/limitations, the ranking receipt, and the proposal status.
  *
  * PUBLISHING AUTHORITY IS MANUAL. Nothing here writes to a live page, and
  * `publish: "manual"` is a structural reminder carried on every proposal.
@@ -210,13 +208,10 @@ export type ProposalEvidence = { query: string; hints: string[]; evidenceRefCoun
 // validated record and the bundle is its deep, copy-ready form. Never a second
 // pipeline, never a second status vocabulary.
 
-/** THE COMPLETE CHANGE UNIVERSE (Phase 4). Every lever Beacon may ever recommend on one
- *  page, named once. ADDITIVE ONLY: the first seven are the kinds already on persisted
- *  rows and keep their exact spelling, so every stored bundle still decodes. `meta` IS
- *  the meta description, `section` and `internal_links` are the older undifferentiated
- *  components the new-page path still emits, and nothing here gets a second word.
- *  Nothing is CMS-specific: a component says WHAT to change and WHERE, never which
- *  editor to open. */
+/** THE COMPLETE CHANGE UNIVERSE (Phase 4). Every lever Beacon may ever recommend on one page,
+ *  named once. ADDITIVE ONLY: the first seven are the kinds already on persisted rows and keep
+ *  their exact spelling, so every stored bundle still decodes. Nothing is CMS-specific: a
+ *  component says WHAT to change and WHERE, never which editor to open. */
 export type BundleComponentKind =
   | "title" | "meta" | "h1" | "opening_answer" | "section" | "internal_links" | "source_pack"
   | "paragraph_correction" | "section_add" | "section_remove" | "section_rewrite" | "restructure"
@@ -238,14 +233,12 @@ const FACTUAL_KINDS: ReadonlySet<BundleComponentKind> = new Set<BundleComponentK
   ["factual_correction", "paragraph_correction", "source_update", "entity_expansion", "table_or_list_add"]);
 
 /**
- * One exact, copy-ready component. Every component cites the receipt items that justify
- * it; a component without evidence is never emitted (three grounded components beat
- * eight padded ones). `before` is THE CURRENT STATE exactly as it stands, and null means
- * I did not capture it (a pure insertion, or copy I do not hold), never a value invented
- * to fill the field. `after` is THE PROPOSAL: exact copy, or the exact structural
- * instruction when the change is not a sentence. The five fields after `risk` are
- * optional in the TYPE so every persisted row still decodes, and REQUIRED by
- * validate-proposal for every kind this contract added in Phase 4.
+ * One exact, copy-ready component. Every component cites the receipt items that justify it; a
+ * component without evidence is never emitted. `before` is THE CURRENT STATE exactly as it
+ * stands, and null means I did not capture it, never a value invented to fill the field.
+ * `after` is THE PROPOSAL: exact copy, or the exact structural instruction when the change is
+ * not a sentence. The five fields after `risk` are optional in the TYPE so every persisted row
+ * still decodes, and REQUIRED by validate-proposal for every kind Phase 4 added.
  */
 export type BundleComponent = {
   kind: BundleComponentKind;
@@ -357,6 +350,10 @@ export type ChangeProposal = {
    *  change's levers actually address it. Absent when nothing was diagnosed; an unrecognised
    *  value on a hand-edited row simply matches no lever and is discounted nothing. */
   diagnosisCause?: CauseFinding["cause"];
+  /** THE WHOLE REASONING STEP, carried so the operator can read it: the ladder has always
+   *  computed the explanation, what it beat, what would disprove it, and every cause whose
+   *  evidence is not on file, and none of it reached a proposal. Absent on an unjudged row. */
+  causeFinding?: CauseFinding;
   /** WHY THIS SITS WHERE IT SITS. Stamped by the ONE ranker at ranking time, never by a
    *  producer, and absent on a row nobody has ranked yet. Each factor names the input it
    *  read and contributes a bounded amount, so the order is inspectable and no factor
@@ -448,6 +445,11 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   bundle: ChangeBundleSchema.optional(),
   basis: z.string().optional(),
   diagnosisCause: z.string().min(1).optional(),
+  causeFinding: z.object({ cause: z.string().min(1), action: z.string().nullable(), evidenceKeys: z.array(z.string()),
+    competingExplanations: z.array(z.object({ cause: z.string().min(1), reason: z.string().min(1) })),
+    falsifier: z.string().min(1), explanation: z.string().min(1),
+    notConsidered: z.array(z.object({ cause: z.string().min(1), missing: z.string().min(1) })) })
+    .optional() as z.ZodType<CauseFinding | undefined>,
   rankingReceipt: z.object({ score: z.number(), directional: z.boolean(), basis: z.string().min(1),
     factors: z.array(z.object({ name: z.string().min(1), input: z.string().min(1), contribution: z.number(), max: z.number() })) }).optional(),
   whyRankedAboveNext: z.string().min(1).optional(),

@@ -2,47 +2,35 @@
  * decision/proposal-store (V1 Truth Convergence Phase 5, 2026-07-31): the ONE
  * durable home of a ChangeProposal, and ONE CURRENT ROW PER HYPOTHESIS.
  *
- * WHAT WAS WRONG. Persistence was an append into `move_drafts`: every pass that
- * drafted wrote another row, and the newest row per id won on read. A fingerprint
- * check stopped the worst of it (one unchanged proposal had been written 27
- * times), but nothing in the store SAID what a proposal is: two rows for the same
- * page and the same lever were two rows, forever, and history and current work
- * lived in one undifferentiated pile.
+ * WHAT WAS WRONG. Persistence was an append into `move_drafts`: every pass that drafted wrote
+ * another row and the newest per id won on read, so two rows for the same page and the same
+ * lever were two rows forever, and history and current work lived in one undifferentiated pile.
  *
- * CANONICAL IDENTITY. A hypothesis is (tenant, site, case, page, action family).
- * Exactly one row for that identity is CURRENT (`terminal_disposition is null`),
- * enforced by a partial unique index in Postgres, not by hope. A new draft for the
- * same hypothesis SUPERSEDES the row that held it: the predecessor steps aside with
- * `terminal_disposition = 'superseded'` and a pointer to its successor, and the
- * successor lands carrying the next `proposal_version`. A re-draft that says
- * exactly what the stored row already says writes NOTHING.
+ * CANONICAL IDENTITY. A hypothesis is (tenant, site, case, page, action family). Exactly one row
+ * for that identity is CURRENT (`terminal_disposition is null`), enforced by a partial unique
+ * index in Postgres, not by hope. A new draft SUPERSEDES the row that held it: the predecessor
+ * steps aside with `terminal_disposition = 'superseded'` and a pointer to its successor, and the
+ * successor lands carrying the next `proposal_version`. A re-draft that says exactly what the
+ * stored row already says writes NOTHING.
  *
- * THE STATUS VOCABULARY DOES NOT MOVE. proposed / needs_review / rejected /
- * applied are the lifecycle, exactly as they were. A DISPOSITION is a different
- * question: not what Beacon thinks of the change, but whether this row is still
- * the current answer at all. dismissed (the operator put it away), withdrawn
- * (Beacon took it back), superseded (a newer version replaced it).
+ * THE STATUS VOCABULARY DOES NOT MOVE. proposed / needs_review / rejected / applied are the
+ * lifecycle. A DISPOSITION is a different question: not what Beacon thinks of the change, but
+ * whether this row is still the current answer at all. dismissed (the operator put it away),
+ * withdrawn (Beacon took it back), superseded (a newer version replaced it). A DISMISSED CHANGE
+ * STAYS DISMISSED until the evidence itself moves: a re-draft under the SAME basis is refused,
+ * and one under a NEW basis is allowed, because that is a different reading of a different world.
  *
- * A DISMISSED CHANGE STAYS DISMISSED until the evidence itself moves: a re-draft
- * under the SAME basis is refused, and a re-draft under a NEW basis is allowed,
- * because that is genuinely a different reading of a different world.
+ * A CHANGE THE OPERATOR APPLIED IS NEVER RETIRED FOR A NEWER IDEA. Only a row still waiting on
+ * them (proposed / needs_review) may be superseded; an applied row is being measured and a
+ * rejected one was already answered, so a new draft for that hypothesis is refused instead.
  *
- * A CHANGE THE OPERATOR APPLIED IS NEVER RETIRED FOR A NEWER IDEA. Only a row still
- * waiting on them (proposed / needs_review) may be superseded; an applied row is
- * being measured and a rejected one was already answered, so a new draft for that
- * hypothesis is refused instead.
- *
- * HISTORY IS READABLE, NEVER RESURRECTED. Nothing writes `move_drafts` anymore.
- * Those rows are read as history for ids the canonical table has never heard of
- * (a pre-cutover proposal Results still needs), and a row the canonical table
+ * HISTORY IS READABLE, NEVER RESURRECTED. Nothing writes `move_drafts` anymore. Those rows are
+ * read as history for ids the canonical table has never heard of, and a row the canonical table
  * knows in ANY state is never revived from there.
  *
- * FAIL CLOSED, LOUDLY. This table is created by migration BEFORE this code
- * deploys. If it is missing, a write fails and says so (the caller keeps the
- * previous release rather than reporting work nobody can load back) and reads
- * fall back to history rather than claiming this account has no changes.
- *
- * server-only.
+ * FAIL CLOSED, LOUDLY. This table is created by migration BEFORE this code deploys. If it is
+ * missing, a write fails and says so, and reads fall back to history rather than claiming this
+ * account has no changes. server-only.
  */
 
 import "server-only";
@@ -284,13 +272,11 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<Save
     const mine = rows.find((r) => r.id === proposal.id) ?? (await rowById(proposal.tenantId, proposal.id));
     const current = rows.find((r) => r.terminal_disposition == null) ?? null;
 
-    // A CHANGE THE OPERATOR PUT AWAY STAYS AWAY until the evidence itself moves. Same
-    // basis, same dismissal. A new basis is a genuinely different reading, so it may try again.
-    // ASK EVERY DISMISSAL, NOT WHICHEVER ONE THE DATABASE HAPPENED TO RETURN FIRST: these rows
-    // come back unordered, so picking one and comparing its basis let a page dismissed under
-    // today's basis be re-drafted under today's basis whenever an older dismissal sorted ahead
-    // of it. The dismissal WRITER is still the operator control Phase 8 builds; nothing in this
-    // file sets 'dismissed', and this gate is what that control will lean on.
+    // A CHANGE THE OPERATOR PUT AWAY STAYS AWAY until the evidence itself moves. Same basis, same
+    // dismissal; a new basis is a genuinely different reading, so it may try again. ASK EVERY
+    // DISMISSAL, NOT WHICHEVER ONE THE DATABASE RETURNED FIRST: these rows come back unordered, so
+    // comparing one row's basis let a dismissed page be re-drafted whenever an older dismissal
+    // sorted ahead of it. dismissChangeProposal below is the writer this gate answers to.
     if ([mine, ...rows].some((r) => r?.terminal_disposition === "dismissed" && (r.basis ?? null) === (proposal.basis ?? null))) return "refused";
 
     // Nothing material changed: no write, no new timestamp, so a refreshed surface never
@@ -305,11 +291,9 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<Save
     // lands, because the index will not hold both at once.
     const handover = current && current.id !== proposal.id ? current : null;
     // A CHANGE THE OPERATOR ALREADY MADE IS NOT MINE TO RETIRE. Supersession had no status guard,
-    // so a fresh idea about the same page could push an APPLIED row into history while its
-    // measurement window was still running: the change being measured stopped being the current
-    // answer, and the proof it was collecting lost the row it belonged to. Only a row still
-    // waiting on the operator (proposed / needs_review) may step aside. Everything else keeps its
-    // place and the new draft is refused, honestly and countably.
+    // so a fresh idea about the same page could push an APPLIED row into history mid-measurement
+    // and the proof it was collecting lost the row it belonged to. Only a row still waiting on the
+    // operator (proposed / needs_review) may step aside; everything else refuses the new draft.
     if (handover && handover.status !== "proposed" && handover.status !== "needs_review") {
       log.info("[proposal-store] this page already carries a change I am measuring, so the new draft is not saved", {
         tenantId: proposal.tenantId, holding: handover.id, status: handover.status, draft: proposal.id });
@@ -349,37 +333,52 @@ export async function markProposalApplied(tenantId: string, id: string): Promise
   return (await saveChangeProposal({ ...proposal, status: "applied" })) !== "failed";
 }
 
+/**
+ * THE operator's own "put this aside". Writes `terminal_disposition = 'dismissed'` on the current
+ * row, which is the exact disposition `saveChangeProposal` already refuses to re-draft over under
+ * the same basis. The gate has existed since Phase 5; this is the writer it was waiting for.
+ *
+ * A CHANGE ALREADY APPLIED MAY NOT BE DISMISSED: it is being measured, and retiring it would
+ * orphan the proof it is collecting. Fail-closed to false.
+ */
+export async function dismissChangeProposal(tenantId: string, id: string): Promise<boolean> {
+  if (!tenantId || !id) return false;
+  try {
+    const row = await rowById(tenantId, id);
+    if (!row || row.terminal_disposition != null) return false;
+    if (row.status === "applied") {
+      log.info("[proposal-store] already applied and measuring, so it is not mine to put away", { tenantId, id });
+      return false;
+    }
+    return setDisposition(tenantId, id, "dismissed", null);
+  } catch (e) {
+    log.error("[proposal-store] dismiss threw", { id, error: e instanceof Error ? e.message : String(e) });
+    return false;
+  }
+}
+
 // ── reads ─────────────────────────────────────────────────────────────────────
 
 /** One canonical row by id, whatever its disposition. Null when there is none. */
 async function rowById(tenantId: string, id: string): Promise<CanonRow | null> {
   const { data, error } = await getSupabaseAdmin()
-    .from(TABLE)
-    .select(CANON_COLUMNS)
-    .eq("tenant_id", tenantId)
-    .eq("id", id)
-    .limit(1);
+    .from(TABLE).select(CANON_COLUMNS).eq("tenant_id", tenantId).eq("id", id).limit(1);
   if (error || !data || data.length === 0) return null;
   return data[0] as CanonRow;
 }
 
-/** HISTORY ONLY: the append-only rows this store wrote before the canonical table
- *  existed. Nothing writes them now and nothing here is treated as current work
- *  unless the canonical table has never heard of that id. */
+/** HISTORY ONLY: the append-only rows this store wrote before the canonical table existed.
+ *  Nothing writes them now and nothing here is current work unless the canonical table has
+ *  never heard of that id. */
 async function readLegacy(tenantId: string, limit: number, id?: string): Promise<Array<{ id: string; content: string }>> {
   try {
     let q = getSupabaseAdmin()
-      .from(LEGACY_TABLE)
-      .select("rec_id, content, created_at")
-      .eq("tenant_id", tenantId)
-      .eq("kind", LEGACY_KIND);
+      .from(LEGACY_TABLE).select("rec_id, content, created_at").eq("tenant_id", tenantId).eq("kind", LEGACY_KIND);
     if (id) q = q.eq("rec_id", id);
     const { data, error } = await q.order("created_at", { ascending: false }).limit(limit);
     if (error || !data) return [];
     return data.map((r) => ({ id: r.rec_id as string, content: r.content as string }));
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 /** Load one proposal by id. A row the canonical table holds as history (dismissed,

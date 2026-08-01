@@ -2,6 +2,7 @@ import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import type { KernelRead } from "@/domains/measurement/proof-gsc";
+import type { ShipmentPresentation } from "./results-presentation";
 
 /**
  * results-surface-store (CORE 100K) - a tenant-scoped stale-while-revalidate cache
@@ -14,37 +15,53 @@ import type { KernelRead } from "@/domains/measurement/proof-gsc";
 const STORE = "results-surface";
 
 /** Serve the cached snapshot instantly always; background-refresh once older than this. */
-export const RESULTS_SURFACE_FRESH_MS = 15 * 60 * 1000;
+const RESULTS_SURFACE_FRESH_MS = 15 * 60 * 1000;
 
-export type ResultsSurfaceRow = {
+type ResultsSurfaceRow = {
   computedAt: string;
+  /** The whole shipment story per change: the read, what the live check found, the immutable
+   *  starting point, and the AI side. A snapshot written before Phase 8 holds `reads` only and
+   *  decodes into shipments with the other halves honestly absent. */
+  shipments?: ShipmentPresentation[];
   reads: KernelRead[];
 };
 
-export async function readResultsSurface(tenantId?: string): Promise<ResultsSurfaceRow | null> {
+/**
+ * The snapshot, decoded. A pre-Phase-8 snapshot holds `reads` only and still renders: the read is
+ * there, and the halves it never stored say honestly that they are not on file rather than
+ * inventing a passing live check or a zero starting point.
+ */
+export async function readResultsSurface(
+  tenantId?: string,
+): Promise<{ computedAt: string; shipments: ShipmentPresentation[] } | null> {
   const rows = await readStore<ResultsSurfaceRow>(STORE, [], { tenantId }).catch(() => [] as ResultsSurfaceRow[]);
   const row = rows[0];
-  return row && Array.isArray(row.reads) ? row : null;
+  if (!row || !Array.isArray(row.reads)) return null;
+  const shipments = Array.isArray(row.shipments) && row.shipments.length === row.reads.length
+    ? row.shipments
+    : row.reads.map((read) => ({ read, implementedAt: null, verification: null, baseline: null, ai: null }));
+  return { computedAt: row.computedAt, shipments };
 }
 
 export async function writeResultsSurface(
-  reads: KernelRead[],
+  shipments: ShipmentPresentation[],
   computedAtIso: string,
   tenantId?: string,
 ): Promise<void> {
+  const reads = shipments.map((s) => s.read);
   // Empty-rebuild guard: loadProofLedger is fail-soft, so during an outage it can
   // "successfully" build an empty ledger. Never replace a non-empty snapshot with
   // an empty one; a legitimate reset goes through invalidateResultsSurface().
   if (reads.length === 0) {
     const existing = await readResultsSurface(tenantId);
-    if (existing && existing.reads.length > 0) {
+    if (existing && existing.shipments.length > 0) {
       console.warn(
-        `[results-surface] refusing to overwrite a snapshot holding ${existing.reads.length} measured changes with an empty rebuild; keeping the snapshot from ${existing.computedAt}`,
+        `[results-surface] refusing to overwrite a snapshot holding ${existing.shipments.length} measured changes with an empty rebuild; keeping the snapshot from ${existing.computedAt}`,
       );
       return;
     }
   }
-  await writeStore<ResultsSurfaceRow>(STORE, [{ computedAt: computedAtIso, reads }], { tenantId }).catch(() => {});
+  await writeStore<ResultsSurfaceRow>(STORE, [{ computedAt: computedAtIso, reads, shipments }], { tenantId }).catch(() => {});
 }
 
 /** Invalidate the cache so the next /results load re-measures. Called on every ledger mutation. */

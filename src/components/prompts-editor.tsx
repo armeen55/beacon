@@ -19,7 +19,9 @@ import { useEffect, useMemo, useState } from "react";
 type EditorGroup = {
   slug: string;
   name: string;
-  prompts: { id: string; text: string; recommended: boolean; approved: boolean }[];
+  /** `note` is this question's own history in one sentence (when its trend restarts, and why).
+   *  Absent on a candidate that has never been tracked, because it has no history to tell. */
+  prompts: { id: string; text: string; recommended: boolean; approved: boolean; note?: string | null }[];
 };
 /** What the editor emits: kept ids keep their measurement history, edits name the
  *  row they replace, additions are brand new wording. */
@@ -32,8 +34,10 @@ type EditorSelection = {
 const BTN = "rounded-md bg-foreground text-background px-4 py-2.5 text-[14px] font-medium disabled:opacity-50 disabled:cursor-not-allowed";
 const MINI = "text-[12px] underline text-muted-foreground hover:text-foreground";
 const INPUT = "flex-1 rounded border border-border/60 bg-background px-2 py-1 text-[13px] outline-none focus:border-foreground/40";
-const MIN_TRACKED = 10;
-const MAX_TRACKED = 100;
+/** Setting up: the approved core set starts between 20 and 50 questions, which is the range I do my
+ *  best work in. A LIVE account keeps the wider store bounds, so an account that already tracks more
+ *  than 50 can still save an edit instead of being locked out of its own list. */
+const BOUNDS = { onboarding: { min: 20, max: 50 }, settings: { min: 10, max: 100 } } as const;
 
 const norm = (s: string) => (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 
@@ -83,11 +87,18 @@ export function PromptsEditor({
     for (const g of groups) for (const p of g.prompts) if (included.has(p.id)) n += 1;
     return n;
   }, [groups, included, additions]);
-  const inBounds = count >= MIN_TRACKED && count <= MAX_TRACKED;
+  const bounds = BOUNDS[mode];
+  const inBounds = count >= bounds.min && count <= bounds.max;
 
   function toggle(id: string) {
     const next = new Set(included);
     if (next.has(id)) next.delete(id); else next.add(id);
+    setIncluded(next);
+  }
+  /** Approve a whole topic at once: the operator says yes to the group, not to 30 rows one at a time. */
+  function approveGroup(g: EditorGroup, on: boolean) {
+    const next = new Set(included);
+    for (const p of g.prompts) if (on) next.add(p.id); else next.delete(p.id);
     setIncluded(next);
   }
   function edit(id: string, value: string) {
@@ -145,9 +156,19 @@ export function PromptsEditor({
                       {g.prompts.filter((p) => included.has(p.id)).length} of {g.prompts.length} picked
                     </span>
                   </span>
-                  <button type="button" onClick={() => { setExpanded(open ? null : g.slug); setAddDraft(""); }} className={MINI}>
-                    {open ? "Hide" : "See questions"}
-                  </button>
+                  <span className="flex shrink-0 items-center gap-3">
+                    {(() => {
+                      const all = g.prompts.length > 0 && g.prompts.every((p) => included.has(p.id));
+                      return (
+                        <button type="button" onClick={() => approveGroup(g, !all)} className={MINI}>
+                          {all ? "Drop this topic" : `Approve all ${g.prompts.length} in this topic`}
+                        </button>
+                      );
+                    })()}
+                    <button type="button" onClick={() => { setExpanded(open ? null : g.slug); setAddDraft(""); }} className={MINI}>
+                      {open ? "Hide" : "See questions"}
+                    </button>
+                  </span>
                 </div>
               ) : null}
               {open ? (
@@ -162,9 +183,12 @@ export function PromptsEditor({
                           <input value={textOf(p)} onChange={(e) => edit(p.id, e.target.value)} className={INPUT} />
                         </div>
                         {changed ? (
-                          <p className="pl-6 text-[11px] text-muted-foreground">
-                            Changing a question starts a new measurement history for that wording.
+                          <p className="pl-6 text-[11px] text-amber-700">
+                            Saving this rewording starts its trend again from today. I will not compare the new
+                            wording against readings of the old one.
                           </p>
+                        ) : p.note ? (
+                          <p className="pl-6 text-[11px] text-muted-foreground">{p.note}</p>
                         ) : null}
                       </div>
                     );
@@ -204,8 +228,9 @@ export function PromptsEditor({
         })}
       </div>
 
-      <p className="text-[12px] text-muted-foreground tabular-nums">
-        {count} of {MAX_TRACKED}. I need at least {MIN_TRACKED}, and 50 is where I do my best work.
+      <p className="text-[12px] tabular-nums text-muted-foreground">
+        {count} picked. I track between {bounds.min} and {bounds.max} questions
+        {mode === "onboarding" ? ", and this is the range where I do my best work." : "."}
       </p>
       {error ? <p className="text-[13px] text-rose-600" role="alert">{error}</p> : null}
       <div className="flex flex-wrap items-center gap-3">

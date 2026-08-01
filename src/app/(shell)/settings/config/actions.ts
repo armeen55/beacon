@@ -153,7 +153,10 @@ export async function saveSetup(data: {
 
 /** The tracked questions this screen renders. FREE: one narrow read, no model
  *  call and no research, so opening Settings never costs anything. */
-export async function loadTrackedQuestions(): Promise<{ active: { id: string; text: string }[]; count: number; recommended: string[]; unknown?: boolean }> {
+export async function loadTrackedQuestions(): Promise<{
+  active: { id: string; text: string; version: number; createdAt: string }[];
+  count: number; recommended: string[]; unknown?: boolean;
+}> {
   return readTrackedQuestions(await currentTenantId());
 }
 

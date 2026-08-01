@@ -30,15 +30,21 @@ const TITLES: Record<number, { title: string; description: string }> = {
   2: { title: "What I read on your site", description: "I read your pages and drafted a picture of your business. Check it in a second." },
   3: { title: "Confirm your business", description: "This is what I understood. Fix anything, or tell me in plain words what to change." },
   4: { title: "Your goal", description: "This shapes which questions I recommend. You can change it later." },
-  5: { title: "Topics and questions", description: "The questions I will track across AI assistants. Approve the 50 I recommend, or pick your own." },
-  6: { title: "Connect your data", description: "Each connection sharpens my work. Every one is optional, and I never publish without your say." },
+  5: { title: "Topics and questions", description: "The questions I will track across AI assistants. Approve them a topic at a time, or pick your own." },
+  6: { title: "Connect your data", description: "Each connection sharpens my work. Search Console is the one I strongly recommend. Every one is optional, and I never publish without your say." },
   7: { title: "Your first findings", description: "Here is what I found so far. Start Beacon and I begin the full research." },
 };
 
-export function OnboardWizard({ state, step, firstFindings }: { state: OnboardingState; step: number; firstFindings: FirstFindings }) {
+export function OnboardWizard({ state, step, firstFindings, resumed = false }: { state: OnboardingState; step: number; firstFindings: FirstFindings; resumed?: boolean }) {
   const meta = TITLES[step] ?? TITLES[1];
   return (
     <div className="space-y-6">
+      {resumed ? (
+        <p className="rounded-lg border border-border/60 bg-surface px-4 py-3 text-[13px]">
+          You stopped partway through setting up. I kept everything you had already done, so you are picking up
+          at step {step} of 7 rather than starting again.
+        </p>
+      ) : null}
       <div>
         <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">Step {step} of 7</p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">{meta.title}</h1>
@@ -248,7 +254,10 @@ function ConnectionsStep({ state }: { state: OnboardingState }) {
           );
         })}
       </div>
-      <p className="text-[12px] text-muted-foreground">Skip any of these. I still produce useful research from your public site alone.</p>
+      <p className="text-[12px] text-muted-foreground">
+        Skip any of these, including Search Console. With none of them connected I still research your public site
+        and bring you real changes, and Today tells you plainly what I am working on while I do.
+      </p>
       <button type="button" onClick={() => router.push("/onboard?step=7")} className={BTN}>Continue</button>
     </div>
   );

@@ -118,7 +118,10 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
       .slice(0, DECLINE_NOTE_LIMIT)
       .map((c) => ({ page: normalizedFixKey(c.pageUrl as string), note: c.reason }));
     const today = await buildTodayCompositeFromChanges(changes, {
-      outcome: produced?.outcome, investigating: produced?.investigating, waitingUntil: produced?.waitingUntil, declineNotes });
+      outcome: produced?.outcome, investigating: produced?.investigating, waitingUntil: produced?.waitingUntil,
+      // A draft the store refused because that page already carries a change I am measuring. The
+      // store has always answered this; carrying it here is what lets Today say so out loud.
+      heldForMeasurement: produced?.heldForMeasurement, declineNotes });
     const computedAt = new Date().toISOString();
     const releaseId = `${tenantId}:${computedAt}`;
     const surface: CustomerSurface = {

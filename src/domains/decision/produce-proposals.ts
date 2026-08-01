@@ -6,23 +6,20 @@
  * (cold, gated, budgeted drafter plus the ONE validator) -> saveChangeProposal (durable,
  * fail-soft).
  *
- * BOUNDED: at most the strongest DEFAULT_MAX_DRAFTS pages by recoverable clicks. The old
- * serial walk over up to 55 manufactured opportunities is gone, and a page with no proven
- * gap costs nothing here.
+ * BOUNDED: at most the strongest DEFAULT_MAX_DRAFTS pages by recoverable clicks, and a page
+ * with no proven gap costs nothing here.
  *
- * FOUR HONEST ENDINGS (`outcome`), so a surface never reads an empty queue as an outage or
- * a failed write as a quiet day: `no_actionable_candidate` (nothing earned an action),
- * `actionable_but_no_trusted_draft` (real gaps, and no exact edit passed the evidence and
- * safety checks), `persistence_failed` (every write failed, so the caller must NOT publish
- * and the previous release stays byte-identical), and `proposals_persisted`.
+ * FOUR HONEST ENDINGS (`outcome`), so a surface never reads an empty queue as an outage or a
+ * failed write as a quiet day: `no_actionable_candidate`, `actionable_but_no_trusted_draft`
+ * (real gaps, no exact edit passed the evidence and safety checks), `persistence_failed` (every
+ * write failed, so the caller must NOT publish), and `proposals_persisted`.
  *
- * ONE EVIDENCE BASIS, ONE ROW: a candidate whose current-generation proposal already
- * exists is never redrafted, and a proposal whose material fingerprint is unchanged is
- * never re-inserted, so a refresh re-pays nothing (the store once took a plain insert per
- * pass, writing one unchanged proposal 27 times and moving its timestamp every refresh).
+ * ONE EVIDENCE BASIS, ONE ROW: a candidate whose current-generation proposal already exists is
+ * never redrafted, and a proposal whose material fingerprint is unchanged is never re-inserted,
+ * so a refresh re-pays nothing.
  *
- * COLD by default: the drafter's `complete` fn is injectable, so tests run this whole path
- * with zero paid calls. Publishing stays MANUAL: this only proposes. server-only.
+ * COLD by default: the drafter's `complete` fn is injectable, so tests run this whole path with
+ * zero paid calls. Publishing stays MANUAL: this only proposes. server-only.
  */
 import "server-only";
 
@@ -32,6 +29,7 @@ import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { loadBusinessProfile } from "@/domains/account";
 import { pagesUnderMeasurement, resolveCurrentBasis } from "./load-proposals";
 import { candidatesToEvidenceInputs, compileCandidates, type QualifiedCandidate } from "./opportunities";
+import type { CauseFinding } from "./diagnosis";
 import { produceBundleForSnapshot } from "./produce-bundle";
 import { proposeExistingPageChange, type ProposeOptions } from "./propose";
 import { loadChangeProposals, saveChangeProposal } from "./proposal-store";
@@ -82,6 +80,10 @@ export type ProduceProposalsResult = {
   noDraft: number;
   /** Material rows actually written this pass. */
   persisted: number;
+  /** Drafts the store REFUSED to file because the page already carries a change the operator
+   *  applied and I am still measuring. The store has always answered this; it used to be
+   *  dropped on the floor, so a page holding a held-back idea looked forgotten on Today. */
+  heldForMeasurement: number;
   /** Proposals carried forward unchanged: no draft, no write, no dollars. */
   reused: number;
   /** What I have investigated about each topic, over the SAME evidence this pass judged.
@@ -99,11 +101,10 @@ export type ProduceProposalsResult = {
 /** Bounded drafting: the strongest few, never a queue. */
 export const DEFAULT_MAX_DRAFTS = 3;
 
-/** THE ONE PAGE OF MINE A VERDICT DECIDED TO IMPROVE, as facts, out of words this pass ALREADY holds: the
- *  candidate the ladder itself named, plus that page's outline off the same snapshot row. Nothing is fetched
- *  and nothing is inferred. Null for `create_new`, which by definition names no page of mine, and null when I
- *  do not hold that page's own words, because the reading must then be told there is no page rather than be
- *  handed an outline of nulls to write gaps against. */
+/** THE ONE PAGE OF MINE A VERDICT DECIDED TO IMPROVE, as facts, out of words this pass ALREADY holds.
+ *  Nothing is fetched and nothing is inferred. Null for `create_new`, and null when I do not hold that
+ *  page's own words: the reading must then be told there is no page rather than handed an outline of
+ *  nulls to write gaps against. */
 function ownedFactsFor(snapshot: EvidenceSnapshot, decided: DecidedTopic): ReturnType<typeof extractPageFacts>[number] | null {
   if (decided.decision.verdict !== "improve_existing") return null;
   const url = decided.decision.ownedUrls[0];
@@ -230,34 +231,40 @@ export async function produceProposalsForTenant(
   const recoverableByKey = new Map<string, number>();
   const readinessByKey = new Map<string, EvidenceReadiness>();
   const diagnosisByKey = new Map<string, ActionDiagnosis>();
+  /** THE CAUSE LADDER'S WHOLE FINDING, indexed by page so the proposal built for that page can
+   *  carry it to the operator. Keyed by page alone, not by query: one page gets one reading. */
+  const causeByKey = new Map<string, CauseFinding>();
   for (const c of acted) {
     for (const k of pageKeys(c.pageUrl)) {
       recoverableByKey.set(k, c.recoverableClicks);
-      // Readiness is a fact about ONE page and ONE EXACT SEARCH. Keyed by page
-      // alone, a page whose strongest gap had a results page handed its
-      // confidence to a draft written for a DIFFERENT search on the same page,
-      // so a card read "high" directly above its own receipt saying I never
-      // looked at that search. The query is part of the key now.
+      causeByKey.set(k, c.cause);
+      // Readiness is a fact about ONE page and ONE EXACT SEARCH. Keyed by page alone, a page
+      // whose strongest gap had a results page handed its confidence to a draft written for a
+      // DIFFERENT search on it, so a card read "high" above a receipt saying I never looked.
       if (c.readiness && c.query) readinessByKey.set(`${k}::${canonicalQueryKey(c.query)}`, c.readiness);
       if (c.diagnosis && c.query) diagnosisByKey.set(`${k}::${canonicalQueryKey(c.query)}`, c.diagnosis);
     }
   }
-  /** Stamp the basis, the ONE ranking scalar (recoverable clicks), and CONFIDENCE
-   *  BY EVIDENCE COMPLETENESS onto a proposal, whichever producer built it. A
-   *  drafter used to hand itself "high" on a change whose receipt was empty; now
-   *  the readiness the diagnosis measured decides it. Never invents a figure. */
+  /** Stamp the basis, the ONE ranking scalar (recoverable clicks), the cause the ladder named,
+   *  and CONFIDENCE BY EVIDENCE COMPLETENESS onto a proposal, whichever producer built it. A
+   *  drafter used to hand itself "high" on a change whose receipt was empty; now the readiness
+   *  the diagnosis measured decides it. Never invents a figure. */
   const stamp = (p: ChangeProposal): ChangeProposal => {
     const key = (p.pageUrl ?? "").trim().toLowerCase();
     const pathKey = (p.pagePath ?? "").trim().toLowerCase();
     const recoverable = recoverableByKey.get(key) ?? recoverableByKey.get(pathKey);
-    // Only the readiness measured for THIS proposal's own search may set its
-    // confidence. No match means the diagnosis judged a different search here, so
-    // the producer's own honest value stands rather than a neighbour's.
+    // Only the readiness measured for THIS proposal's own search may set its confidence. No
+    // match means the diagnosis judged a different search here, so the producer's own honest
+    // value stands rather than a neighbour's.
     const qk = canonicalQueryKey(p.primaryQuery);
     const readiness = readinessByKey.get(`${key}::${qk}`) ?? readinessByKey.get(`${pathKey}::${qk}`);
+    const finding = causeByKey.get(key) ?? causeByKey.get(pathKey);
     return {
       ...p,
       ...(basis ? { basis } : {}),
+      // The reasoning the ladder already did, carried rather than re-derived. A proposal for a
+      // page no ladder judged keeps whatever it arrived with, which is usually nothing.
+      ...(finding ? { causeFinding: finding, diagnosisCause: finding.cause } : {}),
       impactScore: recoverable ?? p.impactScore,
       // A BUNDLE KEEPS ITS OWN CONFIDENCE. It read the page's body and built its own
       // receipt, so the candidate's coarser readiness must not overwrite it (that
@@ -278,19 +285,17 @@ export async function produceProposalsForTenant(
   const currentBundleFor = (match: (p: ChangeProposal) => boolean): ChangeProposal | null =>
     live.find((p) => !!p.bundle && current(p) && match(p)) ?? null;
 
-  let persisted = 0;
-  let writeFailures = 0;
-  let reused = 0;
-  /** Persist ONE material row, or nothing at all when the stored row already says
-   *  exactly this. An unchanged proposal must not get a new timestamp: a refreshed
-   *  surface would read yesterday's thinking as today's work. THE STORE decides that,
-   *  against the canonical row it actually holds, and answers "unchanged"; this pass
-   *  no longer second-guesses it off an in-memory copy that may have come from history.  */
+  let persisted = 0, writeFailures = 0, reused = 0, heldForMeasurement = 0;
+  /** Persist ONE material row, or nothing at all when the stored row already says exactly this.
+   *  An unchanged proposal must not get a new timestamp: a refreshed surface would read
+   *  yesterday's thinking as today's work. THE STORE decides that against the canonical row it
+   *  actually holds, and this pass records the four answers it can get back. */
   const persistIfChanged = async (p: ChangeProposal): Promise<void> => {
     if (!persist) return;
     const result = await saveChangeProposal(p);
     if (result === "failed") writeFailures += 1;
     else if (result === "saved") persisted += 1; // "unchanged" wrote nothing, so it counts as nothing
+    else if (result === "blocked") heldForMeasurement += 1;
     existing.set(p.id, p);
   };
 
@@ -324,28 +329,21 @@ export async function produceProposalsForTenant(
   const inputs = candidatesToEvidenceInputs(snapshot, acted).slice(0, Math.min(DEFAULT_MAX_DRAFTS, maxDrafts));
 
   const investigating = candidates.filter((c) => c.action === "research_needed").length;
-  // A CONSOLIDATION IS WORK, NOT SILENCE. The ladder names two of your own pages splitting one search, and
-  // no producer in this kernel can write that change yet, so it counted as nothing at all: the pass reported
-  // a quiet day over a proven loss. It is counted with what I am watching, and it carries its cause and its
-  // own reason onto the run receipt, so the operator can read the consolidation even while nothing drafts it.
-  // DEFERRED TO PHASE 5: decide_and_prepare owns emitting the consolidation component itself.
+  // A CONSOLIDATION IS WORK, NOT SILENCE. The ladder names two of your own pages splitting one search and
+  // no producer here can write that change yet, so it used to count as nothing at all and the pass reported
+  // a quiet day over a proven loss. It is counted with what I am watching and carries its own reason onto
+  // the run receipt, so the operator reads the consolidation even while nothing drafts it.
   const consolidating = candidates.filter((c) => c.action === "consolidate").length;
   if (acted.length === 0) {
-    log.info("[produce-proposals] nothing earned an action this pass", {
-      tenantId,
-      judged: candidates.length,
-      watching: candidates.filter((c) => c.action === "watch").length + consolidating,
-      researching: investigating,
-    });
+    log.info("[produce-proposals] nothing earned an action this pass", { tenantId, judged: candidates.length,
+      watching: candidates.filter((c) => c.action === "watch").length + consolidating, researching: investigating });
     // A proven gap I cannot yet explain is NOT a quiet day, and neither is one I CAN explain and cannot
-    // draft. Saying so here is what keeps "Nothing needs a decision today" off a screen with real losses
-    // behind it. An unnamed cause reports the number it is investigating; a named one I cannot draft is
-    // exactly the honest "real gaps, no change I can stand behind" ending.
+    // draft. Saying so here keeps "Nothing needs a decision today" off a screen with real losses behind it.
     return { proposals: rankProposals(proposals, measuring), candidates,
       outcome: proposals.length > 0 ? "proposals_persisted"
         : investigating > 0 ? "investigating"
           : consolidating > 0 ? "actionable_but_no_trusted_draft" : "no_actionable_candidate",
-      actionable: consolidating, investigating, noDraft: 0, persisted, reused, ...research };
+      actionable: consolidating, investigating, noDraft: 0, persisted, reused, heldForMeasurement, ...research };
   }
 
   // THE STRONGEST PROVEN PAGE, never the first one the snapshot happened to list.
@@ -494,6 +492,7 @@ export async function produceProposalsForTenant(
     noDraft,
     persisted,
     reused,
+    heldForMeasurement,
     ...research,
   };
 }

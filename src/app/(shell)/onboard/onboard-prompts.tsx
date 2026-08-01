@@ -42,8 +42,9 @@ export function PromptsBody({ prompts }: { prompts: OnboardingState["prompts"] }
     return (
       <div className="space-y-5">
         <p className="text-[14px] text-muted-foreground">
-          I will build a broad set of the questions your customers ask AI assistants, then recommend the 50 worth
-          tracking first. You approve them in a moment, and you can add, edit, or drop any before you do.
+          I will build a broad set of the questions your customers ask AI assistants, then group them by topic and
+          recommend between 20 and 50 worth tracking first. You approve whole topics at once, and you can add,
+          edit, or drop any question before you do. You never have to read every one.
         </p>
         {error ? <p className="text-[13px] text-rose-600" role="alert">{error}</p> : null}
         <button type="button" onClick={build} disabled={pending} className={BTN}>
@@ -57,7 +58,8 @@ export function PromptsBody({ prompts }: { prompts: OnboardingState["prompts"] }
     <div className="space-y-5">
       <p className="text-[14px] text-muted-foreground">
         I built {prompts.candidateCount} questions across {prompts.groups.length} topics and recommend{" "}
-        {prompts.recommendedCount} to track first. Approve the recommendation, or open a topic to pick, edit, and add your own.
+        {prompts.recommendedCount} to track first. Approve the whole recommendation, approve a topic at a time, or
+        open a topic to pick, edit, and add your own. There is no need to read all {prompts.candidateCount}.
       </p>
       <PromptsEditor
         // A fresh key on a new candidate set drops any half-finished picking from

@@ -439,6 +439,13 @@ export function diagnoseCauses(input: LadderInput): CauseFinding {
     explanation: won.verdict.explanation, notConsidered };
 }
 
+/** THE one operator-facing phrase for a cause. Every surface goes through this, so a raw slug
+ *  can never reach a screen; an unrecognised value on a hand-edited row reads as the honest
+ *  "something I have not named" rather than printing itself. */
+export function causeLabel(cause: string): string {
+  return LABEL[cause as CandidateCause] ?? "something I have not named yet";
+}
+
 /** Every cause in one operator-facing phrase, so a competing explanation never prints a raw slug. */
 const LABEL: Record<CandidateCause, string> = {
   cannibalization: "two of your own pages competing for one search",

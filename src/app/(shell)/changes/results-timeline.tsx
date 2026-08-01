@@ -151,7 +151,7 @@ export async function ResultsTimeline() {
     // render the honest not-measured line, same posture as the count below.
     let reads: KernelRead[] = [];
     try {
-      reads = (await loadResultsLedgerSurface())?.reads ?? [];
+      reads = ((await loadResultsLedgerSurface())?.shipments ?? []).map((s) => s.read);
     } catch (err) {
       console.error("[results-timeline] proof ledger read failed (non-fatal)", err);
     }

@@ -47,15 +47,20 @@ describe("Today renders, and tells the truth about its own queue", () => {
   const STILL_CHECKING = "I found meaningful traffic gaps, but I am still checking the results pages and competing pages before asking you to change anything.";
   const alarm = (actionLabel: string, href: string) => ({ page: "/famous-iranian-comedians", pageKey: "/famous-iranian-comedians", clicksLost: 163,
     windowLabel: "the previous 4 weeks", sentence: "", href, actionLabel, hasReadyFix: actionLabel === "See the fix" });
-  const command = (over: Record<string, unknown>) => ({ pipelineAlarms: [], smokeAlarm: null, scoreboardDeltaPct: -12, topOpportunity: null, firstReadOn: null, measuringCount: 0, ...over });
+  const command = (over: Record<string, unknown>) => ({ blockers: [], smokeAlarm: null, scoreboardDeltaPct: -12, readyChanges: [], firstReadOn: null, measuringCount: 0, ...over });
+  const readyChange = { changeId: "c1", pageLabel: "/famous-iranian-comedians", recommendation: "Sharpen the title for that search",
+    opportunityType: "Capture clicks", estimatedEffortMinutes: 4, upside: 163, evidenceStrength: "strong" as const };
 
-  it("never sends you to fix a page the decision resolved to watch, and says plainly that it is still checking", async () => {
+  it("never sends you to fix a page the decision resolved to watch, and never reads all clear while a page is losing", async () => {
     const { buildTodayCommand } = await import("@/domains/measurement");
     const watching = "Traffic fell here, but its search click-through is healthy, so I am watching it rather than asking you to rewrite a page that is winning.";
     const held = buildTodayCommand(command({ smokeAlarm: alarm("Open Changes", "/changes"), declineVerdict: watching }));
-    expect(held.headline).toBe(STILL_CHECKING); expect(held.why[0]).toBe(watching); expect(held.cta).toBeNull(); // no "Open Changes" for a page with no fix
-    const ready = buildTodayCommand(command({ smokeAlarm: alarm("See the fix", "/changes/abc") })); // a decline WITH a ready fix still takes over
-    expect(ready.kind).toBe("respond_to_loss"); expect(ready.exactAction).toContain("apply the fix"); expect(ready.cta).toEqual({ label: "See the fix", href: "/changes/abc" });
+    // No ready change, so this is not an act-now day; the kernel's own verdict for the losing page
+    // rides the card in every state, and no CTA sends the operator at a page with no fix.
+    expect(held.state).toBe("researching"); expect(held.losingNote).toBe(watching); expect(held.cta).toBeNull(); expect(held.ranked).toEqual([]);
+    const ready = buildTodayCommand(command({ smokeAlarm: alarm("See the fix", "/changes/abc"), readyChanges: [readyChange] }));
+    expect(ready.state).toBe("act_now"); expect(ready.ranked).toHaveLength(1);
+    expect(ready.losingNote).toContain("the change I have ready for it is in your queue");
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
     const empty = { ready: [], toDo: [], measuringCountCanonical: 0, proposals: [] } as unknown as import("@/app/(shell)/changes-data").ChangesView;
     expect(buildTodayViewFromChanges(empty, { outcome: "actionable_but_no_trusted_draft" }).headerSentence).toBe(STILL_CHECKING);

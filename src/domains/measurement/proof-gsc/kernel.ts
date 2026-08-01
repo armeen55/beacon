@@ -58,10 +58,9 @@ export type KernelWindowRead = {
   closesOn: string;
   state: WindowState;
   /** Set when a LATER change on this page closed the clean window before this checkpoint: the
-   *  days behind it belong to both changes, so this read is not this change's alone. DEFERRED TO
-   *  PHASE 8: WindowChips (src/app/(shell)/results/results-ledger-card.tsx) still draws every chip
-   *  identically, so the flag is carried and tested now and that surface reads truth the day it
-   *  is built, instead of being written against an empty field. */
+   *  days behind it belong to both changes, so this read is not this change's alone. Results
+   *  paints these chips amber and names the overlap (results-presentation.ts), so a shared window
+   *  can never be sold as a clean win. */
   confounded?: "overlapping_change";
 };
 

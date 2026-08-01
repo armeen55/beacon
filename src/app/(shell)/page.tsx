@@ -279,28 +279,50 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const declineVerdict = smokeAlarm
     ? (today.declineNotes ?? []).find((n) => n.page === smokeAlarm.pageKey)?.note ?? null
     : null;
+  // THE GENUINE BLOCKERS, and nothing else. A blocker is a thing that must be fixed before the
+  // numbers on this screen can be trusted; a stale-but-connected source is not one, and neither is
+  // a research pass that simply has not finished. Tracked questions at zero is the one state that
+  // stops my research outright, and a run that paused with a reason it recorded is the other.
+  const blockers = [
+    ...(composite.needsTrackedQuestions
+      ? ["I am not tracking any questions for you yet, so my research cannot start."]
+      : []),
+    ...(research.state === "paused" && research.pauseReason ? [research.pauseReason] : []),
+  ];
   const command = buildTodayCommand({
-    pipelineAlarms: [],
+    blockers,
+    blockerHref: composite.needsTrackedQuestions ? composite.trackedQuestionsHref : undefined,
     smokeAlarm,
     scoreboardDeltaPct,
-    topOpportunity: today.nextOpportunities[0] ?? null,
+    // ONE ready change is the act-now state, and the top three ride the card with the ranker's own
+    // reason for the order, from the SAME release Changes renders.
+    readyChanges: today.nextOpportunities,
     declineVerdict,
     firstReadOn,
     // The same waiting truth the header sentence carries, from the SAME release, so the two can never
     // say "checking" and "waiting until the 4th" on one screen.
     waitingUntil: today.waitingUntil ?? null,
     measuringCount,
+    // Straight off the persisted Research Run row: no lease, no cache, no recomputation.
+    research: {
+      running: research.state === "running",
+      phaseLabel: research.phaseLabel,
+      ...(typeof research.counters.aiChecksDone === "number" ? { checksDone: research.counters.aiChecksDone } : {}),
+      ...(typeof research.counters.aiChecksIntended === "number" ? { checksTotal: research.counters.aiChecksIntended } : {}),
+      ...(typeof research.cases?.active === "number" ? { casesActive: research.cases.active } : {}),
+      nextDueAt: research.nextDueAt ?? null,
+    },
+    investigating: today.investigating ?? 0,
+    heldForMeasurement: today.heldForMeasurement ?? 0,
   });
 
-  // P1-5 (2026-07-10, visual audit) - the greeting's streak clause must never celebrate ("you
-  // are on a roll") directly above the ONE command naming today's biggest problem.
-  // commandAllowsCelebration (today-command.ts) suppresses the celebratory clause whenever the
-  // command itself is a problem (fix_defect or respond_to_loss) - the streak COUNT still renders
-  // (it is real and true), just without the celebratory clause.
+  // The greeting's streak clause must never celebrate ("you are on a roll") on a screen that
+  // also names a blocker or a page losing clicks. commandAllowsCelebration (today-command.ts)
+  // suppresses the clause in both cases; the streak COUNT still renders, because it is true.
   const streakLine =
     streak > 0
       ? ` ${streak} change${streak === 1 ? "" : "s"} shipped in the last 14 days${
-          streak >= 10 && commandAllowsCelebration(command.kind) ? ", you are on a roll" : ""
+          streak >= 10 && commandAllowsCelebration(command) ? ", you are on a roll" : ""
         }.`
       : "";
   // Operator spec 2026-07-09 B-14: no "team" framing - purely functional.
@@ -320,22 +342,12 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       <PageHeader title={greeting} description={brief}>
         <RefreshMyDataButton connectedCount={connectedSourceCount} />
       </PageHeader>
-      {/* Slice 4 - the durable Research Run status, one honest line under the
-          greeting. Self-hiding: renders nothing when there is no run to show. When
-          research is paused because no questions are tracked, the line carries the
-          one control that fixes it instead of describing a dead end. */}
-      {researchLine || composite.needsTrackedQuestions ? (
-        <p className="-mt-2 text-[13px] text-muted-foreground">
-          {researchLine ?? "I am not tracking any questions for you yet, so my research cannot start."}
-          {composite.needsTrackedQuestions && composite.trackedQuestionsHref ? (
-            <>
-              {" "}
-              <Link href={composite.trackedQuestionsHref} className="font-medium text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
-                Choose the questions I should track →
-              </Link>
-            </>
-          ) : null}
-        </p>
+      {/* The durable Research Run status, one honest line under the greeting. Self-hiding:
+          nothing to show, nothing rendered. SUPPRESSED WHENEVER A BLOCKER EXISTS, because the
+          command below now owns that sentence and its one control, and printing it twice on one
+          screen is how two copies of the same claim drift apart. */}
+      {researchLine && blockers.length === 0 ? (
+        <p className="-mt-2 text-[13px] text-muted-foreground">{researchLine}</p>
       ) : null}
 
       {/* ── SLOT 2: THE ONE COMMAND ────────────────────────────────────────────────────────

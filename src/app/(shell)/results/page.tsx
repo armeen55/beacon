@@ -3,12 +3,16 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { requireReadyAccount } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
-import { scheduleAutoMeasure } from "@/domains/measurement";
-import { bundleReads, splitReads, type BundleRead, type KernelRead } from "@/domains/measurement";
+import { scheduleAutoMeasure, visibilitySeries } from "@/domains/measurement";
+import { bundleReads, splitReads, type BundleRead } from "@/domains/measurement";
 import { ledgerCheckedAgoLine, loadResultsLedgerSurface } from "./results-ledger-data";
 import { ResultCard } from "./results-ledger-card";
+import { aiTrend, type ShipmentPresentation } from "./results-presentation";
 import { RecomputeLedgerButton, RecordAnyPageForm } from "./proof-ledger-client";
 import { ResultsTimeline } from "../changes/results-timeline";
+
+/** How many reporting days the AI trend draws. */
+const TREND_DAYS = 28;
 
 /**
  * Results (CORE 100K) - every change I made and whether it helped. Each change is
@@ -27,24 +31,24 @@ export default async function ProofPage({
   const tenantId = await currentTenantId();
   const { access } = await requireReadyAccount(tenantId);
   if (access.kind === "suspended") redirect("/");
-  const surface = await loadResultsLedgerSurface().catch(() => ({ reads: [] as KernelRead[], computedAt: null }));
-  const reads = surface.reads;
+  const surface = await loadResultsLedgerSurface().catch(() => ({ shipments: [] as ShipmentPresentation[], computedAt: null }));
+  const shipments = surface.shipments;
+  const reads = shipments.map((s) => s.read);
   const checkedAgo = ledgerCheckedAgoLine(surface.computedAt, Date.now());
 
   // Settle due rows in the background (never blocks this render).
   if (reads.length > 0) scheduleAutoMeasure(tenantId);
 
-  const bands = splitReads(reads.map((read) => ({ read })));
+  // The AI trend reads answers already bought and stored; it never spends anything.
+  const trend = aiTrend(await visibilitySeries(tenantId, TREND_DAYS).catch(() => []));
+
   // The kernel's bandOf owns maturity now: "won" is 28-day evidence only and
   // "promising" is the earlier improvement band, on every surface at once.
-  const won = bands.won.map((b) => b.read);
-  const promising = bands.promising.map((b) => b.read);
-  const learned = bands.learned.map((b) => b.read);
-  const measuring = bands.measuring.map((b) => b.read);
+  const bands = splitReads(shipments);
   const bundles = bundleReads(reads);
   // A win read on the 56 day follow up did NOT settle at 28 days, so the band cannot promise
   // every row in it was called across the full 28 and no further.
-  const winsBlurb = won.some((r) => r.basisDay === 56)
+  const winsBlurb = bands.won.some((s) => s.read.basisDay === 56)
     ? "These changes beat their comparison pages over their full window: 28 days, or the 56 day follow up where one was owed. Real, measured gains."
     : "These changes beat their comparison pages across the full 28 days. Real, measured gains.";
   const anyClosed = reads.some((r) => r.windows.some((w) => w.state === "closed"));
@@ -71,6 +75,15 @@ export default async function ProofPage({
         ) : null}
       </div>
 
+      <section className="mb-5 rounded-lg border border-border-subtle bg-surface-raised px-4 py-3">
+        <h2 className="text-[12px] font-semibold uppercase tracking-wide text-foreground/70">How often AI assistants name you</h2>
+        <p className="mb-2 mt-0.5 text-[11px] text-muted-foreground">
+          Read from the answers I have already collected. Where an assistant changed how it answers, I break the
+          line and say so instead of drawing straight through it.
+        </p>
+        <VisibilityTrend trend={trend} />
+      </section>
+
       {reads.length === 0 ? (
         <div className="rounded-lg border border-border-subtle bg-surface-raised px-4 py-6 text-[13px] text-muted-foreground">
           No changes are being measured yet. Record a change below and I will check how it does over
@@ -79,10 +92,10 @@ export default async function ProofPage({
       ) : (
         <>
           {bundles.length > 0 ? <BundleCallouts bundles={bundles} /> : null}
-          <Band title="Wins" tone="text-emerald-700" reads={won} blurb={winsBlurb} />
-          <Band title="Promising" tone="text-emerald-600" reads={promising} blurb="These are moving up, but their 28 day window has not closed yet. I will call them when it does." />
-          <Band title="What I learned" tone="text-foreground/70" reads={learned} blurb="These settled without a clear gain. That tells us which lever to try next on pages like these." />
-          <Band title="Still measuring" tone="text-muted-foreground" reads={measuring} blurb="Still collecting data or waiting on Google. Nothing to do here until a read lands." />
+          <Band title="Wins" tone="text-emerald-700" shipments={bands.won} blurb={winsBlurb} />
+          <Band title="Promising" tone="text-emerald-600" shipments={bands.promising} blurb="These are moving up, but their 28 day window has not closed yet. I will call them when it does." />
+          <Band title="What I learned" tone="text-foreground/70" shipments={bands.learned} blurb="These settled without a clear gain. That tells us which lever to try next on pages like these." />
+          <Band title="Still measuring" tone="text-muted-foreground" shipments={bands.measuring} blurb="Still collecting data or waiting on Google. Nothing to do here until a read lands." />
         </>
       )}
 
@@ -107,17 +120,73 @@ export default async function ProofPage({
   );
 }
 
-function Band({ title, tone, reads, blurb }: { title: string; tone: string; reads: KernelRead[]; blurb: string }) {
-  if (reads.length === 0) return null;
+function Band({ title, tone, shipments, blurb }: { title: string; tone: string; shipments: ShipmentPresentation[]; blurb: string }) {
+  if (shipments.length === 0) return null;
   return (
     <div className="mt-5">
       <h2 className={`text-[12px] font-semibold uppercase tracking-wide ${tone}`}>
-        {title} ({reads.length})
+        {title} ({shipments.length})
       </h2>
       <p className="mb-2 mt-0.5 text-[11px] text-muted-foreground">{blurb}</p>
       <div className="space-y-2">
-        {reads.map((read) => (
-          <ResultCard key={read.id} read={read} />
+        {shipments.map((s) => (
+          <ResultCard key={s.read.id} shipment={s} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The AI visibility trend. THE BREAK IS THE POINT: when an assistant changes the model behind its
+ * answers, or the way it answers at all, the readings either side come from two different
+ * instruments, so the line STOPS, the break is drawn and named, and a new line starts. A joined
+ * line would sell an instrument change as a win or a loss.
+ */
+const TREND_H = 56;
+const TREND_STEP = 14;
+
+function TrendRun({ points }: { points: ReturnType<typeof aiTrend>["runs"][number]["points"] }) {
+  const read = points.filter((p) => p.rate != null);
+  if (read.length === 0) {
+    return <p className="text-[11px] text-muted-foreground">Nobody has read an answer from this stretch closely enough for me to plot it.</p>;
+  }
+  const w = Math.max(TREND_STEP, (read.length - 1) * TREND_STEP);
+  const y = (rate: number): number => TREND_H - 6 - rate * (TREND_H - 12);
+  const d = read.map((p, i) => `${i === 0 ? "M" : "L"} ${i * TREND_STEP} ${y(p.rate ?? 0)}`).join(" ");
+  return (
+    <div className="overflow-x-auto">
+      <svg width={w + 8} height={TREND_H} viewBox={`0 0 ${w + 8} ${TREND_H}`} role="img"
+        aria-label={`How often AI assistants named you, ${read[0]!.label} to ${read[read.length - 1]!.label}`}>
+        {read.length > 1 ? <path d={d} fill="none" stroke="currentColor" strokeWidth="1.5" className="text-emerald-600" /> : null}
+        {read.map((p, i) => <circle key={p.day} cx={i * TREND_STEP} cy={y(p.rate ?? 0)} r="2" className="fill-emerald-600" />)}
+      </svg>
+      <p className="text-[10px] tabular-nums text-muted-foreground">{read[0]!.label} to {read[read.length - 1]!.label}</p>
+    </div>
+  );
+}
+
+function VisibilityTrend({ trend }: { trend: ReturnType<typeof aiTrend> }) {
+  if (trend.runs.length === 0) {
+    return (
+      <p className="text-[12px] text-muted-foreground">
+        I have not read enough AI answers to draw your trend yet. I read them on the days you are signed in, and
+        the line starts as soon as there are two days to join.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {trend.summary ? <p className="text-[12px] text-foreground">{trend.summary}</p> : null}
+      <div className="flex flex-wrap items-end gap-3">
+        {trend.runs.map((run, i) => (
+          <div key={i} className="flex items-end gap-3">
+            {i > 0 ? <span aria-hidden className="mb-6 h-8 w-px bg-amber-400" /> : null}
+            <div>
+              {run.breakLabel ? <p className="mb-1 max-w-[280px] text-[10px] text-amber-800">{run.breakLabel}</p> : null}
+              <TrendRun points={run.points} />
+            </div>
+          </div>
         ))}
       </div>
     </div>

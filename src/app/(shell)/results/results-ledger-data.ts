@@ -8,12 +8,13 @@ import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { runSingleFlight } from "@/lib/single-flight";
 import { readLastFinalizedDate } from "@/domains/measurement";
 import { loadProofLedger, loadProofLedgerPersisted } from "@/domains/measurement";
-import { readLedger, type KernelRead } from "@/domains/measurement";
+import { aiOutcomeForShipment, readLedger, type ShippedChangeRecord } from "@/domains/measurement";
 import {
   isResultsSurfaceStale,
   readResultsSurface,
   writeResultsSurface,
 } from "./results-surface-store";
+import type { ShipmentPresentation } from "./results-presentation";
 
 /**
  * results-ledger-data (CORE 100K) - the stale-while-revalidate entry point for the
@@ -23,20 +24,46 @@ import {
  * cold start. Measurement history is never touched here.
  */
 
-export type ResultsLedgerSurface = {
-  reads: KernelRead[];
+type ResultsLedgerSurface = {
+  shipments: ShipmentPresentation[];
   computedAt: string | null;
 };
 
-/** Build the kernel reads for a tenant from the persisted records (no re-measure). */
-async function persistedReads(tenantId: string): Promise<KernelRead[]> {
-  const records = await loadProofLedgerPersisted(tenantId).catch(() => []);
+/**
+ * One shipment story per record: the kernel's read, the live check the Shipment store holds, the
+ * immutable starting point written at mark time, and what AI answers did around it. The AI side is
+ * read from answers already bought, so nothing here spends anything; a record with no stamp has no
+ * moment to measure an AI outcome from and honestly carries none.
+ */
+export async function presentShipments(tenantId: string, records: ShippedChangeRecord[]): Promise<ShipmentPresentation[]> {
   if (records.length === 0) return [];
   const latestGscDate = await readLastFinalizedDate(tenantId).catch(() => null);
-  return readLedger(records, new Date(), latestGscDate);
+  const reads = readLedger(records, new Date(), latestGscDate);
+  return Promise.all(records.map(async (r, i) => ({
+    read: reads[i]!,
+    implementedAt: r.implementedAt ?? null,
+    verification: r.verification ?? null,
+    baseline: r.shipmentBaseline
+      ? {
+        clicks: r.shipmentBaseline.search.clicks,
+        impressions: r.shipmentBaseline.search.impressions,
+        windowDays: r.shipmentBaseline.search.windowDays,
+        capturedAt: r.shipmentBaseline.capturedAt,
+      }
+      : null,
+    ai: r.implementedAt
+      ? await aiOutcomeForShipment(tenantId, { implementedAt: r.implementedAt, shipmentBaseline: r.shipmentBaseline }).catch(() => null)
+      : null,
+  })));
 }
 
-export async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedgerSurface> {
+/** Build the shipment stories for a tenant from the persisted records (no re-measure). */
+async function persistedShipments(tenantId: string): Promise<ShipmentPresentation[]> {
+  const records = await loadProofLedgerPersisted(tenantId).catch(() => []);
+  return presentShipments(tenantId, records);
+}
+
+async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedgerSurface> {
   const cached = await readResultsSurface(tenantId).catch(() => null);
   if (cached) {
     if (isResultsSurfaceStale(cached.computedAt, Date.now())) {
@@ -48,11 +75,11 @@ export async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedger
         }
       });
     }
-    return { reads: cached.reads, computedAt: cached.computedAt };
+    return { shipments: cached.shipments, computedAt: cached.computedAt };
   }
   // First-ever / invalidated: do NOT re-measure on the GET. Serve the persisted
   // reads instantly and schedule the heavy rebuild in the background.
-  const reads = await persistedReads(tenantId).catch(() => [] as KernelRead[]);
+  const shipments = await persistedShipments(tenantId).catch(() => [] as ShipmentPresentation[]);
   after(async () => {
     try {
       await runSingleFlight(`results-surface:${tenantId}`, () => rebuildResultsSurface(tenantId));
@@ -60,7 +87,7 @@ export async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedger
       await recordAppError({ route: "/results", tenantId, action: "cold-rebuild", ...errorFieldsFrom(e) });
     }
   });
-  return { reads, computedAt: reads.length > 0 ? null : null };
+  return { shipments, computedAt: null };
 }
 
 /** Request-memoized /results reads, SWR-cached cross-request. */
@@ -75,9 +102,8 @@ export const loadResultsLedgerSurface = cache(
 export async function rebuildResultsSurface(tenantId: string): Promise<void> {
   const computedAt = new Date().toISOString();
   const records = await loadProofLedger(tenantId);
-  const latestGscDate = await readLastFinalizedDate(tenantId).catch(() => null);
-  const reads = readLedger(records, new Date(), latestGscDate);
-  await writeResultsSurface(reads, computedAt, tenantId);
+  const shipments = await presentShipments(tenantId, records);
+  await writeResultsSurface(shipments, computedAt, tenantId);
 }
 
 /**
