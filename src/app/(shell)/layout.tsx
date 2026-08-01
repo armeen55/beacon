@@ -8,6 +8,7 @@ import { Suspense } from "react";
 import { CockpitBar } from "@/components/shell/cockpit-bar";
 import { AppHeader } from "@/components/shell/app-header";
 import { CommandPalette, type PaletteItem } from "@/components/shell/command-palette";
+import { KeepResearching } from "@/components/shell/keep-researching";
 import { getChangelogEntries } from "@/lib/seed-data.server";
 import { allNavItems } from "@/lib/navigation";
 import { getPendingFindings } from "@/domains/evidence";
@@ -107,6 +108,10 @@ export default async function ShellLayout({
         </div>
       </div>
       <CommandPalette items={paletteItems} />
+      {/* One shell-level trigger starts the visit's pass (loadShellData); this keeps asking for the next
+          one while the tab is open and visible, so research finishes without the operator pressing
+          anything. It renders nothing and every bound behind it is server-counted. */}
+      <KeepResearching />
       {/* FP1 - badges/demo/palette-extras stream in AFTER first paint; a slow or
           wedged read renders nothing rather than delaying or stranding the shell. */}
       <Suspense fallback={null}>

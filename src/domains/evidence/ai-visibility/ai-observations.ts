@@ -227,6 +227,9 @@ export type AiObservationView = {
   day: string;
   status: AiObservationStatus;
   observedAt: string | null;
+  /** WHY the provider gave me nothing, in the provider's own terms. The planner reads it so a pair
+   *  it stops asking about today can say what actually happened instead of going quiet. */
+  failureReason: string | null;
   promptText: string;
   answerText: string | null;
   answerHash: string | null;
@@ -243,6 +246,7 @@ function viewAiObservation(r: AiObservationRecord): AiObservationView {
   return {
     id: r.id, promptId: r.prompt_id, version: r.prompt_version, engine: r.engine, slot: r.sample_slot,
     day: r.reporting_day, status: r.status, observedAt: r.completed_at, promptText: r.prompt_text,
+    failureReason: r.failure_reason ?? null,
     answerText: r.answer_text, answerHash: r.answer_hash, analysis: r.analysis, analysisHash: r.analysis_hash,
     citationUrls: r.journey?.cited_sources?.map((c) => c.url || c.domain) ?? null,
   };
@@ -253,6 +257,23 @@ export async function readAiObservationViews(
   tenantId: string, opts: { day?: string; promptId?: string; limit?: number; slot?: number } = {},
 ): Promise<AiObservationView[]> {
   return (await readAiObservations(tenantId, opts)).map(viewAiObservation);
+}
+
+/**
+ * SETTLE a reading that is never going to land: the row stops saying `failed` (which reads as "I will try
+ * again") and says what is actually true (`unavailable` = the engine had nothing readable to give today).
+ * The provider's own reason is left exactly where it is, so the row still explains itself.
+ *
+ * Only a `failed` row moves, and only forward. A reading that landed while the planner was deciding wins:
+ * the WHERE clause refuses to touch anything that is not still failed, so an observed answer can never be
+ * demoted by a decision taken a moment earlier. A write that matched no row is a no-op, never an error.
+ */
+export async function settleFailedObservation(
+  tenantId: string, observationId: string, status: Extract<AiObservationStatus, "unavailable" | "unsupported">,
+): Promise<void> {
+  const { error } = await getSupabaseAdmin().from(AI_OBSERVATIONS_TABLE).update({ status })
+    .eq("tenant_id", tenantId).eq("id", observationId).eq("status", "failed");
+  if (error) throw new Error(`[ai_observations] settle failed: ${error.message}`);
 }
 
 /**

@@ -42,6 +42,20 @@ import { loadFunnelState, saveFunnelState, type FunnelPair, type FunnelState, ty
  *  UNDER the funnel boundary this file imports, so keeping the table here forced them to carry a second copy
  *  of the numbers, which is exactly how two of them drifted. Import freshnessMsFor / isCurrent from there. */
 
+/** ONE stored analysis WITH the identity of the answer it was written about. The analysis alone was all
+ *  that ever reached discovery, so a keyword harvested out of it could not say which answer named it; the
+ *  identity below is exactly the one ai_observations files that answer under, so the trip back is a lookup.
+ *  Every identity field is optional: a caller that genuinely holds only the analysis omits them. */
+export type AnswerAnalysisRecord = {
+  analysis: Record<string, unknown>;
+  observationId?: string;
+  promptId?: string;
+  promptVersion?: number;
+  promptText?: string;
+  engine?: string;
+  reportingDay?: string;
+};
+
 export type FunnelDeps = {
   callProvider?: <K extends CapabilityKey>(capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string }) => Promise<CachedCallResult>;
   collectTask?: (cacheKey: string) => Promise<CachedCallResult>;
@@ -54,8 +68,9 @@ export type FunnelDeps = {
    *  null = the READ FAILED; [] = the account genuinely has none yet. */
   loadPageQueries?: (tenantId: string) => Promise<SerpAgendaPageQuery[] | null>;
   /** The analyses ALREADY stored beside the answers this account bought: what each answer was about and
-   *  what it actually answered. Read-only and bounded; nothing here is ever re-purchased or re-analyzed. */
-  loadAnswerAnalyses?: (tenantId: string) => Promise<Record<string, unknown>[]>;
+   *  what it actually answered, EACH STILL ATTACHED TO THE ANSWER IT IS ABOUT. Read-only and bounded;
+   *  nothing here is ever re-purchased or re-analyzed. */
+  loadAnswerAnalyses?: (tenantId: string) => Promise<AnswerAnalysisRecord[]>;
   /** Test seam for winning-page citation-target resolution (defaults to the real
    *  redirect-only resolver in competitor-intel/polite-fetch). */
   resolveCitations?: (appearances: ResearchWinningAppearance[], fetchImpl?: typeof fetch, deadlineMs?: number) => Promise<ResearchWinningAppearance[]>;
@@ -118,7 +133,7 @@ async function defaultPageQueries(tenantId: string): Promise<SerpAgendaPageQuery
     for (const p of [...signals.values()].sort((a, b) => b.impressions90d - a.impressions90d).slice(0, 25)) {
       const d = decay.get(p.page);
       const declining = !!d && d.clicksNow < d.clicksPrior;
-      for (const q of p.topQueries ?? []) out.push({ query: q.query, impressions: q.impressions, declining });
+      for (const q of p.topQueries ?? []) out.push({ query: q.query, impressions: q.impressions, declining, page: p.page });
     }
     return out;
   } catch {
@@ -127,11 +142,17 @@ async function defaultPageQueries(tenantId: string): Promise<SerpAgendaPageQuery
 }
 
 /** The analyses already stored beside answers this account paid for, newest first and deliberately FEW: a
- *  full-row read of this table is megabytes and a bounded handful is plenty of candidate language. An
- *  unreadable table costs the pass that one free source, and never claims the account has none. */
-async function defaultAnswerAnalyses(tenantId: string): Promise<Record<string, unknown>[]> {
+ *  full-row read of this table is megabytes and a bounded handful is plenty of candidate language. Each one
+ *  keeps the identity of the answer it is about, so a keyword taken out of it can name the question, the
+ *  engine, the day and the stored answer that produced it instead of arriving anonymous. An unreadable
+ *  table costs the pass that one free source, and never claims the account has none. */
+async function defaultAnswerAnalyses(tenantId: string): Promise<AnswerAnalysisRecord[]> {
   const rows = await readAiObservationViews(tenantId, { limit: 25 });
-  return rows.map((r) => r.analysis).filter((a): a is Record<string, unknown> => !!a);
+  return rows.filter((r) => !!r.analysis).map((r) => ({
+    analysis: r.analysis as Record<string, unknown>,
+    observationId: r.id, promptId: r.promptId, promptVersion: r.version,
+    promptText: r.promptText, engine: r.engine, reportingDay: r.day,
+  }));
 }
 
 /** Mode is stamped by normalization; the legacy scraper flag is decode input ONLY (nothing else reads it).

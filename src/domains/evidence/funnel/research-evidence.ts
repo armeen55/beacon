@@ -26,6 +26,35 @@ export type KeywordDiscoveryRoute =
   | "site" | "ranked" | "related" | "suggestion" | "gsc" | "profile" | "ideas"
   | "prompt" | "fanout" | "paa" | "related_search" | "answer_entity";
 
+/** ONE ARRIVAL of a keyword, with the journey that produced it kept whole. `discoveredVia` says which route
+ *  a row came by; this says WHERE ON THAT ROUTE, so a fan-out can be traced back to the approved question,
+ *  the engine that answered it, the day it was read and the stored answer it was read out of, and a Search
+ *  Console query back to the page that earned it. Recorded at the moment of discovery and never inferred
+ *  afterwards. TRI-STATE DISCIPLINE APPLIES TO EVERY FIELD: a field a route cannot know is ABSENT, never
+ *  zero, never a placeholder, and never borrowed from a route that does know it. */
+export type KeywordOrigin = {
+  route: KeywordDiscoveryRoute;
+  /** The exact string this candidate was read out of, before normalization. Absent when the keyword and
+   *  the string it came from are already identical. */
+  sourceQuery?: string;
+  /** The search, question or confirmed theme this arrival was derived FROM: the results page a "people
+   *  also ask" question sat on, the approved question an engine fanned out from, the theme a suggestion
+   *  was asked for. Absent where the route has no parent. */
+  parentQuery?: string;
+  /** The address this arrival came in on: the Search Console page whose row carried the query, or the page
+   *  of my own whose title or question it was. Absent where the route has no page. */
+  pageUrl?: string;
+  /** THE AI ROUTES ONLY (prompt, fanout, answer_entity): the identity of the answer this came out of, in
+   *  exactly the terms ai_observations stores it under, so the join back to the answer is a lookup and
+   *  never a guess. A version or day the working row never recorded stays absent, and `observationId` is
+   *  present only when every part of that identity is. */
+  promptId?: string;
+  promptVersion?: number;
+  engine?: string;
+  reportingDay?: string;
+  observationId?: string;
+};
+
 type ResearchKeyword = {
   query: string;
   searchVolume: number | null;
@@ -42,6 +71,13 @@ type ResearchKeyword = {
   /** The confirmed theme it was discovered FROM; null = it came from no single theme
    *  (a whole-site pull, my own pages, my own Search Console). */
   seed?: string | null;
+  /** EVERY route this keyword actually arrived by, each with its own journey, oldest arrival first and
+   *  bounded. Optional only so a payload persisted before lineage was kept whole still reads, as absent
+   *  rather than as a keyword that arrived from nowhere. */
+  origins?: KeywordOrigin[];
+  /** How many FURTHER distinct arrivals there were past the bound above. Absent = none were dropped, so a
+   *  truncated lineage always says so instead of quietly reading as the whole story. */
+  moreOrigins?: number;
   /** For a keyword the account ALREADY ranks for: the page OF ITS OWN that actually ranks and that page's
    *  ORGANIC position (rank_group; rank_absolute counts ads and packs). Absent on every other route. */
   ownedRankingUrl?: string | null; ownedPosition?: number | null;

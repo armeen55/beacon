@@ -29,7 +29,7 @@
  * fragmentation beats a false mega-topic. */
 
 import { caseRows, foldCases, type CaseFold } from "./case-identity";
-import type { FunnelResearchEvidence, ResearchCase, ResearchWinningAppearance } from "./funnel/research-evidence";
+import type { FunnelResearchEvidence, KeywordOrigin, ResearchCase, ResearchWinningAppearance } from "./funnel/research-evidence";
 import { canonicalQueryKey, topicTokens } from "./relevance-gate";
 import {
   coherenceOf, dominantPageType, pageTypeVotesOf, serpRefOf, winnerRefOf,
@@ -49,6 +49,9 @@ type InvestigationKeyword = {
   difficulty: number | null;
   intent: string | null;
   gscImpressions: number | null;
+  /** The journey this keyword arrived by, as the funnel recorded it at discovery. */
+  origins: KeywordOrigin[] | null;
+  moreOrigins: number | null;
 };
 
 type TrackedPromptRef = {
@@ -202,9 +205,9 @@ function groupEvidence(snapshot: EvidenceSnapshot): Grouped {
   }
 
   // Lineage as the funnel recorded it at discovery, never re-derived here.
-  const lineageByQuery = new Map<string, { seed: string | null; via: string | null; difficulty: number | null; intent: string | null }>();
+  const lineageByQuery = new Map<string, { seed: string | null; via: string | null; difficulty: number | null; intent: string | null; origins: KeywordOrigin[] | null; moreOrigins: number | null }>();
   for (const k of research.retainedKeywords) {
-    lineageByQuery.set(canonicalQueryKey(k.query), { seed: k.seed ?? null, via: k.discoveredVia ?? null, difficulty: k.difficulty, intent: k.intent });
+    lineageByQuery.set(canonicalQueryKey(k.query), { seed: k.seed ?? null, via: k.discoveredVia ?? null, difficulty: k.difficulty, intent: k.intent, origins: k.origins ?? null, moreOrigins: k.moreOrigins ?? null });
   }
 
   // ── anchors: one per exact result page looked at, one per tracked prompt ──
@@ -250,6 +253,7 @@ function groupEvidence(snapshot: EvidenceSnapshot): Grouped {
       members[i].push({
         query: kw.query, discoveredVia: lin?.via ?? null, seed: lin?.seed ?? null, searchVolume: kw.searchVolume,
         difficulty: lin?.difficulty ?? null, intent: lin?.intent ?? null, gscImpressions: kw.gscImpressions,
+        origins: lin?.origins ?? null, moreOrigins: lin?.moreOrigins ?? null,
       });
     }
   }
@@ -393,7 +397,7 @@ function assemble(idx: number[], g: Grouped, snapshot: EvidenceSnapshot, key: st
   // bodies "before I can compare" contradicted the address-based comparison that actually ships.
   if (rankedPublishers < MIN_WINNERS) missingEvidence.push(`I can name ${rankedPublishers} of the ${MIN_WINNERS} sites that win here, so I cannot compare them against your own pages yet.`);
   else if (currentReadableWinners < MIN_WINNERS) missingEvidence.push(`I have read ${currentReadableWinners} of the ${MIN_WINNERS} winning pages I would need before writing a page of your own.`);
-  const lineageIntact = keywords.every((k) => !!k.discoveredVia || k.gscImpressions != null) && fanOuts.every((f) => !!f.parentPromptText);
+  const lineageIntact = keywords.every((k) => !!k.discoveredVia || k.gscImpressions != null || (k.origins?.length ?? 0) > 0) && fanOuts.every((f) => !!f.parentPromptText);
   if (!lineageIntact) missingEvidence.push("I cannot trace every keyword here back to how I found it.");
   if (pageType === "mixed") missingEvidence.push("The pages that win here do not agree on one shape.");
 

@@ -26,7 +26,8 @@ import { shipmentBustedAt, verifyDueShipments } from "@/domains/measurement/veri
 import { log } from "@/lib/logger";
 import { warmFreeSurfaces } from "./warm-caches";
 import { chooseInvestigation, comparisonForFocus, focusReads, type ResearchFocus } from "./investigation-queries";
-import { dueObservations, runAnswerAnalyses, utcReportingDay } from "./daily-observations";
+import { dueObservations, runAnswerAnalyses } from "./daily-observations";
+import { reportingDay } from "@/lib/reporting-day";
 import { accountBasis, dueWork, evidenceRowVersion, type DueWork } from "./due-work";
 import type { ResearchPhase } from "../research-run";
 
@@ -185,7 +186,7 @@ export const defaultSteps: ResearchCycleSteps = {
       // overridden, because two selectors meant one of them re-asked a question the other had already read today. One canonical reading per question, per
       // engine, per UTC day, core first and oldest-missing-first. A null plan (I could not read what is due) asks NOTHING. The day is the RUN'S own cycle
       // day, not the wall clock, so a run that spans midnight keeps reporting into the day it opened instead of silently splitting itself.
-      const day = String(cursor?.cycle ?? "").slice(-10) || utcReportingDay(Date.now());
+      const day = String(cursor?.cycle ?? "").slice(-10) || reportingDay(Date.now());
       return promptObservationUnit({}, await dueObservations(tenantId, day))(tenantId, cursor, budgetMs);
     }
     // The plan's own cases ride into discovery, so every keyword is filed under the case it belongs to and the recurring winning domains are bought once per case set.

@@ -1,7 +1,7 @@
 "use server";
 
 import { log } from "@/lib/logger";
-import { continueResearch, requestExtraSample, utcReportingDay, warmFreeSurfaces } from "@/domains/runtime";
+import { continueResearch, researchTick, requestExtraSample, warmFreeSurfaces, type ResearchTick } from "@/domains/runtime"; import { reportingDay } from "@/lib/reporting-day";
 import {
   getConnectorInfo,
   getGoogleConnectorToken,
@@ -1101,6 +1101,13 @@ export async function continueResearchNow(hop = 0): Promise<{ hop: number; more:
   return tenantId ? continueResearch(tenantId, hop) : { hop: 0, more: false };
 }
 
+/** ONE poll from an open tab, for the shell's continuation controller: same continuation seam as the
+ *  button above, every bound on the server, the browser only relaying the answer. */
+export async function researchTickNow(hop = 0): Promise<ResearchTick> {
+  const tenantId = await currentTenantId().catch(() => "");
+  return researchTick(tenantId, hop);
+}
+
 export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedResult> {
   const action = "refreshAllConnectedDataNow";
   const t0 = Date.now();
@@ -1124,21 +1131,16 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
     );
     const connected = REFRESH_ALL_SOURCES.filter((_, i) => connectedFlags[i]);
 
-    if (connected.length === 0) {
-      log.info("Action completed", {
-        action,
-        durationMs: Date.now() - t0,
-        connected: 0,
-      });
-      return { ranAt, results: [] };
-    }
-
+    // BEACON'S OWN RESEARCH IS NOT A CONNECTOR (2026-08-01). Zero connected sources used to return right
+    // here, skipping the warm, the extra AI reading and any honest word about what happened, so an account
+    // running on Beacon's own research could press this button forever and never get a second reading of
+    // today's answers. Only the third-party syncs are skipped now.
     const startedAt = new Date().toISOString();
     const settled = await Promise.allSettled(
       connected.map((s) => s.run(tenantId)),
     );
 
-    const results = await Promise.all(
+    const results: RefreshAllConnectedResult["results"] = await Promise.all(
       connected.map(async (s, i) => {
         const outcome = settled[i];
         if (outcome.status === "rejected") {
@@ -1205,8 +1207,11 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
     // owed (an extra read of a few questions would tilt the day's average) and refuses
     // once every pair already has three. No new button, no new surface: the verdict is
     // internal truth and the granted extra readings are planned on the next pass.
-    const extra = await requestExtraSample(tenantId, utcReportingDay(Date.now())).catch(() => null);
+    const extra = await requestExtraSample(tenantId, reportingDay(Date.now())).catch(() => null);
     if (extra) log.info("Action extra AI reading", { action, granted: extra.granted, due: extra.due.length, reason: extra.reason });
+    // With nothing connected the list would be empty and say nothing at all. Tell the truth in one line.
+    if (connected.length === 0) results.push({ provider: "beacon_research", label: "My own research.",
+      ok: true, detail: "I refreshed what I gather myself. Connect Google to refresh your search data too." });
 
     revalidatePath("/");
     revalidatePath("/settings/connectors");

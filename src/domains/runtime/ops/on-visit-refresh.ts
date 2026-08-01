@@ -8,7 +8,7 @@ import { log } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { NO_BASIS_DETAIL } from "@/domains/evidence/funnel/shared";
 import { runFocus } from "./investigation-queries";
-import { utcReportingDay } from "./daily-observations";
+import { reportingDay } from "@/lib/reporting-day";
 import { dueWork, type DueWork } from "./due-work";
 import { defaultSteps, type ResearchCycleSteps } from "./research-steps";
 // The phase bodies live in research-steps; the contract between the two files is this type, so a
@@ -23,6 +23,7 @@ import {
   nextPhase,
   phaseIdempotencyKey,
   renewLease,
+  researchRunStatus,
   startExtraPass,
   type ResearchPhase,
   type ResearchRun,
@@ -380,7 +381,7 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
         log.debug("[research-run] no claim and nothing due; nothing runs", { tenantId, due: work?.due.length ?? null });
         return;
       }
-      run = await startExtraPass(tenantId, ownerToken, utcReportingDay(now.getTime()));
+      run = await startExtraPass(tenantId, ownerToken, reportingDay(now.getTime()));
       if (run == null) return;
       log.info("[research-run] same-day pass opened on genuinely due work", { tenantId, due: work.due });
     }
@@ -429,7 +430,7 @@ export async function continueResearch(tenantId: string, hop = 0, options: Resea
   const claimed = Math.max(0, Math.trunc(hop));
   if (!tenantId) return { hop: claimed, more: false };
   const nowFn = options.now ?? (() => new Date());
-  const counted = await countContinuationHop(tenantId, utcReportingDay(nowFn().getTime()));
+  const counted = await countContinuationHop(tenantId, reportingDay(nowFn().getTime()));
   const next = counted ?? claimed + 1;
   if (next > MAX_CONTINUATIONS) {
     log.debug("[research-run] today's continuation bound is spent; this hop runs nothing", { tenantId, hop: next });
@@ -440,6 +441,36 @@ export async function continueResearch(tenantId: string, hop = 0, options: Resea
   });
   const work = await (options.steps?.dueWork ?? dueWork)(tenantId, nowFn()).catch(() => null);
   return { hop: next, more: next < MAX_CONTINUATIONS && !!work?.readable && work.due.length > 0 };
+}
+
+/** What ONE poll from an open tab learned, and the only instruction the browser gets back: keep asking at
+ *  the base interval, wait longer, or stop asking for the rest of this page view. THE CLIENT DECIDES
+ *  NOTHING. It cannot know the day's hop count, whether a pause needs the operator, or whether anything is
+ *  owed, so all three are answered HERE from persisted state and handed back as one word. */
+export type ResearchTick = { hop: number; next: "continue" | "wait" | "stop" };
+
+/**
+ * ONE poll of the durable run state, and ONE bounded continuation when work is genuinely owed. This is
+ * what lets an open tab finish the day's research without the operator pressing anything: it reuses the
+ * same continuation the Update data button uses, so there is no cron, no queue and no second engine.
+ *
+ * STOP: the account is not active, the run paused for a reason only the operator can clear, nothing is
+ * due, or the server's own bound is spent (today's continuations, today's passes).
+ * WAIT: a pass is already advancing the run, so another hop would spend today's allowance on a claim it
+ * cannot win. The tab looks again later, and repaints meanwhile so the numbers move while they watch.
+ */
+export async function researchTick(tenantId: string, hop = 0, options: ResearchCycleOptions = {}): Promise<ResearchTick> {
+  if (!tenantId) return { hop: 0, next: "stop" };
+  const nowFn = options.now ?? (() => new Date());
+  const account = await getTenant(tenantId).catch(() => null);
+  if (!account || account.status !== "active") return { hop, next: "stop" };
+  const view = await researchRunStatus(tenantId, nowFn()).catch(() => null);
+  if (view == null || view.pauseReason) return { hop, next: "stop" };
+  if (view.state === "running") return { hop, next: "wait" };
+  const work = await (options.steps?.dueWork ?? dueWork)(tenantId, nowFn()).catch(() => null);
+  if (work == null || !work.readable || work.due.length === 0) return { hop, next: "stop" };
+  const step = await continueResearch(tenantId, hop, options);
+  return { hop: step.hop, next: step.more ? "continue" : "stop" };
 }
 
 /** Schedule one post-response Research Run from the app shell. Every navigation may call this; the DATABASE lease (not any in-memory guard) prevents two

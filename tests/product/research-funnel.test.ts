@@ -9,8 +9,8 @@ import type { CachedCallResult, CapabilityKey, FailureDisposition, ParsedAiAnswe
 import { keywordDiscoveryUnit } from "@/domains/evidence/funnel/discovery"; import { promptObservationUnit, serpAnalysisUnit } from "@/domains/evidence/funnel/observe"; import { winningPagesUnit } from "@/domains/evidence/funnel/winning-pages";
 import { retainDiverse, selectSerpAgenda } from "@/domains/evidence/funnel/normalize"; import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { caseResearchReceipt } from "@/domains/evidence/case-receipt"; import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
-import { emptyFunnelState, MAX_RETAINED, type FunnelKeyword, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
-import { CONFLICT_DETAIL, type FunnelDeps } from "@/domains/evidence/funnel/shared"; import type { DueObservation } from "@/domains/evidence/ai-visibility/ai-observations"; import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
+import { emptyFunnelState, loadFunnelState, MAX_RETAINED, type FunnelKeyword, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
+import { CONFLICT_DETAIL, type FunnelDeps } from "@/domains/evidence/funnel/shared"; import { aiObservationId, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations"; import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 const BASIS = "basis_aaa"; const NOW = 1_700_000_000_000; // a fixed clock far past the 7-day freshness window
 const WEEKS_AGO = new Date(NOW - 30 * 24 * 3600 * 1000).toISOString(); const ENG = ["chatgpt", "gemini", "claude", "perplexity"] as const;
 const cur = (basis: string | null = BASIS) => (basis ? { basis } : {}); const confirmed = <V>(value: V): ProfileSection<V> => ({ value, origin: "operator_confirmed", confidence: null, sourceUrls: [] });
@@ -336,7 +336,7 @@ describe("research funnel - the CASE-SCOPED keyword universe", () => {
   const PLAN = [{ caseId: ABSORBED, query: "where to buy saffron" }]; // the plan names an id a merge already absorbed
   const disc = (store: ReturnType<typeof memStore>, over: Partial<FunnelDeps> = {}, plan = PLAN) => keywordDiscoveryUnit({
     ...base(profileOf("tc", ["saffron"], ["saffron price"])), ...store.deps, keywordIdeas: async () => [], loadPageQueries: async () => [{ query: "saffron benefits", impressions: 90 }],
-    loadAnswerAnalyses: async () => [{ topicEntities: ["iranian saffron"], questionsAnswered: ["does saffron expire"] }],
+    loadAnswerAnalyses: async () => [{ analysis: { topicEntities: ["iranian saffron"], questionsAnswered: ["does saffron expire"] }, observationId: "obs_a", promptId: "p1", promptVersion: 1, engine: "chatgpt", reportingDay: DAY_A, promptText: "where to buy saffron" }],
     // The last two rows are ONE page of mine reported twice for one search: rows, not pages.
     callProvider: async (cap: CapabilityKey) => ok(cap === "labs_ranked_keywords" ? ranked([["price saffron", "https://own.com/a", 4], ["price saffron", "https://own.com/b", 9], ["saffron threads", "https://own.com/t", 7], ["saffron threads", "https://own.com/t", 2]]) : parsedKw([])), ...over }, plan)("tc", cur(), 60_000);
   it("takes every source the account already observed, tagged with the route it actually arrived by, and never buys one subject twice", async () => {
@@ -381,6 +381,53 @@ describe("research funnel - the CASE-SCOPED keyword universe", () => {
     await run(); expect(calls).toBe(1); // inside the week the answer on file is the answer: zero further spend
     await run({ now: () => NOW + 8 * 24 * 3600 * 1000 }); expect(calls).toBe(2); }); // past it, exactly one fresh look
 });
+/** THE JOURNEY, not just the first step: a fan-out has to be traceable back to the approved question, the
+ *  engine, the reporting day and the stored answer it came out of, or Beacon cannot say why it belongs to a
+ *  page. Route alone was all that survived discovery before this. */
+describe("research funnel - the journey behind a keyword", () => {
+  const JCASE = "inv_j", jAt = new Date(NOW).toISOString(); const FAN = "best saffron brands";
+  const pair = (over: Partial<FunnelPair> = {}): FunnelPair => ({ promptId: "p1", promptText: "where to buy saffron", engine: "chatgpt", mode: "consumer_search", promptVersion: 2, day: DAY_A, cacheKey: null, status: "done", observedAt: jAt, fanOutQueries: [FAN], ...over });
+  const seeded = (pairs: FunnelPair[]): FunnelState => { const s = emptyFunnelState("tj", BASIS);
+    s.cases = [{ id: JCASE, anchors: [canonicalQueryKey("price saffron")] }];
+    s.serps.queries = [{ query: "price saffron", cacheKey: "ck", status: "done", observedAt: jAt, paa: [{ question: "How much does saffron cost per gram", answeringDomain: null }], related: [] }];
+    s.prompts.pairs = pairs; return s; };
+  const run = (store: ReturnType<typeof memStore>) => keywordDiscoveryUnit({ ...base(profileOf("tj", ["saffron"], ["saffron price"])), ...store.deps, keywordIdeas: async () => [],
+    loadPageQueries: async () => [{ query: "saffron benefits", impressions: 90, page: "https://own.com/saffron" }],
+    loadAnswerAnalyses: async () => [{ analysis: { topicEntities: ["iranian saffron"], questionsAnswered: [] }, observationId: "obs_read", promptId: "p9", promptVersion: 4, engine: "gemini", reportingDay: DAY_B, promptText: "is saffron worth it" }],
+    callProvider: async () => ok(parsedKw([])) }, [{ caseId: JCASE, query: "price saffron" }])("tj", cur(), 60_000);
+  const rowsOf = (store: ReturnType<typeof memStore>) => new Map(store.peek("tj", BASIS)!.discovery.retained.map((k) => [k.keyword, k]));
+
+  it("traces every free candidate back to the exact thing that produced it, and invents nothing a route cannot know", async () => {
+    const store = memStore(seeded([pair()])); expect((await run(store)).status).toBe("done"); const rows = rowsOf(store);
+    expect(rows.get(FAN)!.origins).toEqual([{ route: "fanout", promptId: "p1", promptVersion: 2, engine: "chatgpt", reportingDay: DAY_A, parentQuery: "where to buy saffron",
+      observationId: aiObservationId({ tenantId: "tj", promptId: "p1", promptVersion: 2, engine: "chatgpt", day: DAY_A, slot: 0 }) }]); // the answer this search came out of, named the way the store files it
+    expect(rows.get("saffron benefits")!.origins).toEqual([{ route: "gsc", pageUrl: "https://own.com/saffron" }]); // my own page earned it; it claims no prompt, no engine, no day it never had
+    expect(rows.get("how much does saffron cost per gram")!.origins).toEqual([{ route: "paa", parentQuery: "price saffron", sourceQuery: "How much does saffron cost per gram" }]); // the results page it sat on, in Google's own spelling
+    expect(rows.get("iranian saffron")!.origins).toEqual([{ route: "answer_entity", promptId: "p9", promptVersion: 4, engine: "gemini", reportingDay: DAY_B, observationId: "obs_read", parentQuery: "is saffron worth it" }]);
+  });
+  it("merges one follow-up seen in two different answers into ONE row that names both", async () => {
+    const store = memStore(seeded([pair(), pair({ promptId: "p2", promptText: "cheapest saffron", day: DAY_B })])); await run(store);
+    const row = rowsOf(store).get(FAN)!;
+    expect(row.origins!.map((o) => [o.promptId, o.reportingDay])).toEqual([["p1", DAY_A], ["p2", DAY_B]]); // two answers asking one follow-up is two pieces of evidence, never one
+    expect(row.moreOrigins).toBeUndefined(); });
+  it("keeps six arrivals and COUNTS the rest, so a bounded journey never reads as the whole story", async () => {
+    const store = memStore(seeded(Array.from({ length: 7 }, (_, i) => pair({ promptId: `p${i}`, promptText: `question ${i}` })))); await run(store);
+    const row = rowsOf(store).get(FAN)!;
+    expect([row.origins!.map((o) => o.promptId), row.moreOrigins]).toEqual([["p0", "p1", "p2", "p3", "p4", "p5"], 1]); }); // the seventh grows the count, never the list
+  it("carries a journey across passes: a rediscovered keyword keeps last pass's arrivals and adds this pass's", async () => {
+    const first = memStore(seeded([pair()])); await run(first);
+    expect(rowsOf(first).get(FAN)!.origins!.map((o) => o.promptId)).toEqual(["p1"]);
+    const held = first.peek("tj", BASIS)!; held.prompts.pairs = [pair({ promptId: "p2", promptText: "cheapest saffron", day: DAY_B })]; // the same follow-up, out of a different answer this time
+    const second = memStore(held); await run(second);
+    expect(rowsOf(second).get(FAN)!.origins!.map((o) => o.promptId)).toEqual(["p1", "p2"]); }); // what the last pass learned is not re-learned and not lost
+  it("decodes a row stored before the journey was kept as one that recorded no journey, never as one from nowhere", async () => {
+    const stored = { schemaVersion: 3, tenantId: "tj", basisTag: BASIS, discovery: { seeds: [], rejected: [], counts: { raw: 1, normalized: 1, retained: 1, rejected: 0 }, caseCompetitors: [],
+      retained: [{ keyword: "saffron price", searchVolume: 500, competition: null, difficulty: null, intent: null, discoveredVia: "site", rankedUrl: "https://own.com/s", rankedRank: 4 }] } } as unknown as FunnelState;
+    const table = { select: () => table, eq: () => table, maybeSingle: async () => ({ data: { schema_version: 3, state: stored, row_version: 1 }, error: null }) };
+    const loaded = await loadFunnelState("tj", BASIS, { configured: () => true, admin: () => ({ from: () => table }) });
+    const k = loaded.state.discovery.retained[0]!;
+    expect([k.origins, k.moreOrigins, k.ownedRankingUrl, k.ownedPosition]).toEqual([undefined, undefined, "https://own.com/s", 4]); }); // nothing crashes, nothing is fabricated, the legacy ranking still lands
+});
 describe("evidence - the per-case research receipt", () => {
   const CASE = "inv_canon", ABSORBED = "inv_old", at = new Date(NOW).toISOString();
   const seeded = (): FunnelState => { const s = emptyFunnelState("tr2", BASIS);
@@ -397,7 +444,7 @@ describe("evidence - the per-case research receipt", () => {
     const snapshot = await loadEvidenceSnapshot("tr2", { resolveBasis: async () => BASIS, loadState: async () => ({ state: seeded(), rowVersion: 1 }), now: new Date(NOW) });
     const r = caseResearchReceipt(snapshot, ABSORBED)!;
     expect([r.caseId, r.aliasKeys]).toEqual([CASE, [ABSORBED]]); // asked under the id a merge absorbed, answered by the case that answers for it now
-    expect(r.keywords).toEqual([{ query: "saffron price", discoveredVia: "paa", metricsHeld: true, searchVolume: 500, difficulty: 12, intent: "commercial", ownedRankingUrl: "https://own.com/s", ownedPosition: 4, supports: "existing_page" }]); // only this case's keywords, each with how I found it and what acting on it would mean
+    expect(r.keywords).toEqual([{ query: "saffron price", discoveredVia: "paa", metricsHeld: true, searchVolume: 500, difficulty: 12, intent: "commercial", ownedRankingUrl: "https://own.com/s", ownedPosition: 4, supports: "existing_page", origins: null, moreOrigins: null }]); // only this case's keywords, each with how I found it, its recorded journey, and what acting on it would mean
     expect(r.calls.map((c) => [c.kind, c.identity, c.served]).sort()).toEqual([["ai_answer", null, "unknown"], ["competitor_domains", "ck-comp", "cache"], ["page_comparison", "ck-pi", "unknown"], ["search_results", null, "unknown"]].sort()); // the ONE call that recorded how it was served says so; the rest say unknown instead of guessing
     expect(r.spend).toEqual({ spentUsd: 0.05, cachedCalls: 1 }); // THIS run's money, never a lifetime total
     expect(r.notBought.map((n) => n.reason)).toEqual(["capped", "fresh"]);
@@ -436,8 +483,11 @@ describe("research funnel - canonical snapshot carries the research bundle", () 
     const routes = ["site", "ranked", "related", "suggestion", "gsc", "profile", "ideas"] as const; // every route a keyword can arrive by
     s.discovery.retained = routes.map((discoveredVia, i) => ({ keyword: `kw ${discoveredVia}`, searchVolume: 10 + i, competition: 0.9, difficulty: null, intent: null, discoveredVia, ...(i % 2 ? { seed: `theme ${i}` } : {}) }));
     s.discovery.retained[0]!.competitionLevel = "low"; s.discovery.retained[1]!.ownedRankingUrl = "https://own.com/saffron"; s.discovery.retained[1]!.ownedPosition = 3; s.discovery.counts.retained = routes.length;
+    s.discovery.retained[0]!.origins = [{ route: "fanout", promptId: "pr", promptVersion: 2, engine: "chatgpt", reportingDay: DAY_A, observationId: "obs_z", parentQuery: "where to buy saffron" }]; s.discovery.retained[0]!.moreOrigins = 2;
     const snapshot = await loadEvidenceSnapshot("tl", { resolveBasis: async () => BASIS, loadState: async () => ({ state: s, rowVersion: 1 }), now: new Date("2026-07-24T00:00:00.000Z") });
     expect(snapshot.research.retainedKeywords.map((k) => [k.discoveredVia, k.seed])).toEqual(routes.map((r, i) => [r, i % 2 ? `theme ${i}` : null])); // recorded lineage, never inferred downstream
     expect(snapshot.research.retainedKeywords.map((k) => k.competitionLevel).slice(0, 2)).toEqual(["low", "high"]); // the provider's OWN label wins; only an unlabeled row falls back to the derived band
     expect(snapshot.research.retainedKeywords.map((k) => [k.ownedRankingUrl, k.ownedPosition]).slice(0, 2)).toEqual([[null, null], ["https://own.com/saffron", 3]]); // a ranked keyword NAMES the page of MY OWN that ranks; every other route says so plainly
+    expect([snapshot.research.retainedKeywords[0]!.origins, snapshot.research.retainedKeywords[0]!.moreOrigins]).toEqual([s.discovery.retained[0]!.origins, 2]); // the WHOLE journey projects, truncation count and all
+    expect(snapshot.research.retainedKeywords[1]!.origins).toBeUndefined(); // a row that recorded no journey projects none, never an empty one
   }); });

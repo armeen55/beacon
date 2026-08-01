@@ -8,7 +8,7 @@
  */
 
 // Visit-driven Research Run - schedule on visit + the durable Today status.
-export { ensureResearchRunOnVisit, continueResearch } from "./ops/on-visit-refresh";
+export { ensureResearchRunOnVisit, continueResearch, researchTick, type ResearchTick } from "./ops/on-visit-refresh";
 export { researchRunStatus, researchStatusLine, type ResearchRunStatusView } from "./research-run";
 
 // Source refresh recording
@@ -27,7 +27,7 @@ export { warmFreeSurfaces } from "./ops/warm-caches";
 
 // The daily AI-answer plan: one canonical reading per question, per engine, per
 // UTC day. The "Update data" action asks the extra-sample gate for a verdict.
-export { requestExtraSample, utcReportingDay } from "./ops/daily-observations";
+export { requestExtraSample } from "./ops/daily-observations";
 
 // Onboarding facade (Slice 5) - the seven-step /onboard flow's command surface.
 export {

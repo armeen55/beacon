@@ -22,10 +22,12 @@ import { __resetBusinessProfileCacheForTests, seedBusinessProfileForTests } from
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { AiObservationView, DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import {
-  DAILY_OBSERVATION_BATCH, MAX_SAMPLES_PER_DAY, dailyChecks, dueObservations, extraSampleVerdict, planObservations,
-  requestExtraSample, runAnswerAnalyses, selectAnalysisTargets, utcReportingDay, type ExtraSampleGrant,
+  DAILY_OBSERVATION_BATCH, FAILED_RETRIES_PER_DAY, MAX_SAMPLES_PER_DAY, dailyChecks, dueObservations, extraSampleVerdict,
+  planObservations, requestExtraSample, runAnswerAnalyses, selectAnalysisTargets,
+  type DayMarkers, type ExtraSampleGrant,
 } from "@/domains/runtime/ops/daily-observations";
 import { applyTrackedSelection, readActiveTrackedPrompts, type TrackedPromptRow } from "@/domains/runtime/prompt-set";
+import { reportingDay } from "@/lib/reporting-day";
 import type { AnswerAnalysis } from "@/domains/decision/llm/schemas";
 
 const DAY = "2026-07-31", ENGINES: DueObservation["engine"][] = ["chatgpt", "claude", "gemini", "perplexity"];
@@ -36,7 +38,7 @@ const PROMPTS = [q("p1", "2026-01-01"), q("p2", "2026-02-01"), q("p3", "2026-03-
 /** One stored observation row in the reader's own view shape. */
 const seen = (o: Partial<AiObservationView> & { promptId: string; engine: string }): AiObservationView => ({
   id: `obs-${o.promptId}-${o.engine}-${o.slot ?? 0}-${o.day ?? DAY}`, version: 1, slot: 0, day: DAY, status: "observed",
-  observedAt: null, promptText: "", answerText: null, answerHash: null, citationUrls: null, analysis: null, analysisHash: null, ...o,
+  observedAt: null, failureReason: null, promptText: "", answerText: null, answerHash: null, citationUrls: null, analysis: null, analysisHash: null, ...o,
 });
 const key = (d: { promptId: string; version: number; engine: string; slot: number }) => `${d.promptId}|${d.version}|${d.engine}|${d.slot}`;
 /** Every pair answered on `day`, so the canonical round is complete. */
@@ -153,7 +155,9 @@ describe("extra readings", () => {
 
   it("SAVES the grant so the next pass actually plans it, and refuses rather than promising a reading it could not record", async () => {
     let stored: ExtraSampleGrant | null = null;
-    const world = { readPrompts: async () => PROMPTS, readObservations: async () => fullDay(), readGrant: async () => stored, writeGrant: async (_t: string, g: ExtraSampleGrant) => { stored = g; return true; } };
+    const world = { readPrompts: async () => PROMPTS, readObservations: async () => fullDay(),
+      readMarkers: async () => (stored ? { extraSamples: stored } : {}),
+      writeMarkers: async (_t: string, p: { extraSamples?: ExtraSampleGrant }) => { if (p.extraSamples) stored = p.extraSamples; return true; } };
     const first = await requestExtraSample(T, DAY, world);
     expect([first.granted, stored]).toEqual([true, { day: DAY, granted: 1 }]);
     // THE POINT: a NEW request cycle, nothing in memory, and the planner still knows a second reading is owed.
@@ -163,13 +167,13 @@ describe("extra readings", () => {
     // Yesterday's grant never spends today's money.
     expect(await dueObservations(T, "2026-08-01", { ...world, readObservations: async () => fullDay("2026-08-01") })).toEqual([]);
     // A grant I could not record is a refusal, never a promise.
-    const lost = await requestExtraSample(T, DAY, { ...world, writeGrant: async () => false });
+    const lost = await requestExtraSample(T, DAY, { ...world, writeMarkers: async () => false });
     expect([lost.granted, lost.due]).toEqual([false, []]);
     expect(lost.reason).toContain("could not save");
   });
 
   it("reports today's standing with the plan, so the progress number a surface shows is the planner's own arithmetic", async () => {
-    const world = { readPrompts: async () => PROMPTS, readGrant: async () => null };
+    const world = { readPrompts: async () => PROMPTS, readMarkers: async () => null };
     const cold = await dailyChecks(T, DAY, { ...world, readObservations: async () => [] });
     expect([cold!.done, cold!.total, cold!.due.length]).toEqual([0, 12, 12]); // nothing landed yet, twelve pairs owed
     const partial = await dailyChecks(T, DAY, { ...world, readObservations: async () => ENGINES.map((e) => seen({ promptId: "p1", engine: e })) });
@@ -182,11 +186,11 @@ describe("extra readings", () => {
   });
 
   it("plans NOTHING and says so when it cannot read the questions or the answers already on file", async () => {
-    const prompts = async () => PROMPTS, observed = async () => [], readGrant = async () => null;
-    expect(await dueObservations(T, DAY, { readPrompts: async () => null, readObservations: observed, readGrant })).toBeNull();
-    expect(await dueObservations(T, DAY, { readPrompts: prompts, readObservations: async () => { throw new Error("store down"); }, readGrant })).toBeNull();
-    expect(await dueObservations(T, DAY, { readPrompts: async () => [], readObservations: observed, readGrant })).toEqual([]); // no questions is a real, empty answer
-    expect(await dueObservations(T, DAY, { readPrompts: prompts, readObservations: observed, readGrant })).toHaveLength(12);
+    const prompts = async () => PROMPTS, observed = async () => [], readMarkers = async () => null;
+    expect(await dueObservations(T, DAY, { readPrompts: async () => null, readObservations: observed, readMarkers })).toBeNull();
+    expect(await dueObservations(T, DAY, { readPrompts: prompts, readObservations: async () => { throw new Error("store down"); }, readMarkers })).toBeNull();
+    expect(await dueObservations(T, DAY, { readPrompts: async () => [], readObservations: observed, readMarkers })).toEqual([]); // no questions is a real, empty answer
+    expect(await dueObservations(T, DAY, { readPrompts: prompts, readObservations: observed, readMarkers })).toHaveLength(12);
   });
 });
 
@@ -219,47 +223,94 @@ describe("reading the answers back", () => {
     contentTypesRecommended: [], questionsAnswered: [], materialOmissions: [], caveats: [],
   } as unknown as AnswerAnalysis;
   const row = (id: string, answerHash: string, analysisHash: string | null, analysed: boolean): AiObservationView => ({
-    id, promptId: `p-${id}`, version: 1, engine: "chatgpt", slot: 0, day: DAY, status: "observed", observedAt: null,
+    id, promptId: `p-${id}`, version: 1, engine: "chatgpt", slot: 0, day: DAY, status: "observed", observedAt: null, failureReason: null,
     promptText: "who is open on sunday", answerText: "Acme is open on Sundays.", answerHash, citationUrls: null,
     analysis: analysed ? { ok: true } : null, analysisHash,
   });
 
-  it("analyses only what is new: one call per fresh answer hash, none for an answer already read, and nothing at all on a re-run", async () => {
+  /** A batch reading that answers every observation it was handed. */
+  const readsAll = async ({ targets }: { targets: readonly { row: { id: string } }[] }) =>
+    new Map(targets.map((t) => [t.row.id, analysis]));
+
+  it("analyses only what is new: ONE call for a batch of fresh answers, none for an answer already read, and nothing at all on a re-run", async () => {
     const fresh = row("a", "h1", null, false);          // never analysed
     const stale = row("b", "h2-new", "h2-old", true);   // the answer changed under an old analysis
     const done = row("c", "h3", "h3", true);            // already read at this exact hash
     expect(selectAnalysisTargets([fresh, stale, done]).map((r) => r.id)).toEqual(["a", "b"]);
 
-    const calls: string[] = [], saved: Array<[string, string]> = [];
+    const groups: number[] = [], saved: Array<[string, string]> = [];
     const deps = {
       readObservations: async () => [fresh, stale, done],
-      analyze: async (i: { question: string }) => { calls.push(i.question); return analysis; },
+      analyzeBatch: async (i: { targets: readonly { row: { id: string } }[] }) => { groups.push(i.targets.length); return readsAll(i); },
       persist: async (_t: string, id: string, _a: Record<string, unknown>, hash: string) => void saved.push([id, hash]),
       readPrompts: async () => null, identity: BRAND,
     };
     expect(await runAnswerAnalyses(T, DAY, deps)).toBe(2);
-    expect(calls).toEqual(["who is open on sunday", "who is open on sunday"]);
+    expect(groups).toEqual([2]); // TWO answers, ONE call: this is the whole point
     expect(saved).toEqual([["a", "h1"], ["b", "h2-new"]]);
 
     // The same pass again, with the analyses now on file: zero calls, zero cents.
-    calls.length = 0;
+    groups.length = 0;
     const settled = [row("a", "h1", "h1", true), row("b", "h2-new", "h2-new", true), done];
     expect(await runAnswerAnalyses(T, DAY, { ...deps, readObservations: async () => settled })).toBe(0);
-    expect(calls).toEqual([]);
+    expect(groups).toEqual([]);
   });
 
-  it("is bounded per pass, counts only what actually persisted, and never lets a failure become a saved analysis", async () => {
-    const many = Array.from({ length: 9 }, (_, i) => row(`r${i}`, `h${i}`, null, false));
-    let attempts = 0, tries = 0;
+  it("reads a WHOLE day of 140 answers back inside the passes the day runs, at the call count the batch size predicts", async () => {
+    // A tracked set of 35 questions on 4 engines is 140 canonical answers a day. At one call per answer the
+    // day needed 28 passes and only ever got 8, so most of what Beacon paid for was never read.
+    const store = new Map(Array.from({ length: 140 }, (_, i) => [`o${i}`, row(`o${i}`, `hash${i}`, null, false)]));
+    let calls = 0, passes = 0;
+    const deps = {
+      readObservations: async () => [...store.values()],
+      analyzeBatch: async (i: { targets: readonly { row: { id: string } }[] }) => { calls += 1; return readsAll(i); },
+      persist: async (_t: string, id: string, a: Record<string, unknown>, hash: string) => {
+        store.set(id, { ...store.get(id)!, analysis: a, analysisHash: hash });
+      },
+      readPrompts: async () => null, identity: BRAND,
+    };
+    while (passes < 8 && selectAnalysisTargets([...store.values()]).length > 0) { passes += 1; await runAnswerAnalyses(T, DAY, deps); }
+    // Every answer ends the day ANALYZED or explicitly REJECTED: nothing is left owing.
+    expect(selectAnalysisTargets([...store.values()])).toEqual([]);
+    expect(passes).toBe(3);   // 60 answers a pass, so the day empties in three of its eight passes
+    expect(calls).toBe(10);   // ceil(140 / 15): exactly what the batch size predicts, not 140
+  });
+
+  it("rejects ONE answer the batch left out, alone, and never lets it cost its neighbours their readings", async () => {
+    const rows = Array.from({ length: 3 }, (_, i) => row(`m${i}`, `hm${i}`, null, false));
+    const saved: Array<[string, Record<string, unknown>, string]> = [];
     const written = await runAnswerAnalyses(T, DAY, {
-      readObservations: async () => many,
-      analyze: async () => { attempts += 1; return attempts === 1 ? null : analysis; }, // the first answer could not be read back
-      persist: async (_t, id) => { tries += 1; if (id === "r2") throw new Error("write lost"); },
+      readObservations: async () => rows,
+      // The model answered for two of the three, and invented an id nobody asked about.
+      analyzeBatch: async ({ targets }) => new Map([[targets[0]!.row.id, analysis], [targets[2]!.row.id, analysis], ["obs-nobody-asked-about", analysis]]),
+      persist: async (_t, id, a, hash) => void saved.push([id, a, hash]),
       readPrompts: async () => null, identity: BRAND,
     });
-    expect(attempts).toBe(5);   // bounded per pass
-    expect(written).toBe(3);    // 5 attempted, 1 produced nothing, 1 write was lost
-    expect(tries).toBe(6);      // and the lost write got exactly ONE retry, never a loop
+    expect(written).toBe(2);                       // the two real readings stand
+    expect(saved.map((s) => s[0])).toEqual(["m0", "m1", "m2"]); // and the missing one is still settled
+    expect(saved[1]![1]).toMatchObject({ rejected: true });
+    expect(saved[1]![2]).toBe("hm1");              // against ITS OWN answer hash, so it leaves the worklist
+    expect(String(saved[1]![1].reason)).not.toMatch(/[—–]/);
+    expect(saved.some((s) => s[0] === "obs-nobody-asked-about")).toBe(false); // a reading for an id I never sent is dropped
+  });
+
+  it("degrades a whole unusable batch to one answer at a time, bounded, so one poisoned answer cannot stall the day", async () => {
+    const rows = Array.from({ length: 8 }, (_, i) => row(`p${i}`, `hp${i}`, null, false));
+    let batches = 0, singles = 0;
+    const saved: Array<[string, Record<string, unknown>]> = [];
+    const written = await runAnswerAnalyses(T, DAY, {
+      readObservations: async () => rows,
+      // The gateway already retried this shape once on its own; a second identical batch buys the same refusal.
+      analyzeBatch: async () => { batches += 1; return null; },
+      analyze: async () => { singles += 1; return singles === 1 ? null : analysis; }, // the poisoned answer is the first one
+      persist: async (_t, id, a) => void saved.push([id, a]),
+      readPrompts: async () => null, identity: BRAND,
+    });
+    expect(batches).toBe(1);                       // one batch attempt, then the ladder drops a rung
+    expect(singles).toBe(5);                       // bounded: five one-at-a-time reads this pass, not eight
+    expect(written).toBe(4);                       // four real readings
+    expect(saved[0]![1]).toMatchObject({ rejected: true }); // and the poisoned answer is settled, not retried forever
+    expect(saved).toHaveLength(5);                 // the three the bound left are untouched and unpaid for
   });
 
   it("records a refusal against the answer it was refused on, so the same answer is never bought twice", async () => {
@@ -267,7 +318,7 @@ describe("reading the answers back", () => {
     const saved: Array<[string, Record<string, unknown>, string]> = [];
     const written = await runAnswerAnalyses(T, DAY, {
       readObservations: async () => [rejected],
-      analyze: async () => null, // the firewall or the schema refused it
+      analyzeBatch: async () => null, analyze: async () => null, // the firewall or the schema refused it
       persist: async (_t, id, a, hash) => void saved.push([id, a, hash]),
       readPrompts: async () => null, identity: BRAND,
     });
@@ -280,9 +331,26 @@ describe("reading the answers back", () => {
     expect(selectAnalysisTargets([{ ...rejected, answerHash: "h-new", analysis: { rejected: true }, analysisHash: "h-x" }]).map((r) => r.id)).toEqual(["x"]);
   });
 
-  it("reports the reporting day as the UTC day the cycle key is built from", () => {
-    expect(utcReportingDay(Date.parse("2026-07-31T23:59:59.000Z"))).toBe("2026-07-31");
-    expect(utcReportingDay(Date.parse("2026-08-01T00:00:01.000Z"))).toBe("2026-08-01");
+  it("counts only what actually persisted, and gives a lost write exactly ONE retry", async () => {
+    let tries = 0;
+    const written = await runAnswerAnalyses(T, DAY, {
+      readObservations: async () => [row("w0", "hw0", null, false), row("w1", "hw1", null, false)],
+      analyzeBatch: readsAll,
+      persist: async (_t, id) => { tries += 1; if (id === "w1") throw new Error("write lost"); },
+      readPrompts: async () => null, identity: BRAND,
+    });
+    expect(written).toBe(1); // two read back, one write lost, and a lost write is never a saved analysis
+    expect(tries).toBe(3);   // one clean write plus exactly one retry of the lost one, never a loop
+  });
+
+  it("reports the reporting day as the operator's own day, not the UTC one", () => {
+    // 2 AM UTC on the 5th is still the evening of the 4th where the operator is. The old UTC day started
+    // their tomorrow at 5 PM, so "today" on every surface was a day they had not reached yet.
+    expect(reportingDay(Date.parse("2026-08-05T02:00:00.000Z"))).toBe("2026-08-04");
+    expect(reportingDay(Date.parse("2026-08-05T07:00:00.000Z"))).toBe("2026-08-05");
+    // And the zone carries its own daylight-saving rule: in January the same instant is an hour further back.
+    expect(reportingDay(Date.parse("2026-01-05T07:00:00.000Z"))).toBe("2026-01-04");
+    expect(reportingDay(Date.parse("2026-01-05T08:00:00.000Z"))).toBe("2026-01-05");
   });
 });
 it("never plans more perplexity than one pass can drain, and fills the freed slots with finishable work", () => {
@@ -290,6 +358,87 @@ it("never plans more perplexity than one pass can drain, and fills the freed slo
   const plan = planObservations(DAY, { prompts, observed: [] });
   const perp = plan.filter((d) => d.engine === "perplexity").length;
   expect([plan.length, perp]).toEqual([20, 3]); }); // the old plan carried 5+, the pass drained 3, and the skipped rows re-sorted to the head forever
+
+/** WHEN A PAIR'S DAY IS OVER. A row that only ever said "failed" read as owed on every look, so an engine that
+ *  could not answer one question was re-bought on every pass of every day, forever. */
+describe("work that is genuinely finished", () => {
+  const ONE = [PROMPTS[0]!], REASON = "The provider refused this request.";
+  const engines: DueObservation["engine"][] = ["chatgpt"];
+  const plan = (observed: AiObservationView[], retries: Record<string, number> = {}) =>
+    planObservations(DAY, { prompts: ONE, observed, engines, retries, maxBatch: 99 });
+
+  it("treats an answer, an unavailable engine and an engine it cannot ask as finished for today, and a broken one as worth asking again", () => {
+    expect(plan([seen({ promptId: "p1", engine: "chatgpt" })])).toEqual([]);                             // observed
+    expect(plan([seen({ promptId: "p1", engine: "chatgpt", status: "unavailable" })])).toEqual([]);      // nothing readable to give
+    expect(plan([seen({ promptId: "p1", engine: "chatgpt", status: "unsupported" })])).toEqual([]);      // cannot be asked at all
+    expect(plan([seen({ promptId: "p1", engine: "chatgpt", status: "pending" })])).toHaveLength(1);      // in flight: the next pass collects it free
+    expect(plan([seen({ promptId: "p1", engine: "chatgpt", status: "failed" })])).toHaveLength(1);       // broken IS worth asking again
+    // But only while the day's retry budget lasts. Spent, it is finished for the day like any other outcome.
+    expect(plan([seen({ promptId: "p1", engine: "chatgpt", status: "failed" })], { "p1|1|chatgpt|0": FAILED_RETRIES_PER_DAY })).toEqual([]);
+  });
+
+  it("never plans an engine the registry cannot ask, on any day, and does not resurrect it from a stored row", () => {
+    const yesterday = [seen({ promptId: "p1", engine: "perplexity", status: "unsupported", day: "2026-07-30" })];
+    // The engine set is derived from the capability registry, so an engine that cannot be asked is simply absent
+    // from every plan. Nothing stores an "impossible forever" flag, so the day the capability comes back the pair
+    // is planned again with no cleanup pass and no stale marker to undo.
+    const askable = planObservations(DAY, { prompts: ONE, observed: yesterday, engines: ["chatgpt"], maxBatch: 99 });
+    expect(askable.some((d) => d.engine === "perplexity")).toBe(false);
+    const restored = planObservations(DAY, { prompts: ONE, observed: yesterday, engines: ["chatgpt", "perplexity"], maxBatch: 99 });
+    expect(restored.some((d) => d.engine === "perplexity")).toBe(true);
+  });
+
+  it("retries a broken pair the bounded number of times in one day, then settles the row as unavailable with the provider's own reason kept", async () => {
+    const store = [seen({ promptId: "p1", engine: "chatgpt", status: "failed", failureReason: REASON })];
+    let markers: DayMarkers | null = null;
+    const settled: string[] = [];
+    const world = {
+      readPrompts: async () => ONE, readObservations: async () => store, engines, maxBatch: 99,
+      readMarkers: async () => markers,
+      writeMarkers: async (_t: string, p: DayMarkers) => { markers = { ...markers, ...p }; return true; },
+      // The real write only moves `status`, so this models it exactly: the reason stays where the provider put it.
+      settle: async (_t: string, id: string) => { settled.push(id); const r = store.find((x) => x.id === id)!; r.status = "unavailable"; },
+    };
+    const pass = async () => (await dueObservations(T, DAY, world))!.length;
+    expect(await pass()).toBe(1);                                    // retry one
+    expect(markers).toEqual({ observationRetries: { day: DAY, counts: { "p1|1|chatgpt|0": 1 } } });
+    expect(await pass()).toBe(1);                                    // retry two
+    expect(markers!.observationRetries!.counts).toEqual({ "p1|1|chatgpt|0": 2 });
+    expect(await pass()).toBe(0);                                    // and that is the whole budget
+    expect(settled).toEqual([store[0]!.id]);
+    expect([store[0]!.status, store[0]!.failureReason]).toEqual(["unavailable", REASON]); // still explains itself
+    // Settled once, and never again: the row is no longer failed, so nothing re-asks and nothing re-writes.
+    expect(await pass()).toBe(0);
+    expect(settled).toHaveLength(1);
+    // Yesterday's retry ledger never spends today's budget: a new day starts the count fresh.
+    store[0]!.status = "failed";
+    markers = { observationRetries: { day: "2026-07-30", counts: { "p1|1|chatgpt|0": 9 } } };
+    expect(await pass()).toBe(1);
+  });
+
+  it("does not plan an unavailable pair again the same day, and does plan it the next day", async () => {
+    const gone = seen({ promptId: "p1", engine: "chatgpt", status: "unavailable", failureReason: REASON });
+    const world = { readPrompts: async () => ONE, readObservations: async () => [gone], engines, maxBatch: 99, readMarkers: async () => null };
+    expect(await dueObservations(T, DAY, world)).toEqual([]);
+    const tomorrow = await dueObservations(T, "2026-08-01", world);
+    expect(tomorrow).toHaveLength(1);
+    expect(tomorrow![0]).toMatchObject({ promptId: "p1", engine: "chatgpt", slot: 0, day: "2026-08-01" });
+  });
+
+  it("reads a row already stored under the day it computes as that pair being done, and leaves every other day alone", async () => {
+    // THE CUTOVER. Pacific runs behind UTC, so the operator's day can be a day that already holds rows taken
+    // under the old UTC label. Those rows are history: they mean the work is done, nothing is re-asked, and
+    // nothing is rewritten. A day that was genuinely missed stays missed rather than being filled in late.
+    const day = reportingDay(Date.parse("2026-08-05T02:00:00.000Z"));
+    expect(day).toBe("2026-08-04");
+    const history = [seen({ promptId: "p1", engine: "chatgpt", day: "2026-08-04" }), seen({ promptId: "p1", engine: "chatgpt", day: "2026-08-02" })];
+    const before = JSON.stringify(history);
+    const world = { readPrompts: async () => ONE, readObservations: async () => history, engines, maxBatch: 99, readMarkers: async () => null };
+    expect(await dueObservations(T, day, world)).toEqual([]);
+    expect(JSON.stringify(history)).toBe(before);                              // a pass rewrote nothing
+    expect(await dueObservations(T, "2026-08-03", world)).toHaveLength(1);      // and a missed day is not backfilled: it is simply the day I am asked about
+  });
+});
 
 /** WHO the answer was read for. Beacon used to ask the model "was this brand mentioned" with an EMPTY brand, so
  *  every reading came back "not mentioned" and the AI trend was computed from that. These go through the real
@@ -304,11 +453,11 @@ describe("who the answer was read for", () => {
     seedBusinessProfileForTests(T, { name: { value: name, origin: "operator_confirmed", confidence: null, sourceUrls: [] } });
   };
   const answer = (id: string, answerText: string, citationUrls: string[] | null = null): AiObservationView => ({
-    id, promptId: "p1", version: 1, engine: "chatgpt", slot: 0, day: DAY, status: "observed", observedAt: null,
+    id, promptId: "p1", version: 1, engine: "chatgpt", slot: 0, day: DAY, status: "observed", observedAt: null, failureReason: null,
     promptText: "who should I read about Iran with", answerText, answerHash: `h-${id}`, citationUrls, analysis: null, analysisHash: null });
   const READING = { sections: [], claims: [], topicEntities: [], ownedBrandMention: { mentioned: false, position: null, context: null },
     competitors: [], contentTypesRecommended: [], questionsAnswered: [], materialOmissions: [], caveats: [] } as unknown as AnswerAnalysis;
-  /** One pass, one answer, through the REAL analysis path unless `analyze` is handed over. */
+  /** One pass, one answer, through the REAL batch path unless a reading is handed over. */
   const readBack = async (row: AiObservationView, over: Record<string, unknown> = {}) => {
     const saved: Record<string, unknown>[] = [];
     const written = await runAnswerAnalyses(T, DAY, {
@@ -317,20 +466,28 @@ describe("who the answer was read for", () => {
   };
   beforeEach(() => { setAccountRepositoryForTests(null); __resetBusinessProfileCacheForTests(); });
 
-  it("sends the account's REAL name into the analysis call, taken from the confirmed profile and its own website", async () => {
+  it("sends the account's REAL name into the BATCH call, taken from the confirmed profile and its own website, with one entry per answer", async () => {
     onFile("Iranopedia", "https://www.iranopedia.com/");
     const asked: string[] = [];
-    const complete: CompleteFn = async ({ user }) => { asked.push(user); return { value: { ...READING, ownedBrandMention: { mentioned: true, position: 1, context: null } } }; };
+    // The real batch prompt, through the real gateway wiring, with only the transport injected.
+    const complete: CompleteFn = async ({ user }) => {
+      asked.push(user);
+      const ids = [...user.matchAll(/OBSERVATION (\S+)/g)].map((m) => m[1]);
+      return { value: { analyses: ids.map((observationId) => ({ ...READING, observationId, ownedBrandMention: { mentioned: true, position: 1, context: null } })) } };
+    };
     const { written, saved } = await readBack(answer("a", "Iranopedia is the one I would start with."), { complete });
     expect([written, asked.length]).toEqual([1, 1]);
     expect(asked[0]).toContain("BRAND TO LOOK FOR: Iranopedia");
     expect(asked[0]).not.toContain("(none supplied)"); // the defect: an empty brand reached the model on every call
+    expect(asked[0]).toContain("OBSERVATION a");       // each answer is keyed by the observation it was taken on
     expect(saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "both" });
   });
 
   it("keeps a mention the model missed, from the answer's own words or an address it credited, and says which found it", async () => {
     onFile("Iranopedia", "https://www.iranopedia.com/");
-    const missed = { analyze: async () => READING }; // the model read this answer and said "not mentioned"
+    // The model read this answer IN A BATCH and said "not mentioned": the deterministic second read still runs
+    // per observation, and the merged verdict is still what lands on that observation's own row.
+    const missed = { analyzeBatch: async ({ targets }: { targets: readonly { row: { id: string } }[] }) => new Map(targets.map((t) => [t.row.id, READING])) };
     const byText = await readBack(answer("t", "Iranopedia covers the festivals in depth."), missed);
     expect(byText.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "text" });
     const byCitation = await readBack(answer("c", "A few travel guides cover it.", ["https://www.iranopedia.com/festivals"]), missed);
@@ -341,12 +498,13 @@ describe("who the answer was read for", () => {
 
   it("never invents a mention out of a longer word, and reads nothing back at all when it cannot name the account", async () => {
     onFile("Ritz", "https://ritz-builders.com");
-    const { saved } = await readBack(answer("w", "Ritzy Hotels are lovely this time of year."), { analyze: async () => READING });
+    const { saved } = await readBack(answer("w", "Ritzy Hotels are lovely this time of year."),
+      { analyzeBatch: async ({ targets }: { targets: readonly { row: { id: string } }[] }) => new Map(targets.map((t) => [t.row.id, READING])) });
     expect(saved[0]).toMatchObject({ ownedBrandMention: { mentioned: false }, matchedBy: null });
     // No confirmed name and no website: I stop rather than pay to ask the model about nobody.
     onFile("", "");
     let calls = 0;
-    const silent = await readBack(answer("z", "Anything at all."), { analyze: async () => { calls += 1; return READING; } });
+    const silent = await readBack(answer("z", "Anything at all."), { analyzeBatch: async () => { calls += 1; return null; } });
     expect([silent.written, silent.saved.length, calls]).toEqual([0, 0, 0]);
   });
 });

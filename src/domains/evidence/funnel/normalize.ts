@@ -14,8 +14,8 @@ import { isNoiseDomain } from "@/domains/evidence/relevance-gate";
 import { anchoredTopicMatch, canonicalQueryKey, topicTokens, weakAnchorTokens } from "@/domains/evidence/relevance-gate";
 import { publisherHost } from "@/domains/evidence/serp-shape";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
-import type { ResearchWinningAppearance } from "./research-evidence";
-import type { FunnelKeyword, FunnelReject } from "./state";
+import type { KeywordOrigin, ResearchWinningAppearance } from "./research-evidence";
+import { MAX_ORIGINS, type FunnelKeyword, type FunnelReject } from "./state";
 
 // ── keyword normalization + dedupe ──────────────────────────────────────────
 
@@ -38,14 +38,45 @@ function tokenize(s: string): string[] {
   return normalizeKeyword(s).split(" ").filter(Boolean);
 }
 
+/** Two arrivals are the SAME arrival only when every recorded part of them matches. Absence is part of the
+ *  identity: a fan-out with an observation id is not the same arrival as one without. */
+const originKey = (o: KeywordOrigin): string =>
+  [o.route, o.sourceQuery ?? "", o.parentQuery ?? "", o.pageUrl ?? "", o.promptId ?? "", o.promptVersion ?? "", o.engine ?? "", o.reportingDay ?? "", o.observationId ?? ""].join("|");
+
+/** MERGE LINEAGE, NEVER DROP IT SILENTLY. Whenever two rows for one keyword become one (a dedupe of two
+ *  routes in a pass, or this pass meeting what a previous pass already retained), the survivor carries BOTH
+ *  journeys: the first MAX_ORIGINS distinct arrivals in the order they were first seen, plus how many
+ *  further distinct ones there were. The carried counts are folded in as the LARGEST of them rather than
+ *  their sum, because two rows may have dropped the same arrival and a lineage may never overstate what it
+ *  saw. Returns an empty object when there is no lineage at all, so no row gains an empty list. Pure. */
+export function mergeOrigins(...rows: (Pick<FunnelKeyword, "origins" | "moreOrigins"> | null | undefined)[]): Pick<FunnelKeyword, "origins" | "moreOrigins"> {
+  const seen = new Set<string>();
+  const all: KeywordOrigin[] = [];
+  let carried = 0;
+  for (const r of rows) {
+    carried = Math.max(carried, r?.moreOrigins ?? 0);
+    for (const o of r?.origins ?? []) {
+      const id = originKey(o);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      all.push(o);
+    }
+  }
+  if (all.length === 0) return carried > 0 ? { moreOrigins: carried } : {};
+  const more = carried + Math.max(0, all.length - MAX_ORIGINS);
+  return { origins: all.slice(0, MAX_ORIGINS), ...(more > 0 ? { moreOrigins: more } : {}) };
+}
+
 /** Map the registry's typed keyword items onto lean funnel rows. The SEED is carried so
  *  retention can keep each seed's own discovery alive instead of letting one broad seed
- *  evict every other theme. Pure. */
+ *  evict every other theme, and each row records the ARRIVAL that produced it: the route, the
+ *  provider's own spelling when normalization will change it, and the theme it was asked for. Pure. */
 export function keywordsFromParsed(items: ParsedKeywordItem[], via: FunnelKeyword["discoveredVia"], seed?: string): FunnelKeyword[] {
   const out: FunnelKeyword[] = [];
   for (const it of items) {
     if (!it || typeof it.keyword !== "string" || !it.keyword.trim()) continue;
-    out.push({ keyword: it.keyword, searchVolume: it.searchVolume, competition: it.competition, competitionLevel: it.competitionLevel, difficulty: it.difficulty, intent: it.intent, ownedRankingUrl: it.rankedUrl, ownedPosition: it.rankedRank, discoveredVia: via, ...(seed ? { seed } : {}) });
+    const origin: KeywordOrigin = { route: via, ...(normalizeKeyword(it.keyword) === it.keyword ? {} : { sourceQuery: it.keyword }), ...(seed ? { parentQuery: seed } : {}) };
+    out.push({ keyword: it.keyword, searchVolume: it.searchVolume, competition: it.competition, competitionLevel: it.competitionLevel, difficulty: it.difficulty, intent: it.intent, ownedRankingUrl: it.rankedUrl, ownedPosition: it.rankedRank, discoveredVia: via, ...(seed ? { seed } : {}), origins: [origin] });
   }
   return out;
 }
@@ -62,10 +93,11 @@ export function dedupeKeywords(raw: FunnelKeyword[]): FunnelKeyword[] {
     const row: FunnelKeyword = { ...k, keyword: norm };
     // The page that ranks is carried FORWARD through the merge either way: it arrives only on the
     // ranked pull, and letting a higher-volume row from a different pull evict it would throw away
-    // the one fact that lets a ranked keyword name its own page.
+    // the one fact that lets a ranked keyword name its own page. THE JOURNEY IS CARRIED FORWARD FOR THE
+    // SAME REASON: whichever row survives, the surviving row arrived by every route both of them did.
     if (!prev) byKey.set(id, row);
-    else if ((row.searchVolume ?? -1) > (prev.searchVolume ?? -1)) byKey.set(id, { ...row, ownedRankingUrl: row.ownedRankingUrl ?? prev.ownedRankingUrl, ownedPosition: row.ownedPosition ?? prev.ownedPosition });
-    else if (prev.ownedRankingUrl == null && row.ownedRankingUrl != null) byKey.set(id, { ...prev, ownedRankingUrl: row.ownedRankingUrl, ownedPosition: row.ownedPosition });
+    else if ((row.searchVolume ?? -1) > (prev.searchVolume ?? -1)) byKey.set(id, { ...row, ownedRankingUrl: row.ownedRankingUrl ?? prev.ownedRankingUrl, ownedPosition: row.ownedPosition ?? prev.ownedPosition, ...mergeOrigins(prev, row) });
+    else byKey.set(id, { ...prev, ...(prev.ownedRankingUrl == null && row.ownedRankingUrl != null ? { ownedRankingUrl: row.ownedRankingUrl, ownedPosition: row.ownedPosition } : {}), ...mergeOrigins(prev, row) });
   }
   return [...byKey.values()];
 }
@@ -170,7 +202,10 @@ export function retainDiverse(retained: FunnelKeyword[], cap: number): FunnelKey
 
 // ── the SERP agenda (relevance convergence, 2026-07-26) ─────────────────────
 
-export type SerpAgendaPageQuery = { query: string; impressions?: number | null; declining?: boolean };
+/** `page` is the address of MY OWN whose Search Console row carried this query, kept so a keyword harvested
+ *  here can name the page that earned it. Optional: the agenda never needed it and a caller that has no
+ *  page says so by leaving it out rather than by naming a page it did not read. */
+export type SerpAgendaPageQuery = { query: string; impressions?: number | null; declining?: boolean; page?: string | null };
 /** ONE tracked question: its approved text plus the fan-out queries actually observed for it. */
 export type SerpAgendaPrompt = { text: string; fanOutQueries?: string[] | null };
 /** queries is the ONLY thing anyone buys. uncoveredThemes and skipped are internal

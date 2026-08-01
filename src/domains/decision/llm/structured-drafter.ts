@@ -547,7 +547,7 @@ function runContentFirewalls(
   // after source verification (a superlative IS allowed when a qualifying
   // verified source asserts it; an ungrounded one triggers ONE rephrase retry,
   // then fails closed). The drafter defers it for `answer_block` and for
-  // `answer_analysis`, which RESTATES somebody else's AI answer and may quote a
+  // every `answer_analysis` kind, which RESTATES somebody else's answer and may quote a
   // superlative that answer used; every other kind keeps the hard reject below.
   opts?: { deferSuperlativeCheck?: boolean },
 ): { ok: true } | { ok: false; reason: string } {
@@ -842,7 +842,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     // The numeric firewall still applies, grounded on the answer text itself, so an
     // invented figure is still caught.
     const fw = runContentFirewalls(draftProseStringValues(result.data), ledger, {
-      deferSuperlativeCheck: req.kind === "answer_block" || req.kind === "answer_analysis",
+      deferSuperlativeCheck: req.kind === "answer_block" || req.kind.startsWith("answer_analysis"),
     });
     if (!fw.ok) {
       errors.push(`firewall:${fw.reason}`);

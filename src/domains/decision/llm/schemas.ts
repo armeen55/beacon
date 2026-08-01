@@ -377,6 +377,10 @@ export const AnswerAnalysisSchema = z.object({
   caveats: z.array(z.string().min(1).max(300)).max(10),
 });
 export type AnswerAnalysis = z.infer<typeof AnswerAnalysisSchema>;
+// The BATCH read (V1 Closure, 2026-08-01): the SAME reader contract over many answers in ONE call, each entry echoing the observation id it was taken on,
+// copied from the input and never minted. One answer per call meant five readings a pass, so one day of 140 answers needed twenty-eight of the eight passes a day runs.
+export const AnswerAnalysisBatchSchema = z.object({ analyses: z.array(AnswerAnalysisSchema.extend({ observationId: z.string().min(1).max(80) })).max(20) });
+export type AnswerAnalysisBatch = z.infer<typeof AnswerAnalysisBatchSchema>;
 // ── case synthesis (V1 Truth Convergence Phase 2, 2026-07-31): the SEMANTIC read over the grouping the deterministic
 // pass already made ── The model may only merge, split, link or nest cases the caller supplied, by the ids and
 // addresses it was handed. It mints no id and invents no address, number or observation, and REPORTS a conflict in
@@ -409,7 +413,7 @@ export type StructuredDraftKind =
   | "strategy_review"
   | "section_draft"
   | "outreach_pitch"
-  | "coverage_adjudication" | "new_page_brief" | "answer_analysis" | "case_synthesis" | "winning_pattern"
+  | "coverage_adjudication" | "new_page_brief" | "answer_analysis" | "answer_analysis_batch" | "case_synthesis" | "winning_pattern"
   | "business_profile_inference" | "business_profile_patch" | "prompt_candidates";
 
 export const SCHEMA_BY_KIND = {
@@ -425,7 +429,7 @@ export const SCHEMA_BY_KIND = {
   outreach_pitch: OutreachPitchSchema,
   coverage_adjudication: CoverageAdjudicationSchema,
   new_page_brief: NewPageBriefSchema,
-  answer_analysis: AnswerAnalysisSchema, case_synthesis: CaseSynthesisSchema, winning_pattern: WinningPatternSchema,
+  answer_analysis: AnswerAnalysisSchema, answer_analysis_batch: AnswerAnalysisBatchSchema, case_synthesis: CaseSynthesisSchema, winning_pattern: WinningPatternSchema,
   business_profile_inference: BusinessProfileInferenceSchema,
   business_profile_patch: BusinessProfilePatchSchema,
   prompt_candidates: PromptCandidatesSchema,
@@ -585,7 +589,7 @@ export function draftProseStringValues(value: unknown): string[] {
   // claim. A case synthesis carries ids, addresses and the operator's own search phrases, all echoed from a supplied
   // list: a page whose address says "best" makes no claim, so it can never kill the reading. Its `reason` stays
   // scanned.
-  const NON_PROSE_KEYS = new Set(["sources", "proofPlan", "operatorSteps", "risks", "ownedUrls", "evidenceKeys", "keepId", "absorbIds", "fromId", "caseId", "url", "parentId", "childId", "moveQueries"]);
+  const NON_PROSE_KEYS = new Set(["sources", "proofPlan", "operatorSteps", "risks", "ownedUrls", "evidenceKeys", "keepId", "absorbIds", "fromId", "caseId", "url", "parentId", "childId", "moveQueries", "observationId"]);
   const out: string[] = [];
   const walk = (v: unknown): void => {
     if (typeof v === "string") out.push(v);

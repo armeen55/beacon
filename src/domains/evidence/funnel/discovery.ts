@@ -19,15 +19,17 @@ import "server-only";
  */
 
 import type { BusinessProfile } from "@/domains/account";
+import { aiObservationId } from "@/domains/evidence/ai-visibility/ai-observations";
 import { caseIdByAnchor } from "@/domains/evidence/case-identity";
 import { isCurrent } from "@/domains/evidence/freshness";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import type { CapabilityInputByKey, FunnelCounters, FunnelUnitFn, ParsedByCapability, ParsedKeywordItem } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { log } from "@/lib/logger";
-import { applyFilters, dedupeKeywords, filterContextFrom, keywordsFromParsed, normalizeKeyword, retainDiverse, type SerpAgendaPageQuery } from "./normalize";
-import { type FunnelKeyword, type FunnelState, MAX_REJECTED, MAX_RETAINED } from "./state";
-import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, StateConflictError, track, type FunnelDeps } from "./shared";
+import { applyFilters, dedupeKeywords, filterContextFrom, keywordsFromParsed, mergeOrigins, normalizeKeyword, retainDiverse, type SerpAgendaPageQuery } from "./normalize";
+import type { KeywordOrigin } from "./research-evidence";
+import { type FunnelKeyword, type FunnelPair, type FunnelState, MAX_REJECTED, MAX_RETAINED } from "./state";
+import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, StateConflictError, track, type AnswerAnalysisRecord, type FunnelDeps } from "./shared";
 
 /** ONE case of the run's FROZEN plan, as plain data: Evidence never reads Runtime or Decision. */
 type PlanCase = { caseId: string; query: string | null };
@@ -105,38 +107,80 @@ function discoveryPlan(domain: string, seeds: string[]): DiscStep[] {
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
-/** EVERYTHING THIS ACCOUNT ALREADY OBSERVED, as keyword candidates, each tagged with the route it actually
- *  arrived by. None of it costs a cent. Discovery used to ignore all of it and ask a provider for keywords
- *  instead, which is how a case could be investigated for a week while the exact question Google puts at the
- *  top of its own results page never entered the funnel. Pure. */
+/** THE ANSWER a tracked question's working row stands for, named in exactly the terms ai_observations files
+ *  it under. `aiObservationId` is that store's OWN deterministic identity, so this is a join key and never a
+ *  minted id: it appears only when every part of the identity was actually recorded on the row, and a row
+ *  missing its version or its reporting day says so by absence rather than by borrowing a default. */
+function answerIdentity(tenantId: string, p: FunnelPair): Omit<KeywordOrigin, "route"> {
+  const promptVersion = p.promptVersion, reportingDay = p.day;
+  return {
+    promptId: p.promptId, engine: p.engine,
+    ...(promptVersion != null ? { promptVersion } : {}),
+    ...(reportingDay ? { reportingDay } : {}),
+    ...(promptVersion != null && reportingDay
+      ? { observationId: aiObservationId({ tenantId, promptId: p.promptId, promptVersion, engine: p.engine, day: reportingDay, slot: p.slot ?? 0 }) }
+      : {}),
+  };
+}
+
+/** The same identity read off a stored analysis, which carries it because the reader now keeps the analysis
+ *  attached to the answer it was written about. Whatever that record does not hold stays absent. */
+function analysisIdentity(a: AnswerAnalysisRecord): Omit<KeywordOrigin, "route"> {
+  return {
+    ...(a.promptId ? { promptId: a.promptId } : {}),
+    ...(a.promptVersion != null ? { promptVersion: a.promptVersion } : {}),
+    ...(a.engine ? { engine: a.engine } : {}),
+    ...(a.reportingDay ? { reportingDay: a.reportingDay } : {}),
+    ...(a.observationId ? { observationId: a.observationId } : {}),
+    ...(a.promptText ? { parentQuery: a.promptText } : {}),
+  };
+}
+
+/** EVERYTHING THIS ACCOUNT ALREADY OBSERVED, as keyword candidates, each carrying the ARRIVAL that produced
+ *  it and not merely the name of the route. None of it costs a cent. Discovery used to ignore all of it and
+ *  ask a provider for keywords instead, which is how a case could be investigated for a week while the exact
+ *  question Google puts at the top of its own results page never entered the funnel; then it kept the route
+ *  and threw the journey away, so a fan-out could not say which question, which engine or which answer
+ *  produced it. THE SAME KEYWORD SEEN TWICE ON ONE ROUTE NOW MERGES rather than dropping the second
+ *  arrival: two answers asking the same follow-up is two pieces of evidence, not one. Pure. */
 function observedCandidates(
-  state: FunnelState, gscQueries: SerpAgendaPageQuery[] | null, analyses: readonly Record<string, unknown>[],
+  tenantId: string, state: FunnelState, gscQueries: SerpAgendaPageQuery[] | null, analyses: readonly AnswerAnalysisRecord[],
 ): FunnelKeyword[] {
-  const out: FunnelKeyword[] = [];
-  const seen = new Map<string, Set<string>>();
-  const take = (raw: string | null | undefined, via: FunnelKeyword["discoveredVia"]): void => {
+  const rows = new Map<string, FunnelKeyword>();
+  const taken = new Map<string, number>();
+  /** ONE candidate with ONE arrival. The raw string is recorded only when normalization is about to change
+   *  it, so an origin never repeats the keyword back at whoever reads it. The per-route ceiling bounds
+   *  DISTINCT keywords, so a keyword already held keeps collecting arrivals without spending a slot. */
+  const take = (raw: string | null | undefined, origin: KeywordOrigin): void => {
     const keyword = normalizeKeyword(raw ?? "");
-    const bucket = seen.get(via) ?? new Set<string>();
-    seen.set(via, bucket);
-    if (!keyword || bucket.has(keyword) || bucket.size >= MAX_PER_ROUTE) return;
-    bucket.add(keyword);
-    out.push({ keyword, searchVolume: null, competition: null, difficulty: null, intent: null, discoveredVia: via });
+    if (!keyword) return;
+    const at: KeywordOrigin = { ...origin, ...(raw && raw !== keyword ? { sourceQuery: raw } : {}) };
+    const id = `${origin.route}|${keyword}`;
+    const held = rows.get(id);
+    if (held) { Object.assign(held, mergeOrigins(held, { origins: [at] })); return; }
+    const spent = taken.get(origin.route) ?? 0;
+    if (spent >= MAX_PER_ROUTE) return;
+    taken.set(origin.route, spent + 1);
+    rows.set(id, { keyword, searchVolume: null, competition: null, difficulty: null, intent: null, discoveredVia: origin.route, origins: [at] });
   };
   for (const s of state.serps.queries) {
-    for (const q of s.paa ?? []) take(q.question, "paa");
-    for (const r of s.related ?? []) take(r, "related_search");
+    for (const q of s.paa ?? []) take(q.question, { route: "paa", ...(s.query ? { parentQuery: s.query } : {}) });
+    for (const r of s.related ?? []) take(r, { route: "related_search", ...(s.query ? { parentQuery: s.query } : {}) });
   }
   for (const p of state.prompts.pairs) {
-    take(p.promptText, "prompt");
-    for (const f of p.fanOutQueries ?? []) take(f, "fanout");
+    const from = answerIdentity(tenantId, p);
+    take(p.promptText, { route: "prompt", ...from });
+    for (const f of p.fanOutQueries ?? []) take(f, { route: "fanout", ...from, ...(p.promptText ? { parentQuery: p.promptText } : {}) });
   }
-  for (const q of gscQueries ?? []) take(q.query, "gsc");
-  // The analysis of an answer already bought: what the answer was ABOUT and what it actually answered.
+  for (const q of gscQueries ?? []) take(q.query, { route: "gsc", ...(q.page ? { pageUrl: q.page } : {}) });
+  // The analysis of an answer already bought: what the answer was ABOUT and what it actually answered,
+  // still attached to the answer that said it.
   for (const a of analyses) {
-    for (const e of strings(a.topicEntities)) take(e, "answer_entity");
-    for (const q of strings(a.questionsAnswered)) take(q, "answer_entity");
+    const from = analysisIdentity(a);
+    for (const e of strings(a.analysis.topicEntities)) take(e, { route: "answer_entity", ...from });
+    for (const q of strings(a.analysis.questionsAnswered)) take(q, { route: "answer_entity", ...from });
   }
-  return out;
+  return [...rows.values()];
 }
 
 /** THE case a search belongs to: the registry on file, plus the frozen plan's own cases, every id resolved
@@ -190,7 +234,9 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
         for (const f of crawl?.page_facts ?? []) {
           for (const q of [f.title ?? "", ...(f.questions ?? [])]) {
             const n = normalizeKeyword(q);
-            if (n) raw.push({ keyword: n, searchVolume: null, competition: null, difficulty: null, intent: null, discoveredVia: "profile" });
+            // The page of MY OWN this language was read off is the whole lineage of this route, so it rides along.
+            if (n) raw.push({ keyword: n, searchVolume: null, competition: null, difficulty: null, intent: null, discoveredVia: "profile",
+              origins: [{ route: "profile", ...(q === n ? {} : { sourceQuery: q }), ...(f.url ? { pageUrl: f.url } : {}) }] });
           }
         }
         for (const p of discoveryPlan(domain, seeds)) {
@@ -240,7 +286,10 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
         // absence of that source, never a claim that it holds nothing.
         const gscQueries = await d.loadPageQueries(tenantId).catch(() => null);
         const analyses = await d.loadAnswerAnalyses(tenantId).catch(() => []);
-        raw.push(...observedCandidates(state, gscQueries, analyses));
+        raw.push(...observedCandidates(tenantId, state, gscQueries, analyses));
+        // WHAT THE LAST PASS ALREADY LEARNED ABOUT A KEYWORD'S JOURNEY IS NOT RE-LEARNED AND NOT LOST: a
+        // row this pass rediscovers merges its arrivals into the ones already on file, under the same bound.
+        const priorOrigins = new Map(state.discovery.retained.map((k) => [k.keyword, k]));
         // narrow: normalize -> dedupe -> join to a case -> filter -> diverse retain (before any SERP spend)
         const deduped = dedupeKeywords(raw).map((k) => {
           // DISTINCT PAGES, NEVER ROWS. Counting rows made ONE page appearing twice for a search look like two
@@ -250,7 +299,7 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
           const owned = rows.filter((o, i) => rows.findIndex((x) => x.url === o.url) === i);
           const best = owned[0] ?? (k.ownedRankingUrl ? { url: k.ownedRankingUrl, rank: k.ownedPosition ?? 0 } : null);
           const held = owned.length > 0 ? owned.length : best ? 1 : 0;
-          return { ...k, caseId: cases.of(k.keyword), ownedRankingUrl: best?.url ?? null, ownedPosition: best?.rank ?? null,
+          return { ...k, ...mergeOrigins(priorOrigins.get(k.keyword), k), caseId: cases.of(k.keyword), ownedRankingUrl: best?.url ?? null, ownedPosition: best?.rank ?? null,
             supports: (!rankedLanded ? null : held >= 2 ? "consolidation" : held === 1 ? "existing_page" : "new_page") as FunnelKeyword["supports"] };
         });
         // A candidate that provably belongs to a case I am already investigating is not weighed against the

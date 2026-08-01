@@ -9,7 +9,7 @@ import "server-only";
  */
 
 import { loadResearchState, saveResearchState, type StateRepoDeps } from "./state-repo";
-import type { FunnelResearchEvidence, KeywordDiscoveryRoute, ObservationMode, OwnedPageReadOutcome, ResearchCase, ResearchPageComparison, ResearchPageExtract, ResearchWinningAppearance, WinnerReadOutcome } from "./research-evidence";
+import type { FunnelResearchEvidence, KeywordDiscoveryRoute, KeywordOrigin, ObservationMode, OwnedPageReadOutcome, ResearchCase, ResearchPageComparison, ResearchPageExtract, ResearchWinningAppearance, WinnerReadOutcome } from "./research-evidence";
 
 const FUNNEL_SCHEMA_VERSION = 3;
 
@@ -21,6 +21,11 @@ export const MAX_RETAINED = 1400;
 export const MAX_REJECTED = 150;
 /** Case sets on file. Bounded because each one is a paid answer stored beside the case it belongs to. */
 const MAX_CASE_COMPETITORS = 12;
+/** DISTINCT arrivals kept per keyword. One keyword really does arrive by several routes and from several
+ *  answers, and the whole point of keeping them is that a reader can see which; six is plenty to make that
+ *  case and small enough that 1,400 keywords cannot turn the stored blob into a journal. Past it the count
+ *  of what was dropped is kept instead, so the bound is always visible. */
+export const MAX_ORIGINS = 6;
 
 /** The recurring winning domains bought for ONE case set, in the canonical projected shape. */
 type FunnelCaseCompetitors = NonNullable<FunnelResearchEvidence["caseCompetitors"]>[number];
@@ -47,6 +52,13 @@ export type FunnelKeyword = {
   /** Deterministic from the owned rankings: one owned page ranks, more than one does, or none does.
    *  null = the ranked pull did not land this run, so I have not checked. */
   supports?: "existing_page" | "consolidation" | "new_page" | null;
+  /** THE WHOLE JOURNEY, not just the first step. `discoveredVia` keeps naming the route the surviving row
+   *  came by; these are every DISTINCT arrival behind it, in the order they were first seen, bounded at
+   *  MAX_ORIGINS. Optional and additive: a row stored before lineage was kept whole decodes with it absent,
+   *  which reads as "I did not record the journey", never as "it arrived from nowhere". */
+  origins?: KeywordOrigin[];
+  /** How many further distinct arrivals there were past that bound. Absent = none were dropped. */
+  moreOrigins?: number;
 };
 
 export type FunnelReject = { keyword: string; reason: string };
@@ -183,11 +195,14 @@ export function emptyFunnelState(tenantId: string, basisTag = "", now = ""): Fun
 }
 
 /** ADDITIVE, at the SAME schema version: a keyword stored while the owned ranking was called rankedUrl keeps that
- *  ranking under its current name instead of reading as one no page of mine ranks for. Nothing here invents support. */
+ *  ranking under its current name instead of reading as one no page of mine ranks for. Nothing here invents support.
+ *  A row stored before origins existed keeps them ABSENT (never an empty list, which would claim I looked and found
+ *  no journey), and an over-long stored list is clamped to the same bound the writer holds itself to. */
 function decodeKeyword(k: FunnelKeyword): FunnelKeyword {
   const legacy = k as FunnelKeyword & { rankedUrl?: string | null; rankedRank?: number | null };
-  if (k.ownedRankingUrl != null || legacy.rankedUrl == null) return k;
-  return { ...k, ownedRankingUrl: legacy.rankedUrl, ownedPosition: k.ownedPosition ?? legacy.rankedRank ?? null };
+  const row = Array.isArray(k.origins) && k.origins.length > MAX_ORIGINS ? { ...k, origins: k.origins.slice(0, MAX_ORIGINS) } : k;
+  if (row.ownedRankingUrl != null || legacy.rankedUrl == null) return row;
+  return { ...row, ownedRankingUrl: legacy.rankedUrl, ownedPosition: row.ownedPosition ?? legacy.rankedRank ?? null };
 }
 
 /** Decode an unknown persisted blob into a safe, current-shape state. Never throws.

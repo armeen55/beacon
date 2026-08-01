@@ -14,6 +14,7 @@
 import { caseIdByAnchor } from "./case-identity";
 import { isCurrent } from "./freshness";
 import { canonicalQueryKey } from "./relevance-gate";
+import type { KeywordOrigin } from "./funnel/research-evidence";
 import type { EvidenceSnapshot } from "./snapshot";
 
 /** ONE provider call this case's evidence came from. `identity` is the money core's cache identity when the
@@ -31,6 +32,8 @@ type CaseResearchKeyword = {
   searchVolume: number | null; difficulty: number | null; intent: string | null;
   ownedRankingUrl: string | null; ownedPosition: number | null;
   supports: "existing_page" | "consolidation" | "new_page" | null;
+  /** The journey this keyword arrived by, as the funnel recorded it at discovery. */
+  origins: KeywordOrigin[] | null; moreOrigins: number | null;
 };
 
 type CaseResearchReceipt = {
@@ -108,6 +111,7 @@ export function caseResearchReceipt(snapshot: EvidenceSnapshot, caseId: string, 
       query: k.query, discoveredVia: k.discoveredVia ?? null, metricsHeld: k.searchVolume != null,
       searchVolume: k.searchVolume, difficulty: k.difficulty, intent: k.intent,
       ownedRankingUrl: k.ownedRankingUrl ?? null, ownedPosition: k.ownedPosition ?? null, supports: k.supports ?? null,
+      origins: k.origins ?? null, moreOrigins: k.moreOrigins ?? null,
     })),
     calls: calls.sort((a, b) => (b.observedAt ?? "").localeCompare(a.observedAt ?? "") || a.subject.localeCompare(b.subject)).slice(0, MAX_CALLS),
     spend: { spentUsd: research.receipt.spentUsd, cachedCalls: research.receipt.cached },

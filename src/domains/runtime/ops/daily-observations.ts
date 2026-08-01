@@ -14,9 +14,18 @@ import "server-only";
  * more. They come only from an explicit ask, only after slot 0 is complete, and
  * never past three.
  *
- * THE REPORTING DAY IS THE UTC DAY, the same day the Research Run's cycle_key is
- * built from ("<tenant>:<UTC day>"), so a run and its observations can never
- * disagree about which day they belong to.
+ * THE REPORTING DAY IS THE OPERATOR'S DAY (Pacific, src/lib/reporting-day.ts):
+ * the day a person reading Beacon is actually in, and the day Search Console
+ * reports on. It is handed IN by the caller and stored verbatim on every row, so
+ * a run and its observations can never disagree about which day they belong to.
+ *
+ * A PAIR'S DAY ENDS ONE OF FOUR WAYS, and the row says which: `observed` (the
+ * answer is in), `unavailable` (the engine had nothing readable to give today),
+ * `unsupported` (I cannot ask this engine at all) or `failed` with its retries
+ * spent, which I then settle to `unavailable` with the provider's own reason
+ * kept. The planner reads all four as finished for the day, because a row that
+ * only ever says "failed" reads as owed on every look, and an engine that
+ * refuses one question all day was re-bought on every pass forever.
  *
  * A MISSED DAY IS GONE. Nothing here backfills. If the run never got to a
  * question on Tuesday, Tuesday has no point for it and Wednesday asks about
@@ -28,29 +37,32 @@ import "server-only";
  * day on the question is a NEW series and yesterday's readings are not mixed into
  * it. That is why a rewording shows as a break in the line and not a bend.
  *
- * THE ANALYSIS STEP is the other half: once an answer lands, ONE strict
- * structured call reads it back (what it said, who it named, what it left out)
- * and Evidence persists that. It is bounded to 5 per pass and costs nothing at
- * all when no answer changed, because it fires only on an answer hash that has
- * not been analysed yet. Runtime orchestrates it: Decision's gateway produces the
- * analysis, Evidence stores it, and Evidence never imports Decision.
+ * THE ANALYSIS STEP is the other half and lives in answer-readback.ts: what the
+ * answers this plan bought actually said. It is re-exported from here so every
+ * caller of the daily loop keeps one import.
  */
 
-import { loadBrandIdentity, type BrandIdentity } from "@/domains/account/brand-identity";
-import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
-import type { AnswerAnalysis } from "@/domains/decision/llm/schemas";
+import type { CapabilityKey } from "@/domains/evidence/dataforseo/funnel-boundary";
 import type { AiObservationView, DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import { log } from "@/lib/logger";
 import { readActiveTrackedPrompts, type TrackedQuestion } from "../prompt-set";
 
-/** The engines one tracked question is read on, in the fixed order a plan uses. */
-const OBSERVATION_ENGINES = ["chatgpt", "claude", "gemini", "perplexity"] as const;
+export { runAnswerAnalyses, selectAnalysisTargets } from "./answer-readback";
+
 type ObservationEngine = DueObservation["engine"];
+/** The engines one tracked question is read on, in the fixed order a plan uses, each mapped to the capability
+ *  it is asked THROUGH. The `satisfies` is the derivation, checked by the compiler: take a capability out of
+ *  the provider registry and this stops building, so the planner can never keep planning an engine the
+ *  registry has no way to ask. Nothing stores a per-pair "impossible forever" flag, because such a flag would
+ *  outlive the configuration change that made the engine askable again. */
+const ENGINE_CAPABILITY = {
+  chatgpt: "llm_scraper_chatgpt", claude: "llm_claude", gemini: "llm_gemini", perplexity: "llm_perplexity",
+} as const satisfies Record<ObservationEngine, CapabilityKey>;
+const OBSERVATION_ENGINES = Object.keys(ENGINE_CAPABILITY) as readonly ObservationEngine[];
 
 /** Evidence owns both the plan's shape and the reader's view of a stored row, so
  *  a plan hands straight to the observation unit and nothing casts a database row. */
 type ObservedSample = AiObservationView;
-type AnalyzableObservation = AiObservationView;
 
 /** How many engine reads ONE pass may plan. Matches the observation unit's own
  *  per-pass ceiling, so a plan never hands over more work than a pass can do. */
@@ -59,17 +71,24 @@ export const DAILY_OBSERVATION_BATCH = 20;
 const PERPLEXITY_PER_PASS = 3;
 /** The hard ceiling on readings of one question, one engine, one day. */
 export const MAX_SAMPLES_PER_DAY = 3;
-/** How many answers ONE pass may read back. Zero new answers costs zero. */
-const MAX_ANALYSES_PER_PASS = 5;
-/** Estimated spend for one answer-analysis call (gpt-5-mini, one answer in). */
-const ANSWER_ANALYSIS_COST_USD = 0.01;
-
-/** The reporting day: the UTC day, exactly what cycle_key is built from. */
-export function utcReportingDay(now: number | Date = Date.now()): string {
-  return new Date(now).toISOString().slice(0, 10);
-}
+/** How many times ONE pair may be asked AGAIN on the same day after the provider broke on it. Then the row is
+ *  settled as unavailable, keeping the provider's own reason, and the day stops re-buying that refusal. */
+export const FAILED_RETRIES_PER_DAY = 2;
 
 const pairKey = (promptId: string, version: number, engine: string): string => `${promptId}|${version}|${engine}`;
+/** The identity a per-day retry budget is counted against: the pair AND the slot it was asked in. */
+const retryKey = (o: { promptId: string; version: number; engine: string; slot: number }): string =>
+  `${pairKey(o.promptId, o.version, o.engine)}|${o.slot}`;
+
+/** IS THIS PAIR'S DAY OVER, on the evidence of the row itself?
+ *  observed = the answer is in. unavailable = the engine had nothing readable to give, and a second ask today
+ *  buys the same nothing. unsupported = I cannot ask at all. failed = the provider broke, which IS worth
+ *  asking again, but only while the day's retry budget lasts. pending = an ask already in flight, which the
+ *  next pass collects for free and therefore must stay in the plan. */
+function terminalForDay(row: ObservedSample, retriesSpent: number): boolean {
+  if (row.status === "observed" || row.status === "unavailable" || row.status === "unsupported") return true;
+  return row.status === "failed" && retriesSpent >= FAILED_RETRIES_PER_DAY;
+}
 
 type ObservationPlanInput = {
   /** The operator's approved questions, each with the series it is on. */
@@ -82,6 +101,9 @@ type ObservationPlanInput = {
   engines?: readonly ObservationEngine[];
   /** Individually unsupported "<promptId>|<engine>" pairs, same rule. */
   unsupportedPairs?: readonly string[];
+  /** How many retries each broken pair has already spent TODAY, keyed by `retryKey`. Read off the day's own
+   *  memory, never inferred: a row that says `failed` looks identical on its first refusal and its fifth. */
+  retries?: Readonly<Record<string, number>>;
   /** How many EXTRA readings per pair the operator has explicitly asked for today (0, 1 or 2). Never
    *  inferred and never defaulted upward: nothing but an explicit ask plans slot 1 or 2. */
   extraSamples?: number;
@@ -115,10 +137,14 @@ export function planObservations(day: string, input: ObservationPlanInput): DueO
     const at = String(o.observedAt ?? o.day ?? "");
     if (at > (lastAt.get(k) ?? "")) lastAt.set(k, at);
   }
-  // Readings that actually landed today, per pair and per slot.
+  // Readings whose day is OVER, per pair and per slot: an answer in hand, or an honest terminal state that
+  // asking again today cannot improve on. Counting only `observed` here is what made an impossible pair
+  // immortal: its row said failed or unavailable, the planner saw no answer, and it planned the same
+  // unbuyable reading on every pass of every day.
+  const retries = input.retries ?? {};
   const doneToday = new Map<string, Set<number>>();
   for (const o of today) {
-    if (o.status !== "observed") continue;
+    if (!terminalForDay(o, retries[retryKey(o)] ?? 0)) continue;
     const k = pairKey(o.promptId, o.version, o.engine);
     const slots = doneToday.get(k) ?? new Set<number>();
     slots.add(o.slot);
@@ -196,6 +222,14 @@ export function extraSampleVerdict(day: string, input: ObservationPlanInput): { 
  */
 export type ExtraSampleGrant = { day: string; granted: number };
 
+/** WHAT THE DAY ALREADY KNOWS, in ONE read of the account's current run row: the operator's extra-reading
+ *  grant, and how many retries each broken pair has already spent. Both are day-stamped, so they clear by
+ *  rollover instead of by a cleanup nobody runs, and both are inherited by every pass that opens the same
+ *  day (research-run carries them onto a new row), so a second pass never hands out a fresh allowance. */
+export type DayMarkers = { extraSamples?: ExtraSampleGrant; observationRetries?: { day: string; counts: Record<string, number> } };
+/** How many pairs one day's retry ledger may name. Bounded so a broken provider cannot inflate a run row. */
+const MAX_RETRY_KEYS = 300;
+
 async function latestRunRow(tenantId: string): Promise<{ id: string; progress: Record<string, unknown> } | null> {
   const admin = (await import("@/lib/persistence/supabase")).getSupabaseAdmin();
   const { data, error } = await admin.from("research_runs").select("id,progress")
@@ -205,19 +239,25 @@ async function latestRunRow(tenantId: string): Promise<{ id: string; progress: R
   return { id: String(row.id), progress: row.progress ?? {} };
 }
 
-/** null = no grant on file (or none readable). A grant is only ever spent on the day it names. */
-async function readExtraSampleGrant(tenantId: string): Promise<ExtraSampleGrant | null> {
+/** null = nothing readable on file. Every marker is validated before it is trusted: a half-written one is
+ *  the same as none, never a number a plan then spends against. */
+async function readDayMarkers(tenantId: string): Promise<DayMarkers | null> {
   const row = await latestRunRow(tenantId).catch(() => null);
-  const g = row?.progress?.extraSamples as ExtraSampleGrant | undefined;
-  return g && typeof g.day === "string" && Number.isFinite(g.granted) ? { day: g.day, granted: Math.max(0, Math.trunc(g.granted)) } : null;
+  if (row == null) return null;
+  const g = row.progress?.extraSamples as ExtraSampleGrant | undefined;
+  const r = row.progress?.observationRetries as { day: string; counts: Record<string, number> } | undefined;
+  return {
+    ...(g && typeof g.day === "string" && Number.isFinite(g.granted) ? { extraSamples: { day: g.day, granted: Math.max(0, Math.trunc(g.granted)) } } : {}),
+    ...(r && typeof r.day === "string" && r.counts != null && typeof r.counts === "object" ? { observationRetries: { day: r.day, counts: r.counts } } : {}),
+  };
 }
 
-/** false = the grant was NOT saved, so the operator is told no rather than promised a reading nothing planned. */
-async function writeExtraSampleGrant(tenantId: string, grant: ExtraSampleGrant): Promise<boolean> {
+/** false = the marker was NOT saved, so the operator is told no rather than promised a reading nothing planned. */
+async function writeDayMarkers(tenantId: string, patch: DayMarkers): Promise<boolean> {
   const row = await latestRunRow(tenantId).catch(() => null);
   if (row == null) return false;
   const admin = (await import("@/lib/persistence/supabase")).getSupabaseAdmin();
-  const { error } = await admin.from("research_runs").update({ progress: { ...row.progress, extraSamples: grant } })
+  const { error } = await admin.from("research_runs").update({ progress: { ...row.progress, ...patch } })
     .eq("tenant_id", tenantId).eq("id", row.id);
   return error == null;
 }
@@ -225,8 +265,10 @@ async function writeExtraSampleGrant(tenantId: string, grant: ExtraSampleGrant):
 type PlannerDeps = {
   readPrompts?: (tenantId: string) => Promise<TrackedQuestion[] | null>;
   readObservations?: (tenantId: string, opts: { day?: string; promptId?: string }) => Promise<readonly ObservedSample[]>;
-  readGrant?: (tenantId: string) => Promise<ExtraSampleGrant | null>;
-  writeGrant?: (tenantId: string, grant: ExtraSampleGrant) => Promise<boolean>;
+  readMarkers?: (tenantId: string) => Promise<DayMarkers | null>;
+  writeMarkers?: (tenantId: string, patch: DayMarkers) => Promise<boolean>;
+  /** Settle a row the day is done retrying. Evidence owns the write; this is the test seam. */
+  settle?: (tenantId: string, observationId: string) => Promise<void>;
   engines?: readonly ObservationEngine[];
   unsupportedPairs?: readonly string[];
   maxBatch?: number;
@@ -259,39 +301,97 @@ function checkCounts(day: string, input: Pick<ObservationPlanInput, "prompts" | 
   return { done, total };
 }
 
+/** Everything one day's decision needs, read ONCE: the approved questions, every stored reading, and what
+ *  the day already knows. `null` = I could not read it, which is never "nothing is owed". */
+type DayState = { prompts: TrackedQuestion[]; observed: readonly ObservedSample[]; markers: DayMarkers | null };
+
+async function readDayState(tenantId: string, day: string, opts: PlannerDeps): Promise<DayState | null> {
+  const prompts = await (opts.readPrompts ?? readActiveTrackedPrompts)(tenantId).catch(() => null);
+  if (prompts == null) {
+    log.warn("[daily-observations] tracked questions unreadable; planning nothing this pass", { tenantId, day });
+    return null;
+  }
+  if (prompts.length === 0) return { prompts: [], observed: [], markers: null };
+  const readObservations = opts.readObservations ?? (async (t, o) => (await evidenceObservations()).readAiObservationViews(t, o));
+  const observed = await readObservations(tenantId, {}).catch(() => null);
+  if (observed == null) {
+    log.warn("[daily-observations] observation history unreadable; planning nothing this pass", { tenantId, day });
+    return null;
+  }
+  return { prompts, observed, markers: await (opts.readMarkers ?? readDayMarkers)(tenantId).catch(() => null) };
+}
+
+/** PURE. The day's standing and its plan off one already-read state. An extra reading is planned ONLY
+ *  against a grant the operator actually earned, on THIS day, and a broken pair is retried only while
+ *  the day's retry budget lasts. */
+function planFrom(day: string, s: DayState, opts: PlannerDeps): { done: number; total: number; due: DueObservation[] } {
+  const grant = s.markers?.extraSamples;
+  const retries = s.markers?.observationRetries?.day === day ? s.markers.observationRetries.counts : {};
+  const shared = { prompts: s.prompts, observed: s.observed, engines: opts.engines, unsupportedPairs: opts.unsupportedPairs, retries };
+  return {
+    ...checkCounts(day, shared),
+    due: planObservations(day, { ...shared, extraSamples: grant?.day === day ? grant.granted : 0, maxBatch: opts.maxBatch }),
+  };
+}
+
 /**
  * THE DAILY PLAN for one account, WITH the day's standing: what is still due, and how much
  * of today's one canonical round already landed. `null` means I COULD NOT READ what is due
  * (the question list or the observation store), which is a different claim from "nothing is
- * owed" and gets a different answer everywhere it is consumed.
+ * owed" and gets a different answer everywhere it is consumed. READ ONLY: nothing here writes,
+ * so a surface may ask it on every render.
  */
 export async function dailyChecks(tenantId: string, reportingDay: string, opts: PlannerDeps = {}): Promise<{ done: number; total: number; due: DueObservation[] } | null> {
-  const readPrompts = opts.readPrompts ?? readActiveTrackedPrompts;
-  const readObservations = opts.readObservations ?? (async (t, o) => (await evidenceObservations()).readAiObservationViews(t, o));
-  const prompts = await readPrompts(tenantId).catch(() => null);
-  if (prompts == null) {
-    log.warn("[daily-observations] tracked questions unreadable; planning nothing this pass", { tenantId, reportingDay });
-    return null;
-  }
-  if (prompts.length === 0) return { done: 0, total: 0, due: [] };
-  const observed = await readObservations(tenantId, {}).catch(() => null);
-  if (observed == null) {
-    log.warn("[daily-observations] observation history unreadable; planning nothing this pass", { tenantId, reportingDay });
-    return null;
-  }
-  // An extra reading is planned ONLY against a grant the operator actually earned, on THIS day.
-  const grant = await (opts.readGrant ?? readExtraSampleGrant)(tenantId).catch(() => null);
-  const shared = { prompts, observed, engines: opts.engines, unsupportedPairs: opts.unsupportedPairs };
-  return {
-    ...checkCounts(reportingDay, shared),
-    due: planObservations(reportingDay, { ...shared, extraSamples: grant?.day === reportingDay ? grant.granted : 0, maxBatch: opts.maxBatch }),
-  };
+  const state = await readDayState(tenantId, reportingDay, opts);
+  return state == null ? null : planFrom(reportingDay, state, opts);
 }
 
-/** The ONLY selector the observation unit has: the due list alone, with the same null
- *  meaning (I could not read what is due, so ask nothing). */
+/**
+ * The ONLY selector the observation unit has: the due list alone, with the same null meaning (I could not
+ * read what is due, so ask nothing). This is the RUN path, so it is also where the day's failure budget is
+ * kept: a pair this plan is asking again after a refusal spends one retry, and a pair whose retries are
+ * spent stops saying "failed" on the row and says `unavailable`, with the provider's reason left in place.
+ */
 export async function dueObservations(tenantId: string, reportingDay: string, opts: PlannerDeps = {}): Promise<DueObservation[] | null> {
-  return (await dailyChecks(tenantId, reportingDay, opts))?.due ?? null;
+  const state = await readDayState(tenantId, reportingDay, opts);
+  if (state == null) return null;
+  const { due } = planFrom(reportingDay, state, opts);
+  await spendFailureBudget(tenantId, reportingDay, state, due, opts);
+  return due;
+}
+
+/** How many rows one pass may settle. Bounded: a whole day of refusals settles over a few passes rather
+ *  than turning one plan into a hundred writes. */
+const MAX_SETTLES_PER_PASS = 40;
+
+/**
+ * WRITE DOWN WHAT THE DAY LEARNED, from rows already in hand, in at most one update each way.
+ * A `failed` row is the only status that means "ask again", so it is the only one counted: asking it again
+ * spends a retry, and a row with nothing left to spend is settled to `unavailable` so every later reader
+ * (the planner, the count on Today, the trend) sees one honest terminal state instead of a refusal that
+ * looks like pending work forever. The provider's own words stay in failure_reason: the row still explains
+ * itself, it just stops promising a retry it is never going to make.
+ */
+async function spendFailureBudget(tenantId: string, day: string, s: DayState, due: readonly DueObservation[], opts: PlannerDeps): Promise<void> {
+  const broken = s.observed.filter((o) => o.day === day && o.status === "failed" && Boolean(o.id));
+  if (broken.length === 0) return;
+  const held = s.markers?.observationRetries?.day === day ? { ...s.markers.observationRetries.counts } : {};
+  const planned = new Set(due.map(retryKey));
+  const settle = opts.settle ?? (async (t: string, id: string) => (await evidenceObservations()).settleFailedObservation(t, id, "unavailable"));
+  let changed = false, settled = 0;
+  for (const row of broken) {
+    const k = retryKey(row);
+    const spent = held[k] ?? 0;
+    if (planned.has(k)) {
+      if (Object.keys(held).length < MAX_RETRY_KEYS || k in held) { held[k] = spent + 1; changed = true; }
+      continue;
+    }
+    if (spent < FAILED_RETRIES_PER_DAY || settled >= MAX_SETTLES_PER_PASS) continue;
+    settled += 1;
+    await settle(tenantId, row.id).catch(() => {});
+  }
+  if (settled > 0) log.info("[daily-observations] settled checks the provider could not answer today", { tenantId, day, settled });
+  if (changed) await (opts.writeMarkers ?? writeDayMarkers)(tenantId, { observationRetries: { day, counts: held } }).catch(() => false);
 }
 
 /**
@@ -307,166 +407,13 @@ export async function requestExtraSample(tenantId: string, day: string, opts: Pl
   if (prompts == null || observed == null) {
     return { granted: false, reason: "I could not read where today's checks stand, so I am not adding a second reading on a guess. I will try again on your next visit.", due: [] };
   }
-  const stored = await (opts.readGrant ?? readExtraSampleGrant)(tenantId).catch(() => null);
-  const already = stored?.day === day ? stored.granted : 0;
-  const verdict = extraSampleVerdict(day, { prompts, observed, engines: opts.engines, unsupportedPairs: opts.unsupportedPairs, extraSamples: already });
+  const stored = await (opts.readMarkers ?? readDayMarkers)(tenantId).catch(() => null);
+  const grant = stored?.extraSamples;
+  const already = grant?.day === day ? grant.granted : 0;
+  const retries = stored?.observationRetries?.day === day ? stored.observationRetries.counts : {};
+  const verdict = extraSampleVerdict(day, { prompts, observed, engines: opts.engines, unsupportedPairs: opts.unsupportedPairs, extraSamples: already, retries });
   if (!verdict.granted) return verdict;
-  const saved = await (opts.writeGrant ?? writeExtraSampleGrant)(tenantId, { day, granted: already + 1 }).catch(() => false);
+  const saved = await (opts.writeMarkers ?? writeDayMarkers)(tenantId, { extraSamples: { day, granted: already + 1 } }).catch(() => false);
   if (!saved) return { granted: false, reason: "I could not save your request for a second reading, so I am not promising one. Press Update data again on your next visit.", due: [] };
   return verdict;
-}
-
-// ── the analysis step ───────────────────────────────────────────────────────
-
-const ANSWER_ANALYSIS_SYSTEM =
-  "You read one AI assistant's answer and record what it says. You are a reader, not an author. " +
-  "Restate only what the ANSWER TEXT contains: every claim must use the answer's own wording, every entity, " +
-  "competitor, content type and question must be one the answer itself names. " +
-  "Never invent or infer a URL, a number, a statistic, a price, a date, a ranking or a fact that is not in the answer text. " +
-  "Never add your own knowledge about the subject and never judge whether the answer is correct. " +
-  "If the answer does not name the brand you are given, set mentioned to false and leave position and context null. " +
-  "position is the order the name appears in the answer (1 means named first), never a search ranking. " +
-  "materialOmissions lists what a reader of THIS answer still would not know, described in plain words, with no invented facts. " +
-  "Return every field; use an empty array when the answer gives you nothing for it.";
-
-/** PURE. Which stored observations still owe an analysis: an answer that landed,
- *  and whose analysis is either missing or was taken against a DIFFERENT answer
- *  than the one on file. An unchanged answer is never re-read, so a re-run of the
- *  same pass costs nothing. */
-export function selectAnalysisTargets(rows: readonly AnalyzableObservation[], max = MAX_ANALYSES_PER_PASS): readonly AnalyzableObservation[] {
-  return rows
-    .filter((r) => Boolean(r.id) && Boolean(r.answerText) && Boolean(r.answerHash))
-    .filter((r) => r.analysis == null || r.analysisHash !== r.answerHash)
-    .slice(0, Math.max(0, max));
-}
-
-type AnalysisDeps = {
-  readObservations?: (tenantId: string, opts: { day?: string }) => Promise<readonly AnalyzableObservation[]>;
-  persist?: (tenantId: string, observationId: string, analysis: Record<string, unknown>, analysisHash: string) => Promise<void>;
-  analyze?: (input: { tenantId: string; question: string; engine: string; answerText: string; brand: string }) => Promise<AnswerAnalysis | null>;
-  readPrompts?: (tenantId: string) => Promise<TrackedQuestion[] | null>;
-  /** WHO THIS ACCOUNT IS. Tests inject it; production always loads the real one and
-   *  never falls back to an empty brand (see runAnswerAnalyses). */
-  identity?: BrandIdentity;
-  /** The LLM transport, so a test can exercise this exact prompt without a key. */
-  complete?: CompleteFn;
-  max?: number;
-};
-
-/** Which path found the account in an answer: the model's reading, the answer's own
- *  words, an address it credited, or both the model and the words. A later reader can
- *  tell a model miss from a real absence, which a bare true/false never could. */
-type BrandMatchPath = "model" | "text" | "citation" | "both";
-
-/** A name counts only as a WHOLE word, tolerant of the spacing and punctuation a
- *  writer chose ("Ritz Builders", "ritz-builders"), so "Ritz" is never found inside
- *  "Ritzy" and no substring of an unrelated word can invent a mention. */
-function formPattern(form: string): RegExp | null {
-  const parts = form.match(/[\p{L}\p{N}]+/gu);
-  if (parts == null || parts.length === 0) return null;
-  const body = parts.join("[^\\p{L}\\p{N}]{0,2}");
-  return new RegExp(`(?<![\\p{L}\\p{N}])${body}(?![\\p{L}\\p{N}])`, "iu");
-}
-
-const hostOfUrl = (raw: string): string =>
-  raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? "";
-
-/** PURE. Does this answer name the account, in its own text or in what it credited?
- *  null = neither, which is a real absence and not a shrug. */
-function findBrand(identity: BrandIdentity, answerText: string, citationUrls: readonly string[] | null): Exclude<BrandMatchPath, "model" | "both"> | null {
-  if (answerText && identity.forms.some((f) => formPattern(f)?.test(answerText) === true)) return "text";
-  const host = identity.host;
-  if (host && (citationUrls ?? []).some((u) => { const h = hostOfUrl(u); return h === host || h.endsWith(`.${host}`); })) return "citation";
-  return null;
-}
-
-/** ONE strict structured call per answer, through the existing gateway. Returns
- *  null on anything that is not a validated draft: an analysis I could not
- *  produce is simply absent, never a half-filled one. */
-async function analyzeOne(input: { tenantId: string; question: string; engine: string; answerText: string; brand: string }, complete?: CompleteFn): Promise<AnswerAnalysis | null> {
-  const user = [
-    `BRAND TO LOOK FOR: ${input.brand || "(none supplied)"}`,
-    `QUESTION ASKED: ${input.question}`,
-    `ENGINE: ${input.engine}`,
-    "ANSWER TEXT (the only thing you may restate):",
-    input.answerText.slice(0, 12_000),
-  ].join("\n");
-  const out = await callStructuredLLM({
-    kind: "answer_analysis",
-    tenantId: input.tenantId,
-    system: ANSWER_ANALYSIS_SYSTEM,
-    user,
-    // The answer text IS the grounding, so every number the analysis restates is
-    // grounded and any number it invents is caught by the numeric firewall.
-    grounded: input.answerText.slice(0, 12_000),
-    projectedCostUsd: ANSWER_ANALYSIS_COST_USD,
-    maxTokens: 3000,
-    ...(complete ? { complete } : {}),
-  });
-  return out.status === "drafted" ? (out.value as AnswerAnalysis) : null;
-}
-
-/**
- * Read back the day's new answers, bounded. Returns how many analyses were
- * PERSISTED, never how many were attempted. $0 when nothing is new. Fail-soft by
- * contract: analysis is derived from evidence that is already safely stored, so a
- * failure here must never pause the run that just did the expensive part.
- */
-export async function runAnswerAnalyses(tenantId: string, day: string, deps: AnalysisDeps = {}): Promise<number> {
-  const readObservations = deps.readObservations ?? (async (t, o) => (await evidenceObservations()).readAiObservationViews(t, o));
-  const persist = deps.persist
-    ?? (async (t, id, analysis, hash) => (await evidenceObservations()).persistAnswerAnalysis(t, id, analysis, hash));
-  const rows = await readObservations(tenantId, { day }).catch(() => null);
-  if (rows == null || rows.length === 0) return 0;
-  const targets = selectAnalysisTargets(rows, deps.max ?? MAX_ANALYSES_PER_PASS);
-  if (targets.length === 0) return 0; // nothing new: no call, no cent
-
-  // WHO AM I LOOKING FOR. The pass used to send an EMPTY brand, so the model was asked
-  // whether an answer named nobody and every reading came back "not mentioned". An
-  // identity with no forms at all buys nothing: I say so and stop, rather than spend on
-  // a question I cannot ask.
-  const identity = deps.identity ?? await loadBrandIdentity(tenantId).catch(() => null);
-  if (identity == null || identity.forms.length === 0) {
-    log.warn("[daily-observations] no business name or website on file, so I am not reading answers back for a brand I cannot name", { tenantId, day });
-    return 0;
-  }
-
-  const prompts = await (deps.readPrompts ?? readActiveTrackedPrompts)(tenantId).catch(() => null);
-  const textOf = new Map((prompts ?? []).map((p) => [p.id, p.text]));
-  const analyze = deps.analyze ?? ((i: Parameters<typeof analyzeOne>[0]) => analyzeOne(i, deps.complete));
-  let written = 0;
-  for (const row of targets) {
-    const question = row.promptText || textOf.get(row.promptId) || "";
-    const hash = String(row.answerHash);
-    const answerText = String(row.answerText ?? "");
-    const analysis = await analyze({ tenantId, question, engine: row.engine, answerText, brand: identity.name }).catch(() => null);
-    // THE SECOND PAIR OF EYES. The model reads the answer; this reads the same answer for
-    // the account's own name and its own address. The verdict is either one of them, and
-    // `matchedBy` records which found it, so a model miss never looks like a real absence.
-    const found = findBrand(identity, answerText, row.citationUrls);
-    // A REFUSAL IS A RESULT, and it is stored against the answer it was taken on. Persisting nothing left the
-    // same row at the top of the worklist, so a firewall or schema rejection re-bought the same five calls
-    // every single pass, forever. A NEW answer hash re-qualifies the row; the same answer never asks twice.
-    // What I DID see in the text still rides along: a refusal is not a reason to lose a mention I can prove.
-    if (analysis == null) {
-      await persist(tenantId, row.id, {
-        rejected: true, reason: "I could not produce a reliable reading of this answer, so I recorded that instead of paying to be refused again.",
-        ...(found ? { ownedBrandMention: { mentioned: true, position: null, context: null }, matchedBy: found } : {}),
-      }, hash).catch(() => {});
-      continue;
-    }
-    const byModel = analysis.ownedBrandMention?.mentioned === true;
-    const record = {
-      ...analysis,
-      ownedBrandMention: { ...analysis.ownedBrandMention, mentioned: byModel || found != null },
-      matchedBy: (byModel && found ? "both" : byModel ? "model" : found) as BrandMatchPath | null,
-    } as unknown as Record<string, unknown>;
-    // ONE retry on a lost write. Still lost leaves the row for the next pass, where the gateway's own call
-    // cache serves the identical request at $0, so a retry costs nothing but the round trip.
-    const saved = await persist(tenantId, row.id, record, hash).then(() => true)
-      .catch(() => persist(tenantId, row.id, record, hash).then(() => true).catch(() => false));
-    if (saved) written += 1;
-  }
-  if (written > 0) log.info("[daily-observations] read back new AI answers", { tenantId, day, written });
-  return written;
 }

@@ -38,7 +38,8 @@ import { getConnectorInfo } from "@/lib/connector-store";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 import { AUTO_REFRESH_STALE_HOURS, isStale } from "./source-freshness";
-import { dailyChecks, utcReportingDay } from "./daily-observations";
+import { reportingDay } from "@/lib/reporting-day";
+import { dailyChecks } from "./daily-observations";
 import type { ResearchRunProgress } from "../research-run";
 
 /** The logical units of owed work. NOT the executor's phases: the executor still runs its
@@ -163,7 +164,11 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   const empty: DueWork = { due: [], readable: false, checks: { done: 0, total: 0 }, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null };
   if (!tenantId?.trim()) return empty;
   const nowMs = now.getTime();
-  const day = utcReportingDay(nowMs);
+  // THE OPERATOR'S DAY, not the UTC one. Owed work was judged against a day that rolled at 5 PM Pacific, so
+  // for the last seven hours of every day Beacon asked "what is owed" about tomorrow while the person reading
+  // it was still in today. Days already stored under a UTC label are history and are never rewritten: where
+  // the two labels land on the same day, the readings already on file simply mean that work is done.
+  const day = reportingDay(nowMs);
 
   const [sources, checks, run, basis] = await Promise.all([
     settled((deps.staleSources ?? staleSourceCount)(tenantId, now), 0),

@@ -62,6 +62,10 @@ export const PROMPT_REGISTRY = {
   // decides nothing, so the wording that forbids inventing is the whole contract
   // and any change to it must bump this version.
   "draft.answer_analysis": 1,
+  // The SAME reading over many answers in one call (2026-08-01, V1 Closure): the rules are the
+  // answer_analysis rules plus "one entry per observation id, echoed exactly, never merged". A
+  // change to either half changes what a stored batch reading means, so it must bump this version.
+  "draft.answer_analysis_batch": 1,
   // Reading my OWN grouping back (2026-07-31, V1 Truth Convergence Phase 2):
   // which cases are one subject, which is two, and which page answers which. It
   // refines an answer the deterministic pass already reached and decides nothing
