@@ -154,6 +154,15 @@ const comparisonKey = (raw: string): string =>
   canonicalizeCitationUrl(raw)
   ?? raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
 
+/** One address split into the site and the page on it, by the same strip the key above uses. An empty
+ *  `path` means the address names a SITE and no page: "acme.com" credits acme.com, whatever page of it
+ *  the answer actually leaned on. */
+const siteAndPage = (raw: string): { host: string; path: string } => {
+  const s = raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
+  const cut = s.indexOf("/");
+  return cut < 0 ? { host: s, path: "" } : { host: s.slice(0, cut), path: s.slice(cut) };
+};
+
 /**
  * THE one derivation of "the engine read this page and credited somebody else". A provider reports what it
  * RETRIEVED and what it CITED as two lists and never promises the first excludes the second, so a retrieval
@@ -162,6 +171,12 @@ const comparisonKey = (raw: string): string =>
  * stored retrieval list as the answer turns "it read your page" into "it read your page and passed it over".
  * Citations never observable (null) yield NO claim, an empty list rather than the whole retrieval list:
  * "I do not know what it credited" cannot support "it credited somebody else".
+ *
+ * A CITATION THAT NAMES ONLY A SITE CREDITS THAT SITE. The observation reader deliberately falls back to
+ * the bare domain when an engine reports no address for what it credited, and comparing whole urls alone
+ * matched none of those to anything: a page that WAS credited then read as read and passed over, which is
+ * the harshest verdict this product can reach about a page. So a path-less citation clears every retrieved
+ * page on that same site. A citation that names a DIFFERENT page on the site clears only that page.
  */
 export function retrievedNotCitedLinks<T extends { url: string }>(
   retrieved: readonly T[] | null | undefined,
@@ -169,5 +184,6 @@ export function retrievedNotCitedLinks<T extends { url: string }>(
 ): T[] {
   if (retrieved == null || cited == null) return [];
   const credited = new Set(cited.map((c) => comparisonKey(c.url)));
-  return retrieved.filter((r) => !credited.has(comparisonKey(r.url)));
+  const creditedSites = new Set(cited.map((c) => siteAndPage(c.url)).filter((c) => c.host && !c.path).map((c) => c.host));
+  return retrieved.filter((r) => !credited.has(comparisonKey(r.url)) && !creditedSites.has(siteAndPage(r.url).host));
 }

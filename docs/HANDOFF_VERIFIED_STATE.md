@@ -79,42 +79,23 @@
   before its side effect and survives interrupted retries; completion copy names its finish time and never claims
   research is current. All three migrations applied; the claim RPC smoke-proven against the real database.
 - The DataForSEO research funnel is lifecycle-true and feeds ONE canonical evidence input (Slice 6 + closures
-  6B..6I, 2026-07-25). A TYPED registry (wrong fields fail tsc; model never caller-supplied) owns each ask:
-  chatgpt llm_responses web_search ONLY (live o4-mini rejected force, 40501), claude web + force + US, gemini
-  web_search, perplexity Live, the scraper force + expand_citations; providerCall routes Standard-vs-Live; the
+  6B..6I, 2026-07-25). A TYPED registry owns each engine's ask; providerCall routes Standard-vs-Live; the
   boundary returns the FULL envelope and never auto-retries paid work after a refusal or ambiguity. Money:
-  tenant-independent `evidence_cache` + single-flight claim + dry-run default + breaker + ATOMIC reserve BEFORE
-  the network + reconcile; reservation cap with bounded overshoot; persistence FAILS CLOSED to a zero-row UPDATE.
-  Every failure carries a structured disposition; ONE paid-response policy: only in-body 40401/40403 on a FREE
-  collect earn a single repost; a rejected paid response at REPORTED cost 0 releases only when EVERY status is an
-  exact temporary code (a 40203 daily ceiling releases for tomorrow), else refunds into a DURABLE blocked hold
-  (raw 401/402/404 too); an UNCERTAIN (possibly charged) outcome is QUARANTINED INDEFINITELY, reservation kept,
-  recovered only via free tasks_ready (Standard; Live has none); holds carry reasons, cleared only by the
-  operator. A BLOCKED response PAUSES the run visibly with the provider's reason, stopping the batch; quarantined
-  stays explicitly unavailable; a model-cache read failure makes zero calls. Rows expire on the registry ttl;
-  completion counts only CURRENT CANONICAL pairs/queries (pruned, stale-done outstanding, weekly re-entry); the
-  per-cycle receipt is real. Every AI observation carries a frozen MODE: consumer_search (the ChatGPT scraper) is
-  THE canonical ChatGPT signal on every core prompt; standardized_response is canonical for the other three
-  engines plus a bounded 20-prompt AUXILIARY chatgpt sample that inflates no denominator and never pauses the run.
-  Presence, recurrence, winning pages, history ids, the hash: all mode-true (a citation seen via both chatgpt
-  modes counts once, consumer preferred). Gemini wrappers resolve redirect-only (hardened SSRF screen, bounded) to
-  the real source before ranking, viaUrl kept; unresolved never rank. Funnel state is Supabase-only, basis-scoped
-  (optimistic row_version). The canonical EvidenceSnapshot carries the research bundle (retained keywords; AI
-  observations with prompt text, tri-state citations, webSearchReported, model drift; SERP evidence; winning pages
-  with provenance; per-run receipt), the ONE public evidence input; the hash fingerprints MATERIAL content only.
-  Proof is hermetic AND live-validated (2026-07-25, $2 provider day cap proven): labs, Standard SERP, all four
-  engines and the scraper ran for $0.07: free Standard collection, durable Live persistence, $0 repeat hits, a
-  cent-exact ledger, a crashed POST quarantined then recovered free by its tag. Production research is ENABLED
-  (2026-07-25).
-- OpenAI generation flows through one strict Responses API gateway (Slice 3, 2026-07-23): /v1/responses with
-  json_schema strict:true; every call site converted; the Completions transport and prose JSON recovery are
-  deleted. Account-scoped end to end (2026-07-24): the structured-output cache is tenant-scoped with the account
-  in the key hash and on every entry (old global blob inert), de-templating history never crosses accounts,
-  tenantId is required from drafter entry through cache, budget, transport, provenance, and error ledger; invalid
-  envelopes retain real usage cost. The LLM budget is per-account on BOTH layers (tenant-scoped file backstop;
-  durable Supabase ledger authoritative); one account's spend never throttles another. A regression sweep converts
-  every SCHEMA_BY_KIND entry through the strict-subset conversion. Transport and live behavior are validated; the
-  OpenAI key enables this path directly, no secondary flag.
+  tenant-independent `evidence_cache`, single-flight claim, breaker, ATOMIC reserve before the network,
+  reconcile; persistence fails closed. One paid-response policy: temporary codes release, everything else
+  refunds into a durable blocked hold; an uncertain outcome is quarantined, recovered only via free
+  tasks_ready; a BLOCKED response pauses the run visibly. Completion counts only current canonical pairs.
+  Every observation carries a frozen MODE: consumer_search is THE canonical ChatGPT signal;
+  standardized_response is canonical for the other engines plus a bounded auxiliary chatgpt sample.
+  Gemini wrappers resolve to the real source before ranking. Funnel state is Supabase-only, basis-scoped.
+  The canonical EvidenceSnapshot is the ONE public evidence input; the hash fingerprints material content
+  only. Proof is hermetic AND live-validated (2026-07-25, $0.07 across all engines, cent-exact ledger).
+  Production research is ENABLED (2026-07-25). Full mechanics: git history of this section.
+- OpenAI generation flows through one strict Responses API gateway (Slice 3, 2026-07-23): json_schema
+  strict:true, every call site converted, the Completions transport deleted. Account-scoped end to end
+  (2026-07-24): tenant-scoped cache, budget, transport, provenance, and error ledger; the per-account LLM
+  budget rides a tenant-scoped file backstop with the durable Supabase ledger authoritative; one account's
+  spend never throttles another. The OpenAI key enables this path directly, no secondary flag.
 - DOING NOTHING IS THE DEFAULT AND AN EXACT RESULTS PAGE MUST EXPLAIN THE ACTION (2026-07-27): each page is
   diagnosed against its OWN exact query rows and the shipped click curve BEFORE any draft; an action needs
   impressions to trust, a real gap at that position, and enough recoverable clicks to be worth a morning. A row I
@@ -179,8 +160,27 @@ proposal. `change_proposals` holds ONE current row per (account, case, page, act
 chains. A marked change is a Shipment: write-once `implemented_at` stamp and baseline, live verification, and
 28-day windows anchored on the stamp (conditional day-56). AI outcomes read slot-0 rows; mention rate divides
 by analyzed. Today is four total states reading one release blob, so no two surfaces disagree on a count. All
-four 2026-07-31 migrations applied to production before the push (additive, forward-only): 85 core prompts
-active, 50 legacy seeds reversibly deactivated. The first live run belongs to the operator.
+four 2026-07-31 migrations applied to production before the push. The live account runs the operator's own
+35 approved questions and nothing else (an earlier 85 here summed two tenants; the synthetic onboarding
+account's 50 candidates are core-flagged off, reversibly, and 50 legacy seeds stay deactivated).
+
+## V1 Closure (2026-08-01, deployed with this state)
+
+The loop's integrity breaks are closed. Analyses carry one derived BrandIdentity (confirmed name + domain
+variants) with a deterministic text and citation matcher backstopping the model, `matchedBy` recorded per
+answer. AI history reads its whole requested day range through paginated filtered queries and throws rather
+than truncating. Retrieved-but-not-cited is derived by canonical url subtraction, never assumed. Analysis
+batches fifteen answers per structured call, so a 140 answer day settles in three passes, every answer
+analyzed or honestly rejected; terminal states persist on the canonical row (unsupported pairs are never
+planned while the registry cannot ask them; failed retries twice then settles unavailable, reason kept). A
+shell controller continues research in bounded lease-safe hops while the signed-in tab stays open. One
+reporting day, America/Los_Angeles, governs the planner, the cycle key RPC (replaced in place, applied), and
+every surface. Fan-out keywords carry bounded origin receipts merged on dedup, through cases into
+investigations. The bundle producer runs the same 15-cause ladder as the investigation: a compiler-total
+registry produces openings, sections, section rewrites, internal links, sourced expansions, consolidations
+(always dangerous, always held), and an earned full-rewrite brief, or refuses in the operator's own words.
+Proposal supersession is one atomic database function. Lint is part of the gate and clean; the middleware
+follows the proxy convention. The first live run still belongs to the operator.
 
 ## Verification
 

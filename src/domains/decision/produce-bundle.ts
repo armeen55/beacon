@@ -351,8 +351,13 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       { pageBodyText: receipt.bodyText ?? null, evidenceText, contextTokens, now });
     // NEVER surface a raw validator reason: it is internal vocabulary.
     if (verdict.status === "rejected") return drop("The rewrite I drafted failed one of my safety checks, so I left it out rather than risk it.");
-    const risk = verdict.status === "proposed" && c.risk !== "review" ? "safe" : "review";
-    if (risk === "review") heldForReview = true;
+    // DANGEROUS SURVIVES THE GATE. A component that moves or hides a page is graded dangerous by the
+    // producer and the validator refuses any bundle where it is not; downgrading it to "review" here
+    // took the two-step hold off the one change that needs it and made the stored proposal fail its own
+    // re-validation as mislabelled.
+    const risk = c.risk === "dangerous" ? "dangerous"
+      : verdict.status === "proposed" && c.risk !== "review" ? "safe" : "review";
+    if (risk !== "safe") heldForReview = true;
     components.push({ ...c, evidenceKeys, risk });
   };
 
@@ -385,10 +390,13 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     }
     if (components.length === 0) {
       // SMALLER COMPONENTS FIRST, A REBUILD LAST. Only when the named cause could produce nothing
-      // AND the ladder holds a second structural accusation does a full rewrite brief earn its place,
-      // and even then it is a reviewed recommendation, never pasted copy.
+      // AND the ladder holds a second structural accusation that ACTUALLY FIRED does a full rewrite
+      // brief earn its place, and even then it is a reviewed recommendation, never pasted copy. The
+      // competing list also carries the causes the ladder checked and RULED OUT, and counting those
+      // told the operator "2 separate things are wrong with it at once" where the second clause was
+      // the exact opposite of what the evidence said.
       const rebuild = await produceFullRewriteRecommendation(ctx,
-        [finding.cause, ...finding.competingExplanations.map((c) => c.cause)]);
+        [finding.cause, ...finding.competingExplanations.filter((c) => c.fired === true).map((c) => c.cause)]);
       for (const c of rebuild.components) keep(c, { kind: "existing_edit", field: FIELD_OF[c.kind] ?? "section", before: c.before, after: c.after });
     }
     if (components.length === 0) return { status: "none", reason: produced.refusal ?? finding.explanation };

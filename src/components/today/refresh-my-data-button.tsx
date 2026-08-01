@@ -40,7 +40,15 @@ type RefreshResult = RefreshAllConnectedResult["results"][number];
  * renderToStaticMarkup it without driving the button's client state.
  */
 export function RefreshResultList({ results }: { results: RefreshResult[] }) {
-  if (results.length === 0) return null;
+  // THE ACTION ALWAYS ANSWERS, with the connected sources or with its own research line, so an empty list
+  // is not "nothing is connected" any more: it is the press itself failing. Say that instead.
+  if (results.length === 0) {
+    return (
+      <p className="mt-1 text-[12px] text-muted-foreground">
+        I could not refresh anything just now; try again in a minute.
+      </p>
+    );
+  }
   return (
     <ul className="mt-2 flex flex-col gap-1">
       {results.map((r) => (
@@ -128,13 +136,7 @@ export function RefreshMyDataButton({
             I am picking my research back up. You can keep using Beacon while I work.
           </p>
         ) : results ? (
-          results.length > 0 ? (
-            <RefreshResultList results={results} />
-          ) : (
-            <p className="mt-1 text-[12px] text-muted-foreground">
-              Nothing connected to refresh yet.
-            </p>
-          )
+          <RefreshResultList results={results} />
         ) : null}
       </div>
       {/* ranAt is captured for downstream freshness copy if needed; kept in

@@ -420,6 +420,39 @@ describe("research funnel - the journey behind a keyword", () => {
     const held = first.peek("tj", BASIS)!; held.prompts.pairs = [pair({ promptId: "p2", promptText: "cheapest saffron", day: DAY_B })]; // the same follow-up, out of a different answer this time
     const second = memStore(held); await run(second);
     expect(rowsOf(second).get(FAN)!.origins!.map((o) => o.promptId)).toEqual(["p1", "p2"]); }); // what the last pass learned is not re-learned and not lost
+  it("counts the arrivals it dropped ONCE, however many passes read the same eight", async () => {
+    // The count used to be the largest carried count PLUS this pass's own overflow, so an arrival dropped by
+    // one pass and recovered by the next was counted twice: eight real arrivals read as ten, then twelve.
+    const eight = Array.from({ length: 8 }, (_, i) => pair({ promptId: `q${i}`, promptText: `question ${i}` }));
+    const first = memStore(seeded(eight)); await run(first);
+    const after = (store: ReturnType<typeof memStore>) => { const r = rowsOf(store).get(FAN)!; return [r.origins!.length, r.moreOrigins]; };
+    expect(after(first)).toEqual([6, 2]);
+    const held = first.peek("tj", BASIS)!; held.prompts.pairs = eight;   // the same eight answers, read again
+    const second = memStore(held); await run(second);
+    expect(after(second)).toEqual([6, 2]);                                // recomputing from the same inputs changes nothing
+    const again = memStore(second.peek("tj", BASIS)!); await run(again);
+    expect(after(again)).toEqual([6, 2]);
+  });
+
+  it("keeps the remainder in the count when a stored list is clamped, and never names an answer that was not recorded", async () => {
+    // A row stored with more arrivals than the bound is cut to the bound, and what was cut is ADDED to the
+    // count rather than deleted with it.
+    const origins = Array.from({ length: 9 }, (_, i) => ({ route: "fanout" as const, promptId: `x${i}` }));
+    const stored = { schemaVersion: 3, tenantId: "tj", basisTag: BASIS, discovery: { seeds: [], rejected: [], counts: { raw: 1, normalized: 1, retained: 1, rejected: 0 }, caseCompetitors: [],
+      retained: [{ keyword: "saffron price", searchVolume: 500, competition: null, difficulty: null, intent: null, discoveredVia: "fanout", origins, moreOrigins: 1 }] } } as unknown as FunnelState;
+    const table = { select: () => table, eq: () => table, maybeSingle: async () => ({ data: { schema_version: 3, state: stored, row_version: 1 }, error: null }) };
+    const loaded = await loadFunnelState("tj", BASIS, { configured: () => true, admin: () => ({ from: () => table }) });
+    const k = loaded.state.discovery.retained[0]!;
+    expect([k.origins!.length, k.moreOrigins]).toEqual([6, 4]); // 9 held plus 1 already counted: six kept, four counted
+
+    // AND AN ANSWER THAT WAS NEVER ASKED FOR HAS NO ROW TO POINT AT. A pair still waiting to be asked has a
+    // complete identity and no observation behind it, so naming one minted a reference to nothing.
+    const waiting = memStore(seeded([pair({ status: "pending", observedAt: undefined })])); await run(waiting);
+    const arrival = rowsOf(waiting).get(FAN)!.origins![0]!;
+    expect(arrival.observationId).toBeUndefined();
+    expect([arrival.promptId, arrival.reportingDay]).toEqual(["p1", DAY_A]); // the identity it really holds is still recorded
+  });
+
   it("decodes a row stored before the journey was kept as one that recorded no journey, never as one from nowhere", async () => {
     const stored = { schemaVersion: 3, tenantId: "tj", basisTag: BASIS, discovery: { seeds: [], rejected: [], counts: { raw: 1, normalized: 1, retained: 1, rejected: 0 }, caseCompetitors: [],
       retained: [{ keyword: "saffron price", searchVolume: 500, competition: null, difficulty: null, intent: null, discoveredVia: "site", rankedUrl: "https://own.com/s", rankedRank: 4 }] } } as unknown as FunnelState;

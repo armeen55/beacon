@@ -181,18 +181,26 @@ const PAGE_ROWS = 1000, MAX_ROWS = 40_000;
  * re-reading an answer costs nothing and no provider is called. A failed read throws (an empty list would
  * read as "this account has no answers", which is a different and false claim).
  *
- * EVERY FILTER IS IN THE QUERY, and a NAMED DAY RANGE is then PAGED until it is exhausted: asking for a
- * range means asking for all of it. It used to be one `.limit(2000)` over the newest rows, so an account
- * asking 35 questions of 4 engines (140 first readings a day) had its "28 day" history cut around day 14
- * and every total under it covered a fortnight while claiming a month.
+ * EVERY FILTER IS IN THE QUERY, and a NAMED DAY is then PAGED until it is exhausted: asking for a day, or
+ * for a range of them, means asking for all of it. It used to be one `.limit(2000)` over the newest rows,
+ * so an account asking 35 questions of 4 engines (140 first readings a day) had its "28 day" history cut
+ * around day 14 and every total under it covered a fortnight while claiming a month. A single named day
+ * counts as a named range for exactly the same reason: the planner's own read of one 600 row day came back
+ * holding 500 of them and silently called that the day.
+ *
+ * PAGES ADVANCE BY CURSOR, never by offset. Rows arrive newest first with the id breaking every tie, and
+ * each page starts strictly after the last row of the one before it. An offset window re-numbers itself
+ * whenever a row is inserted mid-read, which is exactly what the collect step does, so one row was read
+ * twice and another was never read at all.
  */
 export async function readAiObservations(
   tenantId: string, opts: { day?: string; fromDay?: string; toDay?: string; promptId?: string; limit?: number; slot?: number } = {},
 ): Promise<AiObservationRecord[]> {
-  const whole = opts.fromDay !== undefined || opts.toDay !== undefined;
+  const whole = opts.day !== undefined || opts.fromDay !== undefined || opts.toDay !== undefined;
   const want = Math.min(Math.max(1, Math.floor(opts.limit ?? (whole ? MAX_ROWS : 500))), MAX_ROWS);
   const rows: AiObservationRecord[] = [];
   let exhausted = false;
+  let after: { at: string; id: string } | null = null;
   while (!exhausted && rows.length < want) {
     const size = Math.min(PAGE_ROWS, want - rows.length);
     let q = getSupabaseAdmin().from(AI_OBSERVATIONS_TABLE).select("*").eq("tenant_id", tenantId);
@@ -202,14 +210,17 @@ export async function readAiObservations(
     if (opts.promptId) q = q.eq("prompt_id", opts.promptId);
     // The slot is asked for HERE: filtering it afterwards spends every page on samples the caller drops.
     if (opts.slot !== undefined) q = q.eq("sample_slot", opts.slot);
+    // Strictly past the last row already read, in the same order the rows come back in.
+    if (after) q = q.or(`requested_at.lt."${after.at}",and(requested_at.eq."${after.at}",id.lt."${after.id}")`);
     // Newest first, id breaking every tie: without a unique tiebreaker two rows stamped the same instant
     // can land on both sides of a page edge, so one is read twice and another never at all.
-    const { data, error } = await q.order("requested_at", { ascending: false }).order("id", { ascending: false })
-      .range(rows.length, rows.length + size - 1);
+    const { data, error } = await q.order("requested_at", { ascending: false }).order("id", { ascending: false }).limit(size);
     if (error) throw new Error(`[ai_observations] read failed: ${error.message}`);
     const page = (data ?? []) as AiObservationRecord[];
     rows.push(...page);
-    exhausted = page.length < size; // a short page is the end of the range; a full one means keep walking
+    const last = page[page.length - 1];
+    if (last) after = { at: String(last.requested_at ?? ""), id: String(last.id) };
+    exhausted = page.length < size || !last; // a short page is the end of the range; a full one means keep walking
   }
   if (!exhausted && rows.length >= MAX_ROWS) throw new Error(`[ai_observations] read hit the ${MAX_ROWS} row ceiling; ask for a narrower day range`);
   return rows;
@@ -227,6 +238,10 @@ export type AiObservationView = {
   day: string;
   status: AiObservationStatus;
   observedAt: string | null;
+  /** WHEN THE ASK BEHIND THIS ROW WAS ACTUALLY MADE. It moves every time the provider is asked again on
+   *  this identity, so it is the row's own proof that an ask happened, which is what a per-day retry
+   *  budget has to be counted against. */
+  requestedAt: string;
   /** WHY the provider gave me nothing, in the provider's own terms. The planner reads it so a pair
    *  it stops asking about today can say what actually happened instead of going quiet. */
   failureReason: string | null;
@@ -246,7 +261,7 @@ function viewAiObservation(r: AiObservationRecord): AiObservationView {
   return {
     id: r.id, promptId: r.prompt_id, version: r.prompt_version, engine: r.engine, slot: r.sample_slot,
     day: r.reporting_day, status: r.status, observedAt: r.completed_at, promptText: r.prompt_text,
-    failureReason: r.failure_reason ?? null,
+    requestedAt: String(r.requested_at ?? ""), failureReason: r.failure_reason ?? null,
     answerText: r.answer_text, answerHash: r.answer_hash, analysis: r.analysis, analysisHash: r.analysis_hash,
     citationUrls: r.journey?.cited_sources?.map((c) => c.url || c.domain) ?? null,
   };

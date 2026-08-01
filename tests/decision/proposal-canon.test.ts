@@ -7,7 +7,10 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 type Row = Record<string, unknown>;
 const db = vi.hoisted(() => {
-  const state = { rows: [] as Row[], legacy: [] as Row[], missing: false, breakWrite: false };
+  // `missing` = the TABLE is not in the schema cache; `rpcMissing` = the table is there and the
+  // supersession FUNCTION is not. They are separate flags because they are separate deploy accidents, and
+  // one flag could only ever test the first: the table read failed before the function was ever called.
+  const state = { rows: [] as Row[], legacy: [] as Row[], missing: false, rpcMissing: false, breakWrite: false, rpcCalls: 0 };
   const CANON = "change_proposals";
   const client = {
     from(table: string) {
@@ -55,9 +58,10 @@ const db = vi.hoisted(() => {
     // The atomic handover: guard, step-aside, and landing commit together or not at
     // all, exactly like the supersede_change_proposal function in production.
     rpc(name: string, args: { p_tenant_id: string; p_predecessor_id: string; p_row: Row }) {
-      const run = (): { data: string | null; error: { message: string } | null } => {
+      state.rpcCalls += 1;
+      const run = (): { data: string | null; error: { message: string; code?: string } | null } => {
         if (name !== "supersede_change_proposal") return { data: null, error: { message: `unknown function ${name}` } };
-        if (state.missing) return { data: null, error: { message: "function not found in schema cache" } };
+        if (state.rpcMissing) return { data: null, error: { code: "PGRST202", message: "Could not find the function public.supersede_change_proposal" } };
         const pred = state.rows.find((r) => r.tenant_id === args.p_tenant_id && r.id === args.p_predecessor_id);
         if (!pred) return { data: "failed", error: null };
         if (pred.terminal_disposition != null || !["proposed", "needs_review"].includes(String(pred.status))) return { data: "blocked", error: null };
@@ -77,6 +81,10 @@ const db = vi.hoisted(() => {
   return { state, client };
 });
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client }));
+/** What the store SAID, so a distinct failure can be pinned as distinct rather than as one more "failed". */
+const said = vi.hoisted(() => ({ errors: [] as string[] }));
+vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {},
+  error: (msg: string) => { said.errors.push(msg); } } }));
 
 import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, saveChangeProposal } from "@/domains/decision/proposal-store";
 import { serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
@@ -103,7 +111,7 @@ const deep = (over: Partial<ChangeProposal> = {}) => proposal({ id: `${T}::${PAG
 const current = () => db.state.rows.filter((r) => r.terminal_disposition == null);
 const seedLegacy = (p: ChangeProposal) => db.state.legacy.push({ tenant_id: p.tenantId, rec_id: p.id, kind: "change_proposal", content: serializeChangeProposal(p), created_at: p.createdAt });
 
-beforeEach(() => { db.state.rows = []; db.state.legacy = []; db.state.missing = false; db.state.breakWrite = false; });
+beforeEach(() => { db.state.rows = []; db.state.legacy = []; db.state.missing = false; db.state.rpcMissing = false; db.state.breakWrite = false; db.state.rpcCalls = 0; });
 
 describe("canonical proposal persistence", () => {
   it("keeps ONE current row per hypothesis: a re-draft supersedes its predecessor, points at it, and carries the next version", async () => {
@@ -191,6 +199,31 @@ describe("canonical proposal persistence", () => {
     db.state.missing = true; // before the migration is applied: history still renders, nothing is invented
     expect((await loadChangeProposals(T)).size).toBe(2);
     expect(await saveChangeProposal(proposal({ status: "applied" }))).toBe("failed");
+  });
+
+  it("proves the handover row belongs to this account BEFORE it writes, and names a missing supersession function for what it is", async () => {
+    // NOTHING UNSCOPED EVER REACHES THE HANDOVER. The store refuses a save with no account before it reads
+    // anything, and the row handed to the function is asserted against the caller's own account on the way
+    // in (the same check every other write in this product passes through, which going straight to .rpc()
+    // had given up), so a row that cannot prove its scope is never written by it.
+    db.state.rows.push({ id: "held", tenant_id: "", site: "fixture-outdoors.example", case_id: "", page_key: PAGE,
+      action_family: "title-family", status: "proposed", terminal_disposition: null, proposal_version: 1,
+      payload: JSON.parse(serializeChangeProposal(proposal({ id: "held" }))) as unknown });
+    expect(await saveChangeProposal(proposal({ tenantId: "" }))).toBe("failed");
+    expect(db.state.rpcCalls).toBe(0);
+    expect(db.state.rows[0]!.terminal_disposition).toBeNull(); // nothing moved
+
+    // THE FUNCTION IS NOT THERE. A deploy that ran ahead of its migration is not a blocked handover, and it
+    // used to read exactly like one. The table is fine here; only the routine is missing.
+    db.state.rows = [];
+    expect(await saveChangeProposal(proposal())).toBe("saved");
+    db.state.rpcMissing = true;
+    said.errors = [];
+    expect(await saveChangeProposal(deep())).toBe("failed");
+    expect(said.errors.join(" ")).toContain("the supersession function is not installed"); // named, not one more silent "failed"
+    expect(db.state.rows).toHaveLength(1);                                   // the successor never landed
+    expect(db.state.rows[0]!.terminal_disposition).toBeNull();               // and the predecessor is still current
+    expect([...(await loadChangeProposals(T)).keys()]).toEqual([proposal().id]);
   });
 
   it("never retires a change the operator already acted on: a newer draft for that hypothesis is refused and the applied row keeps its place", async () => {

@@ -30,20 +30,45 @@ export type BrandIdentity = {
   host: string;
 };
 
-/** PURE. The confirmed name and the account's domain, folded into one identity. */
+/** Words a website is named after and a sentence uses about anything. On their own they are not a business
+ *  name, and a bare-label match on one can only ever invent a mention: "a guide to Iran" is not guide.com. */
+const GENERIC_LABELS = new Set([
+  "guide", "guides", "best", "shop", "shops", "store", "stores", "top", "blog", "blogs", "news", "home",
+  "info", "online", "site", "sites", "world", "daily", "life", "today", "tips", "help", "how", "list",
+  "lists", "page", "pages", "post", "posts", "hub", "zone", "place", "places", "spot", "city", "local",
+  "global", "find", "search", "review", "reviews", "deals", "sale", "price", "prices", "buy", "market",
+  "media", "digital", "design", "studio", "agency", "company", "business", "service", "services",
+  "solutions", "center", "centre", "network", "portal", "directory", "magazine", "journal", "times",
+  "mail", "data", "tech", "cloud", "group", "team", "work", "live", "pro", "plus",
+]);
+
+/** The shortest a bare label may be to stand for a business nobody has named yet. */
+const MIN_UNCONFIRMED_LABEL = 5;
+
+/** PURE. The confirmed name and the account's domain, folded into one identity.
+ *
+ *  THE BARE LABEL IS THE DANGEROUS FORM. The whole host ("iranopedia.com") appears in an answer only when
+ *  the answer really means this account; the label alone ("iranopedia", but also "guide" or "best") is an
+ *  ordinary English word for most domains, and the mention verdict ORs every form together, so one generic
+ *  label turned "a guide to Nowruz" into a mention of guide.com. So the label is kept only when it is one of
+ *  the confirmed name's OWN words, or, when nothing has confirmed a name at all, only when it is long enough
+ *  and is not one of the words above. The full host is always kept. */
 function identityFrom(confirmedName: string, domain: string): BrandIdentity {
   const host = domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? "";
   const label = host.split(".")[0] ?? "";
   const name = confirmedName.trim();
+  const confirmed = name.length >= 3;
   const forms = new Set<string>();
-  if (name.length >= 3) {
+  if (confirmed) {
     forms.add(name.toLowerCase());
     // "Ritz Builders, Inc." and "Ritz Builders" are one business to a reader.
     const bare = name.toLowerCase().replace(/[,\s]+(inc|llc|ltd|co|corp|corporation|company)\.?$/, "").trim();
     if (bare.length >= 3) forms.add(bare);
   }
   if (host.length >= 3) forms.add(host);
-  if (label.length >= 3) forms.add(label);
+  const words: string[] = name.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const ownWord = confirmed && words.includes(label);
+  if (label.length >= 3 && (ownWord || (!confirmed && label.length >= MIN_UNCONFIRMED_LABEL && !GENERIC_LABELS.has(label)))) forms.add(label);
   return { name: name || host, forms: [...forms].sort((a, b) => b.length - a.length), host };
 }
 

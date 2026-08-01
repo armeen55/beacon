@@ -8,11 +8,10 @@
  * of your own pages on one search beats a wording read beats a shared subject beats a shape beats
  * an engine that never cites you.
  *
- * EVERY DIAGNOSIS NAMES WHAT WOULD KILL IT (`falsifier`), so it is a claim that can lose. NOTHING
- * DRAFTS WITHOUT A NAMED CAUSE, and `action` stays null for every cause whose fix is not an edit
- * this kernel can write. PURE + deterministic: no I/O, no LLM, no clock; the same evidence produces
- * a byte-identical finding, reading only what the pass already paid for.
- */
+ * EVERY DIAGNOSIS NAMES WHAT WOULD KILL IT (`falsifier`), so it is a claim that can lose. NOTHING DRAFTS
+ * WITHOUT A NAMED CAUSE, and `action` stays null for every cause whose fix is not an edit this kernel can
+ * write. PURE + deterministic: no I/O, no LLM, no clock; the same evidence produces a byte-identical
+ * finding, reading only what the pass already paid for. */
 
 import { anchoredTopicMatch, canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
@@ -58,15 +57,17 @@ export type CauseFinding = {
   action: DiagnosedAction | null;
   /** Receipt item ids behind the cause. Empty = nothing may be claimed from it. */
   evidenceKeys: string[];
-  /** Other causes considered and why each lost, strongest first. Bounded to three.
-   *  DEFERRED TO PHASE 8: rendering this list, and the receipt beside it, is that phase's surface work.
-   *  Nothing on a customer screen reads these fields yet; they are carried so it can. */
-  competingExplanations: Array<{ cause: CandidateCause; reason: string }>;
+  /** Other causes considered and why each lost, strongest first. Bounded to three. `fired` marks the ones
+   *  whose OWN evidence fired and that lost only to a stronger explanation; everything else here was weighed
+   *  and did NOT fire, which is the opposite claim, so a reader counting the whole list as accusations reads
+   *  a rejected cause as a second thing wrong with the page. Absent = it did not fire, so a finding stored
+   *  before this decodes as the honest "no". Rendering this list is Phase 8's surface work. */
+  competingExplanations: Array<{ cause: CandidateCause; reason: string; fired?: boolean }>;
   /** The one observation that would prove this diagnosis wrong. */
   falsifier: string;
   /** One plain first-person sentence the operator reads. No lab words. */
   explanation: string;
-  /** Causes whose evidence inputs are NOT on file, each with the exact thing missing. Never inferred,
+  /** Causes whose evidence inputs are NOT on file, each with the exact thing missing. Never inferred and
    *  never counted as ruled out: the absence is the finding. */
   notConsidered: Array<{ cause: CandidateCause; missing: string }>;
 };
@@ -436,7 +437,9 @@ export function diagnoseCauses(input: LadderInput): CauseFinding {
     if (missing) { notConsidered.push({ cause: rule.cause, missing }); continue; }
     const verdict = rule.read(c);
     if (!verdict.fired) { lost.push({ cause: rule.cause, reason: verdict.reason }); continue; }
-    if (won) lost.push({ cause: rule.cause, reason: `the evidence for ${LABEL[won.rule.cause]} is the stronger explanation` });
+    // IT FIRED and lost only on strength: a second real accusation, which the flag is the only thing that
+    // tells apart from the causes here that were checked and ruled out.
+    if (won) lost.push({ cause: rule.cause, reason: `the evidence for ${LABEL[won.rule.cause]} is the stronger explanation`, fired: true });
     else won = { rule, verdict };
   }
   notConsidered.push(...UNHELD);
@@ -447,9 +450,14 @@ export function diagnoseCauses(input: LadderInput): CauseFinding {
       falsifier: "If one of the causes I could not weigh here turns out to hold, this is not the answer.",
       explanation: "I can see the gap and nothing I hold names a cause for it yet." };
   }
-  // A FINDING ALWAYS SHIPS WITH AN ALTERNATIVE. The winner's own structural rival goes first, then whatever
-  // was really weighed and lost, deduped, so a diagnosis is never a label with nothing beside it.
-  const competing = [won.rule.rulesOut, ...lost].filter((x, i, all) => all.findIndex((y) => y.cause === x.cause) === i);
+  // A FINDING ALWAYS SHIPS WITH AN ALTERNATIVE: the winner's own structural rival first, then what was
+  // really weighed and lost, deduped, with the causes that FIRED leading the rest so the bound below can
+  // never be the reason a second real accusation goes unrecorded.
+  const competing: CauseFinding["competingExplanations"] = [];
+  for (const x of [won.rule.rulesOut, ...[...lost].sort((a, b) => Number(b.fired ?? false) - Number(a.fired ?? false))] as CauseFinding["competingExplanations"]) {
+    const at = competing.findIndex((y) => y.cause === x.cause);
+    if (at < 0) competing.push(x); else if (x.fired && !competing[at]!.fired) competing[at] = { ...competing[at]!, fired: true };
+  }
   return { cause: won.rule.cause, action: won.verdict.action, evidenceKeys: won.verdict.evidenceKeys,
     ...(won.verdict.payload ? { payload: won.verdict.payload } : {}),
     competingExplanations: competing.slice(0, MAX_COMPETING), falsifier: won.rule.falsifier(c),
@@ -482,7 +490,7 @@ const LABEL: Record<CandidateCause, string> = {
   no_problem: "nothing being wrong with this page",
 };
 
-/** The finding for a page nothing accuses: a real answer, carrying the same four things as every other one,
+/** The finding for a page nothing accuses: a real answer carrying the same four things as every other one,
  *  because "leave it alone" deserves a reason and an alternative exactly as much as "change this" does. */
 export function noProblemFinding(explanation: string, ruledOut: string): CauseFinding {
   return { cause: "no_problem", action: null, evidenceKeys: [RECEIPT.gsc], explanation, notConsidered: [...UNHELD, NOT_TOLD_MEASURING],

@@ -141,6 +141,57 @@ describe("a named cause produces the change that fixes it", () => {
     expect(bought).toEqual([]); // a cause with no producer costs nothing
   });
 
+  /** A REBUILD IS EARNED BY CAUSES THAT FIRED, never by causes that were checked and RULED OUT. The ladder
+   *  ships the alternatives it weighed beside the winner, and counting that whole list as accusations told
+   *  the operator "2 separate things are wrong with it at once" where the second clause was the exact
+   *  opposite of what the evidence said. Same fixture both ways; the only thing that moves is whether the
+   *  second structural cause actually fired. */
+  describe("a rebuild is earned by what fired", () => {
+    const noSection = seam({ section: {} }); // the winner's own producer can write nothing, so the rebuild is reachable
+    const gaps = { ownedGaps: [{ gap: "None of this page covers overflow", seenOn: [0, 1] }], openingPattern: "" };
+    const rebuildOf = async (heading: string) => produceBundleForSnapshot(snapshot(),
+      { ...OPTS, complete: noSection, coverage: decided(pattern({ ...gaps, commonHeadings: [{ heading, seenOn: [0, 1, 2] }] })) });
+
+    it("rebuilds when a SECOND structural cause genuinely fired", async () => {
+      const out = await rebuildOf("Chaining a second container"); // a subject this page carries none of: it fires
+      expect(out.status).toBe("bundled");
+      if (out.status !== "bundled") return;
+      const b = out.proposal.bundle!;
+      expect(b.components.map((c) => c.kind)).toEqual(["full_rewrite"]);
+      expect(b.components[0]!.after).toContain("2 separate things are wrong");
+      expect(out.proposal.status).toBe("needs_review"); // a rebuild always arrives as a question
+    });
+
+    it("never rebuilds when every competing explanation was RULED OUT", async () => {
+      const out = await rebuildOf("Rain barrel sizing"); // a subject this page already covers: it does not fire
+      expect(out.status).toBe("none");
+      if (out.status !== "none") return;
+      expect(out.reason).toBe("I could not write the section that would close the gap on the winning pages, so I am handing you nothing rather than filler.");
+    });
+  });
+
+  /** THE TWO-STEP HOLD SURVIVES THE GATE. A change that merges two pages and redirects one of them is graded
+   *  dangerous by its producer, and the validator refuses any bundle where that grade is missing. Rewriting
+   *  it to "review" on the way out took the hold off the one change that needs it AND made the stored
+   *  proposal fail its own re-validation as a mislabelled change. */
+  it("keeps a merge marked dangerous, holds it for review, and the stored shape re-validates", async () => {
+    const twoPages = snapshot({ cannibalization: [{ query: "rain barrel sizing", note: "two of your own pages",
+      competingUrls: [URL, "fixture-content.example/rain-barrel-guide"] }] });
+    const out = await produceBundleForSnapshot(twoPages, { ...OPTS, complete: seam(), coverage: decided(pattern()) });
+    expect(out.status).toBe("bundled");
+    if (out.status !== "bundled") return;
+    const p = out.proposal; const b = p.bundle!;
+    expect(p.diagnosisCause).toBe("cannibalization");
+    expect(b.components.map((c) => [c.kind, c.risk])).toEqual([["consolidation", "dangerous"]]);
+    expect(p.status).toBe("needs_review"); // it reaches the operator as a question, never as a paste
+    // AND THROUGH THE VALIDATOR AGAIN, on exactly the shape that was stored: an unmarked lever is rejected
+    // as mislabelled, so a downgraded grade here would sink the whole proposal on the next read of it.
+    const again = validateProposal(p, { evidenceText: b.receipt.items.map((i) => i.fact).join(" ") });
+    expect(again.verdict).toBe("needs_review");
+    expect(again.reasons.join(" ")).toContain("confirm it before you make the change");
+    expect(bought).toEqual([]); // a merge starts with a decision the operator has to make, so no copy is bought
+  });
+
   it("never reaches a drafter on evidence too thin to name a cause", async () => {
     const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, complete: seam() });
     expect(out.status).toBe("none");

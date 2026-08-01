@@ -284,9 +284,12 @@ export const produceConsolidation: Producer = async (ctx) => {
   // change that starts with a decision the operator has to make is money spent before the decision exists.
   const keep = group.stronger && named.includes(short(group.stronger)) ? short(group.stronger) : null;
   const others = named.filter((p) => p !== keep);
+  // EVERY SENTENCE OPENS IN BEACON'S OWN VOICE, and that is not only style: the factual firewall reads a
+  // capitalized word it cannot find in the evidence as a named thing this copy invented, so an instruction
+  // opening "Pick the one you want" was refused as a fabricated claim and this change never reached anyone.
   const after = keep
     ? `${named.length} of your own pages come up for "${ctx.primary}": ${named.join(", ")}. ${keep} holds the stronger position of the two, so keep that one as the single page for this search, move anything worth keeping from ${others.join(" and ")} into it, and send those addresses on to ${keep}.`
-    : `${named.length} of your own pages come up for "${ctx.primary}": ${named.join(", ")}. My evidence does not say which of them holds the stronger position, so I am not choosing for you. Pick the one you want to own this search, move anything worth keeping from the other into it, and send the old address on to the one you kept.`;
+    : `${named.length} of your own pages come up for "${ctx.primary}": ${named.join(", ")}. I cannot see which of them holds the stronger position, so I am not choosing for you. You pick the one you want to own this search, then move anything worth keeping from the other into it and send the old address on to the one you kept.`;
   return {
     components: [{
       kind: "consolidation",
@@ -354,11 +357,13 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
     : " The pages that win it have not settled on one kind of page, so the shape is yours to pick.";
   const covers = headings.length > 0 ? headings : questions;
   const wrongs = structural.map((c) => STRUCTURAL.get(c)!);
+  // Same rule as the merge above: every sentence opens on a word the firewall will not read as an invented
+  // name, and nothing here claims a superlative ("the first lines") it holds no source for.
   const after = [
     `This page has to become ${shape} for "${ctx.primary}".${agreed}`,
     `${count(structural.length)} separate things are wrong with it at once: ${wrongs.join("; ")}.`,
-    `Build it to cover ${covers.map((c) => `"${c}"`).join(", ")}, in that order, answering the search in the first lines.`,
-    "Keep everything already on the page that earns its place, and publish it at the same address.",
+    `I would build it to cover ${covers.map((c) => `"${c}"`).join(", ")}, in that order, and answer the search in its opening lines.`,
+    "You keep everything already on the page that earns its place, and publish it at the same address.",
   ].join(" ");
   return {
     components: [{

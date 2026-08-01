@@ -295,10 +295,27 @@ describe("what the AI answers did around one shipped change", () => {
   it("bounds the window at 28 days and needs a stamp to measure from at all", async () => {
     const readObservations = reader(stretch("2026-07-01", "2026-07-31", 4));
     const outcome = await aiOutcomeForShipment(T, {
-      implementedAt: "2026-07-01T00:00:00.000Z", shipmentBaseline: { ai: { day: "2026-06-30", checked: 4, mentioning: 4 } },
+      implementedAt: "2026-07-01T17:00:00.000Z", shipmentBaseline: { ai: { day: "2026-06-30", checked: 4, mentioning: 4 } },
     }, { readObservations, now: NOW });
     expect(outcome?.after.to).toBe("2026-07-28");
     expect(outcome?.coverage).toEqual({ daysObserved: 28, daysElapsed: 28 });
     expect(await aiOutcomeForShipment(T, { implementedAt: null }, { readObservations, now: NOW })).toBeNull();
+  });
+
+  /** THE DAY A CHANGE SHIPPED IS THE OPERATOR'S DAY. Observations are filed under the Pacific reporting
+   *  day; deriving the shipped day in UTC put every evening stamp on tomorrow, so that same evening's
+   *  answers, taken AFTER the operator made the change, were counted on the BEFORE side of it. */
+  it("stamps the shipped day in the operator's own zone, so an evening change counts that evening after it", async () => {
+    const evening = "2026-08-05T02:00:00.000Z"; // 7 PM on the 4th where the operator is
+    const readObservations = reader([
+      ...stretch("2026-08-01", "2026-08-03", 0),  // clearly before, and nobody named them
+      ...stretch("2026-08-04", "2026-08-16", 4),  // the evening of the change and everything after it
+    ]);
+    const outcome = await aiOutcomeForShipment(T, { implementedAt: evening, shipmentBaseline: { ai: null } },
+      { readObservations, now: new Date("2026-08-17T12:00:00.000Z") });
+    expect(outcome?.after.from).toBe("2026-08-04");                 // the operator's day, not the UTC one
+    expect(outcome?.before.day).toBe("2026-08-03");                 // so the evening's own answers are not "before"
+    expect(outcome?.after.checked).toBe(52);                        // 13 days x 4 answers, the 4th included
+    expect(outcome?.direction).toBe("improved");
   });
 });

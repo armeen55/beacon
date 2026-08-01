@@ -1184,14 +1184,12 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
       }),
     );
 
-    // Warm the shared surfaces BEFORE the repaint so the render after this
-    // refresh is instant, not a cold ~6s demand-graph rebuild right when the
-    // operator is watching (the pulls above just changed the underlying data;
-    // build-then-write rebuilds the snapshot from it). Free steps only, fail-
-    // soft: a warm failure never turns a successful refresh into an error.
-    // Bounded by a safety-valve deadline (well under this route's maxDuration)
-    // so a pathological hang can never wedge the action; if the cap wins, the
-    // build keeps warming in the background for the next visit.
+    // Warm the shared surfaces BEFORE the repaint so the render after this refresh is instant, not a cold
+    // ~6s demand-graph rebuild right when the operator is watching (the pulls above just changed the
+    // underlying data; build-then-write rebuilds the snapshot from it). Free steps only, fail-soft: a warm
+    // failure never turns a successful refresh into an error. Bounded by a safety-valve deadline (well
+    // under this route's maxDuration) so a pathological hang can never wedge the action; if the cap wins,
+    // the build keeps warming in the background for the next visit.
     const WARM_AFTER_REFRESH_DEADLINE_MS = 45_000;
     await Promise.race([
       // warmFreeSurfaces PROPAGATES a build failure (the Research Run publish phase
@@ -1202,16 +1200,18 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
       new Promise<void>((resolve) => setTimeout(resolve, WARM_AFTER_REFRESH_DEADLINE_MS)),
     ]);
 
-    // Pressing Update data IS the ask for a second reading of today's AI answers. The
-    // planner answers honestly: it refuses while today's one canonical round is still
-    // owed (an extra read of a few questions would tilt the day's average) and refuses
-    // once every pair already has three. No new button, no new surface: the verdict is
-    // internal truth and the granted extra readings are planned on the next pass.
+    // Pressing Update data IS the ask for a second reading of today's AI answers, and the planner answers
+    // honestly: it refuses while today's one canonical round is still owed (an extra read of a few
+    // questions would tilt the day's average) and once every pair already has three. No new button and no
+    // new surface. With nothing connected the line below is the whole answer the operator gets, so it says
+    // WHAT ACTUALLY HAPPENED: that refusal used to reach a log line while the operator read "I refreshed
+    // what I gather myself".
     const extra = await requestExtraSample(tenantId, reportingDay(Date.now())).catch(() => null);
     if (extra) log.info("Action extra AI reading", { action, granted: extra.granted, due: extra.due.length, reason: extra.reason });
-    // With nothing connected the list would be empty and say nothing at all. Tell the truth in one line.
-    if (connected.length === 0) results.push({ provider: "beacon_research", label: "My own research.",
-      ok: true, detail: "I refreshed what I gather myself. Connect Google to refresh your search data too." });
+    if (connected.length === 0) results.push({ provider: "beacon_research", label: "My own research.", ok: true,
+      detail: `${extra == null ? "I could not tell whether a fresh AI reading is due just now, so I am not promising one."
+        : extra.granted ? `I am taking ${extra.due.length} fresh AI ${extra.due.length === 1 ? "reading" : "readings"} now.`
+          : extra.reason} Connect Google to refresh your search data too.` });
 
     revalidatePath("/");
     revalidatePath("/settings/connectors");

@@ -94,7 +94,8 @@ type ObservationPlanInput = {
   /** The operator's approved questions, each with the series it is on. */
   prompts: readonly TrackedQuestion[];
   /** Stored observations. Rows for `day` decide what is still due; every row
-   *  (whatever window the caller read) decides the oldest-missing-first order. */
+   *  (whatever window the caller read) decides the oldest-missing-first order.
+   *  The production read names the day it is planning, so the whole day is in hand. */
   observed: readonly ObservedSample[];
   /** Engines this account can actually be read on. Anything else is EXCLUDED
    *  from the plan; it never blocks the engines that do work. */
@@ -226,7 +227,11 @@ export type ExtraSampleGrant = { day: string; granted: number };
  *  grant, and how many retries each broken pair has already spent. Both are day-stamped, so they clear by
  *  rollover instead of by a cleanup nobody runs, and both are inherited by every pass that opens the same
  *  day (research-run carries them onto a new row), so a second pass never hands out a fresh allowance. */
-export type DayMarkers = { extraSamples?: ExtraSampleGrant; observationRetries?: { day: string; counts: Record<string, number> } };
+export type DayMarkers = { extraSamples?: ExtraSampleGrant;
+  /** `counts` is how many retries each broken pair has SPENT today; `askedAt` is the ask stamp each count
+   *  was last taken against, so a retry is spent when the provider was really asked again and never merely
+   *  because a plan named the pair. */
+  observationRetries?: { day: string; counts: Record<string, number>; askedAt?: Record<string, string> } };
 /** How many pairs one day's retry ledger may name. Bounded so a broken provider cannot inflate a run row. */
 const MAX_RETRY_KEYS = 300;
 
@@ -245,10 +250,11 @@ async function readDayMarkers(tenantId: string): Promise<DayMarkers | null> {
   const row = await latestRunRow(tenantId).catch(() => null);
   if (row == null) return null;
   const g = row.progress?.extraSamples as ExtraSampleGrant | undefined;
-  const r = row.progress?.observationRetries as { day: string; counts: Record<string, number> } | undefined;
+  const r = row.progress?.observationRetries as NonNullable<DayMarkers["observationRetries"]> | undefined;
   return {
     ...(g && typeof g.day === "string" && Number.isFinite(g.granted) ? { extraSamples: { day: g.day, granted: Math.max(0, Math.trunc(g.granted)) } } : {}),
-    ...(r && typeof r.day === "string" && r.counts != null && typeof r.counts === "object" ? { observationRetries: { day: r.day, counts: r.counts } } : {}),
+    ...(r && typeof r.day === "string" && r.counts != null && typeof r.counts === "object"
+      ? { observationRetries: { day: r.day, counts: r.counts, ...(r.askedAt != null && typeof r.askedAt === "object" ? { askedAt: r.askedAt } : {}) } } : {}),
   };
 }
 
@@ -268,7 +274,8 @@ type PlannerDeps = {
   readMarkers?: (tenantId: string) => Promise<DayMarkers | null>;
   writeMarkers?: (tenantId: string, patch: DayMarkers) => Promise<boolean>;
   /** Settle a row the day is done retrying. Evidence owns the write; this is the test seam. */
-  settle?: (tenantId: string, observationId: string) => Promise<void>;
+  settle?: (tenantId: string, observationId: string, status: "unavailable" | "unsupported") => Promise<void>;
+  /** The engines this account can be read on. Absent = every engine the provider registry can ask today. */
   engines?: readonly ObservationEngine[];
   unsupportedPairs?: readonly string[];
   maxBatch?: number;
@@ -301,9 +308,24 @@ function checkCounts(day: string, input: Pick<ObservationPlanInput, "prompts" | 
   return { done, total };
 }
 
-/** Everything one day's decision needs, read ONCE: the approved questions, every stored reading, and what
- *  the day already knows. `null` = I could not read it, which is never "nothing is owed". */
-type DayState = { prompts: TrackedQuestion[]; observed: readonly ObservedSample[]; markers: DayMarkers | null };
+/** THE ENGINES THE PROVIDER REGISTRY CAN ACTUALLY ASK, derived from the registry itself at the moment the
+ *  plan is made. An engine whose capability is not wired is excluded from every plan while that is true and
+ *  planned again the day it returns, so nothing has to store an "impossible forever" flag that would outlive
+ *  the configuration change. Loaded lazily, exactly like the observation store, so this module (and every
+ *  test of it) keeps loading without the provider transport; unreadable means I exclude nobody. */
+async function registryEngines(): Promise<readonly ObservationEngine[]> {
+  try {
+    const { capabilityAskable } = await import("@/domains/evidence/dataforseo/funnel-boundary");
+    return OBSERVATION_ENGINES.filter((e) => capabilityAskable(ENGINE_CAPABILITY[e]));
+  } catch {
+    return OBSERVATION_ENGINES;
+  }
+}
+
+/** Everything one day's decision needs, read ONCE: the approved questions, the day's own readings, the
+ *  engines I can ask, and what the day already knows. `null` = I could not read it, which is never
+ *  "nothing is owed". */
+type DayState = { prompts: TrackedQuestion[]; observed: readonly ObservedSample[]; markers: DayMarkers | null; engines: readonly ObservationEngine[] };
 
 async function readDayState(tenantId: string, day: string, opts: PlannerDeps): Promise<DayState | null> {
   const prompts = await (opts.readPrompts ?? readActiveTrackedPrompts)(tenantId).catch(() => null);
@@ -311,14 +333,38 @@ async function readDayState(tenantId: string, day: string, opts: PlannerDeps): P
     log.warn("[daily-observations] tracked questions unreadable; planning nothing this pass", { tenantId, day });
     return null;
   }
-  if (prompts.length === 0) return { prompts: [], observed: [], markers: null };
+  const engines = opts.engines ?? await registryEngines();
+  if (prompts.length === 0) return { prompts: [], observed: [], markers: null, engines };
   const readObservations = opts.readObservations ?? (async (t, o) => (await evidenceObservations()).readAiObservationViews(t, o));
-  const observed = await readObservations(tenantId, {}).catch(() => null);
+  // THE DAY IS NAMED, so the reader hands back the whole day instead of its newest page. An unnamed read
+  // defaults to 500 rows, and an account asking 35 questions of 4 engines writes more than that in a day:
+  // the planner was deciding what was still owed off a truncated day and re-buying what it could not see.
+  const observed = await readObservations(tenantId, { day }).catch(() => null);
   if (observed == null) {
     log.warn("[daily-observations] observation history unreadable; planning nothing this pass", { tenantId, day });
     return null;
   }
-  return { prompts, observed, markers: await (opts.readMarkers ?? readDayMarkers)(tenantId).catch(() => null) };
+  return { prompts, observed, engines, markers: await (opts.readMarkers ?? readDayMarkers)(tenantId).catch(() => null) };
+}
+
+/** PURE. THE DAY'S RETRY LEDGER, reconciled against the rows in hand. A broken pair spends a retry when the
+ *  ask behind its row actually MOVED since the ledger last looked at it, which is the row's own proof that
+ *  the provider was asked again; the first sight of a broken pair records that ask and spends nothing,
+ *  because that ask is the one that failed rather than a retry of it. `changed` = there is something new to
+ *  write down. Bounded by MAX_RETRY_KEYS so a broken provider cannot inflate a run row. */
+function reconcileRetries(day: string, s: DayState): { counts: Record<string, number>; askedAt: Record<string, string>; changed: boolean } {
+  const ledger = s.markers?.observationRetries?.day === day ? s.markers.observationRetries : null;
+  const counts = { ...(ledger?.counts ?? {}) }, askedAt = { ...(ledger?.askedAt ?? {}) };
+  let changed = false;
+  for (const row of s.observed) {
+    if (row.day !== day || row.status !== "failed" || !row.id) continue;
+    const k = retryKey(row), at = row.requestedAt || row.day;
+    if (askedAt[k] === at || !(Object.keys(counts).length < MAX_RETRY_KEYS || k in counts)) continue;
+    counts[k] = k in askedAt ? (counts[k] ?? 0) + 1 : (counts[k] ?? 0);
+    askedAt[k] = at;
+    changed = true;
+  }
+  return { counts, askedAt, changed };
 }
 
 /** PURE. The day's standing and its plan off one already-read state. An extra reading is planned ONLY
@@ -326,8 +372,8 @@ async function readDayState(tenantId: string, day: string, opts: PlannerDeps): P
  *  the day's retry budget lasts. */
 function planFrom(day: string, s: DayState, opts: PlannerDeps): { done: number; total: number; due: DueObservation[] } {
   const grant = s.markers?.extraSamples;
-  const retries = s.markers?.observationRetries?.day === day ? s.markers.observationRetries.counts : {};
-  const shared = { prompts: s.prompts, observed: s.observed, engines: opts.engines, unsupportedPairs: opts.unsupportedPairs, retries };
+  const retries = reconcileRetries(day, s).counts;
+  const shared = { prompts: s.prompts, observed: s.observed, engines: s.engines, unsupportedPairs: opts.unsupportedPairs, retries };
   return {
     ...checkCounts(day, shared),
     due: planObservations(day, { ...shared, extraSamples: grant?.day === day ? grant.granted : 0, maxBatch: opts.maxBatch }),
@@ -356,7 +402,7 @@ export async function dueObservations(tenantId: string, reportingDay: string, op
   const state = await readDayState(tenantId, reportingDay, opts);
   if (state == null) return null;
   const { due } = planFrom(reportingDay, state, opts);
-  await spendFailureBudget(tenantId, reportingDay, state, due, opts);
+  await spendFailureBudget(tenantId, reportingDay, state, opts);
   return due;
 }
 
@@ -366,32 +412,35 @@ const MAX_SETTLES_PER_PASS = 40;
 
 /**
  * WRITE DOWN WHAT THE DAY LEARNED, from rows already in hand, in at most one update each way.
- * A `failed` row is the only status that means "ask again", so it is the only one counted: asking it again
- * spends a retry, and a row with nothing left to spend is settled to `unavailable` so every later reader
- * (the planner, the count on Today, the trend) sees one honest terminal state instead of a refusal that
- * looks like pending work forever. The provider's own words stay in failure_reason: the row still explains
- * itself, it just stops promising a retry it is never going to make.
+ *
+ * A `failed` row is the only status that means "ask again", so it is the only one counted. THE RETRY IS
+ * SPENT WHERE THE ASK ACTUALLY HAPPENED, never where a plan named it: a pair the plan carried but the pass
+ * never reached (the batch cap, the pass deadline, a provider that stopped the batch) used to burn a retry
+ * unasked and could settle unavailable having been asked exactly once. The row itself is the proof: every
+ * ask stamps a fresh `requested_at` on that identity, so a stamp that moved since the last look IS one
+ * retry and a stamp that did not is a pair still owed its turn.
+ *
+ * A row with nothing left to spend is settled so every later reader (the planner, the count on Today, the
+ * trend) sees one honest terminal state instead of a refusal that looks like pending work forever:
+ * `unavailable` when the engine could be asked and gave nothing, `unsupported` when the provider registry
+ * cannot ask that engine at all. The provider's own words stay in failure_reason either way: the row still
+ * explains itself, it just stops promising a retry it is never going to make.
  */
-async function spendFailureBudget(tenantId: string, day: string, s: DayState, due: readonly DueObservation[], opts: PlannerDeps): Promise<void> {
+async function spendFailureBudget(tenantId: string, day: string, s: DayState, opts: PlannerDeps): Promise<void> {
   const broken = s.observed.filter((o) => o.day === day && o.status === "failed" && Boolean(o.id));
   if (broken.length === 0) return;
-  const held = s.markers?.observationRetries?.day === day ? { ...s.markers.observationRetries.counts } : {};
-  const planned = new Set(due.map(retryKey));
-  const settle = opts.settle ?? (async (t: string, id: string) => (await evidenceObservations()).settleFailedObservation(t, id, "unavailable"));
-  let changed = false, settled = 0;
+  const { counts, askedAt, changed } = reconcileRetries(day, s);
+  const askable = new Set(s.engines);
+  const settle = opts.settle ?? (async (t: string, id: string, status: "unavailable" | "unsupported") =>
+    (await evidenceObservations()).settleFailedObservation(t, id, status));
+  let settled = 0;
   for (const row of broken) {
-    const k = retryKey(row);
-    const spent = held[k] ?? 0;
-    if (planned.has(k)) {
-      if (Object.keys(held).length < MAX_RETRY_KEYS || k in held) { held[k] = spent + 1; changed = true; }
-      continue;
-    }
-    if (spent < FAILED_RETRIES_PER_DAY || settled >= MAX_SETTLES_PER_PASS) continue;
+    if ((counts[retryKey(row)] ?? 0) < FAILED_RETRIES_PER_DAY || settled >= MAX_SETTLES_PER_PASS) continue;
     settled += 1;
-    await settle(tenantId, row.id).catch(() => {});
+    await settle(tenantId, row.id, askable.has(row.engine as ObservationEngine) ? "unavailable" : "unsupported").catch(() => {});
   }
   if (settled > 0) log.info("[daily-observations] settled checks the provider could not answer today", { tenantId, day, settled });
-  if (changed) await (opts.writeMarkers ?? writeDayMarkers)(tenantId, { observationRetries: { day, counts: held } }).catch(() => false);
+  if (changed) await (opts.writeMarkers ?? writeDayMarkers)(tenantId, { observationRetries: { day, counts, askedAt } }).catch(() => false);
 }
 
 /**
@@ -400,18 +449,14 @@ async function spendFailureBudget(tenantId: string, day: string, s: DayState, du
  * grant so the next pass actually plans it. It adds no button and no surface.
  */
 export async function requestExtraSample(tenantId: string, day: string, opts: PlannerDeps = {}): Promise<{ granted: boolean; reason: string; due: DueObservation[] }> {
-  const readPrompts = opts.readPrompts ?? readActiveTrackedPrompts;
-  const readObservations = opts.readObservations ?? (async (t, o) => (await evidenceObservations()).readAiObservationViews(t, o));
-  const prompts = await readPrompts(tenantId).catch(() => null);
-  const observed = await readObservations(tenantId, {}).catch(() => null);
-  if (prompts == null || observed == null) {
+  const state = await readDayState(tenantId, day, opts);
+  if (state == null) {
     return { granted: false, reason: "I could not read where today's checks stand, so I am not adding a second reading on a guess. I will try again on your next visit.", due: [] };
   }
-  const stored = await (opts.readMarkers ?? readDayMarkers)(tenantId).catch(() => null);
-  const grant = stored?.extraSamples;
+  const grant = state.markers?.extraSamples;
   const already = grant?.day === day ? grant.granted : 0;
-  const retries = stored?.observationRetries?.day === day ? stored.observationRetries.counts : {};
-  const verdict = extraSampleVerdict(day, { prompts, observed, engines: opts.engines, unsupportedPairs: opts.unsupportedPairs, extraSamples: already, retries });
+  const verdict = extraSampleVerdict(day, { prompts: state.prompts, observed: state.observed, engines: state.engines,
+    unsupportedPairs: opts.unsupportedPairs, extraSamples: already, retries: reconcileRetries(day, state).counts });
   if (!verdict.granted) return verdict;
   const saved = await (opts.writeMarkers ?? writeDayMarkers)(tenantId, { extraSamples: { day, granted: already + 1 } }).catch(() => false);
   if (!saved) return { granted: false, reason: "I could not save your request for a second reading, so I am not promising one. Press Update data again on your next visit.", due: [] };

@@ -224,7 +224,7 @@ export type FunnelBoundaryDeps = Record<string, unknown>;
  *     pages on the SAME evidence cache (no second crawler subsystem, no re-read inside freshness).
  */
 export {
-  providerCall, keywordIdeasBatched, collectCapability, parseCapability, resolveEngineModel,
+  providerCall, keywordIdeasBatched, collectCapability, parseCapability, resolveEngineModel, capabilityAskable,
 } from "./capabilities";
 export { readPublicPageExtract, writePublicPageExtract } from "./page-extract-cache";
 

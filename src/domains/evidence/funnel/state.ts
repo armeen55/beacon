@@ -200,7 +200,12 @@ export function emptyFunnelState(tenantId: string, basisTag = "", now = ""): Fun
  *  no journey), and an over-long stored list is clamped to the same bound the writer holds itself to. */
 function decodeKeyword(k: FunnelKeyword): FunnelKeyword {
   const legacy = k as FunnelKeyword & { rankedUrl?: string | null; rankedRank?: number | null };
-  const row = Array.isArray(k.origins) && k.origins.length > MAX_ORIGINS ? { ...k, origins: k.origins.slice(0, MAX_ORIGINS) } : k;
+  // The clamp KEEPS THE REMAINDER IN THE COUNT: dropping the tail of an over-long stored list without
+  // adding what was dropped to moreOrigins deleted arrivals the row had actually recorded.
+  const over = Array.isArray(k.origins) ? k.origins.length - MAX_ORIGINS : 0;
+  const row = over > 0
+    ? { ...k, origins: k.origins!.slice(0, MAX_ORIGINS), moreOrigins: (k.moreOrigins ?? 0) + over }
+    : k;
   if (row.ownedRankingUrl != null || legacy.rankedUrl == null) return row;
   return { ...row, ownedRankingUrl: legacy.rankedUrl, ownedPosition: row.ownedPosition ?? legacy.rankedRank ?? null };
 }

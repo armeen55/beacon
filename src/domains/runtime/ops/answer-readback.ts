@@ -69,9 +69,12 @@ const MAX_ANALYSES_PER_PASS = ANSWERS_PER_BATCH * BATCH_CALLS_PER_PASS;
 /** How much of ONE answer a batch call reads. A longer answer is cut, and the stored reading SAYS it was
  *  cut, so nobody later mistakes a partial reading for a complete one. */
 const BATCH_ANSWER_CHARS = 5_000;
-/** When a whole batch comes back unusable, how many of its answers this pass may re-read ONE AT A TIME.
- *  Bounded: the poisoned answer is isolated over a few passes instead of buying fifteen single calls now. */
-const SINGLE_FALLBACKS_PER_PASS = 5;
+/** When a whole batch comes back unusable, how many of ITS OWN answers this pass may re-read ONE AT A TIME.
+ *  PER FAILED BATCH, sized to cover one whole batch: a pass budget meant batch one's wholesale failure ate
+ *  the entire allowance and batches two, three and four settled nothing at all, so the pass left three
+ *  batches' worth of answers on the worklist and the next pass bought them again. A pass now always settles
+ *  what it actually read, and every answer a batch was carrying ends the pass analyzed or rejected. */
+const SINGLE_FALLBACKS_PER_BATCH = ANSWERS_PER_BATCH;
 /** Estimated spend: one batch call reads about fifteen answers, so it costs more than the single call it
  *  replaces and far less than the fifteen it replaces (gpt-5-mini, roughly 19k tokens in). */
 const BATCH_ANALYSIS_COST_USD = 0.05;
@@ -246,7 +249,7 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
   const textOf = new Map((prompts ?? []).map((p) => [p.id, p.text]));
   const analyze = deps.analyze ?? ((i: Parameters<typeof analyzeOne>[0]) => analyzeOne(i, deps.complete));
   const analyzeBatch = deps.analyzeBatch ?? ((i: Parameters<typeof analyzeMany>[0]) => analyzeMany(i, deps.complete));
-  let calls = BATCH_CALLS_PER_PASS, singles = SINGLE_FALLBACKS_PER_PASS, written = 0;
+  let calls = BATCH_CALLS_PER_PASS, written = 0;
 
   /** ONE reading lands, whatever produced it. `analysis` null means I could not produce a reliable one. */
   const settleOne = async (t: AnalysisTarget, analysis: AnswerAnalysis | null, reason: string): Promise<void> => {
@@ -260,10 +263,16 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     // single pass, forever. A NEW answer hash re-qualifies the row; the same answer never asks twice.
     // What I DID see in the text still rides along: a refusal is not a reason to lose a mention I can prove.
     if (analysis == null) {
-      await persist(tenantId, row.id, {
+      const rejection = {
         rejected: true, reason,
         ...(found ? { ownedBrandMention: { mentioned: true, position: null, context: null }, matchedBy: found } : {}),
-      }, hash).catch(() => {});
+      };
+      // A REFUSAL IS WRITTEN WITH THE SAME DISCIPLINE AS A READING: one retry, and a loss said out loud.
+      // Swallowed silently, the row stayed at the top of the worklist and the same refusal was re-bought on
+      // every pass, with nothing in the log to say why the day never emptied.
+      const kept = await persist(tenantId, row.id, rejection, hash).then(() => true)
+        .catch(() => persist(tenantId, row.id, rejection, hash).then(() => true).catch(() => false));
+      if (!kept) log.warn("[daily-observations] I could not record that I was refused a reading of this answer, so it will be asked for again", { tenantId, observationId: row.id });
       return;
     }
     const byModel = analysis.ownedBrandMention?.mentioned === true;
@@ -281,9 +290,11 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     if (saved) written += 1;
   };
 
-  /** The degrade: re-read what a broken batch was carrying, ONE answer at a time, bounded. Whatever the
-   *  bound leaves is simply not touched this pass, so the next pass picks it up unchanged and unpaid for. */
+  /** The degrade: re-read what a broken batch was carrying, ONE answer at a time, bounded to THAT batch.
+   *  Whatever the bound leaves is simply not touched this pass, so the next pass picks it up unchanged and
+   *  unpaid for. */
   const readOneByOne = async (group: readonly AnalysisTarget[]): Promise<void> => {
+    let singles = SINGLE_FALLBACKS_PER_BATCH;
     for (const t of group) {
       if (singles <= 0) return;
       singles -= 1;

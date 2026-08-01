@@ -1,15 +1,15 @@
 {
   "_doc": "Bloat firewall. Ceilings are NON-INCREASING outside an operator-approved program (V1 Closure Program 2026-08-01, operator standing instruction that budget never blocks quality: ceilings ratchet to the exact verified counts at each closure slice, then freeze at completion): ratchet DOWN as code shrinks, never up without operator approval. Enforced by scripts/check-foundation-budget.mjs (npm run guard:foundation). Foundation is frozen; see AGENTS.md for the growth policy and the 8-field feature rule.",
   "production": {
-    "max": 79024,
+    "max": 79196,
     "target": 55000
   },
   "tests": {
-    "max": 9812,
+    "max": 10142,
     "target": 4000
   },
   "combined": {
-    "hardCap": 88836,
+    "hardCap": 89338,
     "target": 60000
   },
   "domains": {
@@ -102,7 +102,7 @@
     ]
   },
   "exports": {
-    "max": 1963,
+    "max": 1964,
     "target": 1200,
     "_note": "Exported type/interface/class/enum/const/function symbols in src (non-test). Non-increasing; keep internal helpers/types internal. Ratchet DOWN."
   },

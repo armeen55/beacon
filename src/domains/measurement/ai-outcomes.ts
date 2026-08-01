@@ -31,6 +31,7 @@ import {
   readAiObservations,
   type AiObservationRecord,
 } from "@/domains/evidence/ai-visibility/ai-observations";
+import { reportingDay } from "@/lib/reporting-day";
 import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 
 /** Slot 0: the ONE canonical reading of a question on a day. */
@@ -113,9 +114,22 @@ export type ShipmentAiOutcome = {
 // ── small pure helpers ──────────────────────────────────────────────────────
 
 const r3 = (n: number): number => Math.round(n * 1000) / 1000;
-const utcDay = (d: Date): string => d.toISOString().slice(0, 10);
+/** ONE DEFINITION OF A DAY, and it is the operator's (src/lib/reporting-day). Observations are filed under
+ *  the Pacific reporting day, so deriving "today" or the day a change shipped in UTC put every instant from
+ *  5 PM onward on tomorrow: a change marked done at 7 PM counted that same evening's answers on the BEFORE
+ *  side of itself. Day LABEL arithmetic below stays plain string arithmetic at UTC midnight, which is not a
+ *  day-from-instant at all. */
+const dayOfInstant = (d: Date): string => reportingDay(d);
+/** A stored stamp as a reporting day: a full instant resolves through the operator's zone, and a value
+ *  already stored as a bare day label is already a day and is never shifted. null = not a moment I can read. */
+const dayOfStamp = (raw: string | null): string | null => {
+  const s = (raw ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const at = Date.parse(s);
+  return Number.isFinite(at) ? reportingDay(at) : null;
+};
 const addDays = (day: string, n: number): string =>
-  utcDay(new Date(Date.parse(`${day}T00:00:00.000Z`) + n * 86_400_000));
+  new Date(Date.parse(`${day}T00:00:00.000Z`) + n * 86_400_000).toISOString().slice(0, 10);
 const daysBetween = (from: string, to: string): number =>
   Math.round((Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) / 86_400_000);
 
@@ -325,7 +339,7 @@ export async function visibilitySeries(
   days: number,
   opts: ReadOpts & { now?: Date } = {},
 ): Promise<AiOutcomeReport["segments"]> {
-  const to = utcDay(opts.now ?? new Date());
+  const to = dayOfInstant(opts.now ?? new Date());
   const span = Math.max(1, Math.min(Math.floor(days), 365));
   return (await aiOutcomes(tenantId, { from: addDays(to, -(span - 1)), to, ...opts })).segments;
 }
@@ -379,9 +393,9 @@ export async function aiOutcomeForShipment(
   shipment: { implementedAt: string | null; shipmentBaseline?: { ai: { day: string; checked: number; mentioning: number } | null } | null },
   opts: ReadOpts & { now?: Date } = {},
 ): Promise<ShipmentAiOutcome | null> {
-  const stamp = (shipment.implementedAt ?? "").slice(0, 10);
-  if (!stamp || !Number.isFinite(Date.parse(`${stamp}T00:00:00.000Z`))) return null;
-  const now = utcDay(opts.now ?? new Date());
+  const stamp = dayOfStamp(shipment.implementedAt);
+  if (!stamp) return null;
+  const now = dayOfInstant(opts.now ?? new Date());
   // 28 reporting days COUNTING the day it was marked done, so the days I read and the days that passed are
   // counted the same way and coverage can never read as more days than have actually elapsed.
   const last = addDays(stamp, SHIPMENT_WINDOW_DAYS - 1);

@@ -233,7 +233,8 @@ export async function captureChangeMeta(
   return { canonPage, path, before: null, after: null, targetQueries, headlineAction: null, contentHash };
 }
 
-/** How many rows of already-bought AI answers the Shipment baseline reads back. */
+/** How many rows the probe below reads to find WHICH day the answers on file end on. It never counts
+ *  anything: the day it names is then read whole. */
 const AI_BASELINE_ROWS = 60;
 
 /**
@@ -246,11 +247,15 @@ async function latestAiPresence(tenantId: string): Promise<{ day: string; checke
   try {
     // Slot 0 is asked for in the QUERY, not filtered afterwards: the extra volatility samples
     // would otherwise eat the row cap and leave the baseline reading a fraction of the day.
-    const rows = (await readAiObservationViews(tenantId, { limit: AI_BASELINE_ROWS, slot: 0 }))
+    const probe = (await readAiObservationViews(tenantId, { limit: AI_BASELINE_ROWS, slot: 0 }))
       .filter((r) => r.slot === 0 && r.status === "observed");
-    const day = rows.map((r) => r.day).sort().pop();
+    const day = probe.map((r) => r.day).sort().pop();
     if (!day) return null;
-    const onDay = rows.filter((r) => r.day === day);
+    // THEN THE WHOLE DAY, named as a day so the reader hands back all of it. A 140 answer day counted off
+    // the newest 60 rows froze a baseline over a fraction of the day and compared every later reading
+    // against it, so the "before" side of a shipped change was a sample and the "after" side was a day.
+    const onDay = (await readAiObservationViews(tenantId, { day, slot: 0 }))
+      .filter((r) => r.slot === 0 && r.status === "observed" && r.day === day);
     const mentioning = onDay.filter((r) => {
       const m = (r.analysis as { ownedBrandMention?: { mentioned?: unknown } } | null)?.ownedBrandMention;
       return m?.mentioned === true;

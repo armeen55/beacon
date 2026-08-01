@@ -17,6 +17,10 @@ vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
   checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {},
   reserveOnboardingSpend: async () => ({ ok: true }), reconcileOnboardingSpend: async () => {},
 }));
+/** What the pass SAID, so a swallowed write can be told apart from a recorded one. */
+const said = vi.hoisted(() => ({ warnings: [] as string[] }));
+vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, error: () => {},
+  warn: (msg: string) => { said.warnings.push(msg); } } }));
 import { setAccountRepositoryForTests } from "@/domains/account/tenants/store";
 import { __resetBusinessProfileCacheForTests, seedBusinessProfileForTests } from "@/domains/account/business-profile";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
@@ -38,7 +42,8 @@ const PROMPTS = [q("p1", "2026-01-01"), q("p2", "2026-02-01"), q("p3", "2026-03-
 /** One stored observation row in the reader's own view shape. */
 const seen = (o: Partial<AiObservationView> & { promptId: string; engine: string }): AiObservationView => ({
   id: `obs-${o.promptId}-${o.engine}-${o.slot ?? 0}-${o.day ?? DAY}`, version: 1, slot: 0, day: DAY, status: "observed",
-  observedAt: null, failureReason: null, promptText: "", answerText: null, answerHash: null, citationUrls: null, analysis: null, analysisHash: null, ...o,
+  observedAt: null, requestedAt: `${o.day ?? DAY}T08:00:00.000Z`, failureReason: null, promptText: "", answerText: null,
+  answerHash: null, citationUrls: null, analysis: null, analysisHash: null, ...o,
 });
 const key = (d: { promptId: string; version: number; engine: string; slot: number }) => `${d.promptId}|${d.version}|${d.engine}|${d.slot}`;
 /** Every pair answered on `day`, so the canonical round is complete. */
@@ -223,7 +228,8 @@ describe("reading the answers back", () => {
     contentTypesRecommended: [], questionsAnswered: [], materialOmissions: [], caveats: [],
   } as unknown as AnswerAnalysis;
   const row = (id: string, answerHash: string, analysisHash: string | null, analysed: boolean): AiObservationView => ({
-    id, promptId: `p-${id}`, version: 1, engine: "chatgpt", slot: 0, day: DAY, status: "observed", observedAt: null, failureReason: null,
+    id, promptId: `p-${id}`, version: 1, engine: "chatgpt", slot: 0, day: DAY, status: "observed", observedAt: null,
+    requestedAt: `${DAY}T08:00:00.000Z`, failureReason: null,
     promptText: "who is open on sunday", answerText: "Acme is open on Sundays.", answerHash, citationUrls: null,
     analysis: analysed ? { ok: true } : null, analysisHash,
   });
@@ -294,7 +300,7 @@ describe("reading the answers back", () => {
     expect(saved.some((s) => s[0] === "obs-nobody-asked-about")).toBe(false); // a reading for an id I never sent is dropped
   });
 
-  it("degrades a whole unusable batch to one answer at a time, bounded, so one poisoned answer cannot stall the day", async () => {
+  it("degrades a whole unusable batch to one answer at a time, and settles every answer that batch was carrying", async () => {
     const rows = Array.from({ length: 8 }, (_, i) => row(`p${i}`, `hp${i}`, null, false));
     let batches = 0, singles = 0;
     const saved: Array<[string, Record<string, unknown>]> = [];
@@ -307,10 +313,29 @@ describe("reading the answers back", () => {
       readPrompts: async () => null, identity: BRAND,
     });
     expect(batches).toBe(1);                       // one batch attempt, then the ladder drops a rung
-    expect(singles).toBe(5);                       // bounded: five one-at-a-time reads this pass, not eight
-    expect(written).toBe(4);                       // four real readings
+    expect(singles).toBe(8);                       // every answer that batch was carrying, one at a time
+    expect(written).toBe(7);                       // seven real readings
     expect(saved[0]![1]).toMatchObject({ rejected: true }); // and the poisoned answer is settled, not retried forever
-    expect(saved).toHaveLength(5);                 // the three the bound left are untouched and unpaid for
+    expect(saved).toHaveLength(8);                 // nothing this pass READ is left owing
+  });
+
+  it("never lets one poisoned batch starve the batches after it: a pass settles everything it read", async () => {
+    // Four batches of fifteen. The fallback allowance used to be FIVE FOR THE WHOLE PASS, so batch one's
+    // wholesale failure ate all of it and batches two, three and four settled nothing at all: the pass
+    // paid for sixty answers and left forty five of them on the worklist to be bought again.
+    const rows = Array.from({ length: 60 }, (_, i) => row(`b${String(i).padStart(2, "0")}`, `hb${i}`, null, false));
+    const saved = new Set<string>();
+    let batches = 0;
+    const written = await runAnswerAnalyses(T, DAY, {
+      readObservations: async () => rows,
+      analyzeBatch: async ({ targets }) => { batches += 1; return batches === 1 ? null : readsAll({ targets }); },
+      analyze: async () => analysis,
+      persist: async (_t, id) => void saved.add(id),
+      readPrompts: async () => null, identity: BRAND,
+    });
+    expect(batches).toBe(4);
+    expect([written, saved.size]).toEqual([60, 60]); // every answer this pass read ends it settled
+    expect(selectAnalysisTargets(rows.filter((r) => !saved.has(r.id)))).toEqual([]);
   });
 
   it("records a refusal against the answer it was refused on, so the same answer is never bought twice", async () => {
@@ -329,6 +354,29 @@ describe("reading the answers back", () => {
     // Which is exactly what the next pass reads: the row is settled, and only a NEW answer re-qualifies it.
     expect(selectAnalysisTargets([{ ...rejected, analysis: { rejected: true }, analysisHash: "h-x" }])).toEqual([]);
     expect(selectAnalysisTargets([{ ...rejected, answerHash: "h-new", analysis: { rejected: true }, analysisHash: "h-x" }]).map((r) => r.id)).toEqual(["x"]);
+  });
+
+  it("gives a LOST refusal write the same retry and the same loud failure as a lost reading", async () => {
+    // The rejection write was a silent swallow, so a row that could not be settled sat at the top of the
+    // worklist and re-bought the same refusal on every pass with nothing in the log to say why.
+    let tries = 0;
+    await runAnswerAnalyses(T, DAY, {
+      readObservations: async () => [row("s", "h-s", null, false)],
+      analyzeBatch: async () => null, analyze: async () => null,
+      persist: async () => { tries += 1; if (tries === 1) throw new Error("write lost"); },
+      readPrompts: async () => null, identity: BRAND,
+    });
+    expect(tries).toBe(2); // exactly one retry, never a loop
+
+    tries = 0;
+    await runAnswerAnalyses(T, DAY, {
+      readObservations: async () => [row("s", "h-s", null, false)],
+      analyzeBatch: async () => null, analyze: async () => null,
+      persist: async () => { tries += 1; throw new Error("write lost"); },
+      readPrompts: async () => null, identity: BRAND,
+    });
+    expect(tries).toBe(2);
+    expect(said.warnings.join(" ")).toContain("could not record that I was refused a reading");
   });
 
   it("counts only what actually persisted, and gives a lost write exactly ONE retry", async () => {
@@ -389,23 +437,34 @@ describe("work that is genuinely finished", () => {
   });
 
   it("retries a broken pair the bounded number of times in one day, then settles the row as unavailable with the provider's own reason kept", async () => {
-    const store = [seen({ promptId: "p1", engine: "chatgpt", status: "failed", failureReason: REASON })];
-    let markers: DayMarkers | null = null;
-    const settled: string[] = [];
+    const store = [seen({ promptId: "p1", engine: "chatgpt", status: "failed", failureReason: REASON, requestedAt: `${DAY}T08:00:00.000Z` })];
+    let markers: DayMarkers | null = null, asks = 0;
+    const settled: Array<[string, string]> = [];
     const world = {
       readPrompts: async () => ONE, readObservations: async () => store, engines, maxBatch: 99,
       readMarkers: async () => markers,
       writeMarkers: async (_t: string, p: DayMarkers) => { markers = { ...markers, ...p }; return true; },
       // The real write only moves `status`, so this models it exactly: the reason stays where the provider put it.
-      settle: async (_t: string, id: string) => { settled.push(id); const r = store.find((x) => x.id === id)!; r.status = "unavailable"; },
+      settle: async (_t: string, id: string, status: "unavailable" | "unsupported") => {
+        settled.push([id, status]); const r = store.find((x) => x.id === id)!; r.status = "unavailable"; },
     };
     const pass = async () => (await dueObservations(T, DAY, world))!.length;
-    expect(await pass()).toBe(1);                                    // retry one
-    expect(markers).toEqual({ observationRetries: { day: DAY, counts: { "p1|1|chatgpt|0": 1 } } });
-    expect(await pass()).toBe(1);                                    // retry two
-    expect(markers!.observationRetries!.counts).toEqual({ "p1|1|chatgpt|0": 2 });
+    /** What the executor does with a plan it actually drains: it asks, the provider breaks again, and the
+     *  row is rewritten on its own identity with a FRESH ask stamp. That stamp is the proof of the ask. */
+    const executorAsks = () => { asks += 1; store[0]!.requestedAt = `${DAY}T09:0${asks}:00.000Z`; };
+
+    expect(await pass()).toBe(1);                                    // retry one is planned
+    expect(markers!.observationRetries!.counts).toEqual({ "p1|1|chatgpt|0": 0 }); // and nothing is spent yet
+    // A PLAN THE PASS NEVER REACHED SPENDS NOTHING. The batch cap, the pass deadline or a provider that
+    // stopped the batch all leave a planned pair unasked, and it used to burn a retry all the same.
+    expect(await pass()).toBe(1);
+    expect(markers!.observationRetries!.counts).toEqual({ "p1|1|chatgpt|0": 0 });
+    executorAsks();
+    expect(await pass()).toBe(1);                                    // retry two, after retry one really happened
+    expect(markers!.observationRetries!.counts).toEqual({ "p1|1|chatgpt|0": 1 });
+    executorAsks();
     expect(await pass()).toBe(0);                                    // and that is the whole budget
-    expect(settled).toEqual([store[0]!.id]);
+    expect(settled).toEqual([[store[0]!.id, "unavailable"]]);
     expect([store[0]!.status, store[0]!.failureReason]).toEqual(["unavailable", REASON]); // still explains itself
     // Settled once, and never again: the row is no longer failed, so nothing re-asks and nothing re-writes.
     expect(await pass()).toBe(0);
@@ -414,6 +473,40 @@ describe("work that is genuinely finished", () => {
     store[0]!.status = "failed";
     markers = { observationRetries: { day: "2026-07-30", counts: { "p1|1|chatgpt|0": 9 } } };
     expect(await pass()).toBe(1);
+  });
+
+  it("settles a failed row on an engine the registry cannot ask as UNSUPPORTED, and never plans that engine again while that holds", async () => {
+    // The engine set handed to the planner IS what the provider registry can ask today. A pair that broke
+    // on an engine outside it is not "the engine had nothing to give": I cannot ask it at all, and saying
+    // so is the difference between a gap I am working on and one I am not.
+    const store = [seen({ promptId: "p1", engine: "perplexity", status: "failed", failureReason: REASON })];
+    const settled: Array<[string, string]> = [];
+    const world = {
+      readPrompts: async () => ONE, readObservations: async () => store, engines, maxBatch: 99,
+      readMarkers: async () => ({ observationRetries: { day: DAY, counts: { "p1|1|perplexity|0": FAILED_RETRIES_PER_DAY }, askedAt: { "p1|1|perplexity|0": store[0]!.requestedAt } } }),
+      writeMarkers: async () => true,
+      settle: async (_t: string, id: string, status: "unavailable" | "unsupported") => { settled.push([id, status]); },
+    };
+    const due = (await dueObservations(T, DAY, world))!;
+    expect(settled).toEqual([[store[0]!.id, "unsupported"]]);
+    expect(due.some((d) => d.engine === "perplexity")).toBe(false);
+    // Tomorrow is no different while the registry still cannot reach it, and no stored flag has to be undone.
+    expect((await dueObservations(T, "2026-08-01", { ...world, readObservations: async () => [] }))!
+      .some((d) => d.engine === "perplexity")).toBe(false);
+  });
+
+  it("asks the observation store for the DAY it is planning, so a 600 row day is read whole", async () => {
+    // An unnamed read defaults to the newest 500 rows. A tracked set of 35 questions on 4 engines writes
+    // more than that in a day (retries and settles included), so the planner was deciding what was still
+    // owed off a truncated day and re-buying readings it could not see.
+    const asked: Array<{ day?: string }> = [];
+    const big = Array.from({ length: 600 }, (_, i) => seen({ promptId: `p${i}`, engine: "chatgpt", id: `obs-${i}` }));
+    const plan = await dueObservations(T, DAY, {
+      readPrompts: async () => ONE, engines, maxBatch: 99, readMarkers: async () => null,
+      readObservations: async (_t, o) => { asked.push(o); return big.length === 600 ? big : []; },
+    });
+    expect(asked).toEqual([{ day: DAY }]);   // the day is NAMED, which is what flips the reader to read-it-all
+    expect(plan).toEqual([]);                 // and p1's own reading is in that day, so nothing is re-bought
   });
 
   it("does not plan an unavailable pair again the same day, and does plan it the next day", async () => {
@@ -453,7 +546,8 @@ describe("who the answer was read for", () => {
     seedBusinessProfileForTests(T, { name: { value: name, origin: "operator_confirmed", confidence: null, sourceUrls: [] } });
   };
   const answer = (id: string, answerText: string, citationUrls: string[] | null = null): AiObservationView => ({
-    id, promptId: "p1", version: 1, engine: "chatgpt", slot: 0, day: DAY, status: "observed", observedAt: null, failureReason: null,
+    id, promptId: "p1", version: 1, engine: "chatgpt", slot: 0, day: DAY, status: "observed", observedAt: null,
+    requestedAt: `${DAY}T08:00:00.000Z`, failureReason: null,
     promptText: "who should I read about Iran with", answerText, answerHash: `h-${id}`, citationUrls, analysis: null, analysisHash: null });
   const READING = { sections: [], claims: [], topicEntities: [], ownedBrandMention: { mentioned: false, position: null, context: null },
     competitors: [], contentTypesRecommended: [], questionsAnswered: [], materialOmissions: [], caveats: [] } as unknown as AnswerAnalysis;
@@ -494,6 +588,21 @@ describe("who the answer was read for", () => {
     expect(byCitation.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "citation" });
     const neither = await readBack(answer("n", "Ask a local travel agent.", ["https://example.com/x"]), missed);
     expect(neither.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: false }, matchedBy: null }); // a real absence, not a model miss
+  });
+
+  it("never reads a bare domain label as the business name when the label is an ordinary English word", async () => {
+    // The mention verdict ORs every written form together, so the label on its own ("guide", "best") matched
+    // any sentence using that word and every such account read as mentioned in answers about nobody.
+    const missed = { analyzeBatch: async ({ targets }: { targets: readonly { row: { id: string } }[] }) => new Map(targets.map((t) => [t.row.id, READING])) };
+    onFile("", "https://guide.com");
+    const generic = await readBack(answer("g", "Here is a guide to the festivals."), missed);
+    expect(generic.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: false }, matchedBy: null });
+    // The whole address always still counts, and so does a label that IS the confirmed name's own word.
+    const host = await readBack(answer("h", "It is all on guide.com."), missed);
+    expect(host.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "text" });
+    onFile("Iranopedia", "https://www.iranopedia.com/");
+    const own = await readBack(answer("o", "Iranopedia covers the festivals in depth."), missed);
+    expect(own.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "text" });
   });
 
   it("never invents a mention out of a longer word, and reads nothing back at all when it cannot name the account", async () => {

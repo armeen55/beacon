@@ -6,22 +6,42 @@
  * prompt_answer_observations row as a DERIVED projection. Zero network, zero provider spend.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-const db = vi.hoisted(() => ({ written: [] as { table: string; row: Record<string, unknown> }[], read: [] as Record<string, unknown>[], updated: null as Record<string, unknown> | null, matched: [] as { id: string }[], error: null as { message: string } | null, filters: {} as Record<string, unknown>, pages: [] as [number, number][] }));
+const db = vi.hoisted(() => ({ written: [] as { table: string; row: Record<string, unknown> }[], read: [] as Record<string, unknown>[], updated: null as Record<string, unknown> | null, matched: [] as { id: string }[], error: null as { message: string } | null, filters: {} as Record<string, unknown>, pages: [] as string[], onPage: null as ((n: number) => void) | null }));
 /** The ONE fake: Postgres. Every writer, every guard and every projection above it is the real one. It
- *  honours `range` the way the real client does, returning ONLY that window, so a reader that asks for
- *  one page and calls it the whole history is caught here. */
+ *  answers a KEYSET page the way the real client does: the rows strictly past the cursor, newest first,
+ *  cut to the asked limit. A reader that asks for one page and calls it the whole history is caught here,
+ *  and so is one that re-numbers its window by offset while rows are being inserted underneath it. */
 vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...((await orig()) as object), getSupabaseAdmin: () => ({ from: (table: string) => fakeTable(table) }) }));
+/** Newest first, id breaking every tie: the exact order the reader asks the real table for. */
+const newestFirst = (a: Record<string, unknown>, b: Record<string, unknown>) =>
+  String(b.requested_at ?? "").localeCompare(String(a.requested_at ?? "")) || String(b.id).localeCompare(String(a.id));
 function fakeTable(table: string) {
-  let window: [number, number] | null = null;
+  let max: number | null = null;
+  let after: { at: string; id: string } | null = null;
   const q: Record<string, unknown> = {
-    select: () => q, eq: (c: string, v: unknown) => { db.filters[c] = v; return q; }, order: () => q, limit: () => q,
+    select: () => q, eq: (c: string, v: unknown) => { db.filters[c] = v; return q; }, order: () => q,
+    limit: (n: number) => { max = n; return q; },
+    or: (expr: string) => {
+      const m = /requested_at\.lt\."([^"]*)".*id\.lt\."([^"]*)"/.exec(expr);
+      if (m) after = { at: m[1]!, id: m[2]! };
+      return q;
+    },
     gte: (c: string, v: unknown) => { db.filters[`${c}_gte`] = v; return q; },
     lte: (c: string, v: unknown) => { db.filters[`${c}_lte`] = v; return q; },
-    range: (from: number, to: number) => { window = [from, to]; db.pages.push([from, to]); return q; },
     update: (patch: Record<string, unknown>) => { db.updated = patch; return q; },
     upsert: (chunk: Record<string, unknown>[]) => { for (const row of chunk) db.written.push({ table, row }); return { select: async () => ({ data: chunk.map((r) => ({ id: r.id })), error: db.error }) }; },
-    then: (res: (v: { data: unknown; error: unknown }) => void) =>
-      res({ data: db.updated ? db.matched : (window ? db.read.slice(window[0], window[1] + 1) : db.read), error: db.error }),
+    then: (res: (v: { data: unknown; error: unknown }) => void) => {
+      if (db.updated) return res({ data: db.matched, error: db.error });
+      const ordered = [...db.read].sort(newestFirst);
+      const cursor = after;
+      const past = cursor
+        ? ordered.filter((r) => { const at = String(r.requested_at ?? ""); return at < cursor.at || (at === cursor.at && String(r.id) < cursor.id); })
+        : ordered;
+      const page = max == null ? past : past.slice(0, max);
+      db.pages.push(`${cursor ? `${cursor.at}|${cursor.id}` : "start"}+${page.length}`);
+      db.onPage?.(db.pages.length);
+      return res({ data: page, error: db.error });
+    },
   };
   return q;
 }
@@ -72,7 +92,7 @@ const observations = () => rowsFor("ai_observations") as unknown as AiObservatio
 const history = () => rowsFor("prompt_answer_observations") as unknown as PromptAnswerObservation[];
 const run = (deps: FunnelDeps, due: DueObservation[] | null, tenantId = TENANT) => promptObservationUnit(deps, due)(tenantId, { basis: BASIS, runId: "run-1" }, 60_000);
 
-beforeEach(() => { db.written = []; db.read = []; db.updated = null; db.matched = []; db.error = null; db.filters = {}; db.pages = []; });
+beforeEach(() => { db.written = []; db.read = []; db.updated = null; db.matched = []; db.error = null; db.filters = {}; db.pages = []; db.onPage = null; });
 
 describe("one canonical identity per observation", () => {
   it("stores exactly the pairs that came due, each on the identity a retry can only ever reuse", async () => {
@@ -213,19 +233,39 @@ describe("re-analysis reads what was already bought", () => {
     db.matched = [];
     await expect(persistAnswerAnalysis(TENANT, "obs_missing", { mentioned: false }, "hash-2")).rejects.toThrow(/matched no row/); // a lost verdict never reads as a saved one
   });
+  /** One stored row per index, each with its own ask stamp, newest last so the ids and the stamps disagree
+   *  about order exactly as they do in production. */
+  const stored = (n: number, from = 0) => Array.from({ length: n }, (_, i) => ({ id: `obs_${String(from + i).padStart(5, "0")}`,
+    tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed",
+    requested_at: new Date(Date.parse(`${DAY}T00:00:00.000Z`) + (from + i) * 1000).toISOString() }));
+
   it("pages a whole day range instead of stopping at one query's worth of rows", async () => {
-    const stored = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `obs_${i}`, tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed" }));
     // 35 questions x 4 engines x 28 days. One capped query returned the newest 2,000 of these, so the
     // report that claimed 28 days was built from about 14 and every total under it was short.
     db.read = stored(3920);
     const rows = await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-28", slot: 0 });
     expect([rows.length, new Set(rows.map((r) => r.id)).size]).toEqual([3920, 3920]); // every stored row once
-    expect(db.pages).toEqual([[0, 999], [1000, 1999], [2000, 2999], [3000, 3999]]); // 1,000 a page, walked to the end
+    expect(db.pages.map((p) => p.split("+")[1])).toEqual(["1000", "1000", "1000", "920"]); // 1,000 a page, walked to the end
+    expect(db.pages[1]!.startsWith("start")).toBe(false); // and every page after the first starts AT A CURSOR
     expect([db.filters.tenant_id, db.filters.reporting_day_gte, db.filters.reporting_day_lte, db.filters.sample_slot])
       .toEqual([TENANT, "2026-07-01", "2026-07-28", 0]); // account, range and slot are all asked in the QUERY
     db.pages = []; db.read = stored(6000);
     const bigger = await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-30", slot: 0 });
     expect([bigger.length, db.pages.length]).toEqual([6000, 7]); // six full pages, and the short page that ends the walk
+  });
+
+  it("reads a NAMED DAY whole, and an insert mid-read never doubles a row or drops one", async () => {
+    // The planner asks for the single day it is planning. That is a named range, so the reader walks it to
+    // the end: it used to default to 500 rows and call the newest page of a 600 row day the whole day.
+    db.read = stored(600);
+    expect((await readAiObservations(TENANT, { day: DAY })).length).toBe(600);
+    // AND THE PAGES DO NOT SHIFT UNDER AN INSERT. The collect step writes rows while a read is walking;
+    // an offset window re-numbers itself around them, so one row came back twice and another never at all.
+    db.pages = []; db.read = stored(2500);
+    db.onPage = (n) => { if (n === 1) db.read = [...stored(30, 9000), ...db.read]; }; // 30 newer rows land mid-read
+    const walked = await readAiObservations(TENANT, { day: DAY });
+    expect(new Set(walked.map((r) => r.id)).size).toBe(walked.length); // no id twice
+    expect(walked.filter((r) => Number(String(r.id).slice(4)) < 2500).length).toBe(2500); // and nothing already stored was skipped
   });
 });
 
@@ -240,6 +280,17 @@ describe("retrieved is not the same claim as not cited", () => {
     expect(retrievedNotCitedLinks(retrieved, null)).toEqual([]); // citations not observable cannot accuse anyone
     expect(retrievedNotCitedLinks(null, cited)).toEqual([]);
     expect(retrievedNotCitedLinks(retrieved, [])).toEqual(retrieved); // an observed zero IS a claim
+  });
+  it("credits the whole site when the citation names only a site, and only that page when it names a page", () => {
+    // The reader falls back to the bare domain whenever an engine reports no address for what it credited,
+    // and comparing whole urls alone matched none of those: a page that WAS credited came back as read and
+    // passed over, which is the harshest verdict this product can reach about a page.
+    const retrieved = [at("https://acme.com/guide"), at("https://rival.example/a")];
+    expect(retrievedNotCitedLinks(retrieved, [{ url: "acme.com", domain: "acme.com", title: null }]).map((r) => r.url))
+      .toEqual(["https://rival.example/a"]);
+    // A citation naming a DIFFERENT page on the same site still leaves the retrieved one uncredited.
+    expect(retrievedNotCitedLinks(retrieved, [at("https://acme.com/other")]).map((r) => r.url))
+      .toEqual(["https://acme.com/guide", "https://rival.example/a"]);
   });
   it("decodes a row stored before this rule as the raw list it always was, subtracted once and never twice", async () => {
     const pair = { promptId: "q1", engine: "chatgpt", cacheKey: null, status: "done",

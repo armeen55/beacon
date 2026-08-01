@@ -21,11 +21,7 @@ import { MAX_ORIGINS, type FunnelKeyword, type FunnelReject } from "./state";
 
 /** Lowercase, strip punctuation to spaces, collapse whitespace. */
 export function normalizeKeyword(raw: string): string {
-  return (raw ?? "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return (raw ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").replace(/\s+/g, " ").trim();
 }
 
 /** Order-insensitive dedupe identity: sorted unique tokens. */
@@ -46,15 +42,19 @@ const originKey = (o: KeywordOrigin): string =>
 /** MERGE LINEAGE, NEVER DROP IT SILENTLY. Whenever two rows for one keyword become one (a dedupe of two
  *  routes in a pass, or this pass meeting what a previous pass already retained), the survivor carries BOTH
  *  journeys: the first MAX_ORIGINS distinct arrivals in the order they were first seen, plus how many
- *  further distinct ones there were. The carried counts are folded in as the LARGEST of them rather than
- *  their sum, because two rows may have dropped the same arrival and a lineage may never overstate what it
- *  saw. Returns an empty object when there is no lineage at all, so no row gains an empty list. Pure. */
+ *  further distinct ones there were. THE COUNT IS A SUBTRACTION, NEVER AN ADDITION: arrivals ever seen,
+ *  minus the ones kept. Each input row already knows how many it ever saw (its kept list plus its own
+ *  overflow), so the merged total is the largest of those against the size of the merged set, and the
+ *  overflow is what that total leaves past the bound. Adding a fresh overflow on top of a carried one
+ *  double counted every arrival dropped by one row and recovered by the next: eight real arrivals read as
+ *  ten, then twelve, then fourteen, one pass at a time, forever. Recomputing from the same inputs now
+ *  changes nothing. Returns an empty object when there is no lineage at all. Pure. */
 export function mergeOrigins(...rows: (Pick<FunnelKeyword, "origins" | "moreOrigins"> | null | undefined)[]): Pick<FunnelKeyword, "origins" | "moreOrigins"> {
   const seen = new Set<string>();
   const all: KeywordOrigin[] = [];
-  let carried = 0;
+  let ever = 0;
   for (const r of rows) {
-    carried = Math.max(carried, r?.moreOrigins ?? 0);
+    ever = Math.max(ever, (r?.origins?.length ?? 0) + (r?.moreOrigins ?? 0));
     for (const o of r?.origins ?? []) {
       const id = originKey(o);
       if (seen.has(id)) continue;
@@ -62,8 +62,9 @@ export function mergeOrigins(...rows: (Pick<FunnelKeyword, "origins" | "moreOrig
       all.push(o);
     }
   }
-  if (all.length === 0) return carried > 0 ? { moreOrigins: carried } : {};
-  const more = carried + Math.max(0, all.length - MAX_ORIGINS);
+  const kept = Math.min(all.length, MAX_ORIGINS);
+  const more = Math.max(0, Math.max(ever, all.length) - kept);
+  if (all.length === 0) return more > 0 ? { moreOrigins: more } : {};
   return { origins: all.slice(0, MAX_ORIGINS), ...(more > 0 ? { moreOrigins: more } : {}) };
 }
 

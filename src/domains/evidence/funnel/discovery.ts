@@ -113,11 +113,16 @@ const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is
  *  missing its version or its reporting day says so by absence rather than by borrowing a default. */
 function answerIdentity(tenantId: string, p: FunnelPair): Omit<KeywordOrigin, "route"> {
   const promptVersion = p.promptVersion, reportingDay = p.day;
+  // A JOIN KEY POINTS AT A ROW THAT EXISTS. A pair still waiting to be asked has no observation behind it,
+  // so computing its id here minted a reference to nothing: the identity was complete and the answer was
+  // not. A pair the executor has actually reached carries the moment it was asked or the moment it landed,
+  // and only that row is named.
+  const recorded = p.status !== "pending" && Boolean(p.requestedAt || p.observedAt);
   return {
     promptId: p.promptId, engine: p.engine,
     ...(promptVersion != null ? { promptVersion } : {}),
     ...(reportingDay ? { reportingDay } : {}),
-    ...(promptVersion != null && reportingDay
+    ...(recorded && promptVersion != null && reportingDay
       ? { observationId: aiObservationId({ tenantId, promptId: p.promptId, promptVersion, engine: p.engine, day: reportingDay, slot: p.slot ?? 0 }) }
       : {}),
   };
@@ -148,6 +153,10 @@ function observedCandidates(
 ): FunnelKeyword[] {
   const rows = new Map<string, FunnelKeyword>();
   const taken = new Map<string, number>();
+  /** EVERY arrival this pass saw for one candidate, kept WHOLE until the bound is applied once at the end.
+   *  Folding the bound in arrival by arrival threw the seventh away and then counted the eighth against a
+   *  list it was no longer in, so eight answers asking one follow-up came out as seven. */
+  const arrivals = new Map<string, KeywordOrigin[]>();
   /** ONE candidate with ONE arrival. The raw string is recorded only when normalization is about to change
    *  it, so an origin never repeats the keyword back at whoever reads it. The per-route ceiling bounds
    *  DISTINCT keywords, so a keyword already held keeps collecting arrivals without spending a slot. */
@@ -156,12 +165,12 @@ function observedCandidates(
     if (!keyword) return;
     const at: KeywordOrigin = { ...origin, ...(raw && raw !== keyword ? { sourceQuery: raw } : {}) };
     const id = `${origin.route}|${keyword}`;
-    const held = rows.get(id);
-    if (held) { Object.assign(held, mergeOrigins(held, { origins: [at] })); return; }
+    if (rows.has(id)) { arrivals.get(id)!.push(at); return; }
     const spent = taken.get(origin.route) ?? 0;
     if (spent >= MAX_PER_ROUTE) return;
     taken.set(origin.route, spent + 1);
     rows.set(id, { keyword, searchVolume: null, competition: null, difficulty: null, intent: null, discoveredVia: origin.route, origins: [at] });
+    arrivals.set(id, [at]);
   };
   for (const s of state.serps.queries) {
     for (const q of s.paa ?? []) take(q.question, { route: "paa", ...(s.query ? { parentQuery: s.query } : {}) });
@@ -180,7 +189,9 @@ function observedCandidates(
     for (const e of strings(a.analysis.topicEntities)) take(e, { route: "answer_entity", ...from });
     for (const q of strings(a.analysis.questionsAnswered)) take(q, { route: "answer_entity", ...from });
   }
-  return [...rows.values()];
+  // The bound, applied ONCE per candidate: the first MAX_ORIGINS distinct arrivals plus an exact count of
+  // the rest.
+  return [...rows.entries()].map(([id, row]) => ({ ...row, ...mergeOrigins({ origins: arrivals.get(id) ?? row.origins }) }));
 }
 
 /** THE case a search belongs to: the registry on file, plus the frozen plan's own cases, every id resolved

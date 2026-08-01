@@ -138,6 +138,20 @@ describe("the canonical Shipment", () => {
     expect(stored.verification).toBeNull(); // nobody has checked it, and that null makes it due
   });
 
+  it("counts the AI starting number over the WHOLE day, never the newest page of it", async () => {
+    // The baseline used to be read off the newest 60 rows and frozen, so a 140 answer day was compared
+    // against a sample of itself for the next 28 days: the before side was a fraction and the after side
+    // was a day. The day is found off a small probe and then READ BY NAME, which returns all of it.
+    const DAY = "2026-07-30";
+    const whole = Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY,
+      analysis: { ownedBrandMention: { mentioned: i % 2 === 0 } } }));
+    ai.views.mockImplementation(async (_t: string, o: { day?: string; limit?: number }) =>
+      (o?.day === DAY ? whole : whole.slice(0, o?.limit ?? 60)));
+    await upsertShippedChange(await ship());
+    const [stored] = await loadShippedChangesForTenant(T);
+    expect(stored.shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, mentioning: 70 });
+  });
+
   it("heals a retried press instead of recording the change twice", async () => {
     const first = await ship();
     await upsertShippedChange(first);

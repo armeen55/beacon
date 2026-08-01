@@ -53,9 +53,8 @@ type Entry<K extends CapabilityKey> = {
 type Registry = { [K in CapabilityKey]: Entry<K> };
 
 /** Thrown by a builder when a runtime-required field COMBINATION is absent. */
-class MissingFieldsError extends Error {
-  constructor(cap: string, missing: string[]) { super(`capability ${cap}: missing required field(s): ${missing.join(", ")}`); this.name = "MissingFieldsError"; }
-}
+class MissingFieldsError extends Error { constructor(cap: string, missing: string[]) {
+  super(`capability ${cap}: missing required field(s): ${missing.join(", ")}`); this.name = "MissingFieldsError"; } }
 
 // ── request builders (emit ONLY documented fields per endpoint) ───────────────
 
@@ -106,8 +105,7 @@ function llmIdentity<T extends ObservationIdentity>(i: T): T {
 }
 
 function labsEntry<K extends "labs_keywords_for_site" | "labs_ranked_keywords" | "labs_related_keywords" | "labs_keyword_suggestions">(
-  postPath: string, keyField: "target" | "keyword", estCostUsd: number, fixed: Record<string, unknown> = {},
-): Entry<K> {
+  postPath: string, keyField: "target" | "keyword", estCostUsd: number, fixed: Record<string, unknown> = {}): Entry<K> {
   return {
     ttlMs: 7 * DAY, estCostUsd, dims: { device: false, model: false },
     route: () => ({ mode: "live", postPath, getPath: null, tasksReady: null }),
@@ -231,16 +229,19 @@ const REGISTRY: Registry = {
   },
 };
 
+/** CAN THIS CAPABILITY BE ASKED AT ALL, read off the registry itself rather than off a second list somebody
+ *  has to remember to update. A planner asks this so an engine the registry carries no way to reach is left
+ *  out of every plan while that is true, and planned again the day it comes back. */
+export const capabilityAskable = (capability: string): boolean => Object.hasOwn(REGISTRY, capability);
+
 // ── composed provider call (the ONE model-resolution point) ───────────────────
 
 export async function providerCall<K extends CapabilityKey>(
   capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string }, deps: FunnelBoundaryDeps = {},
 ): Promise<CachedCallResult> {
   const entry = REGISTRY[capability];
-  let resolution: EngineModelResolution | null = null;
-  let modelRequested: string | null = null;
-  if (entry.engine) {
-    // ONE resolution: the method routes the call AND the model rides the request.
+  let resolution: EngineModelResolution | null = null, modelRequested: string | null = null;
+  if (entry.engine) { // ONE resolution: the method routes the call AND the model rides the request
     resolution = await resolveEngineModel(entry.engine, deps);
     if (!resolution) return { state: "not_configured", cacheKey: null, detail: `I could not find a usable ${entry.engine} model to ask right now. I will try again on the next pass.` };
     // The resolution is the ONLY source of the model: no caller override exists.
