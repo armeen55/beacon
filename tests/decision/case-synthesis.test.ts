@@ -80,8 +80,9 @@ describe("what the semantic reading may change about my case registry", () => {
     // would be folded straight back into it on the very next reconcile.
     const gone = canonicalQueryKey("persian rug cleaning");
     expect([held(out, RUGS.id)!.anchors, branch.anchors, out.cases.some((c) => c.aliasOf)]).toEqual([RUGS.anchors.filter((a) => a !== gone), [gone], false]);
-    const after = apply(reading(), out.cases); // two rows, two unions, two groups: the split survives its own next reconcile and mints nothing
-    expect([after.cases, after.refused]).toEqual([out.cases, []]);
+    const byId = (rows: typeof out.cases) => [...rows].sort((a, b) => a.id.localeCompare(b.id));
+    const after = apply(reading(), out.cases); // disjoint owned sets: the split survives its own next reconcile and mints nothing
+    expect([byId(after.cases), after.refused]).toEqual([byId(out.cases), []]);
     const emptied = apply(reading({ splits: [{ fromId: RUGS.id, moveQueries: RUGS.anchors, reason: "Every one of these is its own thing." }] }));
     expect([emptied.refused, live(emptied).length]).toEqual([[`I did not split ${RUGS.id}: that moves every search out of it, which renames a case rather than splitting one.`], ALL.length]); });
   it("can never hand back two rows claiming one case id, whatever it was folded from", () => {

@@ -8,6 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { buildEvidenceSnapshot, MANDATORY_SOURCES, type EvidenceSnapshotInput, type EvidenceSourceKind } from "./snapshot";
 import { buildTopicInvestigations, reconcileResearchCases } from "./topic-investigation";
+import { foldCases } from "./case-identity";
 import { emptyResearchEvidence, type FunnelResearchEvidence } from "./funnel/research-evidence";
 const RESEARCH_SOURCE = { status: "dormant" as const, lastSyncedAt: null, payload: emptyResearchEvidence() };
 const SCOPE = { tenantId: "t_iran", site: "fixture-content.example", builtAt: "2026-07-22T00:00:00.000Z" };
@@ -161,6 +162,22 @@ describe("buildTopicInvestigations - the research packet", () => {
     const keys = (v: unknown): string[] => Array.isArray(v) ? v.flatMap(keys) : v && typeof v === "object" ? Object.entries(v).flatMap(([k, x]) => [k, ...keys(x)]) : [];
     expect(keys(ALL).filter((k) => /action|proposal|draft|recommend|status|queue|publish|outline|meta/i.test(k))).toEqual([]);
   });
+  it("never welds unrelated subjects: one owner per anchor, so a stale row and a shared-anchor chain both stay bounded", () => {
+    // A dormant row claiming one anchor from each of two live cases used to union them into ONE case in a single pass.
+    const weld = foldCases([["flag", "flag meaning"], ["visa", "visa rules"]], [
+      { id: "inv_flag", anchors: ["flag", "flag meaning"] },
+      { id: "inv_visa", anchors: ["visa", "visa rules"] },
+      { id: "inv_old", anchors: ["flag", "visa"] }]);
+    const liveIds = weld.filter((f) => f.anchors.length > 0).map((f) => f.id).sort();
+    expect([liveIds, weld.flatMap((f) => f.aliases).includes("inv_old")]).toEqual([["inv_flag", "inv_visa"], true]);
+    // And a chain of subjects each sharing ONE anchor with the next resolves ownership pairwise; it never cascades into one case.
+    const chain = [["c1", ["x1", "x2"]], ["c2", ["x2", "x3"]], ["c3", ["x3", "x4"]], ["c4", ["x4", "x5"]], ["c5", ["x5", "x6"]]] as const;
+    const out = foldCases([["x1"], ["x2"], ["x3"], ["x4"], ["x5"], ["x6"]], chain.map(([id, anchors]) => ({ id: `inv_${id}`, anchors: [...anchors] })));
+    const alive = out.filter((f) => f.anchors.length > 0);
+    const owned = alive.flatMap((f) => f.anchors);
+    // Pairwise resolution absorbs a neighbor that loses its every contested anchor; it never accumulates:
+    // ownership stays disjoint, no case grows past its own two anchors, and the ten never land in one case.
+    expect([new Set(owned).size === owned.length, Math.max(...alive.map((f) => f.anchors.length)) <= 2, alive.length >= 3]).toEqual([true, true, true]); });
   it("keeps ONE frozen case id through enrichment, merges two on file into one canonical id plus an alias, and splits without minting a third", () => {
     const cases = reconcileResearchCases(world()); const anchorsOf = (part: string) => cases.find((c) => c.id === byLabel(part).key)!.anchors;
     const keyOf = (over: Partial<FunnelResearchEvidence>, part = "kayak paddle") => build({ cases, ...over }).find((i) => i.label.includes(part))!.key;
@@ -174,7 +191,7 @@ describe("buildTopicInvestigations - the research packet", () => {
     expect(reconcileResearchCases(world({ cases: two })).find((c) => c.id === "inv_alpha")).toEqual({ id: "inv_alpha", anchors: [], aliasOf: "inv_beta" }); // the other is a durable alias, never a third id
     // THE WHOLE LIFECYCLE: save the merged registry, come back to it in a fresh process, and the absorbed id is STILL this case's, so an answer bought under it is found rather than bought again.
     const saved = JSON.parse(JSON.stringify(reconcileResearchCases(world({ cases: two })))) as typeof cases;
-    expect(build({ cases: saved }).find((i) => i.label.includes("kayak paddle"))!.aliasKeys).toEqual(["inv_alpha"]); expect(reconcileResearchCases(world({ cases: saved }))).toEqual(saved); // and a fixpoint, never a growing pile
+    expect(build({ cases: saved }).find((i) => i.label.includes("kayak paddle"))!.aliasKeys).toEqual(["inv_alpha"]); expect([...reconcileResearchCases(world({ cases: saved }))].sort((a, b) => a.id.localeCompare(b.id))).toEqual([...saved].sort((a, b) => a.id.localeCompare(b.id))); // and a fixpoint, never a growing pile (row ORDER is not the promise; the rows are)
     expect(reconcileResearchCases(world({ cases: [...two, { id: "inv_gamma", anchors: [], aliasOf: "inv_alpha" }] })).filter((c) => c.aliasOf).map((c) => `${c.id} ${c.aliasOf}`).sort()).toEqual(["inv_alpha inv_beta", "inv_gamma inv_beta"]); // alpha absorbed gamma and beta absorbed alpha: ONE canonical id, written back flat
     expect(reconcileResearchCases(world({ cases: [...two, ...Array.from({ length: 70 }, (_, i) => ({ id: `inv_old${i}`, anchors: [`old${i}`] }))] })).filter((c) => c.aliasOf === "inv_beta").map((c) => c.id)).toEqual(["inv_alpha"]); // the cap spends itself on dormant rows, never on an alias of a case it keeps
     // THE REGISTRY OUTRANKS THE GROUPING RULES: one row holding the anchors of two rule-made groups is ONE case, united BEFORE any id is assigned. The rules
@@ -184,8 +201,9 @@ describe("buildTopicInvestigations - the research packet", () => {
     expect([united.length, united[0]!.queries.some((q) => q.includes("tote")), united[0]!.queries.some((q) => q.includes("paddle"))]).toEqual([1, true, true]);
     // AND IT SETTLES: three consecutive reconciles, byte-identical rows every time, no third id and no movement after the first.
     let settled = reconcileResearchCases(world({ cases: [{ id: "inv_split", anchors: both }] }));
+    const byId = (rows: typeof settled) => [...rows].sort((a, b) => a.id.localeCompare(b.id));
     for (let n = 0; n < 3; n += 1) { const next = reconcileResearchCases(world({ cases: settled }));
-      expect([next, next.some((c) => c.id === "inv_split" && !c.aliasOf)]).toEqual([settled, true]); settled = next; }
+      expect([byId(next), next.some((c) => c.id === "inv_split" && !c.aliasOf)]).toEqual([byId(settled), true]); settled = next; }
     expect(new Set(build({ cases: settled }).map((i) => i.key)).size).toBe(build({ cases: settled }).length); }); // and no two live cases ever share an id
   it("puts the pages that actually rank first, so an alphabetically earlier rank 8 is never compared instead of rank 1", () => {
     const at = (url: string, rank: number | null, kind: App["kind"] = "serp_organic") => ({ ...win(url, "harbor kayak paddle", body(NOW)),

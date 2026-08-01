@@ -17,15 +17,17 @@
  * absorbed C, so C points straight at A), so a two-hop id can never fold under a middle id that is no
  * longer a case of its own.
  *
- * THE REGISTRY OUTRANKS THE GROUPING RULES. Deterministic grouping is how evidence the file has never seen
- * becomes a case; it is NOT how an established case is re-decided. Two searches the semantic pass proved are
- * one subject are re-partitioned into two groups by rules that never agreed they were one, so the canonical
- * id won one group, the other minted a THIRD id, the absorbed alias pointed at the wrong case, and every
- * comparison bought under it was stranded. The registry never settled and paid for a reading every pass.
- * So BEFORE an id is assigned, the groups are unioned against what is on file: for each LIVE case, every
- * group holding any of that case's anchors becomes ONE group. A merge therefore survives every later pass
- * unchanged, and a SPLIT still works, because a split gives each branch its OWN row with its own anchors:
- * two rows, two unions, two groups. Identity is the registry's job; the rules only group what it never saw.
+ * THE REGISTRY IS A PARTITION OF KNOWN ANCHORS, AND THE RULES ONLY PLACE NEW ONES. Unioning groups on any
+ * shared anchor made identity a one-way ratchet: merges survived, but a split was re-welded into its parent
+ * on the very next pass, and one stale row sharing single anchors with two unrelated live cases cascaded
+ * five subjects into one, deterministically. So each known anchor has exactly ONE owner. When two live rows
+ * claim one anchor the registry itself is inconsistent, and ownership is awarded to the case holding more of
+ * that anchor's rule group (ties to the smaller id) while the loser SHEDS it, out loud; a case shed to
+ * nothing becomes an alias of the case that took its last anchor. Each live case then forms exactly one
+ * group of exactly its owned anchors, so a merge is durable (the canonical case owns the union) AND a split
+ * is durable (parent and branch own disjoint sets the rules may never regroup). A rule-made group's UNOWNED
+ * anchors attach to the case owning the plurality of that group's known anchors, and a group nothing owns
+ * mints exactly one new case, as ever.
  *
  * BOUNDED: at most MAX_CASES rows on file, and a case is kept or dropped as ONE UNIT with its aliases,
  * because an alias the cap orphaned is paid evidence nobody can find again. Two rows can never leave here
@@ -75,24 +77,53 @@ export function foldCases(groups: readonly string[][], cases: readonly ResearchC
     live.set(id, row);
     if (c.id !== id) kept.set(id, (kept.get(id) ?? new Set<string>()).add(c.id));
   }
-  // ── the registry outranks the rules: one live case, one group, before any id is assigned ──
-  const parent = groups.map((_, i) => i);
-  const find = (i: number): number => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
-  const holders = new Map<string, number[]>();
-  groups.forEach((g, i) => { for (const a of g) holders.set(a, [...(holders.get(a) ?? []), i]); });
-  for (const row of live.values()) {
-    let head = -1;
-    for (const a of row.anchors) for (const i of holders.get(a) ?? []) { if (head < 0) head = find(i); else parent[find(i)] = head; }
+  // ── the partition: one owner per known anchor, resolved before any group exists ──
+  const groupAt = new Map<string, number>();
+  groups.forEach((g, i) => { for (const a of g) if (!groupAt.has(a)) groupAt.set(a, i); });
+  const owner = new Map<string, string>();
+  const claimsIn = (id: string, gi: number | undefined): number =>
+    gi == null ? live.get(id)!.anchors.size : groups[gi]!.filter((a) => live.get(id)!.anchors.has(a)).length;
+  for (const [id, row] of [...live].sort((a, b) => a[0].localeCompare(b[0]))) {
+    for (const a of row.anchors) {
+      const held = owner.get(a);
+      if (!held) { owner.set(a, id); continue; }
+      const gi = groupAt.get(a);
+      // Group share first; a TIE falls back to the whole case's size, so a one-anchor rule group cannot
+      // hand a subset case the anchor its superset owns; only then the smaller id, as a true last resort.
+      const size = (x: string): number => live.get(x)!.anchors.size;
+      const win = claimsIn(id, gi) !== claimsIn(held, gi) ? (claimsIn(id, gi) > claimsIn(held, gi) ? id : held)
+        : size(id) !== size(held) ? (size(id) > size(held) ? id : held) : held < id ? held : id;
+      const lose = win === id ? held : id;
+      owner.set(a, win); live.get(lose)!.anchors.delete(a);
+      log.warn("[case-identity] two live cases claimed one anchor; ownership resolved and the loser shed it", { anchor: a, kept: win, shed: lose });
+    }
   }
+  // A case shed to nothing is not deleted: it becomes an alias of the case that took its last anchor.
+  for (const [id, row] of live) {
+    if (row.anchors.size > 0 || !owner.size) continue;
+    const taker = [...owner.entries()].find(([, w]) => w !== id)?.[1];
+    if (taker && live.has(taker)) { kept.set(taker, (kept.get(taker) ?? new Set<string>()).add(id)); for (const old of kept.get(id) ?? []) kept.get(taker)!.add(old); kept.delete(id); live.delete(id); }
+  }
+  // ── one group per live case (its owned anchors), then the rules place only what nobody owns ──
   const merged: number[][] = [];
-  const seat = new Map<number, number>();
-  for (let i = 0; i < groups.length; i += 1) {
-    const r = find(i);
-    if (!seat.has(r)) { seat.set(r, merged.length); merged.push([]); }
-    merged[seat.get(r)!]!.push(i);
+  const united: string[][] = [];
+  const caseSeat = new Map<string, number>();
+  for (const [id, row] of [...live].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (row.anchors.size === 0) continue;
+    caseSeat.set(id, united.length); united.push([...row.anchors].sort()); merged.push([]);
   }
-  // Sorted, so the same evidence in any order mints the same id and scores the same way.
-  const united = merged.map((from) => [...new Set(from.flatMap((i) => groups[i]!))].sort());
+  groups.forEach((g, i) => {
+    const unowned = g.filter((a) => !owner.has(a));
+    const known = g.filter((a) => owner.has(a));
+    for (const a of known) { const seatAt = caseSeat.get(owner.get(a)!); if (seatAt != null && !merged[seatAt]!.includes(i)) merged[seatAt]!.push(i); }
+    if (unowned.length === 0) return;
+    const tally = new Map<string, number>();
+    for (const a of known) tally.set(owner.get(a)!, (tally.get(owner.get(a)!) ?? 0) + 1);
+    const host = [...tally.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0]?.[0];
+    const seatAt = host != null ? caseSeat.get(host) : undefined;
+    if (seatAt != null) { united[seatAt] = [...new Set([...united[seatAt]!, ...unowned])].sort(); if (!merged[seatAt]!.includes(i)) merged[seatAt]!.push(i); }
+    else { united.push([...unowned].sort()); merged.push([i]); }
+  });
 
   const want = united.map((g) => new Set(g));
   const tag = united.map((g) => g.join("|"));
@@ -235,18 +266,21 @@ export function applySynthesis(
     moved.set(s.fromId, out);
   }
 
-  // ── one fold, through the rule that has always decided identity ──
-  // A SPLIT MUST SHED THE SEARCHES IT MOVED. The row a case leaves behind is what the next pass unions its
-  // groups against, so a parent that kept the moved anchor said "these two are one subject" in the very
-  // place that now outranks every rule, and the branch was folded straight back in on the next reconcile.
-  const shed = cases.map((c) => (moved.has(c.id) ? { ...c, anchors: c.anchors.filter((a) => !moved.get(c.id)!.includes(a)) } : c));
-  const groups = new Map<string, string[]>();
-  for (const c of live) {
-    const out = new Set(moved.get(c.id) ?? []);
-    const at = root(c.id);
-    groups.set(at, [...new Set([...(groups.get(at) ?? []), ...c.anchors.filter((a) => !out.has(a))])]);
-  }
-  const rows = caseRows(foldCases([...[...groups.values()].filter((g) => g.length > 0), ...moved.values()], shed), shed);
+  // ── the reading EDITS the registry, then one fold normalizes it ──
+  // Under the partition, ownership is the registry's and a group can never override it, so an accepted merge
+  // must move the absorbed case's anchors onto the keeper's ROW (the absorbed row becoming an alias), and an
+  // accepted split must SHED the moved searches from the row they left. The moved searches are then the only
+  // unowned anchors in sight, so the fold mints exactly one branch for them and touches nothing else.
+  const edited = cases.map((c) => {
+    if (moved.has(c.id)) return { ...c, anchors: c.anchors.filter((a) => !moved.get(c.id)!.includes(a)) };
+    if (anchorsOf.has(c.id) && root(c.id) !== c.id) return { ...c, anchors: [], aliasOf: root(c.id) };
+    return c;
+  }).map((c) => {
+    if (!anchorsOf.has(c.id) || root(c.id) !== c.id) return c;
+    const absorbedAnchors = live.filter((x) => x.id !== c.id && root(x.id) === c.id).flatMap((x) => x.anchors);
+    return absorbedAnchors.length > 0 ? { ...c, anchors: [...new Set([...c.anchors, ...absorbedAnchors])] } : c;
+  });
+  const rows = caseRows(foldCases([...moved.values()], edited), cases);
 
   // ── what answers this case, and what it sits under ──
   const byId = new Map(rows.map((c) => [c.id, c]));
