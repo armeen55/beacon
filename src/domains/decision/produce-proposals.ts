@@ -187,7 +187,7 @@ export async function produceProposalsForTenant(
       // about a page it had never seen, and that invention rendered as an operator-facing claim.
       const owned = ownedFactsFor(snapshot, coverage);
       const pattern = await readWinningPattern(facts, owned, tenantId,
-        { complete: opts.complete, now: opts.now, pageType: coverage.investigation.pageType }).catch(() => null);
+        { complete: opts.complete, now: opts.now, pageType: coverage.investigation.pageType, label: coverage.investigation.label }).catch(() => null);
       if (pattern) {
         const again = await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection,
           patternFor: { topicKey: coverage.investigation.key, pattern } }).catch(() => null);

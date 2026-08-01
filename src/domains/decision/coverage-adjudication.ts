@@ -348,8 +348,18 @@ export async function adjudicateCoverage(
   // ONE reading of the comparison and ONE receipt for the whole verdict, built here rather than inside the
   // ladder so the words leave with the decision instead of dying in the function that wrote them.
   const reading = readComparison(opts.intersection, candidates);
-  const ev = evidenceOf(inv, candidates, reading, opts.pattern);
-  const d = { ...(await ladder(inv, candidates, tenantId, opts, ev, reading)), evidence: ev.slice(0, MAX_EVIDENCE) };
+  const raw = evidenceOf(inv, candidates, reading, opts.pattern);
+  // THE CAP DROPS THE REPEATED LINES, NEVER THE PATTERN. A plain slice cut from the END, which is
+  // exactly where the pattern block sits, so the richest cases lost their owned gaps and conflicts
+  // while evidenceKeys still claimed them. Repeated look and winner lines are shed first, the pattern
+  // block is kept whole, and the ids are sliced WITH the facts so the two can never disagree.
+  const isPattern = (id: string): boolean => /^(pattern|opening|common\d+|gap\d+|split\d+)$/.test(id);
+  const ev = raw.length <= MAX_EVIDENCE ? raw : (() => {
+    const keep = raw.filter((e) => isPattern(e.id));
+    const rest = raw.filter((e) => !isPattern(e.id));
+    return [...rest.slice(0, Math.max(0, MAX_EVIDENCE - keep.length)), ...keep].slice(0, MAX_EVIDENCE);
+  })();
+  const d = { ...(await ladder(inv, candidates, tenantId, opts, ev, reading)), evidence: ev };
   // THE PATTERN RIDES THE VERDICT THAT CAN STILL BECOME WORK, and no other. A refusal or a park is a
   // decision to build nothing, so hanging a page plan off it would hand the next step a plan for a page
   // this ladder just declined. The receipt above already carries the same pattern as plain facts.

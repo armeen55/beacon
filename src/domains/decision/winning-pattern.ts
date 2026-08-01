@@ -186,9 +186,14 @@ function quotes(text: string, runs: ReadonlySet<string>): boolean {
 /** Is what it named actually ON every page it cited for it? A valid index is not existence: three real
  *  numbers beside a section no page carries counts pages that never had it, and the receipt line then says
  *  "three of the four cover X" about an X nobody wrote. Content tokens, so wording may still be its own. */
-function holdsOnEvery(text: string, seenOn: readonly number[], on: readonly ReadonlySet<string>[]): boolean {
+function holdsOnEvery(text: string, seenOn: readonly number[], on: readonly ReadonlySet<string>[], label: ReadonlySet<string>): boolean {
   const t = topicTokens(text);
-  return t.length > 0 && seenOn.every((i) => !!on[i] && t.some((x) => on[i]!.has(x)));
+  // THE TOPIC NOUN PROVES NOTHING. Every cited page wins the same search, so the case's own label
+  // tokens sit on all of them and carried any invention through. A claim with tokens of its OWN must
+  // ground THOSE on every page it cites; a claim that is nothing but the topic grounds as the topic.
+  const distinct = t.filter((x) => !label.has(x));
+  const need = distinct.length > 0 ? distinct : t;
+  return need.length > 0 && seenOn.every((i) => !!on[i] && need.some((x) => on[i]!.has(x)));
 }
 
 /**
@@ -200,7 +205,7 @@ export async function readWinningPattern(
   winners: readonly PageFacts[],
   owned: PageFacts | null,
   tenantId: string,
-  opts: Pick<StructuredDraftRequest<"winning_pattern">, "complete" | "cacheImpl" | "now">
+  opts: Pick<StructuredDraftRequest<"winning_pattern">, "complete" | "cacheImpl" | "now"> & { label?: string }
   /** The shape the results ALREADY settled, counted in code one gate earlier. Supplied, it is told to the
    *  model AND enforced on the answer: the model repeats a settled shape, it never re-votes one. */
   & { pageType?: SerpPageType | null } = {},
@@ -257,22 +262,28 @@ export async function readWinningPattern(
   const copied = v.commonHeadings.map((h) => h.heading).find((h) => supplied.has(norm(h)) && words(h).length > VERBATIM_HEADING_WORDS);
   // EXISTENCE, NOT MERELY A VALID INDEX (checked only once every index is real, so nothing indexes past the end).
   const headTokens = pages.map((f) => topicTokens(f.headings.join(" ")));
+  const labelTokens: ReadonlySet<string> = new Set(topicTokens(opts.label ?? ""));
   const sections = pages.map((f, i) => new Set([...headTokens[i]!, ...f.titleTokens]));
   const names = pages.map((f, i) => new Set([...headTokens[i]!, ...topicTokens(f.entities.join(" "))]));
   const invented = stray !== undefined ? undefined
-    : v.commonHeadings.find((h) => !holdsOnEvery(h.heading, h.seenOn, sections))?.heading
-      ?? v.commonEntities.find((e) => !holdsOnEvery(e.entity, e.seenOn, names))?.entity;
+    : v.commonHeadings.find((h) => !holdsOnEvery(h.heading, h.seenOn, sections, labelTokens))?.heading
+      ?? v.commonEntities.find((e) => !holdsOnEvery(e.entity, e.seenOn, names, labelTokens))?.entity;
   // A GAP IS MEASURED AGAINST A PAGE, NOT IMAGINED FOR ONE. With no page of my own supplied the model was
   // still ordered to produce ownedGaps, so it invented what my page does not do and that invention rendered
   // to the operator as a claim about a page it had never seen.
+  // AN INTERNAL SLUG IS NOT A WORD AN OPERATOR READS. The settled shape rides the prompt so the model
+  // repeats it in `archetype`, which is mapped before display; any prose field carrying a raw slug is
+  // a reading that leaked machinery, and it is thrown away whole.
+  const SLUG_RE = /\b(informational_guide|new_page|do_nothing|serp_[a-z_]+|[a-z]+_(?:guide|page|search|result))\b/;
+  const slugged = said.find((t) => SLUG_RE.test(t));
   const blindGaps = owned == null && v.ownedGaps.length > 0;
   // THE SHAPE WAS SETTLED IN CODE ONE GATE EARLIER, and the deterministic count wins every time.
   const wrongShape = settled != null && v.archetype !== settled;
-  if (stray !== undefined || copied || quoted || invented || blindGaps || wrongShape) {
+  if (stray !== undefined || copied || quoted || invented || blindGaps || wrongShape || slugged) {
     // ONE of these throws the WHOLE reading away. Keeping the half that checks out would file a real case
     // under a pattern half of which was invented or copied, and no diagnosis is worth that.
     log.warn("[winning-pattern] the reading copied a page, named something no page carries, or overruled a settled shape, so I kept none of it",
-      { tenantId, stray, copied: copied?.slice(0, 80), quoted: quoted?.slice(0, 80), invented: invented?.slice(0, 80), blindGaps, wrongShape });
+      { tenantId, stray, copied: copied?.slice(0, 80), quoted: quoted?.slice(0, 80), invented: invented?.slice(0, 80), blindGaps, wrongShape, slugged: slugged?.slice(0, 80) });
     return null;
   }
   return { ...v, winners: pages.length, publishers: pages.map((f) => f.domain), fingerprint };
