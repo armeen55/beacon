@@ -25,8 +25,12 @@ function readEnv(env: NodeJS.ProcessEnv = process.env): DataForSeoEnv {
   };
 }
 
-/** The default shared per-platform monthly ceiling when the env is unset. */
-export const DEFAULT_MONTHLY_CAP_USD = 50;
+/** The default shared per-ACCOUNT, per-platform monthly ceiling when the env is unset. Raised from $50 to
+ *  $250 on operator authority (2026-07-31): a single account's research now runs case-scoped acquisition
+ *  and daily hot searches, and $50 stopped a month of real work part way through. The provider's own
+ *  $25/day ceiling still sits outside this and is untouched. Nothing else changes: spend is still reserved
+ *  BEFORE the network, still reconciled to actual, and an unreadable ledger still fails closed. */
+export const DEFAULT_MONTHLY_CAP_USD = 250;
 
 /** The Basic-auth value to send: the dashboard base64 string if provided, else
  *  base64(login:password). Returns null when nothing usable is set. */

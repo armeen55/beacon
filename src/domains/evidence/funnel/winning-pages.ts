@@ -15,7 +15,7 @@ import { type FunnelState, type FunnelWinningPage } from "./state";
 import { askIdentity, normalizePageIntersection, parsePageIntersection, type PageIntersectionAsk } from "@/domains/evidence/page-intersection";
 import { publisherHost } from "@/domains/evidence/serp-shape";
 import { pageExtractFrom, pageExtractFromRecord, type IntersectionUnavailable, type OwnedPageReadOutcome, type ResearchPageComparison, type ResearchPageExtract, type ResearchWinningAppearance, type WinnerReadOutcome } from "./research-evidence";
-import { basisFromCursor, beginCycle, CONFLICT_DETAIL, FRESH_MS, interp, modeOf, NO_BASIS_DETAIL, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
+import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, isCurrent, modeOf, NO_BASIS_DETAIL, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
 
 /** ONE explicit acquisition budget per cycle, never a global free-for-all. 15 winning pages are ranked, so three priority searches keep their own three, and 18 is the MOST I ever go out and read: those 15 plus at
  *  most ONE substitute for each of the three priority searches, every one of them spending an ATTEMPT from the same total. Paid body reads are bounded SEPARATELY at 6, because they are the only page work that
@@ -81,7 +81,7 @@ const OWNED_WRITE_PAUSE = "I read your page but I could not save what it says, s
  *  nothing about a page render ever reaches the customer's website. A success persists the canonical page snapshot and CLEARS the failure memory for that URL; a failure is remembered on the SAME retry policy a winning
  *  page gets, so the same dead URL is not refetched on every visit and the date I promised the operator stays that same date until the retry is genuinely due. */
 async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageReadOutcome[], url: string,
-  deadline: number, profile: BusinessProfile | null): Promise<OwnedRead> {
+  deadline: number, profile: BusinessProfile | null, bustedAt: string | null): Promise<OwnedRead> {
   const now = d.now(), key = canonicalUrlKey(url), kept: OwnedPageReadOutcome[] = [], seen = new Set<string>();
   // PRUNE THE EXPIRED, THEN DEDUPE BY CANONICAL URL. Slicing a bounded list newest-first could drop an
   // unexpired 30-day robots hold once ten newer failures arrived, and that URL then looked untried and was
@@ -99,8 +99,11 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
   // save are two different writes, so a state conflict on the second used to send me back out to the
   // customer's website for a body I had persisted seconds earlier. A body already on file at current
   // freshness IS the read: zero network, and the failure memory for that URL is already cleared above.
+  // BUT A BODY READ BEFORE THE PAGE CHANGED IS NOT THE PAGE. `bustedAt` is when its truth moved underneath
+  // me (an implementation the operator marked, or a content hash that moved), and a read older than that
+  // moment describes a page that no longer exists, however recent the clock says it is.
   const body = await d.readOwnedBodies(tenantId, [url]).then((m) => m.get(key) ?? null).catch(() => null);
-  if (body?.fetchedAt && now - Date.parse(body.fetchedAt) <= FRESH_MS) return { held: kept, pause: null };
+  if (isCurrent("owned_page", body?.fetchedAt, now, bustedAt)) return { held: kept, pause: null };
   // FAIL CLOSED ON A FULL MEMORY. A read whose failure I could not remember would be repeated on every pass
   // forever, and evicting a live hold would break a date I promised, so I do not make the read at all.
   if (kept.length >= MAX_OWNED_READS) { log.info("[research-funnel] owned read deferred: every read-memory slot is a live hold", { tenantId, holds: kept.length }); return { held: kept, pause: null }; }
@@ -122,9 +125,11 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
   return { held: kept, pause: null };
 }
 
-/** `priorityQueries`: plain strings from the caller (Evidence never reads Decision), the exact searches an open investigation cannot close without. Each banks its own top organic winners before the global fill, at the SAME total.
+/** `priorityQueries`: ONE plain string per FOCUSED CASE (Evidence never reads Decision), the exact search that case cannot close without. Each case banks its own top organic winners INDEPENDENTLY of the global weight order,
+ *  and they are read round by round, so the shared attempt and paid-read budgets can never be spent inside one case while another has been served nothing. The global fill continues on the capacity left over, at the SAME total.
+ *  `ownedBustedAt`: when the named page of the account's own last changed underneath me, so a body read before that moment is not treated as a read of the page that exists now. Null = nothing changed it.
  *  TWO STAGES, one phase: the first reads and persists the winners and hands the run back; the caller renews the RUN lease and re-enters with `stage: "compare"`, so the ONE paid comparison is the first side effect of a live lease. */
-export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[] = [], intersection: FunnelIntersectionAsk | null = null, ownedUrl: string | null = null): FunnelUnitFn {
+export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[] = [], intersection: FunnelIntersectionAsk | null = null, ownedUrl: string | null = null, ownedBustedAt: string | null = null): FunnelUnitFn {
   const d = resolveDeps(deps);
   const resolve = deps.resolveCitations ?? resolveCitationTargets; // wrapper citations resolve to their REAL target before ranking, so one page is never two winners
   return async (tenantId, cursor, budgetMs) => {
@@ -153,7 +158,8 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       const bank = async (url: string, x: ResearchPageExtract) => { await d.writePageExtract(url, x as unknown as Record<string, unknown>, extractHash(x)).catch(() => {}); };
       const ranked = rankWinningPages(resolved, ownDomain, WINNER_READ_BUDGET, priorityQueries), bench = new Map<string, typeof ranked>(), substituted = new Set<string>();
       for (const c of ranked) if (c.standby && c.ownerQuery) bench.set(c.ownerQuery, [...(bench.get(c.ownerQuery) ?? []), c]);
-      // FOCUS BEFORE BREADTH: each priority search's own winners, then the substitutes their unreadable pages earn, then the global fill, every one of them spending from the SAME attempt total.
+      // FOCUS BEFORE BREADTH, AND CASE BY CASE INSIDE IT: the reserves arrive interleaved (every case's first winner, then every case's second), then the substitutes their unreadable pages earn, then the global fill,
+      // every one of them spending from the SAME attempt and paid-read totals. That order is what stops six paid reads landing entirely inside the first two cases while the third gets none.
       const focus = ranked.filter((c) => !c.standby && c.ownerQuery), queue = [...focus, ...ranked.filter((c) => !c.standby && !c.ownerQuery)]; let focusEnd = focus.length, paidReads = 0;
       for (let i = 0; i < queue.length; i += 1) { const c = queue[i]!;
         const engines = [...new Set(c.appearances.map((a) => a.engine).filter((e): e is string => !!e))].sort(),
@@ -201,7 +207,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
         && d.now() < Date.parse(w.readOutcome.retryAfter)).map((w) => ({ ...w, extract: null, appearances: [] }))].slice(0, WINNER_READ_BUDGET * 2);
       // AT MOST ONE page of the account's OWN, named by the caller, read here rather than anywhere a render can reach.
       let ownedPause: string | null = null;
-      if (ownedUrl) { const owned = await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile); state.ownedReads = owned.held; ownedPause = owned.pause; }
+      if (ownedUrl) { const owned = await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile, ownedBustedAt); state.ownedReads = owned.held; ownedPause = owned.pause; }
       // The winners land BEFORE this phase hands the run back. This save is the FUNNEL ROW's optimistic
       // row_version and nothing more: it proves only that no concurrent writer moved the research document.
       // It is NOT the ResearchRun lease, a different guarantee the caller renews between the two stages.

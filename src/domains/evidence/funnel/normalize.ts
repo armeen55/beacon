@@ -360,10 +360,11 @@ function dedupeAppearances(appearances: ResearchWinningAppearance[]): ResearchWi
   return out;
 }
 
-/** Exact-query winners per priority query: THREE DISTINCT PUBLISHERS, the floor a comparison needs, plus
+/** Exact-query winners per FOCUSED CASE: THREE DISTINCT PUBLISHERS, the floor a comparison needs, plus
  *  TWO deeper distinct publishers held as standbys. Reserving by URL let one publisher hold two of the
  *  three slots (two wikipedia.org pages are ONE source), so a topic could never clear its own
- *  three-publisher bar by arithmetic. The reserve counts against topN; the standby bench is bounded on its own. */
+ *  three-publisher bar by arithmetic. The reserve is taken BEFORE the global order is consulted at all;
+ *  the standby bench is bounded on its own. */
 const PRIORITY_WINNERS_PER_QUERY = 3, PRIORITY_STANDBYS_PER_QUERY = 2;
 
 /** The best organic rank this candidate holds for ONE exact query (null = none).
@@ -382,10 +383,18 @@ function organicRankFor(c: WinningCandidate, key: string): number | null {
  *  (query or real prompt id + text, engine, rank). AI surfaces weight double; organic top-10 single; the
  *  account's own domain is excluded. A page's engines/prompts derive from ITS OWN appearances only.
  *
- *  Ranking is HYBRID, not global: a purely global weight order returned ten winners of which not one came
- *  from the query under investigation. Each priority query banks its own top DISTINCT PUBLISHERS first, in
- *  real organic rank order, then its standbys, then the global order fills what is left. The TOTAL is
- *  unchanged, so this buys no extra page work. Standbys are returned LAST, marked. Pure. */
+ *  Ranking is CASE-SCOPED, not global: a purely global weight order returned ten winners of which not one
+ *  came from the query under investigation. Every FOCUSED CASE (one entry of `priorityQueries`, the exact
+ *  search that case is stuck on) banks its own top DISTINCT PUBLISHERS in real organic rank order, and it
+ *  does so INDEPENDENTLY of the global weight order, so an unrelated case's AI-cited pages can never crowd
+ *  a case's required pages out. The global fill continues only with the capacity left after every focused
+ *  case is served. The TOTAL is unchanged, so this buys no extra page work.
+ *
+ *  RESERVES COME BACK INTERLEAVED, one round per case, and that is the half that was actually starving
+ *  anybody: the reserves were correct and then the reader spent a SHARED attempt and paid-read budget
+ *  through them case by case, so with three cases and six paid reads the first two cases took all six and
+ *  the third was handed nothing. In rounds, every case gets its first winner before any case gets its
+ *  second. Standbys are returned LAST, marked. Pure. */
 export function rankWinningPages(
   appearances: ResearchWinningAppearance[],
   ownDomain: string | null,
@@ -415,17 +424,14 @@ export function rankWinningPages(
   const ranked = [...byUrl.values()].sort((x, y) => y.weight - x.weight || x.url.localeCompare(y.url));
   const picked: WinningCandidate[] = [], standbys: WinningCandidate[] = [];
   const taken = new Set<string>(); // canonical identity: one page is never two winners
-  // STANDBYS ARE A SUBSTITUTE BENCH, NOT PART OF THE READ BUDGET. Counting them against topN spent 6 of 15 slots on pages
-  // read only when a preferred one is unreadable, so the global fill got nothing. The bench is bounded on its own.
-  const claim = (c: WinningCandidate, into: WinningCandidate[]): void => {
-    const id = canonicalUrlKey(c.url);
-    if (taken.has(id) || (into === picked ? picked.length >= topN : standbys.length >= MAX_PRIORITY_QUERIES * PRIORITY_STANDBYS_PER_QUERY)) return;
-    taken.add(id);
-    into.push(c);
-  };
+  const claim = (c: WinningCandidate): boolean => { const id = canonicalUrlKey(c.url); return taken.has(id) ? false : !!taken.add(id); };
+  // ONE RESERVE PER FOCUSED CASE, taken before the global order is consulted at all. Two cases stuck on the
+  // same search are ONE case here: spending a second reserve on it would bank the identical three pages twice.
+  const reserves: WinningCandidate[][] = [], cases = new Set<string>();
   for (const q of (priorityQueries ?? []).slice(0, MAX_PRIORITY_QUERIES)) {
     const key = canonicalQueryKey(normalizeKeyword(q));
-    if (!key) continue;
+    if (!key || cases.has(key)) continue;
+    cases.add(key);
     const seen = new Set<string>();
     const byPublisher = ranked
       .map((c) => ({ c, rank: organicRankFor(c, key) }))
@@ -435,10 +441,19 @@ export function rankWinningPages(
       // ONE reserve slot per publisher, best organic rank first: a second page from a source I already
       // hold teaches me nothing new and used to eat the slot the third opinion needed.
       .filter((r) => { const p = publisherHost(r.c.url) || r.c.domain; return seen.has(p) ? false : !!seen.add(p); });
-    byPublisher.slice(0, PRIORITY_WINNERS_PER_QUERY).forEach((r) => claim({ ...r.c, ownerQuery: key }, picked));
-    byPublisher.slice(PRIORITY_WINNERS_PER_QUERY, PRIORITY_WINNERS_PER_QUERY + PRIORITY_STANDBYS_PER_QUERY)
-      .forEach((r) => claim({ ...r.c, ownerQuery: key, standby: true }, standbys));
+    // The case's own reserve is NOT measured against topN: topN is the global read budget, and letting it
+    // bound the reserve is exactly how a case whose pages sit below an unrelated cutoff got nothing.
+    reserves.push(byPublisher.slice(0, PRIORITY_WINNERS_PER_QUERY).filter((r) => claim(r.c)).map((r) => ({ ...r.c, ownerQuery: key })));
+    // STANDBYS ARE A SUBSTITUTE BENCH, NOT PART OF THE READ BUDGET. Counting them against topN spent 6 of 15 slots on pages
+    // read only when a preferred one is unreadable, so the global fill got nothing. The bench is bounded on its own.
+    for (const r of byPublisher.slice(PRIORITY_WINNERS_PER_QUERY, PRIORITY_WINNERS_PER_QUERY + PRIORITY_STANDBYS_PER_QUERY)) {
+      if (standbys.length < MAX_PRIORITY_QUERIES * PRIORITY_STANDBYS_PER_QUERY && claim(r.c)) standbys.push({ ...r.c, ownerQuery: key, standby: true });
+    }
   }
-  for (const c of ranked) claim(c, picked);
+  // ROUND BY ROUND: every case's first winner, then every case's second, so a shared read budget spent in
+  // this order can never run out inside one case while another has been served nothing.
+  for (let i = 0; i < PRIORITY_WINNERS_PER_QUERY; i += 1) for (const r of reserves) if (r[i]) picked.push(r[i]!);
+  // GLOBAL FILL takes only what is left over once every focused case is served.
+  for (const c of ranked) { if (picked.length >= topN) break; if (claim(c)) picked.push(c); }
   return [...picked, ...standbys];
 }

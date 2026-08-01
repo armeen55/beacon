@@ -30,6 +30,7 @@ import { resolveCurrentBasis } from "./load-proposals";
 import { adjudicateCoverage, intersectionComparison, readComparison,
   type CoverageDecision, type CoverageVerdict, type IntersectionEvidence, type MissingRequirement } from "./coverage-adjudication";
 import type { OwnedPageReadOutcome } from "@/domains/evidence/funnel/research-evidence";
+import { isCurrent } from "@/domains/evidence/funnel/shared";
 
 /** THE order every step reads: fewest missing pieces first, then the largest demand behind it, then
  *  the stable key, so the same evidence always advances the SAME topic whether it is being bought
@@ -141,6 +142,7 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
   const bodies = new Map<string, OwnedPageBody>();
   const asked = new Set<string>();
   let queries = 0;
+  const nowMs = (opts.now ?? new Date()).getTime();
   let decided: DecidedTopic | null = null;
   let waitingUntil: string | null = null;
   // WHY A PAGE OF MINE IS UNREAD, off the research row Evidence persisted it to. Not a fetch, and not a guess.
@@ -164,7 +166,11 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
       const want = candidates.filter((c) => c.strongSignals > 0 && !c.bodyHeld && !asked.has(c.url)).slice(0, MAX_BODY_READS - asked.size).map((c) => c.url);
       for (const u of want) asked.add(u);
       const read = want.length > 0 ? await loadOwnedPageBodies(tenantId, want).catch(() => null) : null;
-      for (const [key, body] of read ?? []) bodies.set(key, body);
+      // ONE FRESHNESS MATRIX, BOTH SIDES OF THE FENCE. Evidence's page phase refuses to re-read a page of the
+      // account's own inside the owned_page window and goes back out to the site the moment it lapses. Judging
+      // a body of any age as held here meant the two sides disagreed about the word "current": a body from
+      // months ago answered this gate while Evidence had already decided the same body was due.
+      for (const [key, body] of read ?? []) if (isCurrent("owned_page", body.fetchedAt, nowMs)) bodies.set(key, body);
       // AN EMPTY BODY STORE IS UNKNOWN COVERAGE, NEVER PROOF A PAGE HAS NO WORDS, and the two are not even
       // the same problem: a store that failed to answer is retryable, an absent body is a page I have never
       // read. Both used to `continue` here, so the case was neither queued nor parked and vanished off every

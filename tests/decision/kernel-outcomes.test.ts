@@ -235,7 +235,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
   it("reads a page of mine whose words are already stored, decides again in the SAME pass, and still judges the topic that OWNS the comparison", async () => {
     const research = withParked(READY({ topicKey: keyOf(READY()) })); const world = snap([GAP, UNREAD], research, [...DEMAND, ...PARKED_DEMAND]);
     const order = buildTopicInvestigations(world); const parked = order.find((i) => i.label === PARKED)!;
-    const read = await readCoverage(world, "fixture-tenant", { basis: "basis_today", maxQueries: 3 });
+    const read = await readCoverage(world, "fixture-tenant", { basis: "basis_today", maxQueries: 3, now: NOW }); // the clock is injected: the stored body's currency is judged against the fixture's day, never the wall
     expect(rankInvestigations(order)[0]!.key).toBe(parked.key); // it ranks first, and its own page sat unread while its words were already on file
     expect(read.needs.find((n) => n.topicKey === parked.key)?.requirement).toBe("page_intersection"); // one bounded read moved it on without sending the operator away
     expect([read.decided!.investigation.label, read.decided!.decision.verdict]).toEqual([HAFT, "create_new"]); }); // and the comparison I paid for is read for the topic that owns it

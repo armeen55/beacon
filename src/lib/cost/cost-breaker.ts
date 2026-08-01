@@ -5,8 +5,9 @@ import "server-only";
  * breaker: one outer guard OVER every per-platform cap.
  *
  * WHY, given we already have per-platform caps. The adjudicator cap ($10/mo),
- * the DataForSEO SERP cap ($50/mo), the retrieval-twin embeddings cap, and the
- * page-factory daily cap each protect ONE spend lane. None of them can see the
+ * the DataForSEO SERP cap ($250/mo per account), the retrieval-twin embeddings
+ * cap, and the page-factory daily cap each protect ONE spend lane. None of them
+ * can see the
  * others. A month where every lane runs near its own ceiling still adds up to a
  * bill nobody approved. This breaker sums the WHOLE `llm_budget_ledger` for the
  * current UTC month (every tenant, every platform) and TRIPS CLOSED when the
@@ -20,8 +21,8 @@ import "server-only";
  *   2. It NEVER blocks free work. It is only ever called on the paid path, so a
  *      cache hit, a dry-run, or any deterministic no-LLM code path never reaches
  *      it. `assertPaidCallAllowed` is the only enforcement seam.
- *   3. Ceiling: env BEACON_GLOBAL_MONTHLY_CAP_USD, default 100. A missing /
- *      NaN / non-positive env resolves to the SAFE default (100), never to
+ *   3. Ceiling: env BEACON_GLOBAL_MONTHLY_CAP_USD, default 500. A missing /
+ *      NaN / non-positive env resolves to the SAFE default (500), never to
  *      "unlimited" - an unset ceiling can never mean no ceiling.
  *   4. FAIL-CLOSED on an unreadable ledger: if the paid path asks and the spend
  *      total cannot be read (no env, Supabase error), the breaker trips (no
@@ -30,7 +31,7 @@ import "server-only";
  *      is never affected by a ledger read failure.
  *
  * Honest status line (Beacon voice, first person, a concrete number, no lab
- * words, no dashes): "I have spent $0.42 of my $100 monthly ceiling across all
+ * words, no dashes): "I have spent $0.42 of my $500 monthly ceiling across all
  * research." Rendered wherever cross-lane spend is shown.
  *
  * Pure decision core (`decideBreaker`) + a thin I/O wrapper so tests never touch
@@ -40,8 +41,11 @@ import "server-only";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 
-/** The safe default ceiling when the env is unset / NaN / non-positive. */
-export const DEFAULT_GLOBAL_MONTHLY_CAP_USD = 100;
+/** The safe default ceiling when the env is unset / NaN / non-positive. Raised from $100 to $500 on
+ *  operator authority (2026-07-31), in step with the per-account DataForSEO ceiling: this is the OUTER
+ *  guard over every lane, so it has to sit above what the lanes beneath it are now allowed to spend. It
+ *  still never loosens a per-platform cap and still fails closed on an unreadable ledger. */
+export const DEFAULT_GLOBAL_MONTHLY_CAP_USD = 500;
 
 /**
  * Resolve the global monthly ceiling. A missing, non-numeric, or non-positive

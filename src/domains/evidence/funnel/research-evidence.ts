@@ -210,8 +210,13 @@ export type ResearchPageComparison = {
 
 /** ONE identity per case, minted the first time the case is seen and never recomputed. `anchors`
  *  are canonical query keys that have ever belonged to it. A merge keeps ONE canonical id and
- *  records the other as an alias rather than minting a third. */
-export type ResearchCase = { id: string; anchors: string[]; aliasOf?: string };
+ *  records the other as an alias rather than minting a third.
+ *  `pages` and `parentId` are what the SEMANTIC pass adds ON TOP of that identity: which of my own addresses
+ *  answers this case, and the broader case this one sits under. BOTH ARE OPTIONAL AND ADDITIVE, so a row
+ *  written before they existed reads as a case with no page filed and no parent rather than a broken row,
+ *  and the identity rules above never depend on either of them. */
+export type ResearchCase = { id: string; anchors: string[]; aliasOf?: string;
+  pages?: { url: string; relation: "covers" | "partially_covers" | "does_not_cover" }[]; parentId?: string };
 
 type ResearchReceipt = {
   researched: number;

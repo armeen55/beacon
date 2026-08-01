@@ -29,6 +29,7 @@ export type CapabilityKey =
   | "labs_keyword_suggestions"
   | "labs_keyword_overview"
   | "labs_keyword_ideas"
+  | "labs_serp_competitors"
   | "labs_page_intersection"
   | "onpage_content_parsing"
   | "serp_organic"
@@ -97,6 +98,11 @@ export type ParsedAiAnswer = {
    *  never a name we matched ourselves. null = not observable; [] = observed zero. */
   brandMentions: string[] | null;
 };
+/** ONE domain that keeps coming up across a case's whole keyword set, from serp_competitors. `rating` is the
+ *  provider's own composite, NOT a rank; `avgPosition` is its average organic position over those keywords;
+ *  `keywordsCount` is how many of them it comes up for. A metric the provider did not send stays null. */
+type ParsedSerpCompetitor = { domain: string; avgPosition: number | null; rating: number | null; keywordsCount: number | null };
+
 export type ParsedByCapability = {
   labs_keywords_for_site: ParsedKeywordItem[];
   labs_ranked_keywords: ParsedKeywordItem[];
@@ -104,6 +110,7 @@ export type ParsedByCapability = {
   labs_keyword_suggestions: ParsedKeywordItem[];
   labs_keyword_overview: ParsedKeywordItem[];
   labs_keyword_ideas: ParsedKeywordItem[];
+  labs_serp_competitors: ParsedSerpCompetitor[];
   labs_page_intersection: ParsedPageIntersection;
   /** Parsed DIRECTLY into the ONE extract shape every winner already carries: no second extract model. */
   onpage_content_parsing: ResearchPageExtract;
@@ -145,6 +152,9 @@ export type CapabilityInputByKey = {
    *  returns ideas that share their topic. limit defaults to 700 and the provider
    *  caps it at 1000. Callers use keywordIdeasBatched, never one request per seed. */
   labs_keyword_ideas: { keywords: string[]; limit?: number };
+  /** The domains that recur across a WHOLE keyword set (documented maximum 200 keywords per
+   *  request, limit default 100 and maximum 1000). One request per case, never one per keyword. */
+  labs_serp_competitors: { keywords: string[]; limit?: number };
   /** ONE request carries the WHOLE page set (documented maximum 20 pages, 10
    *  excludes): one call per page or per keyword is a defect, never a fallback. The
    *  registry normalizes the ask BEFORE it becomes a cache identity. */
@@ -214,8 +224,8 @@ export type FunnelBoundaryDeps = Record<string, unknown>;
  */
 export {
   providerCall, keywordIdeasBatched, collectCapability, parseCapability, resolveEngineModel,
-  readPublicPageExtract, writePublicPageExtract,
 } from "./capabilities";
+export { readPublicPageExtract, writePublicPageExtract } from "./page-extract-cache";
 
 // ── funnel phase executor contract (consumed by Runtime via the facade) ─────
 

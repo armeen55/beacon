@@ -8,10 +8,11 @@ import {
   type AiObservationDraft, type AiObservationStatus, type DueObservation,
 } from "@/domains/evidence/ai-visibility/ai-observations";
 import type { CachedCallResult, CapabilityKey, FunnelCounters, FunnelUnitFn, FunnelUnitOutcome, ParsedAiAnswer, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
-import { selectSerpAgenda } from "./normalize";
+import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
+import { normalizeKeyword, selectSerpAgenda } from "./normalize";
 import { type FunnelPair, type FunnelSerp, type FunnelState } from "./state";
 import { type FunnelResearchEvidence, type ObservationMode, type ResearchEngine } from "./research-evidence";
-import { basisFromCursor, beginCycle, CONFLICT_DETAIL, FRESH_MS, interp, type Interp, modeOf, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
+import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, type Interp, isCurrent, modeOf, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
 
 // blocked = a HELD refusal at zero further spend; it ALWAYS pauses the run, so prefer the boundary's own detail.
 const blockedNote = (r: Interp) => r.detail || pauseDetail("blocked", "");
@@ -273,9 +274,14 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     const serps: FunnelSerp[] = chosen.map((q) => byQ.get(q) ?? { query: q, cacheKey: null, status: "pending" });
     const nowIso = () => new Date(d.now()).toISOString(), parseSerp = (payload: unknown) => d.parse("serp_organic", payload as never) as ParsedSerp | null;
     let failedDetail: string | null = null, blockedDetail: string | null = null;
-    // A look older than the weekly window is DUE (done OR exhausted-failed): it re-enters with a fresh per-incident budget and its AI Mode observation re-opens, so nothing freezes forever.
+    // HOT VERSUS COLD, and the plan is what tells them apart: a search a frozen case is stuck on is checked
+    // DAILY, because the whole run is waiting on it, and every other search keeps the weekly window. One
+    // constant for both meant a case diagnosed this morning sat on yesterday's look for six more days.
+    const hot = new Set((priorityQueries ?? []).map((q) => canonicalQueryKey(normalizeKeyword(q))).filter(Boolean));
+    // A look older than ITS OWN window is DUE (done OR exhausted-failed): it re-enters with a fresh per-incident budget and its AI Mode observation re-opens, so nothing freezes forever.
     for (const s of serps) {
-      if ((s.status !== "done" && s.status !== "failed") || !s.observedAt || d.now() - Date.parse(s.observedAt) <= FRESH_MS) continue;
+      if ((s.status !== "done" && s.status !== "failed") || !s.observedAt) continue;
+      if (isCurrent(hot.has(canonicalQueryKey(s.query)) ? "serp_hot" : "serp_cold", s.observedAt, d.now())) continue;
       s.status = "pending"; s.cacheKey = null; s.reposts = undefined;
       s.aiMode = undefined; s.aiModeCacheKey = null; s.aiModeReposted = undefined; s.aiModeFailed = undefined;
     }
@@ -369,7 +375,7 @@ const competitionLevel = (c: number | null): "low" | "medium" | "high" | null =>
 /** Read-only: normalize the persisted funnel state into the canonical research evidence bundle plus an explicit receipt. The state is already pruned to the CURRENT set, so nothing obsolete can be projected. The receipt's money and cache numbers are THIS RUN's, not a lifetime total. PURE. */
 export function projectFunnelEvidence(state: FunnelState, now: number): FunnelResearchEvidence {
   const donePairs = state.prompts.pairs.filter((p) => p.status === "done");
-  const observedTimes = donePairs.map((p) => p.observedAt).filter((t): t is string => !!t).sort(), isStale = (at: string | undefined) => !at || now - Date.parse(at) > FRESH_MS;
+  const observedTimes = donePairs.map((p) => p.observedAt).filter((t): t is string => !!t).sort(), isStale = (at: string | undefined) => !isCurrent("serp_cold", at, now);
   // Receipt denominators are derived from the pairs themselves, so a persisted intendedPairs written by an older selector can never overstate missing.
   const stale = donePairs.filter((p) => isStale(p.observedAt)).length
     + state.serps.queries.filter((s) => s.status === "done" && isStale(s.observedAt)).length;

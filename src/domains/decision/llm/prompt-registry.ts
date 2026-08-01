@@ -68,6 +68,12 @@ export const PROMPT_REGISTRY = {
   // decides nothing, so the wording that forbids inventing is the whole contract
   // and any change to it must bump this version.
   "draft.answer_analysis": 1,
+  // Reading my OWN grouping back (2026-07-31, V1 Truth Convergence Phase 2):
+  // which cases are one subject, which is two, and which page answers which. It
+  // refines an answer the deterministic pass already reached and decides nothing
+  // on its own, so the wording that forbids inventing an id, an address or a
+  // fact is the whole contract; any change to it must bump this version.
+  "draft.case_synthesis": 1,
   // Registered schema kinds with no bespoke production prompt yet (P8 targets);
   // callStructuredLLM derives draft.<kind>, so they must resolve to a version.
   "draft.tool_asset": 1,

@@ -218,17 +218,14 @@ export const InternalLinkDraftSchema = z.object({
 });
 export type InternalLinkDraft = z.infer<typeof InternalLinkDraftSchema>;
 
-// ── team verdict (FINAL PREMIUM PLAN item 25) ─────────────────────────────────
-// The strategist's one-paragraph synthesis of the specialist debate for a nightly pick.
-// Grounded in the REAL voices (claims carry the numbers); the numeric firewall blocks any
-// figure that is not in the grounding. Short, opinionated, operator language.
+// ── team verdict (FINAL PREMIUM PLAN item 25) ───────────────────────────────── The strategist's one-paragraph
+// synthesis of the specialist debate for a nightly pick. Grounded in the REAL voices (claims carry the numbers); the
+// numeric firewall blocks any figure that is not in the grounding. Short, opinionated, operator language.
 
-// ── batch adjudication (BEACON 500 item 12 - the final review) ────────────────
-// The nightly FINAL REVIEW over the whole plan preview: one bounded call
-// sanity-checks EVERY pick against its own evidence ("does the proposed text
-// match what the top search actually asks for?"). Output is per-pick verdicts
-// ONLY - the review can flag a pick with a one-line caution, it can never drop
-// or reorder picks. The concern line is operator copy: plain language, <= 140
+// ── batch adjudication (BEACON 500 item 12 - the final review) ──────────────── The nightly FINAL REVIEW over the
+// whole plan preview: one bounded call sanity-checks EVERY pick against its own evidence ("does the proposed text
+// match what the top search actually asks for?"). Output is per-pick verdicts ONLY - the review can flag a pick with
+// a one-line caution, it can never drop or reorder picks. The concern line is operator copy: plain language, <= 140
 // chars, and it passes the same numeric-fidelity firewall as every draft.
 
 export const BatchAdjudicationSchema = z.object({
@@ -247,14 +244,12 @@ export const BatchAdjudicationSchema = z.object({
 });
 export type BatchAdjudication = z.infer<typeof BatchAdjudicationSchema>;
 
-// ── strategy review (BEACON 500 item 51 - the weekly reallocation memo) ───────
-// One Sunday-night LLM pass over the week's settled dossier proposes a lever mix
-// (relative weight per actionFamily) and up to 3 page-family focus targets for the
-// COMING week, plus a short signed memo explaining the change. The LLM PROPOSES;
-// the caller (apply-mix.ts / run-strategy-review.ts) deterministically CLAMPS every
-// weight to [0.5, 2.0], drops any family it does not recognize, and strips dashes.
-// A failure here means no change this week (fail-open to the previous mix) - this
-// schema only bounds the SHAPE, never the trust decision.
+// ── strategy review (BEACON 500 item 51 - the weekly reallocation memo) ─────── One Sunday-night LLM pass over the
+// week's settled dossier proposes a lever mix (relative weight per actionFamily) and up to 3 page-family focus
+// targets for the COMING week, plus a short signed memo explaining the change. The LLM PROPOSES; the caller
+// (apply-mix.ts / run-strategy-review.ts) deterministically CLAMPS every weight to [0.5, 2.0], drops any family it
+// does not recognize, and strips dashes. A failure here means no change this week (fail-open to the previous mix) -
+// this schema only bounds the SHAPE, never the trust decision.
 
 export const StrategyLeverWeightSchema = z.object({
   family: z.string().min(1).max(40),
@@ -276,12 +271,10 @@ export const StrategyReviewSchema = z.object({
 });
 export type StrategyReview = z.infer<typeof StrategyReviewSchema>;
 
-// ── section draft (BEACON 500 item 55 - outline-to-draft pipeline) ───────────
-// One drafted section of a full-page walk. NOT part of the shared `base` set:
-// a section carries its OWN lightweight sources list (not the heavier
-// evidenceRefs/confidence/risks/operatorSteps shape) because it is one small
-// unit in a sequential walk, not a standalone Move draft. `containsNumber` lets
-// the assembler know at a glance which sections carry a verified figure.
+// ── section draft (BEACON 500 item 55 - outline-to-draft pipeline) ─────────── One drafted section of a full-page
+// walk. NOT part of the shared `base` set: a section carries its OWN lightweight sources list (not the heavier
+// evidenceRefs/confidence/risks/operatorSteps shape) because it is one small unit in a sequential walk, not a
+// standalone Move draft. `containsNumber` lets the assembler know at a glance which sections carry a verified figure.
 
 export const SectionSourceSchema = z.object({
   kind: z.enum(["own_data", "competitor_observation", "fanout_question", "keyword"]),
@@ -298,11 +291,10 @@ export const SectionDraftSchema = z.object({
 });
 export type SectionDraft = z.infer<typeof SectionDraftSchema>;
 
-// ── outreach pitch (BEACON_500 item 57 - get-cited/link-reclaim pitches) ─────
-// A cold-outreach email pitch for ONE lead. NOT part of the shared `base` set:
-// an outreach pitch is a short email, not a Move draft, so it skips proofPlan
-// and operatorSteps but keeps evidenceRefs (the personalization must be real)
-// and confidence. subject/body length caps keep it a real, sendable email.
+// ── outreach pitch (BEACON_500 item 57 - get-cited/link-reclaim pitches) ───── A cold-outreach email pitch for ONE
+// lead. NOT part of the shared `base` set: an outreach pitch is a short email, not a Move draft, so it skips
+// proofPlan and operatorSteps but keeps evidenceRefs (the personalization must be real) and confidence. subject/body
+// length caps keep it a real, sendable email.
 
 export const OutreachPitchSchema = z.object({
   subject: z.string().min(4).max(80),
@@ -313,14 +305,12 @@ export const OutreachPitchSchema = z.object({
 });
 export type OutreachPitch = z.infer<typeof OutreachPitchSchema>;
 
-// ── coverage adjudication (N3b, 2026-07-28) ─────────────────────────────────
-// ONE verdict on whether this account ALREADY has the right page for a topic it
-// researched. The model COMPARES the owned pages the caller supplied and picks a
-// verdict; it may not invent a page, a metric, a keyword or a competitor, and it
-// may not write copy: no field here can carry a title, a description, an outline
-// or a proposed address, so a drafted page is not representable. `ownedUrls` and
-// `evidenceKeys` are re-checked against the caller's allowlist AFTER validation,
-// so one unknown id refuses the whole call rather than shipping half of it.
+// ── coverage adjudication (N3b, 2026-07-28) ───────────────────────────────── ONE verdict on whether this account
+// ALREADY has the right page for a topic it researched. The model COMPARES the owned pages the caller supplied and
+// picks a verdict; it may not invent a page, a metric, a keyword or a competitor, and it may not write copy: no field
+// here can carry a title, a description, an outline or a proposed address, so a drafted page is not representable.
+// `ownedUrls` and `evidenceKeys` are re-checked against the caller's allowlist AFTER validation, so one unknown id
+// refuses the whole call rather than shipping half of it.
 
 export const CoverageAdjudicationSchema = z.object({
   verdict: z.enum(["improve_existing", "create_new", "consolidate_or_choose", "do_nothing", "research_needed"]),
@@ -337,11 +327,10 @@ export const CoverageAdjudicationSchema = z.object({
 });
 export type CoverageAdjudication = z.infer<typeof CoverageAdjudicationSchema>;
 
-// ── new page brief (N4, 2026-07-28) ─────────────────────────────────────────
-// The ONE call a verdict of create_new may make, AFTER the comparison earned it. The
-// model writes the page's words and its section plan; it may not decide THAT the page
-// should exist, and no field here can carry a shape or an intent. Every address,
-// question and evidence id is echoed from the caller's lists and re-checked after.
+// ── new page brief (N4, 2026-07-28) ───────────────────────────────────────── The ONE call a verdict of create_new
+// may make, AFTER the comparison earned it. The model writes the page's words and its section plan; it may not decide
+// THAT the page should exist, and no field here can carry a shape or an intent. Every address, question and evidence
+// id is echoed from the caller's lists and re-checked after.
 
 export const NewPageBriefSchema = z.object({
   proposedTitle: z.string().min(10).max(120),
@@ -369,13 +358,11 @@ export const NewPageBriefSchema = z.object({
 });
 export type NewPageBrief = z.infer<typeof NewPageBriefSchema>;
 
-// ── answer analysis (V1 Truth Convergence Phase 1, 2026-07-31) ──────────────
-// What one AI engine's answer to one tracked question ACTUALLY said. The model here
-// is a READER, never an author: every claim carries the answer's own wording, every
-// entity and competitor is one the answer named, and no URL, number, ranking or fact
-// may appear that the answer text does not contain. Nothing in this shape is ever
-// published; it is the evidence a later decision reads. `position` is an ORDINAL
-// within the answer (1 = named first), never a search rank.
+// ── answer analysis (V1 Truth Convergence Phase 1, 2026-07-31) ────────────── What one AI engine's answer to one
+// tracked question ACTUALLY said. The model here is a READER, never an author: every claim carries the answer's own
+// wording, every entity and competitor is one the answer named, and no URL, number, ranking or fact may appear that
+// the answer text does not contain. Nothing in this shape is ever published; it is the evidence a later decision
+// reads. `position` is an ORDINAL within the answer (1 = named first), never a search rank.
 export const AnswerAnalysisSchema = z.object({
   sections: z.array(z.object({ heading: z.string().min(1).max(200), covers: z.string().min(1).max(600) })).max(12),
   /** Each claim restated in the ANSWER'S OWN WORDING, plus what it is about. */
@@ -391,6 +378,12 @@ export const AnswerAnalysisSchema = z.object({
   caveats: z.array(z.string().min(1).max(300)).max(10),
 });
 export type AnswerAnalysis = z.infer<typeof AnswerAnalysisSchema>;
+// ── case synthesis (V1 Truth Convergence Phase 2, 2026-07-31): the SEMANTIC read over the grouping the deterministic
+// pass already made ── The model may only merge, split, link or nest cases the caller supplied, by the ids and
+// addresses it was handed. It mints no id and invents no address, number or observation, and REPORTS a conflict in
+// `reason` rather than resolving it. Advisory: one unknown id refuses it all, and the registry stands.
+const CaseSynthesisSchema = z.object({ merges: z.array(z.object({ keepId: z.string().min(1).max(60), absorbIds: z.array(z.string().min(1).max(60)).min(1).max(4), reason: z.string().min(1).max(300) })).max(6), splits: z.array(z.object({ fromId: z.string().min(1).max(60), moveQueries: z.array(z.string().min(1).max(200)).min(1).max(12), reason: z.string().min(1).max(300) })).max(3), pageLinks: z.array(z.object({ caseId: z.string().min(1).max(60), url: z.string().min(1).max(500), relation: z.enum(["covers", "partially_covers", "does_not_cover"]), reason: z.string().min(1).max(300) })).max(24), parentOf: z.array(z.object({ parentId: z.string().min(1).max(60), childId: z.string().min(1).max(60) })).max(12) });
+export type CaseSynthesis = z.infer<typeof CaseSynthesisSchema>;
 // ── registry: kind → schema (the structured-drafter dispatches on this) ──────
 
 export type StructuredDraftKind =
@@ -404,7 +397,7 @@ export type StructuredDraftKind =
   | "strategy_review"
   | "section_draft"
   | "outreach_pitch"
-  | "coverage_adjudication" | "new_page_brief" | "answer_analysis"
+  | "coverage_adjudication" | "new_page_brief" | "answer_analysis" | "case_synthesis"
   | "business_profile_inference" | "business_profile_patch" | "prompt_candidates";
 
 export const SCHEMA_BY_KIND = {
@@ -420,21 +413,18 @@ export const SCHEMA_BY_KIND = {
   outreach_pitch: OutreachPitchSchema,
   coverage_adjudication: CoverageAdjudicationSchema,
   new_page_brief: NewPageBriefSchema,
-  answer_analysis: AnswerAnalysisSchema,
+  answer_analysis: AnswerAnalysisSchema, case_synthesis: CaseSynthesisSchema,
   business_profile_inference: BusinessProfileInferenceSchema,
   business_profile_patch: BusinessProfilePatchSchema,
   prompt_candidates: PromptCandidatesSchema,
 } as const satisfies Record<StructuredDraftKind, z.ZodTypeAny>;
 
-// ── R16 (P6 LLM engine pack): the FULL output-shape registry ─────────────────
-// Every structured LLM output shape used ANYWHERE in the product, as a named
-// entry - including the shapes whose production parsers are hand-rolled and
-// pinned (judge, strategist, critic, SERP hypothesis) and the deterministic
-// title-lab variants. The gateway (callStructuredLLM) dispatches on
-// SCHEMA_BY_KIND above (validate -> retry once -> fail closed); the extra
-// entries below are the canonical contract each hand-rolled parser must keep
-// producing, pinned by tests/llm-regression/schema-registry.test.ts (every
-// entry must parse its recorded fixture).
+// ── R16 (P6 LLM engine pack): the FULL output-shape registry ───────────────── Every structured LLM output shape
+// used ANYWHERE in the product, as a named entry - including the shapes whose production parsers are hand-rolled and
+// pinned (judge, strategist, critic, SERP hypothesis) and the deterministic title-lab variants. The gateway
+// (callStructuredLLM) dispatches on SCHEMA_BY_KIND above (validate -> retry once -> fail closed); the extra entries
+// below are the canonical contract each hand-rolled parser must keep producing, pinned by
+// tests/llm-regression/schema-registry.test.ts (every entry must parse its recorded fixture).
 
 /** FAQ Q/A pairs (llm-answer-block's FAQPage JSON-LD generator). */
 export const FaqPairsSchema = z.object({
@@ -578,13 +568,14 @@ export type LlmOutputSchemaName = keyof typeof LLM_OUTPUT_SCHEMAS;
  *  operatorSteps/risks text - still fails: those fields are never added to the
  *  ledger, so they can never launder an invented prose number as "grounded". */
 export function draftProseStringValues(value: unknown): string[] {
-  // Non-prose methodology/procedural keys, skipped at every object level (see
-  // the doc comment above for the one-line reason each is excluded).
-  // `ownedUrls` and `evidenceKeys` are IDENTIFIERS echoed back from an allowlist, not prose
-  // the model wrote. Scanning them meant a real customer address containing the word "best"
-  // tripped the superlative firewall and killed the verdict on every pass, forever, at two
-  // paid calls a time. A page address cannot make a claim.
-  const NON_PROSE_KEYS = new Set(["sources", "proofPlan", "operatorSteps", "risks", "ownedUrls", "evidenceKeys"]);
+  // Non-prose methodology/procedural keys, skipped at every object level (see the doc comment above for the one-line
+  // reason each is excluded). `ownedUrls` and `evidenceKeys` are IDENTIFIERS echoed back from an allowlist, not prose
+  // the model wrote. Scanning them meant a real customer address containing the word "best" tripped the superlative
+  // firewall and killed the verdict on every pass, forever, at two paid calls a time. A page address cannot make a
+  // claim. A case synthesis carries ids, addresses and the operator's own search phrases, all echoed from a supplied
+  // list: a page whose address says "best" makes no claim, so it can never kill the reading. Its `reason` stays
+  // scanned.
+  const NON_PROSE_KEYS = new Set(["sources", "proofPlan", "operatorSteps", "risks", "ownedUrls", "evidenceKeys", "keepId", "absorbIds", "fromId", "caseId", "url", "parentId", "childId", "moveQueries"]);
   const out: string[] = [];
   const walk = (v: unknown): void => {
     if (typeof v === "string") out.push(v);
