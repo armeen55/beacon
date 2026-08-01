@@ -81,6 +81,7 @@ export function foldCases(groups: readonly string[][], cases: readonly ResearchC
   const groupAt = new Map<string, number>();
   groups.forEach((g, i) => { for (const a of g) if (!groupAt.has(a)) groupAt.set(a, i); });
   const owner = new Map<string, string>();
+  const lastTaker = new Map<string, string>();
   const claimsIn = (id: string, gi: number | undefined): number =>
     gi == null ? live.get(id)!.anchors.size : groups[gi]!.filter((a) => live.get(id)!.anchors.has(a)).length;
   for (const [id, row] of [...live].sort((a, b) => a[0].localeCompare(b[0]))) {
@@ -94,14 +95,16 @@ export function foldCases(groups: readonly string[][], cases: readonly ResearchC
       const win = claimsIn(id, gi) !== claimsIn(held, gi) ? (claimsIn(id, gi) > claimsIn(held, gi) ? id : held)
         : size(id) !== size(held) ? (size(id) > size(held) ? id : held) : held < id ? held : id;
       const lose = win === id ? held : id;
-      owner.set(a, win); live.get(lose)!.anchors.delete(a);
+      owner.set(a, win); live.get(lose)!.anchors.delete(a); lastTaker.set(lose, win);
       log.warn("[case-identity] two live cases claimed one anchor; ownership resolved and the loser shed it", { anchor: a, kept: win, shed: lose });
     }
   }
-  // A case shed to nothing is not deleted: it becomes an alias of the case that took its last anchor.
+  // A case shed to nothing is not deleted: it becomes an alias of the case that ACTUALLY took its last
+  // anchor, never of whichever case happens to sort first, because its whole alias chain and every paid
+  // answer filed under it migrate with it, and misfiling those onto a stranger is misattribution.
   for (const [id, row] of live) {
-    if (row.anchors.size > 0 || !owner.size) continue;
-    const taker = [...owner.entries()].find(([, w]) => w !== id)?.[1];
+    if (row.anchors.size > 0) continue;
+    const taker = lastTaker.get(id);
     if (taker && live.has(taker)) { kept.set(taker, (kept.get(taker) ?? new Set<string>()).add(id)); for (const old of kept.get(id) ?? []) kept.get(taker)!.add(old); kept.delete(id); live.delete(id); }
   }
   // ── one group per live case (its owned anchors), then the rules place only what nobody owns ──
@@ -271,13 +274,27 @@ export function applySynthesis(
   // must move the absorbed case's anchors onto the keeper's ROW (the absorbed row becoming an alias), and an
   // accepted split must SHED the moved searches from the row they left. The moved searches are then the only
   // unowned anchors in sight, so the fold mints exactly one branch for them and touches nothing else.
+  // WHICH ID SURVIVES A MERGE IS THE FILE'S OWN RULE, NEVER THE MODEL'S. The reading only asserts that
+  // two cases are one; the survivor of each merged component is the case with the most anchors, ties to
+  // the smaller id, exactly as foldCases has always chosen. keepId is advisory in fact, not just in prose.
+  const survivorOf = new Map<string, string>();
+  for (const c of live) {
+    const at = root(c.id);
+    const held = survivorOf.get(at);
+    if (!held) { survivorOf.set(at, c.id); continue; }
+    const better = c.anchors.length !== (anchorsOf.get(held)?.length ?? 0)
+      ? (c.anchors.length > (anchorsOf.get(held)?.length ?? 0) ? c.id : held)
+      : (c.id < held ? c.id : held);
+    survivorOf.set(at, better);
+  }
+  const keeperOf = (id: string): string => survivorOf.get(root(id)) ?? id;
   const edited = cases.map((c) => {
     if (moved.has(c.id)) return { ...c, anchors: c.anchors.filter((a) => !moved.get(c.id)!.includes(a)) };
-    if (anchorsOf.has(c.id) && root(c.id) !== c.id) return { ...c, anchors: [], aliasOf: root(c.id) };
+    if (anchorsOf.has(c.id) && keeperOf(c.id) !== c.id) return { ...c, anchors: [], aliasOf: keeperOf(c.id) };
     return c;
   }).map((c) => {
-    if (!anchorsOf.has(c.id) || root(c.id) !== c.id) return c;
-    const absorbedAnchors = live.filter((x) => x.id !== c.id && root(x.id) === c.id).flatMap((x) => x.anchors);
+    if (!anchorsOf.has(c.id) || keeperOf(c.id) !== c.id) return c;
+    const absorbedAnchors = live.filter((x) => x.id !== c.id && keeperOf(x.id) === c.id).flatMap((x) => x.anchors);
     return absorbedAnchors.length > 0 ? { ...c, anchors: [...new Set([...c.anchors, ...absorbedAnchors])] } : c;
   });
   const rows = caseRows(foldCases([...moved.values()], edited), cases);

@@ -7,7 +7,7 @@ import { describe, it, expect, vi } from "vitest";
 // Budget is not this file's subject: always-allowed, no-op hermetic seam.
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 import { synthesizeCases, type SynthesisCandidate } from "@/domains/decision/case-synthesis";
-import { applySynthesis, caseRows } from "@/domains/evidence/case-identity";
+import { applySynthesis, caseRows, foldCases } from "@/domains/evidence/case-identity";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import type { CaseSynthesis } from "@/domains/decision/llm/schemas";
 import type { ResearchCase } from "@/domains/evidence/funnel/research-evidence";
@@ -130,3 +130,15 @@ describe("the one reading a pass may buy", () => {
     const again = await synthesizeCases([...CANDIDATES].reverse(), "t_fixture", { complete: s.complete, cacheImpl }); // the same set, listed the other way round
     expect([first, again, s.calls()]).toEqual([MERGE, MERGE, 1]); });
 });
+it("keeps the FILE's survivor when the model prefers the smaller case, and an emptied case aliases to its real taker", () => {
+  // The model says keep the 1-anchor case; the file's rule (most anchors, then smaller id) keeps the 4-anchor case.
+  const big = { id: "inv_zzz_big", anchors: ["b1", "b2", "b3", "b4"] }, small = { id: "inv_aaa_small", anchors: ["s1"] };
+  const out = applySynthesis([big, small], { merges: [{ keepId: small.id, absorbIds: [big.id] }], splits: [], pageLinks: [], parentOf: [] },
+    new Map([[big.id, ["shared.example"]], [small.id, ["shared.example"]]]));
+  const alive = out.cases.filter((c) => !c.aliasOf);
+  expect([alive.map((c) => c.id), out.cases.find((c) => c.id === small.id)?.aliasOf]).toEqual([[big.id], big.id]);
+  // And a case the partition empties aliases to the case that took its last anchor, never to whoever sorts first.
+  const fold = foldCases([["t1"], ["t2"]], [
+    { id: "inv_aaa_unrelated", anchors: ["u1"] }, { id: "inv_stale", anchors: ["t1", "t2"] },
+    { id: "inv_taker", anchors: ["t1", "t2", "t3"] }]);
+  expect(fold.find((f) => f.id === "inv_taker")?.aliases).toContain("inv_stale"); });
