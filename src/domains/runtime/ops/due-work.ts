@@ -111,23 +111,27 @@ export async function evidenceRowVersion(tenantId: string, basis: string): Promi
   return Number((data as { row_version: number }).row_version) || 0;
 }
 
-/** How many applied changes have a measurement window that can run now. */
-async function measurableCount(tenantId: string, now: Date): Promise<number> {
+/**
+ * THE TWO MEASUREMENT DEBTS, off ONE read of the ledger. They used to be two independent probes and the
+ * ledger came back twice per due-work call, doubling the egress of the biggest read on this path for a
+ * count. They are also the same debt in sequence: `unverified` is a change I have never checked on the
+ * live page, and until that check lands `isDueForMeasure` refuses to measure it at all, so the first
+ * number gates the second. Free either way, and fail-soft to zero through the caller's `settled`.
+ */
+async function measurementDebt(tenantId: string, now: Date): Promise<{ measurable: number; unverified: number }> {
   const [{ loadShippedChangesForTenant, readLastFinalizedDate }, { isDueForMeasure }] = await Promise.all([
     import("@/domains/measurement/proof-gsc"),
     import("@/domains/measurement/proof-gsc/measure-lifecycle"),
   ]);
   const [records, lastFinal] = await Promise.all([loadShippedChangesForTenant(tenantId), readLastFinalizedDate(tenantId)]);
-  return records.filter((r) => isDueForMeasure(r, lastFinal, now)).length;
-}
-
-/** How many changes the operator marked implemented that I have never checked on their live page. A
- *  shipment with no verification on file is owed work in its own right: measurement does not start until
- *  the implementation is verified or explicitly operator-confirmed, so an unverified shipment is a
- *  measurement that can never begin. Lean: it asks for ONE row, because one is enough to owe the work. */
-async function unverifiedShipmentCount(tenantId: string): Promise<number> {
-  const { shipmentsAwaitingVerification } = await import("@/domains/measurement/verify-shipment");
-  return (await shipmentsAwaitingVerification(tenantId, 1)).length;
+  const today = now.toISOString().slice(0, 10);
+  return {
+    measurable: records.filter((r) => isDueForMeasure(r, lastFinal, now)).length,
+    // Never checked, or a site that did not answer whose one promised retry day has arrived: the same
+    // rule the verifier itself applies, read off the rows already in hand.
+    unverified: records.filter((r) => !!r.implementedAt
+      && (r.verification == null || (!!r.verification.recheckAfter && today >= r.verification.recheckAfter))).length,
+  };
 }
 
 /** Is the published customer release genuinely stale (or missing)? */
@@ -144,8 +148,7 @@ type DueWorkDeps = {
   basis?: (tenantId: string) => Promise<string | null>;
   evidenceVersion?: (tenantId: string, basis: string) => Promise<number | null>;
   surfaceStale?: (tenantId: string, nowMs: number) => Promise<boolean>;
-  measurable?: (tenantId: string, now: Date) => Promise<number>;
-  unverified?: (tenantId: string) => Promise<number>;
+  debt?: (tenantId: string, now: Date) => Promise<{ measurable: number; unverified: number }>;
 };
 
 const settled = async <T,>(p: Promise<T>, fallback: T): Promise<{ value: T; ok: boolean }> =>
@@ -172,11 +175,10 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     settled((deps.basis ?? accountBasis)(tenantId), null as string | null),
   ]);
 
-  const [version, surface, measurable, unverified] = await Promise.all([
+  const [version, surface, debt] = await Promise.all([
     basis.value ? settled((deps.evidenceVersion ?? evidenceRowVersion)(tenantId, basis.value), null as number | null) : Promise.resolve({ value: null, ok: false }),
     settled((deps.surfaceStale ?? surfaceIsStale)(tenantId, nowMs), false),
-    settled((deps.measurable ?? measurableCount)(tenantId, now), 0),
-    settled((deps.unverified ?? unverifiedShipmentCount)(tenantId), 0),
+    settled((deps.debt ?? measurementDebt)(tenantId, now), { measurable: 0, unverified: 0 }),
   ]);
 
   const progress = run.value?.progress ?? {};
@@ -215,9 +217,9 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   if (active.length > 0) due.push("acquire_case_evidence");
   if (notesMoved) due.push("decide_and_prepare");
   // TWO SEPARATE DEBTS UNDER ONE NAME, and the first one gates the second: a change I have never checked on
-  // the live page cannot be measured at all, and a change whose window has closed is owed its read. Either
-  // one makes the unit due; neither costs anything to answer.
-  if (measurable.value > 0 || unverified.value > 0) due.push("verify_and_measure");
+  // the live page cannot be measured at all (isDueForMeasure refuses it), and a change whose window has
+  // closed is owed its read. Either one makes the unit due; both come off the one ledger read above.
+  if (debt.value.measurable > 0 || debt.value.unverified > 0) due.push("verify_and_measure");
   if (surface.value) due.push("publish_surfaces");
 
   // Trustworthy ONLY when the two reads every rule leans on came back: the run row (the frozen

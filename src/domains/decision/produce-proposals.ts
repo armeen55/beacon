@@ -50,6 +50,8 @@ export type ProduceProposalsOptions = ProposeOptions & {
   intersection?: IntersectionEvidence;
   /** Hard cap on how many opportunities we draft this pass (budget guard). */
   maxDrafts?: number;
+  /** The pages still being measured, when the caller knows them: preferred over any derivation here. */
+  measuringPagePaths?: readonly string[];
   /** Persist each landed proposal (default true). Tests pass false to stay pure. */
   persist?: boolean;
 };
@@ -124,6 +126,15 @@ const pageKeys = (pageUrl: string | null | undefined): string[] => {
   }
 };
 
+/** The pages still being measured: what the caller passed, else the Shipment STAMPS (Decision -> Measurement is the
+ *  allowed direction and that store owns the answer), else the drafted dates of the applied rows in hand. Fail-soft. */
+async function measuringPaths(tenantId: string, existing: Map<string, ChangeProposal>, opts: ProduceProposalsOptions): Promise<string[]> {
+  if (opts.measuringPagePaths) return [...opts.measuringPagePaths];
+  const shipped = await import("@/domains/measurement/proof-gsc/shipped-change-store")
+    .then((m) => m.pagesUnderMeasurementFromShipments(tenantId, opts.now)).catch(() => [] as string[]);
+  return shipped.length > 0 ? shipped : pagesUnderMeasurement(existing.values(), opts.now);
+}
+
 /**
  * Produce (and by default persist) ranked ChangeProposals for one tenant from
  * cached evidence only. Never throws on a single-source outage: a failed source
@@ -159,8 +170,10 @@ export async function produceProposalsForTenant(
   const existing = persist
     ? await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>())
     : new Map<string, ChangeProposal>();
-  /** THE measurement context, derived exactly once and shared by the diagnosis and both rankings. */
-  const measuring = { measuringPagePaths: pagesUnderMeasurement(existing.values(), opts.now) };
+  /** THE measurement context, derived once and shared by the diagnosis and both rankings. THE STAMP IS WHAT
+   *  RANKS: a Shipment holds the moment the operator implemented the change, which is what the 28-day window
+   *  is read from, while a proposal's `createdAt` is only the day it was drafted and can be weeks off. */
+  const measuring = { measuringPagePaths: await measuringPaths(tenantId, existing, opts) };
 
   // THE RESEARCH PACKETS, over the same evidence this pass judges. Non-actionable by
   // construction, so building them here cannot add a candidate, a proposal or a draft: they

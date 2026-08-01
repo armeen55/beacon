@@ -12,7 +12,7 @@ import {
   markRecommendedEditsAsShipped,
 } from "@/domains/decision";
 import { loadChangeProposal, markProposalApplied, resolveCurrentBasis, type ChangeProposal } from "@/domains/decision";
-import { captureChangeMeta, recordShippedChange, upsertShippedChange } from "@/domains/measurement";
+import { captureChangeMeta, loadShippedChanges, recordShippedChange, upsertShippedChange } from "@/domains/measurement";
 import { invalidateCoreSurfaces } from "../surface-release";
 
 /**
@@ -54,11 +54,29 @@ function shippedVersionOf(p: ChangeProposal): string {
  * and the version applied, so a retry upserts itself and the store keeps the stamp and
  * the starting numbers it already holds. Returns false when nothing durable landed, and
  * the caller then refuses to flip anything.
+ *
+ * A SECOND PRESS ON THE SAME CHANGE DOES NOTHING AT ALL. It used to rebuild the whole record:
+ * the live check I had already made was erased back to null and re-owed, the ship date moved to
+ * today, and the displayed starting numbers were recomputed over a window that now included days
+ * AFTER the change, so pressing twice quietly flattered the result of the change itself. The
+ * record on file is the record. Only a genuinely new version of the copy is a new Shipment, and
+ * that is a different id, so it makes its own record without touching this one.
  */
 async function recordShipment(
-  tenantId: string, proposal: ChangeProposal, componentKinds?: readonly string[],
+  tenantId: string, proposal: ChangeProposal,
+  opts: { componentKinds?: readonly string[]; operatorConfirmed?: boolean; overrideReason?: string | null } = {},
 ): Promise<boolean> {
+  const componentKinds = opts.componentKinds;
   try {
+    const version = shippedVersionOf(proposal);
+    const held = (await loadShippedChanges().catch(() => []))
+      .find((r) => r.proposalId === proposal.id && r.proposalVersion === version);
+    if (held) {
+      log.info("markProposalImplemented: this exact change is already recorded, so I left its record alone", {
+        proposalId: proposal.id, shipment: held.id,
+      });
+      return true;
+    }
     // Every component unless the operator named the ones they actually applied. An
     // atomic change has no bundle, so the change itself is its one component.
     // THE EXACT COPY TRAVELS WITH THE SHIPMENT. Without each component's own wording the live
@@ -90,7 +108,7 @@ async function recordShipment(
       notes: null,
       shipment: {
         proposalId: proposal.id,
-        proposalVersion: shippedVersionOf(proposal),
+        proposalVersion: version,
         basis: proposal.basis ?? null,
         // A new page answers a research case; an edit's subject is its own page.
         caseId: proposal.kind === "new_page" ? (proposal.id.split("::")[1]?.trim().toLowerCase() || null) : null,
@@ -98,6 +116,12 @@ async function recordShipment(
         componentsApplied,
         implementedAt: now,
         preChangeContentHash: meta?.contentHash ?? null,
+        // THE OVERRIDE TRAVELS WITH THE PRESS. When the operator states outright that a change is live, the
+        // Shipment carries that answer and the live check is never owed for it. Absent, which is the normal
+        // case, Beacon goes and looks at the page itself before it says anything.
+        ...(opts.operatorConfirmed === true
+          ? { operatorConfirmed: true, operatorOverrideReason: opts.overrideReason?.trim() || null }
+          : {}),
       },
     });
     await upsertShippedChange(record);
@@ -110,10 +134,21 @@ async function recordShipment(
   }
 }
 
+/**
+ * DEFERRED TO PHASE 8, and named so nobody has to guess what is missing: the CONTROLS. The Changes card
+ * still presses this with a proposal id and nothing else, because the component PICKER (tick the pieces you
+ * actually applied) and the OVERRIDE control (say this is live and skip the check, with your reason) are
+ * that phase's surface work. Both are honest arguments here today, so the day those controls are built they
+ * hand this action a value it already records rather than needing the action reopened.
+ */
 export async function markProposalImplementedAction(args: {
   proposalId: string;
   /** Which components the operator actually applied. Absent or empty means all of them. */
   componentKinds?: string[];
+  /** The operator states this is live and asks Beacon not to check the page. Never a default. */
+  operatorConfirmed?: boolean;
+  /** Why they overrode the check, in their own words. */
+  overrideReason?: string;
 }): Promise<MarkProposalImplementedResponse> {
   const action = "markProposalImplemented";
   const t0 = Date.now();
@@ -144,7 +179,9 @@ export async function markProposalImplementedAction(args: {
       return { success: false, error: "I set this change aside, so I am not recording it. Open Changes for the work I stand behind now." };
     }
     // SHIPMENT FIRST, FLIP SECOND. Never the other way around.
-    if (!(await recordShipment(tenantId, stored, args.componentKinds))) {
+    if (!(await recordShipment(tenantId, stored, {
+      componentKinds: args.componentKinds, operatorConfirmed: args.operatorConfirmed, overrideReason: args.overrideReason,
+    }))) {
       return { success: false, error: "I couldn't start measuring this change, so I haven't recorded it as done. Press it again in a moment." };
     }
     const ok = await markProposalApplied(tenantId, args.proposalId);

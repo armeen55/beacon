@@ -35,8 +35,11 @@ alter table public.shipped_change_proof
   add column if not exists case_id                 text,
   -- What applying the bundle was meant to achieve, in the bundle's own one sentence.
   add column if not exists bundle_hypothesis       text,
-  -- [{ kind, label }] the operator says they applied. A SUBSET of the bundle is a partial
-  -- bundle, and it is stored as one, so measurement never claims more shipped than did.
+  -- [{ kind, label, after }] the operator says they applied, where `after` is the exact copy that
+  -- component carried (null when the change holds none of its own). A SUBSET of the bundle is a
+  -- partial bundle, and it is stored as one, so measurement never claims more shipped than did.
+  -- The copy travels with the record because the live check compares the page against it: strip it
+  -- and every bundle verification quietly degrades to "I cannot tell".
   add column if not exists components_applied      jsonb,
   -- THE STAMP. Write-once.
   add column if not exists implemented_at          timestamptz,
@@ -45,7 +48,9 @@ alter table public.shipped_change_proof
   -- { search: {clicks, impressions, ctr, position, windowDays}, ai: {day, checked, mentioning}|null,
   --   capturedAt }. Write-once.
   add column if not exists shipment_baseline       jsonb,
-  -- { status, checkedAt, components: [{ kind, state, note }] }. NULL = the check is due.
+  -- { status, checkedAt, components: [{ kind, state, note }], recheckAfter }. NULL = the check is
+  -- due. recheckAfter is a UTC day and is set ONLY when the site did not answer at all: that one
+  -- ending earns a single retry on a later day, because a timeout says nothing about the change.
   add column if not exists verification            jsonb,
   -- Why the operator overrode what the check found, in their own words.
   add column if not exists operator_override_reason text;

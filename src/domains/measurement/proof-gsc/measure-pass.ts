@@ -247,11 +247,29 @@ type ShipmentOrigin = {
   basis: string | null;
   caseId: string | null;
   bundleHypothesis: string;
-  /** The components the operator says they applied. A subset = a partial bundle. */
-  componentsApplied: Array<{ kind: string; label: string }>;
+  /** The components the operator says they applied, each with the exact copy it carried. A subset = a
+   *  partial bundle, and the copy is what the live check compares the page against. */
+  componentsApplied: Array<{ kind: string; label: string; after?: string | null }>;
   implementedAt: string;
   preChangeContentHash: string | null;
+  /** THE OVERRIDE, and only the override: the operator states this is live and asks me not to argue. */
+  operatorConfirmed?: boolean;
+  /** Why they overrode the check, in their own words. */
+  operatorOverrideReason?: string | null;
 };
+
+/** The operator's own confirmation, written as the verification itself so the verifier never fetches this
+ *  page and never claims to have checked anything. Never a default, and never a stand-in for a check that
+ *  failed: it exists for the one case where the operator tells me on purpose. */
+function operatorConfirmedVerification(
+  components: ShipmentOrigin["componentsApplied"], at: string,
+): NonNullable<ShippedChangeRecord["verification"]> {
+  return {
+    status: "operator_confirmed", checkedAt: at,
+    components: components.map((c) => ({ kind: c.kind, state: "unknown" as const,
+      note: "You confirmed this one yourself, so I did not check the page." })),
+  };
+}
 
 /**
  * Capture a 28-day baseline + create the ledger record for a manually-shipped
@@ -318,9 +336,12 @@ export async function recordShippedChange(args: {
     shipmentBaseline: ship
       ? { search: searchBaseline, ai: await latestAiPresence(args.tenantId), capturedAt: now.toISOString() }
       : null,
-    // Null IS the due marker the verification runtime reads.
-    verification: null,
-    operatorOverrideReason: null,
+    // Null IS the due marker the verification runtime reads. The ONE exception is the operator's explicit
+    // override, which is an answer at mark time, so the live check is not owed and never runs.
+    verification: ship?.operatorConfirmed === true
+      ? operatorConfirmedVerification(ship.componentsApplied, now.toISOString())
+      : null,
+    operatorOverrideReason: ship?.operatorOverrideReason ?? null,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

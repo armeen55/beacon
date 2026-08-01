@@ -212,17 +212,45 @@ describe("markProposalImplementedAction — the shipment transaction", () => {
     expect(mocks.markProposalApplied).not.toHaveBeenCalled();
   });
 
-  it("a retried press asks for the SAME shipment, so nothing is recorded twice", async () => {
+  it("a second press on the same change does NOTHING: the record I already hold stands", async () => {
     await markProposalImplementedAction({ proposalId: PROPOSAL_ID });
+    const version = mocks.recordShippedChange.mock.calls[0][0].shipment.proposalVersion;
+    // The change is now on file, checked, with its own ship date and starting numbers.
+    mocks.loadShippedChanges.mockResolvedValue([{
+      id: "shp_1", proposalId: PROPOSAL_ID, proposalVersion: version, shippedAt: "2026-06-19T00:00:00.000Z",
+      baseline: { clicks: 9 }, verification: { status: "verified", checkedAt: "2026-06-20T00:00:00.000Z", components: [] },
+    }]);
     mocks.loadChangeProposal.mockResolvedValue(proposal({ status: "applied" })); // the flip already happened
+    mocks.recordShippedChange.mockClear();
+    mocks.upsertShippedChange.mockClear();
+    // Success, because the change really is recorded as done. And nothing is rebuilt: rebuilding it erased
+    // the live check back to null, moved the ship date to today, and recomputed the displayed starting
+    // numbers over a window that included the days AFTER the change.
+    expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID })).success).toBe(true);
+    expect(mocks.recordShippedChange).not.toHaveBeenCalled();
+    expect(mocks.upsertShippedChange).not.toHaveBeenCalled();
+  });
+
+  it("a genuinely new version of the copy is a new Shipment, and leaves the old one alone", async () => {
     await markProposalImplementedAction({ proposalId: PROPOSAL_ID });
-    const versions = mocks.recordShippedChange.mock.calls.map((c: unknown[]) => (c[0] as { shipment: { proposalVersion: string } }).shipment.proposalVersion);
-    expect(versions[1]).toBe(versions[0]);
+    mocks.loadShippedChanges.mockResolvedValue([{ id: "shp_1", proposalId: PROPOSAL_ID, proposalVersion: "an-older-version" }]);
+    mocks.recordShippedChange.mockClear();
+    expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID })).success).toBe(true);
+    expect(mocks.recordShippedChange).toHaveBeenCalledOnce();
   });
 
   it("records only the components the operator says they applied", async () => {
     expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID, componentKinds: ["title"] })).success).toBe(true);
     expect(mocks.recordShippedChange.mock.calls[0][0].shipment.componentsApplied).toEqual([{ kind: "title", label: "Page title", after: null }]);
+  });
+
+  it("carries the operator's own confirmation through, so an override is expressible and never a default", async () => {
+    await markProposalImplementedAction({ proposalId: PROPOSAL_ID, operatorConfirmed: true, overrideReason: "I pasted it in myself." });
+    const { shipment } = mocks.recordShippedChange.mock.calls[0][0];
+    expect([shipment.operatorConfirmed, shipment.operatorOverrideReason]).toEqual([true, "I pasted it in myself."]);
+    mocks.recordShippedChange.mockClear();
+    await markProposalImplementedAction({ proposalId: PROPOSAL_ID });
+    expect(mocks.recordShippedChange.mock.calls[0][0].shipment.operatorConfirmed).toBeUndefined();
   });
 
   it.each([

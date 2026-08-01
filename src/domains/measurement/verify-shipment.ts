@@ -16,10 +16,12 @@ import "server-only";
  * missing when the truth is that I cannot see that kind of change from outside the page (a noindex sent in a
  * header, structured data a raw fetch never renders): that is `unknown`, said out loud, every time.
  *
- * WHY IT IS NOT A LOOP. A verification is written ONCE per shipment, including when the page could not be
- * reached at all, so a page that refuses me is never refetched on the next visit, or the one after that.
- * That is the promise the owned-read retry memory makes, kept by a simpler mechanism: the shipment stops
- * being due. Bounded to three shipments per pass on top of that.
+ * WHY IT IS NOT A LOOP. A verification is written ONCE per shipment, so a page that refuses me is never
+ * refetched on the next visit, or the one after that. That is the promise the owned-read retry memory
+ * makes, kept by a simpler mechanism: the shipment stops being due. The single exception is a site that
+ * did not answer at all, which is a fact about the transport and not about the change, so it earns ONE
+ * retry on a later day and then stands. Bounded to three shipments per pass on top of that, and to one
+ * read per address inside a pass whose answers are not landing.
  */
 
 import { loadBusinessProfile } from "@/domains/account";
@@ -47,6 +49,8 @@ type VerifiableShipment = {
   url: string;
   components: Array<{ kind: string; after: string }>;
   operatorConfirmed?: boolean;
+  /** This is the ONE retry a site that did not answer earns. A recheck's own answer is final either way. */
+  recheck?: boolean;
 };
 
 type VerifyDeps = {
@@ -100,9 +104,18 @@ function classify(component: { kind: string; after: string }, live: LiveRead): {
         : judged("differs", `Your ${what} is live but it is not the wording I gave you.`);
   const headings = [...(snap.h2_list ?? []), ...(snap.h3_list ?? [])].map(norm).filter(Boolean);
   const wanted = opener(firstLine(proposed), 8);
-  // A heading matches on the opening words of the proposed one, either way round, but a SHORT live heading
-  // never swallows a long proposal: "faq" would otherwise match every section a page could ever be asked for.
-  const headingHit = !!wanted && headings.some((h) => h.includes(wanted) || (h.length >= 8 && wanted.includes(h)));
+  const wantedWords = wanted.split(" ").filter(Boolean);
+  // A HEADING VERIFIES A SECTION ONLY IF IT COVERS IT. Either the proposed heading is on the page in full,
+  // or the live heading carries at least half of its words and never fewer than three. Measured by chars,
+  // a two word fragment ("our prices") passed for a nine word section, so a page that answered almost none
+  // of what was asked for read as verified.
+  const covers = (h: string): boolean => {
+    if (h.includes(wanted)) return true;
+    const words = new Set(h.split(" ").filter(Boolean));
+    const shared = wantedWords.filter((w) => words.has(w)).length;
+    return shared >= Math.max(3, Math.ceil(wantedWords.length / 2));
+  };
+  const headingHit = !!wanted && headings.some(covers);
   // A link is compared as an ADDRESS, never as a string: a relative href on the page and an absolute one in
   // the proposal are the same link, and www or a trailing slash is not a difference.
   const absolute = (href: string): string => { try { return new URL(href, live.requestedUrl).toString(); } catch { return href; } };
@@ -153,7 +166,12 @@ function classify(component: { kind: string; after: string }, live: LiveRead): {
       if (!live.finalUrl) return judged("unknown", "I could not see where that address ended up.");
       const moved = canonicalUrlKey(live.finalUrl) !== canonicalUrlKey(live.requestedUrl);
       if (!moved) return judged("missing", "That address still serves its own page, so nothing is forwarding yet.");
-      return !target || canonicalUrlKey(live.finalUrl) === canonicalUrlKey(target)
+      // MOVED IS NOT ARRIVED. A forward with no destination named could be landing anywhere, a login wall
+      // included, so it is honestly unknown rather than a pass I cannot stand behind.
+      if (!targetKey) {
+        return judged("unknown", "It forwards somewhere, and the proposal named no destination, so I cannot confirm it forwards where you wanted.");
+      }
+      return canonicalUrlKey(live.finalUrl) === targetKey
         ? judged("verified", "That address now forwards visitors on.")
         : judged("differs", "That address forwards somewhere other than where I asked.");
     }
@@ -192,17 +210,23 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   }
   const requested = /^https?:\/\//i.test(shipment.url) ? shipment.url : `https://${shipment.url}`;
   const fetchPage = deps.fetchPage ?? fetchPageHtml;
+  // THE ONE ANSWER THAT IS NOT FINAL. A site that did not answer at all says nothing about the change, so
+  // it earns exactly one retry on a LATER day. Every other ending is written once: a robots denial is the
+  // site's standing instruction, a missing page and a difference are facts about the page itself.
+  const transportBlocked = (note: string): ShipmentVerification => ({
+    status: "blocked", checkedAt, components: allUnknown(shipment, note),
+    recheckAfter: shipment.recheck === true ? null : new Date(now() + 86_400_000).toISOString().slice(0, 10),
+  });
   let res: Awaited<ReturnType<typeof fetchPageHtml>>;
   try { res = await fetchPage(requested, new Map(), {}); }
-  catch { return { status: "blocked", checkedAt, components: allUnknown(shipment, "Your website did not answer me, so I could not check this change.") }; }
+  catch { return transportBlocked("Your website did not answer me, so I could not check this change."); }
   if (!res.ok) {
     if (/^http_(404|410)$/.test(res.detail ?? "")) {
       return { status: "not_found", checkedAt, components: allUnknown(shipment, "There is no page at that address right now.") };
     }
-    return { status: "blocked", checkedAt,
-      components: allUnknown(shipment, res.reason === "robots_blocked"
-        ? "Your site's robots rules ask me not to read this page, so I did not."
-        : "Your website did not answer me, so I could not check this change.") };
+    return res.reason === "robots_blocked"
+      ? { status: "blocked", checkedAt, components: allUnknown(shipment, "Your site's robots rules ask me not to read this page, so I did not.") }
+      : transportBlocked("Your website did not answer me, so I could not check this change.");
   }
   const profile = deps.loadProfile ? await deps.loadProfile(tenantId).catch(() => null) : await loadBusinessProfile(tenantId).catch(() => null);
   const snap = extractPageSnapshot(res.html, requested, pageIdFor(shipment.url), tenantId, res.status, profile ?? undefined);
@@ -233,8 +257,10 @@ function componentsOf(r: ShippedChangeRecord): VerifiableShipment["components"] 
   return applied.map((c) => ({ kind: c.kind, after: (c.after ?? "").trim() || (lone || c.kind === r.actionType ? copy : "") }));
 }
 
-/** One Shipment row, as verification reads it. */
-const toVerifiable = (r: ShippedChangeRecord): VerifiableShipment => ({ id: r.id, url: r.page, components: componentsOf(r) });
+/** One Shipment row, as verification reads it. A row that already holds an answer is only ever here as
+ *  the one retry a silent site earns, and it is told so, because a recheck's answer is final. */
+const toVerifiable = (r: ShippedChangeRecord): VerifiableShipment =>
+  ({ id: r.id, url: r.page, components: componentsOf(r), ...(r.verification != null ? { recheck: true } : {}) });
 
 const loadRows = (tenantId: string, deps: VerifyDeps): Promise<ShippedChangeRecord[]> =>
   (deps.loadShipments ?? loadShippedChangesForTenant)(tenantId).catch(() => []);
@@ -244,8 +270,15 @@ const loadRows = (tenantId: string, deps: VerifyDeps): Promise<ShippedChangeReco
 export async function shipmentsAwaitingVerification(tenantId: string, limit = MAX_VERIFICATIONS_PER_PASS, deps: VerifyDeps = {}): Promise<VerifiableShipment[]> {
   if (!tenantId?.trim()) return [];
   const rows = await loadRows(tenantId, deps);
+  const today = new Date(deps.now ? deps.now() : Date.now()).toISOString().slice(0, 10);
+  /** Never checked, or a site that did not answer whose one promised retry day has arrived. */
+  const due = (r: ShippedChangeRecord): boolean => {
+    if (r.verification == null) return true;
+    const at = r.verification.recheckAfter ?? null;
+    return !!at && today >= at;
+  };
   return rows
-    .filter((r) => !!r?.id && !!r.page && !!r.implementedAt && r.verification == null)
+    .filter((r) => !!r?.id && !!r.page && !!r.implementedAt && due(r))
     .sort((a, b) => String(b.implementedAt).localeCompare(String(a.implementedAt)))
     .slice(0, Math.max(1, Math.min(limit, MAX_VERIFICATIONS_PER_PASS)))
     .map(toVerifiable);
@@ -258,13 +291,20 @@ export async function shipmentsAwaitingVerification(tenantId: string, limit = MA
 export async function verifyDueShipments(tenantId: string, deps: VerifyDeps = {}): Promise<number> {
   const due = await shipmentsAwaitingVerification(tenantId, MAX_VERIFICATIONS_PER_PASS, deps);
   let written = 0;
+  /** BOUNDED IN-RUN SKIP, carried on the pass and nowhere else. An answer that could not be SAVED means the
+   *  shipment is still due, so a second shipment at the SAME address would send me back to the customer's
+   *  website inside one pass for a result I already know I cannot store. One read per address, per pass. */
+  const unsavable = new Set<string>();
   for (const shipment of due) {
+    const address = canonicalUrlKey(shipment.url);
+    if (unsavable.has(address)) continue;
     const verification = await verifyShipment(tenantId, shipment, deps).catch(() => null);
     if (!verification) continue;
     // A verification that could not be SAVED is not a verification: the shipment stays due and I check it
     // again on the next visit, which is the ONE case where the same page is read twice.
     const saved = await (deps.record ?? recordVerification)(tenantId, shipment.id, verification).catch(() => false);
     if (saved) written += 1;
+    else unsavable.add(address);
     log.info("[verify-shipment] checked what you marked as done", { tenantId, shipment: shipment.id, status: verification.status, saved });
   }
   return written;
@@ -277,8 +317,11 @@ export async function verifyDueShipments(tenantId: string, deps: VerifyDeps = {}
 export async function shipmentBustedAt(tenantId: string, url: string, deps: VerifyDeps = {}): Promise<string | null> {
   if (!tenantId?.trim() || !url?.trim()) return null;
   const key = canonicalUrlKey(url);
+  // ONE ADDRESS, COMPARED AS AN ADDRESS. A path suffix test made the home page ("/", which every address
+  // ends with) bust every page on the site, and /guide bust /nowruz-guide, so one change threw away every
+  // body Beacon held. Only the page the change was made to is busted by it.
   const stamps = (await loadRows(tenantId, deps))
-    .filter((r) => !!r.implementedAt && (canonicalUrlKey(r.page) === key || (!!r.path && key.endsWith(r.path.replace(/\/+$/, "")))))
+    .filter((r) => !!r.implementedAt && canonicalUrlKey(r.page) === key)
     .map((r) => r.implementedAt!)
     .filter((at) => Number.isFinite(Date.parse(at)))
     .sort();

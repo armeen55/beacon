@@ -558,7 +558,7 @@ describe("the due-work runtime: a day is not a unit of work", () => {
 describe("dueWork: what is genuinely owed, computed from persisted state only", () => {
   const parked = (ms: number) => ({ basis: "b1", topics: [{ topicKey: "t1", query: "haft seen", requirement: "exact_serp", retryAfter: new Date(ms).toISOString() }] });
   const base = { staleSources: async () => 0, checks: async () => ({ done: 4, total: 4, due: 0 }), basis: async () => "b1",
-    evidenceVersion: async () => 7, surfaceStale: async () => false, measurable: async () => 0, unverified: async () => 0,
+    evidenceVersion: async () => 7, surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }),
     run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY) } }) };
 
   it("owes nothing when the sources are fresh, today's round has landed, the notes have not moved past the last decision, and the rest is waiting on a date I promised", async () => {
@@ -573,10 +573,10 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     expect(await due({ run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW - 1) } }) })).toEqual(["acquire_case_evidence"]);
     // The notes moved past what the last decision consumed: new evidence, so a plan and a decision are owed.
     expect(await due({ evidenceVersion: async () => 8 })).toEqual(["plan_cases", "decide_and_prepare"]);
-    expect(await due({ measurable: async () => 3 })).toEqual(["verify_and_measure"]);
+    expect(await due({ debt: async () => ({ measurable: 3, unverified: 0 }) })).toEqual(["verify_and_measure"]);
     // A change marked implemented that has never been checked on the live page owes the same unit: until it
-    // is verified there is nothing honest to measure.
-    expect(await due({ unverified: async () => 1 })).toEqual(["verify_and_measure"]);
+    // is verified there is nothing honest to measure. ONE ledger read answers both.
+    expect(await due({ debt: async () => ({ measurable: 0, unverified: 1 }) })).toEqual(["verify_and_measure"]);
     expect(await due({ surfaceStale: async () => true })).toEqual(["publish_surfaces"]);
     // An OPEN run with no plan bound to this basis owes one; an idle account with no plan owes nothing.
     expect(await due({ run: async () => ({ open: true, progress: { decided: { basis: "b1", rowVersion: 7 } } }) })).toEqual(["plan_cases"]);

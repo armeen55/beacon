@@ -78,6 +78,14 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("section_remove", "What goes on the table")).toBe("differs");
   });
 
+  it("never lets a two-word heading stand in for the section that was actually asked for", async () => {
+    const fragment = serve(PAGE.replace("<h2>What goes on the table</h2>", "<h2>The table</h2>"));
+    // "The table" is a fragment of the proposed heading, not a cover of it: two of eight words is not the section.
+    expect(await state("section_add", "The table settings every family in Tehran uses at Nowruz", fragment)).toBe("missing");
+    // Half the words or more IS the section, however the operator reworded the rest of it.
+    expect(await state("section_add", "What goes on the table at Nowruz and why", serve(PAGE))).toBe("verified");
+  });
+
   it("compares an internal link as an address, and says unknown when it could not read the page's links", async () => {
     expect(await state("internal_link_add", "Link to https://own.com/haft-seen from the opening")).toBe("verified");
     expect(await state("internal_link_add", "Link to /haft-seen")).toBe("verified"); // relative and absolute are one address
@@ -104,6 +112,10 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("redirect", "Forward it to https://own.com/haft-seen", serve(PAGE, { finalUrl: "https://own.com/haft-seen" }))).toBe("verified");
     expect(await state("redirect", "Forward it to https://own.com/haft-seen", serve(PAGE, { finalUrl: URL_ }))).toBe("missing");
     expect(await state("redirect", "Forward it to https://own.com/haft-seen")).toBe("unknown"); // no final address reported
+    // MOVED IS NOT ARRIVED. A forward with no destination named could be landing on a login wall.
+    const moved = await check([{ kind: "redirect", after: "Set up a forward" }], serve(PAGE, { finalUrl: "https://own.com/login" }));
+    expect(moved.components[0]!.state).toBe("unknown");
+    expect(moved.components[0]!.note).toContain("named no destination");
     const noindex = serve(PAGE.replace("<head>", '<head><meta name="robots" content="noindex, follow"/>'));
     expect(await state("noindex", "Take it out of search", noindex)).toBe("verified");
     expect(await state("noindex", "Take it out of search")).toBe("unknown"); // a header I cannot see could carry it
@@ -184,6 +196,35 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     ROWS.push(row({ id: "a" }));
     expect(await verifyDueShipments(T, { ...base, fetchPage: serve(PAGE), record: async () => false })).toBe(0);
   });
+
+  it("stops reading an address inside the same pass once an answer for it could not be saved", async () => {
+    ROWS.push(row({ id: "a" }), row({ id: "b" }), row({ id: "c" })); // three changes, one page
+    let reads = 0;
+    const written = await verifyDueShipments(T, {
+      ...base, record: async () => false,
+      fetchPage: (async () => { reads += 1; return { ok: true as const, html: PAGE, status: 200 }; }),
+    });
+    expect([written, reads]).toEqual([0, 1]);
+  });
+
+  it("gives a site that did not answer ONE retry on a later day, and a robots denial none at all", async () => {
+    const dead = await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout"));
+    expect([dead.status, dead.recheckAfter]).toEqual(["blocked", "2026-08-01"]);
+    const robots = await check([{ kind: "title", after: "x" }], refuse("robots_blocked"));
+    expect([robots.status, robots.recheckAfter ?? null]).toEqual(["blocked", null]);
+    // The retry's own answer is final, whatever it is: one retry is all there ever is.
+    const again = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "x" }], recheck: true },
+      { ...base, fetchPage: refuse("fetch_failed", "timeout") });
+    expect(again.recheckAfter ?? null).toBeNull();
+  });
+
+  it("owes that retry only once the promised day arrives, and never owes one for a robots denial", async () => {
+    const blocked = (recheckAfter: string | null) => ({ status: "blocked", checkedAt: "2026-07-30T09:00:00Z", components: [], recheckAfter });
+    ROWS.push(row({ id: "waiting", verification: blocked("2026-08-01") }), row({ id: "refused", verification: blocked(null) }));
+    expect(await shipmentsAwaitingVerification(T, 3, { now: () => NOW })).toEqual([]); // 2026-07-31: not yet
+    const tomorrow = await shipmentsAwaitingVerification(T, 3, { now: () => NOW + DAY });
+    expect(tomorrow.map((s) => [s.id, s.recheck])).toEqual([["waiting", true]]);
+  });
 });
 
 describe("a change the operator implemented busts that page's freshness", () => {
@@ -196,6 +237,15 @@ describe("a change the operator implemented busts that page's freshness", () => 
     expect(await shipmentBustedAt(T, URL_)).toBe("2026-07-29T09:00:00Z");
     expect(await shipmentBustedAt(T, "https://own.com/nothing")).toBeNull();
     expect(await shipmentBustedAt(T, "")).toBeNull();
+  });
+
+  it("busts the page that was changed and no other: a home page change does not throw away the whole site", async () => {
+    ROWS.push({ id: "home", page: "https://own.com/", path: "/", implementedAt: "2026-07-30T09:00:00Z" });
+    expect(await shipmentBustedAt(T, "https://own.com/")).toBe("2026-07-30T09:00:00Z");
+    expect(await shipmentBustedAt(T, URL_)).toBeNull();
+    // Nor does a change to /guide bust /nowruz-guide, which merely ends with the same letters.
+    ROWS.push({ id: "guide", page: "https://own.com/guide", path: "/guide", implementedAt: "2026-07-30T09:00:00Z" });
+    expect(await shipmentBustedAt(T, "https://own.com/nowruz-guide")).toBeNull();
   });
 
   it("forces a re-read of a body that is still inside its freshness window but older than the change", async () => {

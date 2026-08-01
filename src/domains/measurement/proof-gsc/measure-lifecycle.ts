@@ -223,18 +223,30 @@ export function maturityLabelForRecord(
   return proofMaturityLabel(record.verdict, basisDay);
 }
 
+/** The answers that let measurement begin: I saw the change on the page, I saw part of it, or the
+ *  operator told me on purpose that it is live. Product Truth: "Start measurement only after
+ *  implementation is verified or explicitly operator-confirmed." */
+const MEASURABLE_VERIFICATION: ReadonlySet<string> = new Set(["verified", "partially_verified", "operator_confirmed"]);
+
 /**
  * Is this record worth re-measuring now? PURE. True when a proof window can
  * transition ran:false → true since the last measure (the GSC finalized
  * watermark has advanced past a window's last day). Settled records still
  * re-check inside the 28d window (a 7d "won" can flip at 28d); once fully aged
  * out they're done.
+ *
+ * THE GATE COMES FIRST. A Shipment whose change I have not found on the live page is not a
+ * measurement waiting to run, it is a claim: measuring it would attribute whatever search does
+ * next to work that may never have landed. So a record carrying the stamp must also carry an
+ * answer that says the change is there. A pre-Shipment record has no stamp and no answer to wait
+ * for, and stays measurable exactly as it always was.
  */
 export function isDueForMeasure(
   record: ShippedChangeRecord,
   lastFinalizedDate: string | null,
   now: Date = new Date(),
 ): boolean {
+  if (record.implementedAt != null && !MEASURABLE_VERIFICATION.has(record.verification?.status ?? "")) return false;
   if (lastFinalizedDate == null) return false; // no finalized GSC data → can't measure
   if (ageDaysOf(record, now) > MAX_MEASURE_WINDOW_DAYS + STALE_GRACE_DAYS) {
     // E-39 D4: past the ordinary horizon, still due ONLY when the verdict-lag

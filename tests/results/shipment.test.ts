@@ -7,7 +7,13 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 type Row = Record<string, unknown>;
 const db = vi.hoisted(() => {
-  const state = { rows: [] as Row[] };
+  /** `offline` = no Supabase configured at all (local dev). `upsertError`/`updateError` = the
+   *  pre-migration window, where the table is there and the Shipment columns are not. `file` is the
+   *  per-tenant ledger file both fallbacks write to. */
+  const state = {
+    rows: [] as Row[], file: [] as Row[], offline: false,
+    upsertError: null as Row | null, updateError: null as Row | null,
+  };
   const client = {
     from() {
       const eqs: Array<[string, unknown]> = [], gtes: Array<[string, string]> = [];
@@ -17,10 +23,12 @@ const db = vi.hoisted(() => {
       const run = () => {
         if (op === "select") return { data: state.rows.filter(hit).map((r) => ({ ...r })), error: null };
         if (op === "update") {
+          if (state.updateError) return { data: null, error: state.updateError };
           const affected = state.rows.filter(hit);
           for (const r of affected) Object.assign(r, patch);
           return { data: affected.map((r) => ({ id: r.id })), error: null };
         }
+        if (state.upsertError) return { data: null, error: state.upsertError };
         const at = state.rows.findIndex((r) => r.tenant_id === sent.tenant_id && r.id === sent.id);
         if (at >= 0) state.rows[at] = { ...state.rows[at], ...sent }; else state.rows.push({ ...sent });
         return { data: [{ id: sent.id }], error: null };
@@ -41,9 +49,14 @@ const db = vi.hoisted(() => {
 const gsc = vi.hoisted(() => ({ window: vi.fn(), lastFinal: vi.fn() }));
 const ai = vi.hoisted(() => ({ views: vi.fn() }));
 
-vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client }));
+vi.mock("@/lib/persistence/supabase", () => ({
+  getSupabaseAdmin: () => { if (db.state.offline) throw new Error("no Supabase configured"); return db.client; },
+}));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "acct-a" }));
-vi.mock("@/lib/persistence/json-store", () => ({ readStore: async () => [], writeStore: async () => {} }));
+vi.mock("@/lib/persistence/json-store", () => ({
+  readStore: async () => db.state.file,
+  writeStore: async (_store: string, rows: Row[]) => { db.state.file = rows; },
+}));
 vi.mock("@/lib/tenant", () => ({ getDataDir: () => "/tmp/beacon-fixture" }));
 vi.mock("@/domains/account/tenants/store", () => ({ getTenant: async () => null }));
 vi.mock("@/app/(shell)/results/results-surface-store", () => ({ invalidateResultsSurface: async () => {} }));
@@ -58,6 +71,7 @@ vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/assemble-pa
 vi.mock("@/domains/evidence/ai-visibility/ai-observations", () => ({ readAiObservationViews: ai.views }));
 
 import { recordShippedChange } from "@/domains/measurement/proof-gsc/measure-pass";
+import { isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import {
   loadShippedChangesForTenant, pagesUnderMeasurementFromShipments, recordVerification,
   upsertShippedChange, type ShipmentVerification,
@@ -91,6 +105,10 @@ const verification = (status: ShipmentVerification["status"]): ShipmentVerificat
 
 beforeEach(() => {
   db.state.rows = [];
+  db.state.file = [];
+  db.state.offline = false;
+  db.state.upsertError = null;
+  db.state.updateError = null;
   [gsc.window, gsc.lastFinal, ai.views].forEach((m) => m.mockReset());
   gsc.window.mockResolvedValue(new Map([[PAGE, { clicks: 9, impressions: 1200, ctr: 0.0075, position: 14 }]]));
   gsc.lastFinal.mockResolvedValue("2026-07-30");
@@ -147,6 +165,22 @@ describe("the canonical Shipment", () => {
     expect(after.shipmentBaseline?.search.clicks).toBe(9);
   });
 
+  it("keeps the exact copy each component carried, which is what the live check compares the page against", async () => {
+    const withCopy = [{ kind: "title", label: "Page title", after: "Nowruz Traditions and the Haft-Seen Table" },
+      { kind: "opening_answer", label: "Opening answer", after: "A nowruz table is set with seven symbolic items." }];
+    await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: withCopy }) as never }));
+    expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual(withCopy);
+  });
+
+  it("records the operator's own confirmation as the answer itself, so the live check is never owed", async () => {
+    await upsertShippedChange(await ship({
+      shipment: origin({ operatorConfirmed: true, operatorOverrideReason: "I pasted it into Wix myself." }) as never }));
+    const [stored] = await loadShippedChangesForTenant(T);
+    expect(stored.verification?.status).toBe("operator_confirmed");
+    expect(stored.verification?.components.every((c) => c.state === "unknown")).toBe(true);
+    expect(stored.operatorOverrideReason).toBe("I pasted it into Wix myself.");
+  });
+
   it("still decodes a record written before there were Shipments", async () => {
     db.state.rows.push(legacyRow());
     const [stored] = await loadShippedChangesForTenant(T);
@@ -174,6 +208,66 @@ describe("recording what the live check found", () => {
     expect(await recordVerification("acct-b", record.id, verification("verified"))).toBe(false);
     expect(await recordVerification(T, "shp_nothing", verification("not_found"))).toBe(false);
     expect((await loadShippedChangesForTenant(T))[0].verification).toBeNull();
+  });
+});
+
+/** THE PRE-MIGRATION WINDOW. The columns are not there yet, the table is, and production reads the
+ *  table: a write that quietly lands in a file is a write nobody will ever read back. */
+describe("when the Shipment columns are not there yet", () => {
+  const MISSING_COLUMN = { code: "PGRST204", message: "Could not find the 'implemented_at' column of 'shipped_change_proof' in the schema cache" };
+
+  it("refuses a Shipment it cannot store durably instead of pretending it landed", async () => {
+    db.state.upsertError = MISSING_COLUMN;
+    await expect(upsertShippedChange(await ship())).rejects.toThrow(/migration/i);
+    expect([db.state.rows.length, db.state.file.length]).toEqual([0, 0]);
+  });
+
+  it("still records a pre-Shipment row to the file, because nothing downstream reads that one from the table", async () => {
+    db.state.upsertError = MISSING_COLUMN;
+    await upsertShippedChange(await ship({ shipment: undefined }));
+    expect(db.state.file).toHaveLength(1);
+  });
+
+  it("keeps working with no database at all: the record and its answer both land in the local ledger", async () => {
+    db.state.offline = true;
+    const record = await ship();
+    await upsertShippedChange(record);
+    expect(db.state.file).toHaveLength(1);
+    // The answer saves ONCE, so the verifier never goes back out to the customer's website for it again.
+    expect(await recordVerification(T, record.id, verification("verified"))).toBe(true);
+    expect((db.state.file[0] as { verification?: ShipmentVerification }).verification?.status).toBe("verified");
+    expect(await recordVerification(T, "shp_nobody-holds-this", verification("verified"))).toBe(false);
+  });
+
+  it("saves what the check found to the file when the column is missing, rather than re-owing the check forever", async () => {
+    const record = await ship();
+    await upsertShippedChange(record); // the table takes the row, and the file mirrors it
+    db.state.updateError = { code: "PGRST204", message: "Could not find the 'verification' column of 'shipped_change_proof' in the schema cache" };
+    expect(await recordVerification(T, record.id, verification("verified"))).toBe(true);
+    expect((db.state.file[0] as { verification?: ShipmentVerification }).verification?.status).toBe("verified");
+  });
+});
+
+/** PRODUCT TRUTH: start measurement only after implementation is verified or explicitly
+ *  operator-confirmed. Measuring a change I never found on the page would credit search movement
+ *  to work that may never have landed. */
+describe("measurement waits for the change to be found on the page", () => {
+  const LATER = new Date("2026-08-20T12:00:00.000Z"), FINAL = "2026-08-19";
+  const due = async (v: ShipmentVerification | null) => isDueForMeasure({ ...(await ship()), verification: v }, FINAL, LATER);
+
+  it("measures a verified, partly verified or operator-confirmed change, and nothing else", async () => {
+    expect(await due(verification("verified"))).toBe(true);
+    expect(await due(verification("partially_verified"))).toBe(true);
+    expect(await due(verification("operator_confirmed"))).toBe(true);
+    expect(await due(null)).toBe(false);            // never checked: there is nothing honest to measure yet
+    expect(await due(verification("not_found"))).toBe(false);
+    expect(await due(verification("blocked"))).toBe(false);
+    expect(await due(verification("differs"))).toBe(false);
+  });
+
+  it("keeps measuring a record written before there were Shipments, which has no answer to wait for", async () => {
+    const legacy = { ...(await ship()), implementedAt: null, verification: null };
+    expect(isDueForMeasure(legacy, FINAL, LATER)).toBe(true);
   });
 });
 
