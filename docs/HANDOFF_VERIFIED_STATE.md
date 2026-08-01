@@ -5,9 +5,8 @@
 
 ## Current foundation
 
-- Branch: `main`; verified starting commit before the MVP rebuild: `4669fbb5`.
-- Stack: Next.js App Router, strict TypeScript, Supabase, Vercel.
-- Production TypeScript is approximately 69,000 lines; tests 4,750; combined approximately 73,700.
+- Branch `main`; MVP rebuild started at `4669fbb5`. Stack: Next.js App Router, strict TypeScript, Supabase, Vercel.
+- Production TypeScript is 77,377 lines; tests 8,852; combined 86,229 (ratcheted ceilings 2026-08-01).
 - The foundation guard caps production, tests, combined LOC, domains, routes, exports, files, dependencies, and
   Markdown. `npm run gate` runs the guard, typecheck, tests, and build.
 - Five kernels exist (Account, Evidence, Decision, Measurement, Runtime); four primary surfaces (Today, Changes,
@@ -29,10 +28,8 @@
   Supabase-only: a cold first read resolves the real identity, a missing row or transient failure is never cached,
   and no file, env, founder, or process-global fallback exists. Provisioning writes a generic row; missing
   configuration fails generic at every former leak site.
-- Test fixtures carry generic account identities and domains; synthetic non-Latin-script sample content is
-  retained deliberately for multilingual behavioral coverage.
-- Revenue settings and the operator revenue model were removed (an MVP non-goal); unit economics is dormant.
-- Publishing remains manual.
+- Test fixtures carry generic identities; synthetic non-Latin-script sample content is retained for coverage.
+- Revenue settings were removed (an MVP non-goal); unit economics is dormant; publishing remains manual.
 - No account can become stranded (2026-07-26): signup writes the real `business_name` column (every prior signup
   failed on a nonexistent `provisional_name` insert); an id collision can never attach a new user to an existing
   tenant; the callback resumes unfinished onboarding by resolved status. One lifecycle resolver gates the product
@@ -150,12 +147,10 @@
 ## Known target mismatches
 
 - Profound and SEMrush survive only as historical-row reads and inert comments (Slice 2 removed the connector
-  provider, health entries, question seeding, drafter sources, the customer-visible AEO confidence gate, the
-  vendor benchmark, the Actions dispatch, and the provider-import architecture); never revive them.
-- Production DataForSEO is ENABLED (operator-approved 2026-07-25): credentials are the sole activation, bounded by
-  the proved $2 provider-day cap and the default $50 tenant month cap.
-- Real-customer names remain in historical code comments outside the Account boundary (executable strings and
-  fixtures are clean).
+  provider, seeding, drafter sources, confidence gate, benchmark, and Actions dispatch); never revive them.
+- Production DataForSEO is ENABLED (operator-approved 2026-07-25): credentials are the sole activation, bounded
+  by the provider $25 day cap, a $250 per-account month cap and a $500 global breaker (raised 2026-07-31).
+- Real-customer names remain only in historical code comments (executable strings and fixtures are clean).
 - Legacy `.data`/dual-write code remains for non-account stores; the Account/Profile path no longer uses it.
 
 ## Environment readiness
@@ -164,26 +159,31 @@ Verified variable-name presence without reading or printing values:
 
 - Local and Vercel production have Supabase and OpenAI credentials.
 - Vercel production has Google OAuth client credentials and a GSC site configuration.
-- DataForSEO credentials are live-validated locally AND set on Vercel production (Encrypted, Production scope,
-  redeploy dpl_GigNyZia97r2gpH3yesXbRiqWXBo); missing credentials fail closed. Never place credentials in chat,
-  documentation, commits, or command output.
+- DataForSEO credentials are live-validated locally AND set on Vercel production; missing credentials fail
+  closed. Never place credentials in chat, documentation, commits, or command output.
 
 ## Current routes
 
-- Today `/`; Changes `/changes` and `/changes/[id]`; Results `/results`; Connections `/settings/connectors`
-- Minimal settings, onboarding, login, signup, Google callback, and version routes
+- Today `/`; Changes `/changes` and `/changes/[id]`; Results `/results`; Connections `/settings/connectors`;
+  minimal settings, onboarding, login, signup, Google callback, and version routes. New customer routes
+  require operator approval.
 
-New customer routes require operator approval.
+## V1 Truth Convergence (Phases 0-9 complete, 2026-08-01)
 
-## Next slice
-
-N1-N4 shipped the research packet, the five-verdict adjudication, the page comparison and the ONE page an
-earned create_new may draft. Decision Liveness then made a pass end every case at a verdict, an acquirable
-requirement or a park. NEXT: three named liveness holes remain open, listed in the 2026-07-29 commit body.
+Canonical `ai_observations` keeps every AI answer whole (identity: tenant, prompt, version, engine, reporting
+day, sample slot; journey keeps fan-outs, retrieved-not-cited and citations apart; pao is a projection).
+Tracked prompts carry `version` and `core`; the planner observes slot 0 daily on visit, slots 1-2 via Update
+data (max 3/day), and never fabricates a missed day. Cases are a partition (one owner per anchor); freshness
+is one leaf matrix; diagnosis is a 15-cause ladder with competing explanations and a falsifier on every
+proposal. `change_proposals` holds ONE current row per (account, case, page, action family) with supersession
+chains. A marked change is a Shipment: write-once `implemented_at` stamp and baseline, live verification, and
+28-day windows anchored on the stamp (conditional day-56). AI outcomes read slot-0 rows; mention rate divides
+by analyzed. Today is four total states reading one release blob, so no two surfaces disagree on a count. All
+four 2026-07-31 migrations applied to production before the push (additive, forward-only): 85 core prompts
+active, 50 legacy seeds reversibly deactivated. The first live run belongs to the operator.
 
 ## Verification
 
-- Use the real main tree at `/Users/armeen/beacon`; preserve untracked `.codex/` and `supabase/` content.
-- Run `npm run gate` before completion.
-- An accepted implementation plan authorizes commit, push to `origin/main`, Vercel deployment, and hosted smoke
-  verification, subject to the destructive and external-state pauses in `AGENTS.md`.
+- Use the real main tree at `/Users/armeen/beacon`; preserve untracked `.codex/` and `supabase/` content. Run
+  `npm run gate` before completion. An accepted plan authorizes commit, push to `origin/main`, deployment, and
+  hosted smoke verification, subject to the destructive and external-state pauses in `AGENTS.md`.
