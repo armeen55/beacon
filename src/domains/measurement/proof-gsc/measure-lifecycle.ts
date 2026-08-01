@@ -48,6 +48,15 @@ const DANGEROUS_COMPONENT_KINDS: ReadonlySet<string> = new Set([
   "canonical", "redirect", "noindex", "consolidation",
 ]);
 
+/** A DANGEROUS COMPONENT IS EITHER KIND OR GRADE. Decision flags a component dangerous on the
+ *  closed kind list OR on its own `risk` grade, so measurement asking only about the kind list
+ *  missed every component a proposal graded dangerous under some other name, and those changes
+ *  silently lost the fourth checkpoint that exists precisely for them. Same two tests, one
+ *  order, on both sides of the boundary. Pure. */
+function isDangerousComponent(c: { kind: string; risk?: string | null }): boolean {
+  return c.risk === "dangerous" || DANGEROUS_COMPONENT_KINDS.has(c.kind);
+}
+
 /** The operator-facing lifecycle state of an applied Move (deliverable 1). */
 export type OutcomeState = "measuring" | "win" | "loss" | "inconclusive" | "stale";
 
@@ -264,7 +273,7 @@ export function day56Followup(
 ): {
   runs: boolean;
   due: boolean;
-  reason: "confounded_28" | "insufficient_28" | "unclear_28" | "dangerous_change" | null;
+  reason: "measuring_28" | "insufficient_28" | "unclear_28" | "dangerous_change" | null;
   checkOn: string;
 } {
   const checkOn = addDays(anchorOf(record), FOLLOW_UP_WINDOW_DAY);
@@ -274,11 +283,15 @@ export function day56Followup(
   // A 28-day read that settled on won or lost is the primary directional read, and it is
   // the whole answer. Anything else after a 28-day window that HAS run is unsettled.
   const settled28 = record.verdict === "won" || record.verdict === "lost";
-  const dangerous = (record.componentsApplied ?? []).some((c) => DANGEROUS_COMPONENT_KINDS.has(c.kind));
+  const dangerous = (record.componentsApplied ?? []).some(isDangerousComponent);
+  // A stored "measuring" verdict at a run 28-day window means exactly one thing the record can
+  // prove: that read did not settle. WHY it did not (an overlapping change, or Google still
+  // catching up) is the live kernel's call, not this record's, so the reason says the true thing
+  // rather than naming a cause nobody here checked.
   const reason = !ran28 ? null
     : record.verdict === "insufficient_data" ? "insufficient_28" as const
       : record.verdict === "inconclusive" ? "unclear_28" as const
-        : !settled28 ? "confounded_28" as const
+        : !settled28 ? "measuring_28" as const
           : dangerous ? "dangerous_change" as const : null;
   const runs = ran28 && !ran56 && reason != null;
   const due = runs

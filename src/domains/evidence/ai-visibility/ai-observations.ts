@@ -178,11 +178,15 @@ export async function recordAiObservation(rec: AiObservationRecord, tenantId: st
  * read as "this account has no answers", which is a different and false claim).
  */
 export async function readAiObservations(
-  tenantId: string, opts: { day?: string; promptId?: string; limit?: number } = {},
+  tenantId: string, opts: { day?: string; promptId?: string; limit?: number; slot?: number } = {},
 ): Promise<AiObservationRecord[]> {
   let q = getSupabaseAdmin().from(AI_OBSERVATIONS_TABLE).select("*").eq("tenant_id", tenantId);
   if (opts.day) q = q.eq("reporting_day", opts.day);
   if (opts.promptId) q = q.eq("prompt_id", opts.promptId);
+  // THE SLOT IS FILTERED IN THE QUERY, never afterwards. A caller that wants only the canonical
+  // first reading and drops the extra volatility samples on its own pays for them out of the row
+  // cap below, so a day sampled three times returns a third of the history it asked for.
+  if (opts.slot !== undefined) q = q.eq("sample_slot", opts.slot);
   const { data, error } = await q.order("requested_at", { ascending: false }).limit(Math.min(Math.max(1, opts.limit ?? 500), 2000));
   if (error) throw new Error(`[ai_observations] read failed: ${error.message}`);
   return (data ?? []) as AiObservationRecord[];
@@ -218,7 +222,7 @@ function viewAiObservation(r: AiObservationRecord): AiObservationView {
 
 /** THE re-analysis read: everything a later pass needs, already bought, in the reader's own shape. */
 export async function readAiObservationViews(
-  tenantId: string, opts: { day?: string; promptId?: string; limit?: number } = {},
+  tenantId: string, opts: { day?: string; promptId?: string; limit?: number; slot?: number } = {},
 ): Promise<AiObservationView[]> {
   return (await readAiObservations(tenantId, opts)).map(viewAiObservation);
 }

@@ -23,7 +23,6 @@ export {
   metricFor,
   addDays,
   evaluateWindows,
-  detectOverlaps,
   verdictPhrase,
   evaluateChange,
   rankingPriors,

@@ -68,7 +68,8 @@ const proposal = (over: Record<string, unknown> = {}) => ({
   whyItMatters: "The line Google shows misses the words people search for.",
   bundle: { objective: "Say what the searcher asked for in the line Google shows.",
     scope: { queries: ["nowruz traditions"], prompts: [] },
-    components: [{ kind: "title", label: "Page title", after: null }, { kind: "opening_answer", label: "Opening answer" }] },
+    // One component graded dangerous on an ORDINARY kind: the grade is the only thing that says so.
+    components: [{ kind: "title", label: "Page title", after: null, risk: "dangerous" }, { kind: "opening_answer", label: "Opening answer", risk: "safe" }] },
   ...over,
 });
 
@@ -239,9 +240,12 @@ describe("markProposalImplementedAction — the shipment transaction", () => {
     expect(mocks.recordShippedChange).toHaveBeenCalledOnce();
   });
 
-  it("records only the components the operator says they applied", async () => {
+  it("records only the components the operator says they applied, with the risk grade each carried", async () => {
     expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID, componentKinds: ["title"] })).success).toBe(true);
-    expect(mocks.recordShippedChange.mock.calls[0][0].shipment.componentsApplied).toEqual([{ kind: "title", label: "Page title", after: null }]);
+    // The grade travels because measurement owes a dangerous change a fourth checkpoint, and the
+    // component's kind alone never says it is dangerous.
+    expect(mocks.recordShippedChange.mock.calls[0][0].shipment.componentsApplied)
+      .toEqual([{ kind: "title", label: "Page title", after: null, risk: "dangerous" }]);
   });
 
   it("carries the operator's own confirmation through, so an override is expressible and never a default", async () => {

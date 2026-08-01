@@ -23,6 +23,18 @@ const OVERLAP_WINDOW_DAYS = 28;
 const dayOf = (iso: string): string => (iso.length > 10 ? iso.slice(0, 10) : iso);
 const msOf = (iso: string): number => Date.parse(`${dayOf(iso)}T00:00:00Z`);
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "May 10" from a YYYY-MM-DD or ISO day. Operator copy never carries a raw date stamp, and
+ *  Measurement may not import the component layer, so the month/day rendering lives here and
+ *  matches monthDayLabel (src/components/data/receipt-line.tsx) exactly. An unparseable day
+ *  returns itself rather than an invented date. PURE (UTC). */
+export function monthDay(iso: string): string {
+  const [y, m, d] = dayOf(iso).split("-").map((s) => parseInt(s, 10));
+  if (!Number.isFinite(y) || !Number.isFinite(d) || !MONTHS[m - 1]) return iso;
+  return `${MONTHS[m - 1]} ${d}`;
+}
+
 /** One change as the overlap math sees it: which page it landed on, and the stamp its
  *  measurement window is read from (implementedAt where there is one). */
 type AnchoredChange = { id: string; path: string; anchoredAt: string };
@@ -225,7 +237,7 @@ export function buildHeadline(args: {
   switch (args.verdict) {
     case "confounded":
       return args.overlapClosedOn != null
-        ? `This page moved over the ${win} window, but I changed the same page again on ${args.overlapClosedOn}, so everything after that day belongs to both changes and I cannot pin it on this one.${ga4}`
+        ? `This page moved over the ${win} window, but I changed the same page again on ${monthDay(args.overlapClosedOn)}, so everything after that day belongs to both changes and I cannot pin it on this one.${ga4}`
         : `This page moved over the ${win} window, but I made ${args.overlapCount} other change${args.overlapCount === 1 ? "" : "s"} on it at the same time, so I cannot say which one did it.${ga4}`;
     // Observational, never causal: the page MOVED after the change. A pre-28-day read is still measuring, so it never closes with a verdict.
     case "stronger_improvement":

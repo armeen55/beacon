@@ -22,7 +22,7 @@ import "server-only";
 
 import { loadShippedChangesForTenant } from "./shipped-change-store";
 import { readLastFinalizedDate } from "./gsc-window";
-import { buildHeadline, learningShape, overlapClosures } from "./read-honesty";
+import { buildHeadline, learningShape, monthDay, overlapClosures } from "./read-honesty";
 
 // ── The kernel's own small verdict vocabulary ──────────────────────────────
 
@@ -57,8 +57,11 @@ export type KernelWindowRead = {
   /** The calendar date this window closes (the stamp + day), YYYY-MM-DD. */
   closesOn: string;
   state: WindowState;
-  /** Set when a LATER change on this page closed the clean window before this checkpoint:
-   *  the days behind it belong to both changes, so this read is not this change's alone. */
+  /** Set when a LATER change on this page closed the clean window before this checkpoint: the
+   *  days behind it belong to both changes, so this read is not this change's alone. DEFERRED TO
+   *  PHASE 8: WindowChips (src/app/(shell)/results/results-ledger-card.tsx) still draws every chip
+   *  identically, so the flag is carried and tested now and that surface reads truth the day it
+   *  is built, instead of being written against an empty field. */
   confounded?: "overlapping_change";
 };
 
@@ -82,6 +85,9 @@ export type KernelInput = {
   windows: ReadonlyArray<{
     day: CheckpointDay;
     ran: boolean;
+    /** The day this reading actually closed on, as stored when it ran; absent falls back to the
+     *  recomputed close date. */
+    checkOn?: string | null;
     adjustedClicksLift: number;
     adjustedCtrLift: number;
     adjustedPosLift: number;
@@ -244,21 +250,19 @@ export function evaluateWindows(
   });
 }
 
-// ── Point 5: overlap detection ───────────────────────────────────────────────
-
 /**
- * Detect overlapping changes: two changes on the SAME page whose 28-day measurement
- * windows overlap in time cannot be cleanly separated. Returns a map of change id to the
- * ids it overlaps. Pure. Same page, overlapping dates, and nothing else. The DATE a later
- * change closed an earlier one's clean window comes from the same pass (read-honesty).
+ * A STORED READING THAT RAN IS SETTLED. The schedule above recomputes every checkpoint from the
+ * CURRENT anchor, so a reading taken under an older clock (a stamp landing after the ship date
+ * moves the anchor forward) would recompute onto a close date still in the future, read as
+ * "waiting", and demote a change the operator was already told about back to measuring. A window
+ * whose stored reading ran keeps ITS OWN close date and stays closed; the live schedule governs
+ * only the windows that have not run. Pure.
  */
-export function detectOverlaps(
-  changes: ReadonlyArray<{ id: string; path: string; shippedAt: string }>,
-): Map<string, string[]> {
-  const closures = overlapClosures(
-    changes.map((c) => ({ id: c.id, path: c.path, anchoredAt: c.shippedAt })),
-  );
-  return new Map([...closures].map(([id, o]) => [id, o.ids]));
+function settleRanWindows(input: KernelInput, live: ReadonlyArray<KernelWindowRead>): KernelWindowRead[] {
+  return live.map((w) => {
+    const ran = input.windows.find((s) => s.day === w.day && s.ran === true);
+    return ran ? { ...w, closesOn: ran.checkOn?.slice(0, 10) ?? w.closesOn, state: "closed" as WindowState } : { ...w };
+  });
 }
 
 /** The stamp every checkpoint counts from: when the operator marked the change done,
@@ -288,6 +292,28 @@ function floorFor(
   if (metric === "position") return MIN_LIFT_POSITION;
   const windowBaseline = baselineClicks * (basisDay / BASELINE_WINDOW_DAYS);
   return Math.max(MIN_LIFT_CLICKS, windowBaseline * MIN_LIFT_FRACTION);
+}
+
+/** The directional read on ONE window: one set of thresholds, so a 28-day read and the 56-day
+ *  read that replaces it can never be graded on different rules. Pure. */
+const directionalVerdict = (lift: number, floor: number, controls: number): KernelVerdict =>
+  (lift >= floor * STRONG_MULTIPLE && controls >= CONTROLS_FOR_STRONG ? "stronger_improvement"
+    : lift >= floor ? "directional_improvement" : lift <= -floor ? "directional_decline" : "no_clear_movement");
+
+/**
+ * THE 28 TO 56 FLIP, SAID OUT LOUD. When the follow-up read lands in a different band from the
+ * 28-day read the operator was already shown, the headline names BOTH and says which one governs;
+ * silence would replace a win with a shrug and never admit the change. Empty with no 56-day basis,
+ * no 28-day reading behind it, or when the two agree. Pure.
+ */
+function flipSentence(input: KernelInput, metric: KernelMetric, basisDay: CheckpointDay | null, verdict: KernelVerdict): string {
+  const w28 = input.windows.find((w) => w.day === 28 && w.ran);
+  if (basisDay !== FOLLOW_UP_DAY || verdict === "confounded" || !w28) return "";
+  const word = (v: KernelVerdict): string => (v === "directional_decline" ? "a loss"
+    : v === "no_clear_movement" ? "no clear change" : "a win");
+  const was = word(directionalVerdict(liftOnMetric(w28, metric), floorFor(metric, input.baselineClicks, 28), w28.controlsUsed));
+  return was === word(verdict) ? ""
+    : ` The 28 day read looked like ${was}; the full 56 day read shows ${word(verdict)}, and the longer window wins.`;
 }
 
 /** Human phrase for a verdict, Beacon voice, concrete numbers folded in by the
@@ -320,8 +346,9 @@ export function evaluateChange(
   cleanUntil: string | null = null,
 ): KernelRead {
   const metric = metricFor(input.actionType);
-  const marked: KernelWindowRead[] = cleanUntil == null ? windows
-    : windows.map((w) => (w.closesOn > cleanUntil ? { ...w, confounded: "overlapping_change" as const } : w));
+  const settled = settleRanWindows(input, windows);
+  const marked: KernelWindowRead[] = cleanUntil == null ? settled
+    : settled.map((w) => (w.closesOn > cleanUntil ? { ...w, confounded: "overlapping_change" as const } : w));
   const closed = marked.filter((w) => w.state === "closed");
   const cleanDays = new Set(closed.filter((w) => w.confounded == null).map((w) => w.day));
   // Basis = longest CLEAN window that has both closed and a ran reading with data. With no
@@ -412,16 +439,7 @@ export function evaluateChange(
   const floor = floorFor(metric, input.baselineClicks, basisDay!);
 
   // Directional read on the judged metric.
-  let verdict: KernelVerdict;
-  if (lift >= floor * STRONG_MULTIPLE && controls >= CONTROLS_FOR_STRONG) {
-    verdict = "stronger_improvement";
-  } else if (lift >= floor) {
-    verdict = "directional_improvement";
-  } else if (lift <= -floor) {
-    verdict = "directional_decline";
-  } else {
-    verdict = "no_clear_movement";
-  }
+  let verdict: KernelVerdict = directionalVerdict(lift, floor, controls);
 
   // Point 5 + 6: overlapping changes on the same page over overlapping windows make a
   // single change impossible to isolate. Only downgrade a real directional read (a "no
@@ -432,13 +450,13 @@ export function evaluateChange(
     verdict === "stronger_improvement" ||
     verdict === "directional_decline";
   if (isDirectional && basisConfounded) {
-    caveats.push(`I changed this page again on ${cleanUntil}, so everything after that day belongs to both changes and I stopped reading this one there.`);
+    caveats.push(`I changed this page again on ${monthDay(cleanUntil!)}, so everything after that day belongs to both changes and I stopped reading this one there.`);
     verdict = "confounded";
   } else if (isDirectional && cleanUntil == null && overlappingIds.length > 0) {
     caveats.push(`I made ${overlappingIds.length} other change${overlappingIds.length === 1 ? "" : "s"} on this page in the same window, so I cannot pin this movement on one change alone.`);
     verdict = "confounded";
   } else if (cleanUntil != null && marked.some((w) => w.confounded != null)) {
-    caveats.push(`This is the ${basisDay}-day read, which closed before I changed the page again on ${cleanUntil}. I am not counting the days after that against this change.`);
+    caveats.push(`This is the ${basisDay}-day read, which closed before I changed the page again on ${monthDay(cleanUntil)}. I am not counting the days after that against this change.`);
   }
 
   // Point 7: never claim clean causality. Every directional headline says
@@ -449,7 +467,7 @@ export function evaluateChange(
     overlapClosedOn: basisConfounded ? cleanUntil : null,
     ga4ExtraSessions: input.ga4ExtraSessions ?? null,
     ga4Trustworthy: input.ga4Trustworthy === true,
-  });
+  }) + flipSentence(input, metric, basisDay, verdict);
 
   // Confidence from transparent conditions only (point: window maturity, data
   // availability, sample size, baseline stability, overlap).
@@ -545,6 +563,8 @@ export type LedgerRecordLike = {
   windows?: ReadonlyArray<{
     day: number;
     ran?: boolean;
+    /** The close date the reading was taken on, so a settled window never moves with the anchor. */
+    checkOn?: string | null;
     adjustedLift?: number;
     adjustedCtrLift?: number;
     adjustedPosLift?: number;
@@ -578,6 +598,7 @@ export function toKernelInput(r: LedgerRecordLike): KernelInput {
     .map((w) => ({
       day: w.day as CheckpointDay,
       ran: w.ran === true,
+      checkOn: w.checkOn ?? null,
       adjustedClicksLift: w.adjustedLift ?? 0,
       adjustedCtrLift: w.adjustedCtrLift ?? 0,
       adjustedPosLift: w.adjustedPosLift ?? 0,
@@ -676,19 +697,15 @@ export function windowStateLine(windows: ReadonlyArray<KernelWindowRead>): strin
 /**
  * A window is treated as readable for LEARNING when the stored record already
  * marked it `ran` (Google data was available at measure time). Learning does not
- * re-derive Google's lag; it trusts the stored measurement. Pure.
+ * re-derive Google's lag; it trusts the stored measurement, on the dates that
+ * measurement was actually taken. Pure.
  */
 function windowsFromRanFlags(input: KernelInput): KernelWindowRead[] {
   const days: CheckpointDay[] = input.windows.some((w) => w.day === FOLLOW_UP_DAY)
     ? [...WINDOW_DAYS, FOLLOW_UP_DAY] : [...WINDOW_DAYS];
-  return days.map((day) => {
-    const w = input.windows.find((x) => x.day === day);
-    return {
-      day,
-      closesOn: addDays(anchorOf(input), day),
-      state: (w && w.ran ? "closed" : "waiting") as WindowState,
-    };
-  });
+  return settleRanWindows(input, days.map((day) => ({
+    day, closesOn: addDays(anchorOf(input), day), state: "waiting" as WindowState,
+  })));
 }
 
 /**

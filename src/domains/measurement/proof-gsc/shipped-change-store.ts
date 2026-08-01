@@ -89,8 +89,12 @@ export type ShippedChangeRecord = {
   /** What applying the bundle was meant to achieve, in one sentence. */
   bundleHypothesis: string | null;
   /** Which components the operator says they applied, each with the EXACT copy it was handed (`after`),
-   *  because that copy is what the live check compares the page against. A subset = a partial bundle. */
-  componentsApplied: Array<{ kind: string; label: string; after?: string | null }> | null;
+   *  because that copy is what the live check compares the page against, and the RISK the proposal
+   *  graded it at (`risk`), because a dangerous component earns the fourth checkpoint whatever its kind.
+   *  Both ride inside the existing components_applied JSON, exactly as `after` does, so they need no
+   *  migration and a row written before either existed decodes with the field absent (read as null),
+   *  never failing to decode. A subset of the components = a partial bundle. */
+  componentsApplied: Array<{ kind: string; label: string; after?: string | null; risk?: string | null }> | null;
   /** THE STAMP. When the operator marked it done; the window is read from it. Write-once. */
   implementedAt: string | null;
   /** The owned page's HELD content hash at mark time, from the snapshot on file. */

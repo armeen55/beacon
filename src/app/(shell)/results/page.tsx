@@ -42,6 +42,11 @@ export default async function ProofPage({
   const learned = bands.learned.map((b) => b.read);
   const measuring = bands.measuring.map((b) => b.read);
   const bundles = bundleReads(reads);
+  // A win read on the 56 day follow up did NOT settle at 28 days, so the band cannot promise
+  // every row in it was called across the full 28 and no further.
+  const winsBlurb = won.some((r) => r.basisDay === 56)
+    ? "These changes beat their comparison pages over their full window: 28 days, or the 56 day follow up where one was owed. Real, measured gains."
+    : "These changes beat their comparison pages across the full 28 days. Real, measured gains.";
   const anyClosed = reads.some((r) => r.windows.some((w) => w.state === "closed"));
 
   return (
@@ -74,7 +79,7 @@ export default async function ProofPage({
       ) : (
         <>
           {bundles.length > 0 ? <BundleCallouts bundles={bundles} /> : null}
-          <Band title="Wins" tone="text-emerald-700" reads={won} blurb="These changes beat their comparison pages across the full 28 days. Real, measured gains." />
+          <Band title="Wins" tone="text-emerald-700" reads={won} blurb={winsBlurb} />
           <Band title="Promising" tone="text-emerald-600" reads={promising} blurb="These are moving up, but their 28 day window has not closed yet. I will call them when it does." />
           <Band title="What I learned" tone="text-foreground/70" reads={learned} blurb="These settled without a clear gain. That tells us which lever to try next on pages like these." />
           <Band title="Still measuring" tone="text-muted-foreground" reads={measuring} blurb="Still collecting data or waiting on Google. Nothing to do here until a read lands." />

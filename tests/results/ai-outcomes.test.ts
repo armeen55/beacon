@@ -114,6 +114,12 @@ describe("the daily AI trend, over stored answers only", () => {
     expect(report.competitors[0]).toEqual({ name: "Rival One", answers: 2, meanPosition: 1 });
     expect(report.competitors[1]).toEqual({ name: "Rival Two", answers: 1, meanPosition: 2 });
   });
+  it("asks the store for first readings only, so the extra samples never eat the row cap", async () => {
+    const readObservations = reader([row({ day: "2026-07-20", mentioned: true })]);
+    await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-20", readObservations });
+    // Filtering the slot after the read would spend the cap on samples this trend then throws away.
+    expect(readObservations).toHaveBeenCalledWith(T, { limit: 2000, slot: 0 });
+  });
   it("never reads another account's answers", async () => {
     const readObservations = reader([
       row({ day: "2026-07-20", prompt_id: "p1", mentioned: true }),
@@ -204,6 +210,27 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.before).toMatchObject({ day: "2026-07-20", checked: 4, mentioning: 3, rate: 0.75, from: "stored_answers" });
     expect(outcome?.direction).toBe("worsened");
     expect(outcome?.line).toContain("down from 3 of 4 before it");
+  });
+  it("counts the share over the answers it actually READ, so unfinished analysis is not a fall", async () => {
+    // Every answer read closely named the account; a quarter of them have not been read yet. Dividing
+    // by everything that came back would report that backlog as AI turning against the account.
+    const readObservations = reader(stretch("2026-07-21", "2026-07-31", 4)
+      .map((r, i) => (i % 4 === 3 ? { ...r, analysis: null, analysis_hash: null } : r)));
+    const outcome = await aiOutcomeForShipment(T, {
+      implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 10, mentioning: 10 } },
+    }, { readObservations, now: NOW });
+    expect(outcome?.after).toMatchObject({ checked: 44, analyzed: 33, mentioning: 33, rate: 1 });
+    expect(outcome?.direction).toBe("flat");
+    expect(outcome?.line).toContain("named in 33 of the 33 I read closely");
+  });
+  it("says null, never zero, when nothing since the change has been read closely", async () => {
+    const readObservations = reader(stretch("2026-07-21", "2026-07-31", 3)
+      .map((r) => ({ ...r, analysis: null, analysis_hash: null })));
+    const outcome = await aiOutcomeForShipment(T, {
+      implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, mentioning: 1 } },
+    }, { readObservations, now: NOW });
+    expect(outcome?.after).toMatchObject({ analyzed: 0, mentioning: 0, rate: null });
+    expect(outcome?.direction).toBe("unclear");
   });
   it("calls the same share flat", async () => {
     const readObservations = reader(stretch("2026-07-21", "2026-07-31", 2));

@@ -21,6 +21,11 @@ import "server-only";
  * reading is not the same instrument as an API-mode one. A change in either splits the series into segments
  * and the break is named, so a step in the line reads as "the instrument changed here", never as a silent
  * win or loss.
+ *
+ * DEFERRED TO PHASE 8, and named so nobody has to guess what is missing: NOTHING RENDERS THIS YET. The AI
+ * half of Results (the visibility trend with its instrument breaks drawn, and the AI line on a shipped
+ * change) is that phase's surface work. Every number below is computed, tested and honest today, so the day
+ * those surfaces are built they read truth instead of being written against an empty column.
  */
 
 import {
@@ -28,8 +33,12 @@ import {
   type AiObservationRecord,
 } from "@/domains/evidence/ai-visibility/ai-observations";
 
-/** One read pulls back at most this many stored rows: four engines x a dozen questions x 28 days fits. */
+/** One read pulls back at most this many FIRST readings: four engines x a dozen questions x 28
+ *  days fits. The extra volatility samples are excluded by the query itself (slot below), so they
+ *  never consume this cap and quietly truncate the history a trend is drawn over. */
 const MAX_ROWS = 2000;
+/** Slot 0: the ONE canonical reading of a question on a day. */
+const FIRST_READING_SLOT = 0;
 /** The longest stretch one Shipment is judged over. */
 const SHIPMENT_WINDOW_DAYS = 28;
 /** Under five points either way is not a move I am willing to call. */
@@ -43,7 +52,7 @@ type Analysis = {
 };
 
 /** The injectable read. Production passes nothing and gets the stored-observation reader itself. */
-type ReadRows = (tenantId: string, opts: { limit?: number }) => Promise<AiObservationRecord[]>;
+type ReadRows = (tenantId: string, opts: { limit?: number; slot?: number }) => Promise<AiObservationRecord[]>;
 type ReadOpts = { ownedHost?: string | null; readObservations?: ReadRows };
 
 /** What one engine was serving on one day. `asked` is every first reading planned that day whatever came
@@ -91,7 +100,11 @@ export type AiOutcomeReport = {
 /** What the AI answers did around one shipped change. Direction only: this is an observation, not a proof. */
 export type ShipmentAiOutcome = {
   direction: "improved" | "worsened" | "flat" | "unclear";
+  /** `checked` is the denominator the rate was computed over on this side. */
   before: { day: string | null; checked: number; mentioning: number; rate: number | null; from: "on_file" | "stored_answers" | "nothing" };
+  /** `checked` = answers that came back, `analyzed` = the ones read closely enough to say whether
+   *  you were named, and `rate` = mentioning / analyzed. Null when nothing was analyzed; a zero
+   *  there would read as "AI never named you" over answers nobody has read yet. */
   after: { from: string; to: string; checked: number; analyzed: number; mentioning: number; rate: number | null };
   /** Days I actually read against days that have passed. A missed day is missing, never filled in. */
   coverage: { daysObserved: number; daysElapsed: number };
@@ -268,8 +281,11 @@ function competitorsIn(rows: AiObservationRecord[]): AiOutcomeReport["competitor
     .slice(0, MAX_COMPETITORS);
 }
 
+/** The stored first readings for one account. The slot is asked for in the QUERY so the cap holds
+ *  first readings only; the row filter after it is the belt to that braces, and the one that holds
+ *  when a caller injects its own reader. */
 const readRows = async (tenantId: string, opts: ReadOpts): Promise<AiObservationRecord[]> =>
-  (await (opts.readObservations ?? readAiObservations)(tenantId, { limit: MAX_ROWS }))
+  (await (opts.readObservations ?? readAiObservations)(tenantId, { limit: MAX_ROWS, slot: FIRST_READING_SLOT }))
     .filter((r) => r.tenant_id === tenantId && isFirstReading(r));
 
 /**
@@ -311,16 +327,22 @@ export async function visibilitySeries(
   return (await aiOutcomes(tenantId, { from: addDays(to, -(span - 1)), to, ...opts })).segments;
 }
 
-/** How often this account was named, over the first readings that came back. The SAME rule the starting
- *  numbers on the Shipment were captured under, so before and after are counted the same way. */
+/**
+ * How often this account was named, over the answers ACTUALLY READ CLOSELY. The rate divides by
+ * `analyzed`, never by `checked`: an answer nobody has read yet cannot say whether you were named,
+ * so counting it as a miss reported a change in how much analysis had finished as if it were a
+ * change in what AI said. The same rule the daily trend uses, so before and after are one measure.
+ * Null when nothing was analyzed, which is a different claim from a zero share and stays different.
+ */
 function namedShare(rows: AiObservationRecord[]): { checked: number; analyzed: number; mentioning: number; rate: number | null } {
   const answered = rows.filter(cameBack);
-  const mentioning = answered.filter((r) => namedIn(r) === true).length;
+  const analyzed = answered.filter((r) => namedIn(r) !== null);
+  const mentioning = analyzed.filter((r) => namedIn(r) === true).length;
   return {
     checked: answered.length,
-    analyzed: answered.filter((r) => namedIn(r) !== null).length,
+    analyzed: analyzed.length,
     mentioning,
-    rate: answered.length > 0 ? r3(mentioning / answered.length) : null,
+    rate: analyzed.length > 0 ? r3(mentioning / analyzed.length) : null,
   };
 }
 
@@ -331,7 +353,9 @@ function outcomeLine(direction: ShipmentAiOutcome["direction"], before: Shipment
       ? `${since}, and I have nothing from before the change to compare them against. I keep reading every day and will say which way this went once both sides are there.`
       : `${since}, which is too little to call either way yet. I keep reading every day.`;
   }
-  const now = `you were named in ${after.mentioning} of them`;
+  // The denominator the share was computed over, said out loud: "36 of 60" would compare a count
+  // over the answers I read closely against a total that includes answers nobody has read.
+  const now = `you were named in ${after.mentioning} of the ${after.analyzed} I read closely`;
   const then = `${before.mentioning} of ${before.checked} before it`;
   if (direction === "improved") return `${since}, ${now}, up from ${then}. I keep reading every day.`;
   if (direction === "worsened") return `${since}, ${now}, down from ${then}. I keep reading every day, and I will bring you the next move on this page.`;
@@ -367,8 +391,9 @@ export async function aiOutcomeForShipment(
   const computed = namedShare(beforeRows.filter((r) => r.reporting_day === lastBeforeDay));
   const before: ShipmentAiOutcome["before"] = held
     ? { day: held.day, checked: held.checked, mentioning: held.mentioning, rate: held.checked > 0 ? r3(held.mentioning / held.checked) : null, from: "on_file" }
+    // The before side names the same denominator its own rate was computed over.
     : lastBeforeDay
-      ? { day: lastBeforeDay, checked: computed.checked, mentioning: computed.mentioning, rate: computed.rate, from: "stored_answers" }
+      ? { day: lastBeforeDay, checked: computed.analyzed, mentioning: computed.mentioning, rate: computed.rate, from: "stored_answers" }
       : { day: null, checked: 0, mentioning: 0, rate: null, from: "nothing" };
 
   const afterRows = rows.filter((r) => r.reporting_day >= stamp && r.reporting_day <= to);

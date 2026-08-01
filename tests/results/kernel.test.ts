@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  addDays, bandOf, detectOverlaps, evaluateChange, evaluateWindows, learningVerdictOf, metricFor, rankingPriors,
+  addDays, bandOf, evaluateChange, evaluateWindows, learningVerdictOf, metricFor, rankingPriors,
   readLedger, toKernelInput, verdictPhrase, type KernelInput, type LedgerRecordLike,
 } from "@/domains/measurement/proof-gsc/kernel";
 import { bundleReads, learningShape, overlapClosures } from "@/domains/measurement/proof-gsc/read-honesty";
 import { day56Followup, isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
+import { verdictSchedule, type VerdictScheduleRow } from "@/domains/measurement/proof-gsc/verdict-schedule";
 import type { ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
 import type { ProofWindowDay, ProofWindowResult } from "@/domains/measurement/proof-gsc/types";
 /**
@@ -77,16 +78,16 @@ describe("individual directional reads", () => {
 });
 describe("overlap and confounding honesty", () => {
   it("flags same-page overlapping windows", () => {
-    const overlaps = detectOverlaps([
-      { id: "a", path: "/x", shippedAt: "2026-05-01" }, { id: "b", path: "/x", shippedAt: "2026-05-10" }, { id: "c", path: "/y", shippedAt: "2026-05-05" },
+    const overlaps = overlapClosures([
+      { id: "a", path: "/x", anchoredAt: "2026-05-01" }, { id: "b", path: "/x", anchoredAt: "2026-05-10" }, { id: "c", path: "/y", anchoredAt: "2026-05-05" },
     ]);
-    expect(overlaps.get("a")).toContain("b");
-    expect(overlaps.get("b")).toContain("a");
-    expect(overlaps.get("c")).toEqual([]);
+    expect(overlaps.get("a")!.ids).toContain("b");
+    expect(overlaps.get("b")!.ids).toContain("a");
+    expect(overlaps.get("c")!.ids).toEqual([]);
   });
   it("does NOT flag same-page changes more than 28 days apart", () => {
-    const overlaps = detectOverlaps([{ id: "a", path: "/x", shippedAt: "2026-05-01" }, { id: "b", path: "/x", shippedAt: "2026-07-01" }]);
-    expect(overlaps.get("a")).toEqual([]);
+    const overlaps = overlapClosures([{ id: "a", path: "/x", anchoredAt: "2026-05-01" }, { id: "b", path: "/x", anchoredAt: "2026-07-01" }]);
+    expect(overlaps.get("a")!.ids).toEqual([]);
   });
   it("downgrades a directional read to confounded when changes overlap", () => {
     const read = evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40 })] }), CLOSED_WINDOWS, ["other-change"]);
@@ -175,13 +176,14 @@ describe("overlap honesty: a later change closes the earlier one's clean window"
     expect(first.windows.filter((w) => w.confounded === "overlapping_change").map((w) => w.day)).toEqual([14, 28]);
     expect(first.basisDay).toBe(7);
     expect(["directional_improvement", "stronger_improvement"]).toContain(first.verdict);
-    expect(first.caveats.join(" ")).toContain("changed the page again on 2026-05-12");
+    // The operator reads a date, never a stamp.
+    expect(first.caveats.join(" ")).toContain("changed the page again on May 12");
     expect(first.caveats.join(" ")).not.toMatch(/[—–]/);
   });
   it("confounds the read outright when the second change landed before any window closed", () => {
     const [first] = twoChanges("2026-05-03T00:00:00.000Z");
     expect(first.verdict).toBe("confounded");
-    expect(first.headline).toContain("I changed the same page again on 2026-05-03");
+    expect(first.headline).toContain("I changed the same page again on May 3");
     expect(first.rankingSignal).toBe(0);
   });
   it("leaves the LATER change confounded, because the earlier one is still in flight under it", () => {
@@ -196,6 +198,47 @@ describe("overlap honesty: a later change closes the earlier one's clean window"
     expect(reads).toHaveLength(1);
     expect([reads[0].overlappingIds, reads[0].cleanUntil]).toEqual([[], null]);
     expect(reads[0].verdict).toBe("directional_improvement");
+  });
+});
+/** A reading that RAN is a reading the operator has already been shown. Moving the clock under it
+ *  (a stamp that lands after the ship date, a second press that moves the ship date) may never
+ *  un-decide it, and the promised dates on Today move with the stamp, never with the press. */
+describe("a settled reading survives the clock moving under it", () => {
+  const SETTLED = new Date("2026-06-10T00:00:00Z"), WATERMARK = "2026-06-05";
+  // Shipped 2026-05-01 and read at 28 days on 2026-05-29. The stamp arrives 19 days after the
+  // ship date, so a recomputed 28-day window would not close until 2026-06-17.
+  const stamped = ledgerRow({
+    implementedAt: "2026-05-20T00:00:00.000Z",
+    windows: [{ day: 28, ran: true, checkOn: "2026-05-29", adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 }],
+  });
+  it("keeps a decided row decided, on the dates the reading was actually taken", () => {
+    const read = readLedger([stamped], SETTLED, WATERMARK)[0];
+    expect(read.basisDay).toBe(28);
+    expect(read.windows.find((w) => w.day === 28)).toMatchObject({ closesOn: "2026-05-29", state: "closed" });
+    expect([read.verdict, bandOf(read)]).toEqual(["directional_improvement", "won"]);
+  });
+  it("still lets the live schedule govern every window that has NOT run", () => {
+    const read = readLedger([stamped], SETTLED, WATERMARK)[0];
+    // 7 and 14 carry no stored reading, so they count from the stamp like any open window.
+    expect(read.windows.filter((w) => w.day !== 28).map((w) => w.closesOn)).toEqual(["2026-05-27", "2026-06-03"]);
+  });
+});
+describe("the dates Beacon promises count from the stamp", () => {
+  const NOW_S = new Date("2026-05-25T00:00:00Z");
+  const scheduleRow = (over: Partial<VerdictScheduleRow> = {}): VerdictScheduleRow => ({
+    id: "s1", path: "/x", shippedAt: "2026-05-01T00:00:00.000Z", verdict: "measuring",
+    windows: [], baseline: { impressions: 5000, clicks: 400 }, ...over,
+  });
+  it("moves the promised dates onto the stamp when the row carries one", () => {
+    expect(verdictSchedule([scheduleRow()], NOW_S)).toMatchObject({ firstReadOn: "2026-05-29", finalVerdictOn: "2026-05-29" });
+    expect(verdictSchedule([scheduleRow({ implementedAt: "2026-05-20T00:00:00.000Z" })], NOW_S))
+      .toMatchObject({ firstReadOn: "2026-05-27", finalVerdictOn: "2026-06-17" });
+  });
+  it("never moves a promised date because the change was pressed a second time", () => {
+    // A re-press moves the ship date and never the stamp, so the operator's dates hold.
+    expect(verdictSchedule([scheduleRow({
+      implementedAt: "2026-05-20T00:00:00.000Z", shippedAt: "2026-05-24T00:00:00.000Z",
+    })], NOW_S)).toMatchObject({ firstReadOn: "2026-05-27", finalVerdictOn: "2026-06-17" });
   });
 });
 describe("the learning shape every read carries", () => {
@@ -266,12 +309,19 @@ describe("the conditional day-56 read", () => {
     }
     expect(day56Followup(shipped({ verdict: "insufficient_data" }), FINAL, AFTER_56).reason).toBe("insufficient_28");
     expect(day56Followup(shipped({ verdict: "inconclusive" }), FINAL, AFTER_56).reason).toBe("unclear_28");
-    expect(day56Followup(shipped({ verdict: "measuring" }), FINAL, AFTER_56).reason).toBe("confounded_28");
+    // The record can prove the 28-day read did not settle; it cannot prove WHY, so it does not say.
+    expect(day56Followup(shipped({ verdict: "measuring" }), FINAL, AFTER_56).reason).toBe("measuring_28");
   });
   it("runs it for a change that moved or hid the page, even on a clean 28-day read", () => {
     const record = shipped({ componentsApplied: [{ kind: "redirect", label: "Redirect" }] });
     expect(day56Followup(record, FINAL, AFTER_56)).toMatchObject({ runs: true, due: true, reason: "dangerous_change" });
     expect(isDueForMeasure(record, FINAL, AFTER_56)).toBe(true);
+  });
+  it("runs it for a component the proposal GRADED dangerous, whatever its kind", () => {
+    const graded = shipped({ componentsApplied: [{ kind: "title", label: "Page title", risk: "dangerous" }] });
+    expect(day56Followup(graded, FINAL, AFTER_56)).toMatchObject({ runs: true, due: true, reason: "dangerous_change" });
+    // A component graded safe on an ordinary kind still closes at 28 days.
+    expect(day56Followup(shipped({ componentsApplied: [{ kind: "title", label: "Page title", risk: "safe" }] }), FINAL, AFTER_56).runs).toBe(false);
   });
   it("waits for Google, and never asks twice", () => {
     const unsettled = shipped({ verdict: "inconclusive" });
@@ -295,6 +345,29 @@ describe("the conditional day-56 read", () => {
     expect(read.basisDay).toBe(56);
     expect(read.headline).toContain("56-day window");
     expect(read.headline).not.toContain("I will call it when the 28-day window closes");
+  });
+  it("names BOTH reads when the fourth checkpoint changes the answer", () => {
+    const read = readLedger([ledgerRow({
+      implementedAt: STAMP,
+      windows: [
+        { day: 28, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 },
+        { day: 56, ran: true, adjustedLift: 0, controlsUsed: 3, treatedPostImpressions: 5000 },
+      ],
+    })], AFTER_56, FINAL)[0];
+    expect([read.basisDay, bandOf(read)]).toEqual([56, "learned"]);
+    expect(read.headline).toContain(
+      "The 28 day read looked like a win; the full 56 day read shows no clear change, and the longer window wins.",
+    );
+  });
+  it("says nothing about a flip when the fourth read agrees with the 28-day read", () => {
+    const read = readLedger([ledgerRow({
+      implementedAt: STAMP,
+      windows: [
+        { day: 28, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 },
+        { day: 56, ran: true, adjustedLift: 200, controlsUsed: 3, treatedPostImpressions: 5000 },
+      ],
+    })], AFTER_56, FINAL)[0];
+    expect(read.headline).not.toContain("The 28 day read looked like");
   });
 });
 describe("no causal overclaim on any read", () => {
@@ -320,7 +393,8 @@ describe("no causal overclaim on any read", () => {
       ledgerRow({ id: "second", shippedAt: "2026-05-03", implementedAt: "2026-05-03T00:00:00.000Z" }),
     ], LATE, "2026-07-01");
     expect(first.verdict).toBe("confounded");
-    expect(first.headline).toMatch(/changed the same page again on \d{4}-\d{2}-\d{2}/);
+    expect(first.headline).toMatch(/changed the same page again on [A-Z][a-z]{2} \d{1,2}\b/);
+    expect(first.headline).not.toMatch(/\d{4}-\d{2}-\d{2}/); // never a raw date stamp in operator copy
     expect(learningVerdictOf(first)).toBe("measuring");
   });
 });

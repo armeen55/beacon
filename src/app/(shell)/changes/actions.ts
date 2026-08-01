@@ -82,8 +82,12 @@ async function recordShipment(
     // THE EXACT COPY TRAVELS WITH THE SHIPMENT. Without each component's own wording the live
     // verification can only say unknown for everything but the lone component, and the whole
     // point of verifying is comparing what was proposed against what is actually on the page.
-    const all = proposal.bundle?.components.map((c) => ({ kind: c.kind, label: c.label, after: c.after ?? null }))
-      ?? [{ kind: proposal.changeFamily, label: proposal.opportunityType, after: proposal.recommendedChange?.kind === "existing_edit" ? proposal.recommendedChange.after : null }];
+    // THE RISK GRADE TRAVELS TOO. Decision calls a component dangerous on its kind OR on this
+    // grade; measurement only ever saw the kind, so a component graded dangerous under an
+    // ordinary kind lost the day-56 follow up that exists for exactly those changes.
+    const all = proposal.bundle?.components.map((c) => ({ kind: c.kind, label: c.label, after: c.after ?? null, risk: c.risk ?? null }))
+      // An atomic change has no component to carry a grade, so it reads null rather than a guess.
+      ?? [{ kind: proposal.changeFamily, label: proposal.opportunityType, after: proposal.recommendedChange?.kind === "existing_edit" ? proposal.recommendedChange.after : null, risk: null }];
     const wanted = componentKinds && componentKinds.length > 0 ? new Set(componentKinds) : null;
     const componentsApplied = wanted ? all.filter((c) => wanted.has(c.kind)) : all;
 

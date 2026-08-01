@@ -70,7 +70,7 @@ vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/assemble-pa
 }));
 vi.mock("@/domains/evidence/ai-visibility/ai-observations", () => ({ readAiObservationViews: ai.views }));
 
-import { recordShippedChange } from "@/domains/measurement/proof-gsc/measure-pass";
+import { measureRecord, recordShippedChange } from "@/domains/measurement/proof-gsc/measure-pass";
 import { isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import {
   loadShippedChangesForTenant, pagesUnderMeasurementFromShipments, recordVerification,
@@ -188,6 +188,29 @@ describe("the canonical Shipment", () => {
     expect(stored.baseline.clicks).toBe(5);
     expect([stored.proposalId, stored.implementedAt, stored.shipmentBaseline, stored.verification])
       .toEqual([null, null, null, null]);
+  });
+});
+
+/** THE FOURTH CHECKPOINT IS BOUGHT ONCE. A recompute rebuilds 7/14/28 from scratch, so a day-56
+ *  reading already taken and already judged on must be carried through it untouched. */
+describe("a day-56 reading already taken", () => {
+  const LATER = new Date("2026-10-01T00:00:00.000Z"), BEHIND_56 = "2026-09-05";
+  const ranWindow = (day: number, adjustedLift: number) => ({
+    day, checkOn: "2026-09-25", ran: true, treatedDelta: 0, controlDelta: 0, adjustedLift,
+    treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0,
+    controlPosDelta: 0, adjustedPosLift: 0, controlsUsed: 3, treatedPostImpressions: 5000,
+  });
+
+  it("survives a recompute that could not ask for it again, and is never re-bought", async () => {
+    const held = { ...(await ship()), verdict: "inconclusive" as const, windows: [ranWindow(56, 400)] as never };
+    const measured = await measureRecord(T, held, LATER, BEHIND_56);
+    // The 7/14/28 windows are rebuilt; the reading Beacon already paid for rides through.
+    expect(measured.windows.map((w) => w.day)).toEqual([7, 14, 28, 56]);
+    expect(measured.windows.find((w) => w.day === 56)?.adjustedLift).toBe(400);
+    // Google has no finalized data through the 56-day close, so that window was never re-read.
+    expect(gsc.window.mock.calls.some((c) => (c[0] as { end?: string }).end === "2026-09-25")).toBe(false);
+    // And the verdict is still read on it, rather than falling back to a thinner window.
+    expect(measured.verdict).toBe("won");
   });
 });
 

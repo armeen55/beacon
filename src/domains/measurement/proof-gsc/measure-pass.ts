@@ -169,11 +169,18 @@ export async function measureRecord(
   for (const day of PROOF_WINDOW_DAYS) {
     windows.push(await readWindow(day, windowStates.find((w) => w.day === day)!.state === "closed"));
   }
+  // A DAY-56 READING THAT HAS RUN IS KEPT, ALWAYS. The rebuild above covers 7/14/28 only, so a
+  // recompute that arrives when the fourth checkpoint is not due again (the ordinary case: it is
+  // due exactly once) used to drop a reading Beacon already took and had already judged on. It is
+  // carried forward untouched, never re-read, and never re-bought.
+  const readSomething = windows.some((w) => w.ran); // what THIS pass read, before the kept reading
+  const kept56 = (record.windows ?? []).find((w) => w.day === FOLLOW_UP_WINDOW_DAY && w.ran);
+  if (kept56) windows.push(kept56);
 
   const measured: ShippedChangeRecord = {
     ...record,
     windows,
-    measuredAt: windows.some((w) => w.ran) ? now.toISOString() : record.measuredAt,
+    measuredAt: readSomething ? now.toISOString() : record.measuredAt,
     updatedAt: now.toISOString(),
   };
   const settle = (): void => {
@@ -237,7 +244,9 @@ const AI_BASELINE_ROWS = 60;
  */
 async function latestAiPresence(tenantId: string): Promise<{ day: string; checked: number; mentioning: number } | null> {
   try {
-    const rows = (await readAiObservationViews(tenantId, { limit: AI_BASELINE_ROWS }))
+    // Slot 0 is asked for in the QUERY, not filtered afterwards: the extra volatility samples
+    // would otherwise eat the row cap and leave the baseline reading a fraction of the day.
+    const rows = (await readAiObservationViews(tenantId, { limit: AI_BASELINE_ROWS, slot: 0 }))
       .filter((r) => r.slot === 0 && r.status === "observed");
     const day = rows.map((r) => r.day).sort().pop();
     if (!day) return null;
@@ -266,9 +275,10 @@ type ShipmentOrigin = {
   basis: string | null;
   caseId: string | null;
   bundleHypothesis: string;
-  /** The components the operator says they applied, each with the exact copy it carried. A subset = a
-   *  partial bundle, and the copy is what the live check compares the page against. */
-  componentsApplied: Array<{ kind: string; label: string; after?: string | null }>;
+  /** The components the operator says they applied, each with the exact copy it carried and the risk
+   *  the proposal graded it at. A subset = a partial bundle, and the copy is what the live check
+   *  compares the page against. */
+  componentsApplied: Array<{ kind: string; label: string; after?: string | null; risk?: string | null }>;
   implementedAt: string;
   preChangeContentHash: string | null;
   /** THE OVERRIDE, and only the override: the operator states this is live and asks me not to argue. */

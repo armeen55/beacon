@@ -15,11 +15,11 @@ import { addDays } from "./kernel";
 import { PROOF_WINDOW_DAYS, type ProofWindowDay } from "./types";
 import { GSC_LAG_DAYS } from "@/domains/measurement/proof-gsc/change-family";
 
-/** The check-in dates after a ship date, one per window day. Pure (UTC). */
-function proofCheckDates(shippedAtIso: string): Record<ProofWindowDay, string> {
+/** The check-in dates after the stamp, one per window day. Pure (UTC). */
+function proofCheckDates(anchorIso: string): Record<ProofWindowDay, string> {
   return {
-    7: addDays(shippedAtIso, 7), 14: addDays(shippedAtIso, 14),
-    28: addDays(shippedAtIso, 28), 56: addDays(shippedAtIso, 56),
+    7: addDays(anchorIso, 7), 14: addDays(anchorIso, 14),
+    28: addDays(anchorIso, 28), 56: addDays(anchorIso, 56),
   };
 }
 import { splitLedgerLifecycle, type LedgerLifecycleRow } from "@/domains/decision/changes/lifecycle-counts";
@@ -53,7 +53,7 @@ export type VerdictScheduleRow = LedgerLifecycleRow & {
 export type VerdictSchedule = {
   /** Earliest FUTURE next-unclosed 7/14/28 checkpoint across measuring rows (recrawl clock). */
   firstReadOn: string | null;
-  /** Earliest FUTURE ship + 28 - the soonest final verdict any measuring row can reach. */
+  /** Earliest FUTURE stamp + 28 - the soonest final verdict any measuring row can reach. */
   finalVerdictOn: string | null;
   /** finalVerdictOn + GSC_LAG_DAYS - when Google's data for that final window is reliably in. */
   reliableDataOn: string | null;
@@ -62,13 +62,24 @@ export type VerdictSchedule = {
 const YMD = /^\d{4}-\d{2}-\d{2}/;
 const ymd = (now: Date): string => now.toISOString().slice(0, 10);
 
+/**
+ * THE STAMP every promised date counts from: when the operator marked the change done, falling
+ * back to the ship date on a row written before there was a stamp. The same anchor the kernel,
+ * measure-lifecycle and measure-pass all count from, so the date Today promises the operator and
+ * the date the read actually lands can never be two different days. A re-press moves the ship
+ * date and never the stamp, so it never moves a promised date either. Pure.
+ */
+function anchorOf(row: VerdictScheduleRow): string {
+  return (row.implementedAt ?? row.shippedAt).slice(0, 10);
+}
+
 /** The day the SEARCH clock starts for a row: the confirmed recrawl date when it is known
- *  and not before ship, otherwise the ship date. Mirrors measurement-maturity's rule. */
+ *  and not before the stamp, otherwise the stamp. Mirrors measurement-maturity's rule. */
 function searchClockStart(row: VerdictScheduleRow): string {
-  const ship = row.shippedAt.slice(0, 10);
+  const anchor = anchorOf(row);
   const confirmed = row.recrawlConfirmedAt;
-  if (confirmed && YMD.test(confirmed) && confirmed.slice(0, 10) >= ship) return confirmed.slice(0, 10);
-  return ship;
+  if (confirmed && YMD.test(confirmed) && confirmed.slice(0, 10) >= anchor) return confirmed.slice(0, 10);
+  return anchor;
 }
 
 /** The earliest future unclosed checkpoint for ONE row, recrawl-aware; null when none. */
@@ -101,7 +112,7 @@ export function verdictSchedule(
   for (const row of measuring) {
     const first = rowFirstRead(row, nowYmd);
     if (first != null && (firstReadOn == null || first < firstReadOn)) firstReadOn = first;
-    const final = addDays(row.shippedAt, FINAL_WINDOW_DAY);
+    const final = addDays(anchorOf(row), FINAL_WINDOW_DAY);
     if (final > nowYmd && (finalVerdictOn == null || final < finalVerdictOn)) finalVerdictOn = final;
   }
   const reliableDataOn = finalVerdictOn != null ? addDays(finalVerdictOn, GSC_LAG_DAYS) : null;
