@@ -368,4 +368,72 @@ describe("do I already have the right page for what I investigated", () => {
     const unread = "fixture-outdoors.example/nowruz-unread"; const page = cands(snap([GAP], looked([["nowruz traditions", unread]]))).find((c) => c.url === unread)!;
     expect([page.bodyHeld, page.strongSignals]).toEqual([false, 1]); expect(page.signals.find((s) => s.strength === "unknown")!.detail).toBe("I do not hold this page's words, so I cannot tell you whether it already covers this."); });
   it("surfaces BOTH of my pages when both already cover the topic", () => { expect(cands(BOTH()).map((c) => [c.url, c.strongSignals])).toEqual([[GAP_URL, 2], [FOOD, 2]]); });
+}); // ── WHY this page loses the click: one named cause, or none ─────────────────
+/** The reading the drafting pass hands the verdict: what the winners share, and what MY page does not do. */
+const PATTERN_HELD = { archetype: "informational_guide" as const, commonHeadings: [{ heading: "what each piece means", seenOn: [0, 1, 2] }], commonEntities: [],
+  questionsAnswered: [], openingPattern: "Each of them answers the question in its first sentence.", disagreements: [], uniqueNotCommon: [],
+  ownedGaps: [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }], winners: 3, publishers: ["r1.example", "r2.example", "r3.example"], fingerprint: "fixture" };
+/** The five causes nothing in this generation can test, which must therefore never be guessed at. */
+const NEVER_HELD = ["demand_decline", "ranking_loss", "technical_indexability", "measuring_change"]; // retrieved_not_cited went live when the projection began carrying the retrieval list
+/** An engine answering this page's own search and naming everybody except this page. */
+const CITED_ELSEWHERE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [{ promptId: "p1", promptText: "nowruz traditions explained", engine: "chatgpt",
+  observationMode: "consumer_search", modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true,
+  citations: [{ url: "https://rival.example/a", domain: "rival.example", title: null }], fanOutQueries: null, observedAt: LOOKED_AT }] });
+const ACTORS_SEEN = () => snap([ACTORS], actorsSerp("Persian Screen | Iranopedia"));
+describe("why this page loses the click, one named cause at a time", () => {
+  it("blames the wording only where the results page accuses it, and says what it beat and what would kill it", () => {
+    const c = compileCandidates(ACTORS_SEEN())[0]!;
+    expect([c.action, c.cause.cause, c.cause.action]).toEqual(["act_existing_page", "ctr_snippet", "title"]); // one cause, and it is the one the results page proved
+    expect(c.cause.competingExplanations.map((x) => x.cause)).toEqual(["competitor_content_gap"]); expect(c.cause.falsifier).toContain("wording");
+    expect(c.cause.notConsidered.map((n) => n.cause)).toEqual(expect.arrayContaining([...NEVER_HELD, "cannibalization", "competitor_content_gap"])); }); // absent evidence is named, never guessed
+  it("calls two of my own pages on one search what it is, above the wording that would otherwise be blamed", () => {
+    const world = { ...ACTORS_SEEN(), cannibalization: [{ query: "iranian actors", competingUrls: [ACTORS_URL, "iranopedia.example/actors"], note: "" }] };
+    const c = compileCandidates(world)[0]!; expect([c.action, c.cause.cause, c.cause.action]).toEqual(["consolidate", "cannibalization", "consolidate"]);
+    expect(c.cause.competingExplanations.map((x) => x.cause)).toContain("ctr_snippet"); // the wording read fired and lost to the stronger evidence
+    expect(c.reason).toContain('2 of your own pages come up for "iranian actors"'); expect(snapshotToEvidenceInputs(world)).toEqual([]); // self-competition is never a copy rewrite
+    const supported = { ...ACTORS_SEEN(), research: { ...actorsSerp("Persian Screen | Iranopedia"), retainedKeywords: [{ query: "iranian actors", searchVolume: null, competition: null, competitionLevel: null, difficulty: null, intent: null, supports: "consolidation" as const }] } };
+    expect(compileCandidates(supported)[0]!.cause.cause).toBe("cannibalization"); }); // my own keyword research reaches the same answer on its own
+  it("names what the winning pages do that mine does not, citing the verdict's own receipt lines", async () => {
+    const world = snap([GAP], READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) }), DEMAND);
+    const read = await readCoverage(world, "fixture-tenant", { basis: "basis_today", now: NOW, patternFor: { topicKey: keyOf(READY()), pattern: PATTERN_HELD } });
+    expect([read.decided!.decision.verdict, read.decided!.decision.ownedUrls]).toEqual(["improve_existing", [GAP_URL]]);
+    const c = compileCandidates(world, { coverage: read.decided })[0]!;
+    expect([c.action, c.cause.cause, c.cause.evidenceKeys]).toEqual(["watch", "competitor_content_gap", ["pattern", "gap1"]]); // the ids the verdict wrote its own receipt under
+    expect(c.reason).toContain("walks through the pieces one by one"); expect(snapshotToEvidenceInputs(world)).toEqual([]); // a subject the page never covers is not a title rewrite
+    const blind = compileCandidates(world)[0]!; // the same page with no verdict in hand
+    expect([blind.action, blind.cause.cause]).toEqual(["research_needed", "no_problem"]); // NOT considered rather than guessed at
+    expect(blind.cause.notConsidered.map((n) => n.cause)).toContain("competitor_content_gap"); });
+  it("walks down to the next cause when the one above it does not fire, and stops rather than guessing", async () => {
+    const laddered = async (page: OwnedPageEvidence, pattern: typeof PATTERN_HELD) => {
+      const world = snap([page], READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) }), DEMAND);
+      const read = await readCoverage(world, "fixture-tenant", { basis: "basis_today", now: NOW, patternFor: { topicKey: keyOf(READY()), pattern } });
+      return compileCandidates(world, { coverage: read.decided })[0]!;
+    };
+    const noGaps = { ...PATTERN_HELD, ownedGaps: [] }; const bare = { ...noGaps, commonHeadings: [], commonEntities: [] };
+    expect((await laddered(GAP, noGaps)).cause.cause).toBe("incomplete_coverage"); // nothing my page fails to DO, so what they all cover is asked next
+    const listy = ownedPage(GAP_URL, "Top 10 Nowruz Traditions", { impressions: 6400, clicks: 190 }, [{ query: "nowruz traditions", impressions: 6000, clicks: 180, position: 4.1 }]);
+    expect((await laddered(listy, bare)).cause.cause).toBe("serp_shape_shift"); // and the kind of page that wins is asked after that
+    const stopped = await laddered(GAP, bare); expect([stopped.action, stopped.cause.cause]).toEqual(["research_needed", "no_problem"]);
+    expect(stopped.cause.notConsidered.map((n) => n.cause)).toEqual(expect.arrayContaining(["weak_opening", "serp_shape_shift", "internal_link_weakness", "ai_citation_gap"])); }); // each one named, none of them guessed
+  it("says when an engine cites everybody but this page, and only where an answer with its sources is on file", () => {
+    const c = compileCandidates(snap([GAP], CITED_ELSEWHERE()))[0]!;
+    expect([c.action, c.cause.cause]).toEqual(["watch", "ai_citation_gap"]); expect(c.reason).toContain("chatgpt answered");
+    expect(compileCandidates(snap([GAP]))[0]!.cause.notConsidered.find((n) => n.cause === "ai_citation_gap")!.missing).toContain("no AI answer"); });
+  it("tells a page the engine READ and passed over from one it never found, and only when the retrieval list was recorded", () => {
+    const seen = { ...CITED_ELSEWHERE(), aiObservations: CITED_ELSEWHERE().aiObservations.map((o) => ({ ...o,
+      retrievedResults: [{ url: `https://${GAP_URL}`, domain: "fixture-outdoors.example", title: null }] })) };
+    const c = compileCandidates(snap([GAP], seen))[0]!;
+    expect([c.cause.cause, c.reason.includes("passed over")]).toEqual(["retrieved_not_cited", true]); // read, judged, declined: a content verdict, not a wording one
+    expect(compileCandidates(snap([GAP], CITED_ELSEWHERE()))[0]!.cause.cause).toBe("ai_citation_gap"); }); // no retrieval list recorded: the harder claim is never made
+  it("answers a page that is losing nothing with no problem, and still says what it ruled out", () => {
+    const c = compileCandidates(snap([WINNER]))[0]!; expect([c.action, c.cause.cause]).toEqual(["watch", "no_problem"]);
+    expect(c.cause.competingExplanations.map((x) => x.cause)).toEqual(["ctr_snippet"]); expect(c.cause.falsifier).toContain("click rate"); });
+  it("never emits a diagnosis without a competing explanation, a falsifier, and every unheld cause named", () => {
+    for (const world of [snap([WINNER]), SEEN(), snap([GAP]), snap([ACTORS], actorsSerp(DISPLAYED)), snap([GAP], CITED_ELSEWHERE()), BOTH()]) {
+      for (const c of compileCandidates(world)) {
+        expect(c.cause.competingExplanations.length).toBeGreaterThan(0); expect(c.cause.competingExplanations.length).toBeLessThanOrEqual(3);
+        expect(c.cause.competingExplanations.every((x) => x.reason.length > 0)).toBe(true); expect(c.cause.falsifier.length).toBeGreaterThan(0);
+        expect(c.cause.notConsidered.map((n) => n.cause)).toEqual(expect.arrayContaining(NEVER_HELD));
+        expect(c.cause.notConsidered.every((n) => n.missing.length > 0)).toBe(true);
+        expect(`${c.cause.explanation} ${c.cause.falsifier}`).not.toMatch(/[–—]|SERP|experiment|baseline/); } } });
 });

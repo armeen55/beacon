@@ -46,8 +46,10 @@ import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/do
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import { MIN_CTR_DEFICIT, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, evidenceComplete, readyForAction,
-  type ActionDiagnosis, type DecisionCandidate, type EvidenceInput, type EvidenceReadiness, type ProposalKind } from "./contracts";
+  type ActionDiagnosis, type DecisionCandidate, type EvidenceInput, type EvidenceReadiness } from "./contracts";
 import { diagnoseCandidate, type DisplayedResult } from "./diagnose";
+import { diagnoseCauses, noProblemFinding, type CauseFinding } from "./diagnosis";
+import type { DecidedTopic } from "./coverage-pass";
 
 /** How small a soft search must be, against the clicks the page already earns, to
  *  be watched rather than acted on when the page beats its curve overall. */
@@ -55,7 +57,13 @@ const PARITY_MINOR_SHARE = 0.1;
 
 /** The curve the gap is measured against. Defaults to the industry curve this
  *  repo already ships; a tenant-fitted curve is passed in when one exists. */
-export type CompileOptions = { curve?: Pick<TenantCtrCurve, "expectedCtrAt"> };
+type CompileOptions = {
+  curve?: Pick<TenantCtrCurve, "expectedCtrAt">;
+  /** The ONE topic this pass decided, when it decided one. It carries the settled kind of page, what
+   *  people searching it want, and the reading of what the winning pages share, so the cause ladder can
+   *  ask those questions of the page that verdict NAMES. Absent, those causes are simply not considered. */
+  coverage?: DecidedTopic | null;
+};
 
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const pct = (v: number): string => `${(v * 100).toFixed(1)} percent`;
@@ -109,7 +117,12 @@ function bestGap(gaps: QueryGap[]): QueryGap | null {
 /** A candidate carrying what evidence the decision HOLDS and what it concluded from
  *  it. Structurally a DecisionCandidate (contracts.ts stays frozen); the extra
  *  fields are read only inside Decision, to gate drafting and to set confidence. */
-export type QualifiedCandidate = DecisionCandidate & { readiness?: EvidenceReadiness; diagnosis?: ActionDiagnosis };
+export type QualifiedCandidate = DecisionCandidate & {
+  readiness?: EvidenceReadiness; diagnosis?: ActionDiagnosis;
+  /** THE named cause, what it beat, what would disprove it, and every cause whose evidence is not on
+   *  file. Required: a page this pass judged always says WHY, even when the why is "nothing is wrong". */
+  cause: CauseFinding;
+};
 
 /** What research this snapshot holds, indexed once per pass. A live results page
  *  counts for a query only under EXACT/canonical identity: a neighbouring search
@@ -161,7 +174,8 @@ function missingSentence(r: EvidenceReadiness): string {
 }
 
 /** One page's honest outcome, measured on its exact queries only. */
-function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: number) => number, index: ResearchIndex): QualifiedCandidate {
+function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: number) => number, index: ResearchIndex,
+  snapshot: EvidenceSnapshot, coverage: DecidedTopic | null): QualifiedCandidate {
   const pageUrl = absoluteUrl(page.url);
   const gaps = (page.search?.topQueries ?? [])
     .map((q) => measureQuery(q, expectedCtrAt))
@@ -186,6 +200,8 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
       pageUrl,
       query: null,
       recoverableClicks: 0,
+      cause: noProblemFinding("I hold no exact search numbers for this page, so there is nothing here for me to explain yet.",
+        "I hold no exact search numbers for this page, so nothing accuses its wording"),
       reason: "I have no searched-query data for this page yet, so I cannot tell you what a change here would do.",
     };
   }
@@ -203,41 +219,41 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
       pageUrl,
       query: best.query,
       recoverableClicks: Math.max(0, best.recoverableClicks),
+      cause: noProblemFinding(`Every measured search on this page earns more clicks than its position predicts, so one soft search is not a problem with the page.`,
+        "this page already earns more of the clicks than its positions predict, so its wording is costing you nothing"),
       reason: `${scope}. ${rates}, but this page\u0027s ${gaps.length} measured searches earn ${num(earned)} clicks against the ${num(predicted)} their positions predict, so I am watching that one search instead of rewriting a page that is winning.`,
     };
   }
 
   if (clears) {
-    // The gap is real and big enough. It still does not say WHAT to change, so the
-    // evidence I hold decides whether this is an action or an investigation.
+    // The gap is real and big enough. It still does not say WHAT to change, so THE CAUSE LADDER is asked:
+    // every cause of a lost click, in one fixed order, each answering for itself or not considered at all.
     const readiness = readinessOf(page, best, index);
     const modeled = `This search earns about ${num(Math.max(0, best.recoverableClicks))} fewer clicks than pages at a similar position usually get`;
-    if (!evidenceComplete(readiness)) {
-      return {
-        action: "research_needed",
-        pageUrl,
-        query: best.query,
-        recoverableClicks: Math.max(0, best.recoverableClicks),
-        readiness,
-        reason: `${scope}. ${rates}. ${modeled}, and that gap is big enough to look into. ${missingSentence(readiness)}`,
-      };
-    }
-    // I hold the numbers, the page's own copy, and the live results page for this
-    // exact search. Holding it is not reading it, so the diagnosis reads what that
-    // page actually SAYS, and only a named cause with a competing explanation ruled
-    // out may become work. Anything short of that stays an investigation.
+    // WHAT THE RESULTS PAGE ACTUALLY SAYS, asked even when I have never looked at one: its own honest "I
+    // have not looked yet" is a reading, and the ladder holds causes that need no results page at all.
+    // Gating this call on complete evidence hid every one of them behind "I cannot tell you what to change".
     const diagnosis = diagnoseCandidate({
       query: best.query, ownedUrl: pageUrl,
       organic: index.serpByQuery.get(canonicalQueryKey(best.query)) ?? null, body: readiness.body,
       gscPosition: best.position,
     });
-    const common = { pageUrl, query: best.query, readiness, diagnosis };
-    if (!readyForAction(diagnosis)) {
-      return { action: "research_needed", ...common, recoverableClicks: Math.max(0, best.recoverableClicks),
-        reason: `${scope}. ${rates}. ${modeled}, and that gap is big enough to look into. ${diagnosis.explanation}` };
+    const cause = diagnoseCauses({ snapshot, page, query: best.query, serpRead: diagnosis, coverage });
+    const common = { pageUrl, query: best.query, readiness, diagnosis, cause,
+      recoverableClicks: Math.max(0, best.recoverableClicks) };
+    const opening = `${scope}. ${rates}. ${modeled}`;
+    // ONLY the wording cause names an edit this kernel can write, and only with the evidence that draft is
+    // checked against actually in hand. Every other named cause is real work that is not a copy rewrite.
+    if (cause.action === "title" && evidenceComplete(readiness) && readyForAction(diagnosis)) {
+      return { action: "act_existing_page", gap: "ctr_deficit", ...common, recoverableClicks: best.recoverableClicks,
+        reason: `${opening}. ${cause.explanation}` };
     }
-    return { action: "act_existing_page", gap: "ctr_deficit", ...common, recoverableClicks: best.recoverableClicks,
-      reason: `${scope}. ${rates}. ${modeled}. ${diagnosis.explanation}` };
+    if (cause.action === "consolidate") return { action: "consolidate", ...common, reason: `${opening}. ${cause.explanation}` };
+    // A NAMED CAUSE WITH NO EDIT BEHIND IT IS STILL AN ANSWER. It is watched, and the operator reads the
+    // cause rather than "I am looking into it", which is the sentence this whole ladder exists to retire.
+    if (cause.cause !== "no_problem") return { action: "watch", ...common, reason: `${opening}. ${cause.explanation}` };
+    return { action: "research_needed", ...common,
+      reason: `${opening}, and that gap is big enough to look into. ${evidenceComplete(readiness) ? diagnosis.explanation : missingSentence(readiness)}` };
   }
 
   if (best.deficit > 0) {
@@ -251,6 +267,8 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
       pageUrl,
       query: best.query,
       recoverableClicks: Math.max(0, best.recoverableClicks),
+      cause: noProblemFinding("The gap on that search is real and smaller than the size I act on, so I am not naming a cause for it yet.",
+        "the gap is under the size where changing this page's wording would be worth your morning"),
       reason: `${scope}. ${rates}, and ${missed}. I am watching it instead of making you work.`,
     };
   }
@@ -260,6 +278,8 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
     pageUrl,
     query: best.query,
     recoverableClicks: 0,
+    cause: noProblemFinding("This page already earns more of the clicks than pages at its position usually get.",
+      "this page already beats what its position usually earns, so its wording is costing you nothing"),
     reason: `${scope}. ${rates}, so this page is already beating what its position usually earns. Leave it alone.`,
   };
 }
@@ -278,7 +298,7 @@ export function compileCandidates(snapshot: EvidenceSnapshot, opts: CompileOptio
   // made. Silence about an unknown row is honest; a tally that includes it is not.
   return snapshot.ownedPages
     .filter((p) => !!p.content || (p.search?.topQueries ?? []).length > 0 || (p.search?.impressions90d ?? 0) > 0)
-    .map((page) => candidateForPage(page, expectedCtrAt, index));
+    .map((page) => candidateForPage(page, expectedCtrAt, index, snapshot, opts.coverage ?? null));
 }
 
 // ── candidates → the kernel's ONE input shape ────────────────────────────────
@@ -377,9 +397,4 @@ export function candidatesToEvidenceInputs(
  */
 export function snapshotToEvidenceInputs(snapshot: EvidenceSnapshot, opts: CompileOptions = {}): EvidenceInput[] {
   return candidatesToEvidenceInputs(snapshot, compileCandidates(snapshot, opts));
-}
-
-/** Which proposal path an input routes to (re-export for callers/logging). */
-export function inputKind(input: EvidenceInput): ProposalKind {
-  return input.opportunity.kind;
 }

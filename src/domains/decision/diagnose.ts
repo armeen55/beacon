@@ -49,6 +49,18 @@ export const RECEIPT = {
   ownedResult: "serp-owned",
   pattern: "serp-pattern",
   body: "copy-body",
+  // The cause ladder (decision/diagnosis) reads five more things this account already bought. The three
+  // `winners*` ids are the coverage verdict's OWN receipt lines, cited by the exact ids it writes them
+  // under, so a cause never invents a second name for evidence the operator is already reading.
+  competing: "demand-competing",
+  intent: "demand-intent",
+  shape: "serp-shape",
+  ai: "ai-citations",
+  links: "copy-links",
+  winners: "pattern",
+  winnersGap: "gap1",
+  winnersHeading: "common1",
+  winnersOpening: "opening",
 } as const;
 
 /** One result exactly as the results page displayed it. */

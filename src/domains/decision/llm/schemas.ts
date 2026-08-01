@@ -303,7 +303,6 @@ export const OutreachPitchSchema = z.object({
   confidence: ConfidenceSchema,
   risks: z.array(z.string().min(1)).max(8).default([]),
 });
-export type OutreachPitch = z.infer<typeof OutreachPitchSchema>;
 
 // ── coverage adjudication (N3b, 2026-07-28) ───────────────────────────────── ONE verdict on whether this account
 // ALREADY has the right page for a topic it researched. The model COMPARES the owned pages the caller supplied and
@@ -443,7 +442,6 @@ export const SCHEMA_BY_KIND = {
 export const FaqPairsSchema = z.object({
   pairs: z.array(z.object({ q: z.string().min(3).max(300), a: z.string().min(3).max(1200) })).min(1).max(8),
 });
-export type FaqPairs = z.infer<typeof FaqPairsSchema>;
 
 /** CTR Title Lab variants (demand-graph/ctr-title-scorer.ts - deterministic today,
  *  registered so any future LLM-generated variant list validates the same shape). */
@@ -456,7 +454,6 @@ export const TitleVariantsSchema = z.object({
     reason: z.string().min(1).max(300).optional(),
   })).min(1).max(12),
 });
-export type TitleVariants = z.infer<typeof TitleVariantsSchema>;
 
 /** Page Surgeon judge verdict (llm-judge.ts raw JSON contract; the hand-rolled
  *  sanitize() + the deterministic gate remain the runtime authority). */

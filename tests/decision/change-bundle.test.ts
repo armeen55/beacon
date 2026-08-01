@@ -2,7 +2,8 @@
  *  receipt-first grounding for the EXACT candidate search, scope named on every number, QUERY IDENTITY per query, winners attaching only on exact
  *  membership, atomic bundling, confidence and readiness by EVIDENCE HELD, determinism, honest refusal, no page is ever invented however much
  *  research backs the topic, a release publishing only on a real production result, dedupe, and a round trip. */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"; import type { ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"; import type { BundleComponent, BundleComponentKind, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
+import { DANGEROUS_COMPONENT_KINDS, dangerousComponents, needsSourcePack } from "@/domains/decision/contracts"; import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals"; import { validateProposal } from "@/domains/decision/validate-proposal";
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) })); vi.mock("@/domains/decision/proposal-store", () => ({ loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); } }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap })); vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "fixture-tenant", domain: "fixture-content.example", growth_goal: null }), basisTag: () => "basis_test" })); import { produceBundleForSnapshot } from "@/domains/decision/produce-bundle";
@@ -47,7 +48,8 @@ beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; store.rows.clear(); 
     expect(bundle.components[0].evidenceKeys).toEqual(["demand-exact", "copy-current", "serp1", "serp-owned", "serp-pattern"]); expect(bundle.receipt.items.find((i) => i.key === "copy-current")!.fact).toContain('is titled "Rain Barrels"'); expect(bundle.receipt.items.find((i) => i.key === "serp-owned")!.fact).toBe('On that results page Google shows this page worded "Rain Barrels".'); expect(bundle.receipt.items.find((i) => i.key === "serp-pattern")!.fact).toBe('Across the other pages that come up for "rain barrel sizing", "barrel", "rain", "sizing" recur in the wording Google shows.');
     expect(bundle.confidenceReasons.some((r) => r.startsWith("I checked the results page:"))).toBe(true); // the diagnosis itself, in the operator's words
     expect(bundle.alternatives[0]).toEqual({ option: "Google is already showing the words people search for", reason: 'Google shows this page as "Rain Barrels", and that line does not say "sizing".' }); expect(bundle.receipt.freshestObservedAt).toBe("2026-07-22T00:00:00.000Z"); expectKeysResolve(bundle); expectCleanCopy(p);
-    expect(bundle.scope).toEqual({ queries: ["rain barrel sizing", "how many gallons rain barrel"], prompts: ["rain barrel sizing rule of thumb", "what size rain barrel do I need"] }); expect(bundle.alternatives.some((a) => a.option.includes("/compost"))).toBe(true); expect(p.evidence.evidenceRefCount).toBe(bundle.receipt.items.length); }); // the count IS the receipt
+    expect(bundle.scope).toEqual({ queries: ["rain barrel sizing", "how many gallons rain barrel"], prompts: ["rain barrel sizing rule of thumb", "what size rain barrel do I need"] }); expect(bundle.alternatives.some((a) => a.option.includes("/compost"))).toBe(true); expect(p.evidence.evidenceRefCount).toBe(bundle.receipt.items.length); // the count IS the receipt
+    expect(p.diagnosisCause).toBe("ctr_snippet"); }); // the named cause rides to the ranker, so cause and lever are judged together on a real change
   it("names every number's scope, so a page total is never read as one search", async () => { const out = await produceBundleForSnapshot(snapshot(), { complete: seam, ...OPTS }); if (out.status !== "bundled") throw new Error("expected a change"); const p = out.proposal; const b = p.bundle!; const facts = b.receipt.items.filter((i) => i.kind === "gsc_demand").map((i) => i.fact); expect(facts[0]).toContain("this page overall earned 120 clicks from 9,000 views"); // the page total, said as a page total
     expect(facts[1]).toBe('That one search "rain barrel sizing" brings this page 6,000 views and 90 clicks, at about position 3.'); for (const line of [p.whyItMatters, b.objective, b.confidenceReasons[0]]) expect(line).not.toContain("9,000"); // no query claim ever borrows the page total
     expect(p.whyItMatters).toContain('Searching "rain barrel sizing" brings this page 6,000 views and only 90 clicks over 90 days, about 570 clicks short of what position 3 usually earns'); expect(b.receipt.items.find((i) => i.kind === "ai_observation")!.fact).toBe('When a customer searches "what size rain barrel do I need" inside an assistant, it points people at gardenguide.example. To answer it the assistant went and searched "rain barrel gallons".'); }); it("spends nothing on a search whose results page it has never looked at, and says exactly that", async () => {
@@ -230,3 +232,112 @@ describe("a new page is reachable only through the comparison, and never before 
     const d = await adjudicateCoverage(INV(), [ONE], TENANT, { intersection: { unavailable } });
     expect([d.verdict, d.missing, earnedNewPage(d)]).toEqual(["research_needed", ["page_intersection"], false]);
     expect(d.explanation).toContain("build nothing"); expect(d.explanation).not.toMatch(/blocked|capped|quarantin|ambiguous|provider|task|status/i); }); });
+// ── the complete change universe + the ONE unified ranking (Phase 4) ──────────
+/** Every kind in the union, so a new lever can never be added without answering the gate. */
+const ALL_KINDS: BundleComponentKind[] = ["title", "meta", "h1", "opening_answer", "section", "internal_links", "source_pack",
+  "paragraph_correction", "section_add", "section_remove", "section_rewrite", "restructure", "full_rewrite", "factual_correction",
+  "source_update", "entity_expansion", "table_or_list_add", "internal_link_add", "internal_link_remove", "anchor_text", "schema",
+  "canonical", "redirect", "noindex", "consolidation", "navigation", "new_page"];
+const comp = (over: Partial<BundleComponent> & { kind: BundleComponentKind }): BundleComponent => ({
+  label: over.kind.replace(/_/g, " "), before: null, after: "Do this exact thing to the page.", evidenceKeys: ["demand-exact"], risk: "safe",
+  where: "the first section of the page", objective: "Win back the clicks this search is losing.", mechanism: "It puts the words people search into the part of the page they read first.",
+  measurementPlan: "Clicks from search for this one query over the next 28 days.", ...over });
+const RECEIPT_ITEM = { key: "demand-exact", kind: "gsc_demand" as const, fact: "That one search brings this page 6,000 views and 90 clicks.", observedAt: null };
+const bundleOf = (components: BundleComponent[], prompts: string[] = []): ChangeBundle => ({
+  objective: "Close the gap on the one search this page is losing.", metric: "Clicks over 28 days.", scope: { queries: ["rain barrel sizing"], prompts },
+  components, receipt: { items: [RECEIPT_ITEM], missing: [], freshestObservedAt: null }, alternatives: [], risks: [], confidenceReasons: [],
+  measurementPlan: "I will read clicks, views and average position at 7, 14 and 28 days." });
+const prop = (over: Partial<ChangeProposal>): ChangeProposal => ({ id: "p", tenantId: TENANT, kind: "existing_edit", pagePath: "/rain-barrels",
+  pageUrl: "https://fixture-content.example/rain-barrels", pageLabel: "Rain Barrels", primaryQuery: "rain barrel sizing", opportunityType: "Capture clicks",
+  changeFamily: "single", status: "proposed", recommendedChange: { kind: "existing_edit", field: "title", before: "Rain Barrels", after: TITLE_AFTER },
+  whyItMatters: "The title misses the word people search.", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "medium", limitations: [],
+  evidence: { query: "rain barrel sizing", hints: [], evidenceRefCount: 1 }, impactScore: 100, upsidePerMonth: null, publish: "manual",
+  createdAt: "2026-07-25T00:00:00.000Z", ...over });
+const factorOf = (p: ChangeProposal, name: string): number => p.rankingReceipt!.factors.find((f) => f.name === name)!.contribution;
+
+describe("the complete change universe answers for itself", () => {
+  it("round-trips every kind through the validator, and refuses one that cannot show its work", () => {
+    for (const kind of ALL_KINDS) {
+      const dangerous = DANGEROUS_COMPONENT_KINDS.has(kind);
+      const c = comp({ kind, risk: dangerous ? "dangerous" : "safe", ...(needsSourcePack(comp({ kind })) ? { sourcePack: { sourceRequirements: ["Cite the county rule page."], factRequirements: ["Check the 2026 limit."] } } : {}) });
+      const v = validateProposal(prop({ bundle: bundleOf([c]) }));
+      expect(v.verdict).not.toBe("rejected"); // every kind in the union is a shape this validator understands
+      if (dangerous) { expect(v.verdict).toBe("needs_review"); expect(v.reasons.join(" ")).toContain("confirm it before you make the change"); }
+    }
+    // no component without evidence, no fact without sources, and no new kind without its four answers
+    const blind = validateProposal(prop({ bundle: bundleOf([comp({ kind: "section_add", evidenceKeys: [] })]) }));
+    expect([blind.verdict, blind.reasons.some((r) => r.includes("cannot show you anything behind"))]).toEqual(["rejected", true]);
+    const unsourced = validateProposal(prop({ bundle: bundleOf([comp({ kind: "factual_correction" })]) }));
+    expect([unsourced.verdict, unsourced.reasons.some((r) => r.includes("carries no sources to check it against"))]).toEqual(["rejected", true]);
+    const mute = validateProposal(prop({ bundle: bundleOf([comp({ kind: "restructure", where: undefined, mechanism: undefined })]) }));
+    expect([mute.verdict, mute.reasons.some((r) => r.includes("where on the page it goes, why it fixes what I diagnosed"))]).toEqual(["rejected", true]);
+    // a lever that moves the page and is NOT marked as one is a mislabelled change, never a safe paste
+    const sneaky = validateProposal(prop({ bundle: bundleOf([comp({ kind: "redirect", risk: "safe" })]) }));
+    expect([sneaky.verdict, sneaky.reasons.some((r) => r.includes("not marked as one that needs your confirmation"))]).toEqual(["rejected", true]);
+  });
+  it("keeps a legal or medical correction dangerous however small the edit reads", () => {
+    const legal = (risk: BundleComponent["risk"]): BundleComponent => comp({ kind: "factual_correction", risk,
+      after: "Under the county statute the permit is required above 60 gallons.",
+      sourcePack: { sourceRequirements: ["Cite the county statute."], factRequirements: ["Confirm the 60 gallon threshold."] } });
+    expect(dangerousComponents([legal("safe")])).toHaveLength(1); // a statute is dangerous whatever the row claims
+    // an unmarked one is a MISLABELLED change, and a mislabelled change is the one that gets pasted without a second look
+    expect(validateProposal(prop({ bundle: bundleOf([legal("safe")]) })).verdict).toBe("rejected");
+    const held = validateProposal(prop({ bundle: bundleOf([legal("dangerous")]) }));
+    expect([held.verdict, held.reasons.some((r) => r.includes("confirm it before you make the change"))]).toEqual(["needs_review", true]);
+  });
+});
+describe("one score orders every kind of change, and says why", () => {
+  it("puts the lever the evidence named above a bigger one it did not, on the same page", () => {
+    const named = prop({ id: "title-fix", impactScore: 120, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]) });
+    const bigger = prop({ id: "section-add", impactScore: 2000, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "section_add" })]) });
+    const ranked = rankProposals([bigger, named]);
+    expect(ranked.map((p) => p.id)).toEqual(["title-fix", "section-add"]);
+    expect([factorOf(ranked[0]!, "causeFit"), factorOf(ranked[1]!, "causeFit")]).toEqual([25, -25]);
+    expect(ranked[0]!.whyRankedAboveNext).toContain("this change works on the line a searcher reads");
+    expect(ranked[0]!.whyRankedAboveNext).not.toMatch(/[—–]|experiment|control|baseline|treatment|SERP/i);
+    expect(ranked[1]!.whyRankedAboveNext).toBeUndefined(); // nothing sits below the last one
+    // both changes land on the same page, so each one discounts the other for confounding
+    expect([factorOf(ranked[0]!, "confounding"), factorOf(ranked[1]!, "confounding")]).toEqual([-5, -5]);
+    // a cause NOTHING on the page can fix rewards no lever and punishes none either: those changes rank on everything else
+    for (const cause of ["demand_decline", "measuring_change"] as const) {
+      const [only] = rankProposals([prop({ diagnosisCause: cause, bundle: bundleOf([comp({ kind: "title" })]) })]);
+      expect(factorOf(only!, "causeFit")).toBe(0);
+      expect(only!.rankingReceipt!.factors.find((f) => f.name === "causeFit")!.input).toBe("nothing you can write on the page fixes the cause I named");
+    }
+  });
+  it("discounts a dangerous consolidation and a page that already has a change under measurement", () => {
+    const safe = prop({ id: "safe", impactScore: 300, pagePath: "/quiet", bundle: bundleOf([comp({ kind: "title" })]) });
+    const risky = prop({ id: "risky", impactScore: 300, pagePath: "/merge", status: "needs_review",
+      bundle: bundleOf([comp({ kind: "consolidation", risk: "dangerous", after: "Fold this page into the sizing guide." })]) });
+    const busy = prop({ id: "busy", impactScore: 300, pagePath: "/measuring", bundle: bundleOf([comp({ kind: "title" })]) });
+    const ranked = rankProposals([risky, busy, safe], { measuringPagePaths: ["/measuring"] });
+    expect(ranked.map((p) => p.id)).toEqual(["safe", "busy", "risky"]);
+    const held = ranked.find((p) => p.id === "risky")!;
+    expect(factorOf(held, "risk")).toBe(-18); // it still ranks, it just ranks with its discount
+    expect(validateProposal(held).reasons.some((r) => r.includes("confirm it before you make the change"))).toBe(true);
+    expect(factorOf(ranked.find((p) => p.id === "busy")!, "overlap")).toBe(-30);
+    expect(factorOf(ranked.find((p) => p.id === "safe")!, "overlap")).toBe(0);
+    expect(ranked[0]!.whyRankedAboveNext).toContain("/measuring already has a change I am measuring");
+    // every factor stays inside its own ceiling, so no single input can quietly decide the order
+    for (const p of ranked) for (const f of p.rankingReceipt!.factors) expect(Math.abs(f.contribution)).toBeLessThanOrEqual(f.max);
+  });
+  it("ranks a change it holds no proven figure for as a direction, never a size, and says so", () => {
+    const [blind] = rankProposals([prop({ impactScore: null, upsidePerMonth: null })]);
+    expect(blind!.rankingReceipt!.directional).toBe(true);
+    expect(blind!.rankingReceipt!.basis).toContain("this is the order I would work in, not a promise about size");
+    expect(factorOf(blind!, "visibility")).toBe(0);
+    const [sized] = rankProposals([prop({ impactScore: 570 })]);
+    expect([sized!.rankingReceipt!.directional, factorOf(sized!, "visibility")]).toEqual([false, 22.8]);
+    expect(sized!.rankingReceipt!.basis).toContain("about 570 clicks I can show are recoverable");
+  });
+  it("decodes and ranks a stored row that predates every field this ranking added", () => {
+    const { rankingReceipt: _r, whyRankedAboveNext: _w, diagnosisCause: _c, bundle: _b, ...old } = prop({ impactScore: 300, bundle: bundleOf([comp({ kind: "title" })]) });
+    void _r; void _w; void _c; void _b;
+    const back = deserializeChangeProposal(serializeChangeProposal(old as ChangeProposal));
+    expect(back).not.toBeNull();
+    const [ranked] = rankProposals([back!]);
+    expect(ranked!.rankingReceipt!.factors.map((f) => f.name)).toEqual(["actionability", "visibility", "evidence", "causeFit", "strategic", "effort", "risk", "overlap", "confounding"]);
+    expect(factorOf(ranked!, "causeFit")).toBe(0); // no diagnosis on the row, so nothing is matched and nothing is punished
+    expect(proposalValueScore(back!)).toBeGreaterThan(proposalValueScore(prop({ status: "rejected", impactScore: 9999 })));
+  });
+});

@@ -39,7 +39,8 @@ import { effortForFamily } from "./contracts";
 import { validateProposal } from "./validate-proposal";
 import type { ProposeOptions } from "./propose";
 
-export type NewPageOutcome = { status: "built"; proposal: ChangeProposal } | { status: "none"; reason: string };
+/** Internal on purpose: `buildNewPageProposal` is the whole public surface of this file. */
+type NewPageOutcome = { status: "built"; proposal: ChangeProposal } | { status: "none"; reason: string };
 
 const num = (n: number): string => n.toLocaleString("en-US");
 const day = (iso: string | null): string => (iso ? iso.slice(0, 10) : "a day I did not record");

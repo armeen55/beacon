@@ -308,7 +308,9 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       status: heldForReview ? "needs_review" : "proposed", // an investigation I cannot close never reaches here at all
       recommendedChange: { kind: "existing_edit", field: "title", before: primaryComponent.before, after: primaryComponent.after },
       whyItMatters: `Searching "${primary}" brings this page ${lead.impressions.toLocaleString()} views and only ${lead.clicks.toLocaleString()} clicks over 90 days, about ${Math.round(lead.recoverable).toLocaleString()} clicks short of what position ${Math.round(lead.position)} usually earns, and that gap is big enough to look into.`,
-      estimatedEffortMinutes: 1, riskLevel: "low", confidence, limitations: receipt.missing,
+      // The only cause this producer can reach is the wording of the line Google displays, and it
+      // is carried in the cause ladder's vocabulary so the ranker asks ONE question of every change.
+      estimatedEffortMinutes: 1, riskLevel: "low", confidence, limitations: receipt.missing, diagnosisCause: "ctr_snippet",
       evidence: { query: primary, hints: facts.slice(0, 5), evidenceRefCount: receipt.items.length },
       impactScore: Math.round(pick.gap), upsidePerMonth: null, bundle, createdAt: now.toISOString(),
   } };

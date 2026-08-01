@@ -88,6 +88,10 @@ export type FunnelPair = {
   citationsObserved?: boolean;
   /** null = not observable; [] = observed zero; nonempty = real citations. */
   citations?: { url: string; domain: string; title: string | null }[] | null;
+  /** Pages the engine RETRIEVED but did not cite (null = not observable on this path). */
+  retrievedResults?: { url: string; domain: string; title: string | null }[] | null;
+  /** Brand names the engine itself surfaced (null = not observable). */
+  brandMentions?: string[] | null;
   /** null = not observable on this path. */
   fanOutQueries?: string[] | null;
   answerHash?: string | null;

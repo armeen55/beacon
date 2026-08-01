@@ -1,86 +1,66 @@
 /**
- * decision/contracts (CORE 100K decision kernel, 2026-07-22) — the ONE input
- * and the ONE output of the recommendation-intelligence collapse.
+ * decision/contracts (CORE 100K decision kernel): the ONE input and the ONE output of
+ * the recommendation-intelligence collapse. The kernel turns exactly one normalized
+ * `EvidenceInput` (a small structural interface this module OWNS; the evidence
+ * assembler maps its own output onto this shape) into a ranked, exact, safe
+ * `ChangeProposal`: the page, the opportunity, the frozen evidence that grounds it, the
+ * exact change, why it matters, effort/risk/confidence/limitations, the ranking receipt,
+ * and the proposal status.
  *
- * The kernel turns exactly one normalized `EvidenceInput` (a small structural
- * interface this module OWNS — it does NOT depend on demand-graph / evidence
- * internals; the real evidence assembler maps its output onto this shape) into
- * a ranked, exact, safe `ChangeProposal`.
+ * PUBLISHING AUTHORITY IS MANUAL. Nothing here writes to a live page, and
+ * `publish: "manual"` is a structural reminder carried on every proposal.
  *
- * A `ChangeProposal` is the single persisted representation the operator sees.
- * It carries, in one object, everything the old recommendation / draft /
- * ActionPack / changes-shaping layers used to split across five modules:
- *   - the PAGE the change lands on (or that a new page is proposed for)
- *   - the OPPORTUNITY (demand phrase + operator-facing label)
- *   - the EVIDENCE that grounds it (a compact snapshot, not a live handle)
- *   - the RECOMMENDED EXACT CHANGE (title/meta rewrite before→after, OR a
- *     full new-page brief) — the cold-generated, schema-validated artifact
- *   - WHY IT MATTERS (rationale) + EFFORT/RISK + CONFIDENCE + LIMITATIONS
- *   - STATUS (the proposal lifecycle) — always a PROPOSAL, never an auto-write.
- *
- * PUBLISHING AUTHORITY IS MANUAL. A ChangeProposal is a proposal only. Nothing
- * in this kernel writes to a live page. `publish: "manual"` is a structural
- * reminder carried on every proposal.
- *
- * PURE — types + Zod schema + pure derivations + (de)serialization only. No I/O.
- * The proposal PATHS (propose.ts) and PERSISTENCE (proposal-store.ts) live in
- * sibling files so this contract stays importable from any surface.
+ * PURE: types + Zod schema + pure derivations + (de)serialization only, no I/O. The
+ * proposal PATHS (propose.ts) and PERSISTENCE (proposal-store.ts) are siblings.
  */
 
 import { z } from "zod";
 import type { AuthoritativeFact } from "@/domains/decision/drafts/factual-entailment";
+// TYPE ONLY (erased at compile, no runtime edge). The cause ladder owns the cause
+// vocabulary; this contract carries it rather than keeping a second copy that could drift.
+import type { CauseFinding } from "./diagnosis";
 
-// ── EvidenceInput — the ONE normalized input the kernel consumes ──────────────
+// ── EvidenceInput: the ONE normalized input the kernel consumes ───────────────
 
-/** The demand + page context for a single opportunity. Structural on purpose:
- *  the evidence assembler owns HOW these fields are computed; the kernel only
- *  consumes this shape. */
+/** The demand + page context for one opportunity. Structural on purpose: the
+ *  evidence assembler owns HOW these are computed, the kernel only consumes them. */
 export interface EvidenceInput {
   tenantId: string;
   /** The page the change lands on. `path` null = a brand-new page opportunity. */
-  page: {
-    path: string | null;
-    url: string | null;
-    label: string;
-  };
+  page: { path: string | null; url: string | null; label: string };
   opportunity: {
     /** The primary demand phrase behind this opportunity. */
     query: string;
     /** Which proposal path this evidence routes to. */
     kind: ProposalKind;
-    /** Operator-facing label ("Capture clicks", "Win AI citations", …). */
+    /** Operator-facing label ("Capture clicks", "Win AI citations", ...). */
     opportunityType: string;
-    /** For an existing-page edit: which field to rewrite. */
+    /** For an existing-page edit: which field to rewrite, and its current value. */
     field?: "title" | "meta";
-    /** For an existing-page edit: the current value being improved. */
     currentValue?: string | null;
     /** The searcher's dominant intent (when/cost/how/where/who/list/compare). */
     intent?: string;
   };
-  /** Everything that grounds a safe draft. All optional — the drafter + the
+  /** Everything that grounds a safe draft. All optional: the drafter and the
    *  validator degrade honestly when a field is absent. */
   evidence: {
     /** Plain-English facts the team established (GSC demand, a tracked AI prompt). */
     hints?: string[];
-    /** The target page's own stored body text — turns ON factual entailment. */
+    /** The target page's own stored body text: turns ON factual entailment. */
     pageBodyText?: string | null;
     /** The page's section outline (existing-page edit context). */
     outline?: string[];
-    /** Dated, sourced facts on file — back an allowed correction. */
+    /** Dated, sourced facts on file, which back an allowed correction. */
     authoritativeFacts?: AuthoritativeFact[];
     /** This tenant's curated authoritative-source domains. */
     authoritativeSourceDomains?: string[];
     /** THE diagnosis that earned this action. No diagnosis, no drafter call. */
     diagnosis?: ActionDiagnosis;
   };
-  /** Honest value sizing for the ranker. All optional — a missing figure never
-   *  fabricates a number, it just sinks in the ranking. */
-  sizing?: {
-    /** Demand/score-derived rank input. */
-    impactScore?: number | null;
-    /** Honest monthly opportunity midpoint (never a raw impressions sum). */
-    upsidePerMonth?: number | null;
-  };
+  /** Honest value sizing for the ranker: recoverable clicks and the honest monthly
+   *  opportunity midpoint (never a raw impressions sum). A missing figure never
+   *  fabricates a number, it makes the ranking directional and says so. */
+  sizing?: { impactScore?: number | null; upsidePerMonth?: number | null };
 }
 
 // ── Candidate diagnosis (decision truth replacement, 2026-07-27) ──────────────
@@ -115,9 +95,9 @@ export type DecisionCandidate = {
   reason: string;
 };
 
-/** Action floors. A gap under ANY of these is not worth the operator's attention,
- *  so the honest answer is watch/do_nothing. Tuned against real data: a healthy
- *  page whose best query gap was 23 clicks must not produce work. */
+/** Action floors. A gap under ANY of these is not worth the operator's attention, so the
+ *  honest answer is watch/do_nothing. Tuned against real data: a healthy page whose best
+ *  query gap was 23 clicks must not produce work. */
 export const MIN_QUERY_IMPRESSIONS = 500;
 export const MIN_CTR_DEFICIT = 0.02;
 export const MIN_RECOVERABLE_CLICKS = 50;
@@ -138,35 +118,25 @@ export type EvidenceReadiness = {
   serp: boolean;
   /** Inspectable extracts of pages that actually rank or are cited FOR that query. */
   winners: number;
-  /** The page's own WORDS beyond its title, so a claim about the page can be checked.
-   *  No body store exists yet, so this is false everywhere today and High confidence
-   *  on an edit is currently unreachable. That is the truth, not a gap to paper over. */
+  /** The page's own WORDS beyond its title, so a claim about it can be checked. No body
+   *  store exists yet, so this is false everywhere today and High confidence on an edit
+   *  is currently unreachable. That is the truth, not a gap to paper over. */
   body: boolean;
 };
 
-/** EVIDENCE COMPLETENESS ONLY: do I hold the things a diagnosis would need to read?
- *  This is a precondition, NEVER a permission to act. Holding a results page is not
- *  the same as knowing what it says (a live counterexample: Google already displayed
- *  this page's title with the searcher's exact words, so "the title is missing them"
- *  was never the problem). ActionDiagnosis below decides what may become Ready. */
-export function evidenceComplete(r: EvidenceReadiness): boolean {
-  return r.gsc && r.ownedCopy && r.serp;
-}
+/** EVIDENCE COMPLETENESS ONLY: do I hold the things a diagnosis would need to read? A
+ *  precondition, NEVER a permission to act. Holding a results page is not the same as
+ *  knowing what it says (a live counterexample: Google already displayed this page's
+ *  title with the searcher's exact words). ActionDiagnosis decides what becomes Ready. */
+export function evidenceComplete(r: EvidenceReadiness): boolean { return r.gsc && r.ownedCopy && r.serp; }
 
-/** WHY this page underperforms, in the vocabulary a diagnosis may conclude in. One
- *  cause per candidate, chosen by reading the evidence, never by token containment. */
-export type DiagnosisCause =
-  | "snippet_intent_mismatch"
-  | "weak_value_promise"
-  | "result_format_mismatch"
-  | "wrong_page_ranking"
-  | "cannibalization"
-  | "content_coverage_gap"
-  | "stale_or_inaccurate_copy"
-  | "google_rewrite_already_matches"
-  | "serp_market_mismatch"
-  | "ambiguous_search_intent"
-  | "unknown";
+/** WHY this page underperforms, in the vocabulary a diagnosis may conclude in. One cause
+ *  per candidate, chosen by reading the evidence, never by token containment. This list is
+ *  the single source for the type AND for the stored-row schema below: add a cause once. */
+const DIAGNOSIS_CAUSES = ["snippet_intent_mismatch", "weak_value_promise", "result_format_mismatch",
+  "wrong_page_ranking", "cannibalization", "content_coverage_gap", "stale_or_inaccurate_copy",
+  "google_rewrite_already_matches", "serp_market_mismatch", "ambiguous_search_intent", "unknown"] as const;
+export type DiagnosisCause = (typeof DIAGNOSIS_CAUSES)[number];
 
 /** The single edit a diagnosed cause supports. `watch` and null are real answers. */
 export type DiagnosedAction =
@@ -193,98 +163,135 @@ export type ActionDiagnosis = {
   explanation: string;
 };
 
-/** A change may be drafted and shown as Ready only for a DIAGNOSED action naming a
- *  real edit. Evidence completeness alone never earns it. */
+/** A change may be drafted and shown as Ready only for a DIAGNOSED action naming a real
+ *  edit. Evidence completeness alone never earns it. */
 export function readyForAction(d: ActionDiagnosis | null | undefined): boolean {
   return !!d && d.status === "diagnosed" && d.action != null && d.action !== "watch"
     && d.evidenceKeys.length > 0 && d.alternativesRuledOut.length > 0;
 }
 
-/** Confidence follows EVIDENCE COMPLETENESS, never how good the draft reads. A
- *  proposal that admits it never saw the results page cannot be high confidence. */
+/** Confidence follows EVIDENCE COMPLETENESS, never how good the draft reads: a proposal
+ *  that admits it never saw the results page cannot be high confidence. */
 export function confidenceFor(r: EvidenceReadiness, d?: ActionDiagnosis | null): ChangeProposal["confidence"] {
   if (!evidenceComplete(r) || (d !== undefined && !readyForAction(d))) return "low";
   return r.winners >= 2 && r.body ? "high" : "medium";
 }
 
-// ── ChangeProposal — the ONE persisted output ─────────────────────────────────
+// ── ChangeProposal: the ONE persisted output ──────────────────────────────────
 
-/** `new_page` is earned, never assumed: only the page by page comparison can prove this
- *  account reaches none of what the winning pages share (decision/new-page). */
+/** `new_page` is earned, never assumed: only the page by page comparison can prove this account reaches none of what the winning pages share (decision/new-page). */
 export type ProposalKind = "existing_edit" | "new_page";
 
-/** The proposal lifecycle. A proposal is NEVER an auto-write; `applied` is set
- *  only by the operator's own manual action downstream, never by the kernel. */
-export type ProposalStatus =
-  | "proposed" // generated + validated safe, awaiting the operator
-  | "needs_review" // generated but the validator wants a human look before use
-  | "rejected" // a safety gate rejected the draft — never shown as ready
-  | "applied"; // the operator manually applied it (set downstream, not here)
+/** The proposal lifecycle. `proposed` = generated and validated safe, awaiting the
+ *  operator. `needs_review` = the validator wants a human look first, and this is also
+ *  THE two-step hold a dangerous component routes through. `rejected` = a safety gate
+ *  refused the draft, never shown as ready. `applied` = the operator manually applied
+ *  it, set downstream and never by the kernel. A proposal is NEVER an auto-write. */
+export type ProposalStatus = "proposed" | "needs_review" | "rejected" | "applied";
 
 export type ProposalRisk = "low" | "medium" | "high";
 export type ProposalConfidence = "high" | "medium" | "low";
 
-/** The exact change — a discriminated union. `existing_edit` carries a precise
- *  before→after field rewrite; `new_page` carries a full build brief. */
+/** The exact change, a discriminated union. `existing_edit` carries a precise
+ *  before/after field rewrite; `new_page` carries a full build brief. */
 export type RecommendedChange =
-  | {
-      kind: "existing_edit";
-      field: "title" | "meta" | "h1" | "answer_block" | "section";
-      before: string | null;
-      after: string;
-    }
-  | {
-      kind: "new_page";
-      proposedTitle: string;
-      metaDescription: string;
-      openingAnswer: string;
-      outline: string[];
-      faqQuestions: string[];
-      schemaTypes: string[];
-    };
+  | { kind: "existing_edit"; field: "title" | "meta" | "h1" | "answer_block" | "section";
+      before: string | null; after: string }
+  | { kind: "new_page"; proposedTitle: string; metaDescription: string; openingAnswer: string;
+      outline: string[]; faqQuestions: string[]; schemaTypes: string[] };
 
-/** A compact, frozen copy of what grounded this proposal — never a live handle.
- *  Enough for the operator to see "why Beacon recommends this" and for the
- *  validator to re-run on load. */
-export type ProposalEvidence = {
-  query: string;
-  hints: string[];
-  /** The count of grounding evidence refs the draft itself carried (>=1). */
-  evidenceRefCount: number;
-};
+/** A compact, frozen copy of what grounded this proposal, never a live handle: enough for
+ *  the operator to see why Beacon recommends it and for the validator to re-run on load.
+ *  `evidenceRefCount` is what the draft itself carried (>= 1). */
+export type ProposalEvidence = { query: string; hints: string[]; evidenceRefCount: number };
 
 // ── ChangeBundle: the atomic components implemented together on one page ──────
-// (canonical record, Slice 7). A bundle rides ON a ChangeProposal: the proposal
-// stays the one persisted, ranked, validated record; the bundle is its deep,
-// copy-ready form. Never a second pipeline, never a second status vocabulary.
+// A bundle rides ON a ChangeProposal: the proposal stays the one persisted, ranked,
+// validated record and the bundle is its deep, copy-ready form. Never a second
+// pipeline, never a second status vocabulary.
 
-export type BundleComponentKind = "title" | "meta" | "h1" | "opening_answer" | "section" | "internal_links" | "source_pack";
+/** THE COMPLETE CHANGE UNIVERSE (Phase 4). Every lever Beacon may ever recommend on one
+ *  page, named once. ADDITIVE ONLY: the first seven are the kinds already on persisted
+ *  rows and keep their exact spelling, so every stored bundle still decodes. `meta` IS
+ *  the meta description, `section` and `internal_links` are the older undifferentiated
+ *  components the new-page path still emits, and nothing here gets a second word.
+ *  Nothing is CMS-specific: a component says WHAT to change and WHERE, never which
+ *  editor to open. */
+export type BundleComponentKind =
+  | "title" | "meta" | "h1" | "opening_answer" | "section" | "internal_links" | "source_pack"
+  | "paragraph_correction" | "section_add" | "section_remove" | "section_rewrite" | "restructure"
+  | "full_rewrite" | "factual_correction" | "source_update" | "entity_expansion" | "table_or_list_add"
+  | "internal_link_add" | "internal_link_remove" | "anchor_text" | "schema" | "canonical"
+  | "redirect" | "noindex" | "consolidation" | "navigation" | "new_page";
 
-/** One exact, copy-ready component. Every component cites the receipt items
- *  that justify it; a component without evidence is never emitted (three
- *  grounded components beat eight padded ones). */
+/** The kinds that change where a page LIVES or whether it is findable at all. A
+ *  mistake here costs traffic a title rewrite never could, so each is `dangerous`
+ *  and rides the two-step hold below. */
+export const DANGEROUS_COMPONENT_KINDS: ReadonlySet<BundleComponentKind> =
+  new Set<BundleComponentKind>(["canonical", "redirect", "noindex", "consolidation"]);
+
+/** Claims where being wrong hurts a reader, not a ranking. */
+const HIGH_STAKES_CLAIM = /\b(law|legal|lawyer|attorney|court|statute|regulation|licen[cs]|liabilit|medical|medicine|doctor|clinical|diagnos|dosage|drug|symptom|treatment|patient|financial|finance|tax|taxes|loan|mortgage|interest rate|investment|insurance|refund|warrant)/i;
+
+/** Kinds whose copy asserts something a reader could act on, so a source pack is owed. */
+const FACTUAL_KINDS: ReadonlySet<BundleComponentKind> = new Set<BundleComponentKind>(
+  ["factual_correction", "paragraph_correction", "source_update", "entity_expansion", "table_or_list_add"]);
+
+/**
+ * One exact, copy-ready component. Every component cites the receipt items that justify
+ * it; a component without evidence is never emitted (three grounded components beat
+ * eight padded ones). `before` is THE CURRENT STATE exactly as it stands, and null means
+ * I did not capture it (a pure insertion, or copy I do not hold), never a value invented
+ * to fill the field. `after` is THE PROPOSAL: exact copy, or the exact structural
+ * instruction when the change is not a sentence. The five fields after `risk` are
+ * optional in the TYPE so every persisted row still decodes, and REQUIRED by
+ * validate-proposal for every kind this contract added in Phase 4.
+ */
 export type BundleComponent = {
   kind: BundleComponentKind;
   /** Operator-facing label ("Page title", "Opening answer", ...). */
   label: string;
-  /** Exact current copy (null = the page has none today: a pure insertion). */
   before: string | null;
-  /** Exact copy-ready replacement or insertion text. */
   after: string;
   /** Keys into receipt.items that justify this component (>= 1). */
   evidenceKeys: string[];
-  /** review = touches facts or claims and deserves a human look first. */
-  risk: "safe" | "review";
+  /** review = touches facts or claims and deserves a human look first.
+   *  dangerous = moves or hides the page; held for two-step confirmation. */
+  risk: "safe" | "review" | "dangerous";
+  /** WHERE on the page this lands ("the first paragraph", "after the pricing
+   *  section"). CMS-independent: a place on the page, never a field in an editor. */
+  where?: string;
+  /** What applying this one component achieves, in one sentence. */
+  objective?: string;
+  /** WHY this lever moves the diagnosed cause, in one sentence. */
+  mechanism?: string;
+  /** Required whenever this component changes factual content: the same source-pack
+   *  shape the drafter emits and the source_pack component renders. */
+  sourcePack?: { sourceRequirements: string[]; factRequirements: string[] };
+  /** One sentence naming the metric and the window Beacon will read afterwards. */
+  measurementPlan?: string;
 };
 
-/** One piece of canonical evidence the bundle used, in plain English. */
+/** PURE: does this component change factual content, so a source pack is owed? */
+export function needsSourcePack(c: BundleComponent): boolean { return FACTUAL_KINDS.has(c.kind); }
+
+/** THE TWO-STEP HOLD. There is no parallel confirmation flag in this product: the one
+ *  that exists is the proposal lifecycle, where `needs_review` means Beacon will not
+ *  present the change as ready and the operator has to look at it and then act. A
+ *  dangerous component routes through exactly that, and this is the single predicate
+ *  every producer, validator and surface asks. */
+export function dangerousComponents(components: readonly BundleComponent[]): BundleComponent[] {
+  return components.filter((c) => c.risk === "dangerous" || DANGEROUS_COMPONENT_KINDS.has(c.kind)
+    || (c.kind === "factual_correction" && HIGH_STAKES_CLAIM.test(`${c.before ?? ""} ${c.after}`)));
+}
+
+/** One piece of canonical evidence the bundle used, in plain English. `key` is stable
+ *  within the bundle and referenced by BundleComponent.evidenceKeys; `fact` never
+ *  carries a raw id, provider name or lab word; `observedAt` null = undated aggregate. */
 export type BundleEvidenceItem = {
-  /** Stable within the bundle; referenced by BundleComponent.evidenceKeys. */
   key: string;
   kind: "gsc_demand" | "keyword" | "serp" | "ai_observation" | "winning_page" | "page_extract" | "competitor" | "internal_link" | "diagnosis";
-  /** Plain-English fact (never a raw id, provider name, or lab word). */
   fact: string;
-  /** Freshness; null = an undated aggregate. */
   observedAt: string | null;
 };
 
@@ -297,12 +304,8 @@ export type ChangeBundle = {
   scope: { queries: string[]; prompts: string[] };
   /** >= 1 evidence-justified components with exact copy. */
   components: BundleComponent[];
-  receipt: {
-    items: BundleEvidenceItem[];
-    /** Evidence Beacon looked for and honestly does NOT have. */
-    missing: string[];
-    freshestObservedAt: string | null;
-  };
+  /** `missing` is evidence Beacon looked for and honestly does NOT have. */
+  receipt: { items: BundleEvidenceItem[]; missing: string[]; freshestObservedAt: string | null };
   /** What else was considered and why it lost. */
   alternatives: { option: string; reason: string }[];
   /** Plain-English destructive/factual risk notes. */
@@ -325,7 +328,7 @@ export type ChangeProposal = {
   primaryQuery: string;
   /** Operator-facing opportunity label. */
   opportunityType: string;
-  /** Coarse change family (meta|title|h1|answer|new_page|…) for identity/UI. */
+  /** Coarse change family (meta|title|h1|answer|new_page|...) for identity/UI. */
   changeFamily: string;
   status: ProposalStatus;
   /** The exact, cold-generated change. */
@@ -335,21 +338,39 @@ export type ChangeProposal = {
   estimatedEffortMinutes: number;
   riskLevel: ProposalRisk;
   confidence: ProposalConfidence;
-  /** Honest caveats carried WITH the proposal (never hidden). Risks from the
-   *  draft + any validator caution + the honest "no baseline yet" note. */
+  /** Honest caveats carried WITH the proposal (never hidden): the draft's own risks,
+   *  any validator caution, and the honest "no baseline yet" note. */
   limitations: string[];
   evidence: ProposalEvidence;
-  /** Honest value sizing for the ranker (may be null — never fabricated). */
+  /** Honest value sizing for the ranker (may be null, never fabricated). */
   impactScore: number | null;
   upsidePerMonth: number | null;
-  /** The deep copy-ready form (Slice 7). Absent on atomic proposals and on
-   *  every pre-bundle persisted row; ONE decoder serves both generations. */
+  /** The deep copy-ready form (Slice 7). Absent on atomic proposals and on every
+   *  pre-bundle persisted row; ONE decoder serves both generations. */
   bundle?: ChangeBundle;
-  /** The onboarding/research basis this proposal was generated under (truth
-   *  convergence slice). A proposal whose basis is not the account's CURRENT basis
-   *  is WITHHELD from the customer queue entirely at load, never deleted and never
-   *  rewritten. Absent on pre-basis rows, which read as stale by definition. */
+  /** The onboarding/research basis this proposal was generated under. A proposal whose
+   *  basis is not the account's CURRENT basis is WITHHELD from the customer queue at
+   *  load, never deleted and never rewritten. Absent on pre-basis rows, which read as
+   *  stale by definition. */
   basis?: string;
+  /** THE CAUSE the ladder named, carried onto the proposal so the ranker can ask whether this
+   *  change's levers actually address it. Absent when nothing was diagnosed; an unrecognised
+   *  value on a hand-edited row simply matches no lever and is discounted nothing. */
+  diagnosisCause?: CauseFinding["cause"];
+  /** WHY THIS SITS WHERE IT SITS. Stamped by the ONE ranker at ranking time, never by a
+   *  producer, and absent on a row nobody has ranked yet. Each factor names the input it
+   *  read and contributes a bounded amount, so the order is inspectable and no factor
+   *  can quietly dominate. `directional` is true when no proven click figure backed the
+   *  value factor, and `basis` then says so out loud. */
+  rankingReceipt?: {
+    score: number;
+    factors: Array<{ name: string; input: string; contribution: number; max: number }>;
+    directional: boolean;
+    basis: string;
+  };
+  /** One plain sentence comparing this proposal to the one ranked directly below it,
+   *  naming the factor that actually separated them. Absent on the last row. */
+  whyRankedAboveNext?: string;
   /** STRUCTURAL: this is a proposal. The kernel never writes a live page. */
   publish: "manual";
   createdAt: string;
@@ -358,21 +379,11 @@ export type ChangeProposal = {
 // ── Zod schema (re-validate on every load; reject tampered/legacy rows) ────────
 
 const RecommendedChangeSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("existing_edit"),
-    field: z.enum(["title", "meta", "h1", "answer_block", "section"]),
-    before: z.string().nullable(),
-    after: z.string().min(1),
-  }),
-  z.object({
-    kind: z.literal("new_page"),
-    proposedTitle: z.string().min(1),
-    metaDescription: z.string().min(1),
-    openingAnswer: z.string().min(1),
-    outline: z.array(z.string()),
-    faqQuestions: z.array(z.string()),
-    schemaTypes: z.array(z.string()),
-  }),
+  z.object({ kind: z.literal("existing_edit"), field: z.enum(["title", "meta", "h1", "answer_block", "section"]),
+    before: z.string().nullable(), after: z.string().min(1) }),
+  z.object({ kind: z.literal("new_page"), proposedTitle: z.string().min(1), metaDescription: z.string().min(1),
+    openingAnswer: z.string().min(1), outline: z.array(z.string()), faqQuestions: z.array(z.string()),
+    schemaTypes: z.array(z.string()) }),
 ]);
 
 const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
@@ -380,20 +391,25 @@ const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
   metric: z.string().min(1),
   scope: z.object({ queries: z.array(z.string()), prompts: z.array(z.string()) }),
   components: z.array(z.object({
-    kind: z.enum(["title", "meta", "h1", "opening_answer", "section", "internal_links", "source_pack"]),
+    kind: z.enum(["title", "meta", "h1", "opening_answer", "section", "internal_links", "source_pack",
+      "paragraph_correction", "section_add", "section_remove", "section_rewrite", "restructure",
+      "full_rewrite", "factual_correction", "source_update", "entity_expansion", "table_or_list_add",
+      "internal_link_add", "internal_link_remove", "anchor_text", "schema", "canonical", "redirect",
+      "noindex", "consolidation", "navigation", "new_page"]),
     label: z.string().min(1),
     before: z.string().nullable(),
     after: z.string().min(1),
     evidenceKeys: z.array(z.string().min(1)).min(1),
-    risk: z.enum(["safe", "review"]),
+    risk: z.enum(["safe", "review", "dangerous"]),
+    where: z.string().min(1).optional(),
+    objective: z.string().min(1).optional(),
+    mechanism: z.string().min(1).optional(),
+    sourcePack: z.object({ sourceRequirements: z.array(z.string()), factRequirements: z.array(z.string()) }).optional(),
+    measurementPlan: z.string().min(1).optional(),
   })).min(1),
   receipt: z.object({
-    items: z.array(z.object({
-      key: z.string().min(1),
-      kind: z.enum(["gsc_demand", "keyword", "serp", "ai_observation", "winning_page", "page_extract", "competitor", "internal_link", "diagnosis"]),
-      fact: z.string().min(1),
-      observedAt: z.string().nullable(),
-    })),
+    items: z.array(z.object({ key: z.string().min(1), fact: z.string().min(1), observedAt: z.string().nullable(),
+      kind: z.enum(["gsc_demand", "keyword", "serp", "ai_observation", "winning_page", "page_extract", "competitor", "internal_link", "diagnosis"]) })),
     missing: z.array(z.string()),
     freshestObservedAt: z.string().nullable(),
   }),
@@ -402,8 +418,7 @@ const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
   confidenceReasons: z.array(z.string()),
   measurementPlan: z.string().min(1),
 }).superRefine((b, ctx) => {
-  // Referential integrity: unproven copy can never be served. Every component
-  // must cite receipt items that actually exist.
+  // Referential integrity: unproven copy is never served, so every component must cite receipt items that exist.
   const keys = new Set(b.receipt.items.map((i) => i.key));
   for (const c of b.components) for (const k of c.evidenceKeys) {
     if (!keys.has(k)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `component ${c.kind} cites missing evidence ${k}` });
@@ -427,15 +442,15 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   riskLevel: z.enum(["low", "medium", "high"]),
   confidence: z.enum(["high", "medium", "low"]),
   limitations: z.array(z.string()),
-  evidence: z.object({
-    query: z.string(),
-    hints: z.array(z.string()),
-    evidenceRefCount: z.number(),
-  }),
+  evidence: z.object({ query: z.string(), hints: z.array(z.string()), evidenceRefCount: z.number() }),
   impactScore: z.number().nullable(),
   upsidePerMonth: z.number().nullable(),
   bundle: ChangeBundleSchema.optional(),
   basis: z.string().optional(),
+  diagnosisCause: z.string().min(1).optional(),
+  rankingReceipt: z.object({ score: z.number(), directional: z.boolean(), basis: z.string().min(1),
+    factors: z.array(z.object({ name: z.string().min(1), input: z.string().min(1), contribution: z.number(), max: z.number() })) }).optional(),
+  whyRankedAboveNext: z.string().min(1).optional(),
   publish: z.literal("manual"),
   createdAt: z.string(),
 }) as z.ZodType<ChangeProposal>;
@@ -443,13 +458,10 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
 const PERSIST_VERSION = 1 as const;
 
 /** Serialize a proposal for the persistence layer (versioned envelope). */
-export function serializeChangeProposal(proposal: ChangeProposal): string {
-  return JSON.stringify({ v: PERSIST_VERSION, proposal });
-}
+export function serializeChangeProposal(proposal: ChangeProposal): string { return JSON.stringify({ v: PERSIST_VERSION, proposal }); }
 
-/** Parse + RE-VALIDATE a persisted proposal. A hand-edited row that no longer
- *  satisfies the contract can never be served as a trusted proposal. Fail-soft
- *  → null. */
+/** Parse + RE-VALIDATE a persisted proposal. A hand-edited row that no longer satisfies
+ *  the contract can never be served as a trusted proposal. Fail-soft to null. */
 export function deserializeChangeProposal(content: string | null | undefined): ChangeProposal | null {
   if (!content) return null;
   try {
@@ -457,9 +469,7 @@ export function deserializeChangeProposal(content: string | null | undefined): C
     if (!obj || obj.v !== PERSIST_VERSION) return null;
     const res = ChangeProposalSchema.safeParse(obj.proposal);
     return res.success ? res.data : null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 // ── pure derivations (identity, family, effort) ───────────────────────────────
@@ -468,9 +478,7 @@ export function deserializeChangeProposal(content: string | null | undefined): C
 export function proposalFamily(input: EvidenceInput): string {
   if (input.opportunity.kind === "new_page") return "new_page";
   const f = (input.opportunity.field ?? "").toLowerCase();
-  if (f === "title") return "title";
-  if (f === "meta") return "meta";
-  return "other";
+  return f === "title" ? "title" : f === "meta" ? "meta" : "other";
 }
 
 /** Stable proposal id from the evidence input. */
@@ -485,7 +493,5 @@ export function proposalId(input: EvidenceInput): string {
 /** Coarse effort minutes by family (a real per-move figure overrides this). */
 export function effortForFamily(family: string): number {
   if (family === "title" || family === "meta" || family === "h1") return 1;
-  if (family === "answer") return 3;
-  if (family === "new_page") return 60;
-  return 5;
+  return family === "answer" ? 3 : family === "new_page" ? 60 : 5;
 }

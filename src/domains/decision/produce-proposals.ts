@@ -199,8 +199,9 @@ export async function produceProposalsForTenant(
   }
   const research = { investigations, coverage, waitingUntil };
 
-  // THE DIAGNOSIS FIRST. Doing nothing is the default; only a proven gap is work.
-  const candidates = compileCandidates(snapshot);
+  // THE DIAGNOSIS FIRST. Doing nothing is the default; only a proven gap is work. The decided topic rides
+  // in so the cause ladder can ask the page that verdict NAMES what the winning pages do that it does not.
+  const candidates = compileCandidates(snapshot, { coverage });
   const acted = candidates.filter((c) => c.action === "act_existing_page");
   const recoverableByKey = new Map<string, number>();
   const readinessByKey = new Map<string, EvidenceReadiness>();

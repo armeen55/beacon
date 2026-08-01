@@ -141,7 +141,12 @@ export async function loadProposalQueue(
   // older or missing basis and a lie when I simply could not read the account, so the
   // surfaces get the reason, not just the number.
   const basisUnreadable = currentBasis == null;
-  const ranked = rankProposals(current);
+  // A page whose change the operator already applied is a page under measurement. Ranking
+  // a second change onto it would make the first one unreadable, so the ranker discounts
+  // it hard and says so on the card. The applied rows are already in hand here, so this
+  // costs no read and reaches past no kernel boundary.
+  const measuringPagePaths = [...byId.values()].filter((p) => p.status === "applied").map((p) => p.pagePath);
+  const ranked = rankProposals(current, { measuringPagePaths });
   // READY has to mean ready: the validator passed it (status "proposed") and it owes
   // nobody a source. Every other current-basis row is a to-do.
   const ready: ChangeProposal[] = [];

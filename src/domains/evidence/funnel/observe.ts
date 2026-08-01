@@ -89,6 +89,11 @@ async function landAnswer(p: FunnelPair, r: Interp, parsed: ParsedAiAnswer, prom
   p.citationsObserved = parsed.citations !== null;
   p.citations = parsed.citations ? parsed.citations.map((c) => ({ url: c.url, domain: c.domain, title: c.title })) : null;
   p.fanOutQueries = parsed.fanOutQueries; p.answerHash = parsed.answerText ? sha16(parsed.answerText) : null;
+  // RETRIEVED-BUT-NOT-CITED AND THE ENGINE'S OWN BRAND LIST travel to the snapshot: the canonical row
+  // held both from Phase 1, but the funnel projection dropped them, so Decision could never ask "was I
+  // retrieved and passed over" - the exact question the observation was bought to answer.
+  p.retrievedResults = parsed.retrievedResults ? parsed.retrievedResults.map((c) => ({ url: c.url, domain: c.domain, title: c.title })) : null;
+  p.brandMentions = parsed.brandMentions ?? null;
   await d.recordObservation(rec, ids.tenantId);
   await d.syncHistory([projectPromptAnswerObservation(rec, ids.runId)], ids.tenantId);
 }
@@ -391,6 +396,7 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
       modelRequested: p.modelRequested ?? null, modelServed: p.modelServed ?? null,
       webSearchReported: p.webSearchReported ?? null, citationsObserved: p.citationsObserved ?? (p.citations != null),
       citations: p.citations ?? null, fanOutQueries: p.fanOutQueries ?? null, observedAt: p.observedAt ?? "",
+      retrievedResults: p.retrievedResults ?? null, brandMentions: p.brandMentions ?? null,
     })),
     serpEvidence: doneSerps.map((s) => ({
       query: s.query,
