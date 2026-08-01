@@ -18,6 +18,7 @@ import {
   advancePhase,
   claimRun,
   countContinuationHop,
+  INTERRUPTED_REASON,
   finishRun,
   newOwnerToken,
   nextPhase,
@@ -458,6 +459,12 @@ export type ResearchTick = { hop: number; next: "continue" | "wait" | "stop" };
  * due, or the server's own bound is spent (today's continuations, today's passes).
  * WAIT: a pass is already advancing the run, so another hop would spend today's allowance on a claim it
  * cannot win. The tab looks again later, and repaints meanwhile so the numbers move while they watch.
+ *
+ * AN INTERRUPTED RUN IS THE ONE THING THIS EXISTS FOR. A `running` row nobody has touched for ten minutes
+ * is a dead process (a deploy, a lambda timeout) and its projection promises "I pick this back up on your
+ * next visit". This IS that next visit, and it used to read that projection as a pause and stop, so the row
+ * sat there all day. Told apart by the reason's own identity, never by reading operator copy; the claim
+ * path already re-takes an expired lease. Every other pause still stops, because it needs the operator.
  */
 export async function researchTick(tenantId: string, hop = 0, options: ResearchCycleOptions = {}): Promise<ResearchTick> {
   if (!tenantId) return { hop: 0, next: "stop" };
@@ -465,7 +472,8 @@ export async function researchTick(tenantId: string, hop = 0, options: ResearchC
   const account = await getTenant(tenantId).catch(() => null);
   if (!account || account.status !== "active") return { hop, next: "stop" };
   const view = await researchRunStatus(tenantId, nowFn()).catch(() => null);
-  if (view == null || view.pauseReason) return { hop, next: "stop" };
+  if (view == null) return { hop, next: "stop" };
+  if (view.pauseReason && view.pauseReason !== INTERRUPTED_REASON) return { hop, next: "stop" };
   if (view.state === "running") return { hop, next: "wait" };
   const work = await (options.steps?.dueWork ?? dueWork)(tenantId, nowFn()).catch(() => null);
   if (work == null || !work.readable || work.due.length === 0) return { hop, next: "stop" };

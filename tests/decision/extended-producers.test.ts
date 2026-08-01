@@ -9,7 +9,7 @@ import type { BundleComponent, ChangeBundle, ChangeProposal } from "@/domains/de
 import { DANGEROUS_COMPONENT_KINDS as DECISION_DANGEROUS } from "@/domains/decision/contracts";
 import { DANGEROUS_COMPONENT_KINDS as MEASUREMENT_DANGEROUS } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import type { CauseFinding } from "@/domains/decision/diagnosis";
-import type { ProducerCtx } from "@/domains/decision/producers/contract";
+import { effortMinutesFor, fieldForComponent, type ProducerCtx } from "@/domains/decision/producers/contract";
 import { produceConsolidation, produceFullRewriteRecommendation, produceInternalLinks, produceSourceExpansion } from "@/domains/decision/producers/extended";
 import type { WinningPattern } from "@/domains/decision/winning-pattern";
 import { validateProposal } from "@/domains/decision/validate-proposal";
@@ -63,19 +63,46 @@ const bundleOf = (components: BundleComponent[]): ChangeBundle => ({
   alternatives: [], risks: [], confidenceReasons: [], measurementPlan: "I will read clicks, views and average position at 7, 14 and 28 days.",
 });
 
-const validate = (components: BundleComponent[]): ReturnType<typeof validateProposal> => validateProposal({
-  id: "p", tenantId: TENANT, kind: "existing_edit", pagePath: "/rain-barrels", pageUrl: PAGE_URL, pageLabel: "Rain Barrels",
-  primaryQuery: QUERY, opportunityType: "Capture clicks", changeFamily: "single", status: "proposed",
-  recommendedChange: { kind: "existing_edit", field: "title", before: "Rain Barrels", after: "Rain barrel sizing: gallons per storm by roof area" },
-  whyItMatters: "The title misses the word people search.", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "medium",
-  limitations: [], evidence: { query: QUERY, hints: [], evidenceRefCount: 1 }, impactScore: 100, upsidePerMonth: null,
-  publish: "manual", createdAt: "2026-07-25T00:00:00.000Z", bundle: bundleOf(components),
-} as ChangeProposal);
+/** THE PAGE'S OWN WORDS AND THE EVIDENCE, exactly as produce-bundle hands them to the gate. */
+const NOW = new Date("2026-07-25T00:00:00.000Z");
+const OUTLINE = ["How much rain a roof collects", "Barrel sizes"];
+const GATE_OPTS = {
+  pageBodyText: "Rain barrels catch what runs off a roof.",
+  evidenceText: [...FACTS, ...OUTLINE, "Rain Barrels"].join(" "),
+  contextTokens: [...new Set(`${QUERY} Rain Barrels Rain Barrels`.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2))].sort(),
+  now: NOW,
+};
+
+/** THE CHANGE A BUNDLE PERSISTS: its FIRST component's own before and after, said back in the one field
+ *  vocabulary a stored row carries. Exactly what produce-bundle writes onto the proposal and hands the gate. */
+const envelope = (primary: BundleComponent) =>
+  ({ kind: "existing_edit" as const, field: fieldForComponent(primary.kind), before: primary.before, after: primary.after });
+
+/** THE PROPOSAL PRODUCTION ACTUALLY GATES, component by component: that envelope, priced by the kind of
+ *  change it is, with the page's words and the receipt facts alongside. Wrapping every producer's work in a
+ *  hardcoded title rewrite and no evidence at all gated a proposal this kernel would never build. */
+const validate = (components: BundleComponent[]): ReturnType<typeof validateProposal> => {
+  const primary = components[0]!;
+  return validateProposal({
+    id: "p", tenantId: TENANT, kind: "existing_edit", pagePath: "/rain-barrels", pageUrl: PAGE_URL, pageLabel: "Rain Barrels",
+    primaryQuery: QUERY, opportunityType: "Capture clicks", changeFamily: "single", status: "proposed",
+    recommendedChange: envelope(primary),
+    whyItMatters: "The title misses the word people search.", estimatedEffortMinutes: effortMinutesFor(primary.kind), riskLevel: "low", confidence: "medium",
+    limitations: [], evidence: { query: QUERY, hints: [], evidenceRefCount: 1 }, impactScore: 100, upsidePerMonth: null,
+    publish: "manual", createdAt: "2026-07-25T00:00:00.000Z", bundle: bundleOf(components),
+  } as ChangeProposal, GATE_OPTS);
+};
+
+/** THE COMPONENT GATE'S OWN ANSWER, out of the one verdict that also judges the top-level rewrite. Every
+ *  component refusal ends the same way, in the operator's own words: nothing behind it, a fact with no
+ *  sources, a mislabelled lever, or a component that cannot say where it goes and what it is for. */
+const componentRefusals = (v: ReturnType<typeof validateProposal>): string[] =>
+  v.reasons.filter((r) => r.endsWith("so I am not putting it in front of you."));
 
 const answered = (c: BundleComponent): boolean => !!c.where && !!c.objective && !!c.mechanism && !!c.measurementPlan;
 
 describe("the causes that had no copy now write one, or refuse in words", () => {
-  it("sends the reader to a page this account actually has, and survives the validator", async () => {
+  it("sends the reader to a page this account actually has, and survives the component gate", async () => {
     const out = await produceInternalLinks(ctxOf());
     expect(out.refusal).toBeNull();
     expect(out.components.map((c) => c.kind)).toEqual(["internal_link_add", "internal_link_add"]);
@@ -84,7 +111,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect(out.components.every((c) => answered(c) && c.risk === "safe" && c.before === null)).toBe(true);
     expect(out.components[0]!.mechanism).toContain("about 12 of their own pages and this one points to 3");
     expect(out.components[0]!.after).toContain("Point the words");
-    expect(validate(out.components).verdict).not.toBe("rejected");
+    expect(componentRefusals(validate(out.components))).toEqual([]);
   });
 
   it("refuses honestly when no page of this account is named by the evidence", async () => {
@@ -108,7 +135,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect(c.sourcePack!.sourceRequirements).toEqual(["A source a reader can check for Downspout diverter."]);
     expect(JSON.stringify(c)).not.toContain(INVENTED);
     expect(JSON.stringify(c)).not.toContain("Roof area");
-    expect(validate(gap.components).verdict).not.toBe("rejected");
+    expect(componentRefusals(validate(gap.components))).toEqual([]);
     // an engine that READ the page and named somebody else is a credibility problem, so it asks for sources
     const read = await produceSourceExpansion(ctxOf({
       finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }),
@@ -133,6 +160,9 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect(c.after).toContain('2 of your own pages come up for "rain barrel sizing": /rain-barrels, /barrel-sizes');
     expect(c.after).not.toContain("https://");
     expect(c.after).toContain("I am not choosing for you");
+    // The change the row would carry IS this component: a merge instruction filed as a section change,
+    // never a title rewrite nobody here produced.
+    expect(envelope(c)).toEqual({ kind: "existing_edit", field: "section", before: null, after: c.after });
     const held = validate(both.components);
     expect(held.verdict).toBe("needs_review");
     expect(held.reasons.join(" ")).toContain("confirm it before you make the change");
@@ -155,7 +185,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect(c.after).toContain("a guide that answers the question from end to end");
     expect(c.after).toContain("How much water a roof collects");
     expect(c.after).toContain("2 separate things are wrong");
-    expect(validate(many.components).verdict).not.toBe("rejected");
+    expect(componentRefusals(validate(many.components))).toEqual([]);
     // no reading of the pages that win means no brief, however many causes fired
     const blind = await produceFullRewriteRecommendation(ctxOf({ pattern: null }), ["weak_opening", "incomplete_coverage"]);
     expect([blind.components.length, blind.refusal!.includes("side by side")]).toEqual([0, true]);
@@ -176,6 +206,29 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
       finding: { ...finding("cannibalization", { cause: "cannibalization", competingPaths: ["/a", "/b"] }), evidenceKeys: [] },
     }));
     expect([unbacked.components.length, unbacked.refusal!.includes("cannot show you anything behind this")]).toEqual([0, true]);
+  });
+});
+
+describe("what a change actually costs the operator", () => {
+  it("files and prices a change by the kind of component it is, the ONE map the bundle producer reads", () => {
+    // Both maps live beside the contract they speak, so the envelope a test builds and the row production
+    // persists are the same envelope. A wrapper that hardcoded a title edit validated something else.
+    const kinds: BundleComponent["kind"][] = ["internal_link_add", "full_rewrite", "consolidation", "title", "meta", "h1", "opening_answer", "section_rewrite"];
+    expect(kinds.map(fieldForComponent)).toEqual(["section", "section", "section", "title", "meta", "h1", "answer_block", "section"]);
+  });
+
+  it("prices the big changes in hours, not the quarter hour every non-wording change used to claim", async () => {
+    // Fifteen minutes was the price of every change that was not a reworded line, so merging two pages,
+    // redirecting one, and rebuilding a page end to end all read the same on the screen an operator plans
+    // their morning from. The number follows the kind of thing the change IS.
+    const merge = await produceConsolidation(ctxOf({
+      finding: finding("cannibalization", { cause: "cannibalization", competingPaths: [PAGE_URL, "https://fixture-content.example/barrel-sizes"] }),
+    }));
+    expect(effortMinutesFor(merge.components[0]!.kind)).toBe(90);
+    const rebuild = await produceFullRewriteRecommendation(ctxOf(), ["weak_opening", "incomplete_coverage"]);
+    expect(effortMinutesFor(rebuild.components[0]!.kind)).toBe(120);
+    // The middle of the range and the floor, so the whole map is inspectable in one place.
+    expect([effortMinutesFor("section_rewrite"), effortMinutesFor("section_add"), effortMinutesFor("title")]).toEqual([30, 15, 1]);
   });
 });
 

@@ -17,10 +17,17 @@ vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
   checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {},
   reserveOnboardingSpend: async () => ({ ok: true }), reconcileOnboardingSpend: async () => {},
 }));
+/** WHAT THE PROVIDER REGISTRY CAN ASK TODAY. The planner derives its engine set from the registry through
+ *  this one predicate, so turning a capability off here is the only way to prove the derivation is live. */
+const registry = vi.hoisted(() => ({ off: new Set<string>() }));
+vi.mock("@/domains/evidence/dataforseo/funnel-boundary", async (orig) => ({
+  ...((await orig()) as object), capabilityAskable: (cap: string) => !registry.off.has(cap),
+}));
 /** What the pass SAID, so a swallowed write can be told apart from a recorded one. */
 const said = vi.hoisted(() => ({ warnings: [] as string[] }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, error: () => {},
   warn: (msg: string) => { said.warnings.push(msg); } } }));
+import { identityFrom } from "@/domains/account/brand-identity";
 import { setAccountRepositoryForTests } from "@/domains/account/tenants/store";
 import { __resetBusinessProfileCacheForTests, seedBusinessProfileForTests } from "@/domains/account/business-profile";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
@@ -425,6 +432,20 @@ describe("work that is genuinely finished", () => {
     expect(plan([seen({ promptId: "p1", engine: "chatgpt", status: "failed" })], { "p1|1|chatgpt|0": FAILED_RETRIES_PER_DAY })).toEqual([]);
   });
 
+  it("derives the engines it plans from the provider registry itself, with nobody handing it a list", async () => {
+    // The engine-to-capability map is checked by the compiler and nothing more: a `satisfies` proves the
+    // mapping is well typed and proves nothing about whether the planner ever consults it. Turning ONE
+    // capability off in the registry is the only way to show the derivation actually reaches a plan.
+    const world = { readPrompts: async () => ONE, readObservations: async () => [], readMarkers: async () => null, maxBatch: 99 };
+    expect(new Set((await dueObservations(T, DAY, world))!.map((d) => d.engine))).toEqual(new Set(ENGINES));
+    registry.off.add("llm_gemini");
+    try {
+      expect(new Set((await dueObservations(T, DAY, world))!.map((d) => d.engine))).toEqual(new Set(["chatgpt", "claude", "perplexity"]));
+    } finally { registry.off.clear(); }
+    // And the day it comes back it is planned again, with no stored flag to undo.
+    expect(new Set((await dueObservations(T, DAY, world))!.map((d) => d.engine))).toEqual(new Set(ENGINES));
+  });
+
   it("never plans an engine the registry cannot ask, on any day, and does not resurrect it from a stored row", () => {
     const yesterday = [seen({ promptId: "p1", engine: "perplexity", status: "unsupported", day: "2026-07-30" })];
     // The engine set is derived from the capability registry, so an engine that cannot be asked is simply absent
@@ -524,12 +545,20 @@ describe("work that is genuinely finished", () => {
     // nothing is rewritten. A day that was genuinely missed stays missed rather than being filled in late.
     const day = reportingDay(Date.parse("2026-08-05T02:00:00.000Z"));
     expect(day).toBe("2026-08-04");
-    const history = [seen({ promptId: "p1", engine: "chatgpt", day: "2026-08-04" }), seen({ promptId: "p1", engine: "chatgpt", day: "2026-08-02" })];
+    // A BROKEN ROW WITH ITS BUDGET SPENT, so the settle path this pass owns actually RUNS. Without one the
+    // ledger returns at its first line and "a pass rewrote nothing" could never have failed.
+    const spent = seen({ promptId: "p2", engine: "chatgpt", day: "2026-08-04", status: "failed", failureReason: "The provider refused this request." });
+    const history = [seen({ promptId: "p1", engine: "chatgpt", day: "2026-08-04" }), seen({ promptId: "p1", engine: "chatgpt", day: "2026-08-02" }), spent];
     const before = JSON.stringify(history);
-    const world = { readPrompts: async () => ONE, readObservations: async () => history, engines, maxBatch: 99, readMarkers: async () => null };
-    expect(await dueObservations(T, day, world)).toEqual([]);
-    expect(JSON.stringify(history)).toBe(before);                              // a pass rewrote nothing
-    expect(await dueObservations(T, "2026-08-03", world)).toHaveLength(1);      // and a missed day is not backfilled: it is simply the day I am asked about
+    const settled: Array<[string, string]> = [];
+    const world = { readPrompts: async () => [PROMPTS[0]!, PROMPTS[1]!], readObservations: async () => history, engines, maxBatch: 99,
+      readMarkers: async () => ({ observationRetries: { day, counts: { [key({ ...spent, promptId: "p2" })]: FAILED_RETRIES_PER_DAY }, askedAt: { [key({ ...spent, promptId: "p2" })]: spent.requestedAt } } }),
+      writeMarkers: async () => true,
+      settle: async (_t: string, id: string, status: "unavailable" | "unsupported") => { settled.push([id, status]); } };
+    expect(await dueObservations(T, day, world)).toEqual([]);                   // both pairs are finished for the day
+    expect(settled).toEqual([[spent.id, "unavailable"]]);                       // and the row that ran out of retries was settled
+    expect(JSON.stringify(history)).toBe(before);                              // a pass rewrote nothing it read
+    expect(await dueObservations(T, "2026-08-03", world)).toHaveLength(2);      // and a missed day is not backfilled: it is simply the day I am asked about
   });
 });
 
@@ -537,6 +566,36 @@ describe("work that is genuinely finished", () => {
  *  every reading came back "not mentioned" and the AI trend was computed from that. These go through the real
  *  production wiring (no injected identity): the Account kernel derives the name from the confirmed profile and
  *  the account's own website, and a deterministic second read of the same answer catches what the model missed. */
+describe("every written form that still means this business", () => {
+  it("says nothing at all about an account that has neither a name nor a website", () => {
+    // No forms is the caller's signal to stop: asking a model "was this brand mentioned" with an empty
+    // brand comes back "no" every time, and a whole AI trend was computed off that answer.
+    expect(identityFrom("", "")).toEqual({ name: "", forms: [], host: "" });
+    expect(identityFrom("  ", "   ")).toEqual({ name: "", forms: [], host: "" });
+  });
+
+  it("reads a company suffix as the same business, and offers the longest form first", () => {
+    // A reader who sees "Ritz Builders" has seen "Ritz Builders, Inc.", and the longest form is tried first
+    // so the whole name wins over a fragment of it.
+    expect(identityFrom("Ritz Builders, Inc.", "https://www.ritz-builders.com/")).toEqual({
+      name: "Ritz Builders, Inc.", host: "ritz-builders.com",
+      forms: ["ritz builders, inc.", "ritz-builders.com", "ritz builders"],
+    });
+  });
+
+  it("keeps a bare domain label only when it could not be an ordinary English word", () => {
+    // The mention verdict ORs every form together, so a generic label on its own turns "a guide to Nowruz"
+    // into a mention of guide.com. The whole address always counts; the label has to earn its place.
+    expect(identityFrom("", "https://guide.com").forms).toEqual(["guide.com"]);          // an everyday word
+    expect(identityFrom("", "https://ritz.com").forms).toEqual(["ritz.com"]);            // too short to stand alone
+    expect(identityFrom("", "https://iranopedia.com").forms).toEqual(["iranopedia.com", "iranopedia"]);
+    // A confirmed name's OWN word is kept even when it is generic, because the account really is called that.
+    expect(identityFrom("Guide", "https://guide.com").forms).toEqual(["guide.com", "guide"]);
+    // And a label that is not one of the confirmed name's words is never invented into a form.
+    expect(identityFrom("Ritz Builders", "https://ritz-builders.com").forms).toEqual(["ritz-builders.com", "ritz builders"]);
+  });
+});
+
 describe("who the answer was read for", () => {
   const ACCOUNT = { id: T, slug: "acct-a", provisional_name: "whatever a stranger typed at signup", domain: "", status: "active" as const,
     signup_date: "", tos_accepted_at: null, daily_budget_usd: 5, growth_goal: null, created_at: "", updated_at: "" };

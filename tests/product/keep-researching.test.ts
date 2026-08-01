@@ -32,6 +32,9 @@ const work = (owed: boolean): DueWork => ({
   cases: { active: 1, parked: 0 }, nextDueAt: null, evidenceVersion: 1,
 });
 
+/** The days the server counted a continuation against, so the call site's own day arithmetic is inspectable. */
+const countedDays: string[] = [];
+
 /** The repo the tick reads through: `latest` is the durable state it polls, `grants` is how many callers
  *  the lease lets in (that refusal is the whole two-tab safety story), `counted` is the day's hop total. */
 function repoFor(latest: RR.ResearchRun | null, opts: { grants?: number; counted?: number | null } = {}) {
@@ -49,12 +52,13 @@ function repoFor(latest: RR.ResearchRun | null, opts: { grants?: number; counted
     async finish() { return true; },
     async latest() { return latest; },
     async sameDay() { return []; },
-    async countContinuation() { return opts.counted ?? null; },
+    async countContinuation(a: { day: string }) { countedDays.push(a.day); return opts.counted ?? null; },
   };
   RR.setResearchRunRepoForTests(repo);
 }
 
 beforeEach(() => {
+  countedDays.length = 0;
   const account = async (id: string) => ({ id, slug: id, provisional_name: "", domain: "example.com",
     status: "active" as const, signup_date: "", tos_accepted_at: null, daily_budget_usd: 0,
     growth_goal: null, created_at: "", updated_at: "" });
@@ -120,12 +124,38 @@ describe("the server tick the tab relays", () => {
   });
 
   it("asks for one more continuation while work is owed, and stops when the day's bound is spent", async () => {
-    repoFor(row({}), { counted: 3 });
-    expect(await researchTick(T, 2, { now, steps: { dueWork: async () => work(true) } }))
-      .toEqual({ hop: 3, next: "continue" });
+    // THE HOP IS THE SERVER'S NUMBER, NOT THE BROWSER'S. Both fixtures hand over hop 0, which is what a
+    // caller that kept resending zero looked like: counting the client's claim plus one would answer 1 here
+    // and hand this tab a fresh allowance on every request, so the day's bound would bound nothing.
+    repoFor(row({}), { counted: 5 });
+    expect(await researchTick(T, 0, { now, steps: { dueWork: async () => work(true) } }))
+      .toEqual({ hop: 5, next: "continue" });
     repoFor(row({}), { counted: 7 });
-    expect(await researchTick(T, 6, { now, steps: { dueWork: async () => work(true) } }))
+    expect(await researchTick(T, 0, { now, steps: { dueWork: async () => work(true) } }))
       .toEqual({ hop: 7, next: "stop" });
+  });
+
+  it("picks an interrupted run back up, because this IS the next visit its own copy promised", async () => {
+    // A deploy or a lambda timeout leaves a `running` row nobody touches again. The projection tells the
+    // operator "I pick this back up on your next visit", and the controller that exists to BE that visit
+    // read the same projection as a pause and stopped, so the row sat there for the rest of the day.
+    const stale = new Date(NOW.getTime() - 11 * 60_000).toISOString();
+    repoFor(row({ status: "running", current_phase: "serp_analysis", completed_at: null, updated_at: stale }), { counted: 1 });
+    const dueWork = vi.fn(async () => work(true));
+    expect(await researchTick(T, 0, { now, steps: { dueWork } })).toEqual({ hop: 1, next: "continue" });
+    expect(dueWork).toHaveBeenCalled();
+    // And a run that is genuinely still advancing is still a wait, not a second claim.
+    repoFor(row({ status: "running", current_phase: "serp_analysis", completed_at: null }), { counted: 1 });
+    expect(await researchTick(T, 0, { now, steps: { dueWork: async () => work(true) } })).toEqual({ hop: 0, next: "wait" });
+  });
+
+  it("counts the continuation against the operator's own day, not the UTC one", async () => {
+    // Six in the evening Pacific on August 1 is already August 2 in UTC. Slicing the instant would spend
+    // tomorrow's allowance every evening and hand the tab a fresh six hops seven hours early.
+    const evening = new Date("2026-08-02T02:00:00.000Z");
+    repoFor(row({}), { counted: 1 });
+    await researchTick(T, 0, { now: () => evening, steps: { dueWork: async () => work(true) } });
+    expect(countedDays).toEqual(["2026-08-01"]);
   });
 
   it("stops before anything runs when the account is not active", async () => {

@@ -8,7 +8,7 @@ import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { runSingleFlight } from "@/lib/single-flight";
 import { readLastFinalizedDate } from "@/domains/measurement";
 import { loadProofLedger, loadProofLedgerPersisted } from "@/domains/measurement";
-import { aiOutcomeForShipment, readLedger, type ShippedChangeRecord } from "@/domains/measurement";
+import { aiOutcomesForShipments, readLedger, type ShippedChangeRecord } from "@/domains/measurement";
 import {
   isResultsSurfaceStale,
   readResultsSurface,
@@ -36,12 +36,20 @@ type ResultsLedgerSurface = {
  * immutable starting point written at mark time, and what AI answers did around it. The AI side is
  * read from answers already bought, so nothing here spends anything; a record with no stamp has no
  * moment to measure an AI outcome from and honestly carries none.
+ *
+ * ONE READ FOR THE WHOLE LEDGER. Each shipment used to open its own paged 56 day read of whole
+ * observation rows, and all of them fired at once, so ten shipments meant eighty round trips carrying
+ * every answer text and retrieval journey in the window. The union window is read once now, on the lean
+ * outcome projection, and each shipment is computed off that set.
  */
 export async function presentShipments(tenantId: string, records: ShippedChangeRecord[]): Promise<ShipmentPresentation[]> {
   if (records.length === 0) return [];
   const latestGscDate = await readLastFinalizedDate(tenantId).catch(() => null);
   const reads = readLedger(records, new Date(), latestGscDate);
-  return Promise.all(records.map(async (r, i) => ({
+  const ai = await aiOutcomesForShipments(tenantId, records.map((r) => ({
+    implementedAt: r.implementedAt ?? null, shipmentBaseline: r.shipmentBaseline,
+  }))).catch(() => records.map(() => null));
+  return records.map((r, i) => ({
     read: reads[i]!,
     implementedAt: r.implementedAt ?? null,
     verification: r.verification ?? null,
@@ -53,10 +61,8 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
         capturedAt: r.shipmentBaseline.capturedAt,
       }
       : null,
-    ai: r.implementedAt
-      ? await aiOutcomeForShipment(tenantId, { implementedAt: r.implementedAt, shipmentBaseline: r.shipmentBaseline }).catch(() => null)
-      : null,
-  })));
+    ai: ai[i] ?? null,
+  }));
 }
 
 /** Build the shipment stories for a tenant from the persisted records (no re-measure). */

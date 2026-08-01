@@ -20,7 +20,7 @@ import { diagnoseCandidate, ownedResultOf, recurringPattern, RECEIPT, type Diagn
 import { causeLabel, diagnoseCauses, type CauseFinding } from "./diagnosis";
 import type { DecidedTopic } from "./coverage-pass";
 import type { WinningPattern } from "./winning-pattern";
-import { CORE_PRODUCERS } from "./producers/core"; import { produceFullRewriteRecommendation } from "./producers/extended"; import type { ProducerCtx, ProducerDraft } from "./producers/contract";
+import { CORE_PRODUCERS } from "./producers/core"; import { produceFullRewriteRecommendation } from "./producers/extended"; import { effortMinutesFor, fieldForComponent, type ProducerCtx, type ProducerDraft } from "./producers/contract";
 import type { ProposeOptions } from "./propose"; import { validateProposal } from "./validate-proposal";
 import { anchoredTopicMatch, canonicalQueryKey, weakAnchorTokens } from "@/domains/evidence/relevance-gate";
 
@@ -247,11 +247,6 @@ export type ProduceBundleOptions = ProposeOptions & {
   measuringPagePaths?: readonly (string | null)[];
 };
 
-/** The kind of component this is, said back in the ONE field vocabulary a persisted change carries. */
-const FIELD_OF: Record<string, "title" | "meta" | "h1" | "answer_block" | "section"> = {
-  title: "title", meta: "meta", h1: "h1", opening_answer: "answer_block",
-  section: "section", section_add: "section", section_rewrite: "section" };
-
 /** The operator-facing label for the opportunity, by the cause that earned it. */
 const OPPORTUNITY_OF: Partial<Record<CauseFinding["cause"], string>> = {
   ctr_snippet: "Rewrite the page that already has the demand",
@@ -385,7 +380,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       pattern, receiptFacts: facts, readiness: receipt.readiness, draft: drafters };
     const produced = await slot(ctx);
     for (const c of produced.components) {
-      const field = FIELD_OF[c.kind] ?? "section";
+      const field = fieldForComponent(c.kind);
       keep(c, { kind: "existing_edit", field, before: c.before, after: c.after });
     }
     if (components.length === 0) {
@@ -397,7 +392,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       // the exact opposite of what the evidence said.
       const rebuild = await produceFullRewriteRecommendation(ctx,
         [finding.cause, ...finding.competingExplanations.filter((c) => c.fired === true).map((c) => c.cause)]);
-      for (const c of rebuild.components) keep(c, { kind: "existing_edit", field: FIELD_OF[c.kind] ?? "section", before: c.before, after: c.after });
+      for (const c of rebuild.components) keep(c, { kind: "existing_edit", field: fieldForComponent(c.kind), before: c.before, after: c.after });
     }
     if (components.length === 0) return { status: "none", reason: produced.refusal ?? finding.explanation };
   }
@@ -444,12 +439,19 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       pageLabel: content.h1 ?? content.title ?? page.url, primaryQuery: primary,
       opportunityType: OPPORTUNITY_OF[finding.cause] ?? "Rewrite the page that already has the demand",
       status: heldForReview ? "needs_review" : "proposed", // an investigation I cannot close never reaches here at all
-      recommendedChange: { kind: "existing_edit", field: FIELD_OF[primaryComponent.kind] ?? "section", before: primaryComponent.before, after: primaryComponent.after },
+      recommendedChange: { kind: "existing_edit", field: fieldForComponent(primaryComponent.kind), before: primaryComponent.before, after: primaryComponent.after },
       whyItMatters: `Searching "${primary}" brings this page ${lead.impressions.toLocaleString()} views and only ${lead.clicks.toLocaleString()} clicks over 90 days, about ${Math.round(lead.recoverable).toLocaleString()} clicks short of what position ${Math.round(lead.position)} usually earns, and that gap is big enough to look into.`,
       // THE CAUSE THAT ACTUALLY FIRED, in the ladder's own vocabulary, so the ranker asks ONE question of
       // every change: does this change's lever address the reason this page is losing? It was hardcoded to
       // the wording cause here, which meant every change this file could ever make answered that question yes.
-      estimatedEffortMinutes: wording ? 1 : 15, riskLevel: !wording && heldForReview ? "medium" : "low", confidence, limitations: receipt.missing, diagnosisCause: finding.cause,
+      // WHAT THIS COSTS THE OPERATOR, by the kind of change it actually is. Everything that was not a
+      // reworded line was priced at fifteen minutes, so a merge, a redirect and a page rebuilt end to end
+      // all read as a quarter of an hour on the screen they plan their morning from.
+      estimatedEffortMinutes: effortMinutesFor(primaryComponent.kind), riskLevel: !wording && heldForReview ? "medium" : "low", confidence, limitations: receipt.missing,
+      // THE CAUSE THAT PRODUCED THESE COMPONENTS, and the whole reading behind it. The drafting pass runs
+      // the ladder a SECOND time with different inputs and used to overwrite both, so /changes could name a
+      // cause that had nothing to do with the change on the screen.
+      diagnosisCause: finding.cause, causeFinding: finding,
       evidence: { query: primary, hints: facts.slice(0, 5), evidenceRefCount: receipt.items.length },
       impactScore: Math.round(pick.gap), upsidePerMonth: null, bundle, createdAt: now.toISOString(),
   } };

@@ -138,7 +138,7 @@ export const RESEARCH_RUN_LEASE_SECONDS = 240;
 
 // The operator-facing projection lives in run-status (the record and the way it READS are two
 // jobs). Re-exported here so every existing caller keeps its one import.
-export { nextPhase, projectStatusView, researchStatusLine, type ResearchRunStatusView } from "./run-status";
+export { INTERRUPTED_REASON, nextPhase, projectStatusView, researchStatusLine, type ResearchRunStatusView } from "./run-status";
 import { projectStatusView, type ResearchRunStatusView } from "./run-status";
 
 // ── Pure helpers ───────────────────────────────────────────────────────────

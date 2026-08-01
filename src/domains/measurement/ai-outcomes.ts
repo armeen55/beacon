@@ -49,8 +49,9 @@ type Analysis = {
 };
 
 /** The injectable read. Production passes nothing and gets the stored-observation reader itself. The DAY
- *  RANGE is part of the ask, so the store returns the requested stretch and nothing outside it. */
-type ReadRows = (tenantId: string, opts: { limit?: number; slot?: number; fromDay?: string; toDay?: string }) => Promise<AiObservationRecord[]>;
+ *  RANGE is part of the ask, so the store returns the requested stretch and nothing outside it, and so is
+ *  the PROJECTION, so an outcome read never drags whole answers and retrieval journeys across the wire. */
+type ReadRows = (tenantId: string, opts: { limit?: number; slot?: number; fromDay?: string; toDay?: string; projection?: "full" | "outcome" }) => Promise<AiObservationRecord[]>;
 type ReadOpts = { ownedHost?: string | null; readObservations?: ReadRows };
 
 /** What one engine was serving on one day. `asked` is every first reading planned that day whatever came
@@ -301,8 +302,9 @@ function competitorsIn(rows: AiObservationRecord[]): AiOutcomeReport["competitor
  *  claims. This used to ask for the newest 2,000 rows and narrow to the range afterwards, so an account
  *  reading 35 questions on 4 engines (140 first readings a day) had its 28 day report built from about a
  *  fortnight. The filter after the read is the belt to that braces, and holds for an injected reader. */
-const readRows = async (tenantId: string, window: { from: string; to: string }, opts: ReadOpts): Promise<AiObservationRecord[]> =>
-  (await (opts.readObservations ?? readAiObservations)(tenantId, { fromDay: window.from, toDay: window.to, slot: FIRST_READING_SLOT }))
+const readRows = async (tenantId: string, window: { from: string; to: string }, opts: ReadOpts & { projection?: "outcome" }): Promise<AiObservationRecord[]> =>
+  (await (opts.readObservations ?? readAiObservations)(tenantId, { fromDay: window.from, toDay: window.to, slot: FIRST_READING_SLOT,
+    ...(opts.projection ? { projection: opts.projection } : {}) }))
     .filter((r) => r.tenant_id === tenantId && isFirstReading(r) && r.reporting_day >= window.from && r.reporting_day <= window.to);
 
 /**
@@ -388,21 +390,62 @@ function outcomeLine(direction: ShipmentAiOutcome["direction"], before: Shipment
  * is never filled in from its neighbours, and under half coverage is `unclear`, not a verdict. Null when the
  * change carries no stamp, because there is then no moment to measure from.
  */
-export async function aiOutcomeForShipment(
-  tenantId: string,
-  shipment: { implementedAt: string | null; shipmentBaseline?: { ai: { day: string; checked: number; mentioning: number } | null } | null },
-  opts: ReadOpts & { now?: Date } = {},
-): Promise<ShipmentAiOutcome | null> {
+export type ShipmentForOutcome = { implementedAt: string | null; shipmentBaseline?: { ai: { day: string; checked: number; mentioning: number } | null } | null };
+
+/** The two ends of ONE shipment's read: the 28 days ahead of the stamp, where the fallback before-number is
+ *  found, and the 28 days after it, bounded by today. Null when the change carries no stamp to measure from. */
+function shipmentWindow(shipment: ShipmentForOutcome, nowDay: string): { stamp: string; from: string; to: string } | null {
   const stamp = dayOfStamp(shipment.implementedAt);
   if (!stamp) return null;
-  const now = dayOfInstant(opts.now ?? new Date());
   // 28 reporting days COUNTING the day it was marked done, so the days I read and the days that passed are
   // counted the same way and coverage can never read as more days than have actually elapsed.
   const last = addDays(stamp, SHIPMENT_WINDOW_DAYS - 1);
-  const to = now < last ? now : last;
-  // ONE bounded read covering both sides: the 28 days ahead of the stamp, where the fallback before-number
-  // is found, and the 28 days after it. Bounding the before side is what lets the whole after side be read.
-  const rows = await readRows(tenantId, { from: addDays(stamp, -SHIPMENT_WINDOW_DAYS), to }, opts);
+  return { stamp, from: addDays(stamp, -SHIPMENT_WINDOW_DAYS), to: nowDay < last ? nowDay : last };
+}
+
+/**
+ * EVERY SHIPMENT ON ONE LEDGER, OFF ONE READ. Each shipment used to issue its own paged 56 day read of
+ * whole rows, all of them at once inside a Promise.all, which is the exact shape that has timed a statement
+ * out here before: ten shipments meant eighty round trips carrying every answer text and retrieval journey
+ * in the window. Now the union window of every stamped shipment is read ONCE, on the lean outcome
+ * projection, and each shipment is computed from that set in memory. A shipment with no stamp still gets
+ * null, in its own place, so the answer stays aligned with the ledger that asked.
+ */
+export async function aiOutcomesForShipments(
+  tenantId: string,
+  shipments: readonly ShipmentForOutcome[],
+  opts: ReadOpts & { now?: Date } = {},
+): Promise<(ShipmentAiOutcome | null)[]> {
+  const nowDay = dayOfInstant(opts.now ?? new Date());
+  const windows = shipments.map((s) => shipmentWindow(s, nowDay));
+  const stamped = windows.filter((w): w is NonNullable<typeof w> => w != null);
+  if (stamped.length === 0) return shipments.map(() => null);
+  const union = { from: stamped.map((w) => w.from).sort()[0]!, to: stamped.map((w) => w.to).sort().at(-1)! };
+  const rows = await readRows(tenantId, union, { ...opts, projection: "outcome" });
+  return shipments.map((s, i) => {
+    const w = windows[i];
+    return w == null ? null : outcomeFromRows(rows, s, w);
+  });
+}
+
+export async function aiOutcomeForShipment(
+  tenantId: string,
+  shipment: ShipmentForOutcome,
+  opts: ReadOpts & { now?: Date } = {},
+): Promise<ShipmentAiOutcome | null> {
+  const window = shipmentWindow(shipment, dayOfInstant(opts.now ?? new Date()));
+  if (!window) return null;
+  return outcomeFromRows(await readRows(tenantId, window, opts), shipment, window);
+}
+
+/** PURE over rows already in hand: one shipment's before, after, coverage and direction. */
+function outcomeFromRows(
+  all: readonly AiObservationRecord[],
+  shipment: ShipmentForOutcome,
+  window: { stamp: string; from: string; to: string },
+): ShipmentAiOutcome {
+  const { stamp, to } = window;
+  const rows = all.filter((r) => r.reporting_day >= window.from && r.reporting_day <= to);
 
   const held = shipment.shipmentBaseline?.ai ?? null;
   const beforeRows = rows.filter((r) => r.reporting_day < stamp && cameBack(r));

@@ -5,7 +5,7 @@
  *  account never reads another's answers. Fixtures only: every read is injected, zero network, zero cost. */
 import { describe, it, expect, vi } from "vitest";
 
-import { aiOutcomeForShipment, aiOutcomes, visibilitySeries } from "@/domains/measurement/ai-outcomes";
+import { aiOutcomeForShipment, aiOutcomes, aiOutcomesForShipments, visibilitySeries } from "@/domains/measurement/ai-outcomes";
 import type { AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations";
 
 const T = "acct-a", SITE = "fixture-outdoors.example";
@@ -77,6 +77,17 @@ describe("the daily AI trend, over stored answers only", () => {
       citationSample: 3, ownedCiting: 2, ownedCitationRate: 0.667, ownedCitationRank: 2,
       retrievalSample: 2, ownedRetrieved: 2, retrievedNotCited: 1, retrievedNotCitedRate: 0.5,
     });
+  });
+  it("counts a page of yours read and passed over even when the answer credited a DIFFERENT page of yours", async () => {
+    // The subtraction is per PAGE, through the one canonical-url derivation. Asking only "did it credit
+    // anybody on this site" answers yes here and reports zero, so the page the engine actually read and
+    // then ignored disappears behind a neighbour of its own that happened to get the credit.
+    const readObservations = reader([row({ day: "2026-07-20", prompt_id: "p1", mentioned: true, journey: {
+      fan_outs: null, brand_mentions: null, web_search_reported: null,
+      retrieved_results: [{ url: `https://${SITE}/guide`, domain: SITE, title: null }],
+      cited_sources: [{ url: `https://${SITE}/other`, domain: SITE, title: null }] } })]);
+    const [day] = allDays(await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-20", readObservations }));
+    expect(day).toMatchObject({ retrievalSample: 1, ownedRetrieved: 1, retrievedNotCited: 1, retrievedNotCitedRate: 1 });
   });
   it("says null for retrieved-but-not-cited when the journey never recorded what was read", async () => {
     const readObservations = reader([row({ day: "2026-07-20", mentioned: true })]);
@@ -300,6 +311,30 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.after.to).toBe("2026-07-28");
     expect(outcome?.coverage).toEqual({ daysObserved: 28, daysElapsed: 28 });
     expect(await aiOutcomeForShipment(T, { implementedAt: null }, { readObservations, now: NOW })).toBeNull();
+  });
+
+  it("reads the whole ledger's answers ONCE, on the lean projection, and still judges each change on its own window", async () => {
+    // EVERY shipment used to open its own paged 56 day read of WHOLE rows, all of them at once: ten
+    // shipments meant eighty round trips carrying every answer text and retrieval journey in the window,
+    // which is the exact shape that has timed a statement out on this table before.
+    const rows = stretch("2026-06-01", "2026-07-31", 3);
+    const readObservations = reader(rows);
+    const shipments = [
+      { implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, mentioning: 1 } } },
+      { implementedAt: "2026-07-05T10:00:00.000Z", shipmentBaseline: { ai: null } },
+      { implementedAt: null },                                    // no stamp, no moment to measure from
+    ];
+    const batch = await aiOutcomesForShipments(T, shipments, { readObservations, now: NOW });
+    expect(readObservations).toHaveBeenCalledTimes(1);
+    // ONE union window covering every stamped shipment, and the projection NAMES what it reads: the
+    // identity, the day, the slot, the status and the stored verdict. Never the answer text, never the journey.
+    expect(readObservations).toHaveBeenCalledWith(T, { fromDay: "2026-06-07", toDay: "2026-07-31", slot: 0, projection: "outcome" });
+    expect(batch).toHaveLength(3);
+    expect(batch[2]).toBeNull();
+    // And each change is still judged on ITS OWN 28 days, byte for byte what it got when it read alone.
+    for (const [i, s] of shipments.entries()) {
+      expect(batch[i]).toEqual(await aiOutcomeForShipment(T, s, { readObservations: reader(rows), now: NOW }));
+    }
   });
 
   /** THE DAY A CHANGE SHIPPED IS THE OPERATOR'S DAY. Observations are filed under the Pacific reporting

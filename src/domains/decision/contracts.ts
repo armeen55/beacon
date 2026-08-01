@@ -215,9 +215,8 @@ export type BundleComponentKind =
   | "internal_link_add" | "internal_link_remove" | "anchor_text" | "schema" | "canonical"
   | "redirect" | "noindex" | "consolidation" | "navigation" | "new_page";
 
-/** The kinds that change where a page LIVES or whether it is findable at all. A
- *  mistake here costs traffic a title rewrite never could, so each is `dangerous`
- *  and rides the two-step hold below. */
+/** The kinds that change where a page LIVES or whether it is findable at all. A mistake here
+ *  costs traffic a title rewrite never could, so each is `dangerous` and rides the hold below. */
 export const DANGEROUS_COMPONENT_KINDS: ReadonlySet<BundleComponentKind> =
   new Set<BundleComponentKind>(["canonical", "redirect", "noindex", "consolidation"]);
 
@@ -445,7 +444,9 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
     // The reading the cause was decided from, kept whole. Carried opaquely here because the ladder OWNS the
     // per-cause shape; a second copy of that union in this schema is a second thing to keep in step.
     payload: z.unknown().optional(),
-    competingExplanations: z.array(z.object({ cause: z.string().min(1), reason: z.string().min(1) })),
+    // `fired` separates a second real accusation from a cause checked and ruled out; dropping it on the
+    // way to the store turned every stored second accusation into a rejected one on reload.
+    competingExplanations: z.array(z.object({ cause: z.string().min(1), reason: z.string().min(1), fired: z.boolean().optional() })),
     falsifier: z.string().min(1), explanation: z.string().min(1),
     notConsidered: z.array(z.object({ cause: z.string().min(1), missing: z.string().min(1) })) })
     .optional() as z.ZodType<CauseFinding | undefined>,

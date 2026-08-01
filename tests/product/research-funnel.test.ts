@@ -405,6 +405,25 @@ describe("research funnel - the journey behind a keyword", () => {
     expect(rows.get("how much does saffron cost per gram")!.origins).toEqual([{ route: "paa", parentQuery: "price saffron", sourceQuery: "How much does saffron cost per gram" }]); // the results page it sat on, in Google's own spelling
     expect(rows.get("iranian saffron")!.origins).toEqual([{ route: "answer_entity", promptId: "p9", promptVersion: 4, engine: "gemini", reportingDay: DAY_B, observationId: "obs_read", parentQuery: "is saffron worth it" }]);
   });
+  it("traces a BOUGHT candidate back to the pull it arrived on and the theme it was asked for", async () => {
+    // The free routes each carry their lineage. The paid ones are where the money went, and a keyword that
+    // arrives with no journey at all can never tell the operator which request they paid for produced it.
+    const store = memStore(seeded([pair()]));
+    const out = await keywordDiscoveryUnit({ ...base(profileOf("tj", ["saffron"], ["saffron price"])), ...store.deps,
+      keywordIdeas: async () => [], loadPageQueries: async () => [], loadAnswerAnalyses: async () => [],
+      callProvider: async (cap, input) => {
+        if (cap === "labs_keywords_for_site") return ok(parsedKw([{ keyword: "Saffron Price Per Gram", volume: 700 }]));
+        if (cap === "labs_related_keywords" && (input as { keyword: string }).keyword === "saffron price") return ok(parsedKw([{ keyword: "saffron grades", volume: 300 }]));
+        return ok(parsedKw([]));
+      } }, [{ caseId: JCASE, query: "price saffron" }])("tj", cur(), 60_000);
+    expect(out.status).toBe("done");
+    const rows = rowsOf(store);
+    // The whole-site pull answers for itself and has no parent theme; the provider's own spelling is kept
+    // because normalization is about to change it.
+    expect(rows.get("saffron price per gram")!.origins).toEqual([{ route: "site", sourceQuery: "Saffron Price Per Gram" }]);
+    // A themed pull names the theme it was bought for.
+    expect(rows.get("saffron grades")!.origins).toEqual([{ route: "related", parentQuery: "saffron price" }]);
+  });
   it("merges one follow-up seen in two different answers into ONE row that names both", async () => {
     const store = memStore(seeded([pair(), pair({ promptId: "p2", promptText: "cheapest saffron", day: DAY_B })])); await run(store);
     const row = rowsOf(store).get(FAN)!;

@@ -176,6 +176,12 @@ export async function recordAiObservation(rec: AiObservationRecord, tenantId: st
  *  unbounded table into memory; a range past the ceiling is a fault I say out loud, never a quiet cut. */
 const PAGE_ROWS = 1000, MAX_ROWS = 40_000;
 
+/** THE LEAN OUTCOME PROJECTION: the only columns an outcome read actually reads, and deliberately NOT the
+ *  two heavy ones. `answer_text` is a whole AI answer and `journey` is every page it read and credited, so
+ *  a full-row read of a 28 day window is megabytes per account per visit and is exactly the shape that has
+ *  timed out a statement here before. The keyset cursor rides on requested_at + id, so both stay in. */
+const OUTCOME_COLUMNS = "id,tenant_id,prompt_id,prompt_version,engine,reporting_day,sample_slot,status,analysis,requested_at";
+
 /**
  * Read stored observations back for RE-ANALYSIS. Everything a later pass needs is already on the row, so
  * re-reading an answer costs nothing and no provider is called. A failed read throws (an empty list would
@@ -192,9 +198,14 @@ const PAGE_ROWS = 1000, MAX_ROWS = 40_000;
  * each page starts strictly after the last row of the one before it. An offset window re-numbers itself
  * whenever a row is inserted mid-read, which is exactly what the collect step does, so one row was read
  * twice and another was never read at all.
+ *
+ * ASK FOR WHAT YOU READ. `projection: "outcome"` narrows the SELECT to the identity, the day, the slot,
+ * the status and the stored verdict, and leaves the answer text and the retrieval journey in the table.
+ * A caller that needs either simply does not pass it and gets the whole row as before.
  */
 export async function readAiObservations(
-  tenantId: string, opts: { day?: string; fromDay?: string; toDay?: string; promptId?: string; limit?: number; slot?: number } = {},
+  tenantId: string,
+  opts: { day?: string; fromDay?: string; toDay?: string; promptId?: string; limit?: number; slot?: number; projection?: "full" | "outcome" } = {},
 ): Promise<AiObservationRecord[]> {
   const whole = opts.day !== undefined || opts.fromDay !== undefined || opts.toDay !== undefined;
   const want = Math.min(Math.max(1, Math.floor(opts.limit ?? (whole ? MAX_ROWS : 500))), MAX_ROWS);
@@ -203,7 +214,8 @@ export async function readAiObservations(
   let after: { at: string; id: string } | null = null;
   while (!exhausted && rows.length < want) {
     const size = Math.min(PAGE_ROWS, want - rows.length);
-    let q = getSupabaseAdmin().from(AI_OBSERVATIONS_TABLE).select("*").eq("tenant_id", tenantId);
+    let q = getSupabaseAdmin().from(AI_OBSERVATIONS_TABLE)
+      .select(opts.projection === "outcome" ? OUTCOME_COLUMNS : "*").eq("tenant_id", tenantId);
     if (opts.day) q = q.eq("reporting_day", opts.day);
     if (opts.fromDay) q = q.gte("reporting_day", opts.fromDay);
     if (opts.toDay) q = q.lte("reporting_day", opts.toDay);
@@ -216,7 +228,9 @@ export async function readAiObservations(
     // can land on both sides of a page edge, so one is read twice and another never at all.
     const { data, error } = await q.order("requested_at", { ascending: false }).order("id", { ascending: false }).limit(size);
     if (error) throw new Error(`[ai_observations] read failed: ${error.message}`);
-    const page = (data ?? []) as AiObservationRecord[];
+    // On the lean projection the row genuinely has no answer_text and no journey; every caller that asks
+    // for it reads only the columns it named, which is why it asked for them.
+    const page = (data ?? []) as unknown as AiObservationRecord[];
     rows.push(...page);
     const last = page[page.length - 1];
     if (last) after = { at: String(last.requested_at ?? ""), id: String(last.id) };

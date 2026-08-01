@@ -42,6 +42,7 @@ export {
 export {
   aiOutcomes,
   aiOutcomeForShipment,
+  aiOutcomesForShipments,
   visibilitySeries,
   type AiOutcomeReport,
   type ShipmentAiOutcome,

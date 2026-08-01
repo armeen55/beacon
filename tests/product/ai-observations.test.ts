@@ -6,20 +6,29 @@
  * prompt_answer_observations row as a DERIVED projection. Zero network, zero provider spend.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-const db = vi.hoisted(() => ({ written: [] as { table: string; row: Record<string, unknown> }[], read: [] as Record<string, unknown>[], updated: null as Record<string, unknown> | null, matched: [] as { id: string }[], error: null as { message: string } | null, filters: {} as Record<string, unknown>, pages: [] as string[], onPage: null as ((n: number) => void) | null }));
+const db = vi.hoisted(() => ({ written: [] as { table: string; row: Record<string, unknown> }[], read: [] as Record<string, unknown>[], updated: null as Record<string, unknown> | null, matched: [] as { id: string }[], error: null as { message: string } | null, filters: {} as Record<string, unknown>, selected: [] as string[], pages: [] as string[], onPage: null as ((n: number) => void) | null }));
 /** The ONE fake: Postgres. Every writer, every guard and every projection above it is the real one. It
- *  answers a KEYSET page the way the real client does: the rows strictly past the cursor, newest first,
- *  cut to the asked limit. A reader that asks for one page and calls it the whole history is caught here,
- *  and so is one that re-numbers its window by offset while rows are being inserted underneath it. */
+ *  answers a KEYSET page the way the real client does: the rows strictly past the cursor, IN THE ORDER THE
+ *  CALLER ASKED FOR, cut to the asked limit. A reader that asks for one page and calls it the whole history
+ *  is caught here, so is one that re-numbers its window by offset while rows are being inserted underneath
+ *  it, and so is one that pages a table without a unique tiebreaker in its own ORDER BY. */
 vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...((await orig()) as object), getSupabaseAdmin: () => ({ from: (table: string) => fakeTable(table) }) }));
-/** Newest first, id breaking every tie: the exact order the reader asks the real table for. */
-const newestFirst = (a: Record<string, unknown>, b: Record<string, unknown>) =>
-  String(b.requested_at ?? "").localeCompare(String(a.requested_at ?? "")) || String(b.id).localeCompare(String(a.id));
 function fakeTable(table: string) {
   let max: number | null = null;
   let after: { at: string; id: string } | null = null;
+  /** Exactly the ORDER BY the caller built, in the order it built it. Nothing is assumed. */
+  const orders: { col: string; asc: boolean }[] = [];
+  const sorted = (rows: Record<string, unknown>[]) => [...rows].sort((a, b) => {
+    for (const { col, asc } of orders) {
+      const c = String(a[col] ?? "").localeCompare(String(b[col] ?? ""));
+      if (c !== 0) return asc ? c : -c;
+    }
+    return 0; // a tie the query never broke: Postgres is free to return these two either way round
+  });
   const q: Record<string, unknown> = {
-    select: () => q, eq: (c: string, v: unknown) => { db.filters[c] = v; return q; }, order: () => q,
+    select: (cols?: string) => { db.selected.push(cols ?? ""); return q; },
+    eq: (c: string, v: unknown) => { db.filters[c] = v; return q; },
+    order: (col: string, o?: { ascending?: boolean }) => { orders.push({ col, asc: o?.ascending !== false }); return q; },
     limit: (n: number) => { max = n; return q; },
     or: (expr: string) => {
       const m = /requested_at\.lt\."([^"]*)".*id\.lt\."([^"]*)"/.exec(expr);
@@ -32,7 +41,7 @@ function fakeTable(table: string) {
     upsert: (chunk: Record<string, unknown>[]) => { for (const row of chunk) db.written.push({ table, row }); return { select: async () => ({ data: chunk.map((r) => ({ id: r.id })), error: db.error }) }; },
     then: (res: (v: { data: unknown; error: unknown }) => void) => {
       if (db.updated) return res({ data: db.matched, error: db.error });
-      const ordered = [...db.read].sort(newestFirst);
+      const ordered = sorted(db.read);
       const cursor = after;
       const past = cursor
         ? ordered.filter((r) => { const at = String(r.requested_at ?? ""); return at < cursor.at || (at === cursor.at && String(r.id) < cursor.id); })
@@ -45,14 +54,21 @@ function fakeTable(table: string) {
   };
   return q;
 }
+/** The two first-party Search Console reads the funnel's own page-query default sits on. Faked here so the
+ *  default itself is the thing under test; nothing else in this file reaches them. */
+const gsc = vi.hoisted(() => ({ pages: new Map<string, unknown>(), decay: new Map<string, unknown>() }));
+vi.mock("@/domains/evidence/readers/gsc-page-signals", () => ({
+  loadGscPageSignalsForTenant: async () => gsc.pages,
+  loadGscDecaySignalsForTenant: async () => gsc.decay,
+}));
 import type { Account } from "@/domains/account";
-import { aiObservationId, persistAnswerAnalysis, readAiObservations, readAiObservationViews, recordAiObservation, type AiObservationRecord, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
+import { aiObservationId, persistAnswerAnalysis, readAiObservations, readAiObservationViews, recordAiObservation, settleFailedObservation, type AiObservationRecord, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { loadFunnelState, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type { CachedCallResult, CapabilityKey } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { promptObservationUnit } from "@/domains/evidence/funnel/observe";
-import type { FunnelDeps } from "@/domains/evidence/funnel/shared";
+import { resolveDeps, type FunnelDeps } from "@/domains/evidence/funnel/shared";
 import * as fx from "../fixtures/replay";
 
 const { BASIS, SITE, TENANT } = fx;
@@ -92,7 +108,7 @@ const observations = () => rowsFor("ai_observations") as unknown as AiObservatio
 const history = () => rowsFor("prompt_answer_observations") as unknown as PromptAnswerObservation[];
 const run = (deps: FunnelDeps, due: DueObservation[] | null, tenantId = TENANT) => promptObservationUnit(deps, due)(tenantId, { basis: BASIS, runId: "run-1" }, 60_000);
 
-beforeEach(() => { db.written = []; db.read = []; db.updated = null; db.matched = []; db.error = null; db.filters = {}; db.pages = []; db.onPage = null; });
+beforeEach(() => { db.written = []; db.read = []; db.updated = null; db.matched = []; db.error = null; db.filters = {}; db.selected = []; db.pages = []; db.onPage = null; });
 
 describe("one canonical identity per observation", () => {
   it("stores exactly the pairs that came due, each on the identity a retry can only ever reuse", async () => {
@@ -254,6 +270,71 @@ describe("re-analysis reads what was already bought", () => {
     expect([bigger.length, db.pages.length]).toEqual([6000, 7]); // six full pages, and the short page that ends the walk
   });
 
+  it("asks for only the columns an outcome read reads, and never drags the answers themselves across", async () => {
+    // A ledger read walks a 56 day window per shipped change. `answer_text` is a whole AI answer and
+    // `journey` is every page the engine read and credited, so a full-row read of that window is megabytes
+    // an account a visit, which is the exact shape that has timed a statement out on this table before.
+    db.read = stored(3);
+    await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-28", slot: 0, projection: "outcome" });
+    const asked = db.selected[0]!;
+    for (const col of ["id", "tenant_id", "prompt_id", "engine", "reporting_day", "sample_slot", "status", "analysis", "requested_at"]) {
+      expect(asked.split(",")).toContain(col);
+    }
+    expect(asked).not.toContain("answer_text");
+    expect(asked).not.toContain("journey");
+    expect(asked).not.toBe("*");
+    db.selected = [];
+    // And a caller that needs the whole answer simply does not ask for the projection.
+    await readAiObservations(TENANT, { day: DAY });
+    expect(db.selected[0]).toBe("*");
+  });
+
+  it("breaks a same-instant tie by id IN THE QUERY, so a page edge never reads one row twice and loses another", async () => {
+    // Two rows stamped the same millisecond, sitting exactly on a 1,000 row page edge. Without a unique
+    // tiebreaker in the ORDER BY, Postgres may return them either way round on the two pages, and the
+    // cursor then walks straight past one of them: 1,001 stored rows come back as 1,000.
+    const rows = stored(1001);
+    rows[1]!.requested_at = rows[0]!.requested_at;
+    db.read = rows;
+    const walked = await readAiObservations(TENANT, { day: DAY });
+    expect(walked).toHaveLength(1001);
+    expect(new Set(walked.map((r) => r.id)).size).toBe(1001);
+    expect(db.pages.map((p) => p.split("+")[1])).toEqual(["1000", "1"]);
+  });
+
+  it("reads the addresses an answer credited off the stored journey, and keeps null a different claim from none", async () => {
+    const at = (url: string, domain: string) => ({ url, domain, title: null });
+    db.read = [
+      { id: "o1", tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed", requested_at: `${DAY}T09:00:04.000Z`,
+        journey: { cited_sources: [at("https://rival.example/a", "rival.example"), at("", "acme.com")] } },
+      { id: "o2", tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed", requested_at: `${DAY}T09:00:03.000Z`,
+        journey: { cited_sources: [] } },
+      { id: "o3", tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed", requested_at: `${DAY}T09:00:02.000Z`,
+        journey: { cited_sources: null } },
+      { id: "o4", tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed", requested_at: `${DAY}T09:00:01.000Z` },
+    ];
+    const views = await readAiObservationViews(TENANT, { day: DAY });
+    // The address when there is one, the bare site when the engine named only a site, in the order credited.
+    expect(views.find((v) => v.id === "o1")!.citationUrls).toEqual(["https://rival.example/a", "acme.com"]);
+    expect(views.find((v) => v.id === "o2")!.citationUrls).toEqual([]);   // it credited nobody: an OBSERVED zero
+    expect(views.find((v) => v.id === "o3")!.citationUrls).toBeNull();    // this path does not report citations at all
+    expect(views.find((v) => v.id === "o4")!.citationUrls).toBeNull();    // and a row with no journey claims nothing
+  });
+
+  it("settles a failed reading only while it is still failed, and says which honest state it moved to", async () => {
+    // A reading that landed while the planner was deciding wins: the compare-and-set is what stops a
+    // decision taken a moment earlier from demoting an answer that is now in hand.
+    await settleFailedObservation(TENANT, "obs_1", "unavailable");
+    expect(db.updated).toEqual({ status: "unavailable" });
+    expect(db.filters).toEqual({ tenant_id: TENANT, id: "obs_1", status: "failed" });
+    db.updated = null; db.filters = {};
+    await settleFailedObservation(TENANT, "obs_2", "unsupported");
+    expect(db.updated).toEqual({ status: "unsupported" }); // an engine I cannot ask is a different claim
+    expect(db.filters).toEqual({ tenant_id: TENANT, id: "obs_2", status: "failed" });
+    db.updated = null; db.error = { message: "connection lost" };
+    await expect(settleFailedObservation(TENANT, "obs_3", "unavailable")).rejects.toThrow(/settle failed/);
+  });
+
   it("reads a NAMED DAY whole, and an insert mid-read never doubles a row or drops one", async () => {
     // The planner asks for the single day it is planning. That is a named range, so the reader walks it to
     // the end: it used to default to 500 rows and call the newest page of a 600 row day the whole day.
@@ -266,6 +347,44 @@ describe("re-analysis reads what was already bought", () => {
     const walked = await readAiObservations(TENANT, { day: DAY });
     expect(new Set(walked.map((r) => r.id)).size).toBe(walked.length); // no id twice
     expect(walked.filter((r) => Number(String(r.id).slice(4)) < 2500).length).toBe(2500); // and nothing already stored was skipped
+  });
+});
+
+/** The two readers the research funnel falls back on when a caller injects nothing. Both were built to carry
+ *  PROVENANCE, and provenance is invisible from the outside: a keyword harvested downstream can name the
+ *  answer or the page it came from only because these fields ride along. Run for real over the fakes. */
+describe("the funnel's own default readers carry provenance, not just payload", () => {
+  it("keeps every answer's identity on the analysis it is about", async () => {
+    const analysis = { ownedBrandMention: { mentioned: true, position: 1, context: null } };
+    db.read = [
+      { id: "obs_a", tenant_id: TENANT, prompt_id: "q7", prompt_version: 3, engine: "claude", reporting_day: DAY,
+        sample_slot: 0, status: "observed", requested_at: `${DAY}T09:00:02.000Z`, completed_at: null,
+        prompt_text: QUESTIONS[0]!.text, answer_text: "an answer", answer_hash: "h", analysis, analysis_hash: "ah" },
+      // Never analyzed: there is no verdict to carry, so it is not a candidate at all.
+      { id: "obs_b", tenant_id: TENANT, prompt_id: "q8", prompt_version: 1, engine: "chatgpt", reporting_day: DAY,
+        sample_slot: 0, status: "observed", requested_at: `${DAY}T09:00:01.000Z`, prompt_text: "x", analysis: null },
+    ];
+    const rows = await resolveDeps({}).loadAnswerAnalyses(TENANT);
+    // Without these six the analysis arrives anonymous, and a keyword taken out of it can never name the
+    // question, the engine, the day or the stored answer it came from.
+    expect(rows).toEqual([{ analysis, observationId: "obs_a", promptId: "q7", promptVersion: 3,
+      promptText: QUESTIONS[0]!.text, engine: "claude", reportingDay: DAY }]);
+  });
+
+  it("names the page of mine whose Search Console row carried each query, and orders the slipping ones first", async () => {
+    gsc.pages = new Map([
+      ["https://mine.example/guide", { page: "https://mine.example/guide", clicks90d: 10, impressions90d: 900, ctr90d: 0.01,
+        position90d: 8, topQueries: [{ query: "kite festival dates", impressions: 400 }] }],
+      ["https://mine.example/food", { page: "https://mine.example/food", clicks90d: 20, impressions90d: 500, ctr90d: 0.04,
+        position90d: 5, topQueries: [{ query: "kite festival food", impressions: 300 }] }],
+    ]);
+    // The guide's last 28 days fell against the 28 before them, so its queries are the slipping ones.
+    gsc.decay = new Map([["https://mine.example/guide", { page: "https://mine.example/guide", clicksNow: 3, clicksPrior: 9 }]]);
+    const queries = await resolveDeps({}).loadPageQueries(TENANT);
+    expect(queries).toEqual([
+      { query: "kite festival dates", impressions: 400, declining: true, page: "https://mine.example/guide" },
+      { query: "kite festival food", impressions: 300, declining: false, page: "https://mine.example/food" },
+    ]);
   });
 });
 

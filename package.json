@@ -10,8 +10,8 @@
     "typecheck": "tsc --noEmit",
     "supabase:management-check": "node scripts/supabase-management-check.mjs",
     "check": "npm run typecheck && npm run lint && npm run build",
-  "guard:foundation": "node scripts/check-foundation-budget.mjs",
-  "gate": "npm run guard:foundation && npm run lint && npm run typecheck && npm run test && npm run build",
+    "guard:foundation": "node scripts/check-foundation-budget.mjs",
+    "gate": "npm run guard:foundation && npm run lint && npm run typecheck && npm run test && npm run build",
     "data:backfill-db": "npx tsx scripts/backfill-to-supabase.ts",
     "data:parity": "npx tsx scripts/compare-parity.ts",
     "verify:brain-health": "npx tsx --require ./scripts/mock-server-only.cjs scripts/verify-brain-health-watchdog.ts",
@@ -43,6 +43,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "jsdom": "^30.0.1",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.3"

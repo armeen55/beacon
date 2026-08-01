@@ -245,18 +245,18 @@ export async function produceProposalsForTenant(
     const key = (p.pageUrl ?? "").trim().toLowerCase();
     const pathKey = (p.pagePath ?? "").trim().toLowerCase();
     const recoverable = recoverableByKey.get(key) ?? recoverableByKey.get(pathKey);
-    // Only the readiness measured for THIS proposal's own search may set its confidence. No
-    // match means the diagnosis judged a different search here, so the producer's own honest
-    // value stands rather than a neighbour's.
+    // Only the readiness measured for THIS proposal's own search may set its confidence. No match
+    // means the diagnosis judged a different search here, so the producer's own value stands.
     const qk = canonicalQueryKey(p.primaryQuery);
     const readiness = readinessByKey.get(`${key}::${qk}`) ?? readinessByKey.get(`${pathKey}::${qk}`);
     const finding = causeByKey.get(key) ?? causeByKey.get(pathKey);
     return {
       ...p,
       ...(basis ? { basis } : {}),
-      // The reasoning the ladder already did, carried rather than re-derived. A proposal for a
-      // page no ladder judged keeps whatever it arrived with, which is usually nothing.
-      ...(finding ? { causeFinding: finding, diagnosisCause: finding.cause } : {}),
+      // The ladder's own reasoning, carried rather than re-derived, and ONLY onto a proposal that brought
+      // none. This ladder reads the opportunities query; a bundle's reads the exact search it drafted for.
+      // They disagree, and overwriting made /changes name a cause that produced no component on the page.
+      ...(finding && p.diagnosisCause == null ? { causeFinding: finding, diagnosisCause: finding.cause } : {}),
       impactScore: recoverable ?? p.impactScore,
       // A BUNDLE KEEPS ITS OWN CONFIDENCE. It read the page's body and built its own
       // receipt, so the candidate's coarser readiness must not overwrite it (that

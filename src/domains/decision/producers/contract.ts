@@ -10,11 +10,29 @@
  * extended ones speak this and nothing else, so the dispatcher never learns a second vocabulary.
  */
 
-import type { BundleComponent, EvidenceReadiness } from "../contracts";
+import type { BundleComponent, BundleComponentKind, EvidenceReadiness } from "../contracts";
 // The cause ladder OWNS the cause vocabulary and its finding shape (contracts.ts carries it the same way,
 // by type import), so this file holds no second copy that could drift.
 import type { CauseFinding } from "../diagnosis";
 import type { WinningPattern } from "../winning-pattern";
+
+/** WHAT A COMPONENT BECOMES ON THE PERSISTED ROW: the ONE field vocabulary a stored change carries, and what
+ *  that kind of change actually costs the operator. Every change that was not a reworded line used to be
+ *  priced at fifteen minutes, so merging two pages, redirecting one, and rebuilding a page end to end all
+ *  read as a quarter of an hour on the screen they plan their morning from. A line is a minute, a section or
+ *  a link or a source is a sitting, a section rewrite is half an hour, moving or hiding a page is an
+ *  afternoon's care, a full rebuild is a couple of hours. */
+type ChangeField = "title" | "meta" | "h1" | "answer_block" | "section";
+const FIELD_OF: Partial<Record<BundleComponentKind, ChangeField>> = { title: "title", meta: "meta", h1: "h1",
+  opening_answer: "answer_block", section: "section", section_add: "section", section_rewrite: "section" };
+const EFFORT_MINUTES: Partial<Record<BundleComponentKind, number>> = { title: 1, meta: 1, h1: 1, anchor_text: 1,
+  section_rewrite: 30, restructure: 30, consolidation: 90, redirect: 90, noindex: 90, canonical: 90,
+  full_rewrite: 120, new_page: 120 };
+
+/** PURE: the persisted change field one component kind writes into. Anything structural is a section. */
+export const fieldForComponent = (kind: BundleComponentKind): ChangeField => FIELD_OF[kind] ?? "section";
+/** PURE: the honest minutes one component kind costs the operator. */
+export const effortMinutesFor = (kind: BundleComponentKind): number => EFFORT_MINUTES[kind] ?? 15;
 
 /** The two drafting jobs a producer may buy, already sanitized, budgeted and cached by the caller. Each
  *  returns null when the model refused, went over budget, or wrote something the gates would not pass:

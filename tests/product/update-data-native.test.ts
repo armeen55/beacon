@@ -2,12 +2,12 @@
  *  moment it found zero third-party connectors, which skipped everything Beacon gathers for itself: the
  *  extra reading of today's AI answers was requested only by accounts that happened to have Google. An
  *  account running on Beacon's own research now gets the same native work, and one honest line about it. */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 
 type Verdict = { granted: boolean; reason: string; due: { promptId: string }[] };
 const GRANTED: Verdict = { granted: true, reason: "I will take a second reading on 3 question and engine pairs on the next pass.", due: [{ promptId: "p1" }, { promptId: "p2" }, { promptId: "p3" }] };
 const REFUSED: Verdict = { granted: false, due: [], reason: "I still owe today's one reading on 11 question and engine pairs, and an extra read before that is done would tilt today's average. I finish today's round first, then a second read is worth taking." };
-const CALLS = vi.hoisted(() => ({ extraSample: 0, warm: 0, synced: 0, connected: false,
+const CALLS = vi.hoisted(() => ({ extraSample: 0, warm: 0, synced: 0, connected: false, extraDays: [] as string[],
   verdict: { granted: true, reason: "I will take a second reading on 3 question and engine pairs on the next pass.", due: [{ promptId: "p1" }, { promptId: "p2" }, { promptId: "p3" }] } as { granted: boolean; reason: string; due: { promptId: string }[] } }));
 
 const sync = vi.hoisted(() => async () => { CALLS.synced += 1; return { synced: true, rows_upserted: 4 }; });
@@ -28,7 +28,7 @@ vi.mock("@/lib/connector-store", () => ({
 vi.mock("@/domains/runtime", () => ({
   continueResearch: async () => ({ hop: 1, more: false }),
   researchTick: async () => ({ hop: 0, next: "stop" }),
-  requestExtraSample: async () => { CALLS.extraSample += 1; return CALLS.verdict; },
+  requestExtraSample: async (_t: string, day: string) => { CALLS.extraSample += 1; CALLS.extraDays.push(day); return CALLS.verdict; },
   warmFreeSurfaces: async () => { CALLS.warm += 1; },
   recordSourceRefresh: async () => {},
 }));
@@ -38,7 +38,8 @@ import { createElement } from "react";
 import { refreshAllConnectedDataNow } from "@/app/(shell)/settings/connectors/actions";
 import { RefreshResultList } from "@/components/today/refresh-my-data-button";
 
-beforeEach(() => { CALLS.extraSample = 0; CALLS.warm = 0; CALLS.synced = 0; CALLS.connected = false; CALLS.verdict = GRANTED; });
+beforeEach(() => { CALLS.extraSample = 0; CALLS.warm = 0; CALLS.synced = 0; CALLS.connected = false; CALLS.verdict = GRANTED; CALLS.extraDays = []; });
+afterEach(() => { vi.useRealTimers(); });
 
 describe("Update data with no third-party connection", () => {
   it("still asks for the extra AI reading and warms what the operator is about to look at", async () => {
@@ -73,6 +74,16 @@ describe("Update data with no third-party connection", () => {
     expect(failed).not.toContain("Nothing connected");
     const line = (await refreshAllConnectedDataNow()).results[0]!;
     expect(renderToStaticMarkup(createElement(RefreshResultList, { results: [line] }))).toContain(line.detail);
+  });
+
+  it("asks for the reading against the operator's own day, not the UTC one", async () => {
+    // Six in the evening Pacific on August 1 is already August 2 in UTC. Every observation is filed under
+    // the operator's day, so an evening press asked the planner about a day with no readings at all: it
+    // reported a whole round still owed and refused the second reading the operator had just pressed for.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-02T02:00:00.000Z"));
+    await refreshAllConnectedDataNow();
+    expect(CALLS.extraDays).toEqual(["2026-08-01"]);
   });
 
   it("leaves a connected account exactly as it was: the sources still sync and no native line is added", async () => {

@@ -53,7 +53,7 @@ const MIN_UNCONFIRMED_LABEL = 5;
  *  label turned "a guide to Nowruz" into a mention of guide.com. So the label is kept only when it is one of
  *  the confirmed name's OWN words, or, when nothing has confirmed a name at all, only when it is long enough
  *  and is not one of the words above. The full host is always kept. */
-function identityFrom(confirmedName: string, domain: string): BrandIdentity {
+export function identityFrom(confirmedName: string, domain: string): BrandIdentity {
   const host = domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? "";
   const label = host.split(".")[0] ?? "";
   const name = confirmedName.trim();
