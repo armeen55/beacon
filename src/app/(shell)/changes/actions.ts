@@ -1,5 +1,7 @@
 "use server";
 
+import { createHash } from "node:crypto";
+
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
@@ -9,7 +11,8 @@ import {
   editLifecycleStatus,
   markRecommendedEditsAsShipped,
 } from "@/domains/decision";
-import { loadChangeProposal, markProposalApplied, resolveCurrentBasis } from "@/domains/decision";
+import { loadChangeProposal, markProposalApplied, resolveCurrentBasis, type ChangeProposal } from "@/domains/decision";
+import { captureChangeMeta, recordShippedChange, upsertShippedChange } from "@/domains/measurement";
 import { invalidateCoreSurfaces } from "../surface-release";
 
 /**
@@ -18,14 +21,99 @@ import { invalidateCoreSurfaces } from "../surface-release";
  * writes a live page and never flips this itself. The operator confirms they
  * applied a Ready change; we record it as applied so the pre-ship queue drops it
  * (its measurement then lives in the proof ledger).
+ *
+ * THE SHIPMENT TRANSACTION (V1 Truth Convergence Phase 6). Pressing this used to do
+ * one thing: flip a status. So a change the operator really made left no record of
+ * WHAT was applied, WHEN, or where the page stood beforehand, and nothing could ever
+ * verify or measure it honestly. Now the press writes a Shipment FIRST and flips the
+ * proposal SECOND, in that order and never the other way: a crash between the two
+ * leaves a Shipment nobody has flipped yet, which the next press heals, whereas the
+ * reverse would leave a change marked done that nothing on earth is measuring.
  */
 export type MarkProposalImplementedResponse = {
   success: boolean;
   error?: string;
 };
 
+/**
+ * The exact version of this change the operator applied: its copy, its components and
+ * the basis it was drafted under. Deliberately EXCLUDES status, so the flip that
+ * follows the Shipment cannot change the id and a retry lands on the same record.
+ */
+function shippedVersionOf(p: ChangeProposal): string {
+  const material = {
+    change: p.recommendedChange,
+    components: (p.bundle?.components ?? []).map((c) => [c.kind, c.before, c.after]),
+    basis: p.basis ?? null,
+  };
+  return createHash("sha256").update(JSON.stringify(material)).digest("hex").slice(0, 16);
+}
+
+/**
+ * Write the Shipment for one proposal. Idempotent: the id is derived from the proposal
+ * and the version applied, so a retry upserts itself and the store keeps the stamp and
+ * the starting numbers it already holds. Returns false when nothing durable landed, and
+ * the caller then refuses to flip anything.
+ */
+async function recordShipment(
+  tenantId: string, proposal: ChangeProposal, componentKinds?: readonly string[],
+): Promise<boolean> {
+  try {
+    // Every component unless the operator named the ones they actually applied. An
+    // atomic change has no bundle, so the change itself is its one component.
+    // THE EXACT COPY TRAVELS WITH THE SHIPMENT. Without each component's own wording the live
+    // verification can only say unknown for everything but the lone component, and the whole
+    // point of verifying is comparing what was proposed against what is actually on the page.
+    const all = proposal.bundle?.components.map((c) => ({ kind: c.kind, label: c.label, after: c.after ?? null }))
+      ?? [{ kind: proposal.changeFamily, label: proposal.opportunityType, after: proposal.recommendedChange?.kind === "existing_edit" ? proposal.recommendedChange.after : null }];
+    const wanted = componentKinds && componentKinds.length > 0 ? new Set(componentKinds) : null;
+    const componentsApplied = wanted ? all.filter((c) => wanted.has(c.kind)) : all;
+
+    // The page as Beacon already holds it: canonical URL, path, and the content hash
+    // from the last crawl. Nothing is fetched.
+    const pageRef = (proposal.pageUrl ?? proposal.pagePath ?? "").trim();
+    const meta = pageRef ? await captureChangeMeta(tenantId, pageRef).catch(() => null) : null;
+    const change = proposal.recommendedChange;
+    const now = new Date().toISOString();
+
+    const record = await recordShippedChange({
+      tenantId,
+      page: meta?.canonPage ?? proposal.pageUrl ?? proposal.pageLabel,
+      path: meta?.path ?? proposal.pagePath ?? proposal.pageLabel,
+      actionType: proposal.changeFamily,
+      before: change.kind === "existing_edit" ? change.before : null,
+      after: change.kind === "existing_edit" ? change.after : change.proposedTitle,
+      targetQueries: [proposal.primaryQuery, ...(proposal.bundle?.scope.queries ?? [])]
+        .filter((q, i, xs) => q && xs.indexOf(q) === i).slice(0, 5),
+      controlPages: [],
+      shippedAt: now,
+      notes: null,
+      shipment: {
+        proposalId: proposal.id,
+        proposalVersion: shippedVersionOf(proposal),
+        basis: proposal.basis ?? null,
+        // A new page answers a research case; an edit's subject is its own page.
+        caseId: proposal.kind === "new_page" ? (proposal.id.split("::")[1]?.trim().toLowerCase() || null) : null,
+        bundleHypothesis: proposal.bundle?.objective ?? proposal.whyItMatters,
+        componentsApplied,
+        implementedAt: now,
+        preChangeContentHash: meta?.contentHash ?? null,
+      },
+    });
+    await upsertShippedChange(record);
+    return true;
+  } catch (err) {
+    log.error("markProposalImplemented: the shipment did not land, so nothing was flipped", {
+      proposalId: proposal.id, error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
 export async function markProposalImplementedAction(args: {
   proposalId: string;
+  /** Which components the operator actually applied. Absent or empty means all of them. */
+  componentKinds?: string[];
 }): Promise<MarkProposalImplementedResponse> {
   const action = "markProposalImplemented";
   const t0 = Date.now();
@@ -49,8 +137,15 @@ export async function markProposalImplementedAction(args: {
     // would be measured and counted for weeks. Refuse in the operator's own words.
     const basis = await resolveCurrentBasis(tenantId).catch(() => null);
     const stored = await loadChangeProposal(tenantId, args.proposalId).catch(() => null);
-    if (stored && stored.status !== "applied" && (basis == null || stored.basis !== basis)) {
+    if (stored == null) {
+      return { success: false, error: "I couldn't find that change to mark it implemented." };
+    }
+    if (stored.status !== "applied" && (basis == null || stored.basis !== basis)) {
       return { success: false, error: "I set this change aside, so I am not recording it. Open Changes for the work I stand behind now." };
+    }
+    // SHIPMENT FIRST, FLIP SECOND. Never the other way around.
+    if (!(await recordShipment(tenantId, stored, args.componentKinds))) {
+      return { success: false, error: "I couldn't start measuring this change, so I haven't recorded it as done. Press it again in a moment." };
     }
     const ok = await markProposalApplied(tenantId, args.proposalId);
     if (!ok) {

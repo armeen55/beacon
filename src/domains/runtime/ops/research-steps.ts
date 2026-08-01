@@ -22,6 +22,7 @@ import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { synthesizeCases } from "@/domains/decision/case-synthesis";
 import { buildTopicInvestigations, reconcileResearchCases } from "@/domains/evidence/topic-investigation";
 import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
+import { shipmentBustedAt, verifyDueShipments } from "@/domains/measurement/verify-shipment";
 import { log } from "@/lib/logger";
 import { warmFreeSurfaces } from "./warm-caches";
 import { chooseInvestigation, comparisonForFocus, focusReads, type ResearchFocus } from "./investigation-queries";
@@ -66,6 +67,11 @@ export type ResearchCycleSteps = {
   surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
   /** Read back the day's NEW answers (bounded, $0 when nothing changed). Returns how many analyses were persisted. Derived work: it never pauses the run. */
   analyzeAnswers: (tenantId: string, reportingDay: string) => Promise<number>;
+  /** WHAT THE OPERATOR SAID THEY SHIPPED, checked on the live page (verify_and_measure). Bounded to three
+   *  pages per pass and free: every one is a read of a page the account owns, on the same polite-fetch path
+   *  as every other owned read, never a provider. Returns how many verifications landed. Derived work: a
+   *  check I could not make never pauses the run. */
+  verifyShipments: (tenantId: string, now: Date) => Promise<number>;
   /** WHAT IS GENUINELY OWED, from persisted state only (see due-work). Free. It decides two things and
    *  nothing else: whether a second pass may open on a day that already completed one, and whether the
    *  pass that just opened has anything at all to do. */
@@ -167,9 +173,12 @@ export const defaultSteps: ResearchCycleSteps = {
       // Fail-soft, and no reconfirmed ask means no buy.
       const ask = cursor?.stage === "compare" ? await comparisonForFocus(tenantId, focus, (cursor.basis as string) ?? null).catch(() => null) : null;
       // AT MOST ONE page of the account's OWN per run, and only one the frozen plan named and is due to read.
-      // The unit's fifth argument `ownedBustedAt` (when that page's truth changed underneath me) has NO production supplier yet and is deliberately left unpassed: its supplier is the Shipment record, which Phase 6 builds.
-      // The SAME deferral runs the other way for the ceiling marker this run persists onto its own row (progress.capped): `caseResearchReceipt`'s `cappedToday` argument has no production CALLER yet, because the surface that shows one case's receipt is Phase 8 work. The marker is written now so that surface has something true to read the day it is built, and it is day-scoped so it cannot go stale waiting.
-      return winningPagesUnit({}, queries, ask, ownedUrl)(tenantId, cursor, budgetMs);
+      // THE OPERATOR'S OWN CHANGE BUSTS THE PAGE'S FRESHNESS (Phase 6). The unit's fifth argument `ownedBustedAt` is when that page's truth moved underneath me, and the Shipment record is its supplier: the moment the
+      // operator implemented something at that address. A body read before that moment describes a page that no longer exists, however recent the clock says it is, so it forces a re-read INSIDE the ordinary freshness
+      // window instead of serving a stale body for a week. Lean and fail-soft: no shipment for that page, or an unreadable read, is null, which is the same answer as "nothing changed it".
+      // The SAME deferral still runs the other way for the ceiling marker this run persists onto its own row (progress.capped): `caseResearchReceipt`'s `cappedToday` argument has no production CALLER yet, because the surface that shows one case's receipt is Phase 8 work. The marker is written now so that surface has something true to read the day it is built, and it is day-scoped so it cannot go stale waiting.
+      const bustedAt = ownedUrl ? await shipmentBustedAt(tenantId, ownedUrl).catch(() => null) : null;
+      return winningPagesUnit({}, queries, ask, ownedUrl, bustedAt)(tenantId, cursor, budgetMs);
     }
     if (phase === "prompt_observations") {
       // THE DAILY PLAN decides what gets asked, and it is the ONLY thing that does: the unit's own weekly stalest-pair sweep is deleted, not merely
@@ -183,6 +192,7 @@ export const defaultSteps: ResearchCycleSteps = {
     return keywordDiscoveryUnit({}, cases)(tenantId, cursor, budgetMs); // the facade export is a deps factory returning the executor
   },
   async analyzeAnswers(tenantId, reportingDay) { return runAnswerAnalyses(tenantId, reportingDay); },
+  async verifyShipments(tenantId) { return verifyDueShipments(tenantId); },
   // warmFreeSurfaces PROPAGATES failure (no internal swallow): a throw pauses publish_surface and the previously saved surface stays visible.
   async publishSurface(tenantId) { await warmFreeSurfaces(tenantId); },
   async surfaceStale(tenantId, nowMs) {

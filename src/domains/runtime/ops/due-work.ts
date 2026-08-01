@@ -121,6 +121,15 @@ async function measurableCount(tenantId: string, now: Date): Promise<number> {
   return records.filter((r) => isDueForMeasure(r, lastFinal, now)).length;
 }
 
+/** How many changes the operator marked implemented that I have never checked on their live page. A
+ *  shipment with no verification on file is owed work in its own right: measurement does not start until
+ *  the implementation is verified or explicitly operator-confirmed, so an unverified shipment is a
+ *  measurement that can never begin. Lean: it asks for ONE row, because one is enough to owe the work. */
+async function unverifiedShipmentCount(tenantId: string): Promise<number> {
+  const { shipmentsAwaitingVerification } = await import("@/domains/measurement/verify-shipment");
+  return (await shipmentsAwaitingVerification(tenantId, 1)).length;
+}
+
 /** Is the published customer release genuinely stale (or missing)? */
 async function surfaceIsStale(tenantId: string, nowMs: number): Promise<boolean> {
   const { readCustomerSurface, isCustomerSurfaceStale } = await import("@/app/(shell)/surface-release");
@@ -136,6 +145,7 @@ type DueWorkDeps = {
   evidenceVersion?: (tenantId: string, basis: string) => Promise<number | null>;
   surfaceStale?: (tenantId: string, nowMs: number) => Promise<boolean>;
   measurable?: (tenantId: string, now: Date) => Promise<number>;
+  unverified?: (tenantId: string) => Promise<number>;
 };
 
 const settled = async <T,>(p: Promise<T>, fallback: T): Promise<{ value: T; ok: boolean }> =>
@@ -162,10 +172,11 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     settled((deps.basis ?? accountBasis)(tenantId), null as string | null),
   ]);
 
-  const [version, surface, measurable] = await Promise.all([
+  const [version, surface, measurable, unverified] = await Promise.all([
     basis.value ? settled((deps.evidenceVersion ?? evidenceRowVersion)(tenantId, basis.value), null as number | null) : Promise.resolve({ value: null, ok: false }),
     settled((deps.surfaceStale ?? surfaceIsStale)(tenantId, nowMs), false),
     settled((deps.measurable ?? measurableCount)(tenantId, now), 0),
+    settled((deps.unverified ?? unverifiedShipmentCount)(tenantId), 0),
   ]);
 
   const progress = run.value?.progress ?? {};
@@ -203,7 +214,10 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   if (notesMoved || (openRun && !bound)) due.push("plan_cases");
   if (active.length > 0) due.push("acquire_case_evidence");
   if (notesMoved) due.push("decide_and_prepare");
-  if (measurable.value > 0) due.push("verify_and_measure");
+  // TWO SEPARATE DEBTS UNDER ONE NAME, and the first one gates the second: a change I have never checked on
+  // the live page cannot be measured at all, and a change whose window has closed is owed its read. Either
+  // one makes the unit due; neither costs anything to answer.
+  if (measurable.value > 0 || unverified.value > 0) due.push("verify_and_measure");
   if (surface.value) due.push("publish_surfaces");
 
   // Trustworthy ONLY when the two reads every rule leans on came back: the run row (the frozen

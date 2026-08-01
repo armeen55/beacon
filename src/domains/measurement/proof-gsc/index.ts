@@ -52,12 +52,14 @@ export {
   loadProofLedgerCached,
 } from "./load-ledger";
 
-// Shipped-change store
-export type { ShippedChangeRecord } from "./shipped-change-store";
+// Shipped-change store (the canonical Shipment)
+export type { ShippedChangeRecord, ShipmentVerification } from "./shipped-change-store";
 export {
   loadShippedChanges,
   loadShippedChangesForTenant,
   upsertShippedChange,
+  recordVerification,
+  pagesUnderMeasurementFromShipments,
 } from "./shipped-change-store";
 
 // Weekly recap signal
@@ -84,8 +86,6 @@ export { scheduleAutoMeasure } from "./auto-measure-on-use";
 // Measure pass (record + measure + capture control meta)
 export {
   defaultPacificShipDate,
-  pickProofMetric,
-  computeWindowLift,
   measureRecord,
   captureChangeMeta,
   recordShippedChange,

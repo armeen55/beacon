@@ -277,6 +277,16 @@ async function driveRun(
       continue;
     }
 
+    // VERIFY BEFORE ANYTHING IS PUBLISHED OFF IT (verify_and_measure). A change the operator marked as done
+    // is a claim until I have read their page, and Results answers "did Beacon verify it on the live
+    // website" off exactly this. It runs here, in front of the surface build, under the lease this loop just
+    // renewed: bounded to three pages, free (owned reads on the polite-fetch path, never a provider, never
+    // the winner budget), and fail-soft, because a page I could not read must never pause a research pass.
+    if (phase === "publish_surface" && work.due.includes("verify_and_measure")) {
+      const verified = await steps.verifyShipments(tenantId, nowFn()).catch(() => 0);
+      if (verified > 0) log.info("[research-run] checked what you marked as done on your live pages", { tenantId, verified });
+    }
+
     let outcome: PhaseOutcome;
     try {
       outcome = await runPhase(phase, tenantId, nowFn(), progress, attemptKey, steps);

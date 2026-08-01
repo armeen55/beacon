@@ -10,6 +10,17 @@ import "server-only";
  * The record shape here is the SMALL persisted core the measurement kernel needs.
  * The kernel (kernel.ts) recomputes every directional read from the stored
  * windows; nothing statistical is persisted.
+ *
+ * THE SHIPMENT (V1 Truth Convergence Phase 6). This record IS the canonical
+ * Shipment: the operator-confirmed implementation of one ChangeProposal and its
+ * verified live state. Evolved here, never duplicated into a parallel table, so
+ * there is one answer to "what did we change and what happened after". Every
+ * Shipment column is nullable, so pre-Phase-6 rows decode exactly as before.
+ *
+ * WRITTEN ONCE: `implementedAt` (the stamp the 28-day window is read from) and
+ * `shipmentBaseline` (where the page stood at mark time). A later writer arriving
+ * with different values keeps what is on file and says so. `verification` is null
+ * until the live check runs, and null IS the due marker.
  */
 
 import { cache } from "react";
@@ -30,6 +41,23 @@ import type {
 
 const TABLE = "shipped_change_proof";
 const STORE = "proof-gsc-ledger";
+
+/** What the live check found. FROZEN SHAPE, written only through `recordVerification`.
+ *  `components` names each piece and whether it is on the page, so a partly-applied
+ *  bundle reads as partly applied instead of as a pass or a failure. */
+export type ShipmentVerification = {
+  status: "verified" | "partially_verified" | "not_found" | "blocked" | "differs" | "operator_confirmed";
+  checkedAt: string;
+  components: Array<{ kind: string; state: "verified" | "missing" | "differs" | "unknown"; note: string | null }>;
+};
+
+/** The immutable numbers this page stood at when the operator marked the change done. */
+type ShipmentBaseline = {
+  search: ProofBaseline;
+  /** The latest day's first AI reading per tracked question. Null = none on file. */
+  ai: { day: string; checked: number; mentioning: number } | null;
+  capturedAt: string;
+};
 
 export type ShippedChangeRecord = {
   /** Stable per (page, ship-date). */
@@ -57,6 +85,27 @@ export type ShippedChangeRecord = {
   recrawlRequestedAt: string | null;
   /** Operator override pinning the learning verdict to inconclusive. */
   operatorVerdictOverride: "inconclusive" | null;
+  // ── Shipment (null on every pre-Phase-6 row) ────────────────────────────────
+  /** The ChangeProposal this implements, and the exact version of its copy applied. */
+  proposalId: string | null;
+  proposalVersion: string | null;
+  /** The research basis it was drafted under, and the case a new page answers. */
+  basis: string | null;
+  caseId: string | null;
+  /** What applying the bundle was meant to achieve, in one sentence. */
+  bundleHypothesis: string | null;
+  /** Which components the operator says they applied. A subset = a partial bundle. */
+  componentsApplied: Array<{ kind: string; label: string }> | null;
+  /** THE STAMP. When the operator marked it done; the window is read from it. Write-once. */
+  implementedAt: string | null;
+  /** The owned page's HELD content hash at mark time, from the snapshot on file. */
+  preChangeContentHash: string | null;
+  /** Where this page stood at mark time. Write-once. */
+  shipmentBaseline: ShipmentBaseline | null;
+  /** Null until the live check runs, and null is the due marker. */
+  verification: ShipmentVerification | null;
+  /** Why the operator overrode what the check found. */
+  operatorOverrideReason: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -82,6 +131,12 @@ type LedgerRow = {
   live_source_url: string | null;
   recrawl_requested_at: string | null;
   operator_verdict_override?: "inconclusive" | null;
+  proposal_id?: string | null; proposal_version?: string | null; basis?: string | null;
+  case_id?: string | null; bundle_hypothesis?: string | null;
+  components_applied?: ShippedChangeRecord["componentsApplied"];
+  implemented_at?: string | null; pre_change_content_hash?: string | null;
+  shipment_baseline?: ShipmentBaseline | null; verification?: ShipmentVerification | null;
+  operator_override_reason?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -99,7 +154,7 @@ const VALID_VERDICTS: ReadonlySet<string> = new Set(["measuring", "won", "lost",
 const VALID_CONFIDENCES: ReadonlySet<string> = new Set(["high", "medium", "low"]);
 const ZERO_BASELINE: ProofBaseline = { clicks: 0, impressions: 0, ctr: 0, position: 0, windowDays: 28 };
 
-export function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
+function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
   return {
     tenant_id: tid,
     id: r.id,
@@ -121,12 +176,17 @@ export function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     live_source_url: r.liveSourceUrl,
     recrawl_requested_at: r.recrawlRequestedAt,
     operator_verdict_override: r.operatorVerdictOverride,
+    proposal_id: r.proposalId, proposal_version: r.proposalVersion, basis: r.basis,
+    case_id: r.caseId, bundle_hypothesis: r.bundleHypothesis, components_applied: r.componentsApplied,
+    implemented_at: r.implementedAt, pre_change_content_hash: r.preChangeContentHash,
+    shipment_baseline: r.shipmentBaseline, verification: r.verification,
+    operator_override_reason: r.operatorOverrideReason,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
   };
 }
 
-export function rowToRecord(row: LedgerRow): ShippedChangeRecord {
+function rowToRecord(row: LedgerRow): ShippedChangeRecord {
   return {
     id: row.id,
     page: row.page,
@@ -147,6 +207,14 @@ export function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     liveSourceUrl: row.live_source_url ?? null,
     recrawlRequestedAt: row.recrawl_requested_at ?? null,
     operatorVerdictOverride: row.operator_verdict_override === "inconclusive" ? "inconclusive" : null,
+    // A row written before Phase 6 has none of these and reads as a manual record with
+    // no proposal behind it, rather than failing to decode at all.
+    proposalId: row.proposal_id ?? null, proposalVersion: row.proposal_version ?? null,
+    basis: row.basis ?? null, caseId: row.case_id ?? null,
+    bundleHypothesis: row.bundle_hypothesis ?? null, componentsApplied: row.components_applied ?? null,
+    implementedAt: row.implemented_at ?? null, preChangeContentHash: row.pre_change_content_hash ?? null,
+    shipmentBaseline: row.shipment_baseline ?? null, verification: row.verification ?? null,
+    operatorOverrideReason: row.operator_override_reason ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -258,6 +326,36 @@ async function invalidateResultsSurfaceSafe(): Promise<void> {
   }
 }
 
+/** PURE. The stamp and the baseline are written ONCE. Every later writer (a re-measure,
+ *  a retried mark-implemented) arrives with the whole record, so without this a recompute
+ *  could quietly move where the window starts and rewrite where the page began. What is on
+ *  file wins, and a writer that tried to change it is named in the log. */
+type WriteOnce = { implemented_at?: string | null; shipment_baseline?: ShipmentBaseline | null };
+
+function withHeldImmutables(held: WriteOnce | null, row: LedgerRow): LedgerRow {
+  if (held?.implemented_at == null) return row;
+  const stamp = row.implemented_at !== held.implemented_at;
+  const baseline = held.shipment_baseline != null
+    && JSON.stringify(row.shipment_baseline ?? null) !== JSON.stringify(held.shipment_baseline);
+  if (stamp || baseline) {
+    log.warn("[shipment] the stamp and the starting numbers are written once, so I kept what is on file", {
+      id: row.id, tenant: row.tenant_id, stamp, baseline });
+  }
+  return { ...row, implemented_at: held.implemented_at, shipment_baseline: held.shipment_baseline ?? row.shipment_baseline };
+}
+
+/** The two write-once columns already on file for this Shipment, or null. */
+async function heldImmutables(admin: ReturnType<typeof getSupabaseAdmin>, tid: string, id: string): Promise<WriteOnce | null> {
+  try {
+    const { data, error } = await admin
+      .from(TABLE).select("implemented_at, shipment_baseline").eq("tenant_id", tid).eq("id", id).limit(1);
+    if (error || !Array.isArray(data) || data.length === 0) return null;
+    return data[0] as WriteOnce;
+  } catch {
+    return null;
+  }
+}
+
 /** Upsert one record (by id) for the ambient tenant. Durable + file mirror. */
 export async function upsertShippedChange(record: ShippedChangeRecord): Promise<void> {
   let admin;
@@ -269,7 +367,10 @@ export async function upsertShippedChange(record: ShippedChangeRecord): Promise<
     return;
   }
   const tid = await currentTenantId();
-  const up = await admin.from(TABLE).upsert(recordToRow(tid, record), { onConflict: "tenant_id,id" });
+  const row = record.implementedAt != null
+    ? withHeldImmutables(await heldImmutables(admin, tid, record.id), recordToRow(tid, record))
+    : recordToRow(tid, record);
+  const up = await admin.from(TABLE).upsert(row, { onConflict: "tenant_id,id" });
   if (up.error != null) {
     if (isUndefinedTableError(up.error)) {
       console.warn(
@@ -289,8 +390,13 @@ export async function upsertShippedChange(record: ShippedChangeRecord): Promise<
 
 async function upsertFile(record: ShippedChangeRecord): Promise<void> {
   const rows = await readFile();
+  const held = rows.find((r) => r.id === record.id);
   const next = rows.filter((r) => r.id !== record.id);
-  next.push(record);
+  next.push(
+    record.implementedAt != null && held?.implementedAt != null
+      ? { ...record, implementedAt: held.implementedAt, shipmentBaseline: held.shipmentBaseline ?? record.shipmentBaseline }
+      : record,
+  );
   await writeFile(next);
 }
 
@@ -299,6 +405,83 @@ async function mirrorFile(record: ShippedChangeRecord): Promise<void> {
     await upsertFile(record);
   } catch {
     /* best-effort local parity */
+  }
+}
+
+/**
+ * THE SEAM. The live-verification module calls this and nothing else: it writes ONE
+ * column on ONE Shipment. The stamp and the starting numbers are not in the update
+ * statement, so a check running weeks later can never move where the window starts.
+ * Fail-closed: false means nothing was written, and an id belonging to another
+ * account matches no row here, so a check never lands on somebody else's change.
+ */
+export async function recordVerification(
+  tenantId: string, shipmentId: string, verification: ShipmentVerification,
+): Promise<boolean> {
+  if (!tenantId || !shipmentId) return false;
+  try {
+    const { data, error } = await getSupabaseAdmin()
+      .from(TABLE)
+      .update({ verification, updated_at: new Date().toISOString() })
+      .eq("tenant_id", tenantId).eq("id", shipmentId).select("id");
+    if (error != null || !Array.isArray(data) || data.length === 0) {
+      log.warn("[shipment] I did not record what the check found: no change of yours matched that id", {
+        tenant: tenantId, id: shipmentId, error: error?.message ?? "no row",
+      });
+      return false;
+    }
+    await invalidateResultsSurfaceSafe();
+    return true;
+  } catch (err) {
+    log.error("[shipment] the verification write did not land", {
+      tenant: tenantId, id: shipmentId, error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
+/** The measurement window a shipped change owns, read from the stamp. */
+const MEASUREMENT_WINDOW_DAYS = 28;
+
+/**
+ * The pages this account changed in the last 28 days and is still measuring: a fresh
+ * proposal for one of them is work already in flight, not a new idea, and the ranker
+ * needs to know that. Read from `implementedAt`, which is what the stamp exists for.
+ * A change the check could not find, or was blocked from checking, is NOT under
+ * measurement (nothing shipped, so the page is free); everything else counts,
+ * including a Shipment still waiting for its first check. Four columns, bounded.
+ */
+export async function pagesUnderMeasurementFromShipments(
+  tenantId: string, now: Date = new Date(),
+): Promise<string[]> {
+  if (!tenantId) return [];
+  const since = new Date(now.getTime() - MEASUREMENT_WINDOW_DAYS * 86_400_000).toISOString();
+  try {
+    const { data, error } = await getSupabaseAdmin()
+      .from(TABLE)
+      .select("path, page, implemented_at, verification")
+      .eq("tenant_id", tenantId)
+      .gte("implemented_at", since)
+      .limit(200);
+    if (error != null || !Array.isArray(data)) {
+      if (error != null && !isUndefinedTableError(error)) {
+        log.warn("[shipment] I could not read what is under measurement, so nothing reads as in flight", {
+          tenant: tenantId, error: error.message ?? String(error) });
+      }
+      return [];
+    }
+    const out: string[] = [];
+    for (const r of data as Array<Pick<LedgerRow, "path" | "page" | "implemented_at" | "verification">>) {
+      const status = r.verification?.status ?? null;
+      if (status === "not_found" || status === "blocked") continue;
+      const key = (r.path || r.page || "").trim();
+      if (key && !out.includes(key)) out.push(key);
+    }
+    return out;
+  } catch (err) {
+    log.warn("[shipment] the under-measurement read failed, so nothing reads as in flight", {
+      tenant: tenantId, error: err instanceof Error ? err.message : String(err) });
+    return [];
   }
 }
 

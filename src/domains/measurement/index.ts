@@ -15,6 +15,8 @@ export {
   loadProofLedgerCached,
   loadShippedChanges,
   upsertShippedChange,
+  recordVerification,
+  pagesUnderMeasurementFromShipments,
   shippedInLastDays,
   verdictSchedule,
   findProofForChange,
@@ -33,6 +35,7 @@ export {
   type KernelRead,
   type BundleRead,
   type ShippedChangeRecord,
+  type ShipmentVerification,
 } from "./proof-gsc";
 
 // Scoreboard + money line

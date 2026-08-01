@@ -12,7 +12,10 @@ import "server-only";
  * self-tests, or forecast machinery.
  */
 
+import { createHash } from "node:crypto";
+
 import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
+import { readAiObservationViews } from "@/domains/evidence/ai-visibility/ai-observations";
 import {
   loadPageSurgeonContext,
   assemblePacketForUrl,
@@ -22,12 +25,11 @@ import {
   BASELINE_WINDOW_DAYS,
   PROOF_WINDOW_DAYS,
   type GscWindowMetrics,
-  type ProofMetric,
   type ProofWindowDay,
   type ProofWindowResult,
 } from "./types";
 import type { ShippedChangeRecord } from "./shipped-change-store";
-import { addDays, evaluateWindows, metricFor, readLedger } from "./kernel";
+import { addDays, evaluateWindows, readLedger } from "./kernel";
 
 const NULL_METRICS: GscWindowMetrics = { clicks: 0, impressions: 0, ctr: 0, position: 0 };
 
@@ -52,17 +54,12 @@ const ctrDelta = (m0: GscWindowMetrics, m1: GscWindowMetrics): number =>
 const posImprove = (m0: GscWindowMetrics, m1: GscWindowMetrics): number =>
   m0.position > 0 && m1.position > 0 ? m0.position - m1.position : 0;
 
-/** Snippet plays move CTR, rank plays move position, else clicks. */
-export function pickProofMetric(actionType: string): ProofMetric {
-  return metricFor(actionType);
-}
-
 /**
  * One window's observational diff in diff from already-read treated + control
  * window metrics. Pure. Pre clicks are pro-rated to the post window length so a
  * 28-day pre sum is never subtracted from a 7-day post sum.
  */
-export function computeWindowLift(args: {
+function computeWindowLift(args: {
   day: ProofWindowDay;
   checkOn: string;
   ran: boolean;
@@ -187,10 +184,14 @@ export async function measureRecord(
 export async function captureChangeMeta(
   tenantId: string,
   pageUrl: string,
-): Promise<{ canonPage: string; path: string; before: string | null; after: string | null; targetQueries: string[]; headlineAction: string | null }> {
+): Promise<{ canonPage: string; path: string; before: string | null; after: string | null; targetQueries: string[]; headlineAction: string | null; contentHash: string | null }> {
   let canonPage = canonicalizeCitationUrl(pageUrl) ?? pageUrl;
   const path = toPath(canonPage);
   let targetQueries: string[] = [];
+  // The page's HELD content as of the last crawl. Never fetched here: a Shipment
+  // records what Beacon already had on file the moment the operator marked the
+  // change done, so a later crawl can say whether the page actually moved.
+  let contentHash: string | null = null;
   try {
     const ctx = await loadPageSurgeonContext(tenantId);
     if (!ctx.gscByUrl.has(canonPage) && !ctx.snapshotByCanon.has(canonPage)) {
@@ -199,15 +200,67 @@ export async function captureChangeMeta(
     }
     const packet = assemblePacketForUrl(ctx, canonPage);
     targetQueries = (packet.gsc?.topQueries ?? []).slice(0, 5).map((q) => q.query);
+    contentHash = ctx.snapshotByCanon.get(canonPage)?.content_hash ?? null;
   } catch {
     /* best-effort */
   }
-  return { canonPage, path, before: null, after: null, targetQueries, headlineAction: null };
+  return { canonPage, path, before: null, after: null, targetQueries, headlineAction: null, contentHash };
 }
+
+/** How many rows of already-bought AI answers the Shipment baseline reads back. */
+const AI_BASELINE_ROWS = 60;
+
+/**
+ * The AI half of the Shipment baseline, from answers ALREADY on file: the latest
+ * reporting day's FIRST reading of each tracked question, and how many of those
+ * named this account. Zero provider calls, zero cost. Null when nothing is on file,
+ * which is a different claim from zero mentions and is stored as such.
+ */
+async function latestAiPresence(tenantId: string): Promise<{ day: string; checked: number; mentioning: number } | null> {
+  try {
+    const rows = (await readAiObservationViews(tenantId, { limit: AI_BASELINE_ROWS }))
+      .filter((r) => r.slot === 0 && r.status === "observed");
+    const day = rows.map((r) => r.day).sort().pop();
+    if (!day) return null;
+    const onDay = rows.filter((r) => r.day === day);
+    const mentioning = onDay.filter((r) => {
+      const m = (r.analysis as { ownedBrandMention?: { mentioned?: unknown } } | null)?.ownedBrandMention;
+      return m?.mentioned === true;
+    }).length;
+    return { day, checked: onDay.length, mentioning };
+  } catch {
+    return null;
+  }
+}
+
+/** ONE Shipment per (proposal, exact version applied). A retry computes the same id and
+ *  upserts itself, so a double press can never leave two records of one change. */
+function shipmentIdFor(proposalId: string, proposalVersion: string): string {
+  return `shp_${createHash("sha256").update(`${proposalId}|${proposalVersion}`).digest("hex").slice(0, 32)}`;
+}
+
+/** What the mark-implemented action knows about the change being shipped. Structural on
+ *  purpose: the caller passes the object, Measurement never names a Decision type. */
+type ShipmentOrigin = {
+  proposalId: string;
+  proposalVersion: string;
+  basis: string | null;
+  caseId: string | null;
+  bundleHypothesis: string;
+  /** The components the operator says they applied. A subset = a partial bundle. */
+  componentsApplied: Array<{ kind: string; label: string }>;
+  implementedAt: string;
+  preChangeContentHash: string | null;
+};
 
 /**
  * Capture a 28-day baseline + create the ledger record for a manually-shipped
  * change, then measure it immediately. Preserves the (path, ship-date) id.
+ *
+ * With `shipment`, the SAME record is the canonical Shipment for one ChangeProposal:
+ * its id is derived from the proposal and the exact version applied (so a retry lands
+ * on the same row), it carries the stamp the measurement window is read from, and its
+ * starting numbers cover search AND AI. Every read here is of data already bought.
  */
 export async function recordShippedChange(args: {
   tenantId: string;
@@ -222,6 +275,7 @@ export async function recordShippedChange(args: {
   notes?: string | null;
   verifiedLive?: boolean;
   liveSourceUrl?: string | null;
+  shipment?: ShipmentOrigin;
   now?: Date;
 }): Promise<ShippedChangeRecord> {
   const now = args.now ?? new Date();
@@ -230,15 +284,17 @@ export async function recordShippedChange(args: {
   const preStart = addDays(shipDate, -BASELINE_WINDOW_DAYS);
   const pre = await readWindowForPages({ tenantId: args.tenantId, pages: [args.page], start: preStart, end: shipDate });
   const base = pre.get(args.page) ?? NULL_METRICS;
+  const ship = args.shipment ?? null;
+  const searchBaseline = { ...base, windowDays: BASELINE_WINDOW_DAYS };
   const draft: ShippedChangeRecord = {
-    id: `${args.path}::${shipDate}`,
+    id: ship ? shipmentIdFor(ship.proposalId, ship.proposalVersion) : `${args.path}::${shipDate}`,
     page: args.page,
     path: args.path,
     actionType: args.actionType,
     before: args.before,
     after: args.after,
     shippedAt,
-    baseline: { ...base, windowDays: BASELINE_WINDOW_DAYS },
+    baseline: searchBaseline,
     targetQueries: args.targetQueries,
     controlPages: args.controlPages,
     windows: [],
@@ -250,6 +306,21 @@ export async function recordShippedChange(args: {
     liveSourceUrl: args.liveSourceUrl ?? null,
     recrawlRequestedAt: null,
     operatorVerdictOverride: null,
+    proposalId: ship?.proposalId ?? null,
+    proposalVersion: ship?.proposalVersion ?? null,
+    basis: ship?.basis ?? null,
+    caseId: ship?.caseId ?? null,
+    bundleHypothesis: ship?.bundleHypothesis ?? null,
+    componentsApplied: ship?.componentsApplied ?? null,
+    implementedAt: ship?.implementedAt ?? null,
+    preChangeContentHash: ship?.preChangeContentHash ?? null,
+    // Written once, here, and never touched again: the store refuses a second write.
+    shipmentBaseline: ship
+      ? { search: searchBaseline, ai: await latestAiPresence(args.tenantId), capturedAt: now.toISOString() }
+      : null,
+    // Null IS the due marker the verification runtime reads.
+    verification: null,
+    operatorOverrideReason: null,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

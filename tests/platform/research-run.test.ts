@@ -129,6 +129,7 @@ const BENIGN: ResearchCycleSteps = {
   publishSurface: async () => {},
   surfaceStale: async () => false,
   analyzeAnswers: async () => 0, // no new answers to read back in these lease/truth tests
+  verifyShipments: async () => 0, // nothing marked implemented is waiting on a live check in these tests
 };
 /** Healthy logging stub: each step logs its name so phase ordering is observable. */
 const healthySteps = (log: string[]): Partial<ResearchCycleSteps> => ({
@@ -216,6 +217,21 @@ describe("research-run partial-success durability + deduped refreshed providers"
     expect((await RR.researchRunStatus(T, new Date(NOW))).counters.sourcesRefreshed).toBe(2); // decodes the bare number
     await run({ ...BENIGN, surfaceStale: async () => false });
     expect([rows[0]!.status, rows[0]!.progress.sourcesRefreshed]).toEqual(["completed", 2]); }); // legacy number survives the resume (refresh_sources not re-run)
+  it("checks what the operator marked as done BEFORE it publishes off it, and only when a check is genuinely owed", async () => {
+    const order: string[] = [];
+    const steps = (due: DueWork): Partial<ResearchCycleSteps> => ({ dueWork: async () => due,
+      verifyShipments: async () => (order.push("verify"), 1), publishSurface: async () => void order.push("publish"), surfaceStale: async () => true });
+    const owed: DueWork = { ...SOMETHING_DUE, due: ["verify_and_measure"] };
+    withRun({ current_phase: "publish_surface" }); await run(steps(owed));
+    expect(order).toEqual(["verify", "publish"]); // the live check lands first, so the surface publishes what was actually verified
+    order.length = 0;
+    withRun({ current_phase: "publish_surface" }); await run(steps(SOMETHING_DUE)); // nothing marked implemented is waiting
+    expect(order).toEqual(["publish"]); }); // no shipment owed a check, so not one page of the customer's site is read
+  it("never lets a check I could not make pause the pass: the surface still publishes", async () => {
+    const rows = withRun({ current_phase: "publish_surface" });
+    await run({ dueWork: async () => ({ ...SOMETHING_DUE, due: ["verify_and_measure"] }),
+      verifyShipments: async () => { throw new Error("your website did not answer"); }, surfaceStale: async () => true });
+    expect([rows[0]!.status, rows[0]!.progress.surfacePublished]).toEqual(["completed", true]); });
 });
 
 describe("research-run idempotency identity", () => {
@@ -542,7 +558,7 @@ describe("the due-work runtime: a day is not a unit of work", () => {
 describe("dueWork: what is genuinely owed, computed from persisted state only", () => {
   const parked = (ms: number) => ({ basis: "b1", topics: [{ topicKey: "t1", query: "haft seen", requirement: "exact_serp", retryAfter: new Date(ms).toISOString() }] });
   const base = { staleSources: async () => 0, checks: async () => ({ done: 4, total: 4, due: 0 }), basis: async () => "b1",
-    evidenceVersion: async () => 7, surfaceStale: async () => false, measurable: async () => 0,
+    evidenceVersion: async () => 7, surfaceStale: async () => false, measurable: async () => 0, unverified: async () => 0,
     run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY) } }) };
 
   it("owes nothing when the sources are fresh, today's round has landed, the notes have not moved past the last decision, and the rest is waiting on a date I promised", async () => {
@@ -558,6 +574,9 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     // The notes moved past what the last decision consumed: new evidence, so a plan and a decision are owed.
     expect(await due({ evidenceVersion: async () => 8 })).toEqual(["plan_cases", "decide_and_prepare"]);
     expect(await due({ measurable: async () => 3 })).toEqual(["verify_and_measure"]);
+    // A change marked implemented that has never been checked on the live page owes the same unit: until it
+    // is verified there is nothing honest to measure.
+    expect(await due({ unverified: async () => 1 })).toEqual(["verify_and_measure"]);
     expect(await due({ surfaceStale: async () => true })).toEqual(["publish_surfaces"]);
     // An OPEN run with no plan bound to this basis owes one; an idle account with no plan owes nothing.
     expect(await due({ run: async () => ({ open: true, progress: { decided: { basis: "b1", rowVersion: 7 } } }) })).toEqual(["plan_cases"]);

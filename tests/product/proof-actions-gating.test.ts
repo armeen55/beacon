@@ -19,12 +19,24 @@ const { ownerFlag, mocks } = vi.hoisted(() => ({
     upsertShippedChange: vi.fn(),
     loadPageSurgeonContext: vi.fn(),
     topPagesByDemand: vi.fn(),
+    loadChangeProposal: vi.fn(),
+    markProposalApplied: vi.fn(),
+    resolveCurrentBasis: vi.fn(),
   },
 }));
 
 vi.mock("@/lib/auth/can-publish", () => ({
   isAccountOwner: async () => ownerFlag.value,
+  canPublishForCurrentTenant: async () => ownerFlag.value,
 }));
+vi.mock("@/domains/decision", () => ({
+  loadPageSurgeonContext: mocks.loadPageSurgeonContext, topPagesByDemand: mocks.topPagesByDemand,
+  loadChangeProposal: mocks.loadChangeProposal, markProposalApplied: mocks.markProposalApplied,
+  resolveCurrentBasis: mocks.resolveCurrentBasis,
+  editLifecycleStatus: () => "accepted", markRecommendedEditsAsShipped: async () => ({ flipped: 0, skipped: 0 }),
+}));
+vi.mock("@/lib/persistence/repositories", () => ({ getRepository: () => ({ forTenant: () => ({}) }) }));
+vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => {} }));
 // The presentation-only operator flag must be POWERLESS here: force it on to
 // prove it cannot authorize a mutation for a non-owner.
 vi.mock("@/lib/operator-mode", () => ({ isOperatorModeServer: () => true }));
@@ -43,18 +55,38 @@ vi.mock("@/domains/measurement/proof-gsc/shipped-change-store", () => ({
 }));
 
 import { recordShippedChangeAction, recomputeProofLedgerAction } from "@/app/(shell)/results/actions";
+import { markProposalImplementedAction } from "@/app/(shell)/changes/actions";
+
+const BASIS = "basis_today::d6";
+const PROPOSAL_ID = "tenant-test::/nowruz-guide::existing_edit::bundle";
+/** The change the operator is confirming: a two-component bundle on a page Beacon holds. */
+const proposal = (over: Record<string, unknown> = {}) => ({
+  id: PROPOSAL_ID, tenantId: "tenant-test", kind: "existing_edit", pagePath: "/nowruz-guide",
+  pageUrl: "https://x.test/nowruz-guide", pageLabel: "Nowruz guide", primaryQuery: "nowruz traditions",
+  opportunityType: "Capture clicks", changeFamily: "title", status: "proposed", basis: BASIS, publish: "manual",
+  recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" },
+  whyItMatters: "The line Google shows misses the words people search for.",
+  bundle: { objective: "Say what the searcher asked for in the line Google shows.",
+    scope: { queries: ["nowruz traditions"], prompts: [] },
+    components: [{ kind: "title", label: "Page title", after: null }, { kind: "opening_answer", label: "Opening answer" }] },
+  ...over,
+});
 
 beforeEach(() => {
   ownerFlag.value = true;
   Object.values(mocks).forEach((m) => m.mockReset());
   mocks.captureChangeMeta.mockResolvedValue({
-    canonPage: "https://x.test/cities", path: "/cities", before: "old", after: "new", targetQueries: ["cities in iran"], headlineAction: "title",
+    canonPage: "https://x.test/cities", path: "/cities", before: "old", after: "new", targetQueries: ["cities in iran"],
+    headlineAction: "title", contentHash: "hash-before",
   });
   mocks.recordShippedChange.mockResolvedValue({ id: "/cities::2026-06-19", verdict: "measuring" });
   mocks.upsertShippedChange.mockResolvedValue(undefined);
   mocks.loadShippedChanges.mockResolvedValue([]);
   mocks.loadPageSurgeonContext.mockResolvedValue({});
   mocks.topPagesByDemand.mockReturnValue(["https://x.test/a", "https://x.test/b", "https://x.test/c"]);
+  mocks.resolveCurrentBasis.mockResolvedValue(BASIS);
+  mocks.loadChangeProposal.mockResolvedValue(proposal());
+  mocks.markProposalApplied.mockResolvedValue(true);
 });
 
 describe("recordShippedChangeAction — account-owner gating", () => {
@@ -148,5 +180,59 @@ describe("recomputeProofLedgerAction — account-owner gating", () => {
     const res = await recomputeProofLedgerAction();
     expect(res.success).toBe(false);
     expect(mocks.loadShippedChanges).not.toHaveBeenCalled();
+  });
+});
+
+/** THE SHIPMENT TRANSACTION (Phase 6). "Mark implemented" used to flip a status and nothing
+ *  else, so a change the operator really made left no record of what was applied or where the
+ *  page stood beforehand. The press now writes a Shipment FIRST and flips SECOND: a crash
+ *  between them leaves a Shipment nobody flipped, which the next press heals, whereas the
+ *  reverse leaves a change marked done that nothing measures. Store idempotency: tests/results. */
+describe("markProposalImplementedAction — the shipment transaction", () => {
+  it("writes the shipment BEFORE it flips the change", async () => {
+    expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID })).success).toBe(true);
+    expect(mocks.recordShippedChange).toHaveBeenCalledOnce();
+    expect(mocks.markProposalApplied).toHaveBeenCalledOnce();
+    expect(mocks.upsertShippedChange.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.markProposalApplied.mock.invocationCallOrder[0]);
+    const { shipment } = mocks.recordShippedChange.mock.calls[0][0];
+    expect(shipment.proposalId).toBe(PROPOSAL_ID);
+    expect(shipment.basis).toBe(BASIS);
+    expect(shipment.implementedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(shipment.bundleHypothesis).toMatch(/line Google shows/);
+    expect(shipment.preChangeContentHash).toBe("hash-before");
+    expect(shipment.componentsApplied.map((c: { kind: string }) => c.kind)).toEqual(["title", "opening_answer"]);
+  });
+
+  it("a shipment that does not land leaves the change unflipped", async () => {
+    mocks.upsertShippedChange.mockRejectedValue(new Error("durable write refused"));
+    const res = await markProposalImplementedAction({ proposalId: PROPOSAL_ID });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/couldn't start measuring/i);
+    expect(mocks.markProposalApplied).not.toHaveBeenCalled();
+  });
+
+  it("a retried press asks for the SAME shipment, so nothing is recorded twice", async () => {
+    await markProposalImplementedAction({ proposalId: PROPOSAL_ID });
+    mocks.loadChangeProposal.mockResolvedValue(proposal({ status: "applied" })); // the flip already happened
+    await markProposalImplementedAction({ proposalId: PROPOSAL_ID });
+    const versions = mocks.recordShippedChange.mock.calls.map((c: unknown[]) => (c[0] as { shipment: { proposalVersion: string } }).shipment.proposalVersion);
+    expect(versions[1]).toBe(versions[0]);
+  });
+
+  it("records only the components the operator says they applied", async () => {
+    expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID, componentKinds: ["title"] })).success).toBe(true);
+    expect(mocks.recordShippedChange.mock.calls[0][0].shipment.componentsApplied).toEqual([{ kind: "title", label: "Page title", after: null }]);
+  });
+
+  it.each([
+    ["a change I set aside", () => mocks.resolveCurrentBasis.mockResolvedValue("basis_today::d9")],
+    ["a change I cannot find", () => mocks.loadChangeProposal.mockResolvedValue(null)],
+    ["a press by someone who may not publish", () => { ownerFlag.value = false; }],
+  ])("%s is refused before anything is written", async (_name, arrange) => {
+    arrange();
+    expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID })).success).toBe(false);
+    expect(mocks.recordShippedChange).not.toHaveBeenCalled();
+    expect(mocks.markProposalApplied).not.toHaveBeenCalled();
   });
 });

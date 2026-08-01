@@ -23,7 +23,7 @@
  */
 
 /** One appearance kind's weekly aggregate (searchAppearance grain). */
-export type GscWeeklyAppearanceRow = {
+type GscWeeklyAppearanceRow = {
   /** Google's raw appearance key (e.g. TPF_FAQ, REVIEW_SNIPPET). Stored for
    *  math and diagnostics; NEVER rendered raw (plainAppearanceLabel). */
   kind: string;
@@ -32,7 +32,7 @@ export type GscWeeklyAppearanceRow = {
 };
 
 /** One device's weekly aggregate (device grain: DESKTOP / MOBILE / TABLET). */
-export type GscWeeklyDeviceRow = {
+type GscWeeklyDeviceRow = {
   device: string;
   clicks: number;
   impressions: number;
@@ -43,7 +43,7 @@ export type GscWeeklyDeviceRow = {
 /** One country's weekly aggregate (country grain: ISO-3166-1 alpha-3 code,
  *  e.g. "usa", "irn"). R17c item 428 - one extra low-volatility request in the
  *  same weekly pass; NEVER rendered as a raw code (plainCountryLabel). */
-export type GscWeeklyCountryRow = {
+type GscWeeklyCountryRow = {
   /** Google's raw alpha-3 country code (lowercased). Stored for math and
    *  diagnostics; NEVER rendered raw (plainCountryLabel does the narrowing). */
   code: string;
@@ -122,7 +122,7 @@ const APPEARANCE_PLAIN_LABEL: Record<string, string> = {
 
 /** Plain-words label for one appearance kind. Unknown keys collapse to a
  *  generic phrase so a new Google key can never leak jargon onto a surface. */
-export function plainAppearanceLabel(kind: string): string {
+function plainAppearanceLabel(kind: string): string {
   return APPEARANCE_PLAIN_LABEL[(kind ?? "").toUpperCase()] ?? "special result styling";
 }
 
