@@ -88,7 +88,18 @@ export function PromptsEditor({
     return n;
   }, [groups, included, additions]);
   const bounds = BOUNDS[mode];
-  const inBounds = count >= bounds.min && count <= bounds.max;
+  /** Everything this account could pick even if it ticked every row. */
+  const available = useMemo(
+    () => additions.length + groups.reduce((n, g) => n + g.prompts.length, 0),
+    [groups, additions],
+  );
+  /** A THIN PROFILE MAY NOT BE LOCKED OUT OF ITS OWN SETUP. A business whose market yields 16
+   *  strong questions used to meet a floor of 20 it could never reach: the one primary button on
+   *  the step was disabled with no next step anywhere on the screen. The 20 to 50 range is where I
+   *  do my best work, which is a thing to say out loud, never a gate on an account that has fewer
+   *  questions than that to give. The store's own floor still answers below it, honestly. */
+  const thin = available < bounds.min;
+  const inBounds = count >= (thin ? 1 : bounds.min) && count <= bounds.max;
 
   function toggle(id: string) {
     const next = new Set(included);
@@ -229,8 +240,18 @@ export function PromptsEditor({
       </div>
 
       <p className="text-[12px] tabular-nums text-muted-foreground">
-        {count} picked. I track between {bounds.min} and {bounds.max} questions
-        {mode === "onboarding" ? ", and this is the range where I do my best work." : "."}
+        {thin ? (
+          <>
+            {count} picked. I found {available} strong {available === 1 ? "question" : "questions"} for your
+            business. I do my best work with {bounds.min} to {bounds.max}, and I will propose more as I learn
+            your market.
+          </>
+        ) : (
+          <>
+            {count} picked. I track between {bounds.min} and {bounds.max} questions
+            {mode === "onboarding" ? ", and this is the range where I do my best work." : "."}
+          </>
+        )}
       </p>
       {error ? <p className="text-[13px] text-rose-600" role="alert">{error}</p> : null}
       <div className="flex flex-wrap items-center gap-3">

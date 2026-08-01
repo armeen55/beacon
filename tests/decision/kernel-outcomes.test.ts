@@ -449,6 +449,14 @@ describe("why this page loses the click, one named cause at a time", () => {
     const quiet = compileCandidates(ACTORS_SEEN(), { measuringPagePaths: ["/somewhere-else"] })[0]!; // told, and this page is not one of them
     expect([quiet.action, quiet.cause.cause]).toEqual(["act_existing_page", "ctr_snippet"]);
     expect(compileCandidates(ACTORS_SEEN())[0]!.cause.notConsidered.find((n) => n.cause === "measuring_change")!.missing).toContain("I do not hold which of your pages"); });
+  it("counts the page it is holding back WHERE THE HOLD HAPPENS, without a draft, a paid call or a store attempt", async () => {
+    reset(ACTORS_SEEN()); let called = 0; // the cause ladder fires measuring_change, so no draft is ever attempted for this page
+    const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, measuringPagePaths: ["/iranian-actors-actresses"],
+      complete: async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; } });
+    expect([res.heldForMeasurement, res.proposals.length, called, env.saved.length]).toEqual([1, 0, 0, 0]);
+    expect(await produceProposalsForTenant("fixture-tenant", { now: NOW, measuringPagePaths: ["/somewhere-else"], complete: async () => ({ value: VALID_ATOMIC_EDIT }) })
+      .then((r) => r.heldForMeasurement)).toBe(0); }); // and a page nothing is measuring on is never counted as held
+
   it("counts a consolidation it cannot draft as work, and never reports a quiet day over it", async () => {
     const world = { ...ACTORS_SEEN(), cannibalization: [{ query: "iranian actors", competingUrls: [ACTORS_URL, "iranopedia.example/actors"], note: "" }] };
     reset(world); let called = 0;

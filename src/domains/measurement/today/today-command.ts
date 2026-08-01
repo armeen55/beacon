@@ -93,8 +93,13 @@ export type TodayCommandInput = {
   /** Week over week percent change in search clicks (rounded), or null when there is not enough
    *  history to say. A whole-site drop is a material loss even when no single page took blame. */
   scoreboardDeltaPct: number | null;
-  /** The ranked ready queue, best first. One or more of these IS the act-now state. */
+  /** The ranked ready PREVIEW, best first. One or more of these IS the act-now state. This is
+   *  capped upstream (today-view-data previews five), so it is never the size of the queue. */
   readyChanges: readonly TodayOpportunity[];
+  /** THE SIZE OF THE QUEUE, uncapped. ONE queue may only ever be given ONE number: counting the
+   *  capped preview above made the card say "4 more are ranked under it" on the same screen whose
+   *  header said 12 were ready. Absent = the preview really is everything. */
+  readyTotal?: number;
   /** The kernel's own verdict for the declining page when it earned no change
    *  ("...its search click-through is healthy, so I am watching it..."), in one plain
    *  sentence. Absent = quote no verdict and say plainly that I have not found a change. */
@@ -211,8 +216,11 @@ function actNow(input: TodayCommandInput): TodayCommand {
   );
   why.push(COMMAND_EVIDENCE_WORD[top.evidenceStrength]);
   why.push(`About ${top.estimatedEffortMinutes} ${plural(top.estimatedEffortMinutes, "minute", "minutes")} of work.`);
-  if (input.readyChanges.length > 1) {
-    const rest = input.readyChanges.length - 1;
+  // OFF THE QUEUE, NEVER OFF THE PREVIEW. The card may still render three; the sentence counts
+  // what is actually ranked, which is the same number the header says.
+  const total = Math.max(input.readyTotal ?? 0, input.readyChanges.length);
+  if (total > 1) {
+    const rest = total - 1;
     why.push(`${rest} more ${plural(rest, "change is", "changes are")} ranked under it, and I say below why this one goes first.`);
   }
   return {
@@ -258,8 +266,13 @@ function researching(input: TodayCommandInput): TodayCommand {
   if (held > 0) {
     why.push(`I am holding ${held} new ${plural(held, "idea", "ideas")} back because ${plural(held, "that page", "those pages")} already ${plural(held, "carries", "carry")} a change I am measuring.`);
   }
+  // RESEARCH DOES NOT SWALLOW WHAT IS OWED. Work in flight used to erase the measuring count and
+  // the date its first read lands, so an operator whose changes were being measured lost both
+  // numbers the moment a run opened.
   if (input.measuringCount > 0) {
     why.push(`${input.measuringCount} of your ${plural(input.measuringCount, "change is", "changes are")} still measuring.`);
+    const read = usableDay(input.firstReadOn);
+    if (read) why.push(`The first read on those lands around ${dayLabel(read)}.`);
   }
   if (why.length === 0) why.push("I pick this back up on your next visit, and nothing here needs you first.");
 
@@ -278,18 +291,33 @@ function researching(input: TodayCommandInput): TodayCommand {
   };
 }
 
-/** 4. Changes you applied are live and measuring, and nothing stronger is ready. */
+/**
+ * 4. Changes you applied are live and measuring, and nothing stronger is ready.
+ *
+ * MONITORING OWNS THE QUIET DAY OUTRIGHT. A page under investigation and an idea held back are
+ * both real, and neither is present-tense work: claiming "researching" over them asserted a run
+ * that was not open, and cost the operator the measuring count, the read date and the one place
+ * they can go look. They render as lines INSIDE this state instead.
+ */
 function monitoring(input: TodayCommandInput): TodayCommand {
   const n = input.measuringCount;
   const why: string[] = [];
   const read = usableDay(input.firstReadOn);
   if (read) why.push(`The first read lands around ${dayLabel(read)}.`);
+  const investigating = input.investigating ?? 0;
+  if (investigating > 0) {
+    why.push(`I found ${investigating} ${plural(investigating, "page", "pages")} losing clicks and I am checking the live results for ${plural(investigating, "it", "them")} before asking you to change anything.`);
+  }
+  const held = input.heldForMeasurement ?? 0;
+  if (held > 0) {
+    why.push(`I am holding ${held} new ${plural(held, "idea", "ideas")} back because ${plural(held, "that page", "those pages")} already ${plural(held, "carries", "carry")} a change I am measuring.`);
+  }
   why.push("Nothing I am tracking has moved enough to need a decision from you.");
   why.push("I will tell you the moment one of them needs one.");
   return {
     state: "monitoring",
     headline: `${n} ${plural(n, "change is", "changes are")} live and measuring.`,
-    why,
+    why: why.slice(0, 5),
     exactAction: "Check back tomorrow, or look at what is measuring.",
     cta: { label: "See what's measuring", href: "/results" },
     ranked: [],
@@ -301,11 +329,17 @@ function monitoring(input: TodayCommandInput): TodayCommand {
  * THE one command for Today. Exactly one of four states, by strict priority:
  *   1. a genuine blocker  -> needs_attention (numbers are not trustworthy; fix it first)
  *   2. a ready change     -> act_now         (the top three, best first)
- *   3. work in flight     -> researching     (running, waiting on a date, or investigating)
+ *   3. work in flight     -> researching     (a run is open, or a promised date is on the clock)
  *   4. otherwise          -> monitoring      (what you applied is measuring)
  *
- * The last two are total between them: `researching` also owns the cold account with nothing
- * measuring yet, so there is never a fifth answer and never a bare zero.
+ * RESEARCHING IS A CLAIM ABOUT RIGHT NOW, so it needs genuine activity (an open run) or a
+ * scheduled wait (a retry date, a next-due date). An investigation with nobody working it and an
+ * idea held back are FACTS, not activity, and they render inside whichever state is true instead
+ * of manufacturing one. The one exception is the cold account with nothing measuring at all: the
+ * visit itself starts the run (the page kicks it after the response), so that claim is true.
+ *
+ * The last two are total between them: `researching` owns the cold account, monitoring owns every
+ * account with work under measurement, so there is never a fifth answer and never a bare zero.
  *
  * A DECLINE IS NOT AN ACTION. A bleeding page cannot take over the command on its own: it
  * rides `losingNote` in whatever state is true, with the kernel's own verdict when there is
@@ -315,14 +349,12 @@ export function buildTodayCommand(input: TodayCommandInput): TodayCommand {
   if (input.blockers.length > 0) return needsAttention(input);
   if (input.readyChanges.length > 0) return actNow(input);
   const r = input.research ?? {};
-  const researchDue =
+  const inFlight =
     r.running === true
     || usableDay(input.waitingUntil) != null
-    || usableDay(r.nextDueAt) != null
-    || (input.investigating ?? 0) > 0
-    || (input.heldForMeasurement ?? 0) > 0
-    || input.measuringCount === 0;
-  return researchDue ? researching(input) : monitoring(input);
+    || usableDay(r.nextDueAt) != null;
+  const coldAccount = input.measuringCount === 0;
+  return inFlight || coldAccount ? researching(input) : monitoring(input);
 }
 
 /**

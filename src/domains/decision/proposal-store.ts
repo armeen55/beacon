@@ -2,10 +2,6 @@
  * decision/proposal-store (V1 Truth Convergence Phase 5, 2026-07-31): the ONE
  * durable home of a ChangeProposal, and ONE CURRENT ROW PER HYPOTHESIS.
  *
- * WHAT WAS WRONG. Persistence was an append into `move_drafts`: every pass that drafted wrote
- * another row and the newest per id won on read, so two rows for the same page and the same
- * lever were two rows forever, and history and current work lived in one undifferentiated pile.
- *
  * CANONICAL IDENTITY. A hypothesis is (tenant, site, case, page, action family). Exactly one row
  * for that identity is CURRENT (`terminal_disposition is null`), enforced by a partial unique
  * index in Postgres, not by hope. A new draft SUPERSEDES the row that held it: the predecessor
@@ -151,6 +147,10 @@ function identityOf(p: ChangeProposal): Identity {
  * EXCLUDES createdAt and anything else that moves on its own, so a pass that
  * re-derives the same decision from the same evidence produces the same
  * fingerprint and writes nothing.
+ *
+ * THE REASONING IS MATERIAL. `causeFinding` was left out, so a pass that stamped a cause onto a
+ * row it otherwise carried forward hashed identically, the write short-circuited as "unchanged",
+ * and the whole investigation lived in memory for one render instead of reaching the stored row.
  */
 export function proposalFingerprint(p: ChangeProposal): string {
   const material = {
@@ -160,6 +160,7 @@ export function proposalFingerprint(p: ChangeProposal): string {
     basis: p.basis ?? null,
     change: p.recommendedChange,
     limitations: p.limitations,
+    cause: p.causeFinding ?? null,
     components: (p.bundle?.components ?? []).map((c) => [c.kind, c.before, c.after, c.evidenceKeys, c.risk]),
     receipt: (p.bundle?.receipt.items ?? []).map((i) => [i.key, i.kind, i.fact, i.observedAt]),
     missing: p.bundle?.receipt.missing ?? [],

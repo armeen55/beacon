@@ -225,7 +225,12 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // loader, which classifies the SAME request-cached ledger rows with the SAME rule
   // Results uses for its bands. So "16 measuring" here lands on exactly 16 "In flight"
   // rows on Results - never contradicting answers. Fail-soft to zeros, never blocks.
-  const measuringCount = lifecycle.measuring;
+  // ONE QUESTION, ONE SOURCE. The release Today and Changes share carries the measuring count it
+  // was built with, and Changes renders that exact number on its own strip. Reading a live ledger
+  // count here instead meant one navigation could answer "6 measuring" and "5 measuring" for the
+  // same account, seconds apart. The live count is the fallback for a release written before the
+  // field existed, never a second opinion.
+  const measuringCount = today.measuringCount ?? lifecycle.measuring;
 
   // Item 42: the assistant sets the scene like a person would.
   const dayLine = nowPacific.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "America/Los_Angeles" });
@@ -297,6 +302,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     // ONE ready change is the act-now state, and the top three ride the card with the ranker's own
     // reason for the order, from the SAME release Changes renders.
     readyChanges: today.nextOpportunities,
+    // The PREVIEW above is capped at five; this is the queue it was cut from, so the card counts
+    // the same changes the header sentence counts.
+    readyTotal: today.readyTotal ?? today.nextOpportunities.length,
     declineVerdict,
     firstReadOn,
     // The same waiting truth the header sentence carries, from the SAME release, so the two can never

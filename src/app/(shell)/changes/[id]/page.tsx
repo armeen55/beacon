@@ -279,7 +279,10 @@ function Investigation({ proposal }: { proposal: ChangeProposal }) {
   const finding = proposal.causeFinding;
   const receipt = proposal.rankingReceipt;
   const hints = (proposal.evidence?.hints ?? []).filter((h) => h.trim().length > 0);
-  if (!finding && !receipt && hints.length === 0) return null;
+  // AN EXPANDER PROMISES REASONING. With neither a cause nor a ranking receipt there is none, and
+  // the hints alone are the same evidence line the card above already carries, so opening "Show me
+  // how you worked this out" landed on one repeated sentence. No reasoning, no expander.
+  if (!finding && !receipt) return null;
   return (
     <details className="rounded-2xl border border-border bg-surface-raised p-5" data-investigation="true">
       <summary className="cursor-pointer text-[14px] font-semibold text-foreground">

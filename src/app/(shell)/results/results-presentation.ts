@@ -90,6 +90,29 @@ const ENGINE_LABEL: Record<string, string> = {
   chatgpt: "ChatGPT", perplexity: "Perplexity", gemini: "Gemini", claude: "Claude",
 };
 
+/** THE LOUDEST WORD ON THE CARD, and it was lab jargon: the badge printed the kernel's own short
+ *  phrase, so the single most prominent thing on a Results card could read "Confounded by
+ *  overlapping changes" to a customer who has never heard the word. Every other window on this
+ *  surface already says "shared with a later change", so the badge says it too. The kernel keeps
+ *  its vocabulary; the screen speaks the operator's. */
+const VERDICT_BADGE: Record<KernelRead["verdict"], string> = {
+  waiting: "Waiting on the first window",
+  insufficient_evidence: "Not enough evidence yet",
+  directional_decline: "Pointing down so far",
+  no_clear_movement: "No clear movement",
+  directional_improvement: "Pointing up so far",
+  stronger_improvement: "A stronger improvement",
+  confounded: "Shared with a later change",
+};
+
+/** How sure I am, as a sentence rather than a grade. "High confidence" is a label from a lab
+ *  notebook; this is what it actually means to the person reading it. */
+const CONFIDENCE_PHRASE: Record<KernelRead["confidence"], string> = {
+  high: "I am confident in this read",
+  medium: "I am fairly sure of this read",
+  low: "I am not sure of this read yet",
+};
+
 // ── 1. did it actually land on the live page ────────────────────────────────
 
 /** The headline sentence for the live check. A null verification is a real state: I have not looked. */
@@ -145,7 +168,15 @@ function windowChip(w: KernelRead["windows"][number]): { text: string; state: St
 /** Marked done, checked live, then every checkpoint, including the 56 day follow up when one ran. */
 function timelineSteps(p: ShipmentPresentation): Array<{ label: string; state: StepState; when: string | null }> {
   return [
-    { label: "You marked it done", state: (p.implementedAt ? "done" : "waiting") as StepState, when: monthDayLabel(p.implementedAt) },
+    // THIS ROW EXISTS BECAUSE IT WAS MARKED DONE, so the step is done. A record written before
+    // Beacon kept the stamp used to render it as never having happened, which read as "you have
+    // not done this yet" on the one change the operator knows they did. The date is what is
+    // missing, so the date is what says so.
+    {
+      label: p.implementedAt ? "You marked it done" : "You marked it done, before I kept exact dates",
+      state: "done" as StepState,
+      when: monthDayLabel(p.implementedAt),
+    },
     {
       label: p.verification ? "I checked your live page" : "I check your live page",
       state: (p.verification ? "done" : "waiting") as StepState,
@@ -200,7 +231,12 @@ function learningLine(read: KernelRead): string {
   const receipts = typeof l.evidenceCompleteness === "number" && l.evidenceCompleteness > 0
     ? ` I had ${l.evidenceCompleteness} pieces of evidence behind that call.`
     : "";
-  return `What I learned: ${parts.join(", ")}.${receipts} I carry that into what I recommend next on pages like this one.`;
+  // NOTHING IS CARRIED FORWARD FROM A READ THAT HAS NOT LANDED. With no direction yet there is no
+  // lesson, so the sentence that promises one is dropped rather than printed over an empty result.
+  const carried = l.outcomeDirection && l.outcomeDirection !== "unclear"
+    ? " I carry that into what I recommend next on pages like this one."
+    : " I carry nothing forward from this one until it settles.";
+  return `What I learned: ${parts.join(", ")}.${receipts}${carried}`;
 }
 
 /**
@@ -210,6 +246,9 @@ function learningLine(read: KernelRead): string {
 export function shipmentStory(p: ShipmentPresentation) {
   return {
     work: workLabel(p.read.actionType),
+    /** The one word the card shouts, in the operator's language. */
+    badge: VERDICT_BADGE[p.read.verdict],
+    confidence: CONFIDENCE_PHRASE[p.read.confidence],
     verification: {
       headline: verificationHeadline(p.verification),
       components: componentLines(p.verification),

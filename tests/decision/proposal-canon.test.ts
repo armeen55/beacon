@@ -113,6 +113,19 @@ describe("canonical proposal persistence", () => {
     expect([db.state.rows[0]!.action_family, db.state.rows[0]!.proposal_version]).toEqual(["section-family", 3]);
   });
 
+  it("lands the reasoning on the stored row exactly once: the cause is material, and a re-save carrying the same one writes nothing", async () => {
+    expect(await saveChangeProposal(proposal())).toBe("saved"); // filed before the ladder ever named a cause
+    const reasoned = proposal({ diagnosisCause: "ctr_snippet", causeFinding: { cause: "ctr_snippet", action: "title", evidenceKeys: ["gsc"],
+      competingExplanations: [{ cause: "cannibalization", reason: "only one page of yours comes up for that search" }],
+      falsifier: "If Google starts displaying this page with the wording the pages beating it share, this is not the explanation.",
+      explanation: "The line Google shows misses the words people search for.", notConsidered: [] } });
+    expect(await saveChangeProposal(reasoned)).toBe("saved"); // ONE update, so the operator can actually open the investigation
+    expect(db.state.rows).toHaveLength(1);
+    expect([db.state.rows[0]!.proposal_version, (db.state.rows[0]!.decision_receipt as { cause: string }).cause]).toEqual([2, "ctr_snippet"]);
+    expect(await saveChangeProposal(reasoned)).toBe("unchanged"); // and once only: every pass after it re-derives the same reasoning
+    expect(db.state.rows[0]!.proposal_version).toBe(2);
+  });
+
   it("holds two current rows when one page carries two different action families", async () => {
     expect(await saveChangeProposal(proposal())).toBe("saved"); // title-family
     const body = deep({ id: `${T}::${PAGE}::existing_edit::bundle`, bundle: bundle("section_rewrite") });

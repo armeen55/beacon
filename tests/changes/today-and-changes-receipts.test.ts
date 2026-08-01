@@ -80,6 +80,32 @@ describe("Today is in exactly one of four primary states", () => {
     expect(cold.headline).not.toMatch(/\b0\b/);
   });
 
+  it("gives ONE queue ONE number: the card counts what is ranked, never the preview it was cut from", () => {
+    const preview = [OPP, SECOND, { ...SECOND, changeId: "c3" }, { ...SECOND, changeId: "c4" }, { ...SECOND, changeId: "c5" }];
+    const c = buildTodayCommand({ ...base, readyChanges: preview, readyTotal: 12 });
+    expect(c.why.some((l) => l.includes("11 more changes are ranked under it"))).toBe(true);
+    expect(c.why.some((l) => l.includes("4 more"))).toBe(false); // the preview length is not a queue size
+    expect(c.ranked).toHaveLength(3); // the card may still render three of them
+  });
+
+  it("keeps monitoring when nothing is actually running, and says the numbers monitoring owes", () => {
+    // A proven loss nobody is working and an idea held back are facts, not present-tense work.
+    const held = buildTodayCommand({ ...base, measuringCount: 6, heldForMeasurement: 2, firstReadOn: "2026-08-12", research: { running: false } });
+    expect(held.state).toBe("monitoring");
+    expect(held.why[0]).toBe("The first read lands around August 12.");
+    expect(held.why.some((l) => l.includes("holding 2 new ideas back"))).toBe(true);
+    expect(held.cta).toEqual({ label: "See what's measuring", href: "/results" });
+    const watching = buildTodayCommand({ ...base, measuringCount: 6, investigating: 2, research: { running: false } });
+    expect(watching.state).toBe("monitoring");
+    expect(watching.why.some((l) => l.includes("I found 2 pages losing clicks"))).toBe(true);
+    // A run that IS open is researching, and it still owes the measuring count and the read date.
+    const running = buildTodayCommand({ ...base, measuringCount: 4, investigating: 2, firstReadOn: "2026-08-12",
+      research: { running: true, phaseLabel: "reading the results pages for your strongest topics" } });
+    expect(running.state).toBe("researching");
+    expect(running.why).toContain("4 of your changes are still measuring.");
+    expect(running.why).toContain("The first read on those lands around August 12.");
+  });
+
   it("every combination of signals lands on exactly one of the four, and never a fifth", () => {
     const cases: TodayCommandInput[] = [base, { ...base, readyChanges: [OPP] }, { ...base, investigating: 3 },
       { ...base, measuringCount: 5, research: { running: false } }, { ...base, blockers: ["Search Console stopped answering me."] },
@@ -228,5 +254,18 @@ describe("a change detail hands over the whole investigation and the controls to
     // Every piece starts ticked: applying all of them is the normal case.
     expect(html.match(/type="checkbox" checked=""/g)?.length).toBe(2);
     expect(await renderDetail(atomic())).not.toContain("Which pieces did you apply?"); // one edit, nothing to pick
+    // TWO PIECES OF THE SAME KIND ARE STILL TWO PIECES: a shared React key collapsed them into one
+    // row, so an operator could not say they applied one section and skipped the other.
+    const twin = (label: string) => ({ ...proposal().bundle!.components[0]!, kind: "section" as const, label });
+    const twins = await renderDetail(proposal({ bundle: { ...proposal().bundle!, components: [twin("The opening section"), twin("The sizing section")] } }));
+    expect(twins).toContain("The opening section");
+    expect(twins).toContain("The sizing section");
+    expect(twins.match(/type="checkbox" checked=""/g)?.length).toBe(2);
+  });
+
+  it("opens the investigation only when it holds one, never onto a line the card above already said", async () => {
+    const bare = proposal({ causeFinding: undefined, rankingReceipt: undefined });
+    expect(await renderDetail(bare)).not.toContain("Show me how you worked this out");
+    expect(await renderDetail(proposal({ causeFinding: undefined }))).toContain("Show me how you worked this out"); // a ranking receipt is reasoning too
   });
 });

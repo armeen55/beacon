@@ -350,6 +350,24 @@ describe("setup and settings surfaces (Phase 8)", () => {
     expect(resumed.connections.every((c) => !c.connected)).toBe(true); // and none of them is required to get here
   });
 
+  it("never locks a thin business out of its own setup: it approves what it found and says why that is fewer", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { createElement } = await import("react");
+    const { PromptsEditor } = await import("@/components/prompts-editor");
+    const editor = (n: number) => renderToStaticMarkup(createElement(PromptsEditor, {
+      groups: [{ slug: "g", name: "Choosing", prompts: Array.from({ length: n }, (_, i) => ({ id: `p${i}`, text: `question ${i}`, recommended: true, approved: false })) }],
+      mode: "onboarding" as const, submitLabel: "Approve my selection", onSubmit: () => {},
+    }));
+    const thin = editor(16);
+    expect(thin).toContain("I found 16 strong questions for your business. I do my best work with 20 to 50, and I will propose more as I learn your market.");
+    expect(thin).toContain("Approve my selection");
+    expect(thin).not.toContain('disabled=""'); // the one primary action on the step is live, not a dead end
+    // The 20 to 50 framing is what an account WITH the questions still reads, and the button still works.
+    const full = editor(24);
+    expect(full).toContain("I track between 20 and 50 questions, and this is the range where I do my best work.");
+    expect(full).not.toContain("I found 24 strong questions");
+  });
+
   it("offers the customer's own four sources on Connections, and nothing Beacon runs on its own account", () => {
     expect(CONNECTOR_REGISTRY.map((c) => c.id).sort()).toEqual(["clarity", "google_ga4", "google_gsc", "wix"]);
     const words = CONNECTOR_REGISTRY.map((c) => `${c.label} ${c.summary}`).join(" ").toLowerCase();

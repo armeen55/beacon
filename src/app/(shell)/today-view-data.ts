@@ -48,6 +48,18 @@ export type TodayView = {
    *  measuring. A held draft is not a failed draft, and a page holding one must not look
    *  forgotten. Absent when this pass held nothing back. */
   heldForMeasurement?: number;
+  /** THE SIZE OF THE READY QUEUE, uncapped, beside the capped `nextOpportunities` preview.
+   *  ONE queue, ONE number: the command used to count the preview and say "4 more" under a
+   *  header that said 12. Optional so a release written before this field falls back to the
+   *  preview length. */
+  readyTotal?: number;
+  /** The canonical measuring count THIS release was built with, the same number the Changes
+   *  summary in this release carries. Both surfaces read it, so one navigation cannot show two
+   *  answers for one question. Optional: an older release falls back to the live ledger count. */
+  measuringCount?: number;
+  /** What the production pass behind this release concluded, kept on the blob so a rebuild
+   *  from the same release can hand it back rather than losing it. */
+  producerOutcome?: ProducerOutcome;
 };
 
 export type TodayComposite = {
@@ -110,6 +122,21 @@ export type TodayProducerSignal = {
   heldForMeasurement?: number;
 };
 
+/** THE PRODUCER SIGNAL THIS RELEASE WAS BUILT WITH, read back off the release itself. A basis
+ *  shift rebuilds Today from the surviving proposals, and that rebuild used to be handed NOTHING:
+ *  the retry date, the investigation count, the held-back ideas and the kernel's own verdicts all
+ *  vanished the moment the bar moved, which is exactly the visit where the operator most needs to
+ *  be told what happened. Every field is copied off the stored blob; nothing is re-derived. */
+function carriedProducerSignal(view: TodayView): TodayProducerSignal {
+  return {
+    ...(view.producerOutcome ? { outcome: view.producerOutcome } : {}),
+    ...(view.declineNotes?.length ? { declineNotes: view.declineNotes } : {}),
+    ...(view.waitingUntil ? { waitingUntil: view.waitingUntil } : {}),
+    ...(typeof view.investigating === "number" ? { investigating: view.investigating } : {}),
+    ...(typeof view.heldForMeasurement === "number" ? { heldForMeasurement: view.heldForMeasurement } : {}),
+  };
+}
+
 /** A retry date in the operator's words: the day, never a timestamp and never a countdown. */
 const retryDay = (iso: string): string =>
   new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "America/Los_Angeles" });
@@ -136,6 +163,9 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     ...(waiting ? { waitingUntil: waiting } : {}),
     ...((producer.investigating ?? 0) > 0 ? { investigating: producer.investigating } : {}),
     ...(held > 0 ? { heldForMeasurement: held } : {}),
+    ...(producer.outcome ? { producerOutcome: producer.outcome } : {}),
+    readyTotal,
+    measuringCount: measuring,
   };
   let headerSentence: string;
   if (readyTotal > 0) {
@@ -233,7 +263,7 @@ async function loadTodayViewWithSwr(
     const gated = withCurrentBasisOnly(customer.changes, await resolveCurrentBasis(tenantId).catch(() => null));
     const today = gated.proposals.length === customer.changes.proposals.length
       ? customer.today.today
-      : buildTodayViewFromChanges(gated);
+      : buildTodayViewFromChanges(gated, carriedProducerSignal(customer.today.today));
     return {
       ...customer.today,
       today,

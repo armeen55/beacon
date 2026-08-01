@@ -1,18 +1,13 @@
 /**
- * decision/produce-proposals: the ONE server path that turns a tenant's cached evidence
- * into persisted ChangeProposals - loadEvidenceSnapshot ($0, six cached sources) ->
- * compileCandidates (the honest diagnosis: act / watch / do nothing) ->
- * candidatesToEvidenceInputs (only what EARNED an action) -> proposeExistingPageChange
- * (cold, gated, budgeted drafter plus the ONE validator) -> saveChangeProposal (durable,
- * fail-soft).
+ * decision/produce-proposals: the ONE server path that turns a tenant's cached evidence into
+ * persisted ChangeProposals - loadEvidenceSnapshot ($0, six cached sources) -> compileCandidates
+ * (the honest diagnosis: act / watch / do nothing) -> candidatesToEvidenceInputs (only what
+ * EARNED an action) -> proposeExistingPageChange (cold, gated, budgeted drafter plus the ONE
+ * validator) -> saveChangeProposal (durable, fail-soft). BOUNDED: at most the strongest
+ * DEFAULT_MAX_DRAFTS pages by recoverable clicks, and a page with no proven gap costs nothing.
  *
- * BOUNDED: at most the strongest DEFAULT_MAX_DRAFTS pages by recoverable clicks, and a page
- * with no proven gap costs nothing here.
- *
- * FOUR HONEST ENDINGS (`outcome`), so a surface never reads an empty queue as an outage or a
- * failed write as a quiet day: `no_actionable_candidate`, `actionable_but_no_trusted_draft`
- * (real gaps, no exact edit passed the evidence and safety checks), `persistence_failed` (every
- * write failed, so the caller must NOT publish), and `proposals_persisted`.
+ * Every honest ending this pass can reach is named on `ProducerOutcome` below, so a surface never
+ * reads an empty queue as an outage or a failed write as a quiet day.
  *
  * ONE EVIDENCE BASIS, ONE ROW: a candidate whose current-generation proposal already exists is
  * never redrafted, and a proposal whose material fingerprint is unchanged is never re-inserted,
@@ -156,18 +151,15 @@ export async function produceProposalsForTenant(
   const allowlist =
     opts.authoritativeSourceDomains ?? profile?.trustedSourceDomains.value ?? [];
 
-  // The basis this pass generates under: the SAME fingerprint Runtime and the
-  // Evidence funnel scope their derived work with, plus this kernel's decision
-  // generation. Every proposal is stamped with it, so a proposal manufactured
-  // under rules the evidence no longer has to satisfy stops reading as ready and
-  // becomes history instead of silently current. Fail-soft to null: an
-  // unreadable account stamps nothing rather than stamping a wrong basis.
+  // The basis this pass generates under: the SAME fingerprint Runtime and the Evidence funnel scope
+  // their derived work with, plus this kernel's decision generation. Every proposal is stamped with
+  // it, so one manufactured under rules the evidence no longer has to satisfy becomes history rather
+  // than staying silently current. Fail-soft to null: an unreadable account stamps nothing.
   const basis = await resolveCurrentBasis(tenantId, profile);
 
-  // ONE read of what is already durable, taken BEFORE anything is judged. It answers three questions: which
-  // pages are still measuring an applied change (the diagnosis and the ranking both read that fact, and
-  // production used to pass neither, so every receipt claimed "nothing is being measured on this page"
-  // unchecked), may I skip the DRAFT, and may I skip the WRITE.
+  // ONE read of what is already durable, taken BEFORE anything is judged. It answers three questions:
+  // which pages are still measuring an applied change (the diagnosis and both rankings read that fact),
+  // may I skip the DRAFT, and may I skip the WRITE.
   const existing = persist
     ? await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>())
     : new Map<string, ChangeProposal>();
@@ -285,7 +277,13 @@ export async function produceProposalsForTenant(
   const currentBundleFor = (match: (p: ChangeProposal) => boolean): ChangeProposal | null =>
     live.find((p) => !!p.bundle && current(p) && match(p)) ?? null;
 
-  let persisted = 0, writeFailures = 0, reused = 0, heldForMeasurement = 0;
+  // A HOLD HAPPENS WHERE THE DECISION IS MADE, NOT WHERE THE ROW IS WRITTEN. This counted only the
+  // store's "blocked" and read zero: the real holds are two rungs earlier and reach no store at all.
+  // The ladder fires `measuring_change` on a page carrying an applied change (so nothing is drafted),
+  // and the loop below skips a candidate whose stored row is applied. Both are held ideas, so both
+  // are counted here, and the store's answer stays as the third increment.
+  const heldByDiagnosis = candidates.filter((c) => c.cause.cause === "measuring_change").length;
+  let persisted = 0, writeFailures = 0, reused = 0, heldForMeasurement = heldByDiagnosis;
   /** Persist ONE material row, or nothing at all when the stored row already says exactly this.
    *  An unchanged proposal must not get a new timestamp: a refreshed surface would read
    *  yesterday's thinking as today's work. THE STORE decides that against the canonical row it
@@ -382,7 +380,10 @@ export async function produceProposalsForTenant(
     // nothing; once the basis moves the evidence really is different, and the page
     // gets its fair second attempt.
     const settled = existing.get(proposalId(input));
-    if (settled && (settled.status === "applied" || (settled.status === "rejected" && current(settled)))) continue;
+    // An APPLIED row is a change I am measuring, so the fresh idea for that page is HELD, not
+    // dropped, and it is counted here rather than left to a store call this loop never makes.
+    if (settled && settled.status === "applied") { heldForMeasurement += 1; continue; }
+    if (settled && settled.status === "rejected" && current(settled)) continue;
     const held = currentById(proposalId(input))
       ?? (heldBundle && input.opportunity.kind === "existing_edit" && heldBundle.pagePath === input.page.path ? heldBundle : null);
     if (held) {

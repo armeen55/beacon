@@ -432,8 +432,10 @@ export function MarkImplemented({
       {pickable ? (
         <div className="space-y-1.5" data-component-picker="true">
           <p className="text-[12px] font-semibold text-foreground">Which pieces did you apply?</p>
-          {pickable.map((c) => (
-            <label key={c.kind} className="flex items-center gap-2 text-[12px] text-muted-foreground">
+          {/* KEYED BY POSITION AS WELL AS KIND: a bundle may carry two sections, and two rows
+              sharing one React key collapse into one, so the operator loses a piece they applied. */}
+          {pickable.map((c, i) => (
+            <label key={`${c.kind}-${i}`} className="flex items-center gap-2 text-[12px] text-muted-foreground">
               <input
                 type="checkbox"
                 checked={applied.has(c.kind)}

@@ -1,5 +1,4 @@
 import type { KernelRead } from "@/domains/measurement/proof-gsc";
-import { verdictPhrase } from "@/domains/measurement";
 import { shipmentStory, type ShipmentPresentation } from "./results-presentation";
 
 /**
@@ -20,10 +19,6 @@ const TONE: Record<KernelRead["verdict"], { border: string; badge: string; text:
   confounded: { border: "border-amber-200", badge: "bg-amber-50 text-amber-800", text: "text-amber-800" },
   insufficient_evidence: { border: "border-border-subtle", badge: "bg-surface-inset text-muted-foreground", text: "text-muted-foreground" },
   waiting: { border: "border-sky-200", badge: "bg-sky-50 text-sky-700", text: "text-sky-700" },
-};
-
-const CONF_LABEL: Record<KernelRead["confidence"], string> = {
-  high: "High confidence", medium: "Medium confidence", low: "Low confidence",
 };
 
 const CHIP: Record<"done" | "waiting" | "shared", string> = {
@@ -61,7 +56,7 @@ export function ResultCard({ shipment }: { shipment: ShipmentPresentation }) {
           <div className="text-[11px] text-muted-foreground">{story.work}</div>
         </div>
         <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${tone.badge}`}>
-          {verdictPhrase(read.verdict)}
+          {story.badge}
         </span>
       </div>
 
@@ -135,7 +130,7 @@ export function ResultCard({ shipment }: { shipment: ShipmentPresentation }) {
         <p className="text-[11px] text-foreground/80">{story.learning}</p>
         <details className="mt-1">
           <summary className="cursor-pointer text-[10px] font-medium text-muted-foreground hover:text-foreground">
-            {CONF_LABEL[read.confidence]} &middot; why
+            {story.confidence} &middot; why
           </summary>
           <ul className="mt-1 space-y-0.5 pl-1">
             {read.confidenceReasons.map((r, i) => (

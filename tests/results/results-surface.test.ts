@@ -109,6 +109,29 @@ describe("one shipped change tells its whole story", () => {
     expect(learned).toContain("I answered it with a content change");
     expect(learned).toContain("the page moved up after it");
     expect(learned).toContain("6 pieces of evidence");
+    expect(learned).toContain("I carry that into what I recommend next");
+    // NOTHING IS CARRIED FORWARD FROM A READ THAT HAS NOT LANDED: no direction, no lesson.
+    const early = shipmentStory(shipment({ read: evaluateChange(input({ windows: [] }), evaluateWindows(SHIPPED, new Date("2026-05-03T00:00:00Z"), "2026-05-03"), []) }));
+    expect(early.learning).toContain("it is too early to say which way this went");
+    expect(early.learning).not.toContain("I carry that into");
+    expect(early.learning).toContain("I carry nothing forward from this one until it settles.");
+  });
+
+  it("says the verdict and how sure I am in the operator's words, never in the kernel's", () => {
+    const confounded = evaluateChange(input({ windows: [win(28)] }), WINDOWS, ["c2"]);
+    expect(confounded.verdict).toBe("confounded"); // the kernel keeps its own vocabulary
+    const overlapped = shipmentStory(shipment({ read: confounded }));
+    expect(overlapped.badge).toBe("Shared with a later change"); // the loudest word on the card is not a lab word
+    expect(overlapped.badge.toLowerCase()).not.toContain("confounded");
+    expect(shipmentStory(shipment()).badge).toBe("A stronger improvement");
+    expect(shipmentStory(shipment()).confidence).toMatch(/^I am /);
+    expect(shipmentStory(shipment()).confidence.toLowerCase()).not.toContain("confidence");
+  });
+
+  it("renders a change marked done before I kept exact dates as done, and says the date is what is missing", () => {
+    const legacy = shipmentStory(shipment({ implementedAt: null, baseline: null }));
+    expect(legacy.timeline[0]).toEqual({ label: "You marked it done, before I kept exact dates", state: "done", when: null });
+    expect(legacy.baseline).toBeNull(); // and "Where it started" stays absent rather than inventing a starting point
   });
 });
 
@@ -162,7 +185,7 @@ describe("no Results string reaches the operator carrying jargon", () => {
       shipmentStory(shipment({ verification: { ...VERIFICATION, status: "blocked" }, ai: { ...AI, direction: "worsened" } })),
     ];
     const strings = stories.flatMap((s) => [
-      s.work, s.verification.headline, ...s.verification.components, s.baseline ?? "", s.overlap ?? "",
+      s.work, s.badge, s.confidence, s.verification.headline, ...s.verification.components, s.baseline ?? "", s.overlap ?? "",
       ...s.timeline.map((t) => t.label), ...s.chips.map((c) => c.text),
       s.search.headline, ...s.search.caveats, s.learning,
       ...(s.ai ? [s.ai.heading, s.ai.coverage, s.ai.line] : []),

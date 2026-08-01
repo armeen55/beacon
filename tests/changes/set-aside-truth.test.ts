@@ -101,6 +101,30 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     expect(await renderChanges(view)).toContain("I set aside 21 earlier ideas that no longer clear it");
   });
 
+  it("keeps everything this release actually knows when the bar moves under it", async () => {
+    // The gated rebuild used to be handed NOTHING, so a basis shift silently erased the retry date,
+    // the pages under investigation, the ideas held back and the kernel's own verdicts.
+    const stored = { schemaVersion: 2, releaseId: "t:1", computedAt: new Date().toISOString(), tenantId: "t",
+      changes: { ...emptyView(0), proposals: [bundled("basis_old::d2", "old")], ready: [bundled("basis_old::d2", "old")],
+        summary: { todo: 0, ready: 1, measuring: 0, results: 0 } } as ChangesView,
+      today: { hasChanges: true, today: { headerSentence: "stale", nextOpportunities: [], waitingUntil: "2026-08-04T18:00:00.000Z",
+        investigating: 2, heldForMeasurement: 3, producerOutcome: "investigating",
+        declineNotes: [{ page: "/famous-iranian-comedians", note: "Its click-through is healthy, so I am watching it." }] } } };
+    vi.resetModules();
+    vi.doMock("@/lib/persistence/json-store", () => ({ readStore: async () => [stored], writeStore: async () => {} }));
+    vi.doMock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
+      resolveCurrentBasis: async () => "basis_now::d4" }));
+    vi.doMock("@/domains/runtime", async () => ({ ...(await vi.importActual<typeof import("@/domains/runtime")>("@/domains/runtime")),
+      countTrackedQuestions: async () => 30 }));
+    const { loadTodayView } = await import("@/app/(shell)/today-view-data");
+    const { today } = await loadTodayView();
+    expect(today.headerSentence).not.toBe("stale"); // it really was rebuilt from what survived the bar
+    expect([today.waitingUntil, today.investigating, today.heldForMeasurement]).toEqual(["2026-08-04T18:00:00.000Z", 2, 3]);
+    expect(today.declineNotes).toEqual(stored.today.today.declineNotes);
+    expect(today.headerSentence).toContain("waiting until August 4");
+    vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/runtime"); vi.resetModules();
+  });
+
   it("checks a stored release against the bar I hold NOW, not against itself", async () => {
     const { withCurrentBasisOnly, setAsideHint } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data");
     const NOW = "basis_now::d4";
