@@ -324,6 +324,14 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   // The relevance gate asks "does the rewrite still name this page's topic". Ground it in THIS page's own words (query + title + h1), never a vertical vocabulary.
   const contextTokens = [...new Set(`${primary} ${content.title ?? ""} ${content.h1 ?? ""}`.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2))].sort(byText);
   const wording = finding.cause === "ctr_snippet";
+  // WHAT A PRODUCER MAY NAME IS WHAT I ACTUALLY READ. The factual firewall asks one thing of a component: is
+  // this named thing something I hold, or did the copy invent it. A producer draws on the whole reading of the
+  // pages that win and on the page's own subjects and link words, none of which reaches the receipt as a fact,
+  // so grounding the gate in the receipt lines alone refused true copy: a brief quoting the second section
+  // every winning page covers was rejected as an invented name. The wording path keeps its text byte for byte.
+  const producerEvidenceText = wording ? evidenceText : [evidenceText, ...(pattern?.commonHeadings ?? []).map((h) => h.heading),
+    ...(pattern?.commonEntities ?? []).map((e) => e.entity), ...(pattern?.questionsAnswered ?? []), ...(body?.entityNames ?? []),
+    ...(body?.cardTexts ?? []), ...(body?.internalLinks ?? []).map((l) => `${l.anchorText} ${l.href}`)].filter(Boolean).join(" ");
   // A component cites the reading's OWN keys. For the wording cause that is the diagnosis; for every other
   // cause it is the ladder's, and either way a key with no receipt item behind it is never claimed.
   const alternatives = wording
@@ -343,7 +351,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     // and a lever that moves the page must be marked as one. The wording path keeps the exact gate it had.
     const shaped = gateShape(tenantId, primary, change);
     const verdict = validateProposal(wording ? shaped : { ...shaped, bundle: oneComponent({ ...c, evidenceKeys }) },
-      { pageBodyText: receipt.bodyText ?? null, evidenceText, contextTokens, now });
+      { pageBodyText: receipt.bodyText ?? null, evidenceText: producerEvidenceText, contextTokens, now });
     // NEVER surface a raw validator reason: it is internal vocabulary.
     if (verdict.status === "rejected") return drop("The rewrite I drafted failed one of my safety checks, so I left it out rather than risk it.");
     // DANGEROUS SURVIVES THE GATE. A component that moves or hides a page is graded dangerous by the

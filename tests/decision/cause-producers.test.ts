@@ -1,9 +1,7 @@
-/** THE CAUSE PRODUCERS (V1 Closure, launch blocker 9). Beacon could name fifteen reasons a page loses a click
- *  and write copy for exactly one of them. These pin the other half: a named cause reaches a producer, the
- *  producer works off the structure the ladder actually read, every component it emits survives the REAL
- *  validator, a cause with no producer refuses in its own words, a drafter that will not land is a refusal
- *  rather than an empty component, and thin evidence never reaches a drafter at all. The wording cause keeps
- *  the path it has always had, byte for byte. */
+/** THE CAUSE PRODUCERS (V1 Closure, launch blocker 9). Beacon could name fifteen reasons a page loses a click and
+ *  write copy for one. These pin the other half: a named cause reaches a producer, it works off the structure the
+ *  ladder read, every component survives the REAL validator, a cause with no producer refuses in its own words, a
+ *  drafter that will not land is a refusal, and thin evidence never reaches a drafter. Wording keeps its path. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
@@ -108,7 +106,7 @@ describe("a named cause produces the change that fixes it", () => {
   });
 
   it("writes one section per subject the winning pages agree on and this page leaves out, each answering for itself", async () => {
-    const p2 = pattern({ commonHeadings: [{ heading: "Overflow hoses in a storm", seenOn: [0, 1, 2] }, { heading: "Chaining a container", seenOn: [0, 1] }] });
+    const p2 = pattern({ commonHeadings: [{ heading: "Gutter guards keep debris out", seenOn: [0, 1, 2] }, { heading: "Chaining a container", seenOn: [0, 1] }] });
     const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, complete: seam(), coverage: decided(p2) });
     expect(out.status).toBe("bundled");
     if (out.status !== "bundled") return;
@@ -141,24 +139,24 @@ describe("a named cause produces the change that fixes it", () => {
     expect(bought).toEqual([]); // a cause with no producer costs nothing
   });
 
-  /** A REBUILD IS EARNED BY CAUSES THAT FIRED, never by causes that were checked and RULED OUT. The ladder
-   *  ships the alternatives it weighed beside the winner, and counting that whole list as accusations told
-   *  the operator "2 separate things are wrong with it at once" where the second clause was the exact
-   *  opposite of what the evidence said. Same fixture both ways; the only thing that moves is whether the
-   *  second structural cause actually fired. */
+  /** A REBUILD IS EARNED BY CAUSES THAT FIRED, never by causes checked and RULED OUT. Counting the whole list
+   *  of alternatives as accusations told the operator "2 separate things are wrong with it at once" where the
+   *  second clause said the exact opposite of the evidence. Same fixture both ways; only firing moves. */
   describe("a rebuild is earned by what fired", () => {
     const noSection = seam({ section: {} }); // the winner's own producer can write nothing, so the rebuild is reachable
     const gaps = { ownedGaps: [{ gap: "None of this page covers overflow", seenOn: [0, 1] }], openingPattern: "" };
-    const rebuildOf = async (heading: string) => produceBundleForSnapshot(snapshot(),
-      { ...OPTS, complete: noSection, coverage: decided(pattern({ ...gaps, commonHeadings: [{ heading, seenOn: [0, 1, 2] }] })) });
+    const rebuildOf = async (...heads: string[]) => produceBundleForSnapshot(snapshot(), { ...OPTS, complete: noSection,
+      coverage: decided(pattern({ ...gaps, commonHeadings: heads.map((heading) => ({ heading, seenOn: [0, 1, 2] })) })) });
 
     it("rebuilds when a SECOND structural cause genuinely fired", async () => {
-      const out = await rebuildOf("Chaining a second container"); // a subject this page carries none of: it fires
+      const out = await rebuildOf("Chaining a second container", "Gutter guards keep debris out"); // subjects this page carries none of: it fires
       expect(out.status).toBe("bundled");
       if (out.status !== "bundled") return;
       const b = out.proposal.bundle!;
       expect(b.components.map((c) => c.kind)).toEqual(["full_rewrite"]);
       expect(b.components[0]!.after).toContain("2 separate things are wrong");
+      // BOTH SECTIONS THE WINNERS AGREE ON, and only the reading of those pages grounds the second: handed the receipt lines alone the gate refuses "Gutter" as an invented name.
+      expect(b.components[0]!.after).toContain('"Chaining a second container", "Gutter guards keep debris out"');
       expect(out.proposal.status).toBe("needs_review"); // a rebuild always arrives as a question
     });
 
@@ -170,10 +168,9 @@ describe("a named cause produces the change that fixes it", () => {
     });
   });
 
-  /** THE TWO-STEP HOLD SURVIVES THE GATE. A change that merges two pages and redirects one of them is graded
-   *  dangerous by its producer, and the validator refuses any bundle where that grade is missing. Rewriting
-   *  it to "review" on the way out took the hold off the one change that needs it AND made the stored
-   *  proposal fail its own re-validation as a mislabelled change. */
+  /** THE TWO-STEP HOLD SURVIVES THE GATE. A merge is graded dangerous by its producer and the validator refuses
+   *  any bundle where that grade is missing. Rewriting it to "review" on the way out took the hold off the one
+   *  change that needs it AND made the stored proposal fail its own re-validation as mislabelled. */
   it("keeps a merge marked dangerous, holds it for review, and the stored shape re-validates", async () => {
     const twoPages = snapshot({ cannibalization: [{ query: "rain barrel sizing", note: "two of your own pages",
       competingUrls: [URL, "fixture-content.example/rain-barrel-guide"] }] });
@@ -184,8 +181,7 @@ describe("a named cause produces the change that fixes it", () => {
     expect(p.diagnosisCause).toBe("cannibalization");
     expect(b.components.map((c) => [c.kind, c.risk])).toEqual([["consolidation", "dangerous"]]);
     expect(p.status).toBe("needs_review"); // it reaches the operator as a question, never as a paste
-    // AND THROUGH THE VALIDATOR AGAIN, on exactly the shape that was stored: an unmarked lever is rejected
-    // as mislabelled, so a downgraded grade here would sink the whole proposal on the next read of it.
+    // AND THROUGH THE VALIDATOR AGAIN on exactly the shape stored: an unmarked lever is rejected as mislabelled, so a downgrade here sinks the proposal on the next read.
     const again = validateProposal(p, { evidenceText: b.receipt.items.map((i) => i.fact).join(" ") });
     expect(again.verdict).toBe("needs_review");
     expect(again.reasons.join(" ")).toContain("confirm it before you make the change");

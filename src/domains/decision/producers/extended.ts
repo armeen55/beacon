@@ -1,22 +1,18 @@
 /**
- * decision/producers/extended (V1 Closure, launch blocker 9): the causes that could name a problem and
- * never write the fix.
- *
- * Beacon's ladder can conclude that a page strands its readers, that an engine read it and cited somebody
- * else, that an engine never found it at all, or that two of the account's own pages are splitting one
- * search. Until this file existed every one of those reached the operator as a sentence and a shrug. Each
- * producer below turns ONE of them into the exact components an operator can act on, or into one honest
- * refusal that says what is missing and what to do about it.
+ * decision/producers/extended (V1 Closure, launch blocker 9): the causes that could name a problem and never
+ * write the fix. A page that strands its readers, an engine that read it and cited somebody else, an engine
+ * that never found it, two of the account's own pages splitting one search: every one of those reached the
+ * operator as a sentence and a shrug. Each producer below turns ONE of them into the exact components an
+ * operator can act on, or into one honest refusal that says what is missing and what to do about it.
  *
  * THE RULES THIS FILE OBEYS, because validate-proposal enforces them and a rejected proposal helps nobody:
- *   - every component here is outside the seven legacy kinds, so it carries where, objective, mechanism and
- *     measurementPlan or the whole proposal is refused;
- *   - a component that changes factual content carries a source pack, assembled ONLY from evidence already
- *     supplied: never a fact, a figure or a source this file made up;
- *   - a change that moves a page or hides it is marked dangerous, which routes the proposal to the
- *     operator-confirmation hold on purpose;
- *   - a component always cites the finding's own receipt keys, and a finding with none of them produces
- *     nothing at all.
+ * every component here is outside the seven legacy kinds, so it carries where, objective, mechanism and
+ * measurementPlan or the whole proposal is refused; a component that changes factual content carries a source
+ * pack assembled ONLY from evidence already supplied, never a fact or a source this file made up; a change
+ * that moves or hides a page is marked dangerous, which routes it to the operator-confirmation hold; and a
+ * component always cites the finding's own receipt keys, so a finding with none of them produces nothing.
+ * THE COPY OBEYS THEM TOO: no sentence opens on a capitalized word the factual firewall cannot place, and
+ * every after-text names the page's own search, or true copy is refused as invented or as off-topic.
  *
  * PURE apart from the drafting calls handed in on the context. No store, no clock, no model of its own.
  */
@@ -152,21 +148,26 @@ function placeFor(ctx: ProducerCtx, target: Target): string {
   return heading ? `the section headed "${heading}"` : `the part of this page that talks about ${target.topic}`;
 }
 
+/** A drafted line arrives as a sentence, so its first word wears a capital because of where it sits and not
+ *  because it names anything. Quoted inside one of my own sentences it is no longer a sentence start, and the
+ *  factual firewall reads a capitalized word it cannot find in the evidence as a thing this copy invented: an
+ *  ordinary "If you are sizing a barrel" was refused as a fabricated name. So the opener keeps its capital
+ *  only when it is a word this page itself uses, and otherwise it reads as the clause it now is. */
+function openLower(line: string, own: Set<string>): string {
+  const token = topicTokens(line.split(/\s+/)[0] ?? "")[0];
+  return token && own.has(token) ? line : line.charAt(0).toLowerCase() + line.slice(1);
+}
+
 export const produceInternalLinks: Producer = async (ctx) => {
-  if (ctx.finding.cause !== "internal_link_weakness") {
-    return refuse("I did not find this page's links to be what loses it the click, so I am not writing links for it. Ask me what I did find and I will show you.");
-  }
+  if (ctx.finding.cause !== "internal_link_weakness") return refuse("I did not find this page's links to be what loses it the click, so I am not writing links for it. Ask me what I did find and I will show you.");
   const keys = evidenceKeysOf(ctx);
   if (!keys) return refuse(NO_EVIDENCE);
   const gap = linkGap(ctx.finding);
-  if (!gap) {
-    return refuse("I have not counted this page's links against the pages that win its subject, so I am not going to invent somewhere to send a reader. Research this page again and I will count both sides.");
-  }
+  if (!gap) return refuse("I have not counted this page's links against the pages that win its subject, so I am not going to invent somewhere to send a reader. Research this page again and I will count both sides.");
   const targets = candidateTargets(ctx);
-  if (targets.length === 0) {
-    return refuse("I know this page leaves a reader with nowhere to go, and I do not hold another page of yours on this subject to send them to, so I am not inventing one. Tell me the page it should lead to and I will write the sentence.");
-  }
+  if (targets.length === 0) return refuse("I know this page leaves a reader with nowhere to go, and I do not hold another page of yours on this subject to send them to, so I am not inventing one. Tell me the page it should lead to and I will write the sentence.");
   const evidenceHints = ctx.receiptFacts.slice(0, MAX_REQUIREMENTS);
+  const own = ownVocabulary(ctx);
   const components: BundleComponent[] = [];
   for (const target of targets.slice(0, MAX_LINKS)) {
     const drafted = await ctx.draft.internalLink({
@@ -176,22 +177,25 @@ export const produceInternalLinks: Producer = async (ctx) => {
     const anchor = plain(drafted.anchorText);
     const line = plain(drafted.linkSentence);
     if (!anchor || !line) continue;
+    const place = placeFor(ctx, target);
+    // EVERY SENTENCE OPENS ON A WORD THE FIREWALL CAN PLACE, and the copy says the page's own subject out
+    // loud: an instruction opening "Point the words" was read as a named thing this file invented, and a
+    // link sentence that never repeated what the page is about was refused as off-topic. Both were true copy
+    // refused for how it was worded, so the wording is what changed.
     components.push({
       kind: "internal_link_add",
       label: `Link to ${target.path}`,
       before: null,
-      after: `${sentence(line)} Point the words "${anchor}" at ${target.path}.`,
+      after: `I would add this line to ${place}: ${sentence(openLower(line, own))} The words "${anchor}" then point at ${target.path}, so a reader who came for "${ctx.primary}" has somewhere to go next.`,
       evidenceKeys: keys,
       risk: "safe",
-      where: placeFor(ctx, target),
+      where: place,
       objective: `Send the reader who lands here on to ${target.path} instead of leaving them at the bottom of this page.`,
       mechanism: `The pages that win this subject point readers on to about ${count(gap.medianWinnerLinks)} of their own pages and this one points to ${count(gap.ownedLinks)}, so somebody who lands here has nowhere to go next.`,
       measurementPlan: `I will read clicks and average position for "${ctx.primary}" on this page and on ${target.path} at 7, 14 and 28 days after you add it.`,
     });
   }
-  if (components.length === 0) {
-    return refuse("I could not write a link sentence for this page that I would stand behind, so I am handing you nothing rather than filler. Ask me again and I will try the next page down.");
-  }
+  if (components.length === 0) return refuse("I could not write a link sentence for this page that I would stand behind, so I am handing you nothing rather than filler. Ask me again and I will try the next page down.");
   return { components, refusal: null };
 };
 
@@ -208,15 +212,11 @@ function ownVocabulary(ctx: ProducerCtx): Set<string> {
 
 export const produceSourceExpansion: Producer = async (ctx) => {
   const cause = ctx.finding.cause;
-  if (cause !== "ai_citation_gap" && cause !== "retrieved_not_cited") {
-    return refuse("I did not find AI answers to be what this page loses on, so I am not writing sources for it. Ask me what I did find and I will show you.");
-  }
+  if (cause !== "ai_citation_gap" && cause !== "retrieved_not_cited") return refuse("I did not find AI answers to be what this page loses on, so I am not writing sources for it. Ask me what I did find and I will show you.");
   const keys = evidenceKeysOf(ctx);
   if (!keys) return refuse(NO_EVIDENCE);
   const seen = enginePrompt(ctx.finding);
-  if (!seen) {
-    return refuse("I do not hold which engine answered that search or what it was asked, so I cannot tell you what this page has to add. Let me read the AI answers for that search again.");
-  }
+  if (!seen) return refuse("I do not hold which engine answered that search or what it was asked, so I cannot tell you what this page has to add. Let me read the AI answers for that search again.");
   const mine = ownVocabulary(ctx);
   const missing = (ctx.pattern?.commonEntities ?? [])
     .map((e) => e.entity.trim()).filter((e) => e.length > 0)
@@ -232,13 +232,14 @@ export const produceSourceExpansion: Producer = async (ctx) => {
     .map((x) => `A source a reader can check for ${sentence(x)}`);
   const factRequirements = facts.slice();
   if (sourceRequirements.length === 0) sourceRequirements.push(...facts.map((f) => `A source a reader can check for ${sentence(f)}`));
-  if (sourceRequirements.length === 0 || factRequirements.length === 0) {
-    return refuse("I hold nothing checkable to add to this page: no figures of my own and no reading of what the pages being cited all name. Let me read those pages first and I will come back with what to add.");
-  }
+  if (sourceRequirements.length === 0 || factRequirements.length === 0) return refuse("I hold nothing checkable to add to this page: no figures of my own and no reading of what the pages being cited all name. Let me read those pages first and I will come back with what to add.");
   const place = ctx.page.outline[0] ? `the section headed "${ctx.page.outline[0]}"` : "the part of this page that answers the search";
+  // SAME RULE AS THE LINKS ABOVE: an instruction opening "Cover" or "Add" was read by the factual firewall as
+  // a named thing with nothing behind it, and copy that never repeated the page's own subject was refused as
+  // off-topic. So every sentence opens in my voice or on this page's words, and the search is named out loud.
   const after = kind === "entity_expansion"
-    ? `Cover ${missing.join(", ")} on this page, each one where it belongs, and say where each one comes from.`
-    : `Add a line in ${place} that says where each of these comes from, with a link a reader can follow: ${facts.map(sentence).join(" ")}`;
+    ? `This page has to cover ${missing.join(", ")} to answer "${ctx.primary}", ${missing.length === 1 ? "where it belongs on the page, and say where it comes" : "each one where it belongs, and say where each one comes"} from.`
+    : `I would add a line in ${place} that says where each of these comes from for "${ctx.primary}", with a link a reader can follow: ${facts.map(sentence).join(" ")}`;
   return {
     components: [{
       kind,
@@ -264,22 +265,16 @@ export const produceSourceExpansion: Producer = async (ctx) => {
 // ── 3. consolidation: two of your own pages on one search ────────────────────
 
 export const produceConsolidation: Producer = async (ctx) => {
-  if (ctx.finding.cause !== "cannibalization") {
-    return refuse("I did not find two of your own pages competing for that search, so there is nothing here to settle. Ask me what I did find and I will show you.");
-  }
+  if (ctx.finding.cause !== "cannibalization") return refuse("I did not find two of your own pages competing for that search, so there is nothing here to settle. Ask me what I did find and I will show you.");
   const keys = evidenceKeysOf(ctx);
   if (!keys) return refuse(NO_EVIDENCE);
   const group = competingPages(ctx.finding);
-  if (!group) {
-    return refuse("I have not settled which of your own pages come up for that search, so I am not telling you to combine anything. Let me check which of your pages Google is serving for it first.");
-  }
+  if (!group) return refuse("I have not settled which of your own pages come up for that search, so I am not telling you to combine anything. Let me check which of your pages Google is serving for it first.");
   // The ladder carries the competing pages as whole addresses; an operator reads them as paths on their
   // own site, and anything I cannot resolve is named exactly as it was given rather than reshaped.
   const short = (p: string): string => ownPath(p, ctx.page.url) ?? p;
   const named = [...new Set(group.paths.map(short))].slice(0, 4);
-  if (named.length < 2) {
-    return refuse("I have not settled which of your own pages come up for that search, so I am not telling you to combine anything. Let me check which of your pages Google is serving for it first.");
-  }
+  if (named.length < 2) return refuse("I have not settled which of your own pages come up for that search, so I am not telling you to combine anything. Let me check which of your pages Google is serving for it first.");
   // NO DRAFT SPEND: this is a recommendation with evidence behind it, not copy. Writing paragraphs for a
   // change that starts with a decision the operator has to make is money spent before the decision exists.
   const keep = group.stronger && named.includes(short(group.stronger)) ? short(group.stronger) : null;
@@ -342,15 +337,11 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
   const keys = evidenceKeysOf(ctx);
   if (!keys) return refuse(NO_EVIDENCE);
   const structural = [...new Set(causes)].filter((c) => STRUCTURAL.has(c));
-  if (structural.length < MIN_STRUCTURAL_CAUSES) {
-    return refuse("Only one thing about this page is wrong at the level a rebuild fixes, so rebuilding it is a bigger swing than my evidence pays for. Make that one change first and I will read the page again.");
-  }
+  if (structural.length < MIN_STRUCTURAL_CAUSES) return refuse("Only one thing about this page is wrong at the level a rebuild fixes, so rebuilding it is a bigger swing than my evidence pays for. Make that one change first and I will read the page again.");
   const pattern = ctx.pattern;
   const headings = (pattern?.commonHeadings ?? []).map((h) => h.heading.trim()).filter((h) => h.length > 0).slice(0, MAX_HEADINGS);
   const questions = (pattern?.questionsAnswered ?? []).map((q) => q.trim()).filter((q) => q.length > 0).slice(0, MAX_HEADINGS);
-  if (!pattern || (headings.length === 0 && questions.length === 0)) {
-    return refuse("I have not read the pages that win this subject side by side, so I cannot tell you what this page has to become. Let me read them first and I will write the brief.");
-  }
+  if (!pattern || (headings.length === 0 && questions.length === 0)) return refuse("I have not read the pages that win this subject side by side, so I cannot tell you what this page has to become. Let me read them first and I will write the brief.");
   const shape = ARCHETYPE[pattern.archetype] ?? "a page that answers this search directly";
   const agreed = pattern.archetype in ARCHETYPE
     ? ""
