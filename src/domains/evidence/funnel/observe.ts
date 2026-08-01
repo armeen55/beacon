@@ -89,9 +89,9 @@ async function landAnswer(p: FunnelPair, r: Interp, parsed: ParsedAiAnswer, prom
   p.citationsObserved = parsed.citations !== null;
   p.citations = parsed.citations ? parsed.citations.map((c) => ({ url: c.url, domain: c.domain, title: c.title })) : null;
   p.fanOutQueries = parsed.fanOutQueries; p.answerHash = parsed.answerText ? sha16(parsed.answerText) : null;
-  // RETRIEVED-BUT-NOT-CITED AND THE ENGINE'S OWN BRAND LIST travel to the snapshot: the canonical row
-  // held both from Phase 1, but the funnel projection dropped them, so Decision could never ask "was I
-  // retrieved and passed over" - the exact question the observation was bought to answer.
+  // THE RETRIEVAL LIST AND THE ENGINE'S OWN BRAND LIST travel to the snapshot AS REPORTED: the canonical
+  // row held both from Phase 1, but the funnel projection dropped them, so Decision could never ask "was I
+  // read and passed over" - the exact question the observation was bought to answer. It subtracts.
   p.retrievedResults = parsed.retrievedResults ? parsed.retrievedResults.map((c) => ({ url: c.url, domain: c.domain, title: c.title })) : null;
   p.brandMentions = parsed.brandMentions ?? null;
   await d.recordObservation(rec, ids.tenantId);

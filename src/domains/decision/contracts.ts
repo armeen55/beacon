@@ -129,12 +129,11 @@ export type EvidenceReadiness = {
 export function evidenceComplete(r: EvidenceReadiness): boolean { return r.gsc && r.ownedCopy && r.serp; }
 
 /** WHY this page underperforms, in the vocabulary a diagnosis may conclude in. One cause
- *  per candidate, chosen by reading the evidence, never by token containment. This list is
- *  the single source for the type AND for the stored-row schema below: add a cause once. */
-const DIAGNOSIS_CAUSES = ["snippet_intent_mismatch", "weak_value_promise", "result_format_mismatch",
-  "wrong_page_ranking", "cannibalization", "content_coverage_gap", "stale_or_inaccurate_copy",
-  "google_rewrite_already_matches", "serp_market_mismatch", "ambiguous_search_intent", "unknown"] as const;
-export type DiagnosisCause = (typeof DIAGNOSIS_CAUSES)[number];
+ *  per candidate, chosen by reading the evidence, never by token containment. */
+export type DiagnosisCause =
+  | "snippet_intent_mismatch" | "weak_value_promise" | "result_format_mismatch"
+  | "wrong_page_ranking" | "cannibalization" | "content_coverage_gap" | "stale_or_inaccurate_copy"
+  | "google_rewrite_already_matches" | "serp_market_mismatch" | "ambiguous_search_intent" | "unknown";
 
 /** The single edit a diagnosed cause supports. `watch` and null are real answers. */
 export type DiagnosedAction =

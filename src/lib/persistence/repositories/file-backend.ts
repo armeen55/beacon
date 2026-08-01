@@ -17,7 +17,6 @@ import type {
   PageEntity,
   PageSnapshot,
 } from "@/domains/evidence/pages/types";
-import type { ObservationRun } from "@/domains/evidence/observations/types";
 import { readObservationRunsMergedSync } from "@/domains/evidence/observations/observation-runs-merge";
 import { getFindings } from "@/domains/evidence/scanning/findings-store";
 import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";

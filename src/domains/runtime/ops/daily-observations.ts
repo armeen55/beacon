@@ -36,7 +36,8 @@ import "server-only";
  * analysis, Evidence stores it, and Evidence never imports Decision.
  */
 
-import { callStructuredLLM } from "@/domains/decision/llm/structured-drafter";
+import { loadBrandIdentity, type BrandIdentity } from "@/domains/account/brand-identity";
+import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { AnswerAnalysis } from "@/domains/decision/llm/schemas";
 import type { AiObservationView, DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import { log } from "@/lib/logger";
@@ -344,14 +345,45 @@ type AnalysisDeps = {
   persist?: (tenantId: string, observationId: string, analysis: Record<string, unknown>, analysisHash: string) => Promise<void>;
   analyze?: (input: { tenantId: string; question: string; engine: string; answerText: string; brand: string }) => Promise<AnswerAnalysis | null>;
   readPrompts?: (tenantId: string) => Promise<TrackedQuestion[] | null>;
-  brand?: string;
+  /** WHO THIS ACCOUNT IS. Tests inject it; production always loads the real one and
+   *  never falls back to an empty brand (see runAnswerAnalyses). */
+  identity?: BrandIdentity;
+  /** The LLM transport, so a test can exercise this exact prompt without a key. */
+  complete?: CompleteFn;
   max?: number;
 };
+
+/** Which path found the account in an answer: the model's reading, the answer's own
+ *  words, an address it credited, or both the model and the words. A later reader can
+ *  tell a model miss from a real absence, which a bare true/false never could. */
+type BrandMatchPath = "model" | "text" | "citation" | "both";
+
+/** A name counts only as a WHOLE word, tolerant of the spacing and punctuation a
+ *  writer chose ("Ritz Builders", "ritz-builders"), so "Ritz" is never found inside
+ *  "Ritzy" and no substring of an unrelated word can invent a mention. */
+function formPattern(form: string): RegExp | null {
+  const parts = form.match(/[\p{L}\p{N}]+/gu);
+  if (parts == null || parts.length === 0) return null;
+  const body = parts.join("[^\\p{L}\\p{N}]{0,2}");
+  return new RegExp(`(?<![\\p{L}\\p{N}])${body}(?![\\p{L}\\p{N}])`, "iu");
+}
+
+const hostOfUrl = (raw: string): string =>
+  raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? "";
+
+/** PURE. Does this answer name the account, in its own text or in what it credited?
+ *  null = neither, which is a real absence and not a shrug. */
+function findBrand(identity: BrandIdentity, answerText: string, citationUrls: readonly string[] | null): Exclude<BrandMatchPath, "model" | "both"> | null {
+  if (answerText && identity.forms.some((f) => formPattern(f)?.test(answerText) === true)) return "text";
+  const host = identity.host;
+  if (host && (citationUrls ?? []).some((u) => { const h = hostOfUrl(u); return h === host || h.endsWith(`.${host}`); })) return "citation";
+  return null;
+}
 
 /** ONE strict structured call per answer, through the existing gateway. Returns
  *  null on anything that is not a validated draft: an analysis I could not
  *  produce is simply absent, never a half-filled one. */
-async function analyzeOne(input: { tenantId: string; question: string; engine: string; answerText: string; brand: string }): Promise<AnswerAnalysis | null> {
+async function analyzeOne(input: { tenantId: string; question: string; engine: string; answerText: string; brand: string }, complete?: CompleteFn): Promise<AnswerAnalysis | null> {
   const user = [
     `BRAND TO LOOK FOR: ${input.brand || "(none supplied)"}`,
     `QUESTION ASKED: ${input.question}`,
@@ -369,6 +401,7 @@ async function analyzeOne(input: { tenantId: string; question: string; engine: s
     grounded: input.answerText.slice(0, 12_000),
     projectedCostUsd: ANSWER_ANALYSIS_COST_USD,
     maxTokens: 3000,
+    ...(complete ? { complete } : {}),
   });
   return out.status === "drafted" ? (out.value as AnswerAnalysis) : null;
 }
@@ -388,27 +421,50 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
   const targets = selectAnalysisTargets(rows, deps.max ?? MAX_ANALYSES_PER_PASS);
   if (targets.length === 0) return 0; // nothing new: no call, no cent
 
+  // WHO AM I LOOKING FOR. The pass used to send an EMPTY brand, so the model was asked
+  // whether an answer named nobody and every reading came back "not mentioned". An
+  // identity with no forms at all buys nothing: I say so and stop, rather than spend on
+  // a question I cannot ask.
+  const identity = deps.identity ?? await loadBrandIdentity(tenantId).catch(() => null);
+  if (identity == null || identity.forms.length === 0) {
+    log.warn("[daily-observations] no business name or website on file, so I am not reading answers back for a brand I cannot name", { tenantId, day });
+    return 0;
+  }
+
   const prompts = await (deps.readPrompts ?? readActiveTrackedPrompts)(tenantId).catch(() => null);
   const textOf = new Map((prompts ?? []).map((p) => [p.id, p.text]));
-  const analyze = deps.analyze ?? analyzeOne;
+  const analyze = deps.analyze ?? ((i: Parameters<typeof analyzeOne>[0]) => analyzeOne(i, deps.complete));
   let written = 0;
   for (const row of targets) {
     const question = row.promptText || textOf.get(row.promptId) || "";
     const hash = String(row.answerHash);
-    const analysis = await analyze({
-      tenantId, question, engine: row.engine, answerText: String(row.answerText ?? ""), brand: deps.brand ?? "",
-    }).catch(() => null);
+    const answerText = String(row.answerText ?? "");
+    const analysis = await analyze({ tenantId, question, engine: row.engine, answerText, brand: identity.name }).catch(() => null);
+    // THE SECOND PAIR OF EYES. The model reads the answer; this reads the same answer for
+    // the account's own name and its own address. The verdict is either one of them, and
+    // `matchedBy` records which found it, so a model miss never looks like a real absence.
+    const found = findBrand(identity, answerText, row.citationUrls);
     // A REFUSAL IS A RESULT, and it is stored against the answer it was taken on. Persisting nothing left the
     // same row at the top of the worklist, so a firewall or schema rejection re-bought the same five calls
     // every single pass, forever. A NEW answer hash re-qualifies the row; the same answer never asks twice.
+    // What I DID see in the text still rides along: a refusal is not a reason to lose a mention I can prove.
     if (analysis == null) {
-      await persist(tenantId, row.id, { rejected: true, reason: "I could not produce a reliable reading of this answer, so I recorded that instead of paying to be refused again." }, hash).catch(() => {});
+      await persist(tenantId, row.id, {
+        rejected: true, reason: "I could not produce a reliable reading of this answer, so I recorded that instead of paying to be refused again.",
+        ...(found ? { ownedBrandMention: { mentioned: true, position: null, context: null }, matchedBy: found } : {}),
+      }, hash).catch(() => {});
       continue;
     }
+    const byModel = analysis.ownedBrandMention?.mentioned === true;
+    const record = {
+      ...analysis,
+      ownedBrandMention: { ...analysis.ownedBrandMention, mentioned: byModel || found != null },
+      matchedBy: (byModel && found ? "both" : byModel ? "model" : found) as BrandMatchPath | null,
+    } as unknown as Record<string, unknown>;
     // ONE retry on a lost write. Still lost leaves the row for the next pass, where the gateway's own call
     // cache serves the identical request at $0, so a retry costs nothing but the round trip.
-    const saved = await persist(tenantId, row.id, analysis as unknown as Record<string, unknown>, hash).then(() => true)
-      .catch(() => persist(tenantId, row.id, analysis as unknown as Record<string, unknown>, hash).then(() => true).catch(() => false));
+    const saved = await persist(tenantId, row.id, record, hash).then(() => true)
+      .catch(() => persist(tenantId, row.id, record, hash).then(() => true).catch(() => false));
     if (saved) written += 1;
   }
   if (written > 0) log.info("[daily-observations] read back new AI answers", { tenantId, day, written });

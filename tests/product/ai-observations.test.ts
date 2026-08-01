@@ -6,20 +6,29 @@
  * prompt_answer_observations row as a DERIVED projection. Zero network, zero provider spend.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-const db = vi.hoisted(() => ({ written: [] as { table: string; row: Record<string, unknown> }[], read: [] as Record<string, unknown>[], updated: null as Record<string, unknown> | null, matched: [] as { id: string }[], error: null as { message: string } | null, filters: {} as Record<string, unknown> }));
-/** The ONE fake: Postgres. Every writer, every guard and every projection above it is the real one. */
+const db = vi.hoisted(() => ({ written: [] as { table: string; row: Record<string, unknown> }[], read: [] as Record<string, unknown>[], updated: null as Record<string, unknown> | null, matched: [] as { id: string }[], error: null as { message: string } | null, filters: {} as Record<string, unknown>, pages: [] as [number, number][] }));
+/** The ONE fake: Postgres. Every writer, every guard and every projection above it is the real one. It
+ *  honours `range` the way the real client does, returning ONLY that window, so a reader that asks for
+ *  one page and calls it the whole history is caught here. */
 vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...((await orig()) as object), getSupabaseAdmin: () => ({ from: (table: string) => fakeTable(table) }) }));
 function fakeTable(table: string) {
+  let window: [number, number] | null = null;
   const q: Record<string, unknown> = {
     select: () => q, eq: (c: string, v: unknown) => { db.filters[c] = v; return q; }, order: () => q, limit: () => q,
+    gte: (c: string, v: unknown) => { db.filters[`${c}_gte`] = v; return q; },
+    lte: (c: string, v: unknown) => { db.filters[`${c}_lte`] = v; return q; },
+    range: (from: number, to: number) => { window = [from, to]; db.pages.push([from, to]); return q; },
     update: (patch: Record<string, unknown>) => { db.updated = patch; return q; },
     upsert: (chunk: Record<string, unknown>[]) => { for (const row of chunk) db.written.push({ table, row }); return { select: async () => ({ data: chunk.map((r) => ({ id: r.id })), error: db.error }) }; },
-    then: (res: (v: { data: unknown; error: unknown }) => void) => res({ data: db.updated ? db.matched : db.read, error: db.error }),
+    then: (res: (v: { data: unknown; error: unknown }) => void) =>
+      res({ data: db.updated ? db.matched : (window ? db.read.slice(window[0], window[1] + 1) : db.read), error: db.error }),
   };
   return q;
 }
 import type { Account } from "@/domains/account";
-import { aiObservationId, persistAnswerAnalysis, readAiObservationViews, recordAiObservation, type AiObservationRecord, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
+import { aiObservationId, persistAnswerAnalysis, readAiObservations, readAiObservationViews, recordAiObservation, type AiObservationRecord, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
+import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
+import { loadFunnelState, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type { CachedCallResult, CapabilityKey } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { promptObservationUnit } from "@/domains/evidence/funnel/observe";
@@ -63,7 +72,7 @@ const observations = () => rowsFor("ai_observations") as unknown as AiObservatio
 const history = () => rowsFor("prompt_answer_observations") as unknown as PromptAnswerObservation[];
 const run = (deps: FunnelDeps, due: DueObservation[] | null, tenantId = TENANT) => promptObservationUnit(deps, due)(tenantId, { basis: BASIS, runId: "run-1" }, 60_000);
 
-beforeEach(() => { db.written = []; db.read = []; db.updated = null; db.matched = []; db.error = null; db.filters = {}; });
+beforeEach(() => { db.written = []; db.read = []; db.updated = null; db.matched = []; db.error = null; db.filters = {}; db.pages = []; });
 
 describe("one canonical identity per observation", () => {
   it("stores exactly the pairs that came due, each on the identity a retry can only ever reuse", async () => {
@@ -203,5 +212,45 @@ describe("re-analysis reads what was already bought", () => {
     expect(db.updated).toEqual({ analysis: { mentioned: true }, analysis_hash: "hash-1" });
     db.matched = [];
     await expect(persistAnswerAnalysis(TENANT, "obs_missing", { mentioned: false }, "hash-2")).rejects.toThrow(/matched no row/); // a lost verdict never reads as a saved one
+  });
+  it("pages a whole day range instead of stopping at one query's worth of rows", async () => {
+    const stored = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `obs_${i}`, tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed" }));
+    // 35 questions x 4 engines x 28 days. One capped query returned the newest 2,000 of these, so the
+    // report that claimed 28 days was built from about 14 and every total under it was short.
+    db.read = stored(3920);
+    const rows = await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-28", slot: 0 });
+    expect([rows.length, new Set(rows.map((r) => r.id)).size]).toEqual([3920, 3920]); // every stored row once
+    expect(db.pages).toEqual([[0, 999], [1000, 1999], [2000, 2999], [3000, 3999]]); // 1,000 a page, walked to the end
+    expect([db.filters.tenant_id, db.filters.reporting_day_gte, db.filters.reporting_day_lte, db.filters.sample_slot])
+      .toEqual([TENANT, "2026-07-01", "2026-07-28", 0]); // account, range and slot are all asked in the QUERY
+    db.pages = []; db.read = stored(6000);
+    const bigger = await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-30", slot: 0 });
+    expect([bigger.length, db.pages.length]).toEqual([6000, 7]); // six full pages, and the short page that ends the walk
+  });
+});
+
+describe("retrieved is not the same claim as not cited", () => {
+  const at = (url: string) => ({ url, domain: url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0]!, title: null });
+  const MINE = "https://mine.example/guide";
+  it("subtracts the citations from the retrieval list by canonical url, and claims nothing without them", () => {
+    // The SAME page, read and then credited, differing by scheme, www, a trailing slash and a fragment.
+    const retrieved = [at("http://www.mine.example/guide/#top"), at("https://rival.example/a")];
+    const cited = [at(MINE)];
+    expect(retrievedNotCitedLinks(retrieved, cited).map((r) => r.url)).toEqual(["https://rival.example/a"]);
+    expect(retrievedNotCitedLinks(retrieved, null)).toEqual([]); // citations not observable cannot accuse anyone
+    expect(retrievedNotCitedLinks(null, cited)).toEqual([]);
+    expect(retrievedNotCitedLinks(retrieved, [])).toEqual(retrieved); // an observed zero IS a claim
+  });
+  it("decodes a row stored before this rule as the raw list it always was, subtracted once and never twice", async () => {
+    const pair = { promptId: "q1", engine: "chatgpt", cacheKey: null, status: "done",
+      citations: [at(MINE)], retrievedResults: [at(MINE), at("https://rival.example/a")] } as FunnelPair;
+    const state = { schemaVersion: 3, tenantId: TENANT, basisTag: BASIS, prompts: { pairs: [pair], intendedPairs: 1 } } as FunnelState;
+    const row = { schema_version: 3, state, row_version: 1 };
+    const table = { select: () => table, eq: () => table, maybeSingle: async () => ({ data: row, error: null }) };
+    const loaded = await loadFunnelState(TENANT, BASIS, { configured: () => true, admin: () => ({ from: () => table }) });
+    expect(loaded.state.prompts.pairs[0]!.retrievedResults).toEqual(pair.retrievedResults); // decoded whole, not reinterpreted
+    const once = retrievedNotCitedLinks(loaded.state.prompts.pairs[0]!.retrievedResults, pair.citations);
+    expect(once.map((r) => r.url)).toEqual(["https://rival.example/a"]);
+    expect(retrievedNotCitedLinks(once, pair.citations)).toEqual(once); // deriving again takes nothing more away
   });
 });

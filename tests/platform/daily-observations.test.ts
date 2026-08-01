@@ -12,6 +12,14 @@ vi.mock("@/lib/persistence/supabase", () => ({
     select: (c: string) => { pg.queries += 1; pg.cols.push(c); return q; }, eq: () => q, contains: () => q, order: () => q, limit: () => q,
     then: (res: (v: unknown) => void) => res(pg.queued.shift() ?? { data: [], error: null }) }; return q; } }),
 }));
+/** The spend gate, allowed, so the read-back path below is exercised end to end without a ledger. */
+vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
+  checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {},
+  reserveOnboardingSpend: async () => ({ ok: true }), reconcileOnboardingSpend: async () => {},
+}));
+import { setAccountRepositoryForTests } from "@/domains/account/tenants/store";
+import { __resetBusinessProfileCacheForTests, seedBusinessProfileForTests } from "@/domains/account/business-profile";
+import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { AiObservationView, DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import {
   DAILY_OBSERVATION_BATCH, MAX_SAMPLES_PER_DAY, dailyChecks, dueObservations, extraSampleVerdict, planObservations,
@@ -28,7 +36,7 @@ const PROMPTS = [q("p1", "2026-01-01"), q("p2", "2026-02-01"), q("p3", "2026-03-
 /** One stored observation row in the reader's own view shape. */
 const seen = (o: Partial<AiObservationView> & { promptId: string; engine: string }): AiObservationView => ({
   id: `obs-${o.promptId}-${o.engine}-${o.slot ?? 0}-${o.day ?? DAY}`, version: 1, slot: 0, day: DAY, status: "observed",
-  observedAt: null, promptText: "", answerText: null, answerHash: null, analysis: null, analysisHash: null, ...o,
+  observedAt: null, promptText: "", answerText: null, answerHash: null, citationUrls: null, analysis: null, analysisHash: null, ...o,
 });
 const key = (d: { promptId: string; version: number; engine: string; slot: number }) => `${d.promptId}|${d.version}|${d.engine}|${d.slot}`;
 /** Every pair answered on `day`, so the canonical round is complete. */
@@ -203,6 +211,8 @@ describe("reading the approved questions", () => {
 });
 
 describe("reading the answers back", () => {
+  /** Who the account is, in the shape the Account kernel derives it. */
+  const BRAND = { name: "Acme", forms: ["acme.com", "acme"], host: "acme.com" };
   const analysis = {
     sections: [], claims: [{ subject: "acme", text: "Acme is open on Sundays" }], topicEntities: ["Acme"],
     ownedBrandMention: { mentioned: true, position: 1, context: null }, competitors: [],
@@ -210,7 +220,7 @@ describe("reading the answers back", () => {
   } as unknown as AnswerAnalysis;
   const row = (id: string, answerHash: string, analysisHash: string | null, analysed: boolean): AiObservationView => ({
     id, promptId: `p-${id}`, version: 1, engine: "chatgpt", slot: 0, day: DAY, status: "observed", observedAt: null,
-    promptText: "who is open on sunday", answerText: "Acme is open on Sundays.", answerHash,
+    promptText: "who is open on sunday", answerText: "Acme is open on Sundays.", answerHash, citationUrls: null,
     analysis: analysed ? { ok: true } : null, analysisHash,
   });
 
@@ -225,7 +235,7 @@ describe("reading the answers back", () => {
       readObservations: async () => [fresh, stale, done],
       analyze: async (i: { question: string }) => { calls.push(i.question); return analysis; },
       persist: async (_t: string, id: string, _a: Record<string, unknown>, hash: string) => void saved.push([id, hash]),
-      readPrompts: async () => null,
+      readPrompts: async () => null, identity: BRAND,
     };
     expect(await runAnswerAnalyses(T, DAY, deps)).toBe(2);
     expect(calls).toEqual(["who is open on sunday", "who is open on sunday"]);
@@ -245,7 +255,7 @@ describe("reading the answers back", () => {
       readObservations: async () => many,
       analyze: async () => { attempts += 1; return attempts === 1 ? null : analysis; }, // the first answer could not be read back
       persist: async (_t, id) => { tries += 1; if (id === "r2") throw new Error("write lost"); },
-      readPrompts: async () => null,
+      readPrompts: async () => null, identity: BRAND,
     });
     expect(attempts).toBe(5);   // bounded per pass
     expect(written).toBe(3);    // 5 attempted, 1 produced nothing, 1 write was lost
@@ -259,7 +269,7 @@ describe("reading the answers back", () => {
       readObservations: async () => [rejected],
       analyze: async () => null, // the firewall or the schema refused it
       persist: async (_t, id, a, hash) => void saved.push([id, a, hash]),
-      readPrompts: async () => null,
+      readPrompts: async () => null, identity: BRAND,
     });
     expect([written, saved.length]).toEqual([0, 1]); // a refusal is not an analysis, but it IS recorded
     expect(saved[0]![0]).toBe("x");
@@ -280,3 +290,63 @@ it("never plans more perplexity than one pass can drain, and fills the freed slo
   const plan = planObservations(DAY, { prompts, observed: [] });
   const perp = plan.filter((d) => d.engine === "perplexity").length;
   expect([plan.length, perp]).toEqual([20, 3]); }); // the old plan carried 5+, the pass drained 3, and the skipped rows re-sorted to the head forever
+
+/** WHO the answer was read for. Beacon used to ask the model "was this brand mentioned" with an EMPTY brand, so
+ *  every reading came back "not mentioned" and the AI trend was computed from that. These go through the real
+ *  production wiring (no injected identity): the Account kernel derives the name from the confirmed profile and
+ *  the account's own website, and a deterministic second read of the same answer catches what the model missed. */
+describe("who the answer was read for", () => {
+  const ACCOUNT = { id: T, slug: "acct-a", provisional_name: "whatever a stranger typed at signup", domain: "", status: "active" as const,
+    signup_date: "", tos_accepted_at: null, daily_budget_usd: 5, growth_goal: null, created_at: "", updated_at: "" };
+  const onFile = (name: string, domain: string) => {
+    __resetBusinessProfileCacheForTests();
+    setAccountRepositoryForTests({ getAccountById: async () => ({ ...ACCOUNT, domain }), getAccountBySlug: async () => null });
+    seedBusinessProfileForTests(T, { name: { value: name, origin: "operator_confirmed", confidence: null, sourceUrls: [] } });
+  };
+  const answer = (id: string, answerText: string, citationUrls: string[] | null = null): AiObservationView => ({
+    id, promptId: "p1", version: 1, engine: "chatgpt", slot: 0, day: DAY, status: "observed", observedAt: null,
+    promptText: "who should I read about Iran with", answerText, answerHash: `h-${id}`, citationUrls, analysis: null, analysisHash: null });
+  const READING = { sections: [], claims: [], topicEntities: [], ownedBrandMention: { mentioned: false, position: null, context: null },
+    competitors: [], contentTypesRecommended: [], questionsAnswered: [], materialOmissions: [], caveats: [] } as unknown as AnswerAnalysis;
+  /** One pass, one answer, through the REAL analysis path unless `analyze` is handed over. */
+  const readBack = async (row: AiObservationView, over: Record<string, unknown> = {}) => {
+    const saved: Record<string, unknown>[] = [];
+    const written = await runAnswerAnalyses(T, DAY, {
+      readObservations: async () => [row], persist: async (_t, _id, a) => void saved.push(a), readPrompts: async () => null, ...over });
+    return { written, saved };
+  };
+  beforeEach(() => { setAccountRepositoryForTests(null); __resetBusinessProfileCacheForTests(); });
+
+  it("sends the account's REAL name into the analysis call, taken from the confirmed profile and its own website", async () => {
+    onFile("Iranopedia", "https://www.iranopedia.com/");
+    const asked: string[] = [];
+    const complete: CompleteFn = async ({ user }) => { asked.push(user); return { value: { ...READING, ownedBrandMention: { mentioned: true, position: 1, context: null } } }; };
+    const { written, saved } = await readBack(answer("a", "Iranopedia is the one I would start with."), { complete });
+    expect([written, asked.length]).toEqual([1, 1]);
+    expect(asked[0]).toContain("BRAND TO LOOK FOR: Iranopedia");
+    expect(asked[0]).not.toContain("(none supplied)"); // the defect: an empty brand reached the model on every call
+    expect(saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "both" });
+  });
+
+  it("keeps a mention the model missed, from the answer's own words or an address it credited, and says which found it", async () => {
+    onFile("Iranopedia", "https://www.iranopedia.com/");
+    const missed = { analyze: async () => READING }; // the model read this answer and said "not mentioned"
+    const byText = await readBack(answer("t", "Iranopedia covers the festivals in depth."), missed);
+    expect(byText.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "text" });
+    const byCitation = await readBack(answer("c", "A few travel guides cover it.", ["https://www.iranopedia.com/festivals"]), missed);
+    expect(byCitation.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "citation" });
+    const neither = await readBack(answer("n", "Ask a local travel agent.", ["https://example.com/x"]), missed);
+    expect(neither.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: false }, matchedBy: null }); // a real absence, not a model miss
+  });
+
+  it("never invents a mention out of a longer word, and reads nothing back at all when it cannot name the account", async () => {
+    onFile("Ritz", "https://ritz-builders.com");
+    const { saved } = await readBack(answer("w", "Ritzy Hotels are lovely this time of year."), { analyze: async () => READING });
+    expect(saved[0]).toMatchObject({ ownedBrandMention: { mentioned: false }, matchedBy: null });
+    // No confirmed name and no website: I stop rather than pay to ask the model about nobody.
+    onFile("", "");
+    let calls = 0;
+    const silent = await readBack(answer("z", "Anything at all."), { analyze: async () => { calls += 1; return READING; } });
+    expect([silent.written, silent.saved.length, calls]).toEqual([0, 0, 0]);
+  });
+});

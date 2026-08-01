@@ -439,8 +439,9 @@ function parseLlmAnswer(env: ProviderEnvelope): ParsedAiAnswer {
   // llm_responses documents NEITHER a retrieval list nor a brand list (llm_responses live + task_get, all four engines, 2026-07-31): not observable here reads null, never an observed empty.
   return { answerText: texts.length ? texts.join("\n") : null, modelServed: str(result0?.model_name), webSearchReported: web, citations, fanOutQueries: arrStr(result0?.fan_out_queries), retrievedResults: null, brandMentions: null };
 }
-/** llm_scraper carries the WHOLE consumer journey and keeps its three claims apart: `sources` are the CITED pages, `search_results` are pages retrieved
- *  and NOT credited, `brand_entities` are the brands it named itself. It reports NO web_search field, so the only honest evidence the ask reached the web
+/** llm_scraper carries the WHOLE consumer journey and keeps its three claims apart: `sources` are the CITED pages, `search_results` are the pages it reported
+ *  RETRIEVING (stored as reported, because the endpoint nowhere promises they exclude the cited ones, so the not-cited half is DERIVED downstream by
+ *  retrievedNotCitedLinks and never assumed here), `brand_entities` are the brands it named itself. It reports NO web_search field, so the only honest evidence the ask reached the web
  *  is web results actually in hand; nothing returned at all reads null, never a claimed false. (docs: task_get/advanced, 2026-07-31) */
 function parseScraper(env: ProviderEnvelope): ParsedAiAnswer {
   const { result0 } = resultBlock(env);

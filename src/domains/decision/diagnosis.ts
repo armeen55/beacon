@@ -31,6 +31,7 @@
 import { anchoredTopicMatch, canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { classifyResult, publisherHost } from "@/domains/evidence/serp-shape";
+import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import type { ActionDiagnosis, DiagnosedAction } from "./contracts";
 import type { DecidedTopic } from "./coverage-pass";
 import { RECEIPT } from "./diagnose";
@@ -308,7 +309,10 @@ const RULES: Rule[] = [
       const hosts = ownHosts(c.snapshot);
       // THIS PAGE, not this domain. A retrieval hit on any page of mine used to fire the accusation on
       // every other page of mine, so a page an engine never touched was told it had been read and declined.
-      const seen = aiAnswers(c).find((o) => (o.retrievedResults ?? []).some((r) => canonicalUrlKey(r.url) === c.urlKey)
+      // A stored retrieval list is what the engine reported READING and may hold pages it then credited, so
+      // the citations are subtracted first, by canonical url: reading the list as though it were already
+      // the not-cited half told a page that WAS cited that it had been read and passed over.
+      const seen = aiAnswers(c).find((o) => retrievedNotCitedLinks(o.retrievedResults, o.citations).some((r) => canonicalUrlKey(r.url) === c.urlKey)
         && (o.citations ?? []).length > 0 && (o.citations ?? []).every((x) => !hosts.has(publisherHost(x.url))));
       if (!seen) return { fired: false, reason: "no engine read this page and then cited only other sites" };
       const cited = (seen.citations ?? []).length;

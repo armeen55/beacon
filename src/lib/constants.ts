@@ -1,13 +1,4 @@
-const PLATFORMS = [
-  "chatgpt",
-  "google_aio",
-  "perplexity",
-  "gemini",
-  "claude",
-  "all",
-] as const;
-
-export type Platform = (typeof PLATFORMS)[number];
+export type Platform = "chatgpt" | "google_aio" | "perplexity" | "gemini" | "claude" | "all";
 
 export const PLATFORM_LABELS: Record<Platform, string> = {
   chatgpt: "ChatGPT",
@@ -18,8 +9,7 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
   all: "All Platforms",
 };
 
-const PRIORITIES = ["critical", "high", "medium", "low"] as const;
-export type Priority = (typeof PRIORITIES)[number];
+export type Priority = "critical" | "high" | "medium" | "low";
 
 export const IMPACT_LEVELS = ["high", "medium", "low"] as const;
 export type ImpactLevel = (typeof IMPACT_LEVELS)[number];

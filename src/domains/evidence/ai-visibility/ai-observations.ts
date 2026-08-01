@@ -11,7 +11,7 @@ import type { PromptAnswerObservation } from "./prompt-answer-observations";
  *
  * Before this, an answer was collapsed at capture: the text was hashed and thrown away, the retrieved
  * pages were never stored at all, and a re-read of the same answer meant buying it again. One row here
- * holds the full text, the whole journey (fan-outs, retrieved-but-not-cited pages, cited sources, brands,
+ * holds the full text, the whole journey (fan-outs, the pages it reported retrieving, cited sources, brands,
  * the reported web-search state), the money receipt and the cache identity of the raw envelope, so any
  * later analysis re-reads what was already paid for and never repurchases it.
  *
@@ -172,24 +172,47 @@ export async function recordAiObservation(rec: AiObservationRecord, tenantId: st
   await dualWriteUpsertScoped(AI_OBSERVATIONS_TABLE, [rec], "id", tenantId);
 }
 
+/** ONE page of a paginated read, and the ceiling on a whole read. Bounded so no single visit pulls an
+ *  unbounded table into memory; a range past the ceiling is a fault I say out loud, never a quiet cut. */
+const PAGE_ROWS = 1000, MAX_ROWS = 40_000;
+
 /**
  * Read stored observations back for RE-ANALYSIS. Everything a later pass needs is already on the row, so
  * re-reading an answer costs nothing and no provider is called. A failed read throws (an empty list would
  * read as "this account has no answers", which is a different and false claim).
+ *
+ * EVERY FILTER IS IN THE QUERY, and a NAMED DAY RANGE is then PAGED until it is exhausted: asking for a
+ * range means asking for all of it. It used to be one `.limit(2000)` over the newest rows, so an account
+ * asking 35 questions of 4 engines (140 first readings a day) had its "28 day" history cut around day 14
+ * and every total under it covered a fortnight while claiming a month.
  */
 export async function readAiObservations(
-  tenantId: string, opts: { day?: string; promptId?: string; limit?: number; slot?: number } = {},
+  tenantId: string, opts: { day?: string; fromDay?: string; toDay?: string; promptId?: string; limit?: number; slot?: number } = {},
 ): Promise<AiObservationRecord[]> {
-  let q = getSupabaseAdmin().from(AI_OBSERVATIONS_TABLE).select("*").eq("tenant_id", tenantId);
-  if (opts.day) q = q.eq("reporting_day", opts.day);
-  if (opts.promptId) q = q.eq("prompt_id", opts.promptId);
-  // THE SLOT IS FILTERED IN THE QUERY, never afterwards. A caller that wants only the canonical
-  // first reading and drops the extra volatility samples on its own pays for them out of the row
-  // cap below, so a day sampled three times returns a third of the history it asked for.
-  if (opts.slot !== undefined) q = q.eq("sample_slot", opts.slot);
-  const { data, error } = await q.order("requested_at", { ascending: false }).limit(Math.min(Math.max(1, opts.limit ?? 500), 2000));
-  if (error) throw new Error(`[ai_observations] read failed: ${error.message}`);
-  return (data ?? []) as AiObservationRecord[];
+  const whole = opts.fromDay !== undefined || opts.toDay !== undefined;
+  const want = Math.min(Math.max(1, Math.floor(opts.limit ?? (whole ? MAX_ROWS : 500))), MAX_ROWS);
+  const rows: AiObservationRecord[] = [];
+  let exhausted = false;
+  while (!exhausted && rows.length < want) {
+    const size = Math.min(PAGE_ROWS, want - rows.length);
+    let q = getSupabaseAdmin().from(AI_OBSERVATIONS_TABLE).select("*").eq("tenant_id", tenantId);
+    if (opts.day) q = q.eq("reporting_day", opts.day);
+    if (opts.fromDay) q = q.gte("reporting_day", opts.fromDay);
+    if (opts.toDay) q = q.lte("reporting_day", opts.toDay);
+    if (opts.promptId) q = q.eq("prompt_id", opts.promptId);
+    // The slot is asked for HERE: filtering it afterwards spends every page on samples the caller drops.
+    if (opts.slot !== undefined) q = q.eq("sample_slot", opts.slot);
+    // Newest first, id breaking every tie: without a unique tiebreaker two rows stamped the same instant
+    // can land on both sides of a page edge, so one is read twice and another never at all.
+    const { data, error } = await q.order("requested_at", { ascending: false }).order("id", { ascending: false })
+      .range(rows.length, rows.length + size - 1);
+    if (error) throw new Error(`[ai_observations] read failed: ${error.message}`);
+    const page = (data ?? []) as AiObservationRecord[];
+    rows.push(...page);
+    exhausted = page.length < size; // a short page is the end of the range; a full one means keep walking
+  }
+  if (!exhausted && rows.length >= MAX_ROWS) throw new Error(`[ai_observations] read hit the ${MAX_ROWS} row ceiling; ask for a narrower day range`);
+  return rows;
 }
 
 /** The READER's view of a stored observation: the identity, where it stands, and the text an analysis pass
@@ -207,6 +230,10 @@ export type AiObservationView = {
   promptText: string;
   answerText: string | null;
   answerHash: string | null;
+  /** The addresses this answer CREDITED, in the order it credited them. null keeps the
+   *  row's own tri-state: this path does not report citations at all, which is a
+   *  different claim from "it credited nothing". */
+  citationUrls: string[] | null;
   analysis: Record<string, unknown> | null;
   analysisHash: string | null;
 };
@@ -217,6 +244,7 @@ function viewAiObservation(r: AiObservationRecord): AiObservationView {
     id: r.id, promptId: r.prompt_id, version: r.prompt_version, engine: r.engine, slot: r.sample_slot,
     day: r.reporting_day, status: r.status, observedAt: r.completed_at, promptText: r.prompt_text,
     answerText: r.answer_text, answerHash: r.answer_hash, analysis: r.analysis, analysisHash: r.analysis_hash,
+    citationUrls: r.journey?.cited_sources?.map((c) => c.url || c.domain) ?? null,
   };
 }
 

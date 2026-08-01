@@ -36,28 +36,6 @@ import {
 } from "./snapshot";
 import { domainOf } from "./relevance-gate";
 
-/** Run one source reader fail-soft, mapping throw → failed, empty → empty. */
-async function loadSource<T>(
-  label: string,
-  read: () => Promise<T>,
-  isEmpty: (value: T) => boolean,
-  empty: T,
-): Promise<LoadedSource<T>> {
-  try {
-    const value = await read();
-    return {
-      status: isEmpty(value) ? "empty" : "fresh",
-      lastSyncedAt: null,
-      payload: value,
-    };
-  } catch (e) {
-    log.warn(`[evidence-snapshot] ${label} read failed (fail-soft)`, {
-      error: e instanceof Error ? e.message.slice(0, 200) : String(e),
-    });
-    return { status: "failed", lastSyncedAt: null, payload: empty };
-  }
-}
-
 export type LoadEvidenceSnapshotOptions = {
   /** Site host (e.g. "iranopedia.com") used to tell owned vs competitor AI
    *  citations apart. Falls back to the most common owned-page host. */

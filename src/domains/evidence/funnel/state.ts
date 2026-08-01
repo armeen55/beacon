@@ -88,7 +88,10 @@ export type FunnelPair = {
   citationsObserved?: boolean;
   /** null = not observable; [] = observed zero; nonempty = real citations. */
   citations?: { url: string; domain: string; title: string | null }[] | null;
-  /** Pages the engine RETRIEVED but did not cite (null = not observable on this path). */
+  /** EXACTLY the pages the engine reported it RETRIEVED. A page here may ALSO be in `citations`, since the
+   *  provider never promises the lists are disjoint, so nothing may read this as "retrieved and not cited":
+   *  `retrievedNotCitedLinks` does that subtraction for every consumer. Rows stored earlier hold the same
+   *  raw list under the same name, so they decode unchanged. null = not observable; [] = observed zero. */
   retrievedResults?: { url: string; domain: string; title: string | null }[] | null;
   /** Brand names the engine itself surfaced (null = not observable). */
   brandMentions?: string[] | null;

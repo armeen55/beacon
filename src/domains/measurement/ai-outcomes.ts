@@ -31,11 +31,8 @@ import {
   readAiObservations,
   type AiObservationRecord,
 } from "@/domains/evidence/ai-visibility/ai-observations";
+import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 
-/** One read pulls back at most this many FIRST readings: four engines x a dozen questions x 28
- *  days fits. The extra volatility samples are excluded by the query itself (slot below), so they
- *  never consume this cap and quietly truncate the history a trend is drawn over. */
-const MAX_ROWS = 2000;
 /** Slot 0: the ONE canonical reading of a question on a day. */
 const FIRST_READING_SLOT = 0;
 /** The longest stretch one Shipment is judged over. */
@@ -50,8 +47,9 @@ type Analysis = {
   competitors?: Array<{ name?: unknown; position?: unknown }> | null;
 };
 
-/** The injectable read. Production passes nothing and gets the stored-observation reader itself. */
-type ReadRows = (tenantId: string, opts: { limit?: number; slot?: number }) => Promise<AiObservationRecord[]>;
+/** The injectable read. Production passes nothing and gets the stored-observation reader itself. The DAY
+ *  RANGE is part of the ask, so the store returns the requested stretch and nothing outside it. */
+type ReadRows = (tenantId: string, opts: { limit?: number; slot?: number; fromDay?: string; toDay?: string }) => Promise<AiObservationRecord[]>;
 type ReadOpts = { ownedHost?: string | null; readObservations?: ReadRows };
 
 /** What one engine was serving on one day. `asked` is every first reading planned that day whatever came
@@ -71,7 +69,9 @@ type OutcomeDay = {
   mentionRate: number | null;
   citationSample: number; ownedCiting: number; ownedCitationRate: number | null; ownedCitationRank: number | null;
   retrievalSample: number; ownedRetrieved: number; retrievedNotCited: number;
-  /** Of the answers that read your page, the share that then credited someone else. Null when none read it. */
+  /** Of the answers that read a page of yours, the share where that page was not among the ones credited.
+   *  Derived by subtracting the citations from the retrieval list, never read off the list. Null when
+   *  no answer read a page of yours at all. */
   retrievedNotCitedRate: number | null;
   byEngine: EnginePresence[];
 };
@@ -195,12 +195,14 @@ function dayTotals(day: string, rows: AiObservationRecord[], root: string): Outc
       if (at >= 0) { ownedCiting += 1; rankSum += at + 1; rankCount += 1; }
     }
     // Retrieved-but-not-cited needs BOTH halves: what the engine read AND what it credited. One without the
-    // other cannot support the claim, so that answer is left out of the sample rather than guessed at.
+    // other cannot support the claim, so that answer leaves the sample rather than being guessed at. The
+    // retrieval list is what the provider REPORTED READING and may hold pages it then credited, so the
+    // subtraction runs through the one canonical-url derivation, never off the stored list.
     if (read !== null && cited !== null) {
       retrievalSample += 1;
       if (read.some((c) => isOwned(c, root))) {
         ownedRetrieved += 1;
-        if (!cited.some((c) => isOwned(c, root))) retrievedNotCited += 1;
+        if (retrievedNotCitedLinks(read, cited).some((c) => isOwned(c, root))) retrievedNotCited += 1;
       }
     }
   }
@@ -280,12 +282,14 @@ function competitorsIn(rows: AiObservationRecord[]): AiOutcomeReport["competitor
     .slice(0, MAX_COMPETITORS);
 }
 
-/** The stored first readings for one account. The slot is asked for in the QUERY so the cap holds
- *  first readings only; the row filter after it is the belt to that braces, and the one that holds
- *  when a caller injects its own reader. */
-const readRows = async (tenantId: string, opts: ReadOpts): Promise<AiObservationRecord[]> =>
-  (await (opts.readObservations ?? readAiObservations)(tenantId, { limit: MAX_ROWS, slot: FIRST_READING_SLOT }))
-    .filter((r) => r.tenant_id === tenantId && isFirstReading(r));
+/** The stored first readings for one account OVER ONE DAY RANGE. Range and slot are both asked for in the
+ *  QUERY and the store pages until that range is exhausted, so every total below covers every day it
+ *  claims. This used to ask for the newest 2,000 rows and narrow to the range afterwards, so an account
+ *  reading 35 questions on 4 engines (140 first readings a day) had its 28 day report built from about a
+ *  fortnight. The filter after the read is the belt to that braces, and holds for an injected reader. */
+const readRows = async (tenantId: string, window: { from: string; to: string }, opts: ReadOpts): Promise<AiObservationRecord[]> =>
+  (await (opts.readObservations ?? readAiObservations)(tenantId, { fromDay: window.from, toDay: window.to, slot: FIRST_READING_SLOT }))
+    .filter((r) => r.tenant_id === tenantId && isFirstReading(r) && r.reporting_day >= window.from && r.reporting_day <= window.to);
 
 /**
  * THE DAILY TREND READ over stored answers: how often AI named this account, how often it credited its
@@ -297,7 +301,7 @@ export async function aiOutcomes(
   tenantId: string,
   range: { from: string; to: string } & ReadOpts,
 ): Promise<AiOutcomeReport> {
-  const rows = (await readRows(tenantId, range)).filter((r) => r.reporting_day >= range.from && r.reporting_day <= range.to);
+  const rows = await readRows(tenantId, range, range);
   const root = ownedRootOf(rows, range.ownedHost);
   const days = [...groupBy(rows, (r) => r.reporting_day).entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
@@ -363,8 +367,8 @@ function outcomeLine(direction: ShipmentAiOutcome["direction"], before: Shipment
 
 /**
  * WHAT THE AI ANSWERS DID AROUND ONE SHIPPED CHANGE. The before side is the starting number written onto the
- * Shipment when the operator marked it done, or, when none was held, the last day of stored answers ahead of
- * the stamp. The after side is the stamp to now, bounded to 28 days. Both sides count the same way.
+ * Shipment when the operator marked it done, or, when none was held, the last day of stored answers in the
+ * 28 days ahead of the stamp. The after side is the stamp to now, bounded to 28 days. Both count the same way.
  *
  * Coverage rides the answer: days I actually read against days that have passed. A missed day is missing and
  * is never filled in from its neighbours, and under half coverage is `unclear`, not a verdict. Null when the
@@ -382,7 +386,9 @@ export async function aiOutcomeForShipment(
   // counted the same way and coverage can never read as more days than have actually elapsed.
   const last = addDays(stamp, SHIPMENT_WINDOW_DAYS - 1);
   const to = now < last ? now : last;
-  const rows = await readRows(tenantId, opts);
+  // ONE bounded read covering both sides: the 28 days ahead of the stamp, where the fallback before-number
+  // is found, and the 28 days after it. Bounding the before side is what lets the whole after side be read.
+  const rows = await readRows(tenantId, { from: addDays(stamp, -SHIPMENT_WINDOW_DAYS), to }, opts);
 
   const held = shipment.shipmentBaseline?.ai ?? null;
   const beforeRows = rows.filter((r) => r.reporting_day < stamp && cameBack(r));

@@ -9,7 +9,6 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { getRepository } from "@/lib/persistence/repositories";
-import { getTenant } from "@/domains/account/tenants/store";
 import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { inferBrandSuffix } from "./brand-heuristics";
 import { loadGscPageSignalsForTenant } from "@/domains/evidence/readers/gsc-page-signals";
@@ -161,13 +160,12 @@ async function loadPageSurgeonContextUncached(
   tenantId: string,
 ): Promise<PageSurgeonContext> {
   const repo = getRepository().forTenant(tenantId);
-  const [snapshots, gscByUrl, clarityByUrl, ga4ByUrl, tenant] =
+  const [snapshots, gscByUrl, clarityByUrl, ga4ByUrl] =
     await Promise.all([
       repo.getPageSnapshots().catch(() => [] as PageSnapshot[]),
       loadGscPageSignalsForTenant(tenantId).catch(() => new Map()),
       loadClarityPageSignalsForTenant(tenantId).catch(() => new Map()),
       loadGa4PageValuesForTenant(tenantId).catch(() => new Map()),
-      getTenant(tenantId).catch(() => null),
     ]);
 
   const snapshotByCanon = new Map<string, PageSnapshot>();

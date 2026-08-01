@@ -5,7 +5,7 @@ import { requireReadyAccount } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import { scheduleAutoMeasure, visibilitySeries } from "@/domains/measurement";
 import { bundleReads, splitReads, type BundleRead } from "@/domains/measurement";
-import { ledgerCheckedAgoLine, loadResultsLedgerSurface } from "./results-ledger-data";
+import { loadResultsLedgerSurface } from "./results-ledger-data";
 import { ResultCard } from "./results-ledger-card";
 import { aiTrend, type ShipmentPresentation } from "./results-presentation";
 import { RecomputeLedgerButton, RecordAnyPageForm } from "./proof-ledger-client";
@@ -31,10 +31,10 @@ export default async function ProofPage({
   const tenantId = await currentTenantId();
   const { access } = await requireReadyAccount(tenantId);
   if (access.kind === "suspended") redirect("/");
-  const surface = await loadResultsLedgerSurface().catch(() => ({ shipments: [] as ShipmentPresentation[], computedAt: null }));
+  const surface = await loadResultsLedgerSurface().catch(() => ({ shipments: [] as ShipmentPresentation[], computedAt: null, checkedAgoLine: null }));
   const shipments = surface.shipments;
   const reads = shipments.map((s) => s.read);
-  const checkedAgo = ledgerCheckedAgoLine(surface.computedAt, Date.now());
+  const checkedAgo = surface.checkedAgoLine ?? null;
 
   // Settle due rows in the background (never blocks this render).
   if (reads.length > 0) scheduleAutoMeasure(tenantId);

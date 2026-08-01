@@ -1,4 +1,3 @@
-import type { SourceCategory } from "@/domains/evidence/ai-visibility/citation-observations";
 // Type-only import (erased at compile) for the retired-engine row shapes
 // at the bottom of this file; no runtime cycle with competitor-evidence.
 import type { SourceType, ResponseType } from "./competitor-evidence";

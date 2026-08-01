@@ -11,7 +11,7 @@
     "supabase:management-check": "node scripts/supabase-management-check.mjs",
     "check": "npm run typecheck && npm run lint && npm run build",
   "guard:foundation": "node scripts/check-foundation-budget.mjs",
-  "gate": "npm run guard:foundation && npm run typecheck && npm run test && npm run build",
+  "gate": "npm run guard:foundation && npm run lint && npm run typecheck && npm run test && npm run build",
     "data:backfill-db": "npx tsx scripts/backfill-to-supabase.ts",
     "data:parity": "npx tsx scripts/compare-parity.ts",
     "verify:brain-health": "npx tsx --require ./scripts/mock-server-only.cjs scripts/verify-brain-health-watchdog.ts",

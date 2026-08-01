@@ -146,3 +146,28 @@ export function canonicalizeCitationUrl(
   // dropped by reading only `pathname`.
   return `https://${host}${path}`;
 }
+
+/** The comparison key for one observed link: the canonical form when the URL parses, and the same strip of
+ *  scheme, `www.`, query, fragment and trailing slash by hand when it does not, so a link the canonicalizer
+ *  refuses still compares against itself instead of silently matching nothing. */
+const comparisonKey = (raw: string): string =>
+  canonicalizeCitationUrl(raw)
+  ?? raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
+
+/**
+ * THE one derivation of "the engine read this page and credited somebody else". A provider reports what it
+ * RETRIEVED and what it CITED as two lists and never promises the first excludes the second, so a retrieval
+ * list is stored exactly as reported and the not-cited half is subtracted HERE, by canonical url
+ * (`https://www.x.com/a/` and `http://x.com/a#top` are one page). Every consumer calls this; reading a
+ * stored retrieval list as the answer turns "it read your page" into "it read your page and passed it over".
+ * Citations never observable (null) yield NO claim, an empty list rather than the whole retrieval list:
+ * "I do not know what it credited" cannot support "it credited somebody else".
+ */
+export function retrievedNotCitedLinks<T extends { url: string }>(
+  retrieved: readonly T[] | null | undefined,
+  cited: readonly T[] | null | undefined,
+): T[] {
+  if (retrieved == null || cited == null) return [];
+  const credited = new Set(cited.map((c) => comparisonKey(c.url)));
+  return retrieved.filter((r) => !credited.has(comparisonKey(r.url)));
+}

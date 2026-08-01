@@ -18,7 +18,7 @@
  */
 
 import { join } from "node:path";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 
 // Phase 7.8b-1 (2026-04-25): computed at call time so tests can
 // `process.chdir()` and have path resolution follow.

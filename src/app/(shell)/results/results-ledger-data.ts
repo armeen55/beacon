@@ -27,6 +27,8 @@ import type { ShipmentPresentation } from "./results-presentation";
 type ResultsLedgerSurface = {
   shipments: ShipmentPresentation[];
   computedAt: string | null;
+  /** The staleness line, clocked HERE at load time so the page render stays pure. */
+  checkedAgoLine?: string | null;
 };
 
 /**
@@ -92,7 +94,10 @@ async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedgerSurface
 
 /** Request-memoized /results reads, SWR-cached cross-request. */
 export const loadResultsLedgerSurface = cache(
-  async (): Promise<ResultsLedgerSurface> => loadLedgerWithSwr(await currentTenantId()),
+  async (): Promise<ResultsLedgerSurface> => {
+    const surface = await loadLedgerWithSwr(await currentTenantId());
+    return { ...surface, checkedAgoLine: ledgerCheckedAgoLine(surface.computedAt, Date.now()) };
+  },
 );
 
 /**
@@ -111,7 +116,7 @@ export async function rebuildResultsSurface(tenantId: string): Promise<void> {
  * unparseable timestamp; a snapshot younger than a minute reads "just now". Beacon
  * voice: first person, no lab words, no dashes.
  */
-export function ledgerCheckedAgoLine(computedAtIso: string | null, nowMs: number): string | null {
+function ledgerCheckedAgoLine(computedAtIso: string | null, nowMs: number): string | null {
   if (computedAtIso == null) return null;
   const t = Date.parse(computedAtIso);
   if (!Number.isFinite(t)) return null;

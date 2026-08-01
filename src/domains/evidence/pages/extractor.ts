@@ -554,13 +554,6 @@ function countFaqPageBlocks(data: unknown): number {
   return count;
 }
 
-function extractDomain(url: string): string | null {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return null;
-  }
-}
 
 /**
  * N19 (2026-07-02): normalize extracted node text before word-counting it.

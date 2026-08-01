@@ -91,7 +91,10 @@ function variantsOf(urls: string[]): string[] {
     // just read looked unread, and it was fetched again on the next run, forever.
     const schemes = /^https?:\/\//i.test(raw) ? [raw] : [raw, `https://${raw}`, `http://${raw}`];
     const hosts = schemes.flatMap((u) => [u, /^https?:\/\/www\./i.test(u) ? u.replace(/^(https?:\/\/)www\./i, "$1") : u.replace(/^(https?:\/\/)/i, "$1www.")]);
-    for (const u of hosts) out.add(u.endsWith("/") ? u.replace(/\/+$/, "") : `${u}/`), out.add(u.replace(/\/+$/, ""));
+    for (const u of hosts) {
+      out.add(u.endsWith("/") ? u.replace(/\/+$/, "") : `${u}/`);
+      out.add(u.replace(/\/+$/, ""));
+    }
   }
   return [...out];
 }

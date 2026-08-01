@@ -30,7 +30,14 @@ function row(over: RowOver = {}): AiObservationRecord {
 }
 
 const link = (domain: string) => ({ url: `https://${domain}/page`, domain, title: null });
-const reader = (rows: AiObservationRecord[]) => vi.fn(async () => rows.map((r) => ({ ...r })));
+/** A store that answers like the real one: only the slot and the day range that were ASKED for, a named
+ *  range read whole, and a fixed count never exceeded. A module that asks for the newest N rows and
+ *  narrows to its range afterwards gets a truncated history here, exactly as it does in production. */
+const reader = (rows: AiObservationRecord[]) =>
+  vi.fn(async (_t: string, o: { limit?: number; slot?: number; fromDay?: string; toDay?: string }) =>
+    rows.filter((r) => (o.slot === undefined || r.sample_slot === o.slot)
+      && (!o.fromDay || r.reporting_day >= o.fromDay) && (!o.toDay || r.reporting_day <= o.toDay))
+      .slice(0, o.limit ?? (o.fromDay || o.toDay ? 40_000 : 500)).map((r) => ({ ...r })));
 const allDays = (report: Awaited<ReturnType<typeof aiOutcomes>>) => report.segments.flatMap((s) => s.days);
 
 describe("the daily AI trend, over stored answers only", () => {
@@ -59,11 +66,16 @@ describe("the daily AI trend, over stored answers only", () => {
       row({ day: "2026-07-20", prompt_id: "p2", mentioned: false, journey: journey({ cited_sources: [link("rival.example")], retrieved_results: [link(SITE)] }) }),
       // The engine reported nothing about its sources at all: it joins neither sample.
       row({ day: "2026-07-20", prompt_id: "p3", mentioned: false }),
+      // THE SAME page of yours, read and then CREDITED, differing only by www, scheme, a trailing slash
+      // and a fragment. A page the engine cited was never a page it read and passed over.
+      row({ day: "2026-07-20", prompt_id: "p4", mentioned: true, journey: journey({
+        cited_sources: [{ url: `https://www.${SITE}/guide/`, domain: `www.${SITE}`, title: null }],
+        retrieved_results: [{ url: `http://${SITE}/guide#top`, domain: SITE, title: null }] }) }),
     ]);
     const [day] = allDays(await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-20", readObservations }));
     expect(day).toMatchObject({
-      citationSample: 2, ownedCiting: 1, ownedCitationRate: 0.5, ownedCitationRank: 3,
-      retrievalSample: 1, ownedRetrieved: 1, retrievedNotCited: 1, retrievedNotCitedRate: 1,
+      citationSample: 3, ownedCiting: 2, ownedCitationRate: 0.667, ownedCitationRank: 2,
+      retrievalSample: 2, ownedRetrieved: 2, retrievedNotCited: 1, retrievedNotCitedRate: 0.5,
     });
   });
   it("says null for retrieved-but-not-cited when the journey never recorded what was read", async () => {
@@ -114,11 +126,27 @@ describe("the daily AI trend, over stored answers only", () => {
     expect(report.competitors[0]).toEqual({ name: "Rival One", answers: 2, meanPosition: 1 });
     expect(report.competitors[1]).toEqual({ name: "Rival Two", answers: 1, meanPosition: 2 });
   });
-  it("asks the store for first readings only, so the extra samples never eat the row cap", async () => {
+  it("asks the store for the day range and the first readings, so nothing is narrowed after the read", async () => {
     const readObservations = reader([row({ day: "2026-07-20", mentioned: true })]);
-    await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-20", readObservations });
-    // Filtering the slot after the read would spend the cap on samples this trend then throws away.
-    expect(readObservations).toHaveBeenCalledWith(T, { limit: 2000, slot: 0 });
+    await aiOutcomes(T, { from: "2026-07-19", to: "2026-07-21", readObservations });
+    // Asking for the newest N rows and cutting to the range afterwards spends the whole read on the
+    // newest days and on samples this trend then throws away, so the older half of the range vanishes.
+    expect(readObservations).toHaveBeenCalledWith(T, { fromDay: "2026-07-19", toDay: "2026-07-21", slot: 0 });
+  });
+  /** `prompts` questions x four engines x `days` days of first readings: the shape a real account stores. */
+  const history = (days: number, prompts: number) =>
+    Array.from({ length: days }).flatMap((_, d) => Array.from({ length: prompts }).flatMap((__, p) =>
+      (["chatgpt", "claude", "gemini", "perplexity"] as const).map((engine) =>
+        row({ day: new Date(Date.parse("2026-07-01T00:00:00.000Z") + d * 86_400_000).toISOString().slice(0, 10), prompt_id: `p${p}`, engine, mentioned: true }))));
+  const observedIn = (report: Awaited<ReturnType<typeof aiOutcomes>>) => allDays(report).reduce((n, d) => n + d.observed, 0);
+  it("reads the WHOLE requested range, never the first page of it", async () => {
+    const rows = history(28, 35); // 35 questions x 4 engines x 28 days
+    expect(rows).toHaveLength(3920);
+    const report = await aiOutcomes(T, { from: "2026-07-01", to: "2026-07-28", readObservations: reader(rows) });
+    const days = allDays(report);
+    // A 2,000 row cap over the newest readings held about a fortnight, so a 28 day report was half a month.
+    expect([observedIn(report), days[0]!.day, days.at(-1)!.day, days.length]).toEqual([3920, "2026-07-01", "2026-07-28", 28]);
+    expect(observedIn(await aiOutcomes(T, { from: "2026-07-01", to: "2026-07-30", readObservations: reader(history(30, 50)) }))).toBe(6000);
   });
   it("never reads another account's answers", async () => {
     const readObservations = reader([

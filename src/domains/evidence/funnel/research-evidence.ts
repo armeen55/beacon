@@ -73,7 +73,8 @@ type ResearchAiObservation = {
   citations: ResearchCitation[] | null;
   /** null = not observable on this path. */
   fanOutQueries: string[] | null;
-  /** Pages the engine retrieved but did NOT cite; null = not observable. Distinct from citations always. */
+  /** The pages the engine reported it RETRIEVED. A page here may also appear in `citations`, so the
+   *  not-cited half is derived by `retrievedNotCitedLinks`, never read off this list. null = not observable. */
   retrievedResults?: { url: string; domain: string; title: string | null }[] | null;
   /** Brand names the engine itself surfaced; null = not observable, [] never fabricated. */
   brandMentions?: string[] | null;
