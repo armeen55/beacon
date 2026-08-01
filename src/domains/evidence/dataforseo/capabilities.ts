@@ -4,6 +4,7 @@ import { isDataForSeoConfigured, runDataForSeoTransport } from "./client";
 import { collectResolvedTask, identityCacheKey, runResolvedCall, type ResolvedCall } from "./cached-call";
 import { resolveDeps } from "./default-deps";
 import { normalizePageIntersection, parsePageIntersection, MAX_INTERSECTION_PAGES } from "../page-intersection";
+import { freshnessMsFor } from "../freshness";
 import type {
   CachedCallResult, CapabilityInputByKey, CapabilityKey, EngineModelResolution, FunnelBoundaryDeps,
   ObservationIdentity, ParsedAiAnswer, ParsedByCapability, ParsedKeywordItem, ParsedSerp, ProviderEnvelope,
@@ -23,7 +24,7 @@ const DAY = 86_400_000;
 const MAX_IDEAS_SEEDS = 200, IDEAS_DEFAULT_LIMIT = 700, IDEAS_MAX_LIMIT = 1000; // documented keyword_ideas seed ceiling, default and max limit, in ONE place so the ask and the built body agree
 /** serp_competitors documents the SAME 200-keyword ceiling and a limit that defaults to 100 and maxes at 1000. Beacon asks for 50: a case wants the
  *  handful of domains that keep coming up, not a directory. (docs: dataforseo_labs/google/serp_competitors/live, read 2026-07-31) */
-const COMPETITORS_SEEDS = 200, COMPETITORS_LIMIT = 50, MAX_COMPETITOR_ROWS = 50;
+const COMPETITORS_SEEDS = 200, COMPETITORS_LIMIT = 50, COMPETITORS_MAX_LIMIT = 1000, MAX_COMPETITOR_ROWS = 50;
 /** Bound the token-variable half of every LLM ask at the REQUEST. Documented on chat_gpt/claude/gemini llm_responses task_post AND live and on perplexity
  *  live ("maximum value: 4096; default value: 2048"), NOT on llm_scraper, so it is never sent there. Honest limit: with web_search or a reasoning model
  *  the output may exceed it, so this narrows the spend, it does not hard-cap it. */
@@ -150,8 +151,11 @@ const REGISTRY: Registry = {
   // RESERVATION arithmetic, NOT a flat price: a real keyword_overview call of at most 150 keywords charged $0.02988, about $0.0002 per keyword, so a FULL
   // 700-keyword request lands near 700 x 0.0003 = $0.21. Reserved at 0.25, rounded UP, so the ceiling is never held BELOW what the provider can charge;
   // reconcile drops the reservation to the actual cost.
+  // The CACHE LIFETIME IS THE FRESHNESS MATRIX, not a number of its own: the provider reports volume and
+  // difficulty monthly, so a seven-day ttl expired a row every side of the product still calls current and
+  // bought the identical numbers back four times a month.
   labs_keyword_overview: {
-    ttlMs: 7 * DAY, estCostUsd: 0.25, dims: { device: false, model: false },
+    ttlMs: freshnessMsFor("keyword_volume"), estCostUsd: 0.25, dims: { device: false, model: false },
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_overview/live", getPath: null, tasksReady: null }),
     build: (i) => [{ keywords: i.keywords, location_code: LOCATION_US, language_code: LANG_EN }], parse: parseKeywords,
   },
@@ -159,7 +163,7 @@ const REGISTRY: Registry = {
   // $0.00012 per returned row, so 700 rows lands near 0.012 + 700 x 0.00012 = $0.096 and the 1000-row ceiling near $0.132. Reserved at 0.2, rounded UP past
   // the largest response this endpoint can return; reconcile drops it to actual.
   labs_keyword_ideas: {
-    ttlMs: 7 * DAY, estCostUsd: 0.2, dims: { device: false, model: false },
+    ttlMs: freshnessMsFor("keyword_volume"), estCostUsd: 0.2, dims: { device: false, model: false },
     normalize: (i) => ({ ...i, keywords: [...new Set(i.keywords.map((k) => String(k ?? "").trim().toLowerCase()).filter(Boolean))].sort().slice(0, MAX_IDEAS_SEEDS), limit: Math.min(Math.max(1, Math.trunc(i.limit ?? IDEAS_DEFAULT_LIMIT)), IDEAS_MAX_LIMIT) }), // normalized BEFORE the identity: a direct call skipped the batched helper and re-bought the same rows
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_ideas/live", getPath: null, tasksReady: null }),
     build: (i) => [{ keywords: i.keywords.slice(0, MAX_IDEAS_SEEDS), location_code: LOCATION_US, language_code: LANG_EN, limit: Math.min(Math.max(1, Math.trunc(i.limit ?? IDEAS_DEFAULT_LIMIT)), IDEAS_MAX_LIMIT) }], parse: parseKeywords,
@@ -172,12 +176,12 @@ const REGISTRY: Registry = {
     ttlMs: 7 * DAY, estCostUsd: 0.05, dims: { device: false, model: false },
     // Normalized BEFORE the identity, exactly like keyword_ideas: the provider lowercases the keywords itself, so two orderings or two spellings of one set
     // must never derive two cache identities.
-    normalize: (i) => ({ keywords: [...new Set(i.keywords.map((k) => String(k ?? "").trim().toLowerCase()).filter(Boolean))].sort().slice(0, COMPETITORS_SEEDS), limit: Math.min(Math.max(1, Math.trunc(i.limit ?? COMPETITORS_LIMIT)), IDEAS_MAX_LIMIT) }),
+    normalize: (i) => ({ keywords: [...new Set(i.keywords.map((k) => String(k ?? "").trim().toLowerCase()).filter(Boolean))].sort().slice(0, COMPETITORS_SEEDS), limit: Math.min(Math.max(1, Math.trunc(i.limit ?? COMPETITORS_LIMIT)), COMPETITORS_MAX_LIMIT) }),
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/serp_competitors/live", getPath: null, tasksReady: null }),
     // item_types organic ONLY: a paid placement is not a page that wins a search, and the default sends both.
     build: (i) => {
       if (i.keywords.length === 0) throw new MissingFieldsError("labs_serp_competitors", [`keywords (1 to ${COMPETITORS_SEEDS} keywords)`]);
-      return [{ keywords: i.keywords, location_code: LOCATION_US, language_code: LANG_EN, item_types: ["organic"], limit: Math.min(Math.max(1, Math.trunc(i.limit ?? COMPETITORS_LIMIT)), IDEAS_MAX_LIMIT) }];
+      return [{ keywords: i.keywords, location_code: LOCATION_US, language_code: LANG_EN, item_types: ["organic"], limit: Math.min(Math.max(1, Math.trunc(i.limit ?? COMPETITORS_LIMIT)), COMPETITORS_MAX_LIMIT) }];
     },
     parse: parseSerpCompetitors,
   },

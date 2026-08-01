@@ -17,12 +17,25 @@
  * absorbed C, so C points straight at A), so a two-hop id can never fold under a middle id that is no
  * longer a case of its own.
  *
+ * THE REGISTRY OUTRANKS THE GROUPING RULES. Deterministic grouping is how evidence the file has never seen
+ * becomes a case; it is NOT how an established case is re-decided. Two searches the semantic pass proved are
+ * one subject are re-partitioned into two groups by rules that never agreed they were one, so the canonical
+ * id won one group, the other minted a THIRD id, the absorbed alias pointed at the wrong case, and every
+ * comparison bought under it was stranded. The registry never settled and paid for a reading every pass.
+ * So BEFORE an id is assigned, the groups are unioned against what is on file: for each LIVE case, every
+ * group holding any of that case's anchors becomes ONE group. A merge therefore survives every later pass
+ * unchanged, and a SPLIT still works, because a split gives each branch its OWN row with its own anchors:
+ * two rows, two unions, two groups. Identity is the registry's job; the rules only group what it never saw.
+ *
  * BOUNDED: at most MAX_CASES rows on file, and a case is kept or dropped as ONE UNIT with its aliases,
- * because an alias the cap orphaned is paid evidence nobody can find again.
+ * because an alias the cap orphaned is paid evidence nobody can find again. Two rows can never leave here
+ * claiming ONE id: a duplicate is dropped loudly, because a registry that answers twice for one id is a
+ * registry nothing downstream can join against.
  */
 
 import { createHash } from "node:crypto";
 
+import { log } from "@/lib/logger";
 import type { ResearchCase } from "./funnel/research-evidence";
 import { canonicalQueryKey } from "./relevance-gate";
 
@@ -32,9 +45,11 @@ const MAX_CASES = 60;
 /** The addresses one case may carry. A case answered by nine of my pages is a case I have not settled. */
 const MAX_PAGES = 8;
 
-/** ONE case resolved against the rows on file: the id it keeps, every anchor it is about, and every id it
- *  still answers to (absorbed today, plus every alias those ids already carried). */
-export type CaseFold = { id: string; anchors: string[]; aliases: string[] };
+/** ONE case resolved against the rows on file: the id it keeps, every anchor it is about, every id it still
+ *  answers to (absorbed today, plus every alias those ids already carried), and `from`, the indexes of the
+ *  caller's OWN groups this case was folded out of. `from` carries more than one index exactly when the
+ *  registry outranked the rules, so the caller builds ONE packet for the one case rather than two. */
+export type CaseFold = { id: string; anchors: string[]; aliases: string[]; from: number[] };
 
 const mintCaseId = (keys: readonly string[]): string =>
   `inv_${createHash("sha256").update(keys[0] ?? "").digest("hex").slice(0, 12)}`;
@@ -60,12 +75,31 @@ export function foldCases(groups: readonly string[][], cases: readonly ResearchC
     live.set(id, row);
     if (c.id !== id) kept.set(id, (kept.get(id) ?? new Set<string>()).add(c.id));
   }
-  const want = groups.map((g) => new Set(g));
-  const tag = groups.map((g) => g.join("|"));
+  // ── the registry outranks the rules: one live case, one group, before any id is assigned ──
+  const parent = groups.map((_, i) => i);
+  const find = (i: number): number => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const holders = new Map<string, number[]>();
+  groups.forEach((g, i) => { for (const a of g) holders.set(a, [...(holders.get(a) ?? []), i]); });
+  for (const row of live.values()) {
+    let head = -1;
+    for (const a of row.anchors) for (const i of holders.get(a) ?? []) { if (head < 0) head = find(i); else parent[find(i)] = head; }
+  }
+  const merged: number[][] = [];
+  const seat = new Map<number, number>();
+  for (let i = 0; i < groups.length; i += 1) {
+    const r = find(i);
+    if (!seat.has(r)) { seat.set(r, merged.length); merged.push([]); }
+    merged[seat.get(r)!]!.push(i);
+  }
+  // Sorted, so the same evidence in any order mints the same id and scores the same way.
+  const united = merged.map((from) => [...new Set(from.flatMap((i) => groups[i]!))].sort());
+
+  const want = united.map((g) => new Set(g));
+  const tag = united.map((g) => g.join("|"));
   const won = new Map<number, string[]>();
   for (const [id, row] of [...live].sort((a, b) => a[0].localeCompare(b[0]))) {
     let at = -1, best: [number, number, string] = [-1, -1, ""];
-    for (let i = 0; i < groups.length; i += 1) {
+    for (let i = 0; i < united.length; i += 1) {
       const n = [...row.anchors].filter((a) => want[i].has(a)).length;
       const score: [number, number, string] = [want[i].has(row.minted) ? 1 : 0, n, tag[i]];
       if (n === 0 || (at >= 0 && (score[0] < best[0] || (score[0] === best[0] && (score[1] < best[1] || (score[1] === best[1] && score[2] >= best[2])))))) continue;
@@ -73,11 +107,12 @@ export function foldCases(groups: readonly string[][], cases: readonly ResearchC
     }
     if (at >= 0) won.set(at, [...(won.get(at) ?? []), id]);
   }
-  return groups.map((g, i) => {
+  return united.map((g, i) => {
     const held = (won.get(i) ?? []).sort((a, b) => live.get(b)!.anchors.size - live.get(a)!.anchors.size || a.localeCompare(b));
     const id = held[0] ?? mintCaseId(g);
     return {
       id,
+      from: merged[i]!,
       aliases: [...new Set([...held.slice(1), ...held.flatMap((h) => [...(kept.get(h) ?? [])])])].filter((a) => a !== id).sort(),
       anchors: [...new Set([...held.flatMap((h) => [...live.get(h)!.anchors]), ...g])].slice(0, MAX_ANCHORS),
     };
@@ -99,8 +134,16 @@ export function caseRows(folded: readonly CaseFold[], onFile: readonly ResearchC
     const head = c.aliasOf && !touched.has(c.aliasOf) ? c.aliasOf : c.id;
     dormant.set(head, [...(dormant.get(head) ?? []), c]);
   }
-  const out: ResearchCase[] = [];
-  for (const unit of [...units, ...dormant.values()]) if (out.length + unit.length <= MAX_CASES) out.push(...unit);
+  // ONE ROW PER ID, STRUCTURALLY. A Map keyed on id would have hidden this: two rows answering for one case
+  // means a downstream join reads whichever it happened to see, so the duplicate is dropped and SAID.
+  const out: ResearchCase[] = [], taken = new Set<string>();
+  for (const unit of [...units, ...dormant.values()]) {
+    const rows = unit.filter((c) => !taken.has(c.id));
+    if (rows.length < unit.length) log.warn("[case-identity] two rows claimed one case id; I kept the first and dropped the rest", { dropped: unit.filter((c) => taken.has(c.id)).map((c) => c.id) });
+    if (rows.length === 0 || out.length + rows.length > MAX_CASES) continue;
+    for (const c of rows) taken.add(c.id);
+    out.push(...rows);
+  }
   return out;
 }
 
@@ -134,9 +177,11 @@ type SynthesisPlan = {
  *
  * REFUSED BEFORE APPLIED, deterministically, and returned rather than thrown so the caller can say what it
  * did not accept: a merge of two cases that share no anchor and no result site is two strangers being forced
- * together and is dropped; a split that would move every search out of a case is a rename and is dropped;
- * a second split of one case in one pass is dropped; and a parent that is the case itself, that already has
- * a different parent, or that closes a loop is dropped. Nothing here can lose a case that was on file.
+ * together; a merge naming an id that was already absorbed is refused OUT LOUD rather than silently doing
+ * nothing; a split that would empty a case is a rename; a second split of one case in one pass is dropped;
+ * and so is a parent that is the case itself, that has a different parent, or that closes a loop. An accepted
+ * split SHEDS the moved searches from the case they left, because that row is what the next pass unions
+ * against. Nothing here can lose a case that was on file.
  */
 export function applySynthesis(
   cases: readonly ResearchCase[],
@@ -146,6 +191,9 @@ export function applySynthesis(
   const refused: string[] = [];
   const live = cases.filter((c) => !c.aliasOf || c.aliasOf === c.id);
   const anchorsOf = new Map(live.map((c) => [c.id, c.anchors]));
+  /** Ids that ARE on file but are no longer a case of their own: naming one is not a no-op worth hiding. */
+  const absorbed = new Set(cases.filter((c) => c.aliasOf && c.aliasOf !== c.id).map((c) => c.id));
+  const gone = (id: string): string => `${id} ${absorbed.has(id) ? "names a case that was already absorbed into another one" : "is not a case I hold"}`;
   const shares = (a: string, b: string): boolean =>
     (anchorsOf.get(a) ?? []).some((x) => (anchorsOf.get(b) ?? []).includes(x))
     || (domains.get(a) ?? []).some((d) => (domains.get(b) ?? []).includes(d));
@@ -156,7 +204,11 @@ export function applySynthesis(
   const joined = new Set<string>();
   for (const m of plan.merges) {
     for (const id of m.absorbIds) {
-      if (!anchorsOf.has(m.keepId) || !anchorsOf.has(id) || root(id) === root(m.keepId)) continue;
+      // A MERGE NAMING AN ID THAT IS ALREADY AN ALIAS USED TO APPLY AS SILENCE: nothing happened and nothing
+      // said so, so the log claimed a reading had been applied in full when half of it named absorbed cases.
+      const missing = [m.keepId, id].filter((x) => !anchorsOf.has(x));
+      if (missing.length > 0) { refused.push(`I did not join ${m.keepId} and ${id}: ${missing.map(gone).join(", and ")}.`); continue; }
+      if (root(id) === root(m.keepId)) continue; // already one case in this same pass: a real no-op
       if (!shares(m.keepId, id)) {
         refused.push(`I did not join ${m.keepId} and ${id}: they share no search and no site, so I hold nothing that says they are one subject.`);
         continue;
@@ -184,13 +236,17 @@ export function applySynthesis(
   }
 
   // ── one fold, through the rule that has always decided identity ──
+  // A SPLIT MUST SHED THE SEARCHES IT MOVED. The row a case leaves behind is what the next pass unions its
+  // groups against, so a parent that kept the moved anchor said "these two are one subject" in the very
+  // place that now outranks every rule, and the branch was folded straight back in on the next reconcile.
+  const shed = cases.map((c) => (moved.has(c.id) ? { ...c, anchors: c.anchors.filter((a) => !moved.get(c.id)!.includes(a)) } : c));
   const groups = new Map<string, string[]>();
   for (const c of live) {
     const out = new Set(moved.get(c.id) ?? []);
     const at = root(c.id);
     groups.set(at, [...new Set([...(groups.get(at) ?? []), ...c.anchors.filter((a) => !out.has(a))])]);
   }
-  const rows = caseRows(foldCases([...[...groups.values()].filter((g) => g.length > 0), ...moved.values()], cases), cases);
+  const rows = caseRows(foldCases([...[...groups.values()].filter((g) => g.length > 0), ...moved.values()], shed), shed);
 
   // ── what answers this case, and what it sits under ──
   const byId = new Map(rows.map((c) => [c.id, c]));

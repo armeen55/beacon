@@ -8,6 +8,7 @@
  */
 
 import type { FunnelResearchEvidence, WinnerReadOutcome } from "./funnel/research-evidence";
+import { freshnessMsFor } from "./freshness";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { canonicalQueryKey, topicTokens } from "./relevance-gate";
 
@@ -92,11 +93,10 @@ export type WinnerRef = {
 
 // ── documented thresholds ────────────────────────────────────────────────────
 
-/** The funnel looks again after a week, so an older look is not current. */
-export const SERP_FRESH_MS = 7 * 24 * 3600 * 1000;
-/** A winner's body moves far slower than its ranking: a month-old read still
- *  describes today's page, an older one is not evidence of the present pattern. */
-const EXTRACT_FRESH_MS = 30 * 24 * 3600 * 1000;
+/** HOW OLD IS TOO OLD IS NOT THIS FILE'S OPINION. Two constants lived here, one per kind of evidence, and
+ *  they were the same two numbers the acquisition side keeps in evidence/freshness: nothing stopped a look
+ *  this projection called current from being a look the funnel had already re-bought, or the reverse. Both
+ *  are gone; the matrix answers, so there is no second constant left to drift. */
 /** A page type needs this many DISTINCT domains to have classified at all ... */
 const MIN_DOMAIN_VOTES = 3;
 /** ... at least half of them agreeing ... */
@@ -249,7 +249,7 @@ export function winnerStateOf(win: WinRow, builtAt: number): WinnerExtractState 
   const x = win.extract;
   if (!x) return "missing";
   if (x.wordCount < MIN_READABLE_WORDS || (x.headings.length === 0 && !x.title)) return "unreadable";
-  const f = freshnessAt(x.fetchedAt ?? null, builtAt, EXTRACT_FRESH_MS);
+  const f = freshnessAt(x.fetchedAt ?? null, builtAt, freshnessMsFor("winner_extract"));
   return f === "current" ? "current" : f === "stale" ? "stale" : "undated";
 }
 
@@ -266,7 +266,7 @@ export function serpRefOf(serp: SerpRow, winners: WinRow[], builtAt: number): Se
   return {
     query: serp.query,
     observedAt: at,
-    freshness: freshnessAt(at, builtAt, SERP_FRESH_MS),
+    freshness: freshnessAt(at, builtAt, freshnessMsFor("serp_cold")),
     organicResults: serp.organic.length,
     distinctDomains: new Set(serp.organic.map(publisherOf)).size,
     aiOverviewCitations: serp.aiOverview.length,

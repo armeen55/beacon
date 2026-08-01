@@ -63,9 +63,10 @@ export type ResearchRunProgress = {
   focus?: { basis: string | null; topics: Array<{ topicKey: string | null; query: string | null; requirement: string | null; retryAfter?: string | null; ownedUrl?: string | null }> };
   /** LEGACY, read-only: a run frozen before `focus` existed carries only its query strings. Never written now. */
   surfacePublished?: boolean;
-  /** The operator's durable ask for extra readings of today's AI answers: the day, and how many EXTRA
-   *  readings per pair were granted (max two). The press and the pass that acts on it are different requests. */
+  /** The operator's durable ask for extra readings of today's AI answers: the day and how many EXTRA readings per pair were granted (max two); the press and the pass that acts on it are two requests.
+   *  And whether this run already attempted its ONE advisory reading of the case registry: reconciliation runs before every unit, so without a marker of its own that reading was bounded per iteration. */
   extraSamples?: { day: string; granted: number };
+  synthesisAttempted?: boolean;
   /** Slice 6: real persisted funnel counters (never fabricated). */
   funnel?: {
     rawKeywords?: number; normalizedKeywords?: number; retainedKeywords?: number;

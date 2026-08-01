@@ -7,7 +7,7 @@ import { describe, it, expect, vi } from "vitest";
 // Budget is not this file's subject: always-allowed, no-op hermetic seam.
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 import { synthesizeCases, type SynthesisCandidate } from "@/domains/decision/case-synthesis";
-import { applySynthesis } from "@/domains/evidence/case-identity";
+import { applySynthesis, caseRows } from "@/domains/evidence/case-identity";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import type { CaseSynthesis } from "@/domains/decision/llm/schemas";
 import type { ResearchCase } from "@/domains/evidence/funnel/research-evidence";
@@ -50,7 +50,18 @@ describe("what the semantic reading may change about my case registry", () => {
     const alias = out.cases.find((c) => c.aliasOf)!; // WHICH id survives stays the file's own rule, never the reading's preference
     expect([alias.aliasOf, alias.anchors, live(out).length]).toEqual([kept.id, [], ALL.length - 1]);
     expect([...MALE.anchors, ...NAMES.anchors].every((a) => kept.anchors.includes(a))).toBe(true); // one case, every search it was ever about
-    expect(held(out, TERMS.id)).toEqual(TERMS); }); // the terminology question is its own subject and no merge touched it
+    expect(held(out, TERMS.id)).toEqual(TERMS); // the terminology question is its own subject and no merge touched it
+    // THE MERGE IS THE REGISTRY'S NOW, so the rules can never take it apart again: three more reconciles, the same rows every time, no third id, nothing to save.
+    let rows = out.cases;
+    for (let n = 0; n < 3; n += 1) { const next = apply(reading(), rows); expect([next.cases, next.refused]).toEqual([rows, []]); rows = next.cases; } });
+  it("says so when a merge names a case that was already absorbed, instead of applying as silence", () => {
+    const merged = apply(reading({ merges: [{ keepId: NAMES.id, absorbIds: [MALE.id], reason: "One subject." }] })).cases;
+    const alias = merged.find((c) => c.aliasOf)!.id, canonical = merged.find((c) => c.aliasOf)!.aliasOf!;
+    const out = apply(reading({ merges: [{ keepId: TERMS.id, absorbIds: [alias], reason: "These belong together." },
+      { keepId: "inv_ghost", absorbIds: [RUGS.id], reason: "And so do these." }] }), merged);
+    expect(out.refused).toEqual([`I did not join ${TERMS.id} and ${alias}: ${alias} names a case that was already absorbed into another one.`,
+      `I did not join inv_ghost and ${RUGS.id}: inv_ghost is not a case I hold.`]);
+    expect([out.cases, out.cases.filter((c) => c.id === canonical).length]).toEqual([merged, 1]); }); // nothing moved, and one row per id either way
   it("files which page answers which case, so one page can answer two cases and one case can hold two pages", () => {
     const out = apply(reading({ merges: [{ keepId: NAMES.id, absorbIds: [MALE.id], reason: "One subject: names people give a child." }],
       pageLinks: [{ caseId: NAMES.id, url: "/iranian-names", relation: "covers", reason: "This page answers the whole question." },
@@ -64,11 +75,19 @@ describe("what the semantic reading may change about my case registry", () => {
   it("splits one case into exactly one new branch, and refuses a split that would empty it", () => {
     const out = apply(reading({ splits: [{ fromId: RUGS.id, moveQueries: ["persian rug cleaning"], reason: "Cleaning a rug is a job to book, not the history to read." }] }));
     const branch = live(out).find((c) => !ALL.some((f) => f.id === c.id))!; // ONE new id, minted for the branch that left
-    // The case that stays keeps every search it has EVER been about, because that history is what its identity is
-    // matched against on the next pass. What the split changes is where the moved search is answered from now on.
-    expect([held(out, RUGS.id)!.anchors, branch.anchors, out.cases.some((c) => c.aliasOf)]).toEqual([RUGS.anchors, [canonicalQueryKey("persian rug cleaning")], false]);
+    // THE CASE THAT STAYS SHEDS THE SEARCH IT MOVED. The row it leaves behind is what the next pass unions its groups against, so a parent that kept the
+    // moved anchor would say, in the one place that now outranks every grouping rule, that the two of them are one subject, and the branch it just minted
+    // would be folded straight back into it on the very next reconcile.
+    const gone = canonicalQueryKey("persian rug cleaning");
+    expect([held(out, RUGS.id)!.anchors, branch.anchors, out.cases.some((c) => c.aliasOf)]).toEqual([RUGS.anchors.filter((a) => a !== gone), [gone], false]);
+    const after = apply(reading(), out.cases); // two rows, two unions, two groups: the split survives its own next reconcile and mints nothing
+    expect([after.cases, after.refused]).toEqual([out.cases, []]);
     const emptied = apply(reading({ splits: [{ fromId: RUGS.id, moveQueries: RUGS.anchors, reason: "Every one of these is its own thing." }] }));
     expect([emptied.refused, live(emptied).length]).toEqual([[`I did not split ${RUGS.id}: that moves every search out of it, which renames a case rather than splitting one.`], ALL.length]); });
+  it("can never hand back two rows claiming one case id, whatever it was folded from", () => {
+    // A Map keyed on id would have hidden this: two rows answering for one case means every join downstream reads whichever one it happened to see first.
+    const rows = caseRows([{ id: "inv_one", anchors: ["x"], aliases: ["inv_two"], from: [0] }, { id: "inv_two", anchors: ["y"], aliases: [], from: [1] }], [MALE]);
+    expect([rows.map((c) => c.id), rows.map((c) => c.aliasOf ?? "")]).toEqual([["inv_one", "inv_two", MALE.id], ["", "inv_one", ""]]); });
   it("reads rows written before any of this existed, and carries what it filed forward untouched", () => {
     expect(Object.keys(held(apply(reading()), LEADER.id)!)).toEqual(["id", "anchors"]); // an old row stays exactly the case it was: no page, no parent, no new key
     const first = apply(reading({ pageLinks: [{ caseId: RUGS.id, url: "/persian-rugs", relation: "covers", reason: "This page is the answer." }] }));
@@ -97,6 +116,13 @@ describe("the one reading a pass may buy", () => {
     const strangerSearch = reading({ splits: [{ fromId: NAMES.id, moveQueries: ["a search nobody made"], reason: "This one is its own subject." }] });
     for (const bad of [strangerCase, strangerPage, strangerSearch]) expect(await synthesizeCases(CANDIDATES, "t_fixture", { complete: seam(bad).complete })).toBeNull();
     expect(await synthesizeCases(CANDIDATES.slice(0, 1), "t_fixture", { complete: seam(MERGE).complete })).toBeNull(); }); // one case is nothing to regroup: no call at all
+  it("reviews the cases the run is stuck on first, then the ones the most people search for, and never the ones whose id happens to sort early", async () => {
+    const seen: string[] = [];
+    const complete: CompleteFn = async (req) => { seen.push(String((req as { user?: string }).user ?? "")); return { value: reading() }; };
+    const many = [candidate(RUGS, ["persian rug history"]), candidate(NEWS, ["iran news this week"]), candidate(LEADER, ["iran leader"]), candidate(TERMS, ["persian vs iranian"])];
+    await synthesizeCases([{ ...many[0]!, demand: 40 }, { ...many[1]!, demand: 90 }, { ...many[2]!, demand: 10, inPlan: true }, many[3]!], "t_fixture", { complete });
+    expect(seen[0]!.split("\n").filter((l) => l.startsWith("inv_")).map((l) => l.split(" ")[0]))
+      .toEqual([LEADER.id, NEWS.id, RUGS.id, TERMS.id]); }); // frozen plan first, then 90, then 40, then the one with no priced demand at all
   it("asks the same question once: an unchanged registry buys no second reading", async () => {
     const s = seam(MERGE); const cacheImpl = memoryCache();
     const first = await synthesizeCases(CANDIDATES, "t_fixture", { complete: s.complete, cacheImpl });

@@ -30,7 +30,7 @@ import { resolveCurrentBasis } from "./load-proposals";
 import { adjudicateCoverage, intersectionComparison, readComparison,
   type CoverageDecision, type CoverageVerdict, type IntersectionEvidence, type MissingRequirement } from "./coverage-adjudication";
 import type { OwnedPageReadOutcome } from "@/domains/evidence/funnel/research-evidence";
-import { isCurrent } from "@/domains/evidence/funnel/shared";
+import { isCurrent } from "@/domains/evidence/freshness";
 
 /** THE order every step reads: fewest missing pieces first, then the largest demand behind it, then
  *  the stable key, so the same evidence always advances the SAME topic whether it is being bought

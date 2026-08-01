@@ -177,9 +177,16 @@ describe("buildTopicInvestigations - the research packet", () => {
     expect(build({ cases: saved }).find((i) => i.label.includes("kayak paddle"))!.aliasKeys).toEqual(["inv_alpha"]); expect(reconcileResearchCases(world({ cases: saved }))).toEqual(saved); // and a fixpoint, never a growing pile
     expect(reconcileResearchCases(world({ cases: [...two, { id: "inv_gamma", anchors: [], aliasOf: "inv_alpha" }] })).filter((c) => c.aliasOf).map((c) => `${c.id} ${c.aliasOf}`).sort()).toEqual(["inv_alpha inv_beta", "inv_gamma inv_beta"]); // alpha absorbed gamma and beta absorbed alpha: ONE canonical id, written back flat
     expect(reconcileResearchCases(world({ cases: [...two, ...Array.from({ length: 70 }, (_, i) => ({ id: `inv_old${i}`, anchors: [`old${i}`] }))] })).filter((c) => c.aliasOf === "inv_beta").map((c) => c.id)).toEqual(["inv_alpha"]); // the cap spends itself on dormant rows, never on an alias of a case it keeps
-    const split = build({ cases: [{ id: "inv_split", anchors: [...anchorsOf("kayak paddle"), ...anchorsOf("tote")] }] });
-    expect(split.filter((i) => i.key === "inv_split").map((i) => i.label)).toEqual([byLabel("kayak paddle").label]); // the branch holding the minting anchor keeps the identity
-    expect(new Set(split.map((i) => i.key)).size).toBe(split.length); }); // and no two live cases ever share an id
+    // THE REGISTRY OUTRANKS THE GROUPING RULES: one row holding the anchors of two rule-made groups is ONE case, united BEFORE any id is assigned. The rules
+    // never agreed those searches were one subject, so re-partitioning them awarded the id to one half and minted a THIRD for the other, on every pass.
+    const both = [...anchorsOf("kayak paddle"), ...anchorsOf("tote")];
+    const united = build({ cases: [{ id: "inv_split", anchors: both }] }).filter((i) => i.key === "inv_split");
+    expect([united.length, united[0]!.queries.some((q) => q.includes("tote")), united[0]!.queries.some((q) => q.includes("paddle"))]).toEqual([1, true, true]);
+    // AND IT SETTLES: three consecutive reconciles, byte-identical rows every time, no third id and no movement after the first.
+    let settled = reconcileResearchCases(world({ cases: [{ id: "inv_split", anchors: both }] }));
+    for (let n = 0; n < 3; n += 1) { const next = reconcileResearchCases(world({ cases: settled }));
+      expect([next, next.some((c) => c.id === "inv_split" && !c.aliasOf)]).toEqual([settled, true]); settled = next; }
+    expect(new Set(build({ cases: settled }).map((i) => i.key)).size).toBe(build({ cases: settled }).length); }); // and no two live cases ever share an id
   it("puts the pages that actually rank first, so an alphabetically earlier rank 8 is never compared instead of rank 1", () => {
     const at = (url: string, rank: number | null, kind: App["kind"] = "serp_organic") => ({ ...win(url, "harbor kayak paddle", body(NOW)),
       appearances: [{ kind, query: "harbor kayak paddle", promptId: null, promptText: null, engine: null, rank, citedUrl: url, observedAt: NOW, modelServed: null }] });

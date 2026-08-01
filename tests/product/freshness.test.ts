@@ -6,13 +6,16 @@
 import { describe, it, expect } from "vitest";
 import { emptyBusinessProfile, type Account, type BusinessProfile } from "@/domains/account";
 import type { CachedCallResult, CapabilityKey, ParsedSerp, ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
-import { parseCapability } from "@/domains/evidence/dataforseo/capabilities";
+import { parseCapability, providerCall } from "@/domains/evidence/dataforseo/capabilities";
+import { writePublicPageExtract } from "@/domains/evidence/dataforseo/funnel-boundary";
+import { labsKeywordsForSiteLive } from "../fixtures/dataforseo-envelopes";
 import { DEFAULT_MONTHLY_CAP_USD, monthlyCapUsd } from "@/domains/evidence/dataforseo/client";
 import { DEFAULT_GLOBAL_MONTHLY_CAP_USD, decideBreaker } from "@/lib/cost/cost-breaker";
 import { serpAnalysisUnit } from "@/domains/evidence/funnel/observe";
 import { winningPagesUnit } from "@/domains/evidence/funnel/winning-pages";
 import { emptyFunnelState, type FunnelState } from "@/domains/evidence/funnel/state";
-import { freshnessMsFor, isCurrent, type FunnelDeps } from "@/domains/evidence/funnel/shared";
+import { freshnessMsFor, isCurrent } from "@/domains/evidence/freshness";
+import type { FunnelDeps } from "@/domains/evidence/funnel/shared";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 
 const BASIS = "basis_aaa", NOW = 1_700_000_000_000, DAY = 86_400_000;
@@ -43,6 +46,24 @@ describe("the freshness matrix", () => {
     expect(isCurrent("owned_page", read, NOW, at(NOW - DAY))).toBe(false); // the page changed AFTER I read it: recent, and no longer about the page that exists
     expect(isCurrent("owned_page", read, NOW, at(NOW - 5 * DAY))).toBe(true); // it changed BEFORE I read it, so my read already saw the change
   });
+});
+
+describe("what the matrix actually buys", () => {
+  /** HALF THE MATRIX WAS DECORATIVE: the windows above said a month while the row holding the evidence expired in a week, so a page every side of the
+   *  product still called current was thrown away and bought back. The cache lifetime IS the matrix now, on the ask and on the banked body alike. */
+  const written: Record<string, unknown>[] = [];
+  const deps = { env: { DATAFORSEO_AUTH_B64: "abc" } as unknown as NodeJS.ProcessEnv, now: () => new Date(NOW),
+    fetchImpl: (async () => new Response(JSON.stringify(labsKeywordsForSiteLive), { status: 200 })) as unknown as typeof fetch,
+    claimEvidenceFetch: async () => ({ outcome: "claimed", payload: null, providerTaskId: null, modelServed: null, readyAt: null, costUsd: 0 }),
+    reserveProviderSpend: async () => true, adjustProviderSpend: async () => true, breaker: async () => ({ tripped: false }), cacheRead: async () => null,
+    cacheWrite: async (_k: string, patch: Record<string, unknown>) => void written.push(patch), cacheUpsert: async (_k: string, r: Record<string, unknown>) => void written.push(r) };
+  const lived = () => Date.parse(String(written.filter((w) => w.status === "ready").at(-1)!.expires_at)) - NOW;
+  it("keeps a priced keyword row and a banked body for exactly as long as the matrix calls them current", async () => {
+    for (const cap of ["labs_keyword_overview", "labs_keyword_ideas"] as const) {
+      await providerCall(cap, { keywords: ["saffron"] }, { tenantId: "t", unitKey: "u" }, deps as never);
+      expect([cap, lived()]).toEqual([cap, freshnessMsFor("keyword_volume")]); } // volume is reported monthly: a weekly ttl re-bought identical numbers 4x a month
+    await writePublicPageExtract("https://a.example/p", { title: "T" }, "hash", deps as never);
+    expect(lived()).toBe(freshnessMsFor("winner_extract")); }); // and a body the projection still reads as current is a body the store still holds
 });
 
 describe("hot versus cold searches", () => {

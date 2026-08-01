@@ -15,7 +15,8 @@ import { type FunnelState, type FunnelWinningPage } from "./state";
 import { askIdentity, normalizePageIntersection, parsePageIntersection, type PageIntersectionAsk } from "@/domains/evidence/page-intersection";
 import { publisherHost } from "@/domains/evidence/serp-shape";
 import { pageExtractFrom, pageExtractFromRecord, type IntersectionUnavailable, type OwnedPageReadOutcome, type ResearchPageComparison, type ResearchPageExtract, type ResearchWinningAppearance, type WinnerReadOutcome } from "./research-evidence";
-import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, isCurrent, modeOf, NO_BASIS_DETAIL, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
+import { isCurrent } from "@/domains/evidence/freshness";
+import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, modeOf, NO_BASIS_DETAIL, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
 
 /** ONE explicit acquisition budget per cycle, never a global free-for-all. 15 winning pages are ranked, so three priority searches keep their own three, and 18 is the MOST I ever go out and read: those 15 plus at
  *  most ONE substitute for each of the three priority searches, every one of them spending an ATTEMPT from the same total. Paid body reads are bounded SEPARATELY at 6, because they are the only page work that

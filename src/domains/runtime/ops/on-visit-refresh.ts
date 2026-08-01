@@ -101,8 +101,9 @@ export type ResearchCycleSteps = {
   /** The account's CURRENT onboarding basis (the one Account fingerprint); the funnel scopes every derived read/write to it. Null = not resolvable. */
   currentBasis: (tenantId: string) => Promise<string | null>;
   /** Freeze every case's identity on file before anything reads or spends against it. RESOLVES only when that identity is actually persisted; a THROW
-   *  pauses the phase before a focus, a unit or a cent. */
-  reconcileCases: (tenantId: string, basis: string) => Promise<void>;
+   *  pauses the phase before a focus, a unit or a cent. `plan` bounds the ONE advisory reading: which cases this run froze (they are reviewed first),
+   *  whether a reading may still be attempted at all this run, and `mark`, called at the instant one is attempted so the runner can persist that fact. */
+  reconcileCases: (tenantId: string, basis: string, plan: CaseReconcilePlan) => Promise<void>;
   publishSurface: (tenantId: string, attemptKey: string) => Promise<void>;
   surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
   /** Read back the day's NEW answers (bounded, $0 when nothing changed). Returns how many analyses were persisted. Derived work: it never pauses the run. */
@@ -115,21 +116,29 @@ export type ResearchCycleOptions = {
   steps?: Partial<ResearchCycleSteps>;
 };
 
+/** What this run still allows the ONE advisory reading. `mark` is the runner's own receipt: the reading is bounded per RUN, never per unit iteration. */
+type CaseReconcilePlan = { planKeys: string[]; maySynthesize: boolean; mark: () => void };
+
+/** DID THE REGISTRY ACTUALLY MOVE? Compared the way the registry is READ and never the way it happened to be written: the same rows in another order, or one
+ *  row's anchors in another order, are the SAME registry, and a raw JSON compare called that a move, saved it, and bought a reading of a file nothing changed. */
+const canonicalRegistry = (rows: readonly ResearchCase[] = []): string => JSON.stringify([...rows].map((c) => ({ id: c.id, anchors: [...c.anchors].sort(), aliasOf: c.aliasOf ?? null, parentId: c.parentId ?? null, pages: (c.pages ?? []).map((p) => `${p.url}|${p.relation}`).sort() })).sort((a, b) => a.id.localeCompare(b.id)));
+const sameRegistry = (before: readonly ResearchCase[] = [], after: readonly ResearchCase[] = []): boolean => canonicalRegistry(before) === canonicalRegistry(after);
+
 /** Fold this account's case identities onto the ones already on file and PERSIST them, or THROW. It used to swallow every failure, so a run whose
  *  identities were never written went straight on to freeze a plan and spend against them: the comparison it bought belonged to an id nothing on file
- *  agreed with. A losing row version is a failure too, because nothing was saved. Nothing here is a partial success. THEN, and only when the registry
- *  actually moved this pass, ONE advisory semantic reading of it (see decision/case-synthesis). That step is fail-soft by contract: the deterministic
- *  identities are already saved, so a reading I could not get, could not trust, or could not write is simply absent, and the run goes on against exactly
- *  the grouping it just proved. */
-async function reconcileCases(tenantId: string, basis: string): Promise<void> {
+ *  agreed with. A losing row version is a failure too, because nothing was saved. Nothing here is a partial success. THEN, and only when the registry actually
+ *  moved this pass AND this run has not asked yet, ONE advisory semantic reading of it (see decision/case-synthesis). That step is fail-soft by contract: the
+ *  deterministic identities are already saved, so a reading I could not get, could not trust or could not write is simply absent. */
+async function reconcileCases(tenantId: string, basis: string, plan: CaseReconcilePlan): Promise<void> {
   const saved = await (async () => {
     const snapshot = await loadEvidenceSnapshot(tenantId);
     const cases = reconcileResearchCases(snapshot);
     const loaded = await loadFunnelState(tenantId, basis);
-    if (JSON.stringify(loaded.state.cases) === JSON.stringify(cases)) return true; // nothing moved: no save, and nothing to re-read
+    if (sameRegistry(loaded.state.cases, cases)) return true; // nothing moved: no save, and nothing to re-read
     const rowVersion = await saveFunnelState(tenantId, basis, { ...loaded.state, cases }, loaded.rowVersion);
     if (rowVersion == null) return false;
-    await refineCases(tenantId, basis, snapshot, cases, { ...loaded.state, cases }, rowVersion).catch(() => {});
+    // The mark goes down BEFORE the reading, so one that came back empty, refused or unusable still spends this run's single attempt.
+    if (plan.maySynthesize) { plan.mark(); await refineCases(tenantId, basis, snapshot, cases, { ...loaded.state, cases }, rowVersion, plan.planKeys).catch(() => {}); }
     return true;
   })().catch(() => false);
   if (!saved) throw new Error("I could not save which of your topics are which, so I stopped before spending anything on them. I pick this up again on your next visit.");
@@ -138,22 +147,20 @@ async function reconcileCases(tenantId: string, basis: string): Promise<void> {
 /** The ONE semantic pass over the registry that just changed, applied through the SAME identity rules and saved through the SAME path. Everything it
  *  proposes is checked before it is applied, and what I refuse is recorded rather than argued with. A lost row version here changes nothing that is
  *  already on file. */
-async function refineCases(
-  tenantId: string, basis: string, snapshot: EvidenceSnapshot, cases: ResearchCase[], state: FunnelState, rowVersion: number,
-): Promise<void> {
+async function refineCases(tenantId: string, basis: string, snapshot: EvidenceSnapshot, cases: ResearchCase[], state: FunnelState, rowVersion: number, planKeys: string[] = []): Promise<void> {
   const investigations = buildTopicInvestigations(snapshot);
   if (investigations.length < 2) return;
-  // Which of MY OWN pages Google already serves for a case's own searches: the only addresses the reading may name. It is a lookup over evidence already in
-  // hand, so it fetches nothing and costs nothing.
+  // Which of MY OWN pages Google already serves for a case's own searches: the only addresses the reading may name, a lookup over evidence already in hand, so it
+  // fetches nothing and costs nothing. WHICH cases get reviewed when there are more than the reading may hold: the ones this run froze, then the biggest demand.
   const owned = snapshot.ownedPages.map((p) => ({ url: p.url, keys: new Set((p.search?.topQueries ?? []).map((q) => canonicalQueryKey(q.query))) }));
   const synthesis = await synthesizeCases(investigations.map((i) => ({
     id: i.key, label: i.label, queries: i.queries, prompts: i.trackedPrompts.map((p) => p.promptText), groupedBy: i.groupedBy,
-    ownedUrls: owned.filter((o) => i.queries.some((q) => o.keys.has(canonicalQueryKey(q)))).map((o) => o.url),
+    ownedUrls: owned.filter((o) => i.queries.some((q) => o.keys.has(canonicalQueryKey(q)))).map((o) => o.url), inPlan: planKeys.includes(i.key), demand: i.demand.monthlySearchVolume,
   })), tenantId);
   if (!synthesis) return;
   const applied = applySynthesis(cases, synthesis, new Map(investigations.map((i) => [i.key, i.resultDomains])));
   for (const refusal of applied.refused.slice(0, 5)) log.info("[research-run] part of the reading of your topics did not hold up", { tenantId, refusal });
-  if (JSON.stringify(applied.cases) === JSON.stringify(cases)) return; // nothing survived the checks: nothing to write
+  if (sameRegistry(applied.cases, cases)) return; // nothing survived the checks: nothing to write
   await saveFunnelState(tenantId, basis, { ...state, cases: applied.cases }, rowVersion);
 }
 
@@ -189,7 +196,7 @@ const defaultSteps: ResearchCycleSteps = {
   // RUNTIME IS THE ONLY WRITER OF A CASE IDENTITY, and it writes them BEFORE the plan names one. Evidence resolves the id against what is already on file
   // (evidence/case-identity carries the whole rule and the incident behind it); this persists that answer through the funnel's own save path, and FAILS
   // CLOSED: an unreadable snapshot or row, or a losing row version, pauses this same phase honestly.
-  async reconcileCases(tenantId, basis) { await reconcileCases(tenantId, basis); },
+  async reconcileCases(tenantId, basis, plan) { await reconcileCases(tenantId, basis, plan); },
   async investigationFocus(tenantId, basis) { return chooseInvestigation(tenantId, basis).catch(() => null); },
   async funnelUnit(phase, tenantId, cursor, budgetMs, focus) {
     // An OPEN INVESTIGATION needs BOTH halves: the results page for that exact search AND the pages that win it. The topic is the RUN's, frozen by the
@@ -204,6 +211,7 @@ const defaultSteps: ResearchCycleSteps = {
       // Fail-soft, and no reconfirmed ask means no buy.
       const ask = cursor?.stage === "compare" ? await comparisonForFocus(tenantId, focus, (cursor.basis as string) ?? null).catch(() => null) : null;
       // AT MOST ONE page of the account's OWN per run, and only one the frozen plan named and is due to read.
+      // The unit's fifth argument `ownedBustedAt` (when that page's truth changed underneath me) has NO production supplier yet and is deliberately left unpassed: its supplier is the Shipment record, which Phase 6 builds.
       return winningPagesUnit({}, queries, ask, ownedUrl)(tenantId, cursor, budgetMs);
     }
     if (phase === "prompt_observations") {
@@ -341,11 +349,13 @@ async function driveRun(
       // silence it for that whole life; empty stays unfrozen and both units keep the agenda. IDENTITY IS RECONCILED AND PERSISTED ON EVERY PHASE FIRST, not
       // only when a plan is frozen. A FAILURE PAUSES THIS SAME PHASE AND SPENDS NOTHING: catching it and carrying on (twice over) let a run freeze a plan,
       // read winners and buy a comparison against an identity nothing on file had ever written.
-      try { await steps.reconcileCases(tenantId, basis); } catch (error) {
-        await finishRun(tenantId, run.id, ownerToken, "paused",
-          { phase, message: (error instanceof Error ? error.message : String(error)).slice(0, 300), at: nowFn().toISOString() });
-        return;
-      }
+      // THE READING IS BOUNDED PER RUN, NOT PER UNIT ITERATION. Reconciliation runs before every funnel unit and a phase iterates many times, so an unbounded
+      // attempt asked the same question over and over inside one cycle. The marker rides run PROGRESS (the extraSamples pattern), persisted the moment an
+      // attempt is made, so a resumed run does not ask again either; the plan this run froze rides along, and those cases are reviewed before any other.
+      let asked = false;
+      try { await steps.reconcileCases(tenantId, basis, { planKeys: (progress.focus?.topics ?? []).map((t) => t.topicKey).filter((k): k is string => !!k), maySynthesize: progress.synthesisAttempted !== true, mark: () => { asked = true; } }); }
+      catch (error) { await finishRun(tenantId, run.id, ownerToken, "paused", { phase, message: (error instanceof Error ? error.message : String(error)).slice(0, 300), at: nowFn().toISOString() }); return; }
+      if (asked) { progress = { ...progress, synthesisAttempted: true }; if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return; }
       if (phase === "serp_analysis" && progress.focus == null) {
         const frozen = await steps.investigationFocus(tenantId, basis).catch(() => null);
         if (frozen && frozen.topics.length > 0) { progress = { ...progress, focus: frozen };

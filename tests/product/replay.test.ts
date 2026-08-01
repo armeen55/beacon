@@ -17,7 +17,8 @@ import type { Account } from "@/domains/account";
 import type { AiObservationRecord, DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import { parseCapability, type CachedCallResult, type CapabilityKey, type ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { parsePageIntersection } from "@/domains/evidence/page-intersection";
-import { dominantPageType, freshnessAt, pageTypeVotesOf, SERP_FRESH_MS, type SerpRow } from "@/domains/evidence/serp-shape";
+import { dominantPageType, freshnessAt, pageTypeVotesOf, type SerpRow } from "@/domains/evidence/serp-shape";
+import { freshnessMsFor } from "@/domains/evidence/freshness";
 import { keywordDiscoveryUnit } from "@/domains/evidence/funnel/discovery";
 import { projectFunnelEvidence, promptObservationUnit, serpAnalysisUnit } from "@/domains/evidence/funnel/observe";
 import type { FunnelDeps } from "@/domains/evidence/funnel/shared";
@@ -174,7 +175,7 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     const snapshot = fx.replaySnapshot({ gsc: [...fx.gscCannibalPair(), fx.gscStableWinner()], research: evidence,
       wix: [fx.ownedBody(GAP_URL, "Kite Festival"), fx.ownedBody(TWIN_URL, "Kite Festival Food"), fx.staleOwnedBody()] });
     expect(snapshot.cannibalization[0]).toEqual({ query: GAP_QUERY, competingUrls: [GAP_URL, TWIN_URL].sort(), note: `2 of your pages compete for "${GAP_QUERY}", so pick one owner and point the rest at it.` });
-    const dated = (url: string) => freshnessAt(snapshot.ownedPages.find((p) => p.url === url)!.content!.fetchedAt, NOW_MS, SERP_FRESH_MS);
+    const dated = (url: string) => freshnessAt(snapshot.ownedPages.find((p) => p.url === url)!.content!.fetchedAt, NOW_MS, freshnessMsFor("owned_page"));
     expect([dated(GAP_URL), dated(fx.STALE_URL)]).toEqual(["current", "stale"]); // one body read this week, one read in the spring
     expect(buildTopicInvestigations(snapshot).length).toBeGreaterThan(0);
   });

@@ -3,7 +3,14 @@
  *  never completes), partial connector success surviving a pause, deduped refreshed providers across retries,
  *  the lease guards (including the ONE the paid comparison spends under), the frozen investigation, the
  *  idempotency identity, and the fail-closed render path. The in-memory repo models the RPC guards. */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+/** The DEFAULT reconcile step, exercised for REAL below: what makes the registry worth saving, and what makes it worth a reading. Every other test in this
+ *  file seams reconcileCases, so nothing else reaches these modules; funnel/state keeps its real exports because the conflict closure builds a real state. */
+const REG = vi.hoisted(() => ({ onFile: [] as unknown[], next: [] as unknown[], saves: 0, readings: 0 }));
+vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => ({ ownedPages: [], research: { cases: [] } }) }));
+vi.mock("@/domains/evidence/topic-investigation", () => ({ reconcileResearchCases: () => REG.next, buildTopicInvestigations: () => { REG.readings += 1; return []; } }));
+vi.mock("@/domains/evidence/funnel/state", async (actual) => ({ ...(await actual<Record<string, unknown>>()),
+  loadFunnelState: async () => ({ state: { cases: REG.onFile }, rowVersion: 3 }), saveFunnelState: async () => { REG.saves += 1; return 4; } }));
 import * as RR from "@/domains/runtime/research-run";
 import { runResearchCycle, ensureResearchRunOnVisit, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
 import { setAccountRepositoryForTests, type AccountRepository } from "@/domains/account/tenants/store";
@@ -376,4 +383,22 @@ describe("research-run fail-closed + render path", () => {
     const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests(repo);
     expect(() => ensureResearchRunOnVisit(T)).not.toThrow(); // after() invalid outside a request → caught
     await Promise.resolve(); expect(rows).toHaveLength(0); }); // no phase work on the render path
+});
+
+/** THE REGISTRY DECIDES, and it decides ONCE per run. The reconcile step here is the real one (the seam is removed), so what is pinned is the wiring
+ *  itself: a registry that only changed the ORDER it was written in is unmoved, and the advisory reading is bounded per RUN, never per unit iteration. */
+describe("the case registry a run saves, and the ONE reading it buys", () => {
+  const row = (id: string, anchors: string[]) => ({ id, anchors });
+  const real = (steps: Partial<ResearchCycleSteps> = {}) => { const { reconcileCases: _seam, ...rest } = BENIGN;
+    return runResearchCycle(T, { now: () => new Date(NOW), steps: { ...rest, ...steps } }); };
+  beforeEach(() => { REG.saves = 0; REG.readings = 0; });
+  it("saves nothing and reads nothing when the registry changed only the order it happens to be written in", async () => {
+    REG.onFile = [row("inv_b", ["y", "x"]), row("inv_a", ["a"])]; REG.next = [row("inv_a", ["a"]), row("inv_b", ["x", "y"])];
+    const rows = withRun({ current_phase: "serp_analysis" }); await real();
+    expect([REG.saves, REG.readings, rows[0]!.progress.synthesisAttempted, rows[0]!.status]).toEqual([0, 0, undefined, "completed"]); });
+  it("attempts the reading at most ONCE per run, however many units and phases reconcile against a registry that did move", async () => {
+    REG.onFile = [row("inv_a", ["a"])]; REG.next = [row("inv_a", ["a", "b"])];
+    const rows = withRun({ current_phase: "serp_analysis" }); let units = 0;
+    await real({ funnelUnit: async () => { units += 1; return units < 4 ? { status: "advanced", cursor: { units }, progress: {} } : { status: "done", cursor: null, progress: {} }; } });
+    expect([REG.saves > 1, REG.readings, rows[0]!.progress.synthesisAttempted, units, rows[0]!.status]).toEqual([true, 1, true, 5, "completed"]); });
 });

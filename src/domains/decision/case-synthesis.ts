@@ -40,6 +40,10 @@ export type SynthesisCandidate = {
   ownedUrls: readonly string[];
   /** How the deterministic pass grouped this one, in the order the rules fired. */
   groupedBy: readonly string[];
+  /** Named by the run's own frozen research plan: the cases the run is actually stuck on. */
+  inPlan?: boolean;
+  /** The largest monthly search volume on file across this case's searches; null when nothing is priced. */
+  demand?: number | null;
 };
 
 /** Bounded so one account's registry can never grow the prompt without limit. */
@@ -87,7 +91,13 @@ export async function synthesizeCases(
   tenantId: string,
   opts: Pick<StructuredDraftRequest<"case_synthesis">, "complete" | "cacheImpl" | "now"> = {},
 ): Promise<CaseSynthesis | null> {
-  const ordered = [...candidates].filter((c) => !!c.id).sort((a, b) => a.id.localeCompare(b.id)).slice(0, MAX_CANDIDATES);
+  // WHICH FOURTEEN, ON PURPOSE. Sorting by id and slicing selected on a hash: the cases worth regrouping
+  // were reviewed only if their minted id happened to sort early. The run's own frozen plan comes first,
+  // then the largest demand on file, and the id decides nothing but a genuine tie, so the same registry
+  // still asks a byte-identical question however the caller listed it.
+  const ordered = [...candidates].filter((c) => !!c.id)
+    .sort((a, b) => Number(!!b.inPlan) - Number(!!a.inPlan) || (b.demand ?? -1) - (a.demand ?? -1) || a.id.localeCompare(b.id))
+    .slice(0, MAX_CANDIDATES);
   if (ordered.length < 2) return null; // one case cannot be regrouped against anything: no call, no cent
 
   const facts = candidateFacts(ordered);

@@ -12,7 +12,8 @@ import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { normalizeKeyword, selectSerpAgenda } from "./normalize";
 import { type FunnelPair, type FunnelSerp, type FunnelState } from "./state";
 import { type FunnelResearchEvidence, type ObservationMode, type ResearchEngine } from "./research-evidence";
-import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, type Interp, isCurrent, modeOf, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
+import { isCurrent } from "@/domains/evidence/freshness";
+import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, type Interp, modeOf, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
 
 // blocked = a HELD refusal at zero further spend; it ALWAYS pauses the run, so prefer the boundary's own detail.
 const blockedNote = (r: Interp) => r.detail || pauseDetail("blocked", "");

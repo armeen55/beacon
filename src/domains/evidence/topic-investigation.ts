@@ -170,7 +170,9 @@ type Grouped = {
  * with neither stays demand and is never dressed up as research. */
 export function buildTopicInvestigations(snapshot: EvidenceSnapshot): TopicInvestigation[] {
   const g = groupEvidence(snapshot);
-  return g.groups.map((idx, i) => assemble(idx, g, snapshot, g.folded[i]!.id, g.folded[i]!.aliases))
+  // ONE PACKET PER CASE, not per group: where the registry outranked the rules and united two groups, the
+  // anchors of both are assembled into the single investigation that one case actually is.
+  return g.folded.map((f) => assemble(f.from.flatMap((i) => g.groups[i]!), g, snapshot, f.id, f.aliases))
     .sort((a, b) => a.label.localeCompare(b.label) || a.key.localeCompare(b.key));
 }
 
