@@ -1,7 +1,7 @@
 "use server";
 
 import { log } from "@/lib/logger";
-import { requestExtraSample, utcReportingDay, warmFreeSurfaces } from "@/domains/runtime";
+import { continueResearch, requestExtraSample, utcReportingDay, warmFreeSurfaces } from "@/domains/runtime";
 import {
   getConnectorInfo,
   getGoogleConnectorToken,
@@ -1091,6 +1091,15 @@ export type RefreshAllConnectedResult = {
  *   same freshness contract the per-source actions use.
  * - Zero connected → `{ ranAt, results: [] }`.
  */
+/** ONE bounded research hop, and whether another is owed. This is the SAME entry point the
+ *  Update data button already uses, so the continuation needs no route, no cron and no
+ *  background promise: each hop is its own request that claims the lease for itself, the
+ *  server owns the bound, and a closed tab simply stops asking. */
+export async function continueResearchNow(hop = 0): Promise<{ hop: number; more: boolean }> {
+  const tenantId = await currentTenantId().catch(() => "");
+  return tenantId ? continueResearch(tenantId, hop) : { hop: 0, more: false };
+}
+
 export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedResult> {
   const action = "refreshAllConnectedDataNow";
   const t0 = Date.now();

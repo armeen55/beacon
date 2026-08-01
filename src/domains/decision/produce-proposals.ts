@@ -34,7 +34,7 @@ import { pagesUnderMeasurement, resolveCurrentBasis } from "./load-proposals";
 import { candidatesToEvidenceInputs, compileCandidates, type QualifiedCandidate } from "./opportunities";
 import { produceBundleForSnapshot } from "./produce-bundle";
 import { proposeExistingPageChange, type ProposeOptions } from "./propose";
-import { loadChangeProposals, proposalFingerprint, saveChangeProposal } from "./proposal-store";
+import { loadChangeProposals, saveChangeProposal } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
 import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
@@ -270,11 +270,11 @@ export async function produceProposalsForTenant(
   let reused = 0;
   /** Persist ONE material row, or nothing at all when the stored row already says
    *  exactly this. An unchanged proposal must not get a new timestamp: a refreshed
-   *  surface would read yesterday's thinking as today's work. */
+   *  surface would read yesterday's thinking as today's work. THE STORE decides that,
+   *  against the canonical row it actually holds, and answers "unchanged"; this pass
+   *  no longer second-guesses it off an in-memory copy that may have come from history.  */
   const persistIfChanged = async (p: ChangeProposal): Promise<void> => {
     if (!persist) return;
-    const prior = existing.get(p.id);
-    if (prior && proposalFingerprint(prior) === proposalFingerprint(p)) return;
     const result = await saveChangeProposal(p);
     if (result === "failed") writeFailures += 1;
     else if (result === "saved") persisted += 1; // "unchanged" wrote nothing, so it counts as nothing

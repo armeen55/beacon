@@ -2,26 +2,18 @@ import "server-only";
 
 import { after } from "next/server";
 
-import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/on-use-refresh";
-import { basisTag, getTenant, loadBusinessProfile } from "@/domains/account";
-import {
-  keywordDiscoveryUnit, promptObservationUnit, serpAnalysisUnit, winningPagesUnit,
-  type FunnelUnitOutcome,
-} from "@/domains/evidence";
-import { loadFunnelState, saveFunnelState, type FunnelState } from "@/domains/evidence/funnel/state";
-import type { ResearchCase } from "@/domains/evidence/funnel/research-evidence";
-import { applySynthesis } from "@/domains/evidence/case-identity";
-import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
-import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
-import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
-import { synthesizeCases } from "@/domains/decision/case-synthesis";
-import { buildTopicInvestigations, reconcileResearchCases } from "@/domains/evidence/topic-investigation";
-import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
+import { getTenant } from "@/domains/account";
+import type { FunnelUnitOutcome } from "@/domains/evidence";
 import { log } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { NO_BASIS_DETAIL } from "@/domains/evidence/funnel/shared";
-import { warmFreeSurfaces } from "./warm-caches"; import { chooseInvestigation, comparisonForFocus, focusReads, runFocus, type ResearchFocus } from "./investigation-queries";
-import { dueObservations, runAnswerAnalyses, utcReportingDay } from "./daily-observations";
+import { runFocus } from "./investigation-queries";
+import { utcReportingDay } from "./daily-observations";
+import { dueWork, type DueWork } from "./due-work";
+import { defaultSteps, type ResearchCycleSteps } from "./research-steps";
+// The phase bodies live in research-steps; the contract between the two files is this type, so a
+// caller that drives a run keeps importing the runner and gets the shape it must satisfy.
+export type { ResearchCycleSteps } from "./research-steps";
 import {
   advancePhase,
   claimRun,
@@ -30,6 +22,7 @@ import {
   nextPhase,
   phaseIdempotencyKey,
   renewLease,
+  startExtraPass,
   type ResearchPhase,
   type ResearchRun,
   type ResearchRunError,
@@ -38,8 +31,9 @@ import {
 
 /** on-visit-refresh - the Research Run executor (Slice 4, 2026-07-24). Every navigation schedules ONE post-response Research Run for the tenant. The run
  *  is durable: claim_research_run RESUMES the account's single unfinished run first (regardless of its start date, so yesterday's paused run is never
- *  abandoned and no second open run is created), blocks a redundant pass when one completed earlier this UTC day, and starts a fresh daily cycle only
- *  when no run is open. It leases the run so exactly one invocation advances it, and the persisted phase + progress let a crash or lambda timeout resume
+ *  abandoned and no second open run is created), and starts a fresh daily cycle only when no run is open. A pass that already completed today no longer
+ *  ENDS the day (Phase 5): the refusal is now a question, and another pass opens only when due-work reports something genuinely owed that the completed
+ *  pass could not have done. It leases the run so exactly one invocation advances it, and the persisted phase + progress let a crash or lambda timeout resume
  *  where it left off. No scheduler, cron, heartbeat, in-memory dedupe or job queue: the DATABASE lease is the whole mechanism (a concurrent claim with a
  *  different owner token returns null). TRUTH BOUNDARY (Slice 4 truth-and-lease repair): a phase advances ONLY when it truly succeeded or was a healthy
  *  no-op. Every failure pauses the cycle with a bounded last_error and never reaches completion: refresh_sources - refresh stale connectors.
@@ -70,169 +64,12 @@ import {
 /** Leave enough of the shell's 300-second lifetime to finish the surface build. */
 const RESEARCH_CYCLE_DEADLINE_MS = 210_000;
 
-/** Reasons the deep-backfill continuation returns when there is simply nothing to do (no backfill started, already finished, or no synced property yet):
- *  healthy no-ops that advance the phase without a failure. Any OTHER reason is a real error and throws. */
-const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_synced_property", "no_cursor"]);
-
 /** The four Slice 6 evidence phases, each backed by one funnel unit executor. */ const FUNNEL_PHASES = new Set<ResearchPhase>(["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]);
 
-/** The refresh_sources phase outcome: how many sources were attempted, the identities of the ones that actually synced, and the bounded per-source
- *  failure detail for the rest. `succeeded` is a list of provider identities (not a count) so retries can UNION distinct successes rather than
- *  double-count them. */
-export type RefreshSourcesResult = {
-  attempted: number;
-  succeeded: string[];
-  failures: Array<{ provider: string; detail: string }>;
-};
-
-/** The gsc_backfill_chunk phase outcome. `advanced` = a chunk pulled (or the backfill defensively completed); `no_work` = a benign skip. A real error is
- *  a THROW, never a value. */
-export type BackfillChunkResult = { kind: "advanced"; complete?: boolean; daysPulled?: number } | { kind: "no_work" };
-
-/** Injectable phase bodies + clock/deadline so the runner is testable with a short budget and stub executors; production passes nothing and uses the real
- *  implementations below. Every executor receives the persisted attemptKey so a retry can prove it is the same unit of work. */
-export type ResearchCycleSteps = {
-  refreshSources: (tenantId: string, now: Date, attemptKey: string) => Promise<RefreshSourcesResult>;
-  backfillChunk: (tenantId: string, now: Date, attemptKey: string) => Promise<BackfillChunkResult>;
-  /** The four Slice 6 evidence executors (evidence facade), one per funnel phase. */
-  funnelUnit: (phase: ResearchPhase, tenantId: string, cursor: Record<string, unknown> | null, budgetMs: number, focus: ResearchFocus | null) => Promise<FunnelUnitOutcome>;
-  /** THIS run's investigation, asked for ONCE (Runtime asks Decision, Evidence gets strings and pages). */
-  investigationFocus: (tenantId: string, basis: string | null) => Promise<ResearchFocus | null>;
-  /** The account's CURRENT onboarding basis (the one Account fingerprint); the funnel scopes every derived read/write to it. Null = not resolvable. */
-  currentBasis: (tenantId: string) => Promise<string | null>;
-  /** Freeze every case's identity on file before anything reads or spends against it. RESOLVES only when that identity is actually persisted; a THROW
-   *  pauses the phase before a focus, a unit or a cent. `plan` bounds the ONE advisory reading: which cases this run froze (they are reviewed first),
-   *  whether a reading may still be attempted at all this run, and `mark`, called at the instant one is attempted so the runner can persist that fact. */
-  reconcileCases: (tenantId: string, basis: string, plan: CaseReconcilePlan) => Promise<void>;
-  publishSurface: (tenantId: string, attemptKey: string) => Promise<void>;
-  surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
-  /** Read back the day's NEW answers (bounded, $0 when nothing changed). Returns how many analyses were persisted. Derived work: it never pauses the run. */
-  analyzeAnswers: (tenantId: string, reportingDay: string) => Promise<number>;
-};
-
-export type ResearchCycleOptions = {
+type ResearchCycleOptions = {
   now?: () => Date;
   deadlineMs?: number;
   steps?: Partial<ResearchCycleSteps>;
-};
-
-/** What this run still allows the ONE advisory reading. `mark` is the runner's own receipt: the reading is bounded per RUN, never per unit iteration. */
-type CaseReconcilePlan = { planKeys: string[]; maySynthesize: boolean; mark: () => void };
-
-/** DID THE REGISTRY ACTUALLY MOVE? Compared the way the registry is READ and never the way it happened to be written: the same rows in another order, or one
- *  row's anchors in another order, are the SAME registry, and a raw JSON compare called that a move, saved it, and bought a reading of a file nothing changed. */
-const canonicalRegistry = (rows: readonly ResearchCase[] = []): string => JSON.stringify([...rows].map((c) => ({ id: c.id, anchors: [...c.anchors].sort(), aliasOf: c.aliasOf ?? null, parentId: c.parentId ?? null, pages: (c.pages ?? []).map((p) => `${p.url}|${p.relation}`).sort() })).sort((a, b) => a.id.localeCompare(b.id)));
-const sameRegistry = (before: readonly ResearchCase[] = [], after: readonly ResearchCase[] = []): boolean => canonicalRegistry(before) === canonicalRegistry(after);
-
-/** Fold this account's case identities onto the ones already on file and PERSIST them, or THROW. It used to swallow every failure, so a run whose
- *  identities were never written went straight on to freeze a plan and spend against them: the comparison it bought belonged to an id nothing on file
- *  agreed with. A losing row version is a failure too, because nothing was saved. Nothing here is a partial success. THEN, and only when the registry actually
- *  moved this pass AND this run has not asked yet, ONE advisory semantic reading of it (see decision/case-synthesis). That step is fail-soft by contract: the
- *  deterministic identities are already saved, so a reading I could not get, could not trust or could not write is simply absent. */
-async function reconcileCases(tenantId: string, basis: string, plan: CaseReconcilePlan): Promise<void> {
-  const saved = await (async () => {
-    const snapshot = await loadEvidenceSnapshot(tenantId);
-    const cases = reconcileResearchCases(snapshot);
-    const loaded = await loadFunnelState(tenantId, basis);
-    if (sameRegistry(loaded.state.cases, cases)) return true; // nothing moved: no save, and nothing to re-read
-    const rowVersion = await saveFunnelState(tenantId, basis, { ...loaded.state, cases }, loaded.rowVersion);
-    if (rowVersion == null) return false;
-    // The mark goes down BEFORE the reading, so one that came back empty, refused or unusable still spends this run's single attempt.
-    if (plan.maySynthesize) { plan.mark(); await refineCases(tenantId, basis, snapshot, cases, { ...loaded.state, cases }, rowVersion, plan.planKeys).catch(() => {}); }
-    return true;
-  })().catch(() => false);
-  if (!saved) throw new Error("I could not save which of your topics are which, so I stopped before spending anything on them. I pick this up again on your next visit.");
-}
-
-/** The ONE semantic pass over the registry that just changed, applied through the SAME identity rules and saved through the SAME path. Everything it
- *  proposes is checked before it is applied, and what I refuse is recorded rather than argued with. A lost row version here changes nothing that is
- *  already on file. */
-async function refineCases(tenantId: string, basis: string, snapshot: EvidenceSnapshot, cases: ResearchCase[], state: FunnelState, rowVersion: number, planKeys: string[] = []): Promise<void> {
-  const investigations = buildTopicInvestigations(snapshot);
-  if (investigations.length < 2) return;
-  // Which of MY OWN pages Google already serves for a case's own searches: the only addresses the reading may name, a lookup over evidence already in hand, so it
-  // fetches nothing and costs nothing. WHICH cases get reviewed when there are more than the reading may hold: the ones this run froze, then the biggest demand.
-  const owned = snapshot.ownedPages.map((p) => ({ url: p.url, keys: new Set((p.search?.topQueries ?? []).map((q) => canonicalQueryKey(q.query))) }));
-  const synthesis = await synthesizeCases(investigations.map((i) => ({
-    id: i.key, label: i.label, queries: i.queries, prompts: i.trackedPrompts.map((p) => p.promptText), groupedBy: i.groupedBy,
-    ownedUrls: owned.filter((o) => i.queries.some((q) => o.keys.has(canonicalQueryKey(q)))).map((o) => o.url), inPlan: planKeys.includes(i.key), demand: i.demand.monthlySearchVolume,
-  })), tenantId);
-  if (!synthesis) return;
-  const applied = applySynthesis(cases, synthesis, new Map(investigations.map((i) => [i.key, i.resultDomains])));
-  for (const refusal of applied.refused.slice(0, 5)) log.info("[research-run] part of the reading of your topics did not hold up", { tenantId, refusal });
-  if (sameRegistry(applied.cases, cases)) return; // nothing survived the checks: nothing to write
-  await saveFunnelState(tenantId, basis, { ...state, cases: applied.cases }, rowVersion);
-}
-
-const defaultSteps: ResearchCycleSteps = {
-  async refreshSources(tenantId, now) {
-    // autoRefreshStaleConnectorsForTenant is fail-soft PER SOURCE and returns one { ok } result per ATTEMPTED stale source, which is what the refresh_sources
-    // contract above is counting. We do NOT .catch here: a THROW means the whole refresh could not run, and the runner must pause rather than record a false
-    // "0 sources, all healthy".
-    const results = await autoRefreshStaleConnectorsForTenant(tenantId, now);
-    return { attempted: results.length, succeeded: results.filter((r) => r.ok).map((r) => String(r.provider)),
-      failures: results.filter((r) => !r.ok).map((r) => ({ provider: String(r.provider), detail: String(r.detail).slice(0, 200) })) };
-  },
-  async backfillChunk(tenantId, now) {
-    // No deadline race: the chunk is bounded by design and its GSC fetch has no AbortSignal, so a race would release the lease while live side-effecting work
-    // kept running. continueDeepBackfillIfStarted converts a thrown error into { ran:false, reason }, so a non-benign reason here is a real failure.
-    const result = await continueDeepBackfillIfStarted(tenantId, now);
-    if (result.ran) {
-      log.info("[research-run] gsc deep backfill chunk advanced", { tenantId, daysPulled: result.daysPulled, complete: result.complete });
-      return { kind: "advanced", complete: result.complete, daysPulled: result.daysPulled };
-    }
-    if (BENIGN_BACKFILL_SKIPS.has(result.reason)) return { kind: "no_work" };
-    // A real failure (auth / quota / network / unexpected) throws so the runner pauses AT gsc_backfill_chunk with the cursor untouched, making the retry the
-    // identical window.
-    throw new Error(`gsc backfill chunk did not advance: ${result.reason}`.slice(0, 200));
-  },
-  async currentBasis(tenantId) {
-    try {
-      const account = await getTenant(tenantId);
-      if (!account?.domain?.trim()) return null;
-      return basisTag(account.id, account.domain.trim(), await loadBusinessProfile(tenantId), account.growth_goal ?? null);
-    } catch { return null; }
-  },
-  // RUNTIME IS THE ONLY WRITER OF A CASE IDENTITY, and it writes them BEFORE the plan names one. Evidence resolves the id against what is already on file
-  // (evidence/case-identity carries the whole rule and the incident behind it); this persists that answer through the funnel's own save path, and FAILS
-  // CLOSED: an unreadable snapshot or row, or a losing row version, pauses this same phase honestly.
-  async reconcileCases(tenantId, basis, plan) { await reconcileCases(tenantId, basis, plan); },
-  async investigationFocus(tenantId, basis) { return chooseInvestigation(tenantId, basis).catch(() => null); },
-  async funnelUnit(phase, tenantId, cursor, budgetMs, focus) {
-    // An OPEN INVESTIGATION needs BOTH halves: the results page for that exact search AND the pages that win it. The topic is the RUN's, frozen by the
-    // caller, never re-picked here: landing a results page closes that search, so a second, independent lookup handed winning-pages a different three than
-    // the ones just paid for. The page COMPARISON rides the same phase that reads those winners, because the winners ARE the page set, but as its SECOND
-    // stage, so a real lease renewal sits in front of it. A topic whose next legal read is still in the future contributes no search at all: a cooldown is
-    // not a queue position.
-    const { queries, cases, ownedUrl } = focusReads(focus, Date.now(), (cursor?.basis as string) ?? null);
-    if (phase === "serp_analysis") return serpAnalysisUnit({}, queries)(tenantId, cursor, budgetMs);
-    if (phase === "winning_pages") {
-      // The ask is recomputed for the SAME frozen topic under the CURRENT basis, and only at the comparison stage: nothing is asked for before winners exist.
-      // Fail-soft, and no reconfirmed ask means no buy.
-      const ask = cursor?.stage === "compare" ? await comparisonForFocus(tenantId, focus, (cursor.basis as string) ?? null).catch(() => null) : null;
-      // AT MOST ONE page of the account's OWN per run, and only one the frozen plan named and is due to read.
-      // The unit's fifth argument `ownedBustedAt` (when that page's truth changed underneath me) has NO production supplier yet and is deliberately left unpassed: its supplier is the Shipment record, which Phase 6 builds.
-      return winningPagesUnit({}, queries, ask, ownedUrl)(tenantId, cursor, budgetMs);
-    }
-    if (phase === "prompt_observations") {
-      // THE DAILY PLAN decides what gets asked, and it is the ONLY thing that does: the unit's own weekly stalest-pair sweep is deleted, not merely
-      // overridden, because two selectors meant one of them re-asked a question the other had already read today. One canonical reading per question, per
-      // engine, per UTC day, core first and oldest-missing-first. A null plan (I could not read what is due) asks NOTHING. The day is the RUN'S own cycle
-      // day, not the wall clock, so a run that spans midnight keeps reporting into the day it opened instead of silently splitting itself.
-      const day = String(cursor?.cycle ?? "").slice(-10) || utcReportingDay(Date.now());
-      return promptObservationUnit({}, await dueObservations(tenantId, day))(tenantId, cursor, budgetMs);
-    }
-    // The plan's own cases ride into discovery, so every keyword is filed under the case it belongs to and the recurring winning domains are bought once per case set.
-    return keywordDiscoveryUnit({}, cases)(tenantId, cursor, budgetMs); // the facade export is a deps factory returning the executor
-  },
-  async analyzeAnswers(tenantId, reportingDay) { return runAnswerAnalyses(tenantId, reportingDay); },
-  // warmFreeSurfaces PROPAGATES failure (no internal swallow): a throw pauses publish_surface and the previously saved surface stays visible.
-  async publishSurface(tenantId) { await warmFreeSurfaces(tenantId); },
-  async surfaceStale(tenantId, nowMs) {
-    const { readCustomerSurface, isCustomerSurfaceStale } = await import("@/app/(shell)/surface-release");
-    const surface = await readCustomerSurface(tenantId).catch(() => null);
-    return surface == null || isCustomerSurfaceStale(surface.computedAt, nowMs); // no saved release yet = a first publish is genuinely due
-  },
 };
 
 /** One phase's outcome: the merged progress, plus an optional `pause` error when the phase reported a recoverable failure that is NOT a throw (a partial
@@ -309,9 +146,22 @@ async function driveRun(
   nowFn: () => Date,
   deadline: number,
   steps: ResearchCycleSteps,
+  work: DueWork,
 ): Promise<void> {
   const tenantId = run.tenant_id;
-  let progress: ResearchRunProgress = run.progress ?? {};
+  // PROGRESS IS PERSISTED, NOT ASSEMBLED PER RENDER. The run writes the numbers every surface then
+  // reads back from this row: today's checks, the plan's live and waiting topics, the date a wait
+  // ends. They come from the ONE due-work read this pass already made, so they cost nothing extra
+  // and no two requests can compute them differently.
+  let progress: ResearchRunProgress = {
+    ...(run.progress ?? {}),
+    state: {
+      ...(run.progress?.state ?? {}),
+      checksDone: work.checks.done, checksTotal: work.checks.total,
+      casesActive: work.cases.active, casesParked: work.cases.parked,
+      nextDueAt: work.nextDueAt, blocker: null,
+    },
+  };
   let phase = run.current_phase;
   let cursor: Record<string, unknown> | null = run.phase_cursor ?? null;
   /** The phase whose attempt already spent its ONE state-conflict retry (never global). */
@@ -395,6 +245,19 @@ async function driveRun(
       }
       const unitCursor = unit.cursor ? { ...attemptCursor, unit: unit.cursor } : { phase, attemptKey, seed: run.cycle_key };
       if (unit.status !== "done") {
+        // THE CASE THE CEILING STOPPED, recorded per case and scoped to the day it happened on. The
+        // discovery unit stops honestly when the spending ceiling is reached, but nothing per CASE was
+        // persisted, so a case receipt could not say "I did not buy this one because the ceiling was
+        // reached" the way it already can for a page by page comparison. The marker rides run progress
+        // (the extra-sample pattern: an existing row, an existing column, no second store) and clears
+        // by day rollover, because a ceiling reached yesterday explains nothing about today.
+        const capped = typeof unit.cursor?.cappedCase === "string" ? unit.cursor.cappedCase : null;
+        if (capped) {
+          const day = run.cycle_key.slice(-10);
+          const held = progress.capped?.day === day ? progress.capped.caseIds : [];
+          progress = { ...progress, capped: { day, caseIds: [...new Set([...held, capped])].slice(0, 20) } };
+        }
+        if (unit.status === "failed") progress = { ...progress, state: { ...progress.state, blocker: (unit.detail ?? "").slice(0, 300) || null } };
         // EVERY non-done outcome persists the SAME phase with its durable unit cursor FIRST, so nothing the unit achieved is stranded and a lost lease aborts
         // here with no pause written. Then: advanced loops for the next unit (the loop top renews the lease before it), waiting pauses with no error at all
         // (a durable provider wait is not a failure), failed pauses with the unit's own bounded reason.
@@ -432,7 +295,7 @@ async function driveRun(
       // never strands its succeeded sources. If our lease was lost, abort with no finish call.
       const saved = await advancePhase(tenantId, run.id, ownerToken, {
         phase,
-        progress: outcome.progress,
+        progress: { ...outcome.progress, state: { ...outcome.progress.state, blocker: outcome.pause.message } },
         cursor: attemptCursor,
       });
       if (!saved) return;
@@ -440,6 +303,15 @@ async function driveRun(
       return;
     }
     progress = outcome.progress;
+    // THE DECIDE WATERMARK. A pass that reached the end of the decision step stamps the basis and the
+    // research-notes version it consumed, published or not: in both cases it looked and concluded.
+    // Notes that move PAST this are new evidence, which is what makes another pass the same day worth
+    // its money instead of a repeat. It is read here, after this pass's own writes, so a pass never
+    // counts its own discovery as somebody else's news and re-opens itself forever.
+    if (phase === "publish_surface" && basis) {
+      const version = await steps.evidenceVersion(tenantId, basis).catch(() => null);
+      if (version != null) progress = { ...progress, decided: { basis, rowVersion: version } };
+    }
 
     const next = nextPhase(phase);
     // Advancing replaces the cursor (clears the completed phase's attempt identity).
@@ -453,8 +325,19 @@ async function driveRun(
   await finishRun(tenantId, run.id, ownerToken, "completed");
 }
 
-/** Claim, resume, or start the account's Research Run and drive it. The claim resumes any unfinished run first (any date); a lost claim (null) means
- *  another instance holds the open run, or research already completed this UTC day - do nothing. */
+/**
+ * Claim, resume, or start the account's Research Run and drive it, and report whether work is STILL owed
+ * when it hands back.
+ *
+ * A DAY IS NOT A UNIT OF WORK. The claim used to refuse outright once a run had completed in the current
+ * UTC day, so evidence bought at 9am could not become a decision until tomorrow: a retry date that passed
+ * at noon, a source that refreshed, an extra reading the operator asked for and paid attention to, all sat
+ * until midnight. Now a refused claim asks the ONE free question that matters (due-work: what is genuinely
+ * owed, from persisted state alone) and opens another pass only when something is actually due. FAIL
+ * CLOSED both ways: an unreadable state opens nothing, and a readable EMPTY state opens nothing and costs
+ * nothing. A pass that opens with nothing due closes immediately at $0 and blocks no later pass, because
+ * completion is not a claim about the day, only about that pass.
+ */
 export async function runResearchCycle(tenantId: string, options: ResearchCycleOptions = {}): Promise<void> {
   const nowFn = options.now ?? (() => new Date());
   const deadlineMs = options.deadlineMs ?? RESEARCH_CYCLE_DEADLINE_MS;
@@ -472,13 +355,68 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
 
   await runWithTenant(tenantId, async () => {
     const ownerToken = newOwnerToken();
-    const run = await claimRun(tenantId, ownerToken);
+    const now = nowFn();
+    // A claim that FAILED (the database could not answer) is not a claim that was refused: it ends the
+    // visit here, with no pass and no due-work question, because there is nothing trustworthy to ask it of.
+    let run = await claimRun(tenantId, ownerToken).catch(() => "unavailable" as const);
+    if (run === "unavailable") return;
+    const work = await steps.dueWork(tenantId, now).catch(() => null);
     if (run == null) {
-      log.debug("[research-run] no claim (held elsewhere or complete today)", { tenantId });
+      // Refused: either another instance holds the open run, or a pass already completed today. Only a
+      // POSITIVE due signal opens a second pass, and the one-open-run index still refuses it while any
+      // run is unfinished, so the "held elsewhere" case cannot slip through this door.
+      if (work == null || !work.readable || work.due.length === 0) {
+        log.debug("[research-run] no claim and nothing due; nothing runs", { tenantId, due: work?.due.length ?? null });
+        return;
+      }
+      run = await startExtraPass(tenantId, ownerToken, utcReportingDay(now.getTime()));
+      if (run == null) return;
+      log.info("[research-run] same-day pass opened on genuinely due work", { tenantId, due: work.due });
+    }
+    // NOTHING DUE, NOTHING SPENT. A pass that opened with a readable and empty due list closes right here
+    // at $0 rather than walking seven phases to discover the same thing. Only a pass at its very first
+    // phase may close this way: a RESUMED run carries work of its own (a half-finished backfill, a unit
+    // cursor) that due-work does not speak for.
+    const fresh = run.current_phase === "refresh_sources" && run.phase_cursor == null;
+    if (fresh && work != null && work.readable && work.due.length === 0) {
+      log.info("[research-run] nothing is due; closing the pass at zero cost", { tenantId, nextDueAt: work.nextDueAt });
+      // The numbers go down BEFORE the close, on the same row, so a finished-with-nothing-owed pass can
+      // still tell the operator what it checked and the date the waiting ends. A pass that closes
+      // silently looks identical to one that never ran.
+      await advancePhase(tenantId, run.id, ownerToken, { phase: run.current_phase, cursor: null, progress: {
+        ...(run.progress ?? {}),
+        state: { ...(run.progress?.state ?? {}), checksDone: work.checks.done, checksTotal: work.checks.total,
+          casesActive: work.cases.active, casesParked: work.cases.parked, nextDueAt: work.nextDueAt, blocker: null },
+      } });
+      await finishRun(tenantId, run.id, ownerToken, "completed");
       return;
     }
-    await driveRun(run, ownerToken, nowFn, deadline, steps);
+    await driveRun(run, ownerToken, nowFn, deadline, steps,
+      work ?? { due: [], readable: false, checks: { done: 0, total: 0 }, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null });
   });
+}
+
+/** How many continuations ONE trigger may chain. The bound is the whole safety story: each hop is its own
+ *  request with its own lease claim, so a closed tab simply stops, and this stops a live one from looping
+ *  forever on a due list it can never clear. */
+const MAX_CONTINUATIONS = 6;
+
+/**
+ * ONE bounded continuation hop, and an honest answer about whether another is owed.
+ *
+ * The trigger stays what it was: next/after on render, one hop, no unawaited promise living past the
+ * response. What is new is that a hop reports back, so the surface that asked for it can ask again while
+ * work remains. Each hop is a SEPARATE request that claims the lease for itself, which is why a closed tab
+ * stops safely, a reopened one resumes exactly where the row says, and two tabs cannot both advance a run.
+ */
+export async function continueResearch(tenantId: string, hop = 0, options: ResearchCycleOptions = {}): Promise<{ hop: number; more: boolean }> {
+  const next = Math.max(0, Math.trunc(hop)) + 1;
+  if (!tenantId || next > MAX_CONTINUATIONS) return { hop: Math.max(0, Math.trunc(hop)), more: false };
+  await runResearchCycle(tenantId, options).catch((error) => {
+    log.warn("[research-run] continuation hop failed (non-blocking)", { tenantId, hop: next, error: error instanceof Error ? error.message.slice(0, 200) : String(error) });
+  });
+  const work = await (options.steps?.dueWork ?? dueWork)(tenantId, (options.now ?? (() => new Date()))()).catch(() => null);
+  return { hop: next, more: next < MAX_CONTINUATIONS && !!work?.readable && work.due.length > 0 };
 }
 
 /** Schedule one post-response Research Run from the app shell. Every navigation may call this; the DATABASE lease (not any in-memory guard) prevents two

@@ -1,25 +1,41 @@
 /**
- * decision/proposal-store (CORE 100K decision kernel, 2026-07-22) — durable,
- * fail-soft persistence for a ChangeProposal. The kernel owns its own storage
- * so it does not depend on any old draft/rec store internals.
+ * decision/proposal-store (V1 Truth Convergence Phase 5, 2026-07-31): the ONE
+ * durable home of a ChangeProposal, and ONE CURRENT ROW PER HYPOTHESIS.
  *
- * Reuses the existing `move_drafts` table (free-text `content` column, no
- * migration) under the synthetic kind `change_proposal`, keyed by the
- * proposal's own stable id. Latest write per id wins.
+ * WHAT WAS WRONG. Persistence was an append into `move_drafts`: every pass that
+ * drafted wrote another row, and the newest row per id won on read. A fingerprint
+ * check stopped the worst of it (one unchanged proposal had been written 27
+ * times), but nothing in the store SAID what a proposal is: two rows for the same
+ * page and the same lever were two rows, forever, and history and current work
+ * lived in one undifferentiated pile.
  *
- * ONE MATERIAL ROW PER GENERATION (2026-07-27). The save used to be a plain
- * insert, so every surface refresh appended another copy of an unchanged
- * proposal: 500 rows for 31 distinct proposals, one of them written 27 times,
- * each with a fresh timestamp that made yesterday's thinking read as today's
- * work. A save now compares a CONTENT FINGERPRINT (the material fields an
- * operator would act on) against the row already stored and writes nothing when
- * they match. No new table, no migration, no history deleted.
+ * CANONICAL IDENTITY. A hypothesis is (tenant, site, case, page, action family).
+ * Exactly one row for that identity is CURRENT (`terminal_disposition is null`),
+ * enforced by a partial unique index in Postgres, not by hope. A new draft for the
+ * same hypothesis SUPERSEDES the row that held it: the predecessor steps aside with
+ * `terminal_disposition = 'superseded'` and a pointer to its successor, and the
+ * successor lands carrying the next `proposal_version`. A re-draft that says
+ * exactly what the stored row already says writes NOTHING.
  *
- * DEGRADE-SAFE, exactly like move-draft-store.ts: if the table is absent
- * (PGRST205 / Postgres 42P01) reads return empty and writes return false; the
- * caller behaves as generate-on-demand. Never throws. Every LOAD re-validates
- * through deserializeChangeProposal, so a tampered/legacy row can never be
- * served as a trusted proposal.
+ * THE STATUS VOCABULARY DOES NOT MOVE. proposed / needs_review / rejected /
+ * applied are the lifecycle, exactly as they were. A DISPOSITION is a different
+ * question: not what Beacon thinks of the change, but whether this row is still
+ * the current answer at all. dismissed (the operator put it away), withdrawn
+ * (Beacon took it back), superseded (a newer version replaced it).
+ *
+ * A DISMISSED CHANGE STAYS DISMISSED until the evidence itself moves: a re-draft
+ * under the SAME basis is refused, and a re-draft under a NEW basis is allowed,
+ * because that is genuinely a different reading of a different world.
+ *
+ * HISTORY IS READABLE, NEVER RESURRECTED. Nothing writes `move_drafts` anymore.
+ * Those rows are read as history for ids the canonical table has never heard of
+ * (a pre-cutover proposal Results still needs), and a row the canonical table
+ * knows in ANY state is never revived from there.
+ *
+ * FAIL CLOSED, LOUDLY. This table is created by migration BEFORE this code
+ * deploys. If it is missing, a write fails and says so (the caller keeps the
+ * previous release rather than reporting work nobody can load back) and reads
+ * fall back to history rather than claiming this account has no changes.
  *
  * server-only.
  */
@@ -29,23 +45,110 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { dualWriteUpsertScoped } from "@/lib/persistence/dual-write";
 import { log } from "@/lib/logger";
 import {
+  type BundleComponentKind,
   type ChangeProposal,
   serializeChangeProposal,
   deserializeChangeProposal,
 } from "./contracts";
 
-const KIND = "change_proposal";
+/** The canonical table (migrations/2026-07-31_change_proposals.sql). */
+const TABLE = "change_proposals";
+/** The append-only rows this store used to write. READ ONLY, history only. */
+const LEGACY_TABLE = "move_drafts";
+const LEGACY_KIND = "change_proposal";
 
-/** A missing table (not yet migrated) — treat as "no proposals", not an error. */
-function isMissingTable(code?: string | null): boolean {
-  return code === "PGRST205" || code === "42P01";
+/** Why this row is no longer the current answer. Never a status: the four statuses
+ *  on the proposal itself say what Beacon thinks of the change, and these say
+ *  whether anyone is still being asked to look at it. */
+type TerminalDisposition = "dismissed" | "withdrawn" | "superseded";
+
+/** saved = a new version is durable. unchanged = the stored row already says exactly
+ *  this, so nothing was written. refused = this hypothesis was dismissed and the
+ *  evidence has not moved since. failed = the write did not land. */
+export type SaveResult = "saved" | "unchanged" | "refused" | "failed";
+
+// ── canonical identity ────────────────────────────────────────────────────────
+
+/** THE CLOSED SET OF ACTION FAMILIES. One page can hold one current change per
+ *  family: rewriting the snippet and restructuring the body are two hypotheses,
+ *  and two attempts at the snippet are one. */
+type ActionFamily =
+  | "title-family" | "section-family" | "links-family" | "technical-family"
+  | "consolidation" | "new_page";
+
+/** Every component kind maps to exactly one family, once, here. Adding a kind to
+ *  the contract without adding it here does not compile. */
+const FAMILY_BY_KIND: Record<BundleComponentKind, ActionFamily> = {
+  title: "title-family", meta: "title-family", h1: "title-family",
+  opening_answer: "section-family", section: "section-family", source_pack: "section-family",
+  paragraph_correction: "section-family", section_add: "section-family", section_remove: "section-family",
+  section_rewrite: "section-family", restructure: "section-family", full_rewrite: "section-family",
+  factual_correction: "section-family", source_update: "section-family", entity_expansion: "section-family",
+  table_or_list_add: "section-family",
+  internal_links: "links-family", internal_link_add: "links-family",
+  internal_link_remove: "links-family", anchor_text: "links-family",
+  schema: "technical-family", canonical: "technical-family", redirect: "technical-family",
+  noindex: "technical-family", navigation: "technical-family",
+  consolidation: "consolidation",
+  new_page: "new_page",
+};
+
+/** BLAST RADIUS ORDER. A bundle touching several families is named by the biggest
+ *  thing it does: moving the page outranks rewriting the body, which outranks
+ *  rewording the line Google displays. Deterministic, so the same bundle always
+ *  lands on the same identity. */
+const FAMILY_PRECEDENCE: readonly ActionFamily[] = [
+  "new_page", "consolidation", "technical-family", "section-family", "links-family", "title-family",
+];
+
+/** PURE: which family this change belongs to. A bundle is read off its components;
+ *  an atomic edit names its own field. */
+function actionFamilyOf(p: ChangeProposal): ActionFamily {
+  if (p.kind === "new_page") return "new_page";
+  const families = new Set((p.bundle?.components ?? []).map((c) => FAMILY_BY_KIND[c.kind]));
+  for (const f of FAMILY_PRECEDENCE) if (families.has(f)) return f;
+  const change = p.recommendedChange;
+  if (change.kind === "new_page") return "new_page";
+  return change.field === "title" || change.field === "meta" || change.field === "h1"
+    ? "title-family" : "section-family";
 }
 
-/** saved = a new material generation is durable. unchanged = the stored row already
- *  says exactly this, so nothing was written. failed = the write did not land. */
-export type SaveResult = "saved" | "unchanged" | "failed";
+/** The subject segment of the proposal's own id (`tenant::subject::kind::suffix`):
+ *  the page for an edit, the research case for a new page. Identity is derived FROM
+ *  the id and is never finer than it, so one id can never need two current rows. */
+function anchorOf(p: ChangeProposal): string {
+  const parts = p.id.split("::");
+  const raw = parts.length >= 3 ? (parts[1] ?? "") : (p.pagePath ?? p.pageUrl ?? p.pageLabel ?? "");
+  return raw.trim().toLowerCase();
+}
+
+/** The site this change lands on, from the proposal's own URL. Informational: the
+ *  one-current-row index is keyed on the account, the case, the page and the family. */
+function siteOf(p: ChangeProposal): string {
+  const url = (p.pageUrl ?? "").trim();
+  if (!url) return "";
+  try {
+    return new URL(url.startsWith("http") ? url : `https://${url}`).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return url.toLowerCase();
+  }
+}
+
+type Identity = { site: string; case_id: string; page_key: string; action_family: ActionFamily };
+
+/** PURE: the hypothesis this proposal is an answer to. */
+function identityOf(p: ChangeProposal): Identity {
+  const anchor = anchorOf(p);
+  return {
+    site: siteOf(p),
+    case_id: p.kind === "new_page" ? anchor : "",
+    page_key: p.kind === "new_page" ? "" : anchor,
+    action_family: actionFamilyOf(p),
+  };
+}
 
 /**
  * PURE: the fingerprint of everything an operator would act on. Deliberately
@@ -68,68 +171,147 @@ export function proposalFingerprint(p: ChangeProposal): string {
   return createHash("sha256").update(JSON.stringify(material)).digest("hex").slice(0, 16);
 }
 
-/** Persist one proposal, or NOTHING when the stored row is already this exact
- *  proposal. Fail-soft → "failed". */
+/** WHY this change exists, lifted onto its own column so the reasoning can be read
+ *  without unpacking the whole proposal. Never a second source of truth: every
+ *  field here is copied off the payload below it. */
+function decisionReceipt(p: ChangeProposal): Record<string, unknown> {
+  return {
+    cause: p.diagnosisCause ?? null,
+    why_it_matters: p.whyItMatters,
+    confidence: p.confidence,
+    limitations: p.limitations,
+    receipt: p.bundle
+      ? { items: p.bundle.receipt.items, missing: p.bundle.receipt.missing, freshest_observed_at: p.bundle.receipt.freshestObservedAt }
+      : null,
+  };
+}
+
+// ── stored rows ───────────────────────────────────────────────────────────────
+
+type CanonRow = {
+  id: string;
+  proposal_version: number;
+  terminal_disposition: TerminalDisposition | null;
+  basis: string | null;
+  payload: unknown;
+};
+
+/** Re-validate a stored payload on EVERY load: a hand-edited row can never be
+ *  served as a trusted proposal. */
+function decode(payload: unknown): ChangeProposal | null {
+  if (payload == null) return null;
+  return deserializeChangeProposal(typeof payload === "string" ? payload : JSON.stringify(payload));
+}
+
+function rowFor(p: ChangeProposal, ident: Identity, version: number): Record<string, unknown> {
+  return {
+    id: p.id,
+    tenant_id: p.tenantId,
+    ...ident,
+    proposal_version: version,
+    basis: p.basis ?? null,
+    status: p.status,
+    terminal_disposition: null,
+    superseded_by: null,
+    payload: JSON.parse(serializeChangeProposal(p)) as unknown,
+    decision_receipt: decisionReceipt(p),
+    ranking_receipt: p.rankingReceipt ?? null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/** Set (or, on a rollback, clear) one row's disposition. Fail-closed: a write that
+ *  changed no row is a failure, never a quiet success. */
+async function setDisposition(
+  tenantId: string, id: string, disposition: TerminalDisposition | null, supersededBy: string | null,
+): Promise<boolean> {
+  const { data, error } = await getSupabaseAdmin()
+    .from(TABLE)
+    .update({ terminal_disposition: disposition, superseded_by: supersededBy, updated_at: new Date().toISOString() })
+    .eq("tenant_id", tenantId)
+    .eq("id", id)
+    .select("id");
+  if (error || !data || data.length === 0) {
+    log.error("[proposal-store] disposition write did not land", { id, disposition, error: error?.message ?? "no row" });
+    return false;
+  }
+  return true;
+}
+
+// ── writes ────────────────────────────────────────────────────────────────────
+
+/**
+ * Persist one proposal as the CURRENT answer for its hypothesis, superseding
+ * whatever held that identity before. Writes nothing when the stored row already
+ * says exactly this. Never throws.
+ */
 export async function saveChangeProposal(proposal: ChangeProposal): Promise<SaveResult> {
   if (!proposal.tenantId || !proposal.id) return "failed";
-  const content = serializeChangeProposal(proposal);
+  const ident = identityOf(proposal);
   try {
-    const stored = await loadChangeProposal(proposal.tenantId, proposal.id);
-    if (stored && proposalFingerprint(stored) === proposalFingerprint(proposal)) return "unchanged";
     const sb = getSupabaseAdmin();
-    const { error } = await sb.from("move_drafts").insert({
-      tenant_id: proposal.tenantId,
-      rec_id: proposal.id,
-      kind: KIND,
-      content: content.slice(0, 12_000),
-    });
+    // Everything already filed under this hypothesis, in one read.
+    const { data, error } = await sb
+      .from(TABLE)
+      .select("id, proposal_version, terminal_disposition, basis, payload")
+      .eq("tenant_id", proposal.tenantId)
+      .eq("case_id", ident.case_id)
+      .eq("page_key", ident.page_key)
+      .eq("action_family", ident.action_family)
+      .limit(50);
     if (error) {
-      if (!isMissingTable(error.code)) {
-        log.warn("[proposal-store] save failed", { tenantId: proposal.tenantId, id: proposal.id, error: error.message });
-      }
+      log.error("[proposal-store] canonical read failed, nothing was written", {
+        tenantId: proposal.tenantId, id: proposal.id, error: error.message });
+      return "failed";
+    }
+    const rows = (data ?? []) as CanonRow[];
+    // This id may have been filed under a DIFFERENT family last time (a bundle whose
+    // components changed), so it is looked up by id as well before anything is written.
+    const mine = rows.find((r) => r.id === proposal.id) ?? (await rowById(proposal.tenantId, proposal.id));
+    const current = rows.find((r) => r.terminal_disposition == null) ?? null;
+
+    // A CHANGE THE OPERATOR PUT AWAY STAYS AWAY until the evidence itself moves. Same
+    // basis, same dismissal. A new basis is a genuinely different reading, so it may try again.
+    const dismissed = [mine, ...rows].find((r) => r?.terminal_disposition === "dismissed") ?? null;
+    if (dismissed && (dismissed.basis ?? null) === (proposal.basis ?? null)) return "refused";
+
+    // Nothing material changed: no write, no new timestamp, so a refreshed surface never
+    // reads yesterday's thinking as today's work.
+    if (mine && mine.terminal_disposition == null) {
+      const stored = decode(mine.payload);
+      if (stored && proposalFingerprint(stored) === proposalFingerprint(proposal)) return "unchanged";
+    }
+
+    const version = (mine?.proposal_version ?? current?.proposal_version ?? 0) + 1;
+    // One identity, one current row: the predecessor steps aside BEFORE the successor
+    // lands, because the index will not hold both at once.
+    const handover = current && current.id !== proposal.id ? current : null;
+    if (handover) {
+      log.info("[proposal-store] superseding", { id: handover.id, by: proposal.id, version });
+      if (!(await setDisposition(proposal.tenantId, handover.id, "superseded", proposal.id))) return "failed";
+    }
+    try {
+      await dualWriteUpsertScoped(TABLE, [rowFor(proposal, ident, version)], "id", proposal.tenantId);
+    } catch (e) {
+      // The successor did not land, so the predecessor takes its place back rather than
+      // leaving this hypothesis with no current answer at all.
+      if (handover) await setDisposition(proposal.tenantId, handover.id, null, null);
+      log.error("[proposal-store] save failed, the stored change is unchanged", {
+        tenantId: proposal.tenantId, id: proposal.id, error: e instanceof Error ? e.message : String(e) });
       return "failed";
     }
     return "saved";
   } catch (e) {
-    log.warn("[proposal-store] save threw", {
-      id: proposal.id,
-      error: e instanceof Error ? e.message : String(e),
-    });
+    log.error("[proposal-store] save threw", { id: proposal.id, error: e instanceof Error ? e.message : String(e) });
     return "failed";
-  }
-}
-
-/** Load the latest valid proposal for one id. Fail-soft → null. */
-export async function loadChangeProposal(tenantId: string, id: string): Promise<ChangeProposal | null> {
-  if (!tenantId || !id) return null;
-  try {
-    const sb = getSupabaseAdmin();
-    const { data, error } = await sb
-      .from("move_drafts")
-      .select("content, created_at")
-      .eq("tenant_id", tenantId)
-      .eq("rec_id", id)
-      .eq("kind", KIND)
-      .order("created_at", { ascending: false })
-      .limit(1);
-    if (error || !data || data.length === 0) {
-      if (error && !isMissingTable(error.code)) {
-        log.warn("[proposal-store] load failed", { tenantId, id, error: error.message });
-      }
-      return null;
-    }
-    return deserializeChangeProposal(data[0].content as string);
-  } catch (e) {
-    log.warn("[proposal-store] load threw", { id, error: e instanceof Error ? e.message : String(e) });
-    return null;
   }
 }
 
 /**
  * Manually mark one proposal APPLIED (the operator's own "Mark implemented"
- * action — never the kernel). Re-persists the proposal with status "applied" so
- * the pre-ship queue drops it and its measurement lives in the proof ledger.
- * Fail-soft → false. Publishing stays manual: this records the operator's claim,
+ * action, never the kernel). Re-persists the proposal with status "applied" so the
+ * pre-ship queue drops it and its measurement lives in the proof ledger.
+ * Fail-soft to false. Publishing stays manual: this records the operator's claim,
  * it does not write a live page.
  */
 export async function markProposalApplied(tenantId: string, id: string): Promise<boolean> {
@@ -138,34 +320,89 @@ export async function markProposalApplied(tenantId: string, id: string): Promise
   return (await saveChangeProposal({ ...proposal, status: "applied" })) !== "failed";
 }
 
-/** Load the latest valid proposal per id for a tenant. Fail-soft → empty map. */
+// ── reads ─────────────────────────────────────────────────────────────────────
+
+/** One canonical row by id, whatever its disposition. Null when there is none. */
+async function rowById(tenantId: string, id: string): Promise<CanonRow | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from(TABLE)
+    .select("id, proposal_version, terminal_disposition, basis, payload")
+    .eq("tenant_id", tenantId)
+    .eq("id", id)
+    .limit(1);
+  if (error || !data || data.length === 0) return null;
+  return data[0] as CanonRow;
+}
+
+/** HISTORY ONLY: the append-only rows this store wrote before the canonical table
+ *  existed. Nothing writes them now and nothing here is treated as current work
+ *  unless the canonical table has never heard of that id. */
+async function readLegacy(tenantId: string, limit: number, id?: string): Promise<Array<{ id: string; content: string }>> {
+  try {
+    let q = getSupabaseAdmin()
+      .from(LEGACY_TABLE)
+      .select("rec_id, content, created_at")
+      .eq("tenant_id", tenantId)
+      .eq("kind", LEGACY_KIND);
+    if (id) q = q.eq("rec_id", id);
+    const { data, error } = await q.order("created_at", { ascending: false }).limit(limit);
+    if (error || !data) return [];
+    return data.map((r) => ({ id: r.rec_id as string, content: r.content as string }));
+  } catch {
+    return [];
+  }
+}
+
+/** Load one proposal by id. A row the canonical table holds as history (dismissed,
+ *  withdrawn, superseded) is NOT served as a current proposal. Fail-soft to null. */
+export async function loadChangeProposal(tenantId: string, id: string): Promise<ChangeProposal | null> {
+  if (!tenantId || !id) return null;
+  try {
+    const row = await rowById(tenantId, id);
+    if (row) return row.terminal_disposition == null ? decode(row.payload) : null;
+    return decode((await readLegacy(tenantId, 1, id))[0]?.content ?? null);
+  } catch (e) {
+    log.error("[proposal-store] load threw", { id, error: e instanceof Error ? e.message : String(e) });
+    return null;
+  }
+}
+
+/**
+ * Every proposal this account currently holds, keyed by id: the canonical current
+ * rows, plus historical rows for ids the canonical table has never held. Fail-soft
+ * to what could be read, which is the honest degrade: a missing canonical table
+ * shows the history rather than claiming this account has no changes at all.
+ */
 export async function loadChangeProposals(tenantId: string, limit = 500): Promise<Map<string, ChangeProposal>> {
   const out = new Map<string, ChangeProposal>();
   if (!tenantId) return out;
+  let known: Set<string> | null = null;
   try {
-    const sb = getSupabaseAdmin();
-    const { data, error } = await sb
-      .from("move_drafts")
-      .select("rec_id, content, created_at")
+    const { data, error } = await getSupabaseAdmin()
+      .from(TABLE)
+      .select("id, terminal_disposition, payload")
       .eq("tenant_id", tenantId)
-      .eq("kind", KIND)
-      .order("created_at", { ascending: false })
+      .order("updated_at", { ascending: false })
       .limit(limit);
-    if (error || !data) {
-      if (error && !isMissingTable(error.code)) {
-        log.warn("[proposal-store] loadAll failed", { tenantId, error: error.message });
+    if (error) {
+      log.error("[proposal-store] canonical read failed, showing history only", { tenantId, error: error.message });
+    } else {
+      known = new Set<string>();
+      for (const r of (data ?? []) as CanonRow[]) {
+        known.add(r.id);
+        if (r.terminal_disposition != null) continue;
+        const proposal = decode(r.payload);
+        if (proposal) out.set(r.id, proposal);
       }
-      return out;
     }
-    for (const r of data) {
-      const id = r.rec_id as string;
-      if (out.has(id)) continue; // first seen = newest (desc)
-      const proposal = deserializeChangeProposal(r.content as string);
-      if (proposal) out.set(id, proposal);
-    }
-    return out;
   } catch (e) {
-    log.warn("[proposal-store] loadAll threw", { tenantId, error: e instanceof Error ? e.message : String(e) });
-    return out;
+    log.error("[proposal-store] canonical read threw, showing history only", {
+      tenantId, error: e instanceof Error ? e.message : String(e) });
   }
+  for (const row of await readLegacy(tenantId, limit)) {
+    if (out.has(row.id) || known?.has(row.id)) continue; // first seen = newest; never revive what the canon retired
+    const proposal = decode(row.content);
+    if (proposal) out.set(row.id, proposal);
+  }
+  return out;
 }

@@ -70,7 +70,7 @@ export function utcReportingDay(now: number | Date = Date.now()): string {
 
 const pairKey = (promptId: string, version: number, engine: string): string => `${promptId}|${version}|${engine}`;
 
-export type ObservationPlanInput = {
+type ObservationPlanInput = {
   /** The operator's approved questions, each with the series it is on. */
   prompts: readonly TrackedQuestion[];
   /** Stored observations. Rows for `day` decide what is still due; every row
@@ -221,7 +221,7 @@ async function writeExtraSampleGrant(tenantId: string, grant: ExtraSampleGrant):
   return error == null;
 }
 
-export type PlannerDeps = {
+type PlannerDeps = {
   readPrompts?: (tenantId: string) => Promise<TrackedQuestion[] | null>;
   readObservations?: (tenantId: string, opts: { day?: string; promptId?: string }) => Promise<readonly ObservedSample[]>;
   readGrant?: (tenantId: string) => Promise<ExtraSampleGrant | null>;
@@ -237,14 +237,34 @@ async function evidenceObservations() {
   return import("@/domains/evidence/ai-visibility/ai-observations");
 }
 
+/** PURE. Today's canonical round as a COUNT: every (question, engine) pair that owes a
+ *  reading today, and how many of them already landed. The progress number Today shows is
+ *  this one, so it is the planner's own arithmetic and never a second, drifting tally. */
+function checkCounts(day: string, input: Pick<ObservationPlanInput, "prompts" | "observed" | "engines" | "unsupportedPairs">): { done: number; total: number } {
+  const engines = (input.engines ?? OBSERVATION_ENGINES).filter((e) => OBSERVATION_ENGINES.includes(e));
+  const excluded = new Set(input.unsupportedPairs ?? []);
+  const landed = new Set(input.observed
+    .filter((o) => o.day === day && o.status === "observed" && o.slot === 0)
+    .map((o) => pairKey(o.promptId, o.version, o.engine)));
+  let done = 0, total = 0;
+  for (const p of input.prompts) {
+    if (!p.id || !p.text) continue;
+    for (const engine of engines) {
+      if (excluded.has(`${p.id}|${engine}`)) continue;
+      total += 1;
+      if (landed.has(pairKey(p.id, p.version, engine))) done += 1;
+    }
+  }
+  return { done, total };
+}
+
 /**
- * THE DAILY PLAN for one account, and the ONLY selector the observation unit has.
- * `null` means I COULD NOT READ what is due (the question list or the observation
- * store), which is a different claim from `[]` ("nothing is owed") and gets a
- * different answer: the unit does nothing at all rather than fall back on asking
- * every question again, which is exactly what a false empty history used to buy.
+ * THE DAILY PLAN for one account, WITH the day's standing: what is still due, and how much
+ * of today's one canonical round already landed. `null` means I COULD NOT READ what is due
+ * (the question list or the observation store), which is a different claim from "nothing is
+ * owed" and gets a different answer everywhere it is consumed.
  */
-export async function dueObservations(tenantId: string, reportingDay: string, opts: PlannerDeps = {}): Promise<DueObservation[] | null> {
+export async function dailyChecks(tenantId: string, reportingDay: string, opts: PlannerDeps = {}): Promise<{ done: number; total: number; due: DueObservation[] } | null> {
   const readPrompts = opts.readPrompts ?? readActiveTrackedPrompts;
   const readObservations = opts.readObservations ?? (async (t, o) => (await evidenceObservations()).readAiObservationViews(t, o));
   const prompts = await readPrompts(tenantId).catch(() => null);
@@ -252,7 +272,7 @@ export async function dueObservations(tenantId: string, reportingDay: string, op
     log.warn("[daily-observations] tracked questions unreadable; planning nothing this pass", { tenantId, reportingDay });
     return null;
   }
-  if (prompts.length === 0) return [];
+  if (prompts.length === 0) return { done: 0, total: 0, due: [] };
   const observed = await readObservations(tenantId, {}).catch(() => null);
   if (observed == null) {
     log.warn("[daily-observations] observation history unreadable; planning nothing this pass", { tenantId, reportingDay });
@@ -260,10 +280,17 @@ export async function dueObservations(tenantId: string, reportingDay: string, op
   }
   // An extra reading is planned ONLY against a grant the operator actually earned, on THIS day.
   const grant = await (opts.readGrant ?? readExtraSampleGrant)(tenantId).catch(() => null);
-  return planObservations(reportingDay, {
-    prompts, observed, engines: opts.engines, unsupportedPairs: opts.unsupportedPairs,
-    extraSamples: grant?.day === reportingDay ? grant.granted : 0, maxBatch: opts.maxBatch,
-  });
+  const shared = { prompts, observed, engines: opts.engines, unsupportedPairs: opts.unsupportedPairs };
+  return {
+    ...checkCounts(reportingDay, shared),
+    due: planObservations(reportingDay, { ...shared, extraSamples: grant?.day === reportingDay ? grant.granted : 0, maxBatch: opts.maxBatch }),
+  };
+}
+
+/** The ONLY selector the observation unit has: the due list alone, with the same null
+ *  meaning (I could not read what is due, so ask nothing). */
+export async function dueObservations(tenantId: string, reportingDay: string, opts: PlannerDeps = {}): Promise<DueObservation[] | null> {
+  return (await dailyChecks(tenantId, reportingDay, opts))?.due ?? null;
 }
 
 /**
@@ -312,7 +339,7 @@ export function selectAnalysisTargets(rows: readonly AnalyzableObservation[], ma
     .slice(0, Math.max(0, max));
 }
 
-export type AnalysisDeps = {
+type AnalysisDeps = {
   readObservations?: (tenantId: string, opts: { day?: string }) => Promise<readonly AnalyzableObservation[]>;
   persist?: (tenantId: string, observationId: string, analysis: Record<string, unknown>, analysisHash: string) => Promise<void>;
   analyze?: (input: { tenantId: string; question: string; engine: string; answerText: string; brand: string }) => Promise<AnswerAnalysis | null>;

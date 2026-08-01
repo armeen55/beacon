@@ -42,7 +42,7 @@ export type ResearchPhase =
 
 /** Three honestly-produced states only: a transient phase failure PAUSES with a bounded last_error
  *  (recoverable next visit), never a terminal `failed`. Completion means every phase succeeded or no-opped. */
-export type ResearchRunStatus = "running" | "paused" | "completed";
+type ResearchRunStatus = "running" | "paused" | "completed";
 
 /** Evidence-based counters only, never a fabricated number. `refreshedProviders` is the set of providers
  *  that actually synced this cycle (unioned across retries); `sourcesRefreshed` is that set's size. */
@@ -67,6 +67,29 @@ export type ResearchRunProgress = {
    *  And whether this run already attempted its ONE advisory reading of the case registry: reconciliation runs before every unit, so without a marker of its own that reading was bounded per iteration. */
   extraSamples?: { day: string; granted: number };
   synthesisAttempted?: boolean;
+  /** THE DAY THIS RUN COULD NOT BUY A CASE'S COMPETING DOMAINS because the spending ceiling was
+   *  reached, and which cases those were. Day-scoped exactly like the extra-sample grant, so it
+   *  clears by rollover rather than by a cleanup nobody runs, and the case receipt can say
+   *  "capped" about the pass that was actually capped instead of about every pass since. */
+  capped?: { day: string; caseIds: string[] };
+  /** The watermark the LAST decide-and-publish pass ran against: which basis, and which version
+   *  of the research notes. Notes that moved past it are new evidence, which is what makes a
+   *  second pass on the same day legitimate instead of redundant. */
+  decided?: { basis: string; rowVersion: number };
+  /** PROGRESS AS PERSISTED TRUTH, so every surface reads the same numbers on every request. It
+   *  used to be assembled per render from whatever was in hand, including the lease, so two
+   *  requests a second apart could disagree about whether research was running. Written by the
+   *  run itself from the due-work read it already made; nothing here is derived at render time. */
+  state?: {
+    /** Today's AI checks, from the planner: landed of owed. */
+    checksDone?: number; checksTotal?: number;
+    /** The frozen plan's topics: readable now, and waiting on a promised date. */
+    casesActive?: number; casesParked?: number;
+    /** The earliest date something waiting becomes legal again, when everything is waiting. */
+    nextDueAt?: string | null;
+    /** The pause vocabulary, persisted beside the numbers it explains. */
+    blocker?: string | null;
+  };
   /** Slice 6: real persisted funnel counters (never fabricated). */
   funnel?: {
     rawKeywords?: number; normalizedKeywords?: number; retainedKeywords?: number;
@@ -103,38 +126,14 @@ export type ResearchRun = {
   completed_at: string | null;
 };
 
-/** The compact Today projection, derived FROM the canonical record. `none` covers no-run and any fail-soft
- *  error. Counters carry evidence-backed numbers only: aiChecks* mirror persisted funnel counters. */
-export type ResearchRunStatusView = {
-  state: "running" | "paused" | "completed" | "none";
-  phaseLabel: string;
-  stepsDone: number;
-  stepsTotal: 7;
-  counters: { sourcesRefreshed?: number; backfillDaysPulled?: number; aiChecksDone?: number; aiChecksIntended?: number };
-  updatedAt: string | null;
-  completedAt: string | null;
-  /** The paused phase's Beacon-voice reason: some pauses need the operator and never resume alone. */
-  pauseReason: string | null;
-};
-
-/** The seven operator-visible steps, in order. `done` is terminal (not a step). */
-const STEP_ORDER: ResearchPhase[] = [
-  "refresh_sources", "gsc_backfill_chunk", "keyword_discovery",
-  "prompt_observations", "serp_analysis", "winning_pages", "publish_surface",
-];
-export const RESEARCH_RUN_STEPS_TOTAL = 7 as const;
-
-/** The next phase after `phase` in THE one canonical order, or the terminal `done`. */
-export function nextPhase(phase: ResearchPhase): ResearchPhase {
-  const i = STEP_ORDER.indexOf(phase);
-  return i < 0 || i + 1 >= STEP_ORDER.length ? "done" : STEP_ORDER[i + 1]!;
-}
-
 /** Lease length for one claimed cycle. Renewed at DATABASE time BEFORE every bounded phase
  *  (renew_research_lease) so no phase inside the 210s cycle deadline can knowingly outlive its lease. */
 export const RESEARCH_RUN_LEASE_SECONDS = 240;
-/** A `running` row whose lease expired this long ago is a dead invocation; the Today line presents it as paused. */
-export const RESEARCH_RUN_LEASE_GRACE_MS = 30_000;
+
+// The operator-facing projection lives in run-status (the record and the way it READS are two
+// jobs). Re-exported here so every existing caller keeps its one import.
+export { nextPhase, projectStatusView, researchStatusLine, type ResearchRunStatusView } from "./run-status";
+import { projectStatusView, type ResearchRunStatusView } from "./run-status";
 
 // ── Pure helpers ───────────────────────────────────────────────────────────
 
@@ -178,98 +177,10 @@ export function phaseIdempotencyKey(
     .slice(0, 32)}`;
 }
 
-/** Human step index for a phase; `done` maps to all 7 steps done. */
-function stepsDoneForPhase(phase: ResearchPhase): number {
-  if (phase === "done") return RESEARCH_RUN_STEPS_TOTAL;
-  const i = STEP_ORDER.indexOf(phase);
-  return i < 0 ? 0 : i; // phases already PASSED = steps done
-}
-
-const PHASE_LABEL: Record<ResearchPhase, string> = {
-  refresh_sources: "refreshing your connected data",
-  gsc_backfill_chunk: "loading more Search Console history",
-  keyword_discovery: "researching what your customers search for",
-  prompt_observations: "checking how AI assistants answer your questions",
-  serp_analysis: "reading the results pages for your strongest topics",
-  winning_pages: "studying the pages that win those results",
-  publish_surface: "updating your ranked changes",
-  done: "updating your ranked changes",
-};
-
-/** True when a `running` row's lease is expired past the grace window: the
- *  invocation that held it is dead, so the run is really paused. */
-export function isLeaseDead(run: Pick<ResearchRun, "lease_expires_at">, nowMs: number): boolean {
-  const t = run.lease_expires_at ? Date.parse(run.lease_expires_at) : NaN;
-  return !Number.isFinite(t) || nowMs - t > RESEARCH_RUN_LEASE_GRACE_MS;
-}
-
-/** PURE: a persisted run (or none) -> the compact Today view. A `running` row with a dead lease reads paused. */
-export function projectStatusView(run: ResearchRun | null, nowMs: number): ResearchRunStatusView {
-  if (run == null) return { state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: RESEARCH_RUN_STEPS_TOTAL, counters: {}, updatedAt: null, completedAt: null, pauseReason: null };
-
-  let state: ResearchRunStatusView["state"];
-  if (run.status === "completed") state = "completed";
-  else if (run.status === "paused") state = "paused";
-  else state = isLeaseDead(run, nowMs) ? "paused" : "running"; // running with dead lease → paused
-
-  const counters: ResearchRunStatusView["counters"] = {};
-  if (typeof run.progress?.sourcesRefreshed === "number") counters.sourcesRefreshed = run.progress.sourcesRefreshed;
-  if (typeof run.progress?.backfill?.daysPulled === "number") counters.backfillDaysPulled = run.progress.backfill.daysPulled;
-  // AI checks: durably persisted funnel numbers, both or neither, and ONLY while the AI-check
-  // phase is current (they survive onto later phases and would freeze under a moving label).
-  const { enginePairsDone: aiDone, enginePairsIntended: aiWanted } =
-    run.current_phase === "prompt_observations" ? (run.progress?.funnel ?? {}) : {};
-  if (typeof aiDone === "number" && Number.isFinite(aiDone) && typeof aiWanted === "number" && Number.isFinite(aiWanted)) {
-    counters.aiChecksDone = aiDone;
-    counters.aiChecksIntended = aiWanted;
-  }
-
-  return {
-    state,
-    phaseLabel: PHASE_LABEL[run.current_phase],
-    stepsDone: stepsDoneForPhase(run.current_phase),
-    stepsTotal: RESEARCH_RUN_STEPS_TOTAL,
-    counters,
-    updatedAt: run.updated_at ?? null,
-    completedAt: run.completed_at ?? null,
-    // A reason belongs to the phase that recorded it (claim preserves last_error): a stale
-    // reason from an already-passed phase must never resurrect.
-    pauseReason:
-      state === "paused" && run.last_error?.phase === run.current_phase ? (run.last_error?.message?.trim() || null) : null,
-  };
-}
-
-/**
- * PURE: the ONE honest Beacon-voice Today status line for the durable Research Run,
- * or null (render nothing) for none/idle. An OPEN run with no bounded reason reads as
- * ONE in-progress sentence whether or not a lease is live, so the line can never
- * toggle on lease state alone; only a real pause reason changes it, because a pause
- * needing the operator must not promise a resume. No progress bar, percentage, ETA,
- * animation, and never "current": a completed row is a finished PASS at a stated time,
- * never a promise the data stays fresh, and an earlier day's pass shows its date.
- */
-export function researchStatusLine(view: ResearchRunStatusView, now: Date = new Date()): string | null {
-  if (view.state === "running" || (view.state === "paused" && view.pauseReason == null)) {
-    const { aiChecksDone: aiDone, aiChecksIntended: aiWanted } = view.counters;
-    const checks = typeof aiDone === "number" && typeof aiWanted === "number" && aiWanted > 0 ? ` ${aiDone} of ${aiWanted} AI checks collected.` : "";
-    return `Research in progress: ${view.phaseLabel}.${checks}`;
-  }
-  if (view.state === "paused") return `Research paused after ${view.stepsDone} of ${view.stepsTotal} steps. ${view.pauseReason}`;
-  if (view.state === "completed" && view.completedAt) {
-    const tz = { timeZone: "America/Los_Angeles" } as const;
-    const finished = new Date(view.completedAt);
-    const at = finished.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", ...tz });
-    const sameDay = finished.toLocaleDateString("en-US", tz) === now.toLocaleDateString("en-US", tz);
-    if (sameDay) return `Latest research pass finished today at ${at}.`;
-    const day = finished.toLocaleDateString("en-US", { month: "short", day: "numeric", ...tz });
-    return `Latest research pass finished ${day} at ${at}.`;
-  }
-  return null;
-}
 
 // ── Repository (injected; production = Supabase) ───────────────────────────
 
-export type AdvancePatch = {
+type AdvancePatch = {
   phase: ResearchPhase;
   cursor?: Record<string, unknown> | null;
   progress?: ResearchRunProgress;
@@ -282,6 +193,11 @@ export type ResearchRunRepo = {
    *  claimed row, or null when the caller did not win (foreign unexpired lease, or
    *  research already current for today). */
   claim(input: { tenantId: string; owner: string; leaseSeconds: number }): Promise<ResearchRun | null>;
+  /** Open ANOTHER pass on a day that already completed one, for an account with genuinely due
+   *  work. Returns the new leased row, or null when it must not run: the one-open-run-per-account
+   *  index refuses the insert while any run is unfinished, so a second tab, a second instance and
+   *  a still-live pass all lose this race by construction rather than by a check. */
+  startPass(input: { tenantId: string; owner: string; leaseSeconds: number; day: string }): Promise<ResearchRun | null>;
   /** Guarded advance at DATABASE time (id + tenant + owner + a LIVE lease +
    *  status='running'). Extends the lease. Returns whether a row matched; false ⇒
    *  our lease was lost or expired. */
@@ -333,6 +249,26 @@ const supabaseRepo: ResearchRunRepo = {
     if (error != null) throw new Error(error.message ?? String(error));
     const rows = (data ?? []) as Array<Record<string, unknown>>;
     return rows.length > 0 ? mapRow(rows[0]!) : null;
+  },
+  async startPass({ tenantId, owner, leaseSeconds, day }) {
+    const admin = getSupabaseAdmin();
+    // The pass ordinal keeps (tenant, cycle_key) unique for a second pass on the same day, and the
+    // key still ENDS in the day because the reporting day is read off its tail: a pass that spans
+    // midnight must keep reporting into the day it opened.
+    const { count } = await admin.from("research_runs").select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenantId).like("cycle_key", `%${day}`);
+    const { data, error } = await admin.from("research_runs").insert({
+      tenant_id: tenantId,
+      cycle_key: `${tenantId}:p${(count ?? 1) + 1}:${day}`,
+      status: "running",
+      current_phase: "refresh_sources",
+      lease_owner: owner,
+      lease_expires_at: new Date(Date.now() + leaseSeconds * 1000).toISOString(),
+    }).select("*").maybeSingle();
+    // A unique violation is the expected LOSS (another pass is open, or another tab inserted
+    // first), never an error worth surfacing: the caller simply does nothing.
+    if (error != null || data == null) return null;
+    return mapRow(data as Record<string, unknown>);
   },
   async advance({ tenantId, id, owner, leaseSeconds, patch }) {
     const { data, error } = await getSupabaseAdmin().rpc("advance_research_run", {
@@ -394,9 +330,14 @@ export function setResearchRunRepoForTests(next: ResearchRunRepo | null): void {
 /**
  * Claim, resume, or start the account's Research Run with our owner token. The database
  * resumes the single unfinished run (any date) before considering a new daily cycle, and
- * computes the daily key itself. Returns the claimed row when we won, else null (foreign
- * unexpired lease, or research already current for today). Persistence unavailable ⇒ null
- * (fail closed: NO background work runs), logged, never throws to the caller.
+ * computes the daily key itself.
+ *
+ * A REFUSAL AND A FAILURE ARE DIFFERENT ANSWERS, and this is the one place that can tell
+ * them apart. `null` means the database refused us honestly (a foreign unexpired lease, or
+ * a pass already completed today), which is the case a caller may reason further about. A
+ * THROW means the claim could not be made at all, and there is nothing to reason about: the
+ * caller fails closed and no background work runs. Collapsing the two let an unavailable
+ * database read as "today is done", which would have opened a pass on a guess.
  */
 export async function claimRun(tenantId: string, ownerToken: string): Promise<ResearchRun | null> {
   requireTenant(tenantId);
@@ -404,6 +345,25 @@ export async function claimRun(tenantId: string, ownerToken: string): Promise<Re
     return await repo.claim({ tenantId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS });
   } catch (error) {
     log.warn("[research-run] claim failed; fail closed (no background work)", {
+      tenantId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+}
+
+/**
+ * Open ANOTHER pass on a day that already completed one. The caller must already know work is
+ * genuinely due (see due-work): a day is not a unit of work, but nor is a visit, so nothing here
+ * decides that question. Returns the claimed row, or null when a pass must not open (any
+ * unfinished run, a concurrent tab, or unavailable persistence). Never throws.
+ */
+export async function startExtraPass(tenantId: string, ownerToken: string, day: string): Promise<ResearchRun | null> {
+  requireTenant(tenantId);
+  try {
+    return await repo.startPass({ tenantId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS, day });
+  } catch (error) {
+    log.warn("[research-run] extra same-day pass could not open; nothing runs", {
       tenantId,
       error: error instanceof Error ? error.message : String(error),
     });

@@ -14,7 +14,7 @@ vi.mock("@/lib/persistence/supabase", () => ({
 }));
 import type { AiObservationView, DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import {
-  DAILY_OBSERVATION_BATCH, MAX_SAMPLES_PER_DAY, dueObservations, extraSampleVerdict, planObservations,
+  DAILY_OBSERVATION_BATCH, MAX_SAMPLES_PER_DAY, dailyChecks, dueObservations, extraSampleVerdict, planObservations,
   requestExtraSample, runAnswerAnalyses, selectAnalysisTargets, utcReportingDay, type ExtraSampleGrant,
 } from "@/domains/runtime/ops/daily-observations";
 import { applyTrackedSelection, readActiveTrackedPrompts, type TrackedPromptRow } from "@/domains/runtime/prompt-set";
@@ -158,6 +158,19 @@ describe("extra readings", () => {
     const lost = await requestExtraSample(T, DAY, { ...world, writeGrant: async () => false });
     expect([lost.granted, lost.due]).toEqual([false, []]);
     expect(lost.reason).toContain("could not save");
+  });
+
+  it("reports today's standing with the plan, so the progress number a surface shows is the planner's own arithmetic", async () => {
+    const world = { readPrompts: async () => PROMPTS, readGrant: async () => null };
+    const cold = await dailyChecks(T, DAY, { ...world, readObservations: async () => [] });
+    expect([cold!.done, cold!.total, cold!.due.length]).toEqual([0, 12, 12]); // nothing landed yet, twelve pairs owed
+    const partial = await dailyChecks(T, DAY, { ...world, readObservations: async () => ENGINES.map((e) => seen({ promptId: "p1", engine: e })) });
+    expect([partial!.done, partial!.total, partial!.due.length]).toEqual([4, 12, 8]); // done plus due always accounts for the whole round
+    const finished = await dailyChecks(T, DAY, { ...world, readObservations: async () => fullDay() });
+    expect([finished!.done, finished!.total, finished!.due.length]).toEqual([12, 12, 0]);
+    // Yesterday's readings are not today's progress, and an unreadable store reports nothing rather than zero.
+    expect((await dailyChecks(T, DAY, { ...world, readObservations: async () => fullDay("2026-07-30") }))!.done).toBe(0);
+    expect(await dailyChecks(T, DAY, { ...world, readObservations: async () => { throw new Error("store down"); } })).toBeNull();
   });
 
   it("plans NOTHING and says so when it cannot read the questions or the answers already on file", async () => {

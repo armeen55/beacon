@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
+  continueResearchNow,
   refreshAllConnectedDataNow,
   type RefreshAllConnectedResult,
 } from "@/app/(shell)/settings/connectors/actions";
@@ -25,8 +26,11 @@ import {
  * White-label: the action returns customer-safe labels (plain-English source
  * names, never a vendor name); this component renders them verbatim.
  *
- * Renders nothing when no sources are connected (the strip already shows
- * Connect affordances in that state).
+ * IT RENDERS WITH ZERO CONNECTIONS TOO (2026-07-31). It used to hide itself when
+ * nothing was connected, which quietly removed the only control that resumes the
+ * research: the AI answer checks, the keyword work and the ranked changes need no
+ * connector at all, so an account with none had no way to say "carry on". The copy
+ * tells the truth in both states and the results list stays honest either way.
  */
 
 type RefreshResult = RefreshAllConnectedResult["results"][number];
@@ -64,22 +68,37 @@ export function RefreshMyDataButton({
   connectedCount: number;
 }) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [pulling, setPulling] = useState(false);
+  const [researching, setResearching] = useState(false);
   const [results, setResults] = useState<RefreshResult[] | null>(null);
   const [ranAt, setRanAt] = useState<string | null>(null);
-
-  // Nothing to refresh — the strip's Connect affordances cover this state.
-  if (connectedCount === 0) return null;
+  const busy = pulling || researching;
 
   function onClick() {
     setResults(null);
-    startTransition(async () => {
-      const res = await refreshAllConnectedDataNow();
-      setResults(res.results);
-      setRanAt(res.ranAt);
-      // Repaint the dashboard with the freshly-pulled data.
+    setPulling(true);
+    void (async () => {
+      const res = await refreshAllConnectedDataNow().catch(() => null);
+      setResults(res?.results ?? []);
+      setRanAt(res?.ranAt ?? null);
+      setPulling(false);
+      // Repaint with the freshly-pulled data BEFORE the research continues: the operator should not
+      // wait on the long half to see the short half.
       router.refresh();
-    });
+      // RESUME ALL THE WORK, not just the pulls. One press used to refresh the sources and stop, so
+      // the research those pulls unblocked waited for the next navigation. Each hop is its own
+      // request that claims the run's lease for itself and answers whether more is owed; the SERVER
+      // owns the bound, this loop carries its own so a bad answer cannot spin it, and closing the
+      // tab simply stops asking.
+      setResearching(true);
+      for (let hop = 0, guard = 0; guard < 8; guard += 1) {
+        const step = await continueResearchNow(hop).catch(() => null);
+        if (!step?.more) break;
+        hop = step.hop;
+      }
+      setResearching(false);
+      router.refresh();
+    })();
   }
 
   return (
@@ -87,20 +106,26 @@ export function RefreshMyDataButton({
       <button
         type="button"
         onClick={onClick}
-        disabled={isPending}
-        aria-busy={isPending}
+        disabled={busy}
+        aria-busy={busy}
         className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-border/60 bg-background px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span aria-hidden="true">↻</span>
         <span>Update data</span>
       </button>
       <p className="text-[11px] text-muted-foreground">
-        Pulls the latest from every connected source.
+        {connectedCount > 0
+          ? "Pulls the latest from every connected source, then picks my research back up."
+          : "Picks my research back up where it left off."}
       </p>
       <div aria-live="polite" className="w-full">
-        {isPending ? (
+        {pulling ? (
           <p className="mt-1 text-[12px] text-muted-foreground">
             Refreshing… this can take a moment
+          </p>
+        ) : researching ? (
+          <p className="mt-1 text-[12px] text-muted-foreground">
+            I am picking my research back up. You can keep using Beacon while I work.
           </p>
         ) : results ? (
           results.length > 0 ? (

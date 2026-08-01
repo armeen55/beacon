@@ -333,17 +333,18 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
         if (!caseId || (held && isCurrent("serp_cold", held.observedAt, d.now()))) continue;
         const keywords = state.discovery.retained.filter((k) => k.caseId === caseId).map((k) => k.keyword).slice(0, COMPETITOR_KEYWORDS);
         if (keywords.length === 0) continue;
-        const r = interp(await d.callProvider("labs_serp_competitors", { keywords }, ids));
+        const raw = await d.callProvider("labs_serp_competitors", { keywords }, ids);
+        const r = interp(raw);
         track(state, r);
         if (r.kind === "waiting" || r.kind === "failed") {
-          // DEFERRED TO PHASE 5 (the run's durable due-work state), NAMED HERE so it is not lost: the pass
-          // stops honestly and the unit reports why, but nothing per CASE is persisted, so the case receipt
-          // cannot yet say "I did not buy this one because the ceiling was reached" the way it already can
-          // for a page by page comparison. That needs a durable per-case marker with a due date on it, which
-          // is the state Phase 5 introduces; inventing a second, private one here would be the parallel
-          // progress store the Foundation freeze exists to prevent.
+          // WHICH CASE THE CEILING STOPPED travels back with the stop, and ONLY when the ceiling is what
+          // stopped it. The runner writes it as a day-scoped marker on the run's own progress (no second
+          // store), so the case receipt can say "I did not buy this one because the spending ceiling was
+          // reached" about the case it actually happened to, exactly as it already can for a page by page
+          // comparison. Every other stop reason keeps saying only what it always said.
           await save(d, tenantId, basis, state, ctx);
-          return { status: r.kind === "waiting" ? "waiting" : "failed", cursor: { stage: "competitors" }, progress: discProgress(state),
+          return { status: r.kind === "waiting" ? "waiting" : "failed", progress: discProgress(state),
+            cursor: { stage: "competitors", ...(raw.state === "capped" ? { cappedCase: caseId } : {}) },
             detail: r.detail ?? pauseDetail(r.disposition, "I could not check who keeps winning these searches this pass. I will try again on your next visit.") };
         }
         if (r.kind !== "evidence") continue;
