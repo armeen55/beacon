@@ -141,13 +141,10 @@ export type DiagnosedAction =
   | "full_page" | "new_page" | "consolidate" | "watch";
 
 /**
- * THE reasoning step between "this page underperforms" and "change this". Held
- * inside the existing candidate and receipt path: no new table, record, or route.
- *
- * `diagnosed` means the evidence NAMES a cause, the action follows from that cause,
- * at least one competing explanation is ruled out with its own evidence, and every
- * claim cites receipt keys. Anything else is `inconclusive`, which keeps the page
- * under investigation and spends nothing on drafting copy nobody can justify.
+ * THE reasoning step between "this page underperforms" and "change this", held inside the
+ * existing candidate and receipt path. `diagnosed` means the evidence NAMES a cause, the action
+ * follows from it, a competing explanation is ruled out with its own evidence, and every claim
+ * cites receipt keys. Anything else is `inconclusive`: still under investigation, no draft spend.
  */
 export type ActionDiagnosis = {
   status: "diagnosed" | "inconclusive";
@@ -445,6 +442,9 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   basis: z.string().optional(),
   diagnosisCause: z.string().min(1).optional(),
   causeFinding: z.object({ cause: z.string().min(1), action: z.string().nullable(), evidenceKeys: z.array(z.string()),
+    // The reading the cause was decided from, kept whole. Carried opaquely here because the ladder OWNS the
+    // per-cause shape; a second copy of that union in this schema is a second thing to keep in step.
+    payload: z.unknown().optional(),
     competingExplanations: z.array(z.object({ cause: z.string().min(1), reason: z.string().min(1) })),
     falsifier: z.string().min(1), explanation: z.string().min(1),
     notConsidered: z.array(z.object({ cause: z.string().min(1), missing: z.string().min(1) })) })

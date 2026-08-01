@@ -42,9 +42,13 @@ const MAX_VERDICT_LAG_RETRY_DAYS = 28;
 export const FOLLOW_UP_WINDOW_DAY = 56;
 
 /** The component kinds that move where a page LIVES or whether it is findable at all.
- *  Spelled out rather than imported: Measurement must not import Decision, and this closed
- *  list is the one in the Decision contract (canonical, redirect, noindex, consolidation). */
-const DANGEROUS_COMPONENT_KINDS: ReadonlySet<string> = new Set([
+ *  Spelled out rather than imported: Measurement must not import Decision (the foundation guard
+ *  forbids that edge and grants this file no exception), and this closed list is the one in the
+ *  Decision contract. EXPORTED so the pin in tests/decision/extended-producers.test.ts holds the two
+ *  copies equal from the test side, where importing both kernels is allowed: the day the Decision
+ *  list gains a kind and this one does not, that test fails loudly instead of a moved page quietly
+ *  losing the fourth checkpoint that exists for exactly those changes. */
+export const DANGEROUS_COMPONENT_KINDS: ReadonlySet<string> = new Set([
   "canonical", "redirect", "noindex", "consolidation",
 ]);
 

@@ -52,6 +52,27 @@ const db = vi.hoisted(() => {
       };
       return q;
     },
+    // The atomic handover: guard, step-aside, and landing commit together or not at
+    // all, exactly like the supersede_change_proposal function in production.
+    rpc(name: string, args: { p_tenant_id: string; p_predecessor_id: string; p_row: Row }) {
+      const run = (): { data: string | null; error: { message: string } | null } => {
+        if (name !== "supersede_change_proposal") return { data: null, error: { message: `unknown function ${name}` } };
+        if (state.missing) return { data: null, error: { message: "function not found in schema cache" } };
+        const pred = state.rows.find((r) => r.tenant_id === args.p_tenant_id && r.id === args.p_predecessor_id);
+        if (!pred) return { data: "failed", error: null };
+        if (pred.terminal_disposition != null || !["proposed", "needs_review"].includes(String(pred.status))) return { data: "blocked", error: null };
+        if (state.breakWrite) return { data: "failed", error: null }; // the transaction rolls back: neither write lands
+        const row = args.p_row;
+        const clash = state.rows.some((r) => r.id !== row.id && r.id !== pred.id && r.terminal_disposition == null
+          && ["tenant_id", "case_id", "page_key", "action_family"].every((c) => r[c] === row[c]));
+        if (clash) return { data: "failed", error: null };
+        Object.assign(pred, { terminal_disposition: "superseded", superseded_by: row.id, updated_at: row.updated_at });
+        const at = state.rows.findIndex((r) => r.id === row.id);
+        if (at >= 0) state.rows[at] = { ...state.rows[at], ...row }; else state.rows.push({ created_at: "2026-07-01T00:00:00.000Z", ...row });
+        return { data: "saved", error: null };
+      };
+      return Promise.resolve(run());
+    },
   };
   return { state, client };
 });

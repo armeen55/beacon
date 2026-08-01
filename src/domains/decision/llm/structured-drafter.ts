@@ -34,6 +34,8 @@ import {
   type StructuredDraftKind,
   type AnswerBlockDraft,
   type AtomicEditDraft,
+  type InternalLinkDraft,
+  type SectionDraft,
 } from "./schemas";
 
 /**
@@ -1197,7 +1199,10 @@ export async function draftAnswerBlockStructured(
 export type AtomicEditStructuredInput = {
   query: string;
   pageLabel: string;
-  field: "title" | "meta";
+  /** V1 Closure: `answer_block` joins the two field edits this drafter has always written. The cause ladder
+   *  can name a page whose OPENING never says what the search is about, and that fix is one field's worth of
+   *  copy exactly like a title is; the schema already allowed the value and nothing ever passed it. */
+  field: "title" | "meta" | "answer_block";
   currentValue: string | null;
   outline: string[];
   evidenceHints?: string[];
@@ -1220,6 +1225,15 @@ const ATOMIC_EDIT_SYSTEM =
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Keep a title under ~60 characters and a meta description 120-160. Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes.";
+
+/** APPENDED ONLY FOR `answer_block`, so the title and meta prompt stays byte for byte what it has always
+ *  been and no stored draft is re-read under different wording. An opening answer is a different job from a
+ *  field rewrite: it is the first thing a reader sees, and it has to answer the search in its own first line. */
+const OPENING_ANSWER_CLAUSE =
+  " This edit is the page's OPENING ANSWER: the first 2 to 4 sentences a reader sees. Write \"after\" as those " +
+  "sentences, 40 to 90 words, answering the search directly in the FIRST sentence and naming the exact subject " +
+  "the search is about. Never open with a dictionary definition, never defer (\"it varies\", \"check elsewhere\"), " +
+  "and state only what the evidence and the page's own sections below already support.";
 
 /** Draft a schema-valid AtomicEditDraft (title/meta) for one existing-page Move. */
 export async function draftAtomicEditStructured(
@@ -1261,7 +1275,7 @@ export async function draftAtomicEditStructured(
   // above - the pattern-aware builder only fires when a pageFamily is known, and both
   // paths return '' (or the unchanged fragment) when the tenant has no measured winners
   // yet for this exact field, leaving the prompt byte-identical to today.
-  const lever = input.field === "title" ? "title" : "meta";
+  const lever = input.field === "title" ? "title" : input.field === "answer_block" ? "answer" : "meta";
   let fewShots = "";
   let fewShotProvenance: FewShotProvenance | undefined;
   if (input.tenantId && input.pageFamily) {
@@ -1275,7 +1289,7 @@ export async function draftAtomicEditStructured(
   const result = await callStructuredLLM({
     kind: "atomic_edit",
     tenantId: input.tenantId,
-    system: ATOMIC_EDIT_SYSTEM + fewShots,
+    system: ATOMIC_EDIT_SYSTEM + (input.field === "answer_block" ? OPENING_ANSWER_CLAUSE : "") + fewShots,
     user,
     grounded,
     projectedCostUsd: 0.02,
@@ -1300,4 +1314,109 @@ export async function draftAtomicEditStructured(
     return { ...result, value: { ...result.value, rationale: merged } };
   }
   return result;
+}
+
+// ── concrete drafter: SectionDraft (a section the winning pages all carry and mine does not) ──
+// The cause ladder can prove a page is missing a subject its rivals agree on, and until this existed the
+// only answer was a sentence saying so. GROUNDING IS THE WHOLE CONTRACT here: a section is long-form copy,
+// so the prompt forbids everything the evidence does not carry and the caller's own gates (draft-quality,
+// factual entailment, the numeric firewall above) read it again before it can reach an operator.
+
+export type SectionStructuredInput = {
+  query: string;
+  pageLabel: string;
+  /** The section to write, when the reading named one. Null = write the heading too. */
+  heading: string | null;
+  /** One plain sentence saying what this section has to do. */
+  brief: string;
+  /** The page's existing sections, so the new one does not repeat one it already has. */
+  outline: string[];
+  evidenceHints?: string[];
+  tenantId: string;
+};
+
+const SECTION_SYSTEM =
+  "You write ONE section of an existing web page. Return ONLY a JSON object: " +
+  '"heading" (a short plain section heading), "body" (the section copy, 60 to 180 words), ' +
+  '"sources" (array of {"kind","detail"} with at least one entry, kind one of own_data|competitor_observation|fanout_question|keyword, ' +
+  "each naming the piece of evidence below that the sentence rests on), " +
+  '"containsNumber" (true only when your body actually states a figure). ' +
+  "GROUNDING IS THE RULE YOU MAY NOT BREAK: write only what the evidence, the brief and the page's own sections below already " +
+  "support. Never invent a statistic, a price, a date, a count, a person, a place, a company or a web address. If you cannot " +
+  "say something the evidence supports, write a shorter section rather than filling it in. " +
+  "Name the exact subject of the search in your first sentence, answer it plainly, and never repeat a section the page already has. " +
+  "No marketing language, no superlatives, no em-dashes and no en-dashes.";
+
+/** Draft ONE schema-valid section for a page that is missing it. Capped, budgeted, cached. */
+export async function draftSectionStructured(
+  input: SectionStructuredInput,
+  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean; authoritativeSourceDomains?: readonly string[] } = {},
+): Promise<StructuredDraftResult<SectionDraft>> {
+  // Injection firewall: the brief, the outline and the hints are all built from crawled or observed text.
+  const heading = sanitizeNullableEvidence(input.heading);
+  const brief = sanitizeNullableEvidence(input.brief) ?? "";
+  const outline = sanitizeEvidenceTexts(input.outline);
+  const evidenceHints = sanitizeEvidenceTexts(input.evidenceHints ?? []);
+  const grounded = [input.query, heading ?? "", brief, outline.join(" "), evidenceHints.join(" ")].join(" ");
+  const user = [
+    `Search/topic: "${input.query}"`,
+    `Page: ${input.pageLabel}`,
+    heading ? `Section to write: ${heading}` : "Section to write: choose the heading yourself from the brief",
+    `What this section has to do: ${brief}`,
+    outline.length ? `Sections the page already has (never repeat one): ${outline.slice(0, 12).join("; ")}` : "",
+    evidenceHints.length ? `Evidence the team established: ${evidenceHints.join("; ")}` : "",
+    "",
+    "Return the JSON now.",
+  ].filter(Boolean).join("\n");
+
+  return callStructuredLLM({
+    kind: "section_draft", tenantId: input.tenantId, system: SECTION_SYSTEM, user, grounded,
+    projectedCostUsd: 0.02, complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache,
+    authoritativeSourceDomains: opts.authoritativeSourceDomains,
+  });
+}
+
+// ── concrete drafter: InternalLinkDraft (where one page should point a reader next) ──
+
+export type InternalLinkStructuredInput = {
+  query: string;
+  sourcePage: string;
+  targetPage: string;
+  /** What the destination is about, in the account's own words. */
+  topic: string;
+  evidenceHints?: string[];
+  tenantId: string;
+};
+
+const INTERNAL_LINK_SYSTEM =
+  "You place ONE link from a page to another page on the SAME site. Return ONLY a JSON object: " +
+  '"sourcePage", "targetPage" (echo both exactly as given), "anchorText" (the exact words to link, 2 to 8 words), ' +
+  '"linkSentence" (the one sentence to add or amend, containing that anchor text), "reason" (one sentence on what the reader gains), ' +
+  '"riskNotes" (short strings, may be empty), "proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
+  "The anchor text must describe the destination honestly and must never be a bare instruction like click here. Ground every word in " +
+  "the evidence below, invent no fact, no figure and no web address, and never link a page to itself. No marketing language, no em-dashes and no en-dashes.";
+
+/** Draft ONE schema-valid internal link. Capped, budgeted, cached. */
+export async function draftInternalLinkStructured(
+  input: InternalLinkStructuredInput,
+  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean; authoritativeSourceDomains?: readonly string[] } = {},
+): Promise<StructuredDraftResult<InternalLinkDraft>> {
+  const topic = sanitizeNullableEvidence(input.topic) ?? "";
+  const evidenceHints = sanitizeEvidenceTexts(input.evidenceHints ?? []);
+  const grounded = [input.query, topic, input.sourcePage, input.targetPage, evidenceHints.join(" ")].join(" ");
+  const user = [
+    `Search/topic: "${input.query}"`,
+    `Page the link goes ON: ${input.sourcePage}`,
+    `Page the link points TO: ${input.targetPage}`,
+    `What that destination is about: ${topic}`,
+    evidenceHints.length ? `Evidence the team established: ${evidenceHints.join("; ")}` : "",
+    "",
+    "Return the JSON now.",
+  ].filter(Boolean).join("\n");
+
+  return callStructuredLLM({
+    kind: "internal_link", tenantId: input.tenantId, system: INTERNAL_LINK_SYSTEM, user, grounded,
+    projectedCostUsd: 0.02, complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache,
+    authoritativeSourceDomains: opts.authoritativeSourceDomains,
+  });
 }

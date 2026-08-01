@@ -1,31 +1,17 @@
 /**
- * decision/diagnosis (V1 Truth Convergence Phase 4, 2026-07-31): THE CAUSE LADDER. One page loses clicks
- * for exactly one reason I can name, and until this file existed there was only ever one reason on offer:
- * the wording of the line Google displays. Every other page in the account came back "I can see the gap and
- * I cannot tell you what to change", which is honest and useless, because the account's real losses are two
- * of its own pages splitting one search, a subject its page never covers, an opening that answers nothing,
- * and engines citing everybody else.
+ * decision/diagnosis (V1 Truth Convergence Phase 4, 2026-07-31): THE CAUSE LADDER. One page loses
+ * clicks for exactly one reason I can name. Every cause is asked in one fixed order and answers for
+ * itself: (1) does it HOLD what the cause is decided from? No, and it is NOT CONSIDERED, by name,
+ * with the exact thing missing, never softened into a maybe. (2) does the evidence FIRE it? Yes,
+ * and it carries the receipt ids it was read off; no, and the deterministic reason it lost rides on
+ * the winner as a competing explanation (up to three ship WITH it). Order is evidence strength: two
+ * of your own pages on one search beats a wording read beats a shared subject beats a shape beats
+ * an engine that never cites you.
  *
- * SO EVERY CAUSE IS ASKED, IN ONE FIXED ORDER, AND EACH ONE ANSWERS FOR ITSELF:
- *   1 does it HOLD what this cause is decided from? No, and the cause is NOT CONSIDERED, by name, with the
- *     exact thing missing. It is never guessed at, never softened into a maybe, and never counted as ruled out.
- *   2 does the evidence FIRE the cause? Yes, and it carries the receipt ids it was read off. No, and the
- *     deterministic reason it lost rides on the winner as a competing explanation.
- * The first cause that fires wins, and the order is evidence strength: two of your own pages on one search
- * beats a wording read, a wording read beats a subject the winners share, a subject beats a shape, and an
- * engine that never cites you is the weakest of the lot. Nothing below the winner is discarded: up to three
- * of them ship WITH it, so the operator can see what else was on the table.
- *
- * EVERY DIAGNOSIS NAMES WHAT WOULD KILL IT. `falsifier` is one plain sentence stating the observation that
- * would prove this cause wrong, so a diagnosis is a claim that can lose rather than a label that sticks.
- *
- * NOTHING DRAFTS WITHOUT A NAMED CAUSE, and a named cause is not a licence to draft: `action` is the
- * EXISTING action vocabulary and it is null for every cause whose fix is not a copy edit this kernel can
- * write. A page whose cause names no edit is watched, with the cause said out loud, which is the whole
- * difference between "I am looking into it" and "here is what is wrong".
- *
- * PURE + deterministic. No I/O, no LLM, no clock. The same evidence in any order produces a byte-identical
- * finding, and no cause in here reads anything the pass did not already pay for.
+ * EVERY DIAGNOSIS NAMES WHAT WOULD KILL IT (`falsifier`), so it is a claim that can lose. NOTHING
+ * DRAFTS WITHOUT A NAMED CAUSE, and `action` stays null for every cause whose fix is not an edit
+ * this kernel can write. PURE + deterministic: no I/O, no LLM, no clock; the same evidence produces
+ * a byte-identical finding, reading only what the pass already paid for.
  */
 
 import { anchoredTopicMatch, canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
@@ -41,25 +27,32 @@ import { RECEIPT } from "./diagnose";
  *  other reason", because a cause I cannot name is exactly the answer `no_problem` plus a missing input. */
 type CandidateCause =
   | "cannibalization"
-  | "ctr_snippet"
-  | "competitor_content_gap"
-  | "incomplete_coverage"
-  | "weak_opening"
-  | "serp_shape_shift"
-  | "intent_shift"
-  | "internal_link_weakness"
-  | "ai_citation_gap"
-  | "demand_decline"
-  | "ranking_loss"
-  | "retrieved_not_cited"
-  | "technical_indexability"
-  | "measuring_change"
-  | "no_problem";
+  | "ctr_snippet" | "competitor_content_gap" | "incomplete_coverage" | "weak_opening"
+  | "serp_shape_shift" | "intent_shift" | "internal_link_weakness" | "ai_citation_gap"
+  | "demand_decline" | "ranking_loss" | "retrieved_not_cited" | "technical_indexability"
+  | "measuring_change" | "no_problem";
+
+/** WHAT THE CAUSE WAS READ OFF, KEPT. Every rule already computed the structure naming the fix and
+ *  then folded it into prose, which is why nine causes could explain a loss and produce nothing.
+ *  This carries the SAME values the explanation is written from, per cause, so a producer works
+ *  from the reading. Absent = no structure worth keeping, never "the reading failed". */
+export type CausePayload =
+  | { cause: "weak_opening"; want: string[] }
+  | { cause: "incomplete_coverage"; absentHeadings: string[]; absentEntities: string[] }
+  | { cause: "competitor_content_gap"; gaps: Array<{ gap: string; seenOn: number[]; publishers: string[] }> }
+  | { cause: "internal_link_weakness"; medianWinnerLinks: number; ownedLinks: number }
+  | { cause: "serp_shape_shift"; ownShape: string; settledShape: string }
+  | { cause: "intent_shift"; intent: string; ownShape: string }
+  | { cause: "retrieved_not_cited"; engine: string; promptText: string }
+  | { cause: "ai_citation_gap"; engine: string; promptText: string }
+  | { cause: "cannibalization"; competingPaths: string[] };
 
 /** ONE cause, everything it was read off, and everything it beat. Carried INSIDE the candidate (no new
  *  record, no new table, no new route), so a receipt renders the whole reasoning step or none of it. */
 export type CauseFinding = {
   cause: CandidateCause;
+  /** The reading itself, in the shape the rule computed it. See CausePayload. */
+  payload?: CausePayload;
   /** The edit this cause supports, in the EXISTING action vocabulary. null = no copy edit follows from it,
    *  which is a real answer and the reason a named cause still never manufactures a draft. */
   action: DiagnosedAction | null;
@@ -110,7 +103,7 @@ type Ctx = LadderInput & {
 };
 
 type Verdict =
-  | { fired: true; action: DiagnosedAction | null; evidenceKeys: string[]; explanation: string }
+  | { fired: true; action: DiagnosedAction | null; evidenceKeys: string[]; explanation: string; payload?: CausePayload }
   | { fired: false; reason: string };
 
 type Rule = {
@@ -177,6 +170,7 @@ const RULES: Rule[] = [
       if (!group && !kw) return { fired: false, reason: "only one page of yours comes up for that search, so nothing of yours is taking the click from it" };
       const pages = group?.competingUrls.length ?? 2;
       return { fired: true, action: "consolidate", evidenceKeys: [RECEIPT.gsc, RECEIPT.competing],
+        payload: { cause: "cannibalization", competingPaths: [...(group?.competingUrls ?? [])] },
         explanation: `${num(pages)} of your own pages come up for ${quote(c.query)}, so Google is picking between them and the clicks split. I would settle which page owns that search before changing a word on either of them.` };
     },
     falsifier: (c) => `If my next look shows only one page of yours coming up for ${quote(c.query)}, this is not the explanation.`,
@@ -202,7 +196,12 @@ const RULES: Rule[] = [
       const gaps = c.pattern!.ownedGaps;
       if (gaps.length === 0) return { fired: false, reason: "the pages that win this subject do nothing this page does not already do" };
       const first = gaps[0]!;
+      // EVERY GAP, NOT THE FIRST ONE. The reading names up to eight things this page does not do and only
+      // one of them was ever kept, so seven proven gaps were read, paid for, and dropped on the floor.
+      const publishers = c.pattern!.publishers;
       return { fired: true, action: null, evidenceKeys: [RECEIPT.winners, RECEIPT.winnersGap],
+        payload: { cause: "competitor_content_gap", gaps: gaps.map((g) => ({ gap: g.gap, seenOn: [...g.seenOn],
+          publishers: g.seenOn.map((i) => publishers[i]).filter((p): p is string => !!p) })) },
         explanation: `I read the ${c.pattern!.winners} pages that win this subject side by side, and ${first.seenOn.length} of them do something this page does not: ${first.gap}` };
     },
     falsifier: () => "If a page of yours already does that and I simply had not read it, this is not the explanation.",
@@ -217,11 +216,18 @@ const RULES: Rule[] = [
     read: (c) => {
       const content = c.page.content!;
       const mineTokens = new Set(topicTokens([content.title, content.h1, ...content.outline].filter(Boolean).join(" ")));
-      const shared = [...c.pattern!.commonHeadings.map((h) => h.heading), ...c.pattern!.commonEntities.map((e) => e.entity)];
-      const absent = shared.filter((s) => { const t = topicTokens(s); return t.length > 0 && !t.some((x) => mineTokens.has(x)); });
+      const headings = c.pattern!.commonHeadings.map((h) => h.heading);
+      const entities = c.pattern!.commonEntities.map((e) => e.entity);
+      const shared = [...headings, ...entities];
+      // The SAME filter, kept apart. A missing section is a section to write and a missing named thing is a
+      // thing to name, and merging them into one list is why neither could ever be handed to a drafter.
+      const missing = (xs: string[]): string[] => xs.filter((s) => { const t = topicTokens(s); return t.length > 0 && !t.some((x) => mineTokens.has(x)); });
+      const absentHeadings = missing(headings); const absentEntities = missing(entities);
+      const absent = [...absentHeadings, ...absentEntities];
       return absent.length === 0
         ? { fired: false, reason: "this page already covers everything the winning pages agree on" }
         : { fired: true, action: null, evidenceKeys: [RECEIPT.winners, RECEIPT.winnersHeading, RECEIPT.copy],
+          payload: { cause: "incomplete_coverage", absentHeadings, absentEntities },
           explanation: `The pages that win this subject agree on ${num(shared.length)} things to cover and this page carries none of ${num(absent.length)} of them: ${list(absent)}.` };
     },
     falsifier: () => "If this page covers those under wording I did not match, this is not the explanation.",
@@ -241,6 +247,7 @@ const RULES: Rule[] = [
       return want.length === 0 || missing.length < want.length
         ? { fired: false, reason: "this page opens by naming what the search is about, so its opening is not what loses the reader" }
         : { fired: true, action: null, evidenceKeys: [RECEIPT.winners, RECEIPT.winnersOpening, RECEIPT.body],
+          payload: { cause: "weak_opening", want },
           explanation: `The pages that win this subject all open by answering it, and this page's own opening never says ${list(want)}.` };
     },
     falsifier: () => "If the page answers the search in its first lines under wording I did not match, this is not the explanation.",
@@ -257,6 +264,7 @@ const RULES: Rule[] = [
     read: (c) => (ownShape(c) === c.mine!.investigation.pageType
       ? { fired: false, reason: "this page is already the same kind of page as the ones winning that search" }
       : { fired: true, action: null, evidenceKeys: [RECEIPT.shape, RECEIPT.copy],
+        payload: { cause: "serp_shape_shift", ownShape: ownShape(c)!, settledShape: c.mine!.investigation.pageType },
         explanation: `The sites winning ${quote(c.query)} have settled on one kind of page and this page is a different kind, so the distance between them is not something a sharper line closes.` }),
     falsifier: () => "If the results for that search stop agreeing on one kind of page, this is not the explanation.",
     rulesOut: { cause: "ctr_snippet", reason: "the results have settled on a kind of page this one is not, and wording does not change what a page is" },
@@ -273,6 +281,7 @@ const RULES: Rule[] = [
       return buying === sells
         ? { fired: false, reason: "this page is built for what people searching it are actually trying to do" }
         : { fired: true, action: null, evidenceKeys: [RECEIPT.intent, RECEIPT.copy],
+          payload: { cause: "intent_shift", intent: c.mine!.investigation.demand.intent ?? "", ownShape: ownShape(c)! },
           explanation: `People searching ${quote(c.query)} are ${buying ? "ready to choose something" : "trying to understand the subject"}, and this page is written for the other one, so a sharper line would not close that distance.` };
     },
     falsifier: () => "If what people want from that search is not what my keyword research recorded, this is not the explanation.",
@@ -292,6 +301,7 @@ const RULES: Rule[] = [
       return middle < MIN_LINK_FLOOR || mine * 2 >= middle
         ? { fired: false, reason: "this page points readers on to as much of your site as the winning pages do of theirs" }
         : { fired: true, action: null, evidenceKeys: [RECEIPT.winners, RECEIPT.links],
+          payload: { cause: "internal_link_weakness", medianWinnerLinks: middle, ownedLinks: mine },
           // THE DIFFERENCE, never the winners' own total said as if it were the gap: this used to read
           // "about 12 more of their own pages" off a median of 12, which overstates the gap every time.
           explanation: `The pages that win this subject point readers on to about ${num(middle - mine)} more of their own pages than this one does, ${num(middle)} against ${num(mine)}, so people who land here have nowhere to go next.` };
@@ -317,6 +327,7 @@ const RULES: Rule[] = [
       if (!seen) return { fired: false, reason: "no engine read this page and then cited only other sites" };
       const cited = (seen.citations ?? []).length;
       return { fired: true, action: null, evidenceKeys: [RECEIPT.ai],
+        payload: { cause: "retrieved_not_cited", engine: seen.engine, promptText: seen.promptText },
         explanation: `${seen.engine} read this page while answering ${quote(seen.promptText)} and cited ${num(cited)} other ${cited === 1 ? "site" : "sites"} instead, so the page was seen and passed over, not missed.` };
     },
     falsifier: () => "If an engine that reads this page starts citing it, this is not the explanation.",
@@ -334,6 +345,7 @@ const RULES: Rule[] = [
       if (!rival || c.page.aiCitations.count > 0) return { fired: false, reason: "AI answers about that search already cite this page" };
       const named = (rival.citations ?? []).length;
       return { fired: true, action: null, evidenceKeys: [RECEIPT.ai],
+        payload: { cause: "ai_citation_gap", engine: rival.engine, promptText: rival.promptText },
         explanation: `I read the AI answers about that search: ${rival.engine} answered ${quote(rival.promptText)} and named ${num(named)} other ${named === 1 ? "site" : "sites"} without ever citing this page.` };
     },
     falsifier: () => "If an engine cites this page for that subject on my next look, this is not the explanation.",
@@ -439,6 +451,7 @@ export function diagnoseCauses(input: LadderInput): CauseFinding {
   // was really weighed and lost, deduped, so a diagnosis is never a label with nothing beside it.
   const competing = [won.rule.rulesOut, ...lost].filter((x, i, all) => all.findIndex((y) => y.cause === x.cause) === i);
   return { cause: won.rule.cause, action: won.verdict.action, evidenceKeys: won.verdict.evidenceKeys,
+    ...(won.verdict.payload ? { payload: won.verdict.payload } : {}),
     competingExplanations: competing.slice(0, MAX_COMPETING), falsifier: won.rule.falsifier(c),
     explanation: won.verdict.explanation, notConsidered };
 }

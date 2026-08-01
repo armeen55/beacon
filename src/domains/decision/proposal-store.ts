@@ -4,29 +4,23 @@
  *
  * CANONICAL IDENTITY. A hypothesis is (tenant, site, case, page, action family). Exactly one row
  * for that identity is CURRENT (`terminal_disposition is null`), enforced by a partial unique
- * index in Postgres, not by hope. A new draft SUPERSEDES the row that held it: the predecessor
- * steps aside with `terminal_disposition = 'superseded'` and a pointer to its successor, and the
- * successor lands carrying the next `proposal_version`. A re-draft that says exactly what the
- * stored row already says writes NOTHING.
+ * index in Postgres. A new draft SUPERSEDES the row that held it in ONE database operation
+ * (supersede_change_proposal): the predecessor steps aside pointing at its successor, which
+ * lands with the next `proposal_version`. An identical re-draft writes NOTHING.
  *
  * THE STATUS VOCABULARY DOES NOT MOVE. proposed / needs_review / rejected / applied are the
- * lifecycle. A DISPOSITION is a different question: not what Beacon thinks of the change, but
- * whether this row is still the current answer at all. dismissed (the operator put it away),
- * withdrawn (Beacon took it back), superseded (a newer version replaced it). A DISMISSED CHANGE
- * STAYS DISMISSED until the evidence itself moves: a re-draft under the SAME basis is refused,
- * and one under a NEW basis is allowed, because that is a different reading of a different world.
+ * lifecycle; a DISPOSITION (dismissed, withdrawn, superseded) is whether the row is still the
+ * current answer. A DISMISSED CHANGE STAYS DISMISSED under the same basis; a NEW basis is a
+ * different reading of a different world.
  *
  * A CHANGE THE OPERATOR APPLIED IS NEVER RETIRED FOR A NEWER IDEA. Only a row still waiting on
- * them (proposed / needs_review) may be superseded; an applied row is being measured and a
- * rejected one was already answered, so a new draft for that hypothesis is refused instead.
+ * them (proposed / needs_review) may be superseded; anything else refuses the new draft.
  *
- * HISTORY IS READABLE, NEVER RESURRECTED. Nothing writes `move_drafts` anymore. Those rows are
- * read as history for ids the canonical table has never heard of, and a row the canonical table
- * knows in ANY state is never revived from there.
+ * HISTORY IS READABLE, NEVER RESURRECTED. Nothing writes `move_drafts` anymore; its rows are
+ * read only for ids the canonical table has never heard of, and never revive a known row.
  *
- * FAIL CLOSED, LOUDLY. This table is created by migration BEFORE this code deploys. If it is
- * missing, a write fails and says so, and reads fall back to history rather than claiming this
- * account has no changes. server-only.
+ * FAIL CLOSED, LOUDLY. The table is created by migration BEFORE this code deploys; if missing, a
+ * write fails and says so, and reads fall back to history. server-only.
  */
 
 import "server-only";
@@ -301,15 +295,23 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<Save
       return "blocked";
     }
     if (handover) {
+      // ONE database operation: the status guard, the predecessor's step-aside, and the
+      // successor's landing commit together or not at all, so a crash mid-handover can
+      // never leave this hypothesis with no current answer.
       log.info("[proposal-store] superseding", { id: handover.id, by: proposal.id, version });
-      if (!(await setDisposition(proposal.tenantId, handover.id, "superseded", proposal.id))) return "failed";
+      const { data, error } = await getSupabaseAdmin().rpc("supersede_change_proposal", {
+        p_tenant_id: proposal.tenantId, p_predecessor_id: handover.id, p_row: rowFor(proposal, ident, version),
+      });
+      if (error || data !== "saved") {
+        log.error("[proposal-store] atomic supersession did not land, the stored change is unchanged", {
+          tenantId: proposal.tenantId, id: proposal.id, answer: data ?? null, error: error?.message ?? null });
+        return data === "blocked" ? "blocked" : "failed";
+      }
+      return "saved";
     }
     try {
       await dualWriteUpsertScoped(TABLE, [rowFor(proposal, ident, version)], "id", proposal.tenantId);
     } catch (e) {
-      // The successor did not land, so the predecessor takes its place back rather than
-      // leaving this hypothesis with no current answer at all.
-      if (handover) await setDisposition(proposal.tenantId, handover.id, null, null);
       log.error("[proposal-store] save failed, the stored change is unchanged", {
         tenantId: proposal.tenantId, id: proposal.id, error: e instanceof Error ? e.message : String(e) });
       return "failed";

@@ -45,7 +45,14 @@ export const PROMPT_REGISTRY = {
   // change, so the cache must not serve a stale v5 response under the new
   // guidance.
   "draft.answer_block": 6,
+  // draft.atomic_edit stays at v1 (2026-08-01, V1 Closure): the title and meta system prompt is byte for
+  // byte what it has always been. The opening-answer clause is APPENDED only when the field is
+  // answer_block, a value nothing ever passed before, and the cache key folds in the system text itself,
+  // so no stored title or meta draft can be served under wording it was not taken under.
   "draft.atomic_edit": 1,
+  // draft.internal_link and draft.section_draft get their FIRST production wording at v1 (2026-08-01, V1
+  // Closure): both kinds were registered schemas with no caller, so nothing is cached under either id and
+  // there is no stale answer a version could protect. Any change to the wording from here must bump them.
   "draft.internal_link": 1,
   "draft.batch_adjudication": 1,
   "draft.strategy_review": 1,

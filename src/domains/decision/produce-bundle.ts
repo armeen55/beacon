@@ -14,9 +14,13 @@
 import "server-only";
 
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot"; import { canonicalUrlKey } from "@/domains/evidence/snapshot";
-import { draftAtomicEditStructured } from "@/domains/decision/llm/structured-drafter"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
+import { draftAtomicEditStructured, draftInternalLinkStructured, draftSectionStructured } from "@/domains/decision/llm/structured-drafter"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, EvidenceReadiness, RecommendedChange } from "./contracts"; import { confidenceFor, MIN_CTR_DEFICIT, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction } from "./contracts";
 import { diagnoseCandidate, ownedResultOf, recurringPattern, RECEIPT, type DiagnosisInput } from "./diagnose";
+import { causeLabel, diagnoseCauses, type CauseFinding } from "./diagnosis";
+import type { DecidedTopic } from "./coverage-pass";
+import type { WinningPattern } from "./winning-pattern";
+import { CORE_PRODUCERS } from "./producers/core"; import { produceFullRewriteRecommendation } from "./producers/extended"; import type { ProducerCtx, ProducerDraft } from "./producers/contract";
 import type { ProposeOptions } from "./propose"; import { validateProposal } from "./validate-proposal";
 import { anchoredTopicMatch, canonicalQueryKey, weakAnchorTokens } from "@/domains/evidence/relevance-gate";
 
@@ -30,8 +34,12 @@ type Keyword = Research["retainedKeywords"][number];
 const norm = (s: string): string => s.trim().toLowerCase();
 const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 /** The page's OWN WORDS for the one page under investigation, read by the caller through the targeted Evidence reader.
- *  Absent means absent: drafts are checked against title and headings only and body readiness stays honestly false. */
-export type OwnedBody = { openingSample: string | null; fetchedAt: string | null };
+ *  Absent means absent: drafts are checked against title and headings only and body readiness stays honestly false.
+ *  WHOLE, not a sample of a sample: this used to be narrowed to the opening and a date, and the caller has always
+ *  handed over the page's cards, the things it names, its own links and its description. Every one of them was
+ *  dropped on the floor here, so a producer that needed the page's own words had none to work from. */
+export type OwnedBody = { openingSample: string | null; fetchedAt: string | null;
+  cardTexts?: string[]; entityNames?: string[]; internalLinks?: { href: string; anchorText: string }[]; metaDescription?: string | null };
 
 /** RECOVERABLE OPPORTUNITY, never gross traffic. Per query clearing MIN_QUERY_IMPRESSIONS, the frozen CTR curve
  *  says what that position normally earns; the shortfall under it, once it clears MIN_CTR_DEFICIT, is the clicks a fix
@@ -118,7 +126,7 @@ function winnerPattern(read: Research["winningPages"], c: NonNullable<OwnedPageE
 }
 
 /** The evidence receipt for ONE candidate search, built BEFORE anything is drafted. Plain English only. */
-function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queries: OwnedQuerySignal[], primary: string, weak: ReadonlySet<string>, body: OwnedBody | null): Receipt {
+function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queries: OwnedQuerySignal[], primary: string, weak: ReadonlySet<string>, body: OwnedBody | null, mine: DecidedTopic | null): Receipt {
   const items: BundleEvidenceItem[] = []; const contextOnly: string[] = []; const missing: string[] = []; const prompts: string[] = [];
   const add = (key: string, kind: BundleEvidenceItem["kind"], fact: string, observedAt: string | null): void => { items.push({ key, kind, fact, observedAt }); };
   const research = snapshot.research;
@@ -193,7 +201,26 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   const links = [...snapshot.internalLinkOpportunities].filter((l) => l.fromUrl === page.url && onTopic(l.anchor))
     .sort((a, b) => byText(a.toUrl, b.toUrl)).slice(0, 3);
 
-  missing.push("I do not hold this page's full body text, so I checked every draft against its title and section headings only.");
+  // THE CAUSE LADDER'S OWN RECEIPT LINES, under the exact ids it cites, so a change made for a cause other
+  // than the wording can show the operator the same reading the cause was decided from. Nothing here is
+  // written unless it was actually read: no coverage verdict for this page, no lines.
+  if (mine) {
+    const inv = mine.investigation; const p = mine.decision.pattern ?? null;
+    if (p) {
+      add(RECEIPT.winners, "winning_page", `I read the ${p.winners} pages that win "${primary}" side by side, and they agree on ${p.commonHeadings.length} ${p.commonHeadings.length === 1 ? "section" : "sections"} to cover and ${p.commonEntities.length} ${p.commonEntities.length === 1 ? "thing" : "things"} to name.`, null);
+      const head = p.commonHeadings[0]; if (head) add(RECEIPT.winnersHeading, "winning_page", `Every one of those pages covers ${head.heading}.`, null);
+      const gap = p.ownedGaps[0]; if (gap) add(RECEIPT.winnersGap, "winning_page", `${gap.seenOn.length} of them do something this page does not: ${gap.gap}`, null);
+      const opening = (p.openingPattern ?? "").trim(); if (opening) add(RECEIPT.winnersOpening, "winning_page", `They all open the same way: ${opening}`, null);
+    }
+    if (inv.pageType !== "mixed" && inv.pageType !== "unknown") add(RECEIPT.shape, "serp", `The pages that come up for "${primary}" have settled on one kind of page, and I counted it off ${inv.distinctResultDomains} different sites.`, null);
+    const want = inv.demand.intent ? WANTS[norm(inv.demand.intent)] : undefined;
+    if (want) add(RECEIPT.intent, "keyword", `The people searching "${primary}" ${want}.`, null);
+  }
+  if (c.internalLinks.length > 0) add(RECEIPT.links, "internal_link", `From here this page points readers on to ${c.internalLinks.length} other ${c.internalLinks.length === 1 ? "page" : "pages"} of your own.`, c.fetchedAt);
+
+  // Honest either way: I say I am blind to the body only while I actually am. The caller now hands the whole
+  // stored body over, and repeating "I do not hold this page's full body text" on top of it was a lie.
+  if (!bodyText) missing.push("I do not hold this page's full body text, so I checked every draft against its title and section headings only.");
 
   // EVIDENCE READINESS for this exact search: what I hold, counted honestly, never how good the draft reads.
   const readiness: EvidenceReadiness = { gsc: (s.topQueries ?? []).some((q) => isPrimary(q.query)), ownedCopy: !!(c.title || c.metaDescription),
@@ -210,7 +237,57 @@ const gateShape = (tenantId: string, query: string, change: RecommendedChange): 
   status: "needs_review", recommendedChange: change, whyItMatters: "", estimatedEffortMinutes: 0, riskLevel: "low", confidence: "medium", limitations: [],
   evidence: { query, hints: [], evidenceRefCount: 0 }, impactScore: null, upsidePerMonth: null, publish: "manual", createdAt: "" });
 
-export type ProduceBundleOptions = ProposeOptions;
+export type ProduceBundleOptions = ProposeOptions & {
+  /** The ONE topic the coverage pass decided, when it decided one. It carries the settled kind of page, what
+   *  people searching it want, and the reading of what the winning pages share, so the cause ladder here asks
+   *  exactly the questions it asks in opportunities.ts. Absent, those causes are honestly not considered. */
+  coverage?: DecidedTopic | null;
+  /** The pages already carrying a change under measurement, read by the ladder so a page whose last edit is
+   *  still being read is left alone rather than handed a second change to stack on it. */
+  measuringPagePaths?: readonly (string | null)[];
+};
+
+/** The kind of component this is, said back in the ONE field vocabulary a persisted change carries. */
+const FIELD_OF: Record<string, "title" | "meta" | "h1" | "answer_block" | "section"> = {
+  title: "title", meta: "meta", h1: "h1", opening_answer: "answer_block",
+  section: "section", section_add: "section", section_rewrite: "section" };
+
+/** The operator-facing label for the opportunity, by the cause that earned it. */
+const OPPORTUNITY_OF: Partial<Record<CauseFinding["cause"], string>> = {
+  ctr_snippet: "Rewrite the page that already has the demand",
+  weak_opening: "Answer the search in the page's first lines",
+  incomplete_coverage: "Cover what the winning pages all cover",
+  competitor_content_gap: "Do the one thing the winning pages do",
+  serp_shape_shift: "Rebuild this page as the kind that wins",
+  intent_shift: "Answer what people are actually asking" };
+
+/** The smallest bundle that carries ONE component, so the component gate can answer for it before it is kept.
+ *  Never persisted and never shown: the real bundle is assembled once, at the end, out of what survived. */
+const oneComponent = (c: BundleComponent): ChangeBundle => ({
+  objective: "gate", metric: "gate", scope: { queries: [], prompts: [] }, components: [c],
+  receipt: { items: [], missing: [], freshestObservedAt: null }, alternatives: [], risks: [], confidenceReasons: [], measurementPlan: "gate" });
+
+/** THE DRAFTERS a producer may buy, wired once so every producer gets the same injection firewall, the same
+ *  budget, the same cache and the same fail-closed posture the title path has always had. A drafter that does
+ *  not land is null: a producer refuses on it, and nobody ships an empty component. */
+function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date): ProducerDraft {
+  const wire = { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains };
+  return {
+    section: async (i) => {
+      const r = await draftSectionStructured({ ...i, tenantId }, wire);
+      return r.status === "drafted" ? { heading: r.value.heading, body: r.value.body, sources: r.value.sources.map((s) => ({ kind: s.kind, detail: s.detail })), containsNumber: r.value.containsNumber } : null;
+    },
+    internalLink: async (i) => {
+      const r = await draftInternalLinkStructured({ ...i, tenantId }, wire);
+      return r.status === "drafted" ? { anchorText: r.value.anchorText, linkSentence: r.value.linkSentence, reason: r.value.reason } : null;
+    },
+    openingAnswer: async (i) => {
+      const r = await draftAtomicEditStructured({ query: i.query, pageLabel: i.pageLabel, field: "answer_block",
+        currentValue: i.currentValue, outline: i.outline, evidenceHints: i.evidenceHints, tenantId }, wire);
+      return r.status === "drafted" ? r.value.after : null;
+    },
+  };
+}
 
 /** Produce at most ONE change for the existing page with the biggest PROVEN click gap. `none` with a structured
  *  reason when no page is losing clicks against its own positions, when the results page for that exact search does
@@ -230,43 +307,92 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   if (!pick) return { status: "none", reason: "No page of yours is losing enough clicks against what its own positions should earn, so I have nothing honest to rewrite yet." };
 
   const { page, gaps } = pick; const lead = gaps[0]!; const queries = queriesOf(page); const primary = lead.query; const content = page.content!;
-  const receipt = buildReceipt(snapshot, page, queries, primary, weakAnchorsOf(snapshot), opts.bodyByUrl?.get(canonicalUrlKey(page.url)) ?? null);
+  const body = opts.bodyByUrl?.get(canonicalUrlKey(page.url)) ?? null;
+  // THE COVERAGE VERDICT IS ABOUT ONE PAGE, and only the verdict that NAMES this page may be read against it.
+  // Exactly the rule the ladder applies, applied here too, so the two never disagree about whose pattern this is.
+  const coverage = opts.coverage ?? null;
+  const mine = coverage && coverage.decision.ownedUrls.some((u) => canonicalUrlKey(u) === canonicalUrlKey(page.url)) ? coverage : null;
+  const pattern: WinningPattern | null = mine?.decision.pattern ?? null;
+  const receipt = buildReceipt(snapshot, page, queries, primary, weakAnchorsOf(snapshot), body, mine);
   // NOTHING to show is never a recommendation: an empty receipt refuses here rather than shipping a bare instruction.
   if (receipt.items.length === 0) return { status: "none", reason: "I hold nothing I can show you about this page yet, so I will not tell you to change it." };
-  // NO DRAFT SPEND BEFORE A DIAGNOSIS. A click gap proves something is wrong and never
-  // what to change, so a page whose own results line does not accuse a specific field
-  // is handed back untouched: no completion call, no copy, no row. Zero ready is a real
-  // answer, and the reason is the sentence the operator reads.
+  // NO DRAFT SPEND BEFORE A NAMED CAUSE. A click gap proves something is wrong and never what to change, so
+  // THE CAUSE LADDER is asked, with exactly the inputs opportunities.ts asks it with: this snapshot, this
+  // page, the exact search, and what reading the results page for that search concluded. There is ONE ladder
+  // and it is `diagnoseCauses`; nothing here re-derives a cause, so the page the customer surface says is
+  // losing on X can never be handed a change made for Y.
   const diagnosis = receipt.diagnosis;
-  if (!readyForAction(diagnosis) || diagnosis.action !== "title") return { status: "none", reason: diagnosis.explanation };
+  const finding = diagnoseCauses({ snapshot, page, query: primary, serpRead: diagnosis, coverage: mine,
+    ...(opts.measuringPagePaths ? { measuringPagePaths: opts.measuringPagePaths } : {}) });
   const facts = receipt.items.map((it) => it.fact);
   const evidenceText = [...facts, ...content.outline, content.title ?? ""].filter(Boolean).join(" ");
   // The relevance gate asks "does the rewrite still name this page's topic". Ground it in THIS page's own words (query + title + h1), never a vertical vocabulary.
   const contextTokens = [...new Set(`${primary} ${content.title ?? ""} ${content.h1 ?? ""}`.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2))].sort(byText);
-  // A component cites the DIAGNOSIS's own keys: the exact search numbers, this page's
-  // stored copy, the results page, the line Google displays for it, and the recurring
-  // wording it lacks. No receipt item, no claim.
-  const alternatives = diagnosis.alternativesRuledOut.map((a) => ({ option: a.alternative, reason: a.reason }));
+  const wording = finding.cause === "ctr_snippet";
+  // A component cites the reading's OWN keys. For the wording cause that is the diagnosis; for every other
+  // cause it is the ladder's, and either way a key with no receipt item behind it is never claimed.
+  const alternatives = wording
+    ? diagnosis.alternativesRuledOut.map((a) => ({ option: a.alternative, reason: a.reason }))
+    : finding.competingExplanations.map((a) => ({ option: causeLabel(a.cause), reason: a.reason }));
   const components: BundleComponent[] = []; let heldForReview = false;
+  const receiptKeys = new Set(receipt.items.map((i) => i.key));
 
-  const keep = (kind: BundleComponent["kind"], label: string, before: string | null, after: string, evidenceKeys: string[], change: RecommendedChange): void => {
-    const verdict = validateProposal(gateShape(tenantId, primary, change), { pageBodyText: receipt.bodyText ?? null, evidenceText, contextTokens, now });
+  const keep = (c: BundleComponent, change: RecommendedChange): void => {
+    // EVERY CLAIM TRACES TO SOMETHING ON SCREEN. A key with no receipt item behind it is dropped, and a
+    // component left citing nothing is dropped whole rather than shown with an empty receipt.
+    const evidenceKeys = c.evidenceKeys.filter((k) => receiptKeys.has(k));
+    const drop = (reason: string): void => { alternatives.push({ option: c.label, reason }); };
+    if (evidenceKeys.length === 0) return drop("I could not show you the evidence behind that one, so I left it out rather than ask you to take my word for it.");
+    // A PRODUCER COMPONENT ANSWERS THE COMPONENT GATE HERE, not somewhere downstream: every kind outside the
+    // grandfathered seven owes where it goes, what it achieves, why it fixes the cause and what I will measure,
+    // and a lever that moves the page must be marked as one. The wording path keeps the exact gate it had.
+    const shaped = gateShape(tenantId, primary, change);
+    const verdict = validateProposal(wording ? shaped : { ...shaped, bundle: oneComponent({ ...c, evidenceKeys }) },
+      { pageBodyText: receipt.bodyText ?? null, evidenceText, contextTokens, now });
     // NEVER surface a raw validator reason: it is internal vocabulary.
-    if (verdict.status === "rejected") { alternatives.push({ option: label, reason: "The rewrite I drafted failed one of my safety checks, so I left it out rather than risk it." }); return; }
-    if (verdict.status === "needs_review") heldForReview = true;
-    components.push({ kind, label, before, after, evidenceKeys, risk: verdict.status === "proposed" ? "safe" : "review" });
+    if (verdict.status === "rejected") return drop("The rewrite I drafted failed one of my safety checks, so I left it out rather than risk it.");
+    const risk = verdict.status === "proposed" && c.risk !== "review" ? "safe" : "review";
+    if (risk === "review") heldForReview = true;
+    components.push({ ...c, evidenceKeys, risk });
   };
 
-  // ONE field, the one the diagnosis named. A description or an opening answer would
-  // need the line Google shows under the result or this page's own body words to
-  // accuse it, and I hold neither, so neither is drafted rather than guessed at.
-  const before = content.title;
-  const draft = await draftAtomicEditStructured(
-    { query: primary, pageLabel: content.h1 ?? content.title ?? page.url, field: "title", currentValue: before, outline: content.outline, evidenceHints: facts, tenantId },
-    { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains },
-  );
-  if (draft.status === "drafted") keep("title", "Page title", before ?? null, draft.value.after, diagnosis.evidenceKeys, { kind: "existing_edit", field: "title", before: before ?? null, after: draft.value.after });
-  if (components.length === 0) return { status: "none", reason: "I could not write a title for this page that passes my own checks, so I am handing you nothing rather than filler." };
+  if (wording) {
+    // ONE field, the one the results page accused. Unchanged: this is the path that has always worked.
+    if (!readyForAction(diagnosis) || diagnosis.action !== "title") return { status: "none", reason: diagnosis.explanation };
+    const before = content.title;
+    const draft = await draftAtomicEditStructured(
+      { query: primary, pageLabel: content.h1 ?? content.title ?? page.url, field: "title", currentValue: before, outline: content.outline, evidenceHints: facts, tenantId },
+      { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains },
+    );
+    if (draft.status === "drafted") keep({ kind: "title", label: "Page title", before: before ?? null, after: draft.value.after, evidenceKeys: diagnosis.evidenceKeys, risk: "safe" },
+      { kind: "existing_edit", field: "title", before: before ?? null, after: draft.value.after });
+    if (components.length === 0) return { status: "none", reason: "I could not write a title for this page that passes my own checks, so I am handing you nothing rather than filler." };
+  } else {
+    // EVERY OTHER NAMED CAUSE. A producer, or the honest reason there is nothing to write for it. The ladder's
+    // own "I named nothing" answer keeps the results reading's sentence, which is the one that says what is missing.
+    const slot = CORE_PRODUCERS[finding.cause];
+    if (typeof slot !== "function") return { status: "none", reason: finding.cause === "no_problem" ? diagnosis.explanation : finding.explanation };
+    const drafters = producerDrafts(tenantId, opts, now);
+    const ctx: ProducerCtx = { finding, primary, tenantId,
+      page: { url: page.url, title: content.title, h1: content.h1, outline: content.outline, internalLinkCount: content.internalLinks.length },
+      body: body ? { openingSample: body.openingSample, cardTexts: body.cardTexts ?? [], entityNames: body.entityNames ?? [],
+        internalLinks: body.internalLinks ?? [], metaDescription: body.metaDescription ?? content.metaDescription } : null,
+      pattern, receiptFacts: facts, readiness: receipt.readiness, draft: drafters };
+    const produced = await slot(ctx);
+    for (const c of produced.components) {
+      const field = FIELD_OF[c.kind] ?? "section";
+      keep(c, { kind: "existing_edit", field, before: c.before, after: c.after });
+    }
+    if (components.length === 0) {
+      // SMALLER COMPONENTS FIRST, A REBUILD LAST. Only when the named cause could produce nothing
+      // AND the ladder holds a second structural accusation does a full rewrite brief earn its place,
+      // and even then it is a reviewed recommendation, never pasted copy.
+      const rebuild = await produceFullRewriteRecommendation(ctx,
+        [finding.cause, ...finding.competingExplanations.map((c) => c.cause)]);
+      for (const c of rebuild.components) keep(c, { kind: "existing_edit", field: FIELD_OF[c.kind] ?? "section", before: c.before, after: c.after });
+    }
+    if (components.length === 0) return { status: "none", reason: produced.refusal ?? finding.explanation };
+  }
 
   if (receipt.links.length > 0) alternatives.push({ option: "Links out to your own pages",
     reason: `I can see ${receipt.links.length} of your own ${receipt.links.length === 1 ? "page" : "pages"} worth linking to from here, but I do not hold this page's body text, so I cannot tell you where the link honestly belongs. Send me the page copy and I will place it.` });
@@ -284,8 +410,12 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     receipt: { items: receipt.items, missing: receipt.missing, freshestObservedAt: receipt.freshestObservedAt },
     alternatives,
     risks: [
-      "Changing a title moves where the page ranks while search engines re-read it, so give this the full 28 days before you judge it.",
-      "I do not hold this page's full body text, so read each line once before you paste it.",
+      wording
+        ? "Changing a title moves where the page ranks while search engines re-read it, so give this the full 28 days before you judge it."
+        : "Changing what a page says moves where it ranks while search engines re-read it, so give this the full 28 days before you judge it.",
+      receipt.bodyText
+        ? "I read this page's stored words, not today's live page, so read each line once against the page before you paste it."
+        : "I do not hold this page's full body text, so read each line once before you paste it.",
     ],
     confidenceReasons: [
       `That one search "${primary}" brings this page ${lead.impressions.toLocaleString()} views over 90 days and turns ${lead.clicks.toLocaleString()} of them into clicks, about ${Math.round(lead.recoverable).toLocaleString()} short of what position ${Math.round(lead.position)} usually earns.`,
@@ -293,7 +423,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       receipt.freshestObservedAt
         ? `The newest evidence I used was observed on ${receipt.freshestObservedAt.slice(0, 10)}.`
         : "Every figure here is a 90 day total, so none of it carries a single observation date.",
-      diagnosis.explanation,
+      wording ? diagnosis.explanation : finding.explanation,
     ],
     measurementPlan: "Once you make the change, record it on Results with the page address and I will read clicks, views, and average position for these searches at 7, 14, and 28 days, compared against pages you did not change.",
   };
@@ -304,13 +434,14 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       tenantId, kind: "existing_edit", changeFamily: "single", publish: "manual",
       pagePath: pathOf(page.url), pageUrl: page.url.startsWith("http") ? page.url : `https://${page.url}`,
       pageLabel: content.h1 ?? content.title ?? page.url, primaryQuery: primary,
-      opportunityType: "Rewrite the page that already has the demand",
+      opportunityType: OPPORTUNITY_OF[finding.cause] ?? "Rewrite the page that already has the demand",
       status: heldForReview ? "needs_review" : "proposed", // an investigation I cannot close never reaches here at all
-      recommendedChange: { kind: "existing_edit", field: "title", before: primaryComponent.before, after: primaryComponent.after },
+      recommendedChange: { kind: "existing_edit", field: FIELD_OF[primaryComponent.kind] ?? "section", before: primaryComponent.before, after: primaryComponent.after },
       whyItMatters: `Searching "${primary}" brings this page ${lead.impressions.toLocaleString()} views and only ${lead.clicks.toLocaleString()} clicks over 90 days, about ${Math.round(lead.recoverable).toLocaleString()} clicks short of what position ${Math.round(lead.position)} usually earns, and that gap is big enough to look into.`,
-      // The only cause this producer can reach is the wording of the line Google displays, and it
-      // is carried in the cause ladder's vocabulary so the ranker asks ONE question of every change.
-      estimatedEffortMinutes: 1, riskLevel: "low", confidence, limitations: receipt.missing, diagnosisCause: "ctr_snippet",
+      // THE CAUSE THAT ACTUALLY FIRED, in the ladder's own vocabulary, so the ranker asks ONE question of
+      // every change: does this change's lever address the reason this page is losing? It was hardcoded to
+      // the wording cause here, which meant every change this file could ever make answered that question yes.
+      estimatedEffortMinutes: wording ? 1 : 15, riskLevel: !wording && heldForReview ? "medium" : "low", confidence, limitations: receipt.missing, diagnosisCause: finding.cause,
       evidence: { query: primary, hints: facts.slice(0, 5), evidenceRefCount: receipt.items.length },
       impactScore: Math.round(pick.gap), upsidePerMonth: null, bundle, createdAt: now.toISOString(),
   } };

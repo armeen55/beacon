@@ -444,7 +444,7 @@ export async function produceProposalsForTenant(
     // title and a word count is a guess; fail-soft to none, which stays honest.
     const bodyByUrl = await loadOwnedPageBodies(tenantId, [provenPage]).catch(() => null);
     const bundled = await produceBundleForSnapshot(snapshot, { ...bundleOpts, onlyPageUrl: provenPage,
-      ...(bodyByUrl ? { bodyByUrl } : {}) }).catch(onThrow);
+      coverage, ...measuring, ...(bodyByUrl ? { bodyByUrl } : {}) }).catch(onThrow);
     const covered = bundled.status === "bundled" ? (bundled.proposal.pageUrl ?? "").trim().toLowerCase() : "";
     const proven = bundled.status === "bundled"
       && (recoverableByKey.has(covered) || recoverableByKey.has((bundled.proposal.pagePath ?? "").trim().toLowerCase()));
