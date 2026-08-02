@@ -6,15 +6,16 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 
 /**
- * research-run - the durable, visit-driven Research Run record (Slice 4, 2026-07-24). THE canonical type +
- * repository for a resumable research cycle.
+ * research-run - the durable Research Run record (Slice 4, 2026-07-24). THE canonical type + repository for
+ * a resumable research cycle.
  *
- * At most ONE unfinished (running or paused) run per account across ALL dates (partial unique index). Every
- * visit claims through claim_research_run, which RESUMES the one unfinished run regardless of cycle_key or
- * start date, and starts a fresh daily cycle (cycle_key "<tenant>:<day>", computed at DATABASE time) only
- * when none is open and none completed that day. A leased owner token makes exactly one invocation advance
- * the run; phase + cursor let a crash resume. The DATABASE lease is the correctness mechanism, with no
- * scheduler, cron, heartbeat or queue.
+ * At most ONE unfinished (running or paused) run per account across ALL dates (partial unique index). Two
+ * doors claim through claim_research_run: the global daily scheduler (claim_due_research_work, one bounded
+ * dispatch for every account whose Pacific day still owes work) and any visit, which recovers and resumes
+ * whatever the scheduler left. Both RESUME the one unfinished run regardless of cycle_key or start date, and
+ * start a fresh daily cycle (cycle_key "<tenant>:<day>", computed at DATABASE time) only when none is open
+ * and none completed that day. THE DATABASE LEASE DECIDES WHO ADVANCES A RUN, and it is the only thing that
+ * does: a scheduler dispatch and a visit racing the same account cannot both proceed.
  *
  * Persistence is a service-role Supabase repository behind an injectable seam (tests inject an in-memory repo
  * modeling the RPC contract). Every operation requires an explicit tenantId and throws before any I/O when
@@ -22,7 +23,8 @@ import { log } from "@/lib/logger";
  *
  * Migrations: 2026-07-24_research_runs.sql (table + RLS), _truth.sql (database-time advance / renew /
  * finish), _claim_semantics.sql (one open run + resume-first claim), 2026-08-02_progress_patch_rpc.sql (the
- * one atomic progress merge, so two writers cannot erase each other's keys).
+ * one atomic progress merge, so two writers cannot erase each other's keys),
+ * 2026-08-03_claim_due_research_work.sql (the fleet enumeration + the research-paused switch).
  */
 
 // ── Canonical record ───────────────────────────────────────────────────────
@@ -51,14 +53,12 @@ export type ResearchRunProgress = {
   backfill?: { ran: boolean; complete?: boolean; daysPulled?: number };
   /** THIS run's frozen INVESTIGATION, chosen ONCE at the results-page phase and reused unchanged by
    *  winning-pages, the comparison and the verdict: the ordered topic, the exact search it owes, the typed
-   *  requirement that was open, and the basis it was all chosen under. Freezing the STRINGS alone let a
-   *  second independent pick buy a comparison for a DIFFERENT topic than the searches were bought for.
-   *  Durable on progress (the phase advance clears the cursor), dies with the run. `retryAfter` is the
-   *  earliest moment that topic may legally be read again (a page of yours that did not answer, a winning
-   *  page due tomorrow); it is carried, not recomputed, and it decides both what this run may still search
-   *  for and what Today is allowed to call "checking". `ownedUrl` is the page of the ACCOUNT'S OWN that
-   *  topic cannot be judged without: Decision NAMES it and never fetches it, and the page phase reads at
-   *  most one per run under this run's live lease. */
+   *  requirement that was open, and the basis it was all chosen under. A second independent pick would buy a
+   *  comparison for a DIFFERENT topic than the searches were bought for. Durable on progress (the phase
+   *  advance clears the cursor), dies with the run. `retryAfter` is the earliest moment that topic may
+   *  legally be read again; it is carried, not recomputed, and it decides both what this run may still
+   *  search for and what Today may call "checking". `ownedUrl` is the page of the ACCOUNT'S OWN that topic
+   *  cannot be judged without: Decision NAMES it and never fetches it, one read per run under this lease. */
   focus?: { basis: string | null; topics: Array<{ topicKey: string | null; query: string | null; requirement: string | null; retryAfter?: string | null; ownedUrl?: string | null }> };
   surfacePublished?: boolean;
   /** The operator's durable ask for extra readings of today's AI answers: the day and how many EXTRA readings per pair were granted (max two); the press and the pass that acts on it are two requests.
@@ -66,24 +66,21 @@ export type ResearchRunProgress = {
   extraSamples?: { day: string; granted: number };
   synthesisAttempted?: boolean;
   /** THE DAY THIS RUN COULD NOT BUY A CASE'S COMPETING DOMAINS because the spending ceiling was reached, and
-   *  which cases those were. Day-scoped exactly like the extra-sample grant, so it clears by rollover rather
-   *  than by a cleanup nobody runs, and the case receipt can say "capped" about the pass that was actually
-   *  capped instead of about every pass since. */
+   *  which cases those were. Day-scoped like the extra-sample grant, so it clears by rollover and the case
+   *  receipt says "capped" about the pass that was actually capped, not about every pass since. */
   capped?: { day: string; caseIds: string[] };
   /** How many continuation hops this account has already been given on `day`. SERVER-COUNTED at database
-   *  time (patch_research_run_progress increments it inside the update): the hop number a browser sends back
-   *  is a number it made up, and two tabs doing read-then-write both landed hop 1. Day-scoped, and inherited
-   *  by every pass that opens the same day, so a new row never hands out a fresh allowance. */
+   *  time (patch_research_run_progress increments it inside the update): the hop a browser sends back is a
+   *  number it made up. Day-scoped and inherited by every pass that opens the same day, so a new row never
+   *  hands out a fresh allowance. Browser recovery only: the daily scheduler never uses hops. */
   continuations?: { day: string; count: number };
   observationRetries?: { day: string; counts: Record<string, number> }; // how many times each broken question and engine pair has been asked AGAIN today (daily-observations owns the rule); day-scoped and inherited exactly like the markers above, so a provider that refuses one engine all day is not re-bought on every pass forever
   /** The watermark the LAST decide-and-publish pass ran against: which basis, and which version
    *  of the research notes. Notes that moved past it are new evidence, which is what makes a
    *  second pass on the same day legitimate instead of redundant. */
   decided?: { basis: string; rowVersion: number };
-  /** PROGRESS AS PERSISTED TRUTH, so every surface reads the same numbers on every request. It used to be
-   *  assembled per render from whatever was in hand, including the lease, so two requests a second apart
-   *  could disagree about whether research was running. Written by the run itself from the due-work read it
-   *  already made; nothing here is derived at render time. */
+  /** PROGRESS AS PERSISTED TRUTH, so every surface reads the same numbers on every request: written by the
+   *  run itself from the due-work read it already made, never derived at render time. */
   state?: {
     /** Today's AI checks from the planner: SETTLED of owed, then how those settled (an answer, an engine that had nothing to give, an engine I cannot ask at all). */
     checksDone?: number; checksTotal?: number; checksAnswers?: number; checksUnavailable?: number; checksUnsupported?: number;
@@ -142,16 +139,12 @@ import { projectStatusView, type ResearchRunStatusView } from "./run-status";
 // ── Pure helpers ───────────────────────────────────────────────────────────
 
 function requireTenant(tenantId: string): string {
-  if (typeof tenantId !== "string" || tenantId.trim().length === 0) {
-    throw new Error("[research-run] tenantId is required");
-  }
+  if (typeof tenantId !== "string" || tenantId.trim().length === 0) throw new Error("[research-run] tenantId is required");
   return tenantId;
 }
 
 /** A fresh, globally-unique owner token for one invocation's lease. */
-export function newOwnerToken(): string {
-  return randomUUID();
-}
+export function newOwnerToken(): string { return randomUUID(); }
 
 /** Stable JSON: object keys sorted recursively, so an identical cursor always
  *  hashes to the identical key across retries regardless of insertion order. */
@@ -163,17 +156,11 @@ function stableStringify(value: unknown): string {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
 }
 
-/**
- * Deterministic idempotency key for one phase attempt, SCOPED to the account +
- * run + phase + cursor. Identical across retries of the same attempt; different
- * across phases, cursors, and accounts. Stored into phase_cursor for future paid
- * phases so a retry can prove it is the same unit of work.
- */
+/** Deterministic idempotency key for one phase attempt, SCOPED to the account + run + phase + cursor.
+ *  Identical across retries of the same attempt; different across phases, cursors and accounts. Stored into
+ *  phase_cursor so a paid retry can prove it is the same unit of work. */
 export function phaseIdempotencyKey(
-  tenantId: string,
-  runId: string,
-  phase: ResearchPhase,
-  cursor: Record<string, unknown> | null,
+  tenantId: string, runId: string, phase: ResearchPhase, cursor: Record<string, unknown> | null,
 ): string {
   return `rr_${createHash("sha256")
     .update([requireTenant(tenantId), runId, phase, stableStringify(cursor ?? {})].join("\x00"))
@@ -195,9 +182,13 @@ export type ResearchRunRepo = {
    *  creates today's cycle only when none is open and none completed that day (the database computes the
    *  key). Null = the caller did not win (a foreign unexpired lease, or research already current today). */
   claim(input: { tenantId: string; owner: string; leaseSeconds: number }): Promise<ResearchRun | null>;
+  /** THE FLEET DOOR (claim_due_research_work). Enumerates every ACTIVE, not-research-paused account whose
+   *  current Pacific day still owes work and claims up to `limit` of them THROUGH the same claim above, so
+   *  the advisory lock and the one-open-run index stay the single mechanism. An account another dispatcher
+   *  or a visit already holds is simply absent from the result. */
+  claimDue(input: { owner: string; limit: number; leaseSeconds: number }): Promise<ResearchRun[]>;
   /** Open ANOTHER pass on a day that already completed one, for an account with genuinely due work. Null =
-   *  it must not run: the one-open-run-per-account index refuses the insert while any run is unfinished, so
-   *  a second tab, a second instance and a still-live pass all lose this race by construction. */
+   *  it must not run: the one-open-run-per-account index refuses the insert while any run is unfinished. */
   startPass(input: { tenantId: string; owner: string; leaseSeconds: number; day: string }): Promise<ResearchRun | null>;
   /** Guarded advance at DATABASE time (id + tenant + owner + a LIVE lease + status='running'). Extends the
    *  lease. False ⇒ our lease was lost or expired. */
@@ -238,14 +229,11 @@ async function rpcBool(fn: string, args: Record<string, unknown>): Promise<boole
   return data === true;
 }
 
-/**
- * THE ONE ATOMIC WRITE TO `progress`. Two paths used to read the JSON, edit it in the process and write the
- * whole object back, so two tabs a millisecond apart each landed a first hop and each erased whatever the
- * other had just recorded on the same row. The merge, and the day-scoped {day, count} increment when one is
- * asked for, now happen inside ONE update statement, and the row's own new progress comes back, so a caller
- * reads the number it actually landed. Null = no row matched, which is never "saved". A MISSING FUNCTION is
- * a deploy that ran ahead of its migration, so it is named loudly and thrown rather than swallowed.
- */
+/** THE ONE ATOMIC WRITE TO `progress`. Read-edit-write in the process let two writers a millisecond apart
+ *  each erase what the other had just recorded on the same row. The merge, and the day-scoped {day, count}
+ *  increment when one is asked for, happen inside ONE update statement, and the row's own new progress comes
+ *  back, so a caller reads the number it actually landed. Null = no row matched, which is never "saved". A
+ *  MISSING FUNCTION is a deploy that ran ahead of its migration: named loudly and thrown, never swallowed. */
 export async function patchRunProgress(
   tenantId: string, runId: string, patch: Record<string, unknown>, increment?: { key: string; day: string },
 ): Promise<ResearchRunProgress | null> {
@@ -266,6 +254,12 @@ const supabaseRepo: ResearchRunRepo = {
     if (error != null) throw new Error(error.message ?? String(error));
     const rows = (data ?? []) as Array<Record<string, unknown>>;
     return rows.length > 0 ? mapRow(rows[0]!) : null;
+  },
+  async claimDue({ owner, limit, leaseSeconds }) {
+    const { data, error } = await getSupabaseAdmin()
+      .rpc("claim_due_research_work", { p_owner: owner, p_limit: limit, p_lease_seconds: leaseSeconds });
+    if (error != null) throw new Error(error.message ?? String(error));
+    return ((data ?? []) as Array<Record<string, unknown>>).map(mapRow);
   },
   async startPass({ tenantId, owner, leaseSeconds, day }) {
     const admin = getSupabaseAdmin();
@@ -308,9 +302,8 @@ const supabaseRepo: ResearchRunRepo = {
     if (error != null) throw new Error(error.message ?? String(error));
     return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({ id: String(r.id), progress: (r.progress as ResearchRunProgress | null) ?? {} }));
   },
-  // THE COUNT IS COMPUTED WHERE IT IS STORED. Reading the row, adding one here and writing the whole object
-  // back let two tabs both read 0 and both write 1, and it overwrote every other key the row had gained
-  // meanwhile. The row id is all this reads; the increment and the merge belong to the update itself.
+  // THE COUNT IS COMPUTED WHERE IT IS STORED: the row id is all this reads, and the increment and the merge
+  // belong to the update itself (read-modify-write let two tabs both read 0 and both write 1).
   async countContinuation({ tenantId, day }) {
     const { data, error } = await getSupabaseAdmin().from("research_runs").select("id")
       .eq("tenant_id", tenantId).order("started_at", { ascending: false }).limit(1).maybeSingle();
@@ -324,25 +317,23 @@ const supabaseRepo: ResearchRunRepo = {
 let repo: ResearchRunRepo = supabaseRepo;
 
 /** Tests inject an in-memory repo modeling the RPC contract; null restores prod. */
-export function setResearchRunRepoForTests(next: ResearchRunRepo | null): void {
-  repo = next ?? supabaseRepo;
-}
+export function setResearchRunRepoForTests(next: ResearchRunRepo | null): void { repo = next ?? supabaseRepo; }
 
 // ── The reporting day's own memory ─────────────────────────────────────────
 
-/** How many research passes ONE account may open in ONE reporting day. A topic that can never be
- *  satisfied reads as genuinely due on every look, so without a ceiling every navigation all day
- *  opened another full pass on it. Past the ceiling I say so and open nothing until the day rolls. */
-const MAX_PASSES_PER_DAY = 8;
+/** THE RUNAWAY SAFETY CEILING, not a work budget. A pass may open whenever due-work reports genuinely
+ *  progressable work for the day; this only stops an account whose due list can never be cleared from
+ *  opening passes forever. Eight was sized for visits, when every navigation was a chance to open one, and
+ *  it starved the daily scheduler on a real backlog. Past 24 in one Pacific day I say so and open nothing
+ *  until the day rolls. */
+const DAILY_PASS_RUNAWAY_CEILING = 24;
 
 type DayRow = { id: string; progress: ResearchRunProgress };
 
 /** THE DAY'S STATE BELONGS TO THE DAY, NOT TO A ROW. Both row-creating paths (the fresh daily claim and an
- *  extra pass) are born with progress {}, so the operator's extra-sample grant, the ceiling marker, the
- *  advisory-reading receipt and the decide watermark all died the moment the pass they justified opened: the
- *  planner reads the LATEST row, so the grant that bought the pass was orphaned by it, and a vanished
- *  watermark made deciding due forever. Inherited here from the passes that already ran the SAME reporting
- *  day; day-stamped markers only when they name that day, so they still clear by rollover. */
+ *  extra pass) are born with progress {}, so the extra-sample grant, the ceiling marker, the advisory-reading
+ *  receipt and the decide watermark all died the moment the pass they justified opened. Inherited here from
+ *  the passes that already ran the SAME reporting day; day-stamped markers only when they name that day. */
 function carriedDayState(priors: readonly ResearchRunProgress[], day: string): ResearchRunProgress {
   const out: ResearchRunProgress = {};
   for (const p of priors) {
@@ -371,7 +362,7 @@ async function inheritDayState(run: ResearchRun, owner: string, priors: readonly
 async function withDayState(run: ResearchRun, owner: string): Promise<ResearchRun> {
   const p = run.progress ?? {};
   if (p.decided != null || p.extraSamples != null || p.capped != null || p.continuations != null || p.synthesisAttempted != null || p.observationRetries != null) return run;
-  const priors = await repo.sameDay({ tenantId: run.tenant_id, day: run.cycle_key.slice(-10), limit: MAX_PASSES_PER_DAY * 2 })
+  const priors = await repo.sameDay({ tenantId: run.tenant_id, day: run.cycle_key.slice(-10), limit: DAILY_PASS_RUNAWAY_CEILING })
     .catch(() => [] as DayRow[]);
   return inheritDayState(run, owner, priors);
 }
@@ -383,10 +374,9 @@ async function withDayState(run: ResearchRun, owner: string): Promise<ResearchRu
  * unfinished run (any date) before considering a new daily cycle, and computes the daily key itself.
  *
  * A REFUSAL AND A FAILURE ARE DIFFERENT ANSWERS, and this is the one place that can tell them apart. `null`
- * means the database refused us honestly (a foreign unexpired lease, or a pass already completed today),
- * which is the case a caller may reason further about. A THROW means the claim could not be made at all, so
- * the caller fails closed and no background work runs. Collapsing the two let an unavailable database read
- * as "today is done", which would have opened a pass on a guess.
+ * means the database refused us honestly (a foreign live lease, or a pass already completed today), which a
+ * caller may reason further about. A THROW means the claim could not be made at all, so the caller fails
+ * closed: an unavailable database must never read as "today is done".
  */
 export async function claimRun(tenantId: string, ownerToken: string): Promise<ResearchRun | null> {
   requireTenant(tenantId);
@@ -401,18 +391,32 @@ export async function claimRun(tenantId: string, ownerToken: string): Promise<Re
 }
 
 /**
+ * THE DAILY DISPATCH. Claim up to `limit` accounts that still owe work for their current Pacific day,
+ * through the same claim_research_run every visit uses, and hand the caller the runs it now holds the lease
+ * on. No tenant argument by design: this is the one fleet-wide door, reachable only by the service role
+ * behind the CRON_SECRET endpoint. A THROW (unavailable database) is swallowed into an empty list, because
+ * a dispatch that could not read is a dispatch that must do nothing, not one that guesses.
+ */
+export async function claimDueRuns(ownerToken: string, limit: number): Promise<ResearchRun[]> {
+  try {
+    return await repo.claimDue({ owner: ownerToken, limit, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS });
+  } catch (error) {
+    log.warn("[research-run] the daily dispatch could not read what is due; nothing runs", { error: error instanceof Error ? error.message : String(error) });
+    return [];
+  }
+}
+
+/**
  * Open ANOTHER pass on a day that already completed one. The caller must already know work is genuinely due
  * (see due-work): a day is not a unit of work, but nor is a visit, so nothing here decides that question.
- * Null = a pass must not open (any unfinished run, a concurrent tab, the day's pass ceiling, or unavailable
- * persistence). Never throws. THE DAY HAS A CEILING: "due" is computed from persisted state, and some state
- * stays due however often it is looked at, so a due list that cannot be cleared used to open a full pass on
- * every navigation for the rest of the day. MAX_PASSES_PER_DAY is the honest stop.
+ * Null = a pass must not open (any unfinished run, a concurrent claimer, the day's runaway ceiling, or
+ * unavailable persistence). Never throws.
  */
 export async function startExtraPass(tenantId: string, ownerToken: string, day: string): Promise<ResearchRun | null> {
   requireTenant(tenantId);
   try {
-    const priors = await repo.sameDay({ tenantId, day, limit: MAX_PASSES_PER_DAY * 2 });
-    if (priors.length >= MAX_PASSES_PER_DAY) { // the honest ceiling, not a claim that nothing is due
+    const priors = await repo.sameDay({ tenantId, day, limit: DAILY_PASS_RUNAWAY_CEILING });
+    if (priors.length >= DAILY_PASS_RUNAWAY_CEILING) { // the honest ceiling, not a claim that nothing is due
       log.info("[research-run] this account has opened all of today's research passes; the next one opens tomorrow", { tenantId, day, passes: priors.length });
       return null;
     }

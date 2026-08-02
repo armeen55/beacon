@@ -39,8 +39,8 @@
   approved set): unchanged wording keeps its row id and history, a rewording carries `superseded:<oldId>`, legacy
   seed rows are untouched, 10..100 enforced in Settings, a valid save resumes the same paused Research Run on the next visit.
   jsonb `tags` reads pass JSON (contains() silently errored to empty, which would have kept research paused after
-  a save). Copy is true: no Wix auto-publish or per-charge approval claims, no raw exception text, research is
-  visit-driven, Today's paused line carries the control that fixes it.
+  a save). Copy is true: no auto-publish or per-charge approval claims, no raw exception text, research today
+  runs when the app is opened, Today's paused line carries the control that fixes it.
 
 ## What is real but incomplete
 
@@ -58,7 +58,10 @@
   idempotent, requires the setup window server side (approval holds 20..50, floor bending to a thin candidate pool; activation re-checks 10..50 on the set that survived it) plus website, confirmed profile, goal, and terms,
   starting exactly one durable Research Run. Verified end to end rendered, desktop and mobile, with real crawl,
   real model calls, mid-flow website/goal changes. One inert synthetic pending account remains for review.
-- Durable visit-driven Research Runs exist (Slice 4, 2026-07-24): every authenticated visit renders the saved
+- Durable Research Runs exist (Slice 4, 2026-07-24), triggered today by an authenticated visit. That trigger is
+  the CURRENT MECHANISM ONLY, not the product's design: Product Truth requires daily tracking without a visit,
+  and the Dream V1 program replaces the trigger with a Supabase-scheduled dispatcher driving this same runtime,
+  leaving visits as recovery. Everything below describes the runtime as built. Every authenticated visit renders the saved
   surfaces first, then claims or resumes the account's Research Run through an atomic database-time lease RPC. At
   most one unfinished run per account across all dates (partial unique index): the claim resumes it whatever day
   it started (same row, phase, cursor, progress; a live foreign lease blocks, an expired one reclaims), a
@@ -153,8 +156,8 @@ Verified variable-name presence without reading or printing values:
 
 Canonical `ai_observations` keeps every AI answer whole (identity: tenant, prompt, version, engine, reporting
 day, sample slot; journey keeps fan-outs, retrieved-not-cited and citations apart; pao is a projection).
-Tracked prompts carry `version` and `core`; the planner observes slot 0 daily on visit, slots 1-2 via Update
-data (max 3/day), and never fabricates a missed day. Cases are a partition (one owner per anchor); freshness
+Tracked prompts carry `version` and `core`; the planner observes slot 0 daily (on visit today, on schedule
+under Dream V1), slots 1-2 via Update data (max 3/day), and never fabricates a missed day. Cases are a partition (one owner per anchor); freshness
 is one leaf matrix; diagnosis is a 15-cause ladder with competing explanations and a falsifier on every
 proposal. `change_proposals` holds ONE current row per (account, case, page, action family) with supersession
 chains. A marked change is a Shipment: write-once `implemented_at` stamp and baseline, live verification, and

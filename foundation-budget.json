@@ -36,7 +36,8 @@
     ],
     "apiAllow": [
       "api/version",
-      "api/connectors/google/callback"
+      "api/connectors/google/callback",
+      "api/cron/scheduler"
     ]
   },
   "files": {

@@ -1,7 +1,7 @@
 "use server";
 
 import { log } from "@/lib/logger";
-import { continueResearch, researchTick, requestExtraSample, warmFreeSurfaces, type ResearchTick } from "@/domains/runtime"; import { reportingDay } from "@/lib/reporting-day";
+import { continueResearch, requestExtraSample, warmFreeSurfaces } from "@/domains/runtime"; import { reportingDay } from "@/lib/reporting-day";
 import {
   getConnectorInfo,
   getGoogleConnectorToken,
@@ -1091,21 +1091,13 @@ export type RefreshAllConnectedResult = {
  *   same freshness contract the per-source actions use.
  * - Zero connected → `{ ranAt, results: [] }`.
  */
-/** ONE bounded research hop, and whether another is owed. This is the SAME entry point the
- *  Update data button already uses, so the continuation needs no route, no cron and no
- *  background promise: each hop is its own request that claims the lease for itself and a closed
- *  tab simply stops asking. The `hop` a caller passes is a REPORT, not an authority: the server
- *  keeps the day's real count on the account's own row and enforces the bound against that. */
+/** ONE bounded research hop of whatever is unfinished, and whether more is owed. This is the recovery
+ *  seam behind the Update data button: one request that claims the run's lease for itself, with the
+ *  day's real count kept on the account's own row so the `hop` a caller passes is a REPORT, never an
+ *  authority. The daily round itself is the scheduler's job, not this action's. */
 export async function continueResearchNow(hop = 0): Promise<{ hop: number; more: boolean }> {
   const tenantId = await currentTenantId().catch(() => "");
   return tenantId ? continueResearch(tenantId, hop) : { hop: 0, more: false };
-}
-
-/** ONE poll from an open tab, for the shell's continuation controller: same continuation seam as the
- *  button above, every bound on the server, the browser only relaying the answer. */
-export async function researchTickNow(hop = 0): Promise<ResearchTick> {
-  const tenantId = await currentTenantId().catch(() => "");
-  return researchTick(tenantId, hop);
 }
 
 export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedResult> {

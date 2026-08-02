@@ -10,8 +10,7 @@ import {
 } from "@/app/(shell)/settings/connectors/actions";
 
 /**
- * One-click "Refresh my data" control for the Today command center
- * (2026-06-15).
+ * One-click "Update data" control for the Today command center (2026-06-15).
  *
  * The owner asked for a single control on Today instead of hunting per-source
  * "Sync now" buttons in Settings → Connectors ("everything should be updating,
@@ -19,24 +18,24 @@ import {
  * one click via the `refreshAllConnectedDataNow` server action, then calls
  * `router.refresh()` so the dashboard repaints with the freshly-pulled data.
  *
- * Honest posture: on-demand only — NO automation/scheduling claims. The helper
- * line says exactly what it does ("Pulls the latest from every connected
- * source.").
+ * IT IS A RECOVERY CONTROL, NOT THE ENGINE (2026-08-02). The daily round is driven by the one global
+ * scheduler; this press is the operator saying "do it now" and "pick up anything unfinished". So it is
+ * exactly THREE things, once: refresh the connected sources, ask for the extra AI reading, and resume
+ * unfinished work with ONE bounded continuation. The eight-hop loop that used to live here existed only
+ * because nothing else finished the day; keeping it would put the day's work back behind a button.
  *
  * White-label: the action returns customer-safe labels (plain-English source
  * names, never a vendor name); this component renders them verbatim.
  *
  * IT RENDERS WITH ZERO CONNECTIONS TOO (2026-07-31). It used to hide itself when
- * nothing was connected, which quietly removed the only control that resumes the
- * research: the AI answer checks, the keyword work and the ranked changes need no
- * connector at all, so an account with none had no way to say "carry on". The copy
- * tells the truth in both states and the results list stays honest either way.
+ * nothing was connected, which quietly removed the only control that asks for a second reading of
+ * today's AI answers: that work needs no connector at all. The copy tells the truth in both states.
  */
 
 type RefreshResult = RefreshAllConnectedResult["results"][number];
 
 /**
- * Pure presentational result list — split out so a test can
+ * Pure presentational result list, split out so a test can
  * renderToStaticMarkup it without driving the button's client state.
  */
 export function RefreshResultList({ results }: { results: RefreshResult[] }) {
@@ -90,20 +89,14 @@ export function RefreshMyDataButton({
       setResults(res?.results ?? []);
       setRanAt(res?.ranAt ?? null);
       setPulling(false);
-      // Repaint with the freshly-pulled data BEFORE the research continues: the operator should not
+      // Repaint with the freshly-pulled data BEFORE the continuation: the operator should not
       // wait on the long half to see the short half.
       router.refresh();
-      // RESUME ALL THE WORK, not just the pulls. One press used to refresh the sources and stop, so
-      // the research those pulls unblocked waited for the next navigation. Each hop is its own
-      // request that claims the run's lease for itself and answers whether more is owed; the SERVER
-      // owns the bound, this loop carries its own so a bad answer cannot spin it, and closing the
-      // tab simply stops asking.
+      // ONE CONTINUATION, ONCE. The press claims the run's lease for itself and does one bounded hop
+      // of whatever is unfinished; the SERVER owns that bound exactly as it did before. It does not
+      // loop, because the day's round no longer depends on this button being pressed enough times.
       setResearching(true);
-      for (let hop = 0, guard = 0; guard < 8; guard += 1) {
-        const step = await continueResearchNow(hop).catch(() => null);
-        if (!step?.more) break;
-        hop = step.hop;
-      }
+      await continueResearchNow(0).catch(() => null);
       setResearching(false);
       router.refresh();
     })();
@@ -123,8 +116,8 @@ export function RefreshMyDataButton({
       </button>
       <p className="text-[11px] text-muted-foreground">
         {connectedCount > 0
-          ? "Pulls the latest from every connected source, then picks my research back up."
-          : "Picks my research back up where it left off."}
+          ? "I refresh every connected source, ask for an extra AI reading, and pick up anything unfinished. My daily research runs on its own."
+          : "I ask for an extra AI reading and pick up anything unfinished. My daily research runs on its own."}
       </p>
       <div aria-live="polite" className="w-full">
         {pulling ? (
@@ -133,7 +126,7 @@ export function RefreshMyDataButton({
           </p>
         ) : researching ? (
           <p className="mt-1 text-[12px] text-muted-foreground">
-            I am picking my research back up. You can keep using Beacon while I work.
+            I am picking up anything unfinished. This runs once, and my daily research carries on either way.
           </p>
         ) : results ? (
           <RefreshResultList results={results} />

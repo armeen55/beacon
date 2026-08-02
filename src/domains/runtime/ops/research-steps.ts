@@ -39,7 +39,7 @@ const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_sy
 /** The refresh_sources phase outcome: how many sources were attempted, the identities of the ones that actually synced, and the bounded per-source
  *  failure detail for the rest. `succeeded` is a list of provider identities (not a count) so retries can UNION distinct successes rather than
  *  double-count them. */
-export type RefreshSourcesResult = {
+type RefreshSourcesResult = {
   attempted: number;
   succeeded: string[];
   failures: Array<{ provider: string; detail: string }>;
@@ -47,7 +47,7 @@ export type RefreshSourcesResult = {
 
 /** The gsc_backfill_chunk phase outcome. `advanced` = a chunk pulled (or the backfill defensively completed); `no_work` = a benign skip. A real error is
  *  a THROW, never a value. */
-export type BackfillChunkResult = { kind: "advanced"; complete?: boolean; daysPulled?: number } | { kind: "no_work" };
+type BackfillChunkResult = { kind: "advanced"; complete?: boolean; daysPulled?: number } | { kind: "no_work" };
 
 /** Injectable phase bodies + clock/deadline so the runner is testable with a short budget and stub executors; production passes nothing and uses the real
  *  implementations below. Every executor receives the persisted attemptKey so a retry can prove it is the same unit of work. */

@@ -70,8 +70,8 @@ export function TrackedPromptsSection({
       <h2 className="text-[15px] font-semibold text-foreground">Questions I track across AI assistants</h2>
       <p className="text-[13px] text-muted-foreground">
         {count > 0
-          ? `I am tracking ${count} question${count === 1 ? "" : "s"}. Research checks them while you are signed in.`
-          : "I am not tracking any questions yet, so my research is paused. Add at least 10 below and I will pick it up on your next visit."}
+          ? `I am tracking ${count} question${count === 1 ? "" : "s"}. I check them once a day on my own.`
+          : "I am not tracking any questions yet, so I have nothing to check for you. Add at least 10 below and my next daily round picks them up."}
       </p>
       <p className="text-[12px] text-muted-foreground">
         Reword a question and its trend starts again from that day. Add one and its trend starts the day you

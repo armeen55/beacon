@@ -14,6 +14,13 @@ and learning from the result.
 Beacon should feel like installing an excellent SEO/AEO operator inside a business, not like buying another
 analytics dashboard or recommendation generator.
 
+## What V1 replaces
+
+V1 replaces on-page SEO, content SEO, AEO research, content planning, and actionable technical SEO. Offsite
+links, digital PR, and local SEO are not V1. A new account reaches its first useful result in roughly 3 to 5
+minutes from cached evidence, and deeper research continues durably for up to roughly an hour with the stage
+it is in named honestly.
+
 ## Product outcome
 
 For a business that uses Beacon consistently for 90 days:
@@ -29,32 +36,29 @@ AI citations, implementation state, and directional outcomes.
 
 ## Account model
 
-- One account represents one business and exactly one website.
-- One user owns the account in the MVP.
-- A user never switches among multiple websites inside one account.
-- A second business uses a separate account and login.
+- One account represents one business and exactly one website. One user owns it in the MVP.
+- A user never switches among multiple websites inside one account. A second business uses a separate login.
 - Do not build organizations, workspaces, teams, invitations, permissions matrices, or site switchers.
 - Keep tenant isolation production-grade so additional customers can sign up safely.
 - The product is United States and English only for this version.
 - Customer names, domains, verticals, and examples must come from stored account data. Never hardcode a real
   customer into generic copy, defaults, fixtures used by customer surfaces, source allowlists, or decisions.
 
-The canonical account identity must remain generic. Builder fields, publishing modes, cities, budgets, and
-vertical-specific assumptions belong in the account's structured Business Profile only when relevant.
+The canonical account identity must remain generic. Publishing modes, cities, budgets, and vertical-specific
+assumptions belong in the account's structured Business Profile only when relevant.
 
 ## Canonical business records
 
 There is one canonical record for each concept:
 
-- **Account**: customer identity and lifecycle.
-- **Membership**: authenticated user to account relationship.
+- **Account**: customer identity and lifecycle. **Membership**: authenticated user to account relationship.
 - **Website**: the account's one canonical domain and URL identity.
 - **Business Profile**: confirmed structured truth about the business.
 - **Connection**: one customer-owned external data source and its health.
-- **Page**: one discovered page on the website.
+- **Page**: one discovered page on the website, with crawl state, content hash, and completeness.
 - **Evidence Observation**: one provider result with source, timestamp, provenance, and cost.
 - **Evidence Snapshot**: the normalized evidence available for a page, topic, prompt, or account.
-- **Research Run**: durable visit-driven work, phase, lease, progress, spend, and errors.
+- **Research Run**: durable work, phase, lease, progress, spend, and errors.
 - **Change Proposal**: one ranked recommendation with exact work and a decision receipt.
 - **Change Bundle**: the atomic components implemented together on one page.
 - **Shipment**: the operator-confirmed implementation and verified live state.
@@ -66,94 +70,91 @@ in the same slice that introduces the canonical path.
 ## Structured Business Profile
 
 Beacon infers a Business Profile from the website, then asks the operator to confirm or edit it. The profile
-contains only fields supported by evidence or operator confirmation:
-
-- business name and canonical website;
-- business type and site archetype;
-- products, services, or editorial topics;
-- target audiences and customer problems;
-- geographic scope when relevant;
-- differentiators and trust claims;
-- important conversion or authority pages;
-- topics the business should own;
-- topics the business must not cover;
-- factual, legal, brand, and editorial constraints;
-- likely competitors, each with discovery evidence;
-- confidence and source URLs for every inferred section.
+contains only fields supported by evidence or operator confirmation: business name and canonical website;
+business type and site archetype; products, services, or editorial topics; target audiences and customer
+problems; geographic scope when relevant; differentiators and trust claims; important conversion or authority
+pages; topics the business should own; topics it must not cover; factual, legal, brand, and editorial
+constraints; likely competitors with discovery evidence; and confidence plus source URLs for every inferred
+section.
 
 If an operator edits the summary in natural language, Beacon uses its OpenAI key to convert the edit into a
 strict structured patch, shows the resulting changes, and waits for confirmation. It never silently changes
 confirmed business truth.
 
-## The four product surfaces
+## Competitors
 
-Beacon has four primary customer surfaces. Depth belongs inside these surfaces, not in new dashboards.
+Competitors are discovered automatically from evidence, never typed in as a required setup step. Recurring
+presence on the account's important search results and recurring citation inside AI answers are the two
+discovery signals. Every discovered domain is classified as a commercial competitor, a citation authority, a
+publisher, a marketplace or directory, a government or educational source, a social platform, owned, or
+irrelevant, and each classification shows the evidence behind it in plain language. The operator can pin a
+domain, exclude one, or correct a classification, and Beacon respects that correction afterward.
+
+## The five product surfaces
+
+Beacon has five primary customer surfaces: Today, Visibility, Changes, Results, and Connections. Depth belongs
+inside these surfaces, not in new dashboards.
 
 ### Today
 
-Today answers three questions in under ten seconds:
+Today answers three questions in under ten seconds, entirely from saved truth:
 
 1. What materially changed?
 2. Is search and AI visibility moving in the right direction?
-3. What are the three smartest things to do next?
+3. What are the smartest things to do next?
 
 Today contains:
 
 - meaningful outliers or connection failures that change what can be trusted;
 - a compact Google and AI visibility overview;
 - progress toward the account's recovery, growth, or balanced goal;
-- the top three ranked Changes;
+- at most the three strongest next Changes, and fewer when fewer are genuinely earned;
 - current measurement activity and recent outcomes;
-- honest research progress when new evidence is being prepared.
+- one stable research status line whose counts come from durable stored work, never from a live guess.
 
-Saved information renders immediately. Research starts or resumes after the page responds.
+Saved information renders immediately. Research is already running on its own schedule; a visit recovers or
+resumes it rather than being the reason it happens.
+
+### Visibility
+
+Visibility is ONE surface with two tabs. The Google tab shows clicks, impressions, average position, and query
+and page movement. The AI answers tab shows presence, mentions, citations, and cited pages for each tracked
+prompt and engine. Both tabs drill down to the exact stored observation with its date, engine, model, and
+receipt. There is no composite AI visibility score and no second execution queue on this surface: Visibility
+explains where the business stands, and every action lives in Changes.
 
 ### Changes
 
-Changes is the complete ranked execution queue. It can grow as the operator scrolls, but it must remain
-ranked rather than becoming an idea dump.
+Changes is the complete ranked execution queue. It is unlimited in size but every row is earned by evidence,
+it stays ranked rather than becoming an idea dump, and it is paginated so length never breaks the page.
 
-Lifecycle:
+Canonical lifecycle:
 
-`Suggested -> Approved -> Implemented -> Measuring -> Result`
+`needs_review -> ready -> implemented_pending_verification -> measuring -> result`
 
-A Suggested Change may be Dismissed by the operator or Withdrawn by Beacon when its evidence expires or
-becomes invalid. These are terminal dispositions, not additional lifecycle stages. A dangerous Change
-requires the approved two-step confirmation before entering Approved. Implementation must converge on one
-canonical stage vocabulary and one canonical terminal disposition, never several competing status systems.
+`dismissed` (the operator declines) and `withdrawn` (Beacon retires a Change whose evidence expired or became
+invalid) are terminal dispositions, not additional stages. There is no separate Approved stage. A dangerous
+Change requires the two-step confirmation before it becomes ready. Implementation must converge on this one
+stage vocabulary and one terminal disposition, never several competing status systems.
 
-Every list item shows:
-
-- exact action;
-- affected page or new-page target;
-- objective;
-- estimated effort;
-- evidence strength and confidence;
-- why it ranks above the next opportunity;
-- whether it is safe, bundled, overlapping, or destructive.
+Every list item shows: the exact action; the affected page or new-page target; the objective; estimated effort;
+evidence strength and confidence; why it ranks above the next opportunity; and whether it is safe, bundled,
+overlapping, or destructive.
 
 Every Change detail has two layers:
 
 1. A simple decision layer with the recommendation, why it matters, and exact work.
 2. An expandable investigation showing all material evidence and rejected alternatives.
 
-The queue can include every useful website change, including:
+The queue can include every useful website change: title and meta description; opening or direct answer;
+section addition, removal, or rewrite; full-page rewrite; factual correction; source pack and citations;
+internal links and anchor text; structured data; page consolidation; redirect, canonical, or noindex; a new
+article, service page, location page, comparison page, category, or hub; and information architecture and
+navigation changes. A technical finding enters the queue only when it names a concrete URL and the exact fix.
 
-- title and meta description;
-- opening or direct answer;
-- section addition, removal, or rewrite;
-- full-page rewrite;
-- factual correction;
-- source pack and citations;
-- internal links and anchor text;
-- structured data;
-- page consolidation;
-- redirect, canonical, or noindex;
-- new article, service page, location page, comparison page, category, or hub;
-- information architecture and navigation changes.
-
-Beacon recommends whatever has the highest expected impact, whether atomic or large. It does not manufacture
-five tiny tasks when one coherent Change Bundle is the honest unit of work.
+One coherent implementation moment is one Change Bundle whose atomic components are visible inside it. Beacon
+does not manufacture five tiny tasks when one bundle is the honest unit of work, and it does not hide the
+components inside an opaque single row.
 
 ### Results
 
@@ -172,20 +173,23 @@ availability, overlap, and uncertainty without causal overclaim.
 
 Connections contains customer-owned sources only:
 
-- Google Search Console: strongly recommended, never required to enter the product;
+- Google Search Console: strongly recommended, optional, and never required to enter the product;
 - Google Analytics 4: optional;
-- Microsoft Clarity: optional;
-- Wix: optional first CMS integration;
-- future CMS integrations only after the MVP loop works.
+- Microsoft Clarity: optional.
 
-Google Business Profile is a high-value future connection for local businesses, but is not part of this MVP.
+GA4 and Clarity are small evidence modifiers. Neither is ever a primary decision engine, and neither is ever
+sufficient on its own to justify a draft. Google Business Profile is a high-value future connection for local
+businesses, but is not part of this MVP. There is no CMS connection in V1.
 
-Beacon-owned OpenAI, DataForSEO, public crawling, caches, and research services are included infrastructure,
-not customer connections. They never require a customer API key or show a Connect button.
+Beacon-owned OpenAI, DataForSEO, public crawling, caches, schedulers, and research services are included
+infrastructure, not customer connections. They never appear as a connection, require a customer API key, or
+show a Connect button.
 
 ## Onboarding
 
-Onboarding must take minutes, feel premium, and show intelligence before asking for optional connections.
+Onboarding is seven steps, entirely generic, and must take minutes, feel premium, and show real intelligence
+before asking for optional connections. If onboarding is incomplete, the next authenticated visit resumes it
+automatically at the step the account actually reached.
 
 ### Step 1: Website
 
@@ -194,8 +198,8 @@ domain without publishing or installing code.
 
 ### Step 2: Automatic understanding
 
-Beacon reads the site, discovers pages, classifies the business, identifies important topics and pages, and
-builds a first structured Business Profile.
+Beacon crawls the site, builds the owned-page inventory, classifies the business, identifies important topics
+and pages, and builds a first structured Business Profile.
 
 ### Step 3: Confirm business truth
 
@@ -204,13 +208,8 @@ in natural language. Natural-language edits become a strict structured patch and
 
 ### Step 4: Goal
 
-The user selects:
-
-- recover lost visibility;
-- grow into new demand;
-- balanced recovery and growth.
-
-The default recommendation is based on available evidence, but the user decides.
+The user selects: recover lost visibility; grow into new demand; or balanced recovery and growth. The default
+recommendation is based on available evidence, but the user decides.
 
 ### Step 5: Topics and AI prompts
 
@@ -226,7 +225,12 @@ skipped, and Beacon still produces useful research from the public site and Beac
 ### Step 7: First findings
 
 Beacon shows a genuine initial preview, begins the full durable Research Run, and lands the user on Today.
-The user can navigate normally while research continues.
+The user can navigate normally while research continues. Activation makes the account eligible for daily
+tracking from that day forward.
+
+A minimal Pause research control stops future scheduled work for the account without deleting any history.
+Resuming starts tracking again from the current day; it never fabricates or backfills the days that were
+paused.
 
 ## Prompt and question model
 
@@ -234,27 +238,39 @@ Beacon maintains two deliberately different sets.
 
 ### Core tracking prompts
 
-- Start with 20 to 50 operator-approved prompts.
-- Represent the account's most important category, problem, comparison, commercial, factual, trust, and
+- A generic account starts with 20 to 50 operator-approved core prompts. An account that already approved its
+  set keeps exactly that set; the live account's 35 approved questions stay intact and are not regenerated.
+- They represent the account's most important category, problem, comparison, commercial, factual, trust, and
   brand questions.
-- Run repeatedly across supported AI engines so movement is comparable over time.
-- Remain stable unless evidence supports a deliberate replacement.
+- They run repeatedly across the canonical engines so movement is comparable over time.
+- They remain stable unless evidence supports a deliberate replacement.
 - Every addition, removal, or wording change is versioned so trend discontinuities are visible.
 
-Core prompts are tracked daily on active account days. One canonical daily sample per prompt and engine
-begins automatically on the first authenticated visit of the account's reporting day; a day the app is
-never opened records no observation and is never fabricated or backfilled. The existing Update data control
-may request up to two additional same-day samples after the canonical one, labeled sample 2 and sample 3;
-they measure volatility and never pretend to be separate days. Cost is proven by actual provider receipts.
+The four canonical engines are ChatGPT, Claude, Gemini, and Perplexity. Google AI Overview and AI Mode are
+search-result evidence about Google; they are never presented as additional conversational engines.
+
+There is exactly ONE canonical observation per active prompt, per engine, per reporting day, and it is
+sample 1. The Update data control may add at most samples 2 and 3 on the same day; those measure volatility
+and never pretend to be separate days. Observation identity is account, reporting date, prompt, prompt
+version, engine, and sample number, enforced by the database. Today that identity is stored as `tenant_id`,
+`prompt_id`, `prompt_version`, `engine`, `reporting_day`, and `sample_slot`, where slot 0 IS sample 1; that
+mapping is the contract and neither half may drift from the other. A day with no observation stays visibly
+missing forever. Missing days are never fabricated, estimated, or backfilled. Cost is proven by actual
+provider receipts.
 
 ### Research queries
 
-- Include AI fan-out queries, People Also Ask questions, related searches, GSC queries, keyword expansions,
-  headings, entities, competitor terms, and discovered follow-up questions.
-- May grow into the hundreds or thousands.
-- Drive investigation and opportunity discovery.
-- Are cached and deduplicated.
-- Do not automatically become permanent tracking prompts.
+- They include AI query fan-outs, People Also Ask questions, related searches, GSC queries, keyword
+  expansions, headings, entities, competitor terms, and discovered follow-up questions.
+- They may grow into the hundreds or thousands.
+- They drive investigation and opportunity discovery.
+- They are cached and deduplicated.
+- They do not automatically become permanent tracking prompts.
+
+A query fan-out is an actual search query the provider reports the engine issued: the `fan_out_queries` field
+returned by DataForSEO, and nothing else. A tracked prompt is never its own fan-out. Keywords Beacon derives
+itself are research queries with exact provenance naming how they were derived, and they are never labeled
+fan-outs on any surface or in any store.
 
 Beacon may maintain 100 to 200 core-prompt candidates behind the approved set. It periodically proposes a
 small justified replacement when a candidate becomes materially more important.
@@ -270,11 +286,10 @@ The MVP uses DataForSEO for:
 
 - ChatGPT search-mode scraping: answers, sources, brands, results, and query fan-outs; the Gemini
   scraper where it provides material distinct evidence;
-- standardized ChatGPT, Perplexity, Gemini, and Claude response observations;
+- standardized ChatGPT, Claude, Gemini, and Perplexity response observations;
 - Google organic SERPs, AI Overview, AI Mode, featured snippets, People Also Ask, and related searches;
 - keyword suggestions, related keywords, keyword ideas, search intent, volume, trends, and difficulty;
-- keywords for a site;
-- ranked keywords for domains, URLs, and competitor pages;
+- keywords for a site, and ranked keywords for domains, URLs, and competitor pages;
 - relevant pages, SERP competitors, domain intersections, and page intersections;
 - historical keyword and SERP evidence where it materially improves a decision.
 
@@ -294,10 +309,21 @@ Collection rules:
   citations were actually returned; citation-free answers are weaker evidence and never prove that useful
   web research occurred;
 - treat missing citations or fan-outs as missing evidence, never as an empty factual truth;
-- use live methods for visit-driven work unless a durable queued result can be resumed without a scheduler;
 - respect provider concurrency and function-duration limits;
 - batch to the largest safe supported input size;
 - never spend twice for an equivalent fresh observation.
+
+### Public website crawling
+
+The website is the account's identity and its most important evidence, not a connector. Beacon builds and
+maintains a complete owned-page inventory by public crawling: robots directives first, then sitemaps followed
+through every level of nesting, then discovered internal links. Each page carries its crawl state, a content
+hash, a completeness verdict of complete, partial, blocked, unsupported, missing, or stale, and, where
+crawling is permitted, the full useful main content rather than a fragment.
+
+A partial snapshot never supports a full-page rewrite; it supports only work its evidence actually covers.
+Crawling is background research work with its own budget and politeness rules. A customer surface render never
+triggers a crawl.
 
 ### OpenAI
 
@@ -328,9 +354,9 @@ For an existing page or new-page opportunity:
 2. Read or refresh the website inventory and content hashes.
 3. Identify relevant GSC queries and movement when connected.
 4. Expand the topic using DataForSEO site, related, suggestion, idea, intent, and volume endpoints.
-5. Join relevant core prompts, AI answers, citations, brands, and fan-out queries.
+5. Join relevant core prompts, AI answers, citations, brands, and provider-reported fan-out queries.
 6. Run SERPs for the strongest retained queries.
-7. Identify recurring winning domains and exact pages.
+7. Identify recurring winning domains and exact pages, and classify them.
 8. Fetch allowed public competitor pages and extract titles, metadata, headings, answers, entities, links,
    structured data, freshness, and cited sources.
 9. Compare winning patterns with the account's existing coverage and authority.
@@ -344,34 +370,33 @@ SERPs and page teardowns.
 
 ## Evidence and decision receipts
 
-Every recommendation stores:
+Every recommendation stores: the exact problem; the objective and expected metric; page, topic, and prompt
+scope; evidence references and their freshness; important missing evidence; competitor and winning-page
+patterns; keyword and intent support; AI-answer and citation support; alternatives considered and why they
+lost; risk and destructive-action classification; expected effort; confidence and the reasons for it; the
+exact proposed work; and the measurement plan.
 
-- exact problem;
-- objective and expected metric;
-- page, topic, and prompt scope;
-- evidence references;
-- evidence freshness;
-- important missing evidence;
-- competitor and winning-page patterns;
-- keyword and intent support;
-- AI-answer and citation support;
-- alternatives considered and why they lost;
-- risk and destructive-action classification;
-- expected effort;
-- confidence and the reasons for that confidence;
-- exact proposed work;
-- measurement plan.
+The whole answer journey stays traceable by stable identity and receipts, end to end: prompt, engine and
+model version, the answer itself, the exact provider-reported fan-outs, cited URLs and passages, cited
+domains, the content of the cited pages, keyword evidence, search results, the winning patterns found there,
+the account's owned coverage, the opportunity, the exact Change, the implementation, the measurement, and the
+learned outcome. Any link in that chain must be reachable from any other. The simple surface explains why the
+recommendation is smartest; the expanded receipt proves it.
 
-The simple surface explains why the recommendation is smartest. The expanded receipt proves it.
-
-## Autonomy and approval
+## Autonomy, approval, and Ready work
 
 Beacon is autonomous in research, analysis, ranking, preparation, refreshing, verification, and measurement.
 
-Beacon never publishes or changes the live website without explicit operator approval. In this MVP, the
-operator applies the change manually and marks what was implemented.
+Beacon never publishes or changes the live website without explicit operator approval. Publishing is manual
+for every customer on every CMS: Beacon prepares the exact work, the operator applies it, and then marks what
+was implemented. Beacon assumes no CMS connection, mapping, or publishing capability.
 
-Dangerous actions require stronger two-step review:
+Ready work is complete work. A full-page rewrite or a new page carries complete publishable copy, not an
+outline, with an explicit KEEP, CHANGE, ADD, and REMOVE plan that preserves the existing content still worth
+keeping. Every factual claim in prepared copy is supported by a named source. A draft that is still partial
+stays private and never appears as Ready.
+
+Dangerous actions require stronger two-step review and hold for explicit confirmation:
 
 - redirect;
 - canonical;
@@ -380,16 +405,16 @@ Dangerous actions require stronger two-step review:
 - consolidation that removes a live page;
 - factual change with meaningful legal, medical, financial, or brand risk.
 
-Wix may be read for context. Automated CMS publishing is not part of the MVP.
-
 ## Implementation and verification
 
 When the operator marks a Change implemented:
 
-1. Record the implementation timestamp.
-2. Record which Change Bundle components were actually applied.
+1. Record the implementation timestamp. Marking a new page implemented requires its live URL.
+2. Record which Change Bundle components were actually applied; a partial bundle records which components
+   appeared and which did not.
 3. Crawl the live page.
-4. Compare the live result with the approved proposal.
+4. Independently verify the actual wording or structure against the approved proposal rather than trusting
+   the operator's word that it shipped.
 5. Mark verified, partially verified, not found, or blocked.
 6. Start measurement only after implementation is verified or explicitly operator-confirmed.
 
@@ -402,25 +427,19 @@ Measurement is honest and useful before it is statistically impressive:
 - immediate: implementation and crawl verification;
 - day 7: early movement;
 - day 14: provisional read;
-- day 28: primary directional read;
+- day 28: primary directional read, and the only window that may be called a win;
 - day 56: runs when the day-28 read was confounded, insufficient, or unclear, or when the Change was
   classified as destructive; otherwise Beacon omits the day-56 read.
 
-Measurement reads are computed from historical source data on the first visit after a window becomes due.
-A late visit computes every due read in order. No measurement window requires scheduled execution.
+Measurement reads are computed from historical source data as each window becomes due. Scheduled work
+computes due reads without a visit; a visit computes any still-outstanding read in order. A read is never
+skipped because nobody opened the app.
 
 Search data can lag, so Results shows the source watermark and never treats missing recent data as a loss.
 
-Primary metrics:
-
-- clicks;
-- impressions;
-- average position and query/page movement;
-- non-brand search movement where query evidence exists;
-- AI mentions;
-- AI citations;
-- cited pages and domains;
-- core-prompt presence by engine.
+Primary metrics: clicks; impressions; average position and query or page movement; non-brand search movement
+where query evidence exists; AI mentions; AI citations; cited pages and domains; and core-prompt presence by
+engine.
 
 The account's recent peak is the best rolling 28-day period in the preceding 12 months.
 
@@ -429,73 +448,56 @@ The account's recent peak is the best rolling 28-day period in the preceding 12 
 Multiple edits applied to one page together form one Change Bundle. Beacon records the components but
 measures the bundle effect. It does not invent component-level causal attribution.
 
-If multiple independent Shipments overlap on the same page or measurement window:
-
-- label the read confounded or bundled;
-- show the combined movement;
-- preserve component and timing metadata;
-- learn correlations across future comparable outcomes;
-- never claim that one component caused a percentage of the result without defensible evidence.
+When independent Shipments overlap on the same page or measurement window, they form an overlap graph, and
+learning happens at the honest level of that bundle or cluster rather than being assigned to one component.
+Beacon labels the read confounded or bundled, shows the combined movement, preserves component and timing
+metadata, learns correlations across future comparable outcomes, and never claims that one component caused a
+percentage of the result without defensible evidence.
 
 ## Cross-account learning
 
-Beacon may learn anonymized outcome patterns across accounts only when enough real outcomes exist.
-
-Allowed shared learning:
-
-- abstract action type;
-- page and intent archetype;
-- evidence features;
-- implementation components;
-- measurement window;
-- anonymized directional result.
-
-Never share or expose customer names, domains, URLs, queries unique to a customer, copy, credentials, or
-private metrics. At small sample sizes, do not pretend cross-account learning is meaningful.
+Beacon may learn anonymized outcome patterns across accounts only when enough real outcomes exist. The
+allowed shared shape is abstract action type, page and intent archetype, evidence features, implementation
+components, measurement window, and anonymized directional result. Never share or expose customer names,
+domains, URLs, queries unique to a customer, copy, credentials, or private metrics. At small sample sizes, do
+not pretend cross-account learning is meaningful.
 
 Cross-account learning is post-MVP. The MVP preserves the record shapes needed for future anonymized
 learning but builds no cross-account aggregation, scoring, model, or customer-facing claim. Ordinary
 canonical outcome fields are preserved as usual; no speculative future-learning fields are added solely
 for this deferred capability.
 
-## Visit-driven runtime
+## Daily runtime
 
-This MVP has no cron, scheduler, GitHub Action, or third-party workflow platform.
+Tracking runs every calendar day, whether or not anyone opens the app. An account never loses a day because
+the operator was busy.
 
-On every authenticated visit:
+- ONE global dispatcher, scheduled inside Supabase (pg_cron with pg_net, its secret held in Vault), fires on
+  a fixed schedule.
+- It invokes ONE guarded non-customer scheduler endpoint. That endpoint is not a customer surface, is
+  authenticated by the stored secret, and fails closed.
+- The scheduler claims a bounded amount of work per invocation under database-time leases, so two
+  invocations can never do the same work twice and an interrupted invocation is reclaimed, not lost.
+- It drives the SAME canonical runtime that a visit drives. There is exactly one research pipeline, one set
+  of phases, and one progress record. No parallel scheduled implementation may exist.
+- An authenticated visit and the Update data control become recovery and resume triggers: they pick up
+  whatever the schedule could not finish, and they never become the only reason work happens.
 
-1. Render the most recent saved customer snapshot immediately.
-2. Acquire a durable account-scoped Research Run lease.
-3. Resume the next incomplete bounded phase after the response.
-4. Persist progress and evidence after every phase.
-5. Continue through active-tab requests while the user remains in Beacon.
-6. Pause safely when the app is closed.
-7. Resume from durable state on the next visit.
+The runtime uses durable Supabase state, leases, and idempotency keys. In-memory guards may optimize one
+process but are never the correctness mechanism. Paid calls never run on the render path.
 
-The runtime must use durable Supabase state, leases, and idempotency keys. In-memory guards may optimize one
-process but are never the correctness mechanism. Paid calls never run directly on the render path.
-
-Progress is evidence-based, never decorative:
-
-- pages read out of pages discovered;
-- prompts checked out of 50;
-- engines completed;
-- keywords retained;
-- SERPs analyzed;
-- competitor pages compared;
-- proposals prepared.
-
-If the app is completely closed, work may pause. The UI must never imply that unscheduled work continued.
+Progress is evidence-based, never decorative: pages read out of pages discovered; prompts checked out of the
+account's approved set; engines completed; keywords retained; SERPs analyzed; competitor pages compared;
+proposals prepared. Every count is read from durable stored work. The UI never implies progress it cannot
+prove, and it never presents a missed day as a completed one.
 
 ## Caching and spend
 
-- Public provider evidence is cached by canonical endpoint, input, location, language, model, and version.
-- Public website snapshots are content-hash aware.
+- Public provider evidence is cached by canonical endpoint, input, location, language, model, and version;
+  public website snapshots are content-hash aware; cache lifetimes reflect volatility, with no universal TTL.
 - Tenant-derived conclusions remain tenant-scoped even when raw public evidence is safely reusable.
-- Cache lifetimes reflect volatility; no universal TTL.
 - Every paid call has an idempotency key, actual cost receipt, account attribution, and fail-closed spend cap.
-- Batch where the provider charges primarily per task.
-- A cache hit must be observable internally and cost zero.
+- Batch where the provider charges primarily per task. A cache hit is observable internally and costs zero.
 - Cost optimization may never silently reduce the promised evidence coverage.
 
 Before onboarding is completed, Beacon may spend at most $2 total for that account. No recurring paid
@@ -507,13 +509,10 @@ separate from the active account's recurring spend cap.
 
 Beacon speaks like a confident expert working for the customer:
 
-- first person when describing Beacon's work;
-- plain English before technical detail;
-- concrete numbers when trustworthy;
-- one obvious next action;
-- no provider, pipeline, cron, experiment, treatment, or internal status jargon on primary surfaces;
-- no fake precision, causal overclaim, raw identifiers, or bare zeros;
-- no hardcoded customer names;
+- first person when describing Beacon's work; plain English before technical detail;
+- concrete numbers when trustworthy; one obvious next action;
+- no provider, pipeline, scheduler, experiment, treatment, or internal status jargon on primary surfaces;
+- no fake precision, causal overclaim, raw identifiers, bare zeros, or hardcoded customer names;
 - no em or en dashes in customer-facing copy.
 
 The UI should be calm, premium, fast, and visually explanatory. Progressive disclosure is preferred:
@@ -530,10 +529,10 @@ The MVP is complete only when a brand-new account can:
 4. Approve Beacon's recommended 20 to 50 core prompts by topic group.
 5. Skip or connect customer-owned sources.
 6. See a real first finding and durable research progress.
-7. Receive deeply researched existing-page and new-page Changes.
-8. Inspect why each Change outranks alternatives.
-9. Approve and manually implement a Change Bundle.
-10. Have Beacon verify the live implementation.
+7. Be tracked every calendar day afterward without opening the app, with missed days visibly missing.
+8. Receive deeply researched existing-page and new-page Changes.
+9. Inspect why each Change outranks alternatives, and see where it stands in Visibility.
+10. Mark a Change Bundle implemented after applying it manually, and have Beacon verify the live result.
 11. See honest 7, 14, 28, and when needed 56-day Results.
 12. Remain fully isolated from every other account.
 
@@ -542,36 +541,30 @@ hardcoding either business or creating separate product paths.
 
 ## Explicit non-goals
 
-Do not build until separately approved:
+Do not build until separately approved: multiple websites per account; teams, invitations, permissions, or
+billing; automated publishing; any CMS connection or integration; external schedulers or workflow platforms
+outside the approved Supabase-scheduled dispatcher; email digests; revenue attribution; Google Business
+Profile; offsite link, digital PR, or local SEO features; translations or non-US research; a chat or Ask
+surface; standalone keyword, competitor, prompt, or diagnostics dashboards; and speculative agents,
+experiments, future-intelligence systems, or duplicated pipelines.
 
-- multiple websites per account;
-- teams, invitations, permissions, or billing;
-- automated publishing;
-- external schedulers or workflow platforms;
-- email digests;
-- revenue attribution;
-- Google Business Profile;
-- additional CMS integrations;
-- translations or non-US research;
-- a chat or Ask surface;
-- standalone keyword, competitor, prompt, or diagnostics dashboards;
-- speculative agents, experiments, future-intelligence systems, or duplicated pipelines.
+One new customer route, `/visibility`, and one non-customer scheduler endpoint are approved. Nothing else.
 
 ## Build order
 
 1. Reconcile generic Account, Website, and Business Profile records and remove customer and vertical
    special cases.
 2. Establish one canonical DataForSEO evidence boundary while deleting the Profound, SEMrush,
-   borrowed-account, GitHub Actions, and phantom native-provider architecture it replaces.
+   borrowed-account, and phantom native-provider architecture it replaces.
 3. Replace free-form Chat Completions generation with the canonical Responses API and strict Structured
    Outputs gateway.
-4. Build durable visit-driven Research Runs with Supabase phases, leases, idempotency, progress, pause,
-   and resume.
+4. Build durable Research Runs with Supabase phases, leases, idempotency, progress, pause, and resume, then
+   drive them from the scheduled dispatcher with visits as recovery.
 5. Build the complete onboarding and core-prompt approval flow on those real foundations.
-6. Build the complete DataForSEO research funnel and caching.
-7. Produce one deeply evidenced existing-page Change Bundle.
-8. Produce one deeply evidenced new-page Change.
-9. Build one canonical Shipment with live implementation verification.
+6. Build the complete public crawl inventory, DataForSEO research funnel, and caching.
+7. Produce one deeply evidenced existing-page Change Bundle, then one deeply evidenced new-page Change.
+8. Build one canonical Shipment with independent live implementation verification.
+9. Build Visibility over the stored observations with drill-down to receipts.
 10. Complete 7/14/28/56 measurement, overlap honesty, and both-archetype dogfooding.
 
 Each step is one bounded vertical slice with a behavioral acceptance test. Delete superseded code in the
@@ -579,7 +572,7 @@ same slice. No slice may build a temporary duplicate pipeline for a later slice 
 
 ## Protection against future bloat
 
-- The four surfaces and five code kernels are boundaries, not invitations for more subsystems.
+- The five surfaces and five code kernels are boundaries, not invitations for more subsystems.
 - One customer outcome per task.
 - Prefer replacing and deleting over adding parallel abstractions.
 - No feature without the eight-field proposal required by `AGENTS.md`.

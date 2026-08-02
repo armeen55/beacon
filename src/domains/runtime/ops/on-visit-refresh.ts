@@ -9,7 +9,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { NO_BASIS_DETAIL } from "@/domains/evidence/funnel/shared";
 import { runFocus } from "./investigation-queries";
 import { reportingDay } from "@/lib/reporting-day";
-import { dueWork, type DueWork } from "./due-work";
+import { dueWork, isResearchPaused, type DueWork } from "./due-work";
 import { defaultSteps, type ResearchCycleSteps } from "./research-steps";
 // The phase bodies live in research-steps; the contract between the two files is this type, so a
 // caller that drives a run keeps importing the runner and gets the shape it must satisfy.
@@ -32,47 +32,45 @@ import {
   type ResearchRunProgress,
 } from "../research-run";
 
-/** on-visit-refresh - the Research Run executor (Slice 4, 2026-07-24). Every navigation schedules ONE post-response Research Run for the tenant. The run
- *  is durable: claim_research_run RESUMES the account's single unfinished run first (regardless of its start date, so yesterday's paused run is never
+/** on-visit-refresh - the Research Run executor (Slice 4, 2026-07-24). THE canonical cycle, driven by two doors: the global daily scheduler
+ *  (src/domains/runtime/ops/scheduler.ts, one guarded POST per day for every account whose Pacific day still owes work) and any navigation, which recovers
+ *  and resumes whatever the scheduler left unfinished. Daily research does not depend on anybody opening the app; a visit is recovery, not the trigger. The
+ *  run is durable: claim_research_run RESUMES the account's single unfinished run first (regardless of its start date, so yesterday's paused run is never
  *  abandoned and no second open run is created), and starts a fresh daily cycle only when no run is open. A pass that already completed today no longer ENDS
  *  the day (Phase 5): the refusal is now a question, and another pass opens only when due-work reports something genuinely owed that the completed pass could
- *  not have done. It leases the run so exactly one invocation advances it, and the persisted phase + progress let a crash or lambda timeout resume where it
- *  left off. No scheduler, cron, heartbeat, in-memory dedupe or job queue: the DATABASE lease is the whole mechanism (a concurrent claim with a
- *  different owner token returns null). TRUTH BOUNDARY (Slice 4 truth-and-lease repair): a phase advances ONLY when it truly succeeded or was a healthy
- *  no-op. Every failure pauses the cycle with a bounded last_error and never reaches completion: refresh_sources - refresh stale connectors.
- *  sourcesRefreshed counts ONLY the sources that actually synced. ANY per-source failure pauses here (the succeeded ones keep their freshness stamps, so
- *  a retry targets only the rest). Zero stale sources is a healthy no-op that advances. A THROW (refresh could not run) pauses too. gsc_backfill_chunk -
- *  advance one bounded GSC deep-backfill chunk, to the bound deep-backfill.ts sizes for a serverless window rather than racing a deadline the GSC fetch
- *  cannot honour (no AbortSignal). An advance or a benign skip advances; a real error THROWS and pauses with the cursor untouched (it never advances on a
- *  failed pull), so the retry is that window. the four evidence - identity is reconciled and PERSISTED first (a throw pauses before any focus, unit or
- *  cent), then one bounded funnel unit resumes from its own durable cursor. prompt_observations asks exactly what daily-observations planned (one
- *  canonical reading per question, per engine, per UTC day) and then reads the new answers back; that read-back is DERIVED work on evidence already
- *  stored, so it is bounded, $0 when nothing changed, and never pauses the run. publish_surface - rebuild + publish the Today/Changes release when a
- *  source refreshed, a chunk advanced, or the saved release is genuinely stale (evidence-conditioned, never day-gated). surfacePublished is true ONLY
- *  after publishSurface RESOLVES; a THROW pauses here and the previously saved surface stays visible. IDEMPOTENCY: before each phase's side effect we
- *  persist the phase attempt identity (phase, a deterministic attemptKey, the seed) via renew_research_lease, which also renews the lease, and hand the
- *  executor that attemptKey. A retry of the same run+phase reuses the PERSISTED key; advancing clears the cursor, so the next phase mints its own. The
- *  run's frozen FOCUS rides on PROGRESS for exactly that reason. CONFLICT: an evidence unit reporting the structured `state_conflict` code persisted
- *  NOTHING, so its counters are DISCARDED (a stale zeroed receipt must never overwrite proven spend) and the SAME phase attempt is re-invoked ONCE under
- *  the same lease, attempt key and unit cursor - the unit reloads canonical state and its cached call identities keep the retry $0. A second conflict in
- *  a row pauses honestly. Nothing else retries: blocked, waiting, capped and lost-lease behaviour are untouched. LEASE: renewed at DATABASE time BEFORE
- *  every bounded unit of work, not once per phase-worth of work: a unit that reads many pages before it reaches a paid request hands the run back first
- *  (winning_pages splits exactly there, between persisting winners and buying the comparison; the answer read-back renews before its own first call for
- *  the same reason), so a purchase is always the FIRST side effect after a real renewal. A funnel unit's own optimistic row_version protects the research
- *  DOCUMENT from a concurrent writer; it is NOT this lease and proves nothing about lease ownership. A false return from renewLease / advancePhase /
- *  finishRun means the lease was lost: abort immediately, no further side effects. WHAT THE LEASE IS AND IS NOT: it bounds WHICH invocation may proceed.
- *  It does not make a purchase idempotent, and it is not what stops the same comparison being bought twice when a save fails after the money moved. That
- *  is the evidence cache: a durable receipt keyed on the normalized ask, written BEFORE the network call. */
+ *  not have done. THE DATABASE LEASE DECIDES WHO ADVANCES A RUN and nothing else does: a scheduler dispatch and a visit racing the same account cannot both
+ *  proceed, because the second claim (a different owner token against a live lease) returns null. TRUTH BOUNDARY (Slice 4 truth-and-lease repair): a phase
+ *  advances ONLY when it truly succeeded or was a healthy no-op. Every failure pauses the cycle with a bounded last_error and never reaches completion.
+ *  refresh_sources - refresh stale connectors; sourcesRefreshed counts ONLY the sources that actually synced. ANY per-source failure pauses here (the
+ *  succeeded ones keep their freshness stamps, so a retry targets only the rest). Zero stale sources is a healthy no-op that advances. A THROW (refresh
+ *  could not run) pauses too. gsc_backfill_chunk - advance one bounded GSC deep-backfill chunk, to the bound deep-backfill.ts sizes for a serverless window
+ *  rather than racing a deadline the GSC fetch cannot honour (no AbortSignal). An advance or a benign skip advances; a real error THROWS and pauses with the
+ *  cursor untouched, so the retry is that same window. The four evidence phases - identity is reconciled and PERSISTED first (a throw pauses before any
+ *  focus, unit or cent), then one bounded funnel unit resumes from its own durable cursor. prompt_observations asks exactly what daily-observations planned
+ *  (one canonical reading per question, per engine, per PACIFIC reporting day) and then reads the new answers back; that read-back is DERIVED work on
+ *  evidence already stored, so it is bounded, $0 when nothing changed, and never pauses the run. publish_surface - rebuild + publish the Today/Changes
+ *  release when a source refreshed, a chunk advanced, or the saved release is genuinely stale (evidence-conditioned, never day-gated). surfacePublished is
+ *  true ONLY after publishSurface RESOLVES; a THROW pauses here and the previously saved surface stays visible. IDEMPOTENCY: before each phase's side effect
+ *  we persist the phase attempt identity (phase, a deterministic attemptKey, the seed) via renew_research_lease, which also renews the lease, and hand the
+ *  executor that attemptKey. A retry of the same run+phase reuses the PERSISTED key; advancing clears the cursor, so the next phase mints its own, which is
+ *  why the run's frozen FOCUS rides on PROGRESS. CONFLICT: an evidence unit reporting the structured `state_conflict` code persisted NOTHING, so its
+ *  counters are DISCARDED (a stale zeroed receipt must never overwrite proven spend) and the SAME phase attempt is re-invoked ONCE under the same lease,
+ *  attempt key and unit cursor; the unit reloads canonical state and its cached call identities keep the retry $0. A second conflict in a row pauses
+ *  honestly. Nothing else retries: blocked, waiting, capped and lost-lease behaviour are untouched. LEASE: renewed at DATABASE time BEFORE every bounded
+ *  unit of work, not once per phase-worth of work, so a purchase is always the FIRST side effect after a real renewal (winning_pages splits exactly there,
+ *  between persisting winners and buying the comparison; the answer read-back renews before its own first call for the same reason). A funnel unit's own
+ *  optimistic row_version protects the research DOCUMENT from a concurrent writer; it is NOT this lease and proves nothing about lease ownership. A false
+ *  return from renewLease / advancePhase / finishRun means the lease was lost: abort immediately, no further side effects. WHAT THE LEASE IS AND IS NOT: it
+ *  bounds WHICH invocation may proceed. It does not make a purchase idempotent, and it is not what stops the same comparison being bought twice when a save
+ *  fails after the money moved. That is the evidence cache: a durable receipt keyed on the normalized ask, written BEFORE the network call. */
 
-const RESEARCH_CYCLE_DEADLINE_MS = 210_000; // leaves enough of the shell's 300-second lifetime to finish the surface build
+/** ONE cycle's wall-clock budget, for both doors. 210s leaves enough of the 300-second function lifetime to
+ *  finish the surface build; the scheduler spends its own total budget in units of this. */
+export const RESEARCH_CYCLE_DEADLINE_MS = 210_000;
 
 /** The four Slice 6 evidence phases, each backed by one funnel unit executor. */ const FUNNEL_PHASES = new Set<ResearchPhase>(["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]);
 
-type ResearchCycleOptions = {
-  now?: () => Date;
-  deadlineMs?: number;
-  steps?: Partial<ResearchCycleSteps>;
-};
+type ResearchCycleOptions = { now?: () => Date; deadlineMs?: number; steps?: Partial<ResearchCycleSteps> };
 
 /** One phase's outcome: the merged progress, plus an optional `pause` error when the phase reported a recoverable failure that is NOT a throw (a partial
  *  connector refresh). A thrown error is handled separately by the cycle loop, which records the error and pauses. */
@@ -80,12 +78,7 @@ type PhaseOutcome = { progress: ResearchRunProgress; pause?: ResearchRunError };
 
 /** Run one phase's body, returning the merged progress (and any returned-failure pause). */
 async function runPhase(
-  phase: ResearchPhase,
-  tenantId: string,
-  now: Date,
-  progress: ResearchRunProgress,
-  attemptKey: string,
-  steps: ResearchCycleSteps,
+  phase: ResearchPhase, tenantId: string, now: Date, progress: ResearchRunProgress, attemptKey: string, steps: ResearchCycleSteps,
 ): Promise<PhaseOutcome> {
   if (phase === "refresh_sources") {
     const result = await steps.refreshSources(tenantId, now, attemptKey);
@@ -143,18 +136,12 @@ function resolveAttemptKey(
 /** Execute the claimed run from its current_phase to done, or pause durably. The DATABASE lease we hold (via ownerToken) is renewed BEFORE every phase;
  *  if a renew / advance / finish reports our lease was lost, we abort immediately. */
 async function driveRun(
-  run: ResearchRun,
-  ownerToken: string,
-  nowFn: () => Date,
-  deadline: number,
-  steps: ResearchCycleSteps,
-  work: DueWork,
+  run: ResearchRun, ownerToken: string, nowFn: () => Date, deadline: number, steps: ResearchCycleSteps, work: DueWork,
 ): Promise<void> {
   const tenantId = run.tenant_id;
-  // PROGRESS IS PERSISTED, NOT ASSEMBLED PER RENDER. The run writes the numbers every surface then
-  // reads back from this row: today's checks, the plan's live and waiting topics, the date a wait
-  // ends. They come from the ONE due-work read this pass already made, so they cost nothing extra
-  // and no two requests can compute them differently.
+  // PROGRESS IS PERSISTED, NOT ASSEMBLED PER RENDER. The run writes the numbers every surface then reads back
+  // from this row: today's checks, the plan's live and waiting topics, the date a wait ends. They come from
+  // the ONE due-work read this pass already made, so no two requests can compute them differently.
   let progress: ResearchRunProgress = {
     ...(run.progress ?? {}),
     state: {
@@ -187,10 +174,8 @@ async function driveRun(
     cursor = attemptCursor;
 
     // Every funnel unit runs under the account's CURRENT basis; a change in website/profile/goal mints a new basis and strands prior derived state.
-    // PUBLISHING NEEDS THAT BASIS TOO: the gate below sat inside the funnel branch, and publish_surface is not a funnel phase, so a run resumed straight at
-    // publish_surface reached the staleness check and the release build with a basis nobody could read. NO BASIS, NO WORK OF ANY KIND. Reconciliation used to
-    // return quietly when the basis was unreadable, reporting SUCCESS for identities it could not possibly have persisted, and the run went on to freeze a
-    // null-basis plan, spend against it and publish off it. A basis I cannot read PAUSES this same phase before reconciliation, before any focus, unit,
+    // PUBLISHING NEEDS THAT BASIS TOO, because a run resumed straight at publish_surface would otherwise reach the staleness check and the release build with
+    // a basis nobody could read. NO BASIS, NO WORK OF ANY KIND: a basis I cannot read PAUSES this same phase before reconciliation, before any focus, unit,
     // provider call, website fetch or surface write, so surfacePublished is never set and the release already saved stays visible. The retry re-resolves the
     // basis, reconciles, then freezes, and it re-runs no completed evidence phase to get there.
     const basis = FUNNEL_PHASES.has(phase) || phase === "publish_surface" ? (await steps.currentBasis(tenantId)) || null : "";
@@ -200,12 +185,10 @@ async function driveRun(
       // FREEZE THE INVESTIGATION ONCE PER RUN, durably, BEFORE a cent is spent: the ordered topic, the exact search it owes, the date it may next be retried
       // and the basis it was chosen under, picked when this run first reaches the results-page phase and reused unchanged by winning-pages and the
       // comparison, through advancePhase on the SAME phase. Only a REAL focus is frozen: an open run can span days, so one transient empty read must not
-      // silence it for that whole life; empty stays unfrozen and both units keep the agenda. IDENTITY IS RECONCILED AND PERSISTED ON EVERY PHASE FIRST, not
-      // only when a plan is frozen. A FAILURE PAUSES THIS SAME PHASE AND SPENDS NOTHING: catching it and carrying on (twice over) let a run freeze a plan,
-      // read winners and buy a comparison against an identity nothing on file had ever written.
-      // THE READING IS BOUNDED PER RUN, NOT PER UNIT ITERATION. Reconciliation runs before every funnel unit and a phase iterates many times, so an unbounded
-      // attempt asked the same question over and over inside one cycle. The marker rides run PROGRESS (the extraSamples pattern), persisted the moment an
-      // attempt is made, so a resumed run does not ask again either; the plan this run froze rides along, and those cases are reviewed before any other.
+      // silence it for that whole life. IDENTITY IS RECONCILED AND PERSISTED ON EVERY PHASE FIRST, not only when a plan is frozen, and A FAILURE PAUSES THIS
+      // SAME PHASE AND SPENDS NOTHING. THE READING IS BOUNDED PER RUN, NOT PER UNIT ITERATION: reconciliation runs before every funnel unit and a phase
+      // iterates many times, so the marker rides run PROGRESS (the extraSamples pattern), persisted the moment an attempt is made, so a resumed run does not
+      // ask again either; the plan this run froze rides along, and those cases are reviewed before any other.
       let asked = false;
       try { await steps.reconcileCases(tenantId, basis, { planKeys: (progress.focus?.topics ?? []).map((t) => t.topicKey).filter((k): k is string => !!k), maySynthesize: progress.synthesisAttempted !== true, mark: () => { asked = true; } }); }
       catch (error) { await finishRun(tenantId, run.id, ownerToken, "paused", { phase, message: (error instanceof Error ? error.message : String(error)).slice(0, 300), at: nowFn().toISOString() }); return; }
@@ -248,12 +231,10 @@ async function driveRun(
       }
       const unitCursor = unit.cursor ? { ...attemptCursor, unit: unit.cursor } : { phase, attemptKey, seed: run.cycle_key };
       if (unit.status !== "done") {
-        // THE CASE THE CEILING STOPPED, recorded per case and scoped to the day it happened on. The
-        // discovery unit stops honestly when the spending ceiling is reached, but nothing per CASE was
-        // persisted, so a case receipt could not say "I did not buy this one because the ceiling was
-        // reached" the way it already can for a page by page comparison. The marker rides run progress
-        // (the extra-sample pattern: an existing row, an existing column, no second store) and clears
-        // by day rollover, because a ceiling reached yesterday explains nothing about today.
+        // THE CASE THE SPENDING CEILING STOPPED, recorded per case so a case receipt can say "I did not buy
+        // this one because the ceiling was reached", and scoped to the day it happened on. The marker rides
+        // run progress (an existing row, an existing column, no second store) and clears by day rollover,
+        // because a ceiling reached yesterday explains nothing about today.
         const capped = typeof unit.cursor?.cappedCase === "string" ? unit.cursor.cappedCase : null;
         if (capped) {
           const day = run.cycle_key.slice(-10);
@@ -339,11 +320,43 @@ async function driveRun(
 }
 
 /**
- * Claim, resume, or start the account's Research Run and drive it, reporting whether work is STILL owed.
- * A DAY IS NOT A UNIT OF WORK: a refused claim asks the one free question that matters (due-work, from
- * persisted state alone) and opens another pass only when something is genuinely due. FAIL CLOSED both
- * ways: an unreadable state opens nothing, an empty one opens nothing at $0, and a pass that opens with
- * nothing due closes immediately, blocking no later pass.
+ * DRIVE A RUN THIS CALLER ALREADY HOLDS THE LEASE ON. The one entry both doors go through: the daily
+ * scheduler hands it a run claimed by claim_due_research_work, a visit hands it the run claimed here. It
+ * never claims and never re-leases, so there is exactly one orchestrator and no second copy of it.
+ *
+ * NOTHING DUE, NOTHING SPENT. A pass that opened with a readable and empty due list closes right here at $0
+ * rather than walking seven phases to discover the same thing. Only a pass at its very first phase may close
+ * this way: a RESUMED run carries work of its own (a half-finished backfill, a unit cursor) that due-work
+ * does not speak for.
+ */
+export async function driveClaimed(
+  run: ResearchRun, ownerToken: string, work: DueWork | null, nowFn: () => Date, deadline: number, steps: ResearchCycleSteps,
+): Promise<void> {
+  const tenantId = run.tenant_id;
+  const fresh = run.current_phase === "refresh_sources" && run.phase_cursor == null;
+  if (fresh && work != null && work.readable && work.due.length === 0) {
+    log.info("[research-run] nothing is due; closing the pass at zero cost", { tenantId, nextDueAt: work.nextDueAt });
+    // The numbers go down BEFORE the close, on the same row, so a finished-with-nothing-owed pass can
+    // still tell the operator what it checked and the date the waiting ends. A pass that closes
+    // silently looks identical to one that never ran.
+    await advancePhase(tenantId, run.id, ownerToken, { phase: run.current_phase, cursor: null, progress: {
+      ...(run.progress ?? {}),
+      state: { ...(run.progress?.state ?? {}), checksDone: work.checks.done, checksTotal: work.checks.total,
+        checksAnswers: work.checks.answers, checksUnavailable: work.checks.unavailable, checksUnsupported: work.checks.unsupported,
+        casesActive: work.cases.active, casesParked: work.cases.parked, nextDueAt: work.nextDueAt, blocker: null },
+    } });
+    await finishRun(tenantId, run.id, ownerToken, "completed");
+    return;
+  }
+  await driveRun(run, ownerToken, nowFn, deadline, steps,
+    work ?? { due: [], readable: false, checks: { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 }, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null });
+}
+
+/**
+ * THE VISIT DOOR: claim, resume, or start the account's Research Run and drive it. A DAY IS NOT A UNIT OF
+ * WORK: a refused claim asks the one free question that matters (due-work, from persisted state alone) and
+ * opens another pass only when something is genuinely due. FAIL CLOSED both ways: an unreadable state opens
+ * nothing, an empty one opens nothing at $0, and a pass that opens with nothing due closes immediately.
  */
 export async function runResearchCycle(tenantId: string, options: ResearchCycleOptions = {}): Promise<void> {
   const nowFn = options.now ?? (() => new Date());
@@ -351,12 +364,17 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
   const steps: ResearchCycleSteps = { ...defaultSteps, ...options.steps };
   const deadline = nowFn().getTime() + deadlineMs;
 
-  // Slice 5 pre-activation gate: no research work runs before an account is active. FAIL CLOSED: a missing/unknown account, or any read error, is a no-op
-  // (logged), never a claim. The database claim_research_run RPC carries the same active-account guard; this is the runtime-level mirror so we never even
-  // reach the claim for a pending account.
+  // Slice 5 pre-activation gate: no research work runs before an account is active, and none runs for an
+  // account whose operator paused research. FAIL CLOSED: a missing/unknown account, or any read error, is a
+  // no-op (logged), never a claim. claim_research_run itself carries NEITHER guard (the fleet enumeration
+  // does), so this is the whole gate on the visit door.
   const account = await getTenant(tenantId).catch(() => null);
   if (!account || account.status !== "active") {
     log.debug("[research-run] skipped: account not active (no research before activation)", { tenantId, status: account?.status ?? "unknown" });
+    return;
+  }
+  if (await isResearchPaused(tenantId)) {
+    log.debug("[research-run] skipped: research is paused for this account", { tenantId });
     return;
   }
 
@@ -380,33 +398,14 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
       if (run == null) return;
       log.info("[research-run] same-day pass opened on genuinely due work", { tenantId, due: work.due });
     }
-    // NOTHING DUE, NOTHING SPENT. A pass that opened with a readable and empty due list closes right here
-    // at $0 rather than walking seven phases to discover the same thing. Only a pass at its very first
-    // phase may close this way: a RESUMED run carries work of its own (a half-finished backfill, a unit
-    // cursor) that due-work does not speak for.
-    const fresh = run.current_phase === "refresh_sources" && run.phase_cursor == null;
-    if (fresh && work != null && work.readable && work.due.length === 0) {
-      log.info("[research-run] nothing is due; closing the pass at zero cost", { tenantId, nextDueAt: work.nextDueAt });
-      // The numbers go down BEFORE the close, on the same row, so a finished-with-nothing-owed pass can
-      // still tell the operator what it checked and the date the waiting ends. A pass that closes
-      // silently looks identical to one that never ran.
-      await advancePhase(tenantId, run.id, ownerToken, { phase: run.current_phase, cursor: null, progress: {
-        ...(run.progress ?? {}),
-        state: { ...(run.progress?.state ?? {}), checksDone: work.checks.done, checksTotal: work.checks.total,
-          checksAnswers: work.checks.answers, checksUnavailable: work.checks.unavailable, checksUnsupported: work.checks.unsupported,
-          casesActive: work.cases.active, casesParked: work.cases.parked, nextDueAt: work.nextDueAt, blocker: null },
-      } });
-      await finishRun(tenantId, run.id, ownerToken, "completed");
-      return;
-    }
-    await driveRun(run, ownerToken, nowFn, deadline, steps,
-      work ?? { due: [], readable: false, checks: { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 }, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null });
+    await driveClaimed(run, ownerToken, work, nowFn, deadline, steps);
   });
 }
 
-/** How many continuations ONE account may chain in ONE reporting day. The bound is the whole safety story:
- *  each hop is its own request with its own lease claim, so a closed tab simply stops, and this stops a live
- *  one from looping forever on a due list it can never clear. */
+/** How many continuations ONE account may chain in ONE reporting day. BROWSER RECOVERY MACHINERY ONLY: a
+ *  hop exists so an open tab can finish work the scheduler left, and the daily scheduler never uses one. The
+ *  bound is the whole safety story: each hop is its own request with its own lease claim, so a closed tab
+ *  simply stops, and this stops a live one from looping forever on a due list it can never clear. */
 const MAX_CONTINUATIONS = 6;
 
 /**
@@ -446,9 +445,10 @@ export async function continueResearch(tenantId: string, hop = 0, options: Resea
 export type ResearchTick = { hop: number; next: "continue" | "wait" | "stop" };
 
 /**
- * ONE poll of the durable run state, and ONE bounded continuation when work is genuinely owed. This is
- * what lets an open tab finish the day's research without the operator pressing anything: it reuses the
- * same continuation the Update data button uses, so there is no cron, no queue and no second engine.
+ * ONE poll of the durable run state, and ONE bounded continuation when work is genuinely owed. This is what
+ * lets an open tab finish work the daily scheduler left, without the operator pressing anything: it reuses
+ * the same continuation the Update data button uses and the same cycle the scheduler drives, so there is one
+ * engine and one lease, never a second copy racing this one.
  *
  * STOP: the account is not active, the run paused for a reason only the operator can clear, nothing is
  * due, or the server's own bound is spent (today's continuations, today's passes).

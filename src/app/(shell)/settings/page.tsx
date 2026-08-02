@@ -2,9 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/data/page-header";
 import { requireReadyAccount } from "@/domains/account";
+import { isResearchPaused } from "@/domains/runtime";
 import { currentTenantId } from "@/lib/tenant-context";
 import { SETTINGS_SECTIONS } from "./settings-sections";
 import { SpendLine } from "./spend-line";
+import { ResearchPause } from "./research-pause";
 
 /**
  * `/settings` index (FP4, 2026-07-03; T0b checklist added 2026-07-03) - renders
@@ -18,8 +20,12 @@ import { SpendLine } from "./spend-line";
  * once every one of them is done.
  */
 export default async function SettingsPage() {
-  const { access } = await requireReadyAccount(await currentTenantId());
+  const tenantId = await currentTenantId();
+  const { access } = await requireReadyAccount(tenantId);
   if (access.kind === "suspended") redirect("/");
+  // isResearchPaused answers false rather than throwing on a bad read; the catch is the last resort, and
+  // a state I genuinely cannot read renders no switch at all rather than a guess.
+  const paused = await isResearchPaused(tenantId).catch(() => null);
   return (
     <div className="max-w-2xl">
       <PageHeader
@@ -41,6 +47,7 @@ export default async function SettingsPage() {
           </li>
         ))}
       </ul>
+      {paused !== null && <ResearchPause paused={paused} />}
       <SpendLine />
     </div>
   );

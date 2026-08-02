@@ -1,36 +1,28 @@
 import "server-only";
 
 /**
- * due-work (V1 Truth Convergence Phase 5, 2026-07-31) - WHAT IS GENUINELY OWED RIGHT NOW,
- * computed from PERSISTED state only.
+ * due-work (V1 Truth Convergence Phase 5, 2026-07-31) - WHAT IS GENUINELY OWED RIGHT NOW, computed from
+ * PERSISTED state only. A day is not a unit of work; owed work is. Every answer comes off rows already on
+ * file, never a lease, a timer, or a memory of what this process did, so it is the same for every request,
+ * every instance, every tab, and for the daily scheduler as for a visit.
  *
- * THE PROBLEM IT EXISTS FOR. One completed UTC-day run meant no more work that day, so
- * evidence bought at 9am sat unused until tomorrow even when it was the one thing a
- * decision was waiting on. A day is not a unit of work; owed work is. This module answers
- * "is anything actually due" from rows already on file - never from a lease, a timer, or a
- * memory of what this process did - so the answer is the same for every request, every
- * instance, and every tab.
+ * FIVE SEPARATE CONCEPTS, deliberately not collapsed into one "is it fresh" test, because conflating them is
+ * what produced both the same-day stall and the repeat spending:
+ *   1. DAILY OBSERVATION ELIGIBILITY - one canonical reading per question, per engine, per reporting day
+ *      (plus explicitly granted extras). Owned by the existing planner.
+ *   2. EVIDENCE FRESHNESS - a connected source past its sync SLA, and research notes that moved since the
+ *      last decide pass (the basis + row-version watermark).
+ *   3. CASE LIVENESS - is there a frozen plan at all, and is it bound to the basis this account holds NOW.
+ *      A plan frozen under a dead basis is not work, it is debris.
+ *   4. BOUNDED ATTEMPTS - what this account already spent its one-per-day allowance on. Day-scoped markers,
+ *      so they clear by rollover instead of by a cleanup pass nobody runs.
+ *   5. EXTERNAL WAITS - a retry date I promised. A wait is NEVER due work; it is the reason nothing is due,
+ *      and it carries the date I said I would try again.
  *
- * FIVE SEPARATE CONCEPTS, deliberately not collapsed into one "is it fresh" test, because
- * conflating them is what produced both the same-day stall and the repeat spending:
- *   1. DAILY OBSERVATION ELIGIBILITY - one canonical reading per question, per engine, per
- *      UTC day (plus explicitly granted extras). Owned by the existing planner.
- *   2. EVIDENCE FRESHNESS - a connected source past its sync SLA, and research notes that
- *      moved since the last decide pass (the basis + row-version watermark).
- *   3. CASE LIVENESS - is there a frozen plan at all, and is it bound to the basis this
- *      account holds NOW. A plan frozen under a dead basis is not work, it is debris.
- *   4. BOUNDED ATTEMPTS - what this account already spent its one-per-day allowance on
- *      (the extra-sample grant, a per-case spend cap). Day-scoped markers, so they clear
- *      by rollover instead of by a cleanup pass nobody runs.
- *   5. EXTERNAL WAITS - a retry date I promised. A wait is NEVER due work; it is the
- *      reason nothing is due, and it carries the date I said I would try again.
- *
- * FAIL POSTURE. Every read is fail-soft and the result says whether it could be trusted:
- * `readable` false means I could not judge. The caller decides which way that falls, and
- * the two callers fall opposite ways on purpose: starting an EXTRA same-day pass requires
- * a positive due signal (fail closed, so an unreadable state never re-spends), while
- * finishing a run early requires a positive EMPTY signal (fail open, so an unreadable
- * state never stalls the research).
+ * FAIL POSTURE. Every read is fail-soft and `readable` false means I could not judge. The two callers fall
+ * opposite ways on purpose: starting an EXTRA same-day pass requires a positive due signal (fail closed, so
+ * an unreadable state never re-spends), while finishing a run early requires a positive EMPTY signal (fail
+ * open, so an unreadable state never stalls the research).
  */
 
 import { basisTag, getTenant, loadBusinessProfile } from "@/domains/account";
@@ -86,6 +78,37 @@ export async function accountBasis(tenantId: string): Promise<string | null> {
     return basisTag(account.id, account.domain.trim(), await loadBusinessProfile(tenantId), account.growth_goal ?? null);
   } catch {
     return null;
+  }
+}
+
+/** THE OPERATOR'S OWN OFF SWITCH for daily research, read and written in the one place that answers "is
+ *  anything owed". It is a column of its own (tenants.research_paused), never an overload of the account
+ *  status: pausing research must not suspend the account. Both doors honour it, the fleet enumeration in its
+ *  WHERE clause and the visit path through this read. RESUME NEVER BACKFILLS: the planner only ever asks what
+ *  TODAY owes, so days that passed while research was paused stay unplanned and unbought, forever. Fail-soft
+ *  on read (a database I cannot reach is not evidence the operator paused anything, and the claim below is
+ *  guarded anyway); honest on write, so no surface may claim a pause the database never took. */
+export async function isResearchPaused(tenantId: string): Promise<boolean> {
+  try {
+    const { data, error } = await getSupabaseAdmin().from("tenants").select("research_paused").eq("id", tenantId).maybeSingle();
+    if (error != null || data == null) return false;
+    return (data as { research_paused: boolean | null }).research_paused === true;
+  } catch { return false; }
+}
+
+/** Turn the daily research run off or on for one account. True = the database holds the new answer. */
+export async function setResearchPaused(tenantId: string, paused: boolean): Promise<boolean> {
+  if (!tenantId?.trim()) return false;
+  try {
+    const { error } = await getSupabaseAdmin().from("tenants").update({ research_paused: paused }).eq("id", tenantId);
+    if (error != null) {
+      log.warn("[due-work] the research pause switch did not land, so nothing changed", { tenantId, error: error.message ?? String(error) });
+      return false;
+    }
+    return true;
+  } catch (error) {
+    log.warn("[due-work] the research pause switch could not be written", { tenantId, error: error instanceof Error ? error.message : String(error) });
+    return false;
   }
 }
 

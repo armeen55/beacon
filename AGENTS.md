@@ -10,8 +10,9 @@ This file is the **portable** project contract (use here, in Codex, or anywhere 
 
 - Build Beacon as the product defined in `docs/PRODUCT_TRUTH.md`, not a throwaway prototype.
 - The MVP is a tenant-scoped SaaS: one user, one account, one website.
-- Do **not** add billing, teams, permissions, webhooks, cron jobs, schedulers, automated publishing, or
-  unapproved integrations.
+- Do **not** add billing, teams, permissions, webhooks, automated publishing, or unapproved integrations.
+  Scheduling is limited to the ONE operator-approved Supabase-scheduled dispatcher and its ONE guarded
+  scheduler endpoint; no second scheduler, cron, GitHub Action, or workflow platform.
 - Keep files modular and reasonably small.
 - Do not modify unrelated files.
 - Reuse existing patterns whenever possible.
@@ -94,9 +95,10 @@ Before starting and again at the end of each task, recommend **one** tier and a 
 
 ## Product-experience floor
 
-- Four primary surfaces only: Today, Changes, Results, Connections.
+- Five primary surfaces only: Today, Visibility, Changes, Results, Connections.
 - Customer-facing UI is generic and tenant-driven; no real customer name or domain is hardcoded.
-- First render saved truth immediately; visit-driven work resumes after the response and persists real progress.
+- First render saved truth immediately; scheduled work runs daily without a visit, and a visit recovers or
+  resumes it after the response. One canonical runtime, never a parallel scheduled pipeline.
 - All OpenAI outputs use strict Structured Outputs plus server validation.
 - DataForSEO is the SEO and external AI-observation backbone. Do not revive SEMrush, Profound, borrowed-account,
   or parallel native-provider architectures.
@@ -108,8 +110,8 @@ Before starting and again at the end of each task, recommend **one** tier and a 
 ## FOUNDATION FREEZE — permanent bloat firewall (2026-07-22, BINDING)
 
 Beacon was rebuilt from 449,894 lines to a ~95k Foundation on three kernels
-(Evidence, Decision, Measurement) behind four surfaces (Today, Changes, Results,
-Connections). It grew to 500k because the workflow rewarded code production —
+(Evidence, Decision, Measurement) behind the approved surfaces (Today, Visibility,
+Changes, Results, Connections). It grew to 500k because the workflow rewarded code production:
 concurrent feature factories, speculative subsystems, per-incident guards, and
 "keep working continuously" with no terminal condition. These rules exist so
 that can never happen again. They override the older single-user notes above
@@ -145,9 +147,9 @@ never up without explicit operator approval.
 - One production persistence path (Supabase); a tiny in-memory repo for tests. No
   file/JSON dual-write, no seed/demo data as live infrastructure, no implicit
   tenant resolution. Every op explicitly tenant- and site-scoped, fail-closed.
-- No speculative systems (billing, teams, cron, schedulers, auto-publishing, agent
+- No speculative systems (billing, teams, auto-publishing, CMS connectors, agent
   frameworks, experiments, "future intelligence") until a real MVP workflow needs
-  it. Publishing is manual: recommend, operator applies, Mark implemented.
+  it. Publishing is manual on every CMS: recommend, operator applies, Mark implemented.
 
 ### Tests protect promises, not implementations
 Keep behavioral contracts: tenant isolation, six connector contracts, cold

@@ -48,7 +48,7 @@ export type RefreshTrigger = "cron" | "manual" | "on-use";
  *  new data; `failed` = it did not sync. */
 export type RefreshResult = "ok" | "partial" | "failed";
 
-export type RefreshRunInput = {
+type RefreshRunInput = {
   tenantId: string;
   source: RefreshSource;
   trigger: RefreshTrigger;
@@ -105,7 +105,7 @@ function durationMs(startedAt: string, finishedAt: string): number {
 }
 
 /** PURE: fold a run's inputs into the persisted row shape (testable, no I/O). */
-export function buildRefreshRunRow(
+function buildRefreshRunRow(
   input: RefreshRunInput,
   id: string,
   now: Date = new Date(),
@@ -176,7 +176,7 @@ function rowsPersistedOf(_source: RefreshSource, value: unknown): number | null 
  *  auth escalation — with the nightly cron disabled, on-use is the only path
  *  left, so a cron-only streak can never fire. 3 strikes = a durable failure,
  *  not a one-off blip. */
-export const SYNC_FAILURE_ESCALATION_MIN_STREAK = 3;
+const SYNC_FAILURE_ESCALATION_MIN_STREAK = 3;
 
 /**
  * PURE: given a source's PRIOR refresh rows (any trigger, NEWEST FIRST) and the

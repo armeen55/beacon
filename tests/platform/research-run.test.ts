@@ -14,6 +14,9 @@ vi.mock("@/domains/evidence/funnel/state", async (actual) => ({ ...(await actual
 import * as RR from "@/domains/runtime/research-run";
 import { runResearchCycle, continueResearch, ensureResearchRunOnVisit, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
 import { dueWork, type DueWork } from "@/domains/runtime/ops/due-work";
+import { runDueAccounts } from "@/domains/runtime/ops/scheduler";
+import { POST } from "@/app/api/cron/scheduler/route";
+import { NextRequest } from "next/server";
 import { caseResearchReceipt } from "@/domains/evidence/case-receipt";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { setAccountRepositoryForTests, type AccountRepository } from "@/domains/account/tenants/store";
@@ -29,12 +32,15 @@ import { emptyFunnelState } from "@/domains/evidence/funnel/state";
 const ACCOUNT_STATUS = new Map<string, AccountStatus>();
 const statusOf = (t: string): AccountStatus => ACCOUNT_STATUS.get(t) ?? "active";
 const setAccountStatus = (t: string, s: AccountStatus): void => void ACCOUNT_STATUS.set(t, s);
+/** The accounts the fleet enumeration knows about, and the ones whose operator paused daily research
+ *  (tenants.research_paused). Both are what the SQL's WHERE clause reads; nothing else gates a dispatch. */
+const PAUSED = new Set<string>();
 function installAccountRepo(): void {
   const byId = async (id: string) => ({ id, slug: id, provisional_name: "", domain: "example.com", status: statusOf(id), signup_date: "", tos_accepted_at: null, daily_budget_usd: 0, growth_goal: null, created_at: "", updated_at: "" });
   setAccountRepositoryForTests({ getAccountById: byId, getAccountBySlug: byId } satisfies AccountRepository); }
 let NOW = 1_700_000_000_000;
 const iso = (ms = NOW) => new Date(ms).toISOString();
-const DAY = 24 * 3600 * 1000, T = "acct-a", U = "acct-b", LEASE = RR.RESEARCH_RUN_LEASE_SECONDS * 1000;
+const DAY = 24 * 3600 * 1000, T = "acct-a", U = "acct-b", LEASE = RR.RESEARCH_RUN_LEASE_SECONDS * 1000, FLEET = [T, U];
 const ckey = (t: string, ms = NOW) => `${t}:${new Date(ms).toISOString().slice(0, 10)}`; // the daily key the DATABASE computes
 const mk = (o: Partial<RR.ResearchRun>): RR.ResearchRun => ({ id: "seed", tenant_id: T, cycle_key: ckey(T, NOW), status: "paused",
   current_phase: "refresh_sources", phase_cursor: null, progress: {}, spend_usd: 0, last_error: null,
@@ -79,6 +85,22 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } {
       rows.push(mk({ id: `r${rows.length}`, tenant_id: tenantId, cycle_key: ckey(tenantId, NOW), status: "running", lease_owner: owner, lease_expires_at: exp }));
       return { ...rows[rows.length - 1]! };
     },
+    // claim_due_research_work: enumerate ACTIVE, not-research-paused accounts whose current Pacific day
+    // still owes work (no completed run today, or an open run nobody is driving), then claim each THROUGH
+    // the claim above, so the lease and the one-open-run invariant stay the only mechanism.
+    async claimDue({ owner, limit, leaseSeconds }) {
+      const out: RR.ResearchRun[] = [], today = new Date(NOW).toISOString().slice(0, 10);
+      for (const t of FLEET) {
+        if (out.length >= limit) break;
+        if (statusOf(t) !== "active" || PAUSED.has(t)) continue;
+        const done = rows.some((x) => x.tenant_id === t && x.status === "completed" && (x.completed_at ?? "").slice(0, 10) === today);
+        const open = openRun(t);
+        const recoverable = !!open && (open.status === "paused" || open.lease_owner == null || Date.parse(open.lease_expires_at ?? "") < NOW);
+        if (done && !recoverable) continue;
+        const claimed = await repo.claim({ tenantId: t, owner, leaseSeconds });
+        if (claimed) out.push(claimed);
+      }
+      return out; },
     // The same-day EXTRA pass, modeling both database invariants: the partial unique index refuses any
     // insert while a run is unfinished (so a second tab and a live pass both lose), and (tenant, cycle_key)
     // stays unique because the pass ordinal rides in the middle and the day stays on the tail.
@@ -155,7 +177,7 @@ const run = (steps: Partial<ResearchCycleSteps>, deadlineMs?: number) =>
   runResearchCycle(T, { now: () => new Date(NOW), steps: { ...BENIGN, ...steps }, ...(deadlineMs === undefined ? {} : { deadlineMs }) });
 
 // ACCOUNT_STATUS is cleared so every tenant defaults to active.
-beforeEach(() => { NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null); ACCOUNT_STATUS.clear(); installAccountRepo(); });
+beforeEach(() => { NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null); ACCOUNT_STATUS.clear(); PAUSED.clear(); installAccountRepo(); });
 describe("research-run claim: one open run per account across all dates", () => {
   it("resumes the account's one unfinished run first: yesterday's paused run is reclaimed by the same id with phase and cursor untouched, a later-day visit reuses it, and no second row is ever created", async () => {
     const rows = freshRepo(); const cursor = { phase: "gsc_backfill_chunk", attemptKey: "k" };
@@ -558,12 +580,15 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     expect([rows.length, rows[2]!.progress.extraSamples, rows[2]!.progress.capped, rows[2]!.progress.synthesisAttempted])
       .toEqual([3, undefined, undefined, undefined]); });
 
-  it("refuses to open a ninth pass on one day, however due the work still looks", async () => {
+  it("keeps opening passes while work is genuinely due, and refuses the 25th on one day as a runaway stop", async () => {
     const rows = freshRepo(); const day = today();
-    for (let i = 0; i < 8; i += 1) rows.push(mk({ id: `p${i}`, status: "completed", completed_at: iso(), current_phase: "done", cycle_key: `${T}:p${i + 1}:${day}` }));
-    expect(await RR.startExtraPass(T, "tab-9", day)).toBeNull(); // the honest ceiling, not a claim that nothing is due
+    for (let i = 0; i < 23; i += 1) rows.push(mk({ id: `p${i}`, status: "completed", completed_at: iso(), current_phase: "done", cycle_key: `${T}:p${i + 1}:${day}` }));
+    const twentyFourth = await RR.startExtraPass(T, "tab-24", day); // eight was a visit-era budget; due work is not rationed
+    expect([twentyFourth?.lease_owner, rows.length]).toEqual(["tab-24", 24]);
+    await RR.finishRun(T, twentyFourth!.id, "tab-24", "completed");
+    expect(await RR.startExtraPass(T, "tab-25", day)).toBeNull(); // the honest runaway stop, not a claim that nothing is due
     await run({ dueWork: async () => SOMETHING_DUE, refreshSources: async () => { throw new Error("no phase may run"); } });
-    expect(rows).toHaveLength(8); }); // an unsatisfiable topic stops costing a pass per navigation
+    expect(rows).toHaveLength(24); }); // an unsatisfiable topic stops costing a pass forever
 
   it("counts continuation hops on the account's own row, so a client that keeps claiming hop 0 is refused once the day's bound is spent", async () => {
     const rows = completedToday(); let cycles = 0; const seen: Array<{ hop: number; more: boolean }> = [];
@@ -590,6 +615,70 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     const reasons = (capped: string[]) => caseResearchReceipt(snapshot, "inv_haft", capped)!.notBought.map((n) => n.reason);
     expect(reasons(rows[0]!.progress.capped!.caseIds)).toContain("capped");
     expect(reasons([])).not.toContain("capped"); }); // the marker dies with the day, so tomorrow's receipt says nothing about today's ceiling
+});
+
+/** THE DAILY DISPATCH. Daily AI tracking must happen on a day nobody opens the app, and it must not become a
+ *  second orchestrator: what is pinned is that the guarded endpoint is the only door, that the dispatch
+ *  claims through the SAME lease and drives the SAME cycle, and that firing it twice does nothing twice. */
+describe("the daily scheduler: one guarded door, the same lease, the same cycle", () => {
+  const today = () => new Date(NOW).toISOString().slice(0, 10);
+  const NO_PHASE = { refreshSources: async () => { throw new Error("no phase may run"); } };
+  const dispatch = (steps: Partial<ResearchCycleSteps> = {}, limit = 1) =>
+    runDueAccounts({ now: () => new Date(NOW), limit, steps: { ...BENIGN, ...steps } });
+  const post = (headers: Record<string, string>) =>
+    POST(new NextRequest("http://beacon.test/api/cron/scheduler", { method: "POST", headers }));
+
+  it("answers 401 without the exact bearer, and 401 when CRON_SECRET is unset, so an unconfigured deploy never dispatches", async () => {
+    const rows = freshRepo();
+    vi.stubEnv("CRON_SECRET", "");
+    expect((await post({ authorization: "Bearer anything" })).status).toBe(401); // no secret configured = fail closed
+    vi.stubEnv("CRON_SECRET", "s3cret");
+    expect((await post({})).status).toBe(401);
+    expect((await post({ authorization: "s3cret" })).status).toBe(401); // the scheme is part of the check
+    expect((await post({ authorization: "Bearer wrong" })).status).toBe(401);
+    vi.unstubAllEnvs();
+    expect(rows).toHaveLength(0); }); // a refused call claims nothing, so no work leaks past the gate
+
+  it("claims a due account and drives it through the real cycle, and its receipt carries counts and nothing else", async () => {
+    const rows = freshRepo(); const log: string[] = [];
+    const receipt = await dispatch(healthySteps(log));
+    expect(receipt).toEqual({ claimed: 1, driven: 1, remaining: 0 }); // bounded per dispatch: the rest wait for the next tick
+    expect(Object.keys(receipt).sort()).toEqual(["claimed", "driven", "remaining"]); // no token, no tenant, no secret
+    expect(log).toEqual(["refresh", "backfill", "publish"]); // the SAME phase order a visit drives, not a copy of it
+    expect([rows.length, rows[0]!.status, rows[0]!.tenant_id, rows[0]!.cycle_key.slice(-10)]).toEqual([1, "completed", T, today()]);
+    expect(await dispatch(NO_PHASE)).toEqual({ claimed: 1, driven: 1, remaining: 0 }); // the NEXT account, never the finished one
+    expect(rows.map((r) => r.tenant_id)).toEqual([T, U]); });
+
+  it("cannot double-drive: a duplicate dispatch loses at the lease seam, and a finished day is claimed again by neither", async () => {
+    const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); // one candidate, so the refusal is the whole answer
+    rows.push(mk({ id: "live", status: "running", lease_owner: "other-dispatch", lease_expires_at: iso(NOW + LEASE) }));
+    expect(await dispatch(NO_PHASE)).toEqual({ claimed: 0, driven: 0, remaining: 0 });
+    expect(rows[0]!.lease_owner).toBe("other-dispatch"); // a live foreign lease is somebody else's work, never disturbed
+    const fresh = freshRepo(); await dispatch();
+    expect(fresh[0]!.status).toBe("completed");
+    expect(await dispatch(NO_PHASE)).toEqual({ claimed: 0, driven: 0, remaining: 0 }); // the day it finished is not claimed again
+    expect(fresh).toHaveLength(1); });
+
+  it("never claims an account whose operator paused research, or one that is not active", async () => {
+    const rows = freshRepo(); PAUSED.add(T); PAUSED.add(U);
+    expect(await dispatch(NO_PHASE, 3)).toEqual({ claimed: 0, driven: 0, remaining: 0 });
+    PAUSED.delete(T); setAccountStatus(T, "pending_onboarding");
+    expect((await dispatch(NO_PHASE, 3)).claimed).toBe(0);
+    expect(rows).toHaveLength(0); });
+
+  it("plans today and never the days it missed: a run resumed after a long pause reports into today's date, and one day makes one row", async () => {
+    const rows = freshRepo(); setAccountStatus(U, "pending_onboarding");
+    rows.push(mk({ id: "old", status: "paused", cycle_key: `${T}:2026-07-01`, started_at: iso(NOW - 30 * DAY) }));
+    await dispatch();
+    expect([rows.length, rows[0]!.status]).toEqual([1, "completed"]); // the one unfinished run is RESUMED, no missed day is invented
+    expect(await dispatch(NO_PHASE)).toEqual({ claimed: 0, driven: 0, remaining: 0 }); });
+
+  it("releases what its own budget could not reach, so nothing sits leased and nothing is lost", async () => {
+    const rows = freshRepo(); rows.push(mk({ id: "a", status: "paused" }));
+    rows.push(mk({ id: "b", tenant_id: U, status: "paused" }));
+    const receipt = await runDueAccounts({ now: () => new Date(NOW), limit: 3, budgetMs: 0, steps: BENIGN });
+    expect(receipt).toEqual({ claimed: 2, driven: 0, remaining: 2 });
+    expect(rows.map((r) => [r.status, r.lease_owner])).toEqual([["paused", null], ["paused", null]]); }); // released for the next dispatch
 });
 
 /** The rules themselves, on injected persisted state: no network, no clock tricks, no lease. */
