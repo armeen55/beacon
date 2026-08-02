@@ -198,11 +198,11 @@ describe("the canonical Shipment", () => {
   });
   it("records the operator's own confirmation as the answer itself, so the live check is never owed", async () => {
     await upsertShippedChange(await ship({
-      shipment: origin({ operatorConfirmed: true, operatorOverrideReason: "I pasted it into Wix myself." }) as never }));
+      shipment: origin({ operatorConfirmed: true, operatorOverrideReason: "I pasted it into my site myself." }) as never }));
     const [stored] = await loadShippedChangesForTenant(T);
     expect(stored.verification?.status).toBe("operator_confirmed");
     expect(stored.verification?.components.every((c) => c.state === "unknown")).toBe(true);
-    expect(stored.operatorOverrideReason).toBe("I pasted it into Wix myself.");
+    expect(stored.operatorOverrideReason).toBe("I pasted it into my site myself.");
   });
   it("still decodes a record written before there were Shipments", async () => {
     db.state.rows.push(legacyRow());

@@ -106,7 +106,7 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
     <div className="rounded-lg border border-border/60 bg-surface-inset/30 p-4">
       <div className="text-[13px] font-semibold text-foreground">Tell us about an edit you made</div>
       <p className="mt-0.5 text-[12px] text-muted-foreground">
-        Changed a page yourself (for example, in Wix)? Paste the page address plus the before and after copy
+        Changed a page yourself, in whatever tool your site runs on? Paste the page address plus the before and after copy
         under Add details, and Beacon will record where it stands today, pick similar pages to
         compare against, and check after 1, 2, and 4 weeks whether more people found you. Nothing publishes.
       </p>

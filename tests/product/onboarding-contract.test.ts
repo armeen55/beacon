@@ -351,14 +351,13 @@ describe("setup and settings surfaces (Phase 8)", () => {
     const w = makeWorld(); seedPending(w, A, { domain: "acme.com" }); seedConfirmedProfile(w, A);
     // Website, understanding and confirmation are done; the goal is not.
     expect((await loadOnboardingState(A, w.deps)).currentStep).toBe(4);
-    await saveGoal(A, "grow", w.deps);
-    expect((await loadOnboardingState(A, w.deps)).currentStep).toBe(5); // questions are what is left
-    await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC });
-    await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
-    // Connections are skippable, so a finished question set lands on the last optional step.
-    const resumed = await loadOnboardingState(A, w.deps);
-    expect(resumed.currentStep).toBe(6);
-    expect(resumed.connections.every((c) => !c.connected)).toBe(true); // and none of them is required to get here
+    await saveGoal(A, "grow", w.deps); expect((await loadOnboardingState(A, w.deps)).currentStep).toBe(5); // questions are what is left
+    await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC }); await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
+    const resumed = await loadOnboardingState(A, w.deps); expect(resumed.currentStep).toBe(6); // connections are skippable, so a finished question set lands on the last optional step
+    expect(resumed.connections.map((c) => c.kind)).toEqual(["google_gsc", "google_ga4", "clarity"]); // no Wix, and none is required to get here
+    // Step 7 hands back a REAL technical gap out of the crawl catalogue, named with that page's own count.
+    seedCrawl(w, A); Object.assign(w.crawls.get(A)!.page_facts[0], { path: "/rugs", has_meta_description: false });
+    const win = (await loadOnboardingState(A, w.deps)).findings.firstWin!; expect(win.action).toBe("Add a search description"); expect(win.plainWhy).toContain("(200 words)");
   });
   it("never locks a thin business out of its own setup: it approves what it found and says why that is fewer", async () => {
     const { renderToStaticMarkup } = await import("react-dom/server");
@@ -377,8 +376,8 @@ describe("setup and settings surfaces (Phase 8)", () => {
     expect(full).toContain("I track between 20 and 50 questions, and this is the range where I do my best work.");
     expect(full).not.toContain("I found 24 strong questions");
   });
-  it("offers the customer's own four sources on Connections, and nothing Beacon runs on its own account", () => {
-    expect(CONNECTOR_REGISTRY.map((c) => c.id).sort()).toEqual(["clarity", "google_ga4", "google_gsc", "wix"]);
+  it("offers the customer's own three sources on Connections, and nothing Beacon runs on its own account", () => {
+    expect(CONNECTOR_REGISTRY.map((c) => c.id).sort()).toEqual(["clarity", "google_ga4", "google_gsc"]);
     const words = CONNECTOR_REGISTRY.map((c) => `${c.label} ${c.summary}`).join(" ").toLowerCase();
     expect(words).not.toMatch(/openai|dataforseo|crawler|perplexity|gemini/);
     expect(CONNECTOR_REGISTRY.find((c) => c.id === "google_gsc")!.summary).toContain("Strongly recommended");

@@ -24,8 +24,7 @@ import {
  *  AutoRefreshProvider (defined beside the freshness constants in source-freshness). */
 export type ReadProvider = AutoRefreshProvider;
 
-/** The READ sources a refresh pulls. Wix is publish-only and excluded (it has no
- *  inbound data to sync). Mirrors REFRESH_ALL_SOURCES in the /settings/connectors
+/** The READ sources a refresh pulls. Mirrors REFRESH_ALL_SOURCES in the /settings/connectors
  *  "Refresh my data" action, but parameterized per arbitrary tenant (no request
  *  context) so the cron can fan out. */
 export const READ_SOURCES: ReadonlyArray<{

@@ -5,8 +5,8 @@
  *
  * recordShippedChangeAction: the manual "Record shipped change" path. Captures a
  * GSC baseline + control set for an approved/reviewed page and starts measuring.
- * Works even when Wix publishing is manual (it's the operator confirming they
- * shipped it). Never publishes anything.
+ * Publishing is always manual, so this is the operator confirming they shipped
+ * it. Never publishes anything.
  *
  * recomputeProofLedgerAction: re-measure + persist every recorded change's
  * 7/14/28-day outcome from fresh GSC (on-demand; no cron).

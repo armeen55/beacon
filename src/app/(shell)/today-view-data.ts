@@ -106,8 +106,9 @@ function proposalToOpportunity(p: ChangeProposal): TodayOpportunity {
   };
 }
 
-/** How many ready changes Today previews under its one command. */
-const TODAY_PREVIEW_LIMIT = 5;
+/** How many ready changes Today previews under its one command. THREE is the whole
+ *  ask of a visit: a fourth and fifth row turned one decision into a reading list. */
+const TODAY_PREVIEW_LIMIT = 3;
 
 /** What THIS release's production pass actually concluded, so an empty queue can
  *  say which empty it is. Optional: a release built without it says nothing new. */
@@ -143,7 +144,7 @@ const retryDay = (iso: string): string =>
 
 /** PURE: build the Today slice from a ChangesView. Today's next opportunities are
  *  the ready (validated, exact-copy) proposals, best first. The COUNT is the full
- *  ready list; the preview is the top five, so Today can never under-report the
+ *  ready list; the preview is the top three, so Today can never under-report the
  *  queue it is drawing from (it used to count the sliced preview). */
 export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProducerSignal = {}): TodayView {
   const readyTotal = view.ready.length;
@@ -171,7 +172,7 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   if (readyTotal > 0) {
     const lead =
       readyTotal > ready.length
-        ? `You have ${readyTotal} changes ready; here are the ${ready.length === 5 ? "five" : ready.length} strongest.`
+        ? `You have ${readyTotal} changes ready; here are the three strongest.`
         : `You have ${readyTotal} change${readyTotal === 1 ? "" : "s"} ready to apply.`;
     headerSentence =
       measuring > 0

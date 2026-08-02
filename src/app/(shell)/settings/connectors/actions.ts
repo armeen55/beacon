@@ -30,7 +30,6 @@ import {
   type GbpLocationInfo,
 } from "@/lib/connectors/google-reviews-sync";
 import { runYelpReviewsSync } from "@/lib/connectors/yelp-reviews-sync";
-import { getTenant, websiteOf } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import { now } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
@@ -42,10 +41,6 @@ import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffi
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { recordSourceRefresh } from "@/domains/runtime";
 import type { RefreshSource } from "@/domains/runtime/ops/refresh-runs-store";
-import {
-  discoverAndMapWixCollections,
-  type DiscoverWixResult,
-} from "./wix-mapping";
 
 /** Manual-refresh provider -> refresh-ledger source name. The manual paths all
  *  pull one of the four read sources; each maps 1:1. */
@@ -104,129 +99,6 @@ export async function getGoogleGa4ConnectorStatus(): Promise<ConnectorInfo> {
 
 export async function getYelpConnectorStatus(): Promise<ConnectorInfo> {
   return getConnectorInfo("yelp");
-}
-
-export async function getWixConnectorStatus(): Promise<ConnectorInfo> {
-  return getConnectorInfo("wix");
-}
-
-/**
- * North-star onboarding (2026-06-11), self-serve Wix connection.
- * A Wix customer pastes their own API key + site id; the token is
- * stored per-tenant in the connector store (the same row the push
- * service reads). Without this card the publish path dead-ended on
- * the operator hand-seeding the key. The key is held server-side
- * only; pushing still goes through Approve & Push (operator click,
- * caps, non-destructive guard), connecting a key never publishes
- * anything by itself.
- */
-export async function saveWixConnection(input: {
-  apiKey: string;
-  siteId: string;
-}): Promise<{ success: boolean; error?: string }> {
-  const action = "saveWixConnection";
-  const t0 = Date.now();
-  const apiKey = input.apiKey.trim();
-  const siteId = input.siteId.trim();
-  if (!apiKey) return { success: false, error: "Enter your Wix API key." };
-  if (!siteId) return { success: false, error: "Enter your Wix site id." };
-  log.info("Action started", { action });
-  try {
-    await saveConnectorToken({
-      provider: "wix",
-      api_key: apiKey,
-      site_id: siteId,
-      connected_at: now(),
-    });
-    revalidatePath("/settings/connectors");
-    log.info("Action completed", { action, durationMs: Date.now() - t0 });
-    return { success: true };
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: err.slice(0, 500),
-    });
-    return { success: false, error: err };
-  }
-}
-
-export async function disconnectWix(): Promise<{
-  success: boolean;
-  error?: string;
-}> {
-  const action = "disconnectWix";
-  const t0 = Date.now();
-  log.info("Action started", { action });
-  try {
-    await deleteConnectorToken("wix");
-    revalidatePath("/settings/connectors");
-    log.info("Action completed", { action, durationMs: Date.now() - t0 });
-    return { success: true };
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: err.slice(0, 500),
-    });
-    return { success: false, error: err };
-  }
-}
-
-export type { DiscoverWixResult } from "./wix-mapping";
-
-/**
- * Discover the connected Wix site's collections and build the page map so
- * approved changes can publish (relocated 2026-07-20 from the retired
- * /diagnostics/wix surface). Read-only discovery + an internal url-map build:
- * this NEVER writes to the live site. Returns the mapped-page count on success
- * so the Wix card can say exactly how many pages it can now publish to, or an
- * honest reason on failure. Fail-soft: never throws.
- */
-export async function discoverWixCollections(): Promise<DiscoverWixResult> {
-  const action = "discoverWixCollections";
-  const t0 = Date.now();
-  log.info("Action started", { action });
-  try {
-    const tenantId = await currentTenantId();
-    // Canonical Website: the Account row owns the one domain.
-    const account = await getTenant(tenantId).catch(() => null);
-    const domain = account ? websiteOf(account).domain : "";
-    if (domain === "") {
-      // A well-formed site base URL needs the operator's domain; without it we
-      // cannot derive any page URLs. Surface it as an honest api_error-adjacent
-      // reason the card explains plainly.
-      return {
-        ok: false,
-        reason: "sync_failed",
-        detail: "no site domain set",
-      };
-    }
-    const siteBaseUrl = `https://www.${domain.replace(/^www\./, "")}`;
-    const result = await discoverAndMapWixCollections({ siteBaseUrl }, { tenantId });
-    if (result.ok) {
-      // A fresh url map changes what the push service can resolve; drop the
-      // cross-request graph snapshot so the next render sees it.
-      revalidatePath("/settings/connectors");
-    }
-    log.info("Action completed", {
-      action,
-      durationMs: Date.now() - t0,
-      ok: result.ok,
-      mappedPages: result.ok ? result.mappedPages : undefined,
-    });
-    return result;
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: err.slice(0, 500),
-    });
-    return { ok: false, reason: "api_error", detail: err.slice(0, 500) };
-  }
 }
 
 export async function saveYelpApiKey(
@@ -677,9 +549,9 @@ export async function disconnectGoogleGa4(): Promise<{
 }
 
 // ── Connect-cards slice (2026-06-12), Clarity ──
-// Same self-serve posture as the Wix card: paste a key, it stays on
-// this server, the nightly syncs activate the moment it lands
-// (dormant-honest until then). Disconnect = soft (cached data kept).
+// Self-serve: paste a key, it stays on this server, the syncs activate the
+// moment it lands (dormant-honest until then). Disconnect = soft (cached
+// data kept).
 
 export async function saveClarityConnection(input: {
   apiToken: string;
@@ -1032,12 +904,11 @@ export async function syncClarityNow(): Promise<ConnectorSyncNowResult> {
 // owner asked for a single control on Today ("everything should be updating,
 // I don't need to refresh"). This action pulls EVERY connected READ source in
 // one click, fail-soft, concurrent, and returns a per-source result list the
-// Today button renders. Wix is publish-only (EXCLUDED).
+// Today button renders.
 // ─────────────────────────────────────────────────────────────────────
 
-/** The READ sources a Today refresh pulls, in display order. Wix is
- *  publish-only and intentionally excluded. Each entry maps a connector-store
- *  provider → its sync engine + plain-English customer label. */
+/** The READ sources a Today refresh pulls, in display order. Each entry maps a
+ *  connector-store provider → its sync engine + plain-English customer label. */
 const REFRESH_ALL_SOURCES: ReadonlyArray<{
   provider: "google_gsc" | "google_ga4" | "clarity";
   label: string;
@@ -1083,8 +954,7 @@ export type RefreshAllConnectedResult = {
  *
  * - Resolves the tenant the same way the per-source "Sync now" actions do
  *   (`currentTenantId()`).
- * - Reads connector status for the 5 read sources; skips any not 'connected'
- *   (Wix is publish-only and not in the set at all).
+ * - Reads connector status for the read sources; skips any not 'connected'.
  * - Runs the connected engines concurrently with `Promise.allSettled`, one
  *   source failing never blocks the others, and the action NEVER throws.
  * - Stamps `last_synced_at` on each genuinely-successful pull (#72/#85), the
@@ -1108,7 +978,7 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
   try {
     const tenantId = await currentTenantId();
 
-    // Read status for all 5 read sources in parallel; fail-soft per provider
+    // Read status for all read sources in parallel; fail-soft per provider
     // (a status-read error counts as not-connected so a flaky read never
     // alarms the owner about a source they never set up).
     const connectedFlags = await Promise.all(

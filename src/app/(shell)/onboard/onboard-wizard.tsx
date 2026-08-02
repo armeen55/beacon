@@ -234,7 +234,6 @@ const CONN: Record<string, { label: string; blurb: string }> = {
   google_gsc: { label: "Search Console", blurb: "Your real Google searches, clicks, impressions, and ranking movement. Strongly recommended." },
   google_ga4: { label: "Analytics", blurb: "Visits and engagement, so I can weigh which traffic is worth the most." },
   clarity: { label: "Clarity", blurb: "Where visitors struggle on your pages, so fixes target real friction." },
-  wix: { label: "Wix", blurb: "Maps your Wix pages so my changes line up. Never required, and it never publishes anything for you." },
 };
 function ConnectionsStep({ state }: { state: OnboardingState }) {
   const router = useRouter();

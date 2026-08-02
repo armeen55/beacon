@@ -302,7 +302,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     // ONE ready change is the act-now state, and the top three ride the card with the ranker's own
     // reason for the order, from the SAME release Changes renders.
     readyChanges: today.nextOpportunities,
-    // The PREVIEW above is capped at five; this is the queue it was cut from, so the card counts
+    // The PREVIEW above is capped at three; this is the queue it was cut from, so the card counts
     // the same changes the header sentence counts.
     readyTotal: today.readyTotal ?? today.nextOpportunities.length,
     declineVerdict,

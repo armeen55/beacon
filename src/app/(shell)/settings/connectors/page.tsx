@@ -1,6 +1,5 @@
 import { getConnectorInfo, getConnectorHealth } from "@/lib/connector-store";
 import { rollupConnectors, type ConnectorRollupFact } from "@/lib/connectors/registry";
-import { getWixUrlMap } from "@/lib/connectors/wix/url-map";
 import { formatLastRefreshedCopy } from "@/lib/connectors/gsc/expiry-handler";
 import {
   loadGscReadiness,
@@ -40,18 +39,9 @@ async function loadConnectorsPageData() {
   // state without cross-provider coupling.
   const googleGsc = await getConnectorInfo("google_gsc");
   const googleGa4 = await getConnectorInfo("google_ga4");
-  // North-star onboarding (2026-06-11): self-serve Wix connection card.
-  const wix = await getConnectorInfo("wix");
   // Connect-cards slice (2026-06-12): the END-STATE contract — every
   // data source connects HERE, self-serve.
   const clarity = await getConnectorInfo("clarity");
-
-  // T0b (2026-07-03) - how many pages Wix's url map covers right now. A
-  // connected-but-zero-mapped Wix can't publish a single change; the Wix card
-  // reads this to decide whether to show the "map your pages first" fix line.
-  const wixUrlMapCount = wix.status === "connected"
-    ? await getWixUrlMap().then((m) => m.length).catch(() => 0)
-    : 0;
 
   // J5 (2026-05-18) — when the GSC connector is in soft-disconnected
   // state (status="disconnected" but expires_at is populated from the
@@ -133,12 +123,12 @@ async function loadConnectorsPageData() {
   // FP10a (2026-07-02) - one summary strip fact instead of the same three
   // facts stated five-plus times across the page. "N of M connected" counts
   // the self-serve sources that actually render a card on this page
-  // (GSC, GA4, Wix, Clarity); Yelp is removed from the UI
-  // (2026-06-18) and GBP is deferred, so neither counts toward M.
-  const connectedCount = [googleGsc, googleGa4, wix, clarity].filter(
+  // (GSC, GA4, Clarity); Yelp is removed from the UI (2026-06-18), GBP is
+  // deferred, and Wix left the product, so none of them count toward M.
+  const connectedCount = [googleGsc, googleGa4, clarity].filter(
     (c) => c.status === "connected",
   ).length;
-  const totalCount = 4;
+  const totalCount = 3;
 
   // BUG 3 (2026-07-11): per-source refresh-ledger facts for the "last pulled /
   // data through / result" strip. Read-only, fail-soft: any error self-hides the
@@ -167,13 +157,10 @@ async function loadConnectorsPageData() {
 
   // Honest connector health rollup (2026-07-20). The certified leak: "N of M
   // connected" counted only token presence, so it read "4 of 4 connected" while
-  // GA4 ingestion was failing and Wix publishing was blocked (zero pages mapped).
-  // The rollup counts connected-but-failing and authorized-but-blocked as "needs
+  // GA4 ingestion was failing. The rollup counts connected-but-failing as "needs
   // attention" too, from the SAME per-connector health the cards render, and
-  // rollupConnectors builds the ONE headline + subline both use. A read source is
-  // impaired when getConnectorHealth flags it OR its last refresh-ledger run
-  // failed; Wix (publish-only, always "connected" in getConnectorHealth) is
-  // impaired when it is connected but maps zero pages, so not one change can ship.
+  // rollupConnectors builds the ONE headline + subline both use. A source is
+  // impaired when getConnectorHealth flags it OR its last refresh-ledger run failed.
   let rollup;
   try {
     const [gscHealth, ga4Health, clarityHealth] = await Promise.all([
@@ -199,11 +186,6 @@ async function loadConnectorsPageData() {
         connected: clarity.status === "connected",
         needsAttention:
           clarityHealth?.health === "needs_attention" || refreshLedger.clarity?.result === "failed",
-      },
-      {
-        id: "wix",
-        connected: wix.status === "connected",
-        needsAttention: wix.status === "connected" && wixUrlMapCount === 0,
       },
     ];
     rollup = rollupConnectors(facts);
@@ -239,7 +221,6 @@ async function loadConnectorsPageData() {
     pendingOnboarding,
     googleGsc,
     googleGa4,
-    wix,
     clarity,
     gscStaleCopy,
     gscReadiness,
@@ -248,7 +229,6 @@ async function loadConnectorsPageData() {
     connectedCount,
     totalCount,
     rollup,
-    wixUrlMapCount,
     refreshLedger,
     recentUpkeep,
   };
@@ -275,7 +255,6 @@ export default async function ConnectorsPage() {
     pendingOnboarding,
     googleGsc,
     googleGa4,
-    wix,
     clarity,
     gscStaleCopy,
     gscReadiness,
@@ -284,7 +263,6 @@ export default async function ConnectorsPage() {
     connectedCount,
     totalCount,
     rollup,
-    wixUrlMapCount,
     refreshLedger,
     recentUpkeep,
   } = raced.data;
@@ -301,7 +279,6 @@ export default async function ConnectorsPage() {
       <ConnectorsClient
         google={googleGsc}
         ga4={googleGa4}
-        wix={wix}
         clarity={clarity}
         gscStaleCopy={gscStaleCopy}
         gscReadiness={gscReadiness}
@@ -310,7 +287,6 @@ export default async function ConnectorsPage() {
         connectedCount={connectedCount}
         totalCount={totalCount}
         rollup={rollup}
-        wixUrlMapCount={wixUrlMapCount}
         refreshLedger={refreshLedger}
       />
       <RecentUpkeepList entries={recentUpkeep} />

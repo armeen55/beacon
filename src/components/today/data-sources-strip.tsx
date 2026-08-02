@@ -2,11 +2,7 @@ import {
   getConnectorHealth,
   type ConnectorProvider,
 } from "@/lib/connector-store";
-import {
-  CONNECTOR_REGISTRY,
-  connectorById,
-  isPublishOnly,
-} from "@/lib/connectors/registry";
+import { CONNECTOR_REGISTRY } from "@/lib/connectors/registry";
 
 /**
  * Connected-data-source count (Phase 4D, 2026-07-21).
@@ -22,17 +18,16 @@ import {
  */
 
 /**
- * The read/publish sources, derived from the ONE connector registry (the same
- * set `REAL_DATA_SOURCE_PROVIDERS` uses to define a "real, non-demo" tenant), so
- * this count and the demo gate agree by construction.
+ * The read sources, derived from the ONE connector registry (the same set
+ * `REAL_DATA_SOURCE_PROVIDERS` uses to define a "real, non-demo" tenant), so this
+ * count and the demo gate agree by construction. Every live connector reads.
  */
 const DATA_SOURCES: readonly ConnectorProvider[] = CONNECTOR_REGISTRY.map((c) => c.id);
 
 /**
  * UX4 item 6 - the header's "Update data" button reads this shared connected-source
  * count so it never disagrees with any other derive. Fail-soft per provider: a read
- * error counts a source as not connected. Publish-only sources (Wix) never pull a
- * reading, so they never count as a "connected DATA source".
+ * error counts a source as not connected.
  */
 export async function countConnectedDataSources(tenantId?: string): Promise<number> {
   const now = Date.now();
@@ -46,9 +41,7 @@ export async function countConnectedDataSources(tenantId?: string): Promise<numb
       }
     }),
   );
-  return healths.filter((s) => {
-    if (s.health !== "connected" && s.health !== "needs_attention") return false;
-    const entry = connectorById(s.provider);
-    return entry == null || !isPublishOnly(entry);
-  }).length;
+  return healths.filter(
+    (s) => s.health === "connected" || s.health === "needs_attention",
+  ).length;
 }

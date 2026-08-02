@@ -10,11 +10,8 @@ import {
   getGoogleAuthUrl,
   getGoogleGscConnectorStatus,
   getGoogleGa4ConnectorStatus,
-  getWixConnectorStatus,
   disconnectGoogle,
   disconnectGoogleGa4,
-  saveWixConnection,
-  disconnectWix,
   saveClarityConnection,
   disconnectClarity,
   listGa4Properties,
@@ -22,7 +19,6 @@ import {
   syncGscNow,
   syncGa4Now,
   syncClarityNow,
-  discoverWixCollections,
 } from "./actions";
 import type { ConnectorSyncNowResult } from "./actions";
 
@@ -31,8 +27,6 @@ type Props = {
   /** Slice 9.A1β (2026-05-18), GA4 connector status. Mirrors the
    *  GSC props shape (status, expires_at, ga4_property_id, etc.). */
   ga4: ConnectorInfo;
-  /** North-star onboarding (2026-06-11), self-serve Wix connection. */
-  wix: ConnectorInfo;
   clarity: ConnectorInfo;
   /** J5 (2026-05-18), pre-rendered "GSC data last refreshed X days
    *  ago. Reconnect to refresh." copy. Computed server-side in
@@ -72,24 +66,19 @@ type Props = {
    *  `expires_at` AND status is "disconnected". `null` otherwise. */
   ga4StaleCopy?: string | null;
   /** FP10a (2026-07-02), summary strip counts: how many of the self-serve
-   *  sources (GSC, GA4, Wix, Clarity) are connected right now,
+   *  sources (GSC, GA4, Clarity) are connected right now,
    *  out of how many exist. Computed server-side in page.tsx. Defaults keep
    *  older render-test callers (pre-FP10a) working without every prop. */
   connectedCount?: number;
   totalCount?: number;
   /** Honest connector health rollup (2026-07-20). Computed server-side in
    *  page.tsx from the SAME per-connector health the cards render, so the
-   *  headline + subline count impaired sources truthfully (connected-but-failing
-   *  GA4 ingest, authorized-but-blocked Wix publish) and can never read
-   *  "4 of 4 connected" while a source is broken. Optional so pre-existing
+   *  headline + subline count impaired sources truthfully (a connected-but-failing
+   *  GA4 ingest) and can never read "3 of 3 connected" while a source is broken.
+   *  Optional so pre-existing
    *  render-test callers keep working; when absent the strip falls back to the
    *  bare connected count. */
   rollup?: ConnectorRollup;
-  /** T0b (2026-07-03), how many pages Wix's url map currently covers.
-   *  Computed server-side in page.tsx from getWixUrlMap().length. A
-   *  connected-but-zero-mapped Wix can't publish anything, this drives the
-   *  Discover collections fix block on the Wix card. */
-  wixUrlMapCount?: number;
   /** BUG 3 (2026-07-11), per-source refresh-ledger facts for the "last pulled /
    *  data through / result" strip. Keyed by ledger source name (gsc/ga4/
    *  clarity). Computed server-side in page.tsx from latestRefreshBySource.
@@ -243,7 +232,6 @@ function RefreshLedgerLine({ fact }: { fact?: RefreshLedgerFact }) {
 export function ConnectorsClient({
   google: initialGoogle,
   ga4: initialGa4,
-  wix: initialWix,
   clarity: initialClarity,
   gscStaleCopy = null,
   gscReadiness,
@@ -252,7 +240,6 @@ export function ConnectorsClient({
   connectedCount = 0,
   totalCount = CONNECTOR_REGISTRY.length,
   rollup,
-  wixUrlMapCount = 0,
   refreshLedger = {},
 }: Props) {
   const router = useRouter();
@@ -261,16 +248,6 @@ export function ConnectorsClient({
 
   const [google, setGoogle] = useState<ConnectorInfo>(initialGoogle);
   const [ga4, setGa4] = useState<ConnectorInfo>(initialGa4);
-  const [wix, setWix] = useState<ConnectorInfo>(initialWix);
-  const [wixKeyInput, setWixKeyInput] = useState("");
-  const [wixSiteIdInput, setWixSiteIdInput] = useState("");
-  // Wix page mapping (relocated 2026-07-20 from the retired /diagnostics/wix).
-  // The Discover collections button on the connected Wix card runs the relocated
-  // server action and reports the resulting mapped-page count right here.
-  const [wixDiscoverPending, setWixDiscoverPending] = useState(false);
-  const [wixDiscoverResult, setWixDiscoverResult] = useState<
-    { ok: boolean; text: string } | null
-  >(null);
   // Connect-cards slice (2026-06-12)
   const [clarity, setClarity] = useState<ConnectorInfo>(initialClarity);
   const [clarityTokenInput, setClarityTokenInput] = useState("");
@@ -483,28 +460,6 @@ export function ConnectorsClient({
     });
   }
 
-  function handleSaveWixConnection() {
-    setError(null);
-    setSuccess(null);
-    startTransition(async () => {
-      const result = await saveWixConnection({
-        apiKey: wixKeyInput,
-        siteId: wixSiteIdInput,
-      });
-      if (result.success) {
-        setWixKeyInput("");
-        setWixSiteIdInput("");
-        const status = await getWixConnectorStatus();
-        setWix(status);
-        setSuccess(
-          "Wix connected. I can read your pages now, so my changes name the exact page and the exact text. I never edit your live site.",
-        );
-      } else {
-        setError(result.error ?? "Could not save the Wix connection.");
-      }
-    });
-  }
-
   function handleSaveSimpleConnection(
     save: () => Promise<{ success: boolean; error?: string }>,
     setInfo: (i: ConnectorInfo) => void,
@@ -551,77 +506,6 @@ export function ConnectorsClient({
     });
   }
 
-  function handleDisconnectWix() {
-    setError(null);
-    setSuccess(null);
-    startTransition(async () => {
-      const result = await disconnectWix();
-      if (result.success) {
-        setWix({
-          status: "disconnected",
-          connected_at: null,
-          expires_at: null,
-          last_synced_at: null,
-        });
-        setSuccess("Wix disconnected.");
-      } else {
-        setError(result.error ?? "Could not disconnect Wix.");
-      }
-    });
-  }
-
-  // Discover collections (relocated from /diagnostics/wix). Runs read-only
-  // discovery + builds the url map, then reports the mapped-page count. router
-  // .refresh() so a now-mapped Wix (count > 0) re-renders healthy (the fix block
-  // self-hides). All copy is first person, no dashes.
-  function discoverErrorText(reason: string): string {
-    switch (reason) {
-      case "no_key":
-        return "Wix is not connected yet. Add your Wix API key and site id above first.";
-      case "disconnected":
-        return "Wix is disconnected. Reconnect it above, then click Discover collections again.";
-      case "sync_failed":
-        return "I reached Wix but could not build your page map. Set your website domain in Settings, Business info if you have not, then try again.";
-      default:
-        return "I could not reach Wix just now. Please try again in a moment.";
-    }
-  }
-
-  async function handleDiscoverWixCollections() {
-    setWixDiscoverResult(null);
-    setWixDiscoverPending(true);
-    try {
-      const result = await discoverWixCollections();
-      if (result.ok && result.mappedPages > 0) {
-        setWixDiscoverResult({
-          ok: true,
-          text: `I mapped ${result.mappedPages.toLocaleString()} page${
-            result.mappedPages === 1 ? "" : "s"
-          } across ${result.collectionsMapped} collection${
-            result.collectionsMapped === 1 ? "" : "s"
-          }. I can now match every change to the right page.`,
-        });
-        router.refresh();
-      } else if (result.ok) {
-        setWixDiscoverResult({
-          ok: false,
-          text: `I found ${result.collectionsFound} collection${
-            result.collectionsFound === 1 ? "" : "s"
-          } but could not map any pages yet. Check that your Wix collections have published items with a page address.`,
-        });
-      } else {
-        setWixDiscoverResult({ ok: false, text: discoverErrorText(result.reason) });
-      }
-    } catch {
-      setWixDiscoverResult({
-        ok: false,
-        text: "I could not finish that just now. Try again in a moment.",
-      });
-    } finally {
-      setWixDiscoverPending(false);
-    }
-  }
-
   // Shared driver for the per-connector "Pull my data now" buttons.
   // Runs the action inside the transition, toggles the card's pending
   // flag, and stores the returned detail (ok) / error (failure) as a
@@ -663,9 +547,8 @@ export function ConnectorsClient({
   // FP10a (2026-07-02) - one health color for the summary strip. A connected
   // source that is NOT delivering data (needs attention) is an "attention"
   // state, never "live" - the certified leak was a green "4 of 4" hiding a
-  // broken GA4 ingest + a blocked Wix publish. All connected AND all delivering
-  // is "live"; still-missing sources are "waiting"; nothing connected yet is
-  // "neutral".
+  // broken GA4 ingest. All connected AND all delivering is "live"; still-missing
+  // sources are "waiting"; nothing connected yet is "neutral".
   const summaryIntent =
     needsAttention > 0
       ? "attention"
@@ -1116,141 +999,6 @@ export function ConnectorsClient({
 
       {/* Yelp connector removed 2026-06-18 (operator request, not relevant to
           content/AEO tenants). State + actions remain wired but no card renders. */}
-
-      {/* ── Wix, North-star onboarding (2026-06-11) ──
-          Self-serve publish connection: the customer pastes their own
-          Wix API key + site id. Connecting NEVER publishes anything -
-          every edit still goes through Approve & Push (your click,
-          daily caps, non-destructive guard). */}
-      {wix.status === "connected" ? (
-        <details
-          id="connector-wix"
-          className="group rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
-          data-connector-card="wix"
-        >
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-3">
-            <div className="min-w-0 flex items-center gap-2.5">
-              <h3 className="text-[13px] font-semibold text-foreground shrink-0">Wix</h3>
-              <span className="text-[12px] text-muted-foreground truncate">
-                {SOURCE_SUMMARY.wix}
-              </span>
-            </div>
-            <span className="shrink-0 text-[11px] font-medium text-muted-foreground group-open:hidden">
-              Manage
-            </span>
-            <span className="hidden shrink-0 text-[11px] font-medium text-muted-foreground group-open:inline">
-              Hide
-            </span>
-          </summary>
-
-          <div className="border-t border-border/40 px-5 py-4 space-y-2">
-            <p className="text-[12px] text-muted-foreground">
-              Authorized {formatDate(wix.connected_at)}
-            </p>
-            {wixUrlMapCount === 0 ? (
-              <div role="status" data-recovery-fix="wix_url_map_empty" className="space-y-2">
-                <p className="text-[12px] text-status-warning">
-                  <span className="font-semibold">Fix this:</span>{" "}
-                  Click Discover collections so I can map your Wix pages. Until I do, I cannot match a change to the right page.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => void handleDiscoverWixCollections()}
-                  disabled={wixDiscoverPending || isPending}
-                  data-wix-discover="true"
-                  className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
-                >
-                  {wixDiscoverPending ? "Discovering…" : "Discover collections"}
-                </button>
-                {wixDiscoverResult ? (
-                  <p
-                    data-wix-discover-result={wixDiscoverResult.ok ? "ok" : "error"}
-                    className={`text-[12px] ${wixDiscoverResult.ok ? "text-status-success" : "text-status-warning"}`}
-                  >
-                    {wixDiscoverResult.text}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-            <button
-              type="button"
-              onClick={handleDisconnectWix}
-              disabled={isPending}
-              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-            >
-              Disconnect
-            </button>
-          </div>
-
-          <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10">
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Read only. I never write to your Wix site. You paste each change
-              yourself and mark it done.
-            </p>
-          </div>
-        </details>
-      ) : (
-        <div
-          id="connector-wix"
-          className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24 px-5 py-4"
-          data-connector-card="wix"
-        >
-          <h3 className="text-[13px] font-semibold text-foreground">Wix</h3>
-          <p className="mt-1 text-[12px] text-muted-foreground">
-            Connect your Wix site so I can read your current pages and write
-            changes against the real text. I never edit your live site.
-          </p>
-          <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
-            Read only. I never write to your Wix site. You paste each change
-            yourself and mark it done.
-          </p>
-
-          <div className="mt-3 space-y-2">
-            <p className="text-[12px] text-muted-foreground">
-              From your Wix dashboard: Settings → API Keys → create a key
-              with content-write access, and copy your Site ID from
-              Settings → Website settings. Both stay on this server and
-              are never sent to the browser after saving.
-            </p>
-            <label htmlFor="wix-api-key" className="sr-only">
-              Wix API key
-            </label>
-            <input
-              id="wix-api-key"
-              type="password"
-              value={wixKeyInput}
-              onChange={(e) => setWixKeyInput(e.target.value)}
-              placeholder="Wix API key"
-              className="w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
-            />
-            <label htmlFor="wix-site-id" className="sr-only">
-              Wix Site ID
-            </label>
-            <input
-              id="wix-site-id"
-              type="text"
-              value={wixSiteIdInput}
-              onChange={(e) => setWixSiteIdInput(e.target.value)}
-              placeholder="Wix Site ID"
-              className="w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
-            />
-            <div>
-              <button
-                type="button"
-                onClick={handleSaveWixConnection}
-                disabled={isPending || !wixKeyInput.trim() || !wixSiteIdInput.trim()}
-                aria-describedby="wix-connect-hint"
-                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
-              >
-                Connect Wix
-              </button>
-              <p id="wix-connect-hint" className="sr-only">
-                Enter both the API key and Site ID to enable this button.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Microsoft Clarity, Connect-cards slice (2026-06-12) ── */}
       {clarity.status === "connected" ? (

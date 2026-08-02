@@ -16,7 +16,7 @@ export const SETTINGS_SECTIONS = [
   {
     href: "/settings/connectors",
     label: "Connections",
-    description: "Google, Wix, Clarity: connect, sync, and check status.",
+    description: "Google, Clarity: connect, sync, and check status.",
   },
   {
     href: "/settings/config",

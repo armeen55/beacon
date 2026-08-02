@@ -6,13 +6,13 @@
  * Health CONNECTION_SOURCES, SOURCE_SLA, the team TEAMMATE_PROVIDER map, the
  * data-sources strip arrays, the connectors-client per-card blocks, the activity
  * labels). Duplicated arrays drift: the certified leak was "4 of 4 connected"
- * rendering while GA4 ingestion was broken and Wix publishing was blocked, with a
- * subline that undercounted the impaired sources. One record per connector, read
- * everywhere, so the same fact can never disagree with itself again.
+ * rendering while GA4 ingestion was broken, with a subline that undercounted the
+ * impaired sources. One record per connector, read everywhere, so the same fact
+ * can never disagree with itself again.
  *
- * SCOPE: this registry lists the FOUR live connectors only. The stored-row
- * provider union in connector-store (google_gbp, yelp, callrail, ...) is
- * deliberately WIDER for backward compatibility with historical token rows.
+ * SCOPE: this registry lists the THREE live connectors only, and every one of them
+ * READS. The stored-row provider union in connector-store (google_gbp, yelp,
+ * callrail, wix, ...) is deliberately WIDER for historical token rows.
  * "Live" = shows a connect card, is counted in the health rollup, and feeds a
  * real surface.
  *
@@ -24,12 +24,12 @@
 // wider ConnectorProvider union in connector-store (which keeps legacy keys for
 // stored-row compatibility). Kept as its own type so pure/client callers never
 // have to import the server-only connector-store.
-export type LiveConnectorId = "google_gsc" | "google_ga4" | "wix" | "clarity";
+export type LiveConnectorId = "google_gsc" | "google_ga4" | "clarity";
 
 // The freshness/SLA key (the data-age SLA table + the strip's freshness verdict
 // speak this shorter dialect). One connector, two keys: `id` names the token row,
 // `sourceKey` names the freshness source.
-export type SourceKey = "gsc" | "ga4" | "clarity" | "wix";
+export type SourceKey = "gsc" | "ga4" | "clarity";
 
 /** Plain-English "what does this connection actually DO?" clarity copy. */
 export type ConnectorCapabilityCopy = {
@@ -39,17 +39,18 @@ export type ConnectorCapabilityCopy = {
   youDo: string;
 };
 
-/** What a connector can DO for Beacon - the honest capability contract. */
+/** What a connector can DO for Beacon - the honest capability contract. Every live
+ *  connector READS; Beacon publishes nowhere, so `publishes` is false on all of them. */
 export type ConnectorCapabilities = {
   /** Beacon pulls data FROM this source (GSC, GA4, Clarity). */
   readsData: boolean;
-  /** Beacon publishes approved changes TO this source (Wix only). */
+  /** Beacon publishes approved changes TO this source. No live connector does. */
   publishes: boolean;
 };
 
 /** Per-source DATA-age SLA (the data-freshness verdict reads this). */
 export type ConnectorSla = {
-  /** Max acceptable DATA age in days; null when the source has no data SLA (wix). */
+  /** Max acceptable DATA age in days; null when the source has no data SLA. */
   slaMaxDataAgeDays: number | null;
   /** Required sources must all be inside their SLA for overall health. */
   required: boolean;
@@ -180,34 +181,6 @@ export const CONNECTOR_REGISTRY: readonly ConnectorRegistryEntry[] = [
     },
     sla: { slaMaxDataAgeDays: 7, required: true, removed: false },
   },
-  {
-    id: "wix",
-    sourceKey: "wix",
-    teammateKey: "wix",
-    cardAnchor: "wix",
-    label: "Wix",
-    activityLabel: "Wix",
-    freshnessLabel: "Wix",
-    summary: "Reads your live pages so I know what to change.",
-    // Read-side connection: page discovery, content + SEO settings, URL and
-    // collection mapping. Beacon never writes to Wix — publishing is manual.
-    capabilities: { readsData: true, publishes: false },
-    requiresPropertySelection: false,
-    capabilityCopy: {
-      automated:
-        "Beacon reads your current Wix pages, their titles, headings, meta descriptions, and structure, so it can tell which pages exist, match a recommendation to the right page, and write the exact change you should make. It never edits your live site.",
-      youDo:
-        "Connect Wix once by pasting in a Wix API key plus your Site ID, and tell Beacon which part of your site holds your pages. When Beacon recommends a change you paste it into Wix yourself, then click Mark implemented so Beacon measures the lift.",
-    },
-    dataHealth: {
-      label: "Your website (Wix)",
-      role: "your live website content and SEO settings (read only, not analytics)",
-      unlocks: "reading your current pages and matching recommendations to them",
-      blockedWhenMissing:
-        "page discovery and matching a change to the right page",
-    },
-    sla: { slaMaxDataAgeDays: null, required: false, removed: false },
-  },
 ] as const;
 
 /** The live connector ids, in canonical connect order. */
@@ -227,16 +200,10 @@ export function connectorBySourceKey(
   return CONNECTOR_REGISTRY.find((c) => c.sourceKey === sourceKey);
 }
 
-/** True when the connector only publishes (writes) and never pulls a reading -
- *  staleness/first-sync rules must not apply to it (currently Wix). */
-export function isPublishOnly(entry: ConnectorRegistryEntry): boolean {
-  return entry.capabilities.publishes && !entry.capabilities.readsData;
-}
-
 // ─────────────────────────────────────────────────────────────────────────
 // Honest health rollup - the ONE place the connectors headline + subline count
 // impaired sources, so they can never disagree (the certified "4 of 4 connected"
-// leak that hid a broken GA4 ingest + a blocked Wix publish).
+// leak that hid a broken GA4 ingest).
 // ─────────────────────────────────────────────────────────────────────────
 
 /** Per-connector health fact the rollup consumes. Both flags are derived by the
@@ -245,10 +212,8 @@ export type ConnectorRollupFact = {
   id: LiveConnectorId;
   /** A token row exists and is not soft-disconnected. */
   connected: boolean;
-  /** Connected BUT provably not delivering: a connected-but-failing read (GA4
-   *  ingest failures, never-synced, long-stale, dead grant) or an
-   *  authorized-but-blocked write (Wix connected with zero pages mapped, so not
-   *  one change can publish). Only meaningful when `connected` is true. */
+  /** Connected BUT provably not delivering: GA4 ingest failures, never-synced,
+   *  long-stale, a dead grant. Only meaningful when `connected` is true. */
   needsAttention: boolean;
 };
 
@@ -259,8 +224,8 @@ export type ConnectorRollup = {
   connectedCount: number;
   /** How many of the connected ones are impaired (see ConnectorRollupFact). */
   needsAttentionCount: number;
-  /** The headline: e.g. "4 of 4 connected, 2 need attention" (or just
-   *  "4 of 4 connected" when none are impaired). */
+  /** The headline: e.g. "3 of 3 connected, 2 need attention" (or just
+   *  "3 of 3 connected" when none are impaired). */
   headline: string;
   /** The subline, in Beacon voice, that never undercounts the impaired sources. */
   subline: string;

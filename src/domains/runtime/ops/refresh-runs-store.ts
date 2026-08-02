@@ -38,7 +38,7 @@ const STORE = "refresh-runs";
  *  pre-migration window can't grow the file forever). */
 const MAX_FILE_ROWS_PER_TENANT = 400;
 
-/** The read sources a refresh can pull. Wix is publish-only (never pulls). */
+/** The read sources a refresh can pull. */
 export type RefreshSource = "gsc" | "ga4" | "clarity";
 
 /** What kicked off the refresh. All three converge on recordRefreshRun. */

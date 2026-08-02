@@ -122,7 +122,7 @@ describe("recordShippedChangeAction — account-owner gating", () => {
   it("passes explicit change fields through to recordShippedChange", async () => {
     const res = await recordShippedChangeAction({
       pageUrl: "/cities", changeType: "edit_meta", before: "old meta", after: "new meta", shippedAt: "2026-06-20",
-      notes: "manual wix edit", targetQueries: "cities in iran\nlargest cities in iran, cities of iran",
+      notes: "manual edit on my site", targetQueries: "cities in iran\nlargest cities in iran, cities of iran",
       verifiedLive: true, liveSourceUrl: "https://www.fixture-content.example/cities",
     });
     expect(res.success).toBe(true);
@@ -130,7 +130,7 @@ describe("recordShippedChangeAction — account-owner gating", () => {
     expect(arg.actionType).toBe("edit_meta");
     expect(arg.before).toBe("old meta");
     expect(arg.after).toBe("new meta");
-    expect(arg.notes).toBe("manual wix edit");
+    expect(arg.notes).toBe("manual edit on my site");
     expect(arg.verifiedLive).toBe(true);
     expect(arg.liveSourceUrl).toBe("https://www.fixture-content.example/cities");
     expect(arg.targetQueries).toEqual(["cities in iran", "largest cities in iran", "cities of iran"]);

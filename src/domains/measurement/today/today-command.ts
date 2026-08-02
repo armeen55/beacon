@@ -94,7 +94,7 @@ export type TodayCommandInput = {
    *  history to say. A whole-site drop is a material loss even when no single page took blame. */
   scoreboardDeltaPct: number | null;
   /** The ranked ready PREVIEW, best first. One or more of these IS the act-now state. This is
-   *  capped upstream (today-view-data previews five), so it is never the size of the queue. */
+   *  capped upstream (today-view-data previews three), so it is never the size of the queue. */
   readyChanges: readonly TodayOpportunity[];
   /** THE SIZE OF THE QUEUE, uncapped. ONE queue may only ever be given ONE number: counting the
    *  capped preview above made the card say "4 more are ranked under it" on the same screen whose

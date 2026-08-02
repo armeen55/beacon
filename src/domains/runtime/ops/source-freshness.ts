@@ -9,8 +9,7 @@
  * The clock that decides health is DATA-THROUGH age (how recent the source's newest data
  * is), NOT sync age (when we last pulled): a source can sync hourly yet report data from
  * two weeks ago. GA4 is "removed" (the cross-page session sum is a false total, Wave 1 P1)
- * so it is excluded from the tally entirely. Wix is publish-only, so it is optional and
- * never blocks health. PURE, no I/O.
+ * so it is excluded from the tally entirely. PURE, no I/O.
  */
 
 import {
@@ -31,7 +30,6 @@ export type { SourceKey };
  *   gsc      3d  (Google reports ~3 days behind; older than that is a real gap)
  *   clarity  7d  (limited pull budget; a week is the honest freshness bar)
  *   ga4      removed (false-total; never counted)
- *   wix      optional, no data SLA (publish-only, pulls nothing)
  */
 export const SOURCE_SLA: Record<SourceKey, ConnectorSla> = Object.fromEntries(
   CONNECTOR_REGISTRY.map((c) => [c.sourceKey, c.sla]),

@@ -56,7 +56,7 @@ export async function loadOnboardingState(tenantId: string, deps?: OnboardingDep
   const rows = await d.store.readPrompts(canonicalId).catch(() => [] as TrackedPromptRow[]);
   const prompts = projectPrompts(rows, basis);
   const connections = await Promise.all(
-    (["google_gsc", "google_ga4", "wix", "clarity"] as const).map(async (kind) => {
+    (["google_gsc", "google_ga4", "clarity"] as const).map(async (kind) => {
       const info = await d.connectorInfo(kind, tenantId).catch(() => null);
       return { kind, connected: info?.status === "connected", lastSyncedAt: info?.last_synced_at ?? null };
     }),

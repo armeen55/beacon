@@ -56,7 +56,6 @@ import { CONNECTION_LIVENESS_STALE_DAYS } from "@/domains/runtime/ops/source-fre
 import {
   CONNECTOR_REGISTRY,
   connectorById,
-  isPublishOnly,
   type LiveConnectorId,
 } from "@/lib/connectors/registry";
 
@@ -191,10 +190,10 @@ export type CallRailConnectorToken = {
 };
 
 /**
- * Wix REST — site-level API key + site id (never sent to the client).
- * Header auth: `Authorization: <api_key>` + `wix-site-id: <site_id>`.
- * Powers the §push Wix adapter (CMS data items, blog drafts, media).
- * Soft-disconnect via `disconnected_at` preserves the url-map cache.
+ * Wix REST token, LEGACY, no longer a product connector. Wix left the customer
+ * surface: there is no connect card, no registry entry, and nothing reads it on
+ * any live path. The shape survives only so historical token rows still map,
+ * and it retires with the rest of the Wix library.
  */
 export type WixConnectorToken = {
   provider: "wix";
@@ -696,17 +695,6 @@ export async function getConnectorHealth(
     };
   }
 
-  // Data-freshness rules apply ONLY to read sources. A publish-only source (Wix)
-  // never "pulls a reading", so a connected one is always healthy here (a
-  // missing/old last_synced_at just means nothing's been published, not a
-  // problem). Read the publish-only fact off the ONE connector registry. Skipping
-  // it here also avoids the "pull your first reading" copy nonsensically
-  // appearing on a publish-only source.
-  const entry = connectorById(provider);
-  if (entry != null && isPublishOnly(entry)) {
-    return { ...info, health: "connected", healthReason: null };
-  }
-
   // 2. Connected + stale beyond STALE_DAYS → soft, non-alarming hint. Only
   // fires when last_synced_at is a REAL timestamp that is genuinely old. We
   // deliberately do NOT alarm on a null/empty last_synced_at: it is an
@@ -908,12 +896,6 @@ type CallRailConnectorPatch = Partial<
     "api_key" | "account_id" | "last_synced_at" | "disconnected_at"
   >
 >;
-type WixConnectorPatch = Partial<
-  Pick<
-    WixConnectorToken,
-    "api_key" | "site_id" | "last_synced_at" | "disconnected_at"
-  >
->;
 type ClarityConnectorPatch = Partial<
   Pick<ClarityConnectorToken, "api_token" | "last_synced_at" | "disconnected_at">
 >;
@@ -934,11 +916,6 @@ export async function updateConnectorToken(
   tenantId?: string,
 ): Promise<void>;
 export async function updateConnectorToken(
-  provider: "wix",
-  patch: WixConnectorPatch,
-  tenantId?: string,
-): Promise<void>;
-export async function updateConnectorToken(
   provider: "clarity",
   patch: ClarityConnectorPatch,
   tenantId?: string,
@@ -949,7 +926,6 @@ export async function updateConnectorToken(
     | GoogleConnectorPatch
     | YelpConnectorPatch
     | CallRailConnectorPatch
-    | WixConnectorPatch
     | ClarityConnectorPatch,
   tenantId?: string,
 ): Promise<void> {

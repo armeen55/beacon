@@ -31,14 +31,14 @@ describe("Today renders, and tells the truth about its own queue", () => {
       opportunityType: "Sharpen the title", estimatedEffortMinutes: 2, upsidePerMonth: null, confidence: "high", recommendedChange: { kind: "existing_edit", field: "title" } })),
     toDo: [], measuringCountCanonical: measuring,
   } as unknown as import("@/app/(shell)/changes-data").ChangesView);
-  it("counts EVERY ready change and says the five it previews are a preview", async () => {
+  it("counts EVERY ready change and says the three it previews are a preview", async () => {
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
     const view = buildTodayViewFromChanges(readyView(12, 3));
-    expect(view.headerSentence).toBe("You have 12 changes ready; here are the five strongest. 3 more are still measuring.");
+    expect(view.headerSentence).toBe("You have 12 changes ready; here are the three strongest. 3 more are still measuring.");
     const { buildScoreboard } = await import("@/domains/measurement"); // ONE COUNT RULE: the header owns "N measuring", the chart never repeats it
     expect(buildScoreboard([{ date: "2026-07-01", clicks: 10, impressions: 0 }, { date: "2026-07-20", clicks: 20, impressions: 0 }], [], new Date("2026-07-21T00:00:00Z"))?.verdictLine ?? "").not.toMatch(/measuring/i);
-    expect(view.nextOpportunities).toHaveLength(5);
-    expect(view.readyFixes).toHaveLength(12); // every ready page is linkable, not just the previewed five
+    expect(view.nextOpportunities).toHaveLength(3);
+    expect(view.readyFixes).toHaveLength(12); // every ready page is linkable, not just the previewed three
     expect(buildTodayViewFromChanges(readyView(1, 0)).headerSentence).toBe("You have 1 change ready to apply.");
   });
   const STILL_CHECKING = "I found meaningful traffic gaps, but I am still checking the results pages and competing pages before asking you to change anything.";
@@ -81,16 +81,16 @@ describe("Connectors settings route smoke", () => {
     const html = renderToStaticMarkup((await ConnectorsPage()) as ReactElement);
     for (const claim of ["Connect your tools", "Connect Google Search Console", 'data-connector-card="google-ga4"',
       'data-connector-card="clarity"', 'data-connectors-summary-strip="true"', "I never touch your live site"]) expect(html).toContain(claim);
-    expect(html).not.toContain("Enter Yelp API Key");
+    expect(html).not.toContain("Enter Yelp API Key"); expect(html).not.toContain("Wix"); // Wix left the customer product
   });
   it("computes 'N of M connected' from provider reads and surfaces the on-use receipt", async () => {
     const { getConnectorInfo } = await import("@/lib/connector-store");
     vi.mocked(getConnectorInfo).mockImplementation(async (provider: string) => {
-      const on = provider === "google_gsc" || provider === "wix";
+      const on = provider === "google_gsc" || provider === "clarity";
       return { status: on ? "connected" : "disconnected", connected_at: on ? "2026-06-01T00:00:00.000Z" : null,
         expires_at: null, last_synced_at: on ? "2026-07-01T09:00:00.000Z" : null };
     });
     const { default: ConnectorsPage } = await import("@/app/(shell)/settings/connectors/page");
-    expect(renderToStaticMarkup((await ConnectorsPage()) as ReactElement)).toContain("2 of 4 connected");
+    expect(renderToStaticMarkup((await ConnectorsPage()) as ReactElement)).toContain("2 of 3 connected");
   });
 });

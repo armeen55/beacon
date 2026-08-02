@@ -48,7 +48,7 @@ export type AppErrorRow = {
   /** Null for fleet-level errors (a cron failing before any tenant context). */
   tenantId: string | null;
   /** Where it happened: a page route ("/changes"), a cron ("cron/sync-connectors"),
-   *  an action namespace ("action/stage-in-wix"), or a gateway ("llm/draft-gateway"). */
+   *  an action namespace ("action/record-shipped"), or a gateway ("llm/draft-gateway"). */
   route: string;
   /** What was being attempted inside that route (phase or action name). */
   action: string;

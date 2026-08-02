@@ -373,6 +373,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       expect((await resolveAccountAccess("tenant-lc")).kind).toBe("unavailable");
       repo(withStatus({ status: "pending_onboarding" }));
       expect((await resolveAccountAccess("tenant-lc")).kind).toBe("incomplete");
+      await expect(requireReadyAccount("tenant-lc")).rejects.toMatchObject({ digest: expect.stringContaining("/onboard") }); // every product path resumes setup
       repo(withStatus({ status: "paused" }));
       expect(await resolveAccountAccess("tenant-lc")).toMatchObject({ kind: "suspended", reason: "paused" });
       repo(withStatus({ status: "active" }));
