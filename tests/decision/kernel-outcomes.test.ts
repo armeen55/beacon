@@ -304,14 +304,18 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     reset(world()); env.store = new Map([[under.id, under]]); const again = briefSeam(); const res = await produceProposalsForTenant("fixture-tenant", { complete: again.complete, now: NOW });
     expect([again.kinds, res.reused, res.proposals.filter((p) => p.kind === "new_page").map((p) => p.id)]).toEqual([[], 1, [under.id]]); }); // zero brief calls, and ONE page for one subject
   it("builds exactly ONE new page from the earned verdict, carrying the WHOLE page, and holds it for the look it owes", async () => {
-    reset(snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND)); const seam = briefSeam();
+    // A question I track on this subject and NOT ONE search an engine ran itself: the branch where calling the example a fan-out would be a lie.
+    const asked = [{ promptId: "p9", promptText: HAFT, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [], fanOutQueries: [], observedAt: LOOKED_AT }];
+    reset(snap([GAP], { ...READY({ topicKey: keyOf(READY()) }), aiObservations: asked }, DEMAND)); const seam = briefSeam();
     const res = await produceProposalsForTenant("fixture-tenant", { complete: seam.complete, now: NOW });
     expect(seam.kinds).toEqual(["new_page_brief", "section_draft", "section_draft", "section_draft"]); // the brief, then the copy for every planned section
     const pages = res.proposals.filter((p) => p.kind === "new_page"); expect(pages).toHaveLength(1);
     const page = pages[0]!; expect(page.recommendedChange).toEqual({ kind: "new_page", proposedTitle: BRIEF.proposedTitle, metaDescription: BRIEF.metaDescription,
       openingAnswer: BRIEF.openingAnswer, outline: BRIEF.sections.map((s) => s.heading), faqQuestions: [], schemaTypes: [] }); // no markup is guessed for a page that does not exist yet
     expect([page.status, page.pagePath, page.publish, validateProposal(page).verdict]).toEqual(["needs_review", null, "manual", "ready"]);
-    expect(page.bundle!.receipt.items.some((i) => i.key === "verdict")).toBe(true); expect(page.bundle!.components.map((c) => c.kind)).toEqual(["title", "meta", "opening_answer", "section", "source_pack", "internal_links"]);
+    expect(page.bundle!.receipt.items.some((i) => i.key === "verdict")).toBe(true);
+    // WHOSE SEARCH IS WHOSE: with no fan-out on file the example is named for what it actually is, a question people ask.
+    expect(page.bundle!.receipt.items.find((i) => i.key === "asked")!.fact).toBe('No AI engine has shown me a search of its own here. What I hold is a question people ask, like "haft seen table".'); expect(page.bundle!.components.map((c) => c.kind)).toEqual(["title", "meta", "opening_answer", "section", "source_pack", "internal_links"]);
     // THE OPERATOR PASTES COPY, NOT A PLAN: every planned section in the planned order, written out.
     const written = page.bundle!.components.find((c) => c.kind === "section")!.after;
     for (const s of BRIEF.sections) expect(written).toContain(`${s.heading}: a haft seen table is the spread`);

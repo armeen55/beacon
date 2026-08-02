@@ -25,6 +25,14 @@ export const EvidenceRefSchema = z.object({
 });
 export type EvidenceRef = z.infer<typeof EvidenceRefSchema>;
 
+/** ANALYTICS ALONE IS NOT EVIDENCE OF A SEARCH. ga4 and clarity report what people did once they were already on the page; neither says what anyone
+ *  searched for, what a results page holds, or what a rival's page covers. A draft resting on those two alone has nothing behind the change it proposes,
+ *  so a validated draft must carry at least ONE ref from another source; carrying none at all is a different failure and stays with the schema's own
+ *  min(1). The refusal sentence below is what the retry is then told, so the model is asked for exactly what is owed. */
+const BEHAVIOUR_ONLY_SOURCES = new Set<string>(["ga4", "clarity"]);
+export const evidenceIsGrounded = (refs: readonly { source?: string }[]): boolean => refs.some((r) => !!r?.source && !BEHAVIOUR_ONLY_SOURCES.has(r.source));
+export const UNGROUNDED_EVIDENCE_ERROR = "evidenceRefs: analytics alone is not evidence of a search; cite at least one ref whose source is gsc, dataforseo, competitor_teardown, owned_snapshot or fanout";
+
 export const ConfidenceSchema = z.enum(["high", "medium", "low"]);
 
 /**
@@ -42,14 +50,10 @@ export const SourceRefSchema = z.object({
   /** The specific fact/claim this source backs, never a bare citation. */
   claim: z.string().min(1).max(400),
   authority: z.enum(["authoritative", "weak", "unverified"]),
-  /** W5 P0-1 (2026-07-09), set at GENERATION time ONLY (structured-drafter.ts
-   *  fetches the URL and checks the fetched text actually carries this claim's
-   *  tokens - never on a render/eval path). `true` means the cited page was
-   *  reachable AND its text matches the claim; the source-authority gate
-   *  (`hasQualifyingAuthoritativeSource`) requires this true so a hallucinated
-   *  .gov/.edu URL can never earn "authoritative" on domain class alone.
-   *  Defaults to false so every persisted pre-P0-1 draft deserializes clean and
-   *  honestly surfaces "Needs a source" until regenerated. */
+  /** W5 P0-1 (2026-07-09), set at GENERATION time ONLY (structured-drafter.ts fetches the URL and checks the fetched text actually carries this claim's
+   *  tokens, never on a render/eval path). `true` means the cited page was reachable AND its text matches the claim; the source-authority gate
+   *  (`hasQualifyingAuthoritativeSource`) requires this true so a hallucinated .gov/.edu URL can never earn "authoritative" on domain class alone. Defaults
+   *  to false so every persisted pre-P0-1 draft deserializes clean and honestly surfaces "Needs a source" until regenerated. */
   verified: z.boolean().default(false),
   /** W5 P0-1, ISO timestamp the generation-time verification confirmed the
    *  source. Present only alongside verified === true. */
@@ -66,15 +70,10 @@ export const SourceRefSchema = z.object({
   /** W5 stop-ship F2: sha256(supportingExcerpt) first 16 hex chars - a stable
    *  fingerprint of the backing passage. Set only alongside verified === true. */
   contentHash: z.string().max(64).optional(),
-  /** Drafter last-mile G5 (2026-07-10): set at GENERATION time when the cited
-   *  URL is from an authority-strong domain BUT the fetch was refused with a
-   *  robots/anti-bot status (403 class) so the claim could not be confirmed by
-   *  reading the page. `authority` stays "authoritative" (the domain is trusted)
-   *  while `verified` stays false (we never read it). The draft gate turns this
-   *  into a `needs_source_check` hold ("I could not read <domain> myself - check
-   *  this citation"), NEVER silently ready. Absent/false on every reachable or
-   *  unreachable source. Reset before any fetch, so an LLM-supplied value can
-   *  never survive. */
+  /** Drafter last-mile G5 (2026-07-10): set at GENERATION time when the cited URL is from an authority-strong domain BUT the fetch was refused with a
+   *  robots/anti-bot status (403 class), so the claim could not be confirmed by reading the page. `authority` stays "authoritative" (the domain is trusted)
+   *  while `verified` stays false (we never read it). The draft gate turns this into a `needs_source_check` hold ("I could not read <domain> myself, check
+   *  this citation"), NEVER silently ready. Absent or false on every reachable and unreachable source, and reset before any fetch. */
   fetchBlocked: z.boolean().optional(),
 });
 export type SourceRef = z.infer<typeof SourceRefSchema>;

@@ -30,7 +30,9 @@ import {
 import { safeFetchSourceText } from "@/lib/net/safe-source-fetch";
 import {
   SCHEMA_BY_KIND,
+  UNGROUNDED_EVIDENCE_ERROR,
   draftProseStringValues,
+  evidenceIsGrounded,
   type StructuredDraftKind,
   type AnswerBlockDraft,
   type AtomicEditDraft,
@@ -835,6 +837,10 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       lastFailureWasThin = false;
       continue;
     }
+    // ANALYTICS ALONE IS NOT EVIDENCE OF A SEARCH: ga4 and clarity report what people did once they had already arrived, so a change argued from them alone
+    // has nothing behind the search it is meant to win. Refused with the reason, which the retry then carries.
+    const refs = (parsed.data as { evidenceRefs?: { source?: string }[] }).evidenceRefs;
+    if (Array.isArray(refs) && !evidenceIsGrounded(refs)) { errors.push(UNGROUNDED_EVIDENCE_ERROR); lastFailureWasTemplated = false; lastFailureWasThin = false; continue; }
     // W5 (J-69): the LLM may PROPOSE sources, but only source-authority.ts
     // decides `authority`, re-stamp before any firewall/cache/return step.
     const result = { ...parsed, data: stampAnySources(parsed.data, req.authoritativeSourceDomains) as typeof parsed.data };
@@ -1028,7 +1034,7 @@ const ANSWER_BLOCK_SYSTEM =
   '"answer" (one direct factual answer of 80-150 words an AI assistant could quote verbatim), ' +
   '"citationHook" (a short quotable phrase, or null), ' +
   '"sources" (array of {"url","title","domain","retrievedAt","claim","authority"}: cite 1-2 AUTHORITATIVE sources for the answer\'s claims, each with a real URL, its domain, the date you are citing it, and the specific claim it backs; leave "authority" as "unverified", the caller decides it), ' +
-  '"evidenceRefs" (array of {"source","detail"}, at least one, citing ONLY the grounding provided; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one, citing ONLY the grounding provided; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout, and at least one ref must NOT be ga4 or clarity: those two say what people did once they arrived, never what anyone searched for), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Ground everything ONLY in the brief/outline/questions provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. Cite 1-2 authoritative sources for any factual claim (a date, a count, a named fact). Never state one with no source. " +
@@ -1221,7 +1227,7 @@ export type AtomicEditStructuredInput = {
 const ATOMIC_EDIT_SYSTEM =
   "You improve ONE on-page field (a page title or meta description) to better match the search intent and earn the click. " +
   'Return ONLY a JSON object: "field" (the field being edited), "before" (the exact current value, or null), "after" (the improved value), ' +
-  '"rationale" (one sentence), "evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
+  '"rationale" (one sentence), "evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout, and at least one ref must NOT be ga4 or clarity: those two say what people did once they arrived, never what anyone searched for), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Keep a title under ~60 characters and a meta description 120-160. Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes.";

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { dualWriteUpsertScoped } from "@/lib/persistence/dual-write";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import type { ObservationMode, ResearchEngine } from "@/domains/evidence/funnel/research-evidence";
-import type { ParsedAiAnswer } from "@/domains/evidence/dataforseo/funnel-boundary";
+import type { AnswerUsage, ObservedCitation, ParsedAiAnswer } from "@/domains/evidence/dataforseo/funnel-boundary";
 import type { PromptAnswerObservation } from "./prompt-answer-observations";
 
 /**
@@ -40,8 +40,6 @@ export type DueObservation = {
  *  pending = the request is accepted and in flight; the free collect finishes it on the same identity. */
 export type AiObservationStatus = "observed" | "unavailable" | "unsupported" | "failed" | "pending";
 
-type ObservedLink = { url: string; domain: string; title: string | null };
-
 export type AiObservationRecord = {
   id: string;
   tenant_id: string;
@@ -73,10 +71,13 @@ export type AiObservationRecord = {
    *  pages are kept strictly apart from cited ones: "it read this" and "it credited this" differ. */
   journey: {
     fan_outs: string[] | null;
-    retrieved_results: ObservedLink[] | null;
-    cited_sources: ObservedLink[] | null;
+    retrieved_results: ObservedCitation[] | null;
+    cited_sources: ObservedCitation[] | null;
     brand_mentions: string[] | null;
     web_search_reported: boolean | null;
+    /** What the PROVIDER said this ask cost it. It rides the journey jsonb rather than a column of its own, so nothing here needs a migration and every
+     *  row written before it existed still reads clean. Kept strictly apart from cost_usd above, which is the money that moved through the ledger. */
+    usage?: AnswerUsage | null;
   };
   /** Null until a later strict-schema pass analyzes the stored text. No provider call. */
   analysis: Record<string, unknown> | null;
@@ -137,7 +138,7 @@ export function buildAiObservation(d: AiObservationDraft): AiObservationRecord {
     journey: {
       fan_outs: p?.fanOutQueries ?? null, retrieved_results: p?.retrievedResults ?? null,
       cited_sources: p?.citations ?? null, brand_mentions: p?.brandMentions ?? null,
-      web_search_reported: p?.webSearchReported ?? null,
+      web_search_reported: p?.webSearchReported ?? null, usage: p?.usage ?? null,
     },
     analysis: null, analysis_hash: null,
   };

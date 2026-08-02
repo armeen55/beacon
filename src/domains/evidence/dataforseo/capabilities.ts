@@ -14,27 +14,25 @@ import type {
  *  builder (only fields the docs document for that endpoint), the optional ask NORMALIZATION that runs BEFORE the cache identity, the reservation, the
  *  cache dimensions, the envelope parser, and its route (post + free task_get + free tasks_ready). providerCall is the ONE model-resolution point: it
  *  resolves the engine model ONCE, picks Standard vs Live from that resolution, and stamps the requested model back. The model is NEVER caller-supplied.
- *  Every field verified vs docs.dataforseo.com: 2026-07-26 for the llm_responses/llm_scraper/serp families and every family's tasks_ready; 2026-07-28 for
- *  page_intersection and on_page content_parsing. */
+ *  Every field verified vs docs.dataforseo.com: 2026-07-26 for llm_responses/llm_scraper/serp and every family's tasks_ready, 2026-07-28 for
+ *  page_intersection and on_page content_parsing, 2026-08-02 for the llm_responses annotation spans and token/money receipt. */
 
 const DFS_API_BASE = "https://api.dataforseo.com/v3";
 const LOCATION_US = 2840;
 const LANG_EN = "en";
 const DAY = 86_400_000;
 const MAX_IDEAS_SEEDS = 200, IDEAS_DEFAULT_LIMIT = 700, IDEAS_MAX_LIMIT = 1000; // documented keyword_ideas seed ceiling, default and max limit, in ONE place so the ask and the built body agree
-/** serp_competitors documents the SAME 200-keyword ceiling and a limit that defaults to 100 and maxes at 1000. Beacon asks for 50: a case wants the
- *  handful of domains that keep coming up, not a directory. (docs: dataforseo_labs/google/serp_competitors/live, read 2026-07-31) */
+/** serp_competitors documents the SAME 200-keyword ceiling and a limit defaulting to 100, maxing at 1000. Beacon asks for 50: a case wants the handful of domains that keep coming up, not a directory. (docs: serp_competitors/live, 2026-07-31) */
 const COMPETITORS_SEEDS = 200, COMPETITORS_LIMIT = 50, COMPETITORS_MAX_LIMIT = 1000, MAX_COMPETITOR_ROWS = 50;
 /** Bound the token-variable half of every LLM ask at the REQUEST. Documented on chat_gpt/claude/gemini llm_responses task_post AND live and on perplexity
- *  live ("maximum value: 4096; default value: 2048"), NOT on llm_scraper, so it is never sent there. Honest limit: with web_search or a reasoning model
- *  the output may exceed it, so this narrows the spend, it does not hard-cap it. */
+ *  live ("maximum 4096, default 2048"), NOT on llm_scraper, so it never goes there. Honest limit: with web search or a reasoning model the output may
+ *  exceed it, so it narrows the spend rather than capping it. */
 const LLM_MAX_OUTPUT_TOKENS = 2048;
 
 type LlmEngine = "chatgpt" | "gemini" | "claude" | "perplexity";
 const ENGINE_SLUG: Record<LlmEngine, string> = { chatgpt: "chat_gpt", gemini: "gemini", claude: "claude", perplexity: "perplexity" };
 
-/** tasksReady = the FREE GET listing of finished-but-uncollected tasks, the only AUTOMATIC recovery a quarantined row ever gets (the hold is otherwise
- *  indefinite). Null on Live routes (no task). */
+/** tasksReady = the FREE GET listing of finished-but-uncollected tasks, the only AUTOMATIC recovery a quarantined row ever gets. Null on Live routes. */
 type Route = { mode: "live" | "task"; postPath: string; getPath: ((id: string) => string) | null; tasksReady: string | null };
 
 type Entry<K extends CapabilityKey> = {
@@ -44,8 +42,7 @@ type Entry<K extends CapabilityKey> = {
   /** Present = the call needs a resolved engine model (Standard vs Live routing). */
   engine?: LlmEngine;
   route: (r: EngineModelResolution | null) => Route;
-  /** Canonicalize the ask BEFORE it becomes a cache identity, so two spellings of one request never buy the same rows twice. Registry-owned: no caller
-   *  can skip it. */
+  /** Canonicalize the ask BEFORE it becomes a cache identity, so two spellings of one request never buy the same rows twice. No caller can skip it. */
   normalize?: (input: CapabilityInputByKey[K]) => CapabilityInputByKey[K];
   build: (input: CapabilityInputByKey[K], r: EngineModelResolution | null) => unknown[];
   parse: (env: ProviderEnvelope) => ParsedByCapability[K];
@@ -79,13 +76,11 @@ function geminiBuild(i: CapabilityInputByKey["llm_gemini"], r: EngineModelResolu
   const web = r?.webSearch === true && i.web_search === true;
   return [clean({ user_prompt: i.user_prompt, model_name: r?.model, max_output_tokens: LLM_MAX_OUTPUT_TOKENS, web_search: web ? true : undefined })];
 }
-/** Perplexity Live: web_search is on by default (not a request field); only web_search_country_iso_code is documented. (docs: perplexity live,
- *  2026-07-26) */
+/** Perplexity Live: web_search is on by default (not a request field); only web_search_country_iso_code is documented. (docs: perplexity live 2026-07-26) */
 function perplexityBuild(i: CapabilityInputByKey["llm_perplexity"], r: EngineModelResolution | null): unknown[] {
   return [clean({ user_prompt: i.user_prompt, model_name: r?.model, max_output_tokens: LLM_MAX_OUTPUT_TOKENS, web_search_country_iso_code: i.web_search_country_iso_code })];
 }
-/** Scraper is KEYWORD-based (never user_prompt/model_name) and REQUIRES location + language; expand_citations REQUIRES force_web_search. (docs: chat_gpt
- *  llm_scraper/task_post, 2026-07-24) */
+/** Scraper is KEYWORD-based (never user_prompt/model_name), REQUIRES location + language, and expand_citations REQUIRES force_web_search. (docs: chat_gpt llm_scraper/task_post, 2026-07-24) */
 function scraperBuild(i: CapabilityInputByKey["llm_scraper_chatgpt"]): unknown[] {
   const forceWeb = i.force_web_search === true;
   if (i.expand_citations === true && !forceWeb) throw new MissingFieldsError("llm_scraper_chatgpt", ["force_web_search (required to enable expand_citations)"]);
@@ -138,33 +133,27 @@ function llmDynamicEntry<K extends "llm_chatgpt" | "llm_gemini" | "llm_claude">(
 
 // ── the registry ─────────────────────────────────────────────────────────────
 
+/** THE ONE RESERVATION ARITHMETIC every Labs entry below rides, stated once instead of five times. The live charges on file (50 rows $0.018, 150 rows
+ *  $0.02988, 1000 rows $0.132, read 2026-07-25) fit about $0.012 per request plus $0.00012 per returned row, and keywords_for_site and ranked_keywords each
+ *  actually charged $0.132 against an old $0.02 estimate. Every estCostUsd here is therefore rounded UP past the worst case that endpoint can return, so the
+ *  cap is never held BELOW what the provider can charge; reconcile always drops the reservation to the actual cost. */
 const REGISTRY: Registry = {
-  // Labs live actually charged 0.018 for a 50-row suggestions call (live, 2026-07-25), so the reservation stays deliberately ABOVE that, never under it.
-  // keywords_for_site and ranked_keywords each ACTUALLY charged $0.132 on file against the old $0.02 estimate: reserve above the observed worst case;
-  // reconcile drops to actual.
   labs_keywords_for_site: labsEntry("dataforseo_labs/google/keywords_for_site/live", "target", 0.2),
-  // item_types organic ONLY, the same doc-verified field serp_competitors sends: ranked_keywords defaults to
-  // organic AND paid, so an ad this account bought came back as one of its own rankings and one page that
-  // ranked once organically and once as an ad read as two pages, which is the arithmetic behind
-  // "consolidation". A bought placement is not a page that wins a search.
-  // (docs: dataforseo_labs/google/ranked_keywords/live, item_types, read 2026-07-31)
+  // item_types organic ONLY, the same doc-verified field serp_competitors sends: the endpoint defaults to organic AND paid, so an ad this account bought
+  // came back as one of its own rankings and one page ranking once organically and once as an ad read as two pages, which is the whole arithmetic behind
+  // "consolidation". A bought placement is not a page that wins a search. (docs: dataforseo_labs/google/ranked_keywords/live, item_types, 2026-07-31)
   labs_ranked_keywords: labsEntry("dataforseo_labs/google/ranked_keywords/live", "target", 0.2, { item_types: ["organic"] }),
   labs_related_keywords: labsEntry("dataforseo_labs/google/related_keywords/live", "keyword", 0.02),
   labs_keyword_suggestions: labsEntry("dataforseo_labs/google/keyword_suggestions/live", "keyword", 0.02),
-  // RESERVATION arithmetic, NOT a flat price: a real keyword_overview call of at most 150 keywords charged $0.02988, about $0.0002 per keyword, so a FULL
-  // 700-keyword request lands near 700 x 0.0003 = $0.21. Reserved at 0.25, rounded UP, so the ceiling is never held BELOW what the provider can charge;
-  // reconcile drops the reservation to the actual cost.
-  // The CACHE LIFETIME IS THE FRESHNESS MATRIX, not a number of its own: the provider reports volume and
-  // difficulty monthly, so a seven-day ttl expired a row every side of the product still calls current and
-  // bought the identical numbers back four times a month.
+  // Reserved at 0.25 on the arithmetic above (a 150-keyword call charged $0.02988, so a full 700 lands near $0.21). The CACHE LIFETIME IS THE FRESHNESS
+  // MATRIX, not a number of its own: the provider reports volume and difficulty monthly, so a seven-day ttl expired a row every side of the product still
+  // calls current and bought the identical numbers back four times a month.
   labs_keyword_overview: {
     ttlMs: freshnessMsFor("keyword_volume"), estCostUsd: 0.25, dims: { device: false, model: false },
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_overview/live", getPath: null, tasksReady: null }),
     build: (i) => [{ keywords: i.keywords, location_code: LOCATION_US, language_code: LANG_EN }], parse: parseKeywords,
   },
-  // RESERVATION arithmetic, NOT a price: the Labs live charges on file (50 rows $0.018, 150 rows $0.02988, 1000 rows $0.132) fit $0.012 per request plus
-  // $0.00012 per returned row, so 700 rows lands near 0.012 + 700 x 0.00012 = $0.096 and the 1000-row ceiling near $0.132. Reserved at 0.2, rounded UP past
-  // the largest response this endpoint can return; reconcile drops it to actual.
+  // Reserved at 0.2 on the arithmetic above: 700 rows lands near $0.096 and the 1000-row ceiling near $0.132.
   labs_keyword_ideas: {
     ttlMs: freshnessMsFor("keyword_volume"), estCostUsd: 0.2, dims: { device: false, model: false },
     normalize: (i) => ({ ...i, keywords: [...new Set(i.keywords.map((k) => String(k ?? "").trim().toLowerCase()).filter(Boolean))].sort().slice(0, MAX_IDEAS_SEEDS), limit: Math.min(Math.max(1, Math.trunc(i.limit ?? IDEAS_DEFAULT_LIMIT)), IDEAS_MAX_LIMIT) }), // normalized BEFORE the identity: a direct call skipped the batched helper and re-bought the same rows
@@ -172,14 +161,11 @@ const REGISTRY: Registry = {
     build: (i) => [{ keywords: i.keywords.slice(0, MAX_IDEAS_SEEDS), location_code: LOCATION_US, language_code: LANG_EN, limit: Math.min(Math.max(1, Math.trunc(i.limit ?? IDEAS_DEFAULT_LIMIT)), IDEAS_MAX_LIMIT) }], parse: parseKeywords,
   },
   // THE RECURRING WINNING DOMAINS across a case's whole keyword set, in ONE request. Its consumer is the discovery unit's competitors stage: one bounded
-  // request per case set, at most once a week per case, stored as DOMAIN evidence beside the case and never as a keyword. RESERVATION arithmetic, NOT a
-  // price: the documented example response reports cost 0.0105,
-  // and the Labs live charges on file (50 rows $0.018, 150 rows $0.02988) fit $0.012 per request plus $0.00012 per row, so 50 rows lands near $0.018.
-  // Reserved at 0.05, rounded well past both; reconcile drops it to actual. (docs: dataforseo_labs/google/serp_competitors/live, verified 2026-07-31)
+  // request per case set, at most once a week per case, stored as DOMAIN evidence beside the case and never as a keyword. Reserved at 0.05, well past both
+  // the documented example cost of 0.0105 and the $0.018 the arithmetic above puts 50 rows at. (docs: serp_competitors/live, verified 2026-07-31)
   labs_serp_competitors: {
     ttlMs: 7 * DAY, estCostUsd: 0.05, dims: { device: false, model: false },
-    // Normalized BEFORE the identity, exactly like keyword_ideas: the provider lowercases the keywords itself, so two orderings or two spellings of one set
-    // must never derive two cache identities.
+    // Normalized BEFORE the identity, like keyword_ideas: the provider lowercases the keywords itself, so two orderings of one set never derive two identities.
     normalize: (i) => ({ keywords: [...new Set(i.keywords.map((k) => String(k ?? "").trim().toLowerCase()).filter(Boolean))].sort().slice(0, COMPETITORS_SEEDS), limit: Math.min(Math.max(1, Math.trunc(i.limit ?? COMPETITORS_LIMIT)), COMPETITORS_MAX_LIMIT) }),
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/serp_competitors/live", getPath: null, tasksReady: null }),
     // item_types organic ONLY: a paid placement is not a page that wins a search, and the default sends both.
@@ -189,9 +175,8 @@ const REGISTRY: Registry = {
     },
     parse: parseSerpCompetitors,
   },
-  // RESERVATION arithmetic, NOT a price: page_intersection has never been bought here, so it rides the Labs live charges on file (50 rows $0.018, 150 rows
-  // $0.02988, 1000 rows $0.132), which fit $0.012 per request plus $0.00012 per row. Reserved at 0.2, rounded UP past the largest Labs live charge observed
-  // here; reconcile drops it to actual. ONE request carries the WHOLE page set, never one per page.
+  // Never bought here yet, so it rides the arithmetic above: reserved at 0.2, past the largest Labs live charge on file. ONE request carries the WHOLE page
+  // set, never one per page.
   labs_page_intersection: {
     ttlMs: 7 * DAY, estCostUsd: 0.2, dims: { device: false, model: false }, normalize: normalizePageIntersection,
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/page_intersection/live", getPath: null, tasksReady: null }),
@@ -229,9 +214,8 @@ const REGISTRY: Registry = {
   },
 };
 
-/** CAN THIS CAPABILITY BE ASKED AT ALL, read off the registry itself rather than off a second list somebody
- *  has to remember to update. A planner asks this so an engine the registry carries no way to reach is left
- *  out of every plan while that is true, and planned again the day it comes back. */
+/** CAN THIS CAPABILITY BE ASKED AT ALL, read off the registry itself rather than a second list somebody has to remember to update. A planner asks this so
+ *  an engine the registry carries no way to reach is left out of every plan while that is true, and planned again the day it comes back. */
 export const capabilityAskable = (capability: string): boolean => Object.hasOwn(REGISTRY, capability);
 
 // ── composed provider call (the ONE model-resolution point) ───────────────────
@@ -434,23 +418,39 @@ function parseLlmAnswer(env: ProviderEnvelope): ParsedAiAnswer {
       if (sec.type === "text" && typeof sec.text === "string") texts.push(sec.text);
       if (!Array.isArray(sec.annotations)) continue;
       citations = citations ?? [];
-      for (const a of sec.annotations as Record<string, unknown>[]) { const url = String(a.url ?? ""); if (url) citations.push({ url, domain: hostname(url), title: str(a.title) }); }
+      // AN ANNOTATION KNOWS WHICH WORDS IT BACKS. The documented shape carries start_index, end_index and
+      // the passage text beside the url, and dropping them meant the exact sentence a source stood behind
+      // had to be guessed back out of the answer later. Kept where sent, absent where not.
+      for (const a of sec.annotations as Record<string, unknown>[]) {
+        const url = String(a.url ?? "");
+        if (!url) continue;
+        const s = num(a.start_index), e = num(a.end_index), t = str(a.text);
+        citations.push({ url, domain: hostname(url), title: str(a.title), ...(s != null ? { startIndex: s } : {}), ...(e != null ? { endIndex: e } : {}), ...(t != null ? { passage: t } : {}) });
+      }
     }
   }
   // llm_responses documents NEITHER a retrieval list nor a brand list (llm_responses live + task_get, all four engines, 2026-07-31): not observable here reads null, never an observed empty.
-  return { answerText: texts.length ? texts.join("\n") : null, modelServed: str(result0?.model_name), webSearchReported: web, citations, fanOutQueries: arrStr(result0?.fan_out_queries), retrievedResults: null, brandMentions: null };
+  return { answerText: texts.length ? texts.join("\n") : null, modelServed: str(result0?.model_name), webSearchReported: web, citations, fanOutQueries: arrStr(result0?.fan_out_queries), usage: usageOf(result0), retrievedResults: null, brandMentions: null };
+}
+/** What the ask cost the PROVIDER, in its own numbers: tokens each way, reasoning tokens where the model
+ *  charges for thinking, and the money figure it reports for the LLM itself. An envelope carrying none of
+ *  them reads null, so "it did not tell me" is never stored as a zero. This is the provider's report, NOT
+ *  the money that moved through the ledger: that stays the paid-attempt cost the caller already holds. */
+function usageOf(r: Record<string, unknown> | null): ParsedAiAnswer["usage"] {
+  const u = { inputTokens: num(r?.input_tokens), outputTokens: num(r?.output_tokens), reasoningTokens: num(r?.reasoning_tokens), moneySpentUsd: num(r?.money_spent) };
+  return Object.values(u).every((v) => v == null) ? null : u;
 }
 /** llm_scraper carries the WHOLE consumer journey and keeps its three claims apart: `sources` are the CITED pages, `search_results` are the pages it reported
  *  RETRIEVING (stored as reported, because the endpoint nowhere promises they exclude the cited ones, so the not-cited half is DERIVED downstream by
- *  retrievedNotCitedLinks and never assumed here), `brand_entities` are the brands it named itself. It reports NO web_search field, so the only honest evidence the ask reached the web
- *  is web results actually in hand; nothing returned at all reads null, never a claimed false. (docs: task_get/advanced, 2026-07-31) */
+ *  retrievedNotCitedLinks and never assumed here), `brand_entities` are the brands it named itself. It reports NO web_search field, so the only honest
+ *  evidence the ask reached the web is web results in hand; nothing returned reads null, never a claimed false. (docs: task_get/advanced, 2026-07-31) */
 function parseScraper(env: ProviderEnvelope): ParsedAiAnswer {
   const { result0 } = resultBlock(env);
   const citations = links(result0?.sources), retrievedResults = links(result0?.search_results);
   return {
     answerText: str(result0?.markdown), modelServed: str(result0?.model), citations, retrievedResults,
     webSearchReported: (citations?.length ?? 0) + (retrievedResults?.length ?? 0) > 0 ? true : null,
-    fanOutQueries: arrStr(result0?.fan_out_queries),
+    fanOutQueries: arrStr(result0?.fan_out_queries), usage: usageOf(result0),
     brandMentions: brandTitles(result0?.brand_entities),
   };
 }
@@ -487,8 +487,7 @@ function links(v: unknown): { url: string; domain: string; title: string | null 
   return Array.isArray(v) ? (v as Record<string, unknown>[]).map((s) => { const url = String(s.url ?? ""); return { url, domain: String(s.domain ?? hostname(url)), title: str(s.title) }; }).filter((c) => c.url.length > 0) : null;
 }
 /** The brands the answer named itself, read whether the provider sent objects with a title or plain strings. An observed empty list is []; a list whose
- *  every element is unreadable is NULL, because "I do not know which brands it named" and "it named none" are different claims (mapping blindly to ""
- *  conflated them). */
+ *  every element is unreadable is NULL: "I do not know which brands it named" and "it named none" are different claims. */
 function brandTitles(v: unknown): string[] | null {
   if (!Array.isArray(v)) return null;
   const titles = v.map((b) => (typeof b === "string" ? str(b) : str((b as Record<string, unknown> | null)?.title))).filter((t): t is string => t != null);

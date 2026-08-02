@@ -39,16 +39,12 @@ function tokenize(s: string): string[] {
 const originKey = (o: KeywordOrigin): string =>
   [o.route, o.sourceQuery ?? "", o.parentQuery ?? "", o.pageUrl ?? "", o.promptId ?? "", o.promptVersion ?? "", o.engine ?? "", o.reportingDay ?? "", o.observationId ?? ""].join("|");
 
-/** MERGE LINEAGE, NEVER DROP IT SILENTLY. Whenever two rows for one keyword become one (a dedupe of two
- *  routes in a pass, or this pass meeting what a previous pass already retained), the survivor carries BOTH
- *  journeys: the first MAX_ORIGINS distinct arrivals in the order they were first seen, plus how many
- *  further distinct ones there were. THE COUNT IS A SUBTRACTION, NEVER AN ADDITION: arrivals ever seen,
- *  minus the ones kept. Each input row already knows how many it ever saw (its kept list plus its own
- *  overflow), so the merged total is the largest of those against the size of the merged set, and the
- *  overflow is what that total leaves past the bound. Adding a fresh overflow on top of a carried one
- *  double counted every arrival dropped by one row and recovered by the next: eight real arrivals read as
- *  ten, then twelve, then fourteen, one pass at a time, forever. Recomputing from the same inputs now
- *  changes nothing. Returns an empty object when there is no lineage at all. Pure. */
+/** MERGE LINEAGE, NEVER DROP IT SILENTLY. Whenever two rows for one keyword become one (a dedupe of two routes in a pass, or this pass meeting what a
+ *  previous pass retained), the survivor carries BOTH journeys: the first MAX_ORIGINS distinct arrivals in the order they were first seen, plus how many
+ *  further distinct ones there were. THE COUNT IS A SUBTRACTION, NEVER AN ADDITION: arrivals ever seen, minus the ones kept. Each input row already knows
+ *  how many it ever saw (its kept list plus its own overflow), so the merged total is the largest of those against the size of the merged set. Adding a
+ *  fresh overflow on top of a carried one double counted every arrival dropped by one row and recovered by the next: eight real arrivals read as ten, then
+ *  twelve, then fourteen, one pass at a time, forever. Empty object when there is no lineage at all. Pure. */
 export function mergeOrigins(...rows: (Pick<FunnelKeyword, "origins" | "moreOrigins"> | null | undefined)[]): Pick<FunnelKeyword, "origins" | "moreOrigins"> {
   const seen = new Set<string>();
   const all: KeywordOrigin[] = [];
@@ -171,13 +167,11 @@ export function applyFilters(
   return { retained, rejected };
 }
 
-/** Retain up to `cap` keywords with SOURCE AND CASE DIVERSITY, not volume alone. Volume-only retention threw
- *  away most of an account's research: the biggest source (a whole-site pull) filled every slot and whole
- *  themes discovered from other seeds vanished. So each discovery source, each SEED inside the per-seed
- *  sources, and each CASE the keyword belongs to, gets its best keyword before any group gets its second,
- *  volume ordering inside each group. The case is part of the group key because the universe is case-scoped
- *  now: without it, one busy case's own suggestions could fill the set and a case under investigation could
- *  be left with no priced keyword at all. Deterministic under any input order. Pure. */
+/** Retain up to `cap` keywords with SOURCE AND CASE DIVERSITY, not volume alone. Volume-only retention threw away most of an account's research: the
+ *  biggest source (a whole-site pull) filled every slot and whole themes discovered from other seeds vanished. So each discovery source, each SEED inside
+ *  the per-seed sources, and each CASE the keyword belongs to, gets its best keyword before any group gets its second, volume ordering inside each group.
+ *  The case is in the group key because the universe is case-scoped: without it one busy case's suggestions filled the set and a case under investigation
+ *  was left with no priced keyword at all. Deterministic under any input order. Pure. */
 export function retainDiverse(retained: FunnelKeyword[], cap: number): FunnelKeyword[] {
   const groups = new Map<string, FunnelKeyword[]>();
   for (const k of retained) {
@@ -203,15 +197,19 @@ export function retainDiverse(retained: FunnelKeyword[], cap: number): FunnelKey
 
 // ── the SERP agenda (relevance convergence, 2026-07-26) ─────────────────────
 
-/** `page` is the address of MY OWN whose Search Console row carried this query, kept so a keyword harvested
- *  here can name the page that earned it. Optional: the agenda never needed it and a caller that has no
- *  page says so by leaving it out rather than by naming a page it did not read. */
+/** `page` is the address of MY OWN whose Search Console row carried this query, kept so a keyword harvested here can name the page that earned it.
+ *  Optional: a caller with no page says so by leaving it out rather than by naming a page it did not read. */
 export type SerpAgendaPageQuery = { query: string; impressions?: number | null; declining?: boolean; page?: string | null };
 /** ONE tracked question: its approved text plus the fan-out queries actually observed for it. */
 export type SerpAgendaPrompt = { text: string; fanOutQueries?: string[] | null };
-/** queries is the ONLY thing anyone buys. uncoveredThemes and skipped are internal
- *  progress truth for the run log, never customer copy. */
-export type SerpAgenda = { queries: string[]; uncoveredThemes: string[]; skipped: { query: string; reason: string }[] };
+/** WHERE ONE AGENDA QUERY CAME FROM. `fan_out` is a search an ENGINE ran itself to answer a question; `prompt` is the approved text of a question I track;
+ *  `keyword` is a search phrase, from my own pages, an open investigation, or the researched set. fan_out and prompt both enter the agenda and must never
+ *  be confused: reporting my own question as the engine's own search invents an observation nobody made. */
+export type AgendaSource = "fan_out" | "prompt" | "keyword";
+/** queries is the ONLY thing anyone buys, and `sources` says where each one came from so no reader
+ *  downstream has to guess. uncoveredThemes and skipped are internal progress truth for the run log,
+ *  never customer copy. */
+export type SerpAgenda = { queries: string[]; sources: Record<string, AgendaSource>; uncoveredThemes: string[]; skipped: { query: string; reason: string }[] };
 
 /** Volume desc with a lexicographic tiebreak: a TOTAL order, never input order. */
 const byVolume = (a: FunnelKeyword, b: FunnelKeyword) =>
@@ -230,21 +228,18 @@ const MAX_SERP_KEYWORD_CHARS = 700;
 const MAX_PRIORITY_QUERIES = 3;
 
 /**
- * THE agenda of keywords worth a paid search look, in the customer's OWN words. Volume alone once bought
- * all 40 slots on national-news queries while the money themes sat unchecked; the fix that followed then
- * substituted a merely similar RETAINED keyword for a trusted first-party query, so "boy names" was
- * bought as "last names". Both are gone: a trusted query is bought VERBATIM and never needs to exist in
- * the retained set, and only portfolio 3 may propose a researched keyword, on a strong anchored match
- * alone. Five bounded portfolios fill the cap in priority order:
+ * THE agenda of keywords worth a paid search look, in the customer's OWN words. Volume alone once bought all 40 slots on national-news queries while the
+ * money themes sat unchecked; the fix that followed then substituted a merely similar RETAINED keyword for a trusted first-party query, so "boy names" was
+ * bought as "last names". Both are gone: a trusted query is bought VERBATIM and never needs to exist in the retained set, and only portfolio 3 may propose
+ * a researched keyword, on a strong anchored match alone. Five bounded portfolios fill the cap in priority order:
  *   P0 (<=3)  the exact searches an open investigation cannot close without: bought FIRST, always
  *   P1 (<=12) the EXACT queries my own strongest pages already rank for, slipping first
  *   P2 (<=22) my tracked questions: observed fan-out queries first, then the question text
  *   P3 (<=32) researched keywords, one per confirmed theme, round-robin, no theme faked
  *   P4 (<=8 more) plain volume exploration, so genuinely huge demand still gets a look
- * If the trusted portfolios cannot fill the cap the agenda is SHORTER than the cap: buying less is the
- * honest outcome, never padding the bill with noise. Two queries are the same subject only under
- * canonicalQueryKey, so word order never buys twice and a changed modifier is never collapsed away. Same
- * inputs in ANY array order, same agenda, except priorityQueries, whose order is the CALLER's own. Pure.
+ * If the trusted portfolios cannot fill the cap the agenda is SHORTER than the cap: buying less is the honest outcome, never padding the bill with noise.
+ * Two queries are the same subject only under canonicalQueryKey, so word order never buys twice and a changed modifier is never collapsed away. Same inputs
+ * in ANY array order, same agenda, except priorityQueries, whose order is the CALLER's own. Pure.
  */
 export function selectSerpAgenda(
   input: { retained: FunnelKeyword[]; themes: string[]; prompts: SerpAgendaPrompt[]; pageQueries: SerpAgendaPageQuery[];
@@ -255,15 +250,16 @@ export function selectSerpAgenda(
 ): SerpAgenda {
   const weak = weakAnchorTokens(input.themes ?? []);
   const queries: string[] = [];
+  const sources: Record<string, AgendaSource> = {};
   const skipped: { query: string; reason: string }[] = [];
   const usedKeys = new Set<string>();
   const has = (raw: string): boolean => {
     const q = normalizeKeyword(raw);
     return !!q && usedKeys.has(canonicalQueryKey(q));
   };
-  /** THE one gate every portfolio passes through: the exact normalized string, bounds
-   *  checked, deduped by canonical identity. Returns whether a slot was spent. */
-  const take = (raw: string, stop: number): boolean => {
+  /** THE one gate every portfolio passes through: the exact normalized string, bounds checked, deduped by canonical identity, and STAMPED with where it
+   *  came from. Returns whether a slot was spent, and the first portfolio to claim a query owns its provenance, as the dedupe already does. */
+  const take = (raw: string, stop: number, source: AgendaSource): boolean => {
     const q = normalizeKeyword(raw);
     if (!q || queries.length >= stop) return false;
     if (q.length > MAX_SERP_KEYWORD_CHARS) {
@@ -274,10 +270,11 @@ export function selectSerpAgenda(
     if (usedKeys.has(key)) return false;
     usedKeys.add(key);
     queries.push(q);
+    sources[q] = source;
     return true;
   };
   /** Every group's best candidate before any group's second, in stable group order. */
-  const roundRobin = (groups: string[][], stop: number): void => {
+  const roundRobin = (groups: string[][], stop: number, source: AgendaSource): void => {
     const at = groups.map(() => 0);
     while (queries.length < stop) {
       let moved = false;
@@ -287,7 +284,7 @@ export function selectSerpAgenda(
         while (i < list.length && has(list[i]!)) i += 1;
         at[g] = i + 1;
         if (i >= list.length) continue;
-        take(list[i]!, stop);
+        take(list[i]!, stop, source);
         moved = true;
       }
       if (!moved) break;
@@ -296,22 +293,20 @@ export function selectSerpAgenda(
 
   // P0: the searches an open investigation is stuck on. A diagnosed gap whose own results page is never checked can
   // never be closed, so these are bought before anything else, in the caller's own ranking, and never substituted.
-  for (const q of (input.priorityQueries ?? []).slice(0, MAX_PRIORITY_QUERIES)) take(q, cap);
+  for (const q of (input.priorityQueries ?? []).slice(0, MAX_PRIORITY_QUERIES)) take(q, cap, "keyword");
 
-  // P1: my own strongest pages' queries, VERBATIM. First-party Search Console data is the
-  // most trusted starting point I have, and the SERP call accepts any keyword string, so a
-  // query never has to appear in the researched set to be checked. Slipping before steady.
+  // P1: my own strongest pages' queries, VERBATIM. First-party Search Console data is the most trusted starting point I have, and the search call accepts
+  // any keyword string, so a query never has to appear in the researched set to be checked. Slipping before steady.
   const stop1 = Math.min(cap, 12);
   for (const q of [...(input.pageQueries ?? [])]
     .map((q) => ({ query: normalizeKeyword(q.query), impressions: q.impressions ?? 0, declining: q.declining === true }))
     .filter((q) => q.query)
     .sort((a, b) => Number(b.declining) - Number(a.declining) || b.impressions - a.impressions || a.query.localeCompare(b.query))) {
-    take(q.query, stop1);
+    take(q.query, stop1, "keyword");
   }
 
-  // P2: the questions I track. An OBSERVED fan-out query is already search-shaped, so it
-  // goes first; a question no usable fan-out covers is checked as its own approved text.
-  // Never a researched substitute for either.
+  // P2: the questions I track. A search the engine ran itself is already search-shaped, so it goes first; a question no usable one covers is checked as
+  // its own approved text. Never a researched substitute for either.
   const stop2 = Math.min(cap, 22);
   const byText = new Map<string, string[]>();
   for (const p of input.prompts ?? []) {
@@ -322,13 +317,13 @@ export function selectSerpAgenda(
   }
   const prompts = [...byText.entries()].sort((a, b) => a[0].localeCompare(b[0]))
     .map(([text, fans]) => ({ text, fans: [...new Set(fans)].sort() }));
-  roundRobin(prompts.map((p) => p.fans), stop2);
-  for (const p of prompts) if (p.text && !p.fans.some(has)) take(p.text, stop2);
+  // BOTH ENTER, NEITHER DISGUISED AS THE OTHER: the engine's own searches are stamped fan_out and my approved question text prompt, so no reader
+  // downstream can report my question as a search some engine ran.
+  roundRobin(prompts.map((p) => p.fans), stop2, "fan_out");
+  for (const p of prompts) if (p.text && !p.fans.some(has)) take(p.text, stop2, "prompt");
 
-  // P3: a RESEARCHED keyword may stand in for a theme only on a genuinely strong anchored
-  // match: at least two strong shared tokens, or the theme's whole strong-token set
-  // covered. One shared strong token was enough to call "female names" a match for "boy
-  // names". A theme with no defensible candidate buys nothing and is named as uncovered.
+  // P3: a RESEARCHED keyword may stand in for a theme only on a genuinely strong anchored match: at least two strong shared tokens, or the theme's whole
+  // strong-token set covered. One shared token was enough to call "female names" a match for "boy names". An undefendable theme buys nothing and is named.
   const pool = new Map<string, FunnelKeyword>();
   for (const k of input.retained ?? []) {
     const keyword = normalizeKeyword(k.keyword);
@@ -349,20 +344,19 @@ export function selectSerpAgenda(
     }).map((r) => r.keyword);
   });
   const uncoveredThemes = themes.filter((_, i) => candidates[i]!.length === 0);
-  roundRobin(candidates, Math.min(cap, 32));
+  roundRobin(candidates, Math.min(cap, 32), "keyword");
 
   // P4: bounded exploration, so real demand I have no theme for is still seen once.
   const stop4 = Math.min(cap, queries.length + 8);
-  for (const r of rows) take(r.keyword, stop4);
-  return { queries, uncoveredThemes, skipped };
+  for (const r of rows) take(r.keyword, stop4, "keyword");
+  return { queries, sources, uncoveredThemes, skipped };
 }
 
 // ── winning-page ranking (pure, TRUE provenance) ────────────────────────────
 
-/** `standby` = a deeper distinct publisher held in reserve at the END of the list, and `ownerQuery` is the
- *  canonical priority search it belongs to (set on that search's own winners AND on its bench, absent on
- *  the global fill). A caller may read a standby ONLY as the substitute for an unreadable page of the SAME
- *  search: without the owner a single failure anywhere unlocked every bench on every topic at once. */
+/** `standby` = a deeper distinct publisher held in reserve at the END of the list, and `ownerQuery` is the canonical priority search it belongs to (set on
+ *  that search's own winners AND on its bench, absent on the global fill). A caller may read a standby ONLY as the substitute for an unreadable page of the
+ *  SAME search: without the owner a single failure anywhere unlocked every bench on every topic at once. */
 type WinningCandidate = { url: string; domain: string; weight: number; appearances: ResearchWinningAppearance[]; standby?: boolean; ownerQuery?: string };
 
 /** Exact host of a URL, lowercased ("" when unparseable). */
@@ -374,10 +368,9 @@ function exactHost(url: string): string {
   }
 }
 
-/** Defensive mode-blind dedupe for AI answers (Slice 6I). The chatgpt consumer look and the standardized
- *  ask are TWO observations of one engine, so the same prompt + engine + url must count ONCE;
- *  consumer_search wins the tie. Collection already dedupes, so this only stops a duplicate from
- *  inflating weight. SERP appearances are untouched. Order preserved. Pure. */
+/** Defensive mode-blind dedupe for AI answers (Slice 6I). The chatgpt consumer look and the standardized ask are TWO observations of one engine, so the
+ *  same prompt + engine + url counts ONCE and consumer_search wins the tie. Collection already dedupes, so this only stops a duplicate from inflating
+ *  weight. SERP appearances are untouched. Order preserved. Pure. */
 function dedupeAppearances(appearances: ResearchWinningAppearance[]): ResearchWinningAppearance[] {
   const slotOf = new Map<string, number>();
   const out: ResearchWinningAppearance[] = [];
@@ -417,22 +410,17 @@ function organicRankFor(c: WinningCandidate, key: string): number | null {
   return best;
 }
 
-/** Aggregate winning pages from a flat appearance stream, each appearance carrying its ACTUAL source
- *  (query or real prompt id + text, engine, rank). AI surfaces weight double; organic top-10 single; the
- *  account's own domain is excluded. A page's engines/prompts derive from ITS OWN appearances only.
+/** Aggregate winning pages from a flat appearance stream, each appearance carrying its ACTUAL source (query or real prompt id + text, engine, rank). AI
+ *  surfaces weight double; organic top-10 single; the account's own domain is excluded. A page's engines/prompts derive from ITS OWN appearances only.
  *
- *  Ranking is CASE-SCOPED, not global: a purely global weight order returned ten winners of which not one
- *  came from the query under investigation. Every FOCUSED CASE (one entry of `priorityQueries`, the exact
- *  search that case is stuck on) banks its own top DISTINCT PUBLISHERS in real organic rank order, and it
- *  does so INDEPENDENTLY of the global weight order, so an unrelated case's AI-cited pages can never crowd
- *  a case's required pages out. The global fill continues only with the capacity left after every focused
- *  case is served. The TOTAL is unchanged, so this buys no extra page work.
+ *  Ranking is CASE-SCOPED, not global: a purely global weight order returned ten winners of which not one came from the query under investigation. Every
+ *  FOCUSED CASE (one entry of `priorityQueries`, the exact search that case is stuck on) banks its own top DISTINCT PUBLISHERS in real organic rank order,
+ *  INDEPENDENTLY of the global weight order, so an unrelated case's AI-cited pages can never crowd a case's required pages out. The global fill continues
+ *  with the capacity left after every focused case is served, so this buys no extra page work.
  *
- *  RESERVES COME BACK INTERLEAVED, one round per case, and that is the half that was actually starving
- *  anybody: the reserves were correct and then the reader spent a SHARED attempt and paid-read budget
- *  through them case by case, so with three cases and six paid reads the first two cases took all six and
- *  the third was handed nothing. In rounds, every case gets its first winner before any case gets its
- *  second. Standbys are returned LAST, marked. Pure. */
+ *  RESERVES COME BACK INTERLEAVED, one round per case, and that is the half that was actually starving anybody: the reserves were correct and then the
+ *  reader spent a SHARED attempt and paid-read budget through them case by case, so with three cases and six paid reads the first two took all six and the
+ *  third was handed nothing. In rounds, every case gets its first winner before any gets its second. Standbys are returned LAST, marked. Pure. */
 export function rankWinningPages(
   appearances: ResearchWinningAppearance[],
   ownDomain: string | null,

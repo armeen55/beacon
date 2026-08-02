@@ -12,8 +12,8 @@ import type { ResearchPageExtract } from "../funnel/research-evidence";
  *     builder with the provider's REQUIRED fields, the parser, cache dimensions, freshness, reservation.
  *   - ENVELOPE RULE: the boundary caches and returns the FULL bounded provider envelope ({ status_code,
  *     cost?, tasks: [...] }); ONLY registry parsers read inside it. Hits and fresh results normalize alike.
- *   - CACHE identity is PUBLIC (endpoint + version + normalized input + location + language + device +
- *     model). PAID-ATTEMPT identity is account-scoped (tenantId + unitKey). A hit reserves and records $0.
+ *   - CACHE identity is PUBLIC (endpoint + version + normalized input + location + language + device + model), and every parameter that changes the
+ *     request is in it. PAID-ATTEMPT identity is account-scoped (tenantId + unitKey). A hit reserves and records $0.
  *   - Money order is reserve -> network -> reconcile, atomic in Postgres.
  *   - "waiting" is durable and resumable; never an error, never completion.
  *   - Standard task posts carry the deterministic cacheKey as the provider `tag`, and a pre-post attempt
@@ -81,27 +81,33 @@ export type ParsedSerp = {
   paaQuestions: { question: string; answeringDomain: string | null }[];
   relatedSearches: string[];
 };
+/** ONE page an answer pointed at. `startIndex`, `endIndex` and `passage` are the annotation's OWN span into the answer text, kept so the exact words a
+ *  source backs can be shown later instead of re-derived by searching the text for the url. Present only where the provider sent them: absent is absent. */
+export type ObservedCitation = { url: string; domain: string; title: string | null; startIndex?: number; endIndex?: number; passage?: string };
+/** What the provider reported this ONE ask cost it: tokens each side, and its own money figure in USD. A null field means it reported that field not at
+ *  all, which is never the claim that it was zero; the whole object is null when the envelope carried none of them. */
+export type AnswerUsage = { inputTokens: number | null; outputTokens: number | null; reasoningTokens: number | null; moneySpentUsd: number | null };
 export type ParsedAiAnswer = {
   answerText: string | null;
   modelServed: string | null;
   /** Provider-REPORTED web-search state; null = not reported. */
   webSearchReported: boolean | null;
   /** null = citations not observable on this path; [] = observed zero. */
-  citations: { url: string; domain: string; title: string | null }[] | null;
+  citations: ObservedCitation[] | null;
   /** null = not observable on this path. */
   fanOutQueries: string[] | null;
-  /** Pages the engine reported it RETRIEVED (llm_scraper search_results), exactly as reported. Kept apart
-   *  from citations because "it read this" and "it credited this" are different claims, and a page may be
-   *  in both: the not-cited half is DERIVED by `retrievedNotCitedLinks`, never assumed here.
+  /** What the ask cost the provider, in its own report. Absent or null = it told me nothing about tokens or money. */
+  usage?: AnswerUsage | null;
+  /** Pages the engine reported it RETRIEVED (llm_scraper search_results), exactly as reported. Kept apart from citations because "it read this" and "it
+   *  credited this" are different claims, and a page may be in both: the not-cited half is DERIVED by `retrievedNotCitedLinks`, never assumed here.
    *  null = not observable on this path; [] = observed zero. */
-  retrievedResults: { url: string; domain: string; title: string | null }[] | null;
+  retrievedResults: ObservedCitation[] | null;
   /** Brands the provider itself named in the answer (llm_scraper brand_entities),
    *  never a name we matched ourselves. null = not observable; [] = observed zero. */
   brandMentions: string[] | null;
 };
-/** ONE domain that keeps coming up across a case's whole keyword set, from serp_competitors. `rating` is the
- *  provider's own composite, NOT a rank; `avgPosition` is its average organic position over those keywords;
- *  `keywordsCount` is how many of them it comes up for. A metric the provider did not send stays null. */
+/** ONE domain that keeps coming up across a case's whole keyword set, from serp_competitors. `rating` is the provider's own composite, NOT a rank;
+ *  `avgPosition` is its average organic position over those keywords, `keywordsCount` how many it comes up for. An unsent metric stays null. */
 type ParsedSerpCompetitor = { domain: string; avgPosition: number | null; rating: number | null; keywordsCount: number | null };
 
 export type ParsedByCapability = {
@@ -124,29 +130,23 @@ export type ParsedByCapability = {
   llm_scraper_chatgpt: ParsedAiAnswer;
 };
 
-/** TYPED capability inputs: the ONLY shapes a caller may hand the boundary.
- *  Every field is a real provider field for that endpoint (web_search flags are
- *  engine-specific; the scraper is KEYWORD-based, never user_prompt). The model
- *  is NEVER caller-supplied: providerCall resolves the one method-compatible
- *  model, so a Live-only model can never ride a Standard route. A wrong or
- *  cross-engine field fails TypeScript, not production.
- *  ChatGPT and Claude are DIFFERENT contracts (live-verified 2026-07-25):
- *  ChatGPT llm_responses rejects force_web_search on reasoning models (in-body
- *  40501) and every current ChatGPT model reports reasoning true, so ChatGPT
- *  accepts web_search ONLY, never force or country. Claude documents force +
- *  country and conflicts only with use_reasoning, which Beacon never sends. The
- *  dedicated ChatGPT SCRAPER is a separate API where force is documented. */
+/** TYPED capability inputs: the ONLY shapes a caller may hand the boundary. Every field is a real provider field for that endpoint (web_search flags are
+ *  engine-specific; the scraper is KEYWORD-based, never user_prompt). The model is NEVER caller-supplied: providerCall resolves the one method-compatible
+ *  model, so a Live-only model can never ride a Standard route, and a wrong or cross-engine field fails TypeScript rather than production. ChatGPT and
+ *  Claude are DIFFERENT contracts (live-verified 2026-07-25): ChatGPT llm_responses rejects force_web_search on reasoning models (in-body 40501) and every
+ *  current ChatGPT model reports reasoning true, so ChatGPT accepts web_search ONLY, never force or country. Claude documents force and country and
+ *  conflicts only with use_reasoning, which Beacon never sends. The dedicated ChatGPT SCRAPER is a separate API where force is documented. */
 export type ChatGptWebInput = { user_prompt: string; web_search?: boolean };
 export type ClaudeWebInput = { user_prompt: string; web_search?: boolean; force_web_search?: boolean; web_search_country_iso_code?: string };
-/** THE observation identity every LLM ask carries: which reporting day this reading belongs to, and which
- *  deliberate sample of that day it is. NEITHER is ever sent to the provider (no builder emits them); they
- *  exist so the cache identity tells three different questions apart. Without them a second sample was a
- *  byte-identical $0 replay of the first, and a 23:00 Monday answer could be re-served as Tuesday's. */
+/** THE observation identity every LLM ask carries: which reporting day this reading belongs to, and which deliberate sample of that day it is. NEITHER is
+ *  ever sent to the provider (no builder emits them); they exist so the cache identity tells three different questions apart. Without them a second sample
+ *  was a byte-identical $0 replay of the first, and a 23:00 Monday answer could be re-served as Tuesday's. */
 export type ObservationIdentity = { observation_day?: string; sample_slot?: number };
 export type CapabilityInputByKey = {
   labs_keywords_for_site: { target: string; limit?: number };
   labs_ranked_keywords: { target: string; limit?: number };
-  labs_related_keywords: { keyword: string; depth?: number; limit?: number };
+  /** No `depth`: the builder never emitted it, so asking for one changed the cache identity without changing the request, and one ask bought twice. */
+  labs_related_keywords: { keyword: string; limit?: number };
   labs_keyword_suggestions: { keyword: string; limit?: number };
   labs_keyword_overview: { keywords: string[] };
   /** keyword_ideas takes SEED keywords (documented maximum 200 per request) and
@@ -172,10 +172,9 @@ export type CapabilityInputByKey = {
   llm_scraper_chatgpt: { keyword: string; force_web_search?: boolean; expand_citations?: boolean } & ObservationIdentity;
 };
 
-/** Method-aware model resolution: the exact current model, the retrieval method it supports, and whether
- *  it can do web search, from the FREE models endpoint. Routing is CAPABILITY DRIVEN per engine: a
- *  web-capable task_post_supported model -> resumable Standard; else a valid Live model -> Live. Null =
- *  fail closed. providerCall is the ONE resolution point; the requested model travels back on the result. */
+/** Method-aware model resolution: the exact current model, the retrieval method it supports, and whether it can do web search, from the FREE models
+ *  endpoint. Routing is CAPABILITY DRIVEN per engine: a web-capable task_post_supported model -> resumable Standard, else a valid Live model -> Live
+ *  (perplexity reports task_post_supported false on every model, so it is Live only). Null = fail closed, and providerCall is the ONE resolution point. */
 export type EngineModelResolution = { model: string; method: "standard" | "live"; webSearch: boolean };
 
 /** THE structured lifecycle vocabulary. Callers NEVER parse detail strings or treat every error

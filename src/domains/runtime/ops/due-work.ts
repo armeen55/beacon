@@ -66,8 +66,10 @@ export type DueWork = {
 /** Nothing owed and nothing landed: the shape every fail-soft answer falls back to. */
 const NO_CHECKS = { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 } as const;
 
-/** The connector-store providers a refresh pulls (Wix is publish-only). */
-const READ_PROVIDERS = ["google_gsc", "google_ga4", "clarity"] as const;
+/** WHAT A STALE SOURCE MAY OPEN A PASS ON ITS OWN. Search Console alone: it is the only source a change is ever argued from. GA4 and Clarity are MODIFIERS
+ *  reporting what people did once they had already arrived, and letting either open work by itself woke the whole run for a number no decision rests on.
+ *  The refresh step still pulls EVERY connected source whenever a pass runs for any other reason, so nothing goes unrefreshed. Only the trigger narrows. */
+const DUE_TRIGGER_PROVIDERS = ["google_gsc"] as const;
 
 /** The account's CURRENT onboarding basis: the one fingerprint every derived read and write
  *  is scoped to. Null = not resolvable, which is a stop, never a default. */
@@ -119,9 +121,9 @@ export async function setResearchPaused(tenantId: string, paused: boolean): Prom
   }
 }
 
-/** How many CONNECTED read sources are past their sync SLA right now. */
+/** How many CONNECTED trigger sources are past their sync SLA right now. */
 async function staleSourceCount(tenantId: string, now: Date): Promise<number> {
-  const infos = await Promise.all(READ_PROVIDERS.map(async (p) => {
+  const infos = await Promise.all(DUE_TRIGGER_PROVIDERS.map(async (p) => {
     try { return { p, info: await getConnectorInfo(p, tenantId) }; } catch { return { p, info: null }; }
   }));
   return infos.filter(({ p, info }) => info?.status === "connected" && isStale(info.last_synced_at, AUTO_REFRESH_STALE_HOURS[p], now)).length;

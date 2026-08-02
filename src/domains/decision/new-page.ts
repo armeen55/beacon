@@ -10,18 +10,15 @@ import "server-only";
  * ONE bundle through the EXISTING pipeline: a ChangeProposal carrying a ChangeBundle, the same
  * record, validator, ranker, persistence and Changes surfaces an existing-page repair uses.
  *
- * ONE strict brief call, AFTER the verdict. It writes the page's own words and its section plan;
- * no field in its schema carries a verdict, a shape or an intent, so it can neither decide the
- * page should exist nor change what wins. Every claim is then checked back against what was
- * supplied, and the WHOLE draft is refused when the model invents a number, an address, a
- * publisher or a question, turns one tracked question into the page, writes an outline that would
- * fit any topic, skips why the account's own pages lost, or promises to put anything live.
+ * ONE strict brief call, AFTER the verdict. It writes the page's own words and its section plan; no field in its schema carries a verdict, a shape or an
+ * intent, so it can neither decide the page should exist nor change what wins. Every claim is then checked back against what was supplied, and the WHOLE
+ * draft is refused when the model invents a number, an address, a publisher or a question, turns one tracked question into the page, writes an outline that
+ * would fit any topic, skips why the account's own pages lost, or promises to put anything live.
  *
- * THEN THE PAGE ITSELF. A plan is not a page, so every planned section is drafted through the
- * SAME section drafter, firewall, budget, cache and gates an existing-page change uses, and a
- * proposal reaches the operator only when the title, the description, the opening and EVERY
- * section landed. One section short is no proposal this pass: the refusal names what is owed,
- * and the next pass resumes free because an identical section is served from what I already bought.
+ * THEN THE PAGE ITSELF. A plan is not a page, so every planned section is drafted through the SAME section drafter, firewall, budget, cache and gates an
+ * existing-page change uses, and a proposal reaches the operator only when the title, the description, the opening and EVERY section landed. One section
+ * short is no proposal this pass: the refusal names what is owed, and the next pass resumes free because an identical section is served from what I
+ * already bought.
  */
 
 import { log } from "@/lib/logger";
@@ -72,8 +69,7 @@ const SYSTEM = [
   "7. No em dash and no en dash. Never use the words experiment, control, baseline, treatment or SERP.",
 ].join("\n");
 
-/** The evidence this brief may cite, each id paired with the plain fact behind it, plus what
- *  I honestly do not hold. Nothing enters either list that was not observed. */
+/** The evidence this brief may cite, each id paired with the plain fact behind it, plus what I honestly do not hold. Nothing enters either list unobserved. */
 function receiptOf(inv: TopicInvestigation, owned: readonly OwnedCandidate[], d: CoverageDecision, r: PageCoverageReading | null):
 { items: BundleEvidenceItem[]; missing: string[] } {
   const items: BundleEvidenceItem[] = [];
@@ -110,12 +106,17 @@ function receiptOf(inv: TopicInvestigation, owned: readonly OwnedCandidate[], d:
   // WHAT THE WINNING PAGES SHARE, IN THE VERDICT'S OWN WORDS, copied verbatim rather than rebuilt, so the
   // diagnosis and the page read the SAME sentences instead of two paraphrases of one reading.
   for (const e of d.evidence ?? []) if (PATTERN_KEY.test(e.id) && !items.some((i) => i.key === e.id)) add(e.id, "winning_page", e.fact, null);
+  // WHOSE SEARCH IS WHOSE. A search an ENGINE ran itself and a question I put to it are two different observations, and naming one as the other claims
+  // evidence nobody gathered, so an example is only ever drawn from the list it actually belongs to.
+  const fans = inv.fanOuts.map((f) => f.query.trim()).filter(Boolean);
+  const asked = inv.trackedPrompts.map((p) => p.promptText.trim()).filter(Boolean);
+  if (fans.length > 0) add("asked", "ai_observation", `To answer this, an AI engine went and searched ${num(fans.length)} things of its own, like "${fans[0]}".`, null);
+  else if (asked.length > 0) add("asked", "ai_observation", `No AI engine has shown me a search of its own here. What I hold is a question people ask, like "${asked[0]}".`, null);
   if (inv.trackedPrompts.length === 0) missing.push("No AI engine I track has been asked about this, so I cannot tell you how assistants answer it today.");
   return { items, missing };
 }
 
-/** Build ONE researched new page from an EARNED verdict, or hand back the honest reason
- *  nothing was built. `none` is a real answer and costs the operator nothing. */
+/** Build ONE researched new page from an EARNED verdict, or hand back the honest reason nothing was built. `none` is a real answer and costs nothing. */
 export async function buildNewPageProposal(decided: DecidedTopic, tenantId: string, opts: ProposeOptions = {}): Promise<NewPageOutcome> {
   const { investigation: inv, candidates: owned, decision, reading } = decided;
   // THE ONLY DOOR. A verdict short of this is an investigation, and an investigation is
@@ -131,13 +132,15 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   const facts = items.map((i) => i.fact);
   // The exact lists the brief may echo, and nothing else.
   const ownedByKey = new Map(owned.map((c) => [canonicalUrlKey(c.url), c]));
-  const questions = new Map<string, string>();
-  for (const q of [...inv.fanOuts.map((f) => f.query), ...inv.trackedPrompts.map((p) => p.promptText), ...(reading?.shared ?? []).map((s) => s.keyword), ...inv.queries]) {
-    if (q.trim()) questions.set(norm(q), q.trim());
-  }
-  // EVERY HOST I ACTUALLY SHOWED IT, the observed questions included. Rule 2 orders the model to
-  // copy a tracked question exactly, so a fan-out like "is the haft seen guide on wikipedia.org
-  // accurate" made obedience a refusal and threw the whole page away.
+  // A QUESTION AND A SEARCH PHRASE ARE NOT THE SAME THING. Only a search an engine ran and a question I track are questions; a keyword the winning pages
+  // share and a raw search are phrases people type. Both sets still back MATCHING below (the host allowlist, the FAQ check, the grounding text), but only
+  // the real questions are ever shown to the model as questions it may turn into an FAQ.
+  const askedQuestions = new Map<string, string>();
+  for (const q of [...inv.fanOuts.map((f) => f.query), ...inv.trackedPrompts.map((p) => p.promptText)]) if (q.trim()) askedQuestions.set(norm(q), q.trim());
+  const questions = new Map(askedQuestions);
+  for (const q of [...(reading?.shared ?? []).map((s) => s.keyword), ...inv.queries]) if (q.trim()) questions.set(norm(q), q.trim());
+  // EVERY HOST I ACTUALLY SHOWED IT, the observed questions included. Rule 2 orders the model to copy an observed question exactly, so a question naming
+  // wikipedia.org made obedience a refusal and threw the whole page away.
   const hosts = new Set([...inv.winners.map((w) => w.domain), ...inv.resultDomains, ...owned.map((c) => publisherHost(c.url)),
     ...[...questions.values(), ...inv.queries].flatMap((q) => q.match(HOST_RE) ?? [])].map(norm).filter(Boolean));
   // What this topic is ABOUT, so an outline that would fit any subject can be spotted.
@@ -153,7 +156,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     "OWN PAGES (the only addresses you may name)",
     ...(owned.length > 0 ? owned.map((c) => `  ${c.url}`) : ["  none"]),
     "OBSERVED QUESTIONS (the only questions you may turn into an FAQ)",
-    ...(questions.size > 0 ? [...questions.values()].slice(0, 12).map((q) => `  ${q}`) : ["  none"]),
+    ...(askedQuestions.size > 0 ? [...askedQuestions.values()].slice(0, 12).map((q) => `  ${q}`) : ["  none"]),
     "Write the brief for this one page.",
   ].join("\n");
 

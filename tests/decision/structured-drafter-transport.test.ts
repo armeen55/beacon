@@ -34,6 +34,13 @@ function seam(responses: Array<{ value: unknown } | { error: string; retryable: 
   return { complete, calls: () => calls };
 }
 describe("structured-drafter strict transport", () => {
+  it("refuses a draft argued from analytics alone, and takes the same draft once it also cites a search", async () => {
+    const refs = (r: unknown[]) => ({ value: { ...VALID_ATOMIC_EDIT, evidenceRefs: r } });
+    const clarity = [{ source: "clarity", detail: "people stop scrolling about halfway down the page" }];
+    const bad = await callStructuredLLM({ ...REQ, complete: seam([refs(clarity), refs(clarity)]).complete }); // both attempts, still nothing about a search
+    expect([bad.status, bad.status === "validation_failed" && bad.reason.startsWith("evidenceRefs: analytics alone")]).toEqual(["validation_failed", true]);
+    const good = await callStructuredLLM({ ...REQ, complete: seam([refs([...clarity, { source: "gsc", detail: "strong impressions with a low click rate" }])]).complete });
+    expect(good.status).toBe("drafted"); }); // ga4 and clarity are welcome BESIDE evidence of the search, never instead of it
   it("drafts a schema-valid VALUE (no text parsing)", async () => {
     const { complete, calls } = seam([{ value: VALID_ATOMIC_EDIT }]);
     const out = await callStructuredLLM({ ...REQ, complete });

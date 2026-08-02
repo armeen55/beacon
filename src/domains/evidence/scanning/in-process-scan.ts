@@ -1,41 +1,24 @@
 /**
- * in-process-scan — Vercel-safe cold-start crawler (2026-06-23).
+ * in-process-scan - owned-page DISCOVERY, plus the Vercel-safe launch crawl.
  *
- * WHY: this is the launch-time first scan. The legacy scan path
- * (`orchestrate-scan` → `scripts/scan-owned-pages.ts`) spawns `npx tsx` and
- * writes `.data/` — both impossible on Vercel's read-only serverless runtime,
- * and external schedulers/workflows are an explicit non-goal. The production
- * recommendation path reads pages + snapshots FROM Supabase, which is only
- * ever populated by that scan dual-writing back. Net effect today: a brand-new
- * Vercel tenant who connects GSC/Wix sees ZERO recommendations until a nightly
- * fleet run (or forever, with crons off). This module closes that cold-start
- * gap by crawling the tenant's own domain IN-PROCESS using only pure,
- * already-shipped pieces, and dual-writing the result straight to Supabase so
- * the very next `/today` render has real inventory.
+ * DISCOVERY IS THE POINT. A generic website has exactly one public answer to "what pages do you
+ * have": robots.txt names its sitemaps, and those sitemaps (often an index of indexes) name the
+ * URLs. Until 2026-08-03 this module guessed two paths, recursed one level, and never read a
+ * Sitemap: directive at all, so a site whose sitemap lived anywhere else was invisible. Now the
+ * site's own answer comes first, the index is followed to depth 3 inside hard fetch bounds, and
+ * every URL found lands in the DURABLE inventory (owned-pages-store) rather than a 150-slot queue.
  *
- * Discipline:
- *   - Crawl-only: zero paid API calls (polite, robots-respecting fetch).
- *   - HARD CAPS: a small page cap + a total-time budget well under the
- *     serverless function limit. Cold-start is small and fast on purpose; the
- *     nightly fleet finishes the long tail.
- *   - Stable, deterministic page ids (`page-<sha16(urlKey)>`) so (a) the
- *     snapshot.page_id ↔ PageEntity.id join holds on the read path and
- *     (b) re-runs upsert the same rows (idempotent), and the nightly scan —
- *     which reconciles the registry BY NORMALIZED URL — reuses these ids
- *     instead of duplicating rows.
- *   - Failure-soft: never throws to the caller; returns a structured outcome.
- *   - PURE composition: sitemap-parse + polite-fetch + extractPageSnapshot +
- *     dual-write. Does NOT touch orchestrate-scan / .data / child processes.
+ * Discipline: crawl-only, zero paid calls, polite robots-respecting fetch, hard per-request and
+ * total-time budgets, stable deterministic page ids (`page-<sha16(urlKey)>`) so every crawler
+ * upserts the SAME rows, and failure-soft returns instead of throws.
  */
 
 import { createHash } from "node:crypto";
 
 import { fetchPageHtml, COMPETITOR_INTEL_UA } from "@/domains/evidence/competitor-intel/polite-fetch";
-import {
-  parseSitemapUrlEntries,
-  parseSitemapIndexLocs,
-  dedupeSitemapEntries,
-} from "@/domains/evidence/scanning/sitemap-parse";
+import { parseSitemapUrlEntries, parseSitemapIndexLocs, dedupeSitemapEntries } from "./sitemap-parse";
+import { parseRobotsText } from "@/domains/evidence/pages/robots-parser";
+import type { DiscoveredPage, DiscoveredVia } from "./owned-pages-store";
 import { loadBusinessProfile } from "@/domains/account";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import type { PageEntity, PageSnapshot, PageType } from "@/domains/evidence/pages/types";
@@ -44,28 +27,30 @@ import { pickSecondaryPaths } from "@/domains/account/onboarding/fetch-site-prof
 
 const DEFAULT_MAX_PAGES = 18;
 const DEFAULT_TOTAL_BUDGET_MS = 22_000;
-// Per-request timeout. 5s (was 7s) so the worst-case discovery + crawl chain
-// stays comfortably under the route's maxDuration ceiling (audit-6 #2).
+/** Per-request timeout, kept well under the route's maxDuration ceiling. */
 const DEFAULT_PER_REQUEST_MS = 5_000;
-const MAX_CHILD_SITEMAPS = 5;
 
-/** www-insensitive host. A bare-apex domain whose sitemap 301s to the www host
- *  (or vice-versa) is the common small-business case; comparing/keying on the
- *  raw host would drop the ENTIRE sitemap (audit-6 #1). Mirrors the repo's other
- *  same-host comparisons (extractor stripWww, fetch-site-profile normalizeSiteUrl).
- *  Exported (2026-07-03 T0e) so the resumable crawl-frontier shares the SAME
- *  host/key/id math and re-runs upsert the same rows. */
+/** DISCOVERY BOUNDS. A sitemap index may point at indexes; three levels reaches every real site
+ *  shape while a hostile or cyclic index runs out of budget instead of running forever. */
+const MAX_SITEMAP_DEPTH = 3;
+const MAX_SITEMAP_FETCHES = 200;
+/** One discovery pass records at most this many URLs per account; the overflow is COUNTED, never
+ *  silently dropped, so the inventory can say how much of the site it has not enumerated yet. */
+export const MAX_DISCOVERED_URLS = 5_000;
+/** File-ish URLs a content crawl must never spend a fetch on. */
+const NON_HTML_EXT_RE =
+  /\.(?:jpe?g|png|gif|webp|svg|ico|css|js|json|xml|pdf|zip|gz|mp4|mp3|webm|woff2?|ttf|eot|avif)$/i;
+
+/** www-insensitive host. A bare apex whose sitemap 301s to www (or the reverse) is the common
+ *  small-business case, and keying on the raw host would drop the ENTIRE sitemap. */
 export function stripWww(host: string): string {
   return host.replace(/^www\./i, "");
 }
 
 export interface InProcessColdStartScanResult {
   status: "scanned" | "no_domain" | "no_pages" | "error";
-  /** Distinct candidate URLs discovered (sitemap or homepage seed). */
   pagesDiscovered: number;
-  /** URLs actually fetched within the caps/budget. */
   pagesCrawled: number;
-  /** Snapshots successfully extracted + dual-written. */
   snapshotsWritten: number;
   durationMs: number;
   source: "sitemap" | "homepage" | "none";
@@ -74,64 +59,73 @@ export interface InProcessColdStartScanResult {
 
 export interface InProcessColdStartScanDeps {
   fetchImpl?: typeof fetch;
-  /** Injectable clock for budget + timestamps (defaults to Date.now). */
   now?: () => number;
   maxPages?: number;
   totalBudgetMs?: number;
   perRequestMs?: number;
-  /** Injectable persistence for tests. */
   syncPagesImpl?: typeof syncPages;
   syncPageSnapshotsImpl?: typeof syncPageSnapshots;
 }
 
-/** Strip scheme+host into an https origin, or null if the input is unusable.
- *  Exported (2026-07-03 T0e) for the crawl-frontier module. */
+/** Scheme+host as an https origin, or null when the input is unusable. `host` is www-stripped for
+ *  comparison and stable ids; `origin` keeps the host as typed (redirects are followed). */
 export function originFromDomain(domain: string): { origin: string; host: string } | null {
   const raw = (domain ?? "").trim();
   if (!raw) return null;
-  let candidate = raw;
-  if (!/^https?:\/\//i.test(candidate)) candidate = `https://${candidate}`;
+  const candidate = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   try {
     const u = new URL(candidate);
     if (!u.hostname) return null;
-    // origin keeps the host as-typed (fetched with redirect:follow, so an apex
-    // that 301s to www still resolves); host is www-stripped for comparison +
-    // stable ids so a www/non-www sitemap mismatch can't drop every page.
     return { origin: `https://${u.hostname}`, host: stripWww(u.hostname.toLowerCase()) };
   } catch {
     return null;
   }
 }
 
-/** Path with trailing slashes stripped (root stays "/"). Exported for the
- *  crawl-frontier module (2026-07-03 T0e). */
+/** Path with trailing slashes stripped (root stays "/"). */
 export function normPath(u: URL): string {
   return u.pathname.replace(/\/+$/, "") || "/";
 }
 
-/** Stable join/dedup key: www-stripped lowercase host + normalized path (no
- *  query/hash). www-stripping keeps the id stable whether the sitemap lists the
- *  apex or the www host. Exported for the crawl-frontier module. */
+/** Stable join/dedup key: www-stripped lowercase host + normalized path, no query or hash. */
 export function urlKey(u: URL): string {
   return `${stripWww(u.hostname.toLowerCase())}${normPath(u)}`;
 }
 
-/** Deterministic page id from the url key — stable across re-runs. Exported
- *  for the crawl-frontier module so both crawlers upsert the SAME rows. */
+/** Deterministic page id from the url key, stable across re-runs so every crawler upserts the
+ *  same row. */
 export function pageIdFor(key: string): string {
   return `page-${createHash("sha256").update(key).digest("hex").slice(0, 16)}`;
 }
 
-/** Exported for the crawl-frontier module (2026-07-03 T0e). */
 export function inferPageType(path: string): PageType {
   return path === "/" ? "homepage" : "other";
 }
 
-async function fetchText(
-  url: string,
-  fetchImpl: typeof fetch,
-  timeoutMs: number,
-): Promise<string | null> {
+/**
+ * THE canonical form of one owned URL: scheme + host + normalized path, no query, no fragment.
+ * Returns null for cross-host links, non-http schemes, and obvious non-HTML files, so one page is
+ * one row whatever spelling the site used.
+ */
+export function canonicalOwnedUrl(
+  raw: string,
+  host: string,
+  baseUrl?: string,
+): { url: string; key: string; path: string } | null {
+  let u: URL;
+  try {
+    u = baseUrl ? new URL(raw, baseUrl) : new URL(raw);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+  if (stripWww(u.hostname.toLowerCase()) !== host) return null;
+  const path = normPath(u);
+  if (NON_HTML_EXT_RE.test(path)) return null;
+  return { url: `${u.protocol}//${u.hostname}${path}`, key: urlKey(u), path };
+}
+
+async function fetchText(url: string, fetchImpl: typeof fetch, timeoutMs: number): Promise<string | null> {
   try {
     const res = await fetchImpl(url, {
       headers: { "User-Agent": COMPETITOR_INTEL_UA, Accept: "application/xml,text/xml,*/*" },
@@ -145,65 +139,84 @@ async function fetchText(
   }
 }
 
-/** Discover candidate page URLs from sitemap.xml (incl. index), else seed homepage.
- *  Exported (2026-07-03 T0e) so the crawl-frontier's init step reuses the exact
- *  same bounded discovery instead of duplicating it. */
+type DiscoveryResult = {
+  /** Canonical owned URLs with how each became known, deduped, in discovery order. */
+  pages: DiscoveredPage[];
+  source: "sitemap" | "homepage" | "none";
+  /** URLs the pass found and could not record because the per-pass ceiling was reached. */
+  truncated: number;
+};
+
+/**
+ * Enumerate the site's own discoverable URLs, bounded on every axis: the deadline the caller owns,
+ * MAX_SITEMAP_FETCHES sitemap documents, MAX_SITEMAP_DEPTH levels of index nesting, and
+ * MAX_DISCOVERED_URLS recorded URLs. Order of authority: the Sitemap: directives robots.txt
+ * publishes, then the two conventional paths as a fallback, then the homepage and its nav as a
+ * last resort for a site with no sitemap at all.
+ */
 export async function discoverUrls(
   origin: string,
   fetchImpl: typeof fetch,
   perRequestMs: number,
-  maxPages: number,
   now: () => number,
   deadlineAt: number,
-): Promise<{ urls: string[]; source: "sitemap" | "homepage" | "none" }> {
-  // audit-6 #2: the discovery phase (up to 2 sitemaps + 5 child sitemaps + a
-  // homepage fetch) shares the crawl's overall budget, so a slow/hanging host
-  // can't run discovery for ~50s before the budget-guarded crawl loop even
-  // starts. Bail out of further discovery fetches once the deadline passes.
+): Promise<DiscoveryResult> {
+  const site = originFromDomain(origin);
+  const host = site?.host ?? "";
   const overBudget = () => now() > deadlineAt;
-  const found = new Set<string>();
-  for (const name of ["/sitemap.xml", "/sitemap_index.xml"]) {
-    if (overBudget()) break;
-    const xml = await fetchText(`${origin}${name}`, fetchImpl, perRequestMs);
+  const found = new Map<string, DiscoveredPage>();
+  let truncated = 0;
+  const record = (raw: string, via: DiscoveredVia) => {
+    const c = canonicalOwnedUrl(raw, host);
+    if (!c) return;
+    if (found.has(c.key)) return;
+    if (found.size >= MAX_DISCOVERED_URLS) {
+      truncated++;
+      return;
+    }
+    found.set(c.key, { url: c.url, via });
+  };
+
+  // 1. The site's own answer. A robots.txt that names its sitemaps is authoritative; the two
+  //    guessed paths only ever existed because nothing here read those directives.
+  const robotsTxt = overBudget() ? null : await fetchText(`${origin}/robots.txt`, fetchImpl, perRequestMs);
+  const declared = robotsTxt ? parseRobotsText(robotsTxt, `${origin}/robots.txt`, 200).sitemaps : [];
+  const queue: { url: string; depth: number; via: DiscoveredVia }[] = [
+    ...declared.map((url) => ({ url, depth: 0, via: "robots_sitemap" as DiscoveredVia })),
+    { url: `${origin}/sitemap.xml`, depth: 0, via: "sitemap" as DiscoveredVia },
+    { url: `${origin}/sitemap_index.xml`, depth: 0, via: "sitemap" as DiscoveredVia },
+  ];
+
+  // 2. Breadth-first through the index tree. Each document is fetched at most once.
+  const fetched = new Set<string>();
+  while (queue.length > 0 && fetched.size < MAX_SITEMAP_FETCHES && !overBudget()) {
+    const next = queue.shift()!;
+    if (fetched.has(next.url)) continue;
+    fetched.add(next.url);
+    const xml = await fetchText(next.url, fetchImpl, perRequestMs);
     if (!xml) continue;
-    const childLocs = parseSitemapIndexLocs(xml);
-    if (childLocs.length > 0) {
-      for (const child of childLocs.slice(0, MAX_CHILD_SITEMAPS)) {
-        if (overBudget()) break;
-        const childXml = await fetchText(child, fetchImpl, perRequestMs);
-        if (!childXml) continue;
-        for (const e of dedupeSitemapEntries(parseSitemapUrlEntries(childXml))) {
-          found.add(e.url);
-          if (found.size >= maxPages * 3) break;
-        }
-        if (found.size >= maxPages * 3) break;
-      }
-    } else {
-      for (const e of dedupeSitemapEntries(parseSitemapUrlEntries(xml))) found.add(e.url);
+    const children = parseSitemapIndexLocs(xml);
+    if (children.length > 0) {
+      if (next.depth + 1 >= MAX_SITEMAP_DEPTH) continue;
+      for (const child of children) queue.push({ url: child, depth: next.depth + 1, via: next.via });
+      continue;
     }
-    if (found.size > 0) break;
+    for (const e of dedupeSitemapEntries(parseSitemapUrlEntries(xml))) record(e.url, next.via);
   }
-  if (found.size > 0) return { urls: [...found], source: "sitemap" };
-  // Fallback: no sitemap. Seed the homepage PLUS nav-discovered secondary paths
-  // (reusing onboarding's pure pickSecondaryPaths) so a sitemap-less small site
-  // gets real inventory, not just a single homepage snapshot. The crawl loop
-  // still robots-checks + same-host-filters + caps every seeded URL.
-  const seeded = new Set<string>([origin]);
+  if (found.size > 0) return { pages: [...found.values()], source: "sitemap", truncated };
+
+  // 3. No sitemap anywhere. Seed the homepage plus its nav links so a sitemap-less small site still
+  //    gets real inventory. Every seeded URL is still robots-checked and host-filtered at crawl time.
+  record(origin, "homepage");
   const homeHtml = overBudget() ? null : await fetchText(origin, fetchImpl, perRequestMs);
-  if (homeHtml) {
-    for (const path of pickSecondaryPaths(homeHtml)) {
-      seeded.add(`${origin}${path}`);
-      if (seeded.size >= maxPages) break;
-    }
-  }
-  return { urls: [...seeded], source: "homepage" };
+  if (homeHtml) for (const path of pickSecondaryPaths(homeHtml)) record(`${origin}${path}`, "nav");
+  return { pages: [...found.values()], source: "homepage", truncated };
 }
 
 /**
- * Crawl the tenant's own domain in-process and dual-write pages + snapshots to
- * Supabase. Failure-soft: always resolves with a structured result. Intended
- * to run as a launch-time fallback when GitHub-dispatch is unavailable
- * (no PAT — the Vercel case).
+ * Crawl the tenant's own domain in-process and dual-write pages + snapshots to Supabase. The
+ * launch-time fallback for a brand-new account; the resumable frontier finishes the long tail.
+ * Failure-soft: always resolves with a structured result.
  */
 export async function runInProcessColdStartScan(args: {
   tenantId: string;
@@ -236,29 +249,13 @@ export async function runInProcessColdStartScan(args: {
   if (!site) return result({ status: "no_domain", detail: "no_usable_domain" });
 
   try {
-    const { urls, source } = await discoverUrls(
-      site.origin,
-      fetchImpl,
-      perRequestMs,
-      maxPages,
-      now,
-      started + budgetMs,
-    );
-    // Same-origin only, dedup by stable key, cap.
-    const seen = new Set<string>();
+    const { pages: discovered, source } = await discoverUrls(
+      site.origin, fetchImpl, perRequestMs, now, started + budgetMs);
     const candidates: { url: string; key: string; path: string }[] = [];
-    for (const raw of urls) {
-      let u: URL;
-      try {
-        u = new URL(raw);
-      } catch {
-        continue;
-      }
-      if (stripWww(u.hostname.toLowerCase()) !== site.host) continue;
-      const key = urlKey(u);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      candidates.push({ url: u.toString(), key, path: normPath(u) });
+    for (const d of discovered) {
+      const c = canonicalOwnedUrl(d.url, site.host);
+      if (!c) continue;
+      candidates.push(c);
       if (candidates.length >= maxPages) break;
     }
 
@@ -311,34 +308,24 @@ export async function runInProcessColdStartScan(args: {
       });
     }
 
-    // Persist the pages registry FIRST — snapshots join to a page row by id, so
-    // the registry write is a PREREQUISITE, not an independent fail-soft step
-    // (audit-6 #4: writing snapshots after a failed registry write leaves
-    // orphaned snapshots the read path can't surface, while the scan falsely
-    // reports "scanned"). If the registry write fails, skip snapshots and
-    // surface the partial failure as an error.
-    let pagesWritten = false;
+    // The pages registry is a PREREQUISITE, not an independent fail-soft step: snapshots join to a
+    // page row by id, so writing snapshots after a failed registry write leaves orphans the read
+    // path cannot surface while the scan falsely reports success.
     try {
       await syncPagesImpl(pages, tenantId);
-      pagesWritten = true;
     } catch (e) {
       console.error(
         `[in-process-scan] syncPages failed (tenant=${tenantId}): ${e instanceof Error ? e.message : e}`,
       );
-    }
-    if (!pagesWritten) {
       return result({
         status: "error",
         pagesDiscovered: candidates.length,
         pagesCrawled: crawled,
-        snapshotsWritten: 0,
         source,
         detail: "pages_registry_write_failed",
       });
     }
-    // Snapshots are the evidence the whole scan exists to produce. A failed
-    // write used to log and still report "scanned" with zero snapshots, which
-    // reads downstream as a site that has nothing to say. Fail closed.
+    // Snapshots are the evidence the whole scan exists to produce. Fail closed.
     try {
       await syncSnapshotsImpl(snapshots, tenantId);
     } catch (e) {
@@ -349,7 +336,6 @@ export async function runInProcessColdStartScan(args: {
         status: "error",
         pagesDiscovered: candidates.length,
         pagesCrawled: crawled,
-        snapshotsWritten: 0,
         source,
         detail: "snapshot_write_failed",
       });

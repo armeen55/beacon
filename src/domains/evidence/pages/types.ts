@@ -158,6 +158,11 @@ export type PageSnapshot = {
 
   /** All <h3> text in document order. Parallel to `h2_list`. Cap 30. */
   h3_list?: string[];
+  /** THE WHOLE de-chromed main content of the page, capped at 100,000 characters (a cut is recorded
+   *  in `structural_warnings` as `body_text_truncated:`). This is what `content_hash` hashes and
+   *  what lets a reader answer "no, this page does not say that". Absent on pre-2026-08-03
+   *  snapshots, which is exactly what marks them as sample-era captures. */
+  body_text?: string;
   /** Ordered main-content excerpt, pulled from <main>/<article> (fallback:
    *  <body> minus <nav>/<footer>/<header>/<aside>). Cap 20 entries x 300
    *  chars each (~6k chars total, N19 2026-07-02, was 10x300/~3k under

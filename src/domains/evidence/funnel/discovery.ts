@@ -99,7 +99,7 @@ function discoveryPlan(domain: string, seeds: string[]): DiscStep[] {
   }
   for (const s of seeds) {
     const keyword = normalizeKeyword(s);
-    plan.push({ capability: "labs_related_keywords", input: { keyword, depth: 2, limit: 1000 }, via: "related", seed: keyword });
+    plan.push({ capability: "labs_related_keywords", input: { keyword, limit: 1000 }, via: "related", seed: keyword });
     plan.push({ capability: "labs_keyword_suggestions", input: { keyword, limit: 1000 }, via: "suggestion", seed: keyword });
   }
   return plan;

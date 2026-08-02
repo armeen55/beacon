@@ -1,25 +1,15 @@
 /**
- * Pure sitemap XML parsing — extracted from scripts/scan-owned-pages.ts
- * (2026-06-10, P0 wall 2: multi-tenant scan fleet).
+ * Pure sitemap XML parsing. A site serves either a flat `<urlset>` or a `<sitemapindex>` whose
+ * children hold the real `<url>` entries, and a large site nests indexes inside indexes. These
+ * helpers parse both shapes; in-process-scan owns the bounded recursion through them.
  *
- * Why: the original fetcher parsed only flat `<urlset>` sitemaps, which
- * is what Ritz serves. Wix sites (Iranopedia) serve a `<sitemapindex>`
- * at /sitemap.xml whose children hold the real `<url>` entries — the
- * flat parser saw 0 entries and the scan aborted. These helpers parse
- * BOTH shapes; the fetcher recurses one level into index children.
- *
- * Pure string → data. No fetch, no fs, no tenant context — unit-testable
- * without a network.
+ * Pure string to data. No fetch, no fs, no tenant context.
  */
 
 export type SitemapUrlEntry = { url: string; lastmod: string | null };
 
-/**
- * One-level child cap when recursing a sitemap index. Wix emits one
- * child per collection/page-group; 50 covers encyclopedia-scale sites
- * while bounding the fetch fan-out of a hostile/degenerate index.
- */
-export const MAX_CHILD_SITEMAPS = 50;
+/** Children returned from ONE index document. The caller's own fetch budget bounds the tree. */
+const MAX_CHILD_SITEMAPS = 50;
 
 /** Parse `<url><loc>…</loc><lastmod>…</lastmod></url>` blocks (flat urlset). */
 export function parseSitemapUrlEntries(xml: string): SitemapUrlEntry[] {

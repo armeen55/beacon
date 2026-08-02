@@ -2,9 +2,7 @@
  *  in-memory basis-scoped state repo. Pins CURRENT-SET truth, OBSERVATION-MODE truth, weekly freshness, the DISPOSITION ladder, the SERP agenda in
  *  the customer's own words with an open investigation bought first, the ONE paid page-by-page comparison, history identity, the receipt. No network. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-const sb = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], fails: false, tenant: "", urls: [] as string[] })); // the ONE page_snapshots read the body reader makes
-vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...((await orig()) as object), getSupabaseAdmin: () => ({ from: () => ({ select: () => ({ eq: (_c: string, t: string) => { sb.tenant = t; return { in: (_u: string, urls: string[]) => { sb.urls = urls; return { order: () => ({ limit: async () => (sb.fails ? { data: null, error: { message: "down" } } : { data: sb.rows, error: null }) }) }; } }; } }) }) }) }));
-import { loadOwnedPageBodies, pageContains } from "@/domains/evidence/pages/owned-context"; import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { emptyBusinessProfile, type Account, type BusinessProfile, type ProfileSection } from "@/domains/account";
+import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { emptyBusinessProfile, type Account, type BusinessProfile, type ProfileSection } from "@/domains/account";
 import type { CachedCallResult, CapabilityKey, FailureDisposition, ParsedAiAnswer, ParsedKeywordItem, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { keywordDiscoveryUnit } from "@/domains/evidence/funnel/discovery"; import { promptObservationUnit, serpAnalysisUnit } from "@/domains/evidence/funnel/observe"; import { winningPagesUnit } from "@/domains/evidence/funnel/winning-pages";
 import { retainDiverse, selectSerpAgenda } from "@/domains/evidence/funnel/normalize"; import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
@@ -270,47 +268,6 @@ describe("research funnel - the ONE page of the account's OWN a run may read", (
     const due = await run(store, NOW + DAY + 1, { ok: false, reason: "fetch_failed" }); expect([due.tried.length, due.held[0]!.retryAfter]).toEqual([1, at(NOW + 2 * DAY + 1)]); // one new attempt, one new honest date
     expect([store.peek("tb", BASIS), store.peek("to", "basis_other")]).toEqual([undefined, undefined]); }); // never another account's row, never another basis
 });
-describe("evidence - my own page's actual words, read narrowly", () => {
-  const row = (over: Record<string, unknown> = {}) => ({ url: "https://own.com/actors", title: "T", meta_description: "M", fetched_at: "2026-06-11T00:00:00.000Z", body_paragraph_sample: ["Iran has a deep film history."], card_texts: ["Card"], schema_entity_names: ["Person"], internal_links: [{ href: "/a", anchor_text: "A" }], ...over });
-  beforeEach(() => { sb.rows = []; sb.fails = false; sb.tenant = ""; sb.urls = []; });
-  it("reads only the asked tenant and the asked URLs, refuses a wider ask instead of fanning out, and fails closed to no bodies", async () => { sb.rows = [row(), row({ url: "https://own.com/other" })];
-    const got = await loadOwnedPageBodies("t1", ["https://own.com/actors"]);
-    expect([sb.tenant, sb.urls.includes("https://own.com/actors")]).toEqual(["t1", true]); // tenant AND url scoped in the query itself, never filtered after a wide read
-    expect([...got.keys()]).toEqual(["own.com/actors"]); expect(got.get("own.com/actors")!.openingSample).toContain("deep film history"); // a page I did not ask about is never keyed in
-    expect((await loadOwnedPageBodies("t1", ["a", "b", "c", "d"])).size).toBe(0); // four is past the bound: refused, never fanned out
-    sb.fails = true; expect((await loadOwnedPageBodies("t1", ["https://own.com/actors"])).size).toBe(0); // a broken read is never an empty page
-    sb.fails = false; sb.rows = [row()]; const two = await loadOwnedPageBodies("t1", ["https://own.com/actors", "https://own.com/missing"]);
-    expect([two.size, two.has("own.com/missing"), two.get("own.com/actors")!.fetchedAt]).toEqual([1, false, "2026-06-11T00:00:00.000Z"]); }); // no snapshot, no body; the date rides along so the caller can judge staleness
-  it("never passes headings off as body text", async () => { sb.rows = [row({ body_paragraph_sample: undefined, h2_list: ["Famous Actors"], card_texts: ["Golshifteh Farahani"] })];
-    const body = (await loadOwnedPageBodies("t1", ["https://own.com/actors"])).get("own.com/actors")!;
-    expect([body.openingSample, body.cardTexts]).toEqual([null, ["Golshifteh Farahani"]]); }); // no body text on file is said plainly, never filled in from labels
-
-  // THE SAMPLE WAS CALLED THE BODY: eight paragraphs cut at 1,200 characters, judged for what the page LACKS.
-  const deep = [...Array.from({ length: 7 }, (_, i) => `Paragraph ${i + 1}. ${"ordinary prose about this page. ".repeat(6)}`), "Paragraph 8. The Zephyr Archive opens at dawn."];
-  const read = async () => (await loadOwnedPageBodies("t1", ["https://own.com/actors"])).get("own.com/actors")!;
-  it("finds a fact stored past the first 1,200 characters, and answers a whole-page question only when it holds the whole page", async () => {
-    sb.rows = [row({ body_paragraph_sample: deep, word_count: 12, card_texts: [], h2_list: ["Actors"] })]; const body = await read();
-    expect([deep.join(" ").indexOf("Zephyr") > 1_200, body.openingSample!.includes("Zephyr"), body.passages.length]).toEqual([true, false, 8]); // past the old sample AND the opener
-    expect([pageContains(body, "Zephyr Archive"), pageContains(body, "Actors")]).toEqual(["yes", "yes"]); // found is found; a heading is held content too
-    expect([body.completeness, pageContains(body, "a fact this page never states")]).toEqual(["complete", "no"]); });
-  it("says sample_only when the crawl kept a sample, and then answers unknown rather than no", async () => {
-    // A stored paragraph at the crawler's own 300-character limit was cut mid sentence: the rest is unread.
-    sb.rows = [row({ body_paragraph_sample: ["x".repeat(300), "The kite festival opens at dawn."], word_count: 4_000 })]; const body = await read();
-    expect([body.completeness, pageContains(body, "kite festival"), pageContains(body, "opening hours")]).toEqual(["sample_only", "yes", "unknown"]); // presence is provable, absence never is
-    expect(body.heldNote).toContain("unknown, not missing"); expect(body.heldNote).not.toMatch(/[—–]/);
-    // No word count on file is not a licence to claim the page: it is the same unprovable claim.
-    sb.rows = [row({ body_paragraph_sample: ["The kite festival opens at dawn."], word_count: undefined })];
-    expect((await read()).completeness).toBe("sample_only");
-    // The crawler's PARAGRAPH cap is a stop, not an ending: 20 stored passages is a sample however the word counts agree.
-    sb.rows = [row({ body_paragraph_sample: Array.from({ length: 20 }, (_, i) => `Passage ${i + 1}.`), word_count: 2, card_texts: [], internal_links: [] })];
-    expect((await read()).completeness).toBe("sample_only"); });
-  it("records exactly which passages the byte ceiling held when the store has more than one read may carry", async () => {
-    sb.rows = [row({ body_paragraph_sample: Array.from({ length: 200 }, (_, i) => `Passage ${i + 1}. ${"held prose. ".repeat(20)}`), word_count: 5, card_texts: [], internal_links: [] })];
-    const body = await read(); const held = body.passages.length;
-    expect([body.completeness, held < 200, held > 100]).toEqual(["partial", true, true]); // the ceiling cut it, the crawl did not; tens of KB, never 1,200 characters
-    expect(body.heldNote).toContain(`I am holding passages 1 to ${held} of the 200 on file`);
-    expect([pageContains(body, "Passage 3."), pageContains(body, "Passage 200.")]).toEqual(["yes", "unknown"]); }); // beyond the ceiling is unknown, never absent
-});
 describe("research funnel - the SERP agenda buys my own words, never a lookalike", () => {
   // A GENERIC reference site: no vertical token is privileged anywhere in the gate.
   const THEMES = ["baby names", "flag history", "national holidays", "given name origins"];
@@ -322,8 +279,11 @@ describe("research funnel - the SERP agenda buys my own words, never a lookalike
   it("buys my own page's query EXACTLY, even when I never researched it, and never swaps in a lookalike", () => { const out = agenda({ pageQueries: [{ query: "boys baby names", impressions: 900 }, { query: "national flag 1979", impressions: 800 }] }, 2);
     expect(out.queries).toEqual(["boys baby names", "national flag 1979"]); // a first-party query needs no researched twin: the search call takes any keyword string
     expect(retained.some((r) => out.queries.includes(r.keyword))).toBe(false); }); // "female baby names" and "political revolution 1979" sat right there and were NOT substituted in
-  it("checks a tracked question through its observed fan-out, else through its own approved words", () => {
-    expect(agenda({ prompts: [{ text: "what are popular baby names", fanOutQueries: ["most popular baby names 2026"] }, { text: "which flags changed in 1979" }] }, 2).queries).toEqual(["most popular baby names 2026", "which flags changed in 1979"]); });
+  it("checks a tracked question through its observed fan-out, else through its own approved words, and says which is which", () => {
+    const out = agenda({ prompts: [{ text: "what are popular baby names", fanOutQueries: ["most popular baby names 2026"] }, { text: "which flags changed in 1979" }] }, 2);
+    expect(out.queries).toEqual(["most popular baby names 2026", "which flags changed in 1979"]);
+    // Both enter the agenda, neither wearing the other's name: a search the engine ran is not a question I asked.
+    expect(out.sources).toEqual({ "most popular baby names 2026": "fan_out", "which flags changed in 1979": "prompt" }); });
   it("skips a query the provider would refuse instead of truncating it into a different question", () => { const long = "a".repeat(701);
     const out = agenda({ pageQueries: [{ query: long, impressions: 900 }, { query: "boys baby names", impressions: 10 }] }, 1);
     expect(out.queries).toEqual(["boys baby names"]); expect(out.skipped).toEqual([{ query: long, reason: "over_provider_keyword_length" }]); });

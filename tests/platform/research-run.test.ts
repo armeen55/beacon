@@ -543,7 +543,6 @@ describe("the case registry a run saves, and the ONE reading it buys", () => {
 describe("the due-work runtime: a day is not a unit of work", () => {
   const today = () => new Date(NOW).toISOString().slice(0, 10);
   const completedToday = (): RR.ResearchRun[] => { const rows = freshRepo(); rows.push(mk({ id: "done1", status: "completed", completed_at: iso(), current_phase: "done" })); return rows; };
-
   it("opens a SECOND pass the same day on genuinely due work, and refuses at zero cost when nothing is due or the state cannot be read", async () => {
     const rows = completedToday(); let asked = 0;
     await run({ dueWork: async () => (asked += 1, NOTHING_DUE), refreshSources: async () => { throw new Error("no phase may run"); } });
@@ -553,7 +552,6 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     await run({ dueWork: async () => SOMETHING_DUE }); // a retry date passed, a source refreshed, an extra reading was granted
     expect([rows.length, rows[1]!.status, rows[1]!.cycle_key.slice(-10)]).toEqual([2, "completed", today()]);
     expect(rows[1]!.cycle_key).not.toBe(rows[0]!.cycle_key); }); // a distinct pass, still reporting into the day it opened
-
   it("closes a pass that opened with nothing due immediately and at zero cost, and that completion blocks no later pass", async () => {
     const rows = freshRepo(); const log: string[] = [];
     await run({ ...healthySteps(log), dueWork: async () => ({ ...NOTHING_DUE, checks: { ...NO_CHECKS, done: 40, total: 40, answers: 37, unavailable: 2, unsupported: 1 }, cases: { active: 0, parked: 2 }, nextDueAt: "2026-08-02T00:00:00.000Z" }) });
@@ -564,7 +562,6 @@ describe("the due-work runtime: a day is not a unit of work", () => {
       .toContain("Nothing more is due until August 1."); // the operator's own zone, the same one every other date on Today uses
     NOW += DAY; await run(healthySteps(log));
     expect([log, rows.length]).toEqual([["refresh", "backfill", "publish"], 2]); }); // tomorrow is untouched by today's empty pass
-
   it("chains bounded continuations: it re-schedules only while work is due, and never past the bound", async () => {
     let hops = 0;
     const chain = async (due: () => DueWork) => { completedToday(); let hop = 0, ran = 0;
@@ -576,7 +573,6 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     expect((await chain(() => NOTHING_DUE)).ran).toBe(1); // nothing due after the first hop: no second request is asked for
     hops = 0; const forever = await chain(() => SOMETHING_DUE);
     expect([forever.hop, forever.ran]).toEqual([6, 6]); }); // due forever still stops at the bound
-
   // TWO TABS ARE ONE COUNT. Both hops start before either lands, and the increment happens where the row is,
   // so they read 1 and 2. Counted in the app, both would have read 0 and both written 1, and the six-hop
   // bound that stops a live tab looping all day would have bounded nothing.
@@ -587,7 +583,6 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     expect(both.sort()).toEqual([1, 2]);
     expect(rows[0]!.progress.continuations).toEqual({ day, count: 2 });
     expect(await RR.countContinuationHop(T, "2026-08-09")).toBe(1); }); // a new day starts over, never adds on
-
   it("carries the day's own state onto the pass it justified: the grant, the ceiling marker, the reading receipt and the decide watermark all survive a new row, and none of them survives the day", async () => {
     const rows = freshRepo(); const day = today();
     const dayState = { extraSamples: { day, granted: 1 }, capped: { day, caseIds: ["inv_haft"] },
@@ -602,7 +597,6 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     NOW += DAY; await run({ dueWork: async () => SOMETHING_DUE }); // a new reporting day inherits none of it
     expect([rows.length, rows[2]!.progress.extraSamples, rows[2]!.progress.capped, rows[2]!.progress.synthesisAttempted])
       .toEqual([3, undefined, undefined, undefined]); });
-
   it("keeps opening passes while work is genuinely due, and refuses the 25th on one day as the absolute runaway stop", async () => {
     const rows = freshRepo(); const day = today();
     for (let i = 0; i < 23; i += 1) rows.push(mk({ id: `p${i}`, status: "completed", completed_at: iso(), current_phase: "done", cycle_key: `${T}:p${i + 1}:${day}` }));
@@ -611,7 +605,6 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     await RR.finishRun(T, twentyFourth!.id, "tab-24", "completed");
     expect(await RR.startExtraPass(T, "tab-25", day)).toBeNull(); // the honest runaway stop, not a claim that nothing is due
     expect(rows).toHaveLength(24); });
-
   it("holds the VISIT door to eight extra passes a day, so navigating cannot spend the day the scheduler needs", async () => {
     const rows = freshRepo(); const day = today();
     // Every navigation is a chance to open a pass, so this door keeps the ceiling it was sized for. The
@@ -620,7 +613,6 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     await run({ dueWork: async () => SOMETHING_DUE, refreshSources: async () => { throw new Error("no phase may run"); } });
     expect(rows).toHaveLength(8); // the 9th visit-door pass is refused, and nothing ran
     expect(await RR.startExtraPass(T, "cron", day)).not.toBeNull(); }); // the day itself still has room
-
   it("counts continuation hops on the account's own row, so a client that keeps claiming hop 0 is refused once the day's bound is spent", async () => {
     const rows = completedToday(); let cycles = 0; const seen: Array<{ hop: number; more: boolean }> = [];
     const steps = { ...BENIGN, dueWork: async () => SOMETHING_DUE,
@@ -630,13 +622,11 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     expect(seen.map((s) => s.more)).toEqual([true, true, true, true, true, false, false, false]);
     expect(cycles).toBe(6); // the last two hops ran nothing at all
     expect(rows[rows.length - 1]!.progress.continuations).toEqual({ day: today(), count: 8 }); });
-
   it("two tabs cannot both open a same-day pass: the second insert loses to the one-open-run invariant", async () => {
     const rows = completedToday();
     const one = await RR.startExtraPass(T, "tab-1", today());
     const two = await RR.startExtraPass(T, "tab-2", today()); // the first pass is still open
     expect([one?.lease_owner, two, rows.length]).toEqual(["tab-1", null, 2]); });
-
   it("marks the case a spending ceiling stopped, day-scoped on the run's own row, and the receipt reads it", async () => {
     const rows = withRun({ current_phase: "keyword_discovery" });
     await run({ funnelUnit: async () => ({ status: "failed", cursor: { stage: "competitors", cappedCase: "inv_haft" }, progress: {}, detail: "the ceiling was reached" }) });
@@ -658,7 +648,6 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     runDueAccounts({ now: () => new Date(NOW), steps: { ...BENIGN, ...steps } });
   const post = (headers: Record<string, string>) =>
     POST(new NextRequest("http://beacon.test/api/cron/scheduler", { method: "POST", headers }));
-
   it("answers 401 without the exact bearer, and 401 when CRON_SECRET is unset, so an unconfigured deploy never dispatches", async () => {
     const rows = freshRepo();
     vi.stubEnv("CRON_SECRET", "");
@@ -669,7 +658,6 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     expect((await post({ authorization: "Bearer wrong" })).status).toBe(401);
     vi.unstubAllEnvs();
     expect(rows).toHaveLength(0); }); // a refused call claims nothing, so no work leaks past the gate
-
   it("answers 200 with the dispatch's own receipt when the bearer matches, and nothing else", async () => {
     vi.stubEnv("CRON_SECRET", "s3cret");
     ROUTE.receipt = { claimed: 2, driven: 2, remaining: 0 };
@@ -677,7 +665,6 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ claimed: 2, driven: 2, remaining: 0 }); // counts only: no token, no tenant, no secret
     vi.unstubAllEnvs(); });
-
   it("claims each due account in turn and drives it through the real cycle, and its receipt carries counts and nothing else", async () => {
     const rows = freshRepo(); const log: string[] = [];
     const receipt = await dispatch(healthySteps(log));
@@ -686,7 +673,6 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     expect(log).toEqual(["refresh", "backfill", "publish", "refresh", "backfill", "publish"]); // the SAME phase order a visit drives, twice
     expect(rows.map((r) => [r.tenant_id, r.status, r.cycle_key.slice(-10)])).toEqual([[T, "completed", today()], [U, "completed", today()]]);
     expect(await dispatch(NO_PHASE)).toEqual({ claimed: 0, driven: 0, remaining: 0 }); }); // a finished day is claimed by nobody
-
   it("holds ONE live claim at a time, so an account is never leased while another is being driven", async () => {
     // THE DEFECT THIS PINS. Claiming three accounts up front left two holding live foreign leases for
     // minutes, and an operator who opened Beacon on one of them was refused by a lease taken for them.
@@ -696,7 +682,6 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
       return { attempted: 0, succeeded: [], failures: [] }; } });
     expect(receipt).toEqual({ claimed: 2, driven: 2, remaining: 0 });
     expect(leasedWhileDriving).toEqual([1, 1]); }); // never two, so a visit on the other account still wins its claim
-
   it("never starts an account it cannot give a real slice to, and releases one whose claim spent the last of it", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); rows.push(mk({ id: "a", status: "paused" }));
     const spend = (budgetMs: number, stepMs = 0) => { let reading = 0;
@@ -706,7 +691,6 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     // 60 seconds of budget against a clock that moves 20 per reading: the claim lands, the slice does not.
     expect(await spend(60_000, 20_000)).toEqual({ claimed: 1, driven: 0, remaining: 1 });
     expect([rows[0]!.status, rows[0]!.lease_owner]).toEqual(["paused", null]); }); // handed back, never left leased
-
   it("cannot double-drive: a duplicate dispatch loses at the lease seam, and a finished day is claimed again by neither", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); // one candidate, so the refusal is the whole answer
     rows.push(mk({ id: "live", status: "running", lease_owner: "other-dispatch", lease_expires_at: iso(NOW + LEASE) }));
@@ -716,21 +700,18 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     expect(fresh[0]!.status).toBe("completed");
     expect(await dispatch(NO_PHASE)).toEqual({ claimed: 0, driven: 0, remaining: 0 }); // the day it finished is not claimed again
     expect(fresh).toHaveLength(1); });
-
   it("never claims an account whose operator paused research, or one that is not active", async () => {
     const rows = freshRepo(); PAUSED.add(T); PAUSED.add(U);
     expect(await dispatch(NO_PHASE)).toEqual({ claimed: 0, driven: 0, remaining: 0 });
     PAUSED.delete(T); setAccountStatus(T, "pending_onboarding");
     expect((await dispatch(NO_PHASE)).claimed).toBe(0);
     expect(rows).toHaveLength(0); });
-
   it("plans today and never the days it missed: a run resumed after a long pause reports into today's date, and one day makes one row", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding");
     rows.push(mk({ id: "old", status: "paused", cycle_key: `${T}:2026-07-01`, started_at: iso(NOW - 30 * DAY) }));
     await dispatch();
     expect([rows.length, rows[0]!.status]).toEqual([1, "completed"]); // the one unfinished run is RESUMED, no missed day is invented
     expect(await dispatch(NO_PHASE)).toEqual({ claimed: 0, driven: 0, remaining: 0 }); });
-
   it("reports the pause switch only when the database actually took it, and both doors honour the answer", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding");
     // A PATCH that matched no row answers 204 with NO error, so a bare "no error" reported success over a
@@ -751,7 +732,6 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
   const base = { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 4, total: 4, answers: 4, due: 0 }), basis: async () => "b1",
     evidenceVersion: async () => 7, surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }),
     run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY) } }) };
-
   it("owes nothing when the sources are fresh, today's round has landed, the notes have not moved past the last decision, and the rest is waiting on a date I promised", async () => {
     const w = await dueWork(T, new Date(NOW), base);
     expect([w.due, w.readable, w.checks, w.cases, w.nextDueAt]).toEqual([[], true, { ...NO_CHECKS, done: 4, total: 4, answers: 4 }, { active: 0, parked: 1 }, new Date(NOW + DAY).toISOString()]); });

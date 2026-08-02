@@ -16,6 +16,10 @@ function hash(input: string): string {
   return createHash("sha256").update(input).digest("hex").slice(0, 16);
 }
 
+/** The per-page ceiling on stored main-content text. 100k characters is roughly 15,000 words: past
+ *  any real page, and a hard bound on one row whatever a generator emits. */
+const BODY_TEXT_CEILING = 100_000;
+
 export function extractPageSnapshot(
   html: string,
   url: string,
@@ -183,33 +187,13 @@ export function extractPageSnapshot(
     }
   });
 
-  // Plan A + B1 (2026-04-20): body paragraph sample + card/tile texts.
-  // Restricted to the content area (prefer <main> or <article>; fall back
-  // to <body> with nav/footer/header/aside removed). Excludes boilerplate
-  // so cross-page menus don't create false "covered" signals in coverage.
-  //
-  // N19 (2026-07-02): bounded main-content excerpt. Two fixes over the
-  // original Plan A/B1 pass:
-  //   1. Caps raised from 10x300 chars (3k) to MAX_PARAGRAPHS x
-  //      MAX_PARAGRAPH_CHARS so the ordered excerpt can reach the item's
-  //      ~6k-char target instead of silently topping out at half that on a
-  //      content-heavy page.
-  //   2. A block-level fallback for pages whose real body copy is NOT in
-  //      <p> tags. Ground-truthed live on tenant-iranopedia: some Wix pages
-  //      (e.g. /iran-animals) render their intro copy inside a leaf <span>
-  //      with zero <p> tags anywhere in <main>; others (e.g. the
-  //      /persian-kabobs/* pages) ship <p> tags that hold nothing but a
-  //      zero-width space (an editor-artifact placeholder), which the
-  //      existing word-count floor already correctly drops as empty. Only
-  //      the FIRST case is a real extraction gap; the fallback below fires
-  //      only when the primary <p> pass came back with zero usable
-  //      paragraphs, so it never doubles up on a page that already has
-  //      real <p> content.
+  // The ORDERED PARAGRAPH VIEW of the content area (prefer <main>/<article>; fall back to <body>
+  // minus nav/footer/header/aside). Boilerplate is excluded so cross-page menus never read as
+  // covered topics. body_text below holds the whole thing; this stays the paragraph-shaped read.
+  // The block-level fallback exists because some builders render body copy in leaf <span>/<div>
+  // nodes with zero <p> tags at all, and it fires ONLY when the <p> pass found nothing usable.
   const bodyParagraphSample: string[] = [];
   const cardTexts: string[] = [];
-  // Cap: 20 entries x 300 chars = 6000 chars, the item's "~6k chars per
-  // page" bound. Paragraphs are truncated fairly (each capped at the same
-  // per-entry length) rather than one long paragraph eating the whole budget.
   const MAX_PARAGRAPHS = 20;
   const MAX_PARAGRAPH_CHARS = 300;
   const MIN_PARAGRAPH_WORDS = 8;
@@ -340,7 +324,7 @@ export function extractPageSnapshot(
     if (rows >= 2) tableCount++; // At least header + 1 data row
   });
 
-  // ── Word count (page CONTENT only) ──
+  // ── Main content text (page CONTENT only) ──
   // Exclude nav/header/footer/aside CHROME as well as non-text nodes, so shared
   // menus/footers don't inflate the count and mask genuinely thin pages. Use a
   // fresh pruned clone so the main $ (and downstream extractors) stay untouched.
@@ -348,6 +332,16 @@ export function extractPageSnapshot(
   $wc("nav, header, footer, aside, script, style, noscript, svg, iframe").remove();
   const bodyText = $wc("body").text().replace(/\s+/g, " ").trim();
   const wordCount = bodyText ? bodyText.split(/\s+/).length : 0;
+  // THE WHOLE PAGE, KEPT (2026-08-03). The 20x300-char paragraph sample could prove a phrase was
+  // PRESENT and never that it was absent, so every whole-page judgement was unprovable. body_text
+  // holds the same de-chromed text the word count is taken from, under one explicit ceiling, and
+  // a cut is RECORDED rather than silently swallowed.
+  const bodyTextHeld = bodyText.slice(0, BODY_TEXT_CEILING);
+  if (bodyText.length > BODY_TEXT_CEILING) {
+    structuralWarnings.push(
+      `body_text_truncated: kept the first ${BODY_TEXT_CEILING} characters of ${bodyText.length}`,
+    );
+  }
 
   // ── Location + service terms (from business config or inline defaults) ──
   // The caller supplies the account's loaded BusinessProfile (async reads
@@ -363,8 +357,10 @@ export function extractPageSnapshot(
     canonicalUrl !== null && !urlsEquivalent(canonicalUrl, url);
 
   // ── Hashes ──
+  // content_hash hashes the text I actually HOLD, so "unchanged" means the content on file is the
+  // content on file, never a claim about bytes nobody kept.
   const dedupedSchemaTypes = [...new Set(schemaTypes)];
-  const contentHash = hash(bodyText);
+  const contentHash = hash(bodyTextHeld);
   const headingsHash = hash([h1 ?? "", ...h2List].join("|"));
   const faqHash = hash(faqs.map((f) => f.question).join("|"));
   const schemaHash = hash(dedupedSchemaTypes.sort().join("|"));
@@ -416,6 +412,7 @@ export function extractPageSnapshot(
     // Plan A + B1 (2026-04-20): broader page-content extraction. All four
     // fields optional on the type so prior snapshots remain valid.
     h3_list: h3List.length > 0 ? h3List : undefined,
+    body_text: bodyTextHeld || undefined,
     body_paragraph_sample:
       bodyParagraphSample.length > 0 ? bodyParagraphSample : undefined,
     card_texts: cardTexts.length > 0 ? cardTexts : undefined,

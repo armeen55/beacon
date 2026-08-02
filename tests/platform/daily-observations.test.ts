@@ -78,7 +78,6 @@ describe("daily observation plan", () => {
     // A missed day is never asked about again: yesterday plans nothing new for a today-only reader.
     expect(planObservations("2026-07-30", { prompts: PROMPTS, observed: fullDay("2026-07-30"), maxBatch: 99 })).toEqual([]);
   });
-
   it("puts core questions first and caps the plan to one bounded batch", () => {
     const mixed = [q("z-legacy", "2020-01-01", false), ...PROMPTS];
     const plan = planObservations(DAY, { prompts: mixed, observed: [], maxBatch: 99 });
@@ -87,7 +86,6 @@ describe("daily observation plan", () => {
     const wide = [...mixed, q("p4", "2026-04-01"), q("p5", "2026-05-01")]; // 6 questions x 4 engines is more than one pass may plan
     expect(planObservations(DAY, { prompts: wide, observed: [] })).toHaveLength(DAILY_OBSERVATION_BATCH);
   });
-
   it("excludes an engine it cannot ask without blocking the engines it can", () => {
     const plan = planObservations(DAY, {
       prompts: PROMPTS, observed: [], engines: ["chatgpt", "claude", "gemini"], unsupportedPairs: ["p2|claude"], maxBatch: 99,
@@ -97,7 +95,6 @@ describe("daily observation plan", () => {
     expect(plan.filter((d) => d.promptId === "p2")).toHaveLength(2); // p2 still gets every engine that works
     expect(plan).toHaveLength(8);
   });
-
   it("treats a version bump as a NEW measurement identity, and prompt-set bumps it on a rewording and on a revival", () => {
     // Series 1 was fully read today. Bump the question to series 2 and it is owed again, under the new identity.
     const bumped = [{ ...PROMPTS[0]!, version: 2 }, PROMPTS[1]!, PROMPTS[2]!];
@@ -131,21 +128,17 @@ describe("extra readings", () => {
     expect(early.due).toEqual([]);
     expect(early.reason).toContain("11 question and engine pairs");
     expect(early.reason).not.toMatch(/[\u2014\u2013]/); // Beacon voice: no em or en dash, ever
-
     const after = extraSampleVerdict(DAY, { ...base, observed: fullDay() });
     expect(after.granted).toBe(true);
     expect(after.due).toHaveLength(12);
     expect(after.due.every((d) => d.slot === 1)).toBe(true);
-
     const twice = extraSampleVerdict(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)], extraSamples: 1 }); // one already granted; this is the second press
     expect(twice.granted && twice.due.every((d) => d.slot === 2)).toBe(true);
-
     const full = extraSampleVerdict(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1), ...fullDay(DAY, 2)], extraSamples: 2 });
     expect(full.granted).toBe(false);
     expect(full.due).toEqual([]);
     expect(full.reason).toContain(`${MAX_SAMPLES_PER_DAY} readings`);
   });
-
   it("never plans slot 1 or 2 without an explicit ask, and stops at three even when asked", () => {
     expect(planObservations(DAY, { ...base, observed: fullDay(), maxBatch: 99 })).toEqual([]); // complete day, no ask, no work
     const capped = planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1), ...fullDay(DAY, 2)], extraSamples: 2, maxBatch: 99 });
@@ -156,7 +149,6 @@ describe("extra readings", () => {
     expect(planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)], extraSamples: 1, maxBatch: 99 })).toEqual([]);
     expect(planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)], extraSamples: 2, maxBatch: 99 }).every((d) => d.slot === 2)).toBe(true);
   });
-
   it("refuses honestly rather than guessing when it cannot read where today stands", async () => {
     const out = await requestExtraSample(T, DAY, {
       readPrompts: async () => null,
@@ -165,7 +157,6 @@ describe("extra readings", () => {
     expect([out.granted, out.due]).toEqual([false, []]);
     expect(out.reason).toContain("could not read");
   });
-
   it("SAVES the grant so the next pass actually plans it, and refuses rather than promising a reading it could not record", async () => {
     let stored: ExtraSampleGrant | null = null;
     const world = { readPrompts: async () => PROMPTS, readObservations: async () => fullDay(),
@@ -184,7 +175,6 @@ describe("extra readings", () => {
     expect([lost.granted, lost.due]).toEqual([false, []]);
     expect(lost.reason).toContain("could not save");
   });
-
   it("reports today's standing with the plan, so the progress number a surface shows is the planner's own arithmetic", async () => {
     const world = { readPrompts: async () => PROMPTS, readMarkers: async () => null };
     const cold = await dailyChecks(T, DAY, { ...world, readObservations: async () => [] });
@@ -197,7 +187,6 @@ describe("extra readings", () => {
     expect((await dailyChecks(T, DAY, { ...world, readObservations: async () => fullDay("2026-07-30") }))!.done).toBe(0);
     expect(await dailyChecks(T, DAY, { ...world, readObservations: async () => { throw new Error("store down"); } })).toBeNull();
   });
-
   it("plans NOTHING and says so when it cannot read the questions or the answers already on file", async () => {
     const prompts = async () => PROMPTS, observed = async () => [], readMarkers = async () => null;
     expect(await dueObservations(T, DAY, { readPrompts: async () => null, readObservations: observed, readMarkers })).toBeNull();
@@ -211,7 +200,6 @@ describe("reading the approved questions", () => {
   beforeEach(() => { pg.queued = []; pg.queries = 0; pg.cols = []; });
   const missingColumn = { data: null, error: { code: "42703", message: 'column tracked_prompts.version does not exist' } };
   const rows = [{ id: "p1", text: "question p1", tags: ["core_v1"], is_active: true, created_at: "2026-01-01" }];
-
   it("retries without the version columns ONLY when they are genuinely missing, and never reads a live row as series 1 on a transient failure", async () => {
     // The deploy-before-migration window: the columns really are absent, so the retry is the honest read.
     pg.queued = [missingColumn, { data: rows, error: null }];
@@ -241,17 +229,14 @@ describe("reading the answers back", () => {
     promptText: "who is open on sunday", answerText: "Acme is open on Sundays.", answerHash, citationUrls: null,
     analysis: analysed ? { ok: true } : null, analysisHash,
   });
-
   /** A batch reading that answers every observation it was handed. */
   const readsAll = async ({ targets }: { targets: readonly { row: { id: string } }[] }) =>
     new Map(targets.map((t) => [t.row.id, analysis]));
-
   it("analyses only what is new: ONE call for a batch of fresh answers, none for an answer already read, and nothing at all on a re-run", async () => {
     const fresh = row("a", "h1", null, false);          // never analysed
     const stale = row("b", "h2-new", "h2-old", true);   // the answer changed under an old analysis
     const done = row("c", "h3", "h3", true);            // already read at this exact hash
     expect(selectAnalysisTargets([fresh, stale, done]).map((r) => r.id)).toEqual(["a", "b"]);
-
     const groups: number[] = [], saved: Array<[string, string]> = [];
     const deps = { readObservations: async () => [fresh, stale, done], readPrompts: async () => null, identity: BRAND,
       analyzeBatch: async (i: { targets: readonly { row: { id: string } }[] }) => { groups.push(i.targets.length); return readsAll(i); },

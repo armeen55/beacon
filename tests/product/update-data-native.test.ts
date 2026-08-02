@@ -8,7 +8,7 @@ type Verdict = { granted: boolean; reason: string; due: { promptId: string }[] }
 const GRANTED: Verdict = { granted: true, reason: "I will take a second reading on 3 question and engine pairs on the next pass.", due: [{ promptId: "p1" }, { promptId: "p2" }, { promptId: "p3" }] };
 const REFUSED: Verdict = { granted: false, due: [], reason: "I still owe today's one reading on 11 question and engine pairs, and an extra read before that is done would tilt today's average. I finish today's round first, then a second read is worth taking." };
 const CALLS = vi.hoisted(() => ({ extraSample: 0, warm: 0, synced: 0, connected: false, extraDays: [] as string[],
-  verdict: { granted: true, reason: "I will take a second reading on 3 question and engine pairs on the next pass.", due: [{ promptId: "p1" }, { promptId: "p2" }, { promptId: "p3" }] } as { granted: boolean; reason: string; due: { promptId: string }[] } }));
+  verdict: { granted: true, reason: "I will take a second reading on 3 question and engine pairs on the next pass.", due: [{ promptId: "p1" }, { promptId: "p2" }, { promptId: "p3" }] } as Verdict }));
 
 const sync = vi.hoisted(() => async () => { CALLS.synced += 1; return { synced: true, rows_upserted: 4 }; });
 vi.mock("@/lib/connectors/gsc/sync-search-analytics", () => ({ syncGscSearchAnalyticsForTenant: sync }));
