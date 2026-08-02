@@ -1,18 +1,16 @@
 import { Suspense } from "react";
 
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireReadyAccount } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
-import { scheduleAutoMeasure, visibilitySeries } from "@/domains/measurement";
+import { scheduleAutoMeasure } from "@/domains/measurement";
 import { bundleReads, splitReads, type BundleRead } from "@/domains/measurement";
 import { loadResultsLedgerSurface } from "./results-ledger-data";
 import { ResultCard } from "./results-ledger-card";
-import { aiTrend, type ShipmentPresentation } from "./results-presentation";
+import type { ShipmentPresentation } from "./results-presentation";
 import { RecomputeLedgerButton, RecordAnyPageForm } from "./proof-ledger-client";
 import { ResultsTimeline } from "../changes/results-timeline";
-
-/** How many reporting days the AI trend draws. */
-const TREND_DAYS = 28;
 
 /**
  * Results (CORE 100K) - every change I made and whether it helped. Each change is
@@ -38,9 +36,6 @@ export default async function ProofPage({
 
   // Settle due rows in the background (never blocks this render).
   if (reads.length > 0) scheduleAutoMeasure(tenantId);
-
-  // The AI trend reads answers already bought and stored; it never spends anything.
-  const trend = aiTrend(await visibilitySeries(tenantId, TREND_DAYS).catch(() => []));
 
   // The kernel's bandOf owns maturity now: "won" is 28-day evidence only and
   // "promising" is the earlier improvement band, on every surface at once.
@@ -75,14 +70,9 @@ export default async function ProofPage({
         ) : null}
       </div>
 
-      <section className="mb-5 rounded-lg border border-border-subtle bg-surface-raised px-4 py-3">
-        <h2 className="text-[12px] font-semibold uppercase tracking-wide text-foreground/70">How often AI assistants name you</h2>
-        <p className="mb-2 mt-0.5 text-[11px] text-muted-foreground">
-          Read from the answers I have already collected. Where an assistant changed how it answers, I break the
-          line and say so instead of drawing straight through it.
-        </p>
-        <VisibilityTrend trend={trend} />
-      </section>
+      {/* Phase 7: the AI trend lives on Visibility now, with its engine, question and citation drill-downs. */}
+      <p className="mb-5 text-[13px] text-muted-foreground">How often AI assistants name you, question by question and assistant
+        by assistant, is on <Link href="/visibility" className="font-medium text-accent-primary underline underline-offset-2">Visibility</Link>.</p>
 
       {reads.length === 0 ? (
         <div className="rounded-lg border border-border-subtle bg-surface-raised px-4 py-6 text-[13px] text-muted-foreground">
@@ -131,62 +121,6 @@ function Band({ title, tone, shipments, blurb }: { title: string; tone: string; 
       <div className="space-y-2">
         {shipments.map((s) => (
           <ResultCard key={s.read.id} shipment={s} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/**
- * The AI visibility trend. THE BREAK IS THE POINT: when an assistant changes the model behind its
- * answers, or the way it answers at all, the readings either side come from two different
- * instruments, so the line STOPS, the break is drawn and named, and a new line starts. A joined
- * line would sell an instrument change as a win or a loss.
- */
-const TREND_H = 56;
-const TREND_STEP = 14;
-
-function TrendRun({ points }: { points: ReturnType<typeof aiTrend>["runs"][number]["points"] }) {
-  const read = points.filter((p) => p.rate != null);
-  if (read.length === 0) {
-    return <p className="text-[11px] text-muted-foreground">Nobody has read an answer from this stretch closely enough for me to plot it.</p>;
-  }
-  const w = Math.max(TREND_STEP, (read.length - 1) * TREND_STEP);
-  const y = (rate: number): number => TREND_H - 6 - rate * (TREND_H - 12);
-  const d = read.map((p, i) => `${i === 0 ? "M" : "L"} ${i * TREND_STEP} ${y(p.rate ?? 0)}`).join(" ");
-  return (
-    <div className="overflow-x-auto">
-      <svg width={w + 8} height={TREND_H} viewBox={`0 0 ${w + 8} ${TREND_H}`} role="img"
-        aria-label={`How often AI assistants named you, ${read[0]!.label} to ${read[read.length - 1]!.label}`}>
-        {read.length > 1 ? <path d={d} fill="none" stroke="currentColor" strokeWidth="1.5" className="text-emerald-600" /> : null}
-        {read.map((p, i) => <circle key={p.day} cx={i * TREND_STEP} cy={y(p.rate ?? 0)} r="2" className="fill-emerald-600" />)}
-      </svg>
-      <p className="text-[10px] tabular-nums text-muted-foreground">{read[0]!.label} to {read[read.length - 1]!.label}</p>
-    </div>
-  );
-}
-
-function VisibilityTrend({ trend }: { trend: ReturnType<typeof aiTrend> }) {
-  if (trend.runs.length === 0) {
-    return (
-      <p className="text-[12px] text-muted-foreground">
-        I have not read enough AI answers to draw your trend yet. I read them on the days you are signed in, and
-        the line starts as soon as there are two days to join.
-      </p>
-    );
-  }
-  return (
-    <div className="space-y-2">
-      {trend.summary ? <p className="text-[12px] text-foreground">{trend.summary}</p> : null}
-      <div className="flex flex-wrap items-end gap-3">
-        {trend.runs.map((run, i) => (
-          <div key={i} className="flex items-end gap-3">
-            {i > 0 ? <span aria-hidden className="mb-6 h-8 w-px bg-amber-400" /> : null}
-            <div>
-              {run.breakLabel ? <p className="mb-1 max-w-[280px] text-[10px] text-amber-800">{run.breakLabel}</p> : null}
-              <TrendRun points={run.points} />
-            </div>
-          </div>
         ))}
       </div>
     </div>

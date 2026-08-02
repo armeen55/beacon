@@ -126,19 +126,6 @@ describe("the daily AI trend, over stored answers only", () => {
       { engine: "claude", modelServed: "claude-4", mode: "api", asked: 1, observed: 1, mentioning: 0, citedOwned: 0 },
     ]);
   });
-  it("ranks the competitors the answers kept naming, bounded", async () => {
-    const withRivals = (day: string, names: string[]) => row({
-      day, prompt_id: `p-${day}`, mentioned: false,
-      analysis: { ownedBrandMention: { mentioned: false, position: null, context: null }, competitors: names.map((name, i) => ({ name, position: i + 1 })) },
-    });
-    const readObservations = reader([
-      withRivals("2026-07-20", ["Rival One", "Rival Two"]),
-      withRivals("2026-07-21", ["Rival One"]),
-    ]);
-    const report = await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-21", readObservations });
-    expect(report.competitors[0]).toEqual({ name: "Rival One", answers: 2, meanPosition: 1 });
-    expect(report.competitors[1]).toEqual({ name: "Rival Two", answers: 1, meanPosition: 2 });
-  });
   it("asks the store for the day range and the first readings, so nothing is narrowed after the read", async () => {
     const readObservations = reader([row({ day: "2026-07-20", mentioned: true })]);
     await aiOutcomes(T, { from: "2026-07-19", to: "2026-07-21", readObservations });

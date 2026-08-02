@@ -5,6 +5,8 @@ import "server-only";
  * Every number is computed at read time from answers ALREADY bought and stored: nothing fetched, paid,
  * or written, so the summary can never drift from the answers it claims to summarize. SLOT 0 ONLY:
  * volatility samples are never trend (a question sampled three times must not outvote one read once).
+ * WHO ELSE THE ANSWERS NAMED left this report in Phase 7: the classified competitor landscape
+ * (evidence/competitors) is what Visibility renders, with a group and a why per domain.
  * NULL IS A CLAIM: "no answer of yours was analyzed" and "you were named in none" are different
  * statements, and a missing day stays absent, never filled from its neighbours. MODEL AND MODE
  * BOUNDARIES ARE VISIBLE: a change in either splits the series into named segments, so a step reads
@@ -24,13 +26,9 @@ import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonic
 const FIRST_READING_SLOT = 0; // slot 0: the ONE canonical reading of a question on a day
 const SHIPMENT_WINDOW_DAYS = 28; // the longest stretch one Shipment is judged over
 const FLAT_BAND = 0.05; // under five points either way is not a move I am willing to call
-const MAX_COMPETITORS = 10;
 
 type ObservedLink = { url: string; domain: string; title: string | null };
-type Analysis = {
-  ownedBrandMention?: { mentioned?: unknown } | null;
-  competitors?: Array<{ name?: unknown; position?: unknown }> | null;
-};
+type Analysis = { ownedBrandMention?: { mentioned?: unknown } | null };
 
 /** The injectable read. Production passes nothing and gets the stored-observation reader itself. The DAY
  *  RANGE is part of the ask, so the store returns the requested stretch and nothing outside it, and so is
@@ -78,8 +76,6 @@ export type AiOutcomeReport = {
   /** Days in the range that carry at least one first reading. A missed day stays missed. */
   daysObserved: number;
   segments: OutcomeSegment[];
-  /** Who else the answers kept naming, most-named first. */
-  competitors: Array<{ name: string; answers: number; meanPosition: number | null }>;
 };
 
 /** What the AI answers did around one shipped change. Direction only: this is an observation, not a proof. */
@@ -259,28 +255,6 @@ function segmentize(days: OutcomeDay[]): OutcomeSegment[] {
   return segments;
 }
 
-/** Who else the answers named, over the answers that were actually read closely. */
-function competitorsIn(rows: AiObservationRecord[]): AiOutcomeReport["competitors"] {
-  const tally = new Map<string, { answers: number; posSum: number; posCount: number }>();
-  for (const r of rows) {
-    const named = ((r.analysis as Analysis | null)?.competitors ?? []) as Array<{ name?: unknown; position?: unknown }>;
-    const seen = new Set<string>();
-    for (const c of named) {
-      const name = typeof c?.name === "string" ? c.name.trim() : "";
-      if (!name || seen.has(name.toLowerCase())) continue;
-      seen.add(name.toLowerCase());
-      const acc = tally.get(name) ?? { answers: 0, posSum: 0, posCount: 0 };
-      acc.answers += 1;
-      if (typeof c.position === "number" && Number.isFinite(c.position)) { acc.posSum += c.position; acc.posCount += 1; }
-      tally.set(name, acc);
-    }
-  }
-  return [...tally.entries()]
-    .map(([name, a]) => ({ name, answers: a.answers, meanPosition: a.posCount > 0 ? r3(a.posSum / a.posCount) : null }))
-    .sort((a, b) => b.answers - a.answers || a.name.localeCompare(b.name))
-    .slice(0, MAX_COMPETITORS);
-}
-
 /** The stored first readings OVER ONE DAY RANGE: range and slot are asked for in the QUERY and the
  *  store pages until the range is exhausted (the newest-2,000 shot built a 28 day report from a
  *  fortnight). The filter after the read is the belt to those braces. */
@@ -310,7 +284,6 @@ export async function aiOutcomes(
     to: range.to,
     daysObserved: days.filter((d) => d.observed > 0).length,
     segments: segmentize(days),
-    competitors: competitorsIn(rows.filter(cameBack)),
   };
 }
 

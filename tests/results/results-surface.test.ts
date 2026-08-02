@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { evaluateChange, evaluateWindows, type KernelInput } from "@/domains/measurement/proof-gsc/kernel";
-import type { AiOutcomeReport, ShipmentAiOutcome, ShipmentVerification } from "@/domains/measurement";
-import { aiTrend, shipmentStory, type ShipmentPresentation } from "@/app/(shell)/results/results-presentation";
+import type { ShipmentAiOutcome, ShipmentVerification } from "@/domains/measurement";
+import { shipmentStory, type ShipmentPresentation } from "@/app/(shell)/results/results-presentation";
 
 /**
  * RESULTS, WHOLE (V1 Truth Convergence Phase 8). These pin what a customer READS on a shipped
@@ -9,9 +9,9 @@ import { aiTrend, shipmentStory, type ShipmentPresentation } from "@/app/(shell)
  * been read so far, what happened in Google and in AI answers, and what I take away. Fixtures only,
  * zero network.
  *
- * The two promises that matter most here: a measurement window shared with a later change is never
- * painted as this change's own win, and a trend is never drawn across the day an assistant changed
- * how it answers.
+ * The promise that matters most here: a measurement window shared with a later change is never
+ * painted as this change's own win. The AI trend and its named breaks moved to Visibility with the
+ * surface that draws them (tests/product/visibility-surface.test.ts).
  */
 
 const NOW = new Date("2026-06-01T00:00:00Z");
@@ -127,42 +127,6 @@ describe("one shipped change tells its whole story", () => {
   });
 });
 
-// ── the AI trend and its breaks ─────────────────────────────────────────────
-
-const day = (d: string, rate: number | null, analyzed = 10): AiOutcomeReport["segments"][number]["days"][number] => ({
-  day: d, observed: 10, analyzed, mentioning: Math.round((rate ?? 0) * analyzed), mentionRate: rate,
-  citationSample: 0, ownedCiting: 0, ownedCitationRate: null, ownedCitationRank: null,
-  retrievalSample: 0, ownedRetrieved: 0, retrievedNotCited: 0, retrievedNotCitedRate: null, byEngine: [],
-});
-
-describe("the AI trend never draws across a change of instrument", () => {
-  const segments: AiOutcomeReport["segments"] = [
-    { from: "2026-05-01", to: "2026-05-02", models: [], boundary: null, days: [day("2026-05-01", 0.2), day("2026-05-02", 0.25)] },
-    {
-      from: "2026-05-03", to: "2026-05-04", models: [],
-      boundary: [{ engine: "chatgpt", day: "2026-05-03", fromModel: "a", toModel: "b", fromMode: "api", toMode: "api" }],
-      days: [day("2026-05-03", 0.5), day("2026-05-04", 0.55)],
-    },
-  ];
-  it("draws two separate runs and names the break in plain words", () => {
-    const trend = aiTrend(segments);
-    expect(trend.runs).toHaveLength(2);
-    expect(trend.runs[0]!.breakLabel).toBeNull();
-    expect(trend.runs[1]!.breakLabel).toBe("ChatGPT changed the version behind its answers on May 3, so I start a new line here rather than joining two different readings.");
-    // The two runs hold their own days: nothing is merged into one continuous line.
-    expect(trend.runs.map((r) => r.points.map((p) => p.label))).toEqual([["May 1", "May 2"], ["May 3", "May 4"]]);
-  });
-  it("says out loud that the line breaks, so a step is never read as a win", () => {
-    expect(aiTrend(segments).summary)
-      .toBe("On May 4 you were named in 55 out of every 100 answers I read closely. The line breaks once because an assistant changed how it answers, and I never draw across a break.");
-  });
-  it("claims nothing at all when no answer has been read closely", () => {
-    const trend = aiTrend([{ from: "2026-05-01", to: "2026-05-01", models: [], boundary: null, days: [day("2026-05-01", null, 0)] }]);
-    expect(trend.summary).toBeNull();
-    expect(aiTrend([]).runs).toEqual([]);
-  });
-});
-
 // ── the sweep ───────────────────────────────────────────────────────────────
 
 describe("no Results string reaches the operator carrying jargon", () => {
@@ -178,10 +142,7 @@ describe("no Results string reaches the operator carrying jargon", () => {
       ...s.timeline.map((t) => t.label), ...s.chips.map((c) => c.text),
       s.search.headline, ...s.search.caveats, s.learning,
       ...(s.ai ? [s.ai.heading, s.ai.coverage, s.ai.line] : []),
-    ]).concat(aiTrend([
-      { from: "2026-05-01", to: "2026-05-01", models: [], boundary: null, days: [day("2026-05-01", 0.2)] },
-      { from: "2026-05-02", to: "2026-05-02", models: [], boundary: [{ engine: "gemini", day: "2026-05-02", fromModel: "a", toModel: "b", fromMode: "api", toMode: "consumer" }], days: [day("2026-05-02", 0.4)] },
-    ]).runs.flatMap((r) => [r.breakLabel ?? "", ...r.points.map((p) => p.label)]));
+    ]);
     for (const s of strings) {
       expect(s, `dash in: ${s}`).not.toMatch(/[–—]/);
       expect(s, `raw date stamp in: ${s}`).not.toMatch(/\d{4}-\d{2}-\d{2}/);

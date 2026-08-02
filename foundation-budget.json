@@ -22,6 +22,7 @@
       "/",
       "(shell)",
       "(shell)/today",
+      "(shell)/visibility",
       "(shell)/changes",
       "(shell)/changes/[id]",
       "(shell)/results",

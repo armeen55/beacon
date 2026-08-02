@@ -5,14 +5,14 @@
  * it, one plain sentence with the week-over-week verdict. Server component, pure SVG, no deps,
  * fail-soft (self-hides without enough history so it never renders an empty box).
  */
+import Link from "next/link";
 import { loadDailyTotalsForTenant } from "@/domains/decision";
 import { loadShippedChanges } from "@/domains/measurement";
 import { buildScoreboard, buildMoneyLine, type Scoreboard } from "@/domains/measurement";
 import { loadRevenueByDayForTenant } from "@/domains/measurement";
 import { loadOwnCitationsByDay } from "@/domains/decision";
 import { currentTenantSlug } from "@/lib/tenant-context";
-import { Sparkline } from "@/components/data/sparkline";
-import { ScoreboardChartTabs, type ChartTabDef } from "./scoreboard-chart-tabs";
+import { ScoreboardChartTabs } from "./scoreboard-chart-tabs";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
 // R14b (receipts everywhere) - the one-line receipt under the hero numbers: what
@@ -22,10 +22,6 @@ import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
 // that do not mention the business name, windowed on the SAME reported days the
 // headline uses. Fail-soft null -> the sub-line self-hides.
 import { loadScoreboardBrandLens } from "@/domains/evidence";
-// R17b (v1 136 + 268) - the weekly "how you show up" lens: rich-result styling
-// share + phones vs computers, from the weekly GSC dimensions store. Fail-soft
-// null -> the expander self-hides.
-import { loadGscWeeklyLens } from "@/domains/evidence";
 // R17b (v1 264) - the dotted "still settling" tail: Google's EARLY counts for
 // the final-lag days the chart's final lane excludes. Opt-in read behind a 3h
 // volatile cache; fail-soft null -> no tail, chart byte-identical.
@@ -144,42 +140,7 @@ function Chart({ s, freshTail }: { s: Scoreboard; freshTail?: FreshTailPoint[] |
   );
 }
 
-/** Plain "Jul 2" style date label for the A1 honest-staleness suffix, Pacific time
- *  to match the rest of Today's date formatting. Null input (bad/missing timestamp)
- *  renders nothing, never a garbled date. */
-function staleDateLabel(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return null;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Los_Angeles" });
-}
-
-/** The window the AI citation count actually covers. "The last 30 days" is only
- *  true while the observations are current; once the newest CITED day is more than
- *  seven days old the phrase names the day the data really ends, so a paused
- *  tracker can never read as live. Seven days (not three) because the daily series
- *  omits zero-citation days: a live tracker with a quiet week must not read as
- *  stale. Timezone matches the neighboring stale label (Pacific). PURE. */
-function aiWindowPhrase(latestDay: string | null, nowMs: number): string {
-  const t = latestDay ? Date.parse(`${latestDay.slice(0, 10)}T00:00:00Z`) : NaN;
-  if (!Number.isFinite(t) || nowMs - t <= 7 * 86_400_000) return "in the last 30 days";
-  const ending = new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Los_Angeles" });
-  return `in the 30 days ending ${ending}`;
-}
-
-export async function ScoreboardSection({
-  tenantId,
-  stale = false,
-  staleCheckedAt = null,
-}: {
-  tenantId: string;
-  /** A1 (operator-experience fix batch) - true when the latest sync hit a pipeline
-   *  invariant violation (e.g. wrote 0 rows). The citations stat then carries an honest
-   *  "numbers last updated" suffix instead of implying the count is current. */
-  stale?: boolean;
-  /** ISO timestamp of the last pipeline health check, for the suffix date. */
-  staleCheckedAt?: string | null;
-}) {
+export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
   try {
     // FP1 (2026-07-02) - deadline-bounded so the hero chart's pulse skeleton can
     // never strand; past the deadline the section says so in one honest line.
@@ -194,15 +155,10 @@ export async function ScoreboardSection({
     );
     if (raced.timedOut) return <HonestDelay />;
     const [daily, ledger, slug, revenueDays] = raced.data;
-    // Item 9 - the AI-visibility mini-scoreboard: your own domain's citations over time,
-    // next to the Google chart. Fail-soft -> band self-hides. Deadline-bounded like the
-    // reads above so one slow follow-up read cannot re-strand the section.
-    const citations = slug
-      ? await valueWithDeadline(
-          loadOwnCitationsByDay(tenantId, slug).catch(() => ({ daily: [] as Array<{ date: string; clicks: number }>, total: 0 })),
-          { daily: [] as Array<{ date: string; clicks: number }>, total: 0 },
-        )
-      : { daily: [] as Array<{ date: string; clicks: number }>, total: 0 };
+    // Item 9 - your own domain's citations per day, the chart's AI tab. Deadline-bounded like the
+    // reads above so one slow follow-up read cannot re-strand the section; fail-soft to no tab.
+    const none = { daily: [] as Array<{ date: string; clicks: number }>, total: 0 };
+    const citations = slug ? await valueWithDeadline(loadOwnCitationsByDay(tenantId, slug).catch(() => none), none) : none;
     // Wave 3A: pass the FULL ledger rows (windows + baseline), not a slim verdict-string
     // projection, so buildScoreboard tones each chart marker through the canonical lifecycle
     // rule (splitLedgerLifecycle). The measuring count and next-read date are NOT read here:
@@ -221,20 +177,14 @@ export async function ScoreboardSection({
       null,
     );
 
-    // R17b (v1 136 + 268) - the weekly "how you show up" lens (rich styling +
-    // devices, $0 store read) and (v1 264) the dotted settling tail. W2-B: the tail
-    // is now a CACHE-ONLY read on the render path (no live GSC query on the critical
-    // path); the one bounded live searchanalytics.query is moved to an after()
-    // refresh below, so the render serves the last cached tail instantly and warms
-    // the next one in the background. Both deadline-bounded + fail-soft.
+    // R17b (v1 264) - the dotted settling tail: a CACHE-ONLY read on the render path, with the one
+    // bounded live searchanalytics.query moved to the after() refresh below, so the render serves
+    // the last cached tail instantly and warms the next one in the background.
     const lastReportedDate = s.days[s.days.length - 1]?.date ?? null;
-    const [weeklyLens, freshTailCached] = await Promise.all([
-      valueWithDeadline(loadGscWeeklyLens(tenantId).catch(() => null), null),
-      valueWithDeadline(
-        readGscFreshTailCached(tenantId, lastReportedDate).catch(() => null),
-        null,
-      ),
-    ]);
+    const freshTailCached = await valueWithDeadline(
+      readGscFreshTailCached(tenantId, lastReportedDate).catch(() => null),
+      null,
+    );
     const freshTail = freshTailCached?.points ?? null;
     // Warm the settling tail OFF the render path: schedule the live refresh when
     // there is no cached window yet, or the cached one is past its 3h TTL. The
@@ -246,15 +196,10 @@ export async function ScoreboardSection({
       });
     }
 
-    // UX4 item 2 - the chart's Google/AI visibility/Value tabs, built from series ALREADY loaded
-    // above for this same section (citations.daily, revenueDays) - no new reads. A GA4 sessions
-    // day-series loader does not exist yet, so Visitors passes an empty series and the tab
-    // self-hides rather than inventing a load or a fake chart.
-    const chartTabs: ChartTabDef[] = [
-      { id: "ai", label: "AI visibility", color: "#db2777", unitLabel: "citations", points: citations.daily.map((d) => ({ date: d.date, value: d.clicks })) },
-      { id: "visitors", label: "Visitors", color: "#0891b2", unitLabel: "sessions", points: [] },
-      { id: "value", label: "Value", color: "#059669", unitLabel: "dollars", points: revenueDays.filter((d) => d.revenueUsd > 0).map((d) => ({ date: d.day, value: d.revenueUsd })) },
-    ];
+    // The chart's Google / AI answers pair, from the citation series ALREADY loaded above: no new
+    // reads. Visitors and Value are gone (Phase 7): sessions and dollars modify a decision, they are
+    // not a visibility surface, and the deep read lives on Visibility now.
+    const aiPoints = citations.daily.map((d) => ({ date: d.date, value: d.clicks }));
 
     const deltaTone = s.deltaPct == null ? "text-gray-500 dark:text-neutral-400" : s.deltaPct > 2 ? "text-emerald-600 dark:text-emerald-400" : s.deltaPct < -2 ? "text-amber-600 dark:text-amber-400" : "text-gray-500 dark:text-neutral-400";
     return (
@@ -296,7 +241,7 @@ export async function ScoreboardSection({
               ) : null}
             </>
           }
-          otherTabs={chartTabs}
+          aiPoints={aiPoints}
         />
         <p className="mt-1 text-[13px] text-gray-600 dark:text-neutral-300">{s.verdictLine}</p>
         {/* R17a (brand split) - the growth lens: clicks from searches that do
@@ -316,67 +261,14 @@ export async function ScoreboardSection({
             note: "Google reports a few days behind.",
           })}
         />
-        {/* R17b (v1 136 + 268) - the weekly "how you show up" expander: rich
-            styling share + phones vs computers, receipt-styled lines from the
-            weekly store. Self-hides when no weekly snapshot exists yet. */}
-        {weeklyLens ? (
-          <details className="mt-1">
-            <summary className="cursor-pointer text-meta text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
-              How you show up on Google
-            </summary>
-            <div className="mt-1 space-y-0.5">
-              {weeklyLens.deviceLine ? (
-                <p className="text-meta text-muted-foreground tabular-nums">{weeklyLens.deviceLine}</p>
-              ) : null}
-              {/* R17c item 428 - which markets your Google traffic comes from,
-                  from the weekly country pull. Self-hides without country grain. */}
-              {weeklyLens.countryLine ? (
-                <p className="text-meta text-muted-foreground tabular-nums">{weeklyLens.countryLine}</p>
-              ) : null}
-              {weeklyLens.appearanceLine ? (
-                <p className="text-meta text-muted-foreground tabular-nums">{weeklyLens.appearanceLine}</p>
-              ) : null}
-              {weeklyLens.appearanceDropLine ? (
-                <p className="text-meta text-muted-foreground tabular-nums">{weeklyLens.appearanceDropLine}</p>
-              ) : null}
-              <ReceiptLine
-                line={buildReceiptLine({
-                  source: "your Search Console data",
-                  through: weeklyLens.weekEnd,
-                  checkedAt: weeklyLens.pulledAt,
-                  nowMs: Date.now(),
-                  note: "I check this once a week.",
-                })}
-              />
-            </div>
-          </details>
-        ) : null}
+        {/* Phase 7: the weekly "how you show up" expander and the AI citation strip moved to Visibility,
+            which owns the deep read. Today keeps the compact overview: chart, verdict, lens, receipt. */}
         {moneyLine ? (
           <p className="mt-1 text-[13px] font-medium text-emerald-700 dark:text-emerald-300">{moneyLine}</p>
         ) : null}
-        {citations.total > 0 ? (
-          <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2 text-[12px] text-gray-600 dark:border-neutral-800 dark:text-neutral-300 tabular-nums">
-            <span className="font-semibold text-pink-700 dark:text-pink-300">AI cited your pages {citations.total.toLocaleString()} time{citations.total === 1 ? "" : "s"} {aiWindowPhrase(citations.daily[citations.daily.length - 1]?.date ?? null, Date.now())}.</span>
-            {citations.daily.length >= 5 ? <Sparkline points={citations.daily} width={96} height={18} className="inline-block opacity-80" /> : null}
-            <span className="text-[11px] text-gray-400 dark:text-neutral-500">citations of your pages in AI answers, per day</span>
-            {/* R14b (receipts everywhere) - the AI count's own receipt, from the same
-                citation series just rendered. No new reads. */}
-            <ReceiptLine
-              line={buildReceiptLine({
-                source: "your AI answer tracking",
-                through: citations.daily[citations.daily.length - 1]?.date ?? null,
-                nowMs: Date.now(),
-              })}
-            />
-            {/* A1 - honest badge when the latest sync hit a data-pipe problem: this count
-                may not include the latest activity, so say so instead of reading as fully current. */}
-            {stale ? (
-              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-                numbers last updated {staleDateLabel(staleCheckedAt) ?? "recently"}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
+        <Link href="/visibility" className="mt-1 inline-block text-[12px] font-medium text-accent-primary underline underline-offset-2">
+          See where you stand in Google and AI answers
+        </Link>
       </section>
     );
   } catch {

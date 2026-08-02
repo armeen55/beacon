@@ -127,7 +127,7 @@ export type {
   AiObservationView,
   DueObservation,
 } from "./ai-visibility/ai-observations";
-export { persistAnswerAnalysis, readAiObservations, readAiObservationViews } from "./ai-visibility/ai-observations";
+export { isAnalysisSettled, persistAnswerAnalysis, readAiObservations, readAiObservationViews } from "./ai-visibility/ai-observations";
 
 // AI engines the tenant prompt library is tracked across (canonical union)
 export { ALL_ENGINES, type EngineId } from "./readers/engine-types";

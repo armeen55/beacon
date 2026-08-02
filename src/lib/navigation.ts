@@ -1,5 +1,6 @@
 import {
   Sun,
+  Eye,
   Settings,
   ListTodo,
   LineChart,
@@ -51,6 +52,7 @@ export const navigationGroups: NavGroup[] = [
     label: "",
     items: [
       { label: "Today", href: "/", icon: Sun },
+      { label: "Visibility", href: "/visibility", icon: Eye },
       { label: "Changes", href: "/changes", icon: ListTodo },
       { label: "Results", href: "/results", icon: LineChart },
     ],
