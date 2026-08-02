@@ -153,6 +153,9 @@ export async function loadEvidenceSnapshot(
       wordCount: s.word_count ?? 0,
       internalLinks: (s.internal_links ?? []).map((l) => ({ href: l.href, anchorText: l.anchor_text })),
       fetchedAt: s.fetched_at ?? null,
+      canonicalUrl: s.canonical_url ?? null,
+      hasCanonicalMismatch: s.has_canonical_mismatch ?? null,
+      robotsMeta: s.robots_meta ?? null,
     }));
   // Keep the newest snapshot per URL only.
   const wixByUrl = new Map<string, { url: string } & OwnedPageContent>();

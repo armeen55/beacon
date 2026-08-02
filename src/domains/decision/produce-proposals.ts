@@ -3,20 +3,18 @@
  * ChangeProposals - loadEvidenceSnapshot ($0, six cached sources) -> compileCandidates (the honest diagnosis:
  * act / watch / do nothing) -> candidatesToEvidenceInputs (only what EARNED an action) ->
  * proposeExistingPageChange (cold, gated, budgeted drafter plus the ONE validator) -> saveChangeProposal
- * (durable, fail-soft). BOUNDED: at most the strongest DEFAULT_MAX_DRAFTS pages by recoverable clicks.
- * WHAT A FULL PASS CAN COST at worst: three deep bundles, each drafting up to seven sections, is about $0.45
- * at the drafter's documented per-call estimates. That is the number the spend cap is read against.
+ * (durable, fail-soft). BOUNDED: at most the strongest DEFAULT_MAX_DRAFTS pages by recoverable clicks. AT
+ * WORST three deep bundles, each drafting up to seven sections, is about $0.45 at the drafter's documented
+ * per-call estimates, and that is the number the spend cap is read against.
  *
  * THE DEEP READ HAS FIVE DOORS, NOT ONE (see deep-candidates.ts), and each page carries the door it came
  * through so the producer proves THAT door's case. Selection widened; drafting did not: the SAME producer
  * runs per selected page, still bounded to DEFAULT_MAX_DRAFTS, still refusing on thin evidence.
  *
- * Every honest ending this pass can reach is named on `ProducerOutcome` below, so a surface never reads an
- * empty queue as an outage or a failed write as a quiet day.
+ * Every honest ending is named on `ProducerOutcome`, so an empty queue never reads as an outage.
  *
  * ONE EVIDENCE BASIS, ONE ROW: a candidate whose current-generation proposal already exists is never
- * redrafted, and a proposal whose material fingerprint is unchanged is never re-inserted: a refresh re-pays nothing.
- *
+ * redrafted, and a proposal whose fingerprint is unchanged is never re-inserted, so a refresh re-pays nothing.
  * COLD by default: the drafter's `complete` fn is injectable, so tests run this path with zero paid calls.
  * Publishing stays MANUAL: this only proposes. server-only.
  */
@@ -41,6 +39,8 @@ import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evi
 import { earnedNewPage, type IntersectionEvidence } from "./coverage-adjudication";
 import { extractPageFacts, readWinningPattern } from "./winning-pattern";
 import { readCoverage, type DecidedTopic } from "./coverage-pass";
+import { readInventory } from "@/domains/evidence/scanning/owned-pages-store";
+import { readTechnicalFindings } from "./technical-findings";
 import { buildNewPageProposal } from "./new-page";
 
 export type ProduceProposalsOptions = ProposeOptions & {
@@ -54,9 +54,8 @@ export type ProduceProposalsOptions = ProposeOptions & {
   persist?: boolean;
 };
 
-/** How this pass ended. Only `persistence_failed` is a failure. `investigating`
- *  is the honest middle: proven gaps exist, and what to change about them is not
- *  known yet, so they must be VISIBLE rather than read as a quiet day. */
+/** How this pass ended. Only `persistence_failed` is a failure. `investigating` is the honest middle: proven
+ *  gaps exist and what to change is not known yet, so they must be VISIBLE rather than read as a quiet day. */
 export type ProducerOutcome =
   | "no_actionable_candidate"
   | "investigating"
@@ -71,8 +70,8 @@ export type ProduceProposalsResult = {
   candidates: QualifiedCandidate[];
   /** Which of the four honest endings this pass reached. */
   outcome: ProducerOutcome;
-  /** How many candidates earned an action: a page to edit, plus every consolidation this kernel
-   *  cannot draft yet. A consolidation counted nowhere at all before, so a proven loss read as silence. */
+  /** How many candidates earned an action: a page to edit, plus every consolidation this kernel cannot
+   *  draft yet, which used to count nowhere at all so a proven loss read as silence. */
   actionable: number;
   /** Proven gaps whose cause is not identified yet: real work, not silence. */
   investigating: number;
@@ -84,12 +83,10 @@ export type ProduceProposalsResult = {
   heldForMeasurement: number;
   /** Proposals carried forward unchanged: no draft, no write, no dollars. */
   reused: number;
-  /** What I have investigated about each topic, over the SAME evidence this pass judged.
-   *  Research only: nothing here is a change, a draft or a queue row. */
+  /** What I have investigated about each topic, over the SAME evidence this pass judged. Research only. */
   investigations: TopicInvestigation[];
-  /** THE topic whose evidence reached a final answer this pass, and that answer, read off
-   *  the one canonical pass Runtime buys evidence from. Null while every topic is still an
-   *  investigation, which is the normal answer. */
+  /** THE topic whose evidence reached a final answer this pass, read off the one canonical pass Runtime buys
+   *  evidence from. Null while every topic is still an investigation, which is the normal answer. */
   coverage: DecidedTopic | null;
   /** The earliest date any page this pass could not read may be tried again, from the SAME canonical
    *  coverage pass. Null when nothing is waiting. It is what stops a surface saying "checking". */
@@ -98,11 +95,12 @@ export type ProduceProposalsResult = {
 
 /** Bounded drafting: the strongest few, never a queue. */
 export const DEFAULT_MAX_DRAFTS = 3;
+/** One bounded page of this account's own inventory, never the whole site. */
+const MAX_INVENTORY = 200;
 
-/** THE ONE PAGE OF MINE A VERDICT DECIDED TO IMPROVE, as facts, out of words this pass ALREADY holds.
- *  Nothing is fetched and nothing is inferred. Null for `create_new`, and null when I do not hold that
- *  page's own words: the reading must then be told there is no page rather than handed an outline of
- *  nulls to write gaps against. */
+/** THE ONE PAGE OF MINE A VERDICT DECIDED TO IMPROVE, as facts, out of words this pass ALREADY holds. Null
+ *  for `create_new`, and null when I do not hold that page's own words: the reading is then told there is no
+ *  page rather than handed an outline of nulls to write gaps against. */
 function ownedFactsFor(snapshot: EvidenceSnapshot, decided: DecidedTopic): ReturnType<typeof extractPageFacts>[number] | null {
   if (decided.decision.verdict !== "improve_existing") return null;
   const url = decided.decision.ownedUrls[0];
@@ -160,9 +158,8 @@ export async function produceProposalsForTenant(
   // than staying silently current. Fail-soft to null: an unreadable account stamps nothing.
   const basis = await resolveCurrentBasis(tenantId, profile);
 
-  // ONE read of what is already durable, taken BEFORE anything is judged. It answers three questions:
-  // which pages are still measuring an applied change (the diagnosis and both rankings read that fact),
-  // may I skip the DRAFT, and may I skip the WRITE.
+  // ONE read of what is already durable, taken BEFORE anything is judged: which pages are still measuring an
+  // applied change (the diagnosis and both rankings read that), may I skip the DRAFT, may I skip the WRITE.
   const existing = persist
     ? await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>())
     : new Map<string, ChangeProposal>();
@@ -171,24 +168,31 @@ export async function produceProposalsForTenant(
    *  is read from, while a proposal's `createdAt` is only the day it was drafted and can be weeks off. */
   const measuring = { measuringPagePaths: await measuringPaths(tenantId, existing, opts) };
 
-  // THE RESEARCH PACKETS, over the same evidence this pass judges. Non-actionable by
-  // construction, so building them here cannot add a candidate, a proposal or a draft: they
-  // only say what I know about a topic and what is still missing. Fail-soft to none.
+  // THE RESEARCH PACKETS, over the same evidence this pass judges. Non-actionable by construction: they only
+  // say what I know about a topic and what is still missing. Fail-soft to none.
   let investigations: TopicInvestigation[] = [];
   try {
     investigations = buildTopicInvestigations(snapshot);
   } catch (e) {
     log.warn("[produce-proposals] investigations failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
   }
-  // THE ONE CANONICAL COVERAGE PASS, the same one Runtime buys evidence off, so the topic
-  // this pass acts on is the topic the run paid for. It ranks every investigation once,
-  // gives each the comparison IT owns, and hands back the highest-ranked topic that reached
-  // a real verdict. Every call inside is $0 and deterministic. Fail-soft to null: a judgment
-  // I cannot make must never break the pass that produces the operator's actual work.
+  // THE ONE CANONICAL COVERAGE PASS, the same one Runtime buys evidence off, so the topic this pass acts on
+  // is the topic the run paid for. It ranks every investigation once, gives each the comparison IT owns, and
+  // hands back the highest-ranked topic that reached a real verdict. Every call inside is $0 and
+  // deterministic. Fail-soft to null: a judgment I cannot make must never break the operator's actual work.
+  // WHAT IS WRONG WITH HOW THESE PAGES ARE SERVED, read ONCE off the inventory and capture already held.
+  // Fail-soft to nothing: an unreadable inventory means I never looked, never a clean bill.
+  const technical = readTechnicalFindings({
+    inventory: await readInventory(tenantId, { limit: MAX_INVENTORY }).catch(() => []),
+    pages: snapshot.ownedPages.filter((p) => !!p.content).map((p) => ({ url: p.url, title: p.content!.title,
+      h1: p.content!.h1, internal_links: p.content!.internalLinks.map((l) => l.href),
+      canonical_url: p.content!.canonicalUrl ?? null, has_canonical_mismatch: p.content!.hasCanonicalMismatch ?? null,
+      robots_meta: p.content!.robotsMeta ?? null })),
+  });
   let coverage: DecidedTopic | null = null;
   let waitingUntil: string | null = null;
   try {
-    const read = await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection });
+    const read = await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection, technical });
     coverage = read.decided;
     waitingUntil = read.waitingUntil;
     // THE PATTERN IS COMPUTED HERE, IN THE DRAFTING PASS, never inside readCoverage: the reading is a
@@ -240,10 +244,9 @@ export async function produceProposalsForTenant(
       if (c.diagnosis && c.query) diagnosisByKey.set(`${k}::${canonicalQueryKey(c.query)}`, c.diagnosis);
     }
   }
-  /** Stamp the basis, the ONE ranking scalar (recoverable clicks), the cause the ladder named,
-   *  and CONFIDENCE BY EVIDENCE COMPLETENESS onto a proposal, whichever producer built it. A
-   *  drafter used to hand itself "high" on a change whose receipt was empty; now the readiness
-   *  the diagnosis measured decides it. Never invents a figure. */
+  /** Stamp the basis, the ONE ranking scalar (recoverable clicks), the cause the ladder named, and CONFIDENCE
+   *  BY EVIDENCE COMPLETENESS onto a proposal, whichever producer built it: a drafter used to hand itself
+   *  "high" on a change whose receipt was empty. Never invents a figure. */
   const stamp = (p: ChangeProposal): ChangeProposal => {
     const key = (p.pageUrl ?? "").trim().toLowerCase();
     const pathKey = (p.pagePath ?? "").trim().toLowerCase();
@@ -284,10 +287,9 @@ export async function produceProposalsForTenant(
   // `measuring_change` and the skipped applied row are both held ideas, counted here beside the store's.
   const heldByDiagnosis = candidates.filter((c) => c.cause.cause === "measuring_change").length;
   let persisted = 0, writeFailures = 0, reused = 0, heldForMeasurement = heldByDiagnosis;
-  /** Persist ONE material row, or nothing at all when the stored row already says exactly this.
-   *  An unchanged proposal must not get a new timestamp: a refreshed surface would read
-   *  yesterday's thinking as today's work. THE STORE decides that against the canonical row it
-   *  actually holds, and this pass records the four answers it can get back. */
+  /** Persist ONE material row, or nothing when the stored row already says exactly this: an unchanged proposal
+   *  must not get a new timestamp. THE STORE decides that against the canonical row it holds, and this pass
+   *  records the four answers it can get back. */
   const persistIfChanged = async (p: ChangeProposal): Promise<void> => {
     if (!persist) return;
     const result = await saveChangeProposal(p);
@@ -423,7 +425,7 @@ export async function produceProposalsForTenant(
   // REPLACES its own shallow drafts (never the same change twice); a refusal is honest and silent
   // and the shallow drafts stand. A bundle for a page NO door selected is dropped: the deep form of
   // a change nobody needs is still a change nobody needs.
-  const bundleOpts = { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist };
+  const bundleOpts = { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, technical };
   const onThrow = (e: unknown) => {
     log.warn("[produce-proposals] bundle threw (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
     return { status: "none" as const, reason: "threw" };

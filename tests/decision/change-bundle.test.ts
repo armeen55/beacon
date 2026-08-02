@@ -10,6 +10,7 @@ vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: asy
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals"; import { loadProposalQueue } from "@/domains/decision/load-proposals"; import { confidenceFor, serializeChangeProposal, deserializeChangeProposal } from "@/domains/decision/contracts";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter"; import { adjudicateCoverage, earnedNewPage, intersectionComparison } from "@/domains/decision/coverage-adjudication"; import type { OwnedCandidate } from "@/domains/decision/owned-coverage"; import type { ParsedPageIntersection } from "@/domains/evidence/page-intersection";
 import type { TopicInvestigation } from "@/domains/evidence/topic-investigation"; import type { LlmCallCacheEntry } from "@/domains/decision/llm/call-cache"; import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
+import { readTechnicalFindings, technicalComponents } from "@/domains/decision/technical-findings"; import { fieldForComponent } from "@/domains/decision/producers/contract";
 import { emptyResearchEvidence, type ResearchPageExtract, type ResearchWinningAppearance } from "@/domains/evidence/funnel/research-evidence"; const TENANT = "fixture-tenant"; const NOW = new Date("2026-07-25T00:00:00.000Z");
 const TITLE_AFTER = "Rain barrel sizing: gallons per storm by roof area"; const TAIL = { evidenceRefs: [{ source: "gsc", detail: "real page demand" }], confidence: "high", risks: [], operatorSteps: ["Replace the field"], proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "untouched pages" } };
 /** Every system prompt the drafter sent this run (so no vertical assumption can hide in one), every draft KIND it was
@@ -58,6 +59,13 @@ beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; store.rows.clear(); 
     expect(out.status).toBe("none"); if (out.status !== "none") return; expect(called).toBe(0); expect(out.reason).toBe("I have not looked at the results page for that search yet, so I cannot tell you what to change. It is first in line on my next research pass."); });
   it("refuses a page with no proven gap and no current copy, and round-trips through persistence", async () => { const opt = { complete: seam, ...OPTS }; const healthy = page({ url: "fixture-content.example/rain-barrels", search: { ...page({ url: "x" }).search!, topQueries: [{ query: "rain barrel sizing", impressions: 6000, clicks: 700, position: 3 }] } }); const noGap = await produceBundleForSnapshot(snapshot({ ownedPages: [healthy] }), opt); const noCopy = await produceBundleForSnapshot(snapshot({ ownedPages: [page({ url: "fixture-content.example/rain-barrels", content: null })] }), opt); expect(noGap.status).toBe("none"); expect(noCopy.status).toBe("none"); if (noCopy.status !== "none") return; // a big page earning its rank is not work
     expect(noCopy.reason).toContain("nothing honest to rewrite"); const out = await produceBundleForSnapshot(snapshot(), opt); if (out.status !== "bundled") throw new Error("expected a change"); const back = deserializeChangeProposal(serializeChangeProposal(out.proposal)); expect(back).toEqual(out.proposal); expect(back!.bundle!.components).toHaveLength(1); const { bundle: _dropped, ...preBundleRow } = out.proposal; void _dropped; const legacy = deserializeChangeProposal(serializeChangeProposal(preBundleRow as typeof out.proposal)); expect(legacy).not.toBeNull(); expect(legacy!.bundle).toBeUndefined(); });
+  it("says what the change keeps, what it replaces, and what it adds", async () => {
+    const out = await produceBundleForSnapshot(snapshot(), { complete: seam, ...OPTS }); if (out.status !== "bundled") throw new Error("expected a change");
+    const plan = out.proposal.bundle!.plan!; // the operator reads that most of their page is not being touched
+    expect(plan.entries).toEqual([{ kind: "title", label: "Page title", disposition: "change" }]);
+    expect(plan.keeps).toEqual(["Rain barrel sizing", "Roof area and gallons", "Chaining a second barrel"]);
+    expect(plan.removes).toEqual([{ what: "Rain Barrels", why: "Page title takes its place." }]); // a REMOVE row only where something is genuinely replaced
+    expect(deserializeChangeProposal(serializeChangeProposal(out.proposal))!.bundle!.plan).toEqual(plan); });
   it("produces an identical result when every input list arrives in the opposite order", async () => { const base = snapshot(); const flipped = snapshot({ ownedPages: reverse(base.ownedPages).map((pg) => ({ ...pg, search: pg.search ? { ...pg.search, topQueries: reverse(pg.search.topQueries) } : null })), research: { ...RESEARCH, retainedKeywords: reverse(RESEARCH.retainedKeywords), aiObservations: reverse(RESEARCH.aiObservations), winningPages: reverse(RESEARCH.winningPages), serpEvidence: RESEARCH.serpEvidence.map((s) => ({ ...s, organic: reverse(s.organic) })) }, }); expect(JSON.stringify(await produceBundleForSnapshot(flipped, { complete: seam, ...OPTS }))).toBe(JSON.stringify(await produceBundleForSnapshot(base, { complete: seam, ...OPTS }))); }); }); // ── a topic is never a page: no amount of research invents one ────────────────
 const obs = (citations: { url: string; domain: string; title: string }[] | null) => ({ promptId: "t1", promptText: PROMPT2, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: citations != null, citations, fanOutQueries: null, observedAt: "2026-07-23T00:00:00.000Z" });
 const topicKeyword = { query: TOPIC, searchVolume: 1600, competition: 0.3, competitionLevel: "low" as const, difficulty: null, intent: "informational" }; describe("no evidence about a topic I own no page for may become a page", () => {
@@ -215,7 +223,28 @@ describe("the coverage verdict never invents a page this account already owns", 
     for (const pageType of ["mixed", "unknown"] as const) {
       const d = await adjudicateCoverage(INV({ pageType, pageTypeVotes: [{ pageType: "list", domains: 2 }, { pageType: "informational_guide", domains: 2 }] }), [ONE], TENANT, {});
       expect([d.verdict, d.missing, earnedNewPage(d), /experiment|control|baseline|treatment|SERP|[—–]/.test(d.explanation)]).toEqual(["do_nothing", [], false, false]); // terminal: nothing owed, so it is never queued again
-      expect(d.explanation).toContain("I will pick this back up on its own the day one kind of page takes the lead"); } }); }); // and it says exactly what would reopen it
+      expect(d.explanation).toContain("I will pick this back up on its own the day one kind of page takes the lead"); } }); // and it says exactly what would reopen it
+  it("refuses to write words for a page search engines are not being served, and names the one thing to fix", async () => {
+    const blocked = await adjudicateCoverage(INV(), [ONE], TENANT, { technical: readTechnicalFindings({ pages: [{ url: ONE_URL, robots_meta: "noindex" }] }) });
+    expect([blocked.verdict, blocked.ownedUrls, blocked.missing]).toEqual(["technical_only", [ONE.url], []]);
+    expect(blocked.explanation).toContain('I would take "noindex" out of the robots tag on /rain-barrels');
+    // a fault on somebody else's page, and a fault that stops nothing, both leave the ordinary ladder alone
+    const elsewhere = await adjudicateCoverage(INV(), [ONE], TENANT, { technical: readTechnicalFindings({ pages: [{ url: `${AT}/other`, robots_meta: "noindex" }] }) });
+    const cosmetic = await adjudicateCoverage(INV(), [ONE], TENANT, { technical: readTechnicalFindings({ pages: [{ url: ONE_URL, h1: null }] }) });
+    expect([elsewhere.verdict, cosmetic.verdict]).toEqual(["research_needed", "research_needed"]); });
+  it("carries the one purchase that would change a refusal, and stops asking once buying has stopped paying", async () => {
+    const buy = { kind: "buy_serp" as const, subject: "rain barrel sizing", why: "I have never looked at Google's results for this." };
+    const asking = await adjudicateCoverage(INV({ exactSerps: [], serpFreshness: "missing", nextAcquisition: buy }), [ONE], TENANT, {});
+    expect([asking.verdict, asking.acquisition]).toEqual(["research_needed", buy]);
+    expect(asking.explanation).toContain('What changes this: buying the results page for "rain barrel sizing".');
+    // NO ENDLESS INVESTIGATION: the acquisition was tried, nothing left to buy moves it, so it becomes a decision
+    const blind = { demand: { ...INV().demand, intent: null } };
+    const spent = await adjudicateCoverage(INV({ ...blind, nextAcquisition: null, diminishing: true }), [ONE], TENANT, {});
+    expect([spent.verdict, spent.missing, spent.acquisition]).toEqual(["do_nothing", [], undefined]);
+    expect(spent.explanation).toContain("There is nothing left I could buy or look up that would change that");
+    // while something IS still buyable, the same topic stays an investigation and says what to buy
+    const again = await adjudicateCoverage(INV({ ...blind, nextAcquisition: buy }), [ONE], TENANT, {});
+    expect([again.verdict, again.missing, again.acquisition]).toEqual(["research_needed", ["intent"], buy]); }); });
 // ── the page by page comparison: the one paid check, and the only road to a new page ──
 describe("a new page is reachable only through the comparison, and never before it", () => {
   it("buys nothing for an investigation short of any cheaper check, and names the exact pages for the one that earned it", async () => {
@@ -232,6 +261,41 @@ describe("a new page is reachable only through the comparison, and never before 
     const d = await adjudicateCoverage(INV(), [ONE], TENANT, { intersection: { unavailable } });
     expect([d.verdict, d.missing, earnedNewPage(d)]).toEqual(["research_needed", ["page_intersection"], false]);
     expect(d.explanation).toContain("build nothing"); expect(d.explanation).not.toMatch(/blocked|capped|quarantin|ambiguous|provider|task|status/i); }); });
+// ── how a page is SERVED: the V1 technical catalogue, off the two stores that answer it ──
+const AT = "https://fixture-content.example";
+const row = (url: string, over: Record<string, unknown> = {}) => ({ url, discovered_via: "sitemap", crawl_state: "crawled", http_status: 200, redirects_to: null, ...over });
+/** One account's inventory and capture, in the stores' own column names, carrying exactly one of each fault. */
+const SERVED = {
+  inventory: [row(`${AT}/`), row(`${AT}/rain-barrels`), row(`${AT}/gone`, { crawl_state: "gone", http_status: 404 }),
+    row(`${AT}/old`, { redirects_to: `${AT}/mid` }), row(`${AT}/mid`, { redirects_to: `${AT}/rain-barrels` }),
+    row(`${AT}/orphan`, { discovered_via: "nav" })],
+  pages: [{ url: `${AT}/`, internal_links: [`${AT}/rain-barrels`] },
+    { url: `${AT}/rain-barrels`, title: "Rain Barrels", h1: "Rain Barrels", robots_meta: "noindex, follow", canonical_url: `${AT}/other`, has_canonical_mismatch: true, internal_links: [`${AT}/gone`] },
+    { url: `${AT}/twin`, title: "Rain Barrels", h1: null, canonical_url: null, internal_links: [] }],
+};
+describe("what is wrong with how a page is served", () => {
+  it("names every fault it can prove, on a concrete address, with the exact fix", () => {
+    const found = readTechnicalFindings(SERVED);
+    expect(found.map((f) => f.kind)).toEqual(["non_200", "redirect_chain", "orphaned_page", "sitemap_omission",
+      "broken_internal_link", "canonical_conflict", "duplicate_title", "robots_noindex", "canonical_missing", "duplicate_title", "missing_h1"]);
+    expect(found.every((f) => f.url.startsWith(AT) && f.exactFix.length > 20 && f.evidence.length > 20)).toBe(true);
+    expect(found[0]!.exactFix).toBe("I would put /gone back at its own address, or send that address on to the page that replaced it.");
+    expect(found[1]!.evidence).toBe("/old sends people to /mid, and /mid sends them on again to /rain-barrels.");
+    expect(JSON.stringify(found)).not.toMatch(/[–—]|SERP|crawl_state|http_status|discovered_via/);
+    // NOTHING FIRES WITHOUT HELD EVIDENCE: no inventory and no capture is no findings, never a clean bill
+    expect([readTechnicalFindings({}), readTechnicalFindings({ inventory: [row(`${AT}/a`)] })]).toEqual([[], []]);
+  });
+  it("turns each fault into a component that answers for itself, and holds the dangerous ones", () => {
+    const parts = technicalComponents(readTechnicalFindings(SERVED), "rain barrel sizing").map((c) => ({ ...c, evidenceKeys: ["demand-exact"] }));
+    expect(parts.every((c) => !!c.where && !!c.objective && !!c.mechanism && !!c.measurementPlan && c.before === null)).toBe(true);
+    expect([...new Set(dangerousComponents(parts).map((c) => c.kind))].sort()).toEqual(["canonical", "noindex", "redirect"]);
+    const held = validateProposal(prop({ bundle: bundleOf(parts) }));
+    expect([held.verdict, held.reasons.some((r) => r.includes("confirm it before you make the change"))]).toEqual(["needs_review", true]);
+    // and the ordinary ones pass the gate as the changes they are, copy and all
+    const safe = parts.filter((c) => !dangerousComponents(parts).includes(c));
+    for (const c of safe) expect(validateProposal(prop({ recommendedChange: { kind: "existing_edit", field: fieldForComponent(c.kind), before: null, after: c.after }, bundle: bundleOf([c]) })).verdict).not.toBe("rejected");
+  });
+});
 // ── the complete change universe + the ONE unified ranking (Phase 4) ──────────
 /** Every kind in the union, so a new lever can never be added without answering the gate. */
 const ALL_KINDS: BundleComponentKind[] = ["title", "meta", "h1", "opening_answer", "section", "internal_links", "source_pack",

@@ -64,7 +64,8 @@ const RECEIPT_ONLY = [...FACTS, ...OUTLINE, "Rain Barrels"].join(" ");
 const GATE_OPTS = { pageBodyText: "Rain barrels catch what runs off a roof.", now: NOW,
   evidenceText: [RECEIPT_ONLY, ...PATTERN.commonHeadings.map((h) => h.heading), ...PATTERN.commonEntities.map((e) => e.entity),
     ...PATTERN.questionsAnswered, "Roof area", "Storm", ...LINKS.map((l) => `${l.anchorText} ${l.href}`)].join(" "),
-  contextTokens: [...new Set(`${QUERY} Rain Barrels Rain Barrels`.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2))].sort() };
+  contextTokens: [...new Set(`${QUERY} Rain Barrels Rain Barrels`.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2))].sort(),
+  heldHeadings: ["Rain Barrels", "How much rain a roof collects", "Barrel sizes"] };
 /** THE CHANGE A BUNDLE PERSISTS: its FIRST component's before and after, in the one field vocabulary a row carries. */
 const envelope = (primary: BundleComponent) =>
   ({ kind: "existing_edit" as const, field: fieldForComponent(primary.kind), before: primary.before, after: primary.after });
@@ -233,6 +234,13 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect(c.mechanism).toContain("2 things are wrong at once");
     expect(componentRefusals(validate(many.components))).toEqual([]);
     expect(validate(many.components).verdict).toBe("ready");
+    // THE PRESERVATION MAP: what survives the rebuild in its own words, and every held thing it drops named with the reason
+    expect(c.preserves!.keeps).toEqual(["Roof area", "Storm"]);
+    expect(c.preserves!.losses.map((l) => l.what)).toEqual(["Rain Barrels", "How much rain a roof collects", "Barrel sizes"]);
+    expect(c.preserves!.losses.every((l) => l.why.includes(`Not one of the 3 pages that win "${QUERY}" carries it`))).toBe(true);
+    // A SECTION IS NEVER DROPPED IN SILENCE: unnamed is refused, and naming it is what makes the same copy shippable
+    const silent = validate([{ ...c, preserves: { keeps: [], losses: [] } }]);
+    expect([silent.verdict, silent.reasons.some((r) => r === 'The rebuild drops "Barrel sizes" and never says why, so I am not putting it in front of you.')]).toEqual(["rejected", true]);
     // the winners' reading grounds the sections it quotes: on receipt lines alone, a true second section reads as invention
     const narrow = validate(many.components, RECEIPT_ONLY);
     expect(narrow.verdict).toBe("rejected");

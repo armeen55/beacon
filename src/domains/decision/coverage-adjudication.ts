@@ -27,16 +27,16 @@ import "server-only";
  * was refused, capped, still out, set aside, unconfirmed or failed is not a finding: it
  * stays gate 9 and says why.
  *
- * EVERY REQUIREMENT MUST BE BUYABLE, OR IT IS A DECISION. Gate 5 used to name a requirement
- * no search could ever close, so the topic was silently re-refused on every visit forever;
- * it is now a terminal park that says what would reopen it. Gate 7 counts winners I can
- * ADDRESS rather than winners I have READ, because gate 9 compares addresses and the
- * provider reads those pages itself; the readable-body floor now sits in decision/new-page,
- * where the words of a competing page are actually what gets used.
+ * EVERY REQUIREMENT MUST BE BUYABLE, OR IT IS A DECISION. Gate 5 used to name a requirement no search could
+ * ever close, so the topic was silently re-refused forever; it is now a terminal park that says what would
+ * reopen it. Gate 7 counts winners I can ADDRESS rather than winners I have READ, because gate 9 compares
+ * addresses and the provider reads those pages itself; the readable-body floor sits in decision/new-page.
  */
 
 import { isNoiseDomain } from "@/domains/evidence/relevance-gate";
+import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { publisherHost } from "@/domains/evidence/serp-shape";
+import type { TechnicalFinding, TechnicalKind } from "./technical-findings";
 import { comparePageCoverage, type PageCoverageReading, type PageIntersectionAsk, type ParsedPageIntersection } from "@/domains/evidence/page-intersection";
 import type { TopicInvestigation } from "@/domains/evidence/topic-investigation";
 import type { IntersectionUnavailable, OwnedPageReadOutcome } from "@/domains/evidence/funnel/research-evidence";
@@ -45,15 +45,15 @@ import type { WinningPattern } from "./winning-pattern";
 
 // ── Coverage adjudication (N3b, 2026-07-28) ──────────────────────────────────
 
-/** THE five honest answers to "does this business already have the right page?".
- *  `create_new` is reachable ONLY with the page by page comparison in hand; until
- *  then the same evidence reads `research_needed`. */
+/** THE six honest answers to "does this business already have the right page?". `create_new` is reachable
+ *  ONLY with the page by page comparison in hand; until then the same evidence reads `research_needed`.
+ *  `technical_only` is the answer when the page that would carry this topic is one search engines cannot
+ *  serve at all: no wording earns anything there, so the plumbing is the whole of the work. */
 export type CoverageVerdict =
-  | "improve_existing" | "create_new" | "consolidate_or_choose" | "do_nothing" | "research_needed";
+  | "improve_existing" | "create_new" | "consolidate_or_choose" | "do_nothing" | "research_needed" | "technical_only";
 
-/** WHAT is missing, machine-readable, so Runtime can go and buy exactly that. Never a
- *  generic error bucket: "I have no results page" and "the model refused" are different
- *  problems with different fixes, and the operator is owed the difference. */
+/** WHAT is missing, machine-readable, so Runtime can go and buy exactly that. Never a generic error bucket:
+ *  "I have no results page" and "the model refused" are different problems with different fixes. */
 export type MissingRequirement =
   | "exact_serp" | "fresh_serp" | "winners" | "owned_content" | "intent" | "page_intersection";
 
@@ -79,6 +79,10 @@ export type CoverageDecision = {
   alternativesRuledOut: Array<{ alternative: string; reason: string }>;
   /** One plain first-person sentence the operator reads. No lab words. */
   explanation: string;
+  /** THE ONE PURCHASE that would change this answer, carried straight off the investigation so the step
+   *  that reads the verdict never has to guess what to buy. Present only while this is still an
+   *  investigation and something is genuinely buyable; absent means nothing left to buy would move it. */
+  acquisition?: TopicInvestigation["nextAcquisition"];
   /** WHAT THE PAGES THAT WIN HERE HAVE IN COMMON, carried on the verdict that can still become work so
    *  the diagnosis and the page brief read the SAME pattern this receipt was written from. Absent means
    *  I hold no pattern, which changes no verdict: every gate above is decided without it. */
@@ -184,6 +188,10 @@ type AdjudicateCoverageOptions = {
   now?: Date;
   /** This account's own site, so its own pages never count toward the winner supply. */
   site?: string | null;
+  /** WHAT IS WRONG WITH HOW THIS ACCOUNT'S PAGES ARE SERVED (decision/technical-findings). Only the four
+   *  faults that stop a page being served at all are read here, and only against a page that could BE the
+   *  answer to this topic. Absent means nobody looked, which changes no verdict below. */
+  technical?: readonly TechnicalFinding[];
   /** What the pages that win here have in common, read once by decision/winning-pattern off the bodies
    *  already banked. It is EVIDENCE, never a gate: no verdict below turns on it, and its absence is
    *  simply a shorter receipt. */
@@ -199,6 +207,10 @@ const day = (iso: string | null): string => (iso ? iso.slice(0, 10) : "a day I d
 /** A page COULD be the answer only on a strong signal. Shared wording is a hint,
  *  and a hint has never been a reason to leave a page out of the comparison. */
 const contender = (c: OwnedCandidate): boolean => c.strongSignals > 0;
+
+/** The faults that stop a page being served AT ALL. A missing heading or a duplicate title is a real change
+ *  and never one of these: those pages still rank, so they go through the ordinary ladder. */
+const BLOCKING: ReadonlySet<TechnicalKind> = new Set<TechnicalKind>(["non_200", "redirect_chain", "canonical_conflict", "robots_noindex"]);
 
 /** ONE reading of the bought comparison, counted by PUBLISHER inside Evidence. An answer I
  *  cannot read is treated exactly like a call that never came back, and every step that
@@ -295,8 +307,8 @@ function readIntersection(
     if (unread.length > holds.length) return refuse(inv, ids, "winners", `I proved you have no page for "${inv.label}", and I have read ${inv.currentReadableWinners} of the ${MIN_ADJUDICATION_WINNERS} winning pages I need before I write one, so I am reading the rest next.`,
       "A page written without reading what already wins is a guess, however well it is written.");
     return holds.length > 0
-      ? { ...refuse(inv, ids, "winners", `I proved you have no page for "${inv.label}", and I have not finished reading the pages that win it, so I am picking those reads back up on ${day(holds[0]!)} rather than writing you a page I would be guessing at.`,
-          "A read that has not happened yet is not a page anybody refused me, and I will not treat it as one."), hold: holds[0]! }
+      ? refuse(inv, ids, "winners", `I proved you have no page for "${inv.label}", and I have not finished reading the pages that win it, so I am picking those reads back up on ${day(holds[0]!)} rather than writing you a page I would be guessing at.`,
+          "A read that has not happened yet is not a page anybody refused me, and I will not treat it as one.", holds[0]!)
       : decide(inv, "do_nothing", { evidenceKeys: ids,
         explanation: `I proved you have no page for "${inv.label}", but the sites that win it will not let me read their pages, so I cannot show you what a page of yours would have to cover. I am leaving this alone rather than guessing at it.`,
         alternativesRuledOut: [{ alternative: "Write the page anyway", reason: "Writing it blind is a guess, and I will not hand you one. I pick this back up on its own the day a different site I can read comes up for this search." }] });
@@ -314,12 +326,37 @@ function readIntersection(
 const decide = (inv: TopicInvestigation, verdict: CoverageDecision["verdict"], parts: Partial<CoverageDecision>): CoverageDecision =>
   ({ verdict, topicKey: inv.key, ownedUrls: [], evidenceKeys: [], missing: [], alternativesRuledOut: [], explanation: "", ...parts });
 
-/** An honest refusal: the topic stays under investigation, nothing is created,
- *  and `missing` names the ONE thing that would move it forward. */
+/** THE ONE PURCHASE, in the operator's own words, so a refusal says what would change it rather than only
+ *  what is missing. Three kinds is the whole vocabulary Evidence can offer, so this map is total. */
+const ACQUIRE: Record<NonNullable<TopicInvestigation["nextAcquisition"]>["kind"], (subject: string) => string> = {
+  read_winner: (s) => `reading ${s}`,
+  buy_serp: (s) => `buying the results page for "${s}"`,
+  buy_volume: (s) => `pricing how many people search "${s}" in a month`,
+};
+
+/** THE ONE REQUIREMENT THAT STOPS PAYING. Research that can never close is a loop, not a plan: nothing any
+ *  provider sells tells me what a searcher wants when the priced searches disagree, so once Evidence says
+ *  there is nothing left to buy here, this becomes a decision instead of the same question on every visit.
+ *  The other five are NOT here on purpose: the exact and fresh looks and the winner reads are queued by the
+ *  coverage pass off the topic's own search, a page of my own is read inside that pass, and the comparison
+ *  is bought by its own ask, so none is stuck merely because `nextAcquisition` names nothing. A refusal that
+ *  is only WAITING on a promised date never falls through here either. */
+const STOPS_PAYING: ReadonlySet<MissingRequirement> = new Set<MissingRequirement>(["intent"]);
+
+/** An honest refusal: the topic stays under investigation, nothing is created, `missing` names the ONE
+ *  thing that would move it forward, and the purchase that closes it rides along. */
 const refuse = (
-  inv: TopicInvestigation, ids: string[], missing: MissingRequirement, explanation: string, reason: string,
-): CoverageDecision => decide(inv, "research_needed", { evidenceKeys: ids, missing: [missing], explanation,
-  alternativesRuledOut: [{ alternative: "Write a new page for this", reason }] });
+  inv: TopicInvestigation, ids: string[], missing: MissingRequirement, explanation: string, reason: string, hold: string | null = null,
+): CoverageDecision => {
+  const buy = inv.nextAcquisition;
+  if (!hold && inv.diminishing && STOPS_PAYING.has(missing)) return decide(inv, "do_nothing", { evidenceKeys: ids,
+    explanation: `${explanation} There is nothing left I could buy or look up that would change that, so I am leaving this alone rather than researching it forever.`,
+    alternativesRuledOut: [{ alternative: "Keep researching this", reason: "I have already bought everything here that would move the answer, and buying more of the same stopped paying." }] });
+  const d = decide(inv, "research_needed", { evidenceKeys: ids, missing: [missing],
+    explanation: buy ? `${explanation} What changes this: ${ACQUIRE[buy.kind](buy.subject)}.` : explanation,
+    alternativesRuledOut: [{ alternative: "Write a new page for this", reason }], ...(buy ? { acquisition: buy } : {}) });
+  return hold ? { ...d, hold } : d;
+};
 
 /** A TERMINAL PARK: this case is closed on the evidence I hold, it owes nothing, no purchase
  *  can move it, and it names the exact evidence change that would reopen it on its own. It is
@@ -381,6 +418,17 @@ async function ladder(
   if (outOfScope) return decide(inv, "do_nothing", { evidenceKeys: ids, explanation: `I left "${inv.label}" alone because your business setup lists "${outOfScope}" as something you do not want to cover.`,
     alternativesRuledOut: [{ alternative: "Write a new page for this", reason: "You told me this is not a topic you want, so building for it would be work you never asked for." }] });
 
+  // A PAGE SEARCH ENGINES CANNOT SERVE IS NOT A PAGE TO REWRITE. When the page of this account that could be
+  // the answer here answers nothing, hops twice, hands its address to somebody else or carries a robots tag
+  // holding it out, no wording earns a click on it: the plumbing IS the whole of the earned work, and saying
+  // "improve this page" over the top of that would be a morning spent on words nobody can reach.
+  const blocked = (opts.technical ?? []).filter((f) => BLOCKING.has(f.kind));
+  const hurt = candidates.filter(contender).find((c) => blocked.some((f) => canonicalUrlKey(f.url) === canonicalUrlKey(c.url)));
+  const fault = hurt ? blocked.find((f) => canonicalUrlKey(f.url) === canonicalUrlKey(hurt.url))! : null;
+  if (hurt && fault) return decide(inv, "technical_only", { ownedUrls: [hurt.url], evidenceKeys: ids,
+    explanation: `${fault.evidence} Until that is fixed nothing I write for "${inv.label}" can earn you anything, so the one thing worth doing here is this: ${fault.exactFix}`,
+    alternativesRuledOut: [{ alternative: "Improve the words on that page", reason: "Better words on a page search engines are not serving win nothing, so this comes first." }] });
+
   if (inv.exactSerps.length === 0 || inv.serpFreshness === "missing") return refuse(inv, ids, "exact_serp", `I have not looked at Google's results for "${inv.label}" yet, so I cannot say whether one of your pages already answers it. That search is first in line on my next research pass.`,
     "I cannot call a page missing before I have seen what already answers the search.");
   if (inv.serpFreshness !== "current") return refuse(inv, ids, "fresh_serp", `${inv.serpFreshness === "undated" ? `I hold Google's results for "${inv.label}" but not when I looked at them` : `My last look at Google's results for "${inv.label}" is out of date`}, so I am checking again before I decide anything about your pages.`,
@@ -428,12 +476,12 @@ async function ladder(
     // one printed a stored July 20 to an operator standing in July 26, which is stable and still false.
     const stored = opts.ownedRead && opts.ownedRead.url === unread.url ? opts.ownedRead : null;
     const failed = stored && Date.parse(stored.retryAfter) > at ? stored : null;
-    if (failed?.state === "robots_blocked") return { ...refuse(inv, ids, "owned_content",
+    if (failed?.state === "robots_blocked") return refuse(inv, ids, "owned_content",
       `Your site's robots rules stopped me from reading ${unread.url}, so I cannot check whether it already answers "${inv.label}". I will check again on ${day(failed.retryAfter)}.`,
-      "I will not call a page missing while a page of yours that might already answer it is one your own site tells me not to read."), hold: failed.retryAfter };
-    if (failed) return { ...refuse(inv, ids, "owned_content",
+      "I will not call a page missing while a page of yours that might already answer it is one your own site tells me not to read.", failed.retryAfter);
+    if (failed) return refuse(inv, ids, "owned_content",
       `I could not read ${unread.url}, so I cannot yet say whether it already answers "${inv.label}". I will try it again on ${day(failed.retryAfter)}.`,
-      "A page that did not answer me today is not a page anybody refused me, and I will not treat it as one."), hold: failed.retryAfter };
+      "A page that did not answer me today is not a page anybody refused me, and I will not treat it as one.", failed.retryAfter);
     return refuse(inv, ids, "owned_content", `Your page ${unread.url} could already be the answer to "${inv.label}", and I do not hold its own words yet, so I am reading it before I say anything about it.`,
       "I will not call a page missing while one of yours that might already answer it sits unread.");
   }

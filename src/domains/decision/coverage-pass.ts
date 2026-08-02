@@ -80,6 +80,9 @@ export type ReadCoverageOptions = {
   /** A pattern already computed for ONE topic (the drafting pass supplies it; this pass never calls a
    *  model). Attached only when the topic matches, so no case can wear another case's pattern. */
   patternFor?: { topicKey: string; pattern: import("./winning-pattern").WinningPattern } | null;
+  /** What is wrong with how this account's pages are SERVED, already read off the inventory and the capture.
+   *  A page nothing can reach is never named as the page to improve. */
+  technical?: readonly import("./technical-findings").TechnicalFinding[];
   now?: Date;
 };
 
@@ -156,6 +159,7 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
     if (decided && ACTS.has(decided.decision.verdict) && queries >= max && (max <= 0 || needs.some((n) => n.comparison))) break;
     let candidates = ownedCandidatesFor(snapshot, inv, bodies);
     const judge = { outOfScopeTopics: topicOutOfScope(snapshot, inv, opts.profile ?? null), now: opts.now, site: snapshot.scope?.site ?? null,
+      ...(opts.technical ? { technical: opts.technical } : {}),
       ...(opts.patternFor && opts.patternFor.topicKey === inv.key ? { pattern: opts.patternFor.pattern } : {}) };
     let decision: CoverageDecision;
     try { decision = await adjudicateCoverage(inv, candidates, tenantId, judge); } catch { continue; }

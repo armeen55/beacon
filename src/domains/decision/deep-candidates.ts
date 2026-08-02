@@ -113,7 +113,10 @@ export function selectDeepCandidates(input: {
 
   // DOOR 3: THE PAGE A VERDICT NAMES. My comparison of a whole subject already concluded that the answer
   // is the page you have rather than a page you do not, and that conclusion never reached the deep producer.
-  const named = coverage && coverage.decision.verdict === "improve_existing" ? coverage.decision.ownedUrls[0] ?? null : null;
+  // A page the comparison decided to improve AND a page whose only earned work is technical both enter by
+  // this door: either way the coverage pass itself named the page, so the deep read owes it a look.
+  const named = coverage && (coverage.decision.verdict === "improve_existing" || coverage.decision.verdict === "technical_only")
+    ? coverage.decision.ownedUrls[0] ?? null : null;
   const owner = named ? candidates.find((c) => !!c.pageUrl && canonicalUrlKey(c.pageUrl) === canonicalUrlKey(named)) ?? null : null;
   if (owner?.pageUrl && coverage) {
     const winners = Math.max(0, coverage.investigation.currentReadableWinners);

@@ -312,6 +312,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     const page = pages[0]!; expect(page.recommendedChange).toEqual({ kind: "new_page", proposedTitle: BRIEF.proposedTitle, metaDescription: BRIEF.metaDescription,
       openingAnswer: BRIEF.openingAnswer, outline: BRIEF.sections.map((s) => s.heading), faqQuestions: [], schemaTypes: [] }); // no markup is guessed for a page that does not exist yet
     expect([page.status, page.pagePath, page.publish, validateProposal(page).verdict]).toEqual(["needs_review", null, "manual", "ready"]);
+    expect(page.bundle!.plan).toBeUndefined(); // a page that does not exist yet has nothing to keep, change or remove
     expect(page.bundle!.receipt.items.some((i) => i.key === "verdict")).toBe(true);
     // WHOSE SEARCH IS WHOSE: with no fan-out on file the example is named for what it actually is, a question people ask.
     expect(page.bundle!.receipt.items.find((i) => i.key === "asked")!.fact).toBe('No AI engine has shown me a search of its own here. What I hold is a question people ask, like "haft seen table".'); expect(page.bundle!.components.map((c) => c.kind)).toEqual(["title", "meta", "opening_answer", "section", "source_pack", "internal_links"]);

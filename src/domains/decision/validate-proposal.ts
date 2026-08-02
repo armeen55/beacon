@@ -167,12 +167,27 @@ const MISLABELLED: ReadonlyArray<{ kind: BundleComponentKind; re: RegExp; what: 
     what: "deletes this page or merges it into another" },
 ];
 
-function componentFailures(components: readonly BundleComponent[]): string[] {
+/** Held wording, flattened, so "Barrel Sizes" and "barrel  sizes" are one thing on both sides. */
+const flatten = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
+
+function componentFailures(components: readonly BundleComponent[], heldHeadings: readonly string[] = []): string[] {
   const out: string[] = [];
   const marked = new Set(components.filter((c) => c.risk === "dangerous"));
   for (const c of components) {
     const what = c.label.trim().toLowerCase() || c.kind.replace(/_/g, " ");
     if (c.evidenceKeys.length === 0) { out.push(`I cannot show you anything behind the ${what}, so I am not putting it in front of you.`); continue; }
+    // A REBUILD MAY NOT DROP A SECTION IN SILENCE. A page being replaced is the one change that can quietly
+    // delete something ranking, so every section I hold has to survive into the draft OR be named as a loss
+    // with its own reason. Unnamed is refused: nobody loses a section they were never told about.
+    if (c.kind === "full_rewrite") {
+      const draft = flatten(c.after);
+      const named = flatten((c.preserves?.losses ?? []).map((l) => l.what).join(" | "));
+      for (const heading of heldHeadings) {
+        const held = flatten(heading);
+        if (!held || draft.includes(held) || named.includes(held)) continue;
+        out.push(`The rebuild drops "${heading.trim()}" and never says why, so I am not putting it in front of you.`);
+      }
+    }
     if (needsSourcePack(c) && !c.sourcePack) out.push(`The ${what} changes a fact and carries no sources to check it against, so I am not putting it in front of you.`);
     for (const m of MISLABELLED) {
       if (c.kind !== m.kind && m.re.test(c.after)) {
@@ -219,6 +234,9 @@ export type ValidateProposalOptions = {
   authoritativeSourceDomains?: readonly string[];
   /** Content-context vocabulary override (defaults to the gate's own). */
   contextTokens?: string[];
+  /** The sections this account's own page ACTUALLY carries, as held. A rebuild is checked against these:
+   *  absent means I hold no outline for the page, so nothing is checked rather than everything passing. */
+  heldHeadings?: readonly string[];
   now?: Date;
 };
 
@@ -286,7 +304,7 @@ export function validateProposal(
 
   // ── the component gate + the two-step hold ──────────────────────────────────
   const components = proposal.bundle?.components ?? [];
-  const componentFails = componentFailures(components);
+  const componentFails = componentFailures(components, opts.heldHeadings ?? []);
   // THE TWO-STEP CONFIRMATION, in the one vocabulary this product already has: a
   // dangerous component can never read as ready, it is held for the operator to look at
   // and then act. There is no second flag and no second lifecycle.

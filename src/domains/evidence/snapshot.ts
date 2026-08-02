@@ -94,6 +94,10 @@ export type OwnedPageContent = {
   wordCount: number;
   internalLinks: { href: string; anchorText: string }[];
   fetchedAt: string | null;
+  /** How the page is served, for the technical catalogue: absent means never captured, never "clean". */
+  canonicalUrl?: string | null;
+  hasCanonicalMismatch?: boolean | null;
+  robotsMeta?: string | null;
 };
 
 export type OwnedPageSearch = {

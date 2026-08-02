@@ -1,12 +1,11 @@
 /**
  * decision/produce-bundle. The ONE producer of a deep, copy-ready change for a page a door selected. Order is
- * deliberate: SELECT, BUILD the evidence receipt FIRST for the EXACT candidate search, DIAGNOSE off that receipt,
- * and only then draft the ONE field the diagnosis named. Confidence follows the EVIDENCE HELD, never how it reads.
+ * deliberate: SELECT, BUILD the receipt FIRST for the EXACT candidate search, DIAGNOSE off that receipt, and only
+ * then draft the ONE field the diagnosis named. Confidence follows the EVIDENCE HELD, never how it reads.
  *
  * EVERY DOOR IS SERVED ON ITS OWN TERMS. The click door keeps its exact selection: the biggest proven shortfall
- * against a page's own positions. Every other door selects the page IT named, answers for ITS OWN evidence in
- * its own words rather than the click sentence, and may conclude only what it measured: a door that never read
- * the line a searcher reads never concludes the wording of it.
+ * against a page's own positions. Every other door selects the page IT named, answers for ITS OWN evidence, and
+ * concludes only what it measured: a door that never read the line a searcher reads never concludes its wording.
  *
  * No evidence means no change, and every input list is re-sorted before it is read, so the same evidence in any
  * order produces a byte-identical result. server-only.
@@ -16,7 +15,8 @@ import "server-only";
 
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot"; import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { draftAtomicEditStructured, draftInternalLinkStructured, draftSectionStructured } from "@/domains/decision/llm/structured-drafter"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
-import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, EvidenceReadiness, RecommendedChange } from "./contracts"; import { confidenceFor, MIN_CTR_DEFICIT, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction } from "./contracts";
+import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { confidenceFor, MIN_CTR_DEFICIT, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction } from "./contracts";
+import { technicalKey, type TechnicalFinding } from "./technical-findings";
 import { diagnoseCandidate, ownedResultOf, recurringPattern, RECEIPT, type DiagnosisInput } from "./diagnose";
 import { causeLabel, diagnoseCauses, type CauseFinding } from "./diagnosis";
 import type { DecidedTopic } from "./coverage-pass";
@@ -34,15 +34,13 @@ type Keyword = Research["retainedKeywords"][number];
 
 const norm = (s: string): string => s.trim().toLowerCase();
 const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-/** The page's OWN WORDS, whole, read by the caller through the targeted Evidence reader. Absent means absent:
- *  drafts are checked against title and headings only and body readiness stays honestly false. */
+/** The page's OWN WORDS, whole, read by the caller through the targeted Evidence reader. Absent means absent. */
 export type OwnedBody = { openingSample: string | null; fetchedAt: string | null;
   cardTexts?: string[]; entityNames?: string[]; internalLinks?: { href: string; anchorText: string }[]; metaDescription?: string | null;
   headings?: string[]; passages?: string[]; faqs?: { question: string; answer: string }[];
   completeness?: "complete" | "partial" | "sample_only"; heldNote?: string };
 
-/** RECOVERABLE OPPORTUNITY, never gross traffic. Per query clearing MIN_QUERY_IMPRESSIONS the frozen CTR curve says
- *  what that position earns; the shortfall under it, once past MIN_CTR_DEFICIT, is what a fix could win back. */
+/** RECOVERABLE OPPORTUNITY, never gross traffic: per query clearing MIN_QUERY_IMPRESSIONS, the shortfall under what that position earns on the frozen CTR curve, past MIN_CTR_DEFICIT. */
 type Gap = { query: string; impressions: number; clicks: number; position: number; recoverable: number };
 const gapsOf = (p: OwnedPageEvidence): Gap[] => (p.search?.topQueries ?? []).flatMap((q) => {
   if (q.impressions < MIN_QUERY_IMPRESSIONS || q.position == null) return [];
@@ -55,9 +53,7 @@ const hasCurrentCopy = (p: OwnedPageEvidence): boolean => !!p.content && !!(p.co
 function parseUrl(url: string): URL | null { try { return new URL(url.startsWith("http") ? url : `https://${url}`); } catch { return null; } }
 const pathOf = (url: string): string => parseUrl(url)?.pathname || (url.startsWith("/") ? url : `/${url}`);
 
-/** WEAK ANCHORS: the words this account puts on nearly everything fit anything, so alone they attach no evidence
- *  to a change. Read fresh from the account's own corpus; under MIN_ANCHOR_CORPUS phrases the set is empty, so a
- *  single-topic account keeps the evidence that genuinely is about its one topic. */
+/** WEAK ANCHORS: the words this account puts on everything fit anything, so alone they attach no evidence. Under MIN_ANCHOR_CORPUS phrases the set is empty. */
 const MIN_ANCHOR_CORPUS = 10;
 const MAX_INVENTORY = 200;
 function weakAnchorsOf(snapshot: EvidenceSnapshot): Set<string> {
@@ -69,8 +65,7 @@ function weakAnchorsOf(snapshot: EvidenceSnapshot): Set<string> {
 const topicMatch = (a: string, b: string, weak: ReadonlySet<string>): boolean =>
   norm(a) === norm(b) || anchoredTopicMatch(a, b, weak).relevant;
 
-/** A winner attaches ONLY on EXACT membership: its appearance under a member query or prompt, or its exact URL
- *  cited for one. A shared DOMAIN proves nothing, and resemblance in a title is not membership either. */
+/** A winner attaches ONLY on EXACT membership: an appearance under a member query or prompt, or its exact URL cited for one. A shared DOMAIN proves nothing. */
 const winnerBelongs = (w: Research["winningPages"][number], queries: ReadonlySet<string>, prompts: ReadonlySet<string>, urls: ReadonlySet<string>): boolean =>
   urls.has(canonicalUrlKey(w.url)) || w.appearances.some((a) =>
     (!!a.query && queries.has(canonicalQueryKey(a.query))) || (!!a.promptText && prompts.has(norm(a.promptText))));
@@ -106,8 +101,7 @@ const queriesOf = (page: OwnedPageEvidence): OwnedQuerySignal[] => [...(page.sea
 
 type Receipt = ChangeBundle["receipt"] & { prompts: string[]; hasResearch: boolean; contextOnlyKeys: string[]; links: { anchor: string; to: string }[]; readiness: EvidenceReadiness; diagnosis: ActionDiagnosis; bodyText?: string | null };
 
-/** A pattern is claimable only across MULTIPLE pages that come up for this exact search, and only as a count
- *  I can show: one page's style is that page's style. */
+/** A pattern is claimable only across MULTIPLE pages that come up for this exact search, as a count I can show. */
 function winnerPattern(read: Research["winningPages"], c: NonNullable<OwnedPageEvidence["content"]>, primary: string): string | null {
   if (read.length < 2) return null;
   const words = [...read.map((w) => w.extract!.wordCount)].sort((a, b) => a - b); const median = words[Math.floor(words.length / 2)]!;
@@ -117,14 +111,14 @@ function winnerPattern(read: Research["winningPages"], c: NonNullable<OwnedPageE
   return bits.length === 0 ? null : `Of the ${read.length} pages I read that come up for "${primary}", ${bits.join(", and ")}.`;
 }
 
-function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queries: OwnedQuerySignal[], primary: string, weak: ReadonlySet<string>, body: OwnedBody | null, mine: DecidedTopic | null): Receipt {
+function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queries: OwnedQuerySignal[], primary: string, weak: ReadonlySet<string>, body: OwnedBody | null, mine: DecidedTopic | null, technical: readonly TechnicalFinding[]): Receipt {
   const items: BundleEvidenceItem[] = []; const contextOnly: string[] = []; const missing: string[] = []; const prompts: string[] = [];
   const add = (key: string, kind: BundleEvidenceItem["kind"], fact: string, observedAt: string | null): void => { items.push({ key, kind, fact, observedAt }); };
   const research = snapshot.research;
-  // QUERY IDENTITY, never similarity: a neighbouring search with a different modifier stands in for nothing.
+  // QUERY IDENTITY, never similarity: a neighbouring search stands in for nothing.
   const isPrimary = (q: string): boolean => norm(q) === norm(primary) || canonicalQueryKey(q) === canonicalQueryKey(primary);
   const s = page.search!; const c = page.content!;
-  // Support attaches only when it is about THIS page: anything sharing nothing with its own words is noise.
+  // Support attaches only when it is about THIS page.
   const pageTopic = [...queries.map((q) => q.query), c.title ?? "", c.h1 ?? ""].join(" ");
   const onTopic = (text: string): boolean => topicMatch(text, pageTopic, weak);
 
@@ -179,18 +173,18 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   const belongs = [...(research?.winningPages ?? [])].filter((w) => winnerBelongs(w, memberQueries, memberPrompts, memberUrls)).sort((a, b) => byText(a.url, b.url));
   const read = belongs.filter((w) => !!w.extract); const winners = belongs.slice(0, 2);
   if (winners.length === 0) missing.push(`I have not read the pages that come up for "${primary}" yet.`);
-  // SAY HOW IT GOT HERE: a page that arrived by organic rank was never cited by an assistant.
+  // SAY HOW IT GOT HERE: arriving by organic rank is not being cited by an assistant.
   winners.forEach((w, i) => add(`win${i + 1}`, "winning_page",
     `${w.domain} ${w.appearances.some((a) => a.kind !== "serp_organic") ? "is one of the pages AI keeps citing here" : `comes up on the results page for "${primary}"`}${w.extract ? `, and it runs ${w.extract.wordCount.toLocaleString()} words under ${w.extract.headings.length} headings` : ""}.`,
     [...w.appearances].sort((a, b) => byText(b.observedAt, a.observedAt))[0]?.observedAt ?? null));
   const winners2 = winnerPattern(read, c, primary);
   if (winners2) add("winpattern", "winning_page", winners2, null);
 
-  // A link needs TWO proofs: an on-topic destination AND body text proving where it belongs.
+  // A link needs TWO proofs: an on-topic destination AND body text placing it.
   const links = [...snapshot.internalLinkOpportunities].filter((l) => l.fromUrl === page.url && onTopic(l.anchor))
     .sort((a, b) => byText(a.toUrl, b.toUrl)).slice(0, 3);
 
-  // THE CAUSE LADDER'S OWN RECEIPT LINES, under the exact ids it cites. No verdict for this page, no lines.
+  // THE CAUSE LADDER'S OWN RECEIPT LINES, under the ids it cites. No verdict, no lines.
   if (mine) {
     const inv = mine.investigation; const p = mine.decision.pattern ?? null;
     if (p) {
@@ -204,6 +198,8 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
     if (want) add(RECEIPT.intent, "keyword", `The people searching "${primary}" ${want}.`, null);
   }
   if (c.internalLinks.length > 0) add(RECEIPT.links, "internal_link", `From here this page points readers on to ${c.internalLinks.length} other ${c.internalLinks.length === 1 ? "page" : "pages"} of your own.`, c.fetchedAt);
+  // HOW THIS PAGE IS SERVED, under the ids the technical cause cites, so a plumbing change is read off a line the operator can see. Nothing is added when nothing was found.
+  technical.forEach((f, i) => add(technicalKey(i), "page_extract", f.evidence, null));
 
   if (!bodyText) missing.push("I do not hold this page's full body text, so I checked every draft against its title and section headings only.");
 
@@ -221,29 +217,29 @@ const gateShape = (tenantId: string, query: string, change: RecommendedChange): 
   evidence: { query, hints: [], evidenceRefCount: 0 }, impactScore: null, upsidePerMonth: null, publish: "manual", createdAt: "" });
 
 export type ProduceBundleOptions = ProposeOptions & {
-  /** The ONE topic the coverage pass decided, when it decided one: the settled kind of page, what searchers
-   *  want, and what the winning pages share. Absent, those causes are honestly not considered. */
+  /** The ONE topic the coverage pass decided: the settled kind of page, what searchers want, and what the winners share. Absent, those causes are not considered. */
   coverage?: DecidedTopic | null;
-  /** The pages already carrying a change under measurement, so a page whose last edit is still being read
-   *  is left alone rather than handed a second change to stack on it. */
+  /** The pages already carrying a change under measurement, so a page still being read is left alone. */
   measuringPagePaths?: readonly (string | null)[];
-  /** WHICH DOOR SELECTED THIS PAGE, straight off deep-candidates. Absent = the click door, so an unaware
-   *  caller behaves byte for byte as the single-door pass did. */
+  /** WHICH DOOR SELECTED THIS PAGE, off deep-candidates. Absent = the click door, byte for byte as before. */
   door?: DoorContext | null;
+  /** WHAT IS WRONG WITH HOW THIS ACCOUNT'S PAGES ARE SERVED (decision/technical-findings). ABSENT means nobody
+   *  looked, so the cause says so rather than clearing the page. Filtered here to the page under work. */
+  technical?: readonly TechnicalFinding[];
 };
 
 /** The door contract, structurally satisfied by a DeepCandidate. Only what this file has to check. */
 type DoorContext = { door: "ctr_gap" | "ai_absence" | "coverage_verdict" | "cannibalization" | "recent_decline";
   entry: string; evidence: { query: string | null; engine: string | null; promptText: string | null; competingUrls: readonly string[]; window: string | null } };
 
-/** THE GOAL when the door is not a click gap: a shortfall I cannot show is not an objective I may write. */
+/** THE GOAL when the door is not a click gap: a shortfall I cannot show is no objective. */
 const doorGoal = (d: DoorContext["door"], q: string): string =>
   d === "ai_absence" ? `Give the assistants answering "${q}" a reason to name this page instead of somebody else.`
     : d === "coverage_verdict" ? `Make this the page of yours that answers "${q}", off the pages winning it that I read side by side.`
       : d === "cannibalization" ? `Put one page of yours in front of "${q}" instead of several, so the clicks stop splitting.`
         : `Win back what this page has lost on "${q}".`;
 
-/** THIS DOOR'S OWN CASE, checked before a word is written against the page it named. Null = on file. */
+/** THIS DOOR'S OWN CASE, checked before a word is written. Null = on file. */
 function doorEvidenceMissing(d: DoorContext, snapshot: EvidenceSnapshot): string | null {
   const e = d.evidence;
   if (!(e.query ?? "").trim()) return "I picked this page off evidence that no longer names the search it was about, so I am not writing a change for it. Let me research this page again and I will come back with what I found.";
@@ -258,8 +254,7 @@ function doorEvidenceMissing(d: DoorContext, snapshot: EvidenceSnapshot): string
     : `I picked this page because its searches have fallen, and I hold one 90 day total for "${e.query}" and nothing earlier, so I cannot show you the fall. I will be able to read it the day I hold a second window of your own search data.`;
 }
 
-/** WHAT EACH DOOR ACTUALLY MEASURED, in the operator's words. A door that never read the line a searcher
- *  reads may not conclude the wording of it, so the wording branch refuses in that door's own terms. */
+/** WHAT EACH DOOR ACTUALLY MEASURED, in the operator's words, so the wording branch refuses in its own terms. */
 const DOOR_MEASURED: Record<DoorContext["door"], string> = { ctr_gap: "it is losing clicks against its own positions",
   ai_absence: "an assistant answered the question around it", coverage_verdict: "my comparison of the pages winning that search names this page",
   cannibalization: "two of your own pages come up for that search", recent_decline: "this page's searches have fallen" };
@@ -274,15 +269,15 @@ const OPPORTUNITY_OF: Partial<Record<CauseFinding["cause"], string>> = {
   ai_citation_gap: "Give the assistants a reason to name this page",
   retrieved_not_cited: "Show where this page's claims come from",
   cannibalization: "Settle which page owns this search",
+  technical_indexability: "Fix what is stopping this page being found",
   internal_link_weakness: "Give the reader somewhere to go next" };
 
-/** The smallest bundle carrying ONE component, so the component gate can answer for it. Never persisted. */
+/** The smallest bundle carrying ONE component, for the component gate. Never persisted. */
 const oneComponent = (c: BundleComponent): ChangeBundle => ({
   objective: "gate", metric: "gate", scope: { queries: [], prompts: [] }, components: [c],
   receipt: { items: [], missing: [], freshestObservedAt: null }, alternatives: [], risks: [], confidenceReasons: [], measurementPlan: "gate" });
 
-/** THE DRAFTERS a producer may buy, wired once so every one gets the same firewall, budget, cache and
- *  fail-closed posture. A drafter that does not land is null: the producer refuses on it. */
+/** THE DRAFTERS a producer may buy, wired once for the same firewall, budget, cache and fail-closed posture. */
 function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date): ProducerDraft {
   const wire = { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains };
   return {
@@ -303,37 +298,34 @@ function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date)
 }
 
 /** Produce at most ONE change for the existing page with the biggest PROVEN click gap. `none` with a structured
- *  reason when no page is losing clicks against its own positions, when the results page for that exact search does
- *  not accuse a field, or when the one draft it earned fails a gate. Zero ready is a real answer, not a failure. */
+ *  reason when nothing is losing clicks, when the results page accuses no field, or when the draft fails a
+ *  gate. Zero ready is a real answer, not a failure. */
 export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts: ProduceBundleOptions & { onlyPageUrl?: string | null; bodyByUrl?: ReadonlyMap<string, OwnedBody> } = {}): Promise<BundleOutcome> {
   const now = opts.now ?? new Date();
   const tenantId = snapshot.scope.tenantId;
 
-  // The diagnosis already chose the page: an unproven page never reaches a drafter.
+  // The diagnosis chose the page: an unproven page never reaches a drafter.
   const only = (opts.onlyPageUrl ?? "").trim().toLowerCase();
   const eligible = only ? snapshot.ownedPages.filter((p) => canonicalUrlKey(p.url) === canonicalUrlKey(only) || pathOf(p.url).toLowerCase() === only) : snapshot.ownedPages;
   const graded = eligible.filter((p) => hasCurrentCopy(p) && queriesOf(p).length > 0)
     .map((p) => { const gaps = gapsOf(p); return { page: p, gaps, gap: totalRecoverable(gaps) }; })
     .sort((a, b) => b.gap - a.gap || byText(pathOf(a.page.url), pathOf(b.page.url)));
-  // THE CLICK DOOR, unchanged: only a page whose own positions prove recoverable clicks.
+  // THE CLICK DOOR: only a page whose own positions prove recoverable clicks.
   const scored = graded.filter((r) => r.gap >= MIN_RECOVERABLE_CLICKS);
   const door = opts.door && opts.door.door !== "ctr_gap" ? opts.door : null;
-  // EVERY OTHER DOOR TAKES THE PAGE IT NAMED: a question an engine answered around this page, a comparison
-  // that named it, a split. Each is proof in its own right and waits on no Google number.
+  // EVERY OTHER DOOR TAKES THE PAGE IT NAMED: an engine that answered around it, a comparison, a split. Each is proof in its own right and waits on no Google number.
   const pick = door ? graded[0] : scored[0];
   if (!pick) return { status: "none", reason: door
     ? "I could not read the page I picked closely enough to write against it, so I am handing you nothing. Let me read that page again and I will come back with the change."
     : "No page of yours is losing enough clicks against what its own positions should earn, so I have nothing honest to rewrite yet." };
-  // THE DOOR ANSWERS FOR ITS OWN EVIDENCE: the wrong reason is worse than no reason.
+  // THE DOOR ANSWERS FOR ITS OWN EVIDENCE: a wrong reason beats no reason nowhere.
   const shortOf = door ? doorEvidenceMissing(door, snapshot) : null;
   if (shortOf) return { status: "none", reason: shortOf };
 
   const { page, gaps } = pick; const lead = door ? null : gaps[0]!; const queries = queriesOf(page); const content = page.content!;
   const primary = door ? door.evidence.query!.trim() : lead!.query;
   const body = opts.bodyByUrl?.get(canonicalUrlKey(page.url)) ?? null;
-  // THE WHOLE HELD PAGE, built ONCE: the cause ladder judges every absence claim against it and the producer
-  // writes from it. Absent fields (an older caller's narrow shape) fall to the honest floor, no passages and
-  // sample_only, so pageContains answers unknown rather than absent.
+  // THE WHOLE HELD PAGE, built ONCE: the ladder judges every absence against it and the producer writes from it. Absent fields fall to sample_only, so pageContains says unknown.
   const held: OwnedPageBody | null = body ? { url: page.url, title: content.title, h1: content.h1, metaDescription: body.metaDescription ?? content.metaDescription,
     headings: body.headings ?? content.outline, passages: body.passages ?? [], openingSample: body.openingSample, cardTexts: body.cardTexts ?? [],
     faqs: body.faqs ?? [], entityNames: body.entityNames ?? [], internalLinks: body.internalLinks ?? [], fetchedAt: body.fetchedAt,
@@ -343,14 +335,15 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   const mine = coverage && coverage.decision.ownedUrls.some((u) => canonicalUrlKey(u) === canonicalUrlKey(page.url)) ? coverage : null;
   if (door?.door === "coverage_verdict" && !mine) return { status: "none", reason: `I picked this page because my comparison of "${primary}" named it as the page of yours to improve, and I do not hold that comparison against this page any more, so I am not writing a change off it. Let me read the pages that win it side by side again and I will come back with the change.` };
   const pattern: WinningPattern | null = mine?.decision.pattern ?? null;
-  const receipt = buildReceipt(snapshot, page, queries, primary, weakAnchorsOf(snapshot), body, mine);
-  // NOTHING to show is never a recommendation: an empty receipt refuses rather than ship a bare instruction.
+  // THIS PAGE'S OWN PLUMBING: the reading covers the whole account, and a fault on another address says nothing about this one.
+  const technical = opts.technical?.filter((f) => canonicalUrlKey(f.url) === canonicalUrlKey(page.url));
+  const receipt = buildReceipt(snapshot, page, queries, primary, weakAnchorsOf(snapshot), body, mine, technical ?? []);
+  // NOTHING to show is never a recommendation: an empty receipt refuses.
   if (receipt.items.length === 0) return { status: "none", reason: "I hold nothing I can show you about this page yet, so I will not tell you to change it." };
-  // NO DRAFT SPEND BEFORE A NAMED CAUSE. There is ONE ladder and it is `diagnoseCauses`; nothing here re-derives a
-  // cause, so a page the customer surface says is losing on X can never be handed a change made for Y.
+  // NO DRAFT SPEND BEFORE A NAMED CAUSE. ONE ladder, `diagnoseCauses`; nothing here re-derives a cause, so a page said to be losing on X is never handed a change made for Y.
   const diagnosis = receipt.diagnosis;
   const finding = diagnoseCauses({ snapshot, page, query: primary, serpRead: diagnosis, coverage: mine, body: held,
-    ...(opts.measuringPagePaths ? { measuringPagePaths: opts.measuringPagePaths } : {}) });
+    ...(technical ? { technical } : {}), ...(opts.measuringPagePaths ? { measuringPagePaths: opts.measuringPagePaths } : {}) });
   // A SPLIT IS SETTLED OR IT IS NOT TOUCHED: rewording one of two competing pages leaves them competing.
   if (door?.door === "cannibalization" && finding.cause !== "cannibalization")
     return { status: "none", reason: `Two of your own pages come up for "${primary}" and I cannot yet see which of them should own it, so I am not rewording either one while they are still competing. Let me check which of your pages Google serves for that search and I will come back with which to keep.` };
@@ -359,35 +352,34 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   // The relevance gate asks "does the rewrite still name this page's topic". Ground it in THIS page's own words (query + title + h1), never a vertical vocabulary.
   const contextTokens = [...new Set(`${primary} ${content.title ?? ""} ${content.h1 ?? ""}`.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2))].sort(byText);
   const wording = finding.cause === "ctr_snippet";
-  // WHAT A PRODUCER MAY NAME IS WHAT I ACTUALLY READ: the winners' whole reading and the page's own subjects and
-  // link words, none of which reaches the receipt as a fact. The wording path keeps its text byte for byte, and
-  // the account's own inventory rides along, minus this page, so "go next" names a page it really has.
+  // WHAT A PRODUCER MAY NAME IS WHAT I ACTUALLY READ: the winners' reading and the page's own subjects and link
+  // words. The wording path keeps its text byte for byte, and the inventory rides along minus this page.
   const inventory = snapshot.ownedPages.filter((p) => canonicalUrlKey(p.url) !== canonicalUrlKey(page.url))
     .map((p) => ({ url: p.url, title: p.content?.title ?? null, h1: p.content?.h1 ?? null }))
     .sort((a, b) => byText(pathOf(a.url), pathOf(b.url))).slice(0, MAX_INVENTORY);
   const producerEvidenceText = wording ? evidenceText : [evidenceText, ...(pattern?.commonHeadings ?? []).map((h) => h.heading),
     ...(pattern?.commonEntities ?? []).map((e) => e.entity), ...(pattern?.questionsAnswered ?? []), ...(body?.entityNames ?? []),
     ...(body?.cardTexts ?? []), ...(body?.internalLinks ?? []).map((l) => `${l.anchorText} ${l.href}`),
-    // A page of this account, named by its own address and its own title, is a thing I read and never one I invented.
+    // A page of this account, by its own address and title, is read and never invented.
     ...inventory.flatMap((p) => [pathOf(p.url), p.title ?? "", p.h1 ?? ""])].filter(Boolean).join(" ");
-  // A component cites the reading's OWN keys. For the wording cause that is the diagnosis; for every other
-  // cause it is the ladder's, and either way a key with no receipt item behind it is never claimed.
+  // A component cites the reading's OWN keys: the diagnosis for wording, the ladder's otherwise, and a key with no receipt item behind it is never claimed.
   const alternatives = wording
     ? diagnosis.alternativesRuledOut.map((a) => ({ option: a.alternative, reason: a.reason }))
     : finding.competingExplanations.map((a) => ({ option: causeLabel(a.cause), reason: a.reason }));
   const components: BundleComponent[] = []; let heldForReview = false;
   const receiptKeys = new Set(receipt.items.map((i) => i.key));
+  // THE SECTIONS THIS PAGE CARRIES, held once: the plan keeps them and the validator holds a rebuild to them.
+  const heldHeadings = (held?.headings ?? content.outline).map((h) => h.trim()).filter((h) => h.length > 0);
 
   const keep = (c: BundleComponent, change: RecommendedChange): void => {
     // EVERY CLAIM TRACES TO SOMETHING ON SCREEN: a component citing nothing is dropped whole.
     const evidenceKeys = c.evidenceKeys.filter((k) => receiptKeys.has(k));
     const drop = (reason: string): void => { alternatives.push({ option: c.label, reason }); };
     if (evidenceKeys.length === 0) return drop("I could not show you the evidence behind that one, so I left it out rather than ask you to take my word for it.");
-    // A PRODUCER COMPONENT ANSWERS THE COMPONENT GATE HERE: every kind outside the grandfathered seven owes
-    // where, what, why and what I will measure, and a lever that moves the page must be marked as one.
+    // A PRODUCER COMPONENT ANSWERS THE COMPONENT GATE HERE: every kind outside the grandfathered seven owes where, what, why and what I will measure.
     const shaped = gateShape(tenantId, primary, change);
     const verdict = validateProposal(wording ? shaped : { ...shaped, bundle: oneComponent({ ...c, evidenceKeys }) },
-      { pageBodyText: receipt.bodyText ?? null, evidenceText: producerEvidenceText, contextTokens, now });
+      { pageBodyText: receipt.bodyText ?? null, evidenceText: producerEvidenceText, contextTokens, now, heldHeadings });
     // NEVER surface a raw validator reason: it is internal vocabulary.
     if (verdict.status === "rejected") return drop("The rewrite I drafted failed one of my safety checks, so I left it out rather than risk it.");
     // DANGEROUS SURVIVES THE GATE: downgrading it to "review" took the two-step hold off the one change
@@ -414,8 +406,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       { kind: "existing_edit", field: "title", before: before ?? null, after: draft.value.after });
     if (components.length === 0) return { status: "none", reason: "I could not write a title for this page that passes my own checks, so I am handing you nothing rather than filler." };
   } else {
-    // EVERY OTHER NAMED CAUSE. A producer, or the honest reason there is nothing to write for it. The ladder's
-    // own "I named nothing" answer keeps the results reading's sentence, which is the one that says what is missing.
+    // EVERY OTHER NAMED CAUSE: a producer, or the honest reason there is nothing to write. The ladder's own "I named nothing" keeps the results reading's sentence.
     const slot = CORE_PRODUCERS[finding.cause];
     if (typeof slot !== "function") return { status: "none", reason: finding.cause === "no_problem" ? diagnosis.explanation : finding.explanation };
     const drafters = producerDrafts(tenantId, opts, now);
@@ -427,8 +418,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       const field = fieldForComponent(c.kind);
       keep(c, { kind: "existing_edit", field, before: c.before, after: c.after });
     }
-    // SMALLER COMPONENTS FIRST, A REBUILD LAST, and NEVER on a split. A rebuild earns its place only on a SECOND
-    // structural accusation that actually FIRED, never one the ladder ruled out, and even then it is a question.
+    // SMALLER COMPONENTS FIRST, A REBUILD LAST, and NEVER on a split: it earns its place only on a SECOND structural accusation that actually FIRED, and even then it is a question.
     if (components.length === 0 && finding.cause !== "cannibalization") {
       const rebuild = await produceFullRewriteRecommendation(ctx,
         [finding.cause, ...finding.competingExplanations.filter((c) => c.fired === true).map((c) => c.cause)]);
@@ -444,6 +434,15 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   if (runnerUp) alternatives.push({ option: `Start with ${pathOf(runnerUp.page.url)} instead`,
     reason: `Its searches come up about ${Math.round(runnerUp.gap).toLocaleString()} clicks short against this page's ${Math.round(pick.gap).toLocaleString()}, so it is the smaller win today.` });
 
+  // KEEP / CHANGE / ADD / REMOVE, said out loud: a component with a `before` REPLACES something and every other
+  // one ADDS, and the sections no component names are what this change deliberately leaves alone, listed so the
+  // operator sees most of their page is untouched. A rebuild keeps nothing here; its preservation map answers.
+  const touched = (h: string): boolean => components.some((c) => c.kind === "full_rewrite" || c.kind === "restructure"
+    || `${c.where ?? ""} ${c.before ?? ""} ${c.label}`.toLowerCase().includes(h.toLowerCase()));
+  const plan: ComponentPlan = { keeps: heldHeadings.filter((h) => !touched(h)),
+    entries: components.map((c) => ({ kind: c.kind, label: c.label, disposition: c.before == null ? "add" : "change" })),
+    removes: components.filter((c) => (c.before ?? "").trim().length > 0)
+      .map((c) => ({ what: (c.before ?? "").trim(), why: c.objective ?? `${c.label} takes its place.` })) };
   const confidence = confidenceFor(receipt.readiness, diagnosis);
   const bundle: ChangeBundle = { // objective: Today renders it verbatim, so it is the MODELED shortfall, never a promise
     objective: lead
@@ -451,7 +450,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       : doorGoal(door!.door, primary),
     metric: `Clicks from search for "${primary}" over the next 28 days.`,
     scope: { queries: queries.map((q) => q.query), prompts: receipt.prompts },
-    components,
+    components, plan,
     receipt: { items: receipt.items, missing: receipt.missing, freshestObservedAt: receipt.freshestObservedAt },
     alternatives,
     risks: [

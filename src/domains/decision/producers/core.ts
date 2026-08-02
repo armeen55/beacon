@@ -18,6 +18,7 @@
  */
 
 import type { BundleComponent } from "../contracts";
+import { technicalComponents } from "../technical-findings";
 import { pageContains } from "@/domains/evidence/pages/owned-context";
 import type { CauseKey, Produced, Producer, ProducerCtx } from "./contract";
 import { produceConsolidation, produceInternalLinks, produceSourceExpansion } from "./extended";
@@ -179,6 +180,19 @@ function shapeMismatch(objective: string, mechanism: string): Producer {
   };
 }
 
+// ── technical_indexability: what is wrong with how the page is SERVED ──
+// NOT COPY, AND NOT A GUESS. Every component here is one fault on one address with the exact fix, read off
+// the inventory and the capture by decision/technical-findings and carried on the finding itself, so this
+// producer invents nothing: it hands over what the reading already proved, in the same component vocabulary.
+
+const technical: Producer = async (ctx) => {
+  const payload = ctx.finding.payload;
+  const findings = payload?.cause === "technical_indexability" ? payload.findings : [];
+  return findings.length === 0
+    ? refuse("I have not read how this page is served, so I cannot tell you what is stopping it being found.")
+    : { components: technicalComponents(findings, ctx.primary), refusal: null };
+};
+
 /**
  * THE REGISTRY. Total over every cause the ladder can name: a producer, or the honest reason there is
  * nothing to produce. A reason here is not an apology, it is the fact that this cause's fix is not copy.
@@ -208,10 +222,11 @@ export const CORE_PRODUCERS: Record<CauseKey, Producer | { reason: string }> = {
   ai_citation_gap: produceSourceExpansion,
   // A change of yours is still being measured: the whole point is to add nothing on top of it.
   measuring_change: { reason: "A change here is still being measured, and stacking another one on top would make the first unreadable." },
-  // The three the ladder itself says it cannot test yet. Their evidence does not exist in this product, so
+  // The two the ladder itself says it cannot test yet. Their evidence does not exist in this product, so
   // there is nothing to produce from and saying so is the honest answer.
   demand_decline: { reason: "I hold one 90 day total for that search and nothing earlier, so there is nothing here to act on." },
   ranking_loss: { reason: "I hold one average position for that search and nothing earlier, so there is nothing here to act on." },
-  technical_indexability: { reason: "I do not hold this page's indexing or canonical state, so there is nothing here to act on." },
+  // The inventory and the capture answer this one now: one fault, one address, one exact fix.
+  technical_indexability: technical,
   no_problem: { reason: "Nothing accuses this page, so there is nothing to change on it." },
 };

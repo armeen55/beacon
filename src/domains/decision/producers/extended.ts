@@ -26,6 +26,8 @@ const MAX_LINKS = 2;
 const MAX_REQUIREMENTS = 4;
 const MAX_HEADINGS = 6;
 const MIN_STRUCTURAL_CAUSES = 2;
+/** A rebuild that names more losses than this is not a rebuild, it is a different page. */
+const MAX_LOSSES = 8;
 
 const count = (n: number): string => Math.round(n).toLocaleString("en-US");
 /** The last net: no em or en dash ever reaches an operator, and the double gap one leaves is collapsed. */
@@ -450,12 +452,24 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
     : null;
   if (!opening) return refuse(`I wrote all ${count(planned.length)} sections this rebuild needs and could not write the page's own opening lines, so I am not handing you a page with no way in. Ask me again and the opening is the only thing left: the sections I already wrote cost nothing to ask for a second time.`);
   const after = [nodash(opening).trim(), ...drafted].join("\n\n");
+  // THE PRESERVATION MAP. A rebuild is the one change that can quietly delete something that ranks, so every
+  // section and named thing I hold is checked against the draft I just wrote: what appears in it SURVIVES,
+  // and what does not is named as a LOSS with the reason it goes. The check is containment in the drafted
+  // words, the same honesty pageContains uses, so a section kept under different wording still counts as kept.
+  const written = plain(after).toLowerCase();
+  const holds = [...new Set([...(ctx.body?.headings ?? ctx.page.outline), ...(ctx.body?.entityNames ?? [])]
+    .map((h) => h.trim()).filter((h) => h.length > 0))];
+  const survives = (h: string): boolean => written.includes(h.toLowerCase());
+  const preserves = { keeps: holds.filter(survives),
+    losses: holds.filter((h) => !survives(h)).slice(0, MAX_LOSSES).map((what) => ({ what,
+      why: `Not one of the ${count(pattern.winners)} pages that win "${ctx.primary}" carries it, so the rebuild spends that room on ${covers[0]} instead.` })) };
   return {
     components: [{
       kind: "full_rewrite",
       label: "Rebuild this page",
       before: null,
       after,
+      preserves,
       evidenceKeys: keys,
       risk: "review",
       where: "the whole page, from the first line down",
