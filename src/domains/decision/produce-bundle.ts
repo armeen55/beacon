@@ -62,6 +62,8 @@ const pathOf = (url: string): string => parseUrl(url)?.pathname || (url.startsWi
  *  prompts, page titles); under MIN_ANCHOR_CORPUS phrases nothing has recurred often enough to earn the label, so the
  *  set is empty and a single-topic account keeps the evidence that genuinely is about its one topic. */
 const MIN_ANCHOR_CORPUS = 10;
+/** How many of this account's own pages a producer may consider as a destination in one pass. */
+const MAX_INVENTORY = 200;
 function weakAnchorsOf(snapshot: EvidenceSnapshot): Set<string> {
   const r = snapshot.research; const phrases = [...new Set([...(r?.retainedKeywords ?? []).map((k) => k.query), ...(r?.aiObservations ?? []).map((o) => o.promptText),
     ...snapshot.ownedPages.map((p) => p.content?.title || p.content?.h1 || pathOf(p.url))].map((s) => (s ?? "").trim()).filter(Boolean))];
@@ -329,9 +331,16 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   // pages that win and on the page's own subjects and link words, none of which reaches the receipt as a fact,
   // so grounding the gate in the receipt lines alone refused true copy: a brief quoting the second section
   // every winning page covers was rejected as an invented name. The wording path keeps its text byte for byte.
+  // THE ACCOUNT'S OWN PAGE INVENTORY, minus this page, so a producer that owes the reader somewhere to GO
+  // NEXT picks a page this account demonstrably has instead of the destinations this page already links to.
+  const inventory = snapshot.ownedPages.filter((p) => canonicalUrlKey(p.url) !== canonicalUrlKey(page.url))
+    .map((p) => ({ url: p.url, title: p.content?.title ?? null, h1: p.content?.h1 ?? null }))
+    .sort((a, b) => byText(pathOf(a.url), pathOf(b.url))).slice(0, MAX_INVENTORY);
   const producerEvidenceText = wording ? evidenceText : [evidenceText, ...(pattern?.commonHeadings ?? []).map((h) => h.heading),
     ...(pattern?.commonEntities ?? []).map((e) => e.entity), ...(pattern?.questionsAnswered ?? []), ...(body?.entityNames ?? []),
-    ...(body?.cardTexts ?? []), ...(body?.internalLinks ?? []).map((l) => `${l.anchorText} ${l.href}`)].filter(Boolean).join(" ");
+    ...(body?.cardTexts ?? []), ...(body?.internalLinks ?? []).map((l) => `${l.anchorText} ${l.href}`),
+    // A page of this account, named by its own address and its own title, is a thing I read and never one I invented.
+    ...inventory.flatMap((p) => [pathOf(p.url), p.title ?? "", p.h1 ?? ""])].filter(Boolean).join(" ");
   // A component cites the reading's OWN keys. For the wording cause that is the diagnosis; for every other
   // cause it is the ladder's, and either way a key with no receipt item behind it is never claimed.
   const alternatives = wording
@@ -385,7 +394,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       page: { url: page.url, title: content.title, h1: content.h1, outline: content.outline, internalLinkCount: content.internalLinks.length },
       body: body ? { openingSample: body.openingSample, cardTexts: body.cardTexts ?? [], entityNames: body.entityNames ?? [],
         internalLinks: body.internalLinks ?? [], metaDescription: body.metaDescription ?? content.metaDescription } : null,
-      pattern, receiptFacts: facts, readiness: receipt.readiness, draft: drafters };
+      ownedPages: inventory, pattern, receiptFacts: facts, readiness: receipt.readiness, draft: drafters };
     const produced = await slot(ctx);
     for (const c of produced.components) {
       const field = fieldForComponent(c.kind);

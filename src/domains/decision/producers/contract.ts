@@ -58,6 +58,11 @@ export type ProducerCtx = {
   /** The page's OWN words, whole. Narrowing this to an opening sample is what left five causes with their
    *  structure computed and thrown away, so nothing here is dropped on the way in. */
   body: { openingSample: string | null; cardTexts: string[]; entityNames: string[]; internalLinks: { href: string; anchorText: string }[]; metaDescription: string | null } | null;
+  /** THE ACCOUNT'S OWN PAGE INVENTORY, minus the page under work, bounded by the caller. A producer that has
+   *  to name somewhere for a reader to GO NEXT picks from pages this account demonstrably has; picking from
+   *  the links the page already carries could only ever propose a second link to a place it already sends
+   *  people. Empty is a real answer and the honest refusal that follows it. */
+  ownedPages: { url: string; title: string | null; h1: string | null }[];
   pattern: WinningPattern | null;
   /** The receipt facts, in plain English, as the drafter's grounding. */
   receiptFacts: string[];

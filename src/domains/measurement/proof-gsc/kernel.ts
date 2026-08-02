@@ -20,6 +20,7 @@
 
 import "server-only";
 
+import { reportingDay } from "@/lib/reporting-day";
 import { loadShippedChangesForTenant } from "./shipped-change-store";
 import { readLastFinalizedDate } from "./gsc-window";
 import { buildHeadline, learningShape, monthDay, overlapClosures } from "./read-honesty";
@@ -232,7 +233,7 @@ export function evaluateWindows(
   latestGscDate: string | null,
   includeFollowUp = false,
 ): KernelWindowRead[] {
-  const nowIso = now.toISOString().slice(0, 10);
+  const nowIso = reportingDay(now);
   const days: CheckpointDay[] = includeFollowUp ? [...WINDOW_DAYS, FOLLOW_UP_DAY] : [...WINDOW_DAYS];
   return days.map((day) => {
     const closesOn = addDays(shippedAt, day);

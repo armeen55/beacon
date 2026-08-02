@@ -48,6 +48,17 @@ const ctxOf = (over: Partial<ProducerCtx> = {}): ProducerCtx => ({
   page: { url: PAGE_URL, title: "Rain Barrels", h1: "Rain Barrels", outline: ["How much rain a roof collects", "Barrel sizes"], internalLinkCount: 3 },
   body: { openingSample: "Rain barrels catch what runs off a roof.", cardTexts: [], entityNames: ["Roof area", "Storm"], internalLinks: LINKS, metaDescription: null },
   pattern: PATTERN, receiptFacts: FACTS, readiness: { gsc: true, ownedCopy: true, serp: true, winners: 3, body: true },
+  // The account's own inventory: rain-collection and storm-drains are on topic and UNLINKED (the wins);
+  // barrel-sizes and roof-area-calculator are on topic but this page already points at them (excluded);
+  // contact is linked and off topic; careers is unlinked and off topic (no shared token, excluded).
+  ownedPages: [
+    { url: "https://fixture-content.example/rain-collection", title: "Rain collection basics", h1: "Rain collection" },
+    { url: "https://fixture-content.example/storm-drains", title: "Storm drains", h1: "Storm drains" },
+    { url: "https://fixture-content.example/barrel-sizes", title: "Barrel sizes", h1: "Barrel sizes" },
+    { url: "https://fixture-content.example/roof-area-calculator", title: "Roof area calculator", h1: "Roof area" },
+    { url: "https://fixture-content.example/contact", title: "Contact us", h1: "Contact" },
+    { url: "https://fixture-content.example/careers", title: "Careers", h1: "Careers" },
+  ],
   draft: {
     section: async () => null,
     internalLink: async (i) => ({ anchorText: `${i.topic} guide`, linkSentence: `If you are working out ${i.topic}, that page walks through it`, reason: "same subject" }),
@@ -107,14 +118,16 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const out = await produceInternalLinks(ctxOf());
     expect(out.refusal).toBeNull();
     expect(out.components.map((c) => c.kind)).toEqual(["internal_link_add", "internal_link_add"]);
-    // deterministic: the strongest topical match first, never the site's own page and never somebody else's site
-    expect(out.components.map((c) => c.label)).toEqual(["Link to /roof-area-calculator", "Link to /barrel-sizes"]);
+    // deterministic, and FROM THE INVENTORY: destinations this page ALREADY links to
+    // (/barrel-sizes, /roof-area-calculator) are never recommended again, the site's own
+    // page and somebody else's site never appear, and ties break on the page's own name.
+    expect(out.components.map((c) => c.label)).toEqual(["Link to /rain-collection", "Link to /storm-drains"]);
     expect(out.components.every((c) => answered(c) && c.risk === "safe" && c.before === null)).toBe(true);
     expect(out.components[0]!.mechanism).toContain("about 12 of their own pages and this one points to 3");
     // THE COPY ITSELF SURVIVES, not only the component gate: it names this page's own search and opens no
     // sentence on a word the factual firewall cannot place, so the whole change reads as ready.
     const c = out.components[0]!;
-    expect(c.after).toBe('I would add this line to the section headed "How much rain a roof collects": if you are working out Roof area, that page walks through it. The words "Roof area guide" then point at /roof-area-calculator, so a reader who came for "rain barrel sizing" has somewhere to go next.');
+    expect(c.after).toBe('I would add this line to the section headed "How much rain a roof collects": if you are working out Rain collection basics, that page walks through it. The words "Rain collection basics guide" then point at /rain-collection, so a reader who came for "rain barrel sizing" has somewhere to go next.');
     expect(componentRefusals(validate(out.components))).toEqual([]);
     expect(validate(out.components).verdict).toBe("ready");
     // and the gate is live: the instruction tail this used to carry is still refused, twice over
@@ -125,38 +138,63 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
   });
 
   it("refuses honestly when no page of this account is named by the evidence", async () => {
-    const nowhere = await produceInternalLinks(ctxOf({ body: { openingSample: null, cardTexts: [], entityNames: [], internalLinks: [{ href: "https://other.example/partner", anchorText: "our partner" }], metaDescription: null } }));
+    // No inventory on file at all: nothing to send a reader to, and nothing is invented.
+    const nowhere = await produceInternalLinks(ctxOf({ ownedPages: [] }));
     expect(nowhere.components).toHaveLength(0);
     expect(nowhere.refusal).toContain("I am not inventing one");
+    // An inventory whose pages share no word with this page's subject is the same honest answer.
+    const offTopic = await produceInternalLinks(ctxOf({ ownedPages: [{ url: "https://fixture-content.example/careers", title: "Careers", h1: "Careers" }] }));
+    expect([offTopic.components.length, offTopic.refusal ?? ""]).toEqual([0, expect.stringContaining("I am not inventing one")]);
+    // No body means I cannot see what this page already links to, so a link is a coin flip: none.
     const blind = await produceInternalLinks(ctxOf({ body: null }));
     expect([blind.components.length, blind.refusal!.includes("Tell me the page it should lead to")]).toEqual([0, true]);
   });
 
-  it("assembles a source pack out of the supplied evidence and nothing else", async () => {
-    const gap = await produceSourceExpansion(ctxOf({ finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }) }));
+  it("assembles a source pack out of claims that belong on the page, never my own numbers", async () => {
+    const section = async (i: { heading: string | null }) => ({
+      heading: i.heading ?? "Where these claims come from",
+      body: "A downspout diverter splits roof water between the drain and the barrel, and the pages being cited explain when one is needed.",
+      sources: [{ kind: "manufacturer", detail: "diverter fitting guide" }], containsNumber: false,
+    });
+    const gap = await produceSourceExpansion(ctxOf({
+      finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }),
+      draft: { section, internalLink: async () => null },
+    }));
     const c = gap.components[0]!;
     // the page already talks about a roof, so only the subject it genuinely lacks is asked for
     expect([gap.components.length, c.kind, c.risk, answered(c)]).toEqual([1, "entity_expansion", "review", true]);
-    expect(c.sourcePack!.factRequirements.every((f) => FACTS.includes(f))).toBe(true);
-    expect(c.sourcePack!.sourceRequirements).toEqual(["A source a reader can check for Downspout diverter."]);
+    // THE INVERSION THIS REPAIR EXISTS FOR: fact requirements are claims that belong ON the page,
+    // and Beacon's own measurements never appear anywhere in the change.
+    expect(c.sourcePack!.factRequirements).toEqual(["Downspout diverter."]);
+    expect(c.sourcePack!.sourceRequirements).toEqual(['A source a reader can check for Downspout diverter, of the kind the 3 pages being cited for "rain barrel sizing" point at: a.example, b.example, c.example.']);
+    for (const beaconFact of FACTS) expect(JSON.stringify(c)).not.toContain(beaconFact);
+    expect(JSON.stringify(c)).not.toContain("6,000");
     expect(JSON.stringify(c)).not.toContain(INVENTED);
-    expect(JSON.stringify(c)).not.toContain("Roof area");
-    expect(c.after).toBe('This page has to cover Downspout diverter to answer "rain barrel sizing", where it belongs on the page, and say where it comes from.');
+    expect(c.after).toBe("Downspout diverter\n\nA downspout diverter splits roof water between the drain and the barrel, and the pages being cited explain when one is needed.");
     expect(componentRefusals(validate(gap.components))).toEqual([]);
     expect(validate(gap.components).verdict).toBe("ready");
-    // the subject it asks for is one the winners named, so an invented one in the same sentence is still refused
-    expect(validate([{ ...c, after: 'This page has to cover Copper flashing to answer "rain barrel sizing".' }]).verdict).toBe("rejected");
-    expect(validate([{ ...c, after: "Cover Downspout diverter on this page, each one where it belongs." }]).verdict).toBe("rejected");
-    // an engine that READ the page and named somebody else is a credibility problem, so it asks for sources
-    const read = await produceSourceExpansion(ctxOf({ finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }) }));
+    // an engine that READ the page and named somebody else is a credibility problem, so it sources
+    // what the page ALREADY claims, and the claim comes from the page's own stored words
+    const read = await produceSourceExpansion(ctxOf({
+      finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }),
+      draft: { section, internalLink: async () => null },
+    }));
     expect([read.components[0]!.kind, read.components[0]!.mechanism!.includes("seen and passed over")]).toEqual(["source_update", true]);
-    expect(read.components[0]!.sourcePack!.factRequirements).toEqual(FACTS);
-    expect(read.components[0]!.after).toBe('I would add a line in the section headed "How much rain a roof collects" that says where each of these comes from for "rain barrel sizing", with a link a reader can follow: That one search brings this page 6,000 views and 90 clicks. This page links to 3 of your own pages.');
+    expect(read.components[0]!.sourcePack!.factRequirements).toEqual(["Rain barrels catch what runs off a roof."]);
+    for (const beaconFact of FACTS) expect(JSON.stringify(read.components[0])).not.toContain(beaconFact);
+    // a refused draft is a refusal, never filler
+    const dry = await produceSourceExpansion(ctxOf({ finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }) }));
+    expect([dry.components.length, dry.refusal ?? ""]).toEqual([0, expect.stringContaining("nothing rather than filler")]);
     expect(validate(read.components).verdict).toBe("ready");
-    // nothing supplied to build a pack out of is a refusal, never an invented source
-    const empty = await produceSourceExpansion(ctxOf({ receiptFacts: [], pattern: null,
+    // no reading of the cited pages = no way to say what kind of source stands up: a refusal, never invention
+    const unread = await produceSourceExpansion(ctxOf({ pattern: null,
       finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }) }));
-    expect([empty.components.length, empty.refusal!.includes("I hold nothing checkable to add")]).toEqual([0, true]);
+    expect([unread.components.length, unread.refusal!.includes("I have not read the pages being cited")]).toEqual([0, true]);
+    // and no page words plus no missing subject = nothing a source could back
+    const empty = await produceSourceExpansion(ctxOf({ body: null,
+      pattern: { ...PATTERN, commonEntities: [] },
+      finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }) }));
+    expect([empty.components.length, empty.refusal!.includes("I hold nothing this page could say")]).toEqual([0, true]);
   });
 
   it("hands a merge over as a question the operator answers, never as a paste", async () => {

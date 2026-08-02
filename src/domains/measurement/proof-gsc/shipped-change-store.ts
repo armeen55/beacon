@@ -39,7 +39,7 @@ export type ShipmentVerification = {
   status: "verified" | "partially_verified" | "not_found" | "blocked" | "differs" | "operator_confirmed";
   checkedAt: string;
   components: Array<{ kind: string; state: "verified" | "missing" | "differs" | "unknown"; note: string | null }>;
-  /** A DAY-SCOPED ONE-TIME RECHECK (the UTC day this may be looked at again), set ONLY when the site did not
+  /** A DAY-SCOPED ONE-TIME RECHECK (the reporting day this may be looked at again), set ONLY when the site did not
    *  answer at all: a timeout is a fact about the transport, not about the change, so writing it off forever
    *  would bury a change that really shipped. Null on every other ending and on the recheck's own answer. */
   recheckAfter?: string | null;
@@ -48,8 +48,11 @@ export type ShipmentVerification = {
 /** The immutable numbers this page stood at when the operator marked the change done. */
 type ShipmentBaseline = {
   search: ProofBaseline;
-  /** The latest day's first AI reading per tracked question. Null = none on file. */
-  ai: { day: string; checked: number; mentioning: number } | null;
+  /** The latest day's first AI reading per tracked question. Null = none on file. `checked` is every answer
+   *  that came back, `analyzed` the ones read closely enough to say whether this account was named, and
+   *  `analyzed` is the denominator the rate is computed over. A row written before `analyzed` existed simply
+   *  does not carry it, and is read as the legacy case it is: never rewritten, because this is write-once. */
+  ai: { day: string; checked: number; analyzed?: number; mentioning: number } | null;
   capturedAt: string;
 };
 
@@ -393,13 +396,9 @@ async function mirrorFile(record: ShippedChangeRecord): Promise<void> {
   }
 }
 
-/**
- * THE SEAM. The live-verification module calls this and nothing else: it writes ONE
- * column on ONE Shipment. The stamp and the starting numbers are not in the update
- * statement, so a check running weeks later can never move where the window starts.
- * Fail-closed: false means nothing was written, and an id belonging to another
- * account matches no row here, so a check never lands on somebody else's change.
- */
+/** THE SEAM. Live verification calls this and nothing else: ONE column on ONE Shipment. The stamp and
+ *  starting numbers are not in the update, so a later check can never move where the window starts.
+ *  Fail-closed: false = nothing written, and a foreign id matches no row here. */
 export async function recordVerification(
   tenantId: string, shipmentId: string, verification: ShipmentVerification,
 ): Promise<boolean> {

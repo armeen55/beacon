@@ -28,7 +28,7 @@ const row = (o: Partial<RR.ResearchRun>): RR.ResearchRun => ({
 });
 
 const work = (owed: boolean): DueWork => ({
-  due: owed ? ["refresh_sources"] : [], readable: true, checks: { done: 1, total: 2 },
+  due: owed ? ["refresh_sources"] : [], readable: true, checks: { done: 1, total: 2, answers: 1, unavailable: 0, unsupported: 0 },
   cases: { active: 1, parked: 0 }, nextDueAt: null, evidenceVersion: 1,
 });
 

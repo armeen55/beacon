@@ -6,6 +6,7 @@
  * measure-lifecycle.test.ts.
  */
 
+import { reportingDay } from "@/lib/reporting-day";
 import { addDays } from "./kernel";
 import { PROOF_WINDOW_DAYS, type ProofWindowDay } from "./types";
 import type { ShippedChangeRecord } from "./shipped-change-store";
@@ -233,7 +234,7 @@ export function day56Followup(
   const due = runs
     && lastFinalizedDate != null
     && lastFinalizedDate >= addDays(checkOn, -1)
-    && now.toISOString().slice(0, 10) >= checkOn;
+    && reportingDay(now) >= checkOn;
   return { runs, due, reason, checkOn };
 }
 

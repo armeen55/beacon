@@ -114,7 +114,8 @@ function freshRepo(): RR.ResearchRun[] { const { repo, rows } = memRepo(); RR.se
 /** A seeded paused (unleased) today-row a fresh claim can reclaim, plus its rows. */
 function withRun(o: Partial<RR.ResearchRun> = {}): RR.ResearchRun[] { const rows = freshRepo(); rows.push(mk(o)); return rows; }
 /** Work is owed unless a test says otherwise, so every pre-Phase-5 pin drives the same phases it always did. */
-const SOMETHING_DUE: DueWork = { due: ["daily_observations"], readable: true, checks: { done: 0, total: 0 }, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null };
+const NO_CHECKS = { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 };
+const SOMETHING_DUE: DueWork = { due: ["daily_observations"], readable: true, checks: NO_CHECKS, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null };
 const NOTHING_DUE: DueWork = { ...SOMETHING_DUE, due: [] };
 /** Benign no-op steps; a phase-truth test overrides the ONE step under test. */
 const BENIGN: ResearchCycleSteps = {
@@ -484,10 +485,10 @@ describe("the due-work runtime: a day is not a unit of work", () => {
 
   it("closes a pass that opened with nothing due immediately and at zero cost, and that completion blocks no later pass", async () => {
     const rows = freshRepo(); const log: string[] = [];
-    await run({ ...healthySteps(log), dueWork: async () => ({ ...NOTHING_DUE, checks: { done: 40, total: 40 }, cases: { active: 0, parked: 2 }, nextDueAt: "2026-08-02T00:00:00.000Z" }) });
+    await run({ ...healthySteps(log), dueWork: async () => ({ ...NOTHING_DUE, checks: { ...NO_CHECKS, done: 40, total: 40, answers: 37, unavailable: 2, unsupported: 1 }, cases: { active: 0, parked: 2 }, nextDueAt: "2026-08-02T00:00:00.000Z" }) });
     expect([log, rows[0]!.status, rows[0]!.current_phase]).toEqual([[], "completed", "done"]); // not one phase ran
     // A pass that closed with nothing owed still says what it checked and when the waiting ends.
-    expect(rows[0]!.progress.state).toMatchObject({ checksDone: 40, checksTotal: 40, casesParked: 2, nextDueAt: "2026-08-02T00:00:00.000Z" });
+    expect(rows[0]!.progress.state).toMatchObject({ checksDone: 40, checksTotal: 40, checksAnswers: 37, checksUnavailable: 2, checksUnsupported: 1, casesParked: 2, nextDueAt: "2026-08-02T00:00:00.000Z" });
     expect(RR.researchStatusLine(RR.projectStatusView(rows[0]!, NOW), new Date(NOW)))
       .toContain("Nothing more is due until August 1."); // the operator's own zone, the same one every other date on Today uses
     NOW += DAY; await run(healthySteps(log));
@@ -557,18 +558,18 @@ describe("the due-work runtime: a day is not a unit of work", () => {
 /** The rules themselves, on injected persisted state: no network, no clock tricks, no lease. */
 describe("dueWork: what is genuinely owed, computed from persisted state only", () => {
   const parked = (ms: number) => ({ basis: "b1", topics: [{ topicKey: "t1", query: "haft seen", requirement: "exact_serp", retryAfter: new Date(ms).toISOString() }] });
-  const base = { staleSources: async () => 0, checks: async () => ({ done: 4, total: 4, due: 0 }), basis: async () => "b1",
+  const base = { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 4, total: 4, answers: 4, due: 0 }), basis: async () => "b1",
     evidenceVersion: async () => 7, surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }),
     run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY) } }) };
 
   it("owes nothing when the sources are fresh, today's round has landed, the notes have not moved past the last decision, and the rest is waiting on a date I promised", async () => {
     const w = await dueWork(T, new Date(NOW), base);
-    expect([w.due, w.readable, w.checks, w.cases, w.nextDueAt]).toEqual([[], true, { done: 4, total: 4 }, { active: 0, parked: 1 }, new Date(NOW + DAY).toISOString()]); });
+    expect([w.due, w.readable, w.checks, w.cases, w.nextDueAt]).toEqual([[], true, { ...NO_CHECKS, done: 4, total: 4, answers: 4 }, { active: 0, parked: 1 }, new Date(NOW + DAY).toISOString()]); });
 
   it("names each owed unit from the ONE persisted fact that proves it", async () => {
     const due = async (o: Parameters<typeof dueWork>[2]) => (await dueWork(T, new Date(NOW), { ...base, ...o })).due;
     expect(await due({ staleSources: async () => 1 })).toEqual(["refresh_sources"]);
-    expect(await due({ checks: async () => ({ done: 2, total: 4, due: 2 }) })).toEqual(["daily_observations"]);
+    expect(await due({ checks: async () => ({ ...NO_CHECKS, done: 2, total: 4, answers: 2, due: 2 }) })).toEqual(["daily_observations"]);
     // A retry date that PASSED is the same-day unlock: the promise I made has come due.
     expect(await due({ run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW - 1) } }) })).toEqual(["acquire_case_evidence"]);
     // The notes moved past what the last decision consumed: new evidence, so a plan and a decision are owed.

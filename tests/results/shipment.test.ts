@@ -134,7 +134,7 @@ describe("the canonical Shipment", () => {
     expect(stored.componentsApplied).toEqual(COMPONENTS);
     expect(stored.shipmentBaseline?.search.clicks).toBe(9);
     // The first reading of each question on the latest day it was asked, and nothing else.
-    expect(stored.shipmentBaseline?.ai).toEqual({ day: "2026-07-30", checked: 2, mentioning: 1 });
+    expect(stored.shipmentBaseline?.ai).toEqual({ day: "2026-07-30", checked: 2, analyzed: 2, mentioning: 1 });
     expect(stored.verification).toBeNull(); // nobody has checked it, and that null makes it due
   });
 
@@ -149,7 +149,22 @@ describe("the canonical Shipment", () => {
       (o?.day === DAY ? whole : whole.slice(0, o?.limit ?? 60)));
     await upsertShippedChange(await ship());
     const [stored] = await loadShippedChangesForTenant(T);
-    expect(stored.shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, mentioning: 70 });
+    expect(stored.shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 140, mentioning: 70 });
+  });
+
+  it("writes down HOW MANY of that day's answers were read closely, which is the denominator the rate uses", async () => {
+    // The starting number used to count mentions over every answer that came back, so an answer nobody had
+    // read yet was an implicit miss, while the after side divides by the answers actually read. The change
+    // was then judged by comparing one measure against a different one. 140 answers, 100 of them read
+    // closely, 60 naming the account: the starting rate is 0.6, and it was 0.43.
+    const DAY = "2026-07-30";
+    const whole = Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY,
+      analysis: i < 100 ? { ownedBrandMention: { mentioned: i < 60 } } : null }));
+    ai.views.mockImplementation(async (_t: string, o: { day?: string; limit?: number }) =>
+      (o?.day === DAY ? whole : whole.slice(0, o?.limit ?? 60)));
+    await upsertShippedChange(await ship());
+    const [stored] = await loadShippedChangesForTenant(T);
+    expect(stored.shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 100, mentioning: 60 });
   });
 
   it("heals a retried press instead of recording the change twice", async () => {

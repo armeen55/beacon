@@ -2,29 +2,14 @@ import "server-only";
 
 /**
  * ai-outcomes (V1 Truth Convergence Phase 7) - WHAT THE AI ENGINES ACTUALLY SAID ABOUT THIS ACCOUNT.
- *
- * Every number here is computed at read time from answers ALREADY bought and stored (ai_observations).
- * Nothing is fetched, nothing is paid for, nothing is written. That is deliberate: an AI result is
- * historical source data, so it is read fresh on the visit that asks for it rather than frozen into a
- * second store that can drift from the answers it claims to summarize.
- *
- * SLOT 0 ONLY. Slot 0 is the ONE canonical reading of a question on a day; slots 1 and 2 are extra samples
- * an operator asked for to see how much the same question wobbles. Pooling them would let a question that
- * happened to be sampled three times outvote one read once, so a trend built on them would move because of
- * how often I asked, not because of what changed. Volatility samples are never trend.
- *
- * NULL IS A CLAIM. A rate with nothing behind it is null, never 0: "no answer of yours was analyzed" and
- * "you were named in none of them" are different statements and the surface must be able to tell them
- * apart. A day with no reading is simply absent from the series; it is never filled in from its neighbours.
- *
- * MODEL AND MODE BOUNDARIES ARE VISIBLE. The engines re-point their model underneath us and a consumer-mode
- * reading is not the same instrument as an API-mode one. A change in either splits the series into segments
- * and the break is named, so a step in the line reads as "the instrument changed here", never as a silent
- * win or loss.
- *
- * RENDERED ON RESULTS: the visibility trend draws each segment on its own and names every instrument
- * break in words, and each shipped change carries its own AI direction, coverage and before-and-after
- * line. Nothing here is drawn across a break, because a step caused by the instrument is not a result.
+ * Every number is computed at read time from answers ALREADY bought and stored: nothing fetched, paid,
+ * or written, so the summary can never drift from the answers it claims to summarize. SLOT 0 ONLY:
+ * volatility samples are never trend (a question sampled three times must not outvote one read once).
+ * NULL IS A CLAIM: "no answer of yours was analyzed" and "you were named in none" are different
+ * statements, and a missing day stays absent, never filled from its neighbours. MODEL AND MODE
+ * BOUNDARIES ARE VISIBLE: a change in either splits the series into named segments, so a step reads
+ * as "the instrument changed here", never as a silent win or loss. Rendered on Results per segment,
+ * with each shipped change carrying its own AI direction, coverage and before-and-after line.
  */
 
 import {
@@ -32,14 +17,12 @@ import {
   type AiObservationRecord,
 } from "@/domains/evidence/ai-visibility/ai-observations";
 import { reportingDay } from "@/lib/reporting-day";
+import { addDays, daysBetween, mergeRanges, overlaps, readPartitioned, type DayRange } from "./outcome-windows";
 import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 
-/** Slot 0: the ONE canonical reading of a question on a day. */
-const FIRST_READING_SLOT = 0;
-/** The longest stretch one Shipment is judged over. */
-const SHIPMENT_WINDOW_DAYS = 28;
-/** Under five points either way is not a move I am willing to call. */
-const FLAT_BAND = 0.05;
+const FIRST_READING_SLOT = 0; // slot 0: the ONE canonical reading of a question on a day
+const SHIPMENT_WINDOW_DAYS = 28; // the longest stretch one Shipment is judged over
+const FLAT_BAND = 0.05; // under five points either way is not a move I am willing to call
 const MAX_COMPETITORS = 10;
 
 type ObservedLink = { url: string; domain: string; title: string | null };
@@ -101,8 +84,12 @@ export type AiOutcomeReport = {
 /** What the AI answers did around one shipped change. Direction only: this is an observation, not a proof. */
 export type ShipmentAiOutcome = {
   direction: "improved" | "worsened" | "flat" | "unclear";
-  /** `checked` is the denominator the rate was computed over on this side. */
-  before: { day: string | null; checked: number; mentioning: number; rate: number | null; from: "on_file" | "stored_answers" | "nothing" };
+  /** `checked` is the denominator the rate was computed over on this side, which is always the answers read
+   *  closely. `from` says where the number came from: the starting number written at mark time (`on_file`),
+   *  the stored answers themselves (`stored_answers`), nothing at all (`nothing`), a starting number counted
+   *  the old way whose own day is no longer on file (`on_file_legacy`, never comparable), or a read of the
+   *  stored answers that did not land this time (`unavailable`). */
+  before: { day: string | null; checked: number; mentioning: number; rate: number | null; from: "on_file" | "on_file_legacy" | "stored_answers" | "nothing" | "unavailable" };
   /** `checked` = answers that came back, `analyzed` = the ones read closely enough to say whether
    *  you were named, and `rate` = mentioning / analyzed. Null when nothing was analyzed; a zero
    *  there would read as "AI never named you" over answers nobody has read yet. */
@@ -115,11 +102,9 @@ export type ShipmentAiOutcome = {
 // ── small pure helpers ──────────────────────────────────────────────────────
 
 const r3 = (n: number): number => Math.round(n * 1000) / 1000;
-/** ONE DEFINITION OF A DAY, and it is the operator's (src/lib/reporting-day). Observations are filed under
- *  the Pacific reporting day, so deriving "today" or the day a change shipped in UTC put every instant from
- *  5 PM onward on tomorrow: a change marked done at 7 PM counted that same evening's answers on the BEFORE
- *  side of itself. Day LABEL arithmetic below stays plain string arithmetic at UTC midnight, which is not a
- *  day-from-instant at all. */
+/** ONE DEFINITION OF A DAY, the operator's (src/lib/reporting-day): a UTC "today" put every instant
+ *  from 5 PM Pacific on tomorrow, counting a change's own evening answers on its BEFORE side. Day
+ *  LABEL arithmetic stays plain string math, which is not a day-from-instant at all. */
 const dayOfInstant = (d: Date): string => reportingDay(d);
 /** A stored stamp as a reporting day: a full instant resolves through the operator's zone, and a value
  *  already stored as a bare day label is already a day and is never shifted. null = not a moment I can read. */
@@ -129,10 +114,6 @@ const dayOfStamp = (raw: string | null): string | null => {
   const at = Date.parse(s);
   return Number.isFinite(at) ? reportingDay(at) : null;
 };
-const addDays = (day: string, n: number): string =>
-  new Date(Date.parse(`${day}T00:00:00.000Z`) + n * 86_400_000).toISOString().slice(0, 10);
-const daysBetween = (from: string, to: string): number =>
-  Math.round((Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) / 86_400_000);
 
 const hostOf = (raw: string): string =>
   (raw ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? "";
@@ -297,27 +278,25 @@ function competitorsIn(rows: AiObservationRecord[]): AiOutcomeReport["competitor
     .slice(0, MAX_COMPETITORS);
 }
 
-/** The stored first readings for one account OVER ONE DAY RANGE. Range and slot are both asked for in the
- *  QUERY and the store pages until that range is exhausted, so every total below covers every day it
- *  claims. This used to ask for the newest 2,000 rows and narrow to the range afterwards, so an account
- *  reading 35 questions on 4 engines (140 first readings a day) had its 28 day report built from about a
- *  fortnight. The filter after the read is the belt to that braces, and holds for an injected reader. */
+/** The stored first readings OVER ONE DAY RANGE: range and slot are asked for in the QUERY and the
+ *  store pages until the range is exhausted (the newest-2,000 shot built a 28 day report from a
+ *  fortnight). The filter after the read is the belt to those braces. */
 const readRows = async (tenantId: string, window: { from: string; to: string }, opts: ReadOpts & { projection?: "outcome" }): Promise<AiObservationRecord[]> =>
   (await (opts.readObservations ?? readAiObservations)(tenantId, { fromDay: window.from, toDay: window.to, slot: FIRST_READING_SLOT,
     ...(opts.projection ? { projection: opts.projection } : {}) }))
     .filter((r) => r.tenant_id === tenantId && isFirstReading(r) && r.reporting_day >= window.from && r.reporting_day <= window.to);
 
-/**
- * THE DAILY TREND READ over stored answers: how often AI named this account, how often it credited its
- * pages, where in the credited list it stood, who else kept being named, and how much of each day's
- * question list each engine actually answered. Pure over what is on file; a read that fails THROWS,
- * because an empty report reads as "AI never mentions you", which is a different and false claim.
- */
+/** THE DAILY TREND READ over stored answers. Pure over what is on file; a failed read THROWS, because
+ *  an empty report reads as "AI never mentions you", which is a different and false claim. */
 export async function aiOutcomes(
   tenantId: string,
   range: { from: string; to: string } & ReadOpts,
 ): Promise<AiOutcomeReport> {
-  const rows = await readRows(tenantId, range, range);
+  // Read in bounded pieces for the same reason the ledger is: a year of first readings is past the store's
+  // own row ceiling. The trend still THROWS on a piece it could not read, because a short series drawn as if
+  // it were the whole stretch would read as days AI said nothing, which is a different and false claim.
+  const { rows, failed } = await readPartitioned([{ from: range.from, to: range.to }], (from, to) => readRows(tenantId, { from, to }, range));
+  if (failed.length > 0) throw new Error(`[ai-outcomes] could not read ${failed[0]!.from} to ${failed[0]!.to}`);
   const root = ownedRootOf(rows, range.ownedHost);
   const days = [...groupBy(rows, (r) => r.reporting_day).entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
@@ -346,13 +325,9 @@ export async function visibilitySeries(
   return (await aiOutcomes(tenantId, { from: addDays(to, -(span - 1)), to, ...opts })).segments;
 }
 
-/**
- * How often this account was named, over the answers ACTUALLY READ CLOSELY. The rate divides by
- * `analyzed`, never by `checked`: an answer nobody has read yet cannot say whether you were named,
- * so counting it as a miss reported a change in how much analysis had finished as if it were a
- * change in what AI said. The same rule the daily trend uses, so before and after are one measure.
- * Null when nothing was analyzed, which is a different claim from a zero share and stays different.
- */
+/** How often this account was named, over the answers ACTUALLY READ CLOSELY: the rate divides by
+ *  `analyzed`, never `checked`, the same rule on both sides of a shipment, null when nothing was
+ *  analyzed (a different claim from a zero share, and it stays different). */
 function namedShare(rows: AiObservationRecord[]): { checked: number; analyzed: number; mentioning: number; rate: number | null } {
   const answered = rows.filter(cameBack);
   const analyzed = answered.filter((r) => namedIn(r) !== null);
@@ -365,12 +340,23 @@ function namedShare(rows: AiObservationRecord[]): { checked: number; analyzed: n
   };
 }
 
+/** THE ONE COVERAGE RULE, both sides of a shipped change: under half the answers read closely means
+ *  the share is a fact about how much analysis finished, not what AI said, so the outcome reads
+ *  unclear rather than a direction. */
+const tooThin = (s: { checked: number; analyzed: number }): boolean => s.analyzed <= 0 || s.analyzed * 2 < s.checked;
+
 function outcomeLine(direction: ShipmentAiOutcome["direction"], before: ShipmentAiOutcome["before"], after: ShipmentAiOutcome["after"], coverage: ShipmentAiOutcome["coverage"]): string {
   const since = `I read ${after.checked} AI ${after.checked === 1 ? "answer" : "answers"} on ${coverage.daysObserved} of the ${coverage.daysElapsed} days since you marked this done`;
   if (direction === "unclear") {
-    return before.from === "nothing"
-      ? `${since}, and I have nothing from before the change to compare them against. I keep reading every day and will say which way this went once both sides are there.`
-      : `${since}, which is too little to call either way yet. I keep reading every day.`;
+    if (before.from === "nothing") {
+      return `${since}, and I have nothing from before the change to compare them against. I keep reading every day and will say which way this went once both sides are there.`;
+    }
+    // TWO DIFFERENT COUNTS ARE NOT A DIRECTION. An old starting number counted every answer that came back,
+    // read or not, and the answers from that day are gone, so there is nothing to recount it from.
+    if (before.from === "on_file_legacy") {
+      return `${since}. The starting number I saved for this change was counted a different way from the answers I read now, and that day's answers are no longer on file, so I will not turn the two into a direction. I keep reading every day.`;
+    }
+    return `${since}, which is too little to call either way yet. I keep reading every day.`;
   }
   // The denominator the share was computed over, said out loud: "36 of 60" would compare a count
   // over the answers I read closely against a total that includes answers nobody has read.
@@ -381,16 +367,12 @@ function outcomeLine(direction: ShipmentAiOutcome["direction"], before: Shipment
   return `${since}, ${now}, the same share as ${then}. I keep reading every day.`;
 }
 
-/**
- * WHAT THE AI ANSWERS DID AROUND ONE SHIPPED CHANGE. The before side is the starting number written onto the
- * Shipment when the operator marked it done, or, when none was held, the last day of stored answers in the
- * 28 days ahead of the stamp. The after side is the stamp to now, bounded to 28 days. Both count the same way.
- *
- * Coverage rides the answer: days I actually read against days that have passed. A missed day is missing and
- * is never filled in from its neighbours, and under half coverage is `unclear`, not a verdict. Null when the
- * change carries no stamp, because there is then no moment to measure from.
- */
-export type ShipmentForOutcome = { implementedAt: string | null; shipmentBaseline?: { ai: { day: string; checked: number; mentioning: number } | null } | null };
+/** WHAT THE AI ANSWERS DID AROUND ONE SHIPPED CHANGE: the held starting number (or the last stored day
+ *  ahead of the stamp), against stamp-to-now bounded to 28 days, both counted the same way. Coverage
+ *  rides the answer; under half is `unclear`, not a verdict; no stamp means null. */
+export type ShipmentForOutcome = { implementedAt: string | null; shipmentBaseline?: { ai: { day: string; checked: number; analyzed?: number; mentioning: number } | null } | null };
+
+/** A stretch of reporting days, both ends included. */
 
 /** The two ends of ONE shipment's read: the 28 days ahead of the stamp, where the fallback before-number is
  *  found, and the 28 days after it, bounded by today. Null when the change carries no stamp to measure from. */
@@ -403,14 +385,11 @@ function shipmentWindow(shipment: ShipmentForOutcome, nowDay: string): { stamp: 
   return { stamp, from: addDays(stamp, -SHIPMENT_WINDOW_DAYS), to: nowDay < last ? nowDay : last };
 }
 
-/**
- * EVERY SHIPMENT ON ONE LEDGER, OFF ONE READ. Each shipment used to issue its own paged 56 day read of
- * whole rows, all of them at once inside a Promise.all, which is the exact shape that has timed a statement
- * out here before: ten shipments meant eighty round trips carrying every answer text and retrieval journey
- * in the window. Now the union window of every stamped shipment is read ONCE, on the lean outcome
- * projection, and each shipment is computed from that set in memory. A shipment with no stamp still gets
- * null, in its own place, so the answer stays aligned with the ledger that asked.
- */
+/** EVERY SHIPMENT ON ONE LEDGER, OFF ONE SET OF BOUNDED READS. Per-shipment 56 day reads in a
+ *  Promise.all timed statements out before, and one whole-union read hits the store's 40,000 row
+ *  ceiling at a year of 140 readings a day, nulling every outcome at once. So the union is merged,
+ *  partitioned into pieces one read can hold, and shared; a piece that will not read fails only the
+ *  shipments whose windows touch it (see outcome-windows.ts). */
 export async function aiOutcomesForShipments(
   tenantId: string,
   shipments: readonly ShipmentForOutcome[],
@@ -418,13 +397,13 @@ export async function aiOutcomesForShipments(
 ): Promise<(ShipmentAiOutcome | null)[]> {
   const nowDay = dayOfInstant(opts.now ?? new Date());
   const windows = shipments.map((s) => shipmentWindow(s, nowDay));
-  const stamped = windows.filter((w): w is NonNullable<typeof w> => w != null);
-  if (stamped.length === 0) return shipments.map(() => null);
-  const union = { from: stamped.map((w) => w.from).sort()[0]!, to: stamped.map((w) => w.to).sort().at(-1)! };
-  const rows = await readRows(tenantId, union, { ...opts, projection: "outcome" });
+  const needed = shipments.map((s, i) => (windows[i] ? rangesFor(s, windows[i]!) : []));
+  if (needed.every((r) => r.length === 0)) return shipments.map(() => null);
+  const { rows, failed } = await readPartitioned(mergeRanges(needed.flat()), (from, to) => readRows(tenantId, { from, to }, { ...opts, projection: "outcome" }));
   return shipments.map((s, i) => {
     const w = windows[i];
-    return w == null ? null : outcomeFromRows(rows, s, w);
+    if (w == null) return null;
+    return failed.some((f) => needed[i]!.some((r) => overlaps(f, r))) ? unreadableOutcome(w) : outcomeFromRows(rows, s, w);
   });
 }
 
@@ -433,9 +412,34 @@ export async function aiOutcomeForShipment(
   shipment: ShipmentForOutcome,
   opts: ReadOpts & { now?: Date } = {},
 ): Promise<ShipmentAiOutcome | null> {
-  const window = shipmentWindow(shipment, dayOfInstant(opts.now ?? new Date()));
-  if (!window) return null;
-  return outcomeFromRows(await readRows(tenantId, window, opts), shipment, window);
+  return (await aiOutcomesForShipments(tenantId, [shipment], opts))[0] ?? null;
+}
+
+/** THE DAYS ONE SHIPMENT NEEDS ON FILE: its own 56 day window, plus the day a legacy starting number was
+ *  captured on when that day sits outside the window, because that day is what the old number is recounted
+ *  from. Nothing else is ever asked for on a shipment's behalf. */
+function rangesFor(shipment: ShipmentForOutcome, window: { stamp: string; from: string; to: string }): DayRange[] {
+  const held = shipment.shipmentBaseline?.ai ?? null;
+  const legacy = held != null && typeof held.analyzed !== "number" ? held.day : null;
+  return legacy && (legacy < window.from || legacy > window.to)
+    ? [{ from: window.from, to: window.to }, { from: legacy, to: legacy }]
+    : [{ from: window.from, to: window.to }];
+}
+
+/** Days I actually read against days that have passed, counted the same way on both sides. */
+const elapsedSince = (stamp: string, to: string): number =>
+  Math.max(1, Math.min(daysBetween(stamp, to) + 1, SHIPMENT_WINDOW_DAYS));
+
+/** WHEN THE ANSWERS THEMSELVES COULD NOT BE READ. Not a verdict and not a zero: the answers are on file and
+ *  I say plainly that I could not get to them this time. */
+function unreadableOutcome(window: { stamp: string; to: string }): ShipmentAiOutcome {
+  return {
+    direction: "unclear",
+    before: { day: null, checked: 0, mentioning: 0, rate: null, from: "unavailable" },
+    after: { from: window.stamp, to: window.to, checked: 0, analyzed: 0, mentioning: 0, rate: null },
+    coverage: { daysObserved: 0, daysElapsed: elapsedSince(window.stamp, window.to) },
+    line: "I could not read the answers for this period just now. They are safe and I will read them on the next refresh.",
+  };
 }
 
 /** PURE over rows already in hand: one shipment's before, after, coverage and direction. */
@@ -450,27 +454,41 @@ function outcomeFromRows(
   const held = shipment.shipmentBaseline?.ai ?? null;
   const beforeRows = rows.filter((r) => r.reporting_day < stamp && cameBack(r));
   const lastBeforeDay = beforeRows.map((r) => r.reporting_day).sort().pop() ?? null;
-  const computed = namedShare(beforeRows.filter((r) => r.reporting_day === lastBeforeDay));
-  const before: ShipmentAiOutcome["before"] = held
-    ? { day: held.day, checked: held.checked, mentioning: held.mentioning, rate: held.checked > 0 ? r3(held.mentioning / held.checked) : null, from: "on_file" }
-    // The before side names the same denominator its own rate was computed over.
-    : lastBeforeDay
-      ? { day: lastBeforeDay, checked: computed.analyzed, mentioning: computed.mentioning, rate: computed.rate, from: "stored_answers" }
-      : { day: null, checked: 0, mentioning: 0, rate: null, from: "nothing" };
+  // A LEGACY STARTING NUMBER counted every answer that came back, so its share is a different measure from
+  // the one the after side computes and the two can never be subtracted. Its own day is recounted from the
+  // answers still on file for that exact day; the store was asked for that day for this reason.
+  const legacyDay = held != null && typeof held.analyzed !== "number" ? held.day : null;
+  const legacyRows = legacyDay ? all.filter((r) => r.reporting_day === legacyDay && cameBack(r)) : [];
+  /** One side of the comparison, named by the denominator its own rate was computed over, plus whether that
+   *  denominator is too thin to trust: under half the answers on this side were read closely. */
+  const sideOf = (day: string | null, s: { checked: number; analyzed: number; mentioning: number; rate: number | null },
+    from: ShipmentAiOutcome["before"]["from"]) =>
+    ({ side: { day, checked: s.analyzed, mentioning: s.mentioning, rate: s.rate, from }, thin: tooThin(s) });
+  const beforeSide = held && typeof held.analyzed === "number"
+    ? sideOf(held.day, { checked: held.checked, analyzed: held.analyzed, mentioning: held.mentioning,
+      rate: held.analyzed > 0 ? r3(held.mentioning / held.analyzed) : null }, "on_file")
+    : legacyDay && legacyRows.length > 0 ? sideOf(legacyDay, namedShare(legacyRows), "stored_answers")
+      : legacyDay
+        ? { side: { day: legacyDay, checked: held!.checked, mentioning: held!.mentioning, rate: null, from: "on_file_legacy" as const }, thin: true }
+        : lastBeforeDay ? sideOf(lastBeforeDay, namedShare(beforeRows.filter((r) => r.reporting_day === lastBeforeDay)), "stored_answers")
+          : { side: { day: null, checked: 0, mentioning: 0, rate: null, from: "nothing" as const }, thin: true };
+  const before: ShipmentAiOutcome["before"] = beforeSide.side;
 
   const afterRows = rows.filter((r) => r.reporting_day >= stamp && r.reporting_day <= to);
   const share = namedShare(afterRows);
   const after: ShipmentAiOutcome["after"] = { from: stamp, to, checked: share.checked, analyzed: share.analyzed, mentioning: share.mentioning, rate: share.rate };
   const coverage = {
     daysObserved: new Set(afterRows.filter(cameBack).map((r) => r.reporting_day)).size,
-    daysElapsed: Math.max(1, Math.min(daysBetween(stamp, to) + 1, SHIPMENT_WINDOW_DAYS)),
+    daysElapsed: elapsedSince(stamp, to),
   };
 
   // Three ways this stays honest rather than becoming a verdict: too few days read, nothing to compare
-  // against, or too few answers actually read closely enough to say whether you were named.
+  // against, or too few answers actually read closely enough to say whether you were named. THE SAME
+  // COVERAGE RULE ON BOTH SIDES, because a direction is a subtraction and one thin side is enough to make it
+  // meaningless.
   const thin = coverage.daysObserved * 2 < coverage.daysElapsed
     || before.rate == null || after.rate == null
-    || share.analyzed * 2 < share.checked;
+    || beforeSide.thin || tooThin(share);
   const gap = thin ? 0 : (after.rate ?? 0) - (before.rate ?? 0);
   const direction: ShipmentAiOutcome["direction"] = thin ? "unclear"
     : gap > FLAT_BAND ? "improved"

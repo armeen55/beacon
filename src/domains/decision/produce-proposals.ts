@@ -6,6 +6,12 @@
  * validator) -> saveChangeProposal (durable, fail-soft). BOUNDED: at most the strongest
  * DEFAULT_MAX_DRAFTS pages by recoverable clicks, and a page with no proven gap costs nothing.
  *
+ * THE DEEP READ HAS FIVE DOORS, NOT ONE (see deep-candidates.ts). A click gap on Google used to be the only
+ * way any page reached the deep producer, so an engine reading a page and quoting rivals, a comparison naming
+ * the page to improve, and two of your own pages splitting a search were invisible unless that page also
+ * happened to be losing clicks. Selection widened; drafting did not: the SAME producer runs per selected
+ * page, still bounded to DEFAULT_MAX_DRAFTS, still refusing on thin evidence.
+ *
  * Every honest ending this pass can reach is named on `ProducerOutcome` below, so a surface never
  * reads an empty queue as an outage or a failed write as a quiet day.
  *
@@ -25,6 +31,7 @@ import { loadBusinessProfile } from "@/domains/account";
 import { pagesUnderMeasurement, resolveCurrentBasis } from "./load-proposals";
 import { candidatesToEvidenceInputs, compileCandidates, type QualifiedCandidate } from "./opportunities";
 import type { CauseFinding } from "./diagnosis";
+import { selectDeepCandidates } from "./deep-candidates";
 import { produceBundleForSnapshot } from "./produce-bundle";
 import { proposeExistingPageChange, type ProposeOptions } from "./propose";
 import { loadChangeProposals, saveChangeProposal } from "./proposal-store";
@@ -324,7 +331,11 @@ export async function produceProposalsForTenant(
     }
   }
 
-  const inputs = candidatesToEvidenceInputs(snapshot, acted).slice(0, Math.min(DEFAULT_MAX_DRAFTS, maxDrafts));
+  const bound = Math.min(DEFAULT_MAX_DRAFTS, maxDrafts);
+  const inputs = candidatesToEvidenceInputs(snapshot, acted).slice(0, bound);
+  // WHICH PAGES EARN THE DEEP READ, off every door the evidence already proves rather than off a click
+  // gap alone. SELECTION ONLY: nothing here drafts, buys, or invents a figure.
+  const deep = selectDeepCandidates({ snapshot, candidates, coverage, limit: bound });
 
   const investigating = candidates.filter((c) => c.action === "research_needed").length;
   // A CONSOLIDATION IS WORK, NOT SILENCE. The ladder names two of your own pages splitting one search and
@@ -332,7 +343,7 @@ export async function produceProposalsForTenant(
   // a quiet day over a proven loss. It is counted with what I am watching and carries its own reason onto
   // the run receipt, so the operator reads the consolidation even while nothing drafts it.
   const consolidating = candidates.filter((c) => c.action === "consolidate").length;
-  if (acted.length === 0) {
+  if (acted.length === 0 && deep.length === 0) {
     log.info("[produce-proposals] nothing earned an action this pass", { tenantId, judged: candidates.length,
       watching: candidates.filter((c) => c.action === "watch").length + consolidating, researching: investigating });
     // A proven gap I cannot yet explain is NOT a quiet day, and neither is one I CAN explain and cannot
@@ -344,22 +355,24 @@ export async function produceProposalsForTenant(
       actionable: consolidating, investigating, noDraft: 0, persisted, reused, heldForMeasurement, ...research };
   }
 
-  // THE STRONGEST PROVEN PAGE, never the first one the snapshot happened to list.
-  // `find` handed the deep bundle to whichever actionable page came back first, so
-  // a 58-click page got the deep work while an 824-click gap sat untouched.
-  // Deterministic: most recoverable clicks, then page address.
-  const provenPage = [...acted]
-    .sort((a, b) => b.recoverableClicks - a.recoverableClicks || (a.pageUrl ?? "").localeCompare(b.pageUrl ?? ""))[0]?.pageUrl ?? null;
-  const provenKeys = pageKeys(provenPage);
-  /** The deep bundle this page already has under the current basis, if any. */
-  const heldBundle = currentBundleFor((p) => p.kind === "existing_edit" && provenKeys.includes((p.pagePath ?? "").trim().toLowerCase()));
+  /** Every page a door selected, by both of its keys, so a bundle for a page THIS PASS DID NOT SELECT
+   *  is dropped exactly as the single-door pass dropped one for a page nothing proved. */
+  const selectedKeys = new Set(deep.flatMap((d) => pageKeys(d.pageUrl)));
+  /** The deep bundle each selected page already holds under the current basis, keyed by that page. */
+  const heldDeep = new Map<string, ChangeProposal>();
+  for (const d of deep) {
+    const keys = pageKeys(d.pageUrl);
+    const has = currentBundleFor((p) => p.kind === "existing_edit" && keys.includes((p.pagePath ?? "").trim().toLowerCase()));
+    if (has) heldDeep.set(d.pageUrl, has);
+  }
+  const enteredBy = new Map<string, string>(); // which door each page that got a deep change came through
 
   // A READY CHANGE MAY NOT OUTLIVE ITS OWN EXPLANATION. The basis fingerprints the account,
   // not the evidence, so a stored row kept rendering Ready while today's diagnosis no longer
   // supported it (Google rewrites the line it displays, a rival retitles, the page slips off
   // the results page I check). Every live bundle whose page no longer earns an action this
   // pass is set aside, in the queue and in the store, with the reason the operator reads.
-  const provenNow = new Set(acted.flatMap((c) => pageKeys(c.pageUrl)));
+  const provenNow = new Set([...acted.flatMap((c) => pageKeys(c.pageUrl)), ...selectedKeys]);
   for (const p of live) {
     if (!p.bundle || p.kind !== "existing_edit" || p.status !== "proposed" || !current(p)) continue;
     if (provenNow.has((p.pagePath ?? "").trim().toLowerCase())) continue;
@@ -385,7 +398,8 @@ export async function produceProposalsForTenant(
     if (settled && settled.status === "applied") { heldForMeasurement += 1; continue; }
     if (settled && settled.status === "rejected" && current(settled)) continue;
     const held = currentById(proposalId(input))
-      ?? (heldBundle && input.opportunity.kind === "existing_edit" && heldBundle.pagePath === input.page.path ? heldBundle : null);
+      ?? (input.opportunity.kind === "existing_edit"
+        ? [...heldDeep.values()].find((b) => b.pagePath === input.page.path) ?? null : null);
     if (held) {
       if (!proposals.some((p) => p.id === held.id)) {
         // Reuse skips the DRAFTER, never the judgment. A stored row keeps its words
@@ -398,17 +412,9 @@ export async function produceProposalsForTenant(
       }
       continue;
     }
-    const outcome = await proposeExistingPageChange(input, {
-      complete: opts.complete,
-      now: opts.now,
-      bypassCache: opts.bypassCache,
-      authoritativeSourceDomains: allowlist,
-    }).catch((e) => {
-      log.warn("[produce-proposals] propose threw (fail-soft)", {
-        tenantId,
-        id: input.opportunity.query,
-        error: e instanceof Error ? e.message : String(e),
-      });
+    const outcome = await proposeExistingPageChange(input,
+      { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist }).catch((e) => {
+      log.warn("[produce-proposals] propose threw (fail-soft)", { tenantId, id: input.opportunity.query, error: e instanceof Error ? e.message : String(e) });
       return { status: "no_draft" as const, reason: "threw", drafterStatus: "error" };
     });
     if (outcome.status !== "proposed") {
@@ -420,80 +426,74 @@ export async function produceProposalsForTenant(
     await persistIfChanged(proposal);
   }
 
-  // ONE bundle per pass (the strongest proven page). A bundle REPLACES its own shallow
-  // drafts (never the same change twice); a refusal is honest and silent and the shallow
-  // drafts stand. A bundle for a page NO candidate proved is dropped: the deep form of a
-  // change nobody needs is still a change nobody needs.
-  const bundleOpts = {
-    complete: opts.complete,
-    now: opts.now,
-    bypassCache: opts.bypassCache,
-    authoritativeSourceDomains: allowlist,
-  };
+  // ONE bundle per SELECTED page, strongest door first and never more than the bound. A bundle
+  // REPLACES its own shallow drafts (never the same change twice); a refusal is honest and silent
+  // and the shallow drafts stand. A bundle for a page NO door selected is dropped: the deep form of
+  // a change nobody needs is still a change nobody needs.
+  const bundleOpts = { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist };
   const onThrow = (e: unknown) => {
-    log.warn("[produce-proposals] bundle threw (fail-soft)", {
-      tenantId,
-      error: e instanceof Error ? e.message : String(e),
-    });
+    log.warn("[produce-proposals] bundle threw (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
     return { status: "none" as const, reason: "threw" };
   };
 
-  if (provenPage && !heldBundle) {
-    // The ONE page under investigation gets its own words read, through the targeted
-    // Evidence reader (explicit tenant, this URL only). A diagnosis written from a
-    // title and a word count is a guess; fail-soft to none, which stays honest.
-    const bodyByUrl = await loadOwnedPageBodies(tenantId, [provenPage]).catch(() => null);
-    const bundled = await produceBundleForSnapshot(snapshot, { ...bundleOpts, onlyPageUrl: provenPage,
+  for (const d of deep) {
+    const heldBundle = heldDeep.get(d.pageUrl) ?? null;
+    if (heldBundle) {
+      // A held bundle used to reach the queue only through the atomic-input loop, and that loop is
+      // empty whenever the selected page needs no atomic edit. The pass then reported "no trusted
+      // draft" while a judged, current bundle sat in the store. It is carried here, re-stamped.
+      if (!proposals.some((p) => p.id === heldBundle.id)) {
+        const proposal = stamp(heldBundle);
+        proposals.push(proposal);
+        reused += 1;
+        await persistIfChanged(proposal);
+      }
+      enteredBy.set(d.pageUrl, d.entry);
+      continue;
+    }
+    // The page a door selected gets its own words read, through the targeted Evidence reader
+    // (explicit tenant, this URL only). A diagnosis written from a title and a word count is a
+    // guess; fail-soft to none, which stays honest.
+    const bodyByUrl = await loadOwnedPageBodies(tenantId, [d.pageUrl]).catch(() => null);
+    const bundled = await produceBundleForSnapshot(snapshot, { ...bundleOpts, onlyPageUrl: d.pageUrl,
       coverage, ...measuring, ...(bodyByUrl ? { bodyByUrl } : {}) }).catch(onThrow);
     const covered = bundled.status === "bundled" ? (bundled.proposal.pageUrl ?? "").trim().toLowerCase() : "";
-    const proven = bundled.status === "bundled"
-      && (recoverableByKey.has(covered) || recoverableByKey.has((bundled.proposal.pagePath ?? "").trim().toLowerCase()));
-    if (bundled.status === "bundled" && proven) {
-      const page = bundled.proposal.pagePath;
-      for (let i = proposals.length - 1; i >= 0; i--) {
-        const p = proposals[i]!;
-        if (p.kind === "existing_edit" && p.pagePath === page) proposals.splice(i, 1);
-      }
-      const proposal = stamp(bundled.proposal);
-      proposals.push(proposal);
-      await persistIfChanged(proposal);
-    } else {
-      log.info("[produce-proposals] no bundle this pass", {
-        tenantId,
-        reason: bundled.status === "bundled" ? "page has no proven gap" : bundled.reason,
-      });
+    const path = bundled.status === "bundled" ? (bundled.proposal.pagePath ?? "").trim().toLowerCase() : "";
+    if (bundled.status !== "bundled" || (!selectedKeys.has(covered) && !selectedKeys.has(path))) {
+      log.info("[produce-proposals] no bundle this pass", { tenantId, page: d.pageUrl, door: d.door,
+        reason: bundled.status === "bundled" ? "page no door selected" : bundled.reason });
+      continue;
     }
-  } else if (heldBundle && !proposals.some((p) => p.id === heldBundle.id)) {
-    // The held bundle used to reach the queue only through the atomic-input loop,
-    // and that loop is empty whenever the proven page needs no atomic edit. The
-    // pass then reported "no trusted draft" while a judged, current bundle sat in
-    // the store. It is carried here, re-stamped, whether or not the loop ran.
-    const proposal = stamp(heldBundle);
+    const page = bundled.proposal.pagePath;
+    for (let i = proposals.length - 1; i >= 0; i--) {
+      const p = proposals[i]!;
+      if (p.kind === "existing_edit" && p.pagePath === page) proposals.splice(i, 1);
+    }
+    const proposal = stamp(bundled.proposal);
     proposals.push(proposal);
-    reused += 1;
     await persistIfChanged(proposal);
+    enteredBy.set(d.pageUrl, d.entry);
   }
 
   // The honest ending. A write that failed on EVERY attempt is a failure, not a
   // quiet day: the caller must keep the previous release rather than stamp a fresh
   // timestamp on work nobody can load back.
+  // A pass that reached here through a door OTHER than a proven click gap can still have nothing in
+  // `acted`, and calling that "no trusted draft" would name work nobody proved, so it falls back to
+  // the same three honest endings the empty-diagnosis path reports.
   const outcome: ProducerOutcome =
     writeFailures > 0 && persisted === 0 ? "persistence_failed"
-      : proposals.length === 0 ? "actionable_but_no_trusted_draft"
-        : "proposals_persisted";
+      : proposals.length > 0 ? "proposals_persisted"
+        : acted.length + consolidating > 0 ? "actionable_but_no_trusted_draft"
+          : investigating > 0 ? "investigating" : "no_actionable_candidate";
   if (outcome !== "proposals_persisted") {
     log.warn("[produce-proposals] pass produced no durable work", { tenantId, outcome, actionable: acted.length, noDraft, writeFailures });
   }
-  return {
-    proposals: rankProposals(proposals, measuring),
-    candidates,
-    outcome,
-    actionable: acted.length + consolidating,
-    investigating,
-    noDraft,
-    persisted,
-    reused,
-    heldForMeasurement,
-    ...research,
-  };
+  // THE RUN RECEIPT SAYS WHICH DOOR EACH DRAFTED PAGE CAME THROUGH, in the same first-person line every
+  // surface already renders for a candidate. A deep change nobody can trace back to its own evidence
+  // reads as a machine picking favourites.
+  const receipt = enteredBy.size === 0 ? candidates
+    : candidates.map((c) => { const entry = enteredBy.get(c.pageUrl ?? ""); return entry ? { ...c, reason: `${c.reason} ${entry}` } : c; });
+  return { proposals: rankProposals(proposals, measuring), candidates: receipt, outcome,
+    actionable: acted.length + consolidating, investigating, noDraft, persisted, reused, heldForMeasurement, ...research };
 }

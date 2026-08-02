@@ -227,11 +227,64 @@ describe("what the AI answers did around one shipped change", () => {
   };
 
 
+  /** BOTH SIDES ARE ONE MEASURE. The starting number written at mark time counts the answers that came back
+   *  AND the ones read closely enough to say whether the account was named, and the rate divides by the
+   *  second. Dividing by everything that came back made the before side a different metric from the after
+   *  side, so a change was judged by a subtraction of two unlike numbers. */
+  it("divides the starting number by the answers READ CLOSELY, so before and after are the same measure", async () => {
+    // 140 answers, 100 read closely, 60 naming the account: the rate before is 0.6. Counted the old way it
+    // was 0.43, which is BELOW the 0.5 the answers since have run at, so the same day's data read as a rise.
+    const readObservations = reader(stretch("2026-07-21", "2026-07-31", 2));
+    const outcome = await aiOutcomeForShipment(T, {
+      implementedAt: STAMP,
+      shipmentBaseline: { ai: { day: "2026-07-20", checked: 140, analyzed: 100, mentioning: 60 } },
+    }, { readObservations, now: NOW });
+    expect(outcome?.before).toMatchObject({ day: "2026-07-20", checked: 100, mentioning: 60, rate: 0.6, from: "on_file" });
+    expect(outcome?.after.rate).toBe(0.5);
+    expect(outcome?.direction).toBe("worsened");
+    expect(outcome?.line).toContain("60 of 100 before it");
+  });
+
+  it("recounts a starting number written the old way from that day's own answers, and asks for that exact day", async () => {
+    // A baseline written before `analyzed` existed carries no denominator I can trust, and it is write-once,
+    // so it is never rewritten. The day itself is still on file, well outside the 28 days ahead of the
+    // stamp, so the store is asked for that one day and the before side is recounted the same way as the after.
+    const readObservations = reader([...stretch("2026-06-10", "2026-06-10", 3), ...stretch("2026-07-21", "2026-07-31", 3)]);
+    const outcome = await aiOutcomeForShipment(T, {
+      implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-06-10", checked: 8, mentioning: 2 } },
+    }, { readObservations, now: NOW });
+    expect(readObservations).toHaveBeenCalledWith(T, { fromDay: "2026-06-10", toDay: "2026-06-10", slot: 0, projection: "outcome" });
+    expect(outcome?.before).toMatchObject({ day: "2026-06-10", checked: 4, mentioning: 3, rate: 0.75, from: "stored_answers" });
+    expect(outcome?.direction).toBe("flat"); // 0.75 then, 0.75 now. The stored 2 of 8 would have read as a rise.
+  });
+
+  it("refuses to turn a starting number counted the old way into a direction when its day is gone", async () => {
+    const readObservations = reader(stretch("2026-07-21", "2026-07-31", 4));
+    const outcome = await aiOutcomeForShipment(T, {
+      implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-05-01", checked: 8, mentioning: 2 } },
+    }, { readObservations, now: NOW });
+    expect(outcome?.before).toMatchObject({ day: "2026-05-01", rate: null, from: "on_file_legacy" });
+    expect(outcome?.direction).toBe("unclear");
+    expect(outcome?.line).toContain("counted a different way");
+    expect(outcome?.line).not.toMatch(/[—–]/);
+  });
+
+  it("says unclear when the starting day itself was barely read, however clear the days since are", async () => {
+    // 40 of 140 answers read closely on the day this change starts from. The share those 40 carry is a fact
+    // about how much analysis finished that day, not about what AI said, so it is not one end of a direction.
+    const readObservations = reader(stretch("2026-07-21", "2026-07-31", 4));
+    const outcome = await aiOutcomeForShipment(T, {
+      implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 140, analyzed: 40, mentioning: 24 } },
+    }, { readObservations, now: NOW });
+    expect(outcome?.after.rate).toBe(1);
+    expect(outcome?.direction).toBe("unclear");
+  });
+
   it("compares the starting number on file against every day since, and says which way it went", async () => {
     const readObservations = reader(stretch("2026-07-21", "2026-07-31", 3));
     const outcome = await aiOutcomeForShipment(T, {
       implementedAt: STAMP,
-      shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, mentioning: 1 } },
+      shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 1 } },
     }, { readObservations, now: NOW });
     expect(outcome?.direction).toBe("improved");
     expect(outcome?.before).toMatchObject({ day: "2026-07-20", checked: 4, mentioning: 1, rate: 0.25, from: "on_file" });
@@ -256,7 +309,7 @@ describe("what the AI answers did around one shipped change", () => {
     const readObservations = reader(stretch("2026-07-21", "2026-07-31", 4)
       .map((r, i) => (i % 4 === 3 ? { ...r, analysis: null, analysis_hash: null } : r)));
     const outcome = await aiOutcomeForShipment(T, {
-      implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 10, mentioning: 10 } },
+      implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 10, analyzed: 10, mentioning: 10 } },
     }, { readObservations, now: NOW });
     expect(outcome?.after).toMatchObject({ checked: 44, analyzed: 33, mentioning: 33, rate: 1 });
     expect(outcome?.direction).toBe("flat");
@@ -266,7 +319,7 @@ describe("what the AI answers did around one shipped change", () => {
     const readObservations = reader(stretch("2026-07-21", "2026-07-31", 3)
       .map((r) => ({ ...r, analysis: null, analysis_hash: null })));
     const outcome = await aiOutcomeForShipment(T, {
-      implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, mentioning: 1 } },
+      implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 1 } },
     }, { readObservations, now: NOW });
     expect(outcome?.after).toMatchObject({ analyzed: 0, mentioning: 0, rate: null });
     expect(outcome?.direction).toBe("unclear");
@@ -274,7 +327,7 @@ describe("what the AI answers did around one shipped change", () => {
   it("calls the same share flat", async () => {
     const readObservations = reader(stretch("2026-07-21", "2026-07-31", 2));
     const outcome = await aiOutcomeForShipment(T, {
-      implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, mentioning: 2 } },
+      implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 2 } },
     }, { readObservations, now: NOW });
     expect(outcome?.direction).toBe("flat");
   });
@@ -282,7 +335,7 @@ describe("what the AI answers did around one shipped change", () => {
     // Eleven days have passed and only three carry a reading.
     const readObservations = reader(stretch("2026-07-21", "2026-07-23", 4));
     const outcome = await aiOutcomeForShipment(T, {
-      implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, mentioning: 0 } },
+      implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 0 } },
     }, { readObservations, now: NOW });
     expect(outcome?.direction).toBe("unclear");
     expect(outcome?.coverage).toEqual({ daysObserved: 3, daysElapsed: 11 });
@@ -298,7 +351,7 @@ describe("what the AI answers did around one shipped change", () => {
   it("says unclear when most of the answers since were never read closely", async () => {
     const readObservations = reader(stretch("2026-07-21", "2026-07-31", 3).map((r, i) => (i % 4 === 0 ? r : { ...r, analysis: null, analysis_hash: null })));
     const outcome = await aiOutcomeForShipment(T, {
-      implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, mentioning: 1 } },
+      implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 1 } },
     }, { readObservations, now: NOW });
     expect(outcome?.direction).toBe("unclear");
     expect(outcome?.after.analyzed).toBeLessThan(outcome!.after.checked);
@@ -306,7 +359,7 @@ describe("what the AI answers did around one shipped change", () => {
   it("bounds the window at 28 days and needs a stamp to measure from at all", async () => {
     const readObservations = reader(stretch("2026-07-01", "2026-07-31", 4));
     const outcome = await aiOutcomeForShipment(T, {
-      implementedAt: "2026-07-01T17:00:00.000Z", shipmentBaseline: { ai: { day: "2026-06-30", checked: 4, mentioning: 4 } },
+      implementedAt: "2026-07-01T17:00:00.000Z", shipmentBaseline: { ai: { day: "2026-06-30", checked: 4, analyzed: 4, mentioning: 4 } },
     }, { readObservations, now: NOW });
     expect(outcome?.after.to).toBe("2026-07-28");
     expect(outcome?.coverage).toEqual({ daysObserved: 28, daysElapsed: 28 });
@@ -320,7 +373,7 @@ describe("what the AI answers did around one shipped change", () => {
     const rows = stretch("2026-06-01", "2026-07-31", 3);
     const readObservations = reader(rows);
     const shipments = [
-      { implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, mentioning: 1 } } },
+      { implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 1 } } },
       { implementedAt: "2026-07-05T10:00:00.000Z", shipmentBaseline: { ai: null } },
       { implementedAt: null },                                    // no stamp, no moment to measure from
     ];
@@ -335,6 +388,41 @@ describe("what the AI answers did around one shipped change", () => {
     for (const [i, s] of shipments.entries()) {
       expect(batch[i]).toEqual(await aiOutcomeForShipment(T, s, { readObservations: reader(rows), now: NOW }));
     }
+  });
+
+  /** ONE OVERSIZED READ USED TO TAKE THE WHOLE LEDGER'S AI SIDE DOWN. The union window ran from the oldest
+   *  shipment to the newest, and an account asking 35 questions of 4 engines writes 140 first readings a
+   *  day, so a ledger spanning a year asked for about 51,000 rows and the store refuses anything past
+   *  40,000. Every change then showed no AI outcome at all, including the ones whose own answers read fine. */
+  it("reads overlapping windows once and fails only the changes whose own days could not be read", async () => {
+    const rows = [...stretch("2026-01-04", "2026-02-28", 3), ...stretch("2026-06-01", "2026-07-31", 3)];
+    const asked: Array<{ fromDay?: string; toDay?: string }> = [];
+    const readObservations = vi.fn(async (t: string, o: { fromDay?: string; toDay?: string; slot?: number }) => {
+      asked.push({ fromDay: o.fromDay, toDay: o.toDay });
+      if ((o.toDay ?? "") <= "2026-03-01") throw new Error("[ai_observations] read hit the 40000 row ceiling");
+      return rows.filter((r) => (o.slot === undefined || r.sample_slot === o.slot)
+        && (!o.fromDay || r.reporting_day >= o.fromDay) && (!o.toDay || r.reporting_day <= o.toDay) && r.tenant_id === t)
+        .map((r) => ({ ...r }));
+    });
+    const held = { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 1 } };
+    const batch = await aiOutcomesForShipments(T, [
+      { implementedAt: STAMP, shipmentBaseline: held },                        // 2026-07-21
+      { implementedAt: "2026-07-05T10:00:00.000Z", shipmentBaseline: held },
+      { implementedAt: "2026-07-10T10:00:00.000Z", shipmentBaseline: held },
+      { implementedAt: "2026-02-01T10:00:00.000Z", shipmentBaseline: held },   // its own stretch, and it throws
+    ], { readObservations, now: NOW });
+    // Three overlapping windows are ONE read, so a day two changes both need is fetched once; the fourth
+    // change sits on its own stretch and is read on its own.
+    expect(asked).toEqual([
+      { fromDay: "2026-01-04", toDay: "2026-02-28" },
+      { fromDay: "2026-06-07", toDay: "2026-07-31" },
+    ]);
+    // Fetched once: a day counted twice would double every one of these.
+    expect(batch.slice(0, 3).map((o) => o?.after.checked)).toEqual([44, 108, 88]);
+    expect(batch.slice(0, 3).map((o) => o?.direction)).toEqual(["improved", "improved", "improved"]);
+    // And the one whose answers I could not reach says so, instead of reading as a change AI never noticed.
+    expect(batch[3]).toMatchObject({ direction: "unclear", coverage: { daysObserved: 0, daysElapsed: 28 } });
+    expect(batch[3]?.line).toBe("I could not read the answers for this period just now. They are safe and I will read them on the next refresh.");
   });
 
   /** THE DAY A CHANGE SHIPPED IS THE OPERATOR'S DAY. Observations are filed under the Pacific reporting

@@ -34,10 +34,10 @@ import {
 
 /** on-visit-refresh - the Research Run executor (Slice 4, 2026-07-24). Every navigation schedules ONE post-response Research Run for the tenant. The run
  *  is durable: claim_research_run RESUMES the account's single unfinished run first (regardless of its start date, so yesterday's paused run is never
- *  abandoned and no second open run is created), and starts a fresh daily cycle only when no run is open. A pass that already completed today no longer
- *  ENDS the day (Phase 5): the refusal is now a question, and another pass opens only when due-work reports something genuinely owed that the completed
- *  pass could not have done. It leases the run so exactly one invocation advances it, and the persisted phase + progress let a crash or lambda timeout resume
- *  where it left off. No scheduler, cron, heartbeat, in-memory dedupe or job queue: the DATABASE lease is the whole mechanism (a concurrent claim with a
+ *  abandoned and no second open run is created), and starts a fresh daily cycle only when no run is open. A pass that already completed today no longer ENDS
+ *  the day (Phase 5): the refusal is now a question, and another pass opens only when due-work reports something genuinely owed that the completed pass could
+ *  not have done. It leases the run so exactly one invocation advances it, and the persisted phase + progress let a crash or lambda timeout resume where it
+ *  left off. No scheduler, cron, heartbeat, in-memory dedupe or job queue: the DATABASE lease is the whole mechanism (a concurrent claim with a
  *  different owner token returns null). TRUTH BOUNDARY (Slice 4 truth-and-lease repair): a phase advances ONLY when it truly succeeded or was a healthy
  *  no-op. Every failure pauses the cycle with a bounded last_error and never reaches completion: refresh_sources - refresh stale connectors.
  *  sourcesRefreshed counts ONLY the sources that actually synced. ANY per-source failure pauses here (the succeeded ones keep their freshness stamps, so
@@ -64,8 +64,7 @@ import {
  *  It does not make a purchase idempotent, and it is not what stops the same comparison being bought twice when a save fails after the money moved. That
  *  is the evidence cache: a durable receipt keyed on the normalized ask, written BEFORE the network call. */
 
-/** Leave enough of the shell's 300-second lifetime to finish the surface build. */
-const RESEARCH_CYCLE_DEADLINE_MS = 210_000;
+const RESEARCH_CYCLE_DEADLINE_MS = 210_000; // leaves enough of the shell's 300-second lifetime to finish the surface build
 
 /** The four Slice 6 evidence phases, each backed by one funnel unit executor. */ const FUNNEL_PHASES = new Set<ResearchPhase>(["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]);
 
@@ -160,7 +159,8 @@ async function driveRun(
     ...(run.progress ?? {}),
     state: {
       ...(run.progress?.state ?? {}),
-      checksDone: work.checks.done, checksTotal: work.checks.total,
+      checksDone: work.checks.done, checksTotal: work.checks.total, checksAnswers: work.checks.answers,
+      checksUnavailable: work.checks.unavailable, checksUnsupported: work.checks.unsupported,
       casesActive: work.cases.active, casesParked: work.cases.parked,
       nextDueAt: work.nextDueAt, blocker: null,
     },
@@ -339,17 +339,11 @@ async function driveRun(
 }
 
 /**
- * Claim, resume, or start the account's Research Run and drive it, and report whether work is STILL owed
- * when it hands back.
- *
- * A DAY IS NOT A UNIT OF WORK. The claim used to refuse outright once a run had completed in the current
- * UTC day, so evidence bought at 9am could not become a decision until tomorrow: a retry date that passed
- * at noon, a source that refreshed, an extra reading the operator asked for and paid attention to, all sat
- * until midnight. Now a refused claim asks the ONE free question that matters (due-work: what is genuinely
- * owed, from persisted state alone) and opens another pass only when something is actually due. FAIL
- * CLOSED both ways: an unreadable state opens nothing, and a readable EMPTY state opens nothing and costs
- * nothing. A pass that opens with nothing due closes immediately at $0 and blocks no later pass, because
- * completion is not a claim about the day, only about that pass.
+ * Claim, resume, or start the account's Research Run and drive it, reporting whether work is STILL owed.
+ * A DAY IS NOT A UNIT OF WORK: a refused claim asks the one free question that matters (due-work, from
+ * persisted state alone) and opens another pass only when something is genuinely due. FAIL CLOSED both
+ * ways: an unreadable state opens nothing, an empty one opens nothing at $0, and a pass that opens with
+ * nothing due closes immediately, blocking no later pass.
  */
 export async function runResearchCycle(tenantId: string, options: ResearchCycleOptions = {}): Promise<void> {
   const nowFn = options.now ?? (() => new Date());
@@ -399,13 +393,14 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
       await advancePhase(tenantId, run.id, ownerToken, { phase: run.current_phase, cursor: null, progress: {
         ...(run.progress ?? {}),
         state: { ...(run.progress?.state ?? {}), checksDone: work.checks.done, checksTotal: work.checks.total,
+          checksAnswers: work.checks.answers, checksUnavailable: work.checks.unavailable, checksUnsupported: work.checks.unsupported,
           casesActive: work.cases.active, casesParked: work.cases.parked, nextDueAt: work.nextDueAt, blocker: null },
       } });
       await finishRun(tenantId, run.id, ownerToken, "completed");
       return;
     }
     await driveRun(run, ownerToken, nowFn, deadline, steps,
-      work ?? { due: [], readable: false, checks: { done: 0, total: 0 }, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null });
+      work ?? { due: [], readable: false, checks: { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 }, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null });
   });
 }
 

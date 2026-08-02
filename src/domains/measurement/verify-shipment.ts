@@ -32,6 +32,7 @@ import { pageIdFor } from "@/domains/evidence/scanning/in-process-scan";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { syncPageSnapshots } from "@/lib/persistence/dual-write";
 import { log } from "@/lib/logger";
+import { reportingDay } from "@/lib/reporting-day";
 import {
   loadShippedChangesForTenant, recordVerification,
   type ShipmentVerification, type ShippedChangeRecord,
@@ -215,7 +216,7 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   // site's standing instruction, a missing page and a difference are facts about the page itself.
   const transportBlocked = (note: string): ShipmentVerification => ({
     status: "blocked", checkedAt, components: allUnknown(shipment, note),
-    recheckAfter: shipment.recheck === true ? null : new Date(now() + 86_400_000).toISOString().slice(0, 10),
+    recheckAfter: shipment.recheck === true ? null : reportingDay(now() + 86_400_000),
   });
   let res: Awaited<ReturnType<typeof fetchPageHtml>>;
   try { res = await fetchPage(requested, new Map(), {}); }
@@ -270,7 +271,10 @@ const loadRows = (tenantId: string, deps: VerifyDeps): Promise<ShippedChangeReco
 export async function shipmentsAwaitingVerification(tenantId: string, limit = MAX_VERIFICATIONS_PER_PASS, deps: VerifyDeps = {}): Promise<VerifiableShipment[]> {
   if (!tenantId?.trim()) return [];
   const rows = await loadRows(tenantId, deps);
-  const today = new Date(deps.now ? deps.now() : Date.now()).toISOString().slice(0, 10);
+  // TODAY IS THE OPERATOR'S DAY, never the UTC one. A retry promised for the 5th was owed from 5 PM Pacific
+  // on the 4th when today came off a UTC instant, so the one retry a silent site earns was taken a day early
+  // and its answer, taken before the site had a chance, stood as final.
+  const today = reportingDay(deps.now ? deps.now() : Date.now());
   /** Never checked, or a site that did not answer whose one promised retry day has arrived. */
   const due = (r: ShippedChangeRecord): boolean => {
     if (r.verification == null) return true;

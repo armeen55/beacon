@@ -33,8 +33,15 @@ const WAIT_MIN_MS = 45_000;
 const WAIT_MAX_MS = 180_000;
 /** The hard ceiling on how many times ONE page view may ask, whatever the server keeps answering. */
 const MAX_TICKS_PER_VIEW = 12;
+/** How long the browser waits for ONE answer before it stops waiting. A server action that never settles (a
+ *  killed lambda, a dropped connection) left the in-flight flag set for the life of the page view, because
+ *  the line that cleared it sat after the await: the loop went silent and only a reload brought it back. A
+ *  request that misses this deadline is answered as a wait, so the backoff applies and the tab asks again. */
+const REQUEST_DEADLINE_MS = 45_000;
 
 type TickAnswer = "continue" | "wait" | "stop";
+/** What one request came back with, or null when it came back with nothing usable. */
+type Answer = Awaited<ReturnType<typeof researchTickNow>> | null;
 type LoopState = { ticks: number; waits: number; delayMs: number; stopped: boolean };
 
 /** A fresh page view's loop state. */
@@ -66,7 +73,10 @@ export function KeepResearching() {
 
   useEffect(() => {
     let live = true;
+    let deadline: ReturnType<typeof setTimeout> | null = null;
     const visible = () => document.visibilityState === "visible";
+    // Only the SCHEDULING timer: the request deadline belongs to the request in flight, and a hidden tab
+    // cancelling it would put the wedge straight back (nothing left to answer a promise that never settles).
     const clear = () => {
       if (timer.current != null) clearTimeout(timer.current);
       timer.current = null;
@@ -75,18 +85,29 @@ export function KeepResearching() {
       clear();
       if (live && shouldAsk(loop.current, visible())) timer.current = setTimeout(() => void tick(), ms);
     };
+    /** ONE request, bounded by the client's own clock. "late" is a request that never came back at all,
+     *  which is a different thing from one that came back with nothing: there is no fresh persisted state
+     *  behind it, so it earns a backoff and no repaint. */
+    const ask = async (): Promise<Answer | "late"> => {
+      const missed = new Promise<"late">((resolve) => { deadline = setTimeout(() => resolve("late"), REQUEST_DEADLINE_MS); });
+      try { return await Promise.race([researchTickNow(hop.current).catch(() => null), missed]); }
+      finally { if (deadline != null) clearTimeout(deadline); deadline = null; }
+    };
     async function tick() {
       timer.current = null;
       if (!live || inFlight.current || !shouldAsk(loop.current, visible())) return;
       inFlight.current = true;
-      const answer = await researchTickNow(hop.current).catch(() => null);
-      inFlight.current = false;
+      // THE FLAG IS CLEARED WHATEVER HAPPENS. It used to be cleared on the line after the await, so one
+      // request that never settled wedged the loop for the whole page view.
+      let answer: Answer | "late";
+      try { answer = await ask(); } finally { inFlight.current = false; }
       if (!live) return;
-      if (answer) hop.current = answer.hop;
-      loop.current = afterTick(loop.current, answer?.next ?? "wait");
+      const settled = answer !== "late" ? answer : null;
+      if (settled) hop.current = settled.hop;
+      loop.current = afterTick(loop.current, settled?.next ?? "wait");
       // The status the operator is watching is read off the persisted run, so the repaint IS the point of
       // asking: today's numbers advance while the tab sits open, with no refresh and no button.
-      router.refresh();
+      if (answer !== "late") router.refresh();
       schedule(loop.current.delayMs);
     }
     const onVisibility = () => (visible() ? schedule(loop.current.delayMs) : clear());
@@ -96,6 +117,8 @@ export function KeepResearching() {
       live = false;
       document.removeEventListener("visibilitychange", onVisibility);
       clear();
+      if (deadline != null) clearTimeout(deadline);
+      deadline = null;
     };
   }, [router]);
 

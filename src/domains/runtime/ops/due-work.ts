@@ -58,8 +58,9 @@ export type DueWork = {
   due: DuePhase[];
   /** false = I could not read enough of the durable state to judge. Never a silent "nothing due". */
   readable: boolean;
-  /** Today's AI checks, from the planner: how many of today's canonical readings have landed. */
-  checks: { done: number; total: number };
+  /** Today's AI checks, from the planner: how many of today's readings are SETTLED of how many are owed,
+   *  and how those settled ones landed (an answer, an engine with nothing to give, an engine I cannot ask). */
+  checks: { done: number; total: number; answers: number; unavailable: number; unsupported: number };
   /** The frozen plan's topics: how many may be read now, how many are waiting on a promised date. */
   cases: { active: number; parked: number };
   /** The earliest date something waiting becomes legal again, or null when nothing is waiting. */
@@ -69,6 +70,9 @@ export type DueWork = {
    *  NEXT pass tell new evidence from a repeat of the same question. */
   evidenceVersion: number | null;
 };
+
+/** Nothing owed and nothing landed: the shape every fail-soft answer falls back to. */
+const NO_CHECKS = { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 } as const;
 
 /** The connector-store providers a refresh pulls (Wix is publish-only). */
 const READ_PROVIDERS = ["google_gsc", "google_ga4", "clarity"] as const;
@@ -125,7 +129,8 @@ async function measurementDebt(tenantId: string, now: Date): Promise<{ measurabl
     import("@/domains/measurement/proof-gsc/measure-lifecycle"),
   ]);
   const [records, lastFinal] = await Promise.all([loadShippedChangesForTenant(tenantId), readLastFinalizedDate(tenantId)]);
-  const today = now.toISOString().slice(0, 10);
+  // THE OPERATOR'S DAY, not the UTC one: a recheck promised for the 4th became legal at 5 PM on the 3rd.
+  const today = reportingDay(now.getTime());
   return {
     measurable: records.filter((r) => isDueForMeasure(r, lastFinal, now)).length,
     // Never checked, or a site that did not answer whose one promised retry day has arrived: the same
@@ -144,7 +149,7 @@ async function surfaceIsStale(tenantId: string, nowMs: number): Promise<boolean>
 
 type DueWorkDeps = {
   staleSources?: (tenantId: string, now: Date) => Promise<number>;
-  checks?: (tenantId: string, day: string) => Promise<{ done: number; total: number; due: number } | null>;
+  checks?: (tenantId: string, day: string) => Promise<(DueWork["checks"] & { due: number }) | null>;
   run?: (tenantId: string) => Promise<{ progress: ResearchRunProgress; open: boolean } | null>;
   basis?: (tenantId: string) => Promise<string | null>;
   evidenceVersion?: (tenantId: string, basis: string) => Promise<number | null>;
@@ -161,7 +166,7 @@ const settled = async <T,>(p: Promise<T>, fallback: T): Promise<{ value: T; ok: 
  * a cent. Requires an explicit tenant.
  */
 export async function dueWork(tenantId: string, now: Date = new Date(), deps: DueWorkDeps = {}): Promise<DueWork> {
-  const empty: DueWork = { due: [], readable: false, checks: { done: 0, total: 0 }, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null };
+  const empty: DueWork = { due: [], readable: false, checks: NO_CHECKS, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null };
   if (!tenantId?.trim()) return empty;
   const nowMs = now.getTime();
   // THE OPERATOR'S DAY, not the UTC one. Owed work was judged against a day that rolled at 5 PM Pacific, so
@@ -174,8 +179,8 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     settled((deps.staleSources ?? staleSourceCount)(tenantId, now), 0),
     settled((deps.checks ?? (async (t, d) => {
       const c = await dailyChecks(t, d);
-      return c == null ? null : { done: c.done, total: c.total, due: c.due.length };
-    }))(tenantId, day), null as { done: number; total: number; due: number } | null),
+      return c == null ? null : { ...c, due: c.due.length };
+    }))(tenantId, day), null as (DueWork["checks"] & { due: number }) | null),
     settled((deps.run ?? latestRunFacts)(tenantId), null as { progress: ResearchRunProgress; open: boolean } | null),
     settled((deps.basis ?? accountBasis)(tenantId), null as string | null),
   ]);
@@ -235,7 +240,8 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   if (!readable) log.debug("[due-work] durable state unreadable; the caller decides which way that falls", { tenantId });
   return {
     due: readable ? due : [], readable,
-    checks: { done: checks.value?.done ?? 0, total: checks.value?.total ?? 0 },
+    checks: checks.value ? { done: checks.value.done, total: checks.value.total, answers: checks.value.answers,
+      unavailable: checks.value.unavailable, unsupported: checks.value.unsupported } : NO_CHECKS,
     cases: { active: active.length, parked: parked.length },
     nextDueAt,
     evidenceVersion: version.value,

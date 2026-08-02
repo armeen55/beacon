@@ -14,6 +14,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
+import { reportingDay } from "@/lib/reporting-day";
 import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { readAiObservationViews } from "@/domains/evidence/ai-visibility/ai-observations";
 import {
@@ -34,9 +35,10 @@ import { day56Followup, FOLLOW_UP_WINDOW_DAY } from "./measure-lifecycle";
 
 const NULL_METRICS: GscWindowMetrics = { clicks: 0, impressions: 0, ctr: 0, position: 0 };
 
-/** GSC's reporting zone is Pacific; default a ship date to that day. */
+/** GSC's reporting zone is Pacific and so is the operator's; default a ship date to that day, through the
+ *  ONE definition of a reporting day rather than a second copy of the zone. */
 export function defaultPacificShipDate(now: Date = new Date()): string {
-  return now.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+  return reportingDay(now);
 }
 
 function dateOnly(iso: string): string {
@@ -239,11 +241,18 @@ const AI_BASELINE_ROWS = 60;
 
 /**
  * The AI half of the Shipment baseline, from answers ALREADY on file: the latest
- * reporting day's FIRST reading of each tracked question, and how many of those
- * named this account. Zero provider calls, zero cost. Null when nothing is on file,
- * which is a different claim from zero mentions and is stored as such.
+ * reporting day's FIRST reading of each tracked question, how many of those were read
+ * closely enough to say whether this account was named (`analyzed`), and how many named
+ * it. Zero provider calls, zero cost. Null when nothing is on file, which is a different
+ * claim from zero mentions and is stored as such.
+ *
+ * `analyzed` IS THE DENOMINATOR the later comparison divides by, and it is stored here so
+ * both sides of a shipped change are the same measure. Counting mentions over every answer
+ * that came back made an answer nobody had read yet an implicit miss, while the after side
+ * divided by the answers actually read: a change was then judged by comparing one rate
+ * against a different one.
  */
-async function latestAiPresence(tenantId: string): Promise<{ day: string; checked: number; mentioning: number } | null> {
+async function latestAiPresence(tenantId: string): Promise<{ day: string; checked: number; analyzed: number; mentioning: number } | null> {
   try {
     // Slot 0 is asked for in the QUERY, not filtered afterwards: the extra volatility samples
     // would otherwise eat the row cap and leave the baseline reading a fraction of the day.
@@ -256,11 +265,13 @@ async function latestAiPresence(tenantId: string): Promise<{ day: string; checke
     // against it, so the "before" side of a shipped change was a sample and the "after" side was a day.
     const onDay = (await readAiObservationViews(tenantId, { day, slot: 0 }))
       .filter((r) => r.slot === 0 && r.status === "observed" && r.day === day);
-    const mentioning = onDay.filter((r) => {
-      const m = (r.analysis as { ownedBrandMention?: { mentioned?: unknown } } | null)?.ownedBrandMention;
-      return m?.mentioned === true;
-    }).length;
-    return { day, checked: onDay.length, mentioning };
+    // Read closely = the answer carries an owned-brand verdict. An answer with none has not been read yet,
+    // so it can say neither "named" nor "not named" and never counts as either.
+    const verdictOf = (r: { analysis: Record<string, unknown> | null }) =>
+      (r.analysis as { ownedBrandMention?: { mentioned?: unknown } | null } | null)?.ownedBrandMention ?? null;
+    const analyzed = onDay.filter((r) => verdictOf(r) != null);
+    return { day, checked: onDay.length, analyzed: analyzed.length,
+      mentioning: analyzed.filter((r) => verdictOf(r)?.mentioned === true).length };
   } catch {
     return null;
   }

@@ -225,6 +225,24 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     const tomorrow = await shipmentsAwaitingVerification(T, 3, { now: () => NOW + DAY });
     expect(tomorrow.map((s) => [s.id, s.recheck])).toEqual([["waiting", true]]);
   });
+
+  /** THE PROMISED DAY IS THE OPERATOR'S DAY, not the UTC one. Read off a UTC instant, a retry promised for
+   *  the 5th came due at 5 PM Pacific on the 4th, so the one retry a silent site earns was spent a day
+   *  early and its answer, which is final either way, stood. */
+  it("owes the retry on the promised day where the operator lives, not from 5 PM the evening before", async () => {
+    const blocked = { status: "blocked", checkedAt: "2026-08-01T09:00:00Z", components: [], recheckAfter: "2026-08-05" };
+    ROWS.push(row({ id: "waiting", verification: blocked }));
+    const dueAt = async (iso: string) => (await shipmentsAwaitingVerification(T, 3, { now: () => Date.parse(iso) })).map((s) => s.id);
+    expect(await dueAt("2026-08-05T02:00:00Z")).toEqual([]);            // 7 PM on the 4th where they are
+    expect(await dueAt("2026-08-05T08:01:00Z")).toEqual(["waiting"]);   // 1 AM on the 5th where they are
+  });
+
+  /** And the promise itself is made in the same zone it is read in. */
+  it("promises that retry on the operator's next day, not on UTC's", async () => {
+    const evening = Date.parse("2026-08-05T02:00:00Z"); // 7 PM on the 4th where the operator is
+    const dead = await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout"), { now: () => evening });
+    expect(dead.recheckAfter).toBe("2026-08-05");
+  });
 });
 
 describe("a change the operator implemented busts that page's freshness", () => {

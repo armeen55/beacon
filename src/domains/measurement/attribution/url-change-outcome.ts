@@ -28,6 +28,7 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import { isLifecycleVerdictEnabled } from "@/lib/flags";
 import { log } from "@/lib/logger";
+import { reportingDay } from "@/lib/reporting-day";
 import type { ChangelogEntry } from "@/domains/measurement/changelog/types";
 import type { AssetType } from "@/lib/constants";
 import { extractEditTokens, type EditToken } from "@/domains/measurement/changelog/dedupe";
@@ -92,13 +93,8 @@ export function buildSamplingStatusByDate(
   return out;
 }
 
-/**
- * Stamp `sampling_status` onto each point in a dense series whose date
- * appears in the supplied map. Returns a NEW array — never mutates the
- * caller's series. Untagged dates are left as-is (back-compat).
- *
- * Pure. Used by `computeChangeVerdict` after `denseSeries` returns.
- */
+/** Stamp `sampling_status` onto each dense-series point whose date appears in the supplied map.
+ *  Returns a NEW array, never mutating the caller's; untagged dates stay as-is. Pure. */
 export function stampSamplingStatus(
   series: ReadonlyArray<DailyPoint>,
   samplingStatusByDate: ReadonlyMap<string, DailyPointSamplingStatus> | undefined,
@@ -620,7 +616,7 @@ export function computeChangeVerdict(
 
   const range = {
     first: history.date_range.first ?? changeDate,
-    last: history.date_range.last ?? new Date().toISOString().slice(0, 10),
+    last: history.date_range.last ?? reportingDay(),
   };
   const denseRaw = denseSeries(seriesEntry, range);
 

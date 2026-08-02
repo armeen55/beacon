@@ -31,7 +31,8 @@ const MIN_STRUCTURAL_CAUSES = 2;
 
 const count = (n: number): string => Math.round(n).toLocaleString("en-US");
 /** Model copy comes back sanitized, and this is the last net: no em or en dash ever reaches an operator. */
-const plain = (s: string): string => s.replace(/[–—]/g, " ").replace(/\s+/g, " ").trim();
+const nodash = (s: string): string => s.replace(/[–—]/g, " ");
+const plain = (s: string): string => nodash(s).replace(/\s+/g, " ").trim();
 const sentence = (s: string): string => (/[.?!]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
 const refuse = (refusal: string): Produced => ({ components: [], refusal });
 
@@ -105,7 +106,7 @@ function competingPages(f: CauseFinding): { paths: string[]; stronger: string | 
 /** Anchors that tell a reader nothing, so relinking one on real words is itself the improvement. */
 const WEAK_ANCHOR = /^(read more|learn more|click here|here|more|this page|link|details|see more|continue)$/i;
 
-type Target = { path: string; topic: string; score: number; weak: boolean };
+type Target = { path: string; topic: string; score: number };
 
 /** Same site, same account, never the page itself. Anything I cannot resolve is not a page I will name. */
 function ownPath(href: string, pageUrl: string): string | null {
@@ -120,26 +121,58 @@ function ownPath(href: string, pageUrl: string): string | null {
   } catch { return null; }
 }
 
-/** DETERMINISTIC FIRST: the target is chosen from pages this account demonstrably has, scored on the words
- *  the search and the page's own subjects share with them. Same context in, same two targets out. */
+/** The words a destination has to share with this page before I will send a reader to it. */
+const wantedTokens = (ctx: ProducerCtx): Set<string> =>
+  new Set([...topicTokens(ctx.primary), ...(ctx.body?.entityNames ?? []).flatMap((e) => topicTokens(e))]);
+
+/** WHERE THIS PAGE ALREADY SENDS PEOPLE, by canonical path. A second link to a destination the page already
+ *  points at is not somewhere new to go, and this used to be the only place a target could come from, so the
+ *  best this producer could ever do was recommend a link that was already there. */
+const alreadyLinked = (ctx: ProducerCtx): Set<string> =>
+  new Set((ctx.body?.internalLinks ?? []).map((l) => ownPath(l.href, ctx.page.url)).filter((p): p is string => !!p));
+
+/** DETERMINISTIC FIRST: the target is chosen from THE ACCOUNT'S OWN PAGE INVENTORY, never from the links this
+ *  page already carries, and any destination it already points at is out. Scored on the words the search and
+ *  the page's own subjects share with the destination's address and its own name, then by that name, so the
+ *  same context in is the same two targets out. No body means I cannot see what this page already links to,
+ *  and proposing a link then is a coin flip, so the honest answer is none. */
 function candidateTargets(ctx: ProducerCtx): Target[] {
-  const body = ctx.body;
-  if (!body) return [];
+  if (!ctx.body) return [];
   const self = ownPath(ctx.page.url, ctx.page.url);
-  const want = new Set([...topicTokens(ctx.primary), ...body.entityNames.flatMap((e) => topicTokens(e))]);
+  const want = wantedTokens(ctx);
+  const linked = alreadyLinked(ctx);
   const seen = new Set<string>();
   const out: Target[] = [];
-  for (const link of body.internalLinks) {
-    const path = ownPath(link.href, ctx.page.url);
-    if (!path || path === self || seen.has(path)) continue;
+  for (const owned of ctx.ownedPages) {
+    const path = ownPath(owned.url, ctx.page.url);
+    if (!path || path === self || linked.has(path) || seen.has(path)) continue;
     seen.add(path);
-    const tokens = new Set([...topicTokens(path), ...topicTokens(link.anchorText)]);
+    const name = (owned.title ?? owned.h1 ?? "").trim();
+    const tokens = new Set([...topicTokens(path), ...topicTokens(name)]);
     const shared = [...tokens].filter((t) => want.has(t));
     if (shared.length === 0) continue;
-    const entity = body.entityNames.find((e) => topicTokens(e).some((t) => tokens.has(t))) ?? null;
-    out.push({ path, topic: entity ?? ctx.primary, score: shared.length, weak: WEAK_ANCHOR.test(link.anchorText.trim()) });
+    out.push({ path, topic: name || ctx.primary, score: shared.length });
   }
-  return out.sort((a, b) => b.score - a.score || Number(b.weak) - Number(a.weak) || a.path.localeCompare(b.path));
+  return out.sort((a, b) => b.score - a.score || a.topic.localeCompare(b.topic) || a.path.localeCompare(b.path));
+}
+
+/** THE ONE THING AN EXISTING LINK IS STILL GOOD FOR: words that tell a reader nothing. Provable only when the
+ *  destination is a page of this account whose own name is on this page's subject, so the replacement words
+ *  are read off something held rather than written. Anything less clean and no anchor is touched this pass. */
+function weakAnchorSwap(ctx: ProducerCtx): { anchor: string; path: string; name: string } | null {
+  const want = wantedTokens(ctx);
+  const named = new Map<string, string>();
+  for (const owned of ctx.ownedPages) {
+    const path = ownPath(owned.url, ctx.page.url); const name = (owned.title ?? owned.h1 ?? "").trim();
+    if (path && name && !named.has(path)) named.set(path, name);
+  }
+  for (const link of ctx.body?.internalLinks ?? []) {
+    const anchor = link.anchorText.trim(); const path = ownPath(link.href, ctx.page.url);
+    const name = path ? named.get(path) : undefined;
+    if (!WEAK_ANCHOR.test(anchor) || !path || !name || !topicTokens(name).some((t) => want.has(t))) continue;
+    return { anchor, path, name };
+  }
+  return null;
 }
 
 function placeFor(ctx: ProducerCtx, target: Target): string {
@@ -195,6 +228,20 @@ export const produceInternalLinks: Producer = async (ctx) => {
       measurementPlan: `I will read clicks and average position for "${ctx.primary}" on this page and on ${target.path} at 7, 14 and 28 days after you add it.`,
     });
   }
+  // AN EXISTING LINK IS NEVER A NEW DESTINATION, and the only change worth making to one is the words on it.
+  const swap = weakAnchorSwap(ctx);
+  if (swap) components.push({
+    kind: "anchor_text",
+    label: `Rename the link to ${swap.path}`,
+    before: swap.anchor,
+    after: `I would change the words "${swap.anchor}" that already point at ${swap.path} so they read "${swap.name}", because a reader who came for "${ctx.primary}" cannot tell where that link goes until they have spent the click.`,
+    evidenceKeys: keys,
+    risk: "safe",
+    where: `the words "${swap.anchor}" where they already sit on this page`,
+    objective: `Say out loud where that link goes, so a reader who came for "${ctx.primary}" knows before they click it.`,
+    mechanism: `The words on that link describe nothing, so the one route this page already offers reads as noise and the reader stops here.`,
+    measurementPlan: `I will read clicks and average position for "${ctx.primary}" on this page and on ${swap.path} at 7, 14 and 28 days after you change it.`,
+  });
   if (components.length === 0) return refuse("I could not write a link sentence for this page that I would stand behind, so I am handing you nothing rather than filler. Ask me again and I will try the next page down.");
   return { components, refusal: null };
 };
@@ -210,6 +257,24 @@ function ownVocabulary(ctx: ProducerCtx): Set<string> {
   return new Set(topicTokens(text));
 }
 
+/** WHAT THIS PAGE ALREADY SAYS, in its own sentences: the claims a reader would actually want backed up. */
+function pageClaims(ctx: ProducerCtx): string[] {
+  const body = ctx.body;
+  if (!body) return [];
+  const said = [...(body.openingSample ?? "").split(/(?<=[.?!])\s+/), ...body.cardTexts]
+    .map((s) => plain(s)).filter((s) => s.split(/\s+/).filter(Boolean).length >= 5);
+  return [...new Set(said)];
+}
+
+/**
+ * A SOURCE RECOMMENDATION EXISTS ONLY WHEN I HOLD ALL FIVE PIECES OF IT: a claim that belongs ON the page, the
+ * kind of source that would back it, the exact line to add, where it belongs and why it improves the page. Any
+ * one of them missing is a refusal that says which one. THE CLAIM IS NEVER ONE OF MY OWN MEASUREMENTS: this
+ * used to hand the receipt straight through as the facts to source, so an operator could be told to publish a
+ * sourced line reading "this page received 6,000 views", which is a fact ABOUT the page and never a sentence
+ * to put ON it. A claim here is a subject the cited pages all name, or something this page already says in its
+ * own words. My figures ground the diagnosis, they are not page copy, so they do not reach the drafter either.
+ */
 export const produceSourceExpansion: Producer = async (ctx) => {
   const cause = ctx.finding.cause;
   if (cause !== "ai_citation_gap" && cause !== "retrieved_not_cited") return refuse("I did not find AI answers to be what this page loses on, so I am not writing sources for it. Ask me what I did find and I will show you.");
@@ -222,40 +287,52 @@ export const produceSourceExpansion: Producer = async (ctx) => {
     .map((e) => e.entity.trim()).filter((e) => e.length > 0)
     .filter((e) => { const t = topicTokens(e); return t.length > 0 && !t.some((x) => mine.has(x)); })
     .slice(0, MAX_REQUIREMENTS);
-  const facts = ctx.receiptFacts.map((f) => f.trim()).filter((f) => f.length > 0).slice(0, MAX_REQUIREMENTS);
   // Credibility first: an engine that READ this page and named somebody else did not miss it, it judged it,
-  // and what it judged is whether the page can be checked. A gap the engine never reached is a coverage
-  // question, so that one is answered by naming the subjects every cited page names and this one does not.
-  const kind = cause === "retrieved_not_cited" || missing.length === 0 ? "source_update" : "entity_expansion";
-  // ONLY what was supplied: the facts I hold and the reading of the pages that win. Nothing else may appear.
-  const sourceRequirements = (missing.length > 0 ? missing : (ctx.pattern?.questionsAnswered ?? []).slice(0, MAX_REQUIREMENTS))
-    .map((x) => `A source a reader can check for ${sentence(x)}`);
-  const factRequirements = facts.slice();
-  if (sourceRequirements.length === 0) sourceRequirements.push(...facts.map((f) => `A source a reader can check for ${sentence(f)}`));
-  if (sourceRequirements.length === 0 || factRequirements.length === 0) return refuse("I hold nothing checkable to add to this page: no figures of my own and no reading of what the pages being cited all name. Let me read those pages first and I will come back with what to add.");
+  // and what it judged is whether the page can be checked, so that one sources what the page already claims.
+  // A gap the engine never reached is a coverage question, answered by covering what every cited page covers.
+  const expansion = cause === "ai_citation_gap" && missing.length > 0;
+  // 1. THE CLAIM, and it has to belong on the page.
+  const claims = (expansion ? missing : pageClaims(ctx)).slice(0, MAX_REQUIREMENTS);
+  if (claims.length === 0) return refuse("I hold nothing this page could say that a source would back: no subject the pages being cited all name that this one leaves out, and none of this page's own sentences on file. Let me read this page and those again and I will come back with the line.");
+  // 2. WHAT KIND OF SOURCE, read off the pages actually being cited for this search rather than invented.
+  const publishers = [...new Set((ctx.pattern?.publishers ?? []).map((p) => p.trim()).filter((p) => p.length > 0))].slice(0, 3);
+  if (publishers.length === 0 || !ctx.pattern) return refuse("I have not read the pages being cited for this search, so I cannot tell you what kind of source would stand up on this one. Let me read them first and I will come back with what to cite.");
+  // 4. WHERE IT BELONGS.
   const place = ctx.page.outline[0] ? `the section headed "${ctx.page.outline[0]}"` : "the part of this page that answers the search";
-  // SAME RULE AS THE LINKS ABOVE: an instruction opening "Cover" or "Add" was read by the factual firewall as
-  // a named thing with nothing behind it, and copy that never repeated the page's own subject was refused as
-  // off-topic. So every sentence opens in my voice or on this page's words, and the search is named out loud.
-  const after = kind === "entity_expansion"
-    ? `This page has to cover ${missing.join(", ")} to answer "${ctx.primary}", ${missing.length === 1 ? "where it belongs on the page, and say where it comes" : "each one where it belongs, and say where each one comes"} from.`
-    : `I would add a line in ${place} that says where each of these comes from for "${ctx.primary}", with a link a reader can follow: ${facts.map(sentence).join(" ")}`;
+  // 3. THE EXACT LINE, bought through the same firewall, budget and cache as every other draft, and grounded
+  // in what belongs on a page: the winners' reading and this page's own words. Never my own figures.
+  const drafted = await ctx.draft.section({
+    query: ctx.primary,
+    pageLabel: ctx.page.h1 ?? ctx.page.title ?? ctx.page.url,
+    heading: expansion ? claims[0]! : null,
+    brief: expansion
+      ? `${seen.engine} answered "${seen.promptText}" naming other sites and never this page, and every page it named covers ${claims.join(", ")} while this one does not. Cover that here in one short section, in this page's own terms, and name where each statement comes from.`
+      : `${seen.engine} read this page while answering "${seen.promptText}" and cited other sites. Restate what this page already says, in one short section, so every statement in it names the source a reader can check: ${claims.join(" ")}`,
+    outline: ctx.page.outline,
+    evidenceHints: [...claims, ...(ctx.pattern.commonHeadings ?? []).map((h) => h.heading), ...(ctx.pattern.questionsAnswered ?? [])],
+  });
+  if (!drafted) return refuse("I could not write the sourced line for this page that passes my own checks, so I am handing you nothing rather than filler.");
   return {
     components: [{
-      kind,
-      label: kind === "entity_expansion" ? "Cover what the cited pages cover" : "Show where the facts come from",
+      kind: expansion ? "entity_expansion" : "source_update",
+      label: expansion ? "Cover what the cited pages cover" : "Show where this page's claims come from",
       before: null,
-      after,
+      after: `${plain(drafted.heading)}\n\n${nodash(drafted.body).trim()}`,
       evidenceKeys: keys,
       risk: "review",
       where: place,
-      objective: kind === "entity_expansion"
+      // 5. WHY IT IMPROVES THE PAGE.
+      objective: expansion
         ? `Cover on this page what the pages ${seen.engine} named are covering, so there is a reason to name this one.`
-        : `Make every figure on this page checkable, so ${seen.engine} has something to stand on when it names a source.`,
+        : `Put a source a reader can check behind what this page already claims, so ${seen.engine} has something to stand on when it names one.`,
       mechanism: cause === "retrieved_not_cited"
         ? `${seen.engine} read this page while answering "${seen.promptText}" and named other sites instead, so the page was seen and passed over: what it is missing is something a reader can check, not a sharper line.`
         : `${seen.engine} answered "${seen.promptText}" naming other sites and never this page, so the fix is to carry what those answers are built on rather than to reword what is already here.`,
-      sourcePack: { sourceRequirements, factRequirements },
+      // ONLY PAGE CLAIMS, never a figure of mine, and the kind of source is the one the cited pages point at.
+      sourcePack: {
+        sourceRequirements: claims.map((c) => `A source a reader can check for ${c}, of the kind the ${count(ctx.pattern!.winners)} pages being cited for "${ctx.primary}" point at: ${publishers.join(", ")}.`),
+        factRequirements: claims.map(sentence),
+      },
       measurementPlan: `I will read how often "${seen.promptText}" names this page, and clicks for "${ctx.primary}", at 7, 14 and 28 days after you publish it.`,
     }],
     refusal: null,
@@ -331,7 +408,14 @@ const ARCHETYPE: Readonly<Record<string, string>> = {
 
 /**
  * NOT registered to one cause: a rebuild is what the causes conclude TOGETHER. Handed the same context plus
- * the causes that fired on this page, it either writes the brief or says why one edit is the better buy.
+ * the causes that fired on this page, it either writes the page or says why one edit is the better buy.
+ *
+ * IT WRITES THE PAGE. This used to hand back four planning sentences and call a page rebuilt, which is a brief
+ * and not the copy-ready change this product promises. Now every heading the winners agree on is drafted
+ * through the section drafter, with the page's own new opening in front of them, as plain text to paste. THE
+ * COST IS REAL, one section call per planned heading, so it is bounded at MAX_HEADINGS and rides the same
+ * budget as every other draft: when the budget stops it part way, or a drafted section fails its own checks,
+ * what landed arrives under the brief with an honest count of what is owed. It stays a reviewed change.
  */
 export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes: readonly Cause[]): Promise<Produced> {
   const keys = evidenceKeysOf(ctx);
@@ -350,12 +434,41 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
   const wrongs = structural.map((c) => STRUCTURAL.get(c)!);
   // Same rule as the merge above: every sentence opens on a word the firewall will not read as an invented
   // name, and nothing here claims a superlative ("the first lines") it holds no source for.
-  const after = [
+  const brief = [
     `This page has to become ${shape} for "${ctx.primary}".${agreed}`,
     `${count(structural.length)} separate things are wrong with it at once: ${wrongs.join("; ")}.`,
     `I would build it to cover ${covers.map((c) => `"${c}"`).join(", ")}, in that order, and answer the search in its opening lines.`,
     "You keep everything already on the page that earns its place, and publish it at the same address.",
   ].join(" ");
+  // THE COPY ITSELF, one drafted section per planned heading, grounded in the reading of the pages that win
+  // and in what this page already carries. My own figures are not page copy, so they are not handed over here.
+  const hints = [...(pattern.commonEntities ?? []).map((e) => e.entity), ...questions,
+    ...(ctx.body?.openingSample ? [`The page opens: ${ctx.body.openingSample}`] : []), ...(ctx.body?.cardTexts ?? []).slice(0, 4)];
+  const planned = covers.slice(0, MAX_HEADINGS);
+  const drafted: string[] = [];
+  for (const heading of planned) {
+    const section = await ctx.draft.section({
+      query: ctx.primary, pageLabel: ctx.page.h1 ?? ctx.page.title ?? ctx.page.url, heading,
+      brief: `This page is being rebuilt as ${shape} for "${ctx.primary}", and every page that wins that search covers ${heading}. Write that section, in this page's own terms, keeping anything it already says that earns its place.`,
+      outline: ctx.page.outline, evidenceHints: hints,
+    });
+    if (section) drafted.push(`${plain(section.heading)}\n\n${nodash(section.body).trim()}`);
+  }
+  // The page's own new first lines, and only once there is a page for them to open: nothing is bought to sit
+  // in front of a body that never landed.
+  const opening = drafted.length > 0 && ctx.draft.openingAnswer
+    ? await ctx.draft.openingAnswer({ query: ctx.primary, pageLabel: ctx.page.h1 ?? ctx.page.title ?? ctx.page.url,
+      currentValue: ctx.body?.openingSample ?? null, outline: ctx.page.outline, evidenceHints: hints })
+    : null;
+  const body = [opening ? nodash(opening).trim() : null, ...drafted].filter((p): p is string => !!p).join("\n\n");
+  const owed = planned.length - drafted.length;
+  // WHOLE means the copy stands on its own and is pasted as it is. PART means the brief carries it, so the
+  // operator reads what is still owed before they touch the page, and the count is the honest one.
+  const after = owed === 0
+    ? body
+    : drafted.length > 0
+      ? `${brief} I drafted ${count(drafted.length)} of the ${count(planned.length)} sections and ${count(owed)} ${owed === 1 ? "is" : "are"} still owed, so paste what is below and ask me again for the rest.\n\n${body}`
+      : `${brief} I could not draft any of the ${count(planned.length)} sections yet, so this is the plan and the copy is still owed.`;
   return {
     components: [{
       kind: "full_rewrite",

@@ -34,7 +34,9 @@ export type ResearchRunStatusView = {
   phaseLabel: string;
   stepsDone: number;
   stepsTotal: 7;
-  counters: { sourcesRefreshed?: number; backfillDaysPulled?: number; aiChecksDone?: number; aiChecksIntended?: number };
+  counters: { sourcesRefreshed?: number; backfillDaysPulled?: number; aiChecksDone?: number; aiChecksIntended?: number;
+    /** How the settled checks landed: an answer, an engine that had nothing to give, an engine I cannot ask. */
+    aiChecksAnswered?: number; aiChecksUnavailable?: number; aiChecksUnsupported?: number };
   updatedAt: string | null;
   completedAt: string | null;
   /** The paused phase's Beacon-voice reason: some pauses need the operator and never resume alone. */
@@ -108,6 +110,9 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
   if (typeof persisted.checksDone === "number" && typeof persisted.checksTotal === "number" && persisted.checksTotal > 0) {
     counters.aiChecksDone = persisted.checksDone;
     counters.aiChecksIntended = persisted.checksTotal;
+    if (typeof persisted.checksAnswers === "number") counters.aiChecksAnswered = persisted.checksAnswers;
+    if (typeof persisted.checksUnavailable === "number") counters.aiChecksUnavailable = persisted.checksUnavailable;
+    if (typeof persisted.checksUnsupported === "number") counters.aiChecksUnsupported = persisted.checksUnsupported;
   } else if (typeof aiDone === "number" && Number.isFinite(aiDone) && typeof aiWanted === "number" && Number.isFinite(aiWanted)) {
     counters.aiChecksDone = aiDone;
     counters.aiChecksIntended = aiWanted;
@@ -132,6 +137,21 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
     pauseReason: interrupted ? INTERRUPTED_REASON
       : state === "paused" && run.last_error?.phase === run.current_phase ? (run.last_error?.message?.trim() || null) : null,
   };
+}
+
+/** PURE. HOW TODAY'S CHECKS ACTUALLY LANDED, in one sentence, and only when it is worth saying. A day whose
+ *  last pair was honestly unavailable is a FINISHED day, and the count now says so; without this the same
+ *  screen would read "140 of 140" and quietly imply 140 answers. Silent while the round is unfinished (the
+ *  in-progress line already carries the running count) and silent when every check really did answer. */
+function settledChecksNote(c: ResearchRunStatusView["counters"]): string {
+  const { aiChecksDone: done, aiChecksIntended: total, aiChecksAnswered: answers } = c;
+  if (typeof done !== "number" || typeof total !== "number" || total === 0 || done < total) return "";
+  if (typeof answers !== "number" || answers >= total) return "";
+  const quiet = c.aiChecksUnavailable ?? 0, shut = c.aiChecksUnsupported ?? 0;
+  const parts = [`${answers} ${answers === 1 ? "answer" : "answers"}`];
+  if (quiet > 0) parts.push(`${quiet} ${quiet === 1 ? "engine" : "engines"} had nothing to give`);
+  if (shut > 0) parts.push(`${shut} I cannot ask`);
+  return ` I finished today's checks: ${parts.join(", ")}.`;
 }
 
 /**
@@ -161,7 +181,7 @@ export function researchStatusLine(view: ResearchRunStatusView, now: Date = new 
     const waiting = view.nextDueAt && Number.isFinite(Date.parse(view.nextDueAt))
       ? ` Nothing more is due until ${new Date(view.nextDueAt).toLocaleDateString("en-US", { month: "long", day: "numeric", ...tz })}.`
       : "";
-    if (sameDay) return `Latest research pass finished today at ${at}.${waiting}`;
+    if (sameDay) return `Latest research pass finished today at ${at}.${settledChecksNote(view.counters)}${waiting}`;
     const day = finished.toLocaleDateString("en-US", { month: "short", day: "numeric", ...tz });
     return `Latest research pass finished ${day} at ${at}.${waiting}`;
   }

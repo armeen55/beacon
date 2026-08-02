@@ -45,6 +45,7 @@ import "server-only";
 import type { CapabilityKey } from "@/domains/evidence/dataforseo/funnel-boundary";
 import type { AiObservationView, DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import { log } from "@/lib/logger";
+import { patchRunProgress } from "../research-run";
 import { readActiveTrackedPrompts, type TrackedQuestion } from "../prompt-set";
 
 export { runAnswerAnalyses, selectAnalysisTargets } from "./answer-readback";
@@ -80,12 +81,15 @@ const pairKey = (promptId: string, version: number, engine: string): string => `
 const retryKey = (o: { promptId: string; version: number; engine: string; slot: number }): string =>
   `${pairKey(o.promptId, o.version, o.engine)}|${o.slot}`;
 
-/** IS THIS PAIR'S DAY OVER, on the evidence of the row itself?
+/** IS THIS PAIR'S DAY OVER, on the evidence of the row itself? THE ONE PREDICATE, asked by the planner to
+ *  decide what is still owed AND by the count to decide what has landed. Two answers to that one question is
+ *  exactly how a finished day came to read 139 of 140 forever: the plan knew an honestly unavailable pair was
+ *  over, the count only ever accepted an answer, and Today kept asking after nothing was left to ask.
  *  observed = the answer is in. unavailable = the engine had nothing readable to give, and a second ask today
  *  buys the same nothing. unsupported = I cannot ask at all. failed = the provider broke, which IS worth
  *  asking again, but only while the day's retry budget lasts. pending = an ask already in flight, which the
  *  next pass collects for free and therefore must stay in the plan. */
-function terminalForDay(row: ObservedSample, retriesSpent: number): boolean {
+function settledForDay(row: ObservedSample, retriesSpent: number): boolean {
   if (row.status === "observed" || row.status === "unavailable" || row.status === "unsupported") return true;
   return row.status === "failed" && retriesSpent >= FAILED_RETRIES_PER_DAY;
 }
@@ -139,13 +143,11 @@ export function planObservations(day: string, input: ObservationPlanInput): DueO
     if (at > (lastAt.get(k) ?? "")) lastAt.set(k, at);
   }
   // Readings whose day is OVER, per pair and per slot: an answer in hand, or an honest terminal state that
-  // asking again today cannot improve on. Counting only `observed` here is what made an impossible pair
-  // immortal: its row said failed or unavailable, the planner saw no answer, and it planned the same
-  // unbuyable reading on every pass of every day.
+  // asking again today cannot improve on.
   const retries = input.retries ?? {};
   const doneToday = new Map<string, Set<number>>();
   for (const o of today) {
-    if (!terminalForDay(o, retries[retryKey(o)] ?? 0)) continue;
+    if (!settledForDay(o, retries[retryKey(o)] ?? 0)) continue;
     const k = pairKey(o.promptId, o.version, o.engine);
     const slots = doneToday.get(k) ?? new Set<number>();
     slots.add(o.slot);
@@ -258,14 +260,15 @@ async function readDayMarkers(tenantId: string): Promise<DayMarkers | null> {
   };
 }
 
-/** false = the marker was NOT saved, so the operator is told no rather than promised a reading nothing planned. */
+/** false = the marker was NOT saved, so the operator is told no rather than promised a reading nothing
+ *  planned. ONE atomic merge at DATABASE time: rebuilding the whole progress object from a read taken
+ *  moments earlier meant a marker write silently erased whatever landed in between, which on this row is the
+ *  continuation counter, the frozen focus, the decide watermark and the day's own persisted counts. */
 async function writeDayMarkers(tenantId: string, patch: DayMarkers): Promise<boolean> {
   const row = await latestRunRow(tenantId).catch(() => null);
   if (row == null) return false;
-  const admin = (await import("@/lib/persistence/supabase")).getSupabaseAdmin();
-  const { error } = await admin.from("research_runs").update({ progress: { ...row.progress, ...patch } })
-    .eq("tenant_id", tenantId).eq("id", row.id);
-  return error == null;
+  const landed = await patchRunProgress(tenantId, row.id, patch as Record<string, unknown>).catch(() => null);
+  return landed != null;
 }
 
 type PlannerDeps = {
@@ -287,25 +290,34 @@ async function evidenceObservations() {
   return import("@/domains/evidence/ai-visibility/ai-observations");
 }
 
-/** PURE. Today's canonical round as a COUNT: every (question, engine) pair that owes a
- *  reading today, and how many of them already landed. The progress number Today shows is
- *  this one, so it is the planner's own arithmetic and never a second, drifting tally. */
-function checkCounts(day: string, input: Pick<ObservationPlanInput, "prompts" | "observed" | "engines" | "unsupportedPairs">): { done: number; total: number } {
+/** Today's canonical round as a count: how many pairs are SETTLED of how many are owed, and how the settled
+ *  ones actually landed. `done` and `total` are what a surface shows; the three below are what makes a day
+ *  that did not land 140 answers still readable as finished. */
+type DayChecks = { done: number; total: number; answers: number; unavailable: number; unsupported: number };
+
+/** PURE. Every (question, engine) pair that owes a reading today, and how many of them are settled, on the
+ *  SAME predicate the planner uses. A pair whose retries ran out is bucketed the way spendFailureBudget is
+ *  about to settle it, so the count and the row it will write cannot disagree. */
+function checkCounts(day: string, input: Pick<ObservationPlanInput, "prompts" | "observed" | "engines" | "unsupportedPairs" | "retries">): DayChecks {
   const engines = (input.engines ?? OBSERVATION_ENGINES).filter((e) => OBSERVATION_ENGINES.includes(e));
-  const excluded = new Set(input.unsupportedPairs ?? []);
-  const landed = new Set(input.observed
-    .filter((o) => o.day === day && o.status === "observed" && o.slot === 0)
-    .map((o) => pairKey(o.promptId, o.version, o.engine)));
-  let done = 0, total = 0;
+  const excluded = new Set(input.unsupportedPairs ?? []), retries = input.retries ?? {};
+  const landed = new Map<string, "answers" | "unavailable" | "unsupported">();
+  for (const o of input.observed) {
+    if (o.day !== day || o.slot !== 0 || !settledForDay(o, retries[retryKey(o)] ?? 0)) continue;
+    landed.set(pairKey(o.promptId, o.version, o.engine), o.status === "observed" ? "answers"
+      : o.status === "unsupported" || !engines.includes(o.engine as ObservationEngine) ? "unsupported" : "unavailable");
+  }
+  const out: DayChecks = { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 };
   for (const p of input.prompts) {
     if (!p.id || !p.text) continue;
     for (const engine of engines) {
       if (excluded.has(`${p.id}|${engine}`)) continue;
-      total += 1;
-      if (landed.has(pairKey(p.id, p.version, engine))) done += 1;
+      out.total += 1;
+      const how = landed.get(pairKey(p.id, p.version, engine));
+      if (how != null) { out.done += 1; out[how] += 1; }
     }
   }
-  return { done, total };
+  return out;
 }
 
 /** THE ENGINES THE PROVIDER REGISTRY CAN ACTUALLY ASK, derived from the registry itself at the moment the
@@ -370,7 +382,7 @@ function reconcileRetries(day: string, s: DayState): { counts: Record<string, nu
 /** PURE. The day's standing and its plan off one already-read state. An extra reading is planned ONLY
  *  against a grant the operator actually earned, on THIS day, and a broken pair is retried only while
  *  the day's retry budget lasts. */
-function planFrom(day: string, s: DayState, opts: PlannerDeps): { done: number; total: number; due: DueObservation[] } {
+function planFrom(day: string, s: DayState, opts: PlannerDeps): DayChecks & { due: DueObservation[] } {
   const grant = s.markers?.extraSamples;
   const retries = reconcileRetries(day, s).counts;
   const shared = { prompts: s.prompts, observed: s.observed, engines: s.engines, unsupportedPairs: opts.unsupportedPairs, retries };
@@ -381,13 +393,13 @@ function planFrom(day: string, s: DayState, opts: PlannerDeps): { done: number; 
 }
 
 /**
- * THE DAILY PLAN for one account, WITH the day's standing: what is still due, and how much
- * of today's one canonical round already landed. `null` means I COULD NOT READ what is due
- * (the question list or the observation store), which is a different claim from "nothing is
- * owed" and gets a different answer everywhere it is consumed. READ ONLY: nothing here writes,
- * so a surface may ask it on every render.
+ * THE DAILY PLAN for one account, WITH the day's standing: what is still due, how much of today's one
+ * canonical round is SETTLED, and how those settled readings landed. `null` means I COULD NOT READ what is
+ * due (the question list or the observation store), which is a different claim from "nothing is owed" and
+ * gets a different answer everywhere it is consumed. READ ONLY: nothing here writes, so a surface may ask it
+ * on every render.
  */
-export async function dailyChecks(tenantId: string, reportingDay: string, opts: PlannerDeps = {}): Promise<{ done: number; total: number; due: DueObservation[] } | null> {
+export async function dailyChecks(tenantId: string, reportingDay: string, opts: PlannerDeps = {}): Promise<(DayChecks & { due: DueObservation[] }) | null> {
   const state = await readDayState(tenantId, reportingDay, opts);
   return state == null ? null : planFrom(reportingDay, state, opts);
 }
@@ -425,19 +437,38 @@ const MAX_SETTLES_PER_PASS = 40;
  * `unavailable` when the engine could be asked and gave nothing, `unsupported` when the provider registry
  * cannot ask that engine at all. The provider's own words stay in failure_reason either way: the row still
  * explains itself, it just stops promising a retry it is never going to make.
+ *
+ * THE MARKER NEVER OUTRUNS THE PROOF. The settle used to be fired and forgotten while the exhausted-retry
+ * marker landed regardless, so a settle that failed left the canonical row saying `failed` with no budget
+ * left to ask again: permanently owed and permanently contradicted by the ledger beside it. Settlement now
+ * happens FIRST and PER PAIR, and only a pair whose settle actually resolved has its retry count advanced;
+ * a pair whose settle threw is rolled back to what the day already had on file, so it stays due, gets asked
+ * again, and says so in the log rather than in silence.
  */
 async function spendFailureBudget(tenantId: string, day: string, s: DayState, opts: PlannerDeps): Promise<void> {
   const broken = s.observed.filter((o) => o.day === day && o.status === "failed" && Boolean(o.id));
   if (broken.length === 0) return;
   const { counts, askedAt, changed } = reconcileRetries(day, s);
+  const held = s.markers?.observationRetries?.day === day ? s.markers.observationRetries : null;
   const askable = new Set(s.engines);
   const settle = opts.settle ?? (async (t: string, id: string, status: "unavailable" | "unsupported") =>
     (await evidenceObservations()).settleFailedObservation(t, id, status));
-  let settled = 0;
+  let settled = 0, tried = 0;
   for (const row of broken) {
-    if ((counts[retryKey(row)] ?? 0) < FAILED_RETRIES_PER_DAY || settled >= MAX_SETTLES_PER_PASS) continue;
-    settled += 1;
-    await settle(tenantId, row.id, askable.has(row.engine as ObservationEngine) ? "unavailable" : "unsupported").catch(() => {});
+    const k = retryKey(row);
+    if ((counts[k] ?? 0) < FAILED_RETRIES_PER_DAY || tried >= MAX_SETTLES_PER_PASS) continue;
+    tried += 1;
+    try {
+      await settle(tenantId, row.id, askable.has(row.engine as ObservationEngine) ? "unavailable" : "unsupported");
+      settled += 1;
+    } catch (error) {
+      // ROLL THIS PAIR BACK TO THE LAST THING THAT WAS PROVED. Its count stays where the day already had it,
+      // so the pair is still owed a real ask instead of being marked spent against a settle that never landed.
+      if (held?.counts?.[k] != null) counts[k] = held.counts[k]!; else delete counts[k];
+      if (held?.askedAt?.[k] != null) askedAt[k] = held.askedAt[k]!; else delete askedAt[k];
+      log.error("[daily-observations] I could not close out a check the provider refused, so it stays owed",
+        { tenantId, day, observationId: row.id, engine: row.engine, error: error instanceof Error ? error.message : String(error) });
+    }
   }
   if (settled > 0) log.info("[daily-observations] settled checks the provider could not answer today", { tenantId, day, settled });
   if (changed) await (opts.writeMarkers ?? writeDayMarkers)(tenantId, { observationRetries: { day, counts, askedAt } }).catch(() => false);

@@ -11,6 +11,7 @@
  * "N measuring" count can never describe different sets. Every date is YYYY-MM-DD (UTC);
  * every render site formats it with monthDayLabel (src/components/data/receipt-line.ts).
  */
+import { reportingDay } from "@/lib/reporting-day";
 import { addDays } from "./kernel";
 import { PROOF_WINDOW_DAYS, type ProofWindowDay } from "./types";
 import { GSC_LAG_DAYS } from "@/domains/measurement/proof-gsc/change-family";
@@ -60,7 +61,7 @@ export type VerdictSchedule = {
 };
 
 const YMD = /^\d{4}-\d{2}-\d{2}/;
-const ymd = (now: Date): string => now.toISOString().slice(0, 10);
+const ymd = (now: Date): string => reportingDay(now);
 
 /**
  * THE STAMP every promised date counts from: when the operator marked the change done, falling

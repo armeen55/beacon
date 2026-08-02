@@ -24,6 +24,7 @@
 import "server-only";
 
 import { log } from "@/lib/logger";
+import { reportingDay } from "@/lib/reporting-day";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { fetchAdNetworkRevenueForTenant } from "@/lib/connectors/adnetwork/registry";
 import { AD_NETWORK_MEASURED_BASIS } from "@/lib/connectors/adnetwork/types";
@@ -185,10 +186,8 @@ export async function runRevenueFactsPass(
   tenantId: string,
   now: Date = new Date(),
 ): Promise<RevenueFactsPassResult> {
-  const endDate = now.toISOString().slice(0, 10);
-  const startDate = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
-    .toISOString()
-    .slice(0, 10);
+  const endDate = reportingDay(now);
+  const startDate = reportingDay(now.getTime() - WINDOW_DAYS * 86_400_000);
 
   let admin;
   try {

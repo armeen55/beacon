@@ -30,6 +30,9 @@ import { KeepResearching } from "@/components/shell/keep-researching";
 
 const FIRST_DELAY_MS = 20_000;
 const CONTINUE_DELAY_MS = 30_000;
+/** The client's own bound on ONE request, and the first backoff a wait earns. */
+const REQUEST_DEADLINE_MS = 45_000;
+const WAIT_MIN_MS = 45_000;
 
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
@@ -89,12 +92,32 @@ describe("the tab that keeps the research going", () => {
     await mount();
     await wait(FIRST_DELAY_MS);
     expect(seam.hops).toHaveLength(1); // asked, and still waiting for the answer
-    // Everything that could start another one: the tab coming back, and a long stretch of clock.
+    // Everything that could start another one: the tab coming back, and every second up to the deadline.
     await setVisibility("hidden");
     await setVisibility("visible");
-    await wait(10 * 60_000);
+    await wait(REQUEST_DEADLINE_MS - 1);
     expect(seam.hops).toHaveLength(1);
     expect(router.refreshes).toBe(0); // and nothing repaints off an answer that has not arrived
+  });
+
+  it("never wedges on a request that never comes back: it gives up at the deadline, backs off, and works again", async () => {
+    // THE DEFECT THIS PINS. The in-flight flag was cleared on the line AFTER the await, so one server action
+    // that never settled left the loop believing a request was still running for the whole page view. The
+    // operator's research went quiet and only a reload brought it back.
+    seam.hold = () => {};
+    await mount();
+    await wait(FIRST_DELAY_MS);
+    await wait(REQUEST_DEADLINE_MS - 1);
+    expect([seam.hops.length, router.refreshes]).toEqual([1, 0]); // still waiting, patiently, and repainting nothing
+    await wait(1);
+    // A request that never came back is not fresh persisted state, so there is nothing honest to repaint.
+    expect(router.refreshes).toBe(0);
+    // It counts as a wait, so the backoff applies and the loop is still alive to use it.
+    seam.hold = null;
+    await wait(WAIT_MIN_MS);
+    expect([seam.hops.length, router.refreshes]).toEqual([2, 1]); // the next healthy answer IS processed
+    await wait(CONTINUE_DELAY_MS);
+    expect(seam.hops).toEqual([0, 0, 1]); // and the loop kept going, with no reload and no button
   });
 
   it("stops asking the moment the tab is hidden, and picks up again when it is looked at", async () => {
