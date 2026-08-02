@@ -10,7 +10,7 @@
  * content firewalls; it FAILS CLOSED. Its `complete` fn is injectable, so the
  * whole path runs cold with zero paid calls in tests. After a draft lands, the
  * kernel runs the ONE validator (validate-proposal) and stamps the lifecycle
- * status — a rejected draft is returned as a `rejected` proposal, never dropped
+ * stage. A refused draft comes back as a `withdrawn` outcome, never dropped
  * silently and never presented as ready.
  *
  * PUBLISHING IS MANUAL: this returns a proposal. It NEVER writes a live page.
@@ -38,7 +38,10 @@ import {
 import { validateProposal, type ProposalValidation } from "./validate-proposal";
 
 export type ProposalOutcome =
-  | { status: "proposed"; proposal: ChangeProposal; validation: ProposalValidation }
+  | { status: "ready"; proposal: ChangeProposal; validation: ProposalValidation }
+  /** A safety gate refused this draft. It earned no lifecycle stage, so the caller files it as
+   *  history rather than queueing it, and does not pay to redraft the same failure. */
+  | { status: "withdrawn"; proposal: ChangeProposal; validation: ProposalValidation }
   | { status: "no_draft"; reason: string; drafterStatus: string };
 
 export type ProposeOptions = {
@@ -91,7 +94,7 @@ function assemble(args: {
     primaryQuery: input.opportunity.query,
     opportunityType: input.opportunity.opportunityType,
     changeFamily: family,
-    status: validation.status,
+    status: validation.verdict === "ready" ? "ready" : "needs_review",
     recommendedChange: change,
     whyItMatters,
     estimatedEffortMinutes: effortForFamily(family),
@@ -207,7 +210,7 @@ export async function proposeExistingPageChange(
     now,
     validation,
   });
-  return { status: "proposed", proposal, validation };
+  return { status: validation.verdict === "rejected" ? "withdrawn" : "ready", proposal, validation };
 }
 
 // ── internals ─────────────────────────────────────────────────────────────────
@@ -216,7 +219,6 @@ export async function proposeExistingPageChange(
  *  reads (it inspects recommendedChange + primaryQuery, not status). */
 const NEUTRAL_VALIDATION: ProposalValidation = {
   verdict: "needs_review",
-  status: "needs_review",
   qualityStatus: "useful_but_needs_review",
   reasons: [],
   factViolations: [],

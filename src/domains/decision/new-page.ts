@@ -302,12 +302,12 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   // THE QUESTIONS ARE EVIDENCE TOO: the facts alone never carried the question list the prompt
   // ordered the model to copy verbatim, so an observed question naming a site died here.
   const verdict = validateProposal(proposal, { evidenceText: [...facts, ...questions.values()].join(" "), now });
-  if (verdict.status === "rejected") {
+  if (verdict.verdict === "rejected") {
     log.warn("[new-page] brief failed the one validator", { tenantId, topicKey: inv.key, reasons: verdict.reasons.slice(0, 3) });
     return { status: "none", reason: `The page I drafted for "${inv.label}" did not pass my own safety checks, so I am handing you nothing rather than risk it.` };
   }
   // A PAGE RESTING ON "SOME SOURCE OF THIS KIND" IS NEVER READY: the honest place for it is review.
-  return { status: "built", proposal: { ...proposal, status: unbacked ? "needs_review" : verdict.status,
+  return { status: "built", proposal: { ...proposal, status: unbacked || verdict.verdict !== "ready" ? "needs_review" : "ready",
     limitations: [...new Set([...proposal.limitations, ...verdict.reasons, ...(!unbacked ? [] : [cited.length > 0
       ? "Some of what this page claims still rests on the kind of source it needs rather than a source I hold, so you pick those before it goes out."
       : "I hold no source of my own behind the claims on this page, so you pick every one of them before it goes out."])])] } };

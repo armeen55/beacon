@@ -1,28 +1,24 @@
 "use client";
 
 /**
- * changes-list-client (V1 Truth Convergence Phase 8, 2026-08-01): the ranked ChangeProposal
- * queue, with the receipts the kernel already computes actually reaching the operator.
+ * changes-list-client: the ranked ChangeProposal queue, with the receipts the kernel computes actually
+ * reaching the operator. EVERY CARD SAYS, WITHOUT BEING OPENED: whether it is one edit or a bundle that
+ * has to land together, the exact primary action, how long it takes, its risk, how much evidence stands
+ * behind it, and WHY IT SITS ABOVE THE ONE BELOW IT (rank-proposals.whyRankedAboveNext).
  *
- * EVERY CARD NOW SAYS, WITHOUT BEING OPENED: whether it is one edit or a bundle that has to land
- * together, the exact primary action, how long it takes, its risk, how much evidence stands
- * behind it, and WHY IT SITS ABOVE THE ONE BELOW IT. That last sentence has been stamped by the
- * ranker (rank-proposals.whyRankedAboveNext) since Phase 3 and reached no screen at all, so a
- * ranked queue asked the operator to trust an order it never explained.
+ * A DANGEROUS CHANGE CARRIES ITS HOLD: the two-step confirmation in this product is the `needs_review`
+ * stage, not a second flag, so a change that moves or hides a page says so on the card.
  *
- * A DANGEROUS CHANGE CARRIES ITS HOLD. The two-step confirmation in this product is the
- * `needs_review` lifecycle, not a second flag, so a change that moves or hides a page says on the
- * card that it is waiting for the operator to read it and then act.
- *
- * Publishing is MANUAL. The mutating controls are "Mark implemented" (which records the
- * operator's own confirmation and never writes a live page) and "Put this aside".
+ * Publishing is MANUAL. The mutating controls are "Mark implemented" (which records the operator's own
+ * confirmation and never writes a live page) and "Put this aside".
  */
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import type { ChangesClientView } from "./changes-data";
 import type { ChangeProposal, ChangeBundle } from "@/domains/decision";
-import { dismissProposalAction, markProposalImplementedAction } from "./changes/actions";
+import { dismissProposalAction, loadMoreChangesAction, markProposalImplementedAction } from "./changes/actions";
+import { CHANGES_PAGE_SIZE } from "./changes/types";
 
 type Tab = "ready" | "todo";
 
@@ -32,23 +28,20 @@ const RISK_LABEL: Record<ChangeProposal["riskLevel"], string> = {
   high: "High risk",
 };
 
-/** How much comparison evidence stands behind the change, in the same plain words the Today
- *  command uses for the same field. Never "confidence: high" with nothing behind it. */
+/** How much comparison evidence stands behind the change, in the same words Today uses for the field. */
 const EVIDENCE_LABEL: Record<ChangeProposal["confidence"], string> = {
   high: "Strong evidence",
   medium: "Early evidence",
   low: "Still building evidence",
 };
 
-/** THE TWO-STEP HOLD, in the operator's words. A component that moves or hides the page is
- *  graded `dangerous` by the validator (which refuses any bundle where it is not), so this is
- *  the one check a surface has to make. */
+/** THE TWO-STEP HOLD, in the operator's words. The validator refuses any bundle where a component that
+ *  moves or hides the page is not graded `dangerous`, so this is the one check a surface has to make. */
 function dangerousParts(bundle: ChangeBundle | undefined): string[] {
   return (bundle?.components ?? []).filter((c) => c.risk === "dangerous").map((c) => c.label);
 }
 
-/** The exact primary action, in one line. A bundle states its objective; an atomic edit names
- *  the field it rewrites and the search it sharpens for. */
+/** The exact primary action in one line: a bundle's objective, or the field an atomic edit rewrites. */
 function primaryAction(p: ChangeProposal): string {
   if (p.bundle) return p.bundle.objective;
   const c = p.recommendedChange;
@@ -59,7 +52,12 @@ function primaryAction(p: ChangeProposal): string {
 
 export function ChangesListClient({ view }: { view: ChangesClientView }) {
   const [tab, setTab] = useState<Tab>(view.ready.length > 0 ? "ready" : "todo");
-  const rows = tab === "ready" ? view.ready : view.toDo;
+  // THE QUEUE IS UNLIMITED AND THE SCREEN IS NOT. The server hands over one page per lane and the
+  // true total; every later page is cut from the SAME stored release, so the order never shifts.
+  const [more, setMore] = useState<Record<Tab, ChangeProposal[]>>({ ready: [], todo: [] });
+  const [loadingMore, startLoadMore] = useTransition();
+  const rows = useMemo(() => [...(tab === "ready" ? view.ready : view.toDo), ...more[tab]], [tab, view, more]);
+  const remaining = Math.max(0, (tab === "ready" ? view.summary.ready : view.summary.todo) - rows.length);
 
   return (
     <div className="space-y-4">
@@ -78,7 +76,7 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
           href="/results"
           className="ml-auto rounded-md border border-border px-3 py-1.5 text-muted-foreground hover:text-foreground"
         >
-          Measuring {view.summary.measuring} · Results {view.summary.results}
+          Implemented {view.summary.implemented} · Measuring {view.summary.measuring} · Results {view.summary.results}
         </Link>
       </div>
 
@@ -103,20 +101,28 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
           ),
         )}
       </ol>
+
+      {remaining > 0 ? (
+        <button type="button" disabled={loadingMore} data-show-more="true"
+          onClick={() => startLoadMore(async () => {
+            const res = await loadMoreChangesAction({ lane: tab, cursor: rows.length });
+            setMore((prev) => ({ ...prev, [tab]: [...prev[tab], ...res.rows] }));
+          })}
+          className="w-full rounded-xl border border-border px-3 py-2 text-[13px] font-semibold text-muted-foreground tabular-nums hover:text-foreground disabled:opacity-60"
+        >
+          {loadingMore ? "Loading…" : `Show ${Math.min(CHANGES_PAGE_SIZE, remaining)} more of ${remaining}`}
+        </button>
+      ) : null}
     </div>
   );
 }
 
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-md border px-3 py-1.5 tabular-nums transition-colors ${
-        active
-          ? "border-accent-primary/50 bg-accent-primary/10 text-foreground"
-          : "border-border text-muted-foreground hover:text-foreground"
-      }`}
+    <button type="button" onClick={onClick}
+      className={`rounded-md border px-3 py-1.5 tabular-nums transition-colors ${active
+        ? "border-accent-primary/50 bg-accent-primary/10 text-foreground"
+        : "border-border text-muted-foreground hover:text-foreground"}`}
     >
       {children}
     </button>
@@ -133,8 +139,7 @@ function FactsLine({ proposal, extra }: { proposal: ChangeProposal; extra?: stri
   );
 }
 
-/** WHY THIS SITS WHERE IT SITS. Rendered, never recomputed: the ranker stamped this sentence and
- *  names the one factor that actually separated this change from the next. */
+/** WHY THIS SITS WHERE IT SITS. Rendered, never recomputed: the ranker stamped this sentence. */
 function WhyRanked({ proposal }: { proposal: ChangeProposal }) {
   if (!proposal.whyRankedAboveNext) return null;
   return (
@@ -148,10 +153,8 @@ function WhyRanked({ proposal }: { proposal: ChangeProposal }) {
 function DangerousHold({ labels }: { labels: string[] }) {
   if (labels.length === 0) return null;
   return (
-    <p
-      className="rounded-md border border-status-warning/40 bg-status-warning/5 px-3 py-2 text-[12px] leading-relaxed text-foreground"
-      data-dangerous-hold="true"
-    >
+    <p data-dangerous-hold="true"
+      className="rounded-md border border-status-warning/40 bg-status-warning/5 px-3 py-2 text-[12px] leading-relaxed text-foreground">
       {labels.join(" and ")}: this changes where the page lives or whether people can find it, so I am holding
       it for you to read once and confirm before you make the change.
     </p>
@@ -159,11 +162,9 @@ function DangerousHold({ labels }: { labels: string[] }) {
 }
 
 /**
- * A proposal carrying a Change Bundle is the flagship row: the exact primary action, the
- * strongest reason, the four facts, the hold when there is one, the ranker's own sentence, and
- * two controls (open the full change, or put it aside). The exact copy lives on the detail page.
- * A new-page bundle uses the same row: only the badge and the parts wording change, because a
- * page that does not exist yet has no edits to make, it has pieces to paste.
+ * A proposal carrying a Change Bundle is the flagship row: the primary action, the strongest reason, the
+ * four facts, the hold when there is one, the ranker's sentence, and two controls. The exact copy lives on
+ * the detail page. A new-page bundle uses the same row with a different badge and parts wording.
  */
 function BundleRow({ proposal, bundle, rank, inReadyLane }: { proposal: ChangeProposal; bundle: ChangeBundle; rank: number; inReadyLane: boolean }) {
   const checks = bundle.receipt.items.length;
@@ -250,7 +251,7 @@ function ProposalRow({ proposal, rank, canApply }: { proposal: ChangeProposal; r
               </ul>
             </div>
           ) : null}
-          {canApply ? <MarkImplemented proposalId={proposal.id} /> : null}
+          {canApply ? <MarkImplemented proposalId={proposal.id} newPage={proposal.kind === "new_page"} /> : null}
           <SetAsideChange proposalId={proposal.id} />
         </div>
       ) : null}
@@ -322,11 +323,9 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-/**
- * "Put this aside" is the operator's own dismissal, with the consequence stated before they press
- * it, not after. It writes the one terminal disposition that means exactly this, and the store
- * then refuses to re-draft the same change until the evidence itself moves.
- */
+/** "Put this aside" is the operator's own dismissal, with the consequence stated before they press it.
+ *  It writes the one disposition that means exactly this, and the store then refuses to re-draft the
+ *  same change until the evidence itself moves. */
 export function SetAsideChange({ proposalId }: { proposalId: string }) {
   const [pending, startTransition] = useTransition();
   const [state, setState] = useState<{ done: boolean; asked: boolean; error: string | null }>({
@@ -342,12 +341,8 @@ export function SetAsideChange({ proposalId }: { proposalId: string }) {
   }
   if (!state.asked) {
     return (
-      <button
-        type="button"
-        onClick={() => setState((s) => ({ ...s, asked: true }))}
-        className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
-        data-set-aside="true"
-      >
+      <button type="button" data-set-aside="true" onClick={() => setState((s) => ({ ...s, asked: true }))}
+        className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
         Put this aside
       </button>
     );
@@ -384,27 +379,29 @@ export function SetAsideChange({ proposalId }: { proposalId: string }) {
 }
 
 /**
- * "Mark implemented" records that the OPERATOR applied the change. Two controls ride with
- * it, and both were arguments the server action already accepted:
+ * "Mark implemented" records that the OPERATOR applied the change. Three controls ride with it:
  *
- *   THE PARTIAL-BUNDLE PICKER. A bundle is several pieces, and an operator who applied three of
- *   five must not have all five recorded as live: the shipment would carry copy that is not on
- *   the page and the live check would fail for reasons nobody caused. Every piece starts ticked,
- *   because applying all of them is the normal case.
+ *   THE PARTIAL-BUNDLE PICKER. An operator who applied three of five pieces must not have all five
+ *   recorded as live, or the shipment carries copy that is not on the page and the live check fails for
+ *   reasons nobody caused. Every piece starts ticked, because applying all of them is the normal case.
  *
- *   THE OVERRIDE. "I applied this differently" tells Beacon the change is live in the operator's
- *   own words and asks it not to go looking for the exact copy on the page. It is never a
- *   default: absent, Beacon reads the page itself before saying anything.
+ *   THE OVERRIDE. "I applied this differently" says the change is live in their own words and asks me not
+ *   to look for exact copy. Never a default: absent, I read the page myself before saying anything.
+ *
+ *   THE ADDRESS, for a new page only: it has none until they publish it, and without one I check nothing.
  */
 export function MarkImplemented({
   proposalId,
   label: idle = "Mark implemented",
   components,
+  newPage = false,
 }: {
   proposalId: string;
   label?: string;
   /** The bundle's pieces, when there are several. Absent or single means nothing to pick. */
   components?: { kind: string; label: string }[];
+  /** A page that did not exist has no address until they publish it, so I have to be told where it is. */
+  newPage?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [state, setState] = useState<{ done: boolean; error: string | null }>({ done: false, error: null });
@@ -412,13 +409,16 @@ export function MarkImplemented({
   const [applied, setApplied] = useState<Set<string>>(() => new Set((pickable ?? []).map((c) => c.kind)));
   const [override, setOverride] = useState(false);
   const [reason, setReason] = useState("");
+  const [liveUrl, setLiveUrl] = useState("");
   const label = useMemo(() => (state.done ? "Marked implemented" : idle), [state.done, idle]);
   const nothingPicked = pickable != null && applied.size === 0;
+  const addressOwed = newPage && liveUrl.trim().length === 0;
 
   function onClick() {
     startTransition(async () => {
       const res = await markProposalImplementedAction({
         proposalId,
+        ...(newPage ? { liveUrl: liveUrl.trim() } : {}),
         ...(pickable && applied.size < pickable.length ? { componentKinds: [...applied] } : {}),
         ...(override ? { operatorConfirmed: true, overrideReason: reason.trim() || undefined } : {}),
       });
@@ -432,22 +432,15 @@ export function MarkImplemented({
       {pickable ? (
         <div className="space-y-1.5" data-component-picker="true">
           <p className="text-[12px] font-semibold text-foreground">Which pieces did you apply?</p>
-          {/* KEYED BY POSITION AS WELL AS KIND: a bundle may carry two sections, and two rows
-              sharing one React key collapse into one, so the operator loses a piece they applied. */}
+          {/* KEYED BY POSITION AS WELL AS KIND: two sections sharing one React key collapse into one. */}
           {pickable.map((c, i) => (
             <label key={`${c.kind}-${i}`} className="flex items-center gap-2 text-[12px] text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={applied.has(c.kind)}
-                onChange={(e) =>
-                  setApplied((prev) => {
-                    const next = new Set(prev);
-                    if (e.target.checked) next.add(c.kind);
-                    else next.delete(c.kind);
-                    return next;
-                  })
-                }
-              />
+              <input type="checkbox" checked={applied.has(c.kind)}
+                onChange={(e) => setApplied((prev) => {
+                  const next = new Set(prev);
+                  if (e.target.checked) next.add(c.kind); else next.delete(c.kind);
+                  return next;
+                })} />
               {c.label}
             </label>
           ))}
@@ -457,35 +450,40 @@ export function MarkImplemented({
         </div>
       ) : null}
 
+      {newPage ? (
+        <div className="space-y-1.5" data-live-url="true">
+          <label className="block text-[12px] font-semibold text-foreground" htmlFor={`live-url-${proposalId}`}>
+            What address is the new page live at?
+          </label>
+          <input id={`live-url-${proposalId}`} type="text" value={liveUrl} onChange={(e) => setLiveUrl(e.target.value)}
+            placeholder="https://yoursite.com/the-new-page"
+            className="w-full rounded-md border border-border bg-surface-inset px-3 py-1.5 text-[12px] text-foreground" />
+          <p className="text-[12px] text-muted-foreground">I go and read that page myself, so I need the exact address on your own site.</p>
+        </div>
+      ) : null}
+
       <div className="space-y-1.5" data-override-control="true">
         <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
           <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} />
           I applied this differently, so do not check the page for my exact wording
         </label>
         {override ? (
-          <input
-            type="text"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="What did you do instead?"
-            className="w-full rounded-md border border-border bg-surface-inset px-3 py-1.5 text-[12px] text-foreground"
-          />
+          <input type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="What did you do instead?"
+            className="w-full rounded-md border border-border bg-surface-inset px-3 py-1.5 text-[12px] text-foreground" />
         ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={onClick}
-          disabled={pending || state.done || nothingPicked}
-          className="rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-60"
-        >
+        <button type="button" onClick={onClick} disabled={pending || state.done || nothingPicked || addressOwed}
+          className="rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-60">
           {pending ? "Saving…" : label}
         </button>
         <span className="text-[12px] text-muted-foreground">
-          {nothingPicked
-            ? "Tick at least one piece and I will start measuring it."
-            : "You apply the change on your site; this only records that you did it."}
+          {addressOwed
+            ? "Give me the address it is live at and I will go and read it."
+            : nothingPicked
+              ? "Tick at least one piece and I will start measuring it."
+              : "You apply the change on your site; this only records that you did it."}
         </span>
         {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}
       </div>

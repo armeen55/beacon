@@ -88,10 +88,10 @@ export default async function ChangeDetailPage({
   }
 }
 
-/** A saved proposal the current queue no longer carries. An APPLIED one is not set aside. */
+/** A saved proposal the current queue no longer carries. An IMPLEMENTED one is not set aside. */
 async function isSetAside(tenantId: string, id: string): Promise<boolean> {
   const stored = await loadChangeProposal(tenantId, id).catch(() => null);
-  return stored != null && stored.status !== "applied";
+  return stored != null && stored.status !== "implemented_pending_verification";
 }
 
 /** The honest end of a stale direct link: no exact copy, no before and after, and
@@ -239,6 +239,7 @@ function BundleDetail({ proposal, bundle }: { proposal: ChangeProposal; bundle: 
         <MarkImplemented
           proposalId={proposal.id}
           label={isNew ? "I built this page" : "I made this change"}
+          newPage={isNew}
           components={bundle.components.map((c) => ({ kind: c.kind, label: c.label }))}
         />
         <p className="text-[12px] text-muted-foreground">

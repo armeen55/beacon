@@ -1,18 +1,22 @@
 import "server-only";
 
 /**
- * changes-data (CORE 100K cutover, 2026-07-22) — the server loader for the
+ * changes-data (CORE 100K cutover, 2026-07-22): the server loader for the
  * canonical Changes list, now backed entirely by the Decision kernel. The old
  * worklist / build-canonical-changes / allocator / demand-graph shaping pipeline
  * is retired: the ranked queue is now the tenant's persisted, re-validated
  * `ChangeProposal`s (decision/load-proposals), and the measuring/decided side of
  * the lifecycle still comes from the proof-gsc ledger (the ONE-COUNT RULE).
  *
- * Lifecycle mapping (preserved OUTCOME, cruder-but-honest shape):
- *   Ready       — proposals with status "proposed": validated safe, exact copy.
- *   To do       — proposals with status "needs_review": generated, wants a look.
- *   Measuring   — shipped changes still under measurement (proof ledger).
- *   Results     — shipped changes with a final read (proof ledger).
+ * THE FIVE STAGES THE OPERATOR IS SHOWN, and where each one is decided:
+ *   To do       = status "needs_review": generated, wants a look.
+ *   Ready       = status "ready": validated safe, exact copy.
+ *   Implemented = status "implemented_pending_verification": they say it is done, I have not read
+ *                 their page yet. Counted here, never queued: it is not work waiting on them.
+ *   Measuring   = the ledger: a verification landed and the reading windows are open.
+ *   Results     = the ledger: the reading is decided.
+ * The last two are DERIVED from the shipment ledger and never stored as a status, so the two can
+ * never disagree (the ONE-COUNT RULE).
  *
  * READ-ONLY + fail-soft. Proposal PRODUCTION (the cold, gated drafter) runs in
  * the background release build (surface-release → produceProposalsForTenant), not
@@ -28,11 +32,12 @@ import { countLedgerLifecycle } from "@/domains/decision";
 import { buildReceiptLine } from "@/components/data/receipt-line";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
+import { CHANGES_PAGE_SIZE } from "./changes/types";
 
-export type ChangesSummary = { todo: number; ready: number; measuring: number; results: number };
+export type ChangesSummary = { todo: number; ready: number; implemented: number; measuring: number; results: number };
 
 export type ChangesView = {
-  /** The ranked pre-ship queue (every non-rejected, non-applied proposal). */
+  /** The ranked pre-ship queue, cut to the first page. `summary` carries the true totals. */
   proposals: ChangeProposal[];
   /** Validated-safe, exact-copy-ready proposals (the Ready tab). */
   ready: ChangeProposal[];
@@ -68,7 +73,7 @@ export function toClientView(view: ChangesView): ChangesClientView {
   return view;
 }
 
-/** DATE-BOMB GUARD — an epoch-0 / pre-2026 stamp is never a real ranking time. */
+/** DATE-BOMB GUARD: an epoch-0 / pre-2026 stamp is never a real ranking time. */
 const MIN_VALID_COMPUTED_AT_MS = Date.parse("2026-01-01T00:00:00Z");
 export function sanitizeSurfaceComputedAt(iso: string | null | undefined): string | null {
   if (!iso) return null;
@@ -113,7 +118,7 @@ const EMPTY_CHANGES_VIEW: ChangesView = {
   proposals: [],
   ready: [],
   toDo: [],
-  summary: { todo: 0, ready: 0, measuring: 0, results: 0 },
+  summary: { todo: 0, ready: 0, implemented: 0, measuring: 0, results: 0 },
   measuringCountCanonical: 0,
   demotedStaleBasis: 0,
   decidedCountCanonical: 0,
@@ -133,8 +138,25 @@ export const loadChangesView = cache(
   async (): Promise<ChangesView> => loadChangesViewWithSwr(await currentTenantId()),
 );
 
+/**
+ * THE FIRST SCREEN IS NOT THE WHOLE QUEUE. The queue is unlimited and the page opens with one page of
+ * each lane; `summary` keeps the true totals, so the "Show more" control can say exactly how many are
+ * behind it. The order is the stored release's own ranking, and page two is cut from that same stored
+ * release, so nothing is re-ranked underneath the operator between one press and the next. PURE.
+ */
+export function pageOfChanges(view: ChangesView, cursor = 0): ChangesView {
+  const cut = <T,>(xs: T[]): T[] => xs.slice(cursor, cursor + CHANGES_PAGE_SIZE);
+  return { ...view, proposals: cut(view.proposals), ready: cut(view.ready), toDo: cut(view.toDo) };
+}
+
 /** Exported for tests; render paths go through loadChangesView above. */
 export async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
+  return pageOfChanges(await readReleasedChanges(tenantId));
+}
+
+/** THE WHOLE released queue for this account, basis-checked, scheduling the ONE background rebuild
+ *  when the release is stale or missing. Every page of the list is cut from this one answer. */
+export async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
   const scheduleReleaseRebuild = (action: string) =>
     after(async () => {
       try {
@@ -171,7 +193,7 @@ export async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesV
  */
 export async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> {
   const [queue, ledgerRows] = await Promise.all([
-    loadProposalQueue(tenantId).catch(() => ({ ranked: [], ready: [], toDo: [], demotedStaleBasis: 0, basisUnreadable: true })),
+    loadProposalQueue(tenantId).catch(() => ({ ranked: [], ready: [], toDo: [], implementedPendingVerification: 0, demotedStaleBasis: 0, basisUnreadable: true })),
     loadProofLedgerCached(tenantId).catch(() => []),
   ]);
 
@@ -179,6 +201,7 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
   const summary: ChangesSummary = {
     todo: queue.toDo.length,
     ready: queue.ready.length,
+    implemented: queue.implementedPendingVerification,
     measuring: ledgerCounts.measuring,
     results: ledgerCounts.decided,
   };

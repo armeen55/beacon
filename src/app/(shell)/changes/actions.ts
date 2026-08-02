@@ -11,16 +11,19 @@ import {
   editLifecycleStatus,
   markRecommendedEditsAsShipped,
 } from "@/domains/decision";
-import { dismissChangeProposal, loadChangeProposal, markProposalApplied, resolveCurrentBasis, type ChangeProposal } from "@/domains/decision";
+import { dismissChangeProposal, loadChangeProposal, markProposalImplemented, resolveCurrentBasis, type ChangeProposal } from "@/domains/decision";
+import { getTenant } from "@/domains/account";
 import { captureChangeMeta, loadShippedChanges, recordShippedChange, upsertShippedChange } from "@/domains/measurement";
 import { invalidateCoreSurfaces } from "../surface-release";
+import { readReleasedChanges } from "../changes-data";
+import { CHANGES_PAGE_SIZE } from "./types";
 
 /**
- * changes/actions (CORE 100K cutover, 2026-07-22) — the manual "Mark implemented"
+ * changes/actions (CORE 100K cutover, 2026-07-22): the manual "Mark implemented"
  * action. Publishing authority is MANUAL and server-enforced: the kernel never
  * writes a live page and never flips this itself. The operator confirms they
- * applied a Ready change; we record it as applied so the pre-ship queue drops it
- * (its measurement then lives in the proof ledger).
+ * applied a Ready change; we record it as implemented pending verification, so the
+ * pre-ship queue drops it and the reading lives in the proof ledger.
  *
  * THE SHIPMENT TRANSACTION (V1 Truth Convergence Phase 6). Pressing this used to do
  * one thing: flip a status. So a change the operator really made left no record of
@@ -50,6 +53,29 @@ function shippedVersionOf(p: ChangeProposal): string {
 }
 
 /**
+ * WHERE THE NEW PAGE ACTUALLY LIVES. A page that did not exist has no address of its own until the
+ * operator publishes it, so a new-page change marked done with no address left me checking nothing:
+ * verification fetched the page LABEL as if it were a website. The address is now owed, and it has to
+ * be one I can read and keep reading: on the account's own site, secure, and one plain page address
+ * with no query attached, because a tracking link is not the page. Returns the exact address to record,
+ * or the one sentence the operator reads instead.
+ */
+function liveUrlFor(raw: string, domain: string): { url: string } | { error: string } {
+  const site = domain.trim().toLowerCase().replace(/^www\./, "");
+  const owed = `Tell me the address the new page is live at, on ${site}, so I can go and read it.`;
+  const text = raw.trim();
+  if (!text) return { error: owed };
+  let parsed: URL;
+  try { parsed = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`); } catch { return { error: owed }; }
+  if (parsed.protocol !== "https:") return { error: `That address is not secure. Give me the https address on ${site}.` };
+  if (parsed.hostname.toLowerCase().replace(/^www\./, "") !== site) {
+    return { error: `That address is on ${parsed.hostname}, not on ${site}. I only record and read pages on your own site.` };
+  }
+  if (parsed.search || parsed.hash) return { error: "Give me the plain page address, with nothing after a ? or a #, so I read the page itself." };
+  return { url: `${parsed.origin}${parsed.pathname}` };
+}
+
+/**
  * Write the Shipment for one proposal. Idempotent: the id is derived from the proposal
  * and the version applied, so a retry upserts itself and the store keeps the stamp and
  * the starting numbers it already holds. Returns false when nothing durable landed, and
@@ -64,7 +90,7 @@ function shippedVersionOf(p: ChangeProposal): string {
  */
 async function recordShipment(
   tenantId: string, proposal: ChangeProposal,
-  opts: { componentKinds?: readonly string[]; operatorConfirmed?: boolean; overrideReason?: string | null } = {},
+  opts: { componentKinds?: readonly string[]; operatorConfirmed?: boolean; overrideReason?: string | null; liveUrl?: string } = {},
 ): Promise<boolean> {
   const componentKinds = opts.componentKinds;
   try {
@@ -95,15 +121,16 @@ async function recordShipment(
 
     // The page as Beacon already holds it: canonical URL, path, and the content hash
     // from the last crawl. Nothing is fetched.
-    const pageRef = (proposal.pageUrl ?? proposal.pagePath ?? "").trim();
+    // THE OPERATOR'S OWN ADDRESS WINS for a new page: it is the only one that exists.
+    const pageRef = (opts.liveUrl ?? proposal.pageUrl ?? proposal.pagePath ?? "").trim();
     const meta = pageRef ? await captureChangeMeta(tenantId, pageRef).catch(() => null) : null;
     const change = proposal.recommendedChange;
     const now = new Date().toISOString();
 
     const record = await recordShippedChange({
       tenantId,
-      page: meta?.canonPage ?? proposal.pageUrl ?? proposal.pageLabel,
-      path: meta?.path ?? proposal.pagePath ?? proposal.pageLabel,
+      page: opts.liveUrl ?? meta?.canonPage ?? proposal.pageUrl ?? proposal.pageLabel,
+      path: opts.liveUrl ? new URL(opts.liveUrl).pathname : meta?.path ?? proposal.pagePath ?? proposal.pageLabel,
       actionType: proposal.changeFamily,
       before: change.kind === "existing_edit" ? change.before : null,
       after: change.kind === "existing_edit" ? change.after : change.proposedTitle,
@@ -154,6 +181,8 @@ export async function markProposalImplementedAction(args: {
   operatorConfirmed?: boolean;
   /** Why they overrode the check, in their own words. */
   overrideReason?: string;
+  /** WHERE THE NEW PAGE IS LIVE. Required for a new page, which has no address until they publish it. */
+  liveUrl?: string;
 }): Promise<MarkProposalImplementedResponse> {
   const action = "markProposalImplemented";
   const t0 = Date.now();
@@ -180,16 +209,26 @@ export async function markProposalImplementedAction(args: {
     if (stored == null) {
       return { success: false, error: "I couldn't find that change to mark it implemented." };
     }
-    if (stored.status !== "applied" && (basis == null || stored.basis !== basis)) {
+    if (stored.status !== "implemented_pending_verification" && (basis == null || stored.basis !== basis)) {
       return { success: false, error: "I set this change aside, so I am not recording it. Open Changes for the work I stand behind now." };
+    }
+    // THE ADDRESS GATE RUNS BEFORE ANYTHING IS WRITTEN, because the shipment is written first and a
+    // shipment pointing at a page label is a reading I can never take.
+    let liveUrl: string | undefined;
+    if (stored.kind === "new_page") {
+      const domain = (await getTenant(tenantId).catch(() => null))?.domain?.trim();
+      if (!domain) return { success: false, error: "I could not read your website address just now, so I am not recording this yet. Press it again in a moment." };
+      const checked = liveUrlFor(args.liveUrl ?? "", domain);
+      if ("error" in checked) return { success: false, error: checked.error };
+      liveUrl = checked.url;
     }
     // SHIPMENT FIRST, FLIP SECOND. Never the other way around.
     if (!(await recordShipment(tenantId, stored, {
-      componentKinds: args.componentKinds, operatorConfirmed: args.operatorConfirmed, overrideReason: args.overrideReason,
+      componentKinds: args.componentKinds, operatorConfirmed: args.operatorConfirmed, overrideReason: args.overrideReason, liveUrl,
     }))) {
       return { success: false, error: "I couldn't start measuring this change, so I haven't recorded it as done. Press it again in a moment." };
     }
-    const ok = await markProposalApplied(tenantId, args.proposalId);
+    const ok = await markProposalImplemented(tenantId, args.proposalId, liveUrl);
     if (!ok) {
       return { success: false, error: "I couldn't find that change to mark it implemented." };
     }
@@ -205,6 +244,20 @@ export async function markProposalImplementedAction(args: {
     });
     return { success: false, error: `Failed to mark implemented: ${err instanceof Error ? err.message : String(err)}` };
   }
+}
+
+/**
+ * THE NEXT PAGE OF THE RANKED QUEUE. Read-only, and cut from the SAME stored release the first page
+ * came from, so the order cannot move underneath the operator between one press and the next.
+ * `remaining` is what is still behind the page just handed over, so the control never has to guess.
+ */
+export async function loadMoreChangesAction(args: { lane: "ready" | "todo"; cursor: number }): Promise<{
+  rows: ChangeProposal[]; remaining: number;
+}> {
+  const view = await readReleasedChanges(await currentTenantId()).catch(() => null);
+  const all = view == null ? [] : args.lane === "ready" ? view.ready : view.toDo;
+  const cursor = Math.max(0, Math.floor(args.cursor));
+  return { rows: all.slice(cursor, cursor + CHANGES_PAGE_SIZE), remaining: Math.max(0, all.length - cursor - CHANGES_PAGE_SIZE) };
 }
 
 /**
@@ -228,7 +281,7 @@ export async function dismissProposalAction(args: {
   try {
     const stored = await loadChangeProposal(tenantId, args.proposalId).catch(() => null);
     if (stored == null) return { success: false, error: "I couldn't find that change to put it aside." };
-    if (stored.status === "applied") {
+    if (stored.status === "implemented_pending_verification") {
       return { success: false, error: "You already marked this one done, so I am measuring it. I am not putting it away while a reading is running." };
     }
     if (!(await dismissChangeProposal(tenantId, args.proposalId))) {
@@ -246,7 +299,7 @@ export async function dismissProposalAction(args: {
 }
 
 /**
- * Results-timeline "Mark shipped" — confirms a previously-accepted recommended
+ * Results-timeline "Mark shipped" confirms a previously-accepted recommended
  * edit is live on the page, flipping its lifecycle to verified-live. Server-side
  * publish authority is enforced (a stale UI cannot skip Accept). Distinct from
  * the Changes-queue "Mark implemented" above: this operates on the persisted

@@ -221,7 +221,7 @@ describe("the wording cause keeps the path it has always had", () => {
     expect(p.bundle!.components.map((c) => c.kind)).toEqual(["title"]);
     expect(p.recommendedChange).toEqual({ kind: "existing_edit", field: "title", before: "Rain Barrels", after: TITLE_AFTER });
     expect(p.opportunityType).toBe("Rewrite the page that already has the demand");
-    expect([p.diagnosisCause, p.estimatedEffortMinutes, p.riskLevel, p.status]).toEqual(["ctr_snippet", 1, "low", "proposed"]);
+    expect([p.diagnosisCause, p.estimatedEffortMinutes, p.riskLevel, p.status]).toEqual(["ctr_snippet", 1, "low", "ready"]);
     expect(p.bundle!.risks[0]).toBe("Changing a title moves where the page ranks while search engines re-read it, so give this the full 28 days before you judge it.");
     expect(p.bundle!.risks[1]).toBe("I do not hold this page's full body text, so read each line once before you paste it.");
     expect(bought).toEqual(["atomic_edit"]);

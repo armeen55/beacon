@@ -74,7 +74,7 @@ const validate = (components: BundleComponent[], evidenceText?: string): ReturnT
   const primary = components[0]!;
   return validateProposal({
     id: "p", tenantId: TENANT, kind: "existing_edit", pagePath: "/rain-barrels", pageUrl: PAGE_URL, pageLabel: "Rain Barrels",
-    primaryQuery: QUERY, opportunityType: "Capture clicks", changeFamily: "single", status: "proposed",
+    primaryQuery: QUERY, opportunityType: "Capture clicks", changeFamily: "single", status: "ready",
     recommendedChange: envelope(primary),
     whyItMatters: "The title misses the word people search.", estimatedEffortMinutes: effortMinutesFor(primary.kind), riskLevel: "low", confidence: "medium",
     limitations: [], evidence: { query: QUERY, hints: [], evidenceRefCount: 1 }, impactScore: 100, upsidePerMonth: null,

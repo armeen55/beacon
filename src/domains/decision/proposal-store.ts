@@ -1,16 +1,14 @@
 /**
- * decision/proposal-store (V1 Truth Convergence Phase 5, 2026-07-31): the ONE durable home of a
- * ChangeProposal, and ONE CURRENT ROW PER HYPOTHESIS.
+ * decision/proposal-store: the ONE durable home of a ChangeProposal, and ONE CURRENT ROW PER HYPOTHESIS.
  *
- * CANONICAL IDENTITY. A hypothesis is (tenant, site, case, page, action family). Exactly one row for that
- * identity is CURRENT (`terminal_disposition is null`), enforced by a partial unique index in Postgres. A
- * new draft SUPERSEDES the row that held it in ONE database operation (supersede_change_proposal): the
- * predecessor steps aside pointing at its successor, which lands with the next `proposal_version`. An
- * identical re-draft writes NOTHING.
+ * CANONICAL IDENTITY. A hypothesis is (tenant, site, case, page, action family), and exactly one row for it
+ * is CURRENT (`terminal_disposition is null`), enforced by a partial unique index. A new draft SUPERSEDES
+ * the row that held it in ONE database operation (supersede_change_proposal): the predecessor steps aside
+ * pointing at its successor, which lands with the next `proposal_version`. An identical re-draft writes NOTHING.
  *
- * THE STATUS VOCABULARY DOES NOT MOVE: proposed / needs_review / rejected / applied are the lifecycle; a
- * DISPOSITION (dismissed, withdrawn, superseded) is whether the row is still the current answer, a
- * dismissal holds under its basis, and only a row still waiting on the operator may be superseded.
+ * STATUS IS THE STAGE, DISPOSITION IS WHETHER ANYONE IS STILL BEING ASKED. needs_review / ready /
+ * implemented_pending_verification are the stored stages; a DISPOSITION (dismissed, withdrawn, superseded)
+ * retires the row and holds under its basis, and only a row still waiting on the operator may be superseded.
  * HISTORY IS READABLE, NEVER RESURRECTED (`move_drafts` rows serve only ids this table never heard of).
  * FAIL CLOSED, LOUDLY: a missing table fails writes and says so; reads fall back to history. server-only. */
 
@@ -34,17 +32,13 @@ const TABLE = "change_proposals";
 const LEGACY_TABLE = "move_drafts";
 const LEGACY_KIND = "change_proposal";
 
-/** Why this row is no longer the current answer. Never a status: the four statuses
- *  on the proposal itself say what Beacon thinks of the change, and these say
- *  whether anyone is still being asked to look at it. */
+/** Why this row is no longer the current answer. Never a status: the stages say where the change stands,
+ *  these say whether anyone is still being asked. `withdrawn` is Beacon taking a draft back. */
 type TerminalDisposition = "dismissed" | "withdrawn" | "superseded";
 
-/** saved = a new version is durable. unchanged = the stored row already says exactly
- *  this, so nothing was written. refused = this hypothesis was dismissed and the
- *  evidence has not moved since. blocked = the row holding this hypothesis is one the
- *  operator already acted on, so it is being measured and may not be retired for a
- *  fresh idea. failed = the write did not land. Internal: the four calling surfaces
- *  branch on the literals, and nothing outside this file names the type. */
+/** saved = a new version is durable. unchanged = the stored row already says exactly this. refused = this
+ *  hypothesis was retired under this basis and the evidence has not moved. blocked = the operator already
+ *  acted on the row holding it, so it is being measured. failed = the write did not land. Internal. */
 type SaveResult = "saved" | "unchanged" | "refused" | "blocked" | "failed";
 
 // ── canonical identity ────────────────────────────────────────────────────────
@@ -55,8 +49,7 @@ type ActionFamily =
   | "title-family" | "section-family" | "links-family" | "technical-family"
   | "consolidation" | "new_page";
 
-/** Every component kind maps to exactly one family, once, here. Adding a kind to
- *  the contract without adding it here does not compile. */
+/** Every kind maps to one family, once, here. Adding a kind without adding it here does not compile. */
 const FAMILY_BY_KIND: Record<BundleComponentKind, ActionFamily> = {
   title: "title-family", meta: "title-family", h1: "title-family",
   opening_answer: "section-family", section: "section-family", source_pack: "section-family",
@@ -79,8 +72,7 @@ const FAMILY_PRECEDENCE: readonly ActionFamily[] = [
   "new_page", "consolidation", "technical-family", "section-family", "links-family", "title-family",
 ];
 
-/** PURE: which family this change belongs to. A bundle is read off its components;
- *  an atomic edit names its own field. */
+/** PURE: which family this change belongs to, off a bundle's components or an atomic edit's own field. */
 function actionFamilyOf(p: ChangeProposal): ActionFamily {
   if (p.kind === "new_page") return "new_page";
   const families = new Set((p.bundle?.components ?? []).map((c) => FAMILY_BY_KIND[c.kind]));
@@ -100,8 +92,8 @@ function anchorOf(p: ChangeProposal): string {
   return raw.trim().toLowerCase();
 }
 
-/** The site this change lands on, from the proposal's own URL. Informational: the
- *  one-current-row index is keyed on the account, the case, the page and the family. */
+/** The site this change lands on, from its own URL. Informational: the one-current-row index is keyed on
+ *  the account, the case, the page and the family. */
 function siteOf(p: ChangeProposal): string {
   const url = (p.pageUrl ?? "").trim();
   if (!url) return "";
@@ -127,12 +119,9 @@ function identityOf(p: ChangeProposal): Identity {
 
 /**
  * PURE: the fingerprint of everything an operator would act on. Deliberately EXCLUDES createdAt and
- * anything else that moves on its own, so a pass that re-derives the same decision from the same evidence
- * produces the same fingerprint and writes nothing.
- *
- * THE REASONING IS MATERIAL. `causeFinding` was left out, so a pass that stamped a cause onto a
- * row it otherwise carried forward hashed identically, the write short-circuited as "unchanged",
- * and the whole investigation lived in memory for one render instead of reaching the stored row.
+ * anything else that moves on its own, so a pass re-deriving the same decision writes nothing. THE
+ * REASONING IS MATERIAL: leaving `causeFinding` out let a pass that stamped a cause hash identically,
+ * short-circuit as "unchanged", and keep the whole investigation in memory for one render.
  */
 export function proposalFingerprint(p: ChangeProposal): string {
   const material = {
@@ -150,9 +139,8 @@ export function proposalFingerprint(p: ChangeProposal): string {
   return createHash("sha256").update(JSON.stringify(material)).digest("hex").slice(0, 16);
 }
 
-/** WHY this change exists, lifted onto its own column so the reasoning can be read
- *  without unpacking the whole proposal. Never a second source of truth: every
- *  field here is copied off the payload below it. */
+/** WHY this change exists, lifted onto its own column so the reasoning reads without unpacking the whole
+ *  proposal. Never a second source of truth: every field here is copied off the payload below it. */
 function decisionReceipt(p: ChangeProposal): Record<string, unknown> {
   return {
     cause: p.diagnosisCause ?? null,
@@ -177,8 +165,7 @@ type CanonRow = {
   payload: unknown;
 };
 
-/** The columns every canonical read needs: the identity, the lifecycle status the
- *  handover rule leans on, the disposition and its pointer, and the payload itself. */
+/** The columns every canonical read needs: identity, stage, disposition and pointer, and the payload. */
 const CANON_COLUMNS = "id, proposal_version, status, terminal_disposition, superseded_by, basis, payload";
 
 /** Re-validate a stored payload on EVERY load: a hand-edited row is never a trusted proposal. */
@@ -204,8 +191,7 @@ function rowFor(p: ChangeProposal, ident: Identity, version: number): Record<str
   };
 }
 
-/** Set (or, on a rollback, clear) one row's disposition. Fail-closed: a write that
- *  changed no row is a failure, never a quiet success. */
+/** Set (or, on a rollback, clear) one row's disposition. Fail-closed: a write that changed no row fails. */
 async function setDisposition(
   tenantId: string, id: string, disposition: TerminalDisposition | null, supersededBy: string | null,
 ): Promise<boolean> {
@@ -224,9 +210,8 @@ async function setDisposition(
 
 // ── writes ────────────────────────────────────────────────────────────────────
 
-/**
- * Persist one proposal as the CURRENT answer for its hypothesis, superseding whatever held that identity
- * before. Writes nothing when the stored row already says exactly this. Never throws. */
+/** Persist one proposal as the CURRENT answer for its hypothesis, superseding whatever held that identity
+ *  before. Writes nothing when the stored row already says exactly this. Never throws. */
 export async function saveChangeProposal(proposal: ChangeProposal): Promise<SaveResult> {
   if (!proposal.tenantId || !proposal.id) return "failed";
   // Every real id is minted `${tenantId}::...` by this kernel. A proposal whose id wears another
@@ -259,12 +244,11 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<Save
     const mine = rows.find((r) => r.id === proposal.id) ?? (await rowById(proposal.tenantId, proposal.id));
     const current = rows.find((r) => r.terminal_disposition == null) ?? null;
 
-    // A CHANGE THE OPERATOR PUT AWAY STAYS AWAY until the evidence itself moves. Same basis, same
-    // dismissal; a new basis is a genuinely different reading, so it may try again. ASK EVERY
-    // DISMISSAL, NOT WHICHEVER ONE THE DATABASE RETURNED FIRST: these rows come back unordered, so
-    // comparing one row's basis let a dismissed page be re-drafted whenever an older dismissal
-    // sorted ahead of it. dismissChangeProposal below is the writer this gate answers to.
-    if ([mine, ...rows].some((r) => r?.terminal_disposition === "dismissed" && (r.basis ?? null) === (proposal.basis ?? null))) return "refused";
+    // A CHANGE PUT AWAY STAYS AWAY, and a draft I WITHDREW stays withdrawn, until the evidence moves: same
+    // basis, same answer. ASK EVERY RETIRED ROW, not whichever came back first: they arrive unordered, so
+    // comparing one row's basis let a dismissed page be re-drafted when an older dismissal sorted first.
+    if ([mine, ...rows].some((r) => (r?.terminal_disposition === "dismissed" || r?.terminal_disposition === "withdrawn")
+      && (r.basis ?? null) === (proposal.basis ?? null))) return "refused";
 
     // Nothing material changed: no write, no new timestamp, so a refreshed surface never
     // reads yesterday's thinking as today's work.
@@ -277,22 +261,18 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<Save
     // One identity, one current row: the predecessor steps aside BEFORE the successor
     // lands, because the index will not hold both at once.
     const handover = current && current.id !== proposal.id ? current : null;
-    // A CHANGE THE OPERATOR ALREADY MADE IS NOT MINE TO RETIRE. Supersession had no status guard,
-    // so a fresh idea about the same page could push an APPLIED row into history mid-measurement
-    // and the proof it was collecting lost the row it belonged to. Only a row still waiting on the
-    // operator (proposed / needs_review) may step aside; everything else refuses the new draft.
-    if (handover && handover.status !== "proposed" && handover.status !== "needs_review") {
+    // A CHANGE THE OPERATOR ALREADY MADE IS NOT MINE TO RETIRE: a fresh idea about the same page could
+    // push an implemented row into history mid-measurement and orphan the proof it was collecting. Only
+    // a row still waiting on them (ready / needs_review) may step aside.
+    if (handover && handover.status !== "ready" && handover.status !== "needs_review") {
       log.info("[proposal-store] this page already carries a change I am measuring, so the new draft is not saved", {
         tenantId: proposal.tenantId, holding: handover.id, status: handover.status, draft: proposal.id });
       return "blocked";
     }
     if (handover) {
-      // ONE database operation: the status guard, the predecessor's step-aside and the successor's landing
-      // commit together or not at all, so a crash mid-handover can never leave this hypothesis with no
-      // current answer. THE SCOPING PROOF EVERY OTHER WRITE PASSES is made here first, by hand, because
-      // going straight to the function gave up the check that this row belongs to the account being written
-      // for; and a MISSING FUNCTION is a deploy that ran ahead of its migration, not a blocked handover,
-      // which is how it read until it was named.
+      // ONE database operation: the guard, the step-aside and the landing commit together or not at all,
+      // so a crash mid-handover never leaves this hypothesis with no current answer. THE SCOPING PROOF is
+      // made here by hand first, and a MISSING FUNCTION is a deploy ahead of its migration, not a block.
       log.info("[proposal-store] superseding", { id: handover.id, by: proposal.id, version });
       const row = rowFor(proposal, ident, version);
       assertRowsScopedToTenant([row as { tenant_id?: string | null }], proposal.tenantId, TABLE);
@@ -326,21 +306,52 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<Save
 }
 
 /**
- * Manually mark one proposal APPLIED (the operator's own "Mark implemented" action, never the kernel).
- * Re-persists it with status "applied" so the pre-ship queue drops it and its measurement lives in the
- * proof ledger. Fail-soft to false. Publishing stays manual: this records the operator's claim, it does
- * not write a live page. */
-export async function markProposalApplied(tenantId: string, id: string): Promise<boolean> {
+ * Manually mark one proposal IMPLEMENTED, PENDING VERIFICATION (the operator's own "Mark implemented",
+ * never the kernel). Re-persists it at that stage so the pre-ship queue drops it and the reading lives in
+ * the proof ledger. Publishing stays manual: this records their claim, and the claim is not the fact,
+ * which is why the stage says pending verification out loud. A NEW PAGE OWES ITS ADDRESS: it has none
+ * until they publish it, so recording one without it leaves me checking nothing. The caller validates the
+ * address against the account's own domain; this is the line the store will not let anyone past.
+ */
+export async function markProposalImplemented(tenantId: string, id: string, liveUrl?: string): Promise<boolean> {
   const proposal = await loadChangeProposal(tenantId, id);
   if (!proposal) return false;
-  return (await saveChangeProposal({ ...proposal, status: "applied" })) !== "failed";
+  if (proposal.kind === "new_page" && !liveUrl?.trim()) {
+    log.info("[proposal-store] a new page has no address until you publish it, so I am not recording it as done", { tenantId, id });
+    return false;
+  }
+  return (await saveChangeProposal({ ...proposal, status: "implemented_pending_verification" })) !== "failed";
+}
+
+/**
+ * BEACON'S OWN RETRACTION. A draft a safety gate refused earned no lifecycle stage, so it is not queued
+ * work and not a rejection the operator has to read: it lands as history under the disposition that says I
+ * took it back, and `withdrawnProposalIds` stops the next pass paying to fail the same way. Fail-soft.
+ */
+export async function withdrawChangeProposal(proposal: ChangeProposal): Promise<boolean> {
+  const saved = await saveChangeProposal(proposal);
+  if (saved === "failed") return false;
+  if (saved === "refused") return true; // already withdrawn or dismissed under this basis
+  return setDisposition(proposal.tenantId, proposal.id, "withdrawn", null);
+}
+
+/** The hypotheses I already took back under THIS basis. Bounded; empty on any read trouble, which
+ *  costs one redraft and never a wrong skip. */
+export async function withdrawnProposalIds(tenantId: string, basis: string | null): Promise<Set<string>> {
+  if (!tenantId || !basis) return new Set<string>();
+  try {
+    const { data, error } = await getSupabaseAdmin()
+      .from(TABLE).select("id").eq("tenant_id", tenantId).eq("terminal_disposition", "withdrawn").eq("basis", basis).limit(500);
+    if (error || !data) return new Set<string>();
+    return new Set((data as Array<{ id: string }>).map((r) => r.id));
+  } catch { return new Set<string>(); }
 }
 
 /**
  * THE operator's own "put this aside". Writes `terminal_disposition = 'dismissed'` on the current row,
  * the exact disposition `saveChangeProposal` already refuses to re-draft over under the same basis.
  *
- * A CHANGE ALREADY APPLIED MAY NOT BE DISMISSED: it is being measured, and retiring it would
+ * A CHANGE ALREADY MARKED IMPLEMENTED MAY NOT BE DISMISSED: it is being read, and retiring it would
  * orphan the proof it is collecting. Fail-closed to false.
  */
 export async function dismissChangeProposal(tenantId: string, id: string): Promise<boolean> {
@@ -348,8 +359,8 @@ export async function dismissChangeProposal(tenantId: string, id: string): Promi
   try {
     const row = await rowById(tenantId, id);
     if (!row || row.terminal_disposition != null) return false;
-    if (row.status === "applied") {
-      log.info("[proposal-store] already applied and measuring, so it is not mine to put away", { tenantId, id });
+    if (row.status === "implemented_pending_verification") {
+      log.info("[proposal-store] you already marked this done, so it is not mine to put away", { tenantId, id });
       return false;
     }
     return setDisposition(tenantId, id, "dismissed", null);
@@ -369,9 +380,8 @@ async function rowById(tenantId: string, id: string): Promise<CanonRow | null> {
   return data[0] as CanonRow;
 }
 
-/** HISTORY ONLY: the append-only rows this store wrote before the canonical table existed.
- *  Nothing writes them now and nothing here is current work unless the canonical table has
- *  never heard of that id. */
+/** HISTORY ONLY: the append-only rows written before the canonical table existed. Nothing writes them
+ *  now, and nothing here is current work unless the canonical table has never heard of that id. */
 async function readLegacy(tenantId: string, limit: number, id?: string): Promise<Array<{ id: string; content: string }>> {
   try {
     let q = getSupabaseAdmin()
@@ -383,8 +393,7 @@ async function readLegacy(tenantId: string, limit: number, id?: string): Promise
   } catch { return []; }
 }
 
-/** Load one proposal by id. A row the canonical table holds as history (dismissed,
- *  withdrawn, superseded) is NOT served as a current proposal. Fail-soft to null. */
+/** Load one proposal by id. A row held as history is NOT served as current. Fail-soft to null. */
 export async function loadChangeProposal(tenantId: string, id: string): Promise<ChangeProposal | null> {
   if (!tenantId || !id) return null;
   try {
@@ -397,21 +406,17 @@ export async function loadChangeProposal(tenantId: string, id: string): Promise<
   }
 }
 
-/**
- * Every proposal this account currently holds, keyed by id: the canonical current
- * rows, plus historical rows for ids the canonical table has never held. Fail-soft
- * to what could be read, which is the honest degrade: a missing canonical table
- * shows the history rather than claiming this account has no changes at all.
- */
+/** Every proposal this account currently holds, keyed by id: the canonical current rows, plus historical
+ *  rows for ids the canonical table has never held. Fail-soft to what could be read, which is the honest
+ *  degrade: a missing table shows history rather than claiming this account has no changes at all. */
 export async function loadChangeProposals(tenantId: string, limit = 500): Promise<Map<string, ChangeProposal>> {
   const out = new Map<string, ChangeProposal>();
   if (!tenantId) return out;
   const sb = getSupabaseAdmin();
   let canonical = false;
   try {
-    // THE QUEUE READ ASKS FOR THE QUEUE. It used to ask for everything and filter in memory, so a
-    // few hundred superseded versions could fill the row budget and push the account's actual
-    // current work off the end: history is not competing for this read any more.
+    // THE QUEUE READ ASKS FOR THE QUEUE: asking for everything and filtering in memory let a few hundred
+    // superseded versions fill the row budget and push the account's actual current work off the end.
     const { data, error } = await sb
       .from(TABLE)
       .select("id, terminal_disposition, payload")
@@ -433,10 +438,9 @@ export async function loadChangeProposals(tenantId: string, limit = 500): Promis
     log.error("[proposal-store] canonical read threw, showing history only", {
       tenantId, error: e instanceof Error ? e.message : String(e) });
   }
-  // HISTORY IS NEVER RESURRECTED. A legacy row may only fill an id the canonical table has never
-  // heard of AT ALL, so a row it holds as superseded, dismissed or withdrawn cannot come back
-  // through the old store. When the canonical read itself failed there is nothing to check against,
-  // and showing the history is the honest degrade.
+  // HISTORY IS NEVER RESURRECTED. A legacy row may only fill an id the canonical table has never heard of
+  // at all, so a row it holds as retired cannot come back through the old store. When the canonical read
+  // itself failed there is nothing to check against, and showing the history is the honest degrade.
   const legacy = (await readLegacy(tenantId, limit)).filter((r) => !out.has(r.id));
   const retired = canonical && legacy.length > 0 ? await idsOnFile(tenantId, legacy.map((r) => r.id)) : new Set<string>();
   for (const row of legacy) {
@@ -461,13 +465,10 @@ async function idsOnFile(tenantId: string, ids: string[]): Promise<Set<string>> 
 }
 
 /**
- * REPAIR ON READ: a handover whose successor never landed. Superseding is two writes (the
- * predecessor steps aside, then the successor lands), and a crash between them leaves a row
- * pointing at a proposal that does not exist, so the hypothesis has no current answer at all and
- * the operator silently loses the change. The in-process rollback still runs; this covers the
- * crash it cannot. A superseded row whose successor is not on file is treated as current again,
- * and the next successful save fixes the disposition durably. Bounded to the newest handovers,
- * which is where a stranded one always is: stepping aside stamps updated_at.
+ * REPAIR ON READ: a handover whose successor never landed leaves a row pointing at a proposal that does
+ * not exist, so the hypothesis has no current answer and the operator silently loses the change. The
+ * in-process rollback still runs; this covers the crash it cannot. Such a row reads as current again and
+ * the next successful save fixes it durably. Bounded to the newest handovers, where a stranded one is.
  */
 async function strandedHandovers(tenantId: string, current: Map<string, ChangeProposal>): Promise<Array<[string, ChangeProposal]>> {
   try {

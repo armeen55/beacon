@@ -20,7 +20,7 @@ const { ownerFlag, mocks } = vi.hoisted(() => ({
     loadPageSurgeonContext: vi.fn(),
     topPagesByDemand: vi.fn(),
     loadChangeProposal: vi.fn(),
-    markProposalApplied: vi.fn(),
+    markProposalImplemented: vi.fn(),
     resolveCurrentBasis: vi.fn(),
   },
 }));
@@ -31,11 +31,12 @@ vi.mock("@/lib/auth/can-publish", () => ({
 }));
 vi.mock("@/domains/decision", () => ({
   loadPageSurgeonContext: mocks.loadPageSurgeonContext, topPagesByDemand: mocks.topPagesByDemand,
-  loadChangeProposal: mocks.loadChangeProposal, markProposalApplied: mocks.markProposalApplied,
+  loadChangeProposal: mocks.loadChangeProposal, markProposalImplemented: mocks.markProposalImplemented,
   resolveCurrentBasis: mocks.resolveCurrentBasis,
   editLifecycleStatus: () => "accepted", markRecommendedEditsAsShipped: async () => ({ flipped: 0, skipped: 0 }),
 }));
 vi.mock("@/lib/persistence/repositories", () => ({ getRepository: () => ({ forTenant: () => ({}) }) }));
+vi.mock("@/domains/account", async (orig) => ({ ...(await orig() as object), getTenant: async () => ({ id: "tenant-test", domain: "x.test" }) }));
 vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => {} }));
 // The presentation-only operator flag must be POWERLESS here: force it on to
 // prove it cannot authorize a mutation for a non-owner.
@@ -63,7 +64,7 @@ const PROPOSAL_ID = "tenant-test::/nowruz-guide::existing_edit::bundle";
 const proposal = (over: Record<string, unknown> = {}) => ({
   id: PROPOSAL_ID, tenantId: "tenant-test", kind: "existing_edit", pagePath: "/nowruz-guide",
   pageUrl: "https://x.test/nowruz-guide", pageLabel: "Nowruz guide", primaryQuery: "nowruz traditions",
-  opportunityType: "Capture clicks", changeFamily: "title", status: "proposed", basis: BASIS, publish: "manual",
+  opportunityType: "Capture clicks", changeFamily: "title", status: "ready", basis: BASIS, publish: "manual",
   recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" },
   whyItMatters: "The line Google shows misses the words people search for.",
   bundle: { objective: "Say what the searcher asked for in the line Google shows.",
@@ -87,7 +88,7 @@ beforeEach(() => {
   mocks.topPagesByDemand.mockReturnValue(["https://x.test/a", "https://x.test/b", "https://x.test/c"]);
   mocks.resolveCurrentBasis.mockResolvedValue(BASIS);
   mocks.loadChangeProposal.mockResolvedValue(proposal());
-  mocks.markProposalApplied.mockResolvedValue(true);
+  mocks.markProposalImplemented.mockResolvedValue(true);
 });
 
 describe("recordShippedChangeAction — account-owner gating", () => {
@@ -185,9 +186,9 @@ describe("markProposalImplementedAction — the shipment transaction", () => {
   it("writes the shipment BEFORE it flips the change", async () => {
     expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID })).success).toBe(true);
     expect(mocks.recordShippedChange).toHaveBeenCalledOnce();
-    expect(mocks.markProposalApplied).toHaveBeenCalledOnce();
+    expect(mocks.markProposalImplemented).toHaveBeenCalledOnce();
     expect(mocks.upsertShippedChange.mock.invocationCallOrder[0])
-      .toBeLessThan(mocks.markProposalApplied.mock.invocationCallOrder[0]);
+      .toBeLessThan(mocks.markProposalImplemented.mock.invocationCallOrder[0]);
     const { shipment } = mocks.recordShippedChange.mock.calls[0][0];
     expect(shipment.proposalId).toBe(PROPOSAL_ID);
     expect(shipment.basis).toBe(BASIS);
@@ -201,7 +202,7 @@ describe("markProposalImplementedAction — the shipment transaction", () => {
     const res = await markProposalImplementedAction({ proposalId: PROPOSAL_ID });
     expect(res.success).toBe(false);
     expect(res.error).toMatch(/couldn't start measuring/i);
-    expect(mocks.markProposalApplied).not.toHaveBeenCalled();
+    expect(mocks.markProposalImplemented).not.toHaveBeenCalled();
   });
   it("a second press on the same change does NOTHING: the record I already hold stands", async () => {
     await markProposalImplementedAction({ proposalId: PROPOSAL_ID });
@@ -211,7 +212,7 @@ describe("markProposalImplementedAction — the shipment transaction", () => {
       id: "shp_1", proposalId: PROPOSAL_ID, proposalVersion: version, shippedAt: "2026-06-19T00:00:00.000Z",
       baseline: { clicks: 9 }, verification: { status: "verified", checkedAt: "2026-06-20T00:00:00.000Z", components: [] },
     }]);
-    mocks.loadChangeProposal.mockResolvedValue(proposal({ status: "applied" })); // the flip already happened
+    mocks.loadChangeProposal.mockResolvedValue(proposal({ status: "implemented_pending_verification" })); // the flip already happened
     mocks.recordShippedChange.mockClear();
     mocks.upsertShippedChange.mockClear();
     // Success, because the change really is recorded as done. And nothing is rebuilt: rebuilding it erased
@@ -251,6 +252,21 @@ describe("markProposalImplementedAction — the shipment transaction", () => {
     arrange();
     expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID })).success).toBe(false);
     expect(mocks.recordShippedChange).not.toHaveBeenCalled();
-    expect(mocks.markProposalApplied).not.toHaveBeenCalled();
+    expect(mocks.markProposalImplemented).not.toHaveBeenCalled();
+  });
+});
+
+describe("a new page owes me the address it is live at", () => {
+  const newPage = () => proposal({ kind: "new_page", pagePath: null, pageUrl: null, pageLabel: "Kite festival guide",
+    recommendedChange: { kind: "new_page", proposedTitle: "Kite festival guide", metaDescription: "m", openingAnswer: "a", outline: [], faqQuestions: [], schemaTypes: [] } });
+  it("refuses with no address and with someone else's site, then records and verifies the one I can read", async () => {
+    mocks.loadChangeProposal.mockResolvedValue(newPage()); const none = await markProposalImplementedAction({ proposalId: PROPOSAL_ID });
+    const away = await markProposalImplementedAction({ proposalId: PROPOSAL_ID, liveUrl: "https://elsewhere.example/kite" });
+    expect([none.success, none.error, away.success, away.error]).toEqual([false, "Tell me the address the new page is live at, on x.test, so I can go and read it.",
+      false, "That address is on elsewhere.example, not on x.test. I only record and read pages on your own site."]);
+    expect(mocks.recordShippedChange).not.toHaveBeenCalled(); // nothing is written until I hold an address I can check
+    expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID, liveUrl: "https://www.x.test/kite-festival-guide" })).success).toBe(true);
+    expect(mocks.recordShippedChange.mock.calls[0]![0]).toMatchObject({ page: "https://www.x.test/kite-festival-guide", path: "/kite-festival-guide" }); // verification reads THAT page
+    expect(mocks.markProposalImplemented).toHaveBeenCalledWith("tenant-test", PROPOSAL_ID, "https://www.x.test/kite-festival-guide");
   });
 });

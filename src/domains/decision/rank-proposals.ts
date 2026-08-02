@@ -52,7 +52,7 @@ type Factor = Receipt["factors"][number];
 
 /** The lifecycle band. Wider than the full swing of every other factor combined
  *  (max +100, min -83), so the tiers can never cross on content. */
-const TIER: Record<ProposalStatus, number> = { proposed: 500, applied: 500, needs_review: 250, rejected: 0 };
+const TIER: Record<ProposalStatus, number> = { ready: 500, implemented_pending_verification: 500, needs_review: 250 };
 
 /** Bounded ceilings, one per factor. A factor may never contribute more than its max. */
 const MAX = { actionability: 500, visibility: 40, evidence: 15, causeFit: 25, strategic: 10, effort: 10, risk: 18, overlap: 30, confounding: 10 } as const;
@@ -132,9 +132,8 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean): { fac
     void f.push({ name, input, contribution: round2(contribution), max });
 
   const tier = TIER[p.status] ?? 0;
-  add("actionability", p.status === "rejected" ? "this draft did not pass my safety checks"
-    : p.status === "needs_review" ? "this draft is waiting on your review"
-      : "this draft passed every safety check", tier, MAX.actionability);
+  add("actionability", p.status === "needs_review" ? "this draft is waiting on your review"
+    : "this draft passed every safety check", tier, MAX.actionability);
 
   const clicks = Number.isFinite(p.impactScore) && p.impactScore != null ? Math.max(0, p.impactScore) : null;
   const upside = Number.isFinite(p.upsidePerMonth) && p.upsidePerMonth != null ? Math.max(0, p.upsidePerMonth) : null;

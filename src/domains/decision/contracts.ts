@@ -167,11 +167,12 @@ export function confidenceFor(r: EvidenceReadiness, d?: ActionDiagnosis | null):
 /** `new_page` is earned: only the page by page comparison proves this account reaches none of what the winners share. */
 export type ProposalKind = "existing_edit" | "new_page";
 
-/** The proposal lifecycle. `proposed` = generated and validated safe, awaiting the operator. `needs_review`
- *  = the validator wants a human look first, and this is also THE two-step hold a dangerous component routes
- *  through. `rejected` = a safety gate refused the draft, never shown as ready. `applied` = the operator
- *  manually applied it, set downstream and never by the kernel. A proposal is NEVER an auto-write. */
-export type ProposalStatus = "proposed" | "needs_review" | "rejected" | "applied";
+/** THE STORED LIFECYCLE, in the operator's own words. `needs_review` = I want a human look first, and it is
+ *  also THE two-step hold a dangerous component routes through. `ready` = validated safe, exact copy, act
+ *  now. `implemented_pending_verification` = they say they made the change and I have not read their page
+ *  yet. `measuring` and `result` are DERIVED from the shipment ledger, never stored twice. A draft a safety
+ *  gate refused never enters this lifecycle: it is withdrawn. A proposal is NEVER an auto-write. */
+export type ProposalStatus = "needs_review" | "ready" | "implemented_pending_verification";
 
 export type ProposalRisk = "low" | "medium" | "high";
 export type ProposalConfidence = "high" | "medium" | "low";
@@ -263,9 +264,8 @@ export type ComponentPlan = {
 /** PURE: does this component change factual content, so a source pack is owed? */
 export function needsSourcePack(c: BundleComponent): boolean { return FACTUAL_KINDS.has(c.kind); }
 
-/** THE TWO-STEP HOLD. There is no parallel confirmation flag in this product: the one that exists is the
- *  proposal lifecycle, where `needs_review` means Beacon will not present the change as ready and the
- *  operator has to look and then act. This is the single predicate every producer and surface asks. */
+/** THE TWO-STEP HOLD. There is no parallel confirmation flag in this product: `needs_review` means Beacon
+ *  will not present the change as ready and the operator has to look and then act. */
 export function dangerousComponents(components: readonly BundleComponent[]): BundleComponent[] {
   return components.filter((c) => c.risk === "dangerous" || DANGEROUS_COMPONENT_KINDS.has(c.kind)
     || (c.kind === "factual_correction" && HIGH_STAKES_CLAIM.test(`${c.before ?? ""} ${c.after}`)));
@@ -427,7 +427,7 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   primaryQuery: z.string(),
   opportunityType: z.string(),
   changeFamily: z.string(),
-  status: z.enum(["proposed", "needs_review", "rejected", "applied"]),
+  status: z.enum(["needs_review", "ready", "implemented_pending_verification"]),
   recommendedChange: RecommendedChangeSchema,
   whyItMatters: z.string(),
   estimatedEffortMinutes: z.number(),

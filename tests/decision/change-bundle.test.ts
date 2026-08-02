@@ -5,7 +5,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"; import type { BundleComponent, BundleComponentKind, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
 import { DANGEROUS_COMPONENT_KINDS, dangerousComponents, needsSourcePack } from "@/domains/decision/contracts"; import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals"; import { validateProposal } from "@/domains/decision/validate-proposal";
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
-vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) })); vi.mock("@/domains/decision/proposal-store", () => ({ loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); } }));
+vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) })); vi.mock("@/domains/decision/proposal-store", () => ({ loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); },
+  withdrawnProposalIds: async () => new Set<string>(), withdrawChangeProposal: async () => true }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap })); vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "fixture-tenant", domain: "fixture-content.example", growth_goal: null }), basisTag: () => "basis_test" })); import { produceBundleForSnapshot } from "@/domains/decision/produce-bundle";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals"; import { loadProposalQueue } from "@/domains/decision/load-proposals"; import { confidenceFor, serializeChangeProposal, deserializeChangeProposal } from "@/domains/decision/contracts";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter"; import { adjudicateCoverage, earnedNewPage, intersectionComparison } from "@/domains/decision/coverage-adjudication"; import type { OwnedCandidate } from "@/domains/decision/owned-coverage"; import type { ParsedPageIntersection } from "@/domains/evidence/page-intersection";
@@ -133,7 +134,7 @@ describe("what a receipt will and will not accept", () => {
     const out = await produceBundleForSnapshot(snapshot({ research }), { complete: seam, ...OPTS }); if (out.status !== "bundled") throw new Error("expected a change");
     const items = out.proposal.bundle!.receipt.items; // the third page came up for the page's OTHER search, so it is not evidence about this one
     expect(items.filter((i) => i.kind === "winning_page").map((i) => i.fact).join(" ")).not.toMatch(/elsewhere/); expect(items.find((i) => i.key === "winpattern")!.fact).toBe('Of the 2 pages I read that come up for "rain barrel sizing", 2 of them answer it in a question and answer block, and this page has none, and the middle one runs 1,400 words against this page\'s 900.');
-    expect(out.proposal.status).toBe("proposed"); expect(out.proposal.confidence).toBe("medium"); expectCleanCopy(out.proposal); expect(out.proposal.limitations).toContain("I do not hold this page's full body text, so I checked every draft against its title and section headings only.");
+    expect(out.proposal.status).toBe("ready"); expect(out.proposal.confidence).toBe("medium"); expectCleanCopy(out.proposal); expect(out.proposal.limitations).toContain("I do not hold this page's full body text, so I checked every draft against its title and section headings only.");
     expect(confidenceFor({ gsc: true, ownedCopy: true, serp: true, winners: 2, body: true })).toBe("high"); }); // reading the page itself is the only step left to certain
   it("hands over nothing at all rather than a change it can show you nothing for", async () => {
     const blind: CompleteFn = async () => ({ value: {} as never }); const out = await produceBundleForSnapshot(snapshot(), { complete: blind, ...OPTS });
@@ -147,7 +148,7 @@ describe("what a receipt will and will not accept", () => {
     expect(sent.join(" ")).not.toMatch(/encyclopedia|wikipedia|culture|dynast|cuisine|province/i); });
   it("queues only the changes it can show are current, and sets aside every basis it cannot match", async () => {
     env.snap = topicSnapshot(); await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); const seed = [...store.rows.values()].find((p) => p.kind === "existing_edit")!; store.rows.clear();
-    const put = (id: string, over: Partial<ChangeProposal>) => store.rows.set(id, { ...seed, id, status: "proposed", basis: "basis_today", limitations: [], ...over });
+    const put = (id: string, over: Partial<ChangeProposal>) => store.rows.set(id, { ...seed, id, status: "ready", basis: "basis_today", limitations: [], ...over });
     put("ready", {}); put("review", { status: "needs_review" }); put("owing", { limitations: ["Add one before this is paste-ready."] }); put("older", { basis: "basis_last_week", kind: "new_page" }); put("historical", { basis: undefined });
     const rows = store.rows.size, q = await loadProposalQueue(TENANT, { currentBasis: "basis_today" }), blind = await loadProposalQueue(TENANT, { currentBasis: null });
     expect(q.ready.map((p) => p.id)).toEqual(["ready"]); expect(q.toDo.map((p) => p.id)).toEqual(["owing", "review"]); expect(q.ranked.map((p) => p.id)).toEqual(["ready", "owing", "review"]); expect(q.demotedStaleBasis).toBe(2);
@@ -313,7 +314,7 @@ const bundleOf = (components: BundleComponent[], prompts: string[] = []): Change
   measurementPlan: "I will read clicks, views and average position at 7, 14 and 28 days." });
 const prop = (over: Partial<ChangeProposal>): ChangeProposal => ({ id: "p", tenantId: TENANT, kind: "existing_edit", pagePath: "/rain-barrels",
   pageUrl: "https://fixture-content.example/rain-barrels", pageLabel: "Rain Barrels", primaryQuery: "rain barrel sizing", opportunityType: "Capture clicks",
-  changeFamily: "single", status: "proposed", recommendedChange: { kind: "existing_edit", field: "title", before: "Rain Barrels", after: TITLE_AFTER },
+  changeFamily: "single", status: "ready", recommendedChange: { kind: "existing_edit", field: "title", before: "Rain Barrels", after: TITLE_AFTER },
   whyItMatters: "The title misses the word people search.", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "medium", limitations: [],
   evidence: { query: "rain barrel sizing", hints: [], evidenceRefCount: 1 }, impactScore: 100, upsidePerMonth: null, publish: "manual",
   createdAt: "2026-07-25T00:00:00.000Z", ...over });
@@ -401,7 +402,7 @@ describe("one score orders every kind of change, and says why", () => {
     const [floored] = rankProposals([prop({ id: "floored", evidence: { query: "rain barrel sizing", hints: [], evidenceRefCount: -1000 } })]);
     expect(factorOf(floored!, "evidence")).toBe(0);
     expect(floored!.rankingReceipt!.factors.every((f) => f.contribution >= -f.max)).toBe(true);
-    expect(proposalValueScore(floored!)).toBeGreaterThan(proposalValueScore(prop({ status: "rejected", impactScore: 9999 })));
+    expect(proposalValueScore(floored!)).toBeGreaterThan(proposalValueScore(prop({ status: "needs_review", impactScore: 9999 })));
     // the older undifferentiated kinds ARE the levers their newer names describe, on a bundle and on a pre-bundle row alike
     const bundled = rankProposals([prop({ diagnosisCause: "incomplete_coverage", bundle: bundleOf([comp({ kind: "section" })]) })]);
     const stored = rankProposals([prop({ diagnosisCause: "incomplete_coverage", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A section on roof area." } })]);
@@ -424,6 +425,6 @@ describe("one score orders every kind of change, and says why", () => {
     const [ranked] = rankProposals([back!]);
     expect(ranked!.rankingReceipt!.factors.map((f) => f.name)).toEqual(["actionability", "visibility", "evidence", "causeFit", "strategic", "effort", "risk", "overlap", "confounding"]);
     expect(factorOf(ranked!, "causeFit")).toBe(0); // no diagnosis on the row, so nothing is matched and nothing is punished
-    expect(proposalValueScore(back!)).toBeGreaterThan(proposalValueScore(prop({ status: "rejected", impactScore: 9999 })));
+    expect(proposalValueScore(back!)).toBeGreaterThan(proposalValueScore(prop({ status: "needs_review", impactScore: 9999 })));
   });
 });

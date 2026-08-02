@@ -9,9 +9,8 @@
  *
  * THE DEEP READ HAS FIVE DOORS, NOT ONE (see deep-candidates.ts), and each page carries the door it came
  * through so the producer proves THAT door's case. Selection widened; drafting did not: the SAME producer
- * runs per selected page, still bounded to DEFAULT_MAX_DRAFTS, still refusing on thin evidence.
- *
- * Every honest ending is named on `ProducerOutcome`, so an empty queue never reads as an outage.
+ * runs per selected page, still bounded to DEFAULT_MAX_DRAFTS, still refusing on thin evidence. Every
+ * honest ending is named on `ProducerOutcome`, so an empty queue never reads as an outage.
  *
  * ONE EVIDENCE BASIS, ONE ROW: a candidate whose current-generation proposal already exists is never
  * redrafted, and a proposal whose fingerprint is unchanged is never re-inserted, so a refresh re-pays nothing.
@@ -30,7 +29,7 @@ import type { CauseFinding } from "./diagnosis";
 import { selectDeepCandidates } from "./deep-candidates";
 import { produceBundleForSnapshot } from "./produce-bundle";
 import { proposeExistingPageChange, type ProposeOptions } from "./propose";
-import { loadChangeProposals, saveChangeProposal } from "./proposal-store";
+import { loadChangeProposals, saveChangeProposal, withdrawChangeProposal, withdrawnProposalIds } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
 import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
@@ -70,8 +69,7 @@ export type ProduceProposalsResult = {
   candidates: QualifiedCandidate[];
   /** Which of the four honest endings this pass reached. */
   outcome: ProducerOutcome;
-  /** How many candidates earned an action: a page to edit, plus every consolidation this kernel cannot
-   *  draft yet, which used to count nowhere at all so a proven loss read as silence. */
+  /** How many candidates earned an action: a page to edit, plus every consolidation this kernel cannot draft yet. */
   actionable: number;
   /** Proven gaps whose cause is not identified yet: real work, not silence. */
   investigating: number;
@@ -99,8 +97,7 @@ export const DEFAULT_MAX_DRAFTS = 3;
 const MAX_INVENTORY = 200;
 
 /** THE ONE PAGE OF MINE A VERDICT DECIDED TO IMPROVE, as facts, out of words this pass ALREADY holds. Null
- *  for `create_new`, and null when I do not hold that page's own words: the reading is then told there is no
- *  page rather than handed an outline of nulls to write gaps against. */
+ *  for `create_new`, and null when I do not hold that page's own words. */
 function ownedFactsFor(snapshot: EvidenceSnapshot, decided: DecidedTopic): ReturnType<typeof extractPageFacts>[number] | null {
   if (decided.decision.verdict !== "improve_existing") return null;
   const url = decided.decision.ownedUrls[0];
@@ -158,11 +155,14 @@ export async function produceProposalsForTenant(
   // than staying silently current. Fail-soft to null: an unreadable account stamps nothing.
   const basis = await resolveCurrentBasis(tenantId, profile);
 
-  // ONE read of what is already durable, taken BEFORE anything is judged: which pages are still measuring an
-  // applied change (the diagnosis and both rankings read that), may I skip the DRAFT, may I skip the WRITE.
+  // ONE read of what is already durable, taken BEFORE anything is judged: which pages are still measuring
+  // an implemented change, may I skip the DRAFT, may I skip the WRITE.
   const existing = persist
     ? await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>())
     : new Map<string, ChangeProposal>();
+  /** The drafts I already took back under this basis. A withdrawn row is history, so it is not in the map
+   *  above, and without this read the next pass would pay to redraft every safety failure. */
+  const withdrawn = persist ? await withdrawnProposalIds(tenantId, basis) : new Set<string>();
   /** THE measurement context, derived once and shared by the diagnosis and both rankings. THE STAMP IS WHAT
    *  RANKS: a Shipment holds the moment the operator implemented the change, which is what the 28-day window
    *  is read from, while a proposal's `createdAt` is only the day it was drafted and can be weeks off. */
@@ -272,13 +272,13 @@ export async function produceProposalsForTenant(
     };
   };
 
-  const live = [...existing.values()].filter((p) => p.status !== "rejected" && p.status !== "applied");
+  const live = [...existing.values()].filter((p) => p.status !== "implemented_pending_verification");
   /** A stored row generated under THIS basis. Null basis proves nothing, so it
    *  reuses nothing: an account I cannot read must never freeze its own queue. */
   const current = (p: ChangeProposal): boolean => basis != null && p.basis === basis;
   const currentById = (id: string): ChangeProposal | null => {
     const p = existing.get(id);
-    return p && p.status !== "rejected" && p.status !== "applied" && current(p) ? p : null;
+    return p && p.status !== "implemented_pending_verification" && current(p) ? p : null;
   };
   const currentBundleFor = (match: (p: ChangeProposal) => boolean): ChangeProposal | null =>
     live.find((p) => !!p.bundle && current(p) && match(p)) ?? null;
@@ -369,7 +369,7 @@ export async function produceProposalsForTenant(
   // pass is set aside, in the queue and in the store, with the reason the operator reads.
   const provenNow = new Set([...acted.flatMap((c) => pageKeys(c.pageUrl)), ...selectedKeys]);
   for (const p of live) {
-    if (!p.bundle || p.kind !== "existing_edit" || p.status !== "proposed" || !current(p)) continue;
+    if (!p.bundle || p.kind !== "existing_edit" || p.status !== "ready" || !current(p)) continue;
     if (provenNow.has((p.pagePath ?? "").trim().toLowerCase())) continue;
     const why = candidates.find((c) => pageKeys(c.pageUrl).includes((p.pagePath ?? "").trim().toLowerCase()))?.diagnosis?.explanation;
     await persistIfChanged({ ...p, status: "needs_review", confidence: "low",
@@ -381,17 +381,15 @@ export async function produceProposalsForTenant(
     // A refresh re-pays nothing. A current-generation row already covering this
     // candidate (its own row, or the deep bundle that replaced it) is carried
     // forward as-is: no drafter call, no write, no new timestamp.
-    // SETTLED WORK IS NOT REDRAFTED. The newest row wins on read, so redrafting an
-    // APPLIED change would overwrite the record of something already shipped. A
-    // REJECTED row is the safety gate's verdict on that draft, so under the SAME
-    // basis the same evidence would fail the same way and re-paying the drafter buys
-    // nothing; once the basis moves the evidence really is different, and the page
-    // gets its fair second attempt.
+    // SETTLED WORK IS NOT REDRAFTED. The newest row wins on read, so redrafting an IMPLEMENTED change
+    // would overwrite the record of something already shipped. A WITHDRAWN row is the safety gate's
+    // verdict, so the same basis would fail the same way; once the basis moves, the page gets a fair
+    // second attempt.
     const settled = existing.get(proposalId(input));
-    // An APPLIED row is a change I am measuring, so the fresh idea for that page is HELD, not
+    // An IMPLEMENTED row is a change I am reading, so the fresh idea for that page is HELD, not
     // dropped, and it is counted here rather than left to a store call this loop never makes.
-    if (settled && settled.status === "applied") { heldForMeasurement += 1; continue; }
-    if (settled && settled.status === "rejected" && current(settled)) continue;
+    if (settled && settled.status === "implemented_pending_verification") { heldForMeasurement += 1; continue; }
+    if (withdrawn.has(proposalId(input))) continue;
     const held = currentById(proposalId(input))
       ?? (input.opportunity.kind === "existing_edit"
         ? [...heldDeep.values()].find((b) => b.pagePath === input.page.path) ?? null : null);
@@ -412,8 +410,10 @@ export async function produceProposalsForTenant(
       log.warn("[produce-proposals] propose threw (fail-soft)", { tenantId, id: input.opportunity.query, error: e instanceof Error ? e.message : String(e) });
       return { status: "no_draft" as const, reason: "threw", drafterStatus: "error" };
     });
-    if (outcome.status !== "proposed") {
+    if (outcome.status !== "ready") {
       noDraft += 1;
+      // A REFUSED DRAFT IS FILED, NOT FORGOTTEN: history is what stops the next pass paying to fail twice.
+      if (outcome.status === "withdrawn" && persist) await withdrawChangeProposal(stamp(outcome.proposal));
       continue;
     }
     const proposal = stamp(outcome.proposal);

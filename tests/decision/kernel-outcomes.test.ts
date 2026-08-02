@@ -55,7 +55,7 @@ const EXISTING_INPUT: EvidenceInput = {
 function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal {
   return {
     id: "referencepedia::/x::existing_edit::title", tenantId: "referencepedia", kind: "existing_edit", pagePath: "/x", pageUrl: "https://fixture-content.example/x",
-    pageLabel: "X", primaryQuery: "nowruz traditions", opportunityType: "Capture clicks", changeFamily: "title", status: "proposed", evidence: { query: "nowruz traditions", hints: ["gsc demand"], evidenceRefCount: 1 },
+    pageLabel: "X", primaryQuery: "nowruz traditions", opportunityType: "Capture clicks", changeFamily: "title", status: "ready", evidence: { query: "nowruz traditions", hints: ["gsc demand"], evidenceRefCount: 1 },
     recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen" },
     whyItMatters: "The title misses the customs searchers ask about.", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "high", limitations: [],
     impactScore: 50, upsidePerMonth: 20, publish: "manual", createdAt: "2026-07-22T00:00:00.000Z", ...over };
@@ -64,10 +64,10 @@ const edited = (field: "title" | "meta", before: string | null, after: string): 
 describe("existing-page cold proposal", () => {
   it("generates, validates, persists (serialize), and re-loads (deserialize)", async () => {
     const out = await proposeExistingPageChange(EXISTING_INPUT, { complete: fakeComplete([{ value: VALID_ATOMIC_EDIT }]), now: new Date("2026-07-22T00:00:00Z") });
-    expect(out.status).toBe("proposed"); if (out.status !== "proposed") return;
+    expect(out.status).toBe("ready"); if (out.status !== "ready") return;
     const p = out.proposal; if (p.recommendedChange.kind === "existing_edit") { expect(p.recommendedChange.before).toBe("Nowruz"); expect(p.recommendedChange.after).toContain("Nowruz Traditions"); } else throw new Error("expected an exact edit");
     expect(p.whyItMatters).toMatch(/customs/i); expect(p.primaryQuery).toBe("nowruz traditions"); expect(p.opportunityType).toBe("Capture clicks");
-    expect(p.evidence.evidenceRefCount).toBe(5); expect(out.validation.verdict).toBe("ready"); expect(p.status).toBe("proposed"); // the receipt keys the diagnosis cites, and a safe draft is proposed, never rejected
+    expect(p.evidence.evidenceRefCount).toBe(5); expect(out.validation.verdict).toBe("ready"); expect(p.status).toBe("ready"); // the receipt keys the diagnosis cites, and a safe draft is ready, never withdrawn
     expect(deserializeChangeProposal(serializeChangeProposal(p))).toEqual(p); // persisted + loadable: round-trips + re-validates
     expect(deserializeChangeProposal(JSON.stringify({ v: 1, proposal: { ...p, recommendedChange: { kind: "existing_edit", field: "title", before: null, after: "" } } }))).toBeNull(); // a tampered row is never served as trusted
     const brief = { kind: "new_page" as const, proposedTitle: "T", metaDescription: "M", openingAnswer: "A", outline: ["One"], faqQuestions: [], schemaTypes: [] }; // recorded before this kernel stopped writing them
@@ -83,7 +83,7 @@ describe("existing-page cold proposal", () => {
     ["an em dash in operator copy", edited("title", "Nowruz", "Nowruz Traditions — Persian New Year"), /dash/i],
     ["a raw uuid leaking into copy", edited("title", "Nowruz", "Nowruz 550e8400-e29b-41d4-a716-446655440000 Guide"), /./],
     ["a destructive edit that guts the current value", edited("meta", LONG_META, "Nowruz."), /destructive/i]] as const)("rejects %s", (_w, p, flag) => {
-    const v = validateProposal(p); expect(v.verdict).toBe("rejected"); expect(v.status).toBe("rejected"); // a rejected verdict maps to a rejected proposal status, never a quiet needs_review
+    const v = validateProposal(p); expect(v.verdict).toBe("rejected"); // a refused draft earns NO lifecycle stage, so it is withdrawn, never a quiet needs_review
     expect([...v.safetyFlags, ...v.reasons].some((f) => flag.test(f))).toBe(true); });
   it("rejects an edit that introduces an ungrounded number or claim", () => {
     const p = edited("meta", "Nowruz is the Persian New Year celebrated across Iran.", "Nowruz is the Persian New Year, first celebrated exactly 3247 years ago in 1223 BCE."); // the grounding carries no such figure
@@ -149,7 +149,7 @@ describe("what the evidence justifies before anything is drafted", () => {
     expect(d.explanation).not.toMatch(/result \d/); }); // rank_absolute counts ads and packs, so it is never printed as a search position
   it("ranks a small page with a real gap above a huge page with none, and sinks a rejected row", () => {
     expect(snapshotToEvidenceInputs(snap([WINNER, GAP], looked([["nowruz traditions", GAP_URL]]))).map((i) => i.page.path)).toEqual(["/nowruz-guide"]);
-    const rejected = baseProposal({ id: "rej", status: "rejected", impactScore: 9999 }); // a rejected row never outranks a real one on clicks alone
+    const rejected = baseProposal({ id: "rej", status: "needs_review", impactScore: 9999 }); // a row still waiting on review never outranks a ready one on clicks alone
     expect(rankProposals([baseProposal({ id: "huge-no-gap", impactScore: 0 }), rejected, baseProposal({ id: "small-real-gap", impactScore: 300 })]).map((p) => p.id)).toEqual(["small-real-gap", "huge-no-gap", "rej"]); expect(proposalValueScore(baseProposal({ impactScore: 300 }))).toBeGreaterThan(proposalValueScore(rejected)); });
   it("treats nothing worth doing as a SUCCESS with no proposals, and never calls the drafter", async () => {
     reset(snap([WINNER])); let called = 0; const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async () => { called += 1; return { error: "the drafter must never run when nothing earned an action", retryable: false }; } }); // nothing earns an action, so nothing is drafted
@@ -569,7 +569,7 @@ describe("why this page loses the click, one named cause at a time", () => {
     expect(res.candidates.find((c) => c.action === "consolidate")!.cause.cause).toBe("cannibalization"); });
   it("discounts a page only while its applied change is still being measured", async () => {
     const day = 24 * 60 * 60 * 1000; const applied = (ageDays: number): ChangeProposal =>
-      baseProposal({ id: "applied", status: "applied", basis: "b", createdAt: new Date(Date.now() - ageDays * day).toISOString() });
+      baseProposal({ id: "applied", status: "implemented_pending_verification", basis: "b", createdAt: new Date(Date.now() - ageDays * day).toISOString() });
     expect(pagesUnderMeasurement([applied(10), applied(180)].map((p, i) => ({ ...p, pagePath: `/p${i}` })), new Date())).toEqual(["/p0"]);
     const overlapOf = async (ageDays: number) => { env.store = new Map([["live", baseProposal({ id: "live", basis: "b" })], ["applied", applied(ageDays)]]);
       return (await loadProposalQueue("fixture-tenant", { currentBasis: "b" })).ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "overlap")!; };

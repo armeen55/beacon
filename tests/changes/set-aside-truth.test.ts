@@ -27,7 +27,7 @@ const ID = "t::/famous-iranian-comedians::existing_edit::bundle";
 const bundled = (basis: string, id = ID): ChangeProposal => ({
   id, kind: "existing_edit", pagePath: "/famous-iranian-comedians", pageLabel: "Famous Iranian comedians", primaryQuery: "iranian comedians",
   whyItMatters: "This page lost 163 clicks last month.", opportunityType: "Answer the exact search", estimatedEffortMinutes: 6, upsidePerMonth: 163,
-  confidence: "high", riskLevel: "low", status: "proposed", basis, limitations: [],
+  confidence: "high", riskLevel: "low", status: "ready", basis, limitations: [],
   recommendedChange: { kind: "existing_edit", field: "title", before: "Comedians", after: EXACT },
   bundle: { objective: "Answer the exact question people search", metric: "clicks from that search", measurementPlan: "I compare the next 28 days with the last 28.",
     scope: { queries: ["iranian comedians"], prompts: [] }, confidenceReasons: ["163 clicks lost in 4 weeks"], alternatives: [], risks: [],
@@ -39,7 +39,7 @@ const bundled = (basis: string, id = ID): ChangeProposal => ({
 const queueOf = (rows: ChangeProposal[], demotedStaleBasis = 0) =>
   ({ ranked: rows, ready: rows, toDo: [], demotedStaleBasis } as unknown as RankedProposalQueue);
 const emptyView = (demotedStaleBasis: number): ChangesView => ({ proposals: [], ready: [], toDo: [],
-  summary: { todo: 0, ready: 0, measuring: 0, results: 0 }, measuringCountCanonical: 0, demotedStaleBasis, decidedCountCanonical: 0,
+  summary: { todo: 0, ready: 0, implemented: 0, measuring: 0, results: 0 }, measuringCountCanonical: 0, demotedStaleBasis, decidedCountCanonical: 0,
   readyZeroHint: null, receiptLine: null, surfaceComputedAt: "2026-07-27T00:00:00.000Z", surfaceBuilding: false });
 
 async function renderDetail(): Promise<string> {
@@ -51,6 +51,17 @@ async function renderChanges(view: ChangesView): Promise<string> {
   const { ChangesSection } = await import("@/app/(shell)/changes/page");
   return renderToStaticMarkup(await ChangesSection() as ReactElement);
 }
+
+describe("the ranked queue is unlimited and the first screen is not", () => {
+  it("shows the first 25, counts the rest in the operator's words, and cuts page two from the same order", async () => {
+    const { pageOfChanges } = await import("@/app/(shell)/changes-data");
+    const rows = Array.from({ length: 60 }, (_, i) => bundled("basis_now", `${ID}::${i}`));
+    const whole: ChangesView = { ...emptyView(0), proposals: rows, ready: rows, summary: { todo: 0, ready: 60, implemented: 0, measuring: 0, results: 0 } };
+    const one = pageOfChanges(whole), two = pageOfChanges(whole, 25); expect([one.ready.length, one.proposals.length, two.ready.length]).toEqual([25, 25, 25]);
+    expect(one.ready.concat(two.ready).map((p) => p.id)).toEqual(rows.slice(0, 50).map((p) => p.id)); // no row twice, none skipped, nothing re-ranked
+    expect(await renderChanges(one)).toContain("Show 25 more of 35");
+  });
+});
 
 describe("a set-aside change never comes back through a direct link", () => {
   beforeEach(() => vi.clearAllMocks());

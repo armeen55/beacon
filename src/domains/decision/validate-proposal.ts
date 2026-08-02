@@ -19,8 +19,8 @@
  *   - destructive-change guard: an "edit" that guts the current value (empties
  *     it or truncates it to a fraction) is never presented as a safe rewrite.
  *
- * The verdict maps to the proposal lifecycle: `ready` becomes proposed, `needs_review`
- * to needs_review, `rejected` to rejected (never shown as ready). PURE, no I/O.
+ * The verdict is the ONE answer: `ready` and `needs_review` are the stages a draft may earn, and
+ * `rejected` earns none at all, so that draft is withdrawn rather than staged. PURE, no I/O.
  */
 
 import {
@@ -32,7 +32,7 @@ import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/decisi
 import type { ClassifiableSource } from "@/domains/decision/drafts/source-authority";
 import { looksLikePlaceholder } from "./placeholder-detection";
 import { containsUuid, AUTOPUBLISH_RE, CODE_SUFFIX, HOST_RE, SPELLED_PROPORTION_RE } from "./copy-sanitize";
-import type { BundleComponent, BundleComponentKind, ChangeProposal, ProposalStatus, RecommendedChange } from "./contracts";
+import type { BundleComponent, BundleComponentKind, ChangeProposal, RecommendedChange } from "./contracts";
 import { dangerousComponents, needsSourcePack } from "./contracts";
 
 /** Quality statuses that are HARD failures, never actionable and always rejected.
@@ -56,8 +56,6 @@ export type ProposalVerdict = "ready" | "needs_review" | "rejected";
 
 export type ProposalValidation = {
   verdict: ProposalVerdict;
-  /** The mapped proposal lifecycle status. */
-  status: Extract<ProposalStatus, "proposed" | "needs_review" | "rejected">;
   /** The underlying draft-quality status (for debugging + UI notes). */
   qualityStatus: DraftQualityStatus;
   /** Plain-English reasons (why it was held or rejected). */
@@ -331,12 +329,8 @@ export function validateProposal(
     verdict = "needs_review";
   }
 
-  const status: ProposalValidation["status"] =
-    verdict === "ready" ? "proposed" : verdict === "needs_review" ? "needs_review" : "rejected";
-
   return {
     verdict,
-    status,
     qualityStatus: quality.status,
     reasons: [...new Set(reasons)],
     factViolations,

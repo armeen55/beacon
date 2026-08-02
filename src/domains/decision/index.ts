@@ -41,7 +41,7 @@ export {
   saveChangeProposal,
   loadChangeProposal,
   loadChangeProposals,
-  markProposalApplied,
+  markProposalImplemented,
   dismissChangeProposal,
 } from "./proposal-store";
 

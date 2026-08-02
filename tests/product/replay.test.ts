@@ -193,7 +193,7 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     expect([gap.action, gap.query, gap.gap, gap.recoverableClicks]).toEqual(["act_existing_page", GAP_QUERY, "ctr_deficit", 300]);
     expect(gap.readiness).toEqual({ gsc: true, ownedCopy: true, serp: true, winners: 1, body: false }); // the replayed results page and the ONE readable winner are what make this judgeable
     expect(res.candidates.find((c) => c.pageUrl === `https://${WINNER_URL}`)?.action).toBe("watch"); // a page already beating the clicks its positions earn is watched, never worked
-    expect([res.outcome, seam.calls(), res.proposals.map((p) => p.pageUrl)]).toEqual(["proposals_persisted", 1, [`https://${GAP_URL}`]]); // ONE drafting call for the one page the evidence earned
+    expect([res.outcome, seam.calls(), res.proposals.map((p) => p.pageUrl), res.noDraft]).toEqual(["actionable_but_no_trusted_draft", 1, [], 1]); // ONE drafting call for the one page the evidence earned, and a draft my own gates refuse is WITHDRAWN, never reported as work
   });
   it("made ZERO network calls for the whole replay", () => { expect(net).toEqual([]); });
 });

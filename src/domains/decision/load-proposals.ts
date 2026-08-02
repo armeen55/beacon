@@ -6,7 +6,7 @@
  *
  *   ready     validated safe, owes no source: act now.
  *   toDo      still live under the same basis: held for review or waiting on a source.
- *   (rejected proposals are never surfaced; applied ones have moved to measuring.)
+ *   (a withdrawn draft is history and never surfaces; an implemented one has moved to the ledger.)
  *
  * Every lane above holds CURRENT-BASIS work only. A proposal drafted under an
  * older basis, one carrying no basis, and every proposal at all when the current
@@ -95,9 +95,9 @@ const MEASUREMENT_WINDOW_DAYS = 28;
 
 /**
  * THE PAGES STILL UNDER MEASUREMENT, out of rows the caller already holds (no read, no kernel crossed).
- * A page counts only while its applied change is inside the window above: an applied row of ANY age used
+ * A page counts only while its implemented change is inside the window above: a row of ANY age used
  * to discount its page forever, so a change shipped six months ago quietly buried every later change to
- * the same page. A proposal carries no applied-at stamp of its own, so its `createdAt` is the only date
+ * the same page. A proposal carries no implemented-at stamp of its own, so its `createdAt` is the only date
  * on file and it is read as the earliest the measurement can have started; a row with no readable date
  * counts as nothing, because "I cannot tell when" is never proof that something is being read now. PURE.
  */
@@ -107,17 +107,20 @@ export function pagesUnderMeasurement(
 ): string[] {
   const floor = now.getTime() - MEASUREMENT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
   return [...proposals]
-    .filter((p) => p.status === "applied" && !!p.pagePath && Date.parse(p.createdAt) >= floor)
+    .filter((p) => p.status === "implemented_pending_verification" && !!p.pagePath && Date.parse(p.createdAt) >= floor)
     .map((p) => p.pagePath as string);
 }
 
 export type RankedProposalQueue = {
   /** Every live CURRENT-BASIS proposal, ranked most-valuable first. */
   ranked: ChangeProposal[];
-  /** Validated-safe, exact-copy-ready proposals (status "proposed"). */
+  /** Validated-safe, exact-copy-ready proposals (status "ready"). */
   ready: ChangeProposal[];
   /** Generated but held for a human look (status "needs_review"). */
   toDo: ChangeProposal[];
+  /** Marked implemented and not yet checked on the live page. Counted, never queued: it is
+   *  the operator's claim awaiting my reading, so it belongs on the lifecycle line, not the list. */
+  implementedPendingVerification: number;
   /** How many live rows I set aside instead of queueing, because I cannot show
    *  they were drafted under the basis I hold now (surfaces say this out loud). */
   demotedStaleBasis: number;
@@ -136,7 +139,7 @@ export async function loadProposalQueue(
   const currentBasis =
     deps.currentBasis !== undefined ? deps.currentBasis : await resolveCurrentBasis(tenantId);
   const byId = await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>());
-  const live = [...byId.values()].filter((p) => p.status !== "rejected" && p.status !== "applied");
+  const live = [...byId.values()].filter((p) => p.status !== "implemented_pending_verification");
   // A bundle REPLACES its own shallow rows, historical included: an existing-page
   // bundle covers that PAGE, a new-page bundle covers that TOPIC.
   const bundledPages = new Set(live.filter((p) => p.bundle && p.kind === "existing_edit").map((p) => p.pagePath));
@@ -169,18 +172,19 @@ export async function loadProposalQueue(
   // discounts it hard and says so on the card. The applied rows are already in hand here, so this costs
   // no read and reaches past no kernel boundary.
   const ranked = rankProposals(current, { measuringPagePaths: pagesUnderMeasurement(byId.values()) });
-  // READY has to mean ready: the validator passed it (status "proposed") and it owes
+  // READY has to mean ready: the validator passed it (status "ready") and it owes
   // nobody a source. Every other current-basis row is a to-do.
   const ready: ChangeProposal[] = [];
   const toDo: ChangeProposal[] = [];
   for (const p of ranked) {
-    if (p.status === "proposed" && !holdsForUnresolvedSource(p)) ready.push(p);
+    if (p.status === "ready" && !holdsForUnresolvedSource(p)) ready.push(p);
     else toDo.push(p);
   }
   return {
     ranked,
     ready,
     toDo,
+    implementedPendingVerification: [...byId.values()].filter((p) => p.status === "implemented_pending_verification").length,
     demotedStaleBasis,
     basisUnreadable,
   };

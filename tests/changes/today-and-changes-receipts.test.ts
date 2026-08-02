@@ -141,7 +141,7 @@ const FINDING: CauseFinding = {
 };
 const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   id: ID, kind: "existing_edit", pagePath: "/nowruz-guide", pageUrl: "https://site.example/nowruz-guide", pageLabel: "Nowruz guide",
-  primaryQuery: "nowruz traditions", opportunityType: "Capture clicks", changeFamily: "title", status: "proposed",
+  primaryQuery: "nowruz traditions", opportunityType: "Capture clicks", changeFamily: "title", status: "ready",
   recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" },
   whyItMatters: "This page lost 163 clicks last month.", estimatedEffortMinutes: 6, riskLevel: "low", confidence: "high",
   limitations: [], evidence: { query: "nowruz traditions", hints: ["1,200 impressions and 9 clicks for that search."], evidenceRefCount: 2 },
@@ -168,7 +168,7 @@ const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
 const atomic = (): ChangeProposal => proposal({ bundle: { ...proposal().bundle!, components: [proposal().bundle!.components[0]!] } });
 
 const viewOf = (rows: ChangeProposal[]): ChangesView => ({
-  proposals: rows, ready: rows, toDo: [], summary: { todo: 0, ready: rows.length, measuring: 0, results: 0 },
+  proposals: rows, ready: rows, toDo: [], summary: { todo: 0, ready: rows.length, implemented: 0, measuring: 0, results: 0 },
   measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null,
   surfaceComputedAt: "2026-07-31T00:00:00.000Z", surfaceBuilding: false });
 

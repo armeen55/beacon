@@ -381,11 +381,11 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     const verdict = validateProposal(wording ? shaped : { ...shaped, bundle: oneComponent({ ...c, evidenceKeys }) },
       { pageBodyText: receipt.bodyText ?? null, evidenceText: producerEvidenceText, contextTokens, now, heldHeadings });
     // NEVER surface a raw validator reason: it is internal vocabulary.
-    if (verdict.status === "rejected") return drop("The rewrite I drafted failed one of my safety checks, so I left it out rather than risk it.");
+    if (verdict.verdict === "rejected") return drop("The rewrite I drafted failed one of my safety checks, so I left it out rather than risk it.");
     // DANGEROUS SURVIVES THE GATE: downgrading it to "review" took the two-step hold off the one change
     // that needs it and made the stored proposal fail its own re-validation as mislabelled.
     const risk = c.risk === "dangerous" ? "dangerous"
-      : verdict.status === "proposed" && c.risk !== "review" ? "safe" : "review";
+      : verdict.verdict === "ready" && c.risk !== "review" ? "safe" : "review";
     if (risk !== "safe") heldForReview = true;
     components.push({ ...c, evidenceKeys, risk });
   };
@@ -482,7 +482,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       pagePath: pathOf(page.url), pageUrl: page.url.startsWith("http") ? page.url : `https://${page.url}`,
       pageLabel: content.h1 ?? content.title ?? page.url, primaryQuery: primary,
       opportunityType: OPPORTUNITY_OF[finding.cause] ?? "Rewrite the page that already has the demand",
-      status: heldForReview ? "needs_review" : "proposed", // an investigation I cannot close never reaches here at all
+      status: heldForReview ? "needs_review" : "ready", // an investigation I cannot close never reaches here at all
       recommendedChange: { kind: "existing_edit", field: fieldForComponent(primaryComponent.kind), before: primaryComponent.before, after: primaryComponent.after },
       whyItMatters: lead
         ? `Searching "${primary}" brings this page ${lead.impressions.toLocaleString()} views and only ${lead.clicks.toLocaleString()} clicks over 90 days, about ${Math.round(lead.recoverable).toLocaleString()} clicks short of what position ${Math.round(lead.position)} usually earns, and that gap is big enough to look into.`

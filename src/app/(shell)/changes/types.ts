@@ -19,6 +19,11 @@ import type { ProofMeasurementSummary } from "@/domains/decision/changes/proof-t
  *   shipped-change ledger record. Null when the change has no proof
  *   coverage - the pill then says plainly it is not being measured.
  */
+/** HOW MUCH OF THE RANKED QUEUE ONE SCREEN CARRIES. The queue itself is unlimited; a list of a
+ *  hundred and twelve changes is not a decision surface, so the page opens with this many and says
+ *  exactly how many are behind it. Shared by the server slice and the client's "Show more". */
+export const CHANGES_PAGE_SIZE = 25;
+
 export type EnrichedChangeRow = {
   change: ChangelogEntry;
   proof: ChangeRowProof | null;
