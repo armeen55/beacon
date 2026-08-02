@@ -5,14 +5,12 @@
  * operator as a sentence and a shrug. Each producer below turns ONE of them into the exact components an
  * operator can act on, or into one honest refusal that says what is missing and what to do about it.
  *
- * THE RULES THIS FILE OBEYS, because validate-proposal enforces them and a rejected proposal helps nobody:
- * every component here is outside the seven legacy kinds, so it carries where, objective, mechanism and
- * measurementPlan or the whole proposal is refused; a component that changes factual content carries a source
- * pack assembled ONLY from evidence already supplied, never a fact or a source this file made up; a change
- * that moves or hides a page is marked dangerous, which routes it to the operator-confirmation hold; and a
- * component always cites the finding's own receipt keys, so a finding with none of them produces nothing.
- * THE COPY OBEYS THEM TOO: no sentence opens on a capitalized word the factual firewall cannot place, and
- * every after-text names the page's own search, or true copy is refused as invented or as off-topic.
+ * THE RULES THIS FILE OBEYS, because validate-proposal enforces them: every component here is outside the
+ * seven legacy kinds, so it carries where, objective, mechanism and measurementPlan or the proposal is
+ * refused; a component changing factual content carries a source pack assembled ONLY from evidence already
+ * supplied; a change that moves or hides a page is marked dangerous; and a component always cites the
+ * finding's own receipt keys. THE COPY OBEYS THEM TOO: no sentence opens on a capitalized word the factual
+ * firewall cannot place, and every after-text names the page's own search.
  *
  * PURE apart from the drafting calls handed in on the context. No store, no clock, no model of its own.
  */
@@ -22,24 +20,22 @@ import type { BundleComponent } from "../contracts";
 import type { CauseFinding } from "../diagnosis";
 import type { Produced, Producer, ProducerCtx } from "./contract";
 
-/** Two links is the whole budget: a page that strands its reader needs a way through, not a directory. */
+/** Two links is the whole budget: a stranded reader needs a way through, not a directory. And a rebuild is
+ *  the biggest swing there is, so it is earned by causes agreeing, never by one loud one. */
 const MAX_LINKS = 2;
 const MAX_REQUIREMENTS = 4;
 const MAX_HEADINGS = 6;
-/** A rebuild is the biggest swing there is, so it is earned by causes agreeing, never by one loud one. */
 const MIN_STRUCTURAL_CAUSES = 2;
 
 const count = (n: number): string => Math.round(n).toLocaleString("en-US");
-/** The last net: no em or en dash ever reaches an operator. The dash becomes a space, and the space it leaves
- *  beside one already there is collapsed, so no drafted line ships a double gap. Line breaks are untouched. */
+/** The last net: no em or en dash ever reaches an operator, and the double gap one leaves is collapsed. */
 const nodash = (s: string): string => s.replace(/[–—]/g, " ").replace(/[^\S\r\n]{2,}/g, " ");
 const plain = (s: string): string => nodash(s).replace(/\s+/g, " ").trim();
 const sentence = (s: string): string => (/[.?!]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
 const refuse = (refusal: string): Produced => ({ components: [], refusal });
 
-/** Nothing on file behind the cause means nothing may be claimed from it: the one refusal every producer shares. */
-const NO_EVIDENCE =
-  "I cannot show you anything behind this, so I am not writing a change for it. Let me research this page again and I will come back with what I found.";
+/** Nothing on file behind the cause means nothing may be claimed from it: every producer shares this one. */
+const NO_EVIDENCE = "I cannot show you anything behind this, so I am not writing a change for it. Let me research this page again and I will come back with what I found.";
 
 function evidenceKeysOf(ctx: ProducerCtx): string[] | null {
   const keys = ctx.finding.evidenceKeys.filter((k) => k.trim().length > 0);
@@ -47,10 +43,9 @@ function evidenceKeysOf(ctx: ProducerCtx): string[] | null {
 }
 
 // ── the structured payload, read by SHAPE ────────────────────────────────────
-// The ladder attaches a small structured payload to the causes below so a producer never has to parse an
-// operator sentence back into numbers. It is read here by SHAPE rather than by a field name on purpose: a
-// finding stored before that payload existed genuinely carries none of it, and the honest answer to that is
-// a refusal that says what is missing, never a guess dressed up as a recommendation.
+// The ladder attaches a small structured payload so a producer never parses an operator sentence back into
+// numbers. Read by SHAPE, not by field name: a finding stored before that payload existed carries none of
+// it, and the honest answer to that is a refusal saying what is missing, never a guess.
 
 type Bag = Record<string, unknown>;
 const MAX_SCAN = 60;
@@ -104,7 +99,6 @@ function competingPages(f: CauseFinding): { paths: string[]; stronger: string | 
 
 // ── 1. internal links: somewhere for the reader to go next ───────────────────
 
-/** Anchors that tell a reader nothing, so relinking one on real words is itself the improvement. */
 const WEAK_ANCHOR = /^(read more|learn more|click here|here|more|this page|link|details|see more|continue)$/i;
 
 type Target = { path: string; topic: string; score: number };
@@ -122,21 +116,17 @@ function ownPath(href: string, pageUrl: string): string | null {
   } catch { return null; }
 }
 
-/** The words a destination has to share with this page before I will send a reader to it. */
 const wantedTokens = (ctx: ProducerCtx): Set<string> =>
   new Set([...topicTokens(ctx.primary), ...(ctx.body?.entityNames ?? []).flatMap((e) => topicTokens(e))]);
 
-/** WHERE THIS PAGE ALREADY SENDS PEOPLE, by canonical path. A second link to a destination the page already
- *  points at is not somewhere new to go, and this used to be the only place a target could come from, so the
- *  best this producer could ever do was recommend a link that was already there. */
+/** WHERE THIS PAGE ALREADY SENDS PEOPLE, by canonical path: a second link to a destination it already
+ *  points at is not somewhere new to go. */
 const alreadyLinked = (ctx: ProducerCtx): Set<string> =>
   new Set((ctx.body?.internalLinks ?? []).map((l) => ownPath(l.href, ctx.page.url)).filter((p): p is string => !!p));
 
-/** DETERMINISTIC FIRST: the target is chosen from THE ACCOUNT'S OWN PAGE INVENTORY, never from the links this
- *  page already carries, and any destination it already points at is out. Scored on the words the search and
- *  the page's own subjects share with the destination's address and its own name, then by that name, so the
- *  same context in is the same two targets out. No body means I cannot see what this page already links to,
- *  and proposing a link then is a coin flip, so the honest answer is none. */
+/** DETERMINISTIC FIRST: the target comes from THE ACCOUNT'S OWN PAGE INVENTORY, never from the links this
+ *  page already carries. Scored on the words the search and the page's subjects share with the destination's
+ *  address and name, so the same context in is the same two targets out. No body, no link: it is a coin flip. */
 function candidateTargets(ctx: ProducerCtx): Target[] {
   if (!ctx.body) return [];
   const self = ownPath(ctx.page.url, ctx.page.url);
@@ -182,11 +172,9 @@ function placeFor(ctx: ProducerCtx, target: Target): string {
   return heading ? `the section headed "${heading}"` : `the part of this page that talks about ${target.topic}`;
 }
 
-/** A drafted line arrives as a sentence, so its first word wears a capital because of where it sits and not
- *  because it names anything. Quoted inside one of my own sentences it is no longer a sentence start, and the
- *  factual firewall reads a capitalized word it cannot find in the evidence as a thing this copy invented: an
- *  ordinary "If you are sizing a barrel" was refused as a fabricated name. So the opener keeps its capital
- *  only when it is a word this page itself uses, and otherwise it reads as the clause it now is. */
+/** A drafted line's first word wears a capital because of where it sat, not because it names anything, and
+ *  quoted inside one of my sentences the firewall reads it as an invented name. So the opener keeps its
+ *  capital only when it is a word this page itself uses, and otherwise reads as the clause it now is. */
 function openLower(line: string, own: Set<string>): string {
   const token = topicTokens(line.split(/\s+/)[0] ?? "")[0];
   return token && own.has(token) ? line : line.charAt(0).toLowerCase() + line.slice(1);
@@ -257,7 +245,6 @@ export const produceInternalLinks: Producer = async (ctx) => {
 
 // ── 2. source expansion: what an engine reads before it decides who to name ───
 
-/** The page's own words, rolled up once, so a subject it already carries is never called missing. */
 function ownVocabulary(ctx: ProducerCtx): Set<string> {
   const body = ctx.body;
   const text = [ctx.page.title, ctx.page.h1, ...ctx.page.outline,
@@ -266,7 +253,6 @@ function ownVocabulary(ctx: ProducerCtx): Set<string> {
   return new Set(topicTokens(text));
 }
 
-/** WHAT THIS PAGE ALREADY SAYS, in its own sentences: the claims a reader would actually want backed up. */
 function pageClaims(ctx: ProducerCtx): string[] {
   const body = ctx.body;
   if (!body) return [];
@@ -276,13 +262,11 @@ function pageClaims(ctx: ProducerCtx): string[] {
 }
 
 /**
- * A SOURCE RECOMMENDATION EXISTS ONLY WHEN I HOLD ALL FIVE PIECES OF IT: a claim that belongs ON the page, the
- * kind of source that would back it, the exact line to add, where it belongs and why it improves the page. Any
- * one of them missing is a refusal that says which one. THE CLAIM IS NEVER ONE OF MY OWN MEASUREMENTS: this
- * used to hand the receipt straight through as the facts to source, so an operator could be told to publish a
- * sourced line reading "this page received 6,000 views", which is a fact ABOUT the page and never a sentence
- * to put ON it. A claim here is a subject the cited pages all name, or something this page already says in its
- * own words. My figures ground the diagnosis, they are not page copy, so they do not reach the drafter either.
+ * A SOURCE RECOMMENDATION EXISTS ONLY WHEN I HOLD ALL FIVE PIECES: a claim that belongs ON the page, the kind
+ * of source that would back it, the exact line to add, where it belongs and why it improves the page. Any one
+ * missing is a refusal that says which. THE CLAIM IS NEVER ONE OF MY OWN MEASUREMENTS: "this page received
+ * 6,000 views" is a fact ABOUT the page, never a sentence to put ON it. A claim here is a subject the cited
+ * pages all name, or something this page already says in its own words.
  */
 export const produceSourceExpansion: Producer = async (ctx) => {
   const cause = ctx.finding.cause;
@@ -337,11 +321,12 @@ export const produceSourceExpansion: Producer = async (ctx) => {
       mechanism: cause === "retrieved_not_cited"
         ? `${seen.engine} read this page while answering "${seen.promptText}" and named other sites instead, so the page was seen and passed over: what it is missing is something a reader can check, not a sharper line.`
         : `${seen.engine} answered "${seen.promptText}" naming other sites and never this page, so the fix is to carry what those answers are built on rather than to reword what is already here.`,
-      // ONLY PAGE CLAIMS, never a figure of mine, and the kind of source is the one the cited pages point at.
+      // ONLY PAGE CLAIMS, never a figure of mine. WHAT I HOLD HERE IS THE KIND OF SOURCE, not the source: I
+      // read who is being cited for this search and never a page that backs this exact claim. That is a
+      // research requirement, so it says out loud that the operator picks the source, and this component is
+      // held for review rather than handed over as ready to paste.
       sourcePack: {
-        // The publishers ARE the answer here; a count of winning pages beside them said nothing an operator
-        // could act on and read as a figure this line was sourcing.
-        sourceRequirements: claims.map((c) => `A source a reader can check for ${c}, of the kind the pages being cited for "${ctx.primary}" point at: ${publishers.join(", ")}.`),
+        sourceRequirements: claims.map((c) => `${c} needs a source a reader can check, of the kind the pages being cited for "${ctx.primary}" point at: ${publishers.join(", ")}. You pick the exact page: I hold the kind of source this needs and not the source itself.`),
         factRequirements: claims.map(sentence),
       },
       measurementPlan: `I will read how often "${seen.promptText}" names this page, and clicks for "${ctx.primary}", at 7, 14 and 28 days after you publish it.`,
@@ -396,7 +381,6 @@ export const produceConsolidation: Producer = async (ctx) => {
 
 type Cause = CauseFinding["cause"];
 
-/** The causes that are about what the page IS, not how it is worded. Only these can add up to a rebuild. */
 const STRUCTURAL: ReadonlyMap<Cause, string> = new Map<Cause, string>([
   ["competitor_content_gap", "the pages that beat it carry something it does not"],
   ["incomplete_coverage", "it leaves out sections every winning page covers"],
@@ -421,12 +405,11 @@ const ARCHETYPE: Readonly<Record<string, string>> = {
  * NOT registered to one cause: a rebuild is what the causes conclude TOGETHER. Handed the same context plus
  * the causes that fired on this page, it either writes the page or says why one edit is the better buy.
  *
- * IT WRITES THE PAGE. This used to hand back four planning sentences and call a page rebuilt, which is a brief
- * and not the copy-ready change this product promises. Now every heading the winners agree on is drafted
- * through the section drafter, with the page's own new opening in front of them, as plain text to paste. THE
- * COST IS REAL, one section call per planned heading, so it is bounded at MAX_HEADINGS and rides the same
- * budget as every other draft: when the budget stops it part way, or a drafted section fails its own checks,
- * what landed arrives under the brief with an honest count of what is owed. It stays a reviewed change.
+ * IT WRITES THE WHOLE PAGE OR IT WRITES NOTHING. Every heading the winners agree on is drafted through the
+ * section drafter, with the page's own new opening in front of them, as plain text to paste. The cost is real,
+ * one call per planned heading, so it is bounded at MAX_HEADINGS and rides the same budget as every other
+ * draft. When the budget stops it part way, or a section fails its own checks, there is no component: the
+ * refusal names what is owed, and the next pass resumes free because the same section is served from cache.
  */
 export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes: readonly Cause[]): Promise<Produced> {
   const keys = evidenceKeysOf(ctx);
@@ -437,20 +420,9 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
   const headings = (pattern?.commonHeadings ?? []).map((h) => h.heading.trim()).filter((h) => h.length > 0).slice(0, MAX_HEADINGS);
   const questions = (pattern?.questionsAnswered ?? []).map((q) => q.trim()).filter((q) => q.length > 0).slice(0, MAX_HEADINGS);
   if (!pattern || (headings.length === 0 && questions.length === 0)) return refuse("I have not read the pages that win this subject side by side, so I cannot tell you what this page has to become. Let me read them first and I will write the brief.");
-  const shape = ARCHETYPE[pattern.archetype] ?? "a page that answers this search directly";
-  const agreed = pattern.archetype in ARCHETYPE
-    ? ""
-    : " The pages that win it have not settled on one kind of page, so the shape is yours to pick.";
+  const shape = ARCHETYPE[pattern.archetype] ?? "a page that answers this search directly, in a shape the pages winning it have not settled so it is yours to pick";
   const covers = headings.length > 0 ? headings : questions;
   const wrongs = structural.map((c) => STRUCTURAL.get(c)!);
-  // Same rule as the merge above: every sentence opens on a word the firewall will not read as an invented
-  // name, and nothing here claims a superlative ("the first lines") it holds no source for.
-  const brief = [
-    `This page has to become ${shape} for "${ctx.primary}".${agreed}`,
-    `${count(structural.length)} separate things are wrong with it at once: ${wrongs.join("; ")}.`,
-    `I would build it to cover ${covers.map((c) => `"${c}"`).join(", ")}, in that order, and answer the search in its opening lines.`,
-    "You keep everything already on the page that earns its place, and publish it at the same address.",
-  ].join(" ");
   // THE COPY ITSELF, one drafted section per planned heading, grounded in the reading of the pages that win
   // and in what this page already carries. My own figures are not page copy, so they are not handed over here.
   const hints = [...(pattern.commonEntities ?? []).map((e) => e.entity), ...questions,
@@ -465,21 +437,19 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
     });
     if (section) drafted.push(`${plain(section.heading)}\n\n${nodash(section.body).trim()}`);
   }
-  // The page's own new first lines, and only once there is a page for them to open: nothing is bought to sit
-  // in front of a body that never landed.
-  const opening = drafted.length > 0 && ctx.draft.openingAnswer
+  // The page's own new first lines, and only once every section landed: nothing is bought to sit in front
+  // of a body with a hole in it.
+  const owed = planned.length - drafted.length;
+  // READY MEANS WHOLE. Half a page pasted over a working one is a loss, so a rebuild that stopped part way
+  // is not shipped dressed as a change. Nothing already written is re-paid: asking for the same section
+  // again is served from what I already bought, so picking this up next pass costs the operator nothing.
+  if (owed > 0) return refuse(`I could write ${count(drafted.length)} of the ${count(planned.length)} sections this rebuild needs and ${count(owed)} ${owed === 1 ? "is" : "are"} still owed, so I am not handing you half a page. Ask me again and I will pick up where I stopped: the sections I already wrote cost nothing to ask for a second time.`);
+  const opening = ctx.draft.openingAnswer
     ? await ctx.draft.openingAnswer({ query: ctx.primary, pageLabel: ctx.page.h1 ?? ctx.page.title ?? ctx.page.url,
       currentValue: ctx.body?.openingSample ?? null, outline: ctx.page.outline, evidenceHints: hints })
     : null;
-  const body = [opening ? nodash(opening).trim() : null, ...drafted].filter((p): p is string => !!p).join("\n\n");
-  const owed = planned.length - drafted.length;
-  // WHOLE means the copy stands on its own and is pasted as it is. PART means the brief carries it, so the
-  // operator reads what is still owed before they touch the page, and the count is the honest one.
-  const after = owed === 0
-    ? body
-    : drafted.length > 0
-      ? `${brief} I drafted ${count(drafted.length)} of the ${count(planned.length)} sections and ${count(owed)} ${owed === 1 ? "is" : "are"} still owed, so paste what is below and ask me again for the rest.\n\n${body}`
-      : `${brief} I could not draft any of the ${count(planned.length)} sections yet, so this is the plan and the copy is still owed.`;
+  if (!opening) return refuse(`I wrote all ${count(planned.length)} sections this rebuild needs and could not write the page's own opening lines, so I am not handing you a page with no way in. Ask me again and the opening is the only thing left: the sections I already wrote cost nothing to ask for a second time.`);
+  const after = [nodash(opening).trim(), ...drafted].join("\n\n");
   return {
     components: [{
       kind: "full_rewrite",
@@ -489,8 +459,8 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
       evidenceKeys: keys,
       risk: "review",
       where: "the whole page, from the first line down",
-      objective: `Make this the page that answers "${ctx.primary}" completely, instead of fixing ${count(structural.length)} separate things on a page built for something else.`,
-      mechanism: `${count(structural.length)} things are wrong at once and every one of them is about what this page is rather than how it is worded, so changing them one at a time leaves the rest of them standing.`,
+      objective: `Make this ${shape} for "${ctx.primary}", instead of fixing ${count(structural.length)} separate things on a page built for something else.`,
+      mechanism: `${count(structural.length)} things are wrong at once and every one of them is about what this page is rather than how it is worded: ${wrongs.join("; ")}. Changing them one at a time leaves the rest of them standing.`,
       measurementPlan: `I will read clicks, views and average position for "${ctx.primary}" at 7, 14, 28 and 56 days after you publish it, against what this page does today.`,
     }],
     refusal: null,

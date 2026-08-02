@@ -32,7 +32,7 @@ import { identityFrom } from "@/domains/account/brand-identity";
 import { setAccountRepositoryForTests } from "@/domains/account/tenants/store";
 import { __resetBusinessProfileCacheForTests, seedBusinessProfileForTests } from "@/domains/account/business-profile";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
-import type { AiObservationView, DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
+import { isAnalysisSettled, type AiObservationView, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import {
   DAILY_OBSERVATION_BATCH, FAILED_RETRIES_PER_DAY, MAX_SAMPLES_PER_DAY, dailyChecks, dueObservations, extraSampleVerdict,
   planObservations, requestExtraSample, runAnswerAnalyses, selectAnalysisTargets,
@@ -253,12 +253,9 @@ describe("reading the answers back", () => {
     expect(selectAnalysisTargets([fresh, stale, done]).map((r) => r.id)).toEqual(["a", "b"]);
 
     const groups: number[] = [], saved: Array<[string, string]> = [];
-    const deps = {
-      readObservations: async () => [fresh, stale, done],
+    const deps = { readObservations: async () => [fresh, stale, done], readPrompts: async () => null, identity: BRAND,
       analyzeBatch: async (i: { targets: readonly { row: { id: string } }[] }) => { groups.push(i.targets.length); return readsAll(i); },
-      persist: async (_t: string, id: string, _a: Record<string, unknown>, hash: string) => void saved.push([id, hash]),
-      readPrompts: async () => null, identity: BRAND,
-    };
+      persist: async (_t: string, id: string, _a: Record<string, unknown>, hash: string) => void saved.push([id, hash]) };
     expect(await runAnswerAnalyses(T, DAY, deps)).toBe(2);
     expect(groups).toEqual([2]); // TWO answers, ONE call: this is the whole point
     expect(saved).toEqual([["a", "h1"], ["b", "h2-new"]]);
@@ -271,18 +268,12 @@ describe("reading the answers back", () => {
   });
 
   it("reads a WHOLE day of 140 answers back inside the passes the day runs, at the call count the batch size predicts", async () => {
-    // A tracked set of 35 questions on 4 engines is 140 canonical answers a day. At one call per answer the
-    // day needed 28 passes and only ever got 8, so most of what Beacon paid for was never read.
+    // 35 questions on 4 engines is 140 answers a day. At one call per answer that needed 28 passes, not 8.
     const store = new Map(Array.from({ length: 140 }, (_, i) => [`o${i}`, row(`o${i}`, `hash${i}`, null, false)]));
     let calls = 0, passes = 0;
-    const deps = {
-      readObservations: async () => [...store.values()],
+    const deps = { readObservations: async () => [...store.values()], readPrompts: async () => null, identity: BRAND,
       analyzeBatch: async (i: { targets: readonly { row: { id: string } }[] }) => { calls += 1; return readsAll(i); },
-      persist: async (_t: string, id: string, a: Record<string, unknown>, hash: string) => {
-        store.set(id, { ...store.get(id)!, analysis: a, analysisHash: hash });
-      },
-      readPrompts: async () => null, identity: BRAND,
-    };
+      persist: async (_t: string, id: string, a: Record<string, unknown>, hash: string) => { store.set(id, { ...store.get(id)!, analysis: a, analysisHash: hash }); } };
     while (passes < 8 && selectAnalysisTargets([...store.values()]).length > 0) { passes += 1; await runAnswerAnalyses(T, DAY, deps); }
     // Every answer ends the day ANALYZED or explicitly REJECTED: nothing is left owing.
     expect(selectAnalysisTargets([...store.values()])).toEqual([]);
@@ -346,22 +337,18 @@ describe("reading the answers back", () => {
     expect(selectAnalysisTargets(rows.filter((r) => !saved.has(r.id)))).toEqual([]);
   });
 
-  // A PASS TAKES ON ONLY WHAT IT CAN FINISH. Selection counted ANSWERS while the batch budget is spent in
-  // PIECES, so sixty long answers were three hundred and sixty pieces: the calls ran out part way down the
-  // list and the remainder was dropped where nothing said so. Now the overflow is deferred, never abandoned.
+  // Selection counted ANSWERS while the budget is spent in PIECES, so the calls ran out part way down the
+  // list and the remainder was dropped where nothing said so. Overflow is deferred now, never abandoned.
   it("defers whole answers it cannot finish this pass, and abandons no piece of the ones it takes", async () => {
     const long = (id: string) => ({ ...row(id, `h-${id}`, null, false), answerText: "Acme is open on Sundays. ".repeat(1_400) });
     const rows = Array.from({ length: 20 }, (_, i) => long(`L${String(i).padStart(2, "0")}`));
     const taken = selectAnalysisTargets(rows);
-    expect(taken.length).toBeLessThan(rows.length);      // twenty six-piece answers do not fit four calls
+    expect(taken.length).toBeLessThan(rows.length);      // twenty multi-piece answers do not fit four calls
     const pieces: string[] = [], saved = new Set<string>();
-    const written = await runAnswerAnalyses(T, DAY, {
-      readObservations: async () => rows,
-      // A SPLIT ANSWER'S READING COMES HOME TO ITS OWN PIECE, which is the key the batch echoes back.
+    // A SPLIT ANSWER'S READING COMES HOME TO ITS OWN PIECE, which is the key the batch echoes back.
+    const written = await runAnswerAnalyses(T, DAY, { readObservations: async () => rows, readPrompts: async () => null, identity: BRAND,
       analyzeBatch: async ({ targets }) => { pieces.push(...targets.map((t) => t.key)); return new Map(targets.map((t) => [t.key, analysis])); },
-      persist: async (_t, id) => void saved.add(id),
-      readPrompts: async () => null, identity: BRAND,
-    });
+      persist: async (_t, id) => void saved.add(id) });
     // Every piece of every answer this pass claimed was actually read, and every claimed answer was settled.
     expect(new Set(pieces.map((k) => k.split("#")[0]))).toEqual(new Set(taken.map((r) => r.id)));
     expect([written, saved.size]).toEqual([taken.length, taken.length]);
@@ -372,12 +359,9 @@ describe("reading the answers back", () => {
   it("records a refusal against the answer it was refused on, so the same answer is never bought twice", async () => {
     const rejected = row("x", "h-x", null, false);
     const saved: Array<[string, Record<string, unknown>, string]> = [];
-    const written = await runAnswerAnalyses(T, DAY, {
-      readObservations: async () => [rejected],
+    const written = await runAnswerAnalyses(T, DAY, { readObservations: async () => [rejected], readPrompts: async () => null, identity: BRAND,
       analyzeBatch: async () => null, analyze: async () => null, // the firewall or the schema refused it
-      persist: async (_t, id, a, hash) => void saved.push([id, a, hash]),
-      readPrompts: async () => null, identity: BRAND,
-    });
+      persist: async (_t, id, a, hash) => void saved.push([id, a, hash]) });
     expect([written, saved.length]).toEqual([0, 1]); // a refusal is not an analysis, but it IS recorded
     expect(saved[0]![0]).toBe("x");
     expect(saved[0]![1]).toMatchObject({ rejected: true });
@@ -388,103 +372,55 @@ describe("reading the answers back", () => {
   });
 
   it("gives a LOST refusal write the same retry and the same loud failure as a lost reading", async () => {
-    // The rejection write was a silent swallow, so a row that could not be settled sat at the top of the
-    // worklist and re-bought the same refusal on every pass with nothing in the log to say why.
+    // A silently swallowed rejection left the row at the top of the worklist, re-buying the same refusal.
     let tries = 0;
-    await runAnswerAnalyses(T, DAY, {
-      readObservations: async () => [row("s", "h-s", null, false)],
-      analyzeBatch: async () => null, analyze: async () => null,
-      persist: async () => { tries += 1; if (tries === 1) throw new Error("write lost"); },
-      readPrompts: async () => null, identity: BRAND,
-    });
+    const refused = (persist: () => Promise<void>) => runAnswerAnalyses(T, DAY, { readObservations: async () => [row("s", "h-s", null, false)],
+      analyzeBatch: async () => null, analyze: async () => null, persist, readPrompts: async () => null, identity: BRAND });
+    await refused(async () => { tries += 1; if (tries === 1) throw new Error("write lost"); });
     expect(tries).toBe(2); // exactly one retry, never a loop
-
     tries = 0;
-    await runAnswerAnalyses(T, DAY, {
-      readObservations: async () => [row("s", "h-s", null, false)],
-      analyzeBatch: async () => null, analyze: async () => null,
-      persist: async () => { tries += 1; throw new Error("write lost"); },
-      readPrompts: async () => null, identity: BRAND,
-    });
+    await refused(async () => { tries += 1; throw new Error("write lost"); });
     expect(tries).toBe(2);
     expect(said.warnings.join(" ")).toContain("could not record that I was refused a reading");
   });
 
   it("counts only what actually persisted, and gives a lost write exactly ONE retry", async () => {
     let tries = 0;
-    const written = await runAnswerAnalyses(T, DAY, {
+    const written = await runAnswerAnalyses(T, DAY, { analyzeBatch: readsAll, readPrompts: async () => null, identity: BRAND,
       readObservations: async () => [row("w0", "hw0", null, false), row("w1", "hw1", null, false)],
-      analyzeBatch: readsAll,
-      persist: async (_t, id) => { tries += 1; if (id === "w1") throw new Error("write lost"); },
-      readPrompts: async () => null, identity: BRAND,
-    });
+      persist: async (_t, id) => { tries += 1; if (id === "w1") throw new Error("write lost"); } });
     expect(written).toBe(1); // two read back, one write lost, and a lost write is never a saved analysis
     expect(tries).toBe(3);   // one clean write plus exactly one retry of the lost one, never a loop
   });
 
-  /** ONE LONG ANSWER, IN PIECES. A batch call used to cut every answer at 5,000 characters and never come back
-   *  for the rest, so the citations, competitors and conclusions a long answer saves for its last third were
-   *  never read at all. Pieces of one answer ride the same batch and merge into one stored reading. */
+  /** ONE LONG ANSWER, IN PIECES: they ride the same batch and merge into one stored reading. */
   type Piece = { key: string; part: number; parts: number; text: string; row: { id: string } };
-  const longAnswer = (tail: string): string => {
+  const longAnswer = (tail: string, chars = 12_000): string => {
     const paras: string[] = [];
-    while (paras.join("\n\n").length < 12_000) paras.push(`Paragraph ${paras.length}. ${"ordinary prose about this topic. ".repeat(10)}`);
+    while (paras.join("\n\n").length < chars) paras.push(`Paragraph ${paras.length}. ${"ordinary prose about this topic. ".repeat(10)}`);
     return [...paras, tail].join("\n\n");
   };
   const empty = { sections: [], claims: [], topicEntities: [], ownedBrandMention: { mentioned: false, position: null, context: null },
     competitors: [], contentTypesRecommended: [], questionsAnswered: [], materialOmissions: [], caveats: [] } as unknown as AnswerAnalysis;
 
-  it("reads a 12,000 character answer in THREE pieces and keeps what only its last third said", async () => {
-    const text = longAnswer("The Zephyr Archive is the last thing this answer names.");
-    const long = { ...row("L", "h-L", null, false), answerText: text };
-    let seen: Piece[] = [];
-    const saved: Record<string, unknown>[] = [];
-    const written = await runAnswerAnalyses(T, DAY, {
-      readObservations: async () => [long],
-      analyzeBatch: async ({ targets }: { targets: readonly Piece[] }) => {
-        seen = [...targets];
-        return new Map(targets.map((t) => [t.key, { ...empty, topicEntities: [`entity from part ${t.part}`] }]));
-      },
-      persist: async (_t, _id, a) => void saved.push(a),
-      readPrompts: async () => null, identity: BRAND,
-    });
-    expect(written).toBe(1);                                                  // ONE answer, one stored reading
-    expect(seen.map((t) => t.key)).toEqual(["L#1", "L#2", "L#3"]);            // three slots of the SAME batch
-    expect(seen.every((t) => t.text.length <= 5_000)).toBe(true);
-    expect(seen[2]!.text).toContain("Zephyr Archive");                        // the tail reached the model
-    // The merged reading carries what ONLY the final piece read: truncation lost this entity forever.
-    expect(saved[0]!.topicEntities).toEqual(["entity from part 1", "entity from part 2", "entity from part 3"]);
-    expect(saved[0]).toMatchObject({ readParts: 3 });                         // partial reading can never look whole
-    expect(saved[0]!.answerReadInPart).toBeUndefined();                       // and a fully read answer says so
-  });
-
   it("counts the account as mentioned when ONLY the second piece of a long answer named it", async () => {
-    const long = { ...row("M", "h-M", null, false), answerText: longAnswer("Nothing further of note here.") };
     const saved: Record<string, unknown>[] = [];
-    await runAnswerAnalyses(T, DAY, {
-      readObservations: async () => [long],
+    await runAnswerAnalyses(T, DAY, { readPrompts: async () => null, identity: BRAND, persist: async (_t, _id, a) => void saved.push(a),
+      readObservations: async () => [{ ...row("M", "h-M", null, false), answerText: longAnswer("Nothing further of note here.") }],
       analyzeBatch: async ({ targets }: { targets: readonly Piece[] }) => new Map(targets.map((t) =>
-        [t.key, t.part === 2 ? { ...empty, ownedBrandMention: { mentioned: true, position: 4, context: null } } : empty])),
-      persist: async (_t, _id, a) => void saved.push(a),
-      readPrompts: async () => null, identity: BRAND,
-    });
+        [t.key, t.part === 2 ? { ...empty, ownedBrandMention: { mentioned: true, position: 4, context: null } } : empty])) });
     // The answer's own words never say "Acme", so only the merge across pieces can make this true.
     expect(saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true, position: 4 }, matchedBy: "model", readParts: 3 });
   });
 
   it("grounds every reading in ITS OWN answer, so a number from answer A cannot validate a claim about answer B", async () => {
-    // The batch firewall grounded all fifteen answers against one combined corpus, so a number only answer A
-    // contained made a fabricated claim about answer B look proven.
-    const a = { ...row("A", "h-A", null, false), answerText: "Acme served 4200 people last year." };
-    const b = { ...row("B", "h-B", null, false), answerText: "This answer gives no figures at all." };
+    // One combined corpus grounded all fifteen, so A's number made a fabricated claim about B look proven.
     const saved: Array<[string, Record<string, unknown>]> = [];
-    const written = await runAnswerAnalyses(T, DAY, {
-      readObservations: async () => [a, b],
+    const written = await runAnswerAnalyses(T, DAY, { readPrompts: async () => null, identity: BRAND, persist: async (_t, id, x) => void saved.push([id, x]),
+      readObservations: async () => [{ ...row("A", "h-A", null, false), answerText: "Acme served 4200 people last year." },
+        { ...row("B", "h-B", null, false), answerText: "This answer gives no figures at all." }],
       analyzeBatch: async ({ targets }: { targets: readonly Piece[] }) => new Map(targets.map((t) =>
-        [t.key, { ...empty, claims: [{ subject: "acme", text: `it served 4200 people` }] }])),
-      persist: async (_t, id, x) => void saved.push([id, x]),
-      readPrompts: async () => null, identity: BRAND,
-    });
+        [t.key, { ...empty, claims: [{ subject: "acme", text: `it served 4200 people` }] }])) });
     expect(written).toBe(1);                                     // A's reading stands: its own answer says 4200
     expect(saved.map((s) => s[0])).toEqual(["A", "B"]);          // and B is still settled, never left owing
     expect(saved[0]![1]).toMatchObject({ claims: [{ text: "it served 4200 people" }] });
@@ -494,23 +430,61 @@ describe("reading the answers back", () => {
   });
 
   it("still reads an ordinary short answer in ONE slot, exactly as it always did", async () => {
-    let seen: Piece[] = [];
-    const saved: Record<string, unknown>[] = [];
-    const written = await runAnswerAnalyses(T, DAY, {
-      readObservations: async () => [row("s1", "h-s1", null, false)],
+    let seen: Piece[] = []; const saved: Record<string, unknown>[] = [];
+    const written = await runAnswerAnalyses(T, DAY, { readObservations: async () => [row("s1", "h-s1", null, false)],
       analyzeBatch: async ({ targets }: { targets: readonly Piece[] }) => { seen = [...targets]; return readsAll({ targets }); },
-      persist: async (_t, _id, x) => void saved.push(x),
-      readPrompts: async () => null, identity: BRAND,
-    });
+      persist: async (_t, _id, x) => void saved.push(x), readPrompts: async () => null, identity: BRAND });
     expect([written, seen.length]).toEqual([1, 1]);
     expect(seen[0]).toMatchObject({ key: "s1", part: 1, parts: 1, text: "Acme is open on Sundays." });
     // Byte for byte what a short answer stored before pieces existed: no part bookkeeping is invented for it.
     expect(saved[0]).toEqual({ ...analysis, ownedBrandMention: { mentioned: true, position: 1, context: null }, matchedBy: "both" });
   });
 
+  // A PARTIAL READ WAS MARKED COMPLETE. Past six pieces the tail was never sent, and the one-at-a-time
+  // fallback read 12,000 characters while stamping the FULL answer hash, so the row left the worklist
+  // finished and everything after it was lost forever. Coverage now makes a part read resumable.
+  it("finishes a 100,000 character answer across passes, resuming at the exact unread piece and paying for none twice", async () => {
+    let stored = { ...row("X", "h-X", null, false), answerText: longAnswer("The Zephyr Archive is the last thing this answer names.", 100_000) };
+    const sent: string[][] = [];
+    const pass = async () => void await runAnswerAnalyses(T, DAY, { readObservations: async () => [stored], readPrompts: async () => null, identity: BRAND,
+      analyzeBatch: async ({ targets }: { targets: readonly Piece[] }) => { sent.push(targets.map((t) => t.key));
+        return new Map(targets.map((t) => [t.key, { ...empty, topicEntities: [`entity ${"i".repeat(t.part)}`] }])); },
+      persist: async (_t, _id, a, hash) => { stored = { ...stored, analysis: a, analysisHash: hash }; } });
+    await pass();
+    const parts = (stored.analysis as { coverage: { parts: number } }).coverage.parts;
+    expect(parts).toBeGreaterThan(6);                                   // the old six-piece ceiling threw the rest away
+    expect(sent[0]).toEqual(Array.from({ length: 15 }, (_, i) => `X#${i + 1}`));
+    // A PART READ IS NOT AN ANALYSED ANSWER: the hash is deliberately not the answer's, so the row stays due.
+    expect([stored.analysisHash === "h-X", isAnalysisSettled(stored), selectAnalysisTargets([stored]).map((r) => r.id)]).toEqual([false, false, ["X"]]);
+    expect(String((stored.analysis as Record<string, unknown>).reason)).toContain("the next pass reads part 16 onward");
+    await pass();
+    expect(sent[1]).toEqual(Array.from({ length: parts - 15 }, (_, i) => `X#${i + 16}`)); // resumed at 16, never at 1
+    expect(new Set(sent.flat()).size).toBe(sent.flat().length);         // every piece bought exactly once
+    expect([stored.analysisHash, isAnalysisSettled(stored), selectAnalysisTargets([stored])]).toEqual(["h-X", true, []]); // only NOW analysed
+    expect((stored.analysis as { topicEntities: string[] }).topicEntities).toContain(`entity ${"i".repeat(parts)}`); // the tail survived
+    await pass(); expect(sent.length).toBe(2);                          // a finished answer is never bought again
+    // A CHANGED PROVIDER ANSWER RESETS THE COVERAGE against the new hash and is read from part one.
+    stored = { ...stored, answerText: "The engine says something entirely different today.", answerHash: "h-X2" };
+    expect(selectAnalysisTargets([stored]).map((r) => r.id)).toEqual(["X"]);
+    await pass();
+    expect([sent[2], stored.analysisHash, isAnalysisSettled(stored)]).toEqual([["X"], "h-X2", true]);
+  });
+
+  it("degrades a broken batch to ONE CALL PER PIECE, each grounded in its own piece, and still finishes the answer", async () => {
+    const grounded: string[] = [], saved: Array<[Record<string, unknown>, string]> = [];
+    const written = await runAnswerAnalyses(T, DAY, { readPrompts: async () => null, identity: BRAND,
+      readObservations: async () => [{ ...row("F", "h-F", null, false), answerText: longAnswer("The Zephyr Archive is the last thing this answer names.") }],
+      analyzeBatch: async () => null,                                   // the whole batch came back unusable
+      analyze: async ({ answerText }) => { grounded.push(answerText); return { ...empty, topicEntities: [`piece ${grounded.length}`] }; },
+      persist: async (_t, _id, a, hash) => void saved.push([a, hash]) });
+    expect([written, grounded.length]).toEqual([1, 3]);                 // one call per PIECE, never one 12,000 character call
+    expect([grounded.every((g) => g.length <= 5_000), grounded[2]!.includes("Zephyr Archive")]).toEqual([true, true]); // the tail reached a call
+    expect(saved[0]![1]).toBe("h-F");                                   // every piece merged, so now it is analysed
+    expect(saved[0]![0]).toMatchObject({ readParts: 3, topicEntities: ["piece 1", "piece 2", "piece 3"] });
+  });
+
   it("reports the reporting day as the operator's own day, not the UTC one", () => {
-    // 2 AM UTC on the 5th is still the evening of the 4th where the operator is. The old UTC day started
-    // their tomorrow at 5 PM, so "today" on every surface was a day they had not reached yet.
+    // 2 AM UTC on the 5th is still the evening of the 4th where the operator is: a UTC day started early.
     expect(reportingDay(Date.parse("2026-08-05T02:00:00.000Z"))).toBe("2026-08-04");
     expect(reportingDay(Date.parse("2026-08-05T07:00:00.000Z"))).toBe("2026-08-05");
     // And the zone carries its own daylight-saving rule: in January the same instant is an hour further back.

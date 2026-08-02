@@ -6,24 +6,19 @@ import { selectDeepCandidates } from "@/domains/decision/deep-candidates";
 import type { QualifiedCandidate } from "@/domains/decision/opportunities";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import type { CauseFinding } from "@/domains/decision/diagnosis";
-
 const cause = (c: CauseFinding["cause"], payload?: unknown): CauseFinding =>
   ({ cause: c, action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [],
     falsifier: "f", explanation: "e", ...(payload === undefined ? {} : { payload }) }) as CauseFinding;
-
 const cand = (over: Partial<QualifiedCandidate>): QualifiedCandidate =>
   ({ action: "watch", recoverableClicks: 0, reason: "r", cause: cause("no_problem"), ...over }) as QualifiedCandidate;
-
 /** The smallest snapshot the selector reads: watched questions with citations observed, demand, no pages. */
 const snapshot = (prompts: string[], volumeByQuery: Record<string, number> = {}): EvidenceSnapshot =>
   ({ ownedPages: [],
     research: { retainedKeywords: [], aiObservations: prompts.map((p) => ({ promptText: p, citationsObserved: true, citations: [] })) },
     keywordDemand: Object.entries(volumeByQuery).map(([query, searchVolume]) => ({ query, searchVolume })),
   }) as unknown as EvidenceSnapshot;
-
 const AI_PAGE = "https://own.example/saffron-guide";
 const CTR_PAGE = "https://own.example/nowruz";
-
 describe("the five doors into the deep read", () => {
   it("opens the AI door with no click gap anywhere: the engine's own reading is enough", () => {
     const picked = selectDeepCandidates({
@@ -36,7 +31,6 @@ describe("the five doors into the deep read", () => {
     expect(picked[0]!.entry).toContain('ChatGPT answered "where to buy saffron" for your customers and never named this page');
     expect(picked[0]!.entry).toContain("900 searches a month");
   });
-
   it("keeps one slot per page: a page arriving by the click door and the AI door drafts once, clicks first", () => {
     const both = cand({ pageUrl: AI_PAGE, query: "saffron price", action: "act_existing_page", recoverableClicks: 120,
       cause: cause("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "where to buy saffron" }) });
@@ -44,7 +38,6 @@ describe("the five doors into the deep read", () => {
     expect(picked).toHaveLength(1);
     expect([picked[0]!.door, picked[0]!.unit]).toEqual(["ctr_gap", "clicks"]);
   });
-
   it("holds the bound, strongest proof first, and every entry names its own door", () => {
     const picked = selectDeepCandidates({
       snapshot: snapshot(["where to buy saffron"]),
@@ -61,7 +54,6 @@ describe("the five doors into the deep read", () => {
     expect(picked[0]!.entry).toContain("about 300 clicks short");
     expect(picked[1]!.entry).toContain("2 of your own pages come up");
   });
-
   it("keeps the single-door regression path byte-stable: only the click door qualifying picks the old page", () => {
     const picked = selectDeepCandidates({
       snapshot: snapshot([]),
@@ -73,7 +65,6 @@ describe("the five doors into the deep read", () => {
     });
     expect(picked.map((p) => [p.door, p.pageUrl])).toEqual([["ctr_gap", AI_PAGE]]);
   });
-
   it("never opens the AI door on an accusation nothing rides on: no watched question, no demand, no slot", () => {
     const picked = selectDeepCandidates({
       snapshot: snapshot([]),

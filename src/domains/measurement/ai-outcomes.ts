@@ -13,6 +13,7 @@ import "server-only";
  */
 
 import {
+  isAnalysisSettled,
   readAiObservations,
   type AiObservationRecord,
 } from "@/domains/evidence/ai-visibility/ai-observations";
@@ -123,8 +124,10 @@ const isOwned = (link: ObservedLink, root: string): boolean => {
   return h === root || h.endsWith(`.${root}`);
 };
 
-/** Was this account named in the answer? Null = nobody has read the answer closely yet. */
+/** Was this account named in the answer? Null = nobody has read the WHOLE answer yet: a reading
+ *  still missing pieces is real work, not a finished check, so it never enters a denominator. */
 function namedIn(rec: AiObservationRecord): boolean | null {
+  if (!isAnalysisSettled({ analysis: rec.analysis, analysisHash: rec.analysis_hash ?? null, answerHash: rec.answer_hash ?? null })) return null;
   const a = rec.analysis as Analysis | null;
   if (!a || a.ownedBrandMention == null) return null;
   return a.ownedBrandMention.mentioned === true;

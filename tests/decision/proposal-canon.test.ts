@@ -4,7 +4,6 @@
  *  history stays readable and is never revived, and a write that lands nothing is a failure.
  *  Fixtures only: the fake Postgres below enforces the primary key and the partial unique index. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-
 type Row = Record<string, unknown>;
 const db = vi.hoisted(() => {
   // `missing` = the TABLE is not in the schema cache; `rpcMissing` = the table is there and the
@@ -94,10 +93,8 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client
 const said = vi.hoisted(() => ({ errors: [] as string[] }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {},
   error: (msg: string) => { said.errors.push(msg); } } }));
-
 import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, saveChangeProposal } from "@/domains/decision/proposal-store";
 import { serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
-
 const T = "acct-a", PAGE = "/nowruz-guide";
 const bundle = (kind: ChangeBundle["components"][number]["kind"], after = "Nowruz Traditions and the Haft-Seen Table"): ChangeBundle => ({
   objective: "Say what the searcher asked for in the line Google shows.", metric: "clicks on this page for this search",
@@ -119,9 +116,7 @@ const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
 const deep = (over: Partial<ChangeProposal> = {}) => proposal({ id: `${T}::${PAGE}::existing_edit::bundle`, bundle: bundle("title"), ...over });
 const current = () => db.state.rows.filter((r) => r.terminal_disposition == null);
 const seedLegacy = (p: ChangeProposal) => db.state.legacy.push({ tenant_id: p.tenantId, rec_id: p.id, kind: "change_proposal", content: serializeChangeProposal(p), created_at: p.createdAt });
-
 beforeEach(() => { db.state.rows = []; db.state.legacy = []; db.state.missing = false; db.state.rpcMissing = false; db.state.breakWrite = false; db.state.rpcCalls = 0; db.state.raceForeign = ""; });
-
 describe("canonical proposal persistence", () => {
   it("keeps ONE current row per hypothesis: a re-draft supersedes its predecessor, points at it, and carries the next version", async () => {
     expect(await saveChangeProposal(proposal())).toBe("saved");
@@ -135,7 +130,6 @@ describe("canonical proposal persistence", () => {
     expect(await loadChangeProposal(T, retired.id as string)).toBeNull();
     expect([...(await loadChangeProposals(T)).keys()]).toEqual([`${T}::${PAGE}::existing_edit::bundle`]);
   });
-
   it("bumps the version in place when the same id says something new, and writes NOTHING when it says the same thing", async () => {
     expect(await saveChangeProposal(proposal())).toBe("saved");
     expect(await saveChangeProposal(proposal())).toBe("unchanged"); // same material content, same timestamp, no write
@@ -150,7 +144,6 @@ describe("canonical proposal persistence", () => {
     expect(db.state.rows).toHaveLength(1);
     expect([db.state.rows[0]!.action_family, db.state.rows[0]!.proposal_version]).toEqual(["section-family", 3]);
   });
-
   it("lands the reasoning on the stored row exactly once: the cause is material, and a re-save carrying the same one writes nothing", async () => {
     expect(await saveChangeProposal(proposal())).toBe("saved"); // filed before the ladder ever named a cause
     const reasoned = proposal({ diagnosisCause: "ctr_snippet", causeFinding: { cause: "ctr_snippet", action: "title", evidenceKeys: ["gsc"],
@@ -163,7 +156,6 @@ describe("canonical proposal persistence", () => {
     expect(await saveChangeProposal(reasoned)).toBe("unchanged"); // and once only: every pass after it re-derives the same reasoning
     expect(db.state.rows[0]!.proposal_version).toBe(2);
   });
-
   it("holds two current rows when one page carries two different action families", async () => {
     expect(await saveChangeProposal(proposal())).toBe("saved"); // title-family
     const body = deep({ id: `${T}::${PAGE}::existing_edit::bundle`, bundle: bundle("section_rewrite") });
@@ -172,7 +164,6 @@ describe("canonical proposal persistence", () => {
     expect(current().every((r) => r.proposal_version === 1)).toBe(true);
     expect((await loadChangeProposals(T)).size).toBe(2);
   });
-
   it("does not resurrect a dismissed change under the same evidence, and lets a new basis try again", async () => {
     await saveChangeProposal(proposal());
     Object.assign(db.state.rows[0]!, { terminal_disposition: "dismissed" }); // the operator put it away
@@ -183,7 +174,6 @@ describe("canonical proposal persistence", () => {
     expect(await saveChangeProposal(proposal({ basis: "basis_tomorrow::d6" }))).toBe("saved");
     expect([db.state.rows[0]!.terminal_disposition, db.state.rows[0]!.proposal_version]).toEqual([null, 2]);
   });
-
   it("the operator's own put-this-aside writes the dismissal, and refuses to retire a change already being measured", async () => {
     await saveChangeProposal(proposal());
     expect(await dismissChangeProposal(T, proposal().id)).toBe(true);
@@ -196,7 +186,6 @@ describe("canonical proposal persistence", () => {
     expect(db.state.rows[0]!.terminal_disposition).toBeNull();
     expect(await dismissChangeProposal(T, "an-id-nobody-holds")).toBe(false);
   });
-
   it("refuses a crafted successor id that lives under another account, and nothing moves", async () => {
     // Account B holds a row whose id a malicious caller hands to account A's handover as the successor.
     expect(await saveChangeProposal(proposal())).toBe("saved");
@@ -211,7 +200,6 @@ describe("canonical proposal persistence", () => {
     const a = db.state.rows.find((r) => r.tenant_id === T)!;
     expect(a.terminal_disposition).toBeNull(); // the predecessor keeps its place
   });
-
   it("reads pre-cutover rows as history, never revives one the canonical table retired, and never crosses accounts", async () => {
     const old = proposal({ id: `${T}::/older-page::existing_edit::title`, pagePath: "/older-page" });
     seedLegacy(old); seedLegacy(proposal()); seedLegacy(proposal({ tenantId: "acct-b", id: "acct-b::/theirs::existing_edit::title" }));
@@ -224,7 +212,6 @@ describe("canonical proposal persistence", () => {
     expect((await loadChangeProposals(T)).size).toBe(2);
     expect(await saveChangeProposal(proposal({ status: "applied" }))).toBe("failed");
   });
-
   it("proves the handover row belongs to this account BEFORE it writes, and names a missing supersession function for what it is", async () => {
     // NOTHING UNSCOPED EVER REACHES THE HANDOVER. The store refuses a save with no account before it reads
     // anything, and the row handed to the function is asserted against the caller's own account on the way
@@ -236,7 +223,6 @@ describe("canonical proposal persistence", () => {
     expect(await saveChangeProposal(proposal({ tenantId: "" }))).toBe("failed");
     expect(db.state.rpcCalls).toBe(0);
     expect(db.state.rows[0]!.terminal_disposition).toBeNull(); // nothing moved
-
     // THE FUNCTION IS NOT THERE. A deploy that ran ahead of its migration is not a blocked handover, and it
     // used to read exactly like one. The table is fine here; only the routine is missing.
     db.state.rows = [];
@@ -249,7 +235,6 @@ describe("canonical proposal persistence", () => {
     expect(db.state.rows[0]!.terminal_disposition).toBeNull();               // and the predecessor is still current
     expect([...(await loadChangeProposals(T)).keys()]).toEqual([proposal().id]);
   });
-
   it("never retires a change the operator already acted on: a newer draft for that hypothesis is refused and the applied row keeps its place", async () => {
     expect(await saveChangeProposal(proposal({ status: "applied" }))).toBe("saved"); // the operator marked it implemented
     expect(await saveChangeProposal(deep())).toBe("blocked"); // the same page, the same family, a fresh idea
@@ -260,7 +245,6 @@ describe("canonical proposal persistence", () => {
     // A rejected row was already answered, so it is not shoved aside for a new draft either.
     Object.assign(db.state.rows[0]!, { status: "rejected" });
     expect(await saveChangeProposal(deep())).toBe("blocked"); });
-
   it("asks EVERY dismissal, not whichever row came back first: a redraft under a basis this hypothesis was dismissed under is refused", async () => {
     await saveChangeProposal(proposal({ basis: "basis_a" }));
     Object.assign(db.state.rows[0]!, { terminal_disposition: "dismissed" }); // put away under basis_a
@@ -269,7 +253,6 @@ describe("canonical proposal persistence", () => {
     // The dismissal that decides is the one under THIS basis, wherever it sits in an unordered read.
     expect(await saveChangeProposal(proposal({ basis: "basis_b" }))).toBe("refused");
     expect(await saveChangeProposal(proposal({ basis: "basis_c" }))).toBe("saved"); });
-
   it("repairs a handover whose successor never landed: the predecessor reads as current again until a real successor exists", async () => {
     await saveChangeProposal(proposal());
     // The crash the in-process rollback cannot cover: the predecessor stepped aside, the insert never landed.
@@ -277,7 +260,6 @@ describe("canonical proposal persistence", () => {
     expect([...(await loadChangeProposals(T)).keys()]).toEqual([proposal().id]); // the hypothesis is not stranded
     await saveChangeProposal(deep()); // the successor lands for real
     expect([...(await loadChangeProposals(T)).keys()]).toEqual([deep().id]); }); // and the repair stops applying
-
   it("reads the queue, not the archive: hundreds of retired versions never crowd out the current work, and none of them comes back through the old store", async () => {
     const canonRow = (id: string, over: Row = {}): Row => ({ id, tenant_id: T, site: "", case_id: "", page_key: id, action_family: "title-family",
       proposal_version: 1, basis: "basis_today::d6", status: "proposed", terminal_disposition: null, superseded_by: null,
@@ -288,7 +270,6 @@ describe("canonical proposal persistence", () => {
       db.state.rows.push(canonRow(id, { terminal_disposition: "superseded", superseded_by: live[i % 5]! })); }
     seedLegacy(proposal({ id: `${T}::/old-7::existing_edit::title` })); // the old store still holds a copy of a retired row
     expect([...(await loadChangeProposals(T)).keys()].sort()).toEqual([...live].sort()); }); // five current rows, and not one resurrection
-
   it("calls a write that landed no row a FAILURE and gives the predecessor its place back", async () => {
     await saveChangeProposal(proposal());
     db.state.breakWrite = true;
@@ -297,7 +278,6 @@ describe("canonical proposal persistence", () => {
     expect(db.state.rows).toHaveLength(1);
     expect((await loadChangeProposals(T)).size).toBe(1); // the operator's queue is exactly what it was
   });
-
   it("a successor id racing in under another account is a FAILURE, and the predecessor keeps its place", async () => {
     await saveChangeProposal(proposal());
     db.state.raceForeign = "acct-b"; // lands after the guard read, so the guard cannot see it

@@ -1,25 +1,27 @@
 import "server-only";
 
 /**
- * decision/new-page (N4, 2026-07-28): the ONE builder of a researched new page, and the only
- * thing on the far side of an EARNED create_new verdict. It writes nothing off a keyword, a
- * tracked question, a competitor's page, an engine's fan-out or a search volume: the ONLY
- * door in is `earnedNewPage(decision)`, which the coverage ladder opens exclusively when the
- * page by page comparison proved the winners share searches this account reaches on no page
- * of its own. Turning a rival's example prompt into an article is what shipped duplicates of
- * pages the account already owned, and that door stays shut.
+ * decision/new-page: the ONE builder of a researched new page, and the only thing on the far
+ * side of an EARNED create_new verdict. It writes nothing off a keyword, a tracked question, a
+ * competitor's page, an engine's fan-out or a search volume: the ONLY door in is
+ * `earnedNewPage(decision)`, which the coverage ladder opens exclusively when the page by page
+ * comparison proved the winners share searches this account reaches on no page of its own.
  *
- * ONE bundle through the EXISTING pipeline: a ChangeProposal carrying a ChangeBundle, the
- * same record, validator, ranker, persistence and Changes surfaces an existing-page repair
- * uses. No second queue, schema, status vocabulary or drafting framework exists here.
+ * ONE bundle through the EXISTING pipeline: a ChangeProposal carrying a ChangeBundle, the same
+ * record, validator, ranker, persistence and Changes surfaces an existing-page repair uses.
  *
- * ONE strict model call, AFTER the verdict. It writes the page's own words and its section
- * plan; it can neither decide that the page should exist nor change what wins here, because
- * no field in its schema carries a verdict, a shape or an intent. Then every claim is checked
- * back against what was supplied, and the WHOLE draft is refused when the model invents a
- * number, an address, a publisher or a question, turns one tracked question into the page,
- * writes an outline that would fit any topic, skips why the pages this account already owns
- * lost, cites an evidence id nobody gave it, or promises to put anything live.
+ * ONE strict brief call, AFTER the verdict. It writes the page's own words and its section plan;
+ * no field in its schema carries a verdict, a shape or an intent, so it can neither decide the
+ * page should exist nor change what wins. Every claim is then checked back against what was
+ * supplied, and the WHOLE draft is refused when the model invents a number, an address, a
+ * publisher or a question, turns one tracked question into the page, writes an outline that would
+ * fit any topic, skips why the account's own pages lost, or promises to put anything live.
+ *
+ * THEN THE PAGE ITSELF. A plan is not a page, so every planned section is drafted through the
+ * SAME section drafter, firewall, budget, cache and gates an existing-page change uses, and a
+ * proposal reaches the operator only when the title, the description, the opening and EVERY
+ * section landed. One section short is no proposal this pass: the refusal names what is owed,
+ * and the next pass resumes free because an identical section is served from what I already bought.
  */
 
 import { log } from "@/lib/logger";
@@ -32,7 +34,7 @@ import { AUTOPUBLISH_RE, CODE_SUFFIX, HOST_RE, SPELLED_PROPORTION_RE } from "./c
 import { earnedNewPage, type CoverageDecision } from "./coverage-adjudication";
 import type { DecidedTopic } from "./coverage-pass";
 import type { OwnedCandidate } from "./owned-coverage";
-import { callStructuredLLM } from "./llm/structured-drafter";
+import { callStructuredLLM, draftSectionStructured } from "./llm/structured-drafter";
 import type { NewPageBrief } from "./llm/schemas";
 import type { BundleComponent, BundleEvidenceItem, ChangeBundle, ChangeProposal } from "./contracts";
 import { effortForFamily } from "./contracts";
@@ -48,13 +50,9 @@ const norm = (s: string): string => s.trim().replace(/\s+/g, " ").toLowerCase();
 /** What the pages that win here ARE, in words an operator reads. */
 const SHAPE: Record<string, string> = { informational_guide: "a guide that explains the subject", list: "a list", definition: "a short definition",
   comparison: "a comparison", product: "a product page", category: "a category page", tool: "a tool people use", forum: "a discussion thread" };
-/** Structured data is warranted by the SHAPE that actually wins, never by taste. A shape
- *  whose winners carry no agreed markup gets none rather than a guess. */
 /** NO SCHEMA IS DERIVED. Recommending Article because a page explains something, or FAQPage
- *  because the draft happens to contain questions, is a guess wearing a standard's name, and
- *  the blanket FAQPage recommendation was already removed once for exactly that reason. A page
- *  may carry questions without earning FAQPage. Structured data returns when the evidence
- *  actually speaks to eligibility, which nothing on file does today. */
+ *  because the draft contains questions, is a guess wearing a standard's name. Structured data
+ *  returns when the evidence speaks to eligibility, which nothing on file does today. */
 /** Any written figure: a count, a money amount, a percentage, a year. */
 const FIGURE_RE = /\d[\d,.]*%?/g;
 /** The verdict's receipt ids that came from the winning-page pattern, and only those: the rest of its
@@ -109,10 +107,8 @@ function receiptOf(inv: TopicInvestigation, owned: readonly OwnedCandidate[], d:
   if (owned.length === 0) missing.push("You own no page my evidence connects to this at all, so there was nothing of yours to strengthen instead.");
   add("verdict", "diagnosis", d.explanation, null);
   d.alternativesRuledOut.slice(0, 4).forEach((a, i) => add(`ruledout${i + 1}`, "diagnosis", `${a.alternative}: ${a.reason}`, null));
-  // WHAT THE WINNING PAGES SHARE, IN THE VERDICT'S OWN WORDS. The adjudicator wrote these lines from the
-  // pattern and then kept only their ids, so the page brief was drafted, and its receipt rendered, with no
-  // trace of what each winner actually contributed. They are copied verbatim rather than rebuilt here, so
-  // the diagnosis and the page read the SAME sentences instead of two paraphrases of one reading.
+  // WHAT THE WINNING PAGES SHARE, IN THE VERDICT'S OWN WORDS, copied verbatim rather than rebuilt, so the
+  // diagnosis and the page read the SAME sentences instead of two paraphrases of one reading.
   for (const e of d.evidence ?? []) if (PATTERN_KEY.test(e.id) && !items.some((i) => i.key === e.id)) add(e.id, "winning_page", e.fact, null);
   if (inv.trackedPrompts.length === 0) missing.push("No AI engine I track has been asked about this, so I cannot tell you how assistants answer it today.");
   return { items, missing };
@@ -176,12 +172,9 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     ...v.sections.flatMap((s) => [s.heading, s.covers]), ...v.sourceRequirements, ...v.factRequirements,
     ...v.internalLinks.map((l) => l.anchor), ...v.faqQuestions].join(" ");
   const strayHost = (prose.match(HOST_RE) ?? []).map(norm).filter((h) => !CODE_SUFFIX.test(h)).find((h) => !hosts.has(h) && !hosts.has(publisherHost(h)));
-  // EVERY FIGURE BACK TO THE EVIDENCE. The drafter's own grounded-number firewall tolerates
-  // formatting and ALLOWS bare years and 7/14/28 day windows, so "28% of the searches" walks
-  // through it; and the final validator only ever sees the title, description, opening answer,
-  // outline and FAQ. That leaves whyExistingPagesLose, every section brief and every source or
-  // fact requirement ungoverned - the fields an invented statistic actually reaches the operator
-  // through. Written exactly as I supplied it, percent sign included, or not at all.
+  // EVERY FIGURE BACK TO THE EVIDENCE. The drafter's firewall allows bare years and the 7/14/28
+  // windows, and the final validator sees only the title, description, opening, outline and FAQ,
+  // which leaves whyExistingPagesLose, every section brief and every requirement ungoverned.
   const fig = (t: string): string[] => (t.match(FIGURE_RE) ?? []).map((f) => f.replace(/[.,]+$/, ""));
   const figures = new Set(fig(facts.join(" ")));
   const strayFigure = fig(prose).find((f) => !figures.has(f));
@@ -209,22 +202,46 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     return { status: "none", reason: `The page I drafted for "${inv.label}" ${refusal}, so I threw it away rather than hand it to you.` };
   }
 
-  // ── one bundle: the pieces to paste, and everything they rest on ──
+  // A LIST OF HEADINGS IS NOT A PAGE. Every planned section is bought through the one section drafter, in
+  // the planned order, so the operator pastes copy rather than a plan. Its numeric firewall rides on the
+  // facts handed in here, so nothing drafted can carry a figure I never supplied.
   const outline = v.sections.map((s) => s.heading);
+  const written: string[] = [];
+  for (const s of v.sections) {
+    const drafted = await draftSectionStructured({ tenantId, query: inv.label, pageLabel: v.proposedTitle,
+      heading: s.heading, brief: s.covers, outline, evidenceHints: facts },
+      { complete: opts.complete, now, bypassCache: opts.bypassCache });
+    if (drafted.status !== "drafted") break;
+    written.push(`${drafted.value.heading}\n\n${drafted.value.body}`.replace(/[–—]/g, " "));
+  }
+  if (written.length < outline.length) {
+    const owed = outline.slice(written.length);
+    log.warn("[new-page] partial draft, nothing proposed", { tenantId, topicKey: inv.key, owed: owed.length });
+    return { status: "none", reason: `I wrote ${num(written.length)} of the ${num(outline.length)} sections this page needs and ${num(owed.length)} ${owed.length === 1 ? "is" : "are"} still owed: ${owed.join(", ")}. I am not handing you part of a page. Ask me again and I will pick up where I stopped: what I already wrote costs nothing to ask for a second time.` };
+  }
+
+  // ── one bundle: the pieces to paste, and everything they rest on ──
   const schemaTypes: string[] = []; // NO SCHEMA IS DERIVED (see above): none, not a guess.
   // THE MODEL'S OWN CITATIONS for the three pieces a reader sees first, validated against the
   // supplied ids like every other key. A generic set assigned afterwards proved nothing.
   const core = v.headKeys.filter((k) => keys.has(k));
   const sectionKeys = [...new Set(v.sections.flatMap((s) => s.evidenceKeys))];
+  // A SOURCE I HOLD IS NAMED WHOLE: the page, its publisher, the claim it stands behind, and the day I read
+  // it. Holding NONE leaves only "this kind of source is needed", which is a research requirement: the copy
+  // says the operator picks the source and the page is held for review rather than shown as ready.
+  const cited = inv.winners.filter((w) => w.extractState === "current" && w.fetchedAt).slice(0, 3)
+    .map((w) => `${w.url}, published by ${w.domain}, read on ${day(w.fetchedAt)}: it is one of the pages that win "${inv.label}", and it is a source for what a page on this subject has to cover.`);
+  const sourcing = cited.length > 0 ? [...cited, ...v.sourceRequirements]
+    : v.sourceRequirements.map((s) => `${s} You pick the exact source for this one: I hold the kind of source it needs and not the source itself.`);
   const components: BundleComponent[] = [
     { kind: "title", label: "Page title", before: null, after: v.proposedTitle, evidenceKeys: core, risk: "safe" },
     { kind: "meta", label: "Description", before: null, after: v.metaDescription, evidenceKeys: core, risk: "safe" },
     { kind: "opening_answer", label: "Opening answer", before: null, after: v.openingAnswer, evidenceKeys: core, risk: "review" },
-    { kind: "section", label: "Sections to write", before: null, after: v.sections.map((s) => `- ${s.heading}: ${s.covers}`).join("\n"), evidenceKeys: sectionKeys, risk: "review" },
+    { kind: "section", label: "The page, section by section", before: null, after: written.join("\n\n"), evidenceKeys: sectionKeys, risk: "review" },
   ];
-  if (v.sourceRequirements.length > 0 || v.factRequirements.length > 0) {
+  if (sourcing.length > 0 || v.factRequirements.length > 0) {
     components.push({ kind: "source_pack", label: "What to source and check before this goes out", before: null,
-      after: [...v.sourceRequirements, ...v.factRequirements].map((s) => `- ${s}`).join("\n"), evidenceKeys: core, risk: "review" });
+      after: [...sourcing, ...v.factRequirements].map((s) => `- ${s}`).join("\n"), evidenceKeys: core, risk: "review" });
   }
   if (v.internalLinks.length > 0) {
     components.push({ kind: "internal_links", label: "Link to these pages of your own", before: null,
@@ -270,20 +287,20 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     // settled it: the writing is still ahead of us.
     confidence: "medium",
     limitations: [...new Set(missing)],
-    // THE QUESTIONS TRAVEL WITH THE DRAFT. The final validator grounds every address in the copy
-    // against this text, and it never saw the question list the prompt ordered the model to copy
-    // verbatim - so an observed question that names a site ("is the haft seen guide on
-    // wikipedia.org accurate") was drafted correctly and then thrown away by the last gate.
+    // THE QUESTIONS TRAVEL WITH THE DRAFT: the last gate grounds every address in the copy against
+    // this text, so an observed question naming a site is not thrown away for naming it.
     evidence: { query: inv.label, hints: [...facts.slice(0, 5), ...[...questions.values()].slice(0, 8)], evidenceRefCount: items.length },
     impactScore: null, upsidePerMonth: null, bundle, createdAt: now.toISOString(),
   };
-  // THE QUESTIONS ARE EVIDENCE TOO. The validator grounds every address in the copy against this
-  // text, and the facts alone never carried the question list the prompt ordered the model to
-  // copy verbatim, so an observed question naming a site was drafted correctly and killed here.
+  // THE QUESTIONS ARE EVIDENCE TOO: the facts alone never carried the question list the prompt
+  // ordered the model to copy verbatim, so an observed question naming a site died here.
   const verdict = validateProposal(proposal, { evidenceText: [...facts, ...questions.values()].join(" "), now });
   if (verdict.status === "rejected") {
     log.warn("[new-page] brief failed the one validator", { tenantId, topicKey: inv.key, reasons: verdict.reasons.slice(0, 3) });
     return { status: "none", reason: `The page I drafted for "${inv.label}" did not pass my own safety checks, so I am handing you nothing rather than risk it.` };
   }
-  return { status: "built", proposal: { ...proposal, status: verdict.status, limitations: [...new Set([...proposal.limitations, ...verdict.reasons])] } };
+  // A PAGE RESTING ON "SOME SOURCE OF THIS KIND" IS NEVER READY: the honest place for it is review.
+  return { status: "built", proposal: { ...proposal, status: cited.length > 0 ? verdict.status : "needs_review",
+    limitations: [...new Set([...proposal.limitations, ...verdict.reasons,
+      ...(cited.length > 0 ? [] : ["I hold no source of my own behind the claims on this page, so you pick every one of them before it goes out."])])] } };
 }

@@ -3,9 +3,7 @@
  * returns parsed VALUES (no prose recovery); refusal/incomplete fail closed
  * with no artifact; bounded retry with per-attempt spend; cache hits cost $0.
  */
-
 import { describe, it, expect, vi } from "vitest";
-
 // Budget is not this file's subject (see llm-budget-isolation.test.ts): keep the
 // transport hermetic with an always-allowed, no-op budget seam.
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
@@ -14,7 +12,6 @@ vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
 }));
 import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
-
 // A schema-valid AtomicEditDraft value (the simplest kind — no source-verify /
 // word-count / superlative machinery in the way of the transport assertions).
 const VALID_ATOMIC_EDIT = {
@@ -24,35 +21,30 @@ const VALID_ATOMIC_EDIT = {
   confidence: "high", risks: ["keep the title concise"], operatorSteps: ["Replace the page title field with the new value"],
   proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },
 };
-
 const REQ = {
   kind: "atomic_edit" as const, tenantId: "tenant-fixture",
   system: "You improve one on-page field. Return the field, before, after, rationale, evidenceRefs, confidence, risks, operatorSteps, proofPlan.",
   user: "Page: Nowruz. Field to edit: title. Current title: Nowruz.",
   grounded: "nowruz traditions persian new year customs haft-seen",
 };
-
 /** A `complete` double that replays a queue and counts how many times it ran. */
 function seam(responses: Array<{ value: unknown } | { error: string; retryable: boolean; costUsd?: number }>): { complete: CompleteFn; calls: () => number } {
   let i = 0, calls = 0;
   const complete: CompleteFn = async () => { calls += 1; return responses[Math.min(i++, responses.length - 1)]!; };
   return { complete, calls: () => calls };
 }
-
 describe("structured-drafter strict transport", () => {
   it("drafts a schema-valid VALUE (no text parsing)", async () => {
     const { complete, calls } = seam([{ value: VALID_ATOMIC_EDIT }]);
     const out = await callStructuredLLM({ ...REQ, complete });
     expect(out.status).toBe("drafted"); if (out.status !== "drafted") return;
     expect([(out.value as { after: string }).after.includes("Nowruz Traditions"), calls()]).toEqual([true, 1]); });
-
   it("a retryable transport error retries within the ceiling, recording spend per attempt", async () => {
     const { complete, calls } = seam([{ error: "network boom", retryable: true }]);
     const out = await callStructuredLLM({ ...REQ, complete });
     expect(out.status).toBe("validation_failed"); if (out.status !== "validation_failed") return;
     expect(calls()).toBe(2); expect(out.costUsd).toBeGreaterThan(0); // bounded 2-attempt ceiling, spend recorded per attempt
   });
-
   it("a schema-invalid value then a valid one drafts on the retry", async () => { // the ONLY pin that a rejection can RECOVER
     const { complete, calls } = seam([{ value: {} }, { value: VALID_ATOMIC_EDIT }]);
     const out = await callStructuredLLM({ ...REQ, complete });
@@ -66,7 +58,6 @@ describe("structured-drafter strict transport", () => {
     expect(out.costUsd).toBe(0); // a budget block fired no call → no spend
     expect(calls()).toBe(1);
   });
-
   it("a cache hit costs $0 and never calls complete", async () => {
     const now = new Date("2026-07-23T00:00:00Z");
     const entry: LlmCallCacheEntry = {
@@ -83,7 +74,6 @@ describe("structured-drafter strict transport", () => {
     expect(out.costUsd).toBe(0);
     expect(calls()).toBe(0); // the hit is served before any call
   });
-
   it("a refusal's REAL usage cost lands in spend, not just the input estimate", async () => {
     const { complete, calls } = seam([{ error: "refusal", retryable: false, costUsd: 0.0123 }]);
     const out = await callStructuredLLM({ ...REQ, complete });

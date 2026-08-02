@@ -9,11 +9,10 @@ import type { PromptAnswerObservation } from "./prompt-answer-observations";
 /**
  * ai-observations - THE canonical record of one AI answer, kept WHOLE.
  *
- * Before this, an answer was collapsed at capture: the text was hashed and thrown away, the retrieved
- * pages were never stored at all, and a re-read of the same answer meant buying it again. One row here
- * holds the full text, the whole journey (fan-outs, the pages it reported retrieving, cited sources, brands,
- * the reported web-search state), the money receipt and the cache identity of the raw envelope, so any
- * later analysis re-reads what was already paid for and never repurchases it.
+ * An answer used to be collapsed at capture: the text hashed and thrown away, the retrieved pages never
+ * stored, and a re-read meant buying it again. One row here holds the full text, the whole journey
+ * (fan-outs, retrieved pages, cited sources, brands, the reported web-search state), the money receipt and
+ * the cache identity of the raw envelope, so later analysis re-reads what was paid for once.
  *
  * IDENTITY is (tenant, prompt, prompt version, engine, reporting day, sample slot). A retry of the same
  * intent reuses that identity and upserts the SAME row; a deliberate second sample of the same pair on the
@@ -180,28 +179,23 @@ const PAGE_ROWS = 1000, MAX_ROWS = 40_000;
  *  two heavy ones. `answer_text` is a whole AI answer and `journey` is every page it read and credited, so
  *  a full-row read of a 28 day window is megabytes per account per visit and is exactly the shape that has
  *  timed out a statement here before. The keyset cursor rides on requested_at + id, so both stay in. */
-const OUTCOME_COLUMNS = "id,tenant_id,prompt_id,prompt_version,engine,reporting_day,sample_slot,status,analysis,requested_at";
+const OUTCOME_COLUMNS = "id,tenant_id,prompt_id,prompt_version,engine,reporting_day,sample_slot,status,analysis,analysis_hash,answer_hash,requested_at";
 
 /**
  * Read stored observations back for RE-ANALYSIS. Everything a later pass needs is already on the row, so
  * re-reading an answer costs nothing and no provider is called. A failed read throws (an empty list would
  * read as "this account has no answers", which is a different and false claim).
  *
- * EVERY FILTER IS IN THE QUERY, and a NAMED DAY is then PAGED until it is exhausted: asking for a day, or
- * for a range of them, means asking for all of it. It used to be one `.limit(2000)` over the newest rows,
- * so an account asking 35 questions of 4 engines (140 first readings a day) had its "28 day" history cut
- * around day 14 and every total under it covered a fortnight while claiming a month. A single named day
- * counts as a named range for exactly the same reason: the planner's own read of one 600 row day came back
- * holding 500 of them and silently called that the day.
+ * EVERY FILTER IS IN THE QUERY, and a NAMED DAY is then PAGED until it is exhausted: asking for a day, or a
+ * range of them, means asking for all of it. One `.limit(2000)` over the newest rows cut a 140 answer a day
+ * account's "28 day" history around day 14, and the planner's read of one 600 row day held 500 of them.
  *
  * PAGES ADVANCE BY CURSOR, never by offset. Rows arrive newest first with the id breaking every tie, and
- * each page starts strictly after the last row of the one before it. An offset window re-numbers itself
- * whenever a row is inserted mid-read, which is exactly what the collect step does, so one row was read
- * twice and another was never read at all.
+ * each page starts strictly after the last row before it. An offset window re-numbers itself whenever a row
+ * is inserted mid-read, which is what the collect step does, so one row was read twice and another never.
  *
- * ASK FOR WHAT YOU READ. `projection: "outcome"` narrows the SELECT to the identity, the day, the slot,
- * the status and the stored verdict, and leaves the answer text and the retrieval journey in the table.
- * A caller that needs either simply does not pass it and gets the whole row as before.
+ * ASK FOR WHAT YOU READ. `projection: "outcome"` narrows the SELECT to the identity, day, slot, status and
+ * stored verdict; a caller that needs the text or the journey does not pass it and gets the whole row.
  */
 export async function readAiObservations(
   tenantId: string,
@@ -290,12 +284,9 @@ export async function readAiObservationViews(
 
 /**
  * SETTLE a reading that is never going to land: the row stops saying `failed` (which reads as "I will try
- * again") and says what is actually true (`unavailable` = the engine had nothing readable to give today).
- * The provider's own reason is left exactly where it is, so the row still explains itself.
- *
- * Only a `failed` row moves, and only forward. A reading that landed while the planner was deciding wins:
- * the WHERE clause refuses to touch anything that is not still failed, so an observed answer can never be
- * demoted by a decision taken a moment earlier. A write that matched no row is a no-op, never an error.
+ * again") and says what is true (`unavailable` = the engine had nothing readable to give today). The
+ * provider's own reason stays where it is. Only a `failed` row moves, and only forward, so an answer that
+ * landed while the planner was deciding can never be demoted. No row matched is a no-op, never an error.
  */
 export async function settleFailedObservation(
   tenantId: string, observationId: string, status: Extract<AiObservationStatus, "unavailable" | "unsupported">,
@@ -303,6 +294,18 @@ export async function settleFailedObservation(
   const { error } = await getSupabaseAdmin().from(AI_OBSERVATIONS_TABLE).update({ status })
     .eq("tenant_id", tenantId).eq("id", observationId).eq("status", "failed");
   if (error) throw new Error(`[ai_observations] settle failed: ${error.message}`);
+}
+
+/**
+ * SETTLED FOR ANALYSIS. A reading is done ONLY when it was taken against the answer on file AND covers all
+ * of it. A pass that read some of a long answer persists what it merged with a DIFFERENT hash on purpose,
+ * so the row stays due and the next pass resumes at the first piece nobody has read. Anything counting
+ * completed checks must ask this, never `analysis != null`: a stored partial is real work, not a finished
+ * one. A settled reading that still has a named gap carries `answerReadInPart`, which is what a
+ * "partially analyzed" line on a surface should read.
+ */
+export function isAnalysisSettled(r: { analysis: unknown; analysisHash: string | null; answerHash: string | null }): boolean {
+  return r.analysis != null && r.analysisHash != null && r.analysisHash === r.answerHash;
 }
 
 /**

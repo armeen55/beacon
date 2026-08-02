@@ -10,7 +10,6 @@ import { extractPageFacts, readWinningPattern } from "@/domains/decision/winning
 import type { WinningPatternRead } from "@/domains/decision/llm/schemas";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
-
 /** The heading every winner carries, and the one long enough that handing it back is a quote. */
 const CARE = "Caring for a Persian rug";
 const MADE = "How a Persian rug is made from wool and silk in the villages of Iran";
@@ -30,7 +29,6 @@ const WINNERS = [
 const OWNED = page("mysite.example", ["Our rug collection"], { hasList: false, entityNames: [] });
 const facts = () => extractPageFacts(WINNERS);
 const ownedFacts = () => extractPageFacts([OWNED])[0]!;
-
 /** A reading that names only pages it was shown, and says everything in its own words. */
 const reading = (over: Partial<WinningPatternRead> = {}): WinningPatternRead => ({
   archetype: "informational_guide",
@@ -46,7 +44,6 @@ const reading = (over: Partial<WinningPatternRead> = {}): WinningPatternRead => 
 /** A completion seam that answers with one fixed reading and counts how many times it actually ran. */
 const seam = (value: unknown): { complete: CompleteFn; calls: () => number } => { let calls = 0; return { calls: () => calls, complete: async () => { calls += 1; return { value }; } }; };
 const memoryCache = (): CacheImpl => { const rows = new Map<string, LlmCallCacheEntry>(); return { read: async (t, k) => rows.get(`${t}|${k}`) ?? null, write: async (t, e) => void rows.set(`${t}|${e.key}`, e), recentTexts: async () => [] }; };
-
 describe("the facts I read off the winning pages myself", () => {
   it("carries what the read captured and fills in nothing it did not", () => {
     const [first] = facts();
@@ -66,7 +63,6 @@ describe("the facts I read off the winning pages myself", () => {
     expect([cards!.hasList, cards!.hasSchema]).toEqual([true, false]);
   });
 });
-
 describe("the one reading a case may buy", () => {
   it("says what four winning pages share, counts them itself, and names the sites without the reading ever seeing one", async () => {
     const s = seam(reading());

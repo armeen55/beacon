@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 const sb = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], fails: false, tenant: "", urls: [] as string[] })); // the ONE page_snapshots read the body reader makes
 vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...((await orig()) as object), getSupabaseAdmin: () => ({ from: () => ({ select: () => ({ eq: (_c: string, t: string) => { sb.tenant = t; return { in: (_u: string, urls: string[]) => { sb.urls = urls; return { order: () => ({ limit: async () => (sb.fails ? { data: null, error: { message: "down" } } : { data: sb.rows, error: null }) }) }; } }; } }) }) }) }));
-import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context"; import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { emptyBusinessProfile, type Account, type BusinessProfile, type ProfileSection } from "@/domains/account";
+import { loadOwnedPageBodies, pageContains } from "@/domains/evidence/pages/owned-context"; import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { emptyBusinessProfile, type Account, type BusinessProfile, type ProfileSection } from "@/domains/account";
 import type { CachedCallResult, CapabilityKey, FailureDisposition, ParsedAiAnswer, ParsedKeywordItem, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { keywordDiscoveryUnit } from "@/domains/evidence/funnel/discovery"; import { promptObservationUnit, serpAnalysisUnit } from "@/domains/evidence/funnel/observe"; import { winningPagesUnit } from "@/domains/evidence/funnel/winning-pages";
 import { retainDiverse, selectSerpAgenda } from "@/domains/evidence/funnel/normalize"; import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
@@ -284,6 +284,29 @@ describe("evidence - my own page's actual words, read narrowly", () => {
   it("never passes headings off as body text", async () => { sb.rows = [row({ body_paragraph_sample: undefined, h2_list: ["Famous Actors"], card_texts: ["Golshifteh Farahani"] })];
     const body = (await loadOwnedPageBodies("t1", ["https://own.com/actors"])).get("own.com/actors")!;
     expect([body.openingSample, body.cardTexts]).toEqual([null, ["Golshifteh Farahani"]]); }); // no body text on file is said plainly, never filled in from labels
+
+  // THE SAMPLE WAS CALLED THE BODY: eight paragraphs cut at 1,200 characters, judged for what the page LACKS.
+  const deep = [...Array.from({ length: 7 }, (_, i) => `Paragraph ${i + 1}. ${"ordinary prose about this page. ".repeat(6)}`), "Paragraph 8. The Zephyr Archive opens at dawn."];
+  const read = async () => (await loadOwnedPageBodies("t1", ["https://own.com/actors"])).get("own.com/actors")!;
+  it("finds a fact stored past the first 1,200 characters, and answers a whole-page question only when it holds the whole page", async () => {
+    sb.rows = [row({ body_paragraph_sample: deep, word_count: 12, card_texts: [], h2_list: ["Actors"] })]; const body = await read();
+    expect([deep.join(" ").indexOf("Zephyr") > 1_200, body.openingSample!.includes("Zephyr"), body.passages.length]).toEqual([true, false, 8]); // past the old sample AND the opener
+    expect([pageContains(body, "Zephyr Archive"), pageContains(body, "Actors")]).toEqual(["yes", "yes"]); // found is found; a heading is held content too
+    expect([body.completeness, pageContains(body, "a fact this page never states")]).toEqual(["complete", "no"]); });
+  it("says sample_only when the crawl kept a sample, and then answers unknown rather than no", async () => {
+    // A stored paragraph at the crawler's own 300-character limit was cut mid sentence: the rest is unread.
+    sb.rows = [row({ body_paragraph_sample: ["x".repeat(300), "The kite festival opens at dawn."], word_count: 4_000 })]; const body = await read();
+    expect([body.completeness, pageContains(body, "kite festival"), pageContains(body, "opening hours")]).toEqual(["sample_only", "yes", "unknown"]); // presence is provable, absence never is
+    expect(body.heldNote).toContain("unknown, not missing"); expect(body.heldNote).not.toMatch(/[—–]/);
+    // No word count on file is not a licence to claim the page: it is the same unprovable claim.
+    sb.rows = [row({ body_paragraph_sample: ["The kite festival opens at dawn."], word_count: undefined })];
+    expect((await read()).completeness).toBe("sample_only"); });
+  it("records exactly which passages the byte ceiling held when the store has more than one read may carry", async () => {
+    sb.rows = [row({ body_paragraph_sample: Array.from({ length: 200 }, (_, i) => `Passage ${i + 1}. ${"held prose. ".repeat(20)}`), word_count: 5, card_texts: [], internal_links: [] })];
+    const body = await read(); const held = body.passages.length;
+    expect([body.completeness, held < 200, held > 100]).toEqual(["partial", true, true]); // the ceiling cut it, the crawl did not; tens of KB, never 1,200 characters
+    expect(body.heldNote).toContain(`I am holding passages 1 to ${held} of the 200 on file`);
+    expect([pageContains(body, "Passage 3."), pageContains(body, "Passage 200.")]).toEqual(["yes", "unknown"]); }); // beyond the ceiling is unknown, never absent
 });
 describe("research funnel - the SERP agenda buys my own words, never a lookalike", () => {
   // A GENERIC reference site: no vertical token is privileged anywhere in the gate.

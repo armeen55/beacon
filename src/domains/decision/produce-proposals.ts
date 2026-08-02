@@ -7,11 +7,9 @@
  * WHAT A FULL PASS CAN COST at worst: three deep bundles, each drafting up to seven sections, is about $0.45
  * at the drafter's documented per-call estimates. That is the number the spend cap is read against.
  *
- * THE DEEP READ HAS FIVE DOORS, NOT ONE (see deep-candidates.ts). A click gap on Google used to be the only
- * way any page reached the deep producer, so an engine reading a page and quoting rivals, a comparison naming
- * the page to improve, and two of your own pages splitting a search were invisible unless that page was also
- * losing clicks. Selection widened; drafting did not: the SAME producer runs per selected page, still bounded
- * to DEFAULT_MAX_DRAFTS, still refusing on thin evidence.
+ * THE DEEP READ HAS FIVE DOORS, NOT ONE (see deep-candidates.ts), and each page carries the door it came
+ * through so the producer proves THAT door's case. Selection widened; drafting did not: the SAME producer
+ * runs per selected page, still bounded to DEFAULT_MAX_DRAFTS, still refusing on thin evidence.
  *
  * Every honest ending this pass can reach is named on `ProducerOutcome` below, so a surface never reads an
  * empty queue as an outage or a failed write as a quiet day.
@@ -82,9 +80,7 @@ export type ProduceProposalsResult = {
   noDraft: number;
   /** Material rows actually written this pass. */
   persisted: number;
-  /** Drafts the store REFUSED to file because the page already carries a change the operator
-   *  applied and I am still measuring. The store has always answered this; it used to be
-   *  dropped on the floor, so a page holding a held-back idea looked forgotten on Today. */
+  /** Drafts the store REFUSED to file because the page already carries a change I am still measuring. */
   heldForMeasurement: number;
   /** Proposals carried forward unchanged: no draft, no write, no dollars. */
   reused: number;
@@ -284,11 +280,8 @@ export async function produceProposalsForTenant(
   const currentBundleFor = (match: (p: ChangeProposal) => boolean): ChangeProposal | null =>
     live.find((p) => !!p.bundle && current(p) && match(p)) ?? null;
 
-  // A HOLD HAPPENS WHERE THE DECISION IS MADE, NOT WHERE THE ROW IS WRITTEN. This counted only the
-  // store's "blocked" and read zero: the real holds are two rungs earlier and reach no store at all.
-  // The ladder fires `measuring_change` on a page carrying an applied change (so nothing is drafted),
-  // and the loop below skips a candidate whose stored row is applied. Both are held ideas, so both
-  // are counted here, and the store's answer stays as the third increment.
+  // A HOLD HAPPENS WHERE THE DECISION IS MADE, NOT WHERE THE ROW IS WRITTEN: the ladder's
+  // `measuring_change` and the skipped applied row are both held ideas, counted here beside the store's.
   const heldByDiagnosis = candidates.filter((c) => c.cause.cause === "measuring_change").length;
   let persisted = 0, writeFailures = 0, reused = 0, heldForMeasurement = heldByDiagnosis;
   /** Persist ONE material row, or nothing at all when the stored row already says exactly this.
@@ -455,7 +448,9 @@ export async function produceProposalsForTenant(
     // (explicit tenant, this URL only). A diagnosis written from a title and a word count is a
     // guess; fail-soft to none, which stays honest.
     const bodyByUrl = await loadOwnedPageBodies(tenantId, [d.pageUrl]).catch(() => null);
-    const bundled = await produceBundleForSnapshot(snapshot, { ...bundleOpts, onlyPageUrl: d.pageUrl,
+    // THE DOOR TRAVELS WITH THE PAGE. Selection knows why this page is here and the producer has to prove
+    // THAT case, so a page an engine skipped is never refused, or explained, in the click door's words.
+    const bundled = await produceBundleForSnapshot(snapshot, { ...bundleOpts, onlyPageUrl: d.pageUrl, door: d,
       coverage, ...measuring, ...(bodyByUrl ? { bodyByUrl } : {}) }).catch(onThrow);
     const covered = bundled.status === "bundled" ? (bundled.proposal.pageUrl ?? "").trim().toLowerCase() : "";
     const path = bundled.status === "bundled" ? (bundled.proposal.pagePath ?? "").trim().toLowerCase() : "";

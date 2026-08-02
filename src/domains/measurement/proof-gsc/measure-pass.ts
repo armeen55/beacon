@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 
 import { reportingDay } from "@/lib/reporting-day";
 import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
-import { readAiObservationViews } from "@/domains/evidence/ai-visibility/ai-observations";
+import { isAnalysisSettled, readAiObservationViews } from "@/domains/evidence/ai-visibility/ai-observations";
 import {
   loadPageSurgeonContext,
   assemblePacketForUrl,
@@ -265,11 +265,11 @@ async function latestAiPresence(tenantId: string): Promise<{ day: string; checke
     // against it, so the "before" side of a shipped change was a sample and the "after" side was a day.
     const onDay = (await readAiObservationViews(tenantId, { day, slot: 0 }))
       .filter((r) => r.slot === 0 && r.status === "observed" && r.day === day);
-    // Read closely = the answer carries an owned-brand verdict. An answer with none has not been read yet,
-    // so it can say neither "named" nor "not named" and never counts as either.
+    // Read closely = the WHOLE answer was read and carries an owned-brand verdict. A reading still
+    // missing pieces is real work, not a finished check, so it never enters the baseline denominator.
     const verdictOf = (r: { analysis: Record<string, unknown> | null }) =>
       (r.analysis as { ownedBrandMention?: { mentioned?: unknown } | null } | null)?.ownedBrandMention ?? null;
-    const analyzed = onDay.filter((r) => verdictOf(r) != null);
+    const analyzed = onDay.filter((r) => isAnalysisSettled(r) && verdictOf(r) != null);
     return { day, checked: onDay.length, analyzed: analyzed.length,
       mentioning: analyzed.filter((r) => verdictOf(r)?.mentioned === true).length };
   } catch {

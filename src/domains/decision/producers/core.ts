@@ -18,6 +18,7 @@
  */
 
 import type { BundleComponent } from "../contracts";
+import { pageContains } from "@/domains/evidence/pages/owned-context";
 import type { CauseKey, Produced, Producer, ProducerCtx } from "./contract";
 import { produceConsolidation, produceInternalLinks, produceSourceExpansion } from "./extended";
 
@@ -77,7 +78,11 @@ const weakOpening: Producer = async (ctx) => {
 
 const incompleteCoverage: Producer = async (ctx) => {
   const payload = ctx.finding.payload;
-  const absent = payload?.cause === "incomplete_coverage" ? payload.absentHeadings : [];
+  // A missing HEADING and a missing ENTITY are both subjects the winners agree on: either one names a
+  // section worth writing, and the finding fires on both, so the producer must serve both or it refuses
+  // on its own evidence. A subject the held page PROVABLY already carries is dropped before drafting.
+  const named = payload?.cause === "incomplete_coverage" ? [...payload.absentHeadings, ...payload.absentEntities] : [];
+  const absent = named.filter((s) => pageContains(ctx.body, s) !== "yes");
   if (absent.length === 0) return refuse("The pages that win this search agree on subjects this one leaves out, and none of them is a section I can write for you yet.");
   const components: BundleComponent[] = [];
   for (const heading of absent.slice(0, MAX_SECTIONS)) {
@@ -111,8 +116,10 @@ const competitorContentGap: Producer = async (ctx) => {
   const gaps = payload?.cause === "competitor_content_gap" ? payload.gaps : [];
   if (gaps.length === 0) return refuse("The pages that win this search do something this one does not, and I could not read it closely enough to write it for you.");
   // STRONGEST FIRST, and the same order every time: the gap the most winners share, then the plain text,
-  // so the same reading always produces the same two sections.
-  const ranked = [...gaps].sort((a, b) => b.seenOn.length - a.seenOn.length || (a.gap < b.gap ? -1 : a.gap > b.gap ? 1 : 0));
+  // so the same reading always produces the same two sections. A gap the held page PROVABLY already
+  // carries is dropped before drafting: the accusation was written against a sample.
+  const ranked = [...gaps].filter((g) => pageContains(ctx.body, g.gap) !== "yes")
+    .sort((a, b) => b.seenOn.length - a.seenOn.length || (a.gap < b.gap ? -1 : a.gap > b.gap ? 1 : 0));
   const components: BundleComponent[] = [];
   for (const gap of ranked.slice(0, MAX_SECTIONS)) {
     const seen = gap.seenOn.length;

@@ -13,7 +13,6 @@ import type { CaseSynthesis } from "@/domains/decision/llm/schemas";
 import type { ResearchCase } from "@/domains/evidence/funnel/research-evidence";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
-
 /** One case as it sits on file: an id and the canonical searches it is about. Nothing semantic yet. */
 const onFile = (id: string, queries: string[]): ResearchCase => ({ id, anchors: queries.map((q) => canonicalQueryKey(q)) });
 const LEADER = onFile("inv_leader", ["iran leader", "who is the leader of iran"]);
@@ -33,7 +32,6 @@ const reading = (over: Partial<CaseSynthesis> = {}): CaseSynthesis => ({ merges:
 const apply = (plan: CaseSynthesis, cases: readonly ResearchCase[] = ALL) => applySynthesis(cases, plan, DOMAINS);
 const live = (out: { cases: ResearchCase[] }) => out.cases.filter((c) => !c.aliasOf);
 const held = (out: { cases: ResearchCase[] }, id: string) => out.cases.find((c) => c.id === id);
-
 describe("what the semantic reading may change about my case registry", () => {
   it("keeps a subject and the week's news about it apart, and a local service apart from the subject itself, however the reading argues", () => {
     const out = apply(reading({ merges: [
@@ -95,7 +93,6 @@ describe("what the semantic reading may change about my case registry", () => {
     const saved = JSON.parse(JSON.stringify(first.cases)) as ResearchCase[]; // saved, then read back in a fresh process
     expect(held(applySynthesis(saved, reading(), DOMAINS), RUGS.id)!.pages).toEqual([{ url: "/persian-rugs", relation: "covers" }]); });
 });
-
 // ── the gateway wrapper: what may come back, and what costs a second call ─────
 const candidate = (c: ResearchCase, queries: string[], ownedUrls: string[] = []): SynthesisCandidate =>
   ({ id: c.id, label: queries[0]!, queries, prompts: [], ownedUrls, groupedBy: ["shared_entity"] });
@@ -106,7 +103,6 @@ const MERGE = reading({ merges: [{ keepId: NAMES.id, absorbIds: [MALE.id], reaso
 /** A completion seam that answers with one fixed reading and counts how many times it actually ran. */
 const seam = (value: unknown): { complete: CompleteFn; calls: () => number } => { let calls = 0; return { calls: () => calls, complete: async () => { calls += 1; return { value }; } }; };
 const memoryCache = (): CacheImpl => { const rows = new Map<string, LlmCallCacheEntry>(); return { read: async (t, k) => rows.get(`${t}|${k}`) ?? null, write: async (t, e) => void rows.set(`${t}|${e.key}`, e), recentTexts: async () => [] }; };
-
 describe("the one reading a pass may buy", () => {
   it("returns a reading that names only what it was given", async () => {
     const s = seam(MERGE);

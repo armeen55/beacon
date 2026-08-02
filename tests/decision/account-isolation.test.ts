@@ -4,23 +4,18 @@
  * recentTexts, and fail-closed missing-account behavior — each layer pinned
  * independently, plus the end-to-end promises through callStructuredLLM.
  */
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
-
 // Budget seam: spy on the real adjudicator budget so we can assert the explicit
 // account reaches the cap check + spend record (drafter uses these directly).
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: vi.fn(async () => ({ allowed: true, remaining: 10 })), recordSpend: vi.fn(async () => {}) }));
-
 // json-store seam: assert storeCacheImpl routes with an EXPLICIT { tenantId }.
 const readStoreMock = vi.fn(async () => [] as unknown[]);
 const writeStoreMock = vi.fn(async () => {});
 vi.mock("@/lib/persistence/json-store", () => ({ readStore: (...a: unknown[]) => readStoreMock(...(a as [])), writeStore: (...a: unknown[]) => writeStoreMock(...(a as [])) }));
-
 import { checkBudget, recordSpend } from "@/domains/decision/llm/adjudicator-budget";
 import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import { storeCacheImpl, type CacheImpl, type LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
 import { classifyStore } from "@/lib/persistence/store-classification";
-
 const VALID = {
   field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen",
   rationale: "The current title is one word and misses the customs searchers ask about.",
@@ -28,13 +23,11 @@ const VALID = {
   confidence: "high", risks: ["keep the title concise"], operatorSteps: ["Replace the page title field with the new value"],
   proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },
 };
-
 const REQ = {
   kind: "atomic_edit" as const, system: "You improve one on-page field.",
   user: "Page: Nowruz. Field to edit: title. Current title: Nowruz.",
   grounded: "nowruz traditions persian new year customs haft-seen",
 };
-
 /** A per-account partitioned cache mirroring storeCacheImpl's isolation, plus call
  *  captures so we can assert callStructuredLLM threaded the right account through. */
 function partitionedCache() {
@@ -51,14 +44,12 @@ function partitionedCache() {
   };
   return { impl, store, reads, recents };
 }
-
 /** A completion double that replays a value queue and counts calls. */
 function seam(values: Array<{ value: unknown } | { error: string; retryable: boolean }>) {
   let i = 0, calls = 0;
   const complete: CompleteFn = async () => { calls += 1; return values[Math.min(i++, values.length - 1)]!; };
   return { complete, calls: () => calls };
 }
-
 beforeEach(() => {
   (checkBudget as unknown as ReturnType<typeof vi.fn>).mockClear();
   (recordSpend as unknown as ReturnType<typeof vi.fn>).mockClear();
@@ -67,12 +58,10 @@ beforeEach(() => {
   writeStoreMock.mockClear();
 });
 // ── store classification + key isolation ─────────────────────────────────────
-
 describe("the call cache is per-account, keyed by account", () => {
   it("the 'llm-call-cache' store is TENANT_SCOPED, never global", () => {
     expect(classifyStore("llm-call-cache")).toBe("per-tenant");
   });
-
   // The REAL impl: an omitted tenantId falls back to AMBIENT resolution downstream, so a regression here is silent.
   it("storeCacheImpl routes with an EXPLICIT { tenantId }, stamps the owner, and throws on an empty account", async () => {
     const entry = { key: "k1", tenantId: "ignored-overwritten", kind: "atomic_edit", promptId: "p",
@@ -85,33 +74,27 @@ describe("the call cache is per-account, keyed by account", () => {
     await expect(storeCacheImpl.read("", "k")).rejects.toThrow(/tenantId is required/);
   });
 });
-
 // ── callStructuredLLM: end-to-end account isolation ──────────────────────────
-
 describe("callStructuredLLM keeps accounts isolated end to end", () => {
   it("account B gets a MISS on account A's byte-identical prompt; A still hits at $0", async () => {
     const cache = partitionedCache();
-
     // Account A generates + caches (pays).
     const a1 = seam([{ value: VALID }]);
     const outA = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: a1.complete, cacheImpl: cache.impl });
     expect(outA.status).toBe("drafted");
     expect(a1.calls()).toBe(1);
-
     // Account A repeats the SAME prompt: $0 cache hit, no call.
     const a2 = seam([{ error: "must-not-run", retryable: false }]);
     const outA2 = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: a2.complete, cacheImpl: cache.impl });
     expect(outA2.status === "drafted" && outA2.cached).toBe(true);
     expect(outA2.status === "drafted" && outA2.costUsd).toBe(0);
     expect(a2.calls()).toBe(0);
-
     // Account B, byte-identical prompt: MISS -> it generates its own (would pay).
     const b1 = seam([{ value: VALID }]);
     const outB = await callStructuredLLM({ ...REQ, tenantId: "tenant-b", complete: b1.complete, cacheImpl: cache.impl });
     expect(outB.status).toBe("drafted");
     expect(outB.status === "drafted" && outB.cached).toBeUndefined();
     expect(b1.calls()).toBe(1);
-
     // The cache never crossed accounts: A's read keys are all tenant-a, B's tenant-b,
     // and every stored entry records its own owner.
     expect(cache.reads.filter((r) => r.tenantId === "tenant-a").length).toBeGreaterThan(0);
@@ -121,7 +104,6 @@ describe("callStructuredLLM keeps accounts isolated end to end", () => {
     const aKey = (cache.store.get("tenant-a") ?? [])[0]!.key;
     expect((cache.store.get("tenant-b") ?? []).some((e: LlmCallCacheEntry) => e.key === aKey)).toBe(false);
   });
-
   it("de-templating recentTexts never sees another account's outputs", async () => {
     const cache = partitionedCache();
     await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: seam([{ value: VALID }]).complete, cacheImpl: cache.impl });
@@ -131,13 +113,11 @@ describe("callStructuredLLM keeps accounts isolated end to end", () => {
     // callStructuredLLM asked recentTexts for the right account each time.
     for (const r of cache.recents) expect(["tenant-a", "tenant-b"]).toContain(r.tenantId);
   });
-
   it("the budget check + spend record receive the EXPLICIT account", async () => {
     await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: seam([{ value: VALID }]).complete, cacheImpl: partitionedCache().impl });
     expect(checkBudget).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "tenant-a" }));
     expect(recordSpend).toHaveBeenCalledWith(expect.any(Number), expect.objectContaining({ tenantId: "tenant-a" }));
   });
-
   it("a MISSING account fails closed BEFORE cache, budget, or the completion fn", async () => {
     const cache = partitionedCache();
     const s = seam([{ value: VALID }]);

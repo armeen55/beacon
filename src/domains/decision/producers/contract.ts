@@ -11,6 +11,7 @@
  */
 
 import type { BundleComponent, BundleComponentKind, EvidenceReadiness } from "../contracts";
+import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 // The cause ladder OWNS the cause vocabulary and its finding shape (contracts.ts carries it the same way,
 // by type import), so this file holds no second copy that could drift.
 import type { CauseFinding } from "../diagnosis";
@@ -57,7 +58,9 @@ export type ProducerCtx = {
   page: { url: string; title: string | null; h1: string | null; outline: string[]; internalLinkCount: number | null };
   /** The page's OWN words, whole. Narrowing this to an opening sample is what left five causes with their
    *  structure computed and thrown away, so nothing here is dropped on the way in. */
-  body: { openingSample: string | null; cardTexts: string[]; entityNames: string[]; internalLinks: { href: string; anchorText: string }[]; metaDescription: string | null } | null;
+  /** The page's held content, whole: headings and passages AS STORED, with the completeness verdict.
+   *  A producer asking "does this page already carry X" must ask pageContains, never scan a sample. */
+  body: OwnedPageBody | null;
   /** THE ACCOUNT'S OWN PAGE INVENTORY, minus the page under work, bounded by the caller. A producer that has
    *  to name somewhere for a reader to GO NEXT picks from pages this account demonstrably has; picking from
    *  the links the page already carries could only ever propose a second link to a place it already sends

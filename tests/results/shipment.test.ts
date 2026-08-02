@@ -68,7 +68,9 @@ vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/assemble-pa
   loadPageSurgeonContext: async () => ({ gscByUrl: new Map(), snapshotByCanon: new Map() }),
   assemblePacketForUrl: () => ({ gsc: null }),
 }));
-vi.mock("@/domains/evidence/ai-visibility/ai-observations", () => ({ readAiObservationViews: ai.views }));
+vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => ({
+  ...((await orig()) as object), readAiObservationViews: ai.views,
+}));
 
 import { measureRecord, recordShippedChange } from "@/domains/measurement/proof-gsc/measure-pass";
 import { isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
@@ -113,10 +115,10 @@ beforeEach(() => {
   gsc.window.mockResolvedValue(new Map([[PAGE, { clicks: 9, impressions: 1200, ctr: 0.0075, position: 14 }]]));
   gsc.lastFinal.mockResolvedValue("2026-07-30");
   ai.views.mockResolvedValue([
-    { slot: 0, status: "observed", day: "2026-07-30", analysis: { ownedBrandMention: { mentioned: true } } },
-    { slot: 0, status: "observed", day: "2026-07-30", analysis: { ownedBrandMention: { mentioned: false } } },
-    { slot: 1, status: "observed", day: "2026-07-30", analysis: { ownedBrandMention: { mentioned: true } } },
-    { slot: 0, status: "observed", day: "2026-06-01", analysis: { ownedBrandMention: { mentioned: true } } },
+    { slot: 0, status: "observed", day: "2026-07-30", analysis: { ownedBrandMention: { mentioned: true } }, analysisHash: "x", answerHash: "x" },
+    { slot: 0, status: "observed", day: "2026-07-30", analysis: { ownedBrandMention: { mentioned: false } }, analysisHash: "x", answerHash: "x" },
+    { slot: 1, status: "observed", day: "2026-07-30", analysis: { ownedBrandMention: { mentioned: true } }, analysisHash: "x", answerHash: "x" },
+    { slot: 0, status: "observed", day: "2026-06-01", analysis: { ownedBrandMention: { mentioned: true } }, analysisHash: "x", answerHash: "x" },
   ]);
 });
 
@@ -144,7 +146,7 @@ describe("the canonical Shipment", () => {
     // was a day. The day is found off a small probe and then READ BY NAME, which returns all of it.
     const DAY = "2026-07-30";
     const whole = Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY,
-      analysis: { ownedBrandMention: { mentioned: i % 2 === 0 } } }));
+      analysis: { ownedBrandMention: { mentioned: i % 2 === 0 } }, analysisHash: "x", answerHash: "x" }));
     ai.views.mockImplementation(async (_t: string, o: { day?: string; limit?: number }) =>
       (o?.day === DAY ? whole : whole.slice(0, o?.limit ?? 60)));
     await upsertShippedChange(await ship());
@@ -159,7 +161,7 @@ describe("the canonical Shipment", () => {
     // closely, 60 naming the account: the starting rate is 0.6, and it was 0.43.
     const DAY = "2026-07-30";
     const whole = Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY,
-      analysis: i < 100 ? { ownedBrandMention: { mentioned: i < 60 } } : null }));
+      analysis: i < 100 ? { ownedBrandMention: { mentioned: i < 60 } } : null, analysisHash: i < 100 ? "x" : null, answerHash: "x" }));
     ai.views.mockImplementation(async (_t: string, o: { day?: string; limit?: number }) =>
       (o?.day === DAY ? whole : whole.slice(0, o?.limit ?? 60)));
     await upsertShippedChange(await ship());

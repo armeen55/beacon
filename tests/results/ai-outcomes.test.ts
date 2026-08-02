@@ -25,7 +25,9 @@ function row(over: RowOver = {}): AiObservationRecord {
     requested_at: `${reporting_day}T09:00:00.000Z`, completed_at: `${reporting_day}T09:00:10.000Z`,
     cost_usd: 0, status: "observed", failure_reason: null, answer_text: "an answer", answer_hash: "abc",
     journey: { fan_outs: null, retrieved_results: null, cited_sources: null, brand_mentions: null, web_search_reported: null },
-    analysis, analysis_hash: analysis ? "h" : null, ...rest,
+    // A settled reading carries the ANSWER's own hash: the whole answer was read. A stored partial
+    // deliberately carries a different hash, which is exactly what keeps it out of every denominator.
+    analysis, analysis_hash: analysis ? "abc" : null, ...rest,
   } as AiObservationRecord;
 }
 

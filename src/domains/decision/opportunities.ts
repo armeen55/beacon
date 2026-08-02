@@ -260,32 +260,35 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
       reason: `${opening}, and that gap is big enough to look into. ${evidenceComplete(readiness) ? diagnosis.explanation : missingSentence(readiness)}` };
   }
 
+  // A GAP UNDER MY CLICK FLOORS IS NOT SILENCE ABOUT THE PAGE. Those floors size a REWRITE, and an engine
+  // that answered around this page, a comparison that named it, and two of my own pages splitting its search
+  // are none of them measured in clicks. The ladder is pure and costs nothing, so it is asked here too: the
+  // page is still only WATCHED, and naming its cause is what lets the deep read open on that cause's own door.
+  const quiet = diagnoseCauses({ snapshot, page, query: best.query, coverage: opts.coverage ?? null, measuringPagePaths: opts.measuringPagePaths,
+    serpRead: diagnoseCandidate({ query: best.query, ownedUrl: pageUrl, body: false, gscPosition: best.position,
+      organic: index.serpByQuery.get(canonicalQueryKey(best.query)) ?? null }) });
+  const watched = (fallback: CauseFinding, reason: string): QualifiedCandidate => ({ action: "watch", pageUrl, query: best.query,
+    recoverableClicks: Math.max(0, best.recoverableClicks), cause: quiet.cause === "no_problem" ? fallback : quiet,
+    reason: quiet.cause === "no_problem" ? reason : `${reason} ${quiet.explanation}` });
+
   if (best.deficit > 0) {
     const missed = best.impressions < MIN_QUERY_IMPRESSIONS
       ? `that is too little search to act on yet (I want ${num(MIN_QUERY_IMPRESSIONS)} impressions on one query)`
       : best.deficit < MIN_CTR_DEFICIT
         ? `that gap is ${pct(best.deficit)}, under the ${pct(MIN_CTR_DEFICIT)} I act on`
         : `that is only about ${num(Math.max(0, best.recoverableClicks))} clicks, under the ${MIN_RECOVERABLE_CLICKS} I act on`;
-    return {
-      action: "watch",
-      pageUrl,
-      query: best.query,
-      recoverableClicks: Math.max(0, best.recoverableClicks),
-      cause: noProblemFinding("The gap on that search is real and smaller than the size I act on, so I am not naming a cause for it yet.",
-        "the gap is under the size where changing this page's wording would be worth your morning"),
-      reason: `${scope}. ${rates}, and ${missed}. I am watching it instead of making you work.`,
-    };
+    return watched(noProblemFinding("The gap on that search is real and smaller than the size I act on, so I am not naming a cause for it yet.",
+      "the gap is under the size where changing this page's wording would be worth your morning"),
+    `${scope}. ${rates}, and ${missed}. I am watching it instead of making you work.`);
   }
 
-  return {
-    action: "do_nothing",
-    pageUrl,
-    query: best.query,
-    recoverableClicks: 0,
-    cause: noProblemFinding("This page already earns more of the clicks than pages at its position usually get.",
-      "this page already beats what its position usually earns, so its wording is costing you nothing"),
-    reason: `${scope}. ${rates}, so this page is already beating what its position usually earns. Leave it alone.`,
-  };
+  const beats = noProblemFinding("This page already earns more of the clicks than pages at its position usually get.",
+    "this page already beats what its position usually earns, so its wording is costing you nothing");
+  const leave = `${scope}. ${rates}, so this page is already beating what its position usually earns. Leave it alone.`;
+  // Beating the curve settles the WORDING and nothing else, so a page an engine skips is still named here.
+  return quiet.cause === "no_problem"
+    ? { action: "do_nothing", pageUrl, query: best.query, recoverableClicks: 0, cause: beats, reason: leave }
+    : watched(beats, leave);
 }
 
 /**
