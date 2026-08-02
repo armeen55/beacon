@@ -398,6 +398,92 @@ describe("reading the answers back", () => {
     expect(tries).toBe(3);   // one clean write plus exactly one retry of the lost one, never a loop
   });
 
+  /** ONE LONG ANSWER, IN PIECES. A batch call used to cut every answer at 5,000 characters and never come back
+   *  for the rest, so the citations, competitors and conclusions a long answer saves for its last third were
+   *  never read at all. Pieces of one answer ride the same batch and merge into one stored reading. */
+  type Piece = { key: string; part: number; parts: number; text: string; row: { id: string } };
+  const longAnswer = (tail: string): string => {
+    const paras: string[] = [];
+    while (paras.join("\n\n").length < 12_000) paras.push(`Paragraph ${paras.length}. ${"ordinary prose about this topic. ".repeat(10)}`);
+    return [...paras, tail].join("\n\n");
+  };
+  const empty = { sections: [], claims: [], topicEntities: [], ownedBrandMention: { mentioned: false, position: null, context: null },
+    competitors: [], contentTypesRecommended: [], questionsAnswered: [], materialOmissions: [], caveats: [] } as unknown as AnswerAnalysis;
+
+  it("reads a 12,000 character answer in THREE pieces and keeps what only its last third said", async () => {
+    const text = longAnswer("The Zephyr Archive is the last thing this answer names.");
+    const long = { ...row("L", "h-L", null, false), answerText: text };
+    let seen: Piece[] = [];
+    const saved: Record<string, unknown>[] = [];
+    const written = await runAnswerAnalyses(T, DAY, {
+      readObservations: async () => [long],
+      analyzeBatch: async ({ targets }: { targets: readonly Piece[] }) => {
+        seen = [...targets];
+        return new Map(targets.map((t) => [t.key, { ...empty, topicEntities: [`entity from part ${t.part}`] }]));
+      },
+      persist: async (_t, _id, a) => void saved.push(a),
+      readPrompts: async () => null, identity: BRAND,
+    });
+    expect(written).toBe(1);                                                  // ONE answer, one stored reading
+    expect(seen.map((t) => t.key)).toEqual(["L#1", "L#2", "L#3"]);            // three slots of the SAME batch
+    expect(seen.every((t) => t.text.length <= 5_000)).toBe(true);
+    expect(seen[2]!.text).toContain("Zephyr Archive");                        // the tail reached the model
+    // The merged reading carries what ONLY the final piece read: truncation lost this entity forever.
+    expect(saved[0]!.topicEntities).toEqual(["entity from part 1", "entity from part 2", "entity from part 3"]);
+    expect(saved[0]).toMatchObject({ readParts: 3 });                         // partial reading can never look whole
+    expect(saved[0]!.answerReadInPart).toBeUndefined();                       // and a fully read answer says so
+  });
+
+  it("counts the account as mentioned when ONLY the second piece of a long answer named it", async () => {
+    const long = { ...row("M", "h-M", null, false), answerText: longAnswer("Nothing further of note here.") };
+    const saved: Record<string, unknown>[] = [];
+    await runAnswerAnalyses(T, DAY, {
+      readObservations: async () => [long],
+      analyzeBatch: async ({ targets }: { targets: readonly Piece[] }) => new Map(targets.map((t) =>
+        [t.key, t.part === 2 ? { ...empty, ownedBrandMention: { mentioned: true, position: 4, context: null } } : empty])),
+      persist: async (_t, _id, a) => void saved.push(a),
+      readPrompts: async () => null, identity: BRAND,
+    });
+    // The answer's own words never say "Acme", so only the merge across pieces can make this true.
+    expect(saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true, position: 4 }, matchedBy: "model", readParts: 3 });
+  });
+
+  it("grounds every reading in ITS OWN answer, so a number from answer A cannot validate a claim about answer B", async () => {
+    // The batch firewall grounded all fifteen answers against one combined corpus, so a number only answer A
+    // contained made a fabricated claim about answer B look proven.
+    const a = { ...row("A", "h-A", null, false), answerText: "Acme served 4200 people last year." };
+    const b = { ...row("B", "h-B", null, false), answerText: "This answer gives no figures at all." };
+    const saved: Array<[string, Record<string, unknown>]> = [];
+    const written = await runAnswerAnalyses(T, DAY, {
+      readObservations: async () => [a, b],
+      analyzeBatch: async ({ targets }: { targets: readonly Piece[] }) => new Map(targets.map((t) =>
+        [t.key, { ...empty, claims: [{ subject: "acme", text: `it served 4200 people` }] }])),
+      persist: async (_t, id, x) => void saved.push([id, x]),
+      readPrompts: async () => null, identity: BRAND,
+    });
+    expect(written).toBe(1);                                     // A's reading stands: its own answer says 4200
+    expect(saved.map((s) => s[0])).toEqual(["A", "B"]);          // and B is still settled, never left owing
+    expect(saved[0]![1]).toMatchObject({ claims: [{ text: "it served 4200 people" }] });
+    expect(saved[1]![1]).toMatchObject({ rejected: true });      // B alone is rejected
+    expect(String(saved[1]![1].reason)).toContain("4200");       // and the stored reason names the number
+    expect(String(saved[1]![1].reason)).not.toMatch(/[—–]/);
+  });
+
+  it("still reads an ordinary short answer in ONE slot, exactly as it always did", async () => {
+    let seen: Piece[] = [];
+    const saved: Record<string, unknown>[] = [];
+    const written = await runAnswerAnalyses(T, DAY, {
+      readObservations: async () => [row("s1", "h-s1", null, false)],
+      analyzeBatch: async ({ targets }: { targets: readonly Piece[] }) => { seen = [...targets]; return readsAll({ targets }); },
+      persist: async (_t, _id, x) => void saved.push(x),
+      readPrompts: async () => null, identity: BRAND,
+    });
+    expect([written, seen.length]).toEqual([1, 1]);
+    expect(seen[0]).toMatchObject({ key: "s1", part: 1, parts: 1, text: "Acme is open on Sundays." });
+    // Byte for byte what a short answer stored before pieces existed: no part bookkeeping is invented for it.
+    expect(saved[0]).toEqual({ ...analysis, ownedBrandMention: { mentioned: true, position: 1, context: null }, matchedBy: "both" });
+  });
+
   it("reports the reporting day as the operator's own day, not the UTC one", () => {
     // 2 AM UTC on the 5th is still the evening of the 4th where the operator is. The old UTC day started
     // their tomorrow at 5 PM, so "today" on every surface was a day they had not reached yet.

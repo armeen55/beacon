@@ -62,6 +62,8 @@ const db = vi.hoisted(() => {
       const run = (): { data: string | null; error: { message: string; code?: string } | null } => {
         if (name !== "supersede_change_proposal") return { data: null, error: { message: `unknown function ${name}` } };
         if (state.rpcMissing) return { data: null, error: { code: "PGRST202", message: "Could not find the function public.supersede_change_proposal" } };
+        // The tenant guard the SQL now opens with: a successor id living under another account fails whole.
+        if (state.rows.some((r) => r.id === (args.p_row as Row).id && r.tenant_id !== args.p_tenant_id)) return { data: "failed", error: null };
         const pred = state.rows.find((r) => r.tenant_id === args.p_tenant_id && r.id === args.p_predecessor_id);
         if (!pred) return { data: "failed", error: null };
         if (pred.terminal_disposition != null || !["proposed", "needs_review"].includes(String(pred.status))) return { data: "blocked", error: null };
@@ -186,6 +188,21 @@ describe("canonical proposal persistence", () => {
     expect(await dismissChangeProposal(T, proposal().id)).toBe(false);
     expect(db.state.rows[0]!.terminal_disposition).toBeNull();
     expect(await dismissChangeProposal(T, "an-id-nobody-holds")).toBe(false);
+  });
+
+  it("refuses a crafted successor id that lives under another account, and nothing moves", async () => {
+    // Account B holds a row whose id a malicious caller hands to account A's handover as the successor.
+    expect(await saveChangeProposal(proposal())).toBe("saved");
+    db.state.rows.push({ id: "acct-b::/other::existing_edit::title", tenant_id: "acct-b", case_id: "", page_key: "/other",
+      action_family: "title-family", proposal_version: 1, basis: "b1", status: "proposed", terminal_disposition: null,
+      superseded_by: null, payload: JSON.parse(serializeChangeProposal(proposal({ id: "acct-b::/other::existing_edit::title", tenantId: "acct-b", pagePath: "/other" }))), created_at: "2026-07-01T00:00:00.000Z" });
+    const crafted = proposal({ id: "acct-b::/other::existing_edit::title", basis: "b2",
+      bundle: bundle("title", "A Different Title Entirely") });
+    expect(await saveChangeProposal(crafted)).toBe("failed");
+    const b = db.state.rows.find((r) => r.tenant_id === "acct-b")!;
+    expect([b.status, b.terminal_disposition, b.proposal_version]).toEqual(["proposed", null, 1]); // untouched
+    const a = db.state.rows.find((r) => r.tenant_id === T)!;
+    expect(a.terminal_disposition).toBeNull(); // the predecessor keeps its place
   });
 
   it("reads pre-cutover rows as history, never revives one the canonical table retired, and never crosses accounts", async () => {

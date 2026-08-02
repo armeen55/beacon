@@ -28,15 +28,11 @@ export type EvidenceRef = z.infer<typeof EvidenceRefSchema>;
 export const ConfidenceSchema = z.enum(["high", "medium", "low"]);
 
 /**
- * W5 (2026-07-09, J-69/J-71), one citation attached to a factual draft. The
- * LLM may PROPOSE a source (url/title/domain/claim); it never gets to decide
- * `authority`, only `src/domains/decision/drafts/source-authority.ts`'s deterministic
- * classifier stamps that field (a .gov/.edu domain, a small named encyclopedic/
- * major-press set, or the tenant's own allowlist earns "authoritative"; a real
- * URL with a claim but no authoritative domain is "weak"; a bare URL with no
- * claim attached is "unverified", it counts as no source at all). `claim` is
- * the specific fact this source backs, so a source can be checked for actually
- * covering the draft's claim, not just cited in passing. */
+ * W5 (2026-07-09, J-69/J-71), one citation attached to a factual draft. The LLM may PROPOSE a
+ * source (url/title/domain/claim) but never decides `authority`: source-authority.ts's
+ * deterministic classifier stamps it (.gov/.edu, the named encyclopedic and major-press set, or
+ * the tenant's allowlist earn "authoritative"; a real URL with a claim is "weak"; a bare URL is
+ * "unverified" and counts as no source). `claim` is the fact the source is checked to cover. */
 export const SourceRefSchema = z.object({
   url: z.string().min(1).max(500),
   title: z.string().min(1).max(200),
@@ -379,7 +375,9 @@ export const AnswerAnalysisSchema = z.object({
 export type AnswerAnalysis = z.infer<typeof AnswerAnalysisSchema>;
 // The BATCH read (V1 Closure, 2026-08-01): the SAME reader contract over many answers in ONE call, each entry echoing the observation id it was taken on,
 // copied from the input and never minted. One answer per call meant five readings a pass, so one day of 140 answers needed twenty-eight of the eight passes a day runs.
-export const AnswerAnalysisBatchSchema = z.object({ analyses: z.array(AnswerAnalysisSchema.extend({ observationId: z.string().min(1).max(80) })).max(20) });
+// `observationId` is echoed exactly as it was given: the observation id alone for an answer that fits one slot, and `id#2` for the second PIECE of a long answer,
+// which occupies its own slot and is merged back into one reading by the caller. A cut-off answer used to lose its tail, and everything it said there, forever.
+export const AnswerAnalysisBatchSchema = z.object({ analyses: z.array(AnswerAnalysisSchema.extend({ observationId: z.string().min(1).max(90) })).max(20) });
 export type AnswerAnalysisBatch = z.infer<typeof AnswerAnalysisBatchSchema>;
 // ── case synthesis (V1 Truth Convergence Phase 2, 2026-07-31): the SEMANTIC read over the grouping the deterministic
 // pass already made ── The model may only merge, split, link or nest cases the caller supplied, by the ids and

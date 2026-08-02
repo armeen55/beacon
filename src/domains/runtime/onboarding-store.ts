@@ -373,8 +373,11 @@ export async function approvePrompts(tenantId: string, selection: PromptSelectio
   // the new selection dropped, so a re-approve can never accumulate past the bound.
   const byId = new Map(writes.map((w) => [w.id, w]));
   const activeCount = byId.size;
-  if (activeCount < LIMITS.minActive) return { ok: false, error: `Pick at least ${LIMITS.minActive} prompts so I can track something meaningful. You have ${activeCount}.` };
-  if (activeCount > LIMITS.maxActive) return { ok: false, error: `That is ${activeCount} prompts. Keep it to ${LIMITS.maxActive} or fewer so each one gets real attention.` };
+  // THE UI'S 20-50 WINDOW HOLDS HERE TOO, so no other caller can say yes where the page said no. The
+  // floor bends to a thin candidate pool (a 16 question profile approves its 16), never below minActive.
+  const floor = Math.max(LIMITS.minActive, Math.min(LIMITS.onboardingMin, candidates.length));
+  if (activeCount < floor) return { ok: false, error: `Pick at least ${floor} prompts so I can track something meaningful. You have ${activeCount}.` };
+  if (activeCount > LIMITS.onboardingMax) return { ok: false, error: `That is ${activeCount} prompts. Keep it to ${LIMITS.onboardingMax} or fewer so each one gets real attention.` };
   const finalWrites = [...byId.values()];
   // Sweep EVERY active prompt row not in this selection, across ALL bases: a goal
   // toggled back reuses old candidates without the mint sweep, so approval is what

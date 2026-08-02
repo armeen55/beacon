@@ -42,7 +42,13 @@ export type TrackedPromptRow = {
 
 /** Tags + limits that define the core-question lifecycle (one export each, bundled). */
 export const PROMPT_TAGS = { candidate: "candidate_v1", set: "set_v1", recommended: "recommended", core: "core_v1", edited: "edited", added: "added" } as const;
-export const LIMITS = { recommendedTarget: 50, minActive: 10, maxActive: 100 };
+export const LIMITS = {
+  recommendedTarget: 50, minActive: 10, maxActive: 100,
+  /** Setup speaks Product Truth's own window: 20 to 50 approved questions. The floor bends to a thin
+   *  candidate pool (never below minActive) so a sparse profile can still finish setup honestly, and a
+   *  live account editing in Settings keeps the wider 10 to 100 range above. */
+  onboardingMin: 20, onboardingMax: 50,
+};
 
 export function normalizePromptText(text: string): string {
   return (text ?? "").trim().toLowerCase().replace(/\s+/g, " ");

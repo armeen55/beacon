@@ -8,19 +8,11 @@
  * predecessor steps aside pointing at its successor, which lands with the next `proposal_version`. An
  * identical re-draft writes NOTHING.
  *
- * THE STATUS VOCABULARY DOES NOT MOVE. proposed / needs_review / rejected / applied are the lifecycle; a
- * DISPOSITION (dismissed, withdrawn, superseded) is whether the row is still the current answer. A
- * DISMISSED CHANGE STAYS DISMISSED under the same basis; a NEW basis is a different reading of a
- * different world.
- *
- * A CHANGE THE OPERATOR APPLIED IS NEVER RETIRED FOR A NEWER IDEA. Only a row still waiting on them
- * (proposed / needs_review) may be superseded; anything else refuses the new draft.
- *
- * HISTORY IS READABLE, NEVER RESURRECTED. Nothing writes `move_drafts` anymore; its rows are read only for
- * ids the canonical table has never heard of, and never revive a known row.
- *
- * FAIL CLOSED, LOUDLY. The table is created by migration BEFORE this code deploys; if missing, a write
- * fails and says so, and reads fall back to history. server-only. */
+ * THE STATUS VOCABULARY DOES NOT MOVE: proposed / needs_review / rejected / applied are the lifecycle; a
+ * DISPOSITION (dismissed, withdrawn, superseded) is whether the row is still the current answer, a
+ * dismissal holds under its basis, and only a row still waiting on the operator may be superseded.
+ * HISTORY IS READABLE, NEVER RESURRECTED (`move_drafts` rows serve only ids this table never heard of).
+ * FAIL CLOSED, LOUDLY: a missing table fails writes and says so; reads fall back to history. server-only. */
 
 import "server-only";
 
@@ -237,6 +229,13 @@ async function setDisposition(
  * before. Writes nothing when the stored row already says exactly this. Never throws. */
 export async function saveChangeProposal(proposal: ChangeProposal): Promise<SaveResult> {
   if (!proposal.tenantId || !proposal.id) return "failed";
+  // Every real id is minted `${tenantId}::...` by this kernel. A proposal whose id wears another
+  // account's prefix is a crafted call, and an upsert keyed on id alone would land it on that
+  // account's row, so it is refused before any read. The database function holds the same line.
+  if (!proposal.id.startsWith(`${proposal.tenantId}::`)) {
+    log.error("[proposal-store] the id does not belong to this account, so nothing is saved", { tenantId: proposal.tenantId, id: proposal.id });
+    return "failed";
+  }
   const ident = identityOf(proposal);
   try {
     const sb = getSupabaseAdmin();

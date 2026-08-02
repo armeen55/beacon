@@ -171,7 +171,7 @@ describe("onboarding contract (Slice 5)", () => {
     const before = rows.length; await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates }); // retry reuses the basis, spends nothing
     expect(w.prompts.filter((p) => p.tenant_id === A).length).toBe(before); // no duplicate rows
   });
-  it("6. approval is declarative over the current-basis candidates: default 50, include/edit/add/remove work, foreign ids are rejected, 10..100 bounds hold, and it never accumulates", async () => {
+  it("6. approval is declarative over the current-basis candidates: default 50, include/edit/add/remove work, foreign ids are rejected, the 20..50 setup window holds server side, and it never accumulates", async () => {
     const w = makeWorld();
     seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
     await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates });
@@ -179,7 +179,9 @@ describe("onboarding contract (Slice 5)", () => {
     expect((await approvePrompts(A, { approvedIds: ["prompt-deadbeefdeadbeef"] }, w.deps)).ok).toBe(false); // foreign id rejected, never kept
     const src = w.prompts.find((p) => p.tenant_id === A)!;
     expect((await approvePrompts(A, { approvedIds: [src.id] }, w.deps)).ok).toBe(false); // 1 row is below the floor of 10
-    const keep = w.prompts.filter((p) => p.tenant_id === A && p.tags.includes("recommended")).slice(0, 12).map((p) => p.id);
+    const twelve = w.prompts.filter((p) => p.tenant_id === A && p.tags.includes("recommended")).slice(0, 12).map((p) => p.id);
+    expect((await approvePrompts(A, { approvedIds: twelve }, w.deps)).ok).toBe(false); // 12 is under the setup window's floor of 20 when the pool holds 50
+    const keep = w.prompts.filter((p) => p.tenant_id === A && p.tags.includes("recommended")).slice(0, 22).map((p) => p.id);
     const ok = await approvePrompts(A, { approvedIds: keep, edits: [{ fromId: keep[0]!, text: "rug cleaning quote request" }], additions: [{ groupSlug: src.topic_id!, text: "brand new rug question" }], removedIds: [keep[1]!] }, w.deps);
     expect(ok.ok).toBe(true);
     expect(w.prompts.some((p) => p.tenant_id === A && p.text === "rug cleaning quote request" && p.tags.includes("edited"))).toBe(true); // edit versions a new row
@@ -187,6 +189,17 @@ describe("onboarding contract (Slice 5)", () => {
     await approvePrompts(A, { useRecommendedDefault: true }, w.deps); // re-approve the default set
     expect(activeCore(w, A).length).toBe(50); // never accumulates past the bound
   });
+  it("6b. a thin candidate pool bends the setup floor server side: sixteen questions approve sixteen, eleven do not", async () => {
+    const w = makeWorld();
+    seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
+    await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates });
+    const cands = w.prompts.filter((p) => p.tenant_id === A && p.tags.includes("candidate_v1"));
+    for (const p of cands.slice(16)) w.prompts.splice(w.prompts.indexOf(p), 1);
+    const ids = cands.slice(0, 16).map((p) => p.id);
+    expect((await approvePrompts(A, { approvedIds: ids.slice(0, 11) }, w.deps)).ok).toBe(false); // under the bent floor of sixteen
+    expect((await approvePrompts(A, { approvedIds: ids }, w.deps)).ok && activeCore(w, A).length).toBe(16);
+  });
+
   it("7. activation is blocked until website + confirmed profile + goal + approved prompts + TOS, never schedules on a block, is double-click safe, and schedules exactly one research run", async () => {
     const w = makeWorld();
     seedPending(w, A, { domain: "acme.com" }); // missing profile + goal + prompts

@@ -37,14 +37,14 @@
   bounded retry, never a redirect, lockout, or onboarding bounce. Active accounts manage tracked questions in
   Settings, Business info via ONE shared prompt service and editor also used by Step 5 (which hydrates from the
   approved set): unchanged wording keeps its row id and history, a rewording carries `superseded:<oldId>`, legacy
-  seed rows are untouched, 10..100 enforced, a valid save resumes the same paused Research Run on the next visit.
+  seed rows are untouched, 10..100 enforced in Settings, a valid save resumes the same paused Research Run on the next visit.
   jsonb `tags` reads pass JSON (contains() silently errored to empty, which would have kept research paused after
   a save). Copy is true: no Wix auto-publish or per-charge approval claims, no raw exception text, research is
   visit-driven, Today's paused line carries the control that fixes it.
 
 ## What is real but incomplete
 
-- The seven-step onboarding and 50-core-prompt approval flow is live and CONNECTED (Slice 5 + closure, 2026-07-24)
+- The seven-step onboarding and approved-question flow is live and CONNECTED (Slice 5 + closure, 2026-07-24)
   on `/onboard`: one basis, website to activation. Every `tracked_prompts` row carries a deterministic basis
   fingerprint; only current-basis rows render, count, approve, or activate, and approval's other-basis sweep
   (locally pending-only, 2026-07-26) keeps stale prompts untracked pre-activation. Website replacement
@@ -55,14 +55,14 @@
   reserves projected cost BEFORE each call against the lifetime $2 cap, reconciling to actual (write failure
   overcounts and blocks); live-validated at $0.0378. Page snapshots persist (14 real upserts). Connections shows
   "Return to setup" while onboarding. Pending accounts start no Research Run at either boundary; activation is
-  idempotent, requires 10..100 current-basis approved prompts plus website, confirmed profile, goal, and terms,
+  idempotent, requires the setup window of approved prompts (20..50, bending to a thin candidate pool, enforced server side) plus website, confirmed profile, goal, and terms,
   starting exactly one durable Research Run. Verified end to end rendered, desktop and mobile, with real crawl,
   real model calls, mid-flow website/goal changes. One inert synthetic pending account remains for review.
 - Durable visit-driven Research Runs exist (Slice 4, 2026-07-24): every authenticated visit renders the saved
   surfaces first, then claims or resumes the account's Research Run through an atomic database-time lease RPC. At
   most one unfinished run per account across all dates (partial unique index): the claim resumes it whatever day
   it started (same row, phase, cursor, progress; a live foreign lease blocks, an expired one reclaims), a
-  same-UTC-day completion blocks a redundant pass; a new daily cycle (database-time key) starts only when none is
+  same-day completion (the operator's Pacific day, computed in the claim RPC) blocks a redundant pass; a new daily cycle starts only when none is
   open. A partially failed refresh durably persists the providers that synced before pausing. Seven phases mirror
   the real work (refresh sources, GSC backfill, keyword discovery, AI observation, search analysis, winning pages,
   surface publish); progress, phase, cursors durable; a killed invocation resumes at the persisted phase;

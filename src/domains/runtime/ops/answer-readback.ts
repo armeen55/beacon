@@ -14,6 +14,18 @@ import "server-only";
  * IT COSTS NOTHING WHEN NOTHING CHANGED. A reading fires only on an answer hash
  * that has not been read yet, so a re-run of the same pass buys nothing.
  *
+ * A LONG ANSWER IS READ WHOLE, IN PIECES. A batch slot reads 5,000 characters, so
+ * a longer answer is split on its own paragraph breaks, every piece rides the same
+ * batch keyed `id#part`, and the pieces merge into ONE stored reading. Cutting at
+ * 5,000 and never returning meant every citation, competitor and conclusion a long
+ * answer saved for its last third was paid for and never read.
+ *
+ * EVERY READING IS GROUNDED IN ITS OWN ANSWER. The gateway grounds one batch call
+ * against all fifteen answers as one body of text, so a number only answer A
+ * contained could validate a fabricated claim about answer B. Each returned item is
+ * re-checked against the exact text it was read from, and a failing item is dropped
+ * alone, with the number named in what is stored.
+ *
  * EVERY ANSWER THIS PASS TAKES ON ENDS IT ANALYZED OR EXPLICITLY REJECTED,
  * stamped with its own answer hash either way, so it leaves the worklist and the
  * same answer is never bought twice. An answer a batch left out is rejected
@@ -25,8 +37,9 @@ import "server-only";
  */
 
 import { loadBrandIdentity, type BrandIdentity } from "@/domains/account/brand-identity";
+import { buildGroundedNumbers, findUngroundedNumbers } from "@/domains/decision/llm/numeric-fidelity";
 import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
-import type { AnswerAnalysis, AnswerAnalysisBatch } from "@/domains/decision/llm/schemas";
+import { draftProseStringValues, type AnswerAnalysis, type AnswerAnalysisBatch } from "@/domains/decision/llm/schemas";
 import type { AiObservationView } from "@/domains/evidence/ai-visibility/ai-observations";
 import { log } from "@/lib/logger";
 import { readActiveTrackedPrompts, type TrackedQuestion } from "../prompt-set";
@@ -66,9 +79,16 @@ const ANSWERS_PER_BATCH = 15;
 const BATCH_CALLS_PER_PASS = 4;
 /** How many answers one pass may read back in total. Zero new answers still costs zero. */
 const MAX_ANALYSES_PER_PASS = ANSWERS_PER_BATCH * BATCH_CALLS_PER_PASS;
-/** How much of ONE answer a batch call reads. A longer answer is cut, and the stored reading SAYS it was
- *  cut, so nobody later mistakes a partial reading for a complete one. */
+/** How much of ONE answer ONE batch slot reads. A longer answer is not cut off here: it is SPLIT into this many
+ *  characters at a time and every piece rides the same batch, so the citations, competitors and conclusions a
+ *  long answer saves for its last third are read instead of thrown away. */
 const BATCH_ANSWER_CHARS = 5_000;
+/** How many pieces one answer may occupy. Six is 30,000 characters, longer than any answer an engine has
+ *  returned; past it the tail is genuinely unread and the stored reading says so rather than implying it read
+ *  the whole thing. */
+const MAX_PARTS_PER_ANSWER = 6;
+/** How much of one answer the ONE AT A TIME fallback call reads. */
+const SINGLE_ANSWER_CHARS = 12_000;
 /** When a whole batch comes back unusable, how many of ITS OWN answers this pass may re-read ONE AT A TIME.
  *  PER FAILED BATCH, sized to cover one whole batch: a pass budget meant batch one's wholesale failure ate
  *  the entire allowance and batches two, three and four settled nothing at all, so the pass left three
@@ -95,8 +115,78 @@ export function selectAnalysisTargets(rows: readonly AnalyzableObservation[], ma
     .slice(0, Math.max(0, max));
 }
 
-/** One answer as a batch call sees it: the row, the question it answered, and how much of it I read. */
-type AnalysisTarget = { row: AnalyzableObservation; question: string; truncated: boolean };
+/** ONE PIECE of one answer as a batch call sees it: the row, the question it answered, the exact text this
+ *  piece was read from, and which piece of how many it is. A short answer is one piece keyed by the observation
+ *  id alone, so nothing about reading a short answer changed. */
+type AnalysisTarget = {
+  row: AnalyzableObservation; question: string;
+  /** What the model echoes back: the observation id for a one piece answer, `id#2` for the second piece of a
+   *  split one, so a reading always comes home to the piece it was taken on. */
+  key: string; part: number; parts: number;
+  /** The only text this piece may be checked against, which is what makes per answer grounding possible. */
+  text: string;
+  /** False only when the answer ran past the part ceiling, so its tail was never sent. */
+  whole: boolean;
+};
+
+/** PURE. One answer as the bounded pieces a batch can read. A short answer is ONE piece, handed over untouched.
+ *  A long one is cut at the last paragraph break before the budget (then a sentence end, then a space, then the
+ *  budget itself), so no piece starts mid sentence. `whole` is false only past the part ceiling. */
+function splitAnswer(text: string, budget = BATCH_ANSWER_CHARS, maxParts = MAX_PARTS_PER_ANSWER): { parts: string[]; whole: boolean } {
+  if (text.length <= budget) return { parts: [text], whole: true };
+  const parts: string[] = [];
+  let rest = text;
+  while (rest.length > budget && parts.length < maxParts - 1) {
+    const window = rest.slice(0, budget), floor = Math.floor(budget / 2);
+    const para = Math.max(window.lastIndexOf("\n\n"), window.lastIndexOf("\n"));
+    const dot = window.lastIndexOf(". "), space = window.lastIndexOf(" ");
+    const cut = para >= floor ? para : dot >= floor ? dot + 1 : space >= floor ? space : budget;
+    parts.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  parts.push(rest.slice(0, budget).trim());
+  return { parts, whole: rest.length <= budget };
+}
+
+/** PURE. The pieces of ONE answer read as ONE reading. The account is mentioned when ANY piece named it, and
+ *  every list is unioned in the order the answer said things and deduped, so an entity, competitor or caveat the
+ *  last third introduced survives instead of being lost with the tail. Caps mirror the schema's own. */
+function mergeAnswerReadings(readings: readonly AnswerAnalysis[]): AnswerAnalysis | null {
+  if (readings.length === 0) return null;
+  if (readings.length === 1) return readings[0] ?? null; // a short answer merges to itself, byte for byte
+  const union = <X,>(pick: (a: AnswerAnalysis) => readonly X[] | undefined, key: (x: X) => string, max: number): X[] => {
+    const seen = new Set<string>(), out: X[] = [];
+    for (const r of readings) for (const x of pick(r) ?? []) {
+      const k = key(x);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(x);
+      if (out.length >= max) return out;
+    }
+    return out;
+  };
+  const named = readings.find((r) => r.ownedBrandMention?.mentioned === true);
+  return {
+    sections: union((r) => r.sections, (s) => `${s.heading}|${s.covers}`, 12),
+    claims: union((r) => r.claims, (c) => `${c.subject}|${c.text}`, 24),
+    topicEntities: union((r) => r.topicEntities, (e) => e.toLowerCase(), 30),
+    ownedBrandMention: named?.ownedBrandMention ?? { mentioned: false, position: null, context: null },
+    competitors: union((r) => r.competitors, (c) => c.name.toLowerCase(), 20),
+    contentTypesRecommended: union((r) => r.contentTypesRecommended, (c) => c.toLowerCase(), 12),
+    questionsAnswered: union((r) => r.questionsAnswered, (q) => q.toLowerCase(), 15),
+    materialOmissions: union((r) => r.materialOmissions, (m) => m.toLowerCase(), 10),
+    caveats: union((r) => r.caveats, (c) => c.toLowerCase(), 10),
+  };
+}
+
+/** PURE. The number this reading restates that ITS OWN answer never says, or null. THE BATCH FIREWALL CROSSED
+ *  ANSWERS: the gateway grounds one call against all fifteen answers as one body of text, so a number that only
+ *  answer A contained grounded a false attribution filed under answer B. Every returned item is re-checked here
+ *  against the exact text it was read from, and only that item is dropped. */
+function numberNotInOwnAnswer(analysis: AnswerAnalysis, ownText: string): string | null {
+  const ledger = buildGroundedNumbers(ownText);
+  return findUngroundedNumbers(draftProseStringValues(analysis).join("\n"), ledger)[0] ?? null;
+}
 
 type AnalysisDeps = {
   readObservations?: (tenantId: string, opts: { day?: string }) => Promise<readonly AnalyzableObservation[]>;
@@ -177,13 +267,15 @@ async function analyzeOne(input: { tenantId: string; question: string; engine: s
  * allowed to file one of them under the other.
  */
 async function analyzeMany(input: { tenantId: string; brand: string; targets: readonly AnalysisTarget[] }, complete?: CompleteFn): Promise<Map<string, AnswerAnalysis> | null> {
-  const bodies = input.targets.map((t) => String(t.row.answerText ?? "").slice(0, BATCH_ANSWER_CHARS));
+  const bodies = input.targets.map((t) => t.text);
   const user = [`BRAND TO LOOK FOR: ${input.brand || "(none supplied)"}`, `Read all ${input.targets.length} answers below. Return one entry per OBSERVATION.`]
     .concat(input.targets.map((t, i) => [
-      `OBSERVATION ${t.row.id}`,
+      `OBSERVATION ${t.key}`,
       `QUESTION ASKED: ${t.question}`,
       `ENGINE: ${t.row.engine}`,
-      t.truncated ? "ANSWER TEXT (the only thing you may restate; it was longer than this and I read the first part only):" : "ANSWER TEXT (the only thing you may restate):",
+      t.parts > 1
+        ? `ANSWER TEXT (the only thing you may restate; this is PART ${t.part} OF ${t.parts} of one long answer, so read this part on its own and do not guess what the other parts say):`
+        : "ANSWER TEXT (the only thing you may restate):",
       bodies[i] ?? "",
     ].join("\n"))).join("\n\n");
   const out = await callStructuredLLM({
@@ -191,9 +283,9 @@ async function analyzeMany(input: { tenantId: string; brand: string; targets: re
     tenantId: input.tenantId,
     system: BATCH_ANALYSIS_SYSTEM,
     user,
-    // Every answer in the batch IS the grounding, so a number any reading restates is grounded and one it
-    // invents is still caught. The firewall reads them as one body of text, which is looser than reading
-    // each answer against its own numbers: a number is judged invented only if NO answer here contains it.
+    // A COARSE FIRST NET ONLY. The gateway reads every answer here as one body of text, so it catches a number
+    // no answer in the batch contains and cannot catch a number carried from one answer to another. The real
+    // firewall is numberNotInOwnAnswer, which re-checks each returned item against its own answer's text.
     grounded: bodies.join("\n"),
     projectedCostUsd: BATCH_ANALYSIS_COST_USD,
     maxTokens: 18_000,
@@ -204,7 +296,7 @@ async function analyzeMany(input: { tenantId: string; brand: string; targets: re
     log.warn("[daily-observations] a batch reading of stored answers came back unusable; falling back to one answer at a time", { tenantId: input.tenantId, answers: input.targets.length, status: out.status });
     return null;
   }
-  const asked = new Set(input.targets.map((t) => t.row.id));
+  const asked = new Set(input.targets.map((t) => t.key));
   const byId = new Map<string, AnswerAnalysis>();
   for (const entry of (out.value as AnswerAnalysisBatch).analyses) {
     const { observationId, ...analysis } = entry;
@@ -251,9 +343,10 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
   const analyzeBatch = deps.analyzeBatch ?? ((i: Parameters<typeof analyzeMany>[0]) => analyzeMany(i, deps.complete));
   let calls = BATCH_CALLS_PER_PASS, written = 0;
 
-  /** ONE reading lands, whatever produced it. `analysis` null means I could not produce a reliable one. */
-  const settleOne = async (t: AnalysisTarget, analysis: AnswerAnalysis | null, reason: string): Promise<void> => {
-    const row = t.row, hash = String(row.answerHash), answerText = String(row.answerText ?? "");
+  /** ONE reading lands for ONE answer, whatever produced it. `analysis` null means I could not produce a
+   *  reliable one; `extra` carries what the stored reading must admit about itself (how many parts I read). */
+  const settleOne = async (row: AnalyzableObservation, analysis: AnswerAnalysis | null, reason: string, extra: Record<string, unknown> = {}): Promise<void> => {
+    const hash = String(row.answerHash), answerText = String(row.answerText ?? "");
     // THE SECOND PAIR OF EYES, on the WHOLE answer even when the model was handed a truncated one. The model
     // reads the answer; this reads the same answer for the account's own name and its own address. The verdict
     // is either one of them, and `matchedBy` records which found it, so a model miss never looks like a real absence.
@@ -280,8 +373,9 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
       ...analysis,
       ownedBrandMention: { ...analysis.ownedBrandMention, mentioned: byModel || found != null },
       matchedBy: (byModel && found ? "both" : byModel ? "model" : found) as BrandMatchPath | null,
-      // An answer longer than a batch call reads is recorded as READ IN PART, never as read whole.
-      ...(t.truncated ? { answerReadInPart: true } : {}),
+      // HOW MUCH OF THIS ANSWER I ACTUALLY READ, on the record. A reading of some of a long answer is never
+      // allowed to look like a reading of all of it.
+      ...extra,
     } as unknown as Record<string, unknown>;
     // ONE retry on a lost write. Still lost leaves the row for the next pass, where the gateway's own call
     // cache serves the identical request at $0, so a retry costs nothing but the round trip.
@@ -293,33 +387,70 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
   /** The degrade: re-read what a broken batch was carrying, ONE answer at a time, bounded to THAT batch.
    *  Whatever the bound leaves is simply not touched this pass, so the next pass picks it up unchanged and
    *  unpaid for. */
-  const readOneByOne = async (group: readonly AnalysisTarget[]): Promise<void> => {
+  const readOneByOne = async (group: readonly (readonly AnalysisTarget[])[]): Promise<void> => {
     let singles = SINGLE_FALLBACKS_PER_BATCH;
-    for (const t of group) {
+    for (const pieces of group) {
       if (singles <= 0) return;
       singles -= 1;
-      const analysis = await analyze({ tenantId, question: t.question, engine: t.row.engine, answerText: String(t.row.answerText ?? ""), brand: identity.name }).catch(() => null);
-      await settleOne(t, analysis, "I could not produce a reliable reading of this answer, so I recorded that instead of paying to be refused again.");
+      const row = pieces[0]!.row, answerText = String(row.answerText ?? "");
+      const analysis = await analyze({ tenantId, question: pieces[0]!.question, engine: row.engine, answerText, brand: identity.name }).catch(() => null);
+      await settleOne(row, analysis, "I could not produce a reliable reading of this answer, so I recorded that instead of paying to be refused again.",
+        answerText.length > SINGLE_ANSWER_CHARS
+          ? { readParts: 1, answerReadInPart: true, reason: `I read this answer back one at a time and that call reads the first ${SINGLE_ANSWER_CHARS} characters, so its tail is not in this reading. The next pass reads it in parts.` }
+          : {});
     }
   };
 
-  const queue: AnalysisTarget[] = targets.map((row) => {
-    const answerText = String(row.answerText ?? "");
-    return { row, question: row.promptText || textOf.get(row.promptId) || "", truncated: answerText.length > BATCH_ANSWER_CHARS };
-  });
-  for (let i = 0; i < queue.length && calls > 0; i += ANSWERS_PER_BATCH) {
-    const group = queue.slice(i, i + ANSWERS_PER_BATCH);
+  /** ONE ANSWER'S PIECES, SETTLED AS ONE ANSWER. Every piece is checked against its own text, the pieces that
+   *  landed are merged into a single reading, and the pieces that did not are named in what is stored. */
+  const settleAnswer = async (pieces: readonly AnalysisTarget[], readings: Map<string, AnswerAnalysis>): Promise<void> => {
+    const row = pieces[0]!.row, parts = pieces[0]!.parts, landed: AnswerAnalysis[] = [], lost: string[] = [];
+    for (const p of pieces) {
+      const of = parts > 1 ? `part ${p.part} of ${parts} of this answer` : "this answer";
+      const reading = readings.get(p.key);
+      if (reading == null) { lost.push(`I read a batch of answers back and ${of} came back missing from the reading.`); continue; }
+      // PER ANSWER GROUNDING. A number is checked against the text THIS piece was read from, never the batch.
+      const invented = numberNotInOwnAnswer(reading, p.text);
+      if (invented != null) { lost.push(`The reading of ${of} used the number ${invented}, which that text never says, so I dropped it rather than store a number the answer cannot back.`); continue; }
+      landed.push(reading);
+    }
+    if (!pieces[0]!.whole) lost.push(`This answer is longer than the ${parts} parts I read, so its tail is not in this reading.`);
+    const merged = mergeAnswerReadings(landed);
+    const note = lost.join(" ");
+    if (merged == null) {
+      await settleOne(row, null, `${note} I recorded that rather than paying to be told nothing twice.`);
+      return;
+    }
+    await settleOne(row, merged, "",
+      parts > 1 || lost.length > 0
+        ? { readParts: landed.length, ...(lost.length > 0 ? { answerReadInPart: true, reason: `${note} What I did read is stored, and a new answer is what asks again.` } : {}) }
+        : {});
+  };
+
+  // ONE ANSWER'S PIECES ALWAYS TRAVEL TOGETHER, so a long answer is merged inside the call that read it.
+  const groups: AnalysisTarget[][] = [];
+  for (const row of targets) {
+    const question = row.promptText || textOf.get(row.promptId) || "";
+    const split = splitAnswer(String(row.answerText ?? ""));
+    const pieces = split.parts.map((text, i) => ({
+      row, question, key: split.parts.length > 1 ? `${row.id}#${i + 1}` : row.id,
+      part: i + 1, parts: split.parts.length, text, whole: split.whole,
+    }));
+    const last = groups[groups.length - 1];
+    if (last == null || last.length + pieces.length > ANSWERS_PER_BATCH) groups.push([...pieces]);
+    else last.push(...pieces);
+  }
+  for (const group of groups) {
+    if (calls <= 0) break;
     calls -= 1;
+    const byAnswer = [...group.reduce((m, p) => m.set(p.row.id, [...(m.get(p.row.id) ?? []), p]), new Map<string, AnalysisTarget[]>()).values()];
     const readings = await analyzeBatch({ tenantId, brand: identity.name, targets: group }).catch(() => null);
     // WHOLESALE FAILURE. The gateway already retried this call once against the same schema, so a second
     // identical batch would buy the same refusal: the group drops to one answer at a time instead.
-    if (readings == null) { await readOneByOne(group); continue; }
-    for (const t of group) {
-      // A MISSING OR UNKNOWN ITEM IS ONE REJECTION, not fifteen. The answer is settled against its own hash
-      // with an honest reason, so it leaves the worklist and its neighbours keep their readings.
-      await settleOne(t, readings.get(t.row.id) ?? null,
-        "I read a batch of answers back and this one came back missing from the reading, so I recorded that rather than paying to be told nothing twice.");
-    }
+    if (readings == null) { await readOneByOne(byAnswer); continue; }
+    // A MISSING, UNKNOWN OR UNGROUNDED ITEM IS ONE REJECTION, not fifteen. The answer is settled against its
+    // own hash with an honest reason, so it leaves the worklist and its neighbours keep their readings.
+    for (const pieces of byAnswer) await settleAnswer(pieces, readings);
   }
   if (written > 0) log.info("[daily-observations] read back new AI answers", { tenantId, day, written });
   return written;
