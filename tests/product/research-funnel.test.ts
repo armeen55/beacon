@@ -382,7 +382,6 @@ describe("research funnel - the journey behind a keyword", () => {
     loadAnswerAnalyses: async () => [{ analysis: { topicEntities: ["iranian saffron"], questionsAnswered: [] }, observationId: "obs_read", promptId: "p9", promptVersion: 4, engine: "gemini", reportingDay: DAY_B, promptText: "is saffron worth it" }],
     callProvider: async () => ok(parsedKw([])) }, [{ caseId: JCASE, query: "price saffron" }])("tj", cur(), 60_000);
   const rowsOf = (store: ReturnType<typeof memStore>) => new Map(store.peek("tj", BASIS)!.discovery.retained.map((k) => [k.keyword, k]));
-
   it("traces every free candidate back to the exact thing that produced it, and invents nothing a route cannot know", async () => {
     const store = memStore(seeded([pair()])); expect((await run(store)).status).toBe("done"); const rows = rowsOf(store);
     expect(rows.get(FAN)!.origins).toEqual([{ route: "fanout", promptId: "p1", promptVersion: 2, engine: "chatgpt", reportingDay: DAY_A, parentQuery: "where to buy saffron",
@@ -438,7 +437,6 @@ describe("research funnel - the journey behind a keyword", () => {
     const again = memStore(second.peek("tj", BASIS)!); await run(again);
     expect(after(again)).toEqual([6, 2]);
   });
-
   it("keeps the remainder in the count when a stored list is clamped, and never names an answer that was not recorded", async () => {
     // A row stored with more arrivals than the bound is cut to the bound, and what was cut is ADDED to the
     // count rather than deleted with it.
@@ -449,7 +447,6 @@ describe("research funnel - the journey behind a keyword", () => {
     const loaded = await loadFunnelState("tj", BASIS, { configured: () => true, admin: () => ({ from: () => table }) });
     const k = loaded.state.discovery.retained[0]!;
     expect([k.origins!.length, k.moreOrigins]).toEqual([6, 4]); // 9 held plus 1 already counted: six kept, four counted
-
     // AND AN ANSWER THAT WAS NEVER ASKED FOR HAS NO ROW TO POINT AT. A pair still waiting to be asked has a
     // complete identity and no observation behind it, so naming one minted a reference to nothing.
     const waiting = memStore(seeded([pair({ status: "pending", observedAt: undefined })])); await run(waiting);
@@ -457,7 +454,6 @@ describe("research funnel - the journey behind a keyword", () => {
     expect(arrival.observationId).toBeUndefined();
     expect([arrival.promptId, arrival.reportingDay]).toEqual(["p1", DAY_A]); // the identity it really holds is still recorded
   });
-
   it("decodes a row stored before the journey was kept as one that recorded no journey, never as one from nowhere", async () => {
     const stored = { schemaVersion: 3, tenantId: "tj", basisTag: BASIS, discovery: { seeds: [], rejected: [], counts: { raw: 1, normalized: 1, retained: 1, rejected: 0 }, caseCompetitors: [],
       retained: [{ keyword: "saffron price", searchVolume: 500, competition: null, difficulty: null, intent: null, discoveredVia: "site", rankedUrl: "https://own.com/s", rankedRank: 4 }] } } as unknown as FunnelState;

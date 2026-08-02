@@ -21,7 +21,6 @@ function fixture<T>(name: string): T {
 
 describe("GA4 runReport traffic contract", () => {
   const body = fixture<Ga4RunReportResponseBody>("ga4-run-report.json");
-
   it("parses (date, pagePath) dimensionValues + string metricValues into typed rows", () => {
     const rows = narrowRunReportRows(body);
     // 4 raw rows -> 2 valid: the "2026-07-01" (dashed date, not GA4's YYYYMMDD)
@@ -36,7 +35,6 @@ describe("GA4 runReport traffic contract", () => {
     });
     expect(rows[1]!.url).toBe("/persian-cat");
   });
-
   it("carries the top-level fields the pagination loop depends on", () => {
     // rowCount drives the offset loop; metricHeaders drive name-based mapping.
     expect(typeof body.rowCount).toBe("number");
@@ -47,7 +45,6 @@ describe("GA4 runReport traffic contract", () => {
       "conversions",
     ]);
   });
-
   it("a null/empty body parses to [] rather than throwing", () => {
     expect(narrowRunReportRows(null)).toEqual([]);
     expect(narrowRunReportRows({} as Ga4RunReportResponseBody)).toEqual([]);

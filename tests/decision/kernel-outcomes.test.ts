@@ -193,7 +193,6 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     const bundled = res.proposals.find((p) => p.id.endsWith("::bundle"))!;
     expect([bundled.diagnosisCause, bundled.causeFinding!.cause]).toEqual(["weak_opening", "weak_opening"]);
   });
-
   it("calls a pass that saved nothing a FAILURE, and a real gap with no trusted draft exactly that", async () => {
     reset(SEEN()); env.failWrites = true; const failed = await run(counting().complete);
     expect([failed.outcome, failed.persisted, env.saved.length]).toEqual(["persistence_failed", 0, 1]); // it tried, and it says so
@@ -561,7 +560,6 @@ describe("why this page loses the click, one named cause at a time", () => {
     expect([res.heldForMeasurement, res.proposals.length, called, env.saved.length]).toEqual([1, 0, 0, 0]);
     expect(await produceProposalsForTenant("fixture-tenant", { now: NOW, measuringPagePaths: ["/somewhere-else"], complete: async () => ({ value: VALID_ATOMIC_EDIT }) })
       .then((r) => r.heldForMeasurement)).toBe(0); }); // and a page nothing is measuring on is never counted as held
-
   it("counts a consolidation it cannot draft as work, and never reports a quiet day over it", async () => {
     const world = { ...ACTORS_SEEN(), cannibalization: [{ query: "iranian actors", competingUrls: [ACTORS_URL, "iranopedia.example/actors"], note: "" }] };
     reset(world); let called = 0;

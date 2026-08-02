@@ -98,7 +98,6 @@ describe("recordSpendSupabase — the always-on durable per-account writer", () 
     expect(inserted.call_count).toBe(1);
     expect(SUPABASE_STATE.updateCalls).toHaveLength(0);
   });
-
   it("updates an existing row with atomic increments", async () => {
     SUPABASE_STATE.selectResult = {
       data: { spent_usd: "0.1", call_count: 2, prompt_count: 50, chunk_count: 1 },
@@ -118,7 +117,6 @@ describe("recordSpendSupabase — the always-on durable per-account writer", () 
     expect(patch.prompt_count).toBe(150);
     expect(SUPABASE_STATE.insertCalls).toHaveLength(0);
   });
-
   it("a Supabase failure logs and returns; recording never blocks the paid call that already happened", async () => {
     SUPABASE_STATE.selectResult = { data: null, error: { message: "boom" } };
     await expect(
@@ -127,7 +125,6 @@ describe("recordSpendSupabase — the always-on durable per-account writer", () 
     expect(warnSpy).toHaveBeenCalled();
     expect(SUPABASE_STATE.insertCalls).toEqual([]);
   });
-
   const badInputs: Array<{ name: string; input: Parameters<typeof recordSpendSupabase>[0] }> = [
     { name: "empty tenantId", input: { tenantId: "", platform: "perplexity", costUsd: 0.05 } },
     { name: "invalid platform", input: { tenantId: "t1", platform: "claude" as never, costUsd: 0.05 } },

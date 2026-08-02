@@ -4,7 +4,6 @@
  * still hit disk (`readDotDataJson` / `readStore`) until migrated — same behavior as
  * pre-cutover direct-file access, centralized here.
  */
-import { readStore } from "../json-store";
 import { getSupabaseAdmin } from "../supabase";
 import type { SeedDataRepository } from "./types";
 
@@ -15,13 +14,7 @@ import type { SeedDataRepository } from "./types";
 import type { Result } from "@/domains/measurement/results/types";
 import type { ChangelogEntry } from "@/domains/measurement/changelog/types";
 import type { Opportunity } from "@/domains/decision/opportunities/types";
-import type { Competitor } from "@/domains/evidence/competitors/types";
 import type { ImportRun } from "@/lib/import/types";
-import type {
-  CompetitorPageEvidence,
-  SourcePatternEvidence,
-} from "@/domains/evidence/pages/competitor-evidence";
-import type { CompetitorPageSnapshot } from "@/domains/evidence/pages/competitor-page-snapshots";
 import type { ChangeContract } from "@/domains/measurement/changelog/change-contract";
 import type {
   PageEntity,
@@ -274,7 +267,6 @@ export const supabaseBackend: SeedDataRepository = {
   getResults: () => queryAllPaged<Result>("results"),
   getChangelogEntries: () => query<ChangelogEntry>("changelog_entries"),
   getOpportunities: () => query<Opportunity>("opportunities"),
-  getCompetitors: () => query<Competitor>("competitors"),
 
   // Phase 1D
   // (getEventDecisions / getCandidateLinks / getPageIssues removed
@@ -346,12 +338,6 @@ export const supabaseBackend: SeedDataRepository = {
   // sitemap-reconciliation, visibility runs, rollout/pattern/frontier/wave/
   // asset/outcome/truth-label reads, page summaries — zero callers. The
   // tenant-scoped sitemap pair in forTenant below is LIVE and untouched.)
-  getCompetitorPageSnapshots: async () =>
-    readStore<CompetitorPageSnapshot>("competitor-page-snapshots"),
-  getCompetitorPageEvidence: async () =>
-    readStore<CompetitorPageEvidence>("competitor-page-evidence"),
-  getSourcePatternEvidence: async () =>
-    readStore<SourcePatternEvidence>("source-pattern-evidence"),
 
   // Phase 7 — scan findings via repository
   getScanFindings: async () => {
@@ -449,8 +435,6 @@ export const supabaseBackend: SeedDataRepository = {
       // removed 2026-07-21, CORE 100K Lane O: zero callers.)
       getOpportunities: () =>
         selectScoped<Opportunity>("opportunities", tenantId),
-      getCompetitors: () =>
-        selectScoped<Competitor>("competitors", tenantId),
 
       // Paged reads — defeats PostgREST's default 1000-row cap and keeps
       // the tenant filter in every page request.

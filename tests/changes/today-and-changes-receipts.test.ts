@@ -38,7 +38,6 @@ describe("Today is in exactly one of four primary states", () => {
     expect(c.cta).toEqual({ label: "Fix this now", href: "/settings/config#tracked-ai-prompts" });
     expect(c.ranked).toEqual([]); // a blocked day does not also hand you work
   });
-
   it("one ready change is act now, and the top three carry the ranker's own reason for the order", () => {
     const c = buildTodayCommand({ ...base, readyChanges: [OPP, SECOND], measuringCount: 9 });
     expect(c.state).toBe("act_now");
@@ -48,7 +47,6 @@ describe("Today is in exactly one of four primary states", () => {
     expect(c.why).toContain("About 4 minutes of work.");
     expect(c.why.some((l) => l.includes("1 more change is ranked under it"))).toBe(true);
   });
-
   it("a promised retry date is researching, and it names the date instead of claiming to be checking", () => {
     const c = buildTodayCommand({ ...base, waitingUntil: "2026-08-04T18:00:00.000Z", measuringCount: 2 });
     expect([c.state, c.cta]).toEqual(["researching", null]);
@@ -56,7 +54,6 @@ describe("Today is in exactly one of four primary states", () => {
     expect(c.headline).not.toMatch(/checking/i);
     expect(c.exactAction).toContain("There is nothing for you to do here today");
   });
-
   it("researching carries the run's own persisted numbers, the open topics, and the drafts I held back", () => {
     const c = buildTodayCommand({ ...base, measuringCount: 3, heldForMeasurement: 2,
       research: { running: true, phaseLabel: "reading the results pages for your strongest topics", checksDone: 7, checksTotal: 12, casesActive: 5 } });
@@ -66,7 +63,6 @@ describe("Today is in exactly one of four primary states", () => {
     expect(c.why).toContain("5 topics are still open.");
     expect(c.why.some((l) => l.includes("holding 2 new ideas back because those pages already carry a change I am measuring"))).toBe(true);
   });
-
   it("work you applied and nothing stronger is monitoring, and a cold account is never a bare zero", () => {
     const c = buildTodayCommand({ ...base, measuringCount: 6, firstReadOn: "2026-08-12", research: { running: false } });
     expect(c.state).toBe("monitoring");
@@ -79,7 +75,6 @@ describe("Today is in exactly one of four primary states", () => {
     expect(cold.headline).toBe("I am still gathering evidence, and I will rank your next move here as soon as one earns it.");
     expect(cold.headline).not.toMatch(/\b0\b/);
   });
-
   it("gives ONE queue ONE number: the card counts what is ranked, never the preview it was cut from", () => {
     const preview = [OPP, SECOND, { ...SECOND, changeId: "c3" }, { ...SECOND, changeId: "c4" }, { ...SECOND, changeId: "c5" }];
     const c = buildTodayCommand({ ...base, readyChanges: preview, readyTotal: 12 });
@@ -87,7 +82,6 @@ describe("Today is in exactly one of four primary states", () => {
     expect(c.why.some((l) => l.includes("4 more"))).toBe(false); // the preview length is not a queue size
     expect(c.ranked).toHaveLength(3); // the card may still render three of them
   });
-
   it("keeps monitoring when nothing is actually running, and says the numbers monitoring owes", () => {
     // A proven loss nobody is working and an idea held back are facts, not present-tense work.
     const held = buildTodayCommand({ ...base, measuringCount: 6, heldForMeasurement: 2, firstReadOn: "2026-08-12", research: { running: false } });
@@ -105,7 +99,6 @@ describe("Today is in exactly one of four primary states", () => {
     expect(running.why).toContain("4 of your changes are still measuring.");
     expect(running.why).toContain("The first read on those lands around August 12.");
   });
-
   it("every combination of signals lands on exactly one of the four, and never a fifth", () => {
     const cases: TodayCommandInput[] = [base, { ...base, readyChanges: [OPP] }, { ...base, investigating: 3 },
       { ...base, measuringCount: 5, research: { running: false } }, { ...base, blockers: ["Search Console stopped answering me."] },
@@ -129,7 +122,6 @@ describe("a screen with losses on it never reads as all clear", () => {
     expect(sitewide.losingNote).toContain("no single page took the blame");
     expect(buildTodayCommand(quiet).losingNote).toBeNull(); // a genuinely clean day claims nothing
   });
-
   it("the greeting never celebrates on a screen that names a blocker or a loss", () => {
     expect(commandAllowsCelebration(buildTodayCommand(quiet))).toBe(true);
     expect(commandAllowsCelebration(buildTodayCommand({ ...quiet, smokeAlarm: LOSING }))).toBe(false);
@@ -193,7 +185,6 @@ async function renderDetail(p: ChangeProposal): Promise<string> {
 
 describe("a ranked card explains itself without being opened", () => {
   beforeEach(() => vi.clearAllMocks());
-
   it("shows the shape of the change, the exact action, effort, risk, evidence, and why it outranks the next one", async () => {
     const html = await renderList(viewOf([proposal()]));
     expect(html).toContain("Bundled change");
@@ -205,7 +196,6 @@ describe("a ranked card explains itself without being opened", () => {
     expect(html).toContain("Put this aside");
     expect(await renderList(viewOf([atomic()]))).toContain("One edit"); // one component is one edit, never a bundle
   });
-
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {
     const html = await renderList(viewOf([proposal()]));
     expect(html).toContain("Canonical tag");
@@ -217,7 +207,6 @@ describe("a ranked card explains itself without being opened", () => {
 
 describe("a change detail hands over the whole investigation and the controls to act on it", () => {
   beforeEach(() => vi.clearAllMocks());
-
   it("the investigation carries the cause, what it beat, what would kill it, and what could not be tested", async () => {
     const html = await renderDetail(proposal());
     expect(html).toContain("Show me how you worked this out");
@@ -234,12 +223,10 @@ describe("a change detail hands over the whole investigation and the controls to
     expect(html).not.toContain("ctr_snippet");
     expect(html).not.toContain("technical_indexability");
   });
-
   it("the piece to paste says where it goes, why it works, and which sources are still owed", async () => {
     const html = await renderDetail(proposal());
     for (const s of ["Where it goes", "the page title itself", "What it does", "Why it works", "wins the click", "Sources to add before this goes out",
       "The date needs a source a reader can check.", "Check these lines against the source you pick", "Nowruz falls on the spring equinox."]) expect(html).toContain(s); });
-
   it("the ranking receipt names each input and how far it could ever move the order", async () => {
     const html = await renderDetail(proposal());
     expect(html).toContain("Why this one ranks where it does");
@@ -249,7 +236,6 @@ describe("a change detail hands over the whole investigation and the controls to
     expect(html).toContain("did not move this one either way");
     expect(html).toContain("I ranked this on about 163 clicks I can show are recoverable");
   });
-
   it("the operator can say which pieces they applied, that they did it differently, or put the change away", async () => {
     const html = await renderDetail(proposal());
     expect(html).toContain("Which pieces did you apply?");
@@ -269,7 +255,6 @@ describe("a change detail hands over the whole investigation and the controls to
     expect(twins).toContain("The sizing section");
     expect(twins.match(/type="checkbox" checked=""/g)?.length).toBe(2);
   });
-
   it("opens the investigation only when it holds one, never onto a line the card above already said", async () => {
     const bare = proposal({ causeFinding: undefined, rankingReceipt: undefined });
     expect(await renderDetail(bare)).not.toContain("Show me how you worked this out");

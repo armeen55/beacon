@@ -111,6 +111,12 @@ export type TopicInvestigation = {
   distinctWinners: number;
   currentReadableWinners: number;
   missingEvidence: string[];
+  /** THE ONE purchase most likely to change a decision here, or null when nothing left to buy would.
+   *  Derived from the first missing item that is actually acquirable today, never from a wish list. */
+  nextAcquisition: { kind: "read_winner" | "buy_serp" | "buy_volume"; subject: string; why: string } | null;
+  /** True when things are still missing and NONE of them can be bought now: unacquirable, already
+   *  tried on this basis, or held until a date. Further research here has stopped paying. */
+  diminishing: boolean;
 };
 
 // ── documented thresholds ────────────────────────────────────────────────────
@@ -401,6 +407,25 @@ function assemble(idx: number[], g: Grouped, snapshot: EvidenceSnapshot, key: st
   if (!lineageIntact) missingEvidence.push("I cannot trace every keyword here back to how I found it.");
   if (pageType === "mixed") missingEvidence.push("The pages that win here do not agree on one shape.");
 
+  // ── the ONE next purchase, and when buying more stops paying ──
+  // A winner I have not read is the cheapest thing that moves this on, so it comes first; then the
+  // exact results page I never bought; then the keyword ask. Anything held until a promised date is
+  // NOT a next step, and saying so with the date beats offering a purchase I refuse to make.
+  const unread = winners.filter((w) => w.extractState !== "current");
+  const heldUntil = unread.map((w) => w.readOutcome?.retryAfter).filter((r): r is string => !!r && Date.parse(r) > builtAt).sort()[0] ?? null;
+  const readable = unread.find((w) => !w.readOutcome || Date.parse(w.readOutcome.retryAfter) <= builtAt) ?? null;
+  if (heldUntil && !readable) missingEvidence.push(`I am holding off on the winning pages here until ${heldUntil.slice(0, 10)}, which is the date I promised for them.`);
+  const nextAcquisition: TopicInvestigation["nextAcquisition"] =
+    readable && currentReadableWinners < MIN_WINNERS
+      ? { kind: "read_winner", subject: readable.url, why: `I have read ${currentReadableWinners} of the ${MIN_WINNERS} winning pages here, so reading this one is what moves this forward.` }
+      : exactSerps.length === 0
+        ? { kind: "buy_serp", subject: labelOf(label), why: "I have never looked at Google's results for this, so buying that one results page is what changes the answer." }
+        : !searchDemand
+          ? { kind: "buy_volume", subject: keywords[0]?.query ?? labelOf(label), why: "I hold no monthly search volume here, so pricing this phrase is what tells me whether it is worth your time." }
+          : null;
+  // Nothing left to buy, but things still missing, means further research here has stopped paying.
+  const diminishing = nextAcquisition === null && missingEvidence.length > 0;
+
   // Representative queries: what was searched, in evidence order (priced demand,
   // then the exact looks, then the engines' own fan-outs when nothing else exists).
   const queries = [...new Set([...keywords.map((k) => k.query), ...exactSerps.map((s) => s.query), ...fanOuts.map((f) => f.query)])];
@@ -439,6 +464,8 @@ function assemble(idx: number[], g: Grouped, snapshot: EvidenceSnapshot, key: st
     distinctWinners: new Set(winners.map((w) => w.domain)).size,
     currentReadableWinners,
     missingEvidence,
+    nextAcquisition,
+    diminishing,
   };
 }
 

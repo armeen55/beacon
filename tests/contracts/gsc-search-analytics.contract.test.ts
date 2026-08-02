@@ -37,7 +37,6 @@ describe("GSC searchanalytics.query contract", () => {
       calls.push({ url: String(url), init });
       return jsonResponse(fixture("gsc-searchanalytics.json"));
     }) as unknown as typeof fetch;
-
     const rows = await gscSearchAnalyticsQuery(
       {
         accessToken: "test-token",
@@ -48,7 +47,6 @@ describe("GSC searchanalytics.query contract", () => {
       },
       { fetchImpl },
     );
-
     expect(rows).not.toBeNull();
     expect(rows).toHaveLength(3);
     for (const row of rows!) {
@@ -65,7 +63,6 @@ describe("GSC searchanalytics.query contract", () => {
       // position is a 1-based average.
       expect(row.position).toBeGreaterThanOrEqual(1);
     }
-
     // Our REQUEST contract: the body carries the fields Google documents.
     const sent = JSON.parse(String(calls[0]!.init?.body));
     expect(sent).toMatchObject({
@@ -78,7 +75,6 @@ describe("GSC searchanalytics.query contract", () => {
       dataState: "final",
     });
   });
-
   it("a body with NO rows key (quiet day) parses to [] rather than null/throw", async () => {
     const fetchImpl = (async () => jsonResponse({ responseAggregationType: "byPage" })) as typeof fetch;
     const rows = await gscSearchAnalyticsQuery(
@@ -99,14 +95,12 @@ describe("GSC sites.list contract", () => {
   it("parses siteEntry[] and property selection prefers the sc-domain property, skipping unverified", async () => {
     const fetchImpl = (async () => jsonResponse(fixture("gsc-sites-list.json"))) as typeof fetch;
     const sites = await gscListSites("test-token", { fetchImpl });
-
     // The malformed entry (no siteUrl) is dropped; the rest keep their shape.
     expect(sites).toHaveLength(3);
     for (const s of sites) {
       expect(typeof s.siteUrl).toBe("string");
       expect(typeof s.permissionLevel).toBe("string");
     }
-
     expect(pickGscPropertyForDomain(sites, "fixture-content.example")).toBe("sc-domain:fixture-content.example");
     // Unverified-only domains resolve to null (we cannot read their analytics).
     expect(pickGscPropertyForDomain(sites, "unverified.example.com")).toBeNull();

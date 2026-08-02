@@ -134,8 +134,6 @@ export function buildTenantRepo(
       filterByTenantId(await base.getChangeContracts(), tenantId),
     getOpportunities: async () =>
       filterByTenantId(await base.getOpportunities(), tenantId),
-    getCompetitors: async () =>
-      filterByTenantId(await base.getCompetitors(), tenantId),
     // ─────────────────────────────────────────────────────────────────
     // Phase A.3 (post-A.3.5) — tenant-scoped robots-state. File-backend
     // routes it through dotdata-json's classification dispatch:

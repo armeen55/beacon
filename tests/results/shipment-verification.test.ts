@@ -64,20 +64,17 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("h1", "How to set a nowruz table")).toBe("verified");
     expect(await state("meta", "anything", serve("<html><head><title>t</title></head><body><p>x</p></body></html>"))).toBe("missing");
   });
-
   it("checks the opening answer against the words the page actually opens with", async () => {
     expect(await state("opening_answer", "A nowruz table is set with seven symbolic items known together as the haft seen")).toBe("verified");
     expect(await state("opening_answer", "Nowruz is celebrated on the spring equinox by millions of people every year")).toBe("differs");
     expect(await state("opening_answer", "anything at all", serve("<html><head><title>t</title></head><body></body></html>"))).toBe("unknown");
   });
-
   it("looks for a section by its heading, and reads a removal the other way round", async () => {
     expect(await state("section_add", "What goes on the table\nEvery item stands for a wish.")).toBe("verified");
     expect(await state("section", "Where to buy a haft seen set")).toBe("missing");
     expect(await state("section_remove", "Where to buy a haft seen set")).toBe("verified");
     expect(await state("section_remove", "What goes on the table")).toBe("differs");
   });
-
   it("never lets a two-word heading stand in for the section that was actually asked for", async () => {
     const fragment = serve(PAGE.replace("<h2>What goes on the table</h2>", "<h2>The table</h2>"));
     // "The table" is a fragment of the proposed heading, not a cover of it: two of eight words is not the section.
@@ -85,7 +82,6 @@ describe("what Beacon can see on the live page, component by component", () => {
     // Half the words or more IS the section, however the operator reworded the rest of it.
     expect(await state("section_add", "What goes on the table at Nowruz and why", serve(PAGE))).toBe("verified");
   });
-
   it("compares an internal link as an address, and says unknown when it could not read the page's links", async () => {
     expect(await state("internal_link_add", "Link to https://own.com/haft-seen from the opening")).toBe("verified");
     expect(await state("internal_link_add", "Link to /haft-seen")).toBe("verified"); // relative and absolute are one address
@@ -94,7 +90,6 @@ describe("what Beacon can see on the live page, component by component", () => {
     const noLinks = serve("<html><head><title>t</title></head><body><main><p>words enough to count as a paragraph here</p></main></body></html>");
     expect(await state("internal_link_add", "Link to /haft-seen", noLinks)).toBe("unknown");
   });
-
   // A RENAMED LINK IS NOT VERIFIED BY THE LINK EXISTING. The swap renames a link that is already there, so
   // checking for the address answered yes the moment the change was written: it read verified before the
   // operator touched the page. The words on the live link are the only thing that can settle it.
@@ -106,7 +101,6 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await swap("what each haft seen item means")).toBe("missing"); // the link is there, the wording is not
     expect(await swap(null)).toBe("unknown"); // no new wording on file, so no claim either way
   });
-
   it("reads structured data as the weak signal it is, and never as proof of absence when the page builds itself in the browser", async () => {
     expect(await state("schema", "Add FAQPage structured data")).toBe("verified");
     expect(await state("schema", "Add HowTo structured data")).toBe("unknown"); // something is there, but not what was asked for
@@ -115,7 +109,6 @@ describe("what Beacon can see on the live page, component by component", () => {
     // A page thin enough that its content may be built in the browser is never called missing.
     expect(await state("schema", "Add FAQPage structured data", serve("<html><head><title>t</title></head><body><div id=app></div></body></html>"))).toBe("unknown");
   });
-
   it("checks the preferred address, the forward and the search setting from what the page itself reports", async () => {
     expect(await state("canonical", "Point the canonical at https://own.com/nowruz")).toBe("verified");
     expect(await state("canonical", "Point the canonical at https://own.com/nowruz-guide")).toBe("differs");
@@ -132,13 +125,11 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("noindex", "Take it out of search", noindex)).toBe("verified");
     expect(await state("noindex", "Take it out of search")).toBe("unknown"); // a header I cannot see could carry it
   });
-
   it("reads body wording off the whole page, and refuses to judge a change whose wording it does not hold", async () => {
     expect(await state("paragraph_correction", "Every item on the cloth stands for a wish")).toBe("verified");
     expect(await state("factual_correction", "Nowruz always falls on the twenty first of March")).toBe("missing");
     expect(await state("title", "")).toBe("unknown"); // no copy on file for this component, so no claim about it
   });
-
   it("calls a new page live only when there is a real page at the address", async () => {
     const long = `<html><head><title>Haft seen</title></head><body><main><p>${"a real sentence about the haft seen table ".repeat(20)}</p></main></body></html>`;
     expect(await state("new_page", "", serve(long))).toBe("verified");
@@ -152,7 +143,6 @@ describe("what Beacon says overall, and what it refuses to say", () => {
     expect((await check([{ kind: "title", after: "How to set a nowruz table" }, { kind: "h1", after: "Nowruz gifts" }])).status).toBe("partially_verified");
     expect((await check([{ kind: "title", after: "Nowruz gifts" }, { kind: "h1", after: "Nowruz gifts" }])).status).toBe("differs");
   });
-
   it("says blocked when it could not read the page, and not found when there is no page there", async () => {
     const robots = await check([{ kind: "title", after: "How to set a nowruz table" }], refuse("robots_blocked"));
     expect([robots.status, robots.components[0]!.state]).toEqual(["blocked", "unknown"]);
@@ -163,7 +153,6 @@ describe("what Beacon says overall, and what it refuses to say", () => {
     // A page I reached but nothing on it I can check is NOT a difference and never a pass: it is a check I could not complete.
     expect((await check([{ kind: "noindex", after: "" }])).status).toBe("blocked");
   });
-
   it("never calls a change verified because the operator clicked: operator_confirmed is the override and nothing else", async () => {
     let fetched = 0;
     const confirmed = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }], operatorConfirmed: true },
@@ -179,13 +168,11 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     id: "s1", page: URL_, path: "/nowruz", actionType: "title", after: "How to set a nowruz table",
     implementedAt: "2026-07-30T09:00:00Z", verification: null, componentsApplied: null, ...o });
   beforeEach(() => { ROWS.length = 0; WRITES.length = 0; passedBustedAt = undefined; });
-
   it("owes a check on every change marked implemented that has never been checked, and on nothing else", async () => {
     ROWS.push(row({ id: "a" }), row({ id: "b", verification: { status: "verified", checkedAt: "x", components: [] } }), row({ id: "c", implementedAt: null }));
     expect((await shipmentsAwaitingVerification(T, 3)).map((s) => s.id)).toEqual(["a"]);
     expect(await shipmentsAwaitingVerification("", 3)).toEqual([]);
   });
-
   it("reads at most three live pages in one pass, writes each answer exactly once, and never reads a page twice", async () => {
     for (const id of ["a", "b", "c", "d", "e"]) ROWS.push(row({ id, implementedAt: `2026-07-3${id === "a" ? 0 : 1}T09:00:00Z` }));
     const read: string[] = [];
@@ -193,7 +180,6 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     expect([written, read.length, WRITES.length]).toEqual([3, 3, 3]);
     expect(WRITES.map((w) => w[2].status)).toEqual(["verified", "verified", "verified"]);
   });
-
   it("records a page it was refused rather than retrying it forever: the answer lands, so the change stops being due", async () => {
     ROWS.push(row({ id: "a" }));
     let reads = 0;
@@ -203,12 +189,10 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     ROWS[0]!.verification = WRITES[0]![2];
     expect([await pass(), reads]).toEqual([0, 1]);
   });
-
   it("keeps a shipment due when the answer could not be saved, so the check is not silently lost", async () => {
     ROWS.push(row({ id: "a" }));
     expect(await verifyDueShipments(T, { ...base, fetchPage: serve(PAGE), record: async () => false })).toBe(0);
   });
-
   it("stops reading an address inside the same pass once an answer for it could not be saved", async () => {
     ROWS.push(row({ id: "a" }), row({ id: "b" }), row({ id: "c" })); // three changes, one page
     let reads = 0;
@@ -218,7 +202,6 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     });
     expect([written, reads]).toEqual([0, 1]);
   });
-
   it("gives a site that did not answer ONE retry on a later day, and a robots denial none at all", async () => {
     const dead = await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout"));
     expect([dead.status, dead.recheckAfter]).toEqual(["blocked", "2026-08-01"]);
@@ -229,7 +212,6 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
       { ...base, fetchPage: refuse("fetch_failed", "timeout") });
     expect(again.recheckAfter ?? null).toBeNull();
   });
-
   it("owes that retry only once the promised day arrives, and never owes one for a robots denial", async () => {
     const blocked = (recheckAfter: string | null) => ({ status: "blocked", checkedAt: "2026-07-30T09:00:00Z", components: [], recheckAfter });
     ROWS.push(row({ id: "waiting", verification: blocked("2026-08-01") }), row({ id: "refused", verification: blocked(null) }));
@@ -237,7 +219,6 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     const tomorrow = await shipmentsAwaitingVerification(T, 3, { now: () => NOW + DAY });
     expect(tomorrow.map((s) => [s.id, s.recheck])).toEqual([["waiting", true]]);
   });
-
   /** THE PROMISED DAY IS THE OPERATOR'S DAY, not the UTC one. Read off a UTC instant, a retry promised for
    *  the 5th came due at 5 PM Pacific on the 4th, so the one retry a silent site earns was spent a day
    *  early and its answer, which is final either way, stood. */
@@ -248,7 +229,6 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     expect(await dueAt("2026-08-05T02:00:00Z")).toEqual([]);            // 7 PM on the 4th where they are
     expect(await dueAt("2026-08-05T08:01:00Z")).toEqual(["waiting"]);   // 1 AM on the 5th where they are
   });
-
   /** And the promise itself is made in the same zone it is read in. */
   it("promises that retry on the operator's next day, not on UTC's", async () => {
     const evening = Date.parse("2026-08-05T02:00:00Z"); // 7 PM on the 4th where the operator is
@@ -259,7 +239,6 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
 
 describe("a change the operator implemented busts that page's freshness", () => {
   beforeEach(() => { ROWS.length = 0; passedBustedAt = undefined; });
-
   it("hands back the LATEST moment that page was implemented, and nothing for a page nobody changed", async () => {
     ROWS.push({ id: "a", page: URL_, path: "/nowruz", implementedAt: "2026-07-20T09:00:00Z" },
       { id: "b", page: "https://own.com/nowruz", path: "/nowruz", implementedAt: "2026-07-29T09:00:00Z" },
@@ -268,7 +247,6 @@ describe("a change the operator implemented busts that page's freshness", () => 
     expect(await shipmentBustedAt(T, "https://own.com/nothing")).toBeNull();
     expect(await shipmentBustedAt(T, "")).toBeNull();
   });
-
   it("busts the page that was changed and no other: a home page change does not throw away the whole site", async () => {
     ROWS.push({ id: "home", page: "https://own.com/", path: "/", implementedAt: "2026-07-30T09:00:00Z" });
     expect(await shipmentBustedAt(T, "https://own.com/")).toBe("2026-07-30T09:00:00Z");
@@ -277,14 +255,12 @@ describe("a change the operator implemented busts that page's freshness", () => 
     ROWS.push({ id: "guide", page: "https://own.com/guide", path: "/guide", implementedAt: "2026-07-30T09:00:00Z" });
     expect(await shipmentBustedAt(T, "https://own.com/nowruz-guide")).toBeNull();
   });
-
   it("forces a re-read of a body that is still inside its freshness window but older than the change", async () => {
     const bodyReadAt = new Date(NOW - DAY).toISOString(), busted = new Date(NOW - DAY / 2).toISOString();
     expect(isCurrent("owned_page", bodyReadAt, NOW)).toBe(true); // a day old, well inside the weekly window
     expect(isCurrent("owned_page", bodyReadAt, NOW, busted)).toBe(false); // but it describes the page as it was before the change
     expect(isCurrent("owned_page", new Date(NOW - DAY / 4).toISOString(), NOW, busted)).toBe(true); // a read taken after it stands
   });
-
   it("passes that moment into the ONE owned page a research pass may read", async () => {
     ROWS.push({ id: "a", page: URL_, path: "/nowruz", implementedAt: "2026-07-29T09:00:00Z" });
     const { defaultSteps } = await import("@/domains/runtime/ops/research-steps");

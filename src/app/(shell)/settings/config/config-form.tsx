@@ -47,6 +47,12 @@ const FIELDS: Array<{ key: keyof SetupView; label: string; hint: string; rows: n
     rows: 2,
   },
   {
+    key: "competitorRulesText",
+    label: "Corrections to the competitors I find",
+    hint: 'Optional. I work out who your competitors are from your search results and AI answers. Correct me one line at a time: "pin example.com", "exclude example.com", or "example.com is a publisher".',
+    rows: 3,
+  },
+  {
     key: "editorialRulesText",
     label: "Writing or factual rules I must follow",
     hint: "Optional. One rule per line.",
@@ -82,6 +88,7 @@ export function ConfigForm({ initial }: { initial: SetupView }) {
         topicsToOwnText: form.topicsToOwnText,
         geographicScopeText: form.geographicScopeText,
         competitorsText: form.competitorsText,
+        competitorRulesText: form.competitorRulesText,
         editorialRulesText: form.editorialRulesText,
         bannedTermsText: form.bannedTermsText,
       });

@@ -47,7 +47,6 @@ describe("Update data with no third-party connection", () => {
     expect(CALLS.warm).toBe(1);
     expect(CALLS.synced).toBe(0);
   });
-
   it("says what the readings ACTUALLY did, on the granted branch and on the refused one", async () => {
     // GRANTED: the number of readings the planner really authorized, never a vague "I refreshed things".
     const granted = (await refreshAllConnectedDataNow()).results[0]!;
@@ -64,7 +63,6 @@ describe("Update data with no third-party connection", () => {
     // Beacon voice: first person, a next step, and never a dash.
     for (const line of [granted, refused]) expect(line.detail).not.toMatch(/[\u2013\u2014]/);
   });
-
   it("tells the truth when the press itself failed, instead of claiming nothing is connected", async () => {
     // The action now always answers with at least its own research line, so an empty list can only mean the
     // press failed. "Nothing connected to refresh yet." was a claim about the account, not about the press.
@@ -74,7 +72,6 @@ describe("Update data with no third-party connection", () => {
     const line = (await refreshAllConnectedDataNow()).results[0]!;
     expect(renderToStaticMarkup(createElement(RefreshResultList, { results: [line] }))).toContain(line.detail);
   });
-
   it("asks for the reading against the operator's own day, not the UTC one", async () => {
     // Six in the evening Pacific on August 1 is already August 2 in UTC. Every observation is filed under
     // the operator's day, so an evening press asked the planner about a day with no readings at all: it
@@ -84,7 +81,6 @@ describe("Update data with no third-party connection", () => {
     await refreshAllConnectedDataNow();
     expect(CALLS.extraDays).toEqual(["2026-08-01"]);
   });
-
   it("leaves a connected account exactly as it was: the sources still sync and no native line is added", async () => {
     CALLS.connected = true;
     const result = await refreshAllConnectedDataNow();

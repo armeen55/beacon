@@ -244,14 +244,12 @@ describe("reading the answers back", () => {
     expect(await runAnswerAnalyses(T, DAY, deps)).toBe(2);
     expect(groups).toEqual([2]); // TWO answers, ONE call: this is the whole point
     expect(saved).toEqual([["a", "h1"], ["b", "h2-new"]]);
-
     // The same pass again, with the analyses now on file: zero calls, zero cents.
     groups.length = 0;
     const settled = [row("a", "h1", "h1", true), row("b", "h2-new", "h2-new", true), done];
     expect(await runAnswerAnalyses(T, DAY, { ...deps, readObservations: async () => settled })).toBe(0);
     expect(groups).toEqual([]);
   });
-
   it("reads a WHOLE day of 140 answers back inside the passes the day runs, at the call count the batch size predicts", async () => {
     // 35 questions on 4 engines is 140 answers a day. At one call per answer that needed 28 passes, not 8.
     const store = new Map(Array.from({ length: 140 }, (_, i) => [`o${i}`, row(`o${i}`, `hash${i}`, null, false)]));
@@ -265,7 +263,6 @@ describe("reading the answers back", () => {
     expect(passes).toBe(3);   // 60 answers a pass, so the day empties in three of its eight passes
     expect(calls).toBe(10);   // ceil(140 / 15): exactly what the batch size predicts, not 140
   });
-
   it("rejects ONE answer the batch left out, alone, and never lets it cost its neighbours their readings", async () => {
     const rows = Array.from({ length: 3 }, (_, i) => row(`m${i}`, `hm${i}`, null, false));
     const saved: Array<[string, Record<string, unknown>, string]> = [];
@@ -283,7 +280,6 @@ describe("reading the answers back", () => {
     expect(String(saved[1]![1].reason)).not.toMatch(/[—–]/);
     expect(saved.some((s) => s[0] === "obs-nobody-asked-about")).toBe(false); // a reading for an id I never sent is dropped
   });
-
   it("degrades a whole unusable batch to one answer at a time, and settles every answer that batch was carrying", async () => {
     const rows = Array.from({ length: 8 }, (_, i) => row(`p${i}`, `hp${i}`, null, false));
     let batches = 0, singles = 0;
@@ -302,7 +298,6 @@ describe("reading the answers back", () => {
     expect(saved[0]![1]).toMatchObject({ rejected: true }); // and the poisoned answer is settled, not retried forever
     expect(saved).toHaveLength(8);                 // nothing this pass READ is left owing
   });
-
   it("never lets one poisoned batch starve the batches after it: a pass settles everything it read", async () => {
     // Four batches of fifteen. The fallback allowance used to be FIVE FOR THE WHOLE PASS, so batch one's
     // wholesale failure ate all of it and batches two, three and four settled nothing at all: the pass
@@ -321,7 +316,6 @@ describe("reading the answers back", () => {
     expect([written, saved.size]).toEqual([60, 60]); // every answer this pass read ends it settled
     expect(selectAnalysisTargets(rows.filter((r) => !saved.has(r.id)))).toEqual([]);
   });
-
   // Selection counted ANSWERS while the budget is spent in PIECES, so the calls ran out part way down the
   // list and the remainder was dropped where nothing said so. Overflow is deferred now, never abandoned.
   it("defers whole answers it cannot finish this pass, and abandons no piece of the ones it takes", async () => {
@@ -340,7 +334,6 @@ describe("reading the answers back", () => {
     // And the rest are still due, exactly as they were: nothing was consumed to produce nothing.
     expect(selectAnalysisTargets(rows.filter((r) => !saved.has(r.id))).length).toBeGreaterThan(0);
   });
-
   it("records a refusal against the answer it was refused on, so the same answer is never bought twice", async () => {
     const rejected = row("x", "h-x", null, false);
     const saved: Array<[string, Record<string, unknown>, string]> = [];
@@ -355,7 +348,6 @@ describe("reading the answers back", () => {
     expect(selectAnalysisTargets([{ ...rejected, analysis: { rejected: true }, analysisHash: "h-x" }])).toEqual([]);
     expect(selectAnalysisTargets([{ ...rejected, answerHash: "h-new", analysis: { rejected: true }, analysisHash: "h-x" }]).map((r) => r.id)).toEqual(["x"]);
   });
-
   it("gives a LOST refusal write the same retry and the same loud failure as a lost reading", async () => {
     // A silently swallowed rejection left the row at the top of the worklist, re-buying the same refusal.
     let tries = 0;
@@ -368,7 +360,6 @@ describe("reading the answers back", () => {
     expect(tries).toBe(2);
     expect(said.warnings.join(" ")).toContain("could not record that I was refused a reading");
   });
-
   it("counts only what actually persisted, and gives a lost write exactly ONE retry", async () => {
     let tries = 0;
     const written = await runAnswerAnalyses(T, DAY, { analyzeBatch: readsAll, readPrompts: async () => null, identity: BRAND,
@@ -377,7 +368,6 @@ describe("reading the answers back", () => {
     expect(written).toBe(1); // two read back, one write lost, and a lost write is never a saved analysis
     expect(tries).toBe(3);   // one clean write plus exactly one retry of the lost one, never a loop
   });
-
   /** ONE LONG ANSWER, IN PIECES: they ride the same batch and merge into one stored reading. */
   type Piece = { key: string; part: number; parts: number; text: string; row: { id: string } };
   const longAnswer = (tail: string, chars = 12_000): string => {
@@ -387,7 +377,6 @@ describe("reading the answers back", () => {
   };
   const empty = { sections: [], claims: [], topicEntities: [], ownedBrandMention: { mentioned: false, position: null, context: null },
     competitors: [], contentTypesRecommended: [], questionsAnswered: [], materialOmissions: [], caveats: [] } as unknown as AnswerAnalysis;
-
   it("counts the account as mentioned when ONLY the second piece of a long answer named it", async () => {
     const saved: Record<string, unknown>[] = [];
     await runAnswerAnalyses(T, DAY, { readPrompts: async () => null, identity: BRAND, persist: async (_t, _id, a) => void saved.push(a),
@@ -397,7 +386,6 @@ describe("reading the answers back", () => {
     // The answer's own words never say "Acme", so only the merge across pieces can make this true.
     expect(saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true, position: 4 }, matchedBy: "model", readParts: 3 });
   });
-
   it("grounds every reading in ITS OWN answer, so a number from answer A cannot validate a claim about answer B", async () => {
     // One combined corpus grounded all fifteen, so A's number made a fabricated claim about B look proven.
     const saved: Array<[string, Record<string, unknown>]> = [];
@@ -413,7 +401,6 @@ describe("reading the answers back", () => {
     expect(String(saved[1]![1].reason)).toContain("4200");       // and the stored reason names the number
     expect(String(saved[1]![1].reason)).not.toMatch(/[—–]/);
   });
-
   it("still reads an ordinary short answer in ONE slot, exactly as it always did", async () => {
     let seen: Piece[] = []; const saved: Record<string, unknown>[] = [];
     const written = await runAnswerAnalyses(T, DAY, { readObservations: async () => [row("s1", "h-s1", null, false)],
@@ -424,7 +411,6 @@ describe("reading the answers back", () => {
     // Byte for byte what a short answer stored before pieces existed: no part bookkeeping is invented for it.
     expect(saved[0]).toEqual({ ...analysis, ownedBrandMention: { mentioned: true, position: 1, context: null }, matchedBy: "both" });
   });
-
   // A PARTIAL READ WAS MARKED COMPLETE. Past six pieces the tail was never sent, and the one-at-a-time
   // fallback read 12,000 characters while stamping the FULL answer hash, so the row left the worklist
   // finished and everything after it was lost forever. Coverage now makes a part read resumable.
@@ -454,7 +440,6 @@ describe("reading the answers back", () => {
     await pass();
     expect([sent[2], stored.analysisHash, isAnalysisSettled(stored)]).toEqual([["X"], "h-X2", true]);
   });
-
   it("degrades a broken batch to ONE CALL PER PIECE, each grounded in its own piece, and still finishes the answer", async () => {
     const grounded: string[] = [], saved: Array<[Record<string, unknown>, string]> = [];
     const written = await runAnswerAnalyses(T, DAY, { readPrompts: async () => null, identity: BRAND,
@@ -467,7 +452,6 @@ describe("reading the answers back", () => {
     expect(saved[0]![1]).toBe("h-F");                                   // every piece merged, so now it is analysed
     expect(saved[0]![0]).toMatchObject({ readParts: 3, topicEntities: ["piece 1", "piece 2", "piece 3"] });
   });
-
   it("reports the reporting day as the operator's own day, not the UTC one", () => {
     // 2 AM UTC on the 5th is still the evening of the 4th where the operator is: a UTC day started early.
     expect(reportingDay(Date.parse("2026-08-05T02:00:00.000Z"))).toBe("2026-08-04");
@@ -490,7 +474,6 @@ describe("work that is genuinely finished", () => {
   const engines: DueObservation["engine"][] = ["chatgpt"];
   const plan = (observed: AiObservationView[], retries: Record<string, number> = {}) =>
     planObservations(DAY, { prompts: ONE, observed, engines, retries, maxBatch: 99 });
-
   it("treats an answer, an unavailable engine and an engine it cannot ask as finished for today, and a broken one as worth asking again", () => {
     expect(plan([seen({ promptId: "p1", engine: "chatgpt" })])).toEqual([]);                             // observed
     expect(plan([seen({ promptId: "p1", engine: "chatgpt", status: "unavailable" })])).toEqual([]);      // nothing readable to give
@@ -500,7 +483,6 @@ describe("work that is genuinely finished", () => {
     // But only while the day's retry budget lasts. Spent, it is finished for the day like any other outcome.
     expect(plan([seen({ promptId: "p1", engine: "chatgpt", status: "failed" })], { "p1|1|chatgpt|0": FAILED_RETRIES_PER_DAY })).toEqual([]);
   });
-
   it("derives the engines it plans from the provider registry itself, with nobody handing it a list", async () => {
     // The engine-to-capability map is checked by the compiler and nothing more: a `satisfies` proves the
     // mapping is well typed and proves nothing about whether the planner ever consults it. Turning ONE
@@ -514,7 +496,6 @@ describe("work that is genuinely finished", () => {
     // And the day it comes back it is planned again, with no stored flag to undo.
     expect(new Set((await dueObservations(T, DAY, world))!.map((d) => d.engine))).toEqual(new Set(ENGINES));
   });
-
   it("never plans an engine the registry cannot ask, on any day, and does not resurrect it from a stored row", () => {
     const yesterday = [seen({ promptId: "p1", engine: "perplexity", status: "unsupported", day: "2026-07-30" })];
     // The engine set is derived from the capability registry, so an engine that cannot be asked is simply absent
@@ -525,7 +506,6 @@ describe("work that is genuinely finished", () => {
     const restored = planObservations(DAY, { prompts: ONE, observed: yesterday, engines: ["chatgpt", "perplexity"], maxBatch: 99 });
     expect(restored.some((d) => d.engine === "perplexity")).toBe(true);
   });
-
   it("retries a broken pair the bounded number of times in one day, then settles the row as unavailable with the provider's own reason kept", async () => {
     const store = [seen({ promptId: "p1", engine: "chatgpt", status: "failed", failureReason: REASON, requestedAt: `${DAY}T08:00:00.000Z` })];
     let markers: DayMarkers | null = null, asks = 0;
@@ -542,7 +522,6 @@ describe("work that is genuinely finished", () => {
     /** What the executor does with a plan it actually drains: it asks, the provider breaks again, and the
      *  row is rewritten on its own identity with a FRESH ask stamp. That stamp is the proof of the ask. */
     const executorAsks = () => { asks += 1; store[0]!.requestedAt = `${DAY}T09:0${asks}:00.000Z`; };
-
     expect(await pass()).toBe(1);                                    // retry one is planned
     expect(markers!.observationRetries!.counts).toEqual({ "p1|1|chatgpt|0": 0 }); // and nothing is spent yet
     // A PLAN THE PASS NEVER REACHED SPENDS NOTHING. The batch cap, the pass deadline or a provider that
@@ -564,7 +543,6 @@ describe("work that is genuinely finished", () => {
     markers = { observationRetries: { day: "2026-07-30", counts: { "p1|1|chatgpt|0": 9 } } };
     expect(await pass()).toBe(1);
   });
-
   it("settles a failed row on an engine the registry cannot ask as UNSUPPORTED, and never plans that engine again while that holds", async () => {
     // The engine set handed to the planner IS what the provider registry can ask today. A pair that broke
     // on an engine outside it is not "the engine had nothing to give": I cannot ask it at all, and saying
@@ -588,7 +566,6 @@ describe("work that is genuinely finished", () => {
     expect((await dueObservations(T, "2026-08-01", { ...world, readObservations: async () => [] }))!
       .some((d) => d.engine === "perplexity")).toBe(false);
   });
-
   // A SETTLE THAT THREW IS NOT A SETTLE. The exhausted-retry marker used to land regardless, so the row said
   // `failed` with no budget left to ask again: permanently owed and contradicted by the ledger beside it.
   it("leaves a pair whose settle threw exactly where it was, says so out loud, and closes it on the next pass", async () => {
@@ -614,7 +591,6 @@ describe("work that is genuinely finished", () => {
         settled.push(status); store.find((x) => x.id === id)!.status = status; } });
     expect([settled, store[0]!.status]).toEqual([["unavailable"], "unavailable"]);
   });
-
   it("asks the observation store for the DAY it is planning, so a 600 row day is read whole", async () => {
     // An unnamed read defaults to the newest 500 rows. A tracked set of 35 questions on 4 engines writes
     // more than that in a day (retries and settles included), so the planner was deciding what was still
@@ -628,7 +604,6 @@ describe("work that is genuinely finished", () => {
     expect(asked).toEqual([{ day: DAY }]);   // the day is NAMED, which is what flips the reader to read-it-all
     expect(plan).toEqual([]);                 // and p1's own reading is in that day, so nothing is re-bought
   });
-
   it("does not plan an unavailable pair again the same day, and does plan it the next day", async () => {
     const gone = seen({ promptId: "p1", engine: "chatgpt", status: "unavailable", failureReason: REASON });
     const world = { readPrompts: async () => ONE, readObservations: async () => [gone], engines, maxBatch: 99, readMarkers: async () => null };
@@ -637,7 +612,6 @@ describe("work that is genuinely finished", () => {
     expect(tomorrow).toHaveLength(1);
     expect(tomorrow![0]).toMatchObject({ promptId: "p1", engine: "chatgpt", slot: 0, day: "2026-08-01" });
   });
-
   it("reads a row already stored under the day it computes as that pair being done, and leaves every other day alone", async () => {
     // THE CUTOVER. Pacific runs behind UTC, so the operator's day can be a day that already holds rows taken
     // under the old UTC label. Those rows are history: they mean the work is done, nothing is re-asked, and
@@ -672,7 +646,6 @@ describe("every written form that still means this business", () => {
     expect(identityFrom("", "")).toEqual({ name: "", forms: [], host: "" });
     expect(identityFrom("  ", "   ")).toEqual({ name: "", forms: [], host: "" });
   });
-
   it("reads a company suffix as the same business, and offers the longest form first", () => {
     // A reader who sees "Ritz Builders" has seen "Ritz Builders, Inc.", and the longest form is tried first
     // so the whole name wins over a fragment of it.
@@ -681,7 +654,6 @@ describe("every written form that still means this business", () => {
       forms: ["ritz builders, inc.", "ritz-builders.com", "ritz builders"],
     });
   });
-
   it("keeps a bare domain label only when it could not be an ordinary English word", () => {
     // The mention verdict ORs every form together, so a generic label on its own turns "a guide to Nowruz"
     // into a mention of guide.com. The whole address always counts; the label has to earn its place.
@@ -717,7 +689,6 @@ describe("who the answer was read for", () => {
     return { written, saved };
   };
   beforeEach(() => { setAccountRepositoryForTests(null); __resetBusinessProfileCacheForTests(); });
-
   it("sends the account's REAL name into the BATCH call, taken from the confirmed profile and its own website, with one entry per answer", async () => {
     onFile("Iranopedia", "https://www.iranopedia.com/");
     const asked: string[] = [];
@@ -734,7 +705,6 @@ describe("who the answer was read for", () => {
     expect(asked[0]).toContain("OBSERVATION a");       // each answer is keyed by the observation it was taken on
     expect(saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "both" });
   });
-
   it("keeps a mention the model missed, from the answer's own words or an address it credited, and says which found it", async () => {
     onFile("Iranopedia", "https://www.iranopedia.com/");
     // The model read this answer IN A BATCH and said "not mentioned": the deterministic second read still runs
@@ -747,7 +717,6 @@ describe("who the answer was read for", () => {
     const neither = await readBack(answer("n", "Ask a local travel agent.", ["https://example.com/x"]), missed);
     expect(neither.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: false }, matchedBy: null }); // a real absence, not a model miss
   });
-
   it("never reads a bare domain label as the business name when the label is an ordinary English word", async () => {
     // The mention verdict ORs every written form together, so the label on its own ("guide", "best") matched
     // any sentence using that word and every such account read as mentioned in answers about nobody.
@@ -762,7 +731,6 @@ describe("who the answer was read for", () => {
     const own = await readBack(answer("o", "Iranopedia covers the festivals in depth."), missed);
     expect(own.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "text" });
   });
-
   it("never invents a mention out of a longer word, and reads nothing back at all when it cannot name the account", async () => {
     onFile("Ritz", "https://ritz-builders.com");
     const { saved } = await readBack(answer("w", "Ritzy Hotels are lovely this time of year."),

@@ -47,7 +47,6 @@ describe("per-account LLM budget isolation", () => {
     durableWrites.length = 0;
     readCalls.length = 0;
   });
-
   it("account A's file-layer spend never changes account B's remaining budget", async () => {
     await recordSpend(9.99, { tenantId: A });
     const a = await checkBudget({ tenantId: A, projectedCostUsd: 0.02 });
@@ -55,7 +54,6 @@ describe("per-account LLM budget isolation", () => {
     expect(a.allowed).toBe(false); // A is at its own cap (10 default)
     expect(b).toEqual({ allowed: true, remaining: 10 }); // B untouched
   });
-
   it("recording spend for A writes A's ledgers only, and B stays uncapped on the durable layer too", async () => {
     DURABLE.set(A, 10); // A's durable monthly spend at cap
     const a = await checkBudget({ tenantId: A });
@@ -66,7 +64,6 @@ describe("per-account LLM budget isolation", () => {
     expect(durableWrites).toEqual([{ tenantId: B, costUsd: 0.5 }]);
     expect(FILE_ROWS.has(A)).toBe(false); // A's file ledger untouched by B's spend
   });
-
   it("same-account max(file, durable) and the exact-cap boundary are unchanged", async () => {
     DURABLE.set(A, 4);
     await recordSpend(6, { tenantId: A }); // file 6, durable(mock) 4 → effective 6... plus durable write
@@ -74,7 +71,6 @@ describe("per-account LLM budget isolation", () => {
     const at = await checkBudget({ tenantId: A, projectedCostUsd: 0 });
     expect(at.allowed).toBe(false); // spend == cap fails closed at the boundary
   });
-
   it("a missing account fails before any ledger I/O; every read carried the explicit account", async () => {
     await expect(checkBudget({ tenantId: "" })).rejects.toThrow(/tenantId is required/);
     await expect(recordSpend(1, { tenantId: "  " })).rejects.toThrow(/tenantId is required/);

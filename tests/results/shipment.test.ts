@@ -139,7 +139,6 @@ describe("the canonical Shipment", () => {
     expect(stored.shipmentBaseline?.ai).toEqual({ day: "2026-07-30", checked: 2, analyzed: 2, mentioning: 1 });
     expect(stored.verification).toBeNull(); // nobody has checked it, and that null makes it due
   });
-
   it("counts the AI starting number over the WHOLE day, never the newest page of it", async () => {
     // The baseline used to be read off the newest 60 rows and frozen, so a 140 answer day was compared
     // against a sample of itself for the next 28 days: the before side was a fraction and the after side
@@ -153,7 +152,6 @@ describe("the canonical Shipment", () => {
     const [stored] = await loadShippedChangesForTenant(T);
     expect(stored.shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 140, mentioning: 70 });
   });
-
   it("writes down HOW MANY of that day's answers were read closely, which is the denominator the rate uses", async () => {
     // The starting number used to count mentions over every answer that came back, so an answer nobody had
     // read yet was an implicit miss, while the after side divides by the answers actually read. The change
@@ -168,7 +166,6 @@ describe("the canonical Shipment", () => {
     const [stored] = await loadShippedChangesForTenant(T);
     expect(stored.shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 100, mentioning: 60 });
   });
-
   it("heals a retried press instead of recording the change twice", async () => {
     const first = await ship();
     await upsertShippedChange(first);
@@ -177,12 +174,10 @@ describe("the canonical Shipment", () => {
     expect(retry.id).toBe(first.id);
     expect(db.state.rows).toHaveLength(1);
   });
-
   it("stores a partial bundle as a partial bundle", async () => {
     await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: [COMPONENTS[0]] }) as never }));
     expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual([COMPONENTS[0]]);
   });
-
   it("writes the stamp and the starting numbers once: a later writer keeps what is on file", async () => {
     await upsertShippedChange(await ship());
     const first = (await loadShippedChangesForTenant(T))[0];
@@ -195,14 +190,12 @@ describe("the canonical Shipment", () => {
     expect(after.implementedAt).toBe(NOW.toISOString());
     expect(after.shipmentBaseline?.search.clicks).toBe(9);
   });
-
   it("keeps the exact copy each component carried, which is what the live check compares the page against", async () => {
     const withCopy = [{ kind: "title", label: "Page title", after: "Nowruz Traditions and the Haft-Seen Table" },
       { kind: "opening_answer", label: "Opening answer", after: "A nowruz table is set with seven symbolic items." }];
     await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: withCopy }) as never }));
     expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual(withCopy);
   });
-
   it("records the operator's own confirmation as the answer itself, so the live check is never owed", async () => {
     await upsertShippedChange(await ship({
       shipment: origin({ operatorConfirmed: true, operatorOverrideReason: "I pasted it into Wix myself." }) as never }));
@@ -211,7 +204,6 @@ describe("the canonical Shipment", () => {
     expect(stored.verification?.components.every((c) => c.state === "unknown")).toBe(true);
     expect(stored.operatorOverrideReason).toBe("I pasted it into Wix myself.");
   });
-
   it("still decodes a record written before there were Shipments", async () => {
     db.state.rows.push(legacyRow());
     const [stored] = await loadShippedChangesForTenant(T);
@@ -231,7 +223,6 @@ describe("a day-56 reading already taken", () => {
     treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0,
     controlPosDelta: 0, adjustedPosLift: 0, controlsUsed: 3, treatedPostImpressions: 5000,
   });
-
   it("survives a recompute that could not ask for it again, and is never re-bought", async () => {
     const held = { ...(await ship()), verdict: "inconclusive" as const, windows: [ranWindow(56, 400)] as never };
     const measured = await measureRecord(T, held, LATER, BEHIND_56);
@@ -255,7 +246,6 @@ describe("recording what the live check found", () => {
     expect(stored.implementedAt).toBe(NOW.toISOString());
     expect(stored.shipmentBaseline?.search.clicks).toBe(9);
   });
-
   it("fails closed on another account's shipment, and on an id nobody holds", async () => {
     const record = await ship();
     await upsertShippedChange(record);
@@ -269,19 +259,16 @@ describe("recording what the live check found", () => {
  *  table: a write that quietly lands in a file is a write nobody will ever read back. */
 describe("when the Shipment columns are not there yet", () => {
   const MISSING_COLUMN = { code: "PGRST204", message: "Could not find the 'implemented_at' column of 'shipped_change_proof' in the schema cache" };
-
   it("refuses a Shipment it cannot store durably instead of pretending it landed", async () => {
     db.state.upsertError = MISSING_COLUMN;
     await expect(upsertShippedChange(await ship())).rejects.toThrow(/migration/i);
     expect([db.state.rows.length, db.state.file.length]).toEqual([0, 0]);
   });
-
   it("still records a pre-Shipment row to the file, because nothing downstream reads that one from the table", async () => {
     db.state.upsertError = MISSING_COLUMN;
     await upsertShippedChange(await ship({ shipment: undefined }));
     expect(db.state.file).toHaveLength(1);
   });
-
   it("keeps working with no database at all: the record and its answer both land in the local ledger", async () => {
     db.state.offline = true;
     const record = await ship();
@@ -292,7 +279,6 @@ describe("when the Shipment columns are not there yet", () => {
     expect((db.state.file[0] as { verification?: ShipmentVerification }).verification?.status).toBe("verified");
     expect(await recordVerification(T, "shp_nobody-holds-this", verification("verified"))).toBe(false);
   });
-
   it("saves what the check found to the file when the column is missing, rather than re-owing the check forever", async () => {
     const record = await ship();
     await upsertShippedChange(record); // the table takes the row, and the file mirrors it
@@ -308,7 +294,6 @@ describe("when the Shipment columns are not there yet", () => {
 describe("measurement waits for the change to be found on the page", () => {
   const LATER = new Date("2026-08-20T12:00:00.000Z"), FINAL = "2026-08-19";
   const due = async (v: ShipmentVerification | null) => isDueForMeasure({ ...(await ship()), verification: v }, FINAL, LATER);
-
   it("measures a verified, partly verified or operator-confirmed change, and nothing else", async () => {
     expect(await due(verification("verified"))).toBe(true);
     expect(await due(verification("partially_verified"))).toBe(true);
@@ -318,7 +303,6 @@ describe("measurement waits for the change to be found on the page", () => {
     expect(await due(verification("blocked"))).toBe(false);
     expect(await due(verification("differs"))).toBe(false);
   });
-
   it("keeps measuring a record written before there were Shipments, which has no answer to wait for", async () => {
     const legacy = { ...(await ship()), implementedAt: null, verification: null };
     expect(isDueForMeasure(legacy, FINAL, LATER)).toBe(true);
@@ -328,7 +312,6 @@ describe("measurement waits for the change to be found on the page", () => {
 describe("what is still under measurement", () => {
   const row = (id: string, implementedAt: string, path: string, v: ShipmentVerification | null): Row =>
     ({ ...legacyRow(), id, path, implemented_at: implementedAt, verification: v, proposal_id: `p-${id}` });
-
   beforeEach(() => {
     db.state.rows = [
       row("s1", "2026-07-25T00:00:00.000Z", "/nowruz-guide", null),              // waiting on its first check
@@ -339,7 +322,6 @@ describe("what is still under measurement", () => {
       { ...legacyRow(), id: "s6", path: "/never-shipped" },                        // no stamp at all
     ];
   });
-
   it("windows on the stamp, keeps only what is really being measured, and belongs to one account", async () => {
     expect(await pagesUnderMeasurementFromShipments(T, NOW)).toEqual(["/nowruz-guide", "/tehran"]);
     expect(await pagesUnderMeasurementFromShipments("acct-b", NOW)).toEqual([]);

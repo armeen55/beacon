@@ -723,7 +723,6 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
   it("owes nothing when the sources are fresh, today's round has landed, the notes have not moved past the last decision, and the rest is waiting on a date I promised", async () => {
     const w = await dueWork(T, new Date(NOW), base);
     expect([w.due, w.readable, w.checks, w.cases, w.nextDueAt]).toEqual([[], true, { ...NO_CHECKS, done: 4, total: 4, answers: 4 }, { active: 0, parked: 1 }, new Date(NOW + DAY).toISOString()]); });
-
   it("names each owed unit from the ONE persisted fact that proves it", async () => {
     const due = async (o: Parameters<typeof dueWork>[2]) => (await dueWork(T, new Date(NOW), { ...base, ...o })).due;
     expect(await due({ staleSources: async () => 1 })).toEqual(["refresh_sources"]);
@@ -741,7 +740,6 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     // An OPEN run with no plan bound to this basis owes one; an idle account with no plan owes nothing.
     expect(await due({ run: async () => ({ open: true, progress: { decided: { basis: "b1", rowVersion: 7 } } }) })).toEqual(["plan_cases"]);
     expect(await due({ run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 } } }) })).toEqual([]); });
-
   it("treats a completed pass's frozen plan as a receipt, not a standing queue: only an arrived retry date or a still-open run makes a topic owed", async () => {
     const plan = { basis: "b1", topics: [{ topicKey: "t1", query: "haft seen", requirement: "exact_serp" }] }; // frozen, no date promised
     const decided = { basis: "b1", rowVersion: 7 };
@@ -750,7 +748,6 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     expect(await due(true)).toEqual(["acquire_case_evidence"]); // the run that froze it is still open and genuinely owes the work
     // And a date I promised that has ARRIVED is owed whether or not a run is open.
     expect((await dueWork(T, new Date(NOW), { ...base, run: async () => ({ open: false, progress: { decided, focus: parked(NOW - 1) } }) })).due) .toEqual(["acquire_case_evidence"]); });
-
   it("says UNREADABLE rather than empty when the durable state cannot be read, so a caller never mistakes a failed read for a finished day", async () => {
     const blind = await dueWork(T, new Date(NOW), { ...base, run: async () => { throw new Error("db down"); } });
     expect([blind.readable, blind.due]).toEqual([false, []]);

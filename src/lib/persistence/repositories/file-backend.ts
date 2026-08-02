@@ -5,13 +5,7 @@ import { buildTenantRepo } from "./tenant-repo";
 import type { Result } from "@/domains/measurement/results/types";
 import type { ChangelogEntry } from "@/domains/measurement/changelog/types";
 import type { Opportunity } from "@/domains/decision/opportunities/types";
-import type { Competitor } from "@/domains/evidence/competitors/types";
 import type { ImportRun } from "@/lib/import/types";
-import type {
-  CompetitorPageEvidence,
-  SourcePatternEvidence,
-} from "@/domains/evidence/pages/competitor-evidence";
-import type { CompetitorPageSnapshot } from "@/domains/evidence/pages/competitor-page-snapshots";
 import type { ChangeContract } from "@/domains/measurement/changelog/change-contract";
 import type {
   PageEntity,
@@ -40,7 +34,6 @@ export const fileBackend: SeedDataRepository = {
     readStore<ChangelogEntry>("imported-changes"),
   getOpportunities: async () =>
     readStore<Opportunity>("imported-opportunities"),
-  getCompetitors: async () => readStore<Competitor>("imported-competitors"),
 
   // Phase 1D
   // (getEventDecisions / getCandidateLinks / getPageIssues removed
@@ -73,12 +66,6 @@ export const fileBackend: SeedDataRepository = {
   // render-checks, legacy-global sitemap-reconciliation, visibility runs,
   // rollout/pattern/frontier/wave/asset/outcome/truth-label reads,
   // page summaries, citation/answer-intel index reads — zero callers.)
-  getCompetitorPageSnapshots: async () =>
-    readStore<CompetitorPageSnapshot>("competitor-page-snapshots"),
-  getCompetitorPageEvidence: async () =>
-    readStore<CompetitorPageEvidence>("competitor-page-evidence"),
-  getSourcePatternEvidence: async () =>
-    readStore<SourcePatternEvidence>("source-pattern-evidence"),
 
   // Phase 7 — scan findings via repository
   getScanFindings: async () => getFindings(),

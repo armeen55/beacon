@@ -254,7 +254,6 @@ describe("re-analysis reads what was already bought", () => {
   const stored = (n: number, from = 0) => Array.from({ length: n }, (_, i) => ({ id: `obs_${String(from + i).padStart(5, "0")}`,
     tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed",
     requested_at: new Date(Date.parse(`${DAY}T00:00:00.000Z`) + (from + i) * 1000).toISOString() }));
-
   it("pages a whole day range instead of stopping at one query's worth of rows", async () => {
     // 35 questions x 4 engines x 28 days. One capped query returned the newest 2,000 of these, so the
     // report that claimed 28 days was built from about 14 and every total under it was short.
@@ -269,7 +268,6 @@ describe("re-analysis reads what was already bought", () => {
     const bigger = await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-30", slot: 0 });
     expect([bigger.length, db.pages.length]).toEqual([6000, 7]); // six full pages, and the short page that ends the walk
   });
-
   it("asks for only the columns an outcome read reads, and never drags the answers themselves across", async () => {
     // A ledger read walks a 56 day window per shipped change. `answer_text` is a whole AI answer and
     // `journey` is every page the engine read and credited, so a full-row read of that window is megabytes
@@ -288,7 +286,6 @@ describe("re-analysis reads what was already bought", () => {
     await readAiObservations(TENANT, { day: DAY });
     expect(db.selected[0]).toBe("*");
   });
-
   it("breaks a same-instant tie by id IN THE QUERY, so a page edge never reads one row twice and loses another", async () => {
     // Two rows stamped the same millisecond, sitting exactly on a 1,000 row page edge. Without a unique
     // tiebreaker in the ORDER BY, Postgres may return them either way round on the two pages, and the
@@ -301,7 +298,6 @@ describe("re-analysis reads what was already bought", () => {
     expect(new Set(walked.map((r) => r.id)).size).toBe(1001);
     expect(db.pages.map((p) => p.split("+")[1])).toEqual(["1000", "1"]);
   });
-
   it("reads the addresses an answer credited off the stored journey, and keeps null a different claim from none", async () => {
     const at = (url: string, domain: string) => ({ url, domain, title: null });
     db.read = [
@@ -320,7 +316,6 @@ describe("re-analysis reads what was already bought", () => {
     expect(views.find((v) => v.id === "o3")!.citationUrls).toBeNull();    // this path does not report citations at all
     expect(views.find((v) => v.id === "o4")!.citationUrls).toBeNull();    // and a row with no journey claims nothing
   });
-
   it("settles a failed reading only while it is still failed, and says which honest state it moved to", async () => {
     // A reading that landed while the planner was deciding wins: the compare-and-set is what stops a
     // decision taken a moment earlier from demoting an answer that is now in hand.
@@ -334,7 +329,6 @@ describe("re-analysis reads what was already bought", () => {
     db.updated = null; db.error = { message: "connection lost" };
     await expect(settleFailedObservation(TENANT, "obs_3", "unavailable")).rejects.toThrow(/settle failed/);
   });
-
   it("reads a NAMED DAY whole, and an insert mid-read never doubles a row or drops one", async () => {
     // The planner asks for the single day it is planning. That is a named range, so the reader walks it to
     // the end: it used to default to 500 rows and call the newest page of a 600 row day the whole day.
@@ -370,7 +364,6 @@ describe("the funnel's own default readers carry provenance, not just payload", 
     expect(rows).toEqual([{ analysis, observationId: "obs_a", promptId: "q7", promptVersion: 3,
       promptText: QUESTIONS[0]!.text, engine: "claude", reportingDay: DAY }]);
   });
-
   it("names the page of mine whose Search Console row carried each query, and orders the slipping ones first", async () => {
     gsc.pages = new Map([
       ["https://mine.example/guide", { page: "https://mine.example/guide", clicks90d: 10, impressions90d: 900, ctr90d: 0.01,

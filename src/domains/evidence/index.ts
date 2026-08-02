@@ -45,6 +45,12 @@ export type { SerpPageType } from "./serp-shape";
 // The per-case research receipt: what was found, what it cost, and why nothing more was bought
 export { caseResearchReceipt } from "./case-receipt";
 
+// Competitor landscape: what every recurring domain IS, why, and the operator's corrections
+export type { ClassifiedDomain, CompetitorKind, DomainSignals } from "./competitors/classify";
+export { classifyDomain } from "./competitors/classify";
+export type { CompetitorOverride } from "./competitors/landscape";
+export { competitorLandscape, competitorOverrideLine, parseCompetitorOverrides } from "./competitors/landscape";
+
 // Loader
 export type { LoadEvidenceSnapshotOptions } from "./snapshot-loader";
 export { loadEvidenceSnapshot } from "./snapshot-loader";

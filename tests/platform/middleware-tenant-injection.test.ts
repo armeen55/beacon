@@ -94,12 +94,10 @@ describe("middleware account injection — one login, one account, fail-closed",
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = REQUIRED_ENV.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     delete process.env.BEACON_AUTH_DISABLED;
   });
-
   afterEach(() => {
     delete process.env.BEACON_AUTH_DISABLED;
     vi.restoreAllMocks();
   });
-
   it("strips the inbound x-beacon-tenant header on every path (client spoof defense)", async () => {
     supabaseState.user = { id: "user-1" }; supabaseState.tenantMembersRows = [{ tenant_id: "tenant-real" }];
     const res = await updateSession(
@@ -107,7 +105,6 @@ describe("middleware account injection — one login, one account, fail-closed",
     );
     expect(injectedTenant(res)).toBe("tenant-real");
   });
-
   it("exactly one membership injects exactly that account", async () => {
     supabaseState.user = { id: "user-1" };
     supabaseState.tenantMembersRows = [{ tenant_id: "tenant-mine" }];
@@ -116,7 +113,6 @@ describe("middleware account injection — one login, one account, fail-closed",
     expect(injectedTenant(res)).toBe("tenant-mine");
     expectRetiredCookieExpired(res);
   });
-
   it("zero memberships fail closed to /login?error=no_account", async () => {
     supabaseState.user = { id: "user-none" };
     supabaseState.tenantMembersRows = [];
@@ -124,7 +120,6 @@ describe("middleware account injection — one login, one account, fail-closed",
     expect(res.status).toBeGreaterThanOrEqual(300);
     expect(res.headers.get("location")).toContain("error=no_account");
   });
-
   it("a stranded session (zero memberships) still reaches /login and /auth/signout", async () => {
     supabaseState.user = { id: "user-none" };
     for (const p of ["/login", "/login?error=no_account", "/auth/signout"]) {
@@ -132,7 +127,6 @@ describe("middleware account injection — one login, one account, fail-closed",
       expect(res.status, `${p} must not bounce for a stranded session`).toBe(200);
     }
   });
-
   it("multiple memberships fail closed — never earliest-membership guessing", async () => {
     supabaseState.user = { id: "user-multi" };
     supabaseState.tenantMembersRows = [{ tenant_id: "tenant-earliest" }, { tenant_id: "tenant-later" }];
@@ -141,7 +135,6 @@ describe("middleware account injection — one login, one account, fail-closed",
     expect(res.headers.get("location")).toContain("error=multiple_accounts_unsupported");
     expect(injectedTenant(res)).not.toBe("tenant-earliest");
   });
-
   it("a query error fails closed even with a forged beacon_tenant cookie", async () => {
     supabaseState.user = { id: "user-1" }; supabaseState.tenantMembersError = { message: "boom" };
     const res = await updateSession(makeCookieRequest("/today", "tenant-forged"));
@@ -150,21 +143,18 @@ describe("middleware account injection — one login, one account, fail-closed",
     expect(injectedTenant(res)).not.toBe("tenant-forged");
     expectRetiredCookieExpired(res);
   });
-
   it("a lookup throw fails closed even with a forged cookie", async () => {
     supabaseState.user = { id: "user-1" }; supabaseState.tenantQueryThrows = true;
     const res = await updateSession(makeCookieRequest("/today", "tenant-forged"));
     expect(res.headers.get("location")).toContain("error=account_unavailable");
     expect(injectedTenant(res)).not.toBe("tenant-forged");
   });
-
   it("a hung membership lookup fails closed (no 504, no cookie honor)", async () => {
     supabaseState.user = { id: "user-1" }; supabaseState.tenantHangs = true;
     const res = await updateSession(makeCookieRequest("/today", "tenant-forged"));
     expect(res.headers.get("location")).toContain("error=account_unavailable");
     expect(injectedTenant(res)).not.toBe("tenant-forged");
   }, 15000);
-
   it("a valid single membership ignores any cookie naming another account (A cannot reach B)", async () => {
     supabaseState.user = { id: "user-a" };
     supabaseState.tenantMembersRows = [{ tenant_id: "tenant-a" }];
@@ -173,27 +163,23 @@ describe("middleware account injection — one login, one account, fail-closed",
     expect(injectedTenant(res)).toBe("tenant-a");
     expectRetiredCookieExpired(res);
   });
-
   it("a hung auth.getUser degrades to the login redirect (never a 504)", async () => {
     supabaseState.authHangs = true;
     const res = await updateSession(makeRequest("/today"));
     expect(res.status).toBeGreaterThanOrEqual(300);
     expect(res.headers.get("location")).toContain("/login");
   }, 15000);
-
   it("unauthenticated private-path requests redirect to /login?next=...", async () => {
     const res = await updateSession(makeRequest("/changes"));
     expect(res.status).toBeGreaterThanOrEqual(300);
     expect(res.headers.get("location")).toContain("/login?next=%2Fchanges");
   });
-
   it("only /api/cron is machine-auth-exempt; other /api/* paths still redirect", async () => {
     const cron = await updateSession(makeRequest("/api/cron/warm"));
     expect(cron.status).toBe(200);
     const other = await updateSession(makeRequest("/api/anything"));
     expect(other.status).toBeGreaterThanOrEqual(300);
   });
-
   it("auth-disabled local mode ignores the cookie and strips spoofed headers (env account only)", async () => {
     process.env.BEACON_AUTH_DISABLED = "1";
     const res = await updateSession(

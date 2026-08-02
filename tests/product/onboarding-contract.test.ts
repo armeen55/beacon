@@ -199,7 +199,6 @@ describe("onboarding contract (Slice 5)", () => {
     expect((await approvePrompts(A, { approvedIds: ids.slice(0, 11) }, w.deps)).ok).toBe(false); // under the bent floor of sixteen
     expect((await approvePrompts(A, { approvedIds: ids }, w.deps)).ok && activeCore(w, A).length).toBe(16);
   });
-
   it("7. activation is blocked until website + confirmed profile + goal + approved prompts + TOS, never schedules on a block, is double-click safe, and schedules exactly one research run", async () => {
     const w = makeWorld();
     seedPending(w, A, { domain: "acme.com" }); // missing profile + goal + prompts
@@ -348,7 +347,6 @@ describe("setup and settings surfaces (Phase 8)", () => {
     expect(activeCore(w, A).length).toBeGreaterThanOrEqual(20);
     expect(activeCore(w, A).length).toBeLessThanOrEqual(50);
   });
-
   it("brings an account that stopped halfway back to the step it actually reached, not to the start", async () => {
     const w = makeWorld(); seedPending(w, A, { domain: "acme.com" }); seedConfirmedProfile(w, A);
     // Website, understanding and confirmation are done; the goal is not.
@@ -362,7 +360,6 @@ describe("setup and settings surfaces (Phase 8)", () => {
     expect(resumed.currentStep).toBe(6);
     expect(resumed.connections.every((c) => !c.connected)).toBe(true); // and none of them is required to get here
   });
-
   it("never locks a thin business out of its own setup: it approves what it found and says why that is fewer", async () => {
     const { renderToStaticMarkup } = await import("react-dom/server");
     const { createElement } = await import("react");
@@ -380,14 +377,12 @@ describe("setup and settings surfaces (Phase 8)", () => {
     expect(full).toContain("I track between 20 and 50 questions, and this is the range where I do my best work.");
     expect(full).not.toContain("I found 24 strong questions");
   });
-
   it("offers the customer's own four sources on Connections, and nothing Beacon runs on its own account", () => {
     expect(CONNECTOR_REGISTRY.map((c) => c.id).sort()).toEqual(["clarity", "google_ga4", "google_gsc", "wix"]);
     const words = CONNECTOR_REGISTRY.map((c) => `${c.label} ${c.summary}`).join(" ").toLowerCase();
     expect(words).not.toMatch(/openai|dataforseo|crawler|perplexity|gemini/);
     expect(CONNECTOR_REGISTRY.find((c) => c.id === "google_gsc")!.summary).toContain("Strongly recommended");
   });
-
   it("tells an operator where each tracked question's trend starts, so a rewording never looks like a drop", () => {
     expect(historyNote({ version: 1, createdAt: "2026-05-10T00:00:00Z" }))
       .toBe("I have asked this exact question since May 10, and its trend runs from there.");

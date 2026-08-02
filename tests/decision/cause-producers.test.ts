@@ -59,7 +59,7 @@ const investigation = (): TopicInvestigation => ({ key: "inv_rain", aliasKeys: [
   queries: ["rain barrel sizing"], keywords: [], trackedPrompts: [], fanOuts: [], exactSerps: [], serpFreshness: "current",
   demand: { monthlySearchVolume: 4400, queriesWithVolume: 1, gscImpressions: 6000, difficulty: null, intent: "informational", trackedPrompts: 0, fanOuts: 0, engines: [] },
   distinctResultDomains: 8, resultDomains: [], pageType: "informational_guide", pageTypeVotes: [], serpCoherence: "coherent",
-  winners: [], distinctWinners: 3, currentReadableWinners: 3, missingEvidence: [] });
+  winners: [], distinctWinners: 3, currentReadableWinners: 3, missingEvidence: [], nextAcquisition: null, diminishing: false });
 const decided = (p: WinningPattern | null): DecidedTopic => ({
   investigation: investigation(), candidates: [candidate()], reading: null,
   decision: { verdict: "improve_existing", topicKey: "inv_rain", ownedUrls: [URL], evidenceKeys: ["demand"], missing: [],

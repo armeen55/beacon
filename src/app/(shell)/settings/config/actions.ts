@@ -11,6 +11,7 @@ import {
   type ProfileSection,
 } from "@/domains/account";
 import { readTrackedQuestions, saveTrackedQuestions } from "@/domains/runtime";
+import { competitorOverrideLine, parseCompetitorOverrides, type CompetitorKind } from "@/domains/evidence";
 import { currentTenantId } from "@/lib/tenant-context";
 import { revalidatePath } from "next/cache";
 
@@ -35,6 +36,7 @@ export type SetupView = {
   topicsToOwnText: string;
   geographicScopeText: string;
   competitorsText: string;
+  competitorRulesText: string;
   editorialRulesText: string;
   bannedTermsText: string;
 };
@@ -56,7 +58,10 @@ export async function loadSetup(): Promise<SetupView> {
     audiencesText: lines(profile.audiences.value),
     topicsToOwnText: lines(profile.topicsToOwn.value),
     geographicScopeText: lines(profile.geographicScope.value),
-    competitorsText: lines(profile.competitors.value.map((c) => c.name)),
+    competitorsText: lines(profile.competitors.value.filter((c) => !c.domain).map((c) => c.name)),
+    // Read the operator's discovery rules back as the exact lines they typed.
+    competitorRulesText: lines(profile.competitors.value.filter((c) => !!c.domain)
+      .map((c) => competitorOverrideLine({ domain: c.domain!, action: c.action ?? "pin", kind: c.kind as CompetitorKind | undefined }))),
     editorialRulesText: lines(profile.constraints.value.editorial),
     bannedTermsText: lines(profile.constraints.value.bannedTerms),
   };
@@ -87,6 +92,7 @@ export async function saveSetup(data: {
   topicsToOwnText?: string;
   geographicScopeText?: string;
   competitorsText?: string;
+  competitorRulesText?: string;
   editorialRulesText?: string;
   bannedTermsText?: string;
 }): Promise<{ success: boolean; error?: string }> {
@@ -103,6 +109,10 @@ export async function saveSetup(data: {
     if (splitList(data.offeringsText ?? "").length === 0 && splitList(data.topicsToOwnText ?? "").length === 0) {
       return { success: false, error: "Tell me what your business sells, provides, or publishes, or what people should find you for. I research from those answers." };
     }
+    // Discovery rules are instructions, so a line I cannot read stops the whole save and says why:
+    // half-applying a pin and dropping an exclude would be a quieter lie than refusing.
+    const rules = parseCompetitorOverrides(data.competitorRulesText ?? "");
+    if (rules.errors.length > 0) return { success: false, error: `I saved nothing yet. ${rules.errors[0]}` };
     const current = await loadBusinessProfile(tenantId);
     const bt = (data.businessType ?? "").trim() as BusinessType;
     // Rules are sentences, so they split on lines only: a comma inside a rule
@@ -110,6 +120,7 @@ export async function saveSetup(data: {
     const editorial = (data.editorialRulesText ?? "").split("\n").map((s) => s.trim()).filter(Boolean);
     const banned = splitList(data.bannedTermsText ?? "");
     const priorRules = current.constraints.value;
+    const namedNow = splitList(data.competitorsText ?? "").map((name) => ({ name, evidenceUrls: [] }));
     const patch: Parameters<typeof saveBusinessProfile>[1] = {
       name: confirmed(data.name.trim()),
       // The three answers research runs on are the operator's exact words,
@@ -118,10 +129,12 @@ export async function saveSetup(data: {
       audiences: confirmed(splitList(data.audiencesText ?? "")),
       topicsToOwn: confirmed(splitList(data.topicsToOwnText ?? "")),
       geographicScope: optional(splitList(data.geographicScopeText ?? ""), current.geographicScope),
-      competitors: optional<CompetitorRef>(
-        splitList(data.competitorsText ?? "").map((name) => ({ name, evidenceUrls: [] })),
-        current.competitors,
-      ),
+      // Names the operator typed keep the never-erase rule; the rules box is authoritative, because
+      // an operator who deletes a pin line means to remove that pin.
+      competitors: confirmed<CompetitorRef[]>([
+        ...(namedNow.length > 0 ? namedNow : current.competitors.value.filter((c) => !c.domain)),
+        ...rules.overrides.map((o) => ({ name: o.domain, evidenceUrls: [], domain: o.domain, action: o.action, kind: o.kind })),
+      ]),
       constraints:
         editorial.length + banned.length > 0
           ? confirmed({

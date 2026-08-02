@@ -26,13 +26,11 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
     for (const claim of claims) expect(html).toContain(claim);
   }, 15_000);
-
   const readyView = (n: number, measuring: number) => ({
     ready: Array.from({ length: n }, (_, i) => ({ id: `t::/p${i}::existing_edit::title`, pagePath: `/p${i}`, pageUrl: null, pageLabel: `P${i}`, primaryQuery: "q",
       opportunityType: "Sharpen the title", estimatedEffortMinutes: 2, upsidePerMonth: null, confidence: "high", recommendedChange: { kind: "existing_edit", field: "title" } })),
     toDo: [], measuringCountCanonical: measuring,
   } as unknown as import("@/app/(shell)/changes-data").ChangesView);
-
   it("counts EVERY ready change and says the five it previews are a preview", async () => {
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
     const view = buildTodayViewFromChanges(readyView(12, 3));
@@ -43,14 +41,12 @@ describe("Today renders, and tells the truth about its own queue", () => {
     expect(view.readyFixes).toHaveLength(12); // every ready page is linkable, not just the previewed five
     expect(buildTodayViewFromChanges(readyView(1, 0)).headerSentence).toBe("You have 1 change ready to apply.");
   });
-
   const STILL_CHECKING = "I found meaningful traffic gaps, but I am still checking the results pages and competing pages before asking you to change anything.";
   const alarm = (actionLabel: string, href: string) => ({ page: "/famous-iranian-comedians", pageKey: "/famous-iranian-comedians", clicksLost: 163,
     windowLabel: "the previous 4 weeks", sentence: "", href, actionLabel, hasReadyFix: actionLabel === "See the fix" });
   const command = (over: Record<string, unknown>) => ({ blockers: [], smokeAlarm: null, scoreboardDeltaPct: -12, readyChanges: [], firstReadOn: null, measuringCount: 0, ...over });
   const readyChange = { changeId: "c1", pageLabel: "/famous-iranian-comedians", recommendation: "Sharpen the title for that search",
     opportunityType: "Capture clicks", estimatedEffortMinutes: 4, upside: 163, evidenceStrength: "strong" as const };
-
   it("never sends you to fix a page the decision resolved to watch, and never reads all clear while a page is losing", async () => {
     const { buildTodayCommand } = await import("@/domains/measurement");
     const watching = "Traffic fell here, but its search click-through is healthy, so I am watching it rather than asking you to rewrite a page that is winning.";
@@ -65,7 +61,6 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const empty = { ready: [], toDo: [], measuringCountCanonical: 0, proposals: [] } as unknown as import("@/app/(shell)/changes-data").ChangesView;
     expect(buildTodayViewFromChanges(empty, { outcome: "actionable_but_no_trusted_draft" }).headerSentence).toBe(STILL_CHECKING);
     expect(buildTodayViewFromChanges(empty).headerSentence).toContain("Nothing needs a decision today."); }); // a genuinely quiet day still reads quiet
-
   it("points a bleeding page at its own ready fix, and never at a route that does not exist", async () => {
     const { buildTodaySmokeAlarm } = await import("@/components/today/today-smoke-alarm");
     const decay = [{ page: "https://site.example/nowruz", clicksNow: 10, clicksPrior: 60 }];
@@ -78,7 +73,6 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const long = "/" + "a".repeat(60); // the DISPLAY label truncates; the key any lookup matches on must not
     const wide = buildTodaySmokeAlarm({ decay: [{ page: `https://site.example${long}`, clicksNow: 10, clicksPrior: 60 }], readyFixes: new Map() })!;
     expect(wide.page.endsWith("...")).toBe(true); expect(wide.pageKey).toBe(long); });
-
 });
 
 describe("Connectors settings route smoke", () => {
@@ -89,7 +83,6 @@ describe("Connectors settings route smoke", () => {
       'data-connector-card="clarity"', 'data-connectors-summary-strip="true"', "I never touch your live site"]) expect(html).toContain(claim);
     expect(html).not.toContain("Enter Yelp API Key");
   });
-
   it("computes 'N of M connected' from provider reads and surfaces the on-use receipt", async () => {
     const { getConnectorInfo } = await import("@/lib/connector-store");
     vi.mocked(getConnectorInfo).mockImplementation(async (provider: string) => {

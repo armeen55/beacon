@@ -55,7 +55,6 @@ describe("one shipped change tells its whole story", () => {
     ]);
     expect(story.verification.checkedOn).toBe("May 3");
   });
-
   it("says plainly when it has not looked yet, instead of implying a pass, and holds the starting point untouched", () => {
     const unchecked = shipmentStory(shipment({ verification: null }));
     expect(unchecked.verification.headline).toContain("I have not read your live page for this one yet");
@@ -63,7 +62,6 @@ describe("one shipped change tells its whole story", () => {
     expect(shipmentStory(shipment()).baseline)
       .toBe("When you marked this done on May 1, this page had 412 clicks and 9,100 appearances in Google over the 28 days before it. I hold that starting point exactly as it was, and it never moves.");
   });
-
   it("walks the timeline from marked done through the live check to every checkpoint, and adds the 56 day follow up only when one ran", () => {
     const story = shipmentStory(shipment());
     expect(story.timeline.map((s) => s.label)).toEqual(["You marked it done", "I checked your live page", "7 day read", "14 day read", "28 day read"]);
@@ -72,7 +70,6 @@ describe("one shipped change tells its whole story", () => {
     const followUp = shipment({ read: evaluateChange(input({ windows: [win(7), win(14), win(28), { ...win(28), day: 56 as 28 }] }), evaluateWindows(SHIPPED, new Date("2026-07-15T00:00:00Z"), "2026-07-15", true), []) });
     expect(shipmentStory(followUp).timeline.map((s) => s.label)).toContain("56 day read");
   });
-
   it("renders both outcomes: the Google read and the AI read, each with what it was read over", () => {
     const story = shipmentStory(shipment());
     expect(story.search.headline).toContain("similar pages");
@@ -82,13 +79,11 @@ describe("one shipped change tells its whole story", () => {
     expect(story.ai!.coverage).toBe("I read on 21 of the 28 days since then. A day I missed stays missed, and I never fill one in.");
     expect(story.ai!.line).toBe(AI.line);
   });
-
   it("never prints a zero where nothing was read: no AI day read says so in words", () => {
     const none = shipment({ ai: { ...AI, direction: "unclear", coverage: { daysObserved: 0, daysElapsed: 12 } } });
     expect(shipmentStory(none).ai!.coverage).toBe("I have not managed to read an AI answer on any of the 12 days since you marked this done.");
     expect(shipmentStory(shipment({ ai: null })).ai).toBeNull();
   });
-
   it("stops painting a window green once a later change on the page shares it, and names what it shares with", () => {
     const overlapped = shipment({ read: evaluateChange(input(), WINDOWS, ["c2"], "2026-05-10") });
     const story = shipmentStory(overlapped);
@@ -102,7 +97,6 @@ describe("one shipped change tells its whole story", () => {
     expect(shipmentStory(shipment()).chips.every((c) => c.state !== "shared")).toBe(true);
     expect(shipmentStory(shipment()).overlap).toBeNull();
   });
-
   it("says what it learned in the operator's words, with no slug from the diagnosis or the action family", () => {
     const learned = shipmentStory(shipment()).learning;
     expect(learned).toContain("I read this page as the line searchers saw not matching what they typed");
@@ -116,7 +110,6 @@ describe("one shipped change tells its whole story", () => {
     expect(early.learning).not.toContain("I carry that into");
     expect(early.learning).toContain("I carry nothing forward from this one until it settles.");
   });
-
   it("says the verdict and how sure I am in the operator's words, never in the kernel's", () => {
     const confounded = evaluateChange(input({ windows: [win(28)] }), WINDOWS, ["c2"]);
     expect(confounded.verdict).toBe("confounded"); // the kernel keeps its own vocabulary
@@ -127,7 +120,6 @@ describe("one shipped change tells its whole story", () => {
     expect(shipmentStory(shipment()).confidence).toMatch(/^I am /);
     expect(shipmentStory(shipment()).confidence.toLowerCase()).not.toContain("confidence");
   });
-
   it("renders a change marked done before I kept exact dates as done, and says the date is what is missing", () => {
     const legacy = shipmentStory(shipment({ implementedAt: null, baseline: null }));
     expect(legacy.timeline[0]).toEqual({ label: "You marked it done, before I kept exact dates", state: "done", when: null });
@@ -152,7 +144,6 @@ describe("the AI trend never draws across a change of instrument", () => {
       days: [day("2026-05-03", 0.5), day("2026-05-04", 0.55)],
     },
   ];
-
   it("draws two separate runs and names the break in plain words", () => {
     const trend = aiTrend(segments);
     expect(trend.runs).toHaveLength(2);
@@ -161,12 +152,10 @@ describe("the AI trend never draws across a change of instrument", () => {
     // The two runs hold their own days: nothing is merged into one continuous line.
     expect(trend.runs.map((r) => r.points.map((p) => p.label))).toEqual([["May 1", "May 2"], ["May 3", "May 4"]]);
   });
-
   it("says out loud that the line breaks, so a step is never read as a win", () => {
     expect(aiTrend(segments).summary)
       .toBe("On May 4 you were named in 55 out of every 100 answers I read closely. The line breaks once because an assistant changed how it answers, and I never draw across a break.");
   });
-
   it("claims nothing at all when no answer has been read closely", () => {
     const trend = aiTrend([{ from: "2026-05-01", to: "2026-05-01", models: [], boundary: null, days: [day("2026-05-01", null, 0)] }]);
     expect(trend.summary).toBeNull();
@@ -193,7 +182,6 @@ describe("no Results string reaches the operator carrying jargon", () => {
       { from: "2026-05-01", to: "2026-05-01", models: [], boundary: null, days: [day("2026-05-01", 0.2)] },
       { from: "2026-05-02", to: "2026-05-02", models: [], boundary: [{ engine: "gemini", day: "2026-05-02", fromModel: "a", toModel: "b", fromMode: "api", toMode: "consumer" }], days: [day("2026-05-02", 0.4)] },
     ]).runs.flatMap((r) => [r.breakLabel ?? "", ...r.points.map((p) => p.label)]));
-
     for (const s of strings) {
       expect(s, `dash in: ${s}`).not.toMatch(/[–—]/);
       expect(s, `raw date stamp in: ${s}`).not.toMatch(/\d{4}-\d{2}-\d{2}/);

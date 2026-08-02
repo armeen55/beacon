@@ -1,0 +1,125 @@
+/**
+ * PRODUCT - who the competition actually is, and when buying more research stops paying. Pure projections
+ * only: no network and no clock but the snapshot's own builtAt; the profile round trip runs on an injected
+ * in-memory row, so a pin the operator types survives a save and a reload.
+ */
+import { describe, it, expect, beforeEach } from "vitest";
+import { buildTopicInvestigations, classifyDomain, competitorLandscape, competitorOverrideLine, parseCompetitorOverrides, type CompetitorKind, type CompetitorOverride } from "@/domains/evidence";
+import { emptyResearchEvidence, type FunnelResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
+import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
+import { __resetBusinessProfileCacheForTests, loadBusinessProfile, saveBusinessProfile, setBusinessProfileRepositoryForTests, type BusinessProfile, type CompetitorRef } from "@/domains/account/business-profile";
+const SITE = "myshop.example", BUILT = "2026-07-26T00:00:00.000Z", FRESH = "2026-07-25T00:00:00.000Z", QUERY = "best rain barrel";
+const sig = (o: Partial<Parameters<typeof classifyDomain>[1]> = {}) => ({ serpAppearances: 0, aiCitations: 0, competingQueries: 0, isOwned: false, ...o });
+const snap = (research: FunnelResearchEvidence = emptyResearchEvidence(), over: Partial<EvidenceSnapshot> = {}): EvidenceSnapshot => ({
+  scope: { tenantId: "t", site: SITE, builtAt: BUILT }, sources: [], ownedPages: [], competitors: [], keywordDemand: [], questionDemand: [], intentClusters: [], cannibalization: [],
+  contentGaps: [], internalLinkOpportunities: [], aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 }, research, evidenceHash: "fixture", ...over });
+const won = (domain: string, query: string, rank: number) => ({ kind: "serp_organic" as const, query, promptId: null, promptText: null, engine: null, rank, citedUrl: `https://${domain}/a`, observedAt: FRESH, modelServed: null });
+const page = (domain: string, appearances: ReturnType<typeof won>[], extra: Record<string, unknown> = {}) => ({ url: `https://${domain}/a`, domain, engines: [], examplePrompts: [], extract: null, appearances, ...extra });
+const DEMAND: EvidenceSnapshot["keywordDemand"] = [{ query: QUERY, searchVolume: 4400, source: "dataforseo", competition: null, competitionLevel: null, gscImpressions: 600 }];
+
+describe("what a domain that keeps showing up actually is", () => {
+  // ONE case per group, in the order the rules fire: facts about the domain first, then what the evidence
+  // says it does to you. A stranger reading `why` learns what to do about it.
+  const TABLE: [string, ReturnType<typeof sig>, CompetitorKind][] = [
+    [SITE, sig({ isOwned: true, competingQueries: 9 }), "owned"], ["cityofboston.gov", sig({ serpAppearances: 4, competingQueries: 4 }), "government_educational"],
+    ["reddit.com", sig({ serpAppearances: 6, competingQueries: 6 }), "social_community"], ["www.amazon.com", sig({ serpAppearances: 5, competingQueries: 5 }), "marketplace_directory"],
+    ["rival.example", sig({ serpAppearances: 4, competingQueries: 3 }), "commercial_competitor"], ["standards.example", sig({ aiCitations: 7 }), "citation_authority"],
+    ["en.wikipedia.org", sig({ serpAppearances: 2, aiCitations: 1, competingQueries: 1 }), "publisher"], ["seenonce.example", sig({ serpAppearances: 1 }), "irrelevant_unknown"]];
+  it.each(TABLE)("puts %s in one group and says why", (domain, signals, kind) => {
+    const row = classifyDomain(domain, signals);
+    expect(row.kind).toBe(kind); expect(row.domain).toBe(domain.replace(/^www\./, ""));
+    expect(row.why).toMatch(/\d/); // a number the operator can check, and never a lab word
+    expect(row.why).not.toMatch(/SERP|experiment|control|baseline|treatment/i); });
+  it("calls a rival a rival for ranking and a source a source for being cited, and lets neither outrank a fact", () => {
+    expect(classifyDomain("rival.example", sig({ competingQueries: 3 })).why).toContain("keeps winning the searches you care about: it ranks for 3");
+    expect(classifyDomain("standards.example", sig({ aiCitations: 7 })).why).toContain("Engines cite it 7 times as a source and it never ranks against you");
+    // No amount of ranking turns a city hall or a forum into a business you can take customers from.
+    expect(classifyDomain("data.cambridge.gov.uk", sig({ competingQueries: 8 })).kind).toBe("government_educational");
+    expect(classifyDomain("old.reddit.com", sig({ competingQueries: 8 })).kind).toBe("social_community"); });
+});
+
+/** The same evidence seen four ways: a case-wide domain look saying rival.example ranks for FOUR keywords,
+ *  two winning-page sightings of it, an AI block citing source.example twice, and the answer analysis
+ *  counting that same source three times. */
+const LANDSCAPE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(),
+  caseCompetitors: [{ caseId: "c1", keywordsAsked: 6, domains: [{ domain: "rival.example", avgPosition: 3, rating: null, keywordsCount: 4 }], observedAt: FRESH, receipt: "r1", served: "cache" }],
+  winningPages: [page("rival.example", [won("rival.example", QUERY, 1), won("rival.example", "rain barrel sizing", 2)]), page("weak.example", [won("weak.example", QUERY, 6)])],
+  serpEvidence: [{ query: QUERY, observedAt: FRESH, organic: [], paa: [], related: [], aiMode: [],
+    aiOverview: [{ url: "https://source.example/x", domain: "source.example", title: null }, { url: "https://source.example/y", domain: "source.example", title: null }] }] });
+const ANALYSIS = { competitors: [{ url: "https://source.example/x", domain: "source.example", citationCount: 3, distinctPrompts: 2, engines: ["chatgpt"], examplePrompts: [] }] };
+
+describe("the competitor landscape", () => {
+  it("holds one row per domain and never adds four views of the same evidence together", () => {
+    const rows = competitorLandscape(snap(LANDSCAPE(), ANALYSIS));
+    expect(rows.map((r) => r.domain)).toEqual(["rival.example", "weak.example", "source.example"]); // strongest recurrence first
+    expect(rows[0]!.evidence.competingQueries).toBe(4); // four keywords from the case look, two queries from the pages: the stronger view, not the sum
+    expect(rows[2]!.evidence.aiCitations).toBe(3); // two citations on the results page, three in the analysis: three, never five
+    expect(rows.map((r) => r.kind)).toEqual(["commercial_competitor", "irrelevant_unknown", "citation_authority"]); });
+  it("gives the operator the last word on any domain", () => {
+    const rules: CompetitorOverride[] = [{ domain: "weak.example", action: "pin" }, { domain: "rival.example", action: "exclude" },
+      { domain: "source.example", action: "correct", kind: "publisher" }, { domain: "hunch.example", action: "pin" }];
+    const rows = competitorLandscape(snap(LANDSCAPE(), ANALYSIS), rules);
+    expect(rows.find((r) => r.domain === "rival.example")).toBeUndefined();
+    expect(rows.find((r) => r.domain === "weak.example")).toMatchObject({ kind: "commercial_competitor", why: expect.stringContaining("You pinned this") });
+    expect(rows.find((r) => r.domain === "source.example")).toMatchObject({ kind: "publisher", why: "You set this, so I hold it as a publisher." });
+    expect(rows.find((r) => r.domain === "hunch.example")?.evidence.serpAppearances).toBe(0); }); // a pin that silently vanishes is a lie
+});
+
+describe("the corrections box", () => {
+  it("reads the three instructions an operator can give", () => {
+    const { overrides, errors } = parseCompetitorOverrides("pin fixer.example\nexclude spam.example\nBig.Example is a Publisher\n");
+    expect(errors).toEqual([]);
+    expect(overrides).toEqual([{ domain: "fixer.example", action: "pin" }, { domain: "spam.example", action: "exclude" }, { domain: "big.example", action: "correct", kind: "publisher" }]); });
+  it("says exactly what it could not read, and keeps the lines it could", () => {
+    const { overrides, errors } = parseCompetitorOverrides("beat everyone\npin over there\nbig.example is a wombat\nexclude keep.example");
+    expect(overrides).toEqual([{ domain: "keep.example", action: "exclude" }]);
+    expect(errors[0]).toBe('I could not read "beat everyone". Write one instruction per line: "pin example.com", "exclude example.com", or "example.com is a publisher".');
+    expect(errors[1]).toContain('"over there" is not a domain I can use'); expect(errors[2]).toContain('I do not have a group called "wombat"'); });
+});
+
+describe("a correction survives a save and a reload", () => {
+  let row: Record<string, unknown> | null = null;
+  beforeEach(() => { row = null; __resetBusinessProfileCacheForTests();
+    setBusinessProfileRepositoryForTests({ load: async () => row, save: async (_id, p) => { row = p as unknown as Record<string, unknown>; return { ok: true }; } }); });
+  it("round trips pin, exclude and a corrected group back to the exact lines typed", async () => {
+    const typed = "pin fixer.example\nexclude spam.example\nbig.example is a publisher";
+    const stored: CompetitorRef[] = [{ name: "A rival I already knew", evidenceUrls: [] },
+      ...parseCompetitorOverrides(typed).overrides.map((o) => ({ name: o.domain, evidenceUrls: [], domain: o.domain, action: o.action, kind: o.kind }))];
+    const saved = await saveBusinessProfile("acct-1", { competitors: { value: stored, origin: "operator_confirmed", confidence: 1, sourceUrls: [] } } as Partial<BusinessProfile>);
+    expect(saved.persisted).toBe(true);
+    __resetBusinessProfileCacheForTests();
+    const back = (await loadBusinessProfile("acct-1")).competitors.value;
+    expect(back.filter((c) => !c.domain).map((c) => c.name)).toEqual(["A rival I already knew"]); // a name stays a name; only a row carrying a domain is an instruction
+    expect(back.filter((c) => !!c.domain).map((c) => competitorOverrideLine({ domain: c.domain!, action: c.action ?? "pin", kind: c.kind as CompetitorKind })).join("\n")).toBe(typed); });
+});
+
+const ASKED = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [{ promptId: "p1", promptText: QUERY, engine: "chatgpt", observationMode: "standardized_response",
+  modelRequested: null, modelServed: null, observedAt: FRESH, webSearchReported: null, citationsObserved: true, citations: [], fanOutQueries: [] }] });
+/** A subject I have genuinely finished investigating: a fresh exact look, priced demand I can trace back to
+ *  how I found it, an engine I asked, and three separate publishers whose pages I have actually read. */
+function COMPLETE(): EvidenceSnapshot {
+  const HOSTS = ["rival.example", "second.example", "third.example"];
+  const extract = { title: "Best rain barrel", h1: "Best rain barrel", wordCount: 900, headings: ["Sizes", "Prices"], faqCount: 0, fetchedAt: FRESH };
+  return snap({ ...ASKED(),
+    retainedKeywords: [{ query: QUERY, searchVolume: 4400, competition: null, competitionLevel: null, difficulty: 30, intent: "commercial", discoveredVia: "gsc" }],
+    serpEvidence: [{ query: QUERY, observedAt: FRESH, aiOverview: [], aiMode: [], paa: [], related: [], organic: HOSTS.map((domain, i) => ({ rank: i + 1, domain, url: `https://${domain}/a`, title: "Best rain barrel" })) }],
+    winningPages: HOSTS.map((d, i) => page(d, [won(d, QUERY, i + 1)], { extract })) }, { keywordDemand: DEMAND });
+}
+
+describe("the one thing worth buying next", () => {
+  it("names the exact results page when that is the only thing missing", () => {
+    const inv = buildTopicInvestigations(snap(ASKED()))[0]!;
+    expect(inv.exactSerps).toEqual([]);
+    expect(inv.nextAcquisition).toEqual({ kind: "buy_serp", subject: QUERY, why: "I have never looked at Google's results for this, so buying that one results page is what changes the answer." });
+    expect(inv.diminishing).toBe(false); });
+  it("offers nothing and gives the date when every winning page is held until one", () => {
+    const held = { ...ASKED(), serpEvidence: [{ query: QUERY, observedAt: FRESH, aiOverview: [], aiMode: [], paa: [], related: [], organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/a", title: "Best rain barrel" }] }],
+      winningPages: [page("rival.example", [won("rival.example", QUERY, 1)], { readOutcome: { state: "temporarily_unavailable", attemptedAt: FRESH, retryAfter: "2026-08-09T00:00:00.000Z" } })] };
+    const inv = buildTopicInvestigations(snap(held, { keywordDemand: DEMAND }))[0]!;
+    expect(inv.nextAcquisition).toBeNull();
+    expect(inv.missingEvidence).toContain("I am holding off on the winning pages here until 2026-08-09, which is the date I promised for them.");
+    expect(inv.diminishing).toBe(true); });
+  it("stops asking for money when nothing at all is missing", () => {
+    const inv = buildTopicInvestigations(COMPLETE())[0]!;
+    expect(inv.missingEvidence).toEqual([]); expect(inv.nextAcquisition).toBeNull(); expect(inv.diminishing).toBe(false); });
+});

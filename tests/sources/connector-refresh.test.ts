@@ -83,7 +83,6 @@ describe("syncSucceeded (audit-3 #5)", () => {
     expect(v.ok).toBe(false);
     if (!v.ok) expect(v.reason).toBe("no_token");
   });
-
   it("regression: the old { ok: false } shape and unrecognized shapes are NOT success", () => {
     expect(syncSucceeded({ ok: false }).ok).toBe(false);
     expect(syncSucceeded({}).ok).toBe(false);
@@ -125,7 +124,6 @@ describe("fetchClarityUrlMetrics", () => {
     expect(a.rageClicks).toBe(7);
     expect(out!.find((m) => m.url === "https://x.com/b")!.deadClicks).toBe(3);
   });
-
   it("fail-softs to null on non-2xx and on missing token (fail-closed, no fabricated metrics)", async () => {
     mockClarityFetch(CLARITY_SAMPLE, false);
     expect(await fetchClarityUrlMetrics({ tenantId: "t" })).toBeNull();

@@ -99,20 +99,17 @@ describe("recordShippedChangeAction — account-owner gating", () => {
     expect(mocks.recordShippedChange).not.toHaveBeenCalled();
     expect(mocks.upsertShippedChange).not.toHaveBeenCalled();
   });
-
   it("account owner ⇒ captures baseline + persists the record", async () => {
     const res = await recordShippedChangeAction({ pageUrl: "https://x.test/cities" });
     expect(res.success).toBe(true);
     expect(mocks.recordShippedChange).toHaveBeenCalledOnce();
     expect(mocks.upsertShippedChange).toHaveBeenCalledOnce();
   });
-
   it("missing page ⇒ refused", async () => {
     const res = await recordShippedChangeAction({ pageUrl: "" });
     expect(res.success).toBe(false);
     expect(mocks.recordShippedChange).not.toHaveBeenCalled();
   });
-
   it("ANY page ⇒ still records, controls derived from top-demand pages", async () => {
     const res = await recordShippedChangeAction({ pageUrl: "/cities" });
     expect(res.success).toBe(true);
@@ -121,7 +118,6 @@ describe("recordShippedChangeAction — account-owner gating", () => {
     const arg = mocks.recordShippedChange.mock.calls[0][0];
     expect(arg.controlPages.length).toBeGreaterThan(0);
   });
-
   it("passes explicit change fields through to recordShippedChange", async () => {
     const res = await recordShippedChangeAction({
       pageUrl: "/cities", changeType: "edit_meta", before: "old meta", after: "new meta", shippedAt: "2026-06-20",
@@ -138,7 +134,6 @@ describe("recordShippedChangeAction — account-owner gating", () => {
     expect(arg.liveSourceUrl).toBe("https://www.fixture-content.example/cities");
     expect(arg.targetQueries).toEqual(["cities in iran", "largest cities in iran", "cities of iran"]);
   });
-
   it("real edit with no before/after (and no pack copy) ⇒ refused", async () => {
     mocks.captureChangeMeta.mockResolvedValue({
       canonPage: "https://x.test/cities", path: "/cities", before: null, after: null, targetQueries: [], headlineAction: null,
@@ -148,7 +143,6 @@ describe("recordShippedChangeAction — account-owner gating", () => {
     expect(res.error).toMatch(/before and after/i);
     expect(mocks.recordShippedChange).not.toHaveBeenCalled();
   });
-
   it("keep_current with no before/after ⇒ still records (monitor decision)", async () => {
     mocks.captureChangeMeta.mockResolvedValue({
       canonPage: "https://x.test/cities", path: "/cities", before: null, after: null, targetQueries: [], headlineAction: null,
@@ -157,7 +151,6 @@ describe("recordShippedChangeAction — account-owner gating", () => {
     expect(res.success).toBe(true);
     expect(mocks.recordShippedChange).toHaveBeenCalledOnce();
   });
-
   it("duplicate page + ship date ⇒ refused, nothing overwritten", async () => {
     mocks.loadShippedChanges.mockResolvedValue([{ path: "/cities", actionType: "meta", shippedAt: "2026-06-20T08:00:00.000Z" }]);
     const res = await recordShippedChangeAction({ pageUrl: "/cities", shippedAt: "2026-06-20" });
@@ -165,7 +158,6 @@ describe("recordShippedChangeAction — account-owner gating", () => {
     expect(res.error).toMatch(/already recorded/i);
     expect(mocks.recordShippedChange).not.toHaveBeenCalled();
   });
-
   it("fewer than 2 control pages ⇒ refused, nothing recorded", async () => {
     mocks.topPagesByDemand.mockReturnValue(["https://x.test/a"]); // only 1 candidate
     const res = await recordShippedChangeAction({ pageUrl: "/cities" });
@@ -204,7 +196,6 @@ describe("markProposalImplementedAction — the shipment transaction", () => {
     expect(shipment.preChangeContentHash).toBe("hash-before");
     expect(shipment.componentsApplied.map((c: { kind: string }) => c.kind)).toEqual(["title", "opening_answer"]);
   });
-
   it("a shipment that does not land leaves the change unflipped", async () => {
     mocks.upsertShippedChange.mockRejectedValue(new Error("durable write refused"));
     const res = await markProposalImplementedAction({ proposalId: PROPOSAL_ID });
@@ -212,7 +203,6 @@ describe("markProposalImplementedAction — the shipment transaction", () => {
     expect(res.error).toMatch(/couldn't start measuring/i);
     expect(mocks.markProposalApplied).not.toHaveBeenCalled();
   });
-
   it("a second press on the same change does NOTHING: the record I already hold stands", async () => {
     await markProposalImplementedAction({ proposalId: PROPOSAL_ID });
     const version = mocks.recordShippedChange.mock.calls[0][0].shipment.proposalVersion;
@@ -231,7 +221,6 @@ describe("markProposalImplementedAction — the shipment transaction", () => {
     expect(mocks.recordShippedChange).not.toHaveBeenCalled();
     expect(mocks.upsertShippedChange).not.toHaveBeenCalled();
   });
-
   it("a genuinely new version of the copy is a new Shipment, and leaves the old one alone", async () => {
     await markProposalImplementedAction({ proposalId: PROPOSAL_ID });
     mocks.loadShippedChanges.mockResolvedValue([{ id: "shp_1", proposalId: PROPOSAL_ID, proposalVersion: "an-older-version" }]);
@@ -239,7 +228,6 @@ describe("markProposalImplementedAction — the shipment transaction", () => {
     expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID })).success).toBe(true);
     expect(mocks.recordShippedChange).toHaveBeenCalledOnce();
   });
-
   it("records only the components the operator says they applied, with the risk grade each carried", async () => {
     expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID, componentKinds: ["title"] })).success).toBe(true);
     // The grade travels because measurement owes a dangerous change a fourth checkpoint, and the
@@ -247,7 +235,6 @@ describe("markProposalImplementedAction — the shipment transaction", () => {
     expect(mocks.recordShippedChange.mock.calls[0][0].shipment.componentsApplied)
       .toEqual([{ kind: "title", label: "Page title", after: null, risk: "dangerous" }]);
   });
-
   it("carries the operator's own confirmation through, so an override is expressible and never a default", async () => {
     await markProposalImplementedAction({ proposalId: PROPOSAL_ID, operatorConfirmed: true, overrideReason: "I pasted it in myself." });
     const { shipment } = mocks.recordShippedChange.mock.calls[0][0];
@@ -256,7 +243,6 @@ describe("markProposalImplementedAction — the shipment transaction", () => {
     await markProposalImplementedAction({ proposalId: PROPOSAL_ID });
     expect(mocks.recordShippedChange.mock.calls[0][0].shipment.operatorConfirmed).toBeUndefined();
   });
-
   it.each([
     ["a change I set aside", () => mocks.resolveCurrentBasis.mockResolvedValue("basis_today::d9")],
     ["a change I cannot find", () => mocks.loadChangeProposal.mockResolvedValue(null)],

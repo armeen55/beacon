@@ -74,7 +74,6 @@ describe("Update data is one recovery press", () => {
     await press(button);
     expect(calls.continues).toEqual([0, 0]);
   });
-
   it("promises the three things it does, and never that research needs this button or an open tab", async () => {
     const el = await mount(<RefreshMyDataButton connectedCount={2} />);
     const copy = el.textContent ?? "";
@@ -92,7 +91,6 @@ describe("the pause switch over daily research", () => {
     expect(calls.paused).toEqual([true]);
     expect(el.textContent).toContain("Daily research is paused.");
   });
-
   it("renders the paused state and resumes on press", async () => {
     const el = await mount(<ResearchPause paused />);
     const button = el.querySelector("button")!;
@@ -101,7 +99,6 @@ describe("the pause switch over daily research", () => {
     expect(calls.paused).toEqual([false]);
     expect(el.querySelector("button")!.textContent).toBe("Pause daily research");
   });
-
   it("says what pausing costs and what it does not, in both states, in Beacon voice", async () => {
     for (const paused of [false, true]) {
       await unmount();
@@ -116,7 +113,6 @@ describe("the pause switch over daily research", () => {
     expect((await mount(<ResearchPause paused />)).textContent)
       .toContain("nothing I already found was deleted");
   });
-
   it("keeps the old state on screen when the save fails, and says so", async () => {
     calls.setOk = false;
     const el = await mount(<ResearchPause paused={false} />);

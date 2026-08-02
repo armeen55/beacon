@@ -42,7 +42,19 @@ export type BusinessConstraints = {
   firstMention: { native: string; transliteration: boolean; englishContext: boolean } | null;
 };
 
-export type CompetitorRef = { name: string; evidenceUrls: string[] };
+/** A competitor the operator named, OR an instruction about a domain Beacon discovered. The three
+ *  override fields are OPTIONAL and additive, so every row written before they existed still reads as
+ *  a plain named competitor and the jsonb row needs no migration. A row carrying `domain` is an
+ *  operator override on discovery (pin it, drop it, or move it to another group); a row without one
+ *  is exactly what it always was. */
+export type CompetitorRef = {
+  name: string;
+  evidenceUrls: string[];
+  domain?: string;
+  action?: "pin" | "exclude" | "correct";
+  /** The group the operator moved it to; only ever read beside action "correct". */
+  kind?: string;
+};
 
 export type BusinessProfile = {
   accountId: string;

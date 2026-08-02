@@ -227,8 +227,6 @@ describe("what the AI answers did around one shipped change", () => {
     }
     return out;
   };
-
-
   /** BOTH SIDES ARE ONE MEASURE. The starting number written at mark time counts the answers that came back
    *  AND the ones read closely enough to say whether the account was named, and the rate divides by the
    *  second. Dividing by everything that came back made the before side a different metric from the after
@@ -246,7 +244,6 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.direction).toBe("worsened");
     expect(outcome?.line).toContain("60 of 100 before it");
   });
-
   it("recounts a starting number written the old way from that day's own answers, and asks for that exact day", async () => {
     // A baseline written before `analyzed` existed carries no denominator I can trust, and it is write-once,
     // so it is never rewritten. The day itself is still on file, well outside the 28 days ahead of the
@@ -259,7 +256,6 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.before).toMatchObject({ day: "2026-06-10", checked: 4, mentioning: 3, rate: 0.75, from: "stored_answers" });
     expect(outcome?.direction).toBe("flat"); // 0.75 then, 0.75 now. The stored 2 of 8 would have read as a rise.
   });
-
   it("refuses to turn a starting number counted the old way into a direction when its day is gone", async () => {
     const readObservations = reader(stretch("2026-07-21", "2026-07-31", 4));
     const outcome = await aiOutcomeForShipment(T, {
@@ -270,7 +266,6 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.line).toContain("counted a different way");
     expect(outcome?.line).not.toMatch(/[—–]/);
   });
-
   it("says unclear when the starting day itself was barely read, however clear the days since are", async () => {
     // 40 of 140 answers read closely on the day this change starts from. The share those 40 carry is a fact
     // about how much analysis finished that day, not about what AI said, so it is not one end of a direction.
@@ -281,7 +276,6 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.after.rate).toBe(1);
     expect(outcome?.direction).toBe("unclear");
   });
-
   it("compares the starting number on file against every day since, and says which way it went", async () => {
     const readObservations = reader(stretch("2026-07-21", "2026-07-31", 3));
     const outcome = await aiOutcomeForShipment(T, {
@@ -367,7 +361,6 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.coverage).toEqual({ daysObserved: 28, daysElapsed: 28 });
     expect(await aiOutcomeForShipment(T, { implementedAt: null }, { readObservations, now: NOW })).toBeNull();
   });
-
   it("reads the whole ledger's answers ONCE, on the lean projection, and still judges each change on its own window", async () => {
     // EVERY shipment used to open its own paged 56 day read of WHOLE rows, all of them at once: ten
     // shipments meant eighty round trips carrying every answer text and retrieval journey in the window,
@@ -391,7 +384,6 @@ describe("what the AI answers did around one shipped change", () => {
       expect(batch[i]).toEqual(await aiOutcomeForShipment(T, s, { readObservations: reader(rows), now: NOW }));
     }
   });
-
   /** ONE OVERSIZED READ USED TO TAKE THE WHOLE LEDGER'S AI SIDE DOWN. The union window ran from the oldest
    *  shipment to the newest, and an account asking 35 questions of 4 engines writes 140 first readings a
    *  day, so a ledger spanning a year asked for about 51,000 rows and the store refuses anything past
@@ -426,7 +418,6 @@ describe("what the AI answers did around one shipped change", () => {
     expect(batch[3]).toMatchObject({ direction: "unclear", coverage: { daysObserved: 0, daysElapsed: 28 } });
     expect(batch[3]?.line).toBe("I could not read the answers for this period just now. They are safe and I will read them on the next refresh.");
   });
-
   /** THE DAY A CHANGE SHIPPED IS THE OPERATOR'S DAY. Observations are filed under the Pacific reporting
    *  day; deriving the shipped day in UTC put every evening stamp on tomorrow, so that same evening's
    *  answers, taken AFTER the operator made the change, were counted on the BEFORE side of it. */

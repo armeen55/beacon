@@ -54,7 +54,6 @@ async function renderChanges(view: ChangesView): Promise<string> {
 
 describe("a set-aside change never comes back through a direct link", () => {
   beforeEach(() => vi.clearAllMocks());
-
   it("a stale-basis bundle link renders no exact copy and no way to record the work", async () => {
     const { loadProposalQueue, loadChangeProposal } = await import("@/domains/decision");
     vi.mocked(loadProposalQueue).mockResolvedValue(queueOf([], 1)); // current-basis queue: this id is not in it
@@ -66,7 +65,6 @@ describe("a set-aside change never comes back through a direct link", () => {
     expect(html).not.toContain("I made this change");
     expect(html).toContain("See what I am working on now");
   });
-
   it("a current-basis bundle link still renders its exact edits", async () => {
     const { loadProposalQueue, loadChangeProposal } = await import("@/domains/decision");
     vi.mocked(loadProposalQueue).mockResolvedValue(queueOf([bundled("basis_now::d4")]));
@@ -80,7 +78,6 @@ describe("a set-aside change never comes back through a direct link", () => {
 
 describe("an empty Changes queue reads as a decision, not an empty screen", () => {
   beforeEach(() => vi.clearAllMocks());
-
   it("says how many ideas I set aside, why, and what happens next", async () => {
     const html = await renderChanges(emptyView(21));
     expect(html).toContain("I set aside 21 earlier ideas that no longer clear it");
@@ -91,7 +88,6 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     // A bar I could not READ is not a bar I raised, so that case may not claim one.
     expect(await renderChanges({ ...emptyView(21), basisUnreadable: true })).not.toContain("I set aside 21");
   });
-
   it("Changes and Today tell the same story when the decision has zero actionable candidates", async () => {
     const view = emptyView(21);
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
@@ -100,7 +96,6 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     expect(today.nextOpportunities).toHaveLength(0);
     expect(await renderChanges(view)).toContain("I set aside 21 earlier ideas that no longer clear it");
   });
-
   it("keeps everything this release actually knows when the bar moves under it", async () => {
     // The gated rebuild used to be handed NOTHING, so a basis shift silently erased the retry date,
     // the pages under investigation, the ideas held back and the kernel's own verdicts.
@@ -124,7 +119,6 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     expect(today.headerSentence).toContain("waiting until August 4");
     vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/runtime"); vi.resetModules();
   });
-
   it("checks a stored release against the bar I hold NOW, not against itself", async () => {
     const { withCurrentBasisOnly, setAsideHint } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data");
     const NOW = "basis_now::d4";

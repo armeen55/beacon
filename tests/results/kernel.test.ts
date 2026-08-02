@@ -292,7 +292,6 @@ describe("the conditional day-56 read", () => {
   });
   // Day 56 lands 2026-06-26; Google has finalized well past it.
   const AFTER_56 = new Date("2026-07-10T00:00:00Z"), FINAL = "2026-07-05";
-
   it("omits the fourth read entirely when the 28-day read settled cleanly", () => {
     for (const verdict of ["won", "lost"] as const) {
       const record = shipped({ verdict });

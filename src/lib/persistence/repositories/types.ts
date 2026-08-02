@@ -1,16 +1,8 @@
 import type { Result } from "@/domains/measurement/results/types";
 import type { ChangelogEntry } from "@/domains/measurement/changelog/types";
 import type { Opportunity } from "@/domains/decision/opportunities/types";
-import type { Competitor } from "@/domains/evidence/competitors/types";
 import type { ImportRun } from "@/lib/import/types";
 import type { Finding } from "@/domains/evidence/scanning/types";
-import type {
-  CompetitorPageEvidence,
-} from "@/domains/evidence/pages/competitor-evidence";
-import type { CompetitorPageSnapshot } from "@/domains/evidence/pages/competitor-page-snapshots";
-import type {
-  SourcePatternEvidence,
-} from "@/domains/evidence/pages/competitor-evidence";
 import type { ChangeContract } from "@/domains/measurement/changelog/change-contract";
 import type {
   PageEntity,
@@ -56,7 +48,6 @@ export interface SeedDataRepository {
   getResults(): Promise<Result[]>;
   getChangelogEntries(): Promise<ChangelogEntry[]>;
   getOpportunities(): Promise<Opportunity[]>;
-  getCompetitors(): Promise<Competitor[]>;
 
   // Phase 1D — centralized store modules
   // (getEventDecisions / getCandidateLinks / getPageIssues removed
@@ -85,15 +76,6 @@ export interface SeedDataRepository {
    * and zero test callers. The tenant-scoped sitemap pair on
    * `TenantRepository` below is LIVE and untouched.
    */
-  getCompetitorPageEvidence(): Promise<CompetitorPageEvidence[]>;
-  /**
-   * T-CompPageBlueprints (2026-05-08) — manually-captured competitor
-   * page structure (h1, top h2s, faq questions, meta description).
-   * Decoupled lifecycle from `getCompetitorPageEvidence` (citation-
-   * derived). File-only v1; same posture as competitor-page-evidence.
-   */
-  getCompetitorPageSnapshots(): Promise<CompetitorPageSnapshot[]>;
-  getSourcePatternEvidence(): Promise<SourcePatternEvidence[]>;
 
   // Phase 1a — operator loop stores
   getRecommendationResponses(): Promise<RecommendationResponse[]>;
@@ -208,7 +190,6 @@ export interface TenantRepository {
   // and the citation/answer-intel index reads removed 2026-07-21,
   // CORE 100K Lane O: zero prod and zero test callers.)
   getOpportunities(): Promise<Opportunity[]>;
-  getCompetitors(): Promise<Competitor[]>;
   getChangelogEntries(): Promise<ChangelogEntry[]>;
   getScanFindings(): Promise<Finding[]>;
   getObservationRuns(): Promise<ObservationRun[]>;

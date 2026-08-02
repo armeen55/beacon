@@ -39,10 +39,8 @@ describe("buildTenantRepo behavioral isolation", () => {
     ({ id, tenant_id, account_id: tenant_id, text: id, is_active: true }) as unknown as never;
   const entity = (id: string, tenant_id: string) =>
     ({ id, tenant_id, account_id: tenant_id, name: id, entity_type: "competitor", is_owned: false, is_active: true }) as unknown as never;
-
   const ALL_PROMPTS = [prompt("p-a-1", "tenant-a"), prompt("p-a-2", "tenant-a"), prompt("p-c-1", "tenant-c")];
   const ALL_ENTITIES = [entity("e-a-1", "tenant-a"), entity("e-c-1", "tenant-c")];
-
   function fakeBase(): SeedDataRepository {
     const fake = {
       getTrackedPrompts: async () => ALL_PROMPTS,
@@ -51,7 +49,6 @@ describe("buildTenantRepo behavioral isolation", () => {
     } as unknown as SeedDataRepository;
     return fake;
   }
-
   it("a populated tenant gets ONLY its own tracked prompts + entities", async () => {
     const repoA = buildTenantRepo(fakeBase(), "tenant-a");
     const prompts = await repoA.getTrackedPrompts();
@@ -59,13 +56,11 @@ describe("buildTenantRepo behavioral isolation", () => {
     expect(prompts.map((p) => p.id).sort()).toEqual(["p-a-1", "p-a-2"]);
     expect(entities.map((e) => e.id)).toEqual(["e-a-1"]);
   });
-
   it("an empty tenant gets [] even though the base holds other tenants' rows", async () => {
     const repoB = buildTenantRepo(fakeBase(), "tenant-b-empty");
     expect(await repoB.getTrackedPrompts()).toEqual([]);
     expect(await repoB.getTrackedEntities()).toEqual([]);
   });
-
   it("two populated tenants are mutually isolated (disjoint id sets)", async () => {
     const base = fakeBase();
     const [promptsA, promptsC] = await Promise.all([
@@ -87,7 +82,6 @@ describe("dual-write tenant validation (fires before any I/O)", () => {
     expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }, { tenant_id: OTHER }], TENANT, "results")).toThrow(/tenant mismatch/);
     expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }, { tenant_id: TENANT }], TENANT, "results")).not.toThrow();
   });
-
   it("dualWriteUpsertScoped rejects global tables, mismatches, and empty tenantIds", async () => {
     await expect(dualWriteUpsertScoped("tenants", [{ tenant_id: TENANT, id: "x" }], "id", TENANT)).rejects.toThrow(/is a global table/);
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: OTHER, id: "r1" }], "id", TENANT)).rejects.toThrow(/tenant mismatch/);
@@ -95,7 +89,6 @@ describe("dual-write tenant validation (fires before any I/O)", () => {
     // Valid input with an unreachable client FAILS CLOSED - never a silent no-op success.
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", TENANT)).rejects.toThrow(/no section may reach the supabase client/);
   });
-
   it("GLOBAL_TABLES holds the registry + shared config, never per-tenant data tables", () => {
     expect(GLOBAL_TABLES.has("tenants")).toBe(true);
     expect(GLOBAL_TABLES.has("business_config")).toBe(true);
@@ -106,7 +99,6 @@ describe("dual-write tenant validation (fires before any I/O)", () => {
     expect(GLOBAL_TABLES.has("citation_evidence_index")).toBe(false);
     expect(GLOBAL_TABLES.has("answer_intelligence_index")).toBe(false);
   });
-
   it("tenantizeRows stamps missing tenant_id, throws on a real mismatch, never mutates input", () => {
     const original = { id: "r1", tenant_id: "" };
     const out = tenantizeRows([original, { id: "r2", tenant_id: TENANT }, { id: "r3" }], TENANT, "results");
@@ -135,7 +127,6 @@ describe("a canonical write that did not land never reads as done", () => {
       await expect(dualWriteUpsertScoped("results", [], "id", TENANT)).resolves.toBeUndefined();
     } finally { mem.upsert = null; }
     expect(seen).toEqual(["results"]); });
-
   it("a crawled page whose snapshot write failed stays unvisited, so the next batch reads it again", async () => {
     const { runCrawlBatch } = await import("@/domains/evidence/scanning/crawl-frontier");
     const html = "<html><head><title>A page</title></head><body><h1>A page</h1><p>Some words on the page.</p></body></html>";
@@ -189,7 +180,6 @@ describe("Tier A sync* helpers stay tenant-wired", () => {
 describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
   const FORBIDDEN_VOCAB =
     /(harborview|referencepedia|builder|project_mix|budget_range|cities_served|publish_target|email_frequency|profound|semrush|founder|bay area)/i;
-
   // Supabase stub: select("user_id") answers the collision probe with `owners`;
   // the membership idempotency probe answers empty so provisioning proceeds.
   const fakeSupabase = (inserted: Record<string, unknown>[], owners: { user_id: string }[] = []) =>
@@ -198,7 +188,6 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       upsert: async (row: Record<string, unknown>) => { inserted.push({ __table: table, ...row }); return { error: null }; },
     }) }) as never;
   const NEW_USER = { userId: "12345678-abcd-abcd-abcd-1234567890ab", email: "owner@gmail.com" };
-
   it("the provisioned tenants row names EXACTLY the physical columns, and never adopts another user's tenant", async () => {
     const { provisionTenantForNewUser, PROVISIONING_DEFAULTS } = await import("@/domains/account/onboarding/provision-tenant");
     expect(JSON.stringify(PROVISIONING_DEFAULTS)).not.toMatch(FORBIDDEN_VOCAB);
@@ -212,7 +201,6 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     // A colliding id already owned by someone else is refused, never adopted.
     expect(await provisionTenantForNewUser(fakeSupabase([], [{ user_id: "other-user" }]), NEW_USER)).toEqual({ ok: false, error: "tenant id collision", phase: "tenant_collision" });
   });
-
   it("cold first read resolves the real account identity; no placeholder is ever cached as identity", async () => {
     const bp = await import("@/domains/account/business-profile");
     bp.__resetBusinessProfileCacheForTests();
@@ -243,7 +231,6 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       bp.__resetBusinessProfileCacheForTests();
     }
   });
-
   it("a transient repository failure recovers on the next read", async () => {
     const bp = await import("@/domains/account/business-profile");
     bp.__resetBusinessProfileCacheForTests();
@@ -266,7 +253,6 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       bp.__resetBusinessProfileCacheForTests();
     }
   });
-
   it("one account's cached identity can never serve another account", async () => {
     const bp = await import("@/domains/account/business-profile");
     bp.__resetBusinessProfileCacheForTests();
@@ -288,7 +274,6 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       bp.__resetBusinessProfileCacheForTests();
     }
   });
-
   it("a historical pre-canonical row maps into canonical sections with legacy provenance and preserved raw JSON", async () => {
     const bp = await import("@/domains/account/business-profile");
     const legacyRow = {
@@ -317,7 +302,6 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     expect("revenueModel" in profile).toBe(false);
     expect("domain" in profile).toBe(false);
   });
-
   it("active customer copy uses the BusinessProfile name, never the provisional signup seed", async () => {
     vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => "tenant-copy" }));
     vi.doMock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -348,7 +332,6 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       vi.doUnmock("next/cache");
     }
   });
-
   it("the account store resolves through the injected scoped repository and fails to no-account, never a default", async () => {
     const store = await import("@/domains/account/tenants/store");
     const memA = {
@@ -369,7 +352,6 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       store.setAccountRepositoryForTests(null);
     }
   });
-
   it("lifecycle: a failed or anomalous account read resolves unavailable, never a redirect or a paused lockout", async () => {
     const store = await import("@/domains/account/tenants/store");
     const { resolveAccountAccess, requireReadyAccount, AccountUnavailableError } = await import("@/domains/account/lifecycle");

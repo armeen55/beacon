@@ -1,7 +1,3 @@
-// Type-only import (erased at compile) for the retired-engine row shapes
-// at the bottom of this file; no runtime cycle with competitor-evidence.
-import type { SourceType, ResponseType } from "./competitor-evidence";
-
 // ── Page types ──────────────────────────────────────────────────────
 
 export type PageType =
@@ -433,38 +429,6 @@ export type OutcomeObservation = {
   outcomeAssessment: OutcomeAssessment;
   evidenceSummary: string;
   linkedResultIds: string[];
-  notes: string | null;
-};
-
-export type RecommendedAssetType =
-  | "city_page"
-  | "service_page"
-  | "comparison_page"
-  | "guide_article"
-  | "entity_profile_strengthening"
-  | "directory_profile_strengthening"
-  | "roundup_outreach_target"
-  | "internal_link_support_package"
-  | "structural_refresh_existing_page";
-
-export type ConfidenceLabel = "strong_fit" | "probable_fit" | "weak_fit" | "mixed";
-
-export type AssetResponse = {
-  assetResponseId: string;
-  frontierKey: string;
-  topic: string;
-  createdAt: string;
-  dominantSourceType: SourceType;
-  responseType: ResponseType;
-  recommendedAssetType: RecommendedAssetType;
-  confidenceLabel: ConfidenceLabel;
-  rationale: string;
-  ownedEquivalentExists: boolean;
-  ownedEquivalentPages: string[];
-  missingAssetSignals: string[];
-  supportingSourcePatterns: string[];
-  linkedFrontierOpportunityId: string | null;
-  linkedAttackPackageId: string | null;
   notes: string | null;
 };
 
