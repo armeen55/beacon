@@ -274,7 +274,7 @@ function researching(input: TodayCommandInput): TodayCommand {
     const read = usableDay(input.firstReadOn);
     if (read) why.push(`The first read on those lands around ${dayLabel(read)}.`);
   }
-  if (why.length === 0) why.push("I pick this back up on your next visit, and nothing here needs you first.");
+  if (why.length === 0) why.push("My next daily round picks this back up, and nothing here needs you first.");
 
   return {
     state: "researching",

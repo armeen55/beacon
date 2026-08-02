@@ -96,13 +96,20 @@ export async function isResearchPaused(tenantId: string): Promise<boolean> {
   } catch { return false; }
 }
 
-/** Turn the daily research run off or on for one account. True = the database holds the new answer. */
+/** Turn the daily research run off or on for one account. True = the database holds the new answer, PROVED
+ *  by the row it handed back. An update that matched nothing answers 204 with no error at all, so a bare
+ *  "no error" reported success over a database that never heard of this account and the switch flipped on
+ *  screen for the rest of the day. Row or nothing. */
 export async function setResearchPaused(tenantId: string, paused: boolean): Promise<boolean> {
   if (!tenantId?.trim()) return false;
   try {
-    const { error } = await getSupabaseAdmin().from("tenants").update({ research_paused: paused }).eq("id", tenantId);
+    const { data, error } = await getSupabaseAdmin().from("tenants").update({ research_paused: paused }).eq("id", tenantId).select("id");
     if (error != null) {
       log.warn("[due-work] the research pause switch did not land, so nothing changed", { tenantId, error: error.message ?? String(error) });
+      return false;
+    }
+    if (!Array.isArray(data) || data.length === 0) {
+      log.warn("[due-work] the research pause switch matched no account, so nothing changed", { tenantId });
       return false;
     }
     return true;

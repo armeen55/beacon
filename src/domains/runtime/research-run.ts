@@ -133,7 +133,7 @@ export const RESEARCH_RUN_LEASE_SECONDS = 240;
 
 // The operator-facing projection lives in run-status (the record and the way it READS are two
 // jobs). Re-exported here so every existing caller keeps its one import.
-export { INTERRUPTED_REASON, nextPhase, projectStatusView, researchStatusLine, type ResearchRunStatusView } from "./run-status";
+export { nextPhase, projectStatusView, researchStatusLine, type ResearchRunStatusView } from "./run-status";
 import { projectStatusView, type ResearchRunStatusView } from "./run-status";
 
 // ── Pure helpers ───────────────────────────────────────────────────────────
@@ -321,11 +321,11 @@ export function setResearchRunRepoForTests(next: ResearchRunRepo | null): void {
 
 // ── The reporting day's own memory ─────────────────────────────────────────
 
-/** THE RUNAWAY SAFETY CEILING, not a work budget. A pass may open whenever due-work reports genuinely
- *  progressable work for the day; this only stops an account whose due list can never be cleared from
- *  opening passes forever. Eight was sized for visits, when every navigation was a chance to open one, and
- *  it starved the daily scheduler on a real backlog. Past 24 in one Pacific day I say so and open nothing
- *  until the day rolls. */
+/** THE ABSOLUTE RUNAWAY STOP for one account's Pacific day, not a work budget and not any one door's
+ *  allowance. A pass may open whenever due-work reports genuinely progressable work; this only stops an
+ *  account whose due list can never be cleared from opening passes forever. Past 24 in one day I say so
+ *  and open nothing until the day rolls. Each door may carry a SMALLER ceiling of its own (the visit door
+ *  does, because every navigation is a chance to open a pass); no door may raise this one. */
 const DAILY_PASS_RUNAWAY_CEILING = 24;
 
 type DayRow = { id: string; progress: ResearchRunProgress };
@@ -409,14 +409,15 @@ export async function claimDueRuns(ownerToken: string, limit: number): Promise<R
 /**
  * Open ANOTHER pass on a day that already completed one. The caller must already know work is genuinely due
  * (see due-work): a day is not a unit of work, but nor is a visit, so nothing here decides that question.
- * Null = a pass must not open (any unfinished run, a concurrent claimer, the day's runaway ceiling, or
- * unavailable persistence). Never throws.
- */
-export async function startExtraPass(tenantId: string, ownerToken: string, day: string): Promise<ResearchRun | null> {
+ * Null = a pass must not open (any unfinished run, a concurrent claimer, the day's ceiling, or unavailable
+ * persistence). Never throws. THE CEILING BELONGS TO THE DOOR: a door passes its own allowance, clamped to
+ * the day's absolute runaway stop, so no door can widen the day for the others. */
+export async function startExtraPass(tenantId: string, ownerToken: string, day: string, ceiling = DAILY_PASS_RUNAWAY_CEILING): Promise<ResearchRun | null> {
   requireTenant(tenantId);
+  const stop = Math.min(Math.max(1, Math.trunc(ceiling)), DAILY_PASS_RUNAWAY_CEILING);
   try {
-    const priors = await repo.sameDay({ tenantId, day, limit: DAILY_PASS_RUNAWAY_CEILING });
-    if (priors.length >= DAILY_PASS_RUNAWAY_CEILING) { // the honest ceiling, not a claim that nothing is due
+    const priors = await repo.sameDay({ tenantId, day, limit: stop });
+    if (priors.length >= stop) { // the honest ceiling, not a claim that nothing is due
       log.info("[research-run] this account has opened all of today's research passes; the next one opens tomorrow", { tenantId, day, passes: priors.length });
       return null;
     }

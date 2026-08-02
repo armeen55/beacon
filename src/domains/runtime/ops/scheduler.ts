@@ -5,8 +5,8 @@ import "server-only";
  * day, and until now a reading only happened because somebody opened the app: an operator who did not visit
  * on Tuesday simply had no Tuesday. ONE global Supabase pg_cron job POSTs, through pg_net, to ONE guarded
  * non-customer endpoint (src/app/api/cron/scheduler/route.ts), and that endpoint calls this. No per-account
- * schedule, no queue, no worker fleet, no second orchestrator: this claims bounded work under the SAME
- * database leases a visit claims under and drives it through the SAME canonical cycle (driveClaimed).
+ * schedule, no queue, no worker fleet, no second orchestrator: this claims ONE account at a time under the
+ * SAME database leases a visit claims under and drives it through the SAME canonical cycle (driveClaimed).
  *
  * SAFE TO FIRE TWICE. claim_due_research_work claims each account through claim_research_run, which takes a
  * per-account advisory lock and refuses a foreign live lease, and the partial unique index allows at most one
@@ -23,45 +23,46 @@ import { claimDueRuns, finishRun, newOwnerToken } from "../research-run";
 import { driveClaimed, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } from "./on-visit-refresh";
 import { defaultSteps } from "./research-steps";
 
-/** How many accounts ONE dispatch may claim. Small on purpose: the request has a hard lifetime, and an
- *  account the budget could not reach is simply released for the next dispatch, never dropped. */
-export const SCHEDULER_ACCOUNTS_PER_RUN = 3;
-
 /** The dispatch's OWN wall-clock budget, well inside the 300-second function lifetime, so the HTTP request
  *  always returns a receipt instead of being killed mid-account. Each account additionally gets at most the
- *  ordinary RESEARCH_CYCLE_DEADLINE_MS. */
+ *  ordinary RESEARCH_CYCLE_DEADLINE_MS. The budget is also the whole bound on how many accounts one
+ *  dispatch touches: with the minimum slice below, 240 seconds can reach at most eight of them. */
 const SCHEDULER_BUDGET_MS = 240_000;
+
+/** The least time an account is worth STARTING on. Under half a minute there is no room for a renewed
+ *  lease and a real bounded unit, so claiming would only park a live lease in front of the operator's own
+ *  visit. Nothing is claimed instead, and the account is first in line on the next dispatch. */
+const MIN_ACCOUNT_SLICE_MS = 30_000;
 
 /** What one dispatch actually did. Counts only: no account name, no token, no secret. */
 export type SchedulerReceipt = { claimed: number; driven: number; remaining: number };
 
-type SchedulerOptions = { now?: () => Date; limit?: number; budgetMs?: number; steps?: Partial<ResearchCycleSteps> };
+type SchedulerOptions = { now?: () => Date; budgetMs?: number; steps?: Partial<ResearchCycleSteps> };
 
 /**
- * Claim up to `limit` accounts that still owe work for their current Pacific day and drive each one, in
- * sequence, until this dispatch's own budget is spent. Returns a receipt of counts.
+ * Claim ONE account that still owes work for its current Pacific day, drive it, then claim the next while
+ * the budget allows. Returns a receipt of counts.
  *
- * An account claimed but not reached is RELEASED (paused, lease cleared) rather than left holding a lease
- * nobody is using, so the next dispatch or the operator's next visit resumes it immediately.
+ * ONE LIVE CLAIM AT A TIME, deliberately. Claiming the batch up front and then driving it serially meant
+ * the second and third accounts held live foreign leases for minutes while nothing ran on them, and an
+ * operator who opened Beacon in that window was refused by a lease taken on their behalf. An account is
+ * now claimed only when this dispatch is about to work on it, and is RELEASED (paused, lease cleared)
+ * rather than held if the claim itself spent the last of the budget.
  */
 export async function runDueAccounts(options: SchedulerOptions = {}): Promise<SchedulerReceipt> {
   const nowFn = options.now ?? (() => new Date());
   const steps: ResearchCycleSteps = { ...defaultSteps, ...options.steps };
-  const limit = Math.max(1, Math.trunc(options.limit ?? SCHEDULER_ACCOUNTS_PER_RUN));
   const endsAt = nowFn().getTime() + (options.budgetMs ?? SCHEDULER_BUDGET_MS);
   const ownerToken = newOwnerToken();
 
-  const claimed = await claimDueRuns(ownerToken, limit);
-  if (claimed.length === 0) {
-    log.info("[research-run] the daily dispatch found nothing owed right now", {});
-    return { claimed: 0, driven: 0, remaining: 0 };
-  }
-
-  let driven = 0;
-  for (const run of claimed) {
+  let claimed = 0, driven = 0;
+  while (endsAt - nowFn().getTime() >= MIN_ACCOUNT_SLICE_MS) {
+    const [run] = await claimDueRuns(ownerToken, 1);
+    if (run == null) break; // nothing else is owed, or what is owed is somebody else's live work
+    claimed += 1;
     const left = endsAt - nowFn().getTime();
-    // No time for a real phase: release this account's lease and let the next dispatch take it.
-    if (left <= 0) {
+    if (left < MIN_ACCOUNT_SLICE_MS) {
+      // The claim itself spent the slice: hand the account back rather than sit on its lease.
       await finishRun(run.tenant_id, run.id, ownerToken, "paused");
       continue;
     }
@@ -75,6 +76,7 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
     });
     driven += 1;
   }
-  log.info("[research-run] daily dispatch done", { claimed: claimed.length, driven });
-  return { claimed: claimed.length, driven, remaining: claimed.length - driven };
+  if (claimed === 0) log.info("[research-run] the daily dispatch found nothing owed right now", {});
+  else log.info("[research-run] daily dispatch done", { claimed, driven });
+  return { claimed, driven, remaining: claimed - driven };
 }

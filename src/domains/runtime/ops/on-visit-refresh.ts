@@ -18,13 +18,11 @@ import {
   advancePhase,
   claimRun,
   countContinuationHop,
-  INTERRUPTED_REASON,
   finishRun,
   newOwnerToken,
   nextPhase,
   phaseIdempotencyKey,
   renewLease,
-  researchRunStatus,
   startExtraPass,
   type ResearchPhase,
   type ResearchRun,
@@ -352,6 +350,12 @@ export async function driveClaimed(
     work ?? { due: [], readable: false, checks: { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 }, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null });
 }
 
+/** How many EXTRA same-day passes THE VISIT DOOR may open for one account. A visit is a chance, not a debt:
+ *  every navigation is another opportunity to open one, so this door keeps the eight it was sized for. The
+ *  daily scheduler is unaffected, because it opens its pass through the claim and never through this door,
+ *  and the day's absolute runaway stop inside research-run still bounds every door together. */
+const VISIT_EXTRA_PASSES_PER_DAY = 8;
+
 /**
  * THE VISIT DOOR: claim, resume, or start the account's Research Run and drive it. A DAY IS NOT A UNIT OF
  * WORK: a refused claim asks the one free question that matters (due-work, from persisted state alone) and
@@ -394,7 +398,7 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
         log.debug("[research-run] no claim and nothing due; nothing runs", { tenantId, due: work?.due.length ?? null });
         return;
       }
-      run = await startExtraPass(tenantId, ownerToken, reportingDay(now.getTime()));
+      run = await startExtraPass(tenantId, ownerToken, reportingDay(now.getTime()), VISIT_EXTRA_PASSES_PER_DAY);
       if (run == null) return;
       log.info("[research-run] same-day pass opened on genuinely due work", { tenantId, due: work.due });
     }
@@ -436,44 +440,6 @@ export async function continueResearch(tenantId: string, hop = 0, options: Resea
   });
   const work = await (options.steps?.dueWork ?? dueWork)(tenantId, nowFn()).catch(() => null);
   return { hop: next, more: next < MAX_CONTINUATIONS && !!work?.readable && work.due.length > 0 };
-}
-
-/** What ONE poll from an open tab learned, and the only instruction the browser gets back: keep asking at
- *  the base interval, wait longer, or stop asking for the rest of this page view. THE CLIENT DECIDES
- *  NOTHING. It cannot know the day's hop count, whether a pause needs the operator, or whether anything is
- *  owed, so all three are answered HERE from persisted state and handed back as one word. */
-export type ResearchTick = { hop: number; next: "continue" | "wait" | "stop" };
-
-/**
- * ONE poll of the durable run state, and ONE bounded continuation when work is genuinely owed. This is what
- * lets an open tab finish work the daily scheduler left, without the operator pressing anything: it reuses
- * the same continuation the Update data button uses and the same cycle the scheduler drives, so there is one
- * engine and one lease, never a second copy racing this one.
- *
- * STOP: the account is not active, the run paused for a reason only the operator can clear, nothing is
- * due, or the server's own bound is spent (today's continuations, today's passes).
- * WAIT: a pass is already advancing the run, so another hop would spend today's allowance on a claim it
- * cannot win. The tab looks again later, and repaints meanwhile so the numbers move while they watch.
- *
- * AN INTERRUPTED RUN IS THE ONE THING THIS EXISTS FOR. A `running` row nobody has touched for ten minutes
- * is a dead process (a deploy, a lambda timeout) and its projection promises "I pick this back up on your
- * next visit". This IS that next visit, and it used to read that projection as a pause and stop, so the row
- * sat there all day. Told apart by the reason's own identity, never by reading operator copy; the claim
- * path already re-takes an expired lease. Every other pause still stops, because it needs the operator.
- */
-export async function researchTick(tenantId: string, hop = 0, options: ResearchCycleOptions = {}): Promise<ResearchTick> {
-  if (!tenantId) return { hop: 0, next: "stop" };
-  const nowFn = options.now ?? (() => new Date());
-  const account = await getTenant(tenantId).catch(() => null);
-  if (!account || account.status !== "active") return { hop, next: "stop" };
-  const view = await researchRunStatus(tenantId, nowFn()).catch(() => null);
-  if (view == null) return { hop, next: "stop" };
-  if (view.pauseReason && view.pauseReason !== INTERRUPTED_REASON) return { hop, next: "stop" };
-  if (view.state === "running") return { hop, next: "wait" };
-  const work = await (options.steps?.dueWork ?? dueWork)(tenantId, nowFn()).catch(() => null);
-  if (work == null || !work.readable || work.due.length === 0) return { hop, next: "stop" };
-  const step = await continueResearch(tenantId, hop, options);
-  return { hop: step.hop, next: step.more ? "continue" : "stop" };
 }
 
 /** Schedule one post-response Research Run from the app shell. Every navigation may call this; the DATABASE lease (not any in-memory guard) prevents two

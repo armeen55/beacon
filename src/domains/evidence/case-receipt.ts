@@ -90,11 +90,11 @@ export function caseResearchReceipt(snapshot: EvidenceSnapshot, caseId: string, 
 
   // ── why nothing further was bought, from what is actually persisted ──
   const notBought: CaseResearchReceipt["notBought"] = [];
-  if (comparisons.some((c) => c.unavailable === "capped")) notBought.push({ reason: "capped", detail: "I stopped before comparing the winning pages because this account's spending ceiling was reached. I will finish it on your next visit." });
+  if (comparisons.some((c) => c.unavailable === "capped")) notBought.push({ reason: "capped", detail: "I stopped before comparing the winning pages because this account's spending ceiling was reached. My next daily round finishes it." });
   // The run's OWN day-scoped marker for the domain look it could not buy for this case (runtime passes
   // today's list off the run row). It is the same claim the comparison above already makes, said about
   // the other purchase, and it dies with the day rather than outliving the ceiling that caused it.
-  if (cappedToday.some((id) => mine.has(id))) notBought.push({ reason: "capped", detail: "I stopped before checking who keeps winning this topic's searches because this account's spending ceiling was reached. I pick it up on your next visit." });
+  if (cappedToday.some((id) => mine.has(id))) notBought.push({ reason: "capped", detail: "I stopped before checking who keeps winning this topic's searches because this account's spending ceiling was reached. My next daily round picks it up." });
   const parked = comparisons.find((c) => c.unavailable === "waiting" || c.unavailable === "blocked" || c.unavailable === "quarantined");
   if (parked) notBought.push({ reason: "parked", detail: `I am waiting on the page by page comparison I started on ${day(parked.observedAt)}, so I did not order it again.` });
   const held = research.winningPages.filter((w) => w.appearances.some((a) => !!a.query && owns.has(canonicalQueryKey(a.query))))

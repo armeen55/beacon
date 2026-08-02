@@ -54,10 +54,9 @@ const STALE_RUN_MS = 10 * 60 * 1000;
 
 /** What a dead process is honestly told. It cannot flicker: `updated_at` moves only on a real
  *  progress write, so the same row reads the same way on every request until work actually resumes.
- *  EXPORTED because the controller that IS the next visit has to tell this projection apart from a
- *  pause that needs the operator: it continues on this one and stops on every other. Identity, never
- *  a substring match on operator copy. */
-export const INTERRUPTED_REASON = "I was interrupted mid research. I pick this back up on your next visit.";
+ *  The daily round is what picks it back up, so that is what the copy promises: nothing here waits on
+ *  the operator opening the app. Private to this projection; nobody branches on its text. */
+const INTERRUPTED_REASON = "I was interrupted mid research. My next daily round picks this back up.";
 
 /** Human step index for a phase; `done` maps to all 7 steps done. */
 function stepsDoneForPhase(phase: ResearchPhase): number {

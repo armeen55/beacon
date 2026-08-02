@@ -27,7 +27,6 @@ vi.mock("@/lib/connector-store", () => ({
 }));
 vi.mock("@/domains/runtime", () => ({
   continueResearch: async () => ({ hop: 1, more: false }),
-  researchTick: async () => ({ hop: 0, next: "stop" }),
   requestExtraSample: async (_t: string, day: string) => { CALLS.extraSample += 1; CALLS.extraDays.push(day); return CALLS.verdict; },
   warmFreeSurfaces: async () => { CALLS.warm += 1; },
   recordSourceRefresh: async () => {},

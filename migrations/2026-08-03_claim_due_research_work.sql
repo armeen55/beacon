@@ -29,9 +29,12 @@
 -- allows at most one unfinished run per account regardless. The loser simply gets zero rows
 -- for that account and its receipt says so.
 --
--- FAIRNESS. Accounts are ordered by how long they have gone without a run starting, oldest
--- first, so a bounded per-invocation limit rotates the fleet instead of always serving the
--- same alphabetical head.
+-- FAIRNESS. Accounts are ordered by how long they have gone without a run MOVING, oldest first, so a
+-- bounded per-invocation limit rotates the fleet instead of always serving the same alphabetical head.
+-- Moving, not starting: claim_research_run RESUMES an open run and touches only updated_at, so ordering
+-- on started_at alone left a resume-heavy account frozen at the head of the queue forever while every
+-- other account waited behind it. An account with no runs at all still sorts first (greatest of two
+-- nulls is null, and nulls come first).
 --
 -- NOT YET APPLIED TO PROD - apply via MCP apply_migration (operator-approved). Idempotent.
 
@@ -79,7 +82,8 @@ begin
                        and (r.lease_owner is null or r.lease_expires_at < now())))
          )
        )
-     order by (select max(r2.started_at) from public.research_runs r2 where r2.tenant_id = t.id)
+     order by (select greatest(max(r2.started_at), max(r2.updated_at))
+                 from public.research_runs r2 where r2.tenant_id = t.id)
               asc nulls first, t.id
   loop
     exit when v_claimed >= p_limit;
