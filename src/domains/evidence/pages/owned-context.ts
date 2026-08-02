@@ -52,8 +52,9 @@ const MAX_URLS = 3;
  *  produce, so it truncates nothing real today and still bounds this read if the capture grows. */
 const MAX_PAGE_CHARS = 48_000;
 /** The CRAWLER's own caps (extractor.ts). A stored passage that reached the per paragraph limit was cut mid
- *  sentence, which is proof on its own that the capture is a sample of the page. */
-const CRAWL_PARAGRAPH_CHARS = 300, CRAWL_CARDS = 20;
+ *  sentence, and a capture holding exactly the paragraph cap, or the card cap, stopped where the cap was rather
+ *  than where the page ended. Any one of them is proof on its own that the capture is a sample of the page. */
+const CRAWL_PARAGRAPH_CHARS = 300, CRAWL_CARDS = 20, CRAWL_PARAGRAPHS = 20;
 /** What this reader takes from ONE row before the ceiling decides, deliberately far above what the crawler
  *  writes, so the CEILING is the real bound and the crawler's caps are only evidence. */
 const MAX_PASSAGES = 200, MAX_PASSAGE_CHARS = 1_000;
@@ -133,11 +134,11 @@ function bodyOf(row: Row): OwnedPageBody {
   for (const p of stored) { if (used + p.length > MAX_PAGE_CHARS) break; passages.push(p); used += p.length; }
   const heldWords = wordsIn([...headings, ...passages, ...cardTexts, ...faqs.flatMap((f) => [f.question, f.answer])]);
   const pageWords = typeof row.word_count === "number" && row.word_count > 0 ? row.word_count : null;
-  // THE CAPTURE IS A SAMPLE whenever the crawler cut a paragraph mid sentence, stopped at its own card cap,
-  // or kept fewer words than the page it counted. No word count on file proves nothing, so that is a sample
-  // too: an unprovable claim of completeness is exactly what this type exists to prevent.
-  const sampled = stored.some((p) => p.length >= CRAWL_PARAGRAPH_CHARS) || cardTexts.length >= CRAWL_CARDS
-    || pageWords == null || heldWords < pageWords;
+  // THE CAPTURE IS A SAMPLE whenever the crawler cut a paragraph mid sentence, stopped at its own paragraph or
+  // card cap, or kept fewer words than the page it counted. No word count on file proves nothing, so that is a
+  // sample too: an unprovable claim of completeness is exactly what this type exists to prevent.
+  const sampled = stored.some((p) => p.length >= CRAWL_PARAGRAPH_CHARS) || stored.length === CRAWL_PARAGRAPHS
+    || cardTexts.length >= CRAWL_CARDS || pageWords == null || heldWords < pageWords;
   const truncated = passages.length < stored.length;
   // TRUNCATION RECORDS EXACTLY WHAT IS HELD, whichever verdict it lands under.
   const range = truncated

@@ -1,12 +1,11 @@
 /**
  * decision/diagnosis (V1 Truth Convergence Phase 4, 2026-07-31): THE CAUSE LADDER. One page loses
  * clicks for exactly one reason I can name. Every cause is asked in one fixed order and answers for
- * itself: (1) does it HOLD what the cause is decided from? No, and it is NOT CONSIDERED, by name,
- * with the exact thing missing, never softened into a maybe. (2) does the evidence FIRE it? Yes,
- * and it carries the receipt ids it was read off; no, and the deterministic reason it lost rides on
- * the winner as a competing explanation (up to three ship WITH it). Order is evidence strength: two
- * of your own pages on one search beats a wording read beats a shared subject beats a shape beats
- * an engine that never cites you.
+ * itself: (1) does it HOLD what the cause is decided from? No, and it is NOT CONSIDERED, by name, with the
+ * exact thing missing, never softened into a maybe. (2) does the evidence FIRE it? Yes, and it carries the
+ * receipt ids it was read off; no, and the deterministic reason it lost rides on the winner as a competing
+ * explanation (up to three ship WITH it). Order is evidence strength: two of your own pages on one search
+ * beats a wording read beats a shared subject beats a shape beats an engine that never cites you.
  *
  * EVERY DIAGNOSIS NAMES WHAT WOULD KILL IT (`falsifier`), so it is a claim that can lose. NOTHING DRAFTS
  * WITHOUT A NAMED CAUSE, and `action` stays null for every cause whose fix is not an edit this kernel can
@@ -16,7 +15,7 @@
 import { anchoredTopicMatch, canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { classifyResult, publisherHost } from "@/domains/evidence/serp-shape";
-import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
+import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url"; import { pageContains, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { ActionDiagnosis, DiagnosedAction } from "./contracts";
 import type { DecidedTopic } from "./coverage-pass";
 import { RECEIPT } from "./diagnose";
@@ -91,6 +90,10 @@ type LadderInput = {
    *  measurement window. ABSENT means I was not told, which is why `measuring_change` is then not
    *  considered rather than ruled out: silence about a fact is never proof of its opposite. */
   measuringPagePaths?: readonly (string | null)[];
+  /** THE HELD PAGE ITSELF, when the caller holds one. A subject the page carries in passage nine is present,
+   *  and an absence claim written off a title and an outline reads it as missing. Absent = nothing extra is
+   *  filtered, which is honest when no held page is in hand. */
+  body?: OwnedPageBody | null;
 };
 
 /** Derived once per page so no rule below re-derives it and no two rules can disagree. */
@@ -142,9 +145,8 @@ function serpLoss(d: ActionDiagnosis): string {
 
 const RULES: Rule[] = [
   {
-    // A CHANGE OF YOURS ALREADY UNDER MEASUREMENT outranks every other reading on this page: a second edit
-    // here makes the first one unreadable, whatever the rest of the evidence says. Asked first for exactly
-    // that reason, and only ever when I was told which pages are measuring.
+    // A CHANGE OF YOURS ALREADY UNDER MEASUREMENT outranks every other reading on this page: a second edit here
+    // makes the first unreadable. Asked first for that reason, and only when I was told which pages are measuring.
     cause: "measuring_change",
     held: (c) => (c.measuringPagePaths ? null : NOT_TOLD_MEASURING.missing),
     read: (c) => ((c.measuringPagePaths ?? []).some((p) => namesPage(p, c.urlKey))
@@ -209,8 +211,7 @@ const RULES: Rule[] = [
     rulesOut: { cause: "ctr_snippet", reason: "the pages beating this one carry something it does not, so a sharper line would send people to a page that still does not answer them" },
   },
   {
-    // THE SECTIONS THEY ALL COVER AND THIS PAGE HAS NONE OF. Counted against the page's own outline, so a
-    // page that covers a subject under different words is never accused of missing it.
+    // THE SECTIONS THEY ALL COVER AND THIS PAGE HAS NONE OF, counted against its own outline AND its held body.
     cause: "incomplete_coverage",
     held: (c) => (!c.pattern ? "I hold no reading of what the pages winning this subject have in common, taken against this page."
       : !c.page.content ? "I do not hold this page's own sections, so I cannot say what it leaves out." : null),
@@ -220,9 +221,9 @@ const RULES: Rule[] = [
       const headings = c.pattern!.commonHeadings.map((h) => h.heading);
       const entities = c.pattern!.commonEntities.map((e) => e.entity);
       const shared = [...headings, ...entities];
-      // The SAME filter, kept apart. A missing section is a section to write and a missing named thing is a
-      // thing to name, and merging them into one list is why neither could ever be handed to a drafter.
-      const missing = (xs: string[]): string[] => xs.filter((s) => { const t = topicTokens(s); return t.length > 0 && !t.some((x) => mineTokens.has(x)); });
+      // The SAME filter, kept apart: a missing section is a section to write and a missing named thing is a thing
+      // to name. AND THE HELD PAGE HAS THE LAST WORD: a subject it provably carries is never called absent here.
+      const missing = (xs: string[]): string[] => xs.filter((s) => { const t = topicTokens(s); return t.length > 0 && !t.some((x) => mineTokens.has(x)) && pageContains(c.body, s) !== "yes"; });
       const absentHeadings = missing(headings); const absentEntities = missing(entities);
       const absent = [...absentHeadings, ...absentEntities];
       return absent.length === 0
@@ -320,9 +321,8 @@ const RULES: Rule[] = [
       const hosts = ownHosts(c.snapshot);
       // THIS PAGE, not this domain. A retrieval hit on any page of mine used to fire the accusation on
       // every other page of mine, so a page an engine never touched was told it had been read and declined.
-      // A stored retrieval list is what the engine reported READING and may hold pages it then credited, so
-      // the citations are subtracted first, by canonical url: reading the list as though it were already
-      // the not-cited half told a page that WAS cited that it had been read and passed over.
+      // A stored retrieval list is what the engine reported READING and may hold pages it then credited, so the
+      // citations are subtracted first, by canonical url, or a page that WAS cited reads as read and passed over.
       const seen = aiAnswers(c).find((o) => retrievedNotCitedLinks(o.retrievedResults, o.citations).some((r) => canonicalUrlKey(r.url) === c.urlKey)
         && (o.citations ?? []).length > 0 && (o.citations ?? []).every((x) => !hosts.has(publisherHost(x.url))));
       if (!seen) return { fired: false, reason: "no engine read this page and then cited only other sites" };

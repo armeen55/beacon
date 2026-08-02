@@ -83,7 +83,11 @@ const incompleteCoverage: Producer = async (ctx) => {
   // on its own evidence. A subject the held page PROVABLY already carries is dropped before drafting.
   const named = payload?.cause === "incomplete_coverage" ? [...payload.absentHeadings, ...payload.absentEntities] : [];
   const absent = named.filter((s) => pageContains(ctx.body, s) !== "yes");
-  if (absent.length === 0) return refuse("The pages that win this search agree on subjects this one leaves out, and none of them is a section I can write for you yet.");
+  // A REFUSAL SAYS WHICH TRUTH IT IS. When the held page turned out to carry every named subject, the honest
+  // answer is presence, not a restated absence the page itself just disproved.
+  if (absent.length === 0) return refuse(named.length > 0
+    ? "I checked the page itself and it already carries what the winning pages cover, so there is nothing to add here."
+    : "The pages that win this search agree on subjects this one leaves out, and none of them is a section I can write for you yet.");
   const components: BundleComponent[] = [];
   for (const heading of absent.slice(0, MAX_SECTIONS)) {
     const drafted = await ctx.draft.section({

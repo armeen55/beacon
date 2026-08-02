@@ -1,7 +1,6 @@
-/** THE CAUSE PRODUCERS (V1 Closure, launch blocker 9). Beacon could name fifteen reasons a page loses a click and
- *  write copy for one. These pin the other half: a named cause reaches a producer, it works off the structure the
- *  ladder read, every component survives the REAL validator, a cause with no producer refuses in its own words, a
- *  drafter that will not land is a refusal, and thin evidence never reaches a drafter. Wording keeps its path. */
+/** THE CAUSE PRODUCERS. A named cause reaches a producer, it works off the structure the ladder read, every
+ *  component survives the REAL validator, a cause with no producer refuses in its own words, a drafter that will
+ *  not land is a refusal, thin evidence never reaches a drafter, and wording keeps its own path. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
@@ -107,6 +106,10 @@ describe("a named cause produces the change that fixes it", () => {
     expect(validateProposal(out.proposal, { evidenceText: b.receipt.items.map((i) => i.fact).join(" ") }).verdict).not.toBe("rejected");
     expect(bought.filter((k) => k === "section_draft")).toHaveLength(2); // one call per section, never a third
   });
+  it("never calls a subject absent that the held page carries in a later passage", async () => {
+    const deep = new Map([[URL, { ...BODY.get(URL)!, passages: [...Array.from({ length: 8 }, (_, i) => `Paragraph ${i + 1} of ordinary prose.`), "Gutter guards keep debris out, and chaining a container carries the overflow away."] }]]);
+    const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, bodyByUrl: deep, complete: seam(), coverage: decided(pattern({ commonHeadings: [{ heading: "Gutter guards keep debris out", seenOn: [0, 1, 2] }, { heading: "Chaining a container", seenOn: [0, 1] }] })) });
+    expect(out.status === "bundled" && out.proposal.diagnosisCause).toBe("weak_opening"); }); // both are on the page, so nothing accuses it of leaving them out
   it("refuses honestly when the drafter will not land, and ships no empty component", async () => {
     const blind = seam({ atomic: {} });
     const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, complete: blind, coverage: decided(pattern()) });
@@ -223,4 +226,8 @@ describe("the wording cause keeps the path it has always had", () => {
     expect(p.bundle!.risks[1]).toBe("I do not hold this page's full body text, so read each line once before you paste it.");
     expect(bought).toEqual(["atomic_edit"]);
   });
+  it("refuses a headline for a door that never measured a click, and buys nothing writing it", async () => {
+    const door = { door: "coverage_verdict" as const, entry: "I gave this page my deepest read because my comparison named it.", evidence: { query: "rain barrel sizing", engine: null, promptText: null, competingUrls: [] as string[], window: null } };
+    const out = await produceBundleForSnapshot(snapshot({ research: SERP }), { ...OPTS, complete: titleSeam, door, coverage: decided(pattern({ commonHeadings: [{ heading: "Rain barrel sizing", seenOn: [0, 1, 2] }], openingPattern: "" })) });
+    expect(out.status === "none" && out.reason).toContain("coverage of what it is missing, not a new headline"); expect(bought).toEqual([]); });
 });

@@ -1,15 +1,13 @@
-/** The four causes that used to reach the operator as a sentence and a shrug: links to somewhere real, sources
- *  and subjects assembled ONLY from evidence already held, a merge that always arrives as a question, and a
- *  rebuild only when the causes agree. Each producer runs on a fixture context and then through the REAL
- *  validator, because copy that cannot survive validate-proposal is not a recommendation. Plus the pin keeping
- *  measurement's private dangerous-kind list equal to decision's, since the guard forbids that import. */
+/** The four causes that used to reach the operator as a sentence and a shrug: links to somewhere real, sources and
+ *  subjects assembled ONLY from evidence held, a merge that arrives as a question, a rebuild only when the causes
+ *  agree. Each runs on a fixture context and then the REAL validator, plus the pinned dangerous-kind list. */
 import { describe, it, expect } from "vitest";
 import type { BundleComponent, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
 import { DANGEROUS_COMPONENT_KINDS as DECISION_DANGEROUS } from "@/domains/decision/contracts";
 import { DANGEROUS_COMPONENT_KINDS as MEASUREMENT_DANGEROUS } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import type { CauseFinding } from "@/domains/decision/diagnosis";
 import { effortMinutesFor, fieldForComponent, type ProducerCtx } from "@/domains/decision/producers/contract";
-import { produceConsolidation, produceFullRewriteRecommendation, produceInternalLinks, produceSourceExpansion } from "@/domains/decision/producers/extended";
+import { produceConsolidation, produceFullRewriteRecommendation, produceInternalLinks, produceSourceExpansion } from "@/domains/decision/producers/extended"; import { CORE_PRODUCERS } from "@/domains/decision/producers/core";
 import type { WinningPattern } from "@/domains/decision/winning-pattern";
 import { validateProposal } from "@/domains/decision/validate-proposal";
 const TENANT = "fixture-tenant";
@@ -29,9 +27,8 @@ const PATTERN: WinningPattern = { archetype: "informational_guide", disagreement
   ownedGaps: [{ gap: "None of this page covers overflow", seenOn: [0] }], publishers: ["a.example", "b.example", "c.example"] };
 const LINKS = [["/roof-area-calculator", "roof area"], ["/barrel-sizes", "barrel sizes"], ["/rain-barrels", "this page"],
   ["https://other.example/partner", "our partner"], ["/contact", "read more"]].map(([href, anchorText]) => ({ href: href!, anchorText: anchorText! }));
-// The account's own inventory: rain-collection and storm-drains are on topic and UNLINKED (the wins);
-// barrel-sizes and roof-area-calculator are on topic but this page already points at them (excluded);
-// contact is linked and off topic; careers is unlinked and off topic (no shared token, excluded).
+// The account's own inventory: rain-collection and storm-drains are on topic and UNLINKED (the wins); barrel-sizes
+// and roof-area-calculator are already linked; contact is linked and off topic; careers is unlinked and off topic.
 const OWNED = [["rain-collection", "Rain collection basics", "Rain collection"], ["storm-drains", "Storm drains", "Storm drains"],
   ["barrel-sizes", "Barrel sizes", "Barrel sizes"], ["roof-area-calculator", "Roof area calculator", "Roof area"],
   ["contact", "Contact us", "Contact"], ["careers", "Careers", "Careers"]].map(([p, title, h1]) => ({ url: `https://fixture-content.example/${p}`, title: title!, h1: h1! }));
@@ -59,9 +56,8 @@ const bundleOf = (components: BundleComponent[]): ChangeBundle => ({ objective: 
   metric: "Clicks over 28 days.", scope: { queries: [QUERY], prompts: [] }, components, alternatives: [], risks: [], confidenceReasons: [],
   receipt: { items: KEYS.map((key) => ({ key, kind: "gsc_demand" as const, fact: FACTS[0]!, observedAt: null })), missing: [], freshestObservedAt: null },
   measurementPlan: "I will read clicks, views and average position at 7, 14 and 28 days." });
-/** THE PAGE'S OWN WORDS AND THE EVIDENCE, exactly as produce-bundle hands them to a producer component: the
- *  receipt lines and the outline PLUS the whole reading of the winners and this page's own subjects and link
- *  words, since a thing I read is not a thing I invented. Relevance stays this page's topic, never theirs. */
+/** THE PAGE'S OWN WORDS AND THE EVIDENCE, exactly as produce-bundle hands them to a component: receipt lines, the
+ *  outline, the winners' whole reading and this page's own subjects and link words. A thing I read is not invented. */
 const NOW = new Date("2026-07-25T00:00:00.000Z");
 const OUTLINE = ["How much rain a roof collects", "Barrel sizes"];
 const RECEIPT_ONLY = [...FACTS, ...OUTLINE, "Rain Barrels"].join(" ");
@@ -69,12 +65,10 @@ const GATE_OPTS = { pageBodyText: "Rain barrels catch what runs off a roof.", no
   evidenceText: [RECEIPT_ONLY, ...PATTERN.commonHeadings.map((h) => h.heading), ...PATTERN.commonEntities.map((e) => e.entity),
     ...PATTERN.questionsAnswered, "Roof area", "Storm", ...LINKS.map((l) => `${l.anchorText} ${l.href}`)].join(" "),
   contextTokens: [...new Set(`${QUERY} Rain Barrels Rain Barrels`.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2))].sort() };
-/** THE CHANGE A BUNDLE PERSISTS: its FIRST component's own before and after, said back in the one field
- *  vocabulary a stored row carries. Exactly what produce-bundle writes onto the proposal and hands the gate. */
+/** THE CHANGE A BUNDLE PERSISTS: its FIRST component's before and after, in the one field vocabulary a row carries. */
 const envelope = (primary: BundleComponent) =>
   ({ kind: "existing_edit" as const, field: fieldForComponent(primary.kind), before: primary.before, after: primary.after });
-/** THE PROPOSAL PRODUCTION ACTUALLY GATES, component by component: that envelope, priced by the kind of change
- *  it is, with the page's words alongside. A hardcoded title rewrite gated a proposal this kernel never builds. */
+/** THE PROPOSAL PRODUCTION ACTUALLY GATES: that envelope, priced by the kind of change it is, page words alongside. */
 const validate = (components: BundleComponent[], evidenceText?: string): ReturnType<typeof validateProposal> => {
   const primary = components[0]!;
   return validateProposal({
@@ -86,15 +80,17 @@ const validate = (components: BundleComponent[], evidenceText?: string): ReturnT
     publish: "manual", createdAt: "2026-07-25T00:00:00.000Z", bundle: bundleOf(components),
   } as ChangeProposal, { ...GATE_OPTS, ...(evidenceText === undefined ? {} : { evidenceText }) });
 };
-/** THE COMPONENT GATE'S OWN ANSWER, out of the one verdict that also judges the top-level rewrite: every
- *  component refusal ends the same way, in the operator's own words rather than in validator vocabulary. */
+/** THE COMPONENT GATE'S OWN ANSWER: every component refusal ends in the operator's words, never the validator's. */
 const componentRefusals = (v: ReturnType<typeof validateProposal>): string[] =>
   v.reasons.filter((r) => r.endsWith("so I am not putting it in front of you."));
 const answered = (c: BundleComponent): boolean => !!c.where && !!c.objective && !!c.mechanism && !!c.measurementPlan;
 describe("the causes that had no copy now write one, or refuse in words", () => {
-  // MY FIGURES GROUND THE DIAGNOSIS, THEY ARE NEVER PAGE COPY. The link drafter was handed the receipt facts
-  // as its hints, and the sentence it writes is published on the operator's page, so a click count was one
-  // model call away from being live copy. The hints are the page's own words and the winners' reading.
+  it("says the page already carries them when the held page disproved every absence", async () => {
+    const out = await (CORE_PRODUCERS.incomplete_coverage as (c: ProducerCtx) => Promise<{ refusal: string | null }>)(
+      ctxOf({ finding: finding("incomplete_coverage", { cause: "incomplete_coverage", absentHeadings: ["Roof area"], absentEntities: [] }) }));
+    expect(out.refusal).toBe("I checked the page itself and it already carries what the winning pages cover, so there is nothing to add here."); });
+  // MY FIGURES GROUND THE DIAGNOSIS, THEY ARE NEVER PAGE COPY: the link drafter's sentence is published on the
+  // operator's page, so a click count was one model call away from being live copy. The hints are the page's own words.
   it("never feeds one of my own numbers to the drafter that writes page copy", async () => {
     const heard: string[] = [];
     const out = await produceInternalLinks(ctxOf({
@@ -111,8 +107,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect(heard).toContain("Rain Barrels");                       // the page's own words, and the winners' headings
     expect(heard).toContain("How much rain a roof collects");
   });
-  // A DOUBLE GAP IS A TYPO ON SOMEBODY'S PAGE. The dash rule swaps a dash for a space, so a dash sitting next
-  // to a space shipped two. Paragraph breaks are structure and survive untouched.
+  // A DOUBLE GAP IS A TYPO ON SOMEBODY'S PAGE: a dash beside a space shipped two. Paragraph breaks survive untouched.
   it("never ships drafted body copy with a run of spaces in it, and never touches a line break", async () => {
     const out = await produceSourceExpansion(ctxOf({
       finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }),
@@ -128,14 +123,12 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const out = await produceInternalLinks(ctxOf());
     expect(out.refusal).toBeNull();
     expect(out.components.map((c) => c.kind)).toEqual(["internal_link_add", "internal_link_add"]);
-    // deterministic, and FROM THE INVENTORY: destinations this page ALREADY links to
-    // (/barrel-sizes, /roof-area-calculator) are never recommended again, the site's own
-    // page and somebody else's site never appear, and ties break on the page's own name.
+    // deterministic, and FROM THE INVENTORY: pages already linked never return, this page and other sites
+    // never appear, and ties break on the page's own name.
     expect(out.components.map((c) => c.label)).toEqual(["Link to /rain-collection", "Link to /storm-drains"]);
     expect(out.components.every((c) => answered(c) && c.risk === "safe" && c.before === null)).toBe(true);
     expect(out.components[0]!.mechanism).toContain("about 12 of their own pages and this one points to 3");
-    // THE COPY ITSELF SURVIVES, not only the component gate: it names this page's own search and opens no
-    // sentence on a word the factual firewall cannot place, so the whole change reads as ready.
+    // THE COPY ITSELF SURVIVES, not only the gate: it names this page's search and opens on no word the firewall cannot place.
     const c = out.components[0]!;
     expect(c.after).toBe('I would add this line to the section headed "How much rain a roof collects": if you are working out Rain collection basics, that page walks through it. The words "Rain collection basics guide" then point at /rain-collection, so a reader who came for "rain barrel sizing" has somewhere to go next.');
     expect(componentRefusals(validate(out.components))).toEqual([]);
@@ -171,11 +164,9 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const c = gap.components[0]!;
     // the page already talks about a roof, so only the subject it genuinely lacks is asked for
     expect([gap.components.length, c.kind, c.risk, answered(c)]).toEqual([1, "entity_expansion", "review", true]);
-    // THE INVERSION THIS REPAIR EXISTS FOR: fact requirements are claims that belong ON the page,
-    // and Beacon's own measurements never appear anywhere in the change.
+    // THE INVERSION THIS REPAIR EXISTS FOR: fact requirements are claims that belong ON the page, and my own numbers never do.
     expect(c.sourcePack!.factRequirements).toEqual(["Downspout diverter."]);
-    // THE KIND OF SOURCE IS ALL I HOLD HERE, and a pack that says so out loud is a research requirement:
-    // the copy hands the choice to the operator, and the component stays held for review rather than Ready.
+    // THE KIND OF SOURCE IS ALL I HOLD HERE: the copy hands the choice over, and the component stays held for review.
     expect(c.sourcePack!.sourceRequirements).toEqual(['Downspout diverter needs a source a reader can check, of the kind the pages being cited for "rain barrel sizing" point at: a.example, b.example, c.example. You pick the exact page: I hold the kind of source this needs and not the source itself.']);
     for (const beaconFact of FACTS) expect(JSON.stringify(c)).not.toContain(beaconFact);
     expect(JSON.stringify(c)).not.toContain("6,000");
@@ -183,8 +174,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect(c.after).toBe("Downspout diverter\n\nA downspout diverter splits roof water between the drain and the barrel, and the pages being cited explain when one is needed.");
     expect(componentRefusals(validate(gap.components))).toEqual([]);
     expect(validate(gap.components).verdict).toBe("ready");
-    // an engine that READ the page and named somebody else is a credibility problem, so it sources
-    // what the page ALREADY claims, and the claim comes from the page's own stored words
+    // an engine that READ the page and named somebody else is a credibility problem, so it sources what the page already claims
     const read = await produceSourceExpansion(ctxOf({
       finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }),
       draft: { section, internalLink: async () => null },
@@ -226,8 +216,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const renamed = await produceConsolidation(ctxOf({ finding: { ...finding("cannibalization"), detail: { competingPaths: ["/a", "/b"] } } as CauseFinding }));
     expect(renamed.components).toHaveLength(1);
   });
-  /** READY MEANS WHOLE. A rebuild used to ship its four planning sentences with whatever copy happened to
-   *  land under them and call the page rebuilt, so Ready promised copy the change did not hold. */
+  /** READY MEANS WHOLE: a rebuild shipping planning sentences under half its copy promised what it did not hold. */
   it("rebuilds a page only when the causes agree, and only when the WHOLE page is written", async () => {
     const one = await produceFullRewriteRecommendation(ctxOf(), ["weak_opening"]);
     expect([one.components.length, one.refusal!.includes("bigger swing than my evidence pays for")]).toEqual([0, true]);
@@ -235,8 +224,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const many = await produceFullRewriteRecommendation(ctxOf({ draft: whole() }), causes);
     const c = many.components[0]!;
     expect([c.kind, c.risk, answered(c)]).toEqual(["full_rewrite", "review", true]);
-    // THE COPY IS THE CHANGE: the page's own opening first, then every section the winners agree on, and
-    // not one planning sentence. What is wrong with the page is said where it belongs, on the mechanism.
+    // THE COPY IS THE CHANGE: the opening first, then every section the winners agree on, and not one planning sentence.
     expect(c.after.startsWith(OPENING)).toBe(true);
     expect(c.after).toContain("How much water a roof collects");
     expect(c.after).toContain("Choosing a barrel size");
@@ -245,13 +233,11 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect(c.mechanism).toContain("2 things are wrong at once");
     expect(componentRefusals(validate(many.components))).toEqual([]);
     expect(validate(many.components).verdict).toBe("ready");
-    // and the reading of the winners is what grounds the sections it quotes: hand the gate the receipt lines
-    // alone, as production used to, and the second section every winning page covers reads as an invention.
+    // the winners' reading grounds the sections it quotes: on receipt lines alone, a true second section reads as invention
     const narrow = validate(many.components, RECEIPT_ONLY);
     expect(narrow.verdict).toBe("rejected");
     expect(narrow.factViolations.join(" ")).toContain('names "Choosing"');
-    // ONE SECTION SHORT IS NO REBUILD. Nothing is emitted, the refusal counts what is owed, and it says
-    // plainly that picking this up next pass costs nothing because the written sections are already bought.
+    // ONE SECTION SHORT IS NO REBUILD: nothing is emitted, the refusal counts what is owed, and resuming costs nothing.
     const four = { pattern: { ...PATTERN, commonHeadings: FOUR.map((heading, i) => ({ heading, seenOn: [i] })) } };
     const partial = await produceFullRewriteRecommendation(ctxOf({ ...four, draft: whole(2) }), causes);
     expect(partial.components).toHaveLength(0);
@@ -279,9 +265,8 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
   });
 });
 describe("what a change actually costs the operator", () => {
-  // ONE map for the field a kind writes into, ONE for what it costs, both beside the contract they speak: an
-  // envelope a test builds is the envelope production persists, and every change that was not a reworded line
-  // used to be priced at fifteen minutes, so merging two pages and rebuilding one read the same.
+  // ONE map for the field a kind writes into, ONE for what it costs: the envelope a test builds is the one production
+  // persists, and a merge and a whole rebuild are not one price.
   it("files and prices a change by the kind of component it actually is", async () => {
     const kinds: BundleComponent["kind"][] = ["internal_link_add", "full_rewrite", "consolidation", "title", "meta", "h1", "opening_answer", "section_rewrite"];
     expect(kinds.map(fieldForComponent)).toEqual(["section", "section", "section", "title", "meta", "h1", "answer_block", "section"]);
@@ -290,8 +275,7 @@ describe("what a change actually costs the operator", () => {
     expect([merge.components[0]!.kind, rebuild.components[0]!.kind].map(effortMinutesFor)).toEqual([90, 120]);
     expect([effortMinutesFor("section_rewrite"), effortMinutesFor("section_add"), effortMinutesFor("title")]).toEqual([30, 15, 1]);
   });
-  // Measurement may not import Decision (foundation guard), so its private dangerous-kind list is pinned here:
-  // a new kind that moves or hides a page fails this instead of quietly losing its follow-up checkpoint.
+  // Measurement may not import Decision (guard), so its private dangerous-kind list is pinned here instead.
   it("pins measurement's private dangerous-kind list against the decision contract", () => {
     expect([...MEASUREMENT_DANGEROUS].sort()).toEqual([...DECISION_DANGEROUS].sort());
   });

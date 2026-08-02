@@ -6,7 +6,7 @@
 ## Current foundation
 
 - Branch `main`; MVP rebuild started at `4669fbb5`. Stack: Next.js App Router, strict TypeScript, Supabase, Vercel.
-- Production TypeScript is 77,377 lines; tests 8,852; combined 86,229 (ratcheted ceilings 2026-08-01).
+- Production TypeScript is 79,886 lines; tests 11,193; combined 91,079 (ceilings at these exact counts).
 - The foundation guard caps production, tests, combined LOC, domains, routes, exports, files, dependencies, and
   Markdown. `npm run gate` runs the guard, typecheck, tests, and build.
 - Five kernels exist (Account, Evidence, Decision, Measurement, Runtime); four primary surfaces (Today, Changes,
@@ -164,23 +164,23 @@ four 2026-07-31 migrations applied to production before the push. The live accou
 35 approved questions and nothing else (an earlier 85 here summed two tenants; the synthetic onboarding
 account's 50 candidates are core-flagged off, reversibly, and 50 legacy seeds stay deactivated).
 
-## V1 Closure (2026-08-01, deployed with this state)
+## V1 Closure and Decision Honesty (2026-08-01 and 2026-08-02, deployed with this state)
 
-The loop's integrity breaks are closed. Analyses carry one derived BrandIdentity (confirmed name + domain
-variants) with a deterministic text and citation matcher backstopping the model, `matchedBy` recorded per
-answer. AI history reads its whole requested day range through paginated filtered queries and throws rather
-than truncating. Retrieved-but-not-cited is derived by canonical url subtraction, never assumed. Analysis
-batches fifteen answers per structured call, so a 140 answer day settles in three passes, every answer
-analyzed or honestly rejected; terminal states persist on the canonical row (unsupported pairs are never
-planned while the registry cannot ask them; failed retries twice then settles unavailable, reason kept). A
-shell controller continues research in bounded lease-safe hops while the signed-in tab stays open. One
-reporting day, America/Los_Angeles, governs the planner, the cycle key RPC (replaced in place, applied), and
-every surface. Fan-out keywords carry bounded origin receipts merged on dedup, through cases into
-investigations. The bundle producer runs the same 15-cause ladder as the investigation: a compiler-total
-registry produces openings, sections, section rewrites, internal links, sourced expansions, consolidations
-(always dangerous, always held), and an earned full-rewrite brief, or refuses in the operator's own words.
-Proposal supersession is one atomic database function. Lint is part of the gate and clean; the middleware
-follows the proxy convention. The first live run still belongs to the operator.
+The loop's integrity breaks are closed: one derived BrandIdentity with a deterministic text and citation
+matcher behind the model; whole-range paginated reads that throw rather than truncate; retrieved-but-not-
+cited derived by canonical url subtraction; batched analysis; terminal pair states on the canonical row; the
+open-tab continuation controller; one Pacific reporting day including the cycle key RPC; origin receipts on
+fan-out keywords; atomic supersession; lint in the gate; the proxy convention. On top of that, pinned by end
+to end tests: the deep read has five doors and each earns on ITS OWN evidence (an AI citation loss or a
+coverage verdict needs no Google click deficit; a door that did not measure clicks may not conclude a
+wording change; two pages splitting a search can only consolidate or refuse). The owned page is one bounded
+representation of everything the store holds with a derived completeness verdict; the store keeps samples,
+so whole-page questions answer yes or unknown, never a false no, and absence claims are filtered against the
+held page before they fire. Analysis coverage is resumable by piece: the answer hash lands only at full
+coverage, a partial stays due and resumes at the first unread piece, and every completed-check denominator
+counts only settled readings. A full rewrite or new page is Ready only when every planned section and the
+opening drafted and validated; source packs name the source whole or say the operator picks it and hold for
+review, and the component card renders where, why, and the sources. The first live run is the operator's.
 
 ## Verification
 

@@ -300,6 +300,9 @@ describe("evidence - my own page's actual words, read narrowly", () => {
     expect(body.heldNote).toContain("unknown, not missing"); expect(body.heldNote).not.toMatch(/[—–]/);
     // No word count on file is not a licence to claim the page: it is the same unprovable claim.
     sb.rows = [row({ body_paragraph_sample: ["The kite festival opens at dawn."], word_count: undefined })];
+    expect((await read()).completeness).toBe("sample_only");
+    // The crawler's PARAGRAPH cap is a stop, not an ending: 20 stored passages is a sample however the word counts agree.
+    sb.rows = [row({ body_paragraph_sample: Array.from({ length: 20 }, (_, i) => `Passage ${i + 1}.`), word_count: 2, card_texts: [], internal_links: [] })];
     expect((await read()).completeness).toBe("sample_only"); });
   it("records exactly which passages the byte ceiling held when the store has more than one read may carry", async () => {
     sb.rows = [row({ body_paragraph_sample: Array.from({ length: 200 }, (_, i) => `Passage ${i + 1}. ${"held prose. ".repeat(20)}`), word_count: 5, card_texts: [], internal_links: [] })];

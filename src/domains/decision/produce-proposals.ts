@@ -457,6 +457,9 @@ export async function produceProposalsForTenant(
     if (bundled.status !== "bundled" || (!selectedKeys.has(covered) && !selectedKeys.has(path))) {
       log.info("[produce-proposals] no bundle this pass", { tenantId, page: d.pageUrl, door: d.door,
         reason: bundled.status === "bundled" ? "page no door selected" : bundled.reason });
+      // THE REFUSAL BELONGS ON THE RECEIPT, not only in a log. Beacon started writing this page, stopped for a
+      // reason it can say out loud, and resumes free, so the operator reads that beside the door it came through.
+      if (bundled.status !== "bundled") enteredBy.set(d.pageUrl, `${d.entry} ${bundled.reason}`);
       continue;
     }
     const page = bundled.proposal.pagePath;

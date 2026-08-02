@@ -231,8 +231,12 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   // says the operator picks the source and the page is held for review rather than shown as ready.
   const cited = inv.winners.filter((w) => w.extractState === "current" && w.fetchedAt).slice(0, 3)
     .map((w) => `${w.url}, published by ${w.domain}, read on ${day(w.fetchedAt)}: it is one of the pages that win "${inv.label}", and it is a source for what a page on this subject has to cover.`);
-  const sourcing = cited.length > 0 ? [...cited, ...v.sourceRequirements]
-    : v.sourceRequirements.map((s) => `${s} You pick the exact source for this one: I hold the kind of source it needs and not the source itself.`);
+  // A CITED WINNER IS A REAL SOURCE for the section it evidences, named whole, so those stand as they are. The
+  // model's OWN requirement sentences are never a source, whichever branch they arrive on: they carry the same
+  // caveat either way, and a pack still leaning on one holds the page for review rather than showing it ready.
+  const caveat = (s: string): string => `${s} You pick the exact source for this one: I hold the kind of source it needs and not the source itself.`;
+  const sourcing = [...cited, ...v.sourceRequirements.map(caveat)];
+  const unbacked = cited.length === 0 || v.sourceRequirements.length > 0;
   const components: BundleComponent[] = [
     { kind: "title", label: "Page title", before: null, after: v.proposedTitle, evidenceKeys: core, risk: "safe" },
     { kind: "meta", label: "Description", before: null, after: v.metaDescription, evidenceKeys: core, risk: "safe" },
@@ -300,7 +304,8 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     return { status: "none", reason: `The page I drafted for "${inv.label}" did not pass my own safety checks, so I am handing you nothing rather than risk it.` };
   }
   // A PAGE RESTING ON "SOME SOURCE OF THIS KIND" IS NEVER READY: the honest place for it is review.
-  return { status: "built", proposal: { ...proposal, status: cited.length > 0 ? verdict.status : "needs_review",
-    limitations: [...new Set([...proposal.limitations, ...verdict.reasons,
-      ...(cited.length > 0 ? [] : ["I hold no source of my own behind the claims on this page, so you pick every one of them before it goes out."])])] } };
+  return { status: "built", proposal: { ...proposal, status: unbacked ? "needs_review" : verdict.status,
+    limitations: [...new Set([...proposal.limitations, ...verdict.reasons, ...(!unbacked ? [] : [cited.length > 0
+      ? "Some of what this page claims still rests on the kind of source it needs rather than a source I hold, so you pick those before it goes out."
+      : "I hold no source of my own behind the claims on this page, so you pick every one of them before it goes out."])])] } };
 }

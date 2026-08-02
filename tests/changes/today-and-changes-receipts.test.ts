@@ -164,7 +164,9 @@ const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
     metric: "clicks from that search", measurementPlan: "I compare the next 28 days with the last 28.",
     scope: { queries: ["nowruz traditions"], prompts: [] }, confidenceReasons: ["163 clicks lost in 4 weeks"],
     alternatives: [{ option: "Rewrite the title", reason: "it cannot fix two of your pages competing" }], risks: [],
-    components: [{ kind: "title", label: "Page title", risk: "safe", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table", evidenceKeys: ["k1"] },
+    components: [{ kind: "title", label: "Page title", risk: "safe", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table", evidenceKeys: ["k1"],
+      where: "the page title itself", objective: "Say what this page answers.", mechanism: "The line a searcher reads is what wins the click.",
+      sourcePack: { sourceRequirements: ["The date needs a source a reader can check."], factRequirements: ["Nowruz falls on the spring equinox."] } },
       { kind: "canonical", label: "Canonical tag", risk: "dangerous", before: null, after: "Point /haft-seen at this page.", evidenceKeys: ["k1"] }],
     receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "1,200 impressions and 9 clicks for that search.", observedAt: "2026-07-25T00:00:00.000Z" }],
       missing: [], freshestObservedAt: "2026-07-25T00:00:00.000Z" } },
@@ -232,6 +234,11 @@ describe("a change detail hands over the whole investigation and the controls to
     expect(html).not.toContain("ctr_snippet");
     expect(html).not.toContain("technical_indexability");
   });
+
+  it("the piece to paste says where it goes, why it works, and which sources are still owed", async () => {
+    const html = await renderDetail(proposal());
+    for (const s of ["Where it goes", "the page title itself", "What it does", "Why it works", "wins the click", "Sources to add before this goes out",
+      "The date needs a source a reader can check.", "Check these lines against the source you pick", "Nowruz falls on the spring equinox."]) expect(html).toContain(s); });
 
   it("the ranking receipt names each input and how far it could ever move the order", async () => {
     const html = await renderDetail(proposal());

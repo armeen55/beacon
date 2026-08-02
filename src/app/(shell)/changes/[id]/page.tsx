@@ -351,6 +351,11 @@ function ComponentCard({
   isNew: boolean;
 }) {
   const cited = component.evidenceKeys.map((k) => facts.get(k)).filter((i): i is BundleEvidenceItem => Boolean(i));
+  // The producer already answered where this lands, what it achieves and why it works, and named the sources
+  // still owed before it goes out. All four were carried on the row and rendered nowhere, so the operator was
+  // handed copy with no place to put it and a source pack they could not see.
+  const plan: [string, string | undefined][] = [["Where it goes", component.where], ["What it does", component.objective], ["Why it works", component.mechanism]];
+  const pack = component.sourcePack ?? null;
   return (
     <div className="space-y-2 rounded-2xl border border-border bg-surface-raised p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -375,6 +380,23 @@ function ComponentCard({
         <p className="text-[12px] text-muted-foreground">Use this</p>
         <CopyBlock component={component} />
       </div>
+      {plan.some(([, v]) => v) ? (
+        <div className="space-y-0.5 text-[12px] leading-relaxed text-muted-foreground">
+          {plan.map(([label, value]) => (value ? <p key={label}><span className="font-semibold text-foreground">{label}:</span> {value}</p> : null))}
+        </div>
+      ) : null}
+      {pack && (pack.sourceRequirements.length > 0 || pack.factRequirements.length > 0) ? (
+        <div className="space-y-1 rounded-lg bg-surface-inset px-3 py-2">
+          <p className="text-[12px] font-semibold text-foreground">Sources to add before this goes out</p>
+          {pack.sourceRequirements.length > 0 ? <Bullets items={pack.sourceRequirements} /> : null}
+          {pack.factRequirements.length > 0 ? (
+            <>
+              <p className="text-[12px] text-muted-foreground">Check these lines against the source you pick</p>
+              <Bullets items={pack.factRequirements} />
+            </>
+          ) : null}
+        </div>
+      ) : null}
       {cited.length > 0 ? (
         <div className="space-y-1">
           <p className="text-[12px] font-semibold text-foreground">What this is based on</p>
