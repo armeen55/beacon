@@ -68,7 +68,7 @@ export type AuthoritativeFact = {
   detail: string;
 };
 
-export type FactualEntailmentInput = {
+type FactualEntailmentInput = {
   /** The draft text to verify (answer block body, atomic-edit "after", etc). */
   draftText: string;
   /** The target page's OWN stored body text (page_snapshots body_paragraph_sample
@@ -93,9 +93,9 @@ export type FactualEntailmentInput = {
   nowYear?: number;
 };
 
-export type EntailmentFindingKind = "violation" | "correction";
+type EntailmentFindingKind = "violation" | "correction";
 
-export type EntailmentFinding = {
+type EntailmentFinding = {
   kind: EntailmentFindingKind;
   /** Plain-English, operator-facing line. For a violation: "This draft says
    *  ... but I could not find that ... Check it before you paste." For a
@@ -107,7 +107,7 @@ export type EntailmentFinding = {
   date?: string;
 };
 
-export type FactualEntailmentResult = {
+type FactualEntailmentResult = {
   /** True only when there are zero VIOLATIONS. Corrections do not block. */
   entailed: boolean;
   /** Unsupported-invention findings (blocks auto-publish). Plain-English. */

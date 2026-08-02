@@ -65,7 +65,7 @@ export type DecidedTopic = {
  *  surface that says "checking" while the next legal read is tomorrow is lying about a wait. */
 export type CoverageRead = { decided: DecidedTopic | null; needs: ResearchNeed[]; waitingUntil: string | null };
 
-export type ReadCoverageOptions = {
+type ReadCoverageOptions = {
   /** How much research the caller may queue. 0 queues NOTHING, searches and comparison
    *  alike, and asks only "what is decided". The clamp used to guard the search branch
    *  only, so a caller that asked for no research still got handed a paid comparison. */

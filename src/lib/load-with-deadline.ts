@@ -16,7 +16,7 @@
 
 export const DEFAULT_DEADLINE_MS = 5000;
 
-export type DeadlineResult<T> =
+type DeadlineResult<T> =
   | { timedOut: false; data: T }
   | { timedOut: true; data: null };
 

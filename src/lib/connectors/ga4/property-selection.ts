@@ -94,7 +94,7 @@ export async function listGa4PropertiesForTenant(
  *
  * Exported for unit testing.
  */
-export function flattenAccountSummaries(
+function flattenAccountSummaries(
   body: AccountSummariesResponse | null | undefined,
 ): Ga4Property[] {
   if (body == null || typeof body !== "object") return [];
@@ -137,8 +137,3 @@ export function flattenAccountSummaries(
   return out;
 }
 
-/** Test-only export of internals. */
-export const __testing = {
-  ACCOUNT_SUMMARIES_URL,
-  MAX_PROPERTIES,
-};

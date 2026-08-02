@@ -43,7 +43,7 @@ export type GscReadinessVerdict =
   | "not_connected"
   | "needs_reconnect";
 
-export type GscReadiness = {
+type GscReadiness = {
   verdict: GscReadinessVerdict;
   /** The GSC property data was synced UNDER — e.g. "sc-domain:iranopedia.com"
    *  or "https://www.iranopedia.com/". Null when nothing has synced yet. */
@@ -302,7 +302,7 @@ export async function loadGscReadiness(
 
 export type GscReadinessTone = "ready" | "attention" | "idle";
 
-export type GscReadinessDescription = {
+type GscReadinessDescription = {
   headline: string;
   detail: string;
   tone: GscReadinessTone;

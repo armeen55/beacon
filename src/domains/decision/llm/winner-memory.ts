@@ -41,7 +41,7 @@ const MAX_PER_FAMILY = 10;
 /** How many of the retained winners get injected as few-shot examples. */
 const FEW_SHOT_COUNT = 2;
 
-export type StructuralFeatures = {
+type StructuralFeatures = {
   wordCount: number;
   /** First ~15 words read as a direct, concrete answer/claim rather than a
    *  dictionary-style definition or a deferral ("it depends", "varies"). */
@@ -52,7 +52,7 @@ export type StructuralFeatures = {
   questionHeading: boolean;
 };
 
-export type WinnerExample = {
+type WinnerExample = {
   tenantId: string;
   actionFamily: ExperimentFamily;
   page: string;
@@ -90,7 +90,7 @@ function firstLine(text: string): string {
  * Used both to build the winner store and (via the same function) to describe
  * the guidance line injected alongside the few-shot examples.
  */
-export function extractStructuralFeatures(text: string): StructuralFeatures {
+function extractStructuralFeatures(text: string): StructuralFeatures {
   const t = (text ?? "").trim();
   if (t === "") {
     return { wordCount: 0, leadsWithAnswer: false, hasNumber: false, questionHeading: false };
@@ -198,7 +198,7 @@ export async function harvestWinners(
  *  record) or under an unregistered version is never served as a few-shot, even
  *  though it stays in the store as history. Every few-shot builder flows through
  *  here (loadWinnersForLever -> buildWinnerFewShots), so one gate covers all. */
-export async function loadWinners(tenantId: string): Promise<WinnerExample[]> {
+async function loadWinners(tenantId: string): Promise<WinnerExample[]> {
   if (!tenantId) return [];
   try {
     const all = await readAll();
@@ -211,7 +211,7 @@ export async function loadWinners(tenantId: string): Promise<WinnerExample[]> {
 }
 
 /** Retained winners for one tenant + actionFamily/lever, newest ship first. */
-export async function loadWinnersForLever(
+async function loadWinnersForLever(
   tenantId: string,
   lever: ExperimentFamily,
 ): Promise<WinnerExample[]> {
@@ -285,25 +285,11 @@ function decidedVerdictOf(
 /** One shipped artifact tagged with its pattern + page family - the row shape the
  *  aggregate is built from, retained alongside the tally so a caller can point at a
  *  REAL example page for a confident cell (never a fabricated "the block that won"). */
-export type TaggedShippedRow = PatternOutcomeRow & { page: string };
-
-/**
- * Read every shipped artifact for this tenant (any verdict, not just wins), classify
- * its after-text pattern, and tally decided outcomes by (pattern, pageFamily). Cells
- * below MIN_DECIDED_FOR_CONFIDENCE stay `confident: false` in the output - callers
- * must never quote a winRate from an unconfident cell. Fail-soft -> [] on any error.
- */
-export async function loadPatternAggregate(
-  tenantId: string,
-  opts: { now?: Date } = {},
-): Promise<PatternCellTally[]> {
-  const { cells } = await loadPatternAggregateWithRows(tenantId, opts);
-  return cells;
-}
+type TaggedShippedRow = PatternOutcomeRow & { page: string };
 
 /** Same read as loadPatternAggregate, but also returns the tagged rows the tally was
  *  built from (so a caller can name a real winning page for a confident cell). */
-export async function loadPatternAggregateWithRows(
+async function loadPatternAggregateWithRows(
   tenantId: string,
   opts: { now?: Date } = {},
 ): Promise<{ cells: PatternCellTally[]; rows: TaggedShippedRow[] }> {

@@ -64,13 +64,13 @@ const PRONOUN_OPENER = /^\s*(it|this|that|these|those|they|he|she|there)\b/i;
 /** A concrete number or date signal - digits, or a written-out year/decade. */
 const NUMBER_OR_DATE = /\b\d{1,4}(?:[.,]\d+)?\b|\b(?:19|20)\d{2}s?\b/;
 
-export type PassageFailureCode =
+type PassageFailureCode =
   | "not_self_contained"
   | "pronoun_opener"
   | "no_number_or_date"
   | "off_question";
 
-export type PassageRuleCheck = {
+type PassageRuleCheck = {
   code: PassageFailureCode;
   /** True = rule PASSES (no failure). */
   passed: boolean;

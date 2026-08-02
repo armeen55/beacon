@@ -8,7 +8,7 @@ export type PageType =
   | "directory_profile"
   | "other";
 
-export type OwnershipTier =
+type OwnershipTier =
   | "owned"
   | "competitor"
   | "directory"
@@ -16,22 +16,13 @@ export type OwnershipTier =
   | "social"
   | "other";
 
-export type DiscoverySource =
+type DiscoverySource =
   | "citation"
   | "changelog"
   | "entity_url"
   | "manual";
 
 // ── Evidence tiers ──────────────────────────────────────────────────
-
-export type EvidenceTier = "exact" | "probable" | "weak" | "inferred";
-
-export type EvidenceTierMeta = {
-  tier: EvidenceTier;
-  has_structural_url: boolean;
-  snapshot_verified: boolean;
-  flags: string[];
-};
 
 // ── PageEntity ──────────────────────────────────────────────────────
 
@@ -55,40 +46,6 @@ export type PageEntity = {
   changelog_ids: string[];
   metadata: Record<string, unknown>;
   /** Owning tenant. */
-  tenant_id: string;
-};
-
-/**
- * Narrow projection of `PageEntity` for routes that need only URL
- * lookup / ownership classification / topic context — not the full
- * 20-field row.
- *
- * Perf+egress bundle 2 (2026-05-12) — added so customer routes that
- * only build a `{ url → id }` map (e.g. `/changes/[id]` legacy
- * detail's "open this page" CTA) can fetch ~6 columns instead of the
- * full payload (~5929 rows × ~5KB ≈ 30MB → ~6KB/row ≈ 3.5MB).
- *
- * The `tenant_id` field is included because the file-backend's
- * `filterByTenantId` helper depends on it for multi-tenant
- * correctness; without it the file backend (used in tests + dev
- * fixtures) cannot enforce isolation post-projection.
- *
- * `primary_topic` is derived from `topics[0]` at the projection
- * boundary — the underlying schema stores the full `topics: string[]`
- * array. Callers that need the full array should use `getPages()`
- * (the full reader).
- */
-export type PageSummary = {
-  id: string;
-  url: string;
-  /** Schema column `canonical_url`. Equivalent to the spec's
-   *  "normalized_url" — the de-trailing-slashed, lowercased URL the
-   *  matching layer keys on. */
-  canonical_url: string;
-  is_owned: boolean;
-  page_type: PageType;
-  /** First entry of `topics: string[]` if non-empty, else `null`. */
-  primary_topic: string | null;
   tenant_id: string;
 };
 
@@ -182,43 +139,15 @@ export type PageSnapshot = {
   tenant_id: string;
 };
 
-export type PageSnapshotDiff = {
-  page_id: string;
-  url: string;
-  previous_fetched_at: string;
-  current_fetched_at: string;
-  changed: boolean;
-  title_changed: boolean;
-  h1_changed: boolean;
-  meta_description_changed: boolean;
-  faq_count_changed: boolean;
-  /** Exact prior FAQ count captured when the diff is built. Optional for
-   * pre-2026-07-17 stored diffs, which cannot support a directional alert. */
-  previous_faq_count?: number;
-  schema_changed: boolean;
-  content_changed: boolean;
-  headings_changed: boolean;
-  /** Phase post-A+B1 (2026-04-21). True when h2_list arrays differ
-   *  (order-sensitive string equality). */
-  h2_changed: boolean;
-  /** Phase post-A+B1 (2026-04-21). True when h3_list arrays differ.
-   *  Absent on either side is treated as empty. */
-  h3_changed: boolean;
-  /** Phase post-A+B1 (2026-04-21). True when schema_entity_names arrays
-   *  differ (set-based — order doesn't matter). */
-  schema_entity_names_changed: boolean;
-  summary: string;
-};
-
 // ── Citation rollup (per page × topic) ──────────────────────────────
 
-export type PlatformCitationStats = {
+type PlatformCitationStats = {
   citation_count: number;
   distinct_answers: number;
   avg_citation_order: number | null;
 };
 
-export type CitationPageRollup = {
+type CitationPageRollup = {
   page_id: string;
   page_url: string;
   domain: string;
@@ -234,7 +163,7 @@ export type CitationPageRollup = {
 
 // ── Citation evidence index ─────────────────────────────────────────
 
-export type TopicCitationSummary = {
+type TopicCitationSummary = {
   topic: string;
   total_citations: number;
   owned_citations: number;
@@ -256,72 +185,6 @@ export type CitationEvidenceIndex = {
 
 // ── Prompt-to-page fit (future) ─────────────────────────────────────
 
-export type PagePromptFit = {
-  page_id: string;
-  prompt_id: string;
-  topic: string;
-  score: number;
-  factors: {
-    city_match: number;
-    service_match: number;
-    page_type_relevance: number;
-    title_coverage: number;
-    faq_coverage: number;
-    schema_support: number;
-    citation_evidence: number;
-  };
-  confidence: "high" | "medium" | "low";
-  is_best_for_prompt: boolean;
-};
-
-/**
- * Sitemap reconciliation — historically stored at
- * `.data/global/sitemap-reconciliation.json`; mirrored to Supabase
- * `public.sitemap_reconciliation` (per-tenant PK) as of Phase A.3
- * (post-A.3.5). Store classification flipped from GLOBAL →
- * TENANT_SCOPED in the same step.
- *
- * Type shape extended additively from the original A.3.3b subset
- * to match what the writer (`scripts/scan-owned-pages.ts:130–138`)
- * actually emits to disk. The additive fields close a pre-existing
- * type/disk mismatch: the on-disk JSON has always carried
- * `fetched_at`, `sitemap_domain`, `registry_matched`, `sitemap_only`,
- * and per-page `sitemap_lastmod`, but the published type omitted them.
- * Older consumers continue to work — every new field is optional or
- * has a default.
- */
-export type SitemapReconciliationCanonicalPage = {
-  url: string;
-  path: string;
-  registry_page_id: string | null;
-  scan_page_id: string;
-  /** Phase A.3 (post-A.3.5) — sitemap-declared lastmod (optional;
-   *  many sitemaps omit). */
-  sitemap_lastmod?: string | null;
-};
-
-export type SitemapReconciliationStalePage = {
-  url: string;
-  path: string;
-  domain: string;
-  registry_page_id: string;
-  /** Phase A.3 (post-A.3.5) — literal-union reason. Existing
-   *  callers passed open `string`; tightened additively here. */
-  reason: "stale_domain" | "not_in_sitemap" | "unscannable_url" | string;
-};
-
-export type SitemapReconciliation = {
-  canonical_pages: SitemapReconciliationCanonicalPage[];
-  stale_pages: SitemapReconciliationStalePage[];
-  sitemap_url_count: number;
-  /** Phase A.3 (post-A.3.5) — additive fields the writer always
-   *  emitted. All optional so older consumers still type-check. */
-  fetched_at?: string;
-  sitemap_domain?: string;
-  registry_matched?: number;
-  sitemap_only?: number;
-};
-
 // ── Retired frontier/wave/outcome engine row shapes ─────────────────
 // The compute engines (frontier-planner.ts, frontier-compiler.ts,
 // wave-planner.ts, outcome-watch.ts, asset-response.ts) were deleted in the
@@ -330,189 +193,11 @@ export type SitemapReconciliation = {
 // against these persisted-store row shapes, so the type definitions live on
 // here.
 
-export type FrontierType =
-  | "topic_frontier"
-  | "city_frontier"
-  | "service_frontier"
-  | "page_gap_frontier"
-  | "competitor_pressure_frontier";
-
-export type RecommendedMoveType =
-  | "repair_existing_pages"
-  | "roll_out_validated_pattern"
-  | "create_missing_page"
-  | "expand_internal_link_cluster"
-  | "strengthen_entity_support"
-  | "comparison_content_play";
-
-export type FrontierStatus = "opportunity" | "attacking" | "watching" | "dismissed";
-
-export type FrontierOpportunity = {
-  frontierOpportunityId: string;
-  frontierKey: string;
-  frontierType: FrontierType;
-  title: string;
-  createdAt: string;
-  status: FrontierStatus;
-  topic: string;
-  geography: string | null;
-  service: string | null;
-  ownedCoverageSummary: string;
-  competitorPressureSummary: string;
-  citationOpportunity: number;
-  ownedShare: number;
-  ownedPageCount: number;
-  ownedPagesWithFaq: number;
-  competitorCitations: number;
-  structuralOpportunity: number;
-  recommendedMoveType: RecommendedMoveType;
-  linkedPages: string[];
-  linkedBriefIds: string[];
-  linkedWaveIds: string[];
-  rationale: string;
-  priorityScore: number;
-  notes: string | null;
-};
-
-export type WaveType =
-  | "quick_fix_wave"
-  | "pattern_rollout_wave"
-  | "verification_wave"
-  | "mixed_operator_wave";
-
-export type WaveStatus =
-  | "proposed"
-  | "handed_off"
-  | "in_progress"
-  | "partially_shipped"
-  | "shipped"
-  | "partially_verified"
-  | "completed"
-  | "dismissed";
-
-export type RolloutWave = {
-  rolloutWaveId: string;
-  title: string;
-  sourcePatternId: string;
-  waveType: WaveType;
-  createdAt: string;
-  status: WaveStatus;
-  targetPages: string[];
-  briefIds: string[];
-  issueIds: string[];
-  rationale: string;
-  priorityScore: number;
-  expectedVerificationMode: string;
-  notes: string | null;
-};
-
-export type OutcomeAssessment =
-  | "too_early"
-  | "incubating"
-  | "early_movement"
-  | "likely_no_visible_effect_yet"
-  | "mixed_signal"
-  | "promising_but_ambiguous";
-
-export type OutcomeObservation = {
-  outcomeObservationId: string;
-  issueId: string;
-  rolloutExecutionId: string;
-  sourcePatternId: string;
-  targetPage: string;
-  observedAt: string;
-  daysSinceVerified: number;
-  citationCount: number | null;
-  citationDelta: number | null;
-  scorecardSignals: string;
-  resultSignals: string;
-  outcomeAssessment: OutcomeAssessment;
-  evidenceSummary: string;
-  linkedResultIds: string[];
-  notes: string | null;
-};
-
-export type PackageStatus =
-  | "proposed"
-  | "compiled"
-  | "launched"
-  | "handed_off"
-  | "in_progress"
-  | "partially_verified"
-  | "completed"
-  | "dismissed";
-
-export type MissingPagePlan = {
-  suggestedTitle: string;
-  pageType: string;
-  targetTopic: string;
-  targetCity: string | null;
-  targetService: string | null;
-  rationale: string;
-  suggestedComponents: string[];
-  suggestedInternalLinksIn: string[];
-  suggestedInternalLinksOut: string[];
-  verificationExpectations: string[];
-};
-
-export type FrontierAttackPackage = {
-  frontierAttackPackageId: string;
-  frontierOpportunityId: string;
-  title: string;
-  createdAt: string;
-  status: PackageStatus;
-  recommendedMoveType: RecommendedMoveType;
-  linkedPages: string[];
-  pagesToRepair: string[];
-  pagesToCreate: MissingPagePlan[];
-  comparisonTargets: string[];
-  internalLinkTargets: { from: string; to: string; reason: string }[];
-  linkedBriefIds: string[];
-  linkedWaveIds: string[];
-  rationale: string;
-  executionSteps: string[];
-  verificationPlan: string[];
-  priorityScore: number;
-  assetResponseSummary: string | null;
-  notes: string | null;
-};
-
-export type MissingPageStatus =
-  | "planned"
-  | "handed_off"
-  | "drafted"
-  | "launched"
-  | "indexed"
-  | "watching"
-  | "completed"
-  | "dismissed";
-
-export type TrackedMissingPage = {
-  missingPagePlanId: string;
-  frontierAttackPackageId: string;
-  title: string;
-  pageType: string;
-  targetTopic: string;
-  targetCity: string | null;
-  targetService: string | null;
-  status: MissingPageStatus;
-  rationale: string;
-  suggestedComponents: string[];
-  suggestedInternalLinksIn: string[];
-  suggestedInternalLinksOut: string[];
-  verificationExpectations: string[];
-  createdAt: string;
-  handedOffAt: string | null;
-  launchedAt: string | null;
-  indexedAt: string | null;
-  notes: string | null;
-};
-
 // Relocated verbatim from src/domains/evidence/pages/issues.ts (CORE 100K, 2026-07-21).
 // The runtime issue-store getters had no callers; the persistence layer
 // consumes only these row types.
 
-export type IssueStatus =
+type IssueStatus =
   | "new"
   | "handed_off"
   | "in_progress"
@@ -547,42 +232,3 @@ export type PersistedIssue = {
   verificationBaselineObservationRunId?: string | null;
 };
 
-export type RolloutExecution = {
-  executionId: string;
-  briefId: string;
-  issueId: string;
-  sourcePatternId: string;
-  targetPage: string;
-  briefTitle: string;
-  briefType: "fix" | "growth";
-  createdAt: string;
-  handedOffAt: string | null;
-  shippedAt: string | null;
-  verifiedAt: string | null;
-  verificationResult: string | null;
-  notes: string | null;
-};
-
-export type OutcomeStatus =
-  | "shipped_not_verified"
-  | "verification_failed"
-  | "structurally_verified_outcome_too_early"
-  | "structurally_verified_no_clear_impact_yet"
-  | "structurally_verified_with_positive_signal";
-
-export type PatternEvidenceRecord = {
-  patternEvidenceId: string;
-  sourcePatternId: string;
-  briefId: string;
-  issueId: string;
-  rolloutExecutionId: string;
-  targetPage: string;
-  createdAt: string;
-  shippedAt: string | null;
-  verifiedAt: string | null;
-  structuralVerificationResult: string | null;
-  preShipCitationCount: number | null;
-  postShipCitationCount: number | null;
-  outcomeStatus: OutcomeStatus;
-  notes: string | null;
-};

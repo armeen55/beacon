@@ -34,18 +34,15 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
-import { syncGscSearchAnalyticsForTenant, pacificDateString } from "./sync-search-analytics";
+import { syncGscSearchAnalyticsForTenant } from "./sync-search-analytics";
 
-/** How far back the deep backfill reaches: GSC's own documented retention
- *  ceiling is ~16 months; 480 days is comfortably inside that window. */
-export const DEEP_BACKFILL_DAYS = 480;
 /** One chunk = about one calendar month of days. Small enough that a single
  *  invocation (HTTP pulls + Supabase upserts for ~30 days) finishes well
  *  inside a serverless timeout; large enough that a full backfill converges
  *  in a small, bounded number of chunks (about 13 for the full 480 days). */
-export const CHUNK_DAYS = 30;
+const CHUNK_DAYS = 30;
 
-export type BackfillProgressRow = {
+type BackfillProgressRow = {
   tenant_id: string;
   property: string;
   target_date: string;
@@ -64,35 +61,9 @@ function addDays(isoDate: string, days: number): string {
 
 const TABLE = "gsc_backfill_progress";
 
-/** An in-progress backfill whose cursor has not advanced in this long is not
- *  making progress: the chunk keeps failing (auth / quota / network, all of
- *  which leave the cursor AND updated_at untouched), or nothing has run it
- *  recently. Either way the operator status must say so plainly instead of an
- *  unchanging "in progress ... click continue". Wider than the ~1 day the on-use
- *  cycle takes per chunk (one advance per Pacific-day claim) so a normal
- *  slow-but-working backfill never misreads as stalled. */
-export const BACKFILL_STALL_MS = 3 * 24 * 60 * 60 * 1000;
-
-/** PURE: is an in-progress backfill stalled (no SUCCESSFUL chunk in the last
- *  BACKFILL_STALL_MS)? writeProgress bumps updated_at ONLY on a completed chunk,
- *  so a stale updated_at on an in_progress row is the durable proof the backfill
- *  has stopped advancing - the failure receipt the operator status reads. A
- *  complete row is never stalled; an unparseable stamp is trusted as fresh so a
- *  bad timestamp can never invent a stall. */
-export function isBackfillStalled(
-  progress: Pick<BackfillProgressRow, "status" | "updated_at">,
-  now: Date = new Date(),
-  stallMs: number = BACKFILL_STALL_MS,
-): boolean {
-  if (progress.status !== "in_progress") return false;
-  const updatedMs = Date.parse(progress.updated_at);
-  if (!Number.isFinite(updatedMs)) return false;
-  return now.getTime() - updatedMs >= stallMs;
-}
-
 /** Read the tenant's backfill progress row for a property, or null if the
  *  backfill has never been started. Fail-soft -> null. */
-export async function readBackfillProgress(
+async function readBackfillProgress(
   tenantId: string,
   property: string,
 ): Promise<BackfillProgressRow | null> {
@@ -106,28 +77,6 @@ export async function readBackfillProgress(
       .limit(1);
     if (error || !data || data.length === 0) return null;
     return data[0] as BackfillProgressRow;
-  } catch {
-    return null;
-  }
-}
-
-/** Earliest day already covered by the tenant's normal gsc_daily_rows sync -
- *  the deep backfill's natural STARTING point (it only needs to reach further
- *  back than this; the normal sync already owns everything from here forward).
- *  Fail-soft -> null (no rows yet -> nothing to anchor a backfill start to). */
-async function earliestSyncedDay(tenantId: string, property: string): Promise<string | null> {
-  try {
-    const sb = getSupabaseAdmin();
-    const { data, error } = await sb
-      .from("gsc_daily_rows")
-      .select("date")
-      .eq("tenant_id", tenantId)
-      .eq("property", property)
-      .order("date", { ascending: true })
-      .limit(1);
-    if (error) return null;
-    const d = (data?.[0] as { date?: string } | undefined)?.date;
-    return typeof d === "string" ? d.slice(0, 10) : null;
   } catch {
     return null;
   }
@@ -154,54 +103,6 @@ async function writeProgress(row: Omit<BackfillProgressRow, "started_at" | "upda
   }
 }
 
-export type StartDeepBackfillResult =
-  | { started: true; property: string; targetDate: string }
-  | { started: false; reason: string };
-
-/**
- * Operator trigger ("Load my full Search Console history"): initializes the
- * progress row so the next chunk run (this call, plus the nightly continuation
- * below) has somewhere to resume from. Idempotent - calling it again while a
- * backfill is already in_progress is a no-op that returns the existing target.
- */
-export async function startDeepBackfill(
-  tenantId: string,
-  opts: { now?: Date; days?: number } = {},
-): Promise<StartDeepBackfillResult> {
-  const now = opts.now ?? new Date();
-  const days = opts.days ?? DEEP_BACKFILL_DAYS;
-
-  // Resolve the property the same way the normal sync does, by reading what
-  // it already wrote under (the deep backfill only ever runs AFTER the normal
-  // sync has established a property - there is nothing to backfill before that).
-  const property = await resolveKnownProperty(tenantId);
-  if (property == null) {
-    return { started: false, reason: "no_synced_property" };
-  }
-
-  const existing = await readBackfillProgress(tenantId, property);
-  if (existing != null && existing.status === "in_progress") {
-    return { started: true, property, targetDate: existing.target_date };
-  }
-
-  const anchor = (await earliestSyncedDay(tenantId, property)) ?? pacificDateString(now);
-  const targetDate = addDays(pacificDateString(now), -days);
-  if (existing != null && existing.status === "complete" && existing.target_date <= targetDate) {
-    // Already reached at least this far back - nothing new to do.
-    return { started: true, property, targetDate: existing.target_date };
-  }
-
-  await writeProgress({
-    tenant_id: tenantId,
-    property,
-    target_date: targetDate,
-    cursor_date: addDays(anchor, -1), // the day just before the normal sync's earliest day
-    status: "in_progress",
-    days_pulled: 0,
-  });
-  return { started: true, property, targetDate };
-}
-
 /** The property gsc_daily_rows already has rows under for this tenant (the
  *  normal sync resolves + writes it; the backfill reuses it rather than
  *  re-deriving from a live token call). Fail-soft -> null. */
@@ -221,7 +122,7 @@ async function resolveKnownProperty(tenantId: string): Promise<string | null> {
   }
 }
 
-export type DeepBackfillChunkResult =
+type DeepBackfillChunkResult =
   | { ran: false; reason: string }
   | {
       ran: true;
@@ -240,7 +141,7 @@ export type DeepBackfillChunkResult =
  * (network/quota/auth) leaves the cursor untouched so the same window retries
  * next time - never marks progress on a partial/failed pull.
  */
-export async function runDeepBackfillChunk(
+async function runDeepBackfillChunk(
   tenantId: string,
   opts: { now?: Date } = {},
 ): Promise<DeepBackfillChunkResult> {

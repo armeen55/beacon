@@ -120,7 +120,7 @@ export type DraftQualityResult = {
  *  entity"), which is the founder-config leak in its purest form. Callers pass the
  *  candidate's OWN words; an empty list means the entity check cannot run and must
  *  not fabricate a verdict. */
-export const DEFAULT_CONTEXT_TOKENS: string[] = [];
+const DEFAULT_CONTEXT_TOKENS: string[] = [];
 
 /** Any non-Latin script carries its own subject words; token containment cannot judge it. */
 const NON_LATIN_SCRIPT = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u;
@@ -302,7 +302,7 @@ function blockedAuthoritativeNote(
 
 // ── answer-block / opening quality ────────────────────────────────────────────
 
-export type EvaluateDraftInput = {
+type EvaluateDraftInput = {
   /** The answer/opening text (raw string or structured .answer). */
   answer: string | null | undefined;
   /** The query/topic the draft must answer (for relevance + entity checks). */
@@ -519,7 +519,7 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
 
 // ── title / meta (atomic edit) quality ────────────────────────────────────────
 
-export type EvaluateTitleInput = {
+type EvaluateTitleInput = {
   before?: string | null;
   after: string | null | undefined;
   field?: "title" | "meta" | string;

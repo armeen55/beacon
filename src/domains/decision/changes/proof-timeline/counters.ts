@@ -34,7 +34,7 @@
  */
 import type { ProofPillKind } from "@/domains/decision/changes/proof-timeline/result-pill";
 
-export type ProofCounterInput = {
+type ProofCounterInput = {
   /** Resolved pill kind from the result-pill resolver. */
   pillKind: ProofPillKind;
 };
@@ -54,14 +54,14 @@ export type ProofCounters = {
  * meaningful counters. Exported so tests and consumers can verify
  * the mapping without re-deriving it.
  */
-export const WATCHING_PILL_KINDS: ReadonlySet<ProofPillKind> = new Set<ProofPillKind>([
+const WATCHING_PILL_KINDS: ReadonlySet<ProofPillKind> = new Set<ProofPillKind>([
   "watching",
   "too_early",
   "live",
   "no_signal_yet",
 ]);
 
-export const NEEDS_ATTENTION_PILL_KINDS: ReadonlySet<ProofPillKind> = new Set<ProofPillKind>([
+const NEEDS_ATTENTION_PILL_KINDS: ReadonlySet<ProofPillKind> = new Set<ProofPillKind>([
   "hurting",
   "needs_review",
 ]);

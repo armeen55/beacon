@@ -207,7 +207,7 @@ export function normalizeStructuredValue(value: unknown, schema: z.ZodTypeAny): 
 
 // ── envelope classification ──────────────────────────────────────────────────
 
-export type EnvelopeClassification =
+type EnvelopeClassification =
   | { kind: "text"; text: string }
   | { kind: "refusal" }
   | { kind: "incomplete"; reason: string }

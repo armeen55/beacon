@@ -52,7 +52,7 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
-export type LedgerPlatform =
+type LedgerPlatform =
   | "perplexity"
   | "openai"
   | "adjudicator-openai"
@@ -69,7 +69,7 @@ const VALID_PLATFORMS: ReadonlySet<string> = new Set<LedgerPlatform>([
   "other",
 ]);
 
-export type RecordSpendDualWriteInput = {
+type RecordSpendDualWriteInput = {
   /** Resolved tenant id (e.g. `tenant-ritz-founder`). Must be nonempty. */
   tenantId: string;
   /** Platform enum matching the migration's CHECK constraint. */
@@ -244,73 +244,6 @@ export async function recordSpendSupabase(
     const msg = e instanceof Error ? e.message : String(e);
     console.warn(`[budget-ledger] dual-write threw (non-fatal): ${msg}`);
     return false;
-  }
-}
-
-/**
- * Read-only spend snapshot for a UTC date (YYYY-MM-DD). Returns `[]`
- * on any error or when the table is empty/unavailable. NOT flag-gated
- * — safe to call from canary/diagnostic code at any time.
- */
-export type MonthlyPlatformSpend = { platform: string; spentUsd: number; calls: number };
-
-/**
- * Item 92 - month-to-date spend per platform for the receipts page. One bounded read
- * (current month's rows for the tenant), aggregated in JS. Fail-soft -> [].
- */
-export async function readMonthlySpendByPlatform(tenantId: string): Promise<MonthlyPlatformSpend[]> {
-  try {
-    const supabase = getSupabaseAdmin();
-    const monthStart = new Date().toISOString().slice(0, 8) + "01";
-    const { data, error } = await supabase
-      .from("llm_budget_ledger")
-      .select("platform, spent_usd, prompt_count")
-      .eq("tenant_id", tenantId)
-      .gte("date_utc", monthStart);
-    if (error || !Array.isArray(data)) return [];
-    const byPlatform = new Map<string, MonthlyPlatformSpend>();
-    for (const r of data as Array<{ platform: string; spent_usd: number | string; prompt_count: number | string }>) {
-      const key = String(r.platform);
-      const cur = byPlatform.get(key) ?? { platform: key, spentUsd: 0, calls: 0 };
-      cur.spentUsd += Number(r.spent_usd) || 0;
-      cur.calls += Number(r.prompt_count) || 0;
-      byPlatform.set(key, cur);
-    }
-    return [...byPlatform.values()].sort((a, b) => b.spentUsd - a.spentUsd);
-  } catch {
-    return [];
-  }
-}
-
-
-/**
- * 2026-06-10 (audit #31/#35) — today's TOTAL spend for a tenant across
- * all platforms, from `llm_budget_ledger`. Powers the per-tenant daily
- * spend CEILING enforced in the poll runner. Fail-OPEN: a read error
- * returns null (caller treats null as "unknown → allow") so a transient
- * Supabase hiccup never blocks legitimate polling — the per-run cost
- * ceiling remains the backstop.
- */
-export async function getTenantSpentTodayUsd(
-  tenantId: string,
-  now: Date = new Date(),
-): Promise<number | null> {
-  if (typeof tenantId !== "string" || tenantId.trim() === "") return 0;
-  try {
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from("llm_budget_ledger")
-      .select("spent_usd")
-      .eq("tenant_id", tenantId)
-      .eq("date_utc", todayUtcDate(now));
-    if (error || !Array.isArray(data)) return null;
-    let total = 0;
-    for (const row of data as Array<{ spent_usd?: number }>) {
-      if (typeof row.spent_usd === "number") total += row.spent_usd;
-    }
-    return total;
-  } catch {
-    return null;
   }
 }
 

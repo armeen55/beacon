@@ -62,7 +62,7 @@ function countableRows<T extends { engine: string; observationMode?: Observation
 
 // (a) Recurring domains - "the people on the lists"
 
-export type RecurringDomain = {
+type RecurringDomain = {
   domain: string;
   /** Distinct prompts this domain was cited under - the real recurrence signal
    *  (a domain cited 5x on one prompt is less "everywhere" than one cited once
@@ -115,7 +115,7 @@ function isRedirectWrapperDomain(domain: string): boolean {
  * tenant's own domain is excluded - this ranks OTHER domains AI keeps
  * recommending. Pure, deterministic.
  */
-export function rankRecurringDomains(
+function rankRecurringDomains(
   rows: readonly NativeObservationInput[],
   opts: { ownedRoot?: string; limit?: number } = {},
 ): RecurringDomain[] {
@@ -170,7 +170,7 @@ export function rankRecurringDomains(
 
 // (b) Recurring pages - exact URLs cited repeatedly
 
-export type RecurringPage = {
+type RecurringPage = {
   url: string;
   domain: string;
   distinctPrompts: number;
@@ -181,7 +181,7 @@ export type RecurringPage = {
 
 /** Same ranking shape as rankRecurringDomains, one level more specific (the
  *  exact page, not just the domain). Own-site URLs excluded. */
-export function rankRecurringPages(
+function rankRecurringPages(
   rows: readonly NativeObservationInput[],
   opts: { ownedRoot?: string; limit?: number } = {},
 ): RecurringPage[] {
@@ -243,7 +243,7 @@ export function rankRecurringPages(
 
 // (c) WE ARE / WE ARE NOT matrix
 
-export type PresenceCell = {
+type PresenceCell = {
   engine: string;
   mentioned: boolean;
   cited: boolean;
@@ -254,7 +254,7 @@ export type PresenceCell = {
   observedAt: string;
 };
 
-export type PromptPresenceRow = {
+type PromptPresenceRow = {
   promptId: string;
   promptText: string;
   topic: string | null;
@@ -266,7 +266,7 @@ export type PromptPresenceRow = {
   absentEverywhere: boolean;
 };
 
-export type PresenceMatrix = {
+type PresenceMatrix = {
   rows: PromptPresenceRow[];
   totals: {
     promptsChecked: number;
@@ -290,7 +290,7 @@ function splitSentences(text: string): string[] {
  *  the mention is found but not inside a clean sentence boundary (e.g. a
  *  lone brand-name answer with no punctuation), falls back to the whole
  *  trimmed answer text capped to keep it a "sentence-shaped" quote. */
-export function findAnswerSentence(answerText: string, brandVariants: readonly string[]): string | null {
+function findAnswerSentence(answerText: string, brandVariants: readonly string[]): string | null {
   if (!answerText || brandVariants.length === 0) return null;
   const sentences = splitSentences(answerText);
   const lowerVariants = brandVariants.filter(Boolean).map((v) => v.toLowerCase());
@@ -382,7 +382,7 @@ export function buildPresenceMatrix(
 
 // (d) Native question expansion - follow-up questions embedded in answers
 
-export type NativeQuestion = {
+type NativeQuestion = {
   /** Normalized question text, as it appeared in the answer (trimmed,
    *  trailing punctuation kept). */
   text: string;
@@ -406,7 +406,7 @@ const LIST_MARKER_RE = /^\s*(?:\d+[.)]|[-*•▪])\s+/;
  * ("- What is the capital of Iran?"). Deterministic - no LLM. Filters out
  * too-short/too-long fragments and pure list-marker noise. Pure.
  */
-export function extractQuestionsFromAnswer(answerText: string): string[] {
+function extractQuestionsFromAnswer(answerText: string): string[] {
   if (!answerText) return [];
   const sentences = splitSentences(answerText);
   const out: string[] = [];
@@ -430,7 +430,7 @@ export function extractQuestionsFromAnswer(answerText: string): string[] {
  * duplicate clustering belongs to a demand-ranking pass, not this extractor).
  * A prompt never "expands" into itself. Pure, deterministic.
  */
-export function rollUpNativeQuestions(
+function rollUpNativeQuestions(
   rows: readonly NativeObservationInput[],
   opts: { limit?: number } = {},
 ): NativeQuestion[] {

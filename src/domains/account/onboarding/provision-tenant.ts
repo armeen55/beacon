@@ -58,7 +58,7 @@ export const PROVISIONING_DEFAULTS = {
   member_role: "owner" as const,
 };
 
-export type ProvisionInput = {
+type ProvisionInput = {
   /** Supabase auth user id (UUID). */
   userId: string;
   /** User's email (used for slug derivation + provisional_name placeholder). */
@@ -99,7 +99,7 @@ type TenantsInsertRow = {
  * (16M space). Same userId always maps to same tenantId so repeat
  * magic-link clicks are idempotent at the id level.
  */
-export function deriveTenantId(userId: string): string {
+function deriveTenantId(userId: string): string {
   const cleaned = userId.replace(/-/g, "").slice(0, 8).toLowerCase();
   return `tenant-${cleaned}`;
 }
@@ -131,7 +131,7 @@ const FREE_EMAIL_DOMAINS = new Set([
  * to "New Beacon Account" — which onboarding treats as "no name yet" and
  * clears, so the user types their real business name.
  */
-export function derivePlaceholderBusinessName(email: string): string {
+function derivePlaceholderBusinessName(email: string): string {
   const at = email.indexOf("@");
   if (at < 0 || at === email.length - 1) return PLACEHOLDER_BUSINESS_NAME;
   const domainPart = email.slice(at + 1).split(".")[0] ?? "";

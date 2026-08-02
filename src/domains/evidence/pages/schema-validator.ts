@@ -18,9 +18,9 @@
  * only counts types and extracts FAQs). This module is additive, not a rewrite.
  */
 
-export type SchemaWarningSeverity = "critical" | "warning" | "info";
+type SchemaWarningSeverity = "critical" | "warning" | "info";
 
-export type SchemaWarning = {
+type SchemaWarning = {
   type: string; // @type of the offending block
   severity: SchemaWarningSeverity;
   message: string; // plain-English diagnosis
@@ -372,7 +372,7 @@ const VALIDATORS: Record<string, Validator> = {
  *
  * Does NOT mutate input.
  */
-export function validateSchema(data: unknown): SchemaWarning[] {
+function validateSchema(data: unknown): SchemaWarning[] {
   const warnings: SchemaWarning[] = [];
   walk(data, warnings);
   return warnings;
@@ -416,7 +416,7 @@ function walk(data: unknown, out: SchemaWarning[]): void {
  * `schema_validation_warnings: string[]` field on PageSnapshot.
  * Format: `schema_<severity>:<type>: <message>`
  */
-export function formatWarning(w: SchemaWarning): string {
+function formatWarning(w: SchemaWarning): string {
   return `schema_${w.severity}:${w.type}: ${w.message}`;
 }
 

@@ -31,56 +31,8 @@
 
 import "server-only";
 
-import { createHash } from "node:crypto";
-
-/** Locked 4-hour window count per UTC day. */
-export const STAGGER_BUCKETS = 6;
-
-/** Locked window width in hours (24 / STAGGER_BUCKETS = 4). */
-export const STAGGER_WINDOW_HOURS = 24 / STAGGER_BUCKETS;
-
 /** Locked retry policy on 429 (max 3 attempts; exponential backoff). */
-export const MAX_RETRIES_ON_429 = 3;
-
-/**
- * Compute the tenant's deterministic stagger slot hour. Pure;
- * `tenantId` is the only input.
- *
- * Returns an integer ∈ { 0, 4, 8, 12, 16, 20 }. Same `tenantId`
- * always maps to the same slot; different `tenantId`s distribute
- * approximately uniformly across the 6 buckets by sha1 hash.
- */
-export function staggerSlotHour(tenantId: string): number {
-  if (typeof tenantId !== "string" || tenantId.length === 0) {
-    // Empty / non-string → slot 0. Caller should not be invoking the
-    // stagger without a tenant scope; surfacing 0 keeps the contract
-    // total without crashing.
-    return 0;
-  }
-  const digest = createHash("sha1").update(tenantId).digest();
-  // First byte mod 6 → bucket index ∈ [0, 5]. Multiply by window
-  // width to get the slot's start hour.
-  const bucket = digest[0]! % STAGGER_BUCKETS;
-  return bucket * STAGGER_WINDOW_HOURS;
-}
-
-/**
- * Returns `true` when `now`'s UTC hour falls within the tenant's
- * 4-hour stagger window.
- *
- * Pure. `now` defaults to invocation time only when omitted by the
- * caller; production call sites thread their own clock for tests.
- */
-export function isStaggerSlotActive(args: {
-  tenantId: string;
-  now: Date | number;
-}): boolean {
-  const slotHour = staggerSlotHour(args.tenantId);
-  const date =
-    args.now instanceof Date ? args.now : new Date(args.now);
-  const hour = date.getUTCHours();
-  return hour >= slotHour && hour < slotHour + STAGGER_WINDOW_HOURS;
-}
+const MAX_RETRIES_ON_429 = 3;
 
 /**
  * Pure exponential-backoff schedule helper for 429 retries. Returns
@@ -98,9 +50,3 @@ export function backoffDelayMs(attempt: number): number {
   return 1000 * Math.pow(2, attempt - 1);
 }
 
-/** Test-only export of internals. */
-export const __testing = {
-  STAGGER_BUCKETS,
-  STAGGER_WINDOW_HOURS,
-  MAX_RETRIES_ON_429,
-};

@@ -52,7 +52,7 @@ import {
   type Ga4RevenuePersistStatus,
 } from "./persist-url-traffic";
 
-export type Ga4SyncResult =
+type Ga4SyncResult =
   | { synced: false; reason: string }
   | {
       synced: true;

@@ -51,7 +51,7 @@ export type AiObservationRecord = {
   model_requested: string | null;
   model_served: string | null;
   observation_mode: ObservationMode;
-  /** The UTC day this observation belongs to; part of the identity. */
+  /** The reporting day (Pacific) this observation belongs to; part of the identity. */
   reporting_day: string;
   sample_slot: number;
   language: string;

@@ -29,7 +29,7 @@ export type FirstMentionConfig = {
   englishContext: boolean;
 };
 
-export type FirstMentionCheckResult = { ok: true } | { ok: false; reason: string };
+type FirstMentionCheckResult = { ok: true } | { ok: false; reason: string };
 
 function firstSentenceOf(text: string): string {
   const t = (text ?? "").trim();

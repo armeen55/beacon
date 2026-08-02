@@ -41,7 +41,6 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "imported-results",
   "imported-changes",
   "imported-opportunities",
-  "imported-competitors",
   "import-runs",
   "event-decisions",
   "candidate-links",
@@ -66,16 +65,6 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "pattern-evidence",
   "asset-responses",
   "outcome-store",
-  "competitor-page-evidence",
-  // T-CompPageBlueprints (2026-05-08) — per-tenant store of HTML
-  // snapshots of TOP-N competitor pages, captured manually by
-  // `scripts/scan-competitor-pages.ts`. Used by the LLM packet
-  // builder to populate `competitorPageBlueprints[].h1/topH2s/
-  // faqQuestions/metaDescription` (replacing the prior hardcoded
-  // null/[] producer). Lifecycle is decoupled from
-  // `competitor-page-evidence` (citation-derived, frequent) so
-  // structural fetches stay rare and bounded.
-  "competitor-page-snapshots",
   // 2026-06-24 Rank-&-Revenue Step 3 — deterministic teardown of the competitor
   // pages AI cites instead of the tenant (structure/schema/links/word-count/etc.).
   "competitor-page-audit",
@@ -109,7 +98,6 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // 2026-06-19 Phase 5 — GSC Proof ledger: manually-shipped change records +
   // their measured 7/14/28-day outcome (file fallback before the migration).
   "proof-gsc-ledger",
-  "source-pattern-evidence",
   "render-checks",
   "page-snapshot-diffs",
   "page-element-inventory", // Sprint 6A.1 P6; rows already carry tenant_id

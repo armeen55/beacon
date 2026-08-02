@@ -25,7 +25,7 @@ export type RevenueConfidence = "high" | "medium" | "low" | "unknown";
  * Revenue numbers are summed ONLY over rows where revenue was observed; the
  * loader sets `revenueObserved` true when ≥1 row had `revenue_synced_at`.
  */
-export type RawPageRevenueAggregate = {
+type RawPageRevenueAggregate = {
   page: string;
   sessions: number;
   engagedSessions: number;
@@ -134,9 +134,9 @@ export function normalizePageRevenue(raw: RawPageRevenueAggregate): PageRevenueV
 }
 
 /** What drove the score multiplier — for explainability + tests. */
-export type RevenueScoreBasis = "revenue" | "conversions" | "none";
+type RevenueScoreBasis = "revenue" | "conversions" | "none";
 
-export type RevenueScoreInfluence = {
+type RevenueScoreInfluence = {
   /** Bounded multiplier ≥ 1.0 (never punishes a page for lacking revenue). */
   multiplier: number;
   basis: RevenueScoreBasis;

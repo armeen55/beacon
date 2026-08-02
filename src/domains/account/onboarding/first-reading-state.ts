@@ -51,7 +51,7 @@ export type FirstReadingDetection =
   | { isFirstReading: false }
   | { isFirstReading: true; context: FirstReadingContext };
 
-export type FirstReadingDetectorInput = {
+type FirstReadingDetectorInput = {
   /**
    * The current tenant's row (or null if unresolvable). Only the
    * status / provisional_name / domain fields are read.

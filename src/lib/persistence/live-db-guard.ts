@@ -14,7 +14,7 @@
  */
 
 /** True only when live external-DB access is explicitly opted into. */
-export function isLiveDbTestAllowed(): boolean {
+function isLiveDbTestAllowed(): boolean {
   return (
     process.env.BEACON_LIVE_DB_TESTS === "1" ||
     process.env.BEACON_ALLOW_LIVE_DB_TESTS === "1"

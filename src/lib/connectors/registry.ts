@@ -32,7 +32,7 @@ export type LiveConnectorId = "google_gsc" | "google_ga4" | "clarity";
 export type SourceKey = "gsc" | "ga4" | "clarity";
 
 /** Plain-English "what does this connection actually DO?" clarity copy. */
-export type ConnectorCapabilityCopy = {
+type ConnectorCapabilityCopy = {
   /** "What Beacon does automatically with this". */
   automated: string;
   /** "What you need to do". */
@@ -41,7 +41,7 @@ export type ConnectorCapabilityCopy = {
 
 /** What a connector can DO for Beacon - the honest capability contract. Every live
  *  connector READS; Beacon publishes nowhere, so `publishes` is false on all of them. */
-export type ConnectorCapabilities = {
+type ConnectorCapabilities = {
   /** Beacon pulls data FROM this source (GSC, GA4, Clarity). */
   readsData: boolean;
   /** Beacon publishes approved changes TO this source. No live connector does. */
@@ -60,7 +60,7 @@ export type ConnectorSla = {
 };
 
 /** The Data Health surface's distinct customer wording for one connector. */
-export type ConnectorDataHealthCopy = {
+type ConnectorDataHealthCopy = {
   /** Label used on the operator Data Health surface (a deliberately different,
    *  outcome-first scheme, e.g. "Website visitors" for GA4). */
   label: string;
@@ -72,7 +72,7 @@ export type ConnectorDataHealthCopy = {
   blockedWhenMissing: string;
 };
 
-export type ConnectorRegistryEntry = {
+type ConnectorRegistryEntry = {
   /** connector-store provider key + stored-row key. */
   id: LiveConnectorId;
   /** Freshness/SLA key. */
@@ -183,21 +183,10 @@ export const CONNECTOR_REGISTRY: readonly ConnectorRegistryEntry[] = [
   },
 ] as const;
 
-/** The live connector ids, in canonical connect order. */
-export const LIVE_CONNECTOR_IDS: readonly LiveConnectorId[] =
-  CONNECTOR_REGISTRY.map((c) => c.id);
-
 /** Registry entry by connector-store provider id (undefined for a legacy/
  *  non-live provider such as yelp/callrail/google_gbp). */
 export function connectorById(id: string): ConnectorRegistryEntry | undefined {
   return CONNECTOR_REGISTRY.find((c) => c.id === id);
-}
-
-/** Registry entry by freshness SourceKey. */
-export function connectorBySourceKey(
-  sourceKey: SourceKey,
-): ConnectorRegistryEntry | undefined {
-  return CONNECTOR_REGISTRY.find((c) => c.sourceKey === sourceKey);
 }
 
 // ─────────────────────────────────────────────────────────────────────────

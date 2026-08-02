@@ -1,6 +1,6 @@
 import type { SignalType, AssetType } from "@/lib/constants";
 
-export type HypothesisSource = "inferred" | "recommendation" | "operator";
+type HypothesisSource = "inferred" | "recommendation" | "operator";
 
 /**
  * Phase 1 — schema-experiment attribution pipeline.
@@ -11,7 +11,7 @@ export type HypothesisSource = "inferred" | "recommendation" | "operator";
  * `change_family === undefined` and fall through to Rule 4 (free-text
  * fallback) of the attribution matching ladder.
  */
-export type ChangeFamily =
+type ChangeFamily =
   | "schema_experiment"
   | "content_experiment"
   | "metadata_experiment"
@@ -22,7 +22,7 @@ export type ChangeFamily =
  * must NEVER be conflated with `schema_added` (tweaking wording inside an
  * existing FAQPage is not the same lever as adding a BreadcrumbList).
  */
-export type SchemaChangeType =
+type SchemaChangeType =
   | "schema_added"
   | "schema_removed"
   | "schema_content_edited";

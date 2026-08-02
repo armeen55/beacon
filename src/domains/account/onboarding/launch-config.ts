@@ -15,14 +15,14 @@
 import { saveBusinessProfile } from "@/domains/account/business-profile";
 import { normalizeSiteUrl } from "./fetch-site-profile";
 
-export type LaunchConfigArgs = {
+type LaunchConfigArgs = {
   tenantId: string;
   /** Domain as confirmed at the URL-entry step (validation only; not persisted here). */
   domain: string;
   typedName?: string | null;
 };
 
-export type LaunchConfigResult = {
+type LaunchConfigResult = {
   outcome:
     | "typed_only_saved"
     | "skipped_no_domain"

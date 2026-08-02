@@ -47,7 +47,7 @@ import type { Ga4ApiFetchResult } from "./types";
 
 const REQUIRED_SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
 
-export type Ga4ApiFetchArgs = {
+type Ga4ApiFetchArgs = {
   /** Tenant id explicitly threaded by the caller. No ambient reads. */
   tenantId: string;
   /** Fully-qualified URL of the GA4 / Admin API endpoint. Slice 9.A1
@@ -217,7 +217,3 @@ export async function ga4ApiFetch<T = unknown>(
   return { ok: true, data };
 }
 
-/** Test-only export of internals. */
-export const __testing = {
-  REQUIRED_SCOPE,
-};

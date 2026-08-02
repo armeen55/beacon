@@ -8,8 +8,9 @@ import "server-only";
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { reportingDay } from "@/lib/reporting-day";
 
-export type CitationsByDay = { daily: Array<{ date: string; clicks: number }>; total: number };
+type CitationsByDay = { daily: Array<{ date: string; clicks: number }>; total: number };
 
 export async function loadOwnCitationsByDay(
   tenantId: string,
@@ -21,7 +22,7 @@ export async function loadOwnCitationsByDay(
   if (!tenantId || needle.length < 3) return empty;
   try {
     const sb = getSupabaseAdmin();
-    const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+    const since = reportingDay(Date.now() - days * 86_400_000);
     const { data, error } = await sb
       .from("profound_citation_rows")
       .select("date, citation_count")

@@ -19,7 +19,7 @@ import { loadShippedChanges, upsertShippedChange, type ShippedChangeRecord } fro
 import { isDueForMeasure, outcomeStateOf, type OutcomeState } from "./measure-lifecycle";
 import { log } from "@/lib/logger";
 
-export type AutoMeasureOutcome = {
+type AutoMeasureOutcome = {
   id: string;
   path: string;
   actionType: string;
@@ -29,7 +29,7 @@ export type AutoMeasureOutcome = {
   changed: boolean;
 };
 
-export type AutoMeasurePassResult = {
+type AutoMeasurePassResult = {
   considered: number;
   due: number;
   measured: number;
@@ -62,7 +62,7 @@ export type AutoMeasurePassResult = {
  *   - `onError` fires once per failed record (the cron path passes none = silent
  *     errors++; the on-use pass logs). Never rethrows.
  */
-export type MeasureDueContext = {
+type MeasureDueContext = {
   now: Date;
   lastFinal: string | null;
   /** Passed to measureRecord as its excludeControls arg. undefined = exclude nothing. */
@@ -74,7 +74,7 @@ export type MeasureDueContext = {
   onError?: (record: ShippedChangeRecord, error: unknown) => void;
 };
 
-export async function measureDueRecords(
+async function measureDueRecords(
   tenantId: string,
   due: ReadonlyArray<ShippedChangeRecord>,
   ctx: MeasureDueContext,

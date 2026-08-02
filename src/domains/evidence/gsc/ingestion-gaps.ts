@@ -29,8 +29,6 @@ export const GSC_FINAL_LAG_DAYS = 3;
 /** The most gap days one nightly sync re-pulls (each day is 3 API calls). */
 export const GAP_REPULL_CAP_PER_NIGHT = 10;
 
-export type MissingDayKind = "final_lag" | "gap" | "pre_history";
-
 export type IngestionGapReport = {
   /** Earliest / latest ingested dates (YYYY-MM-DD), null when nothing synced. */
   firstIngestedDate: string | null;
@@ -57,19 +55,6 @@ function addDays(isoDate: string, days: number): string {
   const t = new Date(isoDate + "T12:00:00Z");
   t.setUTCDate(t.getUTCDate() + days);
   return t.toISOString().slice(0, 10);
-}
-
-/** Classify one missing day against the covered range. Pure boundary logic:
- *  after lastExpectedDate -> final_lag; before firstIngestedDate ->
- *  pre_history; otherwise a real gap. */
-export function classifyMissingDay(
-  date: string,
-  firstIngestedDate: string,
-  lastExpectedDate: string,
-): MissingDayKind {
-  if (date > lastExpectedDate) return "final_lag";
-  if (date < firstIngestedDate) return "pre_history";
-  return "gap";
 }
 
 /**

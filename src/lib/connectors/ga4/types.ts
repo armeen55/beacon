@@ -156,7 +156,7 @@ export type Ga4RevenueRow = {
  * (e.g. a 400 naming a revenue metric). The caller treats this as "revenue
  * unknown" WITHOUT failing the traffic sync.
  */
-export type Ga4RevenueFailReason = Ga4FailReason | "revenue_unavailable";
+type Ga4RevenueFailReason = Ga4FailReason | "revenue_unavailable";
 
 /** Discriminated result for `runGa4RevenueReport`. Mirrors the traffic union. */
 export type Ga4RevenueReportResult =

@@ -52,12 +52,12 @@ export const DEFAULT_GLOBAL_MONTHLY_CAP_USD = 500;
  * env value resolves to the SAFE default - an unset ceiling never means
  * "unlimited". Pure.
  */
-export function globalMonthlyCapUsd(env: NodeJS.ProcessEnv = process.env): number {
+function globalMonthlyCapUsd(env: NodeJS.ProcessEnv = process.env): number {
   const raw = Number(env.BEACON_GLOBAL_MONTHLY_CAP_USD);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_GLOBAL_MONTHLY_CAP_USD;
 }
 
-export type BreakerVerdict =
+type BreakerVerdict =
   | { tripped: false; spentUsd: number; capUsd: number; projectedUsd: number }
   | { tripped: true; reason: string; spentUsd: number | null; capUsd: number; projectedUsd: number };
 
@@ -102,7 +102,7 @@ export function decideBreaker(args: {
   return { tripped: false, spentUsd, capUsd, projectedUsd };
 }
 
-export type CostBreakerDeps = {
+type CostBreakerDeps = {
   env: NodeJS.ProcessEnv;
   /** Combined month-to-date spend across ALL tenants + platforms, or null on a
    *  read failure (fail-closed on the paid path). */
@@ -148,33 +148,6 @@ async function readGlobalMonthSpendSupabase(now: Date): Promise<number | null> {
 }
 
 /**
- * The read-only status snapshot for surfaces + the enforcement path. Reads the
- * combined month spend and the resolved ceiling. `spentUsd` is null when the
- * total could not be read (surfaces render a calm "checking" fallback; the paid
- * path treats it as fail-closed). Never throws.
- */
-export async function getGlobalSpendStatus(
-  depsOverride: Partial<CostBreakerDeps> = {},
-): Promise<{ spentUsd: number | null; capUsd: number }> {
-  const deps = { ...defaultDeps, ...depsOverride };
-  const capUsd = globalMonthlyCapUsd(deps.env);
-  const spentUsd = await deps.readGlobalMonthSpendUsd(deps.now()).catch(() => null);
-  return { spentUsd, capUsd };
-}
-
-/**
- * The honest one-line status. Beacon voice: first person, a concrete number, no
- * lab words, no dashes. Falls back to a calm "checking" line when the total is
- * not yet readable (never a bare zero pretending to be real). Pure.
- */
-export function globalSpendStatusLine(status: { spentUsd: number | null; capUsd: number }): string {
-  if (status.spentUsd === null) {
-    return `I am checking my total spend against my $${status.capUsd} monthly ceiling across all research.`;
-  }
-  return `I have spent $${round2(status.spentUsd)} of my $${status.capUsd} monthly ceiling across all research.`;
-}
-
-/**
  * THE enforcement seam. Call this on the PAID path only, BEFORE the per-platform
  * cap. Returns the verdict; a tripped verdict means the outer global ceiling
  * refuses the call regardless of what the inner per-platform cap would say.
@@ -205,4 +178,3 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export const __testing = { readGlobalMonthSpendSupabase };

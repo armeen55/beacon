@@ -346,7 +346,7 @@ function outcomeLine(direction: ShipmentAiOutcome["direction"], before: Shipment
 /** WHAT THE AI ANSWERS DID AROUND ONE SHIPPED CHANGE: the held starting number (or the last stored day
  *  ahead of the stamp), against stamp-to-now bounded to 28 days, both counted the same way. Coverage
  *  rides the answer; under half is `unclear`, not a verdict; no stamp means null. */
-export type ShipmentForOutcome = { implementedAt: string | null; shipmentBaseline?: { ai: { day: string; checked: number; analyzed?: number; mentioning: number } | null } | null };
+type ShipmentForOutcome = { implementedAt: string | null; shipmentBaseline?: { ai: { day: string; checked: number; analyzed?: number; mentioning: number } | null } | null };
 
 /** The two ends of ONE shipment's read: the 28 days ahead of the stamp, where the fallback before-number is
  *  found, and the 28 days after it, bounded by today. Null when the change carries no stamp to measure from. */

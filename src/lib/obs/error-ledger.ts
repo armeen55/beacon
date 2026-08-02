@@ -41,7 +41,7 @@ const MAX_MESSAGE_CHARS = 500;
 const MAX_STACK_CHARS = 2000;
 const MAX_KEY_CHARS = 120;
 
-export type AppErrorRow = {
+type AppErrorRow = {
   id: string;
   /** ISO timestamp the error was recorded. */
   at: string;
@@ -57,7 +57,7 @@ export type AppErrorRow = {
   context: Record<string, unknown>;
 };
 
-export type AppErrorInput = {
+type AppErrorInput = {
   route: string;
   tenantId?: string | null;
   action: string;

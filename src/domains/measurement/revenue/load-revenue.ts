@@ -16,6 +16,7 @@ import "server-only";
 
 import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { reportingDay } from "@/lib/reporting-day";
 import { log } from "@/lib/logger";
 import type { RevenueSource } from "./compute-unit-economics";
 
@@ -28,48 +29,11 @@ type RevenueFact = {
   basis: string;
 };
 
-export type PageRevenueSummary = {
-  pagePath: string;
-  revenueUsd: number;
-  /** Distinct days with dollars for this page in the window. */
-  days: number;
-  sources: RevenueSource[];
-  /** Operator-safe label for how these dollars were derived. */
-  basisPhrase: string;
-};
-
-export type DayRevenueSummary = {
+type DayRevenueSummary = {
   day: string;
   revenueUsd: number;
   sources: RevenueSource[];
 };
-
-/** Plain-language label per source. Estimated dollars NEVER say "measured". */
-export function revenueBasisPhrase(source: RevenueSource): string {
-  switch (source) {
-    case "ad_network":
-      return "measured by your ad network";
-    case "affiliate":
-      return "measured affiliate payouts";
-    case "operator_manual":
-      return "a number you entered";
-    case "unit_economics":
-      return "your rate x real traffic";
-  }
-}
-
-/**
- * One phrase for a mixed bag of sources. Measured-only stays "measured";
- * the moment any estimated dollars are in the mix, the phrase says so.
- */
-export function combinedBasisPhrase(sources: ReadonlyArray<RevenueSource>): string {
-  const set = new Set(sources);
-  const hasMeasured = set.has("ad_network") || set.has("affiliate");
-  const hasEstimated = set.has("unit_economics") || set.has("operator_manual");
-  if (hasMeasured && !hasEstimated) return "measured";
-  if (hasMeasured && hasEstimated) return "part measured, part your rate x real traffic";
-  return "your rate x real traffic";
-}
 
 /** Raw row shape from PostgREST. Internal: the mapping below is the only reader. */
 type RawRevenueFactRow = {
@@ -107,7 +71,7 @@ const READ_PAGE = 1000;
 const MAX_READ_ROWS = 40_000;
 
 /** All facts in the trailing window, request-memoized per (tenant, window). */
-export const loadRevenueFactsForTenant = cache(loadRevenueFactsForTenantUncached);
+const loadRevenueFactsForTenant = cache(loadRevenueFactsForTenantUncached);
 
 async function loadRevenueFactsForTenantUncached(
   tenantId: string,
@@ -116,9 +80,7 @@ async function loadRevenueFactsForTenantUncached(
 ): Promise<RevenueFact[]> {
   const out: RevenueFact[] = [];
   try {
-    const since = new Date(now.getTime() - windowDays * 86_400_000)
-      .toISOString()
-      .slice(0, 10);
+    const since = reportingDay(now.getTime() - windowDays * 86_400_000);
     const sb = getSupabaseAdmin();
     for (let from = 0; from < MAX_READ_ROWS; from += READ_PAGE) {
       const { data, error } = await sb
@@ -151,35 +113,6 @@ async function loadRevenueFactsForTenantUncached(
   return out;
 }
 
-/** Pure aggregation to per-page summaries. */
-function summarizeRevenueByPage(facts: ReadonlyArray<RevenueFact>): Map<string, PageRevenueSummary> {
-  type Acc = { revenueUsd: number; days: Set<string>; sources: Set<RevenueSource> };
-  const accs = new Map<string, Acc>();
-  for (const f of facts) {
-    const acc = accs.get(f.pagePath) ?? {
-      revenueUsd: 0,
-      days: new Set<string>(),
-      sources: new Set<RevenueSource>(),
-    };
-    acc.revenueUsd += f.revenueUsd;
-    acc.days.add(f.day);
-    acc.sources.add(f.source);
-    accs.set(f.pagePath, acc);
-  }
-  const out = new Map<string, PageRevenueSummary>();
-  for (const [pagePath, acc] of accs) {
-    const sources = [...acc.sources].sort();
-    out.set(pagePath, {
-      pagePath,
-      revenueUsd: Math.round(acc.revenueUsd * 100) / 100,
-      days: acc.days.size,
-      sources,
-      basisPhrase: combinedBasisPhrase(sources),
-    });
-  }
-  return out;
-}
-
 /** Pure aggregation to per-day summaries (ascending by day). */
 function summarizeRevenueByDay(facts: ReadonlyArray<RevenueFact>): DayRevenueSummary[] {
   type Acc = { revenueUsd: number; sources: Set<RevenueSource> };
@@ -198,14 +131,6 @@ function summarizeRevenueByDay(facts: ReadonlyArray<RevenueFact>): DayRevenueSum
     }))
     .sort((a, b) => (a.day < b.day ? -1 : 1));
 }
-
-/** Per-page dollars over the trailing window. */
-export const loadRevenueByPageForTenant = cache(async function loadRevenueByPageForTenantImpl(
-  tenantId: string,
-  windowDays: number = WINDOW_DAYS,
-): Promise<Map<string, PageRevenueSummary>> {
-  return summarizeRevenueByPage(await loadRevenueFactsForTenant(tenantId, windowDays));
-});
 
 /** Per-day dollars over the trailing window, ascending. */
 export const loadRevenueByDayForTenant = cache(async function loadRevenueByDayForTenantImpl(

@@ -5,7 +5,7 @@
 
 import type { LocalReview } from "@/lib/local-reviews-types";
 
-export type YelpReviewMapContext = {
+type YelpReviewMapContext = {
   listingName?: string;
   /** Yelp business id or alias used for the request. */
   businessId: string;

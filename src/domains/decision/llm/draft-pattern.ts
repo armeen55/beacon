@@ -100,7 +100,7 @@ export function classifyDraftPattern(raw: string): DraftPatternId {
  *  win rate is trusted enough to surface anywhere. Below this the cell stays silent. */
 export const MIN_DECIDED_FOR_CONFIDENCE = 3;
 
-export type LedgerVerdict = "won" | "lost" | "inconclusive" | "insufficient_data" | "measuring";
+type LedgerVerdict = "won" | "lost" | "inconclusive" | "insufficient_data" | "measuring";
 
 /** One shipped artifact's outcome, already resolved to a page family + verdict by the
  *  caller (this module never touches the ledger or Supabase itself). */

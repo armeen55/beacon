@@ -29,7 +29,7 @@ import { log } from "@/lib/logger";
 const ENDPOINT =
   "https://www.clarity.ms/export-data/api/v1/project-live-insights";
 
-export type ClarityUrlMetrics = {
+type ClarityUrlMetrics = {
   url: string;
   sessions: number;
   rageClicks: number;

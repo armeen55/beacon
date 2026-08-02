@@ -32,7 +32,7 @@ export type Freshness = "current" | "stale" | "undated" | "missing";
 /** A winning page I already read: current / stale / undated by the time of the
  *  read, unreadable when the read came back too thin to compare, missing when no
  *  read exists. Only `current` counts as present-day pattern evidence. */
-export type WinnerExtractState = "current" | "stale" | "undated" | "unreadable" | "missing";
+type WinnerExtractState = "current" | "stale" | "undated" | "unreadable" | "missing";
 
 export type PageTypeVote = { pageType: SerpPageType; domains: number };
 
@@ -41,9 +41,9 @@ type WinRow = FunnelResearchEvidence["winningPages"][number];
 type WinAppearance = WinRow["appearances"][number];
 
 /** ONE ranked row on an exact results page: where it ranked, who published it. */
-export type SerpResultRow = { rank: number; url: string; domain: string; title: string | null };
+type SerpResultRow = { rank: number; url: string; domain: string; title: string | null };
 /** ONE engine citation observed on an exact results page. */
-export type SerpCitationRow = { url: string; domain: string; title: string | null };
+type SerpCitationRow = { url: string; domain: string; title: string | null };
 
 /** An exact results page AND the rows that shaped it. Counts alone let a packet say
  *  nine topics had a settled shape without naming one page that settled it. */
@@ -64,7 +64,7 @@ export type SerpRef = {
 /** WHERE a winning page was actually seen. Ranking organically for a query and being
  *  cited by an engine for a prompt are DIFFERENT facts, so a reader can always tell
  *  which one it is holding and can never read a citation as a ranking. */
-export type WinnerAppearance = {
+type WinnerAppearance = {
   kind: WinAppearance["kind"];
   query: string | null;
   promptId: string | null;
@@ -231,7 +231,7 @@ export const freshnessAt = (at: string | null, builtAt: number, windowMs: number
 /** When this exact look actually landed. The results projection carries no
  *  timestamp of its own, so the honest source is the provenance of a page seen IN
  *  it; absent that I say I do not know rather than assuming today. */
-export function serpObservedAt(serp: SerpRow, winners: WinRow[]): string | null {
+function serpObservedAt(serp: SerpRow, winners: WinRow[]): string | null {
   const own = (serp as { observedAt?: unknown }).observedAt;
   if (typeof own === "string" && own.trim()) return own.trim();
   const key = canonicalQueryKey(serp.query);
@@ -245,7 +245,7 @@ export function serpObservedAt(serp: SerpRow, winners: WinRow[]): string | null 
 
 /** How much a winning page's read is worth today. A page never read, read too
  *  thin, or read too long ago is NEVER counted as current pattern evidence. */
-export function winnerStateOf(win: WinRow, builtAt: number): WinnerExtractState {
+function winnerStateOf(win: WinRow, builtAt: number): WinnerExtractState {
   const x = win.extract;
   if (!x) return "missing";
   if (x.wordCount < MIN_READABLE_WORDS || (x.headings.length === 0 && !x.title)) return "unreadable";

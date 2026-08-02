@@ -13,13 +13,13 @@
 
 import "server-only";
 
-export type RobotsRule = {
+type RobotsRule = {
   kind: "allow" | "disallow";
   /** The raw path pattern from robots.txt, e.g. "/admin/", "/*.json$", "/" */
   pattern: string;
 };
 
-export type RobotsDirectives = {
+type RobotsDirectives = {
   /** Crawler name as it appeared in User-agent (case preserved for logging). */
   userAgent: string;
   rules: RobotsRule[];

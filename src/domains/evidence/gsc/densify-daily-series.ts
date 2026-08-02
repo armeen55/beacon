@@ -1,4 +1,4 @@
-export type DatedClicks = { date: string; clicks: number };
+type DatedClicks = { date: string; clicks: number };
 
 /**
  * GSC omits zero-activity rows. Fill only gaps between the first and last

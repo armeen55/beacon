@@ -45,7 +45,7 @@ const INJECTION_LINE_PATTERNS: ReadonlyArray<RegExp> = [
 ];
 
 /** True when a single line is shaped like an instruction to the model. */
-export function isInjectionShapedLine(line: string): boolean {
+function isInjectionShapedLine(line: string): boolean {
   const t = line.trim();
   if (t.length === 0) return false;
   return INJECTION_LINE_PATTERNS.some((p) => p.test(t));

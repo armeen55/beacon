@@ -7,21 +7,6 @@ import { createHash } from "node:crypto";
 const STORE = "local-reviews";
 
 /**
- * Current imported reviews (may be empty). Safe when file is missing.
- */
-export async function readLocalReviews(): Promise<LocalReview[]> {
-  const rows = await readStore<LocalReview>(STORE, []);
-  return [...rows];
-}
-
-/**
- * Replace entire store (used by clear). Prefer mergeUpsertLocalReviews for imports.
- */
-export async function writeLocalReviews(reviews: LocalReview[]): Promise<void> {
-  await writeStore(STORE, reviews);
-}
-
-/**
  * Upsert by `id`: rows from the latest import overwrite existing rows with the same id.
  * Order within `incoming` matters — later entries win for the same id.
  */
@@ -40,7 +25,7 @@ function normalizeIdentityPart(value: string | undefined): string {
 
 /** Cross-source identity for the same real review. Falls back to id when the
  * content tuple is incomplete so sparse records never collapse speculatively. */
-export function localReviewIdentity(review: LocalReview): string {
+function localReviewIdentity(review: LocalReview): string {
   const author = normalizeIdentityPart(review.reviewer_name);
   const date = review.created_at.slice(0, 10);
   const text = normalizeIdentityPart(review.review_text);
@@ -52,7 +37,7 @@ export function localReviewIdentity(review: LocalReview): string {
   return `content:${digest}`;
 }
 
-export function mergeLocalReviewRows(
+function mergeLocalReviewRows(
   existing: ReadonlyArray<LocalReview>,
   incoming: ReadonlyArray<LocalReview>,
 ): LocalReview[] {

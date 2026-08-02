@@ -26,7 +26,7 @@ const TIMEOUT_MS = 10_000;
  *  source of this host string for the funnel. */
 export const GEMINI_WRAPPER_HOST = "vertexaisearch.cloud.google.com";
 
-export type PoliteFetchDeps = {
+type PoliteFetchDeps = {
   fetchImpl?: typeof fetch;
   /** Per-request timeout. Default 10s (competitor-intel posture).
    *  Onboarding derivation passes 20s — live check 2026-06-11: a real
@@ -36,11 +36,11 @@ export type PoliteFetchDeps = {
   timeoutMs?: number;
 };
 
-export type RobotsVerdict = "allowed" | "blocked";
+type RobotsVerdict = "allowed" | "blocked";
 
 /** Parse robots.txt: collect Disallow prefixes for UA groups `*` and
  *  `beaconbot`. Empty Disallow ("Disallow:") allows everything. */
-export function parseRobotsDisallows(robotsTxt: string): string[] {
+function parseRobotsDisallows(robotsTxt: string): string[] {
   const disallows: string[] = [];
   let applies = false;
   for (const rawLine of robotsTxt.split(/\r?\n/)) {
@@ -60,7 +60,7 @@ export function parseRobotsDisallows(robotsTxt: string): string[] {
   return disallows;
 }
 
-export function isPathAllowed(
+function isPathAllowed(
   path: string,
   disallows: ReadonlyArray<string>,
 ): boolean {
@@ -75,7 +75,7 @@ export function isPathAllowed(
  * Robots verdict for a URL. One robots.txt fetch per origin — caller
  * passes a shared cache map across a refresh run.
  */
-export async function robotsVerdictFor(
+async function robotsVerdictFor(
   url: string,
   robotsCache: Map<string, string[]>,
   deps: PoliteFetchDeps = {},
@@ -107,7 +107,7 @@ export async function robotsVerdictFor(
   return isPathAllowed(path, disallows) ? "allowed" : "blocked";
 }
 
-export type PoliteHtmlResult =
+type PoliteHtmlResult =
   | {
       ok: true;
       html: string;

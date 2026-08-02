@@ -19,7 +19,7 @@ export type AdNetworkProviderId = "adsense" | "mediavine" | "raptive";
 export const AD_NETWORK_MEASURED_BASIS = "measured";
 
 /** One day of measured revenue for one page, as reported by the network. */
-export type AdNetworkDailyRevenueRow = {
+type AdNetworkDailyRevenueRow = {
   /** YYYY-MM-DD. */
   day: string;
   /** Path form, leading slash (e.g. "/best-persian-recipes"). */

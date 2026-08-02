@@ -51,7 +51,7 @@ type WindowState = "waiting" | "closed" | "pending_data";
 
 /** The checkpoints. 7/14/28 always; 56 ONLY when the 28-day read did not settle or the
  *  change was a dangerous one (Product Truth omits it otherwise). */
-export type CheckpointDay = 7 | 14 | 28 | 56;
+type CheckpointDay = 7 | 14 | 28 | 56;
 
 export type KernelWindowRead = {
   day: CheckpointDay;

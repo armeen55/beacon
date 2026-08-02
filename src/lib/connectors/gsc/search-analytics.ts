@@ -307,7 +307,7 @@ export async function gscSearchAnalyticsQuery(
   }
 }
 
-export type GscSiteEntry = { siteUrl: string; permissionLevel: string };
+type GscSiteEntry = { siteUrl: string; permissionLevel: string };
 
 /**
  * List the verified GSC properties this token can access (sites.list).

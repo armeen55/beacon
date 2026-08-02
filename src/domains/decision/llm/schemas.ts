@@ -19,11 +19,10 @@ import { BusinessProfileInferenceSchema, BusinessProfilePatchSchema, PromptCandi
 
 /** Where a claim is grounded — points at a real signal/source the team read.
  *  `source` mirrors the EvidenceRef sources used by the specialist layer. */
-export const EvidenceRefSchema = z.object({
+const EvidenceRefSchema = z.object({
   source: z.enum(["gsc", "ga4", "clarity", "dataforseo", "competitor_teardown", "owned_snapshot", "fanout"]),
   detail: z.string().min(1).max(300),
 });
-export type EvidenceRef = z.infer<typeof EvidenceRefSchema>;
 
 /** ANALYTICS ALONE IS NOT EVIDENCE OF A SEARCH. ga4 and clarity report what people did once they were already on the page; neither says what anyone
  *  searched for, what a results page holds, or what a rival's page covers. A draft resting on those two alone has nothing behind the change it proposes,
@@ -33,7 +32,7 @@ const BEHAVIOUR_ONLY_SOURCES = new Set<string>(["ga4", "clarity"]);
 export const evidenceIsGrounded = (refs: readonly { source?: string }[]): boolean => refs.some((r) => !!r?.source && !BEHAVIOUR_ONLY_SOURCES.has(r.source));
 export const UNGROUNDED_EVIDENCE_ERROR = "evidenceRefs: analytics alone is not evidence of a search; cite at least one ref whose source is gsc, dataforseo, competitor_teardown, owned_snapshot or fanout";
 
-export const ConfidenceSchema = z.enum(["high", "medium", "low"]);
+const ConfidenceSchema = z.enum(["high", "medium", "low"]);
 
 /**
  * W5 (2026-07-09, J-69/J-71), one citation attached to a factual draft. The LLM may PROPOSE a
@@ -79,23 +78,14 @@ export const SourceRefSchema = z.object({
 export type SourceRef = z.infer<typeof SourceRefSchema>;
 
 /** One concrete, operator-facing step to execute the Move. */
-export const OperatorStepSchema = z.string().min(3).max(280);
-
-/** Shared implementation-checklist row (used by the PreparedMovePack). */
-export const ImplementationStepSchema = z.object({
-  step: z.string().min(3).max(280),
-  pushMethod: z.enum(["wix_field", "paste", "manual", "code"]).default("manual"),
-  done: z.boolean().default(false),
-});
-export type ImplementationStep = z.infer<typeof ImplementationStepSchema>;
+const OperatorStepSchema = z.string().min(3).max(280);
 
 /** Proof plan attached to a content Move — metrics + windows + control basis. */
-export const ProofPlanSchema = z.object({
+const ProofPlanSchema = z.object({
   metrics: z.array(z.string().min(1)).min(1).max(8),
   windowsDays: z.array(z.number().int().positive()).min(1).default([7, 14, 28]),
   controls: z.string().min(1).max(300),
 });
-export type ProofPlan = z.infer<typeof ProofPlanSchema>;
 
 /** Fields EVERY structured draft must carry — the trust floor. evidenceRefs is
  *  REQUIRED and non-empty: a draft with no grounding is rejected by validation. */
@@ -118,7 +108,7 @@ const base = {
  *  80-word contract) so the drafter cannot cache an obviously-too-thin answer
  *  the quality gate would reject; the precise 80-word check is the gate plus
  *  the drafter's own word-count retry (structured-drafter.ts). */
-export const AnswerBlockDraftSchema = z.object({
+const AnswerBlockDraftSchema = z.object({
   answer: z.string().min(450).max(1200),
   citationHook: z.string().max(200).nullable().default(null),
   /** W5 (J-69): the 1-2 authoritative sources backing this answer's claims.
@@ -131,7 +121,7 @@ export const AnswerBlockDraftSchema = z.object({
 export type AnswerBlockDraft = z.infer<typeof AnswerBlockDraftSchema>;
 
 /** 2. AtomicEditDraft — one precise field change on an existing page. */
-export const AtomicEditDraftSchema = z.object({
+const AtomicEditDraftSchema = z.object({
   field: z.enum(["title", "meta", "h1", "answer_block", "section"]),
   before: z.string().max(2000).nullable().default(null),
   after: z.string().min(1).max(2000),
@@ -146,7 +136,7 @@ export const AtomicEditDraftSchema = z.object({
 export type AtomicEditDraft = z.infer<typeof AtomicEditDraftSchema>;
 
 /** 4. ToolAssetSpec — spec for an interactive tool/calculator. */
-export const ToolAssetSpecSchema = z.object({
+const ToolAssetSpecSchema = z.object({
   toolName: z.string().min(2).max(80),
   summary: z.string().min(1).max(400),
   inputs: z
@@ -162,11 +152,10 @@ export const ToolAssetSpecSchema = z.object({
   buildPath: z.enum(["embed", "static_widget", "calculator", "form"]),
   ...base,
 });
-export type ToolAssetSpec = z.infer<typeof ToolAssetSpecSchema>;
 
 /** 5. CommerceAssetSpec — what a commerce opportunity should BECOME + the brief.
  *  Schema-only here (Sprint 2 doesn't generate these en masse; P8 does). */
-export const CommerceAssetSpecSchema = z.object({
+const CommerceAssetSpecSchema = z.object({
   assetType: z.enum([
     "product",
     "collection_page",
@@ -185,10 +174,9 @@ export const CommerceAssetSpecSchema = z.object({
   proofPlan: ProofPlanSchema,
   ...base,
 });
-export type CommerceAssetSpec = z.infer<typeof CommerceAssetSpecSchema>;
 
 /** 7. ExperimentPlan — a falsifiable experiment for a Move. */
-export const ExperimentPlanSchema = z.object({
+const ExperimentPlanSchema = z.object({
   hypothesis: z.string().min(1).max(300),
   primaryMetric: z.string().min(1).max(80),
   expectedDirection: z.enum(["up", "down", "neutral_hold"]),
@@ -196,12 +184,11 @@ export const ExperimentPlanSchema = z.object({
   controlDescription: z.string().min(1).max(300),
   ...base,
 });
-export type ExperimentPlan = z.infer<typeof ExperimentPlanSchema>;
 
 /** 9. InternalLinkDraft — a contextual internal link from a source page to a target
  *  page. NOT a bare URL pair: the exact anchor + the sentence to drop the link into +
  *  why it helps. Self-links and misleading anchors are rejected by the quality gate. */
-export const InternalLinkDraftSchema = z.object({
+const InternalLinkDraftSchema = z.object({
   sourcePage: z.string().min(1).max(400),
   targetPage: z.string().min(1).max(400),
   anchorText: z.string().min(2).max(120),
@@ -223,7 +210,7 @@ export type InternalLinkDraft = z.infer<typeof InternalLinkDraftSchema>;
 // a one-line caution, it can never drop or reorder picks. The concern line is operator copy: plain language, <= 140
 // chars, and it passes the same numeric-fidelity firewall as every draft.
 
-export const BatchAdjudicationSchema = z.object({
+const BatchAdjudicationSchema = z.object({
   picks: z
     .array(
       z.object({
@@ -237,7 +224,6 @@ export const BatchAdjudicationSchema = z.object({
     .min(1)
     .max(24),
 });
-export type BatchAdjudication = z.infer<typeof BatchAdjudicationSchema>;
 
 // ── strategy review (BEACON 500 item 51 - the weekly reallocation memo) ─────── One Sunday-night LLM pass over the
 // week's settled dossier proposes a lever mix (relative weight per actionFamily) and up to 3 page-family focus
@@ -246,38 +232,36 @@ export type BatchAdjudication = z.infer<typeof BatchAdjudicationSchema>;
 // does not recognize, and strips dashes. A failure here means no change this week (fail-open to the previous mix) -
 // this schema only bounds the SHAPE, never the trust decision.
 
-export const StrategyLeverWeightSchema = z.object({
+const StrategyLeverWeightSchema = z.object({
   family: z.string().min(1).max(40),
   weight: z.number().min(0).max(10),
   reason: z.string().min(1).max(140),
 });
 
-export const StrategyFocusFamilySchema = z.object({
+const StrategyFocusFamilySchema = z.object({
   family: z.string().min(1).max(60),
   reason: z.string().min(1).max(160),
 });
 
-export const StrategyReviewSchema = z.object({
+const StrategyReviewSchema = z.object({
   leverMix: z.array(StrategyLeverWeightSchema).min(1).max(12),
   focusFamilies: z.array(StrategyFocusFamilySchema).max(3).default([]),
   /** The signed memo, plain business English, <= 900 chars. */
   memo: z.string().min(20).max(900),
   confidence: ConfidenceSchema,
 });
-export type StrategyReview = z.infer<typeof StrategyReviewSchema>;
 
 // ── section draft (BEACON 500 item 55 - outline-to-draft pipeline) ─────────── One drafted section of a full-page
 // walk. NOT part of the shared `base` set: a section carries its OWN lightweight sources list (not the heavier
 // evidenceRefs/confidence/risks/operatorSteps shape) because it is one small unit in a sequential walk, not a
 // standalone Move draft. `containsNumber` lets the assembler know at a glance which sections carry a verified figure.
 
-export const SectionSourceSchema = z.object({
+const SectionSourceSchema = z.object({
   kind: z.enum(["own_data", "competitor_observation", "fanout_question", "keyword"]),
   detail: z.string().min(1).max(300),
 });
-export type SectionSource = z.infer<typeof SectionSourceSchema>;
 
-export const SectionDraftSchema = z.object({
+const SectionDraftSchema = z.object({
   heading: z.string().min(2).max(160),
   body: z.string().min(40).max(1200),
   /** At least one source — a section with zero grounding is rejected by validation. */
@@ -291,7 +275,7 @@ export type SectionDraft = z.infer<typeof SectionDraftSchema>;
 // proofPlan and operatorSteps but keeps evidenceRefs (the personalization must be real) and confidence. subject/body
 // length caps keep it a real, sendable email.
 
-export const OutreachPitchSchema = z.object({
+const OutreachPitchSchema = z.object({
   subject: z.string().min(4).max(80),
   body: z.string().min(40).max(900),
   evidenceRefs: z.array(EvidenceRefSchema).min(1),
@@ -306,7 +290,7 @@ export const OutreachPitchSchema = z.object({
 // `ownedUrls` and `evidenceKeys` are re-checked against the caller's allowlist AFTER validation, so one unknown id
 // refuses the whole call rather than shipping half of it.
 
-export const CoverageAdjudicationSchema = z.object({
+const CoverageAdjudicationSchema = z.object({
   verdict: z.enum(["improve_existing", "create_new", "consolidate_or_choose", "do_nothing", "research_needed"]),
   /** Owned addresses the verdict names, echoed EXACTLY from the supplied list. */
   ownedUrls: z.array(z.string().min(1).max(500)).max(8),
@@ -319,14 +303,13 @@ export const CoverageAdjudicationSchema = z.object({
   /** One plain first-person sentence the operator reads. Never page copy. */
   explanation: z.string().min(20).max(400),
 });
-export type CoverageAdjudication = z.infer<typeof CoverageAdjudicationSchema>;
 
 // ── new page brief (N4, 2026-07-28) ───────────────────────────────────────── The ONE call a verdict of create_new
 // may make, AFTER the comparison earned it. The model writes the page's words and its section plan; it may not decide
 // THAT the page should exist, and no field here can carry a shape or an intent. Every address, question and evidence
 // id is echoed from the caller's lists and re-checked after.
 
-export const NewPageBriefSchema = z.object({
+const NewPageBriefSchema = z.object({
   proposedTitle: z.string().min(10).max(120),
   metaDescription: z.string().min(40).max(200),
   /** The answer a searcher gets in the first paragraph, before anything else. */
@@ -357,7 +340,7 @@ export type NewPageBrief = z.infer<typeof NewPageBriefSchema>;
 // wording, every entity and competitor is one the answer named, and no URL, number, ranking or fact may appear that
 // the answer text does not contain. Nothing in this shape is ever published; it is the evidence a later decision
 // reads. `position` is an ORDINAL within the answer (1 = named first), never a search rank.
-export const AnswerAnalysisSchema = z.object({
+const AnswerAnalysisSchema = z.object({
   sections: z.array(z.object({ heading: z.string().min(1).max(200), covers: z.string().min(1).max(600) })).max(12),
   /** Each claim restated in the ANSWER'S OWN WORDING, plus what it is about. */
   claims: z.array(z.object({ subject: z.string().min(1).max(160), text: z.string().min(1).max(400) })).max(24),
@@ -376,7 +359,7 @@ export type AnswerAnalysis = z.infer<typeof AnswerAnalysisSchema>;
 // copied from the input and never minted. One answer per call meant five readings a pass, so one day of 140 answers needed twenty-eight of the eight passes a day runs.
 // `observationId` is echoed exactly as it was given: the observation id alone for an answer that fits one slot, and `id#2` for the second PIECE of a long answer,
 // which occupies its own slot and is merged back into one reading by the caller. A cut-off answer used to lose its tail, and everything it said there, forever.
-export const AnswerAnalysisBatchSchema = z.object({ analyses: z.array(AnswerAnalysisSchema.extend({ observationId: z.string().min(1).max(90) })).max(20) });
+const AnswerAnalysisBatchSchema = z.object({ analyses: z.array(AnswerAnalysisSchema.extend({ observationId: z.string().min(1).max(90) })).max(20) });
 export type AnswerAnalysisBatch = z.infer<typeof AnswerAnalysisBatchSchema>;
 // ── case synthesis (V1 Truth Convergence Phase 2, 2026-07-31): the SEMANTIC read over the grouping the deterministic
 // pass already made ── The model may only merge, split, link or nest cases the caller supplied, by the ids and
@@ -438,112 +421,6 @@ export const SCHEMA_BY_KIND = {
 // (callStructuredLLM) dispatches on SCHEMA_BY_KIND above (validate -> retry once -> fail closed); the extra entries
 // below are the canonical contract each hand-rolled parser must keep producing. The recorded-fixture harness that once
 // pinned every entry is gone: the gateway's validate-retry-fail-closed path and each consumer's own test hold it now.
-
-/** FAQ Q/A pairs (llm-answer-block's FAQPage JSON-LD generator). */
-export const FaqPairsSchema = z.object({
-  pairs: z.array(z.object({ q: z.string().min(3).max(300), a: z.string().min(3).max(1200) })).min(1).max(8),
-});
-
-/** CTR Title Lab variants (demand-graph/ctr-title-scorer.ts - deterministic today,
- *  registered so any future LLM-generated variant list validates the same shape). */
-export const TitleVariantsSchema = z.object({
-  variants: z.array(z.object({
-    title: z.string().min(3).max(200),
-    score: z.number(),
-    signals: z.array(z.string().min(1).max(120)).max(12).default([]),
-    strategy: z.string().min(1).max(60).optional(),
-    reason: z.string().min(1).max(300).optional(),
-  })).min(1).max(12),
-});
-
-/** Page Surgeon judge verdict (llm-judge.ts raw JSON contract; the hand-rolled
- *  sanitize() + the deterministic gate remain the runtime authority). */
-const JudgeChangeSchema = z.object({
-  action: z.string().min(1).max(40),
-  exact_change: z.string().max(4000).default(""),
-  evidence: z.string().max(2000).default(""),
-  hypothesis: z.string().max(1000).default(""),
-  risk: z.string().max(1000).default(""),
-  before_after: z.object({ before: z.string().nullable().default(null), after: z.string().nullable().default(null) }).default({ before: null, after: null }),
-  measurement: z.string().max(1000).default(""),
-  rollback: z.string().max(1000).default(""),
-  dependency_order: z.number().int().default(1),
-  artifact_text: z.string().max(6000).nullable().default(null),
-  faq_items: z.array(z.object({ question: z.string().min(1), answer: z.string().min(1) })).nullable().default(null),
-});
-export const JudgeVerdictSchema = z.object({
-  diagnosis: z.object({
-    bottleneck: z.string().min(1).max(1000),
-    evidence: z.string().max(2000).default(""),
-    ruled_out: z.string().max(2000).default(""),
-  }),
-  recommended_atomic_action: z.string().min(1).max(40),
-  primary_atomic_change: JudgeChangeSchema.nullable(),
-  supporting_atomic_changes: z.array(JudgeChangeSchema).max(12).default([]),
-  rejected_changes: z.array(z.object({ action: z.string(), reason: z.string() })).max(20).default([]),
-  wording_research: z.array(z.object({ variant: z.string(), evidence: z.string().default(""), best_placement: z.string().default("") })).max(20).default([]),
-  confidence: z.enum(["high", "medium", "low", "needs_more_evidence"]),
-  operator_insight: z.string().max(2000).default(""),
-  what_normal_seo_misses: z.string().max(2000).default(""),
-  why_not_just_title: z.string().max(2000).default(""),
-});
-export type JudgeVerdict = z.infer<typeof JudgeVerdictSchema>;
-
-/** Expert strategist take (llm-expert-strategist.ts raw JSON contract). */
-export const StrategistTakeSchema = z.object({
-  opportunity_summary: z.string().min(1).max(1000),
-  why_this_now: z.string().min(1).max(1000),
-  best_action: z.string().min(1).max(1000),
-  alternatives_considered: z.array(z.string().min(1).max(500)).max(8).default([]),
-  why_not_alternatives: z.array(z.string().min(1).max(500)).max(8).default([]),
-  expected_outcome: z.string().min(1).max(1000),
-  risk_level: z.enum(["low", "medium", "high"]),
-  risks: z.array(z.string().min(1).max(500)).max(8).default([]),
-});
-export type StrategistTake = z.infer<typeof StrategistTakeSchema>;
-
-/** Adversarial critic review (llm-expert-strategist.ts critic pass contract). */
-export const CriticReviewSchema = z.object({
-  critic_verdict: z.enum(["approve", "lower_confidence", "needs_more_evidence", "reject"]),
-  confidence_ceiling: z.enum(["high", "medium", "low", "needs_more_evidence", "rejected"]),
-  unsupported_claims: z.array(z.string()).max(10).default([]),
-  evidence_gaps: z.array(z.string()).max(10).default([]),
-  query_page_mismatch_risks: z.array(z.string()).max(10).default([]),
-  copy_risks: z.array(z.string()).max(10).default([]),
-  publishing_risks: z.array(z.string()).max(10).default([]),
-  factual_risks: z.array(z.string()).max(10).default([]),
-  what_would_make_this_high_confidence: z.array(z.string()).max(10).default([]),
-  human_review_note: z.string().max(1000).default(""),
-});
-export type CriticReviewShape = z.infer<typeof CriticReviewSchema>;
-
-/** Synthetic SERP hypothesis (page-surgeon/serp-hypothesis.ts raw JSON contract). */
-export const SerpHypothesisSchema = z.object({
-  queries: z.array(z.object({
-    query: z.string().min(1).max(300),
-    likely_features: z.array(z.string().min(1).max(40)).max(10).default([]),
-    feature_likely_owns_answer: z.boolean(),
-    click_loss_cause: z.string().max(500).default(""),
-    confidence: z.enum(["low", "medium"]),
-    rationale: z.string().max(500).default(""),
-    recommended_check: z.string().max(500).default(""),
-  })).min(1).max(10),
-  overall: z.object({ feature_likely_owns_answer: z.boolean(), summary: z.string().max(1000).default("") }),
-});
-export type SerpHypothesisShape = z.infer<typeof SerpHypothesisSchema>;
-
-/** The complete named registry: every structured LLM output shape in the product. It is the one list a reader
- *  can check a hand-rolled parser against; no fixture harness enforces it any more (see the note above). */
-export const LLM_OUTPUT_SCHEMAS = {
-  ...SCHEMA_BY_KIND,
-  faq_pairs: FaqPairsSchema,
-  title_variants: TitleVariantsSchema,
-  judge_verdict: JudgeVerdictSchema,
-  strategist_take: StrategistTakeSchema,
-  critic_review: CriticReviewSchema,
-  serp_hypothesis: SerpHypothesisSchema,
-} as const;
-export type LlmOutputSchemaName = keyof typeof LLM_OUTPUT_SCHEMAS;
 
 /** Every CUSTOMER-FACING PROSE string in a parsed draft, flattened - fed to the
  *  content firewalls (numeric-fidelity / placeholder / em-dash / superlative) at

@@ -26,7 +26,7 @@ export const FRESH_TAIL_NOTE =
 /** The tail may cover at most the final-lag days plus today itself. A wider
  *  gap means the SYNC is behind (an ingestion problem, not settling data),
  *  and rendering a long dotted stretch would dress a sync hole up as normal. */
-export const FRESH_TAIL_MAX_DAYS = GSC_FINAL_LAG_DAYS + 1;
+const FRESH_TAIL_MAX_DAYS = GSC_FINAL_LAG_DAYS + 1;
 
 export type FreshTailPoint = {
   date: string;

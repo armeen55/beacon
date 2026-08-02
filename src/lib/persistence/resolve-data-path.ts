@@ -36,7 +36,7 @@ import { classifyStore, type StoreScope } from "./store-classification";
 const rootDataDir = (): string => join(process.cwd(), ".data");
 const globalDir = (): string => join(rootDataDir(), "global");
 
-export type ResolvedPath = {
+type ResolvedPath = {
   /** Where the store sits in the four-way classification. */
   scope: StoreScope;
   /** Directory the routed file lives in (for ensureDir / mkdir). */

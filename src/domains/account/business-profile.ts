@@ -163,7 +163,7 @@ export function profileFromRow(accountId: string, raw: Record<string, unknown>):
 
 // ── Persistence (injected; production = Supabase) ──────────────────────────
 
-export type BusinessProfileRepository = {
+type BusinessProfileRepository = {
   load(accountId: string): Promise<Record<string, unknown> | null>;
   save(accountId: string, profile: BusinessProfile): Promise<{ ok: boolean; reason?: string }>;
 };
@@ -262,7 +262,7 @@ export async function loadBusinessProfile(accountId: string): Promise<BusinessPr
   return p;
 }
 
-export type SaveBusinessProfileResult = {
+type SaveBusinessProfileResult = {
   profile: BusinessProfile;
   persisted: boolean;
   persistError?: string;

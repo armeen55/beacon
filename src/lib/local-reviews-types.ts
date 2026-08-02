@@ -3,7 +3,7 @@
  * Stored in `.data/local-reviews.json` — manual import and/or GBP connector sync (on-demand).
  */
 
-export type LocalReviewSource = "google" | "yelp" | "bbb" | "houzz" | "other";
+type LocalReviewSource = "google" | "yelp" | "bbb" | "houzz" | "other";
 
 export type LocalReview = {
   id: string;
@@ -18,4 +18,3 @@ export type LocalReview = {
   location_id?: string;
 };
 
-export type LocalSentimentBand = "positive" | "mixed" | "concerning";

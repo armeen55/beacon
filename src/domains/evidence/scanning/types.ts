@@ -43,9 +43,9 @@ export type FindingStatus =
   | "ignored"
   | "expected";
 
-export type FindingSeverity = "high" | "medium" | "low";
+type FindingSeverity = "high" | "medium" | "low";
 
-export type FindingPriority = "critical" | "important" | "minor" | "informational";
+type FindingPriority = "critical" | "important" | "minor" | "informational";
 
 export type PromotionStatus = "none" | "changelog" | "secondary_note" | "history_only";
 
@@ -88,13 +88,6 @@ export type Finding = {
   source_pattern_id?: string | null;
   /** Owning tenant. */
   tenant_id: string;
-};
-
-export type ScanSettings = {
-  preferredHour: number;
-  timezone: string;
-  scope: "full" | "priority";
-  enabled: boolean;
 };
 
 export const FINDING_PRIORITY_ORDER: Record<FindingPriority, number> = {

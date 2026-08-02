@@ -92,7 +92,7 @@ type SafeFetchReason =
  *  access_blocked so a robots-blocked authoritative source reads apart from a dead link. */
 const ACCESS_BLOCKED_STATUSES: ReadonlySet<number> = new Set([401, 403, 429, 451]);
 
-export type SafeFetchResult =
+type SafeFetchResult =
   | { ok: true; text: string; finalUrl: string; status: number }
   | { ok: false; reason: SafeFetchReason };
 
@@ -124,7 +124,7 @@ type AssertSafeUrlResult =
 
 /** Pure URL policy check: http/https only, no embedded credentials, no non-default port (URL
  *  normalizes 80/443 to empty, so any non-empty port is explicit non-standard). Never throws. */
-export function assertSafeUrl(raw: string): AssertSafeUrlResult {
+function assertSafeUrl(raw: string): AssertSafeUrlResult {
   let u: URL;
   try {
     u = new URL(raw);

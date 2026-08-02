@@ -42,19 +42,6 @@ export function actionFamilyOf(actionType: string): ExperimentFamily {
   return "other";
 }
 
-/** Two families "collide" for contamination purposes. title and title_meta overlap;
- *  meta and title_meta overlap. */
-export function familiesCollide(a: ExperimentFamily, b: ExperimentFamily): boolean {
-  if (a === b) return true;
-  const titleish = new Set<ExperimentFamily>(["title", "title_meta"]);
-  const metaish = new Set<ExperimentFamily>(["meta", "title_meta"]);
-  if (titleish.has(a) && titleish.has(b)) return true;
-  if (metaish.has(a) && metaish.has(b)) return true;
-  return false;
-}
-
-/** Days after ship that a 28-day window is DONE (final window + GSC finalization lag). */
-export const FINAL_WINDOW_DAYS = 28;
 export const GSC_LAG_DAYS = 3;
 
 function pathOf(urlOrPath: string): string {

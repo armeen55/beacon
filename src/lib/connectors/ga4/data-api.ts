@@ -102,7 +102,7 @@ export const GA4_MAX_PAGES = 50;
  * Build the `runReport` endpoint URL for a given property id.
  * Pure helper, exported for test inspection.
  */
-export function buildRunReportUrl(propertyId: string): string {
+function buildRunReportUrl(propertyId: string): string {
   return `${DATA_API_HOST}/v1beta/properties/${encodeURIComponent(
     propertyId,
   )}:runReport`;
@@ -121,7 +121,7 @@ export function buildRunReportUrl(propertyId: string): string {
  *        page-0 bodies are unchanged except for the explicit
  *        `offset: 0`.
  */
-export function buildRunReportBody(args: {
+function buildRunReportBody(args: {
   startDate: string;
   endDate: string;
   offset?: number;
@@ -485,11 +485,11 @@ export async function runGa4UrlTrafficReport(
 // ─────────────────────────────────────────────────────────────────────
 
 /** Revenue metric names requested from GA4 (all standard GA4 metrics). */
-export const GA4_REVENUE_METRICS = ["totalRevenue", "purchaseRevenue", "transactions"] as const;
+const GA4_REVENUE_METRICS = ["totalRevenue", "purchaseRevenue", "transactions"] as const;
 
 /** Build the revenue `runReport` body — date×pagePath dims + revenue metrics.
  *  Pure; exported for tests. */
-export function buildRevenueReportBody(args: {
+function buildRevenueReportBody(args: {
   startDate: string;
   endDate: string;
   offset?: number;
@@ -743,7 +743,7 @@ export async function runGa4RevenueReport(
 /** AI-referral metric names requested from GA4. `keyEvents` replaced the
  *  deprecated `conversions` metric in 2024; narrowing maps by header NAME so
  *  either spelling lands in the same field. */
-export const GA4_AI_REFERRAL_METRICS = ["sessions", "engagedSessions", "keyEvents"] as const;
+const GA4_AI_REFERRAL_METRICS = ["sessions", "engagedSessions", "keyEvents"] as const;
 
 /**
  * Build the AI-referral `runReport` body: [date, pagePath, sessionSource]
@@ -789,7 +789,7 @@ export function buildAiReferralReportBody(args: {
  * metric set can't misassign; `conversions` is accepted as a `keyEvents`
  * alias for older properties. Drops malformed rows. Pure; exported for tests.
  */
-export function narrowAiReferralRows(
+function narrowAiReferralRows(
   body: Ga4RunReportResponseBody | null | undefined,
 ): Ga4AiReferralRow[] {
   if (body == null || typeof body !== "object") return [];
@@ -986,14 +986,14 @@ export async function runGa4AiReferralReport(
 // ─────────────────────────────────────────────────────────────────────
 
 /** Sitewide daily metrics requested from GA4 (date dimension only). */
-export const GA4_SITEWIDE_METRICS = ["sessions", "engagedSessions"] as const;
+const GA4_SITEWIDE_METRICS = ["sessions", "engagedSessions"] as const;
 
 /**
  * Build the sitewide `runReport` body: ONE `date` dimension (NO pagePath) so GA4
  * aggregates sessions across the whole property per day. Total deterministic
  * order for exact offset pagination. Pure; exported for tests.
  */
-export function buildSitewideSessionsReportBody(args: {
+function buildSitewideSessionsReportBody(args: {
   startDate: string;
   endDate: string;
   offset?: number;
@@ -1015,7 +1015,7 @@ export function buildSitewideSessionsReportBody(args: {
  * misassign. GA4 date "YYYYMMDD" normalizes to "YYYY-MM-DD". Drops malformed
  * rows. Pure; exported for tests.
  */
-export function narrowSitewideDailyRows(
+function narrowSitewideDailyRows(
   body: Ga4RunReportResponseBody | null | undefined,
 ): Ga4SitewideDailyRow[] {
   if (body == null || typeof body !== "object") return [];
@@ -1211,7 +1211,7 @@ export async function runGa4SitewideSessionsReport(
 
 /** Build the monthly `runReport` body: ONE `yearMonth` dimension + `sessions`.
  *  Pure; exported for tests. */
-export function buildSitewideMonthlyReportBody(args: {
+function buildSitewideMonthlyReportBody(args: {
   startDate: string;
   endDate: string;
   offset?: number;
@@ -1230,7 +1230,7 @@ export function buildSitewideMonthlyReportBody(args: {
 /** Narrow a monthly `runReport` body into `Ga4SitewideMonthlyRow[]`. GA4's
  *  `yearMonth` value is "YYYYMM"; normalizes to "YYYY-MM-01". Drops malformed
  *  rows. Pure; exported for tests. */
-export function narrowSitewideMonthlyRows(
+function narrowSitewideMonthlyRows(
   body: Ga4RunReportResponseBody | null | undefined,
 ): Ga4SitewideMonthlyRow[] {
   if (body == null || typeof body !== "object") return [];
@@ -1368,8 +1368,3 @@ export async function runGa4SitewideMonthlyReport(
   return result;
 }
 
-/** Test-only export of internals. */
-export const __testing = {
-  REQUIRED_SCOPE,
-  DATA_API_HOST,
-};

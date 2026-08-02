@@ -48,8 +48,8 @@ export function normalizePageIntersection(i: PageIntersectionAsk): PageIntersect
 
 /** Where ONE requested page ranks for ONE keyword. `rank` is rank_group, the
  *  ORGANIC position; rank_absolute counts ads and packs and is never a position. */
-export type PageIntersectionRank = { page: number; url: string; title: string | null; rank: number | null };
-export type PageIntersectionKeyword = {
+type PageIntersectionRank = { page: number; url: string; title: string | null; rank: number | null };
+type PageIntersectionKeyword = {
   keyword: string; searchVolume: number | null; competition: number | null; competitionLevel: "low" | "medium" | "high" | null;
   difficulty: number | null; mainIntent: string | null; ranks: PageIntersectionRank[];
 };
@@ -123,7 +123,7 @@ const MATERIAL_SHARE = 0.3;
 /** `publishers` = the DISTINCT publishers among the requested winners that rank for it.
  *  `bestRank` = best organic position among them; `ownedRank` = the owner's own, null
  *  when it does not rank (or was excluded from the ask and so was never measured). */
-export type SharedKeyword = {
+type SharedKeyword = {
   keyword: string; searchVolume: number | null; difficulty: number | null; intent: string | null;
   publishers: string[]; bestRank: number | null; ownedRank: number | null;
 };

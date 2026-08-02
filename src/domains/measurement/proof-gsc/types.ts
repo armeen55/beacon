@@ -22,9 +22,6 @@ export const PROOF_WINDOW_DAYS: Array<7 | 14 | 28> = [7, 14, 28];
 /** The pre-ship baseline window the diff in diff pro-rates from. */
 export const BASELINE_WINDOW_DAYS = 28;
 
-/** Which Search metric drives the read for a change type. */
-export type ProofMetric = "clicks" | "ctr" | "position";
-
 /** Stored verdict vocabulary (persisted on the record for backward reads; the
  *  kernel recomputes the live directional read from the window deltas). */
 export type GscProofVerdict = "measuring" | "won" | "lost" | "inconclusive" | "insufficient_data";

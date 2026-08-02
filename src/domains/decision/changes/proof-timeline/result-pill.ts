@@ -26,7 +26,7 @@
  */
 /** Maturity + direction of a measurement, kept local (CORE 100K) so the pill has
  *  no dependency on a retired presentation module. Mapped from the kernel read. */
-export type MeasurementMaturity =
+type MeasurementMaturity =
   | "scheduled"
   | "collecting"
   | "early_checkpoint"
@@ -36,12 +36,12 @@ export type MeasurementMaturity =
   | "blocked_data"
   | "unresolved"
   | "attribution_limited";
-export type MeasurementDirection = "positive" | "negative" | "neutral" | "unknown";
+type MeasurementDirection = "positive" | "negative" | "neutral" | "unknown";
 
 import type { KernelRead } from "@/domains/measurement/proof-gsc/kernel";
 
 /** The proof summary a timeline row / Today card needs, mapped from a kernel read. */
-export type KernelProofSummary = {
+type KernelProofSummary = {
   maturity: MeasurementMaturity;
   direction: MeasurementDirection;
   verdict: "helped" | "no_lift" | "did_not_help" | null;
@@ -126,7 +126,7 @@ export type ProofMeasurementSummary = {
   verdict: "helped" | "no_lift" | "did_not_help" | null;
 };
 
-export type ResolveProofPillInput = {
+type ResolveProofPillInput = {
   /** Google-measured presentation for this change's proof record. Null when
    *  the change has no shipped-change proof coverage (not being measured). */
   proof: ProofMeasurementSummary | null;

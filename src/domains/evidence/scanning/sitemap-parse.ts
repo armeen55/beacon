@@ -6,7 +6,7 @@
  * Pure string to data. No fetch, no fs, no tenant context.
  */
 
-export type SitemapUrlEntry = { url: string; lastmod: string | null };
+type SitemapUrlEntry = { url: string; lastmod: string | null };
 
 /** Children returned from ONE index document. The caller's own fetch budget bounds the tree. */
 const MAX_CHILD_SITEMAPS = 50;

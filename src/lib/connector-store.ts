@@ -165,7 +165,7 @@ export type GoogleConnectorToken = {
 };
 
 /** Yelp Fusion — API key (never sent to the client). */
-export type YelpConnectorToken = {
+type YelpConnectorToken = {
   provider: "yelp";
   api_key: string;
   connected_at: string;
@@ -180,7 +180,7 @@ export type YelpConnectorToken = {
  * (/v3/a/{account_id}/calls.json). Soft-disconnect via `disconnected_at`
  * mirrors the other connectors so cached call attribution is preserved.
  */
-export type CallRailConnectorToken = {
+type CallRailConnectorToken = {
   provider: "callrail";
   api_key: string;
   account_id: string;
@@ -210,7 +210,7 @@ export type WixConnectorToken = {
  * lookback, no backfill — the nightly harvester budgets ONE pull/day
  * and accumulates history locally (the research-note hedge).
  */
-export type ClarityConnectorToken = {
+type ClarityConnectorToken = {
   provider: "clarity";
   api_token: string;
   connected_at: string;
@@ -218,14 +218,14 @@ export type ClarityConnectorToken = {
   disconnected_at?: string;
 };
 
-export type ConnectorToken =
+type ConnectorToken =
   | GoogleConnectorToken
   | YelpConnectorToken
   | CallRailConnectorToken
   | WixConnectorToken
   | ClarityConnectorToken;
 
-export type ConnectorStatus = "connected" | "disconnected";
+type ConnectorStatus = "connected" | "disconnected";
 
 export type ConnectorInfo = {
   status: ConnectorStatus;
@@ -308,7 +308,7 @@ async function resolveTenantId(tenantId?: string): Promise<string> {
  *   • { ok: false }             : the read itself failed; the truth is
  *     UNKNOWN. Never treat this as "no token".
  */
-export type ConnectorTokenReadResult =
+type ConnectorTokenReadResult =
   | { ok: true; token: ConnectorToken | null }
   | { ok: false; reason: "store_unavailable" | "read_error" };
 
@@ -398,13 +398,6 @@ export async function getWixConnectorToken(
 ): Promise<WixConnectorToken | null> {
   const t = await getConnectorToken("wix", tenantId);
   return t != null && t.provider === "wix" ? t : null;
-}
-
-export async function getCallRailConnectorToken(
-  tenantId?: string,
-): Promise<CallRailConnectorToken | null> {
-  const t = await getConnectorToken("callrail", tenantId);
-  return t != null && t.provider === "callrail" ? t : null;
 }
 
 export async function getConnectorInfo(
@@ -521,9 +514,9 @@ export async function getConnectorInfo(
  *   persisted marker is what we read here — no live HTTP, no `expires_at`
  *   guessing.
  */
-export type ConnectorHealth = "connected" | "needs_attention" | "not_connected";
+type ConnectorHealth = "connected" | "needs_attention" | "not_connected";
 
-export type ConnectorHealthInfo = ConnectorInfo & {
+type ConnectorHealthInfo = ConnectorInfo & {
   health: ConnectorHealth;
   /** Plain-English, customer-facing, actionable. null when health is a
    *  plain "connected" or "not_connected" with nothing to say. */

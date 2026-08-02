@@ -72,8 +72,8 @@ export type WixUrlMapEntry = {
  *           section replace inside the structure.
  * Anything else fails closed at merge time with a paste-it-yourself receipt.
  */
-export const WIX_BODY_FIELD_KINDS = ["plain", "html", "ricos"] as const;
-export type WixBodyFieldKind = (typeof WIX_BODY_FIELD_KINDS)[number];
+const WIX_BODY_FIELD_KINDS = ["plain", "html", "ricos"] as const;
+type WixBodyFieldKind = (typeof WIX_BODY_FIELD_KINDS)[number];
 
 export function isWixBodyFieldKind(k: unknown): k is WixBodyFieldKind {
   return (

@@ -37,7 +37,7 @@ type InventoryRow = { url: string; discovered_via?: string | null; crawl_state?:
 type CapturedPage = { url: string; title?: string | null; h1?: string | null; canonical_url?: string | null;
   has_canonical_mismatch?: boolean | null; robots_meta?: string | null; internal_links?: readonly string[] };
 
-export type TechnicalHeld = { inventory?: readonly InventoryRow[]; pages?: readonly CapturedPage[] };
+type TechnicalHeld = { inventory?: readonly InventoryRow[]; pages?: readonly CapturedPage[] };
 
 /** One page's worth of findings is a morning's work; past this it is a project, not a change. */
 const MAX_FINDINGS = 12;

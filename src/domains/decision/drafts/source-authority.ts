@@ -37,7 +37,7 @@ import {
   findSuperlatives,
 } from "./factual-entailment";
 
-export type SourceAuthority = "authoritative" | "weak" | "unverified";
+type SourceAuthority = "authoritative" | "weak" | "unverified";
 
 /** The minimal shape this module needs from a SourceRef, accepts the real
  *  schemas.ts `SourceRef` or any object carrying at least these fields. */
@@ -181,18 +181,18 @@ const CLAIM_STOPWORDS = new Set([
  *  check whether a source's `claim` actually overlaps the draft's own text -
  *  an authoritative-but-unrelated citation must never vacuously satisfy the
  *  gate. Pure string processing, no NLP dependency. */
-export function claimTokens(text: string): string[] {
+function claimTokens(text: string): string[] {
   const matches = (text ?? "").toLowerCase().match(/[a-z]{4,}/g) ?? [];
   return [...new Set(matches)].filter((t) => !CLAIM_STOPWORDS.has(t));
 }
 
 /** Minimum share of a claim's central content tokens that must appear WITHIN
  *  one candidate span for that span to count as actually backing the claim. */
-export const CLAIM_SPAN_MIN_COVERAGE = 0.6;
+const CLAIM_SPAN_MIN_COVERAGE = 0.6;
 /** Max characters of a supporting excerpt persisted alongside a verified source. */
 const EXCERPT_MAX_CHARS = 400;
 
-export type SupportingSpan = {
+type SupportingSpan = {
   /** True when a single sentence / adjacent-sentence pair carries the claim. */
   supported: boolean;
   /** The trimmed excerpt (<= 400 chars) that backs the claim, or null. */
@@ -357,7 +357,7 @@ function sentenceIsProtected(sentence: string, structural: Set<string>): boolean
  *  in a draft is backed by a verified authoritative source, which claims are
  *  still unproven, and the receipts (claim + source + backing excerpt) for the
  *  ones that ARE proven. */
-export type FactCoverageResult = {
+type FactCoverageResult = {
   covered: boolean;
   /** Up to 5 protected sentences no qualifying source could back. */
   uncovered: string[];
@@ -552,7 +552,7 @@ const MARKETING_SUPERLATIVE =
  * the marketing net (MARKETING_SUPERLATIVE: "leading", "best-known", ...). Pure,
  * deterministic, lowercased + deduped. Empty = the text asserts no superlative.
  */
-export function findAllSuperlatives(text: string): string[] {
+function findAllSuperlatives(text: string): string[] {
   const out = new Set<string>(findSuperlatives(text));
   for (const m of (text ?? "").matchAll(MARKETING_SUPERLATIVE)) out.add(m[0].toLowerCase());
   return [...out];

@@ -13,57 +13,51 @@ import { currentTenantId } from "@/lib/tenant-context";
 
 // ── Change Type Taxonomy ──
 
-export const CHANGE_TYPES = [
-  "faq_addition",
-  "schema_addition",
-  "title_meta_change",
-  "hero_rewrite",
-  "comparison_table",
-  "internal_linking",
-  "new_page_creation",
-  "page_reconstruction",
-  "service_page_upgrade",
-  "city_page_upgrade",
-  "homepage_change",
-  "project_page_creation",
-  "trust_page_creation",
-  "entity_profile_update",
-  "directory_profile_update",
-  "technical_rendering_fix",
-  "prerender_fix",
-  "url_migration",
-  "sitewide_title_meta",
-  "sitewide_structural_update",
-  "guide_page_creation",
-  "llms_txt_update",
-  "image_optimization",
-  "nav_footer_update",
-  "other",
-] as const;
-
-export type ChangeType = (typeof CHANGE_TYPES)[number];
+type ChangeType =
+  | "faq_addition"
+  | "schema_addition"
+  | "title_meta_change"
+  | "hero_rewrite"
+  | "comparison_table"
+  | "internal_linking"
+  | "new_page_creation"
+  | "page_reconstruction"
+  | "service_page_upgrade"
+  | "city_page_upgrade"
+  | "homepage_change"
+  | "project_page_creation"
+  | "trust_page_creation"
+  | "entity_profile_update"
+  | "directory_profile_update"
+  | "technical_rendering_fix"
+  | "prerender_fix"
+  | "url_migration"
+  | "sitewide_title_meta"
+  | "sitewide_structural_update"
+  | "guide_page_creation"
+  | "llms_txt_update"
+  | "image_optimization"
+  | "nav_footer_update"
+  | "other";
 
 // ── Page Type Taxonomy ──
 
-export const PAGE_TYPES = [
-  "homepage",
-  "city_page",
-  "service_page",
-  "guide_page",
-  "project_page",
-  "hub_page",
-  "trust_page",
-  "listing_page",
-  "technical",
-  "profile",
-  "other",
-] as const;
-
-export type PageType = (typeof PAGE_TYPES)[number];
+export type PageType =
+  | "homepage"
+  | "city_page"
+  | "service_page"
+  | "guide_page"
+  | "project_page"
+  | "hub_page"
+  | "trust_page"
+  | "listing_page"
+  | "technical"
+  | "profile"
+  | "other";
 
 // ── Source Input Type ──
 
-export type SourceInputType = "manual" | "pdf_upload" | "csv_import" | "pasted_instructions" | "duplicated_entry";
+type SourceInputType = "manual" | "pdf_upload" | "csv_import" | "pasted_instructions" | "duplicated_entry";
 
 // ── Change Contract (the core type) ──
 
@@ -109,11 +103,11 @@ export type ChangeContract = {
 
 // ── Verification ──
 
-export type VerificationStatus = "pending" | "verified_match" | "verified_mismatch" | "not_applicable";
+type VerificationStatus = "pending" | "verified_match" | "verified_mismatch" | "not_applicable";
 
 // ── Attribution Readiness ──
 
-export type AttributionReadiness = "strong" | "usable" | "weak";
+type AttributionReadiness = "strong" | "usable" | "weak";
 
 // ── Persistence ──
 
@@ -135,5 +129,4 @@ export const getChangeContracts = cache(
     return loaded;
   },
 );
-
 

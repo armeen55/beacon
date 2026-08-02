@@ -24,11 +24,11 @@
  */
 
 /** Strip thousands separators: a comma between digits is formatting, not meaning. */
-export function stripThousandsSeparators(text: string): string {
+function stripThousandsSeparators(text: string): string {
   return text.replace(/(?<=\d),(?=\d)/g, "");
 }
 
-export type NumericToken = {
+type NumericToken = {
   /** The token as matched (thousands separators already stripped). */
   raw: string;
   /** Canonical numeric text: no trailing zeros / trailing dot. */
@@ -46,7 +46,7 @@ function normalizeNumericText(t: string): string {
 }
 
 /** Extract every numeric token from a text, with percent detection ("45%" or "45 percent"). */
-export function extractNumericTokens(text: string): NumericToken[] {
+function extractNumericTokens(text: string): NumericToken[] {
   const stripped = stripThousandsSeparators(text);
   const out: NumericToken[] = [];
   for (const m of stripped.matchAll(TOKEN_RE)) {

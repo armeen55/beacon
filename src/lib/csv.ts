@@ -5,7 +5,7 @@
  * Excel and Numbers both open it cleanly. No deps, no I/O.
  */
 
-export function toCsvValue(value: string | number | null | undefined): string {
+function toCsvValue(value: string | number | null | undefined): string {
   if (value == null) return "";
   const s = String(value);
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;

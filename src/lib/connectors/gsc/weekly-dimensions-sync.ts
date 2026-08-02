@@ -35,6 +35,7 @@ import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
+import { reportingDay } from "@/lib/reporting-day";
 
 import {
   gscSearchAnalyticsQuery,
@@ -43,7 +44,6 @@ import {
 } from "./search-analytics";
 import {
   FINAL_LAG_DAYS,
-  pacificDateString,
   resolveProperty,
 } from "./sync-search-analytics";
 import {
@@ -152,7 +152,7 @@ export async function syncGscWeeklyDimensionsForTenant(args: {
 
   // Cadence FIRST, before any token/API work: a fresh snapshot means zero
   // requests tonight (the weekly-pass isolation contract).
-  const weekEnd = addDays(pacificDateString(now), -FINAL_LAG_DAYS);
+  const weekEnd = addDays(reportingDay(now), -FINAL_LAG_DAYS);
   const weekStart = addDays(weekEnd, -6);
   const all = await readRows();
   const mine = all

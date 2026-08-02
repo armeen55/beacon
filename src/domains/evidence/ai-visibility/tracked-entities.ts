@@ -1,4 +1,4 @@
-export type EntityType =
+type EntityType =
   | "brand"
   | "domain"
   | "page"

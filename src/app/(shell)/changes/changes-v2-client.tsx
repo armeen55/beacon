@@ -48,9 +48,6 @@ export type ChangesV2ClientProps = {
   /** Already-enriched rows from the server page. Newest-first sort
    *  expected (the legacy page sorts before this point). */
   rows: ReadonlyArray<EnrichedChangeRow>;
-  /** Retired (Core 100K): the lifecycle-classification tab map. Always an empty object
-   *  now - each row's pill is driven by its joined proof coverage, not a tab class. */
-  classByChangelogId: Record<string, string>;
   /** Linked-edit implementation status per row (when joined). */
   editStatusByChangelogId: Record<string, ImplementationStatus>;
   /** Count of GSC-proof tracked experiments shown in the strip above. When
@@ -71,7 +68,6 @@ const MAX_TIMELINE_CARDS = 24;
 
 export function ChangesV2Client({
   rows,
-  classByChangelogId,
   editStatusByChangelogId,
   proofLedgerCount = 0,
   showHeader = true,
@@ -80,11 +76,7 @@ export function ChangesV2Client({
 }: ChangesV2ClientProps) {
   // Resolve the pill + counters + rail rows in one pass. The pure
   // helpers stay pure; this client just orchestrates them.
-  const cardRows = projectToCardRows({
-    rows,
-    classByChangelogId,
-    editStatusByChangelogId,
-  });
+  const cardRows = projectToCardRows({ rows, editStatusByChangelogId });
 
   const counters: ProofCounters = computeProofCounters(
     cardRows.map((card) => ({ pillKind: card.pill.kind })),
@@ -224,7 +216,6 @@ function ChangesV2CardWithActions({ row }: { row: ProjectedCardRow }) {
 
 type ProjectInput = {
   rows: ReadonlyArray<EnrichedChangeRow>;
-  classByChangelogId: Record<string, string>;
   editStatusByChangelogId: Record<string, ImplementationStatus>;
 };
 

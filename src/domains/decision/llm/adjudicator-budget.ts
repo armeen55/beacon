@@ -44,7 +44,7 @@ const ONBOARDING_PLATFORM = "onboarding-openai" as const;
  * cap (summed across every date), separate from the active account's recurring
  * monthly cap, and it is enforced against the durable ledger only.
  */
-export const ONBOARDING_LIFETIME_CAP_USD = 2;
+const ONBOARDING_LIFETIME_CAP_USD = 2;
 
 /** Platform tag for adjudicator/LLM-narrative spend in the durable ledger. */
 const ADJUDICATOR_PLATFORM = "adjudicator-openai" as const;
@@ -63,7 +63,7 @@ async function durableMonthlySpentUsd(now: Date, tenantId: string): Promise<numb
   }
 }
 
-export type AdjudicatorBudgetState = {
+type AdjudicatorBudgetState = {
   /** YYYY-MM. Resets when a new month begins. */
   monthKey: string;
   spendUsd: number;
@@ -73,7 +73,7 @@ export type AdjudicatorBudgetState = {
   updatedAt: string;
 };
 
-export function currentMonthKey(now: Date = new Date()): string {
+function currentMonthKey(now: Date = new Date()): string {
   return now.toISOString().slice(0, 7);
 }
 
@@ -116,7 +116,7 @@ async function writeState(state: AdjudicatorBudgetState, tenantId: string): Prom
   await writeStore<AdjudicatorBudgetState>(STORE_NAME, [state], { tenantId });
 }
 
-export type BudgetCheckResult =
+type BudgetCheckResult =
   | { allowed: true; remaining: number }
   | { allowed: false; reason: string };
 
@@ -127,7 +127,7 @@ export type BudgetCheckResult =
  * (a zero-projected call at spend == cap must not slip through); the second
  * still lets a KNOWN-cost call land exactly on the cap from below.
  */
-export function isOverAdjudicatorBudget(
+function isOverAdjudicatorBudget(
   spendUsd: number,
   projectedCostUsd: number,
   capUsd: number,
@@ -191,7 +191,7 @@ function round6(n: number): number {
 
 // ── onboarding lifetime budget: reserve-then-reconcile (Slice 5 D10) ─────────
 
-export type OnboardingReservation =
+type OnboardingReservation =
   | { allowed: true; reservedUsd: number }
   | { allowed: false; reason: string };
 

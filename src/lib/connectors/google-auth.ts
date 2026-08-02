@@ -102,7 +102,7 @@ export type GoogleConnectorKind = "gsc" | "gbp" | "ga4";
  */
 export type OAuthIntent = "connect" | "replace" | "reauth";
 
-export const GOOGLE_CALLBACK_PATH = "/api/connectors/google/callback";
+const GOOGLE_CALLBACK_PATH = "/api/connectors/google/callback";
 
 type GoogleTokenResponse = {
   access_token: string;
@@ -133,7 +133,7 @@ function getStateSecret(): string {
   return secret;
 }
 
-export function getRedirectUri(): string {
+function getRedirectUri(): string {
   const base = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   return `${base.replace(/\/+$/, "")}${GOOGLE_CALLBACK_PATH}`;
 }
@@ -142,7 +142,7 @@ export function getRedirectUri(): string {
 // Signed OAuth state
 // ─────────────────────────────────────────────────────────────────────
 
-export type OAuthStatePayload = {
+type OAuthStatePayload = {
   /** Connector kind: "gsc" | "gbp" | "ga4". */
   k: GoogleConnectorKind;
   /** Tenant id at request time. */
@@ -183,7 +183,7 @@ export function encodeOAuthState(payload: OAuthStatePayload): string {
   return `${body}.${sig}`;
 }
 
-export type OAuthStateDecodeResult =
+type OAuthStateDecodeResult =
   | { ok: true; payload: OAuthStatePayload }
   | { ok: false; reason: "missing" | "malformed" | "bad_signature" | "expired" | "secret_missing" };
 
@@ -359,7 +359,7 @@ export async function exchangeGoogleCode(
 }
 
 /** The Google account behind a grant, read from the id_token. */
-export type GoogleAccountIdentity = {
+type GoogleAccountIdentity = {
   /** Stable, opaque Google account id (`sub`). Never changes for an account,
    *  never the email (which can change). This is the identity we compare on. */
   sub: string;
@@ -442,7 +442,7 @@ function connectedAgeDays(connectedAt?: string): number | null {
  * Optional diagnostic context threaded into a refresh so a token death is
  * attributable in ONE log line (FIX 4). Never carries the token itself.
  */
-export type RefreshTokenContext = {
+type RefreshTokenContext = {
   provider?: "google_gsc" | "google_gbp" | "google_ga4";
   tenantId?: string;
   /** ISO 8601 `connected_at`, for token-age-at-death. */

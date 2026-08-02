@@ -49,7 +49,7 @@ export function stripWww(host: string): string {
   return host.replace(/^www\./i, "");
 }
 
-export interface InProcessColdStartScanResult {
+interface InProcessColdStartScanResult {
   status: "scanned" | "no_domain" | "no_pages" | "error";
   pagesDiscovered: number;
   pagesCrawled: number;
@@ -59,7 +59,7 @@ export interface InProcessColdStartScanResult {
   detail?: string;
 }
 
-export interface InProcessColdStartScanDeps {
+interface InProcessColdStartScanDeps {
   fetchImpl?: typeof fetch;
   now?: () => number;
   maxPages?: number;

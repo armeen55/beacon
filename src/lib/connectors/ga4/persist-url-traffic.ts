@@ -110,7 +110,7 @@ const ONE_DAY_MS = 86_400_000;
  * Persist helper args. All fields required; `tenantId` and
  * `propertyId` thread tenant scope explicitly.
  */
-export type PersistGa4UrlTrafficArgs = {
+type PersistGa4UrlTrafficArgs = {
   tenantId: string;
   propertyId: string;
   startDate: string;
@@ -121,7 +121,7 @@ export type PersistGa4UrlTrafficArgs = {
  * Failure-reason superset: Data API reasons + persist-side reasons.
  * Mirrors the substrate's discriminator style.
  */
-export type PersistGa4UrlTrafficFailReason =
+type PersistGa4UrlTrafficFailReason =
   | Ga4FailReason
   | "admin_unavailable"
   | "persist_failed"
@@ -146,7 +146,7 @@ export type Ga4RevenuePersistStatus = {
 };
 
 /** Discriminated result; callers branch on `ok`. */
-export type PersistGa4UrlTrafficResult =
+type PersistGa4UrlTrafficResult =
   | {
       ok: true;
       rows_fetched: number;
@@ -422,11 +422,3 @@ export async function persistGa4UrlTraffic(
   };
 }
 
-/** Test-only export of internals. */
-export const __testing = {
-  TABLE,
-  DEFAULT_LOOKBACK_DAYS,
-  MAX_LOOKBACK_DAYS,
-  UPSERT_CHUNK_SIZE,
-  chunk,
-};

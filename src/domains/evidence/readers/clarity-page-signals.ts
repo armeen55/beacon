@@ -15,6 +15,7 @@ import "server-only";
 
 import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { reportingDay } from "@/lib/reporting-day";
 import { log } from "@/lib/logger";
 import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 
@@ -75,9 +76,7 @@ async function loadClarityPageSignalsForTenantUncached(
   };
   const rows: Row[] = [];
   try {
-    const since = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
-      .toISOString()
-      .slice(0, 10);
+    const since = reportingDay(now.getTime() - WINDOW_DAYS * 86_400_000);
     const sb = getSupabaseAdmin();
     // audit wave-2 #4 (2026-06-14): PostgREST caps a response at ~1000 rows
     // regardless of .limit(), so the old `.limit(5000)` read silently

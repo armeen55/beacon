@@ -27,7 +27,7 @@ export type DiscoveredVia = "sitemap" | "robots_sitemap" | "homepage" | "nav" | 
 export type DiscoveredPage = { url: string; via: DiscoveredVia };
 
 /** One inventory row, in the store's own words. */
-export type OwnedPageRow = {
+type OwnedPageRow = {
   url: string;
   discovered_via: DiscoveredVia;
   first_seen: string;
@@ -223,7 +223,7 @@ export async function markCrawled(
  * refused and the date it promised), never from time remaining, because by the time we ask again
  * that wait has always just expired. A site that keeps refusing is asked less and less often.
  */
-export function nextBlockedUntil(
+function nextBlockedUntil(
   previous: { blocked_until: string | null; last_crawled_at: string | null } | null,
   now: Date,
 ): string {

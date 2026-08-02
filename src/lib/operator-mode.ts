@@ -49,25 +49,3 @@ export function isOperatorModeServer(): boolean {
   return process.env.BEACON_OPERATOR_MODE === "true";
 }
 
-/**
- * Client-side operator gate.
- *
- * Reads `NEXT_PUBLIC_OPERATOR_MODE === "true"` OR `NODE_ENV === "test"`.
- * The NODE_ENV branch preserves snapshot/assertion tests that pre-date
- * this helper without requiring per-test env plumbing.
- *
- * Use for client components — debug panels, debug data-attributes,
- * dev-tools affordances, anything that should disappear from
- * customer-mode renders.
- *
- * Safe to call from server code too: `NEXT_PUBLIC_*` vars are
- * available everywhere. Prefer `isOperatorModeServer()` for
- * server-only gates so the gate can be flipped at deploy time
- * without rebuilding the client bundle.
- */
-export function isOperatorModeClient(): boolean {
-  return (
-    process.env.NEXT_PUBLIC_OPERATOR_MODE === "true" ||
-    process.env.NODE_ENV === "test"
-  );
-}

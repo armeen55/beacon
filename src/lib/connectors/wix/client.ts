@@ -26,14 +26,14 @@ import type {
   WixFetchResult,
 } from "./types";
 
-export const WIX_BASE_URL = "https://www.wixapis.com";
+const WIX_BASE_URL = "https://www.wixapis.com";
 const TIMEOUT_MS = 20_000;
 
 /** Wix Data query max items per request (REST hard cap). */
-export const WIX_QUERY_PAGE_SIZE = 1000;
+const WIX_QUERY_PAGE_SIZE = 1000;
 /** Safety ceiling on paginated full-collection reads: 50 × 1000 = 50k
  *  items/collection. Past this we stop + flag rather than loop forever. */
-export const WIX_QUERY_MAX_PAGES = 50;
+const WIX_QUERY_MAX_PAGES = 50;
 
 export type WixDeps = {
   fetchImpl?: typeof fetch;
@@ -294,128 +294,6 @@ export async function wixListDataCollections(
   return { ok: true, value: out };
 }
 
-/** GET one item by id (Wix Data v2 Get Data Item). */
-export async function wixGetDataItem(
-  args: { dataCollectionId: string; dataItemId: string },
-  deps: WixDeps = {},
-): Promise<WixFetchResult<WixDataItem>> {
-  const r = await wixFetch<{ dataItem?: { id?: string; data?: Record<string, unknown> } }>(
-    `/wix-data/v2/items/${encodeURIComponent(args.dataItemId)}?dataCollectionId=${encodeURIComponent(args.dataCollectionId)}`,
-    { method: "GET" },
-    deps,
-  );
-  if (!r.ok) return r;
-  return {
-    ok: true,
-    value: {
-      id: r.value.dataItem?.id ?? args.dataItemId,
-      dataCollectionId: args.dataCollectionId,
-      data: r.value.dataItem?.data ?? {},
-    },
-  };
-}
-
-/**
- * Update ONE field on an existing item.
- *
- * Wix's Update Data Item is a FULL-ITEM PUT (REPLACE) — any field omitted
- * from the payload is CLEARED, not preserved. (This blanked koobideh-kabob's
- * slug → a live 404 on 2026-06-13 when we sent a slug-stripped payload.)
- * So we NEVER send stripped/partial data: we fetch the CURRENT item
- * immediately before the write and change ONLY the approved field, carrying
- * every other field — including `slug` and the generated `link-*` PAGE_LINK —
- * through UNCHANGED.
- *
- * The target field must not itself be URL/slug/link-bearing (caps §3: Beacon
- * never changes a live URL) unless `urlRepair: true` — the explicit
- * repair path used to restore a slug we damaged.
- */
-export async function wixUpdateDataItem(
-  args: {
-    dataCollectionId: string;
-    dataItemId: string;
-    /** The single approved field to change. */
-    field: string;
-    /** Its new value. */
-    value: unknown;
-    /** Explicit slug/URL repair — bypasses the protected-field guard. */
-    urlRepair?: boolean;
-  },
-  deps: WixDeps = {},
-): Promise<WixFetchResult<WixDataItem>> {
-  if (!args.urlRepair && isProtectedUrlField(args.field)) {
-    return {
-      ok: false,
-      reason: "protected_field",
-      detail: `refusing to change URL/slug/link field "${args.field}" via a content edit`,
-    };
-  }
-  // Fetch current item immediately before the write (freshness + full-field
-  // preservation under PUT's replace semantics).
-  const cur = await wixGetDataItem(
-    { dataCollectionId: args.dataCollectionId, dataItemId: args.dataItemId },
-    deps,
-  );
-  if (!cur.ok) return cur;
-  // Preserve EVERY existing field; change ONLY the approved one.
-  const nextData = { ...cur.value.data, [args.field]: args.value };
-  const r = await wixFetch<{ dataItem?: { id?: string; data?: Record<string, unknown> } }>(
-    `/wix-data/v2/items/${encodeURIComponent(args.dataItemId)}`,
-    {
-      method: "PUT",
-      body: {
-        dataCollectionId: args.dataCollectionId,
-        dataItem: { data: nextData },
-      },
-    },
-    deps,
-  );
-  if (!r.ok) return r;
-  return {
-    ok: true,
-    value: {
-      id: r.value.dataItem?.id ?? args.dataItemId,
-      dataCollectionId: args.dataCollectionId,
-      data: r.value.dataItem?.data ?? nextData,
-    },
-  };
-}
-
-/**
- * INSERT a new CMS item (§page-factory create path). Unlike updates,
- * creation MAY set the slug field — a NEW page has no URL to change
- * (Invariant 3 forbids changing existing URLs/nav and deleting; net-new
- * pages are the cluster feature itself, behind approval + the daily cap).
- * Only `_id`/`id` are stripped (server assigns identity).
- */
-export async function wixInsertDataItem(
-  args: { dataCollectionId: string; data: Record<string, unknown> },
-  deps: WixDeps = {},
-): Promise<WixFetchResult<WixDataItem>> {
-  const data: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(args.data)) {
-    if (k === "_id" || k === "id") continue;
-    data[k] = v;
-  }
-  const r = await wixFetch<{ dataItem?: { id?: string; data?: Record<string, unknown> } }>(
-    "/wix-data/v2/items",
-    {
-      method: "POST",
-      body: { dataCollectionId: args.dataCollectionId, dataItem: { data } },
-    },
-    deps,
-  );
-  if (!r.ok) return r;
-  const id = r.value.dataItem?.id;
-  if (typeof id !== "string") {
-    return { ok: false, reason: "api_error", detail: "no_item_id_in_response" };
-  }
-  return {
-    ok: true,
-    value: { id, dataCollectionId: args.dataCollectionId, data: r.value.dataItem?.data ?? data },
-  };
-}
-
 // Blog draft-post + media-import handlers (wixCreateDraftPost /
 // wixPublishDraftPost / wixImportMedia) were removed 2026-07-01 (FINAL
 // PREMIUM PLAN item 102): built 2026-06-10 but never wired into any push
@@ -435,7 +313,7 @@ export async function wixInsertDataItem(
 // per-item field (their SEO is template-based in the dashboard), so
 // this write path is Stores-products-only by platform design.
 
-export type WixSeoTag = {
+type WixSeoTag = {
   type: "title" | "meta" | "script" | "link";
   props?: Record<string, string>;
   children?: string;
@@ -443,7 +321,7 @@ export type WixSeoTag = {
   disabled?: boolean;
 };
 
-export type WixStoreProduct = {
+type WixStoreProduct = {
   id: string;
   name: string | null;
   slug: string | null;

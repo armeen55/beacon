@@ -5,7 +5,7 @@
 
 import type { LocalReview } from "@/lib/local-reviews-types";
 
-export type GbpReviewMapContext = {
+type GbpReviewMapContext = {
   /** Display title for the location (e.g. from locations.list). */
   listingTitle: string;
   /** Resource name, e.g. accounts/x/locations/y */

@@ -37,7 +37,7 @@ import "server-only";
 import type { GoogleConnectorToken } from "@/lib/connector-store";
 
 /** Locked expiry classifier output. */
-export type ExpiryStatus = "fresh" | "stale_under_7d" | "stale_over_7d";
+type ExpiryStatus = "fresh" | "stale_under_7d" | "stale_over_7d";
 
 /**
  * Refresh-buffer window. A token within 60s of its `expires_at` is
@@ -45,16 +45,16 @@ export type ExpiryStatus = "fresh" | "stale_under_7d" | "stale_over_7d";
  * margin to complete the OAuth round-trip before the access token
  * goes stale mid-request.
  */
-export const REFRESH_BUFFER_MS = 60_000;
+const REFRESH_BUFFER_MS = 60_000;
 
 /**
  * Locked Section 8 J2 cutoff — 7 days in milliseconds. Tokens
  * expired beyond this threshold are NOT refreshed; caller surfaces
  * cached data marked stale and prompts reconnect.
  */
-export const STALE_OVER_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
+const STALE_OVER_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 
-export type EvaluateExpiryArgs = {
+type EvaluateExpiryArgs = {
   /** The Google connector token (GSC or GBP). */
   token: GoogleConnectorToken;
   /** Current time. Optional — defaults to `new Date()` only when
@@ -122,8 +122,3 @@ export function formatLastRefreshedCopy(args: {
   return `GSC data last refreshed ${days} days ago. Reconnect to refresh.`;
 }
 
-/** Test-only export of internals. */
-export const __testing = {
-  REFRESH_BUFFER_MS,
-  STALE_OVER_THRESHOLD_MS,
-};

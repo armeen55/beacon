@@ -47,6 +47,7 @@ import {
 } from "@/lib/connector-store";
 import { getTenant } from "@/domains/account/tenants/store";
 import { log } from "@/lib/logger";
+import { reportingDay } from "@/lib/reporting-day";
 
 import {
   pullDayRows,
@@ -71,7 +72,7 @@ const BACKFILL_DAYS = 90;
 const MAX_DAYS_PER_RUN = 45;
 const UPSERT_CHUNK = 500;
 
-export type GscSyncResult =
+type GscSyncResult =
   | { synced: false; reason: string }
   | {
       synced: true;
@@ -81,12 +82,6 @@ export type GscSyncResult =
       /** R17a: gap days healed by tonight's re-pull (absent when none ran). */
       gap_days_repulled?: number;
     };
-
-/** YYYY-MM-DD for `d` in America/Los_Angeles (Search Console dates
- *  are Pacific Time). en-CA locale renders ISO order. */
-export function pacificDateString(d: Date): string {
-  return d.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
-}
 
 function addDays(isoDate: string, days: number): string {
   const t = new Date(isoDate + "T12:00:00Z");
@@ -368,7 +363,7 @@ export async function syncGscSearchAnalyticsForTenant(args: {
     return { synced: false, reason: "no_property_derivable" };
   }
 
-  const todayPt = pacificDateString(now);
+  const todayPt = reportingDay(now);
   const naturalLastFinalDay = addDays(todayPt, -FINAL_LAG_DAYS);
   // Item 63: an explicit endDate (deep-backfill chunking) bounds the pull's
   // last day too, never later than the natural lastFinalDay (GSC has nothing

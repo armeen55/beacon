@@ -31,7 +31,7 @@ function safeRevalidatePath(
   }
 }
 
-export type YelpReviewsSyncResult =
+type YelpReviewsSyncResult =
   | {
       ok: true;
       imported: number;

@@ -32,8 +32,8 @@ import { createHash } from "node:crypto";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
 
-export const LLM_CALL_CACHE_STORE = "llm-call-cache";
-export const LLM_CALL_CACHE_MAX_ENTRIES = 300;
+const LLM_CALL_CACHE_STORE = "llm-call-cache";
+const LLM_CALL_CACHE_MAX_ENTRIES = 300;
 
 export type LlmCallCacheEntry = {
   /** sha256 of tenantId | promptId | version | kind | system | user. */
@@ -93,7 +93,7 @@ function sortByLastUsedDesc(rows: LlmCallCacheEntry[]): LlmCallCacheEntry[] {
 }
 
 /** Pure prune: replace/insert the entry, cap to max by last-used. Exported for tests. */
-export function upsertAndPrune(
+function upsertAndPrune(
   rows: LlmCallCacheEntry[],
   entry: LlmCallCacheEntry,
   max = LLM_CALL_CACHE_MAX_ENTRIES,

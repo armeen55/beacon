@@ -66,14 +66,14 @@ export interface EvidenceInput {
  * a ChangeProposal; the rest are the honest answer and live in the run receipt, never as manufactured work.
  * Internal to Decision: NOT persisted as its own record and never a public type.
  */
-export type CandidateAction =
+type CandidateAction =
   // No `act_new_page`: a page this account does not own is decided by the coverage ladder
   // over researched TOPICS, never by this per-page diagnosis over pages it already has.
   | "act_existing_page" | "consolidate"
   | "watch" | "research_needed" | "do_nothing";
 
 /** The ONE action-specific gap that earns an action. Gross impressions are not here. */
-export type CandidateGap = "ctr_deficit" | "recent_decline" | "serp_mismatch" | "ai_gap" | "technical";
+type CandidateGap = "ctr_deficit" | "recent_decline" | "serp_mismatch" | "ai_gap" | "technical";
 
 export type DecisionCandidate = {
   action: CandidateAction;
@@ -123,7 +123,7 @@ export function evidenceComplete(r: EvidenceReadiness): boolean { return r.gsc &
 
 /** WHY this page underperforms, in the vocabulary a diagnosis may conclude in. One cause
  *  per candidate, chosen by reading the evidence, never by token containment. */
-export type DiagnosisCause =
+type DiagnosisCause =
   | "snippet_intent_mismatch" | "weak_value_promise" | "result_format_mismatch"
   | "wrong_page_ranking" | "cannibalization" | "content_coverage_gap" | "stale_or_inaccurate_copy"
   | "google_rewrite_already_matches" | "serp_market_mismatch" | "ambiguous_search_intent" | "unknown";

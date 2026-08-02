@@ -45,7 +45,7 @@ export { NATIVE_REGIME_START } from "./native-regime";
 import { NATIVE_REGIME_START } from "./native-regime";
 
 /** One day's citation count on one URL, with platform breakdown. */
-export type UrlDailyCount = {
+type UrlDailyCount = {
   date: string; // YYYY-MM-DD
   count: number; // total citations on that day
   by_platform: Record<string, number>;
@@ -379,7 +379,7 @@ function urlHost(raw: string): string | null {
  * Returns a Map<normalizedOwnedUrl, Map<YYYY-MM-DD, DayBucket>>. Caller
  * merges into the overall series.
  */
-export function buildNativeDayBuckets(
+function buildNativeDayBuckets(
   observations: ReadonlyArray<{
     id: string;
     platform: string;

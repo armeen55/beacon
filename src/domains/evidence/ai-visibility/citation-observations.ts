@@ -1,4 +1,4 @@
-export type SourceCategory =
+type SourceCategory =
   | "owned"
   | "competitor"
   | "directory"

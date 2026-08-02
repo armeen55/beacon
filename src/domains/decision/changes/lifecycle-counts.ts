@@ -39,32 +39,13 @@
  *
  * No surface may re-derive its own version of any of these numbers. Consumers:
  * Today (src/app/(shell)/page.tsx tiles + standup + measuring strip), the Changes
- * list (changes-data.ts canonical annotations), the worklist Tonight chip, and the
+ * list (changes-data.ts canonical annotations), and the
  * Results page (header strip + the three bands themselves via splitLedgerLifecycle).
  */
 import { bandOf, readRecordsForLearning, type LedgerRecordLike } from "@/domains/measurement/proof-gsc/kernel";
-// Relocated from the retired experiments domain (CORE 100K): the legacy plan
-// item-status union, kept only for the historical execution-block reader below.
-type DailyExperimentItemStatus =
-  | "ready_to_apply"
-  | "verification_pending"
-  | "verification_failed"
-  | "verified_live"
-  | "activation_pending"
-  | "active"
-  | "gsc_submission_pending"
-  | "gsc_submitted"
-  | "skipped"
-  | "rolled_back";
-
 export type LifecycleCounts = {
   /** Open ideas on the canonical Changes list (suggested + blocked, post-dedupe). */
   toDo: number;
-  /** Changes on tonight's active plan (accepted first, else the preview). */
-  tonightPicked: number;
-  /** Tonight's picks no longer waiting on the operator's edit (same formula as the
-   *  "Tonight: N of M applied" progress line). */
-  tonightApplied: number;
   /** Shipped changes without a final read yet - Results' "In flight" set. */
   measuring: number;
   /** Shipped changes with a final read (mature won or lost). Includes `won`. */
@@ -115,7 +96,7 @@ const REVERT_LEDGER_ACTION_PREFIX = "revert_";
 
 /** True for the ledger row OF a revert itself (revert_edit_title, revert_edit_meta, ...).
  *  Pure; mirrors run-revert.ts's isRevertRecord without importing that server-only module. */
-export function isRevertLedgerRow(row: Pick<LedgerLifecycleRow, "actionType">): boolean {
+function isRevertLedgerRow(row: Pick<LedgerLifecycleRow, "actionType">): boolean {
   return (row.actionType ?? "").startsWith(REVERT_LEDGER_ACTION_PREFIX);
 }
 
@@ -129,7 +110,7 @@ export function isRevertLedgerRow(row: Pick<LedgerLifecycleRow, "actionType">): 
  * SAME array reference when there is nothing to drop, so a no-revert ledger is byte
  * identical (no re-sort, no new object).
  */
-export function excludeRevertBookkeeping<T extends Pick<LedgerLifecycleRow, "actionType">>(
+function excludeRevertBookkeeping<T extends Pick<LedgerLifecycleRow, "actionType">>(
   rows: ReadonlyArray<T>,
 ): ReadonlyArray<T> {
   return rows.some(isRevertLedgerRow) ? rows.filter((r) => !isRevertLedgerRow(r)) : rows;
@@ -161,7 +142,7 @@ function toLedgerRecordLike(row: LedgerLifecycleRow): LedgerRecordLike & { opera
   };
 }
 
-export type LedgerLifecycleSplit<T> = { won: T[]; promising: T[]; learned: T[]; measuring: T[] };
+type LedgerLifecycleSplit<T> = { won: T[]; promising: T[]; learned: T[]; measuring: T[] };
 
 /**
  * Split a whole ledger into the three Results bands - the ONE band membership rule,
@@ -183,12 +164,6 @@ export function splitLedgerLifecycle<T extends LedgerLifecycleRow>(
   return out;
 }
 
-/** Classify ONE ledger row into its band. */
-export function ledgerLifecycleStage(row: LedgerLifecycleRow, now: Date = new Date()): LedgerLifecycleStage {
-  const band = bandOf(readRecordsForLearning([toLedgerRecordLike(row)], now)[0]);
-  return band === "promising" ? "measuring" : band; // promising is still in flight
-}
-
 /** The three ledger-derived counts, from the same split Results renders. */
 export function countLedgerLifecycle(
   rows: ReadonlyArray<LedgerLifecycleRow>,
@@ -203,53 +178,15 @@ export function countLedgerLifecycle(
   };
 }
 
-/** The minimal plan shape tonight's counts need - structurally satisfied by
- *  DailyExperimentPlanRecord (experiments/daily-plan-types.ts). */
-export type TonightPlanLike = {
-  selected: ReadonlyArray<{ id: string }>;
-  execution?: { items?: Record<string, { status?: DailyExperimentItemStatus }> } | null;
-};
-
-/** An item still waiting on the operator's edit - the exact `summary.left` set from
- *  execution-checklist.ts, reused as a rule (not re-invented) so the worklist chip
- *  and Today's "Tonight: N of M applied" progress line always agree. */
-const LEFT_STATUSES: ReadonlySet<DailyExperimentItemStatus> = new Set([
-  "ready_to_apply",
-  "verification_pending",
-  "verification_failed",
-]);
-
-export function tonightCounts(
-  acceptedPlan: TonightPlanLike | null,
-  previewPlan: TonightPlanLike | null,
-): { picked: number; applied: number } {
-  const plan = acceptedPlan ?? previewPlan;
-  if (!plan) return { picked: 0, applied: 0 };
-  const picked = plan.selected.length;
-  // A preview plan has no execution state yet - nothing can be applied before approval.
-  if (!acceptedPlan) return { picked, applied: 0 };
-  const left = plan.selected.filter((e) => {
-    const status = plan.execution?.items?.[e.id]?.status ?? "ready_to_apply";
-    return LEFT_STATUSES.has(status);
-  }).length;
-  return { picked, applied: picked - left };
-}
-
-/** Compose the full sextuple from the canonical stores' already-loaded rows. PURE. */
+/** Compose the full set from the canonical stores' already-loaded rows. PURE. */
 export function computeLifecycleCounts(input: {
   ledger: ReadonlyArray<LedgerLifecycleRow>;
-  acceptedPlan: TonightPlanLike | null;
-  previewPlan: TonightPlanLike | null;
   /** The canonical Changes list's own open count (changes-data.ts summary.todo). */
   backlogToDo: number;
   now?: Date;
 }): LifecycleCounts {
-  const ledgerCounts = countLedgerLifecycle(input.ledger, input.now ?? new Date());
-  const tonight = tonightCounts(input.acceptedPlan, input.previewPlan);
   return {
     toDo: input.backlogToDo,
-    tonightPicked: tonight.picked,
-    tonightApplied: tonight.applied,
-    ...ledgerCounts,
+    ...countLedgerLifecycle(input.ledger, input.now ?? new Date()),
   };
 }

@@ -204,8 +204,8 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       [],
     ),
     valueWithDeadline(
-      loadLifecycleCounts().catch(() => ({ toDo: 0, tonightPicked: 0, tonightApplied: 0, measuring: 0, decided: 0, won: 0 })),
-      { toDo: 0, tonightPicked: 0, tonightApplied: 0, measuring: 0, decided: 0, won: 0 },
+      loadLifecycleCounts().catch(() => ({ toDo: 0, measuring: 0, decided: 0, won: 0 })),
+      { toDo: 0, measuring: 0, decided: 0, won: 0 },
       TODAY_HERO_DEADLINE_MS,
     ),
     valueWithDeadline(

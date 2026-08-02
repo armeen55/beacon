@@ -22,7 +22,7 @@ import {
 } from "@/domains/decision/changes/lifecycle-counts";
 import { type VerdictScheduleRow } from "@/domains/measurement/proof-gsc/verdict-schedule";
 
-export type ScoreboardDay = { date: string; clicks: number; impressions: number };
+type ScoreboardDay = { date: string; clicks: number; impressions: number };
 
 /**
  * The scoreboard reads the FULL ledger row (with windows + baseline), not a slim
@@ -32,7 +32,7 @@ export type ScoreboardDay = { date: string; clicks: number; impressions: number 
  */
 export type ScoreboardLedgerRow = VerdictScheduleRow;
 
-export type ScoreboardMarker = {
+type ScoreboardMarker = {
   date: string; // yyyy-mm-dd
   /** Count of changes shipped that day. */
   count: number;
@@ -58,9 +58,8 @@ export type Scoreboard = {
   verdictLine: string;
 };
 
-
 /** One day of dollars from revenue_facts, pre-aggregated by the loader. */
-export type ScoreboardRevenueDay = {
+type ScoreboardRevenueDay = {
   day: string; // yyyy-mm-dd
   revenueUsd: number;
   sources: string[];

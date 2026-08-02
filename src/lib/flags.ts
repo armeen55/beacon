@@ -11,53 +11,6 @@
 import "server-only";
 
 /**
- * Controls whether the scanner auto-links pending findings to recent
- * changelog entries (see `generateFindings()` auto-reconcile loop).
- *
- * **OFF by default.** When disabled, every scan finding stays in
- * `status: "pending"` until an operator explicitly confirms or dismisses
- * it — which is what's needed for the Phase 1 schema-experiment flow to
- * work correctly (structured fields only get stamped via the manual
- * `confirmFindingAsChange()` path).
- *
- * Historically the auto-link used a 30-day window + loose keyword match,
- * which silently collapsed brand-new experiments (tonight's `/our-process`
- * HowTo addition) into unrelated 16-day-old changelog entries whose
- * descriptions happened to mention "schema" or "faq." Disabling by default
- * forces every finding through the operator-in-the-loop path.
- *
- * Flip `BEACON_AUTO_LINK_FINDINGS=1` to re-enable the legacy behavior.
- * Do NOT flip it while running the Phase 1 schema-experiment dogfeed.
- */
-export function isFindingAutoLinkEnabled(): boolean {
-  return process.env.BEACON_AUTO_LINK_FINDINGS === "1";
-}
-
-/**
- * Recommendation Lifecycle OS — Phase 3 (2026-04-27).
- *
- * Gates the scan-side match runner. **OFF by default.** When OFF the
- * scan orchestrator behaves byte-identically to pre-Phase-3 — no
- * lifecycle reads, no reconciliation, no match engine call, no
- * recommended_edits writes, no changelog `live_at` stamps.
- *
- * Flip `BEACON_LIFECYCLE_ENABLED=1` to enable. Recommended dogfeed
- * sequence:
- *   1. Verify pure match engine purity invariants (Phase 2) green.
- *   2. Sign off Phase 3 in `.data/exit-gates.json`.
- *   3. Set `BEACON_LIFECYCLE_ENABLED=1` locally; run a manual scan;
- *      verify `recommended_edits` lifecycle fields populate correctly.
- *   4. Only then enable on Vercel.
- *
- * Phase 4 (verdict engine reads `live_at`) ships behind a SEPARATE
- * flag so the lifecycle flip and the attribution change can be
- * rolled back independently.
- */
-export function isLifecycleEnabled(): boolean {
-  return process.env.BEACON_LIFECYCLE_ENABLED === "1";
-}
-
-/**
  * Recommendation Lifecycle OS — Phase 4 (2026-04-27).
  *
  * Switches the URL verdict engine's baseline-split timestamp from

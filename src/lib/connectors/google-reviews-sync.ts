@@ -34,7 +34,7 @@ function safeRevalidatePath(
 
 const GBP_V4 = "https://mybusiness.googleapis.com/v4";
 
-export type GoogleReviewsSyncResult =
+type GoogleReviewsSyncResult =
   | {
       ok: true;
       imported: number;
@@ -145,7 +145,7 @@ export type GbpLocationInfo = {
   address: string | null;
 };
 
-export type FetchLocationsResult =
+type FetchLocationsResult =
   | { ok: true; locations: GbpLocationInfo[] }
   | { ok: false; code: "not_connected" | "reconnect" | "fetch_failed"; message: string };
 

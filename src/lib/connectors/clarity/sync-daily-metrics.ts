@@ -13,11 +13,12 @@
 import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { reportingDay } from "@/lib/reporting-day";
 import { log } from "@/lib/logger";
 
 import { fetchClarityUrlMetrics } from "./client";
 
-export type ClaritySyncResult =
+type ClaritySyncResult =
   | { synced: false; reason: string }
   | { synced: true; rows_upserted: number };
 
@@ -32,7 +33,7 @@ export async function syncClarityDailyMetricsForTenant(args: {
   if (metrics == null) return { synced: false, reason: "no_token_or_api_error" };
   if (metrics.length === 0) return { synced: true, rows_upserted: 0 };
 
-  const date = new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10);
+  const date = reportingDay(now.getTime() - 86_400_000);
   const rows = metrics.map((m) => ({
     tenant_id: tenantId,
     date,

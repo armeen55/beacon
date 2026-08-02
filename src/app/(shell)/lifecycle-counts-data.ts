@@ -41,7 +41,5 @@ export const loadLifecycleCounts = cache(async (): Promise<LifecycleCounts> => {
       BACKLOG_DEADLINE_MS,
     ),
   ]);
-  // The daily-experiment plan was retired (Core 100K); tonight-picked/applied counts are gone, so
-  // the plan inputs are null and lifecycle counts come from the proof ledger + backlog alone.
-  return computeLifecycleCounts({ ledger, acceptedPlan: null, previewPlan: null, backlogToDo });
+  return computeLifecycleCounts({ ledger, backlogToDo });
 });

@@ -33,14 +33,3 @@ export const CONTENT_CHANGE_TYPES: ReadonlySet<FindingType> = new Set([
   "page_removed",
 ]);
 
-/**
- * Bug-class finding types — actual page health issues (not experiments).
- * Used for the Pages sidebar badge. Clicking Pages should surface the
- * pages with these findings so the operator can fix them.
- */
-export const BUG_FINDING_TYPES: ReadonlySet<FindingType> = new Set([
-  "schema_invalid",
-  "faq_without_schema",
-  "robots_txt_blocked",
-  "deploy_mismatch",
-]);

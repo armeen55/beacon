@@ -34,7 +34,7 @@ import "server-only";
 
 /** One canonical AI source bucket. `domain` is what we persist in
  *  ga4_ai_referral_daily.source_domain; `label` is the operator-facing name. */
-export type AiSource = {
+type AiSource = {
   domain: string;
   label: string;
 };
@@ -48,7 +48,7 @@ const YOU: AiSource = { domain: "you.com", label: "You.com" };
 const META: AiSource = { domain: "meta.ai", label: "Meta AI" };
 
 /** Exact-host matches (post-normalization). The authoritative tier. */
-export const AI_SOURCE_EXACT: ReadonlyMap<string, AiSource> = new Map([
+const AI_SOURCE_EXACT: ReadonlyMap<string, AiSource> = new Map([
   ["chatgpt.com", CHATGPT],
   ["chat.openai.com", CHATGPT],
   ["openai.com", CHATGPT],
@@ -63,7 +63,7 @@ export const AI_SOURCE_EXACT: ReadonlyMap<string, AiSource> = new Map([
 
 /** Contains-based fallback for variant hosts. Order matters: first hit wins.
  *  Short/ambiguous hosts (you.com, meta.ai) are intentionally NOT here. */
-export const AI_SOURCE_CONTAINS: ReadonlyArray<{ token: string; source: AiSource }> = [
+const AI_SOURCE_CONTAINS: ReadonlyArray<{ token: string; source: AiSource }> = [
   { token: "chatgpt", source: CHATGPT },
   { token: "chat.openai", source: CHATGPT },
   { token: "perplexity", source: PERPLEXITY },
@@ -107,10 +107,3 @@ export function classifyAiSource(raw: string | null | undefined): AiSource | nul
   return null;
 }
 
-/** Operator label for a persisted canonical source_domain; falls back to the
- *  raw domain so an unknown value still renders something honest. */
-export function aiSourceLabel(domain: string | null | undefined): string {
-  if (domain == null || domain.trim() === "") return "an AI assistant";
-  const hit = classifyAiSource(domain);
-  return hit != null ? hit.label : domain.trim();
-}

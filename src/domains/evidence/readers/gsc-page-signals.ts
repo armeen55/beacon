@@ -22,6 +22,7 @@ import "server-only";
 
 import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { reportingDay } from "@/lib/reporting-day";
 import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { readLastFinalizedDate } from "@/domains/measurement/proof-gsc/gsc-window";
 import { log } from "@/lib/logger";
@@ -103,9 +104,7 @@ async function loadGscPageSignalsForTenantUncached(
   };
   const rpcRows: RpcRow[] = [];
   try {
-    const since = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
-      .toISOString()
-      .slice(0, 10);
+    const since = reportingDay(now.getTime() - WINDOW_DAYS * 86_400_000);
     const sb = getSupabaseAdmin();
     for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
       const { data, error } = await sb
@@ -178,9 +177,7 @@ async function loadGscPageSignalsForTenantUncached(
   // but no visible queries get an entry with empty topQueries. Soft-fail
   // (keep the page+query totals) when the table is empty / unread (pre-backfill).
   try {
-    const sinceTotals = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
-      .toISOString()
-      .slice(0, 10);
+    const sinceTotals = reportingDay(now.getTime() - WINDOW_DAYS * 86_400_000);
     const sbTotals = getSupabaseAdmin();
     const totalsByPage = new Map<
       string,
@@ -300,9 +297,7 @@ export async function loadGscSiteTotalsForTenant(
   now: Date = new Date(),
 ): Promise<GscSiteTotals | null> {
   try {
-    const since90 = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
-      .toISOString()
-      .slice(0, 10);
+    const since90 = reportingDay(now.getTime() - WINDOW_DAYS * 86_400_000);
 
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
@@ -430,13 +425,12 @@ export async function loadGscDecaySignalsForTenant(
   // gsc_page_totals watermark fix; falls back to `now` when no finalized data
   // exists (best-effort, today's behavior).
   const lastFinal = await readLastFinalizedDate(tenantId).catch(() => null);
-  const anchorMs = lastFinal
-    ? new Date(`${lastFinal}T00:00:00.000Z`).getTime()
-    : now.getTime();
-  // The "now" window ends on the anchor (last finalized GSC day, or today when no
-  // finalized data exists). Surfaces render this so the clicks delta names its exact
-  // window end instead of an undated "last 4 weeks".
-  const windowNowEnd = (lastFinal ?? new Date(anchorMs).toISOString().slice(0, 10));
+  // The "now" window ends on the anchor: the last finalized GSC day, or the current
+  // reporting day when no finalized data exists. Surfaces render this so the clicks
+  // delta names its exact window end instead of an undated "last 4 weeks". Anchoring
+  // on a day LABEL keeps the split arithmetic below pure day math.
+  const windowNowEnd = lastFinal ?? reportingDay(now);
+  const anchorMs = Date.parse(`${windowNowEnd}T00:00:00.000Z`);
   const splitMs = anchorMs - DECAY_WINDOW_DAYS * 86_400_000;
   const split = new Date(splitMs).toISOString().slice(0, 10);
   const since = new Date(splitMs - DECAY_WINDOW_DAYS * 86_400_000)

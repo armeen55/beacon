@@ -132,21 +132,21 @@ function plainAppearanceLabel(kind: string): string {
 
 /** Rich-results share only speaks when at least this many total appearances
  *  exist for the week (a share over a handful of rows is noise). */
-export const APPEARANCE_MIN_TOTAL_IMPRESSIONS = 500;
+const APPEARANCE_MIN_TOTAL_IMPRESSIONS = 500;
 /** "Meaningful share" floor for the celebration line: 1 in 10 appearances. */
-export const APPEARANCE_MEANINGFUL_SHARE = 0.1;
+const APPEARANCE_MEANINGFUL_SHARE = 0.1;
 /** The quiet drop line fires when this week's share fell to under 60 percent
  *  of last week's (a styling regression smell), off a real prior share. */
-export const APPEARANCE_DROP_FACTOR = 0.6;
+const APPEARANCE_DROP_FACTOR = 0.6;
 const APPEARANCE_DROP_MIN_PRIOR_SHARE = 0.05;
 
 /** Device visitors line floor: under this many weekly clicks, stay silent. */
-export const DEVICE_MIN_WEEKLY_CLICKS = 30;
+const DEVICE_MIN_WEEKLY_CLICKS = 30;
 
 /** Country line floor: under this many weekly clicks, a market split is noise. */
-export const COUNTRY_MIN_WEEKLY_CLICKS = 30;
+const COUNTRY_MIN_WEEKLY_CLICKS = 30;
 /** A second market only earns a mention at or above this share of clicks. */
-export const COUNTRY_SECOND_MARKET_MIN_SHARE = 0.05;
+const COUNTRY_SECOND_MARKET_MIN_SHARE = 0.05;
 
 // ---------------------------------------------------------------------------
 // Plain country names for Google's alpha-3 codes. Unknown codes self-hide
@@ -210,7 +210,7 @@ const COUNTRY_PLAIN_NAME: Record<string, string> = {
 /** Plain-words name for one alpha-3 country code, or null when we do not have a
  *  plain name for it (the country line skips codes it cannot render, so no raw
  *  code ever reaches a surface). */
-export function plainCountryLabel(code: string): string | null {
+function plainCountryLabel(code: string): string | null {
   return COUNTRY_PLAIN_NAME[(code ?? "").toLowerCase()] ?? null;
 }
 
@@ -269,7 +269,7 @@ function totalDeviceClicks(snapshot: GscWeeklyDimensionsSnapshot): number {
  *  over the device-grain total (devices are exhaustive, so their sum is the
  *  honest denominator). Clamped to 1 because one result can carry several
  *  styling kinds at once. Null when the denominator is under the floor. */
-export function appearanceShareOf(snapshot: GscWeeklyDimensionsSnapshot): number | null {
+function appearanceShareOf(snapshot: GscWeeklyDimensionsSnapshot): number | null {
   const total = totalDeviceImpressions(snapshot);
   if (total < APPEARANCE_MIN_TOTAL_IMPRESSIONS) return null;
   const styled = snapshot.appearance.reduce((s, a) => s + (Number(a.impressions) || 0), 0);
@@ -302,7 +302,7 @@ function pct(share: number): string {
 }
 
 /** The celebration line, only at a meaningful share. */
-export function buildAppearanceLine(snapshot: GscWeeklyDimensionsSnapshot): string | null {
+function buildAppearanceLine(snapshot: GscWeeklyDimensionsSnapshot): string | null {
   const share = appearanceShareOf(snapshot);
   if (share == null || share < APPEARANCE_MEANINGFUL_SHARE) return null;
   const labels = topAppearanceLabels(snapshot);
@@ -315,7 +315,7 @@ export function buildAppearanceLine(snapshot: GscWeeklyDimensionsSnapshot): stri
 }
 
 /** The quiet week-over-week fall line (a styling regression smell). */
-export function buildAppearanceDropLine(
+function buildAppearanceDropLine(
   current: GscWeeklyDimensionsSnapshot,
   prior: GscWeeklyDimensionsSnapshot | null,
 ): string | null {
@@ -333,7 +333,7 @@ export function buildAppearanceDropLine(
 }
 
 /** "7 in 10 of your Google visitors are on phones." from the week's clicks. */
-export function buildDeviceLine(snapshot: GscWeeklyDimensionsSnapshot): string | null {
+function buildDeviceLine(snapshot: GscWeeklyDimensionsSnapshot): string | null {
   const total = totalDeviceClicks(snapshot);
   if (total < DEVICE_MIN_WEEKLY_CLICKS) return null;
   const mobile = deviceRow(snapshot, "MOBILE");
@@ -354,7 +354,7 @@ export function buildDeviceLine(snapshot: GscWeeklyDimensionsSnapshot): string |
  * floor, or when the top market has no plain-words name (never a raw code).
  * A single-market property gets the honest one-clause version.
  */
-export function buildCountryLine(snapshot: GscWeeklyDimensionsSnapshot): string | null {
+function buildCountryLine(snapshot: GscWeeklyDimensionsSnapshot): string | null {
   const rows = (snapshot.countries ?? []).filter((c) => (Number(c.clicks) || 0) > 0);
   if (rows.length === 0) return null;
   const total = rows.reduce((s, c) => s + (Number(c.clicks) || 0), 0);

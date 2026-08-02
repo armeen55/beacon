@@ -396,4 +396,3 @@ export async function latestRefreshBySource(
   return out;
 }
 
-export const __testing = { isMissingTable, durationMs, rowsPersistedOf };

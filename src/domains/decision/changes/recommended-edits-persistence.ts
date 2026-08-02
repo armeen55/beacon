@@ -2,10 +2,12 @@
  * recommended_edits persistence layer — the durable queue for exact-edit
  * recommendations.
  *
- * Owns the `recommended_edits` row shape, its lifecycle state machine
- * (recommended → accepted → pushed/verified_live/…), file-first
- * persistence to `.data/recommended-edits.json` (idempotent by
- * deterministic `id`), and the Supabase dual-write.
+ * Owns the `recommended_edits` row shape, file-first persistence to
+ * `.data/recommended-edits.json` (idempotent by deterministic `id`), and the
+ * Supabase dual-write. The multi-step lifecycle this store was built around is
+ * gone: one transition survives (`markRecommendedEditsAsShipped`, which stamps
+ * `verified_live`). See `ImplementationStatus` below for the verified liveness of
+ * every stored value.
  *
  * Core 100K wave 2 (DECISION kernel collapse): the drafting/generation
  * orchestration (provider bundle → validate → map → persist) was deleted
@@ -21,6 +23,9 @@
  *     (rec_id, action_type, target_element_key) unique index.
  *   - Forward-only: a re-generation never downgrades a lifecycle-locked
  *     row (accepted / verified_live / dismissed / …) back to recommended.
+ *
+ * The `verified_live` transition is guarded by that same forward-only rule, so a
+ * row already past it is a no-op rather than a rewrite.
  */
 
 import "server-only";
@@ -46,7 +51,7 @@ import type { ActionType } from "./action-types";
  *   - "openai" / "anthropic" — LLM-provider rows (historical provenance)
  *   - "operator_edited" — the operator hand-edited an existing row
  */
-export type SpecificEditSource =
+type SpecificEditSource =
   | "deterministic"
   | "deterministic_promotion"
   | "openai"
@@ -61,7 +66,7 @@ export type SpecificEditSource =
  *   - competitor: a competitor name
  *   - prior_outcome: a prior action type
  */
-export type SpecificEditEvidenceRef =
+type SpecificEditEvidenceRef =
   | { type: "prompt"; promptId: string }
   | { type: "element"; elementKey: string; url: string }
   | { type: "owned_page"; url: string }
@@ -73,26 +78,38 @@ export type SpecificEditEvidenceRef =
 // ---------------------------------------------------------------------------
 
 /**
- * Recommendation Lifecycle OS — Phase 1 (2026-04-27).
+ * LEGACY VOCABULARY. This is the stored `recommended_edits.implementation_status`
+ * domain, not a lifecycle this product still runs. The generation that owned the
+ * match engine, the push adapters and the nightly queue sweeper was deleted; what
+ * survives is the column and the rows already written under it, so the union is
+ * kept WIDE on purpose. Narrowing it would make a stored row unreadable.
  *
- * Per-edit lifecycle state. Invariant: forward-only state machine
- * (recommended -> accepted -> pushed/verified_live/dismissed); a
- * re-generation never downgrades a lifecycle-locked row. See docs/architecture.md.
+ * Verified against this tree (V1 consolidation, 2026-08-02):
  *
- * Phase 1 ships only the SHAPE (this union + the 7 new persistence
- * columns) and the `recommended` → `accepted` transition. The remaining
- * states (`verified_live` etc.) are populated by the match engine in
- * Phase 3. UI surfacing is Phase 6. Until then, callers MUST treat
- * undefined as `recommended` at the read boundary — legacy file rows
- * predate this column.
+ *   WRITTEN by surviving code: `verified_live` only, and only by
+ *     `markRecommendedEditsAsShipped` below.
+ *   READ / branched on: `recommended` (the `editLifecycleStatus` default and the
+ *     "accept it first" gate in app/(shell)/changes/actions.ts), `accepted` (the
+ *     Mark-shipped gate + the card's `canMarkShipped`), and `not_found_after_7d`
+ *     (proof-timeline/result-pill.ts).
+ *   NEITHER written nor read: `pushed`, `push_failed`, `verified_live_modified`,
+ *     `needs_review`, `wrong_page`, `partially_implemented`, `expired`,
+ *     `dismissed`. They exist only in rows a prior generation wrote.
+ *
+ * Note the consequence, since it is a real product gap and not a typo: nothing in
+ * this tree writes `accepted`, so the Mark-shipped affordance only ever unlocks
+ * for rows already stored as `accepted`.
+ *
+ * This union is NOT the proof-timeline pill vocabulary and NOT draft-quality's
+ * verdicts. Those are separate vocabularies that happen to share words.
+ *
+ * A missing value reads as `recommended` (the DB column DEFAULT); legacy file rows
+ * predate the column entirely.
  */
 export type ImplementationStatus =
   | "recommended"
   | "accepted"
-  /** §push (2026-06-10): Beacon itself published the approved edit.
-   *  Reachable ONLY via the human "Approve & Push" action. */
   | "pushed"
-  /** §push: the adapter call failed; card stays actionable. */
   | "push_failed"
   | "verified_live"
   | "verified_live_modified"
@@ -100,16 +117,11 @@ export type ImplementationStatus =
   | "wrong_page"
   | "partially_implemented"
   | "not_found_after_7d"
-  /** Night-shift #114 (2026-06-11): auto-expired by the nightly queue
-   *  sweeper — TTL or per-tenant queue-cap overflow. ONLY auto-promoted
-   *  rows (source deterministic_promotion) ever get this status; it is
-   *  machine hygiene, not operator rejection (cooldown 30d, vs 90d for
-   *  dismissed). */
   | "expired"
   | "dismissed";
 
 /** Phase 1: confidence tier emitted by the (future Phase 2) match engine. */
-export type LiveMatchConfidence = "high" | "medium" | "low";
+type LiveMatchConfidence = "high" | "medium" | "low";
 
 /**
  * Phase 1 (extended Phase 3, 2026-04-27): kind of match emitted by
@@ -132,7 +144,7 @@ export type LiveMatchConfidence = "high" | "medium" | "low";
  * stay `verified_live` and the kind may be upgraded; downgrades are
  * blocked by the lifecycle's forward-only contract.
  */
-export type LiveMatchKind =
+type LiveMatchKind =
   | "exact"
   | "modified"
   | "key_only"

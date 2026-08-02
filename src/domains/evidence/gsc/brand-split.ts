@@ -74,7 +74,7 @@ export function brandTokensForConfig(cfg: {
 /** One visible query row for the split (page grain is irrelevant here). */
 export type BrandSplitRow = { date: string; query: string; clicks: number };
 
-export type WeekBrandSplit = {
+type WeekBrandSplit = {
   /** Clicks from searches that do NOT mention the business name. */
   nonBrandClicks: number;
   /** Clicks from searches that DO mention the business name. */

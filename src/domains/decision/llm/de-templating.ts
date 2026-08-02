@@ -13,7 +13,7 @@
  * Deterministic, PURE - no I/O. Pinned by de-templating.test.ts.
  */
 
-export const REPEAT_THRESHOLD = 0.7;
+const REPEAT_THRESHOLD = 0.7;
 
 /** How many recent same-family outputs the gateway compares against. */
 export const REPEAT_HISTORY_SIZE = 20;
@@ -30,7 +30,7 @@ function words(text: string): string[] {
 }
 
 /** Word n-gram set (default 3-grams). Short texts fall back to smaller grams. */
-export function ngramSet(text: string, n = 3): Set<string> {
+function ngramSet(text: string, n = 3): Set<string> {
   const ws = words(text);
   const size = Math.min(n, Math.max(1, ws.length));
   const out = new Set<string>();
@@ -44,7 +44,7 @@ export function ngramSet(text: string, n = 3): Set<string> {
  * Containment overlap: what share of the NEW text's n-grams already appear in
  * the prior text. 0 when either side is empty.
  */
-export function ngramOverlap(next: string, prior: string, n = 3): number {
+function ngramOverlap(next: string, prior: string, n = 3): number {
   const a = ngramSet(next, n);
   if (a.size === 0) return 0;
   const b = ngramSet(prior, n);
@@ -55,7 +55,7 @@ export function ngramOverlap(next: string, prior: string, n = 3): number {
 }
 
 /** Highest overlap of `text` against any of the recent same-family outputs. */
-export function repeatSimilarity(text: string, priors: ReadonlyArray<string>, n = 3): number {
+function repeatSimilarity(text: string, priors: ReadonlyArray<string>, n = 3): number {
   let max = 0;
   for (const p of priors.slice(0, REPEAT_HISTORY_SIZE)) {
     const s = ngramOverlap(text, p, n);

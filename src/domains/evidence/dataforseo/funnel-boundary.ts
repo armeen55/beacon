@@ -136,8 +136,8 @@ export type ParsedByCapability = {
  *  Claude are DIFFERENT contracts (live-verified 2026-07-25): ChatGPT llm_responses rejects force_web_search on reasoning models (in-body 40501) and every
  *  current ChatGPT model reports reasoning true, so ChatGPT accepts web_search ONLY, never force or country. Claude documents force and country and
  *  conflicts only with use_reasoning, which Beacon never sends. The dedicated ChatGPT SCRAPER is a separate API where force is documented. */
-export type ChatGptWebInput = { user_prompt: string; web_search?: boolean };
-export type ClaudeWebInput = { user_prompt: string; web_search?: boolean; force_web_search?: boolean; web_search_country_iso_code?: string };
+type ChatGptWebInput = { user_prompt: string; web_search?: boolean };
+type ClaudeWebInput = { user_prompt: string; web_search?: boolean; force_web_search?: boolean; web_search_country_iso_code?: string };
 /** THE observation identity every LLM ask carries: which reporting day this reading belongs to, and which deliberate sample of that day it is. NEITHER is
  *  ever sent to the provider (no builder emits them); they exist so the cache identity tells three different questions apart. Without them a second sample
  *  was a byte-identical $0 replay of the first, and a 23:00 Monday answer could be re-served as Tuesday's. */

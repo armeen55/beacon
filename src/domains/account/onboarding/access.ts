@@ -30,7 +30,7 @@ import { lookupExistingMembership } from "./provision-tenant";
 import { mapRowToAccount } from "@/domains/account/tenants/store";
 import type { Account } from "@/domains/account/tenants/types";
 
-export type OnboardingTenantContext = {
+type OnboardingTenantContext = {
   user: { id: string; email: string };
   tenantId: string;
   tenant: Pick<

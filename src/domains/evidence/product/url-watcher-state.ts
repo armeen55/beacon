@@ -18,11 +18,11 @@ import "server-only";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-export type UrlWatcherPhase = "idle" | "running" | "success" | "failed";
+type UrlWatcherPhase = "idle" | "running" | "success" | "failed";
 
 export type UrlWatcherTrigger = "page-load" | "import" | "cron" | "manual";
 
-export type UrlWatcherStateFile = {
+type UrlWatcherStateFile = {
   schemaVersion: 1;
   phase: UrlWatcherPhase;
   updatedAt: string;
@@ -50,10 +50,10 @@ const DATA_DIR = join(process.cwd(), ".data");
 const STATE_FILE_NAME = "url-watcher-state";
 
 /** 6-hour throttle — mirrors scan-state freshness convention. */
-export const URL_WATCHER_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const URL_WATCHER_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 /** Running watcher older than this is assumed crashed/orphaned. */
-export const URL_WATCHER_STALE_RUNNING_MS = 10 * 60 * 1000;
+const URL_WATCHER_STALE_RUNNING_MS = 10 * 60 * 1000;
 
 /**
  * Phase 3.2 (Sprint 3, 2026-04-24) — Vercel in-memory state path.
@@ -109,7 +109,7 @@ export function readUrlWatcherState(
   }
 }
 
-export function writeUrlWatcherState(
+function writeUrlWatcherState(
   state: UrlWatcherStateFile,
   tenantId: string,
 ): void {
@@ -129,18 +129,18 @@ export function writeUrlWatcherState(
  * callers. Needed because module-level state survives across tests unless
  * explicitly cleared.
  */
-export function __resetVercelMemoryStateForTests(): void {
+function __resetVercelMemoryStateForTests(): void {
   _vercelMemoryByTenant.clear();
 }
 
 /** Milliseconds since the last successful run finished, or `null` if never. */
-export function msSinceLastSuccess(state: UrlWatcherStateFile | null): number | null {
+function msSinceLastSuccess(state: UrlWatcherStateFile | null): number | null {
   if (!state?.lastSuccessAt) return null;
   return Date.now() - new Date(state.lastSuccessAt).getTime();
 }
 
 /** Milliseconds a currently-running watcher has been running, or `null`. */
-export function runningAgeMs(state: UrlWatcherStateFile | null): number | null {
+function runningAgeMs(state: UrlWatcherStateFile | null): number | null {
   if (!state || state.phase !== "running") return null;
   return Date.now() - new Date(state.updatedAt).getTime();
 }
@@ -150,7 +150,7 @@ export function runningAgeMs(state: UrlWatcherStateFile | null): number | null {
  * True → another caller should NOT start a parallel run.
  * False → safe to start a new run (either not running, or stale-running crash).
  */
-export function isWatcherRunningAndFresh(state: UrlWatcherStateFile | null): boolean {
+function isWatcherRunningAndFresh(state: UrlWatcherStateFile | null): boolean {
   const age = runningAgeMs(state);
   if (age === null) return false;
   return age < URL_WATCHER_STALE_RUNNING_MS;

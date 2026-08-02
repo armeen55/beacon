@@ -181,7 +181,6 @@ export async function ResultsTimeline() {
     return (
       <ChangesV2Client
         rows={enriched}
-        classByChangelogId={{}}
         editStatusByChangelogId={editStatusByChangelogId}
         proofLedgerCount={proofLedgerCount}
         showHeader={false}

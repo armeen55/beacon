@@ -30,7 +30,7 @@ function stubProvider(id: AdNetworkProviderId, label: string): AdNetworkProvider
   };
 }
 
-export const AD_NETWORK_PROVIDERS: readonly AdNetworkProvider[] = [
+const AD_NETWORK_PROVIDERS: readonly AdNetworkProvider[] = [
   stubProvider("adsense", "Google AdSense"),
   stubProvider("mediavine", "Mediavine"),
   stubProvider("raptive", "Raptive"),

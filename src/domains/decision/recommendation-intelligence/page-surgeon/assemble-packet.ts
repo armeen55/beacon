@@ -97,7 +97,7 @@ export type EvidencePacket = {
   boilerplateTerms?: string[];
 };
 
-export type PageSurgeonContext = {
+type PageSurgeonContext = {
   tenantId: string;
   brand: { separator: string; suffix: string } | null;
   boilerplateTerms: string[];

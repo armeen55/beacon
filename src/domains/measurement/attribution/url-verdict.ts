@@ -169,9 +169,9 @@ export type VerdictLabel =
  * the tag is absent on any point in a window, the guard does not fire and
  * the engine behaves as before.
  */
-export type DailyPointSource = "benchmark" | "derived";
+type DailyPointSource = "benchmark" | "derived";
 
-export type VerdictExplanation = {
+type VerdictExplanation = {
   /** Plain English narrative (~1–2 sentences) summarising the math. */
   summary: string;
   /** Structured math so a UI panel can render the derivation. */
@@ -198,7 +198,7 @@ export type VerdictExplanation = {
  *
  * Absent (undefined) when the guard didn't fire — the common case.
  */
-export type SamplingGuardDemotion = {
+type SamplingGuardDemotion = {
   from: "helping" | "hurting";
   to: "nothing_yet";
   reason: "proof_day_in_post_window" | "no_full_days_in_post_window";
@@ -218,7 +218,7 @@ export type SamplingGuardDemotion = {
  * Absent (undefined) when the precondition was satisfied — the common
  * case.
  */
-export type PreFullPollDemotion = {
+type PreFullPollDemotion = {
   from: "helping" | "hurting" | "weak_signal";
   to: "nothing_yet";
   reason: "sparse_pre_full_poll_days";
@@ -291,7 +291,7 @@ export type DailyPoint = {
   sampling_status?: DailyPointSamplingStatus;
 };
 
-export type ComputeVerdictInput = {
+type ComputeVerdictInput = {
   /** Day-by-day citation counts for the URL, sorted ascending by date,
    *  ZERO-FILLED (use `denseSeries` from url-citation-history.ts). */
   series: DailyPoint[];
@@ -744,28 +744,3 @@ function buildSummary(args: {
 // Convenience: plain-English label for the verdict pill.
 // ---------------------------------------------------------------------------
 
-export const VERDICT_LABEL: Record<VerdictLabel, string> = {
-  helping: "Helping",
-  hurting: "Hurting",
-  // T5.2 (2026-05-06) — customer-safe directional label. NEVER "Win" /
-  // "Proof" / "Confirmed". Operator-locked at the SYSTEM_PROMPT level
-  // for every consumer (lifecycle copy + status pill + provenance).
-  weak_signal: "Early signs of lift",
-  nothing_yet: "Nothing yet",
-  too_early: "Too early",
-  not_enough_data: "No baseline",
-  not_enough_native_baseline: "Not enough native data yet",
-  not_implemented: "Not implemented",
-};
-
-export const VERDICT_TONE: Record<VerdictLabel, "success" | "danger" | "muted" | "neutral"> = {
-  helping: "success",
-  hurting: "danger",
-  // T5.2 — yellow / amber band; visually distinct from helping (success).
-  weak_signal: "neutral",
-  nothing_yet: "muted",
-  too_early: "neutral",
-  not_enough_data: "muted",
-  not_enough_native_baseline: "neutral",
-  not_implemented: "muted",
-};

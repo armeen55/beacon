@@ -201,15 +201,15 @@ export function retainDiverse(retained: FunnelKeyword[], cap: number): FunnelKey
  *  Optional: a caller with no page says so by leaving it out rather than by naming a page it did not read. */
 export type SerpAgendaPageQuery = { query: string; impressions?: number | null; declining?: boolean; page?: string | null };
 /** ONE tracked question: its approved text plus the fan-out queries actually observed for it. */
-export type SerpAgendaPrompt = { text: string; fanOutQueries?: string[] | null };
+type SerpAgendaPrompt = { text: string; fanOutQueries?: string[] | null };
 /** WHERE ONE AGENDA QUERY CAME FROM. `fan_out` is a search an ENGINE ran itself to answer a question; `prompt` is the approved text of a question I track;
  *  `keyword` is a search phrase, from my own pages, an open investigation, or the researched set. fan_out and prompt both enter the agenda and must never
  *  be confused: reporting my own question as the engine's own search invents an observation nobody made. */
-export type AgendaSource = "fan_out" | "prompt" | "keyword";
+type AgendaSource = "fan_out" | "prompt" | "keyword";
 /** queries is the ONLY thing anyone buys, and `sources` says where each one came from so no reader
  *  downstream has to guess. uncoveredThemes and skipped are internal progress truth for the run log,
  *  never customer copy. */
-export type SerpAgenda = { queries: string[]; sources: Record<string, AgendaSource>; uncoveredThemes: string[]; skipped: { query: string; reason: string }[] };
+type SerpAgenda = { queries: string[]; sources: Record<string, AgendaSource>; uncoveredThemes: string[]; skipped: { query: string; reason: string }[] };
 
 /** Volume desc with a lexicographic tiebreak: a TOTAL order, never input order. */
 const byVolume = (a: FunnelKeyword, b: FunnelKeyword) =>

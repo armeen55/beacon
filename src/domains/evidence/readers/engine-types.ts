@@ -29,27 +29,9 @@ export const ENGINE_PLAIN_NAME: Record<EngineId, string> = {
   claude: "Claude",
 };
 
-/** `source` stamped on observation_runs + observation metadata, one per
- *  engine. NEW values (additive): the legacy chunked pipeline's
- *  "openai-native-poll" / "perplexity-native-poll" sources and poll-health's
- *  4-chunk contract are left untouched - poll-health simply does not count
- *  these runs, which is correct (different pipeline, different shape). */
-export const ENGINE_OBSERVATION_SOURCE: Record<EngineId, string> = {
-  chatgpt: "ai-engines-openai",
-  perplexity: "ai-engines-perplexity",
-  gemini: "ai-engines-dataforseo-gemini",
-  claude: "ai-engines-dataforseo-claude",
-};
-
 // ---------------------------------------------------------------------------
 // COST DISCIPLINE CONSTANTS (nightly ceilings). The DataForSEO calls ALSO ride
 // the shared fail-closed monthly cap in dataforseo-serp.ts ($50/mo default),
 // which is the real backstop; these bound the worst single night.
 // ---------------------------------------------------------------------------
 
-/** Engines that go through the paid DataForSEO llm_responses path. */
-export const DATAFORSEO_ENGINES: readonly EngineId[] = ["gemini", "claude"];
-
-/** How many engine-gap findings may feed the daily candidate builder per
- *  night. Bounded so gaps season the plan instead of flooding it. */
-export const MAX_ENGINE_GAP_CANDIDATES_PER_NIGHT = 3;

@@ -74,7 +74,7 @@ import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/p
  * Pure. Deterministic. Empty input → empty map. Date keys are ISO
  * `YYYY-MM-DD` slices of `observed_at`.
  */
-export function buildSamplingStatusByDate(
+function buildSamplingStatusByDate(
   observations: ReadonlyArray<PromptAnswerObservation>,
 ): Map<string, DailyPointSamplingStatus> {
   const countByDate = new Map<string, number>();
@@ -95,7 +95,7 @@ export function buildSamplingStatusByDate(
 
 /** Stamp `sampling_status` onto each dense-series point whose date appears in the supplied map.
  *  Returns a NEW array, never mutating the caller's; untagged dates stay as-is. Pure. */
-export function stampSamplingStatus(
+function stampSamplingStatus(
   series: ReadonlyArray<DailyPoint>,
   samplingStatusByDate: ReadonlyMap<string, DailyPointSamplingStatus> | undefined,
 ): DailyPoint[] {
@@ -121,10 +121,6 @@ const TERMINAL_VERDICTS: ReadonlySet<VerdictLabel> = new Set<VerdictLabel>([
   // on its own.
   "not_implemented",
 ]);
-
-export function isTerminalVerdict(v: VerdictLabel): boolean {
-  return TERMINAL_VERDICTS.has(v);
-}
 
 /**
  * Trust Sprint T6.7 (2026-05-06) — verdicts whose FRESH insert is
@@ -162,7 +158,7 @@ const FRESH_INSERT_VERDICTS: ReadonlySet<VerdictLabel> = new Set<VerdictLabel>([
  * caller skips the lifecycle short-circuit for null keys — those
  * rows fall through to the standard Z-score path.
  */
-export function lifecycleLookupKey(input: {
+function lifecycleLookupKey(input: {
   source_rec_id?: string | null;
   action_type?: string | null;
   target_element_key?: string | null;
@@ -270,12 +266,6 @@ export async function ensureUrlChangeOutcomesSeeded(): Promise<void> {
   await ensureLoaded();
 }
 
-/** Resets the seed cache. Call after a write that should be reflected on
- *  the next read in this process. */
-export function invalidateUrlChangeOutcomesSeed(): void {
-  _byTenant.clear();
-}
-
 /**
  * Verdicts that count as "currently being watched" for UI surfaces (sidebar
  * badge, /changes strip, etc.). `helping` is a settled win \u2014 excluded from
@@ -324,7 +314,7 @@ export async function getWatchingUrlOutcomes(): Promise<UrlChangeOutcome[]> {
  * outcome record. With 30d cap and 300 changes × 16 URLs ≈ 144K max calls
  * per watcher run worst-case — verdict compute is ~50µs so ~7s max. Fine.
  */
-export function findLandingDay(
+function findLandingDay(
   series: DailyPoint[],
   changeDate: string,
   targetVerdict: VerdictLabel,
@@ -385,7 +375,7 @@ export function findLandingDay(
  *
  * Returns null when skipped; otherwise the up-to-date record (new or updated).
  */
-export async function recordUrlOutcome(input: {
+async function recordUrlOutcome(input: {
   change: ChangelogEntry;
   normalizedUrl: string;
   verdict: UrlVerdict;
@@ -496,7 +486,7 @@ export async function recordUrlOutcome(input: {
  * default to off / null so legacy callers (and the entire flag-OFF
  * code path) get byte-identical behavior.
  */
-export type ComputeVerdictOptions = {
+type ComputeVerdictOptions = {
   /**
    * When true, baseline-split timestamp = `change.live_at ?? change.timestamp`.
    * When false / absent, baseline-split timestamp = `change.timestamp`
@@ -532,7 +522,7 @@ export type ComputeVerdictOptions = {
  * OR when the entry has no `live_at`. Backwards compatible by
  * construction.
  */
-export function resolveChangeDate(
+function resolveChangeDate(
   change: ChangelogEntry,
   useLiveAt: boolean,
 ): string {
@@ -576,7 +566,7 @@ function buildNotImplementedVerdict(): UrlVerdict {
   };
 }
 
-export function computeChangeVerdict(
+function computeChangeVerdict(
   change: ChangelogEntry,
   history: UrlCitationHistory,
   asOfDate?: string,

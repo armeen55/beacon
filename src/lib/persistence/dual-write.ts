@@ -34,7 +34,7 @@ function isNonRetryableError(msg: string): boolean {
   );
 }
 
-export async function dualWriteUpsert(
+async function dualWriteUpsert(
   table: string,
   rows: Record<string, unknown>[],
   primaryKey: string,
@@ -317,7 +317,6 @@ export async function syncPages(
 // syncPageIssues removed 2026-07-21 (CORE 100K Lane O): zero prod callers -
 // the contract/issue write paths that fed them were retired in earlier
 // campaigns. The tenant-scoped READ paths (getChangeContracts) stay live.
-
 
 /** The per-day uniqueness index on prompt_answer_observations:
  *  (tenant_id, prompt_id, platform, (observed_at AT TIME ZONE 'UTC')::date).
@@ -671,68 +670,6 @@ export async function syncRecommendedEdits(
     rows as unknown as Array<{ tenant_id?: string | null } & Record<string, unknown>>,
     "tenant_id,rec_id,action_type,target_element_key",
     tenantId,
-  );
-}
-
-/**
- * Sprint 6A.1 Phase 6 (2026-04-24) - page_element_inventory dual-write.
- *
- * Idempotent on `(tenant_id, source_snapshot_id, element_key)` - re-
- * extracting the same snapshot for the same tenant replaces existing
- * rows in place rather than accumulating duplicates. The unique index
- * `ux_pei_tenant_snapshot_element_key` enforces this at the DB level.
- * Different snapshots (different `id`) keep their own inventory rows
- * so the table doubles as a per-scan audit trail.
- *
- * 2026-04-27 onConflict-audit fix: the spec was previously
- * `"source_snapshot_id,element_key"` (missing `tenant_id`) - same bug
- * class as the recommendation_responses + recommended_edits Sprint
- * 6A.2f fixes. The Phase 7.7d multi-tenant migration extended the
- * unique index to include `tenant_id` as the leading column, but the
- * dual-write spec was not updated alongside. Surfaced during the
- * Phase 3/4 lifecycle automation safety gate as:
- *   "[dual-write] page_element_inventory: there is no unique or
- *    exclusion constraint matching the ON CONFLICT specification"
- * Verified production index via `pg_indexes` before patching:
- *   ux_pei_tenant_snapshot_element_key
- *     ON page_element_inventory (tenant_id, source_snapshot_id, element_key)
- *
- * Rows arrive already snake_cased + DB-shaped from
- * `buildPageElementRows` in `src/domains/evidence/pages/extractors/persist.ts` -
- * pass-through, no mapping needed.
- */
-export async function syncPageElementInventory(
-  rows: import("@/domains/evidence/pages/extractors/persist").PageElementInventoryRow[],
-  tenantId: string,
-): Promise<void> {
-  const stamped = tenantizeRows(rows, tenantId, "page_element_inventory");
-
-  // 2026-04-27 onConflict-audit follow-up: dedupe by the compound
-  // unique-index key before upsert. Same defensive pattern as
-  // syncObservationRuns. Real-world cause: the JSON-LD extractor can
-  // emit the same `(source_snapshot_id, element_key)` twice when a
-  // Review block on the page has duplicated child properties (e.g.
-  // two reviewRating.ratingValue entries from a malformed schema
-  // block). Without dedup, the upsert batch contains two rows
-  // targeting the same DB row → Postgres rejects with:
-  //   "ON CONFLICT DO UPDATE command cannot affect row a second time"
-  // Keep LAST occurrence (matches observation_runs semantics + the
-  // file-first replace-by-id contract elsewhere).
-  // Architecture invariant in tests/architecture/dual-write-onconflict.test.ts
-  // pins both the onConflict spec AND the dedup line presence.
-  const dedupedByKey = new Map<string, typeof stamped[number]>();
-  for (const row of stamped) {
-    const key = `${row.source_snapshot_id}|${row.element_key}`;
-    if (typeof row.source_snapshot_id === "string" && typeof row.element_key === "string") {
-      dedupedByKey.set(key, row);
-    }
-  }
-  const dedupedRows = Array.from(dedupedByKey.values());
-
-  await dualWriteUpsert(
-    "page_element_inventory",
-    dedupedRows as unknown as AnyRow[],
-    "tenant_id,source_snapshot_id,element_key",
   );
 }
 

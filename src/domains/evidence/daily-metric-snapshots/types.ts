@@ -1,11 +1,11 @@
-export type SnapshotScopeType =
+type SnapshotScopeType =
   | "prompt"
   | "topic"
   | "entity"
   | "platform"
   | "account";
 
-export type SnapshotSourceType =
+type SnapshotSourceType =
   | "derived"
   | "benchmark";
 

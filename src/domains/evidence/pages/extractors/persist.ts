@@ -5,11 +5,9 @@
  * required by `page_element_inventory` (id / tenant_id / page_id / url /
  * observed_at / source_snapshot_id) and writes the resulting rows.
  *
- * Two entry points:
- *
- *   - `buildPageElementRows({ snapshot, html, tenantId, ... })` - pure.
- *   - `persistPageElements({ ... })` - builds, then writes to Supabase and
- *     throws when the write does not land.
+ * One entry point: `buildPageElementRows({ snapshot, html, tenantId, ... })`,
+ * which is pure. The write path it used to feed was removed once nothing
+ * outside this directory read the inventory.
  *
  * The `id` column is deterministic - `${snapshot.id}__${element_key}` -
  * so re-running with the same inputs produces the same id and the
@@ -22,7 +20,6 @@
 
 import "server-only";
 
-import { syncPageElementInventory } from "@/lib/persistence/dual-write";
 import type { PageSnapshot } from "../types";
 import { extractAllElements } from "./dispatcher";
 import type { ElementType } from "./registry";
@@ -116,18 +113,3 @@ export function buildPageElementRows(
   }));
 }
 
-/**
- * In-process variant: builds the rows and writes them to Supabase. Returns the
- * rows that landed.
- *
- * Fail-closed: a Supabase outage throws instead of returning `[]`. Returning an
- * empty array on a failed write told the caller "this page has no elements",
- * which is indistinguishable from a page that genuinely has none.
- */
-export async function persistPageElements(
-  args: BuildPageElementRowsArgs,
-): Promise<PageElementInventoryRow[]> {
-  const rows = buildPageElementRows(args);
-  await syncPageElementInventory(rows, args.tenantId);
-  return rows;
-}

@@ -39,10 +39,10 @@ const STORE = "crawl-frontier";
  *  the inventory is unbounded, and a real small-business or encyclopedia site is hundreds of pages,
  *  not 150. Per-PASS work is unchanged, so this costs wall clock spread over visits, never one
  *  longer invocation. */
-export const CRAWL_PAGE_CAP = 600;
+const CRAWL_PAGE_CAP = 600;
 /** One batch = one serverless invocation. Both bounds are hard. */
-export const BATCH_MAX_PAGES = 15;
-export const BATCH_BUDGET_MS = 45_000;
+const BATCH_MAX_PAGES = 15;
+const BATCH_BUDGET_MS = 45_000;
 const PER_REQUEST_MS = 8_000;
 /** Politeness delay between sequential pulls. */
 const INTER_FETCH_DELAY_MS = 250;
@@ -69,7 +69,7 @@ export type CrawlPageFact = {
   questions: string[];
 };
 
-export type CrawlFrontierStatus = "in_progress" | "complete" | "unreachable";
+type CrawlFrontierStatus = "in_progress" | "complete" | "unreachable";
 
 export type CrawlFrontierState = {
   tenant_id: string;
@@ -96,7 +96,7 @@ export type CrawlFrontierState = {
   detail?: string;
 };
 
-export type CrawlFrontierDeps = {
+type CrawlFrontierDeps = {
   fetchImpl?: typeof fetch;
   now?: () => number;
   /** Injectable delay so tests never actually wait. */
@@ -129,20 +129,10 @@ export async function loadCrawlFrontier(tenantId: string): Promise<CrawlFrontier
   }
 }
 
-export async function saveCrawlFrontier(state: CrawlFrontierState): Promise<void> {
+async function saveCrawlFrontier(state: CrawlFrontierState): Promise<void> {
   const rows = (await readStore<CrawlFrontierState>(STORE)) ?? [];
   const others = rows.filter((r) => r && r.tenant_id !== state.tenant_id);
   await writeStore<CrawlFrontierState>(STORE, [...others, state]);
-}
-
-/** Every persisted frontier row (the stalled-signup rescue reads the whole set once). */
-export async function loadAllCrawlFrontiers(): Promise<CrawlFrontierState[]> {
-  try {
-    const rows = (await readStore<CrawlFrontierState>(STORE)) ?? [];
-    return rows.filter((r) => r != null && typeof r === "object" && Boolean(r.tenant_id));
-  } catch {
-    return [];
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +143,7 @@ export async function loadAllCrawlFrontiers(): Promise<CrawlFrontierState[]> {
  * PURE frontier math: add newly discovered links to the working set. Skips keys already visited or
  * already queued, and never grows the total workload (visited + queued) past the page cap.
  */
-export function enqueueDiscovered(
+function enqueueDiscovered(
   state: Pick<CrawlFrontierState, "frontier" | "visited" | "page_cap" | "domain">,
   candidates: readonly string[],
   baseUrl?: string,
@@ -182,7 +172,7 @@ export function enqueueDiscovered(
 const QUESTION_SHAPE_RE = /^(what|how|why|when|where|who|which|is|are|does|do|can|should)\b|\?\s*$/i;
 
 /** Question-shaped lines on one snapshot: title, H1/H2s, FAQ questions. */
-export function questionLinesFromSnapshot(snap: {
+function questionLinesFromSnapshot(snap: {
   title: string | null;
   h1: string | null;
   h2_list: string[];
@@ -204,7 +194,7 @@ export function questionLinesFromSnapshot(snap: {
 }
 
 /** The compact scorecard fact for one crawled page. */
-export function pageFactFromSnapshot(snap: PageSnapshot, path: string): CrawlPageFact {
+function pageFactFromSnapshot(snap: PageSnapshot, path: string): CrawlPageFact {
   return {
     url: snap.url,
     path,
@@ -217,24 +207,10 @@ export function pageFactFromSnapshot(snap: PageSnapshot, path: string): CrawlPag
   };
 }
 
-/** The honest one-line progress sentence (concrete numbers, a next step, no lab words). */
-export function crawlProgressLine(
-  state: Pick<CrawlFrontierState, "status" | "pages_crawled" | "frontier" | "visited" | "page_cap" | "domain">,
-): string {
-  if (state.status === "unreachable") {
-    return `I could not reach ${state.domain}. Check the address and try again.`;
-  }
-  const total = Math.min(state.visited.length + state.frontier.length, state.page_cap);
-  if (state.status === "complete") {
-    return `I read ${state.pages_crawled} pages on ${state.domain}. That is every page I could find, so the first look is complete.`;
-  }
-  return `I have read ${state.pages_crawled} of about ${Math.max(total, state.pages_crawled)} pages so far. I keep going in the background.`;
-}
-
 /** PURE. What one failed fetch means as an HTTP status: the server's own number when we have it,
  *  403 for a robots refusal (the site declining is the same fact from the crawler's side), and 0
  *  for a transport failure, which leaves the page eligible rather than writing it off. */
-export function failureStatusOf(result: { reason: string; detail?: string }): number {
+function failureStatusOf(result: { reason: string; detail?: string }): number {
   const m = /^http_(\d{3})$/.exec(result.detail ?? "");
   if (m) return Number(m[1]);
   return result.reason === "robots_blocked" ? 403 : 0;
@@ -252,7 +228,7 @@ export function completenessOf(snap: PageSnapshot): "complete" | "partial" {
 // Init: bounded discovery -> durable inventory -> working set
 // ---------------------------------------------------------------------------
 
-export type StartCrawlResult = {
+type StartCrawlResult = {
   status: CrawlFrontierStatus;
   discovered: number;
   /** URLs found past the per-pass discovery ceiling, counted rather than hidden. */
@@ -367,7 +343,7 @@ export async function startColdStartCrawl(args: {
 // One bounded batch (one serverless invocation)
 // ---------------------------------------------------------------------------
 
-export type CrawlBatchResult = {
+type CrawlBatchResult = {
   ran: boolean;
   status: CrawlFrontierStatus | "no_crawl";
   crawled: number;

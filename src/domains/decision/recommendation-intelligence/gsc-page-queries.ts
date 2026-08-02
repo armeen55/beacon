@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { reportingDay } from "@/lib/reporting-day";
 
 /**
  * gsc-page-queries - the property-level daily Search Console totals the Today
@@ -14,14 +15,12 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
  * demand-graph retirement and was deleted rather than kept warm.
  */
 
-/** YYYY-MM-DD, `days` ago in UTC. */
+/** The reporting day `days` ago. */
 function sinceDateIso(days: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - days);
-  return d.toISOString().slice(0, 10);
+  return reportingDay(Date.now() - days * 86_400_000);
 }
 
-export type DailyTotals = { date: string; clicks: number; impressions: number };
+type DailyTotals = { date: string; clicks: number; impressions: number };
 
 export async function loadDailyTotalsForTenant(
   tenantId: string,

@@ -42,7 +42,7 @@ import { log } from "@/lib/logger";
 import { recordAppError } from "@/lib/obs/error-ledger";
 import { perfCountExternal } from "@/lib/obs/perf-log";
 import { z } from "zod";
-import { checkBudget, recordSpend } from "./adjudicator-budget";
+import { checkBudget } from "./adjudicator-budget";
 import { assertPaidCallAllowed } from "@/lib/cost/cost-breaker";
 import type { PromptId } from "./prompt-registry";
 import {
@@ -55,10 +55,10 @@ import {
 export { strictJsonSchemaFor, normalizeStructuredValue };
 
 /** The canonical structured-generation endpoint (verified against OpenAI docs 2026-07-23). */
-export const OPENAI_RESPONSES_API = "https://api.openai.com/v1/responses";
+const OPENAI_RESPONSES_API = "https://api.openai.com/v1/responses";
 
 /** Reasoning models must never run with a sub-90s ceiling (the gpt-5-mini lesson). */
-export const REASONING_TIMEOUT_FLOOR_MS = 90_000;
+const REASONING_TIMEOUT_FLOOR_MS = 90_000;
 
 /**
  * gpt-5 / o-series are REASONING models: they spend `reasoning` tokens before
@@ -93,11 +93,11 @@ export function estimateCost(model: string, inputTokens: number, outputTokens: n
  *  - "caller": the call site's own pinned orchestration checks AND records. The
  *    note documents where.
  */
-export type LlmBudgetPosture =
+type LlmBudgetPosture =
   | { mode: "gateway_check"; projectedCostUsd: number; now?: Date }
   | { mode: "caller"; note: string };
 
-export type BudgetImpl = {
+type BudgetImpl = {
   check: (projectedCostUsd: number, now?: Date) => Promise<{ allowed: boolean; reason?: string }>;
   record: (costUsd: number, now?: Date) => Promise<void>;
 };
@@ -164,7 +164,7 @@ export type StructuredCallArgs = {
   costBreakerImpl?: CostBreakerImpl;
 };
 
-export type StructuredCallOutcome =
+type StructuredCallOutcome =
   | { kind: "ok"; value: unknown; provenance: LlmProvenance }
   | { kind: "blocked_budget"; reason: string }
   | { kind: "refusal"; provenance: LlmProvenance }
@@ -232,23 +232,6 @@ async function checkGatewayBudget(
   } catch {
     return { allowed: false, reason: "budget check unavailable, failing closed" };
   }
-}
-
-/**
- * Record real spend for a gateway_check call AFTER the caller parsed usage.
- * Never throws. No-ops under vitest unless a budgetImpl is injected.
- */
-export async function recordGatewaySpend(
-  costUsd: number,
-  opts: { tenantId: string; now?: Date; budgetImpl?: BudgetImpl },
-): Promise<void> {
-  if (!Number.isFinite(costUsd) || costUsd <= 0) return;
-  if (opts.budgetImpl) {
-    await opts.budgetImpl.record(costUsd, opts.now).catch(() => {});
-    return;
-  }
-  if (underVitest()) return;
-  await recordSpend(costUsd, { tenantId: opts.tenantId, now: opts.now }).catch(() => {});
 }
 
 /** LOUD, durable failure reporting - warn line always; error ledger outside tests. */

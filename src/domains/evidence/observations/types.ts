@@ -4,7 +4,7 @@
  */
 
 /** Legacy scan counters (kept for charts + backward compat). */
-export type ObservationArtifactCounts = {
+type ObservationArtifactCounts = {
   pages_scanned: number;
   pages_changed: number;
   pages_with_errors: number;
@@ -14,7 +14,7 @@ export type ObservationArtifactCounts = {
   improvement_count: number;
 };
 
-export type ObservationRunType =
+type ObservationRunType =
   | "website_crawl"
   /** Live HTML re-fetch from ship verification (single URL). */
   | "website_verify"
@@ -24,7 +24,7 @@ export type ObservationRunType =
   | "generation"
   | "composite_placeholder";
 
-export type ObservationRunStatus = "completed" | "failed" | "partial";
+type ObservationRunStatus = "completed" | "failed" | "partial";
 
 /**
  * Website observation row: persisted under `.data/observation-runs.json` (and legacy
@@ -55,4 +55,3 @@ export type ObservationRun = ObservationArtifactCounts & {
   tenant_id: string;
 };
 
-export const OBSERVATION_RUN_PARSER_VERSION = "page-snapshot-v1";

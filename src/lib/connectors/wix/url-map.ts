@@ -15,14 +15,14 @@ import "server-only";
  */
 
 import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
-import { isProtectedUrlField, wixQueryAllDataItems, type WixDeps } from "./client";
+import { wixQueryAllDataItems, type WixDeps } from "./client";
 import {
   getWixCollectionConfig,
   saveWixCollectionConfig,
   getWixUrlMap,
   writeWixUrlMap,
 } from "./mappings-store";
-import { isWixBodyFieldKind, type WixBodyField, type WixUrlMapEntry } from "./types";
+import { type WixUrlMapEntry } from "./types";
 
 // Phase 1 (2026-06-16, MAX_SEO_AEO audit P0 #1): the Wix collection config +
 // url map moved out of the ephemeral file store into durable, tenant-scoped
@@ -31,114 +31,7 @@ import { isWixBodyFieldKind, type WixBodyField, type WixUrlMapEntry } from "./ty
 // importing these from url-map.ts unchanged.
 export { getWixCollectionConfig, saveWixCollectionConfig, getWixUrlMap };
 
-/** Resolve one canonical page URL to its CMS item, or null. */
-export async function resolveWixItemForUrl(
-  targetUrl: string,
-): Promise<WixUrlMapEntry | null> {
-  const canonical = canonicalizeCitationUrl(targetUrl);
-  if (canonical == null) return null;
-  const map = await getWixUrlMap();
-  return (
-    map.find((e) => e.url === canonical || e.url === `${canonical}/`) ?? null
-  );
-}
-
-/** Content-edit action_type → the page ROLE it edits. The unambiguous
- *  single-field SEO edits are auto-targetable: title, H1, and meta
- *  description. `edit_meta` maps to the `description` role — on Wix a
- *  dynamic page's meta description is populated by an SEO Variable bound
- *  to a collection field, so writing that field updates the live meta
- *  (Wix "Working with SEO Settings for Dynamic Pages" / "Using Variables
- *  in SEO Settings", 2026-06). All three are OPT-IN: each does nothing
- *  until the operator maps the concrete field on /diagnostics/wix, so a
- *  collection with no per-item meta field simply leaves `description`
- *  unset and `edit_meta` cards stay paste-ready. Body-append
- *  (add_h2_section/add_faq) stays absent — multi-field, riskier. */
-const CONTENT_ACTION_FIELD_ROLE: Readonly<
-  Record<string, "title" | "heading" | "description">
-> = {
-  edit_title: "title",
-  change_h1: "heading",
-  edit_meta: "description",
-};
-
-/**
- * Derive a live-pushable `field:<cmsField>` element key for a content
- * edit (Wix content-push slice, 2026-06-13) from the operator's
- * per-collection `contentFieldRoles` config. THIS is what lets Accept
- * push a title/heading edit LIVE to a Wix CONTENT page (the push service
- * calls this when a card carries no `field:`/`create:` target).
- *
- * Returns null — so the card stays PASTE-READY (today's behavior) — when:
- *   • the action isn't an auto-targetable content edit, OR
- *   • the URL isn't a mapped Wix CMS item (run the url-map sync), OR
- *   • the matched collection has no role configured on /diagnostics/wix.
- *
- * Per-tenant + operator-derived (NO hardcoding): the field name comes
- * only from the operator's own collection config, empty by default, so a
- * tenant opts into live content pushes by filling it in. Slug-ish fields
- * are still refused downstream in push-service (no URL changes ever).
- * Tenant scope is ambient (same as resolveWixItemForUrl /
- * getWixCollectionConfig — both read the tenant-scoped store).
- */
-export async function deriveWixContentFieldKey(
-  targetUrl: string,
-  actionType: string,
-): Promise<string | null> {
-  const role = CONTENT_ACTION_FIELD_ROLE[actionType];
-  if (role == null) return null;
-  const entry = await resolveWixItemForUrl(targetUrl);
-  if (entry == null) return null;
-  const config = await getWixCollectionConfig();
-  const mapping = config.find(
-    (m) => m.dataCollectionId === entry.dataCollectionId,
-  );
-  const field = mapping?.contentFieldRoles?.[role]?.trim();
-  if (!field) return null;
-  return `field:${field}`;
-}
-
-/** A page URL resolved all the way to a writable body field: the CMS item
- *  that renders it plus the collection's body-field descriptor. */
-export type ResolvedWixBodyField = {
-  entry: WixUrlMapEntry;
-  bodyField: WixBodyField;
-};
-
-/**
- * Resolve a page URL to its CMS item AND the collection's configured body
- * field (BEACON_500 item 2, 2026-07-01). This is what lets an approved
- * answer-block or FAQ draft ship as an applied body edit instead of a
- * paste chore.
- *
- * Returns null (the card stays paste-only, today's behavior) when:
- *   - the URL isn't a mapped Wix CMS item (run the url-map sync), OR
- *   - the matched collection has no bodyField configured, OR
- *   - the configured key is empty, slug-ish or URL-bearing (never a
- *     body target; Invariant 3: no URL changes), OR
- *   - the configured kind isn't one Beacon can merge safely.
- *
- * Per-tenant + operator-derived (no hardcoding): the field comes only
- * from the tenant's own collection config, empty by default.
- */
-export async function resolveWixBodyFieldForUrl(
-  targetUrl: string,
-): Promise<ResolvedWixBodyField | null> {
-  const entry = await resolveWixItemForUrl(targetUrl);
-  if (entry == null) return null;
-  const config = await getWixCollectionConfig();
-  const mapping = config.find(
-    (m) => m.dataCollectionId === entry.dataCollectionId,
-  );
-  const body = mapping?.bodyField;
-  if (body == null) return null;
-  const key = body.key.trim();
-  if (key === "" || isProtectedUrlField(key)) return null;
-  if (!isWixBodyFieldKind(body.kind)) return null;
-  return { entry, bodyField: { key, kind: body.kind } };
-}
-
-export type SyncWixUrlMapResult = {
+type SyncWixUrlMapResult = {
   ok: boolean;
   collections: number;
   itemsMapped: number;

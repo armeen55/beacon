@@ -21,11 +21,11 @@ import "server-only";
 // Aligned to the tenant_members.role CHECK constraint: {owner, member}.
 const OWNER_ROLES = new Set(["owner"]);
 
-export type AccountOwnerAuth =
+type AccountOwnerAuth =
   | { allowed: true; via: "account_owner" }
   | { allowed: false; reason: "no_session" | "not_a_member" | "insufficient_role" | "error" };
 
-export async function resolveAccountOwnerAuth(): Promise<AccountOwnerAuth> {
+async function resolveAccountOwnerAuth(): Promise<AccountOwnerAuth> {
   try {
     const { getSupabaseServerClient } = await import("@/lib/auth/supabase-server");
     const supabase = await getSupabaseServerClient();

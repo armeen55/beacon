@@ -27,7 +27,7 @@ export type ReadProvider = AutoRefreshProvider;
 /** The READ sources a refresh pulls. Mirrors REFRESH_ALL_SOURCES in the /settings/connectors
  *  "Refresh my data" action, but parameterized per arbitrary tenant (no request
  *  context) so the cron can fan out. */
-export const READ_SOURCES: ReadonlyArray<{
+const READ_SOURCES: ReadonlyArray<{
   provider: ReadProvider;
   run: (tenantId: string) => Promise<unknown>;
 }> = [
@@ -36,7 +36,7 @@ export const READ_SOURCES: ReadonlyArray<{
   { provider: "clarity", run: (t) => syncClarityDailyMetricsForTenant({ tenantId: t }) },
 ];
 
-export type CronSyncSourceResult = {
+type CronSyncSourceResult = {
   tenantId: string;
   provider: ReadProvider;
   ok: boolean;
@@ -94,7 +94,7 @@ function ledgerSource(provider: ReadProvider): RefreshSource {
  *  is belt-and-suspenders so a ledger write can never affect the sync. `value`
  *  is the engine's return object (or a synthetic {synced:false,reason} for a
  *  thrown/failed source) so the ledger classifies it honestly. */
-export async function recordLedger(
+async function recordLedger(
   tenantId: string,
   provider: ReadProvider,
   trigger: RefreshTrigger,

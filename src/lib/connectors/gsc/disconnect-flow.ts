@@ -35,7 +35,7 @@ import {
   updateConnectorToken,
 } from "@/lib/connector-store";
 
-export type DisconnectGscArgs = {
+type DisconnectGscArgs = {
   /** Tenant id explicitly threaded by the caller. Mirrors the
    *  rest of the GSC client surface — never reads ambient context. */
   tenantId: string;
@@ -43,7 +43,7 @@ export type DisconnectGscArgs = {
   now?: Date | string;
 };
 
-export type SoftDisconnectResult = {
+type SoftDisconnectResult = {
   /** True when the token existed AND the disconnect patch was
    *  applied. False when the token was missing (operator already
    *  disconnected OR never connected) — surface as a no-op success
@@ -87,32 +87,3 @@ export async function softDisconnectGsc(
   return { applied: true, disconnected_at: nowIso };
 }
 
-/**
- * Reconnect via the standard OAuth flow ALREADY clears
- * `disconnected_at` because `saveConnectorToken()` upserts a fresh
- * payload that omits the field. This helper provides an EXPLICIT
- * inline-clear path for tests or future server actions that want to
- * re-enable a tenant without re-running OAuth (rare; useful for
- * test fixtures or recovery scenarios).
- *
- * Returns `{ applied: false }` when no token exists. Caller treats
- * as no-op.
- */
-export async function clearDisconnectedFlagGsc(
-  args: DisconnectGscArgs,
-): Promise<{ applied: boolean }> {
-  const existing = await getGoogleConnectorToken("gsc", args.tenantId);
-  if (existing == null || existing.disconnected_at == null) {
-    return { applied: false };
-  }
-  // Pass `disconnected_at: undefined` so the merge in
-  // updateConnectorToken keeps the field on the object but the
-  // upsert serializes it out. Easier-to-reason-about path: pass a
-  // sentinel empty string and let downstream filter it.
-  await updateConnectorToken(
-    "google_gsc",
-    { disconnected_at: undefined },
-    args.tenantId,
-  );
-  return { applied: true };
-}

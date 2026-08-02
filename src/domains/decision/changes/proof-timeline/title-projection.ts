@@ -31,7 +31,7 @@
  *     awkward double spaces or trailing/leading punctuation.
  */
 
-export type ProjectedChangeTitle = {
+type ProjectedChangeTitle = {
   /** Short, customer-friendly title for cards + brief header.
    *  Derived by taking the segment before the em-dash separator
    *  when one exists, then scrubbing. */
@@ -156,7 +156,7 @@ function scrub(input: string): string {
  * the title readable even when the source description is
  * pathologically long. Callers can override.
  */
-export const DEFAULT_SHORT_TITLE_MAX = 140;
+const DEFAULT_SHORT_TITLE_MAX = 140;
 
 /**
  * Clamp a short title to a visual length, adding an ellipsis when

@@ -63,7 +63,7 @@ import "server-only";
  * level so the caller never has to guard before calling — the helper
  * handles every shape internally.
  */
-export type NormalizeGa4PagePathArgs = {
+type NormalizeGa4PagePathArgs = {
   pagePath: string | null | undefined;
   domain: string | null | undefined;
 };
@@ -107,7 +107,3 @@ function cleanDomain(raw: string | null | undefined): string {
   return s;
 }
 
-/** Test-only export of the domain cleaner. */
-export const __testing = {
-  cleanDomain,
-};

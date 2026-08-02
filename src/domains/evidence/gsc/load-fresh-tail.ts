@@ -27,17 +27,18 @@ import {
   gscSearchAnalyticsQuery,
   resolveGscAccessToken,
 } from "@/lib/connectors/gsc/search-analytics";
-import { pacificDateString, resolveProperty } from "@/lib/connectors/gsc/sync-search-analytics";
+import { resolveProperty } from "@/lib/connectors/gsc/sync-search-analytics";
+import { reportingDay } from "@/lib/reporting-day";
 import {
   buildFreshTailPoints,
   freshTailWindow,
   type FreshTailPoint,
 } from "./fresh-tail";
 
-export const GSC_FRESH_TAIL_STORE = "gsc-fresh-tail";
+const GSC_FRESH_TAIL_STORE = "gsc-fresh-tail";
 
 /** Reuse a cached tail for this long; fresh counts move slowly within a day. */
-export const FRESH_TAIL_CACHE_MS = 3 * 60 * 60 * 1000;
+const FRESH_TAIL_CACHE_MS = 3 * 60 * 60 * 1000;
 
 type FreshTailCacheRow = {
   tenant_id: string;
@@ -51,7 +52,7 @@ type FreshTailCacheRow = {
 /** W2-B (2026-07-10) - the served tail plus how old the cached window is, so a
  *  render can serve the last cached tail with an HONEST freshness label instead of
  *  paying a live GSC query on its critical path. */
-export type FreshTailCached = {
+type FreshTailCached = {
   points: FreshTailPoint[];
   /** ISO timestamp the cached window was computed; null when the cache is empty. */
   computedAt: string | null;
@@ -74,7 +75,7 @@ export const readGscFreshTailCached = cache(
     now: Date = new Date(),
   ): Promise<FreshTailCached | null> => {
     if (!tenantId || !lastReportedDate) return null;
-    if (freshTailWindow(lastReportedDate, pacificDateString(now)) == null) return null;
+    if (freshTailWindow(lastReportedDate, reportingDay(now)) == null) return null;
     try {
       const cached = await readStore<FreshTailCacheRow>(GSC_FRESH_TAIL_STORE, []);
       const mine = cached.find((r) => r.tenant_id === tenantId);
@@ -106,7 +107,7 @@ export async function refreshGscFreshTail(
   now: Date = new Date(),
 ): Promise<FreshTailPoint[] | null> {
   if (!tenantId || !lastReportedDate) return null;
-  const window = freshTailWindow(lastReportedDate, pacificDateString(now));
+  const window = freshTailWindow(lastReportedDate, reportingDay(now));
   if (window == null) return null;
   let cached: FreshTailCacheRow[] = [];
   try {

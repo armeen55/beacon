@@ -14,6 +14,7 @@ import "server-only";
 
 import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { reportingDay } from "@/lib/reporting-day";
 import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { log } from "@/lib/logger";
 import {
@@ -55,9 +56,7 @@ async function loadGa4PageValuesForTenantUncached(
   };
   const rows: Row[] = [];
   try {
-    const since = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
-      .toISOString()
-      .slice(0, 10);
+    const since = reportingDay(now.getTime() - WINDOW_DAYS * 86_400_000);
     const sb = getSupabaseAdmin();
     // audit wave-2 #5 (2026-06-14): PostgREST caps a response at ~1000 rows
     // regardless of .limit(), so the old `.limit(25000)` read silently
@@ -161,9 +160,7 @@ async function loadGa4PageRevenueForTenantUncached(
   };
   const accs = new Map<string, Acc>();
   try {
-    const since = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
-      .toISOString()
-      .slice(0, 10);
+    const since = reportingDay(now.getTime() - WINDOW_DAYS * 86_400_000);
     const sb = getSupabaseAdmin();
     const PAGE = 1000;
     for (let from = 0; from < MAX_ROWS; from += PAGE) {

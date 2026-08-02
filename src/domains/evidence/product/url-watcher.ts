@@ -46,7 +46,7 @@ import {
 // The learning/change-patterns module (URL-level pattern brain) was removed; its rebuild step is
 // dropped below (patternsRebuilt reports 0), the rest of the URL-outcome pass is unaffected.
 
-export type UrlWatcherRunResult = {
+type UrlWatcherRunResult = {
   ran: boolean;
   reason?: "throttled" | "already-running" | "completed" | "failed";
   stats?: {
@@ -90,7 +90,7 @@ export async function maybeRefreshUrlWatcher(
  * their own concurrency story (or accept the risk — the pipeline is
  * idempotent and the state file is the arbiter).
  */
-export async function runUrlWatcher(
+async function runUrlWatcher(
   trigger: UrlWatcherTrigger,
   tenantId?: string,
 ): Promise<UrlWatcherRunResult> {

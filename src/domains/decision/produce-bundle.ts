@@ -25,7 +25,7 @@ import { CORE_PRODUCERS } from "./producers/core"; import { produceFullRewriteRe
 import type { ProposeOptions } from "./propose"; import { validateProposal } from "./validate-proposal";
 import { anchoredTopicMatch, canonicalQueryKey, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 
-export type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string };
+type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string };
 
 type Research = EvidenceSnapshot["research"];
 type Observation = Research["aiObservations"][number];
@@ -216,7 +216,7 @@ const gateShape = (tenantId: string, query: string, change: RecommendedChange): 
   status: "needs_review", recommendedChange: change, whyItMatters: "", estimatedEffortMinutes: 0, riskLevel: "low", confidence: "medium", limitations: [],
   evidence: { query, hints: [], evidenceRefCount: 0 }, impactScore: null, upsidePerMonth: null, publish: "manual", createdAt: "" });
 
-export type ProduceBundleOptions = ProposeOptions & {
+type ProduceBundleOptions = ProposeOptions & {
   /** The ONE topic the coverage pass decided: the settled kind of page, what searchers want, and what the winners share. Absent, those causes are not considered. */
   coverage?: DecidedTopic | null;
   /** The pages already carrying a change under measurement, so a page still being read is left alone. */
