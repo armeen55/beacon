@@ -43,7 +43,8 @@ import {
  *  succeeded ones keep their freshness stamps, so a retry targets only the rest). Zero stale sources is a healthy no-op that advances. A THROW (refresh
  *  could not run) pauses too. gsc_backfill_chunk - advance one bounded GSC deep-backfill chunk, to the bound deep-backfill.ts sizes for a serverless window
  *  rather than racing a deadline the GSC fetch cannot honour (no AbortSignal). An advance or a benign skip advances; a real error THROWS and pauses with the
- *  cursor untouched, so the retry is that same window. The four evidence phases - identity is reconciled and PERSISTED first (a throw pauses before any
+ *  cursor untouched, so the retry is that same window. crawl_pages - ONE bounded batch of the account's OWN pages through the resumable frontier, free and fail-soft; a
+ *  render never crawls, and a site already read whole is a healthy no-op. The four evidence phases - identity is reconciled and PERSISTED first (a throw pauses before any
  *  focus, unit or cent), then one bounded funnel unit resumes from its own durable cursor. prompt_observations asks exactly what daily-observations planned
  *  (one canonical reading per question, per engine, per PACIFIC reporting day) and then reads the new answers back; that read-back is DERIVED work on
  *  evidence already stored, so it is bounded, $0 when nothing changed, and never pauses the run. publish_surface - rebuild + publish the Today/Changes
@@ -98,6 +99,14 @@ async function runPhase(
       };
     }
     return { progress: next };
+  }
+  if (phase === "crawl_pages") {
+    // ONE bounded batch of the account's own pages, then advance whatever it found: a site already read
+    // whole, or one with no crawl to continue, is a healthy no-op, not a reason to stop the pass. The
+    // inventory keeps the score, so the next pass is due again only while pages are genuinely unread.
+    const read = await steps.crawlPages(tenantId, now);
+    if (read > 0) log.info("[research-run] read more of your website", { tenantId, pages: read });
+    return { progress };
   }
   if (phase === "gsc_backfill_chunk") {
     const result = await steps.backfillChunk(tenantId, now, attemptKey);

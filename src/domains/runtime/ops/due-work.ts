@@ -38,6 +38,7 @@ import type { ResearchRunProgress } from "../research-run";
  *  own ordered cycle, and this only decides whether ANOTHER cycle has anything to do. */
 type DuePhase =
   | "refresh_sources"
+  | "crawl_pages"
   | "daily_observations"
   | "plan_cases"
   | "acquire_case_evidence"
@@ -121,6 +122,15 @@ export async function setResearchPaused(tenantId: string, paused: boolean): Prom
   }
 }
 
+/** IS ANY PAGE OF THIS ACCOUNT'S OWN WEBSITE OWED A READ? One bounded question to the durable inventory, which
+ *  answers in exactly the crawl's own priority order: never-read pages first, then reads gone stale past the
+ *  30-day ladder, then pages that refused us whose promised retry date has arrived. One row is the whole answer,
+ *  so this is the cheapest read on this path. Free, fail-soft, and it fetches nothing from the website itself. */
+async function pagesAwaitCrawl(tenantId: string, now: Date): Promise<boolean> {
+  const { nextCrawlCandidates } = await import("@/domains/evidence/scanning/owned-pages-store");
+  return (await nextCrawlCandidates(tenantId, 1, now)).length > 0;
+}
+
 /** How many CONNECTED trigger sources are past their sync SLA right now. */
 async function staleSourceCount(tenantId: string, now: Date): Promise<number> {
   const infos = await Promise.all(DUE_TRIGGER_PROVIDERS.map(async (p) => {
@@ -187,6 +197,7 @@ type DueWorkDeps = {
   evidenceVersion?: (tenantId: string, basis: string) => Promise<number | null>;
   surfaceStale?: (tenantId: string, nowMs: number) => Promise<boolean>;
   debt?: (tenantId: string, now: Date) => Promise<{ measurable: number; unverified: number }>;
+  pagesToCrawl?: (tenantId: string, now: Date) => Promise<boolean>;
 };
 
 const settled = async <T,>(p: Promise<T>, fallback: T): Promise<{ value: T; ok: boolean }> =>
@@ -217,10 +228,11 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     settled((deps.basis ?? accountBasis)(tenantId), null as string | null),
   ]);
 
-  const [version, surface, debt] = await Promise.all([
+  const [version, surface, debt, pages] = await Promise.all([
     basis.value ? settled((deps.evidenceVersion ?? evidenceRowVersion)(tenantId, basis.value), null as number | null) : Promise.resolve({ value: null, ok: false }),
     settled((deps.surfaceStale ?? surfaceIsStale)(tenantId, nowMs), false),
     settled((deps.debt ?? measurementDebt)(tenantId, now), { measurable: 0, unverified: 0 }),
+    settled((deps.pagesToCrawl ?? pagesAwaitCrawl)(tenantId, now), false),
   ]);
 
   const progress = run.value?.progress ?? {};
@@ -251,6 +263,9 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
 
   const due: DuePhase[] = [];
   if (sources.value > 0) due.push("refresh_sources");
+  // THE WEBSITE IS A SOURCE TOO, and reading it is the one piece of evidence nobody else supplies. An account
+  // whose inventory still holds pages I have never opened is owed a batch, whatever else is quiet today.
+  if (pages.value) due.push("crawl_pages");
   if ((checks.value?.due ?? 0) > 0) due.push("daily_observations");
   // A plan is owed when the notes moved (what is stuck may have changed) or when a run is still OPEN and
   // has no plan bound to this basis: that run genuinely owes one. An idle account with no plan owes

@@ -14,12 +14,12 @@ import "server-only";
 
 import type { ResearchPhase, ResearchRun } from "./research-run";
 
-/** The seven operator-visible steps, in order. `done` is terminal (not a step). */
+/** The eight operator-visible steps, in order. `done` is terminal (not a step). */
 const STEP_ORDER: ResearchPhase[] = [
-  "refresh_sources", "gsc_backfill_chunk", "keyword_discovery",
+  "refresh_sources", "gsc_backfill_chunk", "crawl_pages", "keyword_discovery",
   "prompt_observations", "serp_analysis", "winning_pages", "publish_surface",
 ];
-const RESEARCH_RUN_STEPS_TOTAL = 7 as const;
+const RESEARCH_RUN_STEPS_TOTAL = 8 as const;
 
 /** The next phase after `phase` in THE one canonical order, or the terminal `done`. */
 export function nextPhase(phase: ResearchPhase): ResearchPhase {
@@ -33,7 +33,7 @@ export type ResearchRunStatusView = {
   state: "running" | "paused" | "completed" | "none";
   phaseLabel: string;
   stepsDone: number;
-  stepsTotal: 7;
+  stepsTotal: 8;
   counters: { sourcesRefreshed?: number; backfillDaysPulled?: number; aiChecksDone?: number; aiChecksIntended?: number;
     /** How the settled checks landed: an answer, an engine that had nothing to give, an engine I cannot ask. */
     aiChecksAnswered?: number; aiChecksUnavailable?: number; aiChecksUnsupported?: number };
@@ -58,7 +58,7 @@ const STALE_RUN_MS = 10 * 60 * 1000;
  *  the operator opening the app. Private to this projection; nobody branches on its text. */
 const INTERRUPTED_REASON = "I was interrupted mid research. My next daily round picks this back up.";
 
-/** Human step index for a phase; `done` maps to all 7 steps done. */
+/** Human step index for a phase; `done` maps to all 8 steps done. */
 function stepsDoneForPhase(phase: ResearchPhase): number {
   if (phase === "done") return RESEARCH_RUN_STEPS_TOTAL;
   const i = STEP_ORDER.indexOf(phase);
@@ -68,6 +68,7 @@ function stepsDoneForPhase(phase: ResearchPhase): number {
 const PHASE_LABEL: Record<ResearchPhase, string> = {
   refresh_sources: "refreshing your connected data",
   gsc_backfill_chunk: "loading more Search Console history",
+  crawl_pages: "reading the pages on your website",
   keyword_discovery: "researching what your customers search for",
   prompt_observations: "checking how AI assistants answer your questions",
   serp_analysis: "reading the results pages for your strongest topics",

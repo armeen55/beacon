@@ -54,15 +54,12 @@ create table if not exists public.owned_pages (
     completeness in ('complete', 'partial', 'blocked', 'unsupported', 'missing', 'stale'))
 );
 
--- THE identity. Two rows can never describe the same owned URL for the same account.
-create unique index if not exists ux_owned_pages_identity on public.owned_pages (tenant_id, url);
+-- The primary key above IS the (tenant_id, url) index: it enforces the identity and serves the
+-- paged inventory read in that same order, so no second index on those two columns exists.
 
 -- The crawl-selection read: what is eligible next, uncrawled before stale.
 create index if not exists ix_owned_pages_next_candidate
   on public.owned_pages (tenant_id, crawl_state, last_crawled_at nulls first);
-
--- The inventory read: one account's pages, paged in a stable order.
-create index if not exists ix_owned_pages_tenant_url on public.owned_pages (tenant_id, url);
 
 alter table public.owned_pages enable row level security;
 

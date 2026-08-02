@@ -1,16 +1,16 @@
 /**
  * crawl-frontier - the resumable, Vercel-safe crawl over the owned-page INVENTORY.
  *
- * WHY IT EXISTS: one serverless invocation can read a handful of pages and then dies. This module
- * turns that into a durable queue: every invocation crawls one BOUNDED batch (max pages plus a hard
- * time budget, both inside a serverless window), persists its cursor, and stops. A visit runs
- * exactly one more batch until the site is read.
+ * WHY IT EXISTS: one serverless invocation can read a handful of pages and then dies, so every
+ * invocation crawls exactly one BOUNDED batch (max pages plus a hard time budget, both inside a
+ * serverless window), persists its cursor, and stops. A RENDER NEVER CRAWLS: the batches are due
+ * work, driven one per pass by the research cycle's crawl_pages phase (runtime/ops/due-work).
  *
- * WHAT CHANGED 2026-08-03: the frontier is no longer the inventory. owned_pages is, and it is
- * unbounded. This blob is now only the ORDER of one crawl: a small working set refilled from the
- * inventory (uncrawled first, then stale, then blocked pages past their retry date), plus the
- * per-page facts the first-look preview reads. Every read writes its state back to the inventory,
- * so a blocked page waits out its backoff and a page that 404s is never asked for again.
+ * THE INVENTORY IS THE RECORD, not this blob. owned_pages is unbounded; this holds only the ORDER
+ * of one crawl (a small working set refilled from the inventory: uncrawled first, then stale, then
+ * blocked pages past their retry date) plus the per-page facts the first-look preview reads. Every
+ * read writes its state back, so a blocked page waits out its backoff and a 404 is never asked for
+ * again, and the crawl is finished ONLY when the inventory has nothing left to hand it.
  *
  * Discipline (same posture as in-process-scan): crawl-only and $0, polite identified fetch with
  * robots respected and a hard timeout, sequential with a small delay, the SAME stable page ids so
@@ -524,8 +524,16 @@ export async function runCrawlBatch(args: {
       catch (e) { return notPersisted("snapshot_write_failed", e); }
     }
 
+    // A DRAINED WORKING SET IS NOT A FINISHED SITE. This blob holds 200 URLs; the inventory holds
+    // every one the sitemaps named, and an orphan page nothing links to only ever arrives from
+    // there. Completion asks the inventory one last time, so "that is every page I could find" is
+    // said only when there is genuinely nothing left to hand out.
     const capReached = visited.size >= state.page_cap;
-    const complete = frontier.length === 0 || capReached;
+    if (frontier.length === 0 && !capReached) {
+      const left = await pickCandidates(args.tenantId, MAX_FRONTIER_URLS, new Date(now())).catch(() => []);
+      frontier = enqueueDiscovered({ ...state, frontier: [], visited: [...visited] }, left).frontier;
+    }
+    const complete = capReached || frontier.length === 0;
     const updatedIso = new Date(now()).toISOString();
     const next: CrawlFrontierState = {
       ...state,

@@ -38,6 +38,11 @@ import type { TrackedEntity } from "@/domains/evidence/ai-visibility/tracked-ent
 import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
 import { mapRowToEntity } from "./key-mapper";
 
+/** THE ONE snapshot projection both read paths use. body_text (up to 100,000 characters per page) and the other
+ *  heavy payloads are deliberately absent: a page's own words are read narrowly through evidence/pages/owned-context. */
+const SNAPSHOT_COLUMNS =
+  "id, page_id, observation_run_id, url, canonical_url, fetched_at, http_status, title, meta_description, h1, h2_list, h3_count, faqs, schema_types, location_terms, service_terms, internal_link_count, external_link_count, word_count, robots_meta, has_canonical_mismatch, content_hash, headings_hash, faq_hash, schema_hash, extraction_certainty, faq_schema_block_count, structural_warnings, table_count, h3_list, schema_validation_warnings, tenant_id";
+
 /**
  * E2 (operator audit, 2026-05-05) — egress observability.
  *
@@ -312,14 +317,14 @@ export const supabaseBackend: SeedDataRepository = {
   },
 
   getPageSnapshots: async () => {
-    // Supabase accumulates snapshot history (35 rows per scan).
-    // Routes expect only the latest snapshot per page.
-    // Order by fetched_at DESC and deduplicate by page_id in application code
-    // (PostgREST does not support DISTINCT ON).
+    // Supabase accumulates snapshot history (35 rows per scan); routes expect only the latest per page, deduped
+    // here (PostgREST has no DISTINCT ON). THE SAME LEAN PROJECTION AND CAP THE TENANT PATH USES, for the same
+    // reason: select("*") now drags every page's whole 100,000-character body_text over the wire (/today 17MB).
     const { data, error } = await getSupabaseAdmin()
       .from("page_snapshots")
-      .select("*")
-      .order("fetched_at", { ascending: false });
+      .select(SNAPSHOT_COLUMNS)
+      .order("fetched_at", { ascending: false })
+      .limit(500);
     if (error)
       throw new Error(
         `Supabase query failed on page_snapshots: ${error.message}`,
@@ -512,35 +517,16 @@ export const supabaseBackend: SeedDataRepository = {
         );
       },
 
-      // page_snapshots: tenant-scoped + dedupe-by-page_id (latest first).
-      //
-      // E3 (operator audit, 2026-05-05) — bounded read.
-      //
-      // EGRESS-P0 (2026-05-07) — Supabase egress incident. Cap dropped
-      // 5000 → 500 (a single tenant with 50 pages needs at most 50 deduped
-      // rows; 500 is a 10x safety margin without leaking egress). Switched
-      // from `select("*")` to an explicit projection that omits the heavy
-      // payload fields (`body_paragraph_sample`, `card_texts`,
-      // `internal_links`, `schema_entity_names`) — these fields can be
-      // 5-15KB per row, dominating wire cost. The dropped fields are NOT
-      // consumed by /today / /recommendations / /changes default
-      // surfaces; if a future consumer needs them, fetch via a separate
-      // scoped helper.
-      //
-      // fix_schema slice (2026-06-12): `schema_validation_warnings` is
-      // BACK in the projection — the invalid-schema trigger reads it to
-      // emit repair candidates; without it the trigger would silently
-      // see undefined on every hosted/cron read (the same silent-empty
-      // failure class caught on the proof engine's owned-set). Warnings
-      // are short one-line strings (hundreds of bytes/row worst case),
-      // nothing like the 5-15KB payload fields the omission targeted.
+      // page_snapshots: tenant-scoped + dedupe-by-page_id (latest first), capped at 500 rows
+      // (EGRESS-P0, 2026-05-07: the heavy payload columns are 5-15KB each and dominated the wire
+      // cost of every surface read; nothing on /today, /changes or /results consumes them, and a
+      // consumer that needs one fetches it through its own scoped helper). schema_validation_warnings
+      // stays IN the projection: the invalid-schema trigger reads it, and it is a short string.
       getPageSnapshots: async () => {
         const t0 = Date.now();
         const { data, error } = await getSupabaseAdmin()
           .from("page_snapshots")
-          .select(
-            "id, page_id, observation_run_id, url, canonical_url, fetched_at, http_status, title, meta_description, h1, h2_list, h3_count, faqs, schema_types, location_terms, service_terms, internal_link_count, external_link_count, word_count, robots_meta, has_canonical_mismatch, content_hash, headings_hash, faq_hash, schema_hash, extraction_certainty, faq_schema_block_count, structural_warnings, table_count, h3_list, schema_validation_warnings, tenant_id",
-          )
+          .select(SNAPSHOT_COLUMNS)
           .eq("tenant_id", tenantId)
           .order("fetched_at", { ascending: false })
           .limit(500);

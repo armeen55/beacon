@@ -1,12 +1,14 @@
 /**
  * in-process-scan - owned-page DISCOVERY, plus the Vercel-safe launch crawl.
  *
- * DISCOVERY IS THE POINT. A generic website has exactly one public answer to "what pages do you
- * have": robots.txt names its sitemaps, and those sitemaps (often an index of indexes) name the
- * URLs. Until 2026-08-03 this module guessed two paths, recursed one level, and never read a
- * Sitemap: directive at all, so a site whose sitemap lived anywhere else was invisible. Now the
- * site's own answer comes first, the index is followed to depth 3 inside hard fetch bounds, and
- * every URL found lands in the DURABLE inventory (owned-pages-store) rather than a 150-slot queue.
+ * DISCOVERY IS THE POINT. A website's one public answer to "what pages do you have" is the
+ * Sitemap: directives in its robots.txt, and the sitemaps (often an index of indexes) they name.
+ * The site's own answer comes first, the index is followed to depth 3 inside hard fetch bounds,
+ * and every URL found lands in the DURABLE inventory (owned-pages-store).
+ *
+ * ONLY THIS SITE. Every queued sitemap document is host-checked before it is fetched: a hostile or
+ * merely careless index that points at another domain would otherwise aim 200 fetches wherever it
+ * liked, under our identified user agent.
  *
  * Discipline: crawl-only, zero paid calls, polite robots-respecting fetch, hard per-request and
  * total-time budgets, stable deterministic page ids (`page-<sha16(urlKey)>`) so every crawler
@@ -18,7 +20,7 @@ import { createHash } from "node:crypto";
 import { fetchPageHtml, COMPETITOR_INTEL_UA } from "@/domains/evidence/competitor-intel/polite-fetch";
 import { parseSitemapUrlEntries, parseSitemapIndexLocs, dedupeSitemapEntries } from "./sitemap-parse";
 import { parseRobotsText } from "@/domains/evidence/pages/robots-parser";
-import type { DiscoveredPage, DiscoveredVia } from "./owned-pages-store";
+import { upsertDiscovery, type DiscoveredPage, type DiscoveredVia } from "./owned-pages-store";
 import { loadBusinessProfile } from "@/domains/account";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import type { PageEntity, PageSnapshot, PageType } from "@/domains/evidence/pages/types";
@@ -187,11 +189,15 @@ export async function discoverUrls(
     { url: `${origin}/sitemap_index.xml`, depth: 0, via: "sitemap" as DiscoveredVia },
   ];
 
-  // 2. Breadth-first through the index tree. Each document is fetched at most once.
+  // 2. Breadth-first through the index tree. Each document is fetched at most once, and NEVER off
+  //    this site: a child loc or a Sitemap: directive naming another host is dropped unfetched.
+  const onSite = (u: string): boolean => {
+    try { return stripWww(new URL(u).hostname.toLowerCase()) === host; } catch { return false; }
+  };
   const fetched = new Set<string>();
   while (queue.length > 0 && fetched.size < MAX_SITEMAP_FETCHES && !overBudget()) {
     const next = queue.shift()!;
-    if (fetched.has(next.url)) continue;
+    if (fetched.has(next.url) || !onSite(next.url)) continue;
     fetched.add(next.url);
     const xml = await fetchText(next.url, fetchImpl, perRequestMs);
     if (!xml) continue;
@@ -251,6 +257,10 @@ export async function runInProcessColdStartScan(args: {
   try {
     const { pages: discovered, source } = await discoverUrls(
       site.origin, fetchImpl, perRequestMs, now, started + budgetMs);
+    // THE INVENTORY IS THE RECORD, and this pass reads at most 18 of what it found. Without this
+    // write the other pages were discovered and then forgotten, so the crawl phase had nothing to
+    // work through. Failure-soft: a write that could not land still leaves this scan its pages.
+    await upsertDiscovery(tenantId, discovered).catch(() => 0);
     const candidates: { url: string; key: string; path: string }[] = [];
     for (const d of discovered) {
       const c = canonicalOwnedUrl(d.url, site.host);

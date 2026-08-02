@@ -10,7 +10,7 @@ vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
   checkBudget: async () => ({ allowed: true, remaining: 10 }),
   recordSpend: async () => {},
 }));
-import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
+import { callStructuredLLM, draftInternalLinkStructured, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
 // A schema-valid AtomicEditDraft value (the simplest kind — no source-verify /
 // word-count / superlative machinery in the way of the transport assertions).
@@ -41,6 +41,10 @@ describe("structured-drafter strict transport", () => {
     expect([bad.status, bad.status === "validation_failed" && bad.reason.startsWith("evidenceRefs: analytics alone")]).toEqual(["validation_failed", true]);
     const good = await callStructuredLLM({ ...REQ, complete: seam([refs([...clarity, { source: "gsc", detail: "strong impressions with a low click rate" }])]).complete });
     expect(good.status).toBe("drafted"); }); // ga4 and clarity are welcome BESIDE evidence of the search, never instead of it
+  it("tells every prompt whose draft is grounding-checked what grounding means, so no attempt is spent learning it", async () => {
+    let seen = ""; const capture: CompleteFn = async (r) => { seen = r.system; return { error: "refusal", retryable: false }; };
+    await draftInternalLinkStructured({ query: "haft seen", topic: "the table", sourcePage: "https://own.com/a", targetPage: "https://own.com/b", tenantId: "t" }, { complete: capture });
+    expect([seen.includes('"evidenceRefs"'), seen.includes("at least one ref must NOT be ga4 or clarity")]).toEqual([true, true]); }); // the validator rejects the other answer
   it("drafts a schema-valid VALUE (no text parsing)", async () => {
     const { complete, calls } = seam([{ value: VALID_ATOMIC_EDIT }]);
     const out = await callStructuredLLM({ ...REQ, complete });

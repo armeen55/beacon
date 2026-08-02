@@ -412,7 +412,10 @@ export function extractPageSnapshot(
     // Plan A + B1 (2026-04-20): broader page-content extraction. All four
     // fields optional on the type so prior snapshots remain valid.
     h3_list: h3List.length > 0 ? h3List : undefined,
-    body_text: bodyTextHeld || undefined,
+    // ALWAYS A STRING on a page this crawler read, even when the page's own words are none: an
+    // absent column means a pre-2026-08-03 sample-era row, so writing undefined here made a
+    // genuinely empty page indistinguishable from one we never held whole.
+    body_text: bodyTextHeld,
     body_paragraph_sample:
       bodyParagraphSample.length > 0 ? bodyParagraphSample : undefined,
     card_texts: cardTexts.length > 0 ? cardTexts : undefined,

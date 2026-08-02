@@ -1398,7 +1398,11 @@ const INTERNAL_LINK_SYSTEM =
   "You place ONE link from a page to another page on the SAME site. Return ONLY a JSON object: " +
   '"sourcePage", "targetPage" (echo both exactly as given), "anchorText" (the exact words to link, 2 to 8 words), ' +
   '"linkSentence" (the one sentence to add or amend, containing that anchor text), "reason" (one sentence on what the reader gains), ' +
-  '"riskNotes" (short strings, may be empty), "proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
+  '"riskNotes" (short strings, may be empty), "proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}), ' +
+  // THE VALIDATOR REJECTS AN UNGROUNDED DRAFT (evidenceIsGrounded), so a prompt that never asked for the field, or
+  // never named the rule, spent a guaranteed-rejected attempt before the retry told the model what was owed.
+  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout, and at least one ref must NOT be ga4 or clarity: those two say what people did once they arrived, never what anyone searched for), ' +
+  '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps). ' +
   "The anchor text must describe the destination honestly and must never be a bare instruction like click here. Ground every word in " +
   "the evidence below, invent no fact, no figure and no web address, and never link a page to itself. No marketing language, no em-dashes and no en-dashes.";
 

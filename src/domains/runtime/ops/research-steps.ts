@@ -22,6 +22,7 @@ import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { synthesizeCases } from "@/domains/decision/case-synthesis";
 import { buildTopicInvestigations, reconcileResearchCases } from "@/domains/evidence/topic-investigation";
 import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
+import { continueColdStartCrawlIfStarted } from "@/domains/evidence/scanning/crawl-frontier";
 import { shipmentBustedAt, verifyDueShipments } from "@/domains/measurement/verify-shipment";
 import { log } from "@/lib/logger";
 import { warmFreeSurfaces } from "./warm-caches";
@@ -54,6 +55,9 @@ type BackfillChunkResult = { kind: "advanced"; complete?: boolean; daysPulled?: 
 export type ResearchCycleSteps = {
   refreshSources: (tenantId: string, now: Date, attemptKey: string) => Promise<RefreshSourcesResult>;
   backfillChunk: (tenantId: string, now: Date, attemptKey: string) => Promise<BackfillChunkResult>;
+  /** ONE bounded batch of the account's OWN website (crawl_pages). Free: polite owned reads on the same fetch
+   *  path as every other owned read, never a provider. Returns how many pages this batch actually read. */
+  crawlPages: (tenantId: string, now: Date) => Promise<number>;
   /** The four Slice 6 evidence executors (evidence facade), one per funnel phase. */
   funnelUnit: (phase: ResearchPhase, tenantId: string, cursor: Record<string, unknown> | null, budgetMs: number, focus: ResearchFocus | null) => Promise<FunnelUnitOutcome>;
   /** THIS run's investigation, asked for ONCE (Runtime asks Decision, Evidence gets strings and pages). */
@@ -153,6 +157,11 @@ export const defaultSteps: ResearchCycleSteps = {
     // identical window.
     throw new Error(`gsc backfill chunk did not advance: ${result.reason}`.slice(0, 200));
   },
+  // THE ONE PLACE THE WEBSITE GETS READ. A render must never crawl, so the resumable frontier is driven here,
+  // exactly one bounded batch per pass, and the inventory it works through is what makes the next pass due.
+  // Fail-soft by contract: continueColdStartCrawlIfStarted returns a structured result and never throws, and a
+  // pass with no crawl started, nothing left, or an unreachable site is a healthy no-op that advances.
+  async crawlPages(tenantId) { return (await continueColdStartCrawlIfStarted(tenantId)).crawled; },
   currentBasis: accountBasis,
   dueWork,
   evidenceVersion: evidenceRowVersion,

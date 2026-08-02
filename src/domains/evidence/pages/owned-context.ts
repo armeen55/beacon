@@ -134,8 +134,12 @@ function bodyOf(row: Row): OwnedPageBody {
   // A HEADING IS A LABEL FOR TEXT, NEVER THE TEXT, so headings can never stand in for body passages here.
   // THE WHOLE PAGE WHEN THE CRAWL KEPT IT: body_text is the de-chromed main content in full, so it replaces
   // the 20-paragraph sample outright. Only a row written before that column existed falls back to the sample.
-  const full = typeof row.body_text === "string" ? row.body_text.trim() : "";
-  const stored = full
+  // THE COLUMN'S PRESENCE is what says the page was held whole, never its length: a page with
+  // nothing to say holds an empty string, and reading that as "no body on file" would have called
+  // a genuinely empty page a sample and left every absence unknowable on it.
+  const held = typeof row.body_text === "string";
+  const full = held ? (row.body_text as string).trim() : "";
+  const stored = held
     ? passagesFromFullText(full)
     : items(row.body_paragraph_sample, MAX_PASSAGES, MAX_PASSAGE_CHARS);
   const cardTexts = items(row.card_texts, CRAWL_CARDS, MAX_ITEM_CHARS);
@@ -162,7 +166,7 @@ function bodyOf(row: Row): OwnedPageBody {
   // sentence, stopped at its own paragraph or card cap, or kept fewer words than the page it counted. No word
   // count on file proves nothing, so that is a sample too: an unprovable claim of completeness is exactly what
   // this type exists to prevent.
-  const sampled = full
+  const sampled = held
     ? false
     : stored.some((p) => p.length >= CRAWL_PARAGRAPH_CHARS) || stored.length === CRAWL_PARAGRAPHS
       || cardTexts.length >= CRAWL_CARDS || pageWords == null || heldWords < pageWords;

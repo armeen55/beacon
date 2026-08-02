@@ -1,16 +1,14 @@
-/** Durable visit-driven Research Run (Slice 4 + claim-semantics repair): the one-open-run-per-account invariant
- *  (resume any unfinished run across dates before a new daily cycle), the truth boundary (any failure PAUSES,
- *  never completes), partial connector success surviving a pause, deduped refreshed providers across retries,
- *  the lease guards (including the ONE the paid comparison spends under), the frozen investigation, the
- *  idempotency identity, and the fail-closed render path. The in-memory repo models the RPC guards. */
+/** Durable visit-driven Research Run (Slice 4 + claim-semantics repair): the one-open-run-per-account invariant (resume any unfinished run across dates before a
+ *  new daily cycle), the truth boundary (any failure PAUSES, never completes), partial connector success surviving a pause, deduped refreshed providers across
+ *  retries, the lease guards (including the ONE the paid comparison spends under), the frozen investigation, the idempotency identity, and the fail-closed
+ *  render path. The in-memory repo models the RPC guards. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-/** The DEFAULT reconcile step, exercised for REAL below: what makes the registry worth saving, and what makes it worth a reading. Every other test in this
- *  file seams reconcileCases, so nothing else reaches these modules; funnel/state keeps its real exports because the conflict closure builds a real state. */
+/** The DEFAULT reconcile step, exercised for REAL below: what makes the registry worth saving, and worth a reading. Every other test seams reconcileCases, so
+ *  nothing else reaches these modules; funnel/state keeps its real exports because the conflict closure builds a real state. */
 const REG = vi.hoisted(() => ({ onFile: [] as unknown[], next: [] as unknown[], saves: 0, readings: 0 }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => ({ ownedPages: [], research: { cases: [] } }) }));
 vi.mock("@/domains/evidence/topic-investigation", () => ({ reconcileResearchCases: () => REG.next, buildTopicInvestigations: () => { REG.readings += 1; return []; } }));
-vi.mock("@/domains/evidence/funnel/state", async (actual) => ({ ...(await actual<Record<string, unknown>>()),
-  loadFunnelState: async () => ({ state: { cases: REG.onFile }, rowVersion: 3 }), saveFunnelState: async () => { REG.saves += 1; return 4; } }));
+vi.mock("@/domains/evidence/funnel/state", async (actual) => ({ ...(await actual<Record<string, unknown>>()), loadFunnelState: async () => ({ state: { cases: REG.onFile }, rowVersion: 3 }), saveFunnelState: async () => { REG.saves += 1; return 4; } }));
 /** The ONE database table this file models directly: tenants.research_paused, read by the visit door and
  *  written by Settings. `missing` is the account the PATCH matches no row for, which PostgREST answers with
  *  204 and NO error. Every other table throws exactly as an unconfigured client does, so no other pin moves. */
@@ -25,8 +23,7 @@ vi.mock("@/lib/persistence/supabase", async (actual) => ({ ...(await actual<Reco
         if (patch.research_paused) DB.paused.add(id); else DB.paused.delete(id);
         return { data: [{ id }], error: null }; } }) }),
     }; } }) }));
-/** The route's own dispatch, stubbed so the endpoint's gate and its receipt are pinned without a second
- *  drive of the real cycle (which every dispatch test below exercises directly). */
+/** The route's own dispatch, stubbed so its gate and receipt are pinned without a second drive of the real cycle (every dispatch test below drives it). */
 const ROUTE = vi.hoisted(() => ({ receipt: { claimed: 0, driven: 0, remaining: 0 } }));
 vi.mock("@/domains/runtime", async (actual) => ({ ...(await actual<Record<string, unknown>>()), runDueAccounts: async () => ROUTE.receipt }));
 import * as RR from "@/domains/runtime/research-run";
@@ -181,7 +178,7 @@ const BENIGN: ResearchCycleSteps = {
   evidenceVersion: async () => null,
   refreshSources: async () => ({ attempted: 0, succeeded: [], failures: [] }),
   reconcileCases: async () => {},
-  backfillChunk: async () => ({ kind: "no_work" }),
+  backfillChunk: async () => ({ kind: "no_work" }), crawlPages: async () => 0,
   funnelUnit: async () => ({ status: "done", cursor: null, progress: {} }), // evidence phases no-op in these lease/truth tests
   investigationFocus: async () => null,
   currentBasis: async () => "basis_test", // the account basis the funnel scopes to
@@ -194,7 +191,7 @@ const BENIGN: ResearchCycleSteps = {
 const healthySteps = (log: string[]): Partial<ResearchCycleSteps> => ({
   refreshSources: async () => (log.push("refresh"), { attempted: 2, succeeded: ["google_gsc", "google_ga4"], failures: [] }),
   backfillChunk: async () => (log.push("backfill"), { kind: "advanced", daysPulled: 30 }),
-  publishSurface: async () => void log.push("publish"), surfaceStale: async () => false,
+  crawlPages: async () => (log.push("crawl"), 1), publishSurface: async () => void log.push("publish"), surfaceStale: async () => false,
 });
 const run = (steps: Partial<ResearchCycleSteps>, deadlineMs?: number) =>
   runResearchCycle(T, { now: () => new Date(NOW), steps: { ...BENIGN, ...steps }, ...(deadlineMs === undefined ? {} : { deadlineMs }) });
@@ -317,7 +314,7 @@ describe("research-run resume + status projection", () => {
     await run(healthySteps(log), 0); // out of time before any phase
     expect(log).toEqual([]); expect([rows[0]!.status, rows[0]!.current_phase]).toEqual(["paused", "gsc_backfill_chunk"]);
     await run(healthySteps(log));
-    expect(log).toEqual(["backfill", "publish"]); // never "refresh" (that phase was already done)
+    expect(log).toEqual(["backfill", "crawl", "publish"]); // never "refresh" (that phase was already done)
     expect([rows[0]!.status, rows[0]!.current_phase]).toEqual(["completed", "done"]); });
   it("projects PERSISTED truth only: the row's own status answers, and a lease that lived or died changes nothing a surface reads", async () => {
     const rows = withRun({ status: "running", lease_owner: "o", lease_expires_at: iso(NOW - LEASE), // lease long dead
@@ -326,10 +323,9 @@ describe("research-run resume + status projection", () => {
     rows[0]!.lease_expires_at = iso(NOW + LEASE); // the SAME row, a fresh lease
     const live = await RR.researchRunStatus(T, new Date(NOW));
     expect(dead).toEqual(live); // THE pin: a transient lease change moves no number and no state
-    expect([live.state, live.phaseLabel, live.stepsTotal]).toEqual(["running", "refreshing your connected data", 7]);
+    expect([live.state, live.phaseLabel, live.stepsTotal]).toEqual(["running", "refreshing your connected data", 8]);
     // Every number comes off the persisted row, never from a per-render computation.
-    expect([live.counters.aiChecksDone, live.counters.aiChecksIntended, live.cases, live.nextDueAt])
-      .toEqual([12, 40, { active: 1, parked: 2 }, "2026-08-02T00:00:00.000Z"]); });
+    expect([live.counters.aiChecksDone, live.counters.aiChecksIntended, live.cases, live.nextDueAt]) .toEqual([12, 40, { active: 1, parked: 2 }, "2026-08-02T00:00:00.000Z"]); });
 });
 
 describe("research-run frozen investigation: ONE topic, and the lease the comparison spends under", () => {
@@ -405,7 +401,7 @@ describe("research-run frozen investigation: ONE topic, and the lease the compar
 
 describe("research-run Today copy", () => {
   const view = (o: Partial<RR.ResearchRunStatusView>): RR.ResearchRunStatusView => ({
-    state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: 7, counters: {}, updatedAt: null, completedAt: null, pauseReason: null, ...o,
+    state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: 8, counters: {}, updatedAt: null, completedAt: null, pauseReason: null, ...o,
   });
   const NOON_PT = Date.parse("2026-07-23T19:00:00Z"); // noon Pacific on Jul 23
   it("never says 'current': same-day completion shows today, an older pass shows its date, none is silent", () => {
@@ -418,14 +414,10 @@ describe("research-run Today copy", () => {
   it("says how a finished day actually landed, in checks, and stays quiet when there is nothing to own", () => {
     const done = (counters: RR.ResearchRunStatusView["counters"]) =>
       RR.researchStatusLine(view({ state: "completed", completedAt: new Date(NOON_PT).toISOString(), counters }), new Date(NOON_PT));
-    expect(done({ aiChecksDone: 140, aiChecksIntended: 140, aiChecksAnswered: 137, aiChecksUnavailable: 2, aiChecksUnsupported: 1 }))
-      .toBe("Latest research pass finished today at 12:00 PM. I finished today's checks: 137 answers, 2 checks came back empty, 1 I cannot ask.");
-    expect(done({ aiChecksDone: 140, aiChecksIntended: 140, aiChecksAnswered: 139, aiChecksUnavailable: 1 }))
-      .toContain("1 check came back empty."); // one is one check, never one engine
-    expect(done({ aiChecksDone: 140, aiChecksIntended: 140, aiChecksAnswered: 140, aiChecksUnavailable: 0, aiChecksUnsupported: 0 }))
-      .toBe("Latest research pass finished today at 12:00 PM."); // every check answered: nothing to own, so nothing said
-    expect(done({ aiChecksDone: 96, aiChecksIntended: 140, aiChecksAnswered: 94 }))
-      .toBe("Latest research pass finished today at 12:00 PM."); }); // the day is still open, so the running count carries it
+    expect(done({ aiChecksDone: 140, aiChecksIntended: 140, aiChecksAnswered: 137, aiChecksUnavailable: 2, aiChecksUnsupported: 1 })) .toBe("Latest research pass finished today at 12:00 PM. I finished today's checks: 137 answers, 2 checks came back empty, 1 I cannot ask.");
+    expect(done({ aiChecksDone: 140, aiChecksIntended: 140, aiChecksAnswered: 139, aiChecksUnavailable: 1 })) .toContain("1 check came back empty."); // one is one check, never one engine
+    expect(done({ aiChecksDone: 140, aiChecksIntended: 140, aiChecksAnswered: 140, aiChecksUnavailable: 0, aiChecksUnsupported: 0 })) .toBe("Latest research pass finished today at 12:00 PM."); // every check answered: nothing to own, so nothing said
+    expect(done({ aiChecksDone: 96, aiChecksIntended: 140, aiChecksAnswered: 94 })) .toBe("Latest research pass finished today at 12:00 PM."); }); // the day is still open, so the running count carries it
   it("gives an open error-free run ONE in-progress sentence with the persisted AI-check counts, identical whether the lease is live or released", () => {
     const progress = { funnel: { promptsChecked: 35, enginePairsDone: 40, enginePairsIntended: 140 } };
     const leased = mk({ status: "running", current_phase: "prompt_observations", progress, lease_owner: "o", lease_expires_at: iso(NOW + LEASE) });
@@ -440,7 +432,7 @@ describe("research-run Today copy", () => {
     expect(RR.researchStatusLine(RR.projectStatusView(later, NOW))).toBe("Research in progress: reading the results pages for your strongest topics.");
     // A pause the operator must clear names its reason instead of reading as ordinary progress.
     const stuck = mk({ status: "paused", current_phase: "keyword_discovery", last_error: { phase: "keyword_discovery", message: "I need your confirmed business basics before I can research keywords.", at: iso() } });
-    expect(RR.researchStatusLine(RR.projectStatusView(stuck, NOW))).toBe("Research paused after 2 of 7 steps. I need your confirmed business basics before I can research keywords.");
+    expect(RR.researchStatusLine(RR.projectStatusView(stuck, NOW))).toBe("Research paused after 3 of 8 steps. I need your confirmed business basics before I can research keywords.");
     // A reason recorded by an already-passed phase never resurrects on the current one.
     const stale = mk({ ...stuck, current_phase: "serp_analysis" });
     expect(RR.researchStatusLine(RR.projectStatusView(stale, NOW))).toBe("Research in progress: reading the results pages for your strongest topics.");
@@ -451,10 +443,9 @@ describe("research-run Today copy", () => {
     // The SAME row, untouched past the stale bound: the owner died, and saying so is the honest read.
     const dead = RR.projectStatusView(mk({ ...fresh, updated_at: iso(NOW - 11 * 60_000) }), NOW);
     expect([dead.state, dead.pauseReason]).toEqual(["paused", "I was interrupted mid research. My next daily round picks this back up."]);
-    expect(RR.researchStatusLine(dead)).toBe("Research paused after 4 of 7 steps. I was interrupted mid research. My next daily round picks this back up.");
+    expect(RR.researchStatusLine(dead)).toBe("Research paused after 5 of 8 steps. I was interrupted mid research. My next daily round picks this back up.");
     // It reads off updated_at alone, so a lease that lived or died still moves nothing: no flicker.
-    expect(RR.projectStatusView(mk({ ...fresh, lease_owner: "o", lease_expires_at: iso(NOW - LEASE) }), NOW))
-      .toEqual(RR.projectStatusView(fresh, NOW)); });
+    expect(RR.projectStatusView(mk({ ...fresh, lease_owner: "o", lease_expires_at: iso(NOW - LEASE) }), NOW)) .toEqual(RR.projectStatusView(fresh, NOW)); });
 });
 
 describe("research-run conflict-free research closure", () => {
@@ -558,10 +549,9 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     expect([log, rows[0]!.status, rows[0]!.current_phase]).toEqual([[], "completed", "done"]); // not one phase ran
     // A pass that closed with nothing owed still says what it checked and when the waiting ends.
     expect(rows[0]!.progress.state).toMatchObject({ checksDone: 40, checksTotal: 40, checksAnswers: 37, checksUnavailable: 2, checksUnsupported: 1, casesParked: 2, nextDueAt: "2026-08-02T00:00:00.000Z" });
-    expect(RR.researchStatusLine(RR.projectStatusView(rows[0]!, NOW), new Date(NOW)))
-      .toContain("Nothing more is due until August 1."); // the operator's own zone, the same one every other date on Today uses
+    expect(RR.researchStatusLine(RR.projectStatusView(rows[0]!, NOW), new Date(NOW))) .toContain("Nothing more is due until August 1."); // the operator's own zone, the same one every other date on Today uses
     NOW += DAY; await run(healthySteps(log));
-    expect([log, rows.length]).toEqual([["refresh", "backfill", "publish"], 2]); }); // tomorrow is untouched by today's empty pass
+    expect([log, rows.length]).toEqual([["refresh", "backfill", "crawl", "publish"], 2]); }); // tomorrow is untouched by today's empty pass
   it("chains bounded continuations: it re-schedules only while work is due, and never past the bound", async () => {
     let hops = 0;
     const chain = async (due: () => DueWork) => { completedToday(); let hop = 0, ran = 0;
@@ -595,8 +585,7 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     expect([rows.length, rows[1]!.status]).toEqual([2, "completed"]);
     expect(rows[1]!.progress).toMatchObject(dayState);
     NOW += DAY; await run({ dueWork: async () => SOMETHING_DUE }); // a new reporting day inherits none of it
-    expect([rows.length, rows[2]!.progress.extraSamples, rows[2]!.progress.capped, rows[2]!.progress.synthesisAttempted])
-      .toEqual([3, undefined, undefined, undefined]); });
+    expect([rows.length, rows[2]!.progress.extraSamples, rows[2]!.progress.capped, rows[2]!.progress.synthesisAttempted]) .toEqual([3, undefined, undefined, undefined]); });
   it("keeps opening passes while work is genuinely due, and refuses the 25th on one day as the absolute runaway stop", async () => {
     const rows = freshRepo(); const day = today();
     for (let i = 0; i < 23; i += 1) rows.push(mk({ id: `p${i}`, status: "completed", completed_at: iso(), current_phase: "done", cycle_key: `${T}:p${i + 1}:${day}` }));
@@ -670,7 +659,7 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     const receipt = await dispatch(healthySteps(log));
     expect(receipt).toEqual({ claimed: 2, driven: 2, remaining: 0 }); // the whole fleet fits this budget; nothing is left leased
     expect(Object.keys(receipt).sort()).toEqual(["claimed", "driven", "remaining"]); // no token, no tenant, no secret
-    expect(log).toEqual(["refresh", "backfill", "publish", "refresh", "backfill", "publish"]); // the SAME phase order a visit drives, twice
+    expect(log).toEqual(["refresh", "backfill", "crawl", "publish", "refresh", "backfill", "crawl", "publish"]); // the SAME phase order a visit drives, twice
     expect(rows.map((r) => [r.tenant_id, r.status, r.cycle_key.slice(-10)])).toEqual([[T, "completed", today()], [U, "completed", today()]]);
     expect(await dispatch(NO_PHASE)).toEqual({ claimed: 0, driven: 0, remaining: 0 }); }); // a finished day is claimed by nobody
   it("holds ONE live claim at a time, so an account is never leased while another is being driven", async () => {
@@ -729,9 +718,8 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
 /** The rules themselves, on injected persisted state: no network, no clock tricks, no lease. */
 describe("dueWork: what is genuinely owed, computed from persisted state only", () => {
   const parked = (ms: number) => ({ basis: "b1", topics: [{ topicKey: "t1", query: "haft seen", requirement: "exact_serp", retryAfter: new Date(ms).toISOString() }] });
-  const base = { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 4, total: 4, answers: 4, due: 0 }), basis: async () => "b1",
-    evidenceVersion: async () => 7, surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }),
-    run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY) } }) };
+  const base = { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 4, total: 4, answers: 4, due: 0 }), basis: async () => "b1", evidenceVersion: async () => 7,
+    surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), pagesToCrawl: async () => false, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY) } }) };
   it("owes nothing when the sources are fresh, today's round has landed, the notes have not moved past the last decision, and the rest is waiting on a date I promised", async () => {
     const w = await dueWork(T, new Date(NOW), base);
     expect([w.due, w.readable, w.checks, w.cases, w.nextDueAt]).toEqual([[], true, { ...NO_CHECKS, done: 4, total: 4, answers: 4 }, { active: 0, parked: 1 }, new Date(NOW + DAY).toISOString()]); });
@@ -740,6 +728,7 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     const due = async (o: Parameters<typeof dueWork>[2]) => (await dueWork(T, new Date(NOW), { ...base, ...o })).due;
     expect(await due({ staleSources: async () => 1 })).toEqual(["refresh_sources"]);
     expect(await due({ checks: async () => ({ ...NO_CHECKS, done: 2, total: 4, answers: 2, due: 2 }) })).toEqual(["daily_observations"]);
+    expect(await due({ pagesToCrawl: async () => true })).toEqual(["crawl_pages"]); // a page of their own website I have never read is owed a batch; base says none is, which is the "nothing due" half
     // A retry date that PASSED is the same-day unlock: the promise I made has come due.
     expect(await due({ run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW - 1) } }) })).toEqual(["acquire_case_evidence"]);
     // The notes moved past what the last decision consumed: new evidence, so a plan and a decision are owed.
@@ -760,8 +749,7 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     expect(await due(false)).toEqual([]); // the pass that froze it CONSUMED it: a quiet account takes the zero-cost exit
     expect(await due(true)).toEqual(["acquire_case_evidence"]); // the run that froze it is still open and genuinely owes the work
     // And a date I promised that has ARRIVED is owed whether or not a run is open.
-    expect((await dueWork(T, new Date(NOW), { ...base, run: async () => ({ open: false, progress: { decided, focus: parked(NOW - 1) } }) })).due)
-      .toEqual(["acquire_case_evidence"]); });
+    expect((await dueWork(T, new Date(NOW), { ...base, run: async () => ({ open: false, progress: { decided, focus: parked(NOW - 1) } }) })).due) .toEqual(["acquire_case_evidence"]); });
 
   it("says UNREADABLE rather than empty when the durable state cannot be read, so a caller never mistakes a failed read for a finished day", async () => {
     const blind = await dueWork(T, new Date(NOW), { ...base, run: async () => { throw new Error("db down"); } });

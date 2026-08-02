@@ -30,10 +30,12 @@ import { log } from "@/lib/logger";
 // ── Canonical record ───────────────────────────────────────────────────────
 
 /** The ordered phases of one Research Run. `done` is terminal. The four evidence phases (Slice 6) sit between
- *  the connector work and the surface publish: keyword discovery, AI observation, SERPs, winning pages. */
+ *  the connector work and the surface publish: keyword discovery, AI observation, SERPs, winning pages.
+ *  crawl_pages reads ONE bounded batch of the account's own website per pass (a render never crawls). */
 export type ResearchPhase =
   | "refresh_sources"
   | "gsc_backfill_chunk"
+  | "crawl_pages"
   | "keyword_discovery"
   | "prompt_observations"
   | "serp_analysis"

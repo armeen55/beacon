@@ -167,7 +167,13 @@ export async function nextCrawlCandidates(
         failClosed("read", tenantId, error);
         return;
       }
-      for (const r of (data ?? []) as { url: string }[]) if (r.url && !out.includes(r.url)) out.push(r.url);
+      // A PROMISED WAIT IS NEVER A CANDIDATE, whatever state the row is in. The blocked pass below
+      // already asks the database for that; an uncrawled row backing off a transient failure keeps
+      // its own retry date and is held back here, or a 500 would be re-fetched on every pass.
+      for (const r of (data ?? []) as { url: string; blocked_until?: string | null }[]) {
+        if (r.blocked_until && r.blocked_until > nowIso) continue;
+        if (r.url && !out.includes(r.url)) out.push(r.url);
+      }
     };
     await take((q) => q.eq("crawl_state", "uncrawled").order("first_seen", { ascending: true }));
     await take((q) =>
@@ -182,7 +188,7 @@ export async function nextCrawlCandidates(
 }
 
 function buildBase(admin: ReturnType<typeof getSupabaseAdmin>, tenantId: string) {
-  return admin.from(TABLE).select("url").eq("tenant_id", tenantId);
+  return admin.from(TABLE).select("url, blocked_until").eq("tenant_id", tenantId);
 }
 
 /** Record a successful read: the state, the hash of the text we actually hold, and how much of the
@@ -230,8 +236,13 @@ export function nextBlockedUntil(
 
 /**
  * Record a page the site would not give us. 404 and 410 are `gone` (inventory history, never a
- * candidate again); 401, 403 and 429 are `blocked` with a bounded retry date; anything else is a
- * transient failure that leaves the row eligible and only stamps what the server said.
+ * candidate again); 401, 403 and 429 are `blocked` with a bounded retry date.
+ *
+ * ANYTHING ELSE IS A TRANSIENT FAILURE, and a failure is not a read. It used to stamp
+ * last_crawled_at, so one 500 made the page look freshly read for thirty days, or left an
+ * uncrawled row a candidate again on the very next pass with no backoff at all. Now the stamp is
+ * left exactly where the last real read put it, the state is untouched, and the page waits out the
+ * same bounded ladder a refusal gets.
  */
 export async function markBlocked(
   tenantId: string,
@@ -249,7 +260,8 @@ export async function markBlocked(
     });
   }
   if (httpStatus !== 401 && httpStatus !== 403 && httpStatus !== 429) {
-    return await patch(tenantId, url, { http_status: httpStatus, last_crawled_at: now.toISOString() });
+    const prior = await readOne(tenantId, url);
+    return await patch(tenantId, url, { http_status: httpStatus, blocked_until: nextBlockedUntil(prior, now) });
   }
   const held = await readOne(tenantId, url);
   return await patch(tenantId, url, {
