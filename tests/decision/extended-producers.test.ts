@@ -114,6 +114,40 @@ const componentRefusals = (v: ReturnType<typeof validateProposal>): string[] =>
 const answered = (c: BundleComponent): boolean => !!c.where && !!c.objective && !!c.mechanism && !!c.measurementPlan;
 
 describe("the causes that had no copy now write one, or refuse in words", () => {
+  // MY FIGURES GROUND THE DIAGNOSIS, THEY ARE NEVER PAGE COPY. The link drafter was handed the receipt facts
+  // as its hints, and the sentence it writes is published on the operator's page, so a click count was one
+  // model call away from being live copy. The hints are the page's own words and the winners' reading.
+  it("never feeds one of my own numbers to the drafter that writes page copy", async () => {
+    const heard: string[] = [];
+    const out = await produceInternalLinks(ctxOf({
+      // The drafter echoes its hints straight back, so anything handed in lands in the copy and shows here.
+      draft: { section: async () => null, internalLink: async (i) => {
+        heard.push(...i.evidenceHints ?? []);
+        return { anchorText: `${i.topic} guide`, linkSentence: `Working out ${i.topic} means reading ${(i.evidenceHints ?? []).join(" ")}`, reason: "same subject" }; } },
+    }));
+    expect(heard.length).toBeGreaterThan(0);                       // it is grounded, not starved
+    for (const fact of FACTS) expect(heard).not.toContain(fact);
+    const copy = out.components.map((c) => c.after).join(" ");
+    expect(copy).not.toContain("6,000");                           // the number in the receipt never reaches the page
+    expect(copy).not.toContain("90 clicks");
+    expect(heard).toContain("Rain Barrels");                       // the page's own words, and the winners' headings
+    expect(heard).toContain("How much rain a roof collects");
+  });
+
+  // A DOUBLE GAP IS A TYPO ON SOMEBODY'S PAGE. The dash rule swaps a dash for a space, so a dash sitting next
+  // to a space shipped two. Paragraph breaks are structure and survive untouched.
+  it("never ships drafted body copy with a run of spaces in it, and never touches a line break", async () => {
+    const out = await produceSourceExpansion(ctxOf({
+      finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }),
+      draft: { internalLink: async () => null, section: async () => ({ heading: "Downspout diverter",
+        body: "A diverter splits roof water \u2014 between the drain and the barrel.\n\nThe cited pages  say when one is needed.",
+        sources: [], containsNumber: false }) },
+    }));
+    const after = out.components[0]!.after;
+    expect(after).not.toMatch(/ {2}/);              // "a  b" never ships
+    expect(after).toContain("barrel.\n\nThe cited");  // and the paragraph break is left exactly where it was
+  });
+
   it("sends the reader to a page this account actually has, and survives the component gate", async () => {
     const out = await produceInternalLinks(ctxOf());
     expect(out.refusal).toBeNull();
@@ -166,7 +200,9 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     // THE INVERSION THIS REPAIR EXISTS FOR: fact requirements are claims that belong ON the page,
     // and Beacon's own measurements never appear anywhere in the change.
     expect(c.sourcePack!.factRequirements).toEqual(["Downspout diverter."]);
-    expect(c.sourcePack!.sourceRequirements).toEqual(['A source a reader can check for Downspout diverter, of the kind the 3 pages being cited for "rain barrel sizing" point at: a.example, b.example, c.example.']);
+    // THE PUBLISHERS ARE THE ANSWER. A count of winning pages beside them told the operator nothing to act on
+    // and read as a figure this sourced line was carrying, so it is gone.
+    expect(c.sourcePack!.sourceRequirements).toEqual(['A source a reader can check for Downspout diverter, of the kind the pages being cited for "rain barrel sizing" point at: a.example, b.example, c.example.']);
     for (const beaconFact of FACTS) expect(JSON.stringify(c)).not.toContain(beaconFact);
     expect(JSON.stringify(c)).not.toContain("6,000");
     expect(JSON.stringify(c)).not.toContain(INVENTED);

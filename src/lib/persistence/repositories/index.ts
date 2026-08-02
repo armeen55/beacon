@@ -17,6 +17,13 @@ import type { SeedDataRepository } from "./types";
 
 export type { SeedDataRepository } from "./types";
 
+/** THE ONE READING OF DATA_SOURCE. Three modules asked `=== "supabase"` on their own, so an unset variable
+ *  sent the repository to Supabase and those three to disk: one process, two truths, and the disk one wins
+ *  silently in production. Supabase unless the operator asks for files out loud, everywhere, from here. */
+export function usesSupabase(): boolean {
+  return process.env.DATA_SOURCE !== "file";
+}
+
 export function getRepository(): SeedDataRepository {
-  return process.env.DATA_SOURCE === "file" ? fileBackend : supabaseBackend;
+  return usesSupabase() ? supabaseBackend : fileBackend;
 }

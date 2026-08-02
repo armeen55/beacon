@@ -153,6 +153,32 @@ describe("a canonical write that did not land never reads as done", () => {
     expect(out.detail).toMatch(/^snapshot_write_failed:/); });
 });
 
+// ONE READING OF DATA_SOURCE, EVERYWHERE. Three modules asked `=== "supabase"` on their own, so an unset
+// variable sent the repository to Supabase and those three to disk: one process, two truths, and the disk
+// one wins silently in production. Supabase unless the operator asks for files out loud.
+describe("an unset DATA_SOURCE means Supabase, in every module that asks", () => {
+  it("answers Supabase when nothing is set, and files only on an explicit ask", async () => {
+    const { usesSupabase } = await import("@/lib/persistence/repositories");
+    const held = process.env.DATA_SOURCE;
+    try {
+      delete process.env.DATA_SOURCE;
+      expect(usesSupabase()).toBe(true);
+      // And the branch that used to disagree: the merge reads the repository rather than trusting empty disk.
+      let asked = false;
+      vi.doMock("@/lib/persistence/repositories", () => ({
+        usesSupabase, getRepository: () => ({ forTenant: () => ({ getRecommendationResponses: async () => { asked = true; return []; } }) }) }));
+      vi.resetModules();
+      const store = await import("@/domains/evidence/product/recommendation-response-store");
+      await store.getRecommendationResponses().catch(() => []);
+      expect(asked).toBe(true);
+      process.env.DATA_SOURCE = "file";
+      expect(usesSupabase()).toBe(false);
+      process.env.DATA_SOURCE = "supabase";
+      expect(usesSupabase()).toBe(true);
+    } finally { if (held === undefined) delete process.env.DATA_SOURCE; else process.env.DATA_SOURCE = held; vi.doUnmock("@/lib/persistence/repositories"); vi.resetModules(); }
+  });
+});
+
 describe("Tier A sync* helpers stay tenant-wired", () => {
   it("runtime: a representative Tier A helper rejects a cross-tenant row and an empty tenantId", async () => {
     await expect(syncImportRuns([{ id: "r1", tenant_id: OTHER } as unknown as Parameters<typeof syncImportRuns>[0][number]], TENANT)).rejects.toThrow(/tenant mismatch/);

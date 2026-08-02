@@ -40,7 +40,7 @@ import "server-only";
 import { cache } from "react";
 
 import { readStore } from "@/lib/persistence/json-store";
-import { getRepository } from "@/lib/persistence/repositories";
+import { getRepository, usesSupabase } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
 import type { TrackedEntity } from "@/domains/evidence/ai-visibility/tracked-entities";
@@ -157,7 +157,7 @@ async function loadStateForTenant(): Promise<State> {
   // returned []; the merge below populates the four hero arrays from
   // Supabase. Locally / dev this is additive and keeps in-memory state
   // current with whatever the poll pipeline wrote.
-  if (process.env.DATA_SOURCE === "supabase") {
+  if (usesSupabase()) {
     try {
       // Sprint 7 Phase 7.5c/2 (2026-04-25) — Tier A reads
       // (`getPromptAnswerObservations`, `getDailyMetricSnapshots`) go

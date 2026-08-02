@@ -9,10 +9,9 @@ import "server-only";
  * one point per question, per engine, per day, so a chart of "how often did the
  * engines name me" is comparing like with like. Slots 1 and 2 exist for the days
  * an operator wants to see how much an engine wobbles, and they are NEVER planned
- * automatically: a second read that nobody asked for would silently triple the
- * bill and quietly reweight the average toward whichever question got sampled
- * more. They come only from an explicit ask, only after slot 0 is complete, and
- * never past three.
+ * automatically: an unasked second read triples the bill and reweights the average
+ * toward whichever question got sampled more. They come only from an explicit ask,
+ * only after slot 0 is complete, and never past three.
  *
  * THE REPORTING DAY IS THE OPERATOR'S DAY (Pacific, src/lib/reporting-day.ts):
  * the day a person reading Beacon is actually in, and the day Search Console
@@ -22,15 +21,13 @@ import "server-only";
  * A PAIR'S DAY ENDS ONE OF FOUR WAYS, and the row says which: `observed` (the
  * answer is in), `unavailable` (the engine had nothing readable to give today),
  * `unsupported` (I cannot ask this engine at all) or `failed` with its retries
- * spent, which I then settle to `unavailable` with the provider's own reason
- * kept. The planner reads all four as finished for the day, because a row that
- * only ever says "failed" reads as owed on every look, and an engine that
- * refuses one question all day was re-bought on every pass forever.
+ * spent, which I settle to `unavailable` keeping the provider's own reason. The
+ * planner reads all four as finished, because a row that only ever says "failed"
+ * reads as owed on every look and was re-bought on every pass forever.
  *
- * A MISSED DAY IS GONE. Nothing here backfills. If the run never got to a
- * question on Tuesday, Tuesday has no point for it and Wednesday asks about
- * Wednesday. Filling a hole later with a reading taken days afterwards would put
- * a number on the chart at a date it was never true.
+ * A MISSED DAY IS GONE. Nothing here backfills. If the run never got to a question
+ * on Tuesday, Tuesday has no point for it and Wednesday asks about Wednesday: a hole
+ * filled later would put a number on the chart at a date it was never true.
  *
  * IDENTITY IS (prompt id, VERSION, engine, day). A wording edit, an engine-set
  * change, an add or a revival bumps the version in prompt-set.ts, so from that
@@ -302,15 +299,24 @@ function checkCounts(day: string, input: Pick<ObservationPlanInput, "prompts" | 
   const engines = (input.engines ?? OBSERVATION_ENGINES).filter((e) => OBSERVATION_ENGINES.includes(e));
   const excluded = new Set(input.unsupportedPairs ?? []), retries = input.retries ?? {};
   const landed = new Map<string, "answers" | "unavailable" | "unsupported">();
+  // A SETTLED ROW IS READ OFF ITS OWN STORED STATUS, never re-derived from today's engine list: that list is
+  // exactly what an unsupported row is missing from, so "I cannot ask" was a state the count could never
+  // reach and the pair vanished from the day it was owed on.
+  const closed = new Map<string, ObservationEngine[]>();
   for (const o of input.observed) {
     if (o.day !== day || o.slot !== 0 || !settledForDay(o, retries[retryKey(o)] ?? 0)) continue;
-    landed.set(pairKey(o.promptId, o.version, o.engine), o.status === "observed" ? "answers"
-      : o.status === "unsupported" || !engines.includes(o.engine as ObservationEngine) ? "unsupported" : "unavailable");
+    const how = o.status === "observed" ? "answers" : o.status === "unsupported" ? "unsupported" : "unavailable";
+    landed.set(pairKey(o.promptId, o.version, o.engine), how);
+    if (how === "unsupported" && !engines.includes(o.engine as ObservationEngine)) {
+      const k = `${o.promptId}|${o.version}`;
+      closed.set(k, [...(closed.get(k) ?? []), o.engine as ObservationEngine]);
+    }
   }
   const out: DayChecks = { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 };
   for (const p of input.prompts) {
     if (!p.id || !p.text) continue;
-    for (const engine of engines) {
+    // Every engine still askable, plus one this day asked and closed as unaskable: both were owed today.
+    for (const engine of [...engines, ...(closed.get(`${p.id}|${p.version}`) ?? [])]) {
       if (excluded.has(`${p.id}|${engine}`)) continue;
       out.total += 1;
       const how = landed.get(pairKey(p.id, p.version, engine));
@@ -433,17 +439,15 @@ const MAX_SETTLES_PER_PASS = 40;
  * retry and a stamp that did not is a pair still owed its turn.
  *
  * A row with nothing left to spend is settled so every later reader (the planner, the count on Today, the
- * trend) sees one honest terminal state instead of a refusal that looks like pending work forever:
- * `unavailable` when the engine could be asked and gave nothing, `unsupported` when the provider registry
- * cannot ask that engine at all. The provider's own words stay in failure_reason either way: the row still
- * explains itself, it just stops promising a retry it is never going to make.
+ * trend) sees one honest terminal state instead of pending work forever: `unavailable` when the engine could
+ * be asked and gave nothing, `unsupported` when the registry cannot ask it at all. The provider's own words
+ * stay in failure_reason either way, so the row still explains itself.
  *
  * THE MARKER NEVER OUTRUNS THE PROOF. The settle used to be fired and forgotten while the exhausted-retry
- * marker landed regardless, so a settle that failed left the canonical row saying `failed` with no budget
- * left to ask again: permanently owed and permanently contradicted by the ledger beside it. Settlement now
- * happens FIRST and PER PAIR, and only a pair whose settle actually resolved has its retry count advanced;
- * a pair whose settle threw is rolled back to what the day already had on file, so it stays due, gets asked
- * again, and says so in the log rather than in silence.
+ * marker landed regardless, so a failed settle left the row saying `failed` with no budget left to ask
+ * again: permanently owed and contradicted by the ledger beside it. Settlement happens FIRST and PER PAIR,
+ * only a pair whose settle resolved has its retry count advanced, and a pair whose settle threw is rolled
+ * back to what the day already had on file, so it stays due, gets asked again, and says so in the log.
  */
 async function spendFailureBudget(tenantId: string, day: string, s: DayState, opts: PlannerDeps): Promise<void> {
   const broken = s.observed.filter((o) => o.day === day && o.status === "failed" && Boolean(o.id));

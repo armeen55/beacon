@@ -15,7 +15,7 @@ import {
   deleteRecommendationResponseByRecId,
   syncRecommendationResponses,
 } from "@/lib/persistence/dual-write";
-import { getRepository } from "@/lib/persistence/repositories";
+import { getRepository, usesSupabase } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 
 // ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ async function loadForTenant(tenantId: string): Promise<RecommendationResponse[]
   // Phase 3.5C (2026-04-22): on Vercel / DATA_SOURCE=supabase the disk read
   // returned [] because the JSON file doesn't exist on the read-only FS.
   // Merge from `recommendation_responses` table so getters see real data.
-  if (process.env.DATA_SOURCE === "supabase") {
+  if (usesSupabase()) {
     try {
       const rows = await getRepository().forTenant(tenantId).getRecommendationResponses();
       const byId = new Map<string, RecommendationResponse>();

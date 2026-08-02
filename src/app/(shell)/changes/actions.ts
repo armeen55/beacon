@@ -85,7 +85,9 @@ async function recordShipment(
     // THE RISK GRADE TRAVELS TOO. Decision calls a component dangerous on its kind OR on this
     // grade; measurement only ever saw the kind, so a component graded dangerous under an
     // ordinary kind lost the day-56 follow up that exists for exactly those changes.
-    const all = proposal.bundle?.components.map((c) => ({ kind: c.kind, label: c.label, after: c.after ?? null, risk: c.risk ?? null }))
+    const all = proposal.bundle?.components.map((c) => ({ kind: c.kind, label: c.label, after: c.after ?? null, risk: c.risk ?? null,
+      // A renamed link is verified against the words that should now be ON it, so those words ride along.
+      ...(c.anchorAfter ? { anchorAfter: c.anchorAfter } : {}) }))
       // An atomic change has no component to carry a grade, so it reads null rather than a guess.
       ?? [{ kind: proposal.changeFamily, label: proposal.opportunityType, after: proposal.recommendedChange?.kind === "existing_edit" ? proposal.recommendedChange.after : null, risk: null }];
     const wanted = componentKinds && componentKinds.length > 0 ? new Set(componentKinds) : null;

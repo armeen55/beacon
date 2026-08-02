@@ -51,6 +51,16 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } {
   const newestFirst = (t: string) => rows.map((r, i) => [r, i] as const).filter(([r]) => r.tenant_id === t)
     .sort((a, b) => b[0].started_at.localeCompare(a[0].started_at) || b[1] - a[1]).map(([r]) => r);
   const openRun = (t: string) => newestFirst(t).find((x) => x.status === "running" || x.status === "paused");
+  /** patch_research_run_progress, in one atomic step: top-level merge, and when an increment key is given a
+   *  {day, count} computed FROM THE ROW, same day + 1 and a new day back to 1. Null = no row matched. */
+  const patchProgress = (t: string, id: string, patch: RR.ResearchRunProgress, key?: string, day?: string): RR.ResearchRunProgress | null => {
+    const r = find(id, t);
+    if (!r) return null;
+    const before = r.progress ?? {};
+    const held = key ? (before as Record<string, { day?: string; count?: number } | undefined>)[key] ?? null : null;
+    r.progress = { ...before, ...patch,
+      ...(key ? { [key]: { day, count: held != null && held.day === day ? (held.count ?? 0) + 1 : 1 } } : {}) };
+    return r.progress; };
   const repo: RR.ResearchRunRepo = {
     async claim({ tenantId, owner, leaseSeconds }) {
       // Mirror the RPC's new leading guard: no claim unless the account is active.
@@ -100,13 +110,16 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } {
     async sameDay({ tenantId, day, limit }) {
       return newestFirst(tenantId).filter((x) => x.cycle_key.endsWith(day)).slice(0, limit)
         .map((x) => ({ id: x.id, progress: x.progress ?? {} })); },
+    // THE COUNT IS COMPUTED WHERE IT IS STORED, so the fake sits at the SAME seam the SQL does: the repo
+    // only finds the row id, and patch_research_run_progress does the merge and the increment under its own
+    // lock (same day adds one, a new day resets to 1). A read-modify-write here would have pinned the very
+    // bug the RPC exists to kill: two tabs both reading 0 and both writing 1.
     async countContinuation({ tenantId, day }) {
       const row = newestFirst(tenantId)[0];
       if (!row) return null;
-      const held = row.progress?.continuations;
-      const count = (held?.day === day ? held.count : 0) + 1;
-      row.progress = { ...row.progress, continuations: { day, count } };
-      return count; },
+      await Promise.resolve(); // the round trip: both callers can be in flight before either patch lands
+      const held = patchProgress(tenantId, row.id, {}, "continuations", day)?.continuations;
+      return held?.day === day && Number.isFinite(held.count) ? held.count : null; },
   };
   return { repo, rows };
 }
@@ -355,6 +368,19 @@ describe("research-run Today copy", () => {
     const sameDay = RR.researchStatusLine(completed, new Date(NOON_PT)); const older = RR.researchStatusLine(completed, new Date(NOON_PT + 2 * DAY));
     expect(sameDay).toBe("Latest research pass finished today at 12:00 PM."); expect(older).toBe("Latest research pass finished Jul 23 at 12:00 PM.");
     expect(`${sameDay} ${older}`).not.toMatch(/current/i); expect(RR.researchStatusLine(view({ state: "none" }))).toBeNull(); });
+  // EVERY COUNT HERE IS A CHECK, NEVER AN ENGINE. One silent engine across forty questions is forty checks,
+  // and calling them engines told the operator four engines were down on a day nothing was wrong with four.
+  it("says how a finished day actually landed, in checks, and stays quiet when there is nothing to own", () => {
+    const done = (counters: RR.ResearchRunStatusView["counters"]) =>
+      RR.researchStatusLine(view({ state: "completed", completedAt: new Date(NOON_PT).toISOString(), counters }), new Date(NOON_PT));
+    expect(done({ aiChecksDone: 140, aiChecksIntended: 140, aiChecksAnswered: 137, aiChecksUnavailable: 2, aiChecksUnsupported: 1 }))
+      .toBe("Latest research pass finished today at 12:00 PM. I finished today's checks: 137 answers, 2 checks came back empty, 1 I cannot ask.");
+    expect(done({ aiChecksDone: 140, aiChecksIntended: 140, aiChecksAnswered: 139, aiChecksUnavailable: 1 }))
+      .toContain("1 check came back empty."); // one is one check, never one engine
+    expect(done({ aiChecksDone: 140, aiChecksIntended: 140, aiChecksAnswered: 140, aiChecksUnavailable: 0, aiChecksUnsupported: 0 }))
+      .toBe("Latest research pass finished today at 12:00 PM."); // every check answered: nothing to own, so nothing said
+    expect(done({ aiChecksDone: 96, aiChecksIntended: 140, aiChecksAnswered: 94 }))
+      .toBe("Latest research pass finished today at 12:00 PM."); }); // the day is still open, so the running count carries it
   it("gives an open error-free run ONE in-progress sentence with the persisted AI-check counts, identical whether the lease is live or released", () => {
     const progress = { funnel: { promptsChecked: 35, enginePairsDone: 40, enginePairsIntended: 140 } };
     const leased = mk({ status: "running", current_phase: "prompt_observations", progress, lease_owner: "o", lease_expires_at: iso(NOW + LEASE) });
@@ -505,6 +531,17 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     expect((await chain(() => NOTHING_DUE)).ran).toBe(1); // nothing due after the first hop: no second request is asked for
     hops = 0; const forever = await chain(() => SOMETHING_DUE);
     expect([forever.hop, forever.ran]).toEqual([6, 6]); }); // due forever still stops at the bound
+
+  // TWO TABS ARE ONE COUNT. Both hops start before either lands, and the increment happens where the row is,
+  // so they read 1 and 2. Counted in the app, both would have read 0 and both written 1, and the six-hop
+  // bound that stops a live tab looping all day would have bounded nothing.
+  it("counts overlapping continuation hops once each, never twice as the first", async () => {
+    const rows = freshRepo(); const day = today();
+    rows.push(mk({ id: "r-open", status: "running", started_at: iso() }));
+    const both = await Promise.all([RR.countContinuationHop(T, day), RR.countContinuationHop(T, day)]);
+    expect(both.sort()).toEqual([1, 2]);
+    expect(rows[0]!.progress.continuations).toEqual({ day, count: 2 });
+    expect(await RR.countContinuationHop(T, "2026-08-09")).toBe(1); }); // a new day starts over, never adds on
 
   it("carries the day's own state onto the pass it justified: the grant, the ceiling marker, the reading receipt and the decide watermark all survive a new row, and none of them survives the day", async () => {
     const rows = freshRepo(); const day = today();

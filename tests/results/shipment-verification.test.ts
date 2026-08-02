@@ -49,7 +49,7 @@ const refuse = (reason: "robots_blocked" | "fetch_failed", detail?: string): Fet
 const base = { loadProfile: async () => null, writeOwnedPage: async () => {}, now: () => NOW };
 
 /** ONE verification of one page, with the components under test. */
-const check = async (components: Array<{ kind: string; after: string }>, page: Fetcher = serve(PAGE), over: Record<string, unknown> = {}) =>
+const check = async (components: Array<{ kind: string; after: string; anchorAfter?: string | null }>, page: Fetcher = serve(PAGE), over: Record<string, unknown> = {}) =>
   verifyShipment(T, { id: "s1", url: URL_, components }, { ...base, fetchPage: page, ...over });
 /** What ONE component was judged to be. */
 const state = async (kind: string, after: string, page: Fetcher = serve(PAGE), over: Record<string, unknown> = {}) =>
@@ -93,6 +93,18 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("internal_link_add", "Add a link to the guide")).toBe("unknown"); // no address named
     const noLinks = serve("<html><head><title>t</title></head><body><main><p>words enough to count as a paragraph here</p></main></body></html>");
     expect(await state("internal_link_add", "Link to /haft-seen", noLinks)).toBe("unknown");
+  });
+
+  // A RENAMED LINK IS NOT VERIFIED BY THE LINK EXISTING. The swap renames a link that is already there, so
+  // checking for the address answered yes the moment the change was written: it read verified before the
+  // operator touched the page. The words on the live link are the only thing that can settle it.
+  it("checks a renamed link on the words that are actually on it, both ways, and says unknown without them", async () => {
+    const swap = async (anchorAfter: string | null) => (await check([{ kind: "anchor_text",
+      after: 'I would change the words "read more" that already point at /haft-seen so they read "the haft seen explained".',
+      anchorAfter }])).components[0]!.state;
+    expect(await swap("the haft seen explained")).toBe("verified"); // the live link carries the new words
+    expect(await swap("what each haft seen item means")).toBe("missing"); // the link is there, the wording is not
+    expect(await swap(null)).toBe("unknown"); // no new wording on file, so no claim either way
   });
 
   it("reads structured data as the weak signal it is, and never as proof of absence when the page builds itself in the browser", async () => {

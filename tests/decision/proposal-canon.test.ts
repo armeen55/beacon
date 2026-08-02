@@ -10,7 +10,10 @@ const db = vi.hoisted(() => {
   // `missing` = the TABLE is not in the schema cache; `rpcMissing` = the table is there and the
   // supersession FUNCTION is not. They are separate flags because they are separate deploy accidents, and
   // one flag could only ever test the first: the table read failed before the function was ever called.
-  const state = { rows: [] as Row[], legacy: [] as Row[], missing: false, rpcMissing: false, breakWrite: false, rpcCalls: 0 };
+  // `raceForeign` is a concurrent insert of the SUCCESSOR id under another account, landing after the
+  // guard read: the upsert's tenant WHERE then matches nothing, so nothing lands and the whole handover
+  // must unwind rather than report saved.
+  const state = { rows: [] as Row[], legacy: [] as Row[], missing: false, rpcMissing: false, breakWrite: false, rpcCalls: 0, raceForeign: "" };
   const CANON = "change_proposals";
   const client = {
     from(table: string) {
@@ -72,8 +75,12 @@ const db = vi.hoisted(() => {
         const clash = state.rows.some((r) => r.id !== row.id && r.id !== pred.id && r.terminal_disposition == null
           && ["tenant_id", "case_id", "page_key", "action_family"].every((c) => r[c] === row[c]));
         if (clash) return { data: "failed", error: null };
-        Object.assign(pred, { terminal_disposition: "superseded", superseded_by: row.id, updated_at: row.updated_at });
+        if (state.raceForeign) state.rows.push({ id: row.id, tenant_id: state.raceForeign, status: "proposed", created_at: "2026-07-01T00:00:00.000Z" });
+        // THE INSERT'S OWN LANDING IS THE PROOF, exactly as the SQL now reads it: zero rows back means the
+        // successor never landed, so it raises and BOTH writes unwind with the predecessor still in place.
         const at = state.rows.findIndex((r) => r.id === row.id);
+        if (at >= 0 && state.rows[at]!.tenant_id !== args.p_tenant_id) return { data: "failed", error: null };
+        Object.assign(pred, { terminal_disposition: "superseded", superseded_by: row.id, updated_at: row.updated_at });
         if (at >= 0) state.rows[at] = { ...state.rows[at], ...row }; else state.rows.push({ created_at: "2026-07-01T00:00:00.000Z", ...row });
         return { data: "saved", error: null };
       };
@@ -113,7 +120,7 @@ const deep = (over: Partial<ChangeProposal> = {}) => proposal({ id: `${T}::${PAG
 const current = () => db.state.rows.filter((r) => r.terminal_disposition == null);
 const seedLegacy = (p: ChangeProposal) => db.state.legacy.push({ tenant_id: p.tenantId, rec_id: p.id, kind: "change_proposal", content: serializeChangeProposal(p), created_at: p.createdAt });
 
-beforeEach(() => { db.state.rows = []; db.state.legacy = []; db.state.missing = false; db.state.rpcMissing = false; db.state.breakWrite = false; db.state.rpcCalls = 0; });
+beforeEach(() => { db.state.rows = []; db.state.legacy = []; db.state.missing = false; db.state.rpcMissing = false; db.state.breakWrite = false; db.state.rpcCalls = 0; db.state.raceForeign = ""; });
 
 describe("canonical proposal persistence", () => {
   it("keeps ONE current row per hypothesis: a re-draft supersedes its predecessor, points at it, and carries the next version", async () => {
@@ -289,5 +296,14 @@ describe("canonical proposal persistence", () => {
     expect(current().map((r) => [r.id, r.terminal_disposition, r.superseded_by])).toEqual([[proposal().id, null, null]]);
     expect(db.state.rows).toHaveLength(1);
     expect((await loadChangeProposals(T)).size).toBe(1); // the operator's queue is exactly what it was
+  });
+
+  it("a successor id racing in under another account is a FAILURE, and the predecessor keeps its place", async () => {
+    await saveChangeProposal(proposal());
+    db.state.raceForeign = "acct-b"; // lands after the guard read, so the guard cannot see it
+    expect(await saveChangeProposal(deep())).toBe("failed");
+    expect(current().filter((r) => r.tenant_id === T).map((r) => [r.id, r.terminal_disposition, r.superseded_by]))
+      .toEqual([[proposal().id, null, null]]);
+    expect((await loadChangeProposals(T)).size).toBe(1); // one proposal, still current, still this account's
   });
 });

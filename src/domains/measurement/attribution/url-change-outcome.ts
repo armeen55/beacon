@@ -24,7 +24,7 @@ import { cache } from "react";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { syncUrlChangeOutcomes } from "@/lib/persistence/dual-write";
-import { getRepository } from "@/lib/persistence/repositories";
+import { getRepository, usesSupabase } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import { isLifecycleVerdictEnabled } from "@/lib/flags";
 import { log } from "@/lib/logger";
@@ -224,7 +224,7 @@ async function loadForTenant(tenantId: string): Promise<UrlChangeOutcome[]> {
   // Phase 3.5C (2026-04-22): on Vercel / DATA_SOURCE=supabase the disk read
   // above returned [] because the JSON file doesn't exist on the read-only
   // FS. Merge from `url_change_outcomes` table so getters see real data.
-  if (process.env.DATA_SOURCE === "supabase") {
+  if (usesSupabase()) {
     try {
       const rows = await getRepository().forTenant(tenantId).getUrlChangeOutcomes();
       const byKey = new Map<string, UrlChangeOutcome>();

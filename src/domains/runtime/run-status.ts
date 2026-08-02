@@ -149,7 +149,9 @@ function settledChecksNote(c: ResearchRunStatusView["counters"]): string {
   if (typeof answers !== "number" || answers >= total) return "";
   const quiet = c.aiChecksUnavailable ?? 0, shut = c.aiChecksUnsupported ?? 0;
   const parts = [`${answers} ${answers === 1 ? "answer" : "answers"}`];
-  if (quiet > 0) parts.push(`${quiet} ${quiet === 1 ? "engine" : "engines"} had nothing to give`);
+  // CHECKS, NEVER ENGINES. Every count here is a (question, engine) CHECK, so one silent engine across
+  // forty questions reads as forty checks: calling them engines told the operator four engines were down.
+  if (quiet > 0) parts.push(`${quiet} ${quiet === 1 ? "check" : "checks"} came back empty`);
   if (shut > 0) parts.push(`${shut} I cannot ask`);
   return ` I finished today's checks: ${parts.join(", ")}.`;
 }

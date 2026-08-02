@@ -30,8 +30,9 @@ const MAX_HEADINGS = 6;
 const MIN_STRUCTURAL_CAUSES = 2;
 
 const count = (n: number): string => Math.round(n).toLocaleString("en-US");
-/** Model copy comes back sanitized, and this is the last net: no em or en dash ever reaches an operator. */
-const nodash = (s: string): string => s.replace(/[–—]/g, " ");
+/** The last net: no em or en dash ever reaches an operator. The dash becomes a space, and the space it leaves
+ *  beside one already there is collapsed, so no drafted line ships a double gap. Line breaks are untouched. */
+const nodash = (s: string): string => s.replace(/[–—]/g, " ").replace(/[^\S\r\n]{2,}/g, " ");
 const plain = (s: string): string => nodash(s).replace(/\s+/g, " ").trim();
 const sentence = (s: string): string => (/[.?!]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
 const refuse = (refusal: string): Produced => ({ components: [], refusal });
@@ -199,7 +200,12 @@ export const produceInternalLinks: Producer = async (ctx) => {
   if (!gap) return refuse("I have not counted this page's links against the pages that win its subject, so I am not going to invent somewhere to send a reader. Research this page again and I will count both sides.");
   const targets = candidateTargets(ctx);
   if (targets.length === 0) return refuse("I know this page leaves a reader with nowhere to go, and I do not hold another page of yours on this subject to send them to, so I am not inventing one. Tell me the page it should lead to and I will write the sentence.");
-  const evidenceHints = ctx.receiptFacts.slice(0, MAX_REQUIREMENTS);
+  // NEVER MY OWN FIGURES. This drafted sentence becomes copy on the operator's page, and a receipt fact is a
+  // number ABOUT the page (clicks, views), so handing them over let a click count land in a line somebody
+  // publishes. The hints are this page's own words and what the pages winning the subject say.
+  const evidenceHints = [ctx.page.title, ctx.page.h1, ...ctx.page.outline,
+    ...(ctx.body?.entityNames ?? []), ...(ctx.pattern?.commonHeadings ?? []).map((h) => h.heading)]
+    .filter((h): h is string => typeof h === "string" && h.trim().length > 0).slice(0, MAX_REQUIREMENTS);
   const own = ownVocabulary(ctx);
   const components: BundleComponent[] = [];
   for (const target of targets.slice(0, MAX_LINKS)) {
@@ -234,6 +240,9 @@ export const produceInternalLinks: Producer = async (ctx) => {
     kind: "anchor_text",
     label: `Rename the link to ${swap.path}`,
     before: swap.anchor,
+    // The exact new wording travels structured, so the live check reads the LINK'S OWN WORDS rather than
+    // re-parsing my sentence about them.
+    anchorAfter: swap.name,
     after: `I would change the words "${swap.anchor}" that already point at ${swap.path} so they read "${swap.name}", because a reader who came for "${ctx.primary}" cannot tell where that link goes until they have spent the click.`,
     evidenceKeys: keys,
     risk: "safe",
@@ -330,7 +339,9 @@ export const produceSourceExpansion: Producer = async (ctx) => {
         : `${seen.engine} answered "${seen.promptText}" naming other sites and never this page, so the fix is to carry what those answers are built on rather than to reword what is already here.`,
       // ONLY PAGE CLAIMS, never a figure of mine, and the kind of source is the one the cited pages point at.
       sourcePack: {
-        sourceRequirements: claims.map((c) => `A source a reader can check for ${c}, of the kind the ${count(ctx.pattern!.winners)} pages being cited for "${ctx.primary}" point at: ${publishers.join(", ")}.`),
+        // The publishers ARE the answer here; a count of winning pages beside them said nothing an operator
+        // could act on and read as a figure this line was sourcing.
+        sourceRequirements: claims.map((c) => `A source a reader can check for ${c}, of the kind the pages being cited for "${ctx.primary}" point at: ${publishers.join(", ")}.`),
         factRequirements: claims.map(sentence),
       },
       measurementPlan: `I will read how often "${seen.promptText}" names this page, and clicks for "${ctx.primary}", at 7, 14 and 28 days after you publish it.`,

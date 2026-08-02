@@ -372,8 +372,6 @@ function outcomeLine(direction: ShipmentAiOutcome["direction"], before: Shipment
  *  rides the answer; under half is `unclear`, not a verdict; no stamp means null. */
 export type ShipmentForOutcome = { implementedAt: string | null; shipmentBaseline?: { ai: { day: string; checked: number; analyzed?: number; mentioning: number } | null } | null };
 
-/** A stretch of reporting days, both ends included. */
-
 /** The two ends of ONE shipment's read: the 28 days ahead of the stamp, where the fallback before-number is
  *  found, and the 28 days after it, bounded by today. Null when the change carries no stamp to measure from. */
 function shipmentWindow(shipment: ShipmentForOutcome, nowDay: string): { stamp: string; from: string; to: string } | null {

@@ -1,26 +1,26 @@
 /**
- * decision/produce-proposals: the ONE server path that turns a tenant's cached evidence into
- * persisted ChangeProposals - loadEvidenceSnapshot ($0, six cached sources) -> compileCandidates
- * (the honest diagnosis: act / watch / do nothing) -> candidatesToEvidenceInputs (only what
- * EARNED an action) -> proposeExistingPageChange (cold, gated, budgeted drafter plus the ONE
- * validator) -> saveChangeProposal (durable, fail-soft). BOUNDED: at most the strongest
- * DEFAULT_MAX_DRAFTS pages by recoverable clicks, and a page with no proven gap costs nothing.
+ * decision/produce-proposals: the ONE server path that turns a tenant's cached evidence into persisted
+ * ChangeProposals - loadEvidenceSnapshot ($0, six cached sources) -> compileCandidates (the honest diagnosis:
+ * act / watch / do nothing) -> candidatesToEvidenceInputs (only what EARNED an action) ->
+ * proposeExistingPageChange (cold, gated, budgeted drafter plus the ONE validator) -> saveChangeProposal
+ * (durable, fail-soft). BOUNDED: at most the strongest DEFAULT_MAX_DRAFTS pages by recoverable clicks.
+ * WHAT A FULL PASS CAN COST at worst: three deep bundles, each drafting up to seven sections, is about $0.45
+ * at the drafter's documented per-call estimates. That is the number the spend cap is read against.
  *
  * THE DEEP READ HAS FIVE DOORS, NOT ONE (see deep-candidates.ts). A click gap on Google used to be the only
  * way any page reached the deep producer, so an engine reading a page and quoting rivals, a comparison naming
- * the page to improve, and two of your own pages splitting a search were invisible unless that page also
- * happened to be losing clicks. Selection widened; drafting did not: the SAME producer runs per selected
- * page, still bounded to DEFAULT_MAX_DRAFTS, still refusing on thin evidence.
+ * the page to improve, and two of your own pages splitting a search were invisible unless that page was also
+ * losing clicks. Selection widened; drafting did not: the SAME producer runs per selected page, still bounded
+ * to DEFAULT_MAX_DRAFTS, still refusing on thin evidence.
  *
- * Every honest ending this pass can reach is named on `ProducerOutcome` below, so a surface never
- * reads an empty queue as an outage or a failed write as a quiet day.
+ * Every honest ending this pass can reach is named on `ProducerOutcome` below, so a surface never reads an
+ * empty queue as an outage or a failed write as a quiet day.
  *
- * ONE EVIDENCE BASIS, ONE ROW: a candidate whose current-generation proposal already exists is
- * never redrafted, and a proposal whose material fingerprint is unchanged is never re-inserted,
- * so a refresh re-pays nothing.
+ * ONE EVIDENCE BASIS, ONE ROW: a candidate whose current-generation proposal already exists is never
+ * redrafted, and a proposal whose material fingerprint is unchanged is never re-inserted: a refresh re-pays nothing.
  *
- * COLD by default: the drafter's `complete` fn is injectable, so tests run this whole path with
- * zero paid calls. Publishing stays MANUAL: this only proposes. server-only.
+ * COLD by default: the drafter's `complete` fn is injectable, so tests run this path with zero paid calls.
+ * Publishing stays MANUAL: this only proposes. server-only.
  */
 import "server-only";
 

@@ -48,7 +48,7 @@ type ComponentState = ShipmentVerification["components"][number]["state"];
 type VerifiableShipment = {
   id: string;
   url: string;
-  components: Array<{ kind: string; after: string }>;
+  components: Array<{ kind: string; after: string; anchorAfter?: string | null }>;
   operatorConfirmed?: boolean;
   /** This is the ONE retry a site that did not answer earns. A recheck's own answer is final either way. */
   recheck?: boolean;
@@ -91,7 +91,7 @@ function liveTextOf(snap: PageSnapshot, html: string): string {
 }
 
 /** ONE component, judged against the page as it stands right now. Pure. */
-function classify(component: { kind: string; after: string }, live: LiveRead): { state: ComponentState; note: string } {
+function classify(component: { kind: string; after: string; anchorAfter?: string | null }, live: LiveRead): { state: ComponentState; note: string } {
   const { snap } = live, proposed = component.after ?? "";
   // NO COPY, NO CLAIM. Some kinds are visible without any wording at all (the address forwards, the page
   // asks to be left out of search, the page exists). Every other kind needs the exact wording that was
@@ -142,7 +142,21 @@ function classify(component: { kind: string; after: string }, live: LiveRead): {
     case "section_remove":
       return !wanted ? judged("unknown", "This change has no heading I can look for.")
         : headingHit ? judged("differs", "That section is still on the page.") : judged("verified", "That section is gone.");
-    case "internal_links": case "internal_link_add": case "anchor_text": case "navigation":
+    // A RENAMED LINK IS CHECKED ON ITS WORDS, NEVER ON ITS ADDRESS. The swap renames a link that already
+    // exists, so asking whether a link to that address is on the page answered yes the moment the change was
+    // written: it read verified without anything having happened. What changed is the wording, so the wording
+    // is what I read, off the live link itself, and if the exact new words did not travel I say so.
+    case "anchor_text": {
+      const want = norm(component.anchorAfter ?? "");
+      if (!want) return judged("unknown", "I do not hold the exact words that link was meant to read, so I am not calling this one either way.");
+      if (snap.internal_links == null) return judged("unknown", "I could not read the links on your page this time.");
+      const onTarget = targetKey ? snap.internal_links.filter((l) => canonicalUrlKey(absolute(l.href)) === targetKey) : snap.internal_links;
+      const links = onTarget.length > 0 ? onTarget : snap.internal_links;
+      return links.some((l) => norm(l.anchor_text ?? "").includes(want))
+        ? judged("verified", "That link now reads the way I asked.")
+        : judged("missing", "That link is on your page, and it still does not read the way I asked.");
+    }
+    case "internal_links": case "internal_link_add": case "navigation":
       return !target ? judged("unknown", "This change names no address I can look for.")
         : snap.internal_links == null ? judged("unknown", "I could not read the links on your page this time.")
           : linkHit ? judged("verified", "The link I asked for is on the page.") : judged("missing", "That link is not on the page yet.");
@@ -252,10 +266,11 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
  *  UNKNOWN when it cannot. Inventing wording to check against would be worse than saying I cannot tell. */
 function componentsOf(r: ShippedChangeRecord): VerifiableShipment["components"] {
   const copy = (r.after ?? "").trim();
-  const applied = (r.componentsApplied ?? []) as Array<{ kind: string; after?: string | null }>;
+  const applied = (r.componentsApplied ?? []) as Array<{ kind: string; after?: string | null; anchorAfter?: string | null }>;
   if (applied.length === 0) return copy || r.actionType ? [{ kind: r.actionType || "content", after: copy }] : [];
   const lone = applied.length === 1;
-  return applied.map((c) => ({ kind: c.kind, after: (c.after ?? "").trim() || (lone || c.kind === r.actionType ? copy : "") }));
+  return applied.map((c) => ({ kind: c.kind, anchorAfter: c.anchorAfter ?? null,
+    after: (c.after ?? "").trim() || (lone || c.kind === r.actionType ? copy : "") }));
 }
 
 /** One Shipment row, as verification reads it. A row that already holds an answer is only ever here as

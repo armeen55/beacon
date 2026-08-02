@@ -424,8 +424,12 @@ export async function activateAccount(tenantId: string, tosAccepted: boolean, de
   const basis = basisTag(canonicalId, account.domain.trim(), profile, goal);
   const rows = await d.store.readPrompts(canonicalId);
   const activeCore = rows.filter((r) => r.is_active && r.tags?.includes(PROMPT_TAGS.core) && r.tags?.includes(basis) && r.tenant_id === canonicalId && r.account_id === canonicalId);
+  // THE SETUP WINDOW, THE SAME ONE APPROVAL ENFORCED. Activation used to allow 10 to 100 while approval
+  // allowed 20 to 50 bent down to a thin candidate pool, so the two gates disagreed about the same set.
+  // Approval already held the bent floor, so activation asks only that a real set survived it and that
+  // nothing pushed it past the setup ceiling.
   if (activeCore.length < LIMITS.minActive) return { ok: false, error: "Approve your prompts first." };
-  if (activeCore.length > LIMITS.maxActive) return { ok: false, error: "That is more prompts than I can track well. Trim your set first." };
+  if (activeCore.length > LIMITS.onboardingMax) return { ok: false, error: `That is ${activeCore.length} prompts. Keep it to ${LIMITS.onboardingMax} or fewer so each one gets real attention.` };
 
   const nowIso = d.now().toISOString();
   const outcome = await d.store.activateTenant(canonicalId, nowIso).catch(() => "blocked" as const);

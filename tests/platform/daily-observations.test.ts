@@ -24,8 +24,9 @@ vi.mock("@/domains/evidence/dataforseo/funnel-boundary", async (orig) => ({
   ...((await orig()) as object), capabilityAskable: (cap: string) => !registry.off.has(cap),
 }));
 /** What the pass SAID, so a swallowed write can be told apart from a recorded one. */
-const said = vi.hoisted(() => ({ warnings: [] as string[] }));
-vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, error: () => {},
+const said = vi.hoisted(() => ({ warnings: [] as string[], errors: [] as string[] }));
+vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {},
+  error: (msg: string) => { said.errors.push(msg); },
   warn: (msg: string) => { said.warnings.push(msg); } } }));
 import { identityFrom } from "@/domains/account/brand-identity";
 import { setAccountRepositoryForTests } from "@/domains/account/tenants/store";
@@ -345,6 +346,29 @@ describe("reading the answers back", () => {
     expect(selectAnalysisTargets(rows.filter((r) => !saved.has(r.id)))).toEqual([]);
   });
 
+  // A PASS TAKES ON ONLY WHAT IT CAN FINISH. Selection counted ANSWERS while the batch budget is spent in
+  // PIECES, so sixty long answers were three hundred and sixty pieces: the calls ran out part way down the
+  // list and the remainder was dropped where nothing said so. Now the overflow is deferred, never abandoned.
+  it("defers whole answers it cannot finish this pass, and abandons no piece of the ones it takes", async () => {
+    const long = (id: string) => ({ ...row(id, `h-${id}`, null, false), answerText: "Acme is open on Sundays. ".repeat(1_400) });
+    const rows = Array.from({ length: 20 }, (_, i) => long(`L${String(i).padStart(2, "0")}`));
+    const taken = selectAnalysisTargets(rows);
+    expect(taken.length).toBeLessThan(rows.length);      // twenty six-piece answers do not fit four calls
+    const pieces: string[] = [], saved = new Set<string>();
+    const written = await runAnswerAnalyses(T, DAY, {
+      readObservations: async () => rows,
+      // A SPLIT ANSWER'S READING COMES HOME TO ITS OWN PIECE, which is the key the batch echoes back.
+      analyzeBatch: async ({ targets }) => { pieces.push(...targets.map((t) => t.key)); return new Map(targets.map((t) => [t.key, analysis])); },
+      persist: async (_t, id) => void saved.add(id),
+      readPrompts: async () => null, identity: BRAND,
+    });
+    // Every piece of every answer this pass claimed was actually read, and every claimed answer was settled.
+    expect(new Set(pieces.map((k) => k.split("#")[0]))).toEqual(new Set(taken.map((r) => r.id)));
+    expect([written, saved.size]).toEqual([taken.length, taken.length]);
+    // And the rest are still due, exactly as they were: nothing was consumed to produce nothing.
+    expect(selectAnalysisTargets(rows.filter((r) => !saved.has(r.id))).length).toBeGreaterThan(0);
+  });
+
   it("records a refusal against the answer it was refused on, so the same answer is never bought twice", async () => {
     const rejected = row("x", "h-x", null, false);
     const saved: Array<[string, Record<string, unknown>, string]> = [];
@@ -592,14 +616,44 @@ describe("work that is genuinely finished", () => {
       readPrompts: async () => ONE, readObservations: async () => store, engines, maxBatch: 99,
       readMarkers: async () => ({ observationRetries: { day: DAY, counts: { "p1|1|perplexity|0": FAILED_RETRIES_PER_DAY }, askedAt: { "p1|1|perplexity|0": store[0]!.requestedAt } } }),
       writeMarkers: async () => true,
-      settle: async (_t: string, id: string, status: "unavailable" | "unsupported") => { settled.push([id, status]); },
+      settle: async (_t: string, id: string, status: "unavailable" | "unsupported") => {
+        settled.push([id, status]); store.find((x) => x.id === id)!.status = status; },
     };
     const due = (await dueObservations(T, DAY, world))!;
     expect(settled).toEqual([[store[0]!.id, "unsupported"]]);
     expect(due.some((d) => d.engine === "perplexity")).toBe(false);
+    // AND THE DAY CAN SAY SO. The count reads a settled row off its OWN stored status: derived from today's
+    // engine list, "I cannot ask" was a state it could never reach, so a lost engine read as pure silence.
+    expect(await dailyChecks(T, DAY, world)).toMatchObject({ done: 1, total: 2, answers: 0, unavailable: 0, unsupported: 1 });
     // Tomorrow is no different while the registry still cannot reach it, and no stored flag has to be undone.
     expect((await dueObservations(T, "2026-08-01", { ...world, readObservations: async () => [] }))!
       .some((d) => d.engine === "perplexity")).toBe(false);
+  });
+
+  // A SETTLE THAT THREW IS NOT A SETTLE. The exhausted-retry marker used to land regardless, so the row said
+  // `failed` with no budget left to ask again: permanently owed and contradicted by the ledger beside it.
+  it("leaves a pair whose settle threw exactly where it was, says so out loud, and closes it on the next pass", async () => {
+    const K = "p1|1|chatgpt|0", OLD = `${DAY}T08:00:00.000Z`;
+    const store = [seen({ promptId: "p1", engine: "chatgpt", status: "failed", failureReason: REASON, requestedAt: `${DAY}T09:00:00.000Z` })];
+    let markers: DayMarkers | null = { observationRetries: { day: DAY, counts: { [K]: FAILED_RETRIES_PER_DAY - 1 }, askedAt: { [K]: OLD } } };
+    const settled: string[] = [];
+    const world = {
+      readPrompts: async () => ONE, readObservations: async () => store, engines, maxBatch: 99,
+      readMarkers: async () => markers,
+      writeMarkers: async (_t: string, p: DayMarkers) => { markers = { ...markers, ...p }; return true; },
+      settle: async () => { throw new Error("the observation store refused that write"); },
+    };
+    said.errors.length = 0;
+    await dueObservations(T, DAY, world);
+    expect(markers!.observationRetries)
+      .toEqual({ day: DAY, counts: { [K]: FAILED_RETRIES_PER_DAY - 1 }, askedAt: { [K]: OLD } }); // not one retry spent
+    expect(store[0]!.status).toBe("failed"); // nothing settled, so the row still says the true thing
+    expect(said.errors.some((m) => m.includes("could not close out a check"))).toBe(true);
+    // Still owed, and the next pass closes it: the throw cost the pair nothing at all.
+    await dueObservations(T, DAY, { ...world,
+      settle: async (_t: string, id: string, status: "unavailable" | "unsupported") => {
+        settled.push(status); store.find((x) => x.id === id)!.status = status; } });
+    expect([settled, store[0]!.status]).toEqual([["unavailable"], "unavailable"]);
   });
 
   it("asks the observation store for the DAY it is planning, so a 600 row day is read whole", async () => {

@@ -109,10 +109,32 @@ const BATCH_TIMEOUT_MS = 180_000;
  *  than the one on file. An unchanged answer is never re-read, so a re-run of the
  *  same pass costs nothing. */
 export function selectAnalysisTargets(rows: readonly AnalyzableObservation[], max = MAX_ANALYSES_PER_PASS): readonly AnalyzableObservation[] {
+  // A PASS TAKES ON ONLY WHAT IT CAN FINISH, COUNTED IN PIECES. Sixty selected answers are sixty answers,
+  // but a long one occupies up to six batch slots, so sixty answers could be three hundred pieces: the call
+  // budget ran out mid-list and the remainder was dropped where nothing said so. Selection now packs the
+  // same batches the reader will pack and stops at the last answer that fits WHOLE. What did not fit is not
+  // abandoned, it is simply not claimed: it stays due and the next pass reads it.
+  const due = dueForAnalysis(rows);
+  const batches = Math.max(1, Math.ceil(Math.max(0, max) / ANSWERS_PER_BATCH));
+  const out: AnalyzableObservation[] = [];
+  let opened = 0, filled = 0;
+  for (const r of due) {
+    const pieces = splitAnswer(String(r.answerText ?? "")).parts.length;
+    if (opened === 0 || filled + pieces > ANSWERS_PER_BATCH) {
+      if (opened >= batches) break;
+      opened += 1; filled = 0;
+    }
+    filled += pieces;
+    out.push(r);
+  }
+  return out;
+}
+
+/** PURE. Every stored answer that owes a reading, before any budget is applied. */
+function dueForAnalysis(rows: readonly AnalyzableObservation[]): readonly AnalyzableObservation[] {
   return rows
     .filter((r) => Boolean(r.id) && Boolean(r.answerText) && Boolean(r.answerHash))
-    .filter((r) => r.analysis == null || r.analysisHash !== r.answerHash)
-    .slice(0, Math.max(0, max));
+    .filter((r) => r.analysis == null || r.analysisHash !== r.answerHash);
 }
 
 /** ONE PIECE of one answer as a batch call sees it: the row, the question it answered, the exact text this
@@ -324,8 +346,12 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     ?? (async (t, id, analysis, hash) => (await evidenceObservations()).persistAnswerAnalysis(t, id, analysis, hash));
   const rows = await readObservations(tenantId, { day }).catch(() => null);
   if (rows == null || rows.length === 0) return 0;
-  const targets = selectAnalysisTargets(rows, deps.max ?? MAX_ANALYSES_PER_PASS);
+  const budget = deps.max ?? MAX_ANALYSES_PER_PASS;
+  const targets = selectAnalysisTargets(rows, budget);
   if (targets.length === 0) return 0; // nothing new: no call, no cent
+  // WHAT THIS PASS IS NOT TAKING ON, said out loud. Deferred answers stay due and the next pass reads them.
+  const deferred = dueForAnalysis(rows).length - targets.length;
+  if (deferred > 0) log.info("[daily-observations] more new answers than one pass reads back; the rest stay due", { tenantId, day, reading: targets.length, deferred });
 
   // WHO AM I LOOKING FOR. The pass used to send an EMPTY brand, so the model was asked
   // whether an answer named nobody and every reading came back "not mentioned". An
@@ -341,7 +367,8 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
   const textOf = new Map((prompts ?? []).map((p) => [p.id, p.text]));
   const analyze = deps.analyze ?? ((i: Parameters<typeof analyzeOne>[0]) => analyzeOne(i, deps.complete));
   const analyzeBatch = deps.analyzeBatch ?? ((i: Parameters<typeof analyzeMany>[0]) => analyzeMany(i, deps.complete));
-  let calls = BATCH_CALLS_PER_PASS, written = 0;
+  // The SAME budget selection packed against, so the two can never disagree about what this pass owns.
+  let calls = Math.max(1, Math.ceil(Math.max(0, budget) / ANSWERS_PER_BATCH)), written = 0;
 
   /** ONE reading lands for ONE answer, whatever produced it. `analysis` null means I could not produce a
    *  reliable one; `extra` carries what the stored reading must admit about itself (how many parts I read). */
@@ -441,6 +468,8 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     else last.push(...pieces);
   }
   for (const group of groups) {
+    // Selection already packed these groups against the same budget, so this can only trip if a caller
+    // hands a budget the selector never saw. It stays as the floor, and it can no longer strand pieces.
     if (calls <= 0) break;
     calls -= 1;
     const byAnswer = [...group.reduce((m, p) => m.set(p.row.id, [...(m.get(p.row.id) ?? []), p]), new Map<string, AnalysisTarget[]>()).values()];

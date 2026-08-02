@@ -55,7 +55,7 @@
   reserves projected cost BEFORE each call against the lifetime $2 cap, reconciling to actual (write failure
   overcounts and blocks); live-validated at $0.0378. Page snapshots persist (14 real upserts). Connections shows
   "Return to setup" while onboarding. Pending accounts start no Research Run at either boundary; activation is
-  idempotent, requires the setup window of approved prompts (20..50, bending to a thin candidate pool, enforced server side) plus website, confirmed profile, goal, and terms,
+  idempotent, requires the setup window server side (approval holds 20..50, floor bending to a thin candidate pool; activation re-checks 10..50 on the set that survived it) plus website, confirmed profile, goal, and terms,
   starting exactly one durable Research Run. Verified end to end rendered, desktop and mobile, with real crawl,
   real model calls, mid-flow website/goal changes. One inert synthetic pending account remains for review.
 - Durable visit-driven Research Runs exist (Slice 4, 2026-07-24): every authenticated visit renders the saved

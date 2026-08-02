@@ -5,11 +5,9 @@
  * the page, the opportunity, the frozen evidence that grounds it, the exact change, why it
  * matters, effort/risk/confidence/limitations, the ranking receipt, and the proposal status.
  *
- * PUBLISHING AUTHORITY IS MANUAL. Nothing here writes to a live page, and
- * `publish: "manual"` is a structural reminder carried on every proposal.
- *
- * PURE: types + Zod schema + pure derivations + (de)serialization only, no I/O. The
- * proposal PATHS (propose.ts) and PERSISTENCE (proposal-store.ts) are siblings.
+ * PUBLISHING AUTHORITY IS MANUAL. Nothing here writes to a live page; `publish: "manual"` is a
+ * structural reminder carried on every proposal. PURE: types + Zod schema + pure derivations +
+ * (de)serialization only, no I/O. Proposal PATHS (propose.ts) and PERSISTENCE (proposal-store.ts) are siblings.
  */
 
 import { z } from "zod";
@@ -204,10 +202,9 @@ export type ProposalEvidence = { query: string; hints: string[]; evidenceRefCoun
 // validated record and the bundle is its deep, copy-ready form. Never a second
 // pipeline, never a second status vocabulary.
 
-/** THE COMPLETE CHANGE UNIVERSE (Phase 4). Every lever Beacon may ever recommend on one page,
- *  named once. ADDITIVE ONLY: the first seven are the kinds already on persisted rows and keep
- *  their exact spelling, so every stored bundle still decodes. Nothing is CMS-specific: a
- *  component says WHAT to change and WHERE, never which editor to open. */
+/** THE COMPLETE CHANGE UNIVERSE (Phase 4). Every lever Beacon may ever recommend on one page, named once.
+ *  ADDITIVE ONLY: the first seven keep the exact spelling already on persisted rows, so every stored bundle
+ *  still decodes. Nothing is CMS-specific: a component says WHAT to change and WHERE, never which editor. */
 export type BundleComponentKind =
   | "title" | "meta" | "h1" | "opening_answer" | "section" | "internal_links" | "source_pack"
   | "paragraph_correction" | "section_add" | "section_remove" | "section_rewrite" | "restructure"
@@ -256,6 +253,9 @@ export type BundleComponent = {
   /** Required whenever this component changes factual content: the same source-pack
    *  shape the drafter emits and the source_pack component renders. */
   sourcePack?: { sourceRequirements: string[]; factRequirements: string[] };
+  /** THE NEW WORDS ON A LINK, structured, for `anchor_text` only: `after` is prose an operator reads, and
+   *  the live check needs the exact wording it should find ON the link. Absent = unknown, never a guess. */
+  anchorAfter?: string;
   /** One sentence naming the metric and the window Beacon will read afterwards. */
   measurementPlan?: string;
 };
