@@ -69,7 +69,6 @@ export type ConnectorProvider =
   | "google_ga4"
   | "yelp"
   | "callrail"
-  | "wix"
   | "clarity";
 
 /** Google OAuth token shape (GSC, GBP, or GA4 — discriminated by provider). */
@@ -190,21 +189,6 @@ type CallRailConnectorToken = {
 };
 
 /**
- * Wix REST token, LEGACY, no longer a product connector. Wix left the customer
- * surface: there is no connect card, no registry entry, and nothing reads it on
- * any live path. The shape survives only so historical token rows still map,
- * and it retires with the rest of the Wix library.
- */
-export type WixConnectorToken = {
-  provider: "wix";
-  api_key: string;
-  site_id: string;
-  connected_at: string;
-  last_synced_at?: string;
-  disconnected_at?: string;
-};
-
-/**
  * Microsoft Clarity Data Export API — per-project bearer token (never
  * sent to the client). Hard platform limits: 10 requests/day, 1-3 day
  * lookback, no backfill — the nightly harvester budgets ONE pull/day
@@ -222,7 +206,6 @@ type ConnectorToken =
   | GoogleConnectorToken
   | YelpConnectorToken
   | CallRailConnectorToken
-  | WixConnectorToken
   | ClarityConnectorToken;
 
 type ConnectorStatus = "connected" | "disconnected";
@@ -393,13 +376,6 @@ export async function getYelpConnectorToken(
   return t != null && t.provider === "yelp" ? t : null;
 }
 
-export async function getWixConnectorToken(
-  tenantId?: string,
-): Promise<WixConnectorToken | null> {
-  const t = await getConnectorToken("wix", tenantId);
-  return t != null && t.provider === "wix" ? t : null;
-}
-
 export async function getConnectorInfo(
   provider: ConnectorProvider,
   tenantId?: string,
@@ -462,11 +438,11 @@ export async function getConnectorInfo(
       ...sharedFields,
     };
   }
-  // CallRail + Wix soft-disconnect mirrors the Google connectors: the row
-  // is preserved so cached data survives, but we report `disconnected`
+  // CallRail soft-disconnect mirrors the Google connectors: the row is
+  // preserved so cached data survives, but we report `disconnected`
   // when `disconnected_at` is set (UI shows Connect + last-synced).
   const softDisconnected =
-    (token.provider === "callrail" || token.provider === "wix") &&
+    token.provider === "callrail" &&
     token.disconnected_at != null &&
     token.disconnected_at !== "";
   return {
