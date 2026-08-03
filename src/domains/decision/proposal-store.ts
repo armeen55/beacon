@@ -123,44 +123,12 @@ type CanonRow = {
 /** The columns every canonical read needs: identity, stage, disposition and pointer, and the payload. */
 const CANON_COLUMNS = "id, proposal_version, status, terminal_disposition, superseded_by, basis, payload";
 
-/** THE OLD LIFECYCLE WORDS, and what each one meant in the vocabulary this kernel speaks now. `rejected`
- *  was never a stage: it was Beacon taking a draft back, which is a DISPOSITION. */
-const LEGACY_LIFECYCLE: Record<string, { status: ChangeProposal["status"]; disposition: TerminalDisposition | null }> = {
-  proposed: { status: "ready", disposition: null },
-  applied: { status: "implemented_pending_verification", disposition: null },
-  rejected: { status: "ready", disposition: "withdrawn" },
-};
-
-/** THE BRIDGE. DELETE THIS FUNCTION, and LEGACY_LIFECYCLE above it, with the contract step that migrates
- *  `change_proposals` onto the new lifecycle words. Until then a pre-rename row carries proposed / applied /
- *  rejected and normalizes HERE, at READ time, BEFORE the contract parses it: the Zod schema speaks only the
- *  new words and every write emits only new ones. Re-validates on every load, and no historical proposal
- *  disappears through here; it arrives wearing today's words. */
-function decode(payload: unknown, columnStatus?: unknown): ChangeProposal | null {
+/** Parse one stored payload through the contract. The database speaks only the three lifecycle words (the
+ *  contract migration closed the union), so nothing is normalized on the way in. */
+function decode(payload: unknown): ChangeProposal | null {
   if (payload == null) return null;
-  const text = typeof payload === "string" ? payload : JSON.stringify(payload);
-  try {
-    const obj = JSON.parse(text) as { proposal?: { status?: unknown } };
-    const legacy = LEGACY_LIFECYCLE[String(obj?.proposal?.status ?? columnStatus ?? "")];
-    if (legacy && obj?.proposal != null) {
-      obj.proposal.status = legacy.status;
-      return deserializeChangeProposal(JSON.stringify(obj));
-    }
-  } catch { /* not JSON I can reshape: hand it to the contract exactly as stored */ }
-  return deserializeChangeProposal(text);
+  return deserializeChangeProposal(typeof payload === "string" ? payload : JSON.stringify(payload));
 }
-
-/** THE BRIDGE, column half. Delete with `decode`'s bridge above. A row whose stored status is one of the old
- *  words reads as the stage AND the disposition that word meant, so a draft I took back stays taken back. */
-const bridged = (row: { status?: unknown; terminal_disposition?: unknown }): {
-  status: ChangeProposal["status"]; disposition: TerminalDisposition | null;
-} => {
-  const legacy = LEGACY_LIFECYCLE[String(row.status ?? "")];
-  return {
-    status: legacy?.status ?? (row.status as ChangeProposal["status"]),
-    disposition: (row.terminal_disposition as TerminalDisposition | null) ?? legacy?.disposition ?? null,
-  };
-};
 
 const rowFor = (p: ChangeProposal, ident: Identity, version: number): Record<string, unknown> => ({
   id: p.id, tenant_id: p.tenantId, ...ident, proposal_version: version, basis: p.basis ?? null,
@@ -210,18 +178,18 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<Save
     // This id may have been filed under a DIFFERENT family last time (a bundle whose
     // components changed), so it is looked up by id as well before anything is written.
     const mine = rows.find((r) => r.id === proposal.id) ?? (await rowById(proposal.tenantId, proposal.id));
-    const current = rows.find((r) => bridged(r).disposition == null) ?? null;
+    const current = rows.find((r) => r.terminal_disposition == null) ?? null;
 
     // A CHANGE PUT AWAY STAYS AWAY, and a draft I WITHDREW stays withdrawn, until the evidence moves: same
     // basis, same answer. ASK EVERY RETIRED ROW, not whichever came back first, or an older dismissal
     // sorting first lets a dismissed page be re-drafted.
-    if ([mine, ...rows].some((r) => { const d = r == null ? null : bridged(r).disposition;
+    if ([mine, ...rows].some((r) => { const d = r?.terminal_disposition ?? null;
       return (d === "dismissed" || d === "withdrawn") && (r!.basis ?? null) === (proposal.basis ?? null); })) return "refused";
 
     // Nothing material changed: no write, no new timestamp, so a refreshed surface never
     // reads yesterday's thinking as today's work.
-    if (mine && bridged(mine).disposition == null) {
-      const stored = decode(mine.payload, mine.status);
+    if (mine && mine.terminal_disposition == null) {
+      const stored = decode(mine.payload);
       if (stored && proposalFingerprint(stored) === proposalFingerprint(proposal)) return "unchanged";
     }
 
@@ -231,7 +199,7 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<Save
     const handover = current && current.id !== proposal.id ? current : null;
     // A CHANGE THE OPERATOR ALREADY MADE IS NOT MINE TO RETIRE: pushing an implemented row into history
     // mid-measurement orphans the proof. Only a row still waiting on them may step aside.
-    const holdingStatus = handover ? bridged(handover).status : null;
+    const holdingStatus = handover?.status ?? null;
     if (handover && holdingStatus !== "ready" && holdingStatus !== "needs_review") {
       log.info("[proposal-store] this page already carries a change I am measuring, so the new draft is not saved", {
         tenantId: proposal.tenantId, holding: handover.id, status: holdingStatus, draft: proposal.id });
@@ -292,13 +260,10 @@ export async function withdrawChangeProposal(proposal: ChangeProposal): Promise<
 export async function withdrawnProposalIds(tenantId: string, basis: string | null): Promise<Set<string>> {
   if (!tenantId || !basis) return new Set<string>();
   try {
-    // ASKED THROUGH THE BRIDGE, never at the query: a row written before the rename carries `rejected` in the
-    // status column and nothing in the disposition column, so a column filter missed every draft I took back.
     const { data, error } = await getSupabaseAdmin().from(TABLE)
-      .select("id, status, terminal_disposition").eq("tenant_id", tenantId).eq("basis", basis).limit(500);
+      .select("id").eq("tenant_id", tenantId).eq("basis", basis).eq("terminal_disposition", "withdrawn").limit(500);
     if (error || !data) return new Set<string>();
-    return new Set((data as Array<Pick<CanonRow, "id" | "status" | "terminal_disposition">>)
-      .filter((r) => bridged(r).disposition === "withdrawn").map((r) => r.id));
+    return new Set((data as Array<{ id: string }>).map((r) => r.id));
   } catch { return new Set<string>(); }
 }
 
@@ -308,8 +273,8 @@ export async function dismissChangeProposal(tenantId: string, id: string): Promi
   if (!tenantId || !id) return false;
   try {
     const row = await rowById(tenantId, id);
-    if (!row || bridged(row).disposition != null) return false;
-    if (bridged(row).status === "implemented_pending_verification") {
+    if (!row || row.terminal_disposition != null) return false;
+    if (row.status === "implemented_pending_verification") {
       log.info("[proposal-store] you already marked this done, so it is not mine to put away", { tenantId, id });
       return false; }
     return setDisposition(tenantId, id, "dismissed", null);
@@ -341,7 +306,7 @@ export async function loadChangeProposal(tenantId: string, id: string): Promise<
   if (!tenantId || !id) return null;
   try {
     const row = await rowById(tenantId, id);
-    if (row) return bridged(row).disposition == null ? decode(row.payload, row.status) : null;
+    if (row) return row.terminal_disposition == null ? decode(row.payload) : null;
     return decode((await readLegacy(tenantId, 1, id))[0]?.content ?? null);
   } catch (e) { log.error("[proposal-store] load threw", { id, error: e instanceof Error ? e.message : String(e) }); return null; }
 }
@@ -390,10 +355,9 @@ export async function readQueuePage(
     if (page.error) throw new Error(page.error.message);
     const read = (page.data ?? []) as unknown as Array<CanonRow & { queue_rank: number }>;
     const rows: ChangeProposal[] = [];
-    // The bridge runs on THIS read path too: a pre-rename row carries no stored disposition at all.
     for (const r of read) {
-      if (bridged(r).disposition != null) continue;
-      const p = decode(r.payload, r.status);
+      if (r.terminal_disposition != null) continue;
+      const p = decode(r.payload);
       if (p && p.status !== "implemented_pending_verification") rows.push(p);
     }
     // `more` is what the DATABASE said, never count arithmetic: a short raw page means the lane is exhausted.
@@ -437,8 +401,8 @@ export async function loadChangeProposals(tenantId: string, historyLimit = 500):
       // A pre-rename `rejected` row has no stored disposition, so the database filter above still hands it
       // over; the bridge is what knows that word meant Beacon took the draft back.
       for (const r of page) {
-        if (bridged(r).disposition != null) continue;
-        const proposal = decode(r.payload, r.status);
+        if (r.terminal_disposition != null) continue;
+        const proposal = decode(r.payload);
         if (proposal) out.set(r.id, proposal);
       }
       const last = page[page.length - 1];
@@ -484,7 +448,7 @@ async function strandedHandovers(tenantId: string, current: Map<string, ChangePr
     const out: Array<[string, ChangeProposal]> = [];
     for (const r of rows) {
       if (landed.has(r.superseded_by as string)) continue;
-      const proposal = decode(r.payload, r.status);
+      const proposal = decode(r.payload);
       if (!proposal) continue;
       log.warn("[proposal-store] a superseded change points at a successor that never landed; reading it as current again",
         { tenantId, id: r.id, missing: r.superseded_by });

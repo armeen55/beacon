@@ -84,35 +84,17 @@ const deep = (over: Partial<ChangeProposal> = {}) => proposal({ id: `${T}::${PAG
 const current = () => db.state.rows.filter((r) => r.terminal_disposition == null);
 const seedLegacy = (p: ChangeProposal) => db.state.legacy.push({ tenant_id: p.tenantId, rec_id: p.id, kind: "change_proposal", content: serializeChangeProposal(p), created_at: p.createdAt });
 beforeEach(() => { db.state.rows = []; db.state.legacy = []; db.state.missing = false; db.state.rpcMissing = false; db.state.breakWrite = false; db.state.rpcCalls = 0; db.state.raceForeign = ""; });
-/** THE BRIDGE (packet acceptance 1, 2, 22). Rows written before the lifecycle rename carry
- *  proposed / applied / rejected. They must read as today's words, no write may ever emit an old one, and
- *  not one historical proposal may vanish on the way through. Delete this block with the bridge itself. */
-describe("rows written in the old lifecycle words", () => {
-  /** A stored row exactly as the pre-rename writer left it: the old word in the column AND in the payload. */
-  const oldRow = (id: string, word: string, over: Row = {}): Row => ({
+/** POST-CONTRACT HISTORY (packet acceptance 22). The contract migration moved every row onto the three
+ *  lifecycle words and the bridge decoder is deleted with it: the same reads answer identically without
+ *  one, and no historical proposal disappears. */
+describe("rows written after the lifecycle contract", () => {
+  const row = (id: string, word: string): Row => ({
     tenant_id: T, id, proposal_version: 1, status: word, terminal_disposition: null, superseded_by: null,
     basis: "basis_today::d6", case_id: "", page_key: id, action_family: "title-family",
     payload: JSON.parse(JSON.stringify({ v: 1, proposal: { ...proposal({ id, pagePath: id }), status: word } })),
-    updated_at: "2026-07-30T00:00:00.000Z", ...over });
-  it("1: an old-shape row decodes to the new state, and `rejected` reads as the withdrawal it was", async () => {
-    db.state.rows.push(oldRow("/a", "proposed"), oldRow("/b", "applied"), oldRow("/c", "rejected"));
-    expect((await loadChangeProposal(T, "/a"))!.status).toBe("ready");
-    expect((await loadChangeProposal(T, "/b"))!.status).toBe("implemented_pending_verification");
-    expect(await loadChangeProposal(T, "/c")).toBeNull(); // Beacon took that draft back; it is not current work
-    expect([...(await loadChangeProposals(T)).keys()].sort()).toEqual(["/a", "/b"]);
-  });
-  it("2: every write emits only the new words, whatever it read", async () => {
-    db.state.rows.push(oldRow(proposal().id, "proposed", { page_key: PAGE }));
-    expect(await saveChangeProposal(proposal({ status: "needs_review" }))).toBe("saved");
-    for (const r of db.state.rows) {
-      expect(["needs_review", "ready", "implemented_pending_verification"]).toContain(r.status);
-      expect((r.payload as { proposal: { status: string } }).proposal.status).not.toBe("proposed");
-    }
-  });
-  it("22: the contract reads migrated history too, and no historical proposal disappears", async () => {
-    // AFTER the migration every row already speaks the new words: the same reads must answer identically,
-    // which is what makes the bridge safe to delete.
-    db.state.rows.push(oldRow("/a", "ready"), oldRow("/b", "implemented_pending_verification"));
+    updated_at: "2026-07-30T00:00:00.000Z" });
+  it("22: the contract reads migrated history, and no historical proposal disappears", async () => {
+    db.state.rows.push(row("/a", "ready"), row("/b", "implemented_pending_verification"));
     seedLegacy(proposal({ id: "/legacy-only", pagePath: "/legacy-only" }));
     const queue = await loadChangeProposals(T);
     expect([...queue.keys()].sort()).toEqual(["/a", "/b", "/legacy-only"]);
