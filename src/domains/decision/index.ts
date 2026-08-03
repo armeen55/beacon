@@ -43,6 +43,8 @@ export {
   loadChangeProposals,
   markProposalImplemented,
   dismissChangeProposal,
+  readQueuePage,
+  stampQueueRanking,
 } from "./proposal-store";
 
 // Cold drafting entry point (produce ranked proposals for a tenant)

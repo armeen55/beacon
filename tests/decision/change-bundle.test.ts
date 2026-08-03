@@ -11,7 +11,9 @@ vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: asy
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals"; import { loadProposalQueue } from "@/domains/decision/load-proposals"; import { confidenceFor, serializeChangeProposal, deserializeChangeProposal } from "@/domains/decision/contracts";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter"; import { adjudicateCoverage, earnedNewPage, intersectionComparison } from "@/domains/decision/coverage-adjudication"; import type { OwnedCandidate } from "@/domains/decision/owned-coverage"; import type { ParsedPageIntersection } from "@/domains/evidence/page-intersection";
 import type { TopicInvestigation } from "@/domains/evidence/topic-investigation"; import type { LlmCallCacheEntry } from "@/domains/decision/llm/call-cache"; import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
-import { readTechnicalFindings, technicalComponents } from "@/domains/decision/technical-findings"; import { fieldForComponent } from "@/domains/decision/producers/contract";
+import { readTechnicalFindings, technicalComponents, type TechnicalFinding } from "@/domains/decision/technical-findings";
+import { CORE_PRODUCERS } from "@/domains/decision/producers/core";
+import type { Producer, ProducerCtx } from "@/domains/decision/producers/contract"; import { fieldForComponent } from "@/domains/decision/producers/contract";
 import { emptyResearchEvidence, type ResearchPageExtract, type ResearchWinningAppearance } from "@/domains/evidence/funnel/research-evidence"; const TENANT = "fixture-tenant"; const NOW = new Date("2026-07-25T00:00:00.000Z");
 const TITLE_AFTER = "Rain barrel sizing: gallons per storm by roof area"; const TAIL = { evidenceRefs: [{ source: "gsc", detail: "real page demand" }], confidence: "high", risks: [], operatorSteps: ["Replace the field"], proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "untouched pages" } };
 /** Every system prompt the drafter sent this run (so no vertical assumption can hide in one), every draft KIND it was
@@ -271,8 +273,9 @@ const SERVED = {
     row(`${AT}/old`, { redirects_to: `${AT}/mid` }), row(`${AT}/mid`, { redirects_to: `${AT}/rain-barrels` }),
     row(`${AT}/orphan`, { discovered_via: "nav" })],
   pages: [{ url: `${AT}/`, internal_links: [`${AT}/rain-barrels`] },
-    { url: `${AT}/rain-barrels`, title: "Rain Barrels", h1: "Rain Barrels", robots_meta: "noindex, follow", canonical_url: `${AT}/other`, has_canonical_mismatch: true, internal_links: [`${AT}/gone`] },
-    { url: `${AT}/twin`, title: "Rain Barrels", h1: null, canonical_url: null, internal_links: [] }],
+    { url: `${AT}/rain-barrels`, title: "Rain Barrel Sizing Guide", h1: "Rain Barrels", robots_meta: "noindex, follow", canonical_url: `${AT}/other`, has_canonical_mismatch: true, internal_links: [`${AT}/gone`] },
+    { url: `${AT}/orphan`, title: "Rain Barrel Sizing", h1: "Rain Barrel Sizing", internal_links: [] },
+    { url: `${AT}/twin`, title: "Rain Barrel Sizing Guide", h1: null, canonical_url: null, internal_links: [] }],
 };
 describe("what is wrong with how a page is served", () => {
   it("names every fault it can prove, on a concrete address, with the exact fix", () => {
@@ -280,11 +283,66 @@ describe("what is wrong with how a page is served", () => {
     expect(found.map((f) => f.kind)).toEqual(["non_200", "redirect_chain", "orphaned_page", "sitemap_omission",
       "broken_internal_link", "canonical_conflict", "duplicate_title", "robots_noindex", "canonical_missing", "duplicate_title", "missing_h1"]);
     expect(found.every((f) => f.url.startsWith(AT) && f.exactFix.length > 20 && f.evidence.length > 20)).toBe(true);
-    expect(found[0]!.exactFix).toBe("I would put /gone back at its own address, or send that address on to the page that replaced it.");
+    // PIN (B, F2): a dead address with no replacement page ASKS for one; a forward carries its destination
+    // as an address, so the live check reads where it was told to land instead of the address being moved.
+    expect(found[0]!.exactFix).toBe("Tell me the address that replaced /gone and I will write you the forward. Until then I keep it out of your queue.");
+    expect(found[0]!.redirectTo).toBeUndefined();
     expect(found[1]!.evidence).toBe("/old sends people to /mid, and /mid sends them on again to /rain-barrels.");
+    expect(found[1]!.redirectTo).toBe(`${AT}/rain-barrels`);
+    // PIN (D, packet 19): a Ready technical change carries the EXACT edit, not a description of one.
+    expect(found.find((f) => f.kind === "missing_h1")!.exact).toBe("Rain Barrel Sizing Guide");
+    // PIN (D, packet 19): the orphan names a real source page, a real spot on it, and the words to type.
+    const orphan = found.find((f) => f.kind === "orphaned_page")!;
+    expect(orphan.exact).toBe("Rain Barrel Sizing");
+    expect(orphan.exactFix).toContain("/rain-barrels");
+    expect(orphan.exactFix).toContain('reading "Rain Barrel Sizing"');
+    // PIN (B, F8): the spot on the source page is named the way a person names it, never a bag of tokens.
+    expect(orphan.exactFix).toContain('in the part of it about "Rain Barrel Sizing Guide"');
     expect(JSON.stringify(found)).not.toMatch(/[–—]|SERP|crawl_state|http_status|discovered_via/);
     // NOTHING FIRES WITHOUT HELD EVIDENCE: no inventory and no capture is no findings, never a clean bill
     expect([readTechnicalFindings({}), readTechnicalFindings({ inventory: [row(`${AT}/a`)] })]).toEqual([[], []]);
+  });
+  // PIN (D, packet 5 + 6): AN ACCESS STATE IS NOT A DEAD PAGE. Only the two answers that mean "the support
+  // is gone" produce a dead-page change; being turned away, rate-limited or unreachable says something
+  // about me, not about the page. A server error is a bad minute until a SECOND read on a LATER day agrees.
+  it("calls a page dead only on 404, 410 or a twice-confirmed server error, and never on an access state", () => {
+    const dead = (over: Record<string, unknown>) => readTechnicalFindings({ inventory: [row(`${AT}/`), row(`${AT}/x`, over)] })
+      .filter((f) => f.kind === "non_200");
+    for (const code of [401, 403, 429, 503]) {
+      expect(dead({ http_status: code }), `${code}`).toEqual([]);
+      expect(dead({ crawl_state: "blocked", http_status: code }), `robots ${code}`).toEqual([]);
+    }
+    expect([dead({ http_status: 404 }).length, dead({ http_status: 410 }).length, dead({ crawl_state: "gone", http_status: null }).length]).toEqual([1, 1, 1]);
+    expect(dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z" })).toEqual([]);
+    expect(dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z", status_reconfirmed_at: "2026-08-01T18:00:00Z" })).toEqual([]);
+    const twice = dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z", status_reconfirmed_at: "2026-08-03T09:00:00Z" });
+    expect(twice[0]!.evidence).toContain("two different days");
+  });
+  // PIN (D, packet 20): vague advice cannot enter Ready. Without the words to type there is no finding, and
+  // a copy fault with no copy behind it never reaches the operator as a change.
+  it("writes no change it has not written the wording for, and says so instead", async () => {
+    const noWords = readTechnicalFindings({
+      inventory: [row(`${AT}/`), row(`${AT}/rain-barrels`), row(`${AT}/orphan`, { discovered_via: "nav" })],
+      pages: [{ url: `${AT}/`, internal_links: [`${AT}/rain-barrels`] }, { url: `${AT}/rain-barrels`, title: "Rain Barrel Sizing Guide", internal_links: [] }] });
+    expect(noWords.some((f) => f.kind === "orphaned_page")).toBe(false);
+    expect(readTechnicalFindings({ pages: [{ url: `${AT}/p`, h1: "" }] }).some((f) => f.kind === "missing_h1")).toBe(false);
+    const run = async (findings: TechnicalFinding[]) => (CORE_PRODUCERS.technical_indexability as Producer)(
+      { finding: { cause: "technical_indexability", payload: { cause: "technical_indexability", findings } }, primary: "rain barrel sizing" } as unknown as ProducerCtx);
+    const vague = readTechnicalFindings({ pages: [{ url: `${AT}/a`, title: "Rain Barrel Sizing Guide" }, { url: `${AT}/b`, title: "Rain Barrel Sizing Guide" }] });
+    expect(vague.map((f) => f.kind)).toEqual(["duplicate_title", "duplicate_title"]);
+    const held = await run(vague);
+    expect(held.components).toEqual([]);
+    expect(held.refusal).toContain("I am not handing you an instruction and calling it a change");
+    // The same producer DOES hand over the ones whose exact wording it holds.
+    expect((await run(readTechnicalFindings({ pages: [{ url: `${AT}/a`, title: "Rain Barrel Sizing Guide", h1: "" }] }))).components.map((c) => c.after))
+      .toEqual(["Rain Barrel Sizing Guide"]);
+    // PIN (B, F2b): a dead address with nowhere to send people is held the same deterministic way, and the
+    // operator is asked the one question that turns it into work.
+    const stranded = await run(readTechnicalFindings({ inventory: [row(`${AT}/`), row(`${AT}/gone`, { crawl_state: "gone", http_status: 404 })] }));
+    expect(stranded.components).toEqual([]);
+    expect(stranded.refusal).toContain("Tell me the address that replaced it");
+    const forwarded = await run(readTechnicalFindings({ inventory: [row(`${AT}/`), row(`${AT}/gone`, { crawl_state: "gone", http_status: 404, redirects_to: `${AT}/rain-barrels` })] }));
+    expect(forwarded.components.map((c) => [c.kind, c.redirectTo])).toEqual([["redirect", `${AT}/rain-barrels`]]);
   });
   it("turns each fault into a component that answers for itself, and holds the dangerous ones", () => {
     const parts = technicalComponents(readTechnicalFindings(SERVED), "rain barrel sizing").map((c) => ({ ...c, evidenceKeys: ["demand-exact"] }));

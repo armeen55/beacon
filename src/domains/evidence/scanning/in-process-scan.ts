@@ -36,8 +36,9 @@ const DEFAULT_PER_REQUEST_MS = 5_000;
  *  shape while a hostile or cyclic index runs out of budget instead of running forever. */
 const MAX_SITEMAP_DEPTH = 3;
 const MAX_SITEMAP_FETCHES = 200;
-/** One discovery pass records at most this many URLs per account; the overflow is COUNTED, never
- *  silently dropped, so the inventory can say how much of the site it has not enumerated yet. */
+/** One discovery pass records at most this many URLs per account. THE BOUND IS PER PASS, NEVER PER
+ *  SITE: the overflow is counted and a CURSOR is handed back, so the next pass resumes the enumeration
+ *  where this one stopped instead of walking the same first few thousand URLs forever. */
 export const MAX_DISCOVERED_URLS = 5_000;
 /** File-ish URLs a content crawl must never spend a fetch on. */
 const NON_HTML_EXT_RE =
@@ -147,6 +148,9 @@ type DiscoveryResult = {
   source: "sitemap" | "homepage" | "none";
   /** URLs the pass found and could not record because the per-pass ceiling was reached. */
   truncated: number;
+  /** Where the NEXT pass should resume, as a position in the site's own enumeration order. 0 means
+   *  there is nothing left: this pass reached the end of what the site publishes. */
+  nextCursor: number;
 };
 
 /**
@@ -155,6 +159,11 @@ type DiscoveryResult = {
  * MAX_DISCOVERED_URLS recorded URLs. Order of authority: the Sitemap: directives robots.txt
  * publishes, then the two conventional paths as a fallback, then the homepage and its nav as a
  * last resort for a site with no sitemap at all.
+ *
+ * RESUMABLE. `resumeFrom` is a cursor a previous pass handed back: the enumeration is deterministic
+ * (the site's own documents, in the site's own order), so skipping the first `resumeFrom` URLs it
+ * names continues an oversized sitemap instead of restarting it. That is what makes a site with more
+ * pages than one pass may record eventually inventoried in full rather than permanently half-known.
  */
 export async function discoverUrls(
   origin: string,
@@ -162,22 +171,28 @@ export async function discoverUrls(
   perRequestMs: number,
   now: () => number,
   deadlineAt: number,
+  resumeFrom = 0,
 ): Promise<DiscoveryResult> {
   const site = originFromDomain(origin);
   const host = site?.host ?? "";
   const overBudget = () => now() > deadlineAt;
   const found = new Map<string, DiscoveredPage>();
+  const seen = new Set<string>();
   let truncated = 0;
   const record = (raw: string, via: DiscoveredVia) => {
     const c = canonicalOwnedUrl(raw, host);
-    if (!c) return;
-    if (found.has(c.key)) return;
+    if (!c || seen.has(c.key)) return;
+    seen.add(c.key);
+    if (seen.size <= resumeFrom) return; // an earlier pass already recorded this one
     if (found.size >= MAX_DISCOVERED_URLS) {
       truncated++;
       return;
     }
     found.set(c.key, { url: c.url, via });
   };
+  // Truncation is the ONLY reason to resume: a pass that reached the end of the site hands back 0, so
+  // the next enumeration starts at the top and picks up whatever the site has published since.
+  const cursor = () => (truncated > 0 ? resumeFrom + found.size : 0);
 
   // 1. The site's own answer. A robots.txt that names its sitemaps is authoritative; the two
   //    guessed paths only ever existed because nothing here read those directives.
@@ -209,14 +224,16 @@ export async function discoverUrls(
     }
     for (const e of dedupeSitemapEntries(parseSitemapUrlEntries(xml))) record(e.url, next.via);
   }
-  if (found.size > 0) return { pages: [...found.values()], source: "sitemap", truncated };
+  // `seen`, not `found`: a resumed pass whose whole remainder was already recorded still came from a
+  // sitemap, and treating that as "no sitemap" would fall through to the homepage seed and lose the source.
+  if (seen.size > 0) return { pages: [...found.values()], source: "sitemap", truncated, nextCursor: cursor() };
 
   // 3. No sitemap anywhere. Seed the homepage plus its nav links so a sitemap-less small site still
   //    gets real inventory. Every seeded URL is still robots-checked and host-filtered at crawl time.
   record(origin, "homepage");
   const homeHtml = overBudget() ? null : await fetchText(origin, fetchImpl, perRequestMs);
   if (homeHtml) for (const path of pickSecondaryPaths(homeHtml)) record(`${origin}${path}`, "nav");
-  return { pages: [...found.values()], source: "homepage", truncated };
+  return { pages: [...found.values()], source: "homepage", truncated, nextCursor: cursor() };
 }
 
 /**

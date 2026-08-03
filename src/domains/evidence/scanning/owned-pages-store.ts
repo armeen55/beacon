@@ -17,6 +17,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
+import { reportingDay } from "@/lib/reporting-day";
 
 const TABLE = "owned_pages";
 
@@ -35,6 +36,8 @@ type OwnedPageRow = {
   crawl_state: "uncrawled" | "crawled" | "blocked" | "unsupported" | "gone";
   http_status: number | null;
   last_crawled_at: string | null;
+  /** When this same failing answer came back on a SECOND, later reporting day. Null until it has. */
+  status_reconfirmed_at: string | null;
   content_hash: string | null;
   completeness: "complete" | "partial" | "blocked" | "unsupported" | "missing" | "stale";
   blocked_until: string | null;
@@ -52,7 +55,7 @@ const STALE_AFTER_MS = 30 * 86_400_000;
 const DAY_MS = 86_400_000;
 
 const COLUMNS =
-  "url, discovered_via, first_seen, last_seen_in_discovery, crawl_state, http_status, last_crawled_at, content_hash, completeness, blocked_until, redirects_to, is_canonical_target";
+  "url, discovered_via, first_seen, last_seen_in_discovery, crawl_state, http_status, last_crawled_at, status_reconfirmed_at, content_hash, completeness, blocked_until, redirects_to, is_canonical_target";
 
 /** The table is not there yet. Told apart from a real failure so the pre-migration window reads as
  *  "apply the migration", not as an account with no website. */
@@ -212,9 +215,39 @@ export async function markCrawled(
     content_hash: fields.contentHash,
     completeness: fields.completeness,
     blocked_until: null,
+    status_reconfirmed_at: null, // the page answered, so a failure once confirmed on it is over
     redirects_to: fields.redirectsTo ?? null,
     is_canonical_target: fields.isCanonicalTarget ?? true,
   });
+}
+
+/** PURE. The same answer twice means the same CLASS of refusal twice: a 500 then a 503 is one server still
+ *  failing, a 500 then a 403 is two different facts and confirms nothing. */
+function sameFailureClass(previous: number | null | undefined, current: number): boolean {
+  return previous != null && previous >= 300 && current >= 300 && Math.floor(previous / 100) === Math.floor(current / 100);
+}
+
+/**
+ * PURE. Did this same failing answer already come back on an EARLIER reporting day? One server error is a
+ * bad minute; only a second look on a second day is a fault. The day is America/Los_Angeles through
+ * reporting-day, never UTC, so a 6 PM re-read is still today and a 24-hour gap is not on its own a new day.
+ *
+ * WHEN THE PREVIOUS LOOK WAS is read off the row. A refusal recorded as a read carries its own stamp; a
+ * transient failure deliberately carries none (a failure is not a read), so it is dated from the promise it
+ * left, and the retry ladder never buys less than a day, which makes blocked_until minus one day never
+ * LATER than the look that set it. Erring late only ever costs a confirmation one pass.
+ */
+function seenAgainOnALaterDay(
+  previous: { http_status: number | null; last_crawled_at: string | null; blocked_until: string | null } | null,
+  httpStatus: number,
+  now: Date,
+): boolean {
+  if (!previous || !sameFailureClass(previous.http_status, httpStatus)) return false;
+  const promised = Date.parse(previous.blocked_until ?? "");
+  const stamped = Date.parse(previous.last_crawled_at ?? "");
+  const lookedAt = Number.isFinite(promised) ? promised - DAY_MS : stamped;
+  if (!Number.isFinite(lookedAt)) return false;
+  return reportingDay(lookedAt) !== reportingDay(now);
 }
 
 /**
@@ -243,6 +276,10 @@ function nextBlockedUntil(
  * uncrawled row a candidate again on the very next pass with no backoff at all. Now the stamp is
  * left exactly where the last real read put it, the state is untouched, and the page waits out the
  * same bounded ladder a refusal gets.
+ *
+ * AND THE SECOND LOOK IS RECORDED. status_reconfirmed_at is stamped when this same class of failure
+ * already came back on an earlier reporting day, and cleared when the answer changes, so nothing
+ * downstream may call a page dead on one bad minute or carry an old fault onto a new one.
  */
 export async function markBlocked(
   tenantId: string,
@@ -250,6 +287,10 @@ export async function markBlocked(
   httpStatus: number,
   now: Date = new Date(),
 ): Promise<boolean> {
+  const held = await readOne(tenantId, url);
+  const again = seenAgainOnALaterDay(held, httpStatus, now)
+    ? { status_reconfirmed_at: now.toISOString() }
+    : sameFailureClass(held?.http_status, httpStatus) ? {} : { status_reconfirmed_at: null };
   if (httpStatus === 404 || httpStatus === 410) {
     return await patch(tenantId, url, {
       crawl_state: "gone",
@@ -257,19 +298,19 @@ export async function markBlocked(
       last_crawled_at: now.toISOString(),
       completeness: "missing",
       blocked_until: null,
+      ...again,
     });
   }
   if (httpStatus !== 401 && httpStatus !== 403 && httpStatus !== 429) {
-    const prior = await readOne(tenantId, url);
-    return await patch(tenantId, url, { http_status: httpStatus, blocked_until: nextBlockedUntil(prior, now) });
+    return await patch(tenantId, url, { http_status: httpStatus, blocked_until: nextBlockedUntil(held, now), ...again });
   }
-  const held = await readOne(tenantId, url);
   return await patch(tenantId, url, {
     crawl_state: "blocked",
     http_status: httpStatus,
     last_crawled_at: now.toISOString(),
     completeness: "blocked",
     blocked_until: nextBlockedUntil(held, now),
+    ...again,
   });
 }
 

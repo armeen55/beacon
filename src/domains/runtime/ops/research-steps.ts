@@ -193,7 +193,7 @@ export const defaultSteps: ResearchCycleSteps = {
     if (phase === "prompt_observations") {
       // THE DAILY PLAN decides what gets asked, and it is the ONLY thing that does: the unit's own weekly stalest-pair sweep is deleted, not merely
       // overridden, because two selectors meant one of them re-asked a question the other had already read today. One canonical reading per question, per
-      // engine, per UTC day, core first and oldest-missing-first. A null plan (I could not read what is due) asks NOTHING. The day is the RUN'S own cycle
+      // engine, per REPORTING day (src/lib/reporting-day.ts is the one timezone contract), core first and oldest-missing-first. A null plan (I could not read what is due) asks NOTHING. The day is the RUN'S own cycle
       // day, not the wall clock, so a run that spans midnight keeps reporting into the day it opened instead of silently splitting itself.
       const day = String(cursor?.cycle ?? "").slice(-10) || reportingDay(Date.now());
       return promptObservationUnit({}, await dueObservations(tenantId, day))(tenantId, cursor, budgetMs);

@@ -34,11 +34,17 @@ const STORE = "proof-gsc-ledger";
 
 /** What the live check found. FROZEN SHAPE, written only through `recordVerification`.
  *  `components` names each piece and whether it is on the page, so a partly-applied
- *  bundle reads as partly applied instead of as a pass or a failure. */
+ *  bundle reads as partly applied instead of as a pass or a failure.
+ *
+ *  `operator_confirmed` IS NOT IN THE VOCABULARY ANY MORE. It was an override that let a click stand in
+ *  for a reading, and nothing writes it again: it survives in this union only so the rows already carrying
+ *  it decode and render as the legacy label they are, and verification treats such a row as one that was
+ *  never checked. Component states are the four honest ones: I saw it, I did not, the page carries a
+ *  different change in that spot, or I could not read it. */
 export type ShipmentVerification = {
   status: "verified" | "partially_verified" | "not_found" | "blocked" | "differs" | "operator_confirmed";
   checkedAt: string;
-  components: Array<{ kind: string; state: "verified" | "missing" | "differs" | "unknown"; note: string | null }>;
+  components: Array<{ kind: string; state: "verified" | "not_verified" | "changed_differently" | "unverifiable"; note: string | null }>;
   /** A DAY-SCOPED ONE-TIME RECHECK (the reporting day this may be looked at again), set ONLY when the site did not
    *  answer at all: a timeout is a fact about the transport, not about the change, so writing it off forever
    *  would bury a change that really shipped. Null on every other ending and on the recheck's own answer. */
@@ -95,10 +101,12 @@ export type ShippedChangeRecord = {
    *  because that copy is what the live check compares the page against, and the RISK the proposal
    *  graded it at (`risk`), because a dangerous component earns the fourth checkpoint whatever its kind.
    *  `anchorAfter` is the exact new wording for a renamed link, because that check reads the link's own
-   *  words. All three ride inside the existing components_applied JSON, exactly as `after` does, so they
-   *  need no migration and a row written before they existed decodes with the field absent (read as null),
-   *  never failing to decode. A subset of the components = a partial bundle. */
-  componentsApplied: Array<{ kind: string; label: string; after?: string | null; risk?: string | null; anchorAfter?: string | null }> | null;
+   *  words, and `redirectTo` is the exact address a forward must land on, because reading that address back
+   *  out of the instruction found the address being MOVED. All of them ride inside the existing
+   *  components_applied JSON, exactly as `after` does, so they need no migration and a row written before
+   *  they existed decodes with the field absent (read as null), never failing to decode. A subset of the
+   *  components = a partial bundle. */
+  componentsApplied: Array<{ kind: string; label: string; after?: string | null; risk?: string | null; anchorAfter?: string | null; redirectTo?: string | null }> | null;
   /** THE STAMP. When the operator marked it done; the window is read from it. Write-once. */
   implementedAt: string | null;
   /** The owned page's HELD content hash at mark time, from the snapshot on file. */
@@ -108,8 +116,11 @@ export type ShippedChangeRecord = {
   /** Null until the live check runs, and null is the due marker. Results renders what the check found,
    *  component by component, and says plainly when I have not looked yet. */
   verification: ShipmentVerification | null;
-  /** Why the operator overrode what the check found. */
-  operatorOverrideReason: string | null;
+  /** WHAT THE OPERATOR SAYS THEY ACTUALLY DID, in their own words, when they changed the page differently
+   *  from the copy I handed them. A NOTE, never an override: it is carried beside the reading and it
+   *  changes nothing about it. Stored in the column that used to hold the override reason, so no row
+   *  moves and no migration is owed. */
+  operatorNote: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -148,19 +159,17 @@ type LedgerRow = {
 function isUndefinedTableError(error: unknown): boolean {
   if (error == null || typeof error !== "object") return false;
   const e = error as { code?: unknown; message?: unknown };
-  if (typeof e.code === "string" && (e.code === "42P01" || e.code === "PGRST205" || e.code === "PGRST204")) {
-    return true;
-  }
+  if (typeof e.code === "string" && ["42P01", "PGRST205", "PGRST204"].includes(e.code)) return true;
   return typeof e.message === "string" && /schema cache|could not find the (table|.*column)/i.test(e.message);
 }
 
 /** THE TABLE IS THERE AND A COLUMN IS NOT: the pre-migration window, told apart from a genuinely absent
  *  table. It matters because production READS the table, so a write that quietly degraded to the file in
  *  that window is a write nobody will ever read back. */
-function isMissingColumnError(error: unknown): boolean {
+const isMissingColumnError = (error: unknown): boolean => {
   const e = (error ?? {}) as { code?: unknown; message?: unknown };
   return e.code === "PGRST204" || (typeof e.message === "string" && /could not find the .*column/i.test(e.message));
-}
+};
 
 const VALID_VERDICTS: ReadonlySet<string> = new Set(["measuring", "won", "lost", "inconclusive", "insufficient_data"]);
 const VALID_CONFIDENCES: ReadonlySet<string> = new Set(["high", "medium", "low"]);
@@ -178,7 +187,7 @@ function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     case_id: r.caseId, bundle_hypothesis: r.bundleHypothesis, components_applied: r.componentsApplied,
     implemented_at: r.implementedAt, pre_change_content_hash: r.preChangeContentHash,
     shipment_baseline: r.shipmentBaseline, verification: r.verification,
-    operator_override_reason: r.operatorOverrideReason, created_at: r.createdAt, updated_at: r.updatedAt,
+    operator_override_reason: r.operatorNote, created_at: r.createdAt, updated_at: r.updatedAt,
   };
 }
 
@@ -200,32 +209,27 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     bundleHypothesis: row.bundle_hypothesis ?? null, componentsApplied: row.components_applied ?? null,
     implementedAt: row.implemented_at ?? null, preChangeContentHash: row.pre_change_content_hash ?? null,
     shipmentBaseline: row.shipment_baseline ?? null, verification: row.verification ?? null,
-    operatorOverrideReason: row.operator_override_reason ?? null,
+    operatorNote: row.operator_override_reason ?? null,
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
 
 async function readFile(): Promise<ShippedChangeRecord[]> {
-  try {
-    return (await readStore<ShippedChangeRecord>(STORE)) ?? [];
-  } catch (err) {
+  try { return (await readStore<ShippedChangeRecord>(STORE)) ?? []; }
+  catch (err) {
     log.warn("shipped-change-store: file ledger read failed; treating as empty", {
       store: STORE, error: err instanceof Error ? err.message : String(err) });
     return [];
   }
 }
 
-async function writeFile(records: ShippedChangeRecord[]): Promise<void> {
-  await writeStore<ShippedChangeRecord>(STORE, records);
-}
+const writeFile = (records: ShippedChangeRecord[]): Promise<void> => writeStore<ShippedChangeRecord>(STORE, records);
 
 async function resolveSlugForTenant(tenantId: string): Promise<string | null> {
   const tenant = await getTenant(tenantId);
   if (tenant) return tenant.slug;
-  const envId = process.env.BEACON_TENANT_ID;
-  const envSlug = process.env.BEACON_TENANT_SLUG;
-  if (envId && envSlug && envId === tenantId) return envSlug;
-  return null;
+  const envId = process.env.BEACON_TENANT_ID, envSlug = process.env.BEACON_TENANT_SLUG;
+  return envId && envSlug && envId === tenantId ? envSlug : null;
 }
 
 async function readShippedChangesFileForTenant(tenantId: string): Promise<ShippedChangeRecord[]> {
@@ -293,20 +297,10 @@ async function queryTenantLedger(
   return sortNewest((data as LedgerRow[]).map(rowToRecord));
 }
 
-/** Every ledger mutation invalidates the /results SWR snapshot + core surfaces. */
+/** Every ledger mutation invalidates the /results SWR snapshot + core surfaces. Best-effort both ways. */
 async function invalidateResultsSurfaceSafe(): Promise<void> {
-  try {
-    const { invalidateResultsSurface } = await import("@/app/(shell)/results/results-surface-store");
-    await invalidateResultsSurface();
-  } catch {
-    /* best-effort */
-  }
-  try {
-    const { invalidateCoreSurfaces } = await import("@/app/(shell)/surface-release");
-    await invalidateCoreSurfaces();
-  } catch {
-    /* best-effort */
-  }
+  try { await (await import("@/app/(shell)/results/results-surface-store")).invalidateResultsSurface(); } catch { /* best-effort */ }
+  try { await (await import("@/app/(shell)/surface-release")).invalidateCoreSurfaces(); } catch { /* best-effort */ }
 }
 
 /** PURE. The stamp and the baseline are written ONCE. Every later writer (a re-measure,

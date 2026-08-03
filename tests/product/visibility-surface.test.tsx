@@ -1,11 +1,17 @@
 /** VISIBILITY (Dream V1 Phase 7). What a customer READS on the surface that answers "is my visibility moving, and why":
  *  both tabs, the honest limitation without Google, the day every number was read on, the days nobody read, a trend that
  *  STOPS where the instrument changed, and what each recurring domain is. Fixtures only, no clock, no dash, no lab word. */
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { supabaseFake, type Row } from "../helpers/supabase-fake";
 import { renderToStaticMarkup } from "react-dom/server";
+const store = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], reads: [] as { max: number; cols: string }[], fetched: [] as unknown[] }));
+vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => supabaseFake({
+  rows: () => store.rows, onSelect: (_t, r) => store.reads.push({ max: r.max, cols: r.cols }) }) }));
+globalThis.fetch = (async (...a: unknown[]) => { store.fetched.push(a); throw new Error("no provider call is allowed from Visibility"); }) as typeof fetch;
 import type { AiOutcomeReport } from "@/domains/measurement";
 import { aiTrend } from "@/app/(shell)/results/results-presentation";
-import { aiView, googleView } from "@/app/(shell)/visibility/visibility-view";
+import { aiView, answerView, googleView, type AnswerRow, type VisBlock } from "@/app/(shell)/visibility/visibility-view";
+import { readAiObservations } from "@/domains/evidence/ai-visibility/ai-observations";
 import { VisibilityTabs } from "@/app/(shell)/visibility/visibility-tabs";
 import { ScoreboardChartTabs } from "@/app/(shell)/scoreboard-chart-tabs";
 type Day = AiOutcomeReport["segments"][number]["days"][number]; // one reporting day as the kernel hands it over
@@ -17,7 +23,36 @@ const SEGMENTS: AiOutcomeReport["segments"] = [
   { from: "2026-08-01", to: "2026-08-02", models: [], days: [day("2026-08-01", null, { observed: 0, analyzed: 0, citationSample: 0, ownedCiting: 0 }), day("2026-08-02", 0.5)], boundary: [{ engine: "chatgpt", day: "2026-08-02", fromModel: "a", toModel: "b", fromMode: "api", toMode: "api" }] }];
 const LANDSCAPE = [{ domain: "standards.example", kind: "citation_authority" as const, why: "Engines cite it 7 times as a source and it never ranks against you.", evidence: { serpAppearances: 0, aiCitations: 7, competingQueries: 0 } }];
 const ai = (over: Partial<Parameters<typeof aiView>[0]> = {}) => aiView({ segments: SEGMENTS, trend: aiTrend(SEGMENTS), windowDays: 5, landscape: null, checks: { done: 42, total: 48, answered: 40, unavailable: 2 }, latest: { day: "2026-08-02", rows: [] }, ...over });
-const at = <T extends { blocks: Array<{ title: string; notes: string[]; rows: Array<{ head: string; body: string }>; runs: Array<{ breakLabel: string | null; span: string | null }> }> }>(v: T, title: string) => v.blocks.find((b) => b.title === title)!;
+const at = (v: { blocks: VisBlock[] }, title: string): VisBlock => v.blocks.find((b) => b.title === title)!;
+
+const TENANT = "acct-a", DAY = "2026-08-02";
+/** A whole AI answer is thousands of characters; the old view cut it at 1,400 with no way to the rest. */
+const LONG_ANSWER = `You can order a haft seen set from a few specialist shops. ${"the haft seen table is the centre of nowruz. ".repeat(105)}`.slice(0, 5000).trim();
+const ROW: AnswerRow = { id: "obs_7", day: DAY, promptId: "p1", promptText: "where to buy a haft seen set", engine: "chatgpt",
+  slot: 0, answered: true, mentioned: true, cited: true,
+  // MORE THAN TWELVE real fan-outs, and the tracked question itself among them: the row keeps it, the summary drops it.
+  fanOuts: [...Array.from({ length: 13 }, (_, i) => `haft seen search ${i}`), "haft seen set delivery", "nowruz table shop", "where to buy a haft seen set"],
+  answerText: LONG_ANSWER,
+  // FIFTEEN cited pages, past the old ten, with the passage the provider stored on the first of them.
+  citations: [{ url: "https://own.example/haft-seen", domain: "own.example", owned: true },
+    { url: "https://standards.example/nowruz", domain: "standards.example", owned: false, passage: "the haft seen table" },
+    ...Array.from({ length: 13 }, (_, i) => ({ url: `https://shop${i}.example/a`, domain: `shop${i}.example`, owned: false }))],
+  retrievedNotCited: ["https://other.example/x"],
+  modelRequested: "gpt-x-preview", modelServed: "gpt-x", mode: "api",
+  askedAt: "9:02 AM Pacific", answeredAt: "9:02 AM Pacific", receipt: "answer:9f3c1", costUsd: 0.02,
+  failureReason: null, reading: "read" };
+const { reads, fetched } = store;
+/** 140 stored readings on ONE day: 35 tracked questions across 4 assistants, which is a live day. */
+beforeEach(() => {
+  store.reads.length = 0; store.fetched.length = 0;
+  store.rows = Array.from({ length: 140 }, (_, i) => ({
+    id: `obs_${i}`, tenant_id: TENANT, site: "own.example", prompt_id: `p${i % 35}`, prompt_version: 1,
+    prompt_text: `question ${i % 35}`, engine: ["chatgpt", "claude", "gemini", "perplexity"][i % 4], sample_slot: 0,
+    reporting_day: DAY, status: "observed", requested_at: `2026-08-02T${String(i % 24).padStart(2, "0")}:00:${String(i % 60).padStart(2, "0")}Z`,
+    answer_text: "x".repeat(5000), answer_hash: "h", analysis: null, analysis_hash: null,
+    journey: { fan_outs: null, retrieved_results: null, cited_sources: null, brand_mentions: null, web_search_reported: null },
+  } as Row));
+});
 
 describe("Visibility explains where you stand, and never invents a score", () => {
   it("ships both tabs with both panels, keeps Today's chart to those same two, and never blanks without Google", () => {
@@ -36,6 +71,60 @@ describe("Visibility explains where you stand, and never invents a score", () =>
       "Google's numbers run through Aug 1. Google reports a few days behind, so the newest days are still settling."]);
     expect(at(live, "Pages that moved").rows[0]).toEqual({ head: "Losing: /nowruz", body: "20 clicks, down from 60. I see it at 12.4 on average now, against 6.1 before." });
     expect(at(live, "How you show up on Google").notes[1]).toBe("I check this once a week. This is the week ending Jul 27.");
+  });
+  // PIN: ONE READING OPENS INTO THE WHOLE OF ITSELF, cut nowhere. The prompt word for word, the complete
+  // answer however long, EVERY search that answer ran, EVERY page it credited with the part it quoted, what
+  // it read without crediting, both model names, the mode, the day, the instants, the cost, how far I have
+  // read it, and the stored envelope's identity. A question I asked is never listed as a search the
+  // assistant ran itself. And a page that moved says WHICH searches moved it.
+  it("opens one question into the whole reading behind it, and a moved page into the searches under it", () => {
+    const v = ai({ latest: { day: "2026-08-02", rows: [ROW] }, landscape: LANDSCAPE });
+    const one = answerView(ROW, new Map(LANDSCAPE.map((l) => [l.domain, l.kind])));
+    expect(one.head).toBe("where to buy a haft seen set (ChatGPT)");
+    const all = one.details.join("\n");
+    for (const s of [LONG_ANSWER, '"haft seen set delivery"', "https://own.example/haft-seen (your page)",
+      "https://standards.example/nowruz (standards.example, a source)", 'It quoted this part: "the haft seen table"',
+      "It also read these and credited none of them: https://other.example/x.",
+      "ChatGPT answered as gpt-x, and gpt-x-preview is what I asked for, in api mode.",
+      "This reading counts for Aug 2. Asked 9:02 AM Pacific, answered 9:02 AM Pacific.",
+      "I have read every word of this answer closely.", "answer:9f3c1", "0.02 dollars"]) expect(all, s).toContain(s);
+    // EVERY citation and EVERY fan-out, past the old ten and twelve, and the whole 5,000 character answer.
+    expect(one.details.filter((d) => d.startsWith("https://")).length).toBe(15);
+    expect((ROW.fanOuts ?? []).every((q) => all.includes(`"${q}"`))).toBe(true);
+    expect(all).toContain(LONG_ANSWER); // not a first 1,400 characters with a count of what was cut
+    // A TRACKED QUESTION OF MINE IS NEVER A SEARCH THE ASSISTANT RAN: deduped in the summary, never in the row.
+    expect(at(v, "What the assistants searched for").chips).not.toContain(ROW.promptText);
+    expect(all).toContain(`"${ROW.promptText}"`);
+    // WHAT THE PROVIDER NEVER REPORTED SAYS SO, and is never printed as a factual none.
+    const quiet = answerView({ ...ROW, fanOuts: null, citations: null, retrievedNotCited: null, reading: "unread" }).details.join("\n");
+    for (const s of ["ChatGPT does not report the searches it ran on this path",
+      "ChatGPT does not report which pages it used on this path, so I am not claiming it credited nobody.",
+      "ChatGPT does not report the pages it read but did not credit on this path.",
+      "Nobody has read this answer closely yet"]) expect(quiet, s).toContain(s);
+    for (const gone of ["It ran no searches of its own", "It credited no pages at all", "Every page it read, it credited"]) expect(quiet).not.toContain(gone);
+    const live = googleView({ hasData: true, decay: [{ page: "/nowruz", clicksNow: 20, clicksPrior: 60, positionNow: 12.4, positionPrior: 6.1 }],
+      windowEnd: "2026-08-01", board: null, weekly: null,
+      queriesByPage: new Map([["/nowruz", [{ query: "nowruz table", clicks: 12, impressions: 900, position: 8.2 }]]]) });
+    expect(at(live, "Pages that moved").rows[0]!.details!.join("\n")).toContain('"nowruz table": 12 clicks from 900 appearances, at 8.2 on average.');
+  });
+  // PIN: A 140 READING DAY IS REACHABLE, ALL OF IT, one bounded page at a time, and the page read never asks
+  // for the one heavy column. Reads only: no provider is ever called from this surface.
+  it("pages a whole day of readings without ever loading a whole answer, and calls no provider", async () => {
+    const seen = new Set<string>();
+    let after: { at: string; id: string } | null = null;
+    for (let guard = 0; guard < 12; guard += 1) {
+      const page = await readAiObservations(TENANT, { day: DAY, limit: 25, projection: "list", after });
+      for (const r of page) { seen.add(r.id); expect(r.answer_text).toBeUndefined(); } // the LIST read never carries it
+      if (page.length < 25) break;
+      const last = page[page.length - 1]!;
+      after = { at: String(last.requested_at), id: last.id };
+    }
+    expect(seen.size).toBe(140);                                   // every canonical identity, none skipped
+    expect(reads.every((r) => r.max <= 25)).toBe(true);            // one bounded page per request
+    expect(reads.every((r) => !r.cols.includes("answer_text"))).toBe(true);
+    const [one] = await readAiObservations(TENANT, { id: "obs_7", limit: 1 });
+    expect(one!.answer_text).toHaveLength(5000);                   // the whole answer, only when asked for by itself
+    expect(fetched).toHaveLength(0);                               // nothing on this path ever asks a provider
   });
   it("dates every AI number, counts the days it missed, breaks the line where the assistant changed, and names each domain", () => {
     const lines = at(ai(), "How often AI answers name you").notes, runs = at(ai(), "How often AI answers name you").runs;

@@ -5,27 +5,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 
-/**
- * research-run - the durable Research Run record (Slice 4, 2026-07-24). THE canonical type + repository for
- * a resumable research cycle.
- *
- * At most ONE unfinished (running or paused) run per account across ALL dates (partial unique index). Two
- * doors claim through claim_research_run: the global daily scheduler (claim_due_research_work, one bounded
- * dispatch for every account whose Pacific day still owes work) and any visit, which recovers and resumes
- * whatever the scheduler left. Both RESUME the one unfinished run regardless of cycle_key or start date, and
- * start a fresh daily cycle (cycle_key "<tenant>:<day>", computed at DATABASE time) only when none is open
- * and none completed that day. THE DATABASE LEASE DECIDES WHO ADVANCES A RUN, and it is the only thing that
- * does: a scheduler dispatch and a visit racing the same account cannot both proceed.
- *
- * Persistence is a service-role Supabase repository behind an injectable seam (tests inject an in-memory repo
- * modeling the RPC contract). Every operation requires an explicit tenantId and throws before any I/O when
- * empty. An unavailable claim RPC FAILS CLOSED (null, no background work); the render degrades to "none".
- *
- * Migrations: 2026-07-24_research_runs.sql (table + RLS), _truth.sql (database-time advance / renew /
- * finish), _claim_semantics.sql (one open run + resume-first claim), 2026-08-02_progress_patch_rpc.sql (the
- * one atomic progress merge, so two writers cannot erase each other's keys),
- * 2026-08-03_claim_due_research_work.sql (the fleet enumeration + the research-paused switch).
- */
+/** research-run - the durable Research Run record (Slice 4, 2026-07-24). THE canonical type + repository for a resumable research cycle. At most ONE unfinished (running or paused) run per account
+ *  across ALL dates (partial unique index). Two doors claim through claim_research_run: the global daily scheduler (claim_due_research_work, one bounded dispatch for every account whose reporting day
+ *  still owes work: src/lib/reporting-day.ts is the ONE timezone contract) and any visit, which recovers and resumes whatever the scheduler left. Both RESUME the one unfinished run regardless of
+ *  cycle_key or start date, and start a fresh daily cycle (cycle_key "<tenant>:<day>", at DATABASE time) only when none is open and none completed that day. THE DATABASE LEASE DECIDES WHO ADVANCES A
+ *  RUN: a dispatch and a visit racing the same account cannot both proceed. Persistence is a service-role Supabase repository behind an injectable seam (tests inject an in-memory repo modeling the
+ *  RPC contract). Every operation requires an explicit tenantId and throws before any I/O when empty. An unavailable claim RPC FAILS CLOSED (null, no background work); the render degrades to "none".
+ *  Migrations: 2026-07-24_research_runs.sql (table + RLS), _truth.sql (database-time advance / renew / finish), _claim_semantics.sql (one open run + resume-first claim), 2026-08-02_progress_patch_rpc.sql
+ *  (the one atomic progress merge, so two writers cannot erase each other's keys), 2026-08-03_claim_due_research_work.sql (the fleet enumeration + the research-paused switch). */
 
 // ── Canonical record ───────────────────────────────────────────────────────
 
@@ -231,11 +218,9 @@ async function rpcBool(fn: string, args: Record<string, unknown>): Promise<boole
   return data === true;
 }
 
-/** THE ONE ATOMIC WRITE TO `progress`. Read-edit-write in the process let two writers a millisecond apart
- *  each erase what the other had just recorded on the same row. The merge, and the day-scoped {day, count}
- *  increment when one is asked for, happen inside ONE update statement, and the row's own new progress comes
- *  back, so a caller reads the number it actually landed. Null = no row matched, which is never "saved". A
- *  MISSING FUNCTION is a deploy that ran ahead of its migration: named loudly and thrown, never swallowed. */
+/** THE ONE ATOMIC WRITE TO `progress`. Read-edit-write in the process let two writers a millisecond apart each erase what the other had just recorded on the same row. The merge, and the day-scoped
+ *  {day, count} increment when one is asked for, happen inside ONE update statement, and the row's own new progress comes back, so a caller reads the number it actually landed. Null = no row matched,
+ *  which is never "saved". A MISSING FUNCTION is a deploy that ran ahead of its migration: named loudly and thrown, never swallowed. */
 export async function patchRunProgress(
   tenantId: string, runId: string, patch: Record<string, unknown>, increment?: { key: string; day: string },
 ): Promise<ResearchRunProgress | null> {
@@ -323,19 +308,16 @@ export function setResearchRunRepoForTests(next: ResearchRunRepo | null): void {
 
 // ── The reporting day's own memory ─────────────────────────────────────────
 
-/** THE ABSOLUTE RUNAWAY STOP for one account's Pacific day, not a work budget and not any one door's
- *  allowance. A pass may open whenever due-work reports genuinely progressable work; this only stops an
- *  account whose due list can never be cleared from opening passes forever. Past 24 in one day I say so
- *  and open nothing until the day rolls. Each door may carry a SMALLER ceiling of its own (the visit door
- *  does, because every navigation is a chance to open a pass); no door may raise this one. */
+/** THE ABSOLUTE RUNAWAY STOP for one account's Pacific day, not a work budget and not any one door's allowance. A pass may open whenever due-work reports genuinely progressable work; this only stops
+ *  an account whose due list can never be cleared from opening passes forever. Past 24 in one day I say so and open nothing until the day rolls. Each door may carry a SMALLER ceiling of its own (the
+ *  visit door does, because every navigation is a chance to open a pass); no door may raise this one. */
 const DAILY_PASS_RUNAWAY_CEILING = 24;
 
 type DayRow = { id: string; progress: ResearchRunProgress };
 
-/** THE DAY'S STATE BELONGS TO THE DAY, NOT TO A ROW. Both row-creating paths (the fresh daily claim and an
- *  extra pass) are born with progress {}, so the extra-sample grant, the ceiling marker, the advisory-reading
- *  receipt and the decide watermark all died the moment the pass they justified opened. Inherited here from
- *  the passes that already ran the SAME reporting day; day-stamped markers only when they name that day. */
+/** THE DAY'S STATE BELONGS TO THE DAY, NOT TO A ROW. Both row-creating paths (the fresh daily claim and an extra pass) are born with progress {}, so the extra-sample grant, the ceiling marker, the
+ *  advisory-reading receipt and the decide watermark all died the moment the pass they justified opened. Inherited here from the passes that already ran the SAME reporting day; day-stamped markers
+ *  only when they name that day. */
 function carriedDayState(priors: readonly ResearchRunProgress[], day: string): ResearchRunProgress {
   const out: ResearchRunProgress = {};
   for (const p of priors) {
@@ -371,15 +353,9 @@ async function withDayState(run: ResearchRun, owner: string): Promise<ResearchRu
 
 // ── Public operations (explicit tenant, fail-closed) ───────────────────────
 
-/**
- * Claim, resume, or start the account's Research Run with our owner token. The database resumes the single
- * unfinished run (any date) before considering a new daily cycle, and computes the daily key itself.
- *
- * A REFUSAL AND A FAILURE ARE DIFFERENT ANSWERS, and this is the one place that can tell them apart. `null`
- * means the database refused us honestly (a foreign live lease, or a pass already completed today), which a
- * caller may reason further about. A THROW means the claim could not be made at all, so the caller fails
- * closed: an unavailable database must never read as "today is done".
- */
+/** Claim, resume, or start the account's Research Run with our owner token. The database resumes the single unfinished run (any date) before considering a new daily cycle, and computes the daily key
+ *  itself. A REFUSAL AND A FAILURE ARE DIFFERENT ANSWERS, and this is the one place that can tell them apart. `null` means the database refused us honestly (a foreign live lease, or a pass already
+ *  completed today), which a caller may reason further about. A THROW means the claim could not be made at all, so the caller fails closed: an unavailable database must never read as "today is done". */
 export async function claimRun(tenantId: string, ownerToken: string): Promise<ResearchRun | null> {
   requireTenant(tenantId);
   try {
@@ -392,28 +368,23 @@ export async function claimRun(tenantId: string, ownerToken: string): Promise<Re
   }
 }
 
-/**
- * THE DAILY DISPATCH. Claim up to `limit` accounts that still owe work for their current Pacific day,
- * through the same claim_research_run every visit uses, and hand the caller the runs it now holds the lease
- * on. No tenant argument by design: this is the one fleet-wide door, reachable only by the service role
- * behind the CRON_SECRET endpoint. A THROW (unavailable database) is swallowed into an empty list, because
- * a dispatch that could not read is a dispatch that must do nothing, not one that guesses.
- */
+/** THE DAILY DISPATCH. Claim up to `limit` accounts that still owe work for their current Pacific day, through the same claim_research_run every visit uses, and hand the caller the runs it now holds
+ *  the lease on. No tenant argument by design: this is the one fleet-wide door, reachable only by the service role behind the CRON_SECRET endpoint. AN OUTAGE IS NOT AN EMPTY FLEET. A throw used to be
+ *  swallowed into an empty list, so a database that was down, an RPC that was never migrated and a permission that was revoked all read as "nobody owes anything", the endpoint answered 200 with a
+ *  zero receipt, and cron monitoring recorded a healthy day on which no account was tracked at all. It now THROWS, and the endpoint answers 503. Zero rows stays what it has always been: a genuine,
+ *  honest nothing. */
 export async function claimDueRuns(ownerToken: string, limit: number): Promise<ResearchRun[]> {
   try {
     return await repo.claimDue({ owner: ownerToken, limit, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS });
   } catch (error) {
-    log.warn("[research-run] the daily dispatch could not read what is due; nothing runs", { error: error instanceof Error ? error.message : String(error) });
-    return [];
+    log.error("[research-run] the daily dispatch could not read what is due; today's tracking did not run", { error: error instanceof Error ? error.message : String(error) });
+    throw error instanceof Error ? error : new Error(String(error));
   }
 }
 
-/**
- * Open ANOTHER pass on a day that already completed one. The caller must already know work is genuinely due
- * (see due-work): a day is not a unit of work, but nor is a visit, so nothing here decides that question.
- * Null = a pass must not open (any unfinished run, a concurrent claimer, the day's ceiling, or unavailable
- * persistence). Never throws. THE CEILING BELONGS TO THE DOOR: a door passes its own allowance, clamped to
- * the day's absolute runaway stop, so no door can widen the day for the others. */
+/** Open ANOTHER pass on a day that already completed one. The caller must already know work is genuinely due (see due-work): a day is not a unit of work, but nor is a visit, so nothing here decides
+ *  that question. Null = a pass must not open (any unfinished run, a concurrent claimer, the day's ceiling, or unavailable persistence). Never throws. THE CEILING BELONGS TO THE DOOR: a door passes
+ *  its own allowance, clamped to the day's absolute runaway stop, so no door can widen the day for the others. */
 export async function startExtraPass(tenantId: string, ownerToken: string, day: string, ceiling = DAILY_PASS_RUNAWAY_CEILING): Promise<ResearchRun | null> {
   requireTenant(tenantId);
   const stop = Math.min(Math.max(1, Math.trunc(ceiling)), DAILY_PASS_RUNAWAY_CEILING);
@@ -468,14 +439,9 @@ export async function finishRun(
   }
 }
 
-/**
- * Count ONE continuation hop for this reporting day, SERVER-SIDE and at DATABASE time, and return the day's
- * new total. The hop a browser sends back is a number it made up, so a tab that kept claiming hop 0 bought
- * itself an unbounded chain of research requests. The count lives on the account's own row, is incremented
- * inside the update that lands it (two tabs get 1 and 2, never 1 and 1), and is inherited by every pass that
- * opens the same day. Null = it could not be counted, which the caller treats as its own first hop rather
- * than as permission to loop. Never throws.
- */
+/** Count ONE continuation hop for this reporting day, SERVER-SIDE and at DATABASE time, and return the day's new total. The hop a browser sends back is a number it made up, so a tab that kept
+ *  claiming hop 0 bought itself an unbounded chain of research requests. The count lives on the account's own row, is incremented inside the update that lands it (two tabs get 1 and 2, never 1 and
+ *  1), and is inherited by every pass that opens the same day. Null = it could not be counted, which the caller treats as its own first hop rather than as permission to loop. Never throws. */
 export async function countContinuationHop(tenantId: string, day: string): Promise<number | null> {
   requireTenant(tenantId);
   try { return await repo.countContinuation({ tenantId, day }); }

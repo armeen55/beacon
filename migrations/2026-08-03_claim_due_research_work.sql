@@ -36,8 +36,6 @@
 -- other account waited behind it. An account with no runs at all still sorts first (greatest of two
 -- nulls is null, and nulls come first).
 --
--- NOT YET APPLIED TO PROD - apply via MCP apply_migration (operator-approved). Idempotent.
-
 alter table public.tenants
   add column if not exists research_paused boolean not null default false;
 

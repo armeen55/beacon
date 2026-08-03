@@ -17,7 +17,7 @@ vi.mock("@/domains/account/lifecycle", () => ({ requireReadyAccount: vi.fn(async
 vi.mock("@/lib/tenant-context", async () => ({ ...(await vi.importActual<typeof import("@/lib/tenant-context")>("@/lib/tenant-context")),
   currentTenantId: vi.fn(async () => "t") }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
-  loadProposalQueue: vi.fn(), loadChangeProposal: vi.fn() }));
+  loadProposalQueue: vi.fn(), loadChangeProposal: vi.fn(), resolveCurrentBasis: vi.fn() }));
 
 // ── Today: the four primary states ───────────────────────────────────────────
 
@@ -177,8 +177,9 @@ async function renderList(view: ChangesView): Promise<string> {
   return renderToStaticMarkup(createElement(ChangesListClient, { view }));
 }
 async function renderDetail(p: ChangeProposal): Promise<string> {
-  const { loadProposalQueue } = await import("@/domains/decision");
-  vi.mocked(loadProposalQueue).mockResolvedValue({ ranked: [p], ready: [p], toDo: [], demotedStaleBasis: 0 } as unknown as RankedProposalQueue);
+  const { loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
+  vi.mocked(loadChangeProposal).mockResolvedValue(p);
+  vi.mocked(resolveCurrentBasis).mockResolvedValue(p.basis ?? null);
   const { default: Page } = await import("@/app/(shell)/changes/[id]/page");
   return renderToStaticMarkup(await Page({ params: Promise.resolve({ id: encodeURIComponent(p.id) }) }) as ReactElement);
 }
@@ -187,20 +188,24 @@ describe("a ranked card explains itself without being opened", () => {
   beforeEach(() => vi.clearAllMocks());
   it("shows the shape of the change, the exact action, effort, risk, evidence, and why it outranks the next one", async () => {
     const html = await renderList(viewOf([proposal()]));
-    expect(html).toContain("Bundled change");
-    expect(html).toContain("Settle which page owns that search");
-    expect(html).toContain("about 6 min");
-    expect(html).toContain("Low risk");
-    expect(html).toContain("Strong evidence");
-    expect(html).toContain("it wins back more of what you are losing");
-    expect(html).toContain("Put this aside");
+    for (const s of ["Bundled change", "Settle which page owns that search", "about 6 min", "Low risk",
+      "Strong evidence", "it wins back more of what you are losing", "Put this aside"]) expect(html, s).toContain(s);
     expect(await renderList(viewOf([atomic()]))).toContain("One edit"); // one component is one edit, never a bundle
+  });
+  // PIN (B, F6): "Implemented 0 · Measuring 0 · Results 0" told a quiet account nothing and asked nothing.
+  it("tells a quiet account what is not moving yet, and shows only the counts that exist", async () => {
+    const quiet = await renderList(viewOf([proposal()]));
+    expect(quiet).toContain("Nothing implemented yet. Ship your first ready change and I start measuring it.");
+    expect(quiet).not.toMatch(/Implemented 0|Measuring 0|Results 0/);
+    const view = viewOf([proposal()]);
+    const moving = await renderList({ ...view, summary: { ...view.summary, measuring: 2 } });
+    expect(moving).toContain("Measuring 2");
+    expect(moving).not.toMatch(/Implemented 0|Results 0/);
   });
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {
     const html = await renderList(viewOf([proposal()]));
-    expect(html).toContain("Canonical tag");
-    expect(html).toContain("changes where the page lives or whether people can find it");
-    expect(html).toContain("read once and confirm before you make the change");
+    for (const s of ["Canonical tag", "changes where the page lives or whether people can find it",
+      "read once and confirm before you make the change"]) expect(html, s).toContain(s);
     expect(await renderList(viewOf([atomic()]))).not.toContain("changes where the page lives"); // nothing dangerous, no hold
   });
 });
@@ -209,19 +214,12 @@ describe("a change detail hands over the whole investigation and the controls to
   beforeEach(() => vi.clearAllMocks());
   it("the investigation carries the cause, what it beat, what would kill it, and what could not be tested", async () => {
     const html = await renderDetail(proposal());
-    expect(html).toContain("Show me how you worked this out");
-    expect(html).toContain("two of your own pages competing for one search");
-    expect(html).toContain("Google is picking between them and the clicks split");
-    expect(html).toContain("What else I considered and why it lost");
-    expect(html).toContain("a sharper line cannot fix two of your own pages");
-    expect(html).toContain("What would change my mind");
-    expect(html).toContain("this is not the explanation");
-    expect(html).toContain("What I could not test, and why");
-    expect(html).toContain("I do not hold this page&#x27;s indexing or canonical state.");
+    for (const s of ["Show me how you worked this out", "two of your own pages competing for one search",
+      "Google is picking between them and the clicks split", "What else I considered and why it lost",
+      "a sharper line cannot fix two of your own pages", "What would change my mind", "this is not the explanation",
+      "What I could not test, and why", "I do not hold this page&#x27;s indexing or canonical state."]) expect(html, s).toContain(s);
     // Not one raw slug reaches the screen.
-    expect(html).not.toContain("cannibalization");
-    expect(html).not.toContain("ctr_snippet");
-    expect(html).not.toContain("technical_indexability");
+    for (const slug of ["cannibalization", "ctr_snippet", "technical_indexability"]) expect(html, slug).not.toContain(slug);
   });
   it("the piece to paste says where it goes, why it works, and which sources are still owed", async () => {
     const html = await renderDetail(proposal());
@@ -229,21 +227,17 @@ describe("a change detail hands over the whole investigation and the controls to
       "The date needs a source a reader can check.", "Check these lines against the source you pick", "Nowruz falls on the spring equinox."]) expect(html).toContain(s); });
   it("the ranking receipt names each input and how far it could ever move the order", async () => {
     const html = await renderDetail(proposal());
-    expect(html).toContain("Why this one ranks where it does");
-    expect(html).toContain("this draft passed every safety check (moved it up 500 of a possible 500)");
-    expect(html).toContain("this page already has a change I am measuring (moved it down 30 of a possible 30)");
     // A factor that changed nothing says so; it never prints a bare zero.
-    expect(html).toContain("did not move this one either way");
-    expect(html).toContain("I ranked this on about 163 clicks I can show are recoverable");
+    for (const s of ["Why this one ranks where it does", "this draft passed every safety check (moved it up 500 of a possible 500)",
+      "this page already has a change I am measuring (moved it down 30 of a possible 30)", "did not move this one either way",
+      "I ranked this on about 163 clicks I can show are recoverable"]) expect(html, s).toContain(s);
   });
-  it("the operator can say which pieces they applied, that they did it differently, or put the change away", async () => {
+  it("the operator can say which pieces they applied, what they actually wrote, or put the change away", async () => {
     const html = await renderDetail(proposal());
-    expect(html).toContain("Which pieces did you apply?");
-    expect(html).toContain("Page title");
-    expect(html).toContain("Canonical tag");
-    expect(html).toContain("I only measure the pieces you tick");
-    expect(html).toContain("I applied this differently, so do not check the page for my exact wording");
-    expect(html).toContain("Put this aside");
+    // PIN (B): the control asks what they wrote; it never offers to skip the check.
+    for (const s of ["Which pieces did you apply?", "Page title", "Canonical tag", "I only measure the pieces you tick",
+      "Wrote it your own way? Tell me what you put there", "Put this aside"]) expect(html, s).toContain(s);
+    expect(html).not.toContain("do not check the page");
     // Every piece starts ticked: applying all of them is the normal case.
     expect(html.match(/type="checkbox" checked=""/g)?.length).toBe(2);
     expect(await renderDetail(atomic())).not.toContain("Which pieces did you apply?"); // one edit, nothing to pick

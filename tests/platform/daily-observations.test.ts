@@ -459,6 +459,11 @@ describe("reading the answers back", () => {
     // And the zone carries its own daylight-saving rule: in January the same instant is an hour further back.
     expect(reportingDay(Date.parse("2026-01-05T07:00:00.000Z"))).toBe("2026-01-04");
     expect(reportingDay(Date.parse("2026-01-05T08:00:00.000Z"))).toBe("2026-01-05");
+    // An instant it cannot read still answers in Pacific. The fallback used to slice a UTC string, so the
+    // one module that exists to end UTC days named tomorrow every evening after 5 PM.
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-08-05T02:00:00.000Z"));
+    expect([reportingDay(NaN), reportingDay(new Date("not a date"))]).toEqual(["2026-08-04", "2026-08-04"]);
+    vi.useRealTimers();
   });
 });
 it("never plans more perplexity than one pass can drain, and fills the freed slots with finishable work", () => {

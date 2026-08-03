@@ -1,35 +1,16 @@
-/** EVIDENCE - the owned-page inventory (discovery through the site's OWN answer inside hard bounds, first_seen kept, a refusing page held back, a crawl finished
- *  only when the inventory is) and the whole-page read that can finally answer "no". ONE in-memory stand-in for the two tables, with filters, ordering and paging
- *  applied for real, so a query that forgot its tenant scope shows up here as another account's row coming back. No network. */
+/** EVIDENCE - the owned-page inventory (discovery through the site's OWN answer inside hard bounds, first_seen kept, a refusing page held back, a crawl finished only when the inventory is) and the whole-page read that can finally answer "no". ONE in-memory stand-in for the two tables, with filters, ordering and paging applied for real, so a query that forgot its tenant scope shows up here as another account's row coming back. No network. */
 import { beforeEach, describe, expect, it, vi } from "vitest"; import { createHash } from "node:crypto";
-type Row = Record<string, unknown>;
-const db = vi.hoisted(() => ({ owned: [] as Record<string, unknown>[], snaps: [] as Record<string, unknown>[], missing: "", fails: false }));
-const FRESH = { crawl_state: "uncrawled", completeness: "missing", is_canonical_target: true, http_status: null, last_crawled_at: null, content_hash: null, blocked_until: null, redirects_to: null };
-function fake(name: string) {
-  const T = () => (name === "owned_pages" ? db.owned : db.snaps);
-  const f: ((r: Row) => boolean)[] = []; let mode = "select", patch: Row = {}, rows: Row[] = [], skipDup = false, key = "", asc = true, lim = Infinity, from = 0;
-  const run = () => {
-    if (db.missing === name || db.fails) return { data: null, error: { code: db.fails ? "500" : "PGRST205", message: "Could not find the table" } };
-    if (mode === "upsert") {
-      for (const r of rows) { const at = T().findIndex((x) => x.tenant_id === r.tenant_id && x.url === r.url);
-        if (at >= 0) { if (!skipDup) T()[at] = { ...T()[at], ...r }; continue; }
-        T().push({ ...FRESH, first_seen: new Date().toISOString(), last_seen_in_discovery: new Date().toISOString(), ...r }); }
-      return { data: rows, error: null }; }
-    let out = T().filter((r) => f.every((p) => p(r)));
-    if (mode === "update") { for (const r of out) Object.assign(r, patch); return { data: out, error: null }; }
-    if (key) out = [...out].sort((a, z) => (String(a[key] ?? "") < String(z[key] ?? "") ? -1 : 1) * (asc ? 1 : -1));
-    return { data: out.slice(from, from + lim), error: null }; };
-  const b = { select: () => b, update: (p: Row) => { mode = "update"; patch = p; return b; }, limit: (n: number) => { lim = n; return b; },
-    upsert: (r: Row[], o?: { ignoreDuplicates?: boolean }) => { mode = "upsert"; rows = r; skipDup = !!o?.ignoreDuplicates; return b; },
-    eq: (c: string, v: unknown) => { f.push((r) => r[c] === v); return b; }, in: (c: string, v: unknown[]) => { f.push((r) => v.includes(r[c])); return b; },
-    lt: (c: string, v: string) => { f.push((r) => r[c] != null && String(r[c]) < v); return b; }, lte: (c: string, v: string) => { f.push((r) => r[c] != null && String(r[c]) <= v); return b; },
-    order: (c: string, o?: { ascending?: boolean }) => { key = c; asc = o?.ascending !== false; return b; }, then: (res: (v: unknown) => unknown) => res(run()),
-    range: (a: number, z: number) => { from = a; lim = z - a + 1; return b; } };
-  return b; }
-vi.mock("@/lib/persistence/supabase", async (o) => ({ ...((await o()) as object), getSupabaseAdmin: () => ({ from: (t: string) => fake(t) }) }));
+const db = vi.hoisted(() => ({ owned: [] as Record<string, unknown>[], snaps: [] as Record<string, unknown>[], missing: "", fails: false, client: {} as Record<string, unknown> }));
+const FRESH = { crawl_state: "uncrawled", completeness: "missing", is_canonical_target: true, http_status: null, last_crawled_at: null, status_reconfirmed_at: null, content_hash: null, blocked_until: null, redirects_to: null };
+vi.mock("@/lib/persistence/supabase", async (o) => ({ ...((await o()) as object), getSupabaseAdmin: () => db.client }));
 import { discoverUrls, runInProcessColdStartScan, MAX_DISCOVERED_URLS } from "@/domains/evidence/scanning/in-process-scan"; import { completenessOf, runCrawlBatch, type CrawlFrontierState } from "@/domains/evidence/scanning/crawl-frontier";
 import { markBlocked, markCrawled, nextCrawlCandidates, readInventory, upsertDiscovery } from "@/domains/evidence/scanning/owned-pages-store";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor"; import { loadOwnedPageBodies, pageContains } from "@/domains/evidence/pages/owned-context";
+import { supabaseFake } from "../helpers/supabase-fake";
+Object.assign(db.client, supabaseFake({ rows: (t) => (t === "owned_pages" ? db.owned : db.snaps),
+  error: (t) => (db.missing === t || db.fails ? { code: db.fails ? "500" : "PGRST205", message: "Could not find the table" } : null),
+  same: (stored, sent) => stored.tenant_id === sent.tenant_id && stored.url === sent.url,
+  insertDefaults: () => ({ ...FRESH, first_seen: new Date().toISOString(), last_seen_in_discovery: new Date().toISOString() }) }));
 
 const T = "tenant-own", OTHER = "tenant-other", NOW = new Date("2026-08-03T00:00:00.000Z"), asked: string[] = [];
 const at = (days: number) => new Date(NOW.getTime() + days * 86_400_000);
@@ -73,6 +54,17 @@ describe("the owned-page inventory: what the site says it has, and what my read 
     await markBlocked(T, "https://own.com/locked", 403, at(9)); expect((await locked()).blocked_until).toBe(at(39).toISOString()); // then a month, the ceiling: the ladder is attempt-driven, not status-driven
     await upsertDiscovery(T, [{ url: "https://own.com/flaky", via: "sitemap" }]); await markBlocked(T, "https://own.com/flaky", 500, NOW); // a server error is a failure, never a read
     const flaky = (await readInventory(T)).find((r) => r.url.endsWith("/flaky"))!; expect([flaky.crawl_state, flaky.last_crawled_at, flaky.blocked_until, await nextCrawlCandidates(T, 10, at(0.5))]).toEqual(["uncrawled", null, at(1).toISOString(), []]); }); // unread, unstamped, waiting
+  it("calls a server error a fault only after the same answer comes back on a SECOND Pacific day, and drops it the moment the page answers", async () => {
+    const flaky = async () => (await readInventory(T)).find((r) => r.url.endsWith("/flaky"))!;
+    await upsertDiscovery(T, [{ url: "https://own.com/flaky", via: "sitemap" }]); await markBlocked(T, "https://own.com/flaky", 500, NOW);
+    expect((await flaky()).status_reconfirmed_at).toBe(null); // one 500 is a bad minute and says nothing at all
+    await markBlocked(T, "https://own.com/flaky", 503, new Date(NOW.getTime() + 7_200_000)); // same class, and 2 AM UTC is still the SAME Pacific evening
+    expect((await flaky()).status_reconfirmed_at).toBe(null); // a UTC day would have called this two days and confirmed it
+    await markBlocked(T, "https://own.com/flaky", 500, at(1)); expect((await flaky()).status_reconfirmed_at).toBe(at(1).toISOString()); // two days, same answer: a fault
+    await markCrawled(T, "https://own.com/flaky", { httpStatus: 200, contentHash: "h", completeness: "complete" }, at(2));
+    expect((await flaky()).status_reconfirmed_at).toBe(null); // it answered, so the fault is over and is never carried forward
+    await markBlocked(T, "https://own.com/flaky", 500, at(3)); await markBlocked(T, "https://own.com/flaky", 403, at(4));
+    expect((await flaky()).status_reconfirmed_at).toBe(null); }); // a DIFFERENT answer on the second day confirms nothing
 });
 
 describe("evidence - my own page's actual words, read narrowly", () => {
@@ -111,13 +103,55 @@ describe("evidence - my own page's actual words, read narrowly", () => {
     db.snaps = [snapRow({ body_text: "held prose. ".repeat(6_000), word_count: 5, card_texts: [], internal_links: [] })]; const held = await read();
     expect([held.completeness, held.heldNote.includes("past my 48000 character ceiling")]).toEqual(["partial", true]); });
 });
+/** THE SITE IS EVENTUALLY READ IN FULL. Every bound is per PASS: the page cap used to be a lifetime clamp (a 1,000-page site simply had 400 pages Beacon would never read) and one discovery pass was the whole enumeration. Passes provably ADVANCE and never repeat, an oversized sitemap continues where it stopped, and "that is your whole website" is said only when nothing is left, not even a page waiting out a refusal. */
 describe("a crawl is finished only when the inventory is", () => {
   const html = (w: string) => `<html><head><title>T</title></head><body><main><p>${w}</p></main></body></html>`;
   const noWrite = { syncPagesImpl: async () => {}, syncPageSnapshotsImpl: async () => {} };
+  const state = (o: Partial<CrawlFrontierState> = {}): CrawlFrontierState => ({ tenant_id: T, domain: "own.com", status: "in_progress", frontier: [], visited: [], pages_crawled: 0, pages_failed: 0,
+    page_cap: 600, source: "sitemap", started_at: NOW.toISOString(), updated_at: NOW.toISOString(), last_batch_at: null, batches_run: 0, page_facts: [], ...o });
+  /** One batch against a live inventory, reporting which of the site's OWN pages that batch actually asked for. */
+  const batch = async (hold: { s: CrawlFrontierState }, map: Record<string, string>, when = NOW) => { const from = asked.length;
+    const out = await runCrawlBatch({ tenantId: T, deps: { sleep: async () => {}, now: () => when.getTime(), ...noWrite, loadState: async () => hold.s, saveState: async (s) => { hold.s = s; }, fetchImpl: serve(map) } });
+    return { out, read: asked.slice(from).filter((u) => !u.endsWith("robots.txt") && !u.endsWith(".xml")) }; };
   it("keeps every URL discovery found and refills a drained working set from it instead of calling the site read", async () => {
     await runInProcessColdStartScan({ tenantId: T, domain: "own.com", deps: { maxPages: 1, ...noWrite, fetchImpl: serve({ "https://own.com/sitemap.xml": urlset(["https://own.com/a", "https://own.com/b"]), "https://own.com/a": html("Page a says this.") }) } });
     expect((await readInventory(T)).map((r) => r.url)).toEqual(["https://own.com/a", "https://own.com/b"]); // one launch scan reads a handful of pages; the inventory keeps every one it found
-    let saved: CrawlFrontierState = { tenant_id: T, domain: "own.com", status: "in_progress", frontier: ["https://own.com/a"], visited: [], pages_crawled: 0, pages_failed: 0, page_cap: 600, source: "sitemap", started_at: NOW.toISOString(), updated_at: NOW.toISOString(), last_batch_at: null, batches_run: 0, page_facts: [] };
-    const out = await runCrawlBatch({ tenantId: T, deps: { maxPagesPerBatch: 1, sleep: async () => {}, now: () => NOW.getTime(), ...noWrite, loadState: async () => saved, saveState: async (s) => { saved = s; }, fetchImpl: serve({ "https://own.com/a": html("Page a says this.") }) } });
-    expect([out.complete, saved.status, saved.frontier]).toEqual([false, "in_progress", ["https://own.com/b"]]); }); // /b was never in the blob: only the inventory knew it existed
+    const hold = { s: state({ frontier: ["https://own.com/a"] }) }, { out } = await batch(hold, { "https://own.com/a": html("Page a says this.") });
+    expect([out.complete, hold.s.status, hold.s.frontier]).toEqual([false, "in_progress", ["https://own.com/b"]]); }); // /b was never in the blob: only the inventory knew it existed
+  it("reads a page it has not read on every pass until there are none left, and never the same page twice", async () => {
+    const urls = ["a", "b", "c", "d", "e"].map((p) => `https://own.com/${p}`), pages = Object.fromEntries(urls.map((u) => [u, html("Ordinary prose.")]));
+    await upsertDiscovery(T, urls.map((url) => ({ url, via: "sitemap" as const })));
+    const hold = { s: state({ page_cap: 2 }) }; // two pages a pass, so three passes is the whole five-page site
+    const p1 = await batch(hold, pages), p2 = await batch(hold, pages), p3 = await batch(hold, pages);
+    expect([p1.read.length, p2.read.length, p3.read.length, new Set([...p1.read, ...p2.read, ...p3.read]).size]).toEqual([2, 2, 1, 5]); // every pass advances, and the batches are disjoint
+    expect([p1.out.complete, p2.out.complete, p3.out.complete, hold.s.status, hold.s.pages_crawled, await readInventory(T, { states: ["uncrawled"] })]).toEqual([false, false, true, "complete", 5, []]); }); // finished because the inventory is
+  it("resumes an oversized sitemap where the last pass stopped, instead of walking the same first pages forever", async () => {
+    const many = Array.from({ length: MAX_DISCOVERED_URLS + 1_200 }, (_, i) => `https://own.com/p${i}`), sm = { "https://own.com/sitemap.xml": urlset(many) };
+    const first = await discover(sm); // what one pass could not record is counted AND pointed at
+    expect([first.pages.length, first.truncated, first.nextCursor]).toEqual([MAX_DISCOVERED_URLS, 1_200, MAX_DISCOVERED_URLS]);
+    const second = await discoverUrls("https://own.com", serve(sm), 100, () => NOW.getTime(), NOW.getTime() + 60_000, first.nextCursor);
+    expect([second.pages.length, second.truncated, second.nextCursor]).toEqual([1_200, 0, 0]); // the remainder, and nothing left to resume
+    expect(new Set([...first.pages, ...second.pages].map((p) => p.url)).size).toBe(many.length); // the WHOLE site, across two passes, nothing enumerated twice
+    const hold = { s: state({ discovery_cursor: 2 }) }; // and the CRAWL drives that second pass: a dry inventory with a cursor on file resumes discovery
+    await batch(hold, { "https://own.com/sitemap.xml": urlset(["https://own.com/x", "https://own.com/y", "https://own.com/z"]) });
+    expect([(await readInventory(T)).map((r) => r.url), hold.s.discovery_cursor]).toEqual([["https://own.com/z"], 0]); });
+  it("stays open while a refused page waits out its retry date, never asks before it, and closes once the page answers", async () => {
+    await upsertDiscovery(T, [{ url: "https://own.com/locked", via: "sitemap" }]);
+    await markBlocked(T, "https://own.com/locked", 403, NOW); // refused: due again a day from now
+    const hold = { s: state() }, page = { "https://own.com/locked": html("It opens now.") }, early = await batch(hold, page, at(0.5));
+    expect([early.read, early.out.complete, hold.s.status]).toEqual([[], false, "in_progress"]); // never asked inside the wait, and never called finished either
+    const due = await batch(hold, page, at(2));
+    expect([due.read.length, due.out.crawled, hold.s.status]).toEqual([1, 1, "complete"]); }); // the promise is kept on a later pass, and only then is the site done
+  it("reopens a finished crawl for a page shipped afterwards and for a read gone stale, and stays finished when the inventory owes nothing", async () => {
+    const pages = { "https://own.com/a": html("Ordinary prose."), "https://own.com/new": html("Shipped later.") };
+    await upsertDiscovery(T, [{ url: "https://own.com/a", via: "sitemap" }]);
+    const hold = { s: state({ frontier: ["https://own.com/a"] }) }, first = await batch(hold, pages);
+    expect([first.out.complete, hold.s.status]).toEqual([true, "complete"]);
+    const idle = await batch(hold, pages); // nothing owed: finished stands, and the site is not asked for anything
+    expect([idle.read, idle.out.status, idle.out.detail, hold.s.status]).toEqual([[], "complete", "already_complete", "complete"]);
+    await upsertDiscovery(T, [{ url: "https://own.com/new", via: "implementation" }]); // the operator ships a page AFTER I called it finished
+    const shipped = await batch(hold, pages);
+    expect([shipped.read, shipped.out.crawled, hold.s.pages_crawled]).toEqual([["https://own.com/new"], 1, 2]); // finished was a reading, never a latch
+    const stale = await batch(hold, pages, at(45)); // and a read past thirty days is owed again on its own
+    expect([stale.read.length, stale.out.crawled, hold.s.status]).toEqual([2, 2, "complete"]); });
 });

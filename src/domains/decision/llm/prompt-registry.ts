@@ -112,6 +112,7 @@ export const PROMPT_REGISTRY = {
   "rec.critic": 1,
   "rec.specific_edit_bundle": 1,
   "rec.page_intent_adjudicator": 1,
+  "competitor.overlap_adjudication": 1,
   // ── page surgeon ──────────────────────────────────────────────────────────
   "page_surgeon.judge": 1,
   "page_surgeon.serp_hypothesis": 1,

@@ -18,7 +18,7 @@ vi.mock("@/domains/account/lifecycle", () => ({ requireReadyAccount: vi.fn(async
 vi.mock("@/lib/tenant-context", async () => ({ ...(await vi.importActual<typeof import("@/lib/tenant-context")>("@/lib/tenant-context")),
   currentTenantId: vi.fn(async () => "t") }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
-  loadProposalQueue: vi.fn(), loadChangeProposal: vi.fn() }));
+  loadProposalQueue: vi.fn(), loadChangeProposal: vi.fn(), resolveCurrentBasis: vi.fn() }));
 vi.mock("@/app/(shell)/changes-data", async () => ({ ...(await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data")),
   loadChangesView: vi.fn() }));
 
@@ -53,12 +53,11 @@ async function renderChanges(view: ChangesView): Promise<string> {
 }
 
 describe("the ranked queue is unlimited and the first screen is not", () => {
-  it("shows the first 25, counts the rest in the operator's words, and cuts page two from the same order", async () => {
-    const { pageOfChanges } = await import("@/app/(shell)/changes-data");
-    const rows = Array.from({ length: 60 }, (_, i) => bundled("basis_now", `${ID}::${i}`));
-    const whole: ChangesView = { ...emptyView(0), proposals: rows, ready: rows, summary: { todo: 0, ready: 60, implemented: 0, measuring: 0, results: 0 } };
-    const one = pageOfChanges(whole), two = pageOfChanges(whole, 25); expect([one.ready.length, one.proposals.length, two.ready.length]).toEqual([25, 25, 25]);
-    expect(one.ready.concat(two.ready).map((p) => p.id)).toEqual(rows.slice(0, 50).map((p) => p.id)); // no row twice, none skipped, nothing re-ranked
+  // The paging itself is proved against the database in queue-paging.test.ts. What is pinned HERE is the
+  // sentence the operator reads: one page on screen and the true count, which is a COUNT and not a length.
+  it("shows the first 25 and counts the rest in the operator's words", async () => {
+    const rows = Array.from({ length: 25 }, (_, i) => bundled("basis_now", `${ID}::${i}`));
+    const one: ChangesView = { ...emptyView(0), proposals: rows, ready: rows, summary: { todo: 0, ready: 60, implemented: 0, measuring: 0, results: 0 } };
     expect(await renderChanges(one)).toContain("Show 25 more of 35");
   });
 });
@@ -66,8 +65,8 @@ describe("the ranked queue is unlimited and the first screen is not", () => {
 describe("a set-aside change never comes back through a direct link", () => {
   beforeEach(() => vi.clearAllMocks());
   it("a stale-basis bundle link renders no exact copy and no way to record the work", async () => {
-    const { loadProposalQueue, loadChangeProposal } = await import("@/domains/decision");
-    vi.mocked(loadProposalQueue).mockResolvedValue(queueOf([], 1)); // current-basis queue: this id is not in it
+    const { loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
+    vi.mocked(resolveCurrentBasis).mockResolvedValue("basis_now::d4"); // the bar the account holds NOW
     vi.mocked(loadChangeProposal).mockResolvedValue(bundled("basis_old::d2")); // but the stored row still exists
     const html = await renderDetail();
     expect(html).toContain("I set this idea aside");
@@ -77,9 +76,9 @@ describe("a set-aside change never comes back through a direct link", () => {
     expect(html).toContain("See what I am working on now");
   });
   it("a current-basis bundle link still renders its exact edits", async () => {
-    const { loadProposalQueue, loadChangeProposal } = await import("@/domains/decision");
-    vi.mocked(loadProposalQueue).mockResolvedValue(queueOf([bundled("basis_now::d4")]));
-    vi.mocked(loadChangeProposal).mockResolvedValue(null);
+    const { loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
+    vi.mocked(resolveCurrentBasis).mockResolvedValue("basis_now::d4");
+    vi.mocked(loadChangeProposal).mockResolvedValue(bundled("basis_now::d4")); // the row IS the current bar's work
     const html = await renderDetail();
     expect(html).toContain(EXACT);
     expect(html).toContain("I made this change");

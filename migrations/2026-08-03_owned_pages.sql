@@ -34,6 +34,11 @@ create table if not exists public.owned_pages (
   crawl_state              text        not null default 'uncrawled',
   http_status              integer,
   last_crawled_at          timestamptz,
+  -- When the SAME failing answer came back on a SECOND, later reporting day (America/Los_Angeles, the
+  -- one day Beacon counts). A server error on one day is a bad minute and says nothing; only a second
+  -- look on a second day makes it a fault worth telling the operator about. Null means nobody has
+  -- looked twice yet, which is the honest reading of a single 500.
+  status_reconfirmed_at    timestamptz,
   -- Hash of the FULL extracted main content held for this page (page_snapshots.body_text).
   content_hash             text,
   -- How much of the page the last read actually holds. missing = never read.

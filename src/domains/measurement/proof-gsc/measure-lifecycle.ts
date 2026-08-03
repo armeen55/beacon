@@ -203,10 +203,11 @@ export function day56Followup(
   return { runs, due, reason, checkOn };
 }
 
-/** The answers that let measurement begin: I saw the change on the page, I saw part of it, or the
- *  operator told me on purpose that it is live. Product Truth: "Start measurement only after
- *  implementation is verified or explicitly operator-confirmed." */
-const MEASURABLE_VERIFICATION: ReadonlySet<string> = new Set(["verified", "partially_verified", "operator_confirmed"]);
+/** The only answers that let measurement begin: I SAW the change on the page, or I saw part of it. There
+ *  is no third way in. A claim, a note and a legacy override row are all "not read yet", and a reading
+ *  taken over work I never found would credit whatever search does next to something that may never
+ *  have happened. */
+const MEASURABLE_VERIFICATION: ReadonlySet<string> = new Set(["verified", "partially_verified"]);
 
 /**
  * Is this record worth re-measuring now? PURE. True when a proof window can

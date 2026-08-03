@@ -24,13 +24,20 @@ export type TechnicalKind =
   | "robots_noindex" | "sitemap_omission" | "duplicate_title" | "duplicate_h1" | "missing_h1" | "orphaned_page";
 
 /** One fault, on one address, with the exact fix and the observation behind it. Both sentences are the
- *  operator's own words: `evidence` is what I saw, `exactFix` is what to do, and neither is a caution. */
-export type TechnicalFinding = { url: string; kind: TechnicalKind; exactFix: string; evidence: string };
+ *  operator's own words: `evidence` is what I saw, `exactFix` is what to do, and neither is a caution.
+ *  `exact` is the REPLACEMENT TEXT itself where the held evidence states it; null means I can describe the
+ *  fault but cannot yet write the words, and a change like that is research, never Ready. `redirectTo` is
+ *  THE DESTINATION ITSELF for a fault whose fix is a forward, so the live check reads the address I named
+ *  instead of guessing one out of my sentence; a forward with no destination is research too. */
+export type TechnicalFinding = { url: string; kind: TechnicalKind; exactFix: string; evidence: string; exact: string | null; redirectTo?: string };
 
 /** One inventory row, exactly the columns owned_pages hands over. Everything optional: a row from an
- *  older write carries less, and less is unknown rather than a fault. */
+ *  older write carries less, and less is unknown rather than a fault. `status_reconfirmed_at` is the day a
+ *  SECOND, independent read returned this same status; absent means nobody has looked twice, which is the
+ *  only thing that can turn a server error from a bad minute into a fault. */
 type InventoryRow = { url: string; discovered_via?: string | null; crawl_state?: string | null;
-  http_status?: number | null; redirects_to?: string | null };
+  http_status?: number | null; redirects_to?: string | null;
+  last_crawled_at?: string | null; status_reconfirmed_at?: string | null };
 
 /** One captured page, exactly the fields the page capture holds. A field ABSENT from the object is not
  *  held; a field present and empty is held and empty, which is the only thing that may ever accuse. */
@@ -60,19 +67,40 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
   const rows = (held.inventory ?? []).filter((r) => !!r?.url?.trim());
   const pages = (held.pages ?? []).filter((p) => !!p?.url?.trim());
   const out: TechnicalFinding[] = [];
-  const add = (url: string, kind: TechnicalKind, exactFix: string, evidence: string): void => { out.push({ url, kind, exactFix, evidence }); };
+  const add = (url: string, kind: TechnicalKind, exactFix: string, evidence: string, exact: string | null = null, redirectTo?: string): void => { out.push({ url, kind, exactFix, evidence, exact, ...(redirectTo ? { redirectTo } : {}) }); };
   const byKey = new Map(rows.map((r) => [canonicalUrlKey(r.url), r]));
-  /** An address my own last read found nothing at. Never a guess: the state or the status says so. */
-  const dead = (r?: InventoryRow): boolean => !!r && (r.crawl_state === "gone" || (typeof r.http_status === "number" && r.http_status >= 400));
+  const day = (s?: string | null): string => (s ?? "").slice(0, 10);
+  // THE SUPPORT IS GONE, AND THAT IS THE ONLY THING THAT COUNTS AS GONE. 404 and 410 are the site saying
+  // there is no page here. 401, 403, 429 and a robots refusal are ACCESS states: they say I was not let in,
+  // which is a fact about me, not about the page, and telling an operator their live page is dead because
+  // their firewall rate-limited my crawler is the worst kind of confident wrong. A 5xx is a bad minute
+  // until a SECOND read on a LATER day says the same thing; one is unknown and stays unknown.
+  const dead = (r?: InventoryRow): boolean => {
+    if (!r) return false;
+    if (r.crawl_state === "blocked") return false;
+    if (r.crawl_state === "gone") return true;
+    const code = typeof r.http_status === "number" ? r.http_status : null;
+    if (code === 404 || code === 410) return true;
+    const twice = !!r.status_reconfirmed_at && day(r.status_reconfirmed_at) !== day(r.last_crawled_at);
+    return code != null && code >= 500 && twice;
+  };
   const answers = (r: InventoryRow): string => (typeof r.http_status === "number" ? `${r.http_status}` : "nothing at all");
+  const because = (r: InventoryRow): string => (typeof r.http_status === "number" && r.http_status >= 500
+    ? ` I read it twice, on two different days, and it answered the same both times.` : "");
 
   for (const r of rows) {
-    if (dead(r)) add(r.url, "non_200", `I would put ${at(r.url)} back at its own address, or send that address on to the page that replaced it.`,
-      `Your own site answers ${answers(r)} for ${at(r.url)}, so nobody following a link to it lands on anything.`);
     const to = (r.redirects_to ?? "").trim();
     const onward = (to ? byKey.get(canonicalUrlKey(to))?.redirects_to ?? "" : "").trim();
+    // A DEAD ADDRESS IS A CHANGE ONLY WHEN I KNOW WHERE IT LIVES NOW. "Put it back, or forward it" names no
+    // destination, so both correct answers read as failures afterwards. With a replacement this account's
+    // own rows name it is one imperative forward; without one it is an investigation, held out of Ready.
+    if (dead(r)) add(r.url, "non_200",
+      to ? `I would send ${at(r.url)} on to ${at(to)}, so everyone arriving at the old address lands on the page that replaced it.`
+        : `Tell me the address that replaced ${at(r.url)} and I will write you the forward. Until then I keep it out of your queue.`,
+      `Your own site answers ${answers(r)} for ${at(r.url)}, so nobody following a link to it lands on anything.${because(r)}`,
+      null, to || undefined);
     if (to && onward) add(r.url, "redirect_chain", `I would point ${at(r.url)} straight at ${at(onward)}, so there is one hop instead of two.`,
-      `${at(r.url)} sends people to ${at(to)}, and ${at(to)} sends them on again to ${at(onward)}.`);
+      `${at(r.url)} sends people to ${at(to)}, and ${at(to)} sends them on again to ${at(onward)}.`, null, onward);
   }
   // A SITEMAP THIS ACCOUNT DOES NOT PUBLISH ACCUSES NOBODY: the omission is only readable against a sitemap
   // I have actually seen, so a site with none gets no findings here rather than a caution about every page.
@@ -94,12 +122,17 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
     if (/\b(noindex|none)\b/i.test(p.robots_meta ?? "")) add(p.url, "robots_noindex",
       `I would take "noindex" out of the robots tag on ${here} so it can come back into search.`,
       `${here} carries a robots tag reading "${(p.robots_meta ?? "").trim()}", so search engines are told to leave it out.`);
-    if ("h1" in p && !(p.h1 ?? "").trim()) add(p.url, "missing_h1",
-      `I would put one heading at the top of ${here} saying what it answers${(p.title ?? "").trim() ? `, starting from its own title "${(p.title ?? "").trim()}"` : ""}.`,
-      `${here} has no main heading at all, so the first thing a reader sees never says what the page is.`);
+    // A HEADING I CAN ACTUALLY WRITE. The page's own title is the exact wording, taken off the page itself
+    // rather than invented, so this arrives as text to paste. A page with no title either gives me nothing
+    // to write from, so there is no finding at all rather than an instruction to go and think of something.
+    const ownTitle = (p.title ?? "").trim();
+    if ("h1" in p && !(p.h1 ?? "").trim() && ownTitle) add(p.url, "missing_h1",
+      `I would put this heading at the top of ${here}: "${ownTitle}".`,
+      `${here} has no main heading at all, so the first thing a reader sees never says what the page is.`, ownTitle);
   }
-  // TWO PAGES WEARING ONE NAME. Counted across the capture itself, so both addresses are named and the
-  // operator picks which one keeps the wording; I never choose that for them.
+  // TWO PAGES WEARING ONE NAME. Both addresses are named. I do NOT invent the replacement wording here:
+  // nothing this account holds says what only that page answers, so the finding carries no exact text and
+  // the producer keeps it out of Ready rather than handing over an instruction dressed as a change.
   const duplicates = (of: "title" | "h1", kind: TechnicalKind, what: string): void => {
     const groups = new Map<string, CapturedPage[]>();
     for (const p of pages) { const v = flat(p[of]); if (v) groups.set(v, [...(groups.get(v) ?? []), p]); }
@@ -122,14 +155,46 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
     if (!dead(target)) continue;
     add(p.url, "broken_internal_link",
       `I would change the link on ${at(p.url)} that points at ${at(target!.url)} so it points at a page that answers, or take that link off the page.`,
-      `${at(p.url)} links to ${at(target!.url)}, and that address answers ${answers(target!)}.`);
+      `${at(p.url)} links to ${at(target!.url)}, and that address answers ${answers(target!)}.`,
+      null, target!.url);
   }
-  const root = rows.find((r) => at(r.url) === "/");
-  if (graph.length >= MIN_LINK_GRAPH && root) for (const r of rows) {
+  // A LINK NEEDS A PAGE TO GO ON, A PLACE ON IT, AND WORDS TO READ. "Add a link from your home page, in the
+  // part of it that covers the same subject" is an instruction, not a change: it names no real page, no real
+  // spot, and nothing to type. So the source page is CHOSEN from the link graph (the on-topic page the rest
+  // of the site already points at most, and the home page only when nothing on the site shares the subject),
+  // the anchor is the orphan's own title or heading as captured, and a finding that cannot name all three
+  // is not written at all: that page goes to research instead of arriving as work.
+  const inbound = new Map<string, number>();
+  for (const p of graph) for (const href of new Set(p.internal_links!.map(canonicalUrlKey))) inbound.set(href, (inbound.get(href) ?? 0) + 1);
+  const captured = new Map(pages.map((p) => [canonicalUrlKey(p.url), p]));
+  /** What a page is ABOUT, as far as I hold it: its address AND the words it calls itself by. */
+  const words = (u: string): Set<string> => {
+    const p = captured.get(canonicalUrlKey(u));
+    return new Set(`${at(u)} ${p?.h1 ?? ""} ${p?.title ?? ""}`.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2));
+  };
+  if (graph.length >= MIN_LINK_GRAPH) for (const r of rows) {
     // An address that sends people somewhere else is not a page nobody links to, it is a signpost.
     if (r.crawl_state !== "crawled" || at(r.url) === "/" || dead(r) || (r.redirects_to ?? "").trim() || linked.has(canonicalUrlKey(r.url))) continue;
-    add(r.url, "orphaned_page", `I would add a link to ${at(r.url)} from ${at(root.url)}, in the part of it that covers the same subject.`,
-      `Not one of the ${graph.length} pages of yours whose links I hold points at ${at(r.url)}, so a reader can only reach it from search.`);
+    const anchor = ((captured.get(canonicalUrlKey(r.url))?.h1 ?? captured.get(canonicalUrlKey(r.url))?.title) ?? "").trim();
+    if (!anchor) continue; // I hold no words for this link, so there is nothing exact to hand over.
+    const mine = words(r.url);
+    const ranked = graph.filter((p) => canonicalUrlKey(p.url) !== canonicalUrlKey(r.url))
+      .map((p) => ({ p, shared: [...words(p.url)].filter((w) => mine.has(w)).length, seen: inbound.get(canonicalUrlKey(p.url)) ?? 0 }))
+      .sort((a, b) => b.shared - a.shared || b.seen - a.seen || at(a.p.url).localeCompare(at(b.p.url)));
+    const best = ranked[0];
+    const source = best && best.shared > 0 ? best.p : graph.find((p) => at(p.url) === "/") ?? null;
+    if (!source) continue;
+    // THE SOURCE PAGE IS NAMED THE WAY A PERSON NAMES IT. A bag of matched tokens read as "the section of
+    // it that already covers blog persian restaurants", which is not a place anyone can find on a page.
+    const src = captured.get(canonicalUrlKey(source.url));
+    const named = ((src?.title ?? "").trim() || (src?.h1 ?? "").trim()) || at(source.url);
+    const where = best && best.shared > 0 && source === best.p
+      ? `in the part of it about "${named}"`
+      : "in the body of the page, under the first heading";
+    add(r.url, "orphaned_page",
+      `I would add one link on ${at(source.url)}, ${where}, reading "${anchor}" and pointing at ${at(r.url)}.`,
+      `Not one of the ${graph.length} pages of yours whose links I hold points at ${at(r.url)}, so a reader can only reach it from search.`,
+      anchor);
   }
   return out.sort((a, b) => at(a.url).localeCompare(at(b.url)) || a.kind.localeCompare(b.kind)).slice(0, MAX_FINDINGS);
 }
@@ -161,7 +226,14 @@ export const technicalKey = (i: number): string => `tech${i + 1}`;
 export function technicalComponents(findings: readonly TechnicalFinding[], query: string): BundleComponent[] {
   return findings.map((f, i) => {
     const lever = LEVER[f.kind];
-    return { kind: lever.kind, label: lever.label, before: null, after: f.exactFix, evidenceKeys: [technicalKey(i)],
+    // A FIELD CHANGE CARRIES THE FIELD'S OWN NEW VALUE, never a sentence about it: that value is what the
+    // operator pastes and it is what the live check reads back off the page afterwards. Everything else is
+    // a structural instruction, where the sentence IS the change.
+    const after = (lever.kind === "title" || lever.kind === "h1" || lever.kind === "meta") && f.exact ? f.exact : f.exactFix;
+    return { kind: lever.kind, label: lever.label, before: null, after, evidenceKeys: [technicalKey(i)],
+      // THE DESTINATION TRAVELS AS AN ADDRESS, never inside a sentence: the first url-shaped word in the
+      // instruction is the address being MOVED, and the live check graded a correct forward against it.
+      ...(f.redirectTo ? { redirectTo: f.redirectTo } : {}),
       risk: lever.risk, where: `${at(f.url)}, and how it is served rather than the words on it`,
       objective: lever.objective, mechanism: f.evidence,
       measurementPlan: `I will read clicks, views and average position for "${query}" on ${at(f.url)} at 7, 14 and 28 days after you make the change.` };

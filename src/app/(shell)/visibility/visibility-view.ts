@@ -1,10 +1,8 @@
 /**
- * visibility-view (Dream V1 Phase 7) - EVERY operator-facing string the Visibility surface says, as
- * pure functions over readings the kernels ALREADY took and stored. A rate names the count it was
- * computed over, so "named in 18 of the 50 I read closely" can never become a share of answers
- * nobody read. A missing day is listed by name, never filled in from its neighbours. And nothing
- * adds up into one score: an invented number is not an explanation. Both tabs come back as the same
- * BLOCK shape, so one component renders every section.
+ * visibility-view - EVERY operator-facing string the Visibility surface says, as pure functions over
+ * readings the kernels ALREADY took and stored. A rate names the count it was computed over, a missing day
+ * is listed by name and never filled in from its neighbours, and nothing adds up into one score. Both tabs
+ * come back as the same BLOCK shape, so one component renders every section.
  */
 
 import { monthDayLabel } from "@/components/data/receipt-line";
@@ -14,15 +12,22 @@ import type { ClassifiedDomain, CompetitorKind } from "@/domains/evidence";
 /** One section of either tab. An empty block renders nothing at all, never an empty heading. `runs`
  *  is one stretch read on ONE instrument, with the named break that started it. */
 export type VisBlock = {
-  title: string; notes: string[]; rows: Array<{ head: string; body: string }>; chips: string[];
+  title: string; notes: string[]; rows: VisRow[]; chips: string[];
   runs: Array<{ breakLabel: string | null; span: string | null; points: Array<{ date: string; clicks: number }> }>;
 };
+
+/** ONE line of a section. `details` is the DRILL-DOWN: the whole of what one reading actually was, opened on
+ *  demand, so the page stays one screen until the operator asks for more. */
+type VisRow = { head: string; body: string; details?: string[] };
 
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const block = (title: string, over: Partial<VisBlock> = {}): VisBlock => ({ title, notes: [], rows: [], chips: [], runs: [], ...over });
 const keep = (blocks: VisBlock[]): VisBlock[] => blocks.filter((b) => b.notes.length + b.rows.length + b.chips.length + b.runs.length > 0);
 
-const MAX_MOVERS = 5, MAX_PROMPTS = 50, MAX_FANOUTS = 12, MAX_DOMAINS = 20; // it explains where you stand, it is not a table dump
+/** BOUNDS ON THE SUMMARIES ONLY. Every one of these is a roll-up with a way through to the whole thing:
+ *  the searches the assistants ran and the pages they credited are reachable in full, one reading at a time,
+ *  through the drill-down below. Nothing an operator cannot reach another way is cut here. */
+const MAX_MOVERS = 5, MAX_FANOUTS = 12, MAX_DOMAINS = 20, MAX_ROW_QUERIES = 5;
 
 export type GoogleViewInput = {
   /** Whether Search Console has reported ANY day for this account, and the measurement kernel's own
@@ -33,17 +38,17 @@ export type GoogleViewInput = {
   /** Per page, the last 28 reported days against the 28 before them, and the finalized day those
    *  windows split on, so the list names one reproducible window. */
   decay: Array<{ page: string; clicksNow: number; clicksPrior: number; positionNow: number; positionPrior: number }>;
+  /** THE SEARCHES BEHIND A MOVING PAGE, per page, off the Search Console rows already held. A page that
+   *  gained or lost clicks with no searches named is a number with no explanation under it. */
+  queriesByPage?: ReadonlyMap<string, ReadonlyArray<{ query: string; clicks: number; impressions: number; position: number }>>;
   windowEnd: string | null;
   /** The weekly "how you show up" lines already built by the evidence kernel, and the week they cover. */
   weekly: { lines: string[]; weekEnd: string | null } | null;
 };
 
-/**
- * WHERE GOOGLE HAS YOU. The week against the week before it comes from the SAME scoreboard kernel
- * Today's chart draws, so the two surfaces can never quote different numbers for one question.
- * `limitation` is set only when there is no Search Console data at all: the tab then says what it
- * cannot show and points at Connections, and it never goes blank.
- */
+/** WHERE GOOGLE HAS YOU. The week against the week before comes from the SAME scoreboard kernel Today's
+ *  chart draws, so the two surfaces can never quote different numbers. `limitation` is set only when there
+ *  is no Search Console data at all: the tab then says what it cannot show and points at Connections. */
 export function googleView(input: GoogleViewInput): { limitation: string | null; blocks: VisBlock[] } {
   if (!input.hasData) {
     return {
@@ -59,9 +64,18 @@ export function googleView(input: GoogleViewInput): { limitation: string | null;
   // Clicks first, because clicks are what pays, then rank. A position of zero means no ranking was
   // reported for that window, which is not a rank of zero.
   const movers = input.decay.filter((r) => r.page && (r.clicksNow > 0 || r.clicksPrior > 0)).sort((x, y) => (y.clicksNow - y.clicksPrior) - (x.clicksNow - x.clicksPrior));
-  const row = (r: GoogleViewInput["decay"][number], gaining: boolean) => ({ head: `${gaining ? "Gaining" : "Losing"}: ${r.page}`, body:
-    `${num(r.clicksNow)} clicks, ${gaining ? "up" : "down"} from ${num(r.clicksPrior)}.`
-    + (r.positionNow > 0 && r.positionPrior > 0 ? ` I see it at ${r.positionNow.toFixed(1)} on average now, against ${r.positionPrior.toFixed(1)} before.` : "") });
+  const queries: NonNullable<GoogleViewInput["queriesByPage"]> = input.queriesByPage ?? new Map();
+  const row = (r: GoogleViewInput["decay"][number], gaining: boolean): VisRow => {
+    const mine = (queries.get(r.page) ?? []).slice(0, MAX_ROW_QUERIES);
+    return { head: `${gaining ? "Gaining" : "Losing"}: ${r.page}`, body:
+      `${num(r.clicksNow)} clicks, ${gaining ? "up" : "down"} from ${num(r.clicksPrior)}.`
+      + (r.positionNow > 0 && r.positionPrior > 0 ? ` I see it at ${r.positionNow.toFixed(1)} on average now, against ${r.positionPrior.toFixed(1)} before.` : ""),
+      ...(mine.length === 0 ? {} : { details: [
+        `The searches bringing people to this page, strongest first:`,
+        ...mine.map((q) => `"${q.query}": ${num(q.clicks)} ${q.clicks === 1 ? "click" : "clicks"} from ${num(q.impressions)} appearances, at ${q.position.toFixed(1)} on average.`),
+        "These are this page's own searches over the last 90 reported days, so they explain the move rather than repeat it.",
+      ] }) };
+  };
   const moved = [
     ...movers.filter((r) => r.clicksNow > r.clicksPrior).slice(0, MAX_MOVERS).map((r) => row(r, true)),
     ...[...movers].reverse().filter((r) => r.clicksNow < r.clicksPrior).slice(0, MAX_MOVERS).map((r) => row(r, false)),
@@ -97,11 +111,25 @@ const KIND_LABEL: Record<CompetitorKind, string> = {
  *  and `cited` are tri-state: null means nobody has read it closely yet, a different claim from "you
  *  were not named". */
 export type AnswerRow = {
+  /** The stored reading's own identity, which is how the drill-down asks for it again by itself. */
+  id: string; day: string;
   promptId: string; promptText: string; engine: string; slot: number; answered: boolean;
   mentioned: boolean | null; cited: boolean | null; fanOuts: string[] | null;
+  /** THE READING ITSELF, so the drill-down is the evidence and not a description of it: the whole of what
+   *  the assistant wrote, everything it credited (exact addresses, marked yours or not, with the part it
+   *  quoted when the provider stored one), what it read without crediting, which model was asked for and
+   *  which answered in which mode, when, what the answer cost, and how far I have read it. */
+  answerText: string | null;
+  citations: Array<{ url: string; domain: string; owned: boolean; passage?: string }> | null;
+  retrievedNotCited: string[] | null;
+  modelRequested: string | null; modelServed: string | null; mode: string | null;
+  askedAt: string | null; answeredAt: string | null; receipt: string | null;
+  costUsd: number | null; failureReason: string | null;
+  /** read = every word of it has been read closely. part = some of it, the rest still queued. unread. */
+  reading: "read" | "part" | "unread";
 };
 
-export type AiViewInput = {
+type AiViewInput = {
   /** The daily read, already cut at every model or mode change by the measurement kernel, plus those
    *  same segments as runs with named breaks from the ONE trend presenter. */
   segments: AiOutcomeReport["segments"];
@@ -138,11 +166,9 @@ function missingLine(days: AiOutcomeReport["segments"][number]["days"], windowDa
   return `I read answers on ${num(read.length)} of the last ${num(windowDays)} days.${named} A day I missed stays missed, and I never fill one in.`;
 }
 
-/**
- * WHERE AI ANSWERS HAVE YOU, over answers already bought and stored. Every rate divides by the
- * answers actually read closely, every list is bounded, and `empty` is set when nothing has been
- * read at all so the tab says so rather than showing a wall of honest looking zeros.
- */
+/** WHERE AI ANSWERS HAVE YOU, over answers already bought and stored. Every rate divides by the answers
+ *  actually read closely, and `empty` is set when nothing has been read at all so the tab says so rather
+ *  than showing a wall of honest looking zeros. */
 export function aiView(input: AiViewInput): { empty: string | null; blocks: VisBlock[] } {
   const days = input.segments.flatMap((s) => s.days);
   if (days.length === 0) {
@@ -168,7 +194,13 @@ export function aiView(input: AiViewInput): { empty: string | null; blocks: VisB
   const compared = input.latest.rows.filter((r) => r.slot > 0 && r.mentioned != null && canonicalBy.has(`${r.promptId}|${r.engine}`));
   const differed = compared.filter((r) => canonicalBy.get(`${r.promptId}|${r.engine}`) !== r.mentioned).length;
   const rows = input.landscape ?? [];
-  const fanOuts = [...new Set(input.latest.rows.flatMap((r) => r.fanOuts ?? []).map((q) => q.trim()).filter(Boolean))].slice(0, MAX_FANOUTS);
+  const kindOf = new Map(rows.map((r) => [r.domain, r.kind]));
+  // A FAN-OUT IS WHAT THE ASSISTANT WENT AND SEARCHED FOR, NEVER WHAT I ASKED IT. A tracked question of
+  // yours appearing in this list would read as the assistant's own idea when it was mine, so every prompt
+  // I put to it is taken back out.
+  const asked = new Set(input.latest.rows.map((r) => r.promptText.trim().toLowerCase()));
+  const fanOuts = [...new Set(input.latest.rows.flatMap((r) => r.fanOuts ?? []).map((q) => q.trim()).filter(Boolean))]
+    .filter((q) => !asked.has(q.toLowerCase())).slice(0, MAX_FANOUTS);
 
   return {
     empty: null,
@@ -188,28 +220,63 @@ export function aiView(input: AiViewInput): { empty: string | null; blocks: VisB
           body: `${num(a.observed)} of the ${num(a.asked)} questions I put to it came back. You were named in ${num(a.mentioning)} of those answers, and a page of yours was credited in ${num(a.cited)}.`,
         })),
       }),
-      block("Question by question", {
-        notes: canonical.length === 0 ? [] : [
-          `${askedDay ? `Asked on ${askedDay}. ` : ""}${canonical.length > MAX_PROMPTS ? `Showing the first ${MAX_PROMPTS} of ${num(canonical.length)} questions.` : `All ${num(canonical.length)} questions I asked that day.`}`,
-          ...(compared.length > 0 ? [`I asked ${num(compared.length)} of them a second time and ${num(differed)} answered differently, which is how much these answers move on their own before anything you do.`] : []),
-        ],
-        rows: canonical.slice(0, MAX_PROMPTS).map((r) => ({
-          head: `${r.promptText} (${engineName(r.engine)})`,
-          body: !r.answered ? "The assistant gave me nothing back on this one."
-            : r.mentioned == null ? "The answer is on file, but nobody has read it closely enough yet for me to say whether you were named."
-              : `${r.mentioned ? "You were named." : "You were not named."} ${r.cited === true ? "A page of yours was credited." : r.cited === false ? "No page of yours was credited." : "This answer did not say which pages it used."}`,
-        })),
-      }),
       block("What the assistants searched for", { chips: fanOuts,
-        notes: fanOuts.length === 0 ? [] : [`These are the searches the assistants ran themselves before answering${askedDay ? ` on ${askedDay}` : ""}, in their own words rather than mine.`] }),
+        notes: fanOuts.length === 0 ? [] : [`These are searches the assistants ran themselves before answering${askedDay ? ` on ${askedDay}` : ""}, in their own words rather than mine, off the first ${num(input.latest.rows.length)} readings of the day. Open any question below for every search behind that one answer.`,
+          ...(compared.length > 0 ? [`I asked ${num(compared.length)} of them a second time and ${num(differed)} answered differently, which is how much these answers move on their own before anything you do.`] : [])] }),
       // ONE list, strongest recurrence first: the authorities the answers keep quoting are in it,
       // labelled "A source", so a second list of them would be the same list twice.
       block("Domains showing up around you", {
         notes: input.landscape == null
           ? ["I could not put together the list of domains showing up around you in time for this visit. Nothing is lost; it lands on your next one."]
           : rows.length === 0 ? ["No domain has shown up around you often enough yet for me to say anything honest about it."] : [],
-        rows: rows.filter((r) => r.kind !== "owned").slice(0, MAX_DOMAINS).map((r) => ({ head: r.domain, body: `${KIND_LABEL[r.kind]}. ${r.why}` })),
+        rows: rows.filter((r) => r.kind !== "owned").slice(0, MAX_DOMAINS).map((r) => ({ head: r.domain,
+          body: `${r.ambiguous ? "Not settled yet" : KIND_LABEL[r.kind]}. ${r.why}` })),
       }),
     ]),
+  };
+}
+
+/** ONE STORED READING, as a list line and as the whole of itself. `details` is the drill-down and it is CUT
+ *  NOWHERE: the complete answer, every search the assistant ran, every page it credited with the part it
+ *  quoted when the provider kept one, every page it read without crediting, both model names, the mode, the
+ *  day this counts for, when it was asked and answered, what it cost, how far I have read it, and the stored
+ *  envelope's own identity. WHAT THE PROVIDER NEVER TOLD ME SAYS SO: "it credited nobody" and "it did not
+ *  tell me what it used" are different claims, and printing the first for the second is the lie this
+ *  surface exists to refuse. */
+export function answerView(
+  r: AnswerRow, kindOf: ReadonlyMap<string, CompetitorKind> = new Map(),
+): { id: string; head: string; body: string; details: string[] } {
+  const engine = engineName(r.engine), own = (r.citations ?? []).filter((c) => c.owned).length;
+  const cited = (c: NonNullable<AnswerRow["citations"]>[number]): string =>
+    `${c.url} (${c.owned ? "your page" : `${c.domain}, ${(KIND_LABEL[kindOf.get(c.domain) ?? "irrelevant_unknown"]).toLowerCase()}`})`
+    + (c.passage?.trim() ? ` It quoted this part: "${c.passage.trim()}"` : "");
+  return {
+    id: r.id, head: `${r.promptText} (${engine})`,
+    body: !r.answered ? `${engine} gave me nothing back on this one.${r.failureReason ? ` It said: ${r.failureReason}` : ""}`
+      : r.mentioned == null ? "The answer is on file, but nobody has read it closely enough yet for me to say whether you were named."
+        : `${r.mentioned ? "You were named." : "You were not named."} ${r.cited === true ? "A page of yours was credited." : r.cited === false ? "No page of yours was credited." : "This answer did not say which pages it used."}`,
+    details: [
+      `I asked ${engine}, word for word: "${r.promptText}"`,
+      ...(r.answerText?.trim() ? [`What it answered, all of it: ${r.answerText.trim()}`]
+        : ["I hold no answer text for this one, so there is nothing to quote."]),
+      ...(r.fanOuts == null ? [`${engine} does not report the searches it ran on this path, so I cannot say whether it ran any.`]
+        : r.fanOuts.length === 0 ? ["It ran no searches of its own before answering."]
+          : [`Before answering it searched for: ${r.fanOuts.map((q) => `"${q.trim()}"`).join(", ")}.`]),
+      ...(r.citations == null ? [`${engine} does not report which pages it used on this path, so I am not claiming it credited nobody.`]
+        : r.citations.length === 0 ? ["It credited no pages at all."]
+          : [`It credited ${num(r.citations.length)} ${r.citations.length === 1 ? "page" : "pages"}, ${own > 0 ? `${num(own)} of them yours` : "none of them yours"}:`,
+            ...r.citations.map(cited)]),
+      ...(r.retrievedNotCited == null ? [`${engine} does not report the pages it read but did not credit on this path.`]
+        : r.retrievedNotCited.length === 0 ? ["Every page it read, it credited."]
+          : [`It also read these and credited none of them: ${r.retrievedNotCited.join(", ")}.`]),
+      `${engine} answered as ${r.modelServed ?? "a model it did not name"}${r.modelRequested ? `, and ${r.modelRequested} is what I asked for` : ""}${r.mode ? `, in ${r.mode} mode` : ""}.`,
+      `This reading counts for ${monthDayLabel(r.day) ?? r.day}.`
+        + (r.askedAt ? ` Asked ${r.askedAt}${r.answeredAt ? `, answered ${r.answeredAt}` : ", and it never came back"}.` : ""),
+      r.reading === "read" ? "I have read every word of this answer closely."
+        : r.reading === "part" ? "I have read part of this answer closely and the rest is still waiting its turn."
+          : "Nobody has read this answer closely yet, so I make no claim here about who it named.",
+      ...(r.receipt ? [`The stored answer this all comes off is filed as ${r.receipt}${r.costUsd ? `, and it cost ${r.costUsd.toFixed(2)} dollars to buy once.` : "."}`]
+        : ["I did not keep an identity for the stored answer behind this one."]),
+    ],
   };
 }

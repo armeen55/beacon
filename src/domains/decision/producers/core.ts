@@ -188,10 +188,26 @@ function shapeMismatch(objective: string, mechanism: string): Producer {
 const technical: Producer = async (ctx) => {
   const payload = ctx.finding.payload;
   const findings = payload?.cause === "technical_indexability" ? payload.findings : [];
-  return findings.length === 0
-    ? refuse("I have not read how this page is served, so I cannot tell you what is stopping it being found.")
-    : { components: technicalComponents(findings, ctx.primary), refusal: null };
+  if (findings.length === 0) return refuse("I have not read how this page is served, so I cannot tell you what is stopping it being found.");
+  // A CHANGE TO THE WORDS ON A PAGE IS THE WORDS. Where the fault is in the copy itself (two pages wearing
+  // one title, a page with no heading), the fix is only a change once I can hand over the exact wording; a
+  // finding without it is a description of a problem, and a description has no business in Ready. Those
+  // findings are dropped here and the page goes back to research, said plainly.
+  const keep = findings.filter((f) => !HELD_UNTIL_EXACT.has(f.kind) || !!f.exact || !!f.redirectTo);
+  const held = findings.length - keep.length;
+  if (keep.length === 0) {
+    // A DEAD ADDRESS WITH NOWHERE TO GO IS A QUESTION, NOT A CHANGE, and it is asked as one: what I read,
+    // and the one thing I need from the operator before this can ever be work.
+    const address = findings.find((f) => f.kind === "non_200");
+    if (address) return refuse(`${address.evidence} Tell me the address that replaced it and I will write you the forward. Until then I keep it out of your queue.`);
+    return refuse(`I can see the problem on this page and I have not written the replacement wording yet, so I am not handing you an instruction and calling it a change. I am working out the exact ${held === 1 ? "line" : "lines"} and it lands here the moment it passes my own checks.`);
+  }
+  return { components: technicalComponents(keep, ctx.primary), refusal: null };
 };
+
+/** The faults with nothing exact behind them yet: a copy fault with no replacement wording, a dead address
+ *  with no replacement page. Without one of those there is no change to make, only an instruction. */
+const HELD_UNTIL_EXACT: ReadonlySet<string> = new Set(["duplicate_title", "duplicate_h1", "missing_h1", "orphaned_page", "non_200", "broken_internal_link"]);
 
 /**
  * THE REGISTRY. Total over every cause the ladder can name: a producer, or the honest reason there is

@@ -6,57 +6,13 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 type Row = Record<string, unknown>;
 const db = vi.hoisted(() => {
-  // `missing` = the TABLE is not in the schema cache; `rpcMissing` = the table is there and the
-  // supersession FUNCTION is not. They are separate flags because they are separate deploy accidents, and
-  // one flag could only ever test the first: the table read failed before the function was ever called.
-  // `raceForeign` is a concurrent insert of the SUCCESSOR id under another account, landing after the
-  // guard read: the upsert's tenant WHERE then matches nothing, so nothing lands and the whole handover
-  // must unwind rather than report saved.
+  // `missing` = the TABLE is not in the schema cache; `rpcMissing` = the table is there and the supersession FUNCTION
+  // is not. They are separate flags because they are separate deploy accidents, and one flag could only ever test the
+  // first: the table read failed before the function was ever called. `raceForeign` is a concurrent insert of the
+  // SUCCESSOR id under another account, landing after the guard read: the upsert's tenant WHERE then matches nothing,
+  // so nothing lands and the whole handover must unwind rather than report saved.
   const state = { rows: [] as Row[], legacy: [] as Row[], missing: false, rpcMissing: false, breakWrite: false, rpcCalls: 0, raceForeign: "" };
-  const CANON = "change_proposals";
-  const client = {
-    from(table: string) {
-      const filters: Array<[string, unknown]> = [];
-      const sets: Array<[string, readonly unknown[]]> = [];
-      let op: "select" | "update" | "upsert" = "select";
-      let patch: Row = {}, sent: Row[] = [];
-      // The row budget and the sort order are part of what the queue read is being asked to prove,
-      // so the fake honours order + limit instead of returning everything it holds.
-      let sortBy: [string, boolean] | null = null, max = Number.MAX_SAFE_INTEGER;
-      const rows = () => (table === CANON ? state.rows : state.legacy);
-      const hit = (r: Row) => filters.every(([c, v]) => (r[c] ?? null) === v) && sets.every(([c, vs]) => vs.includes(r[c]));
-      const run = () => {
-        if (table === CANON && state.missing) return { data: null, error: { code: "PGRST205", message: "table not found in schema cache" } };
-        if (op === "select") {
-          const found = rows().filter(hit).map((r) => ({ ...r }));
-          if (sortBy) { const [col, asc] = sortBy; found.sort((a, b) => (asc ? 1 : -1) * String(a[col] ?? "").localeCompare(String(b[col] ?? ""))); }
-          return { data: found.slice(0, max), error: null };
-        }
-        if (op === "update") { const affected = rows().filter(hit); for (const r of affected) Object.assign(r, patch); return { data: affected.map((r) => ({ id: r.id })), error: null }; }
-        if (state.breakWrite) return { data: [], error: null }; // accepted, landed nothing
-        for (const row of sent) {
-          // The partial unique index: one current row per (tenant, case, page, family).
-          const clash = state.rows.some((r) => r.id !== row.id && r.terminal_disposition == null
-            && ["tenant_id", "case_id", "page_key", "action_family"].every((c) => r[c] === row[c]));
-          if (clash) return { data: null, error: { message: "duplicate key value violates unique constraint ux_change_proposals_current" } };
-          const at = state.rows.findIndex((r) => r.id === row.id);
-          if (at >= 0) state.rows[at] = { ...state.rows[at], ...row }; else state.rows.push({ created_at: "2026-07-01T00:00:00.000Z", ...row });
-        }
-        return { data: sent.map((r) => ({ id: r.id })), error: null };
-      };
-      const q: Record<string, unknown> = {
-        select: () => q,
-        order: (c: string, o?: { ascending?: boolean }) => { sortBy = [c, o?.ascending !== false]; return q; },
-        limit: (n: number) => { max = n; return q; },
-        eq: (c: string, v: unknown) => { filters.push([c, v]); return q; },
-        is: (c: string, v: unknown) => { filters.push([c, v]); return q; },
-        in: (c: string, vs: readonly unknown[]) => { sets.push([c, vs]); return q; },
-        update: (p: Row) => { op = "update"; patch = p; return q; },
-        upsert: (r: Row[]) => { op = "upsert"; sent = r; return q; },
-        then: (resolve: (v: unknown) => void) => resolve(run()),
-      };
-      return q;
-    },
+  const client: Record<string, unknown> = {
     // The atomic handover: guard, step-aside, and landing commit together or not at
     // all, exactly like the supersede_change_proposal function in production.
     rpc(name: string, args: { p_tenant_id: string; p_predecessor_id: string; p_row: Row }) {
@@ -94,7 +50,18 @@ const said = vi.hoisted(() => ({ errors: [] as string[] }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {},
   error: (msg: string) => { said.errors.push(msg); } } }));
 import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, saveChangeProposal } from "@/domains/decision/proposal-store";
-import { serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
+import { deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
+import { supabaseFake } from "../helpers/supabase-fake";
+// The row budget and the sort order are part of what the queue read is asked to prove, so the fake honours
+// order + limit; `clash` is the partial unique index: one current row per (tenant, case, page, family).
+Object.assign(db.client, supabaseFake({
+  rows: (t) => (t === "change_proposals" ? db.state.rows : db.state.legacy),
+  error: (t) => (t === "change_proposals" && db.state.missing ? { code: "PGRST205", message: "table not found in schema cache" } : null),
+  landsNothing: () => db.state.breakWrite, insertDefaults: () => ({ created_at: "2026-07-01T00:00:00.000Z" }),
+  clash: (row, rows) => (rows.some((r) => r.id !== row.id && r.terminal_disposition == null
+    && ["tenant_id", "case_id", "page_key", "action_family"].every((c) => r[c] === row[c]))
+    ? { message: "duplicate key value violates unique constraint ux_change_proposals_current" } : null),
+}));
 const T = "acct-a", PAGE = "/nowruz-guide";
 const bundle = (kind: ChangeBundle["components"][number]["kind"], after = "Nowruz Traditions and the Haft-Seen Table"): ChangeBundle => ({
   objective: "Say what the searcher asked for in the line Google shows.", metric: "clicks on this page for this search",
@@ -117,6 +84,42 @@ const deep = (over: Partial<ChangeProposal> = {}) => proposal({ id: `${T}::${PAG
 const current = () => db.state.rows.filter((r) => r.terminal_disposition == null);
 const seedLegacy = (p: ChangeProposal) => db.state.legacy.push({ tenant_id: p.tenantId, rec_id: p.id, kind: "change_proposal", content: serializeChangeProposal(p), created_at: p.createdAt });
 beforeEach(() => { db.state.rows = []; db.state.legacy = []; db.state.missing = false; db.state.rpcMissing = false; db.state.breakWrite = false; db.state.rpcCalls = 0; db.state.raceForeign = ""; });
+/** THE BRIDGE (packet acceptance 1, 2, 22). Rows written before the lifecycle rename carry
+ *  proposed / applied / rejected. They must read as today's words, no write may ever emit an old one, and
+ *  not one historical proposal may vanish on the way through. Delete this block with the bridge itself. */
+describe("rows written in the old lifecycle words", () => {
+  /** A stored row exactly as the pre-rename writer left it: the old word in the column AND in the payload. */
+  const oldRow = (id: string, word: string, over: Row = {}): Row => ({
+    tenant_id: T, id, proposal_version: 1, status: word, terminal_disposition: null, superseded_by: null,
+    basis: "basis_today::d6", case_id: "", page_key: id, action_family: "title-family",
+    payload: JSON.parse(JSON.stringify({ v: 1, proposal: { ...proposal({ id, pagePath: id }), status: word } })),
+    updated_at: "2026-07-30T00:00:00.000Z", ...over });
+  it("1: an old-shape row decodes to the new state, and `rejected` reads as the withdrawal it was", async () => {
+    db.state.rows.push(oldRow("/a", "proposed"), oldRow("/b", "applied"), oldRow("/c", "rejected"));
+    expect((await loadChangeProposal(T, "/a"))!.status).toBe("ready");
+    expect((await loadChangeProposal(T, "/b"))!.status).toBe("implemented_pending_verification");
+    expect(await loadChangeProposal(T, "/c")).toBeNull(); // Beacon took that draft back; it is not current work
+    expect([...(await loadChangeProposals(T)).keys()].sort()).toEqual(["/a", "/b"]);
+  });
+  it("2: every write emits only the new words, whatever it read", async () => {
+    db.state.rows.push(oldRow(proposal().id, "proposed", { page_key: PAGE }));
+    expect(await saveChangeProposal(proposal({ status: "needs_review" }))).toBe("saved");
+    for (const r of db.state.rows) {
+      expect(["needs_review", "ready", "implemented_pending_verification"]).toContain(r.status);
+      expect((r.payload as { proposal: { status: string } }).proposal.status).not.toBe("proposed");
+    }
+  });
+  it("22: the contract reads migrated history too, and no historical proposal disappears", async () => {
+    // AFTER the migration every row already speaks the new words: the same reads must answer identically,
+    // which is what makes the bridge safe to delete.
+    db.state.rows.push(oldRow("/a", "ready"), oldRow("/b", "implemented_pending_verification"));
+    seedLegacy(proposal({ id: "/legacy-only", pagePath: "/legacy-only" }));
+    const queue = await loadChangeProposals(T);
+    expect([...queue.keys()].sort()).toEqual(["/a", "/b", "/legacy-only"]);
+    expect(queue.get("/b")!.status).toBe("implemented_pending_verification");
+  });
+});
+
 describe("canonical proposal persistence", () => {
   it("keeps ONE current row per hypothesis: a re-draft supersedes its predecessor, points at it, and carries the next version", async () => {
     expect(await saveChangeProposal(proposal())).toBe("saved");
@@ -285,5 +288,14 @@ describe("canonical proposal persistence", () => {
     expect(current().filter((r) => r.tenant_id === T).map((r) => [r.id, r.terminal_disposition, r.superseded_by]))
       .toEqual([[proposal().id, null, null]]);
     expect((await loadChangeProposals(T)).size).toBe(1); // one proposal, still current, still this account's
+  });
+  // PIN: the schema keeps every word a check reads later. A renamed link is verified on anchorAfter and a
+  // forward on redirectTo; a schema that strips either sends the check out wordless and it grades nothing.
+  it("anchorAfter and redirectTo survive the persistence round trip", () => {
+    const b = bundle("anchor_text");
+    b.components[0] = { ...b.components[0]!, anchorAfter: "Read the Haft-Seen guide", redirectTo: "https://own.com/haft-seen" };
+    const back = deserializeChangeProposal(serializeChangeProposal(deep({ bundle: b })));
+    expect(back?.bundle?.components.map((c) => [c.anchorAfter, c.redirectTo]))
+      .toEqual([["Read the Haft-Seen guide", "https://own.com/haft-seen"]]);
   });
 });

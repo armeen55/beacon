@@ -124,7 +124,8 @@ function verificationHeadline(v: ShipmentVerification | null): string {
     case "not_found": return "I checked your live page and none of this change is on it yet.";
     case "differs": return "I checked your live page and what is there is not what we agreed.";
     case "blocked": return "Your site did not answer when I went to look, so this is still your word rather than my own check. I try once more on a later day.";
-    case "operator_confirmed": return "You told me this is live, so I am measuring from your word rather than from a check of my own.";
+    // LEGACY, never written again: this row was recorded back when a click could stand in for a reading.
+    case "operator_confirmed": return "This one was recorded as done on your word alone, before I checked live pages for myself. I read the page on your next visit and replace this with what I actually find.";
   }
 }
 
@@ -135,9 +136,9 @@ function componentLines(v: ShipmentVerification | null): string[] {
     const label = workLabel(c.kind);
     switch (c.state) {
       case "verified": return `${cap(label)} is exactly what we agreed.`;
-      case "missing": return `${cap(label)} is not there yet.`;
-      case "differs": return `${cap(label)} is on the page, but not in the words we agreed.`;
-      case "unknown": return `I cannot see ${label} from outside the page, so I am not calling it either way.`;
+      case "not_verified": return `${cap(label)} is not there yet.`;
+      case "changed_differently": return `${cap(label)} is on the page, but not in the words we agreed.`;
+      case "unverifiable": return `I cannot see ${label} from outside the page, so I am not calling it either way.`;
     }
   });
 }

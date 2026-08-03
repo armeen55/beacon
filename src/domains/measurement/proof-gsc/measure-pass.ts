@@ -297,24 +297,10 @@ type ShipmentOrigin = {
   componentsApplied: Array<{ kind: string; label: string; after?: string | null; risk?: string | null }>;
   implementedAt: string;
   preChangeContentHash: string | null;
-  /** THE OVERRIDE, and only the override: the operator states this is live and asks me not to argue. */
-  operatorConfirmed?: boolean;
-  /** Why they overrode the check, in their own words. */
-  operatorOverrideReason?: string | null;
+  /** What they say they actually put on the page, in their own words. A NOTE beside the reading, never a
+   *  substitute for it: no note has ever made a change verified and none ever will. */
+  operatorNote?: string | null;
 };
-
-/** The operator's own confirmation, written as the verification itself so the verifier never fetches this
- *  page and never claims to have checked anything. Never a default, and never a stand-in for a check that
- *  failed: it exists for the one case where the operator tells me on purpose. */
-function operatorConfirmedVerification(
-  components: ShipmentOrigin["componentsApplied"], at: string,
-): NonNullable<ShippedChangeRecord["verification"]> {
-  return {
-    status: "operator_confirmed", checkedAt: at,
-    components: components.map((c) => ({ kind: c.kind, state: "unknown" as const,
-      note: "You confirmed this one yourself, so I did not check the page." })),
-  };
-}
 
 /**
  * Capture a 28-day baseline + create the ledger record for a manually-shipped
@@ -381,12 +367,10 @@ export async function recordShippedChange(args: {
     shipmentBaseline: ship
       ? { search: searchBaseline, ai: await latestAiPresence(args.tenantId), capturedAt: now.toISOString() }
       : null,
-    // Null IS the due marker the verification runtime reads. The ONE exception is the operator's explicit
-    // override, which is an answer at mark time, so the live check is not owed and never runs.
-    verification: ship?.operatorConfirmed === true
-      ? operatorConfirmedVerification(ship.componentsApplied, now.toISOString())
-      : null,
-    operatorOverrideReason: ship?.operatorOverrideReason ?? null,
+    // NULL, ALWAYS, and null IS the due marker the verification runtime reads. Marking a change done starts
+    // the check; nothing the operator can press or type ends it, so this is never written at mark time.
+    verification: null,
+    operatorNote: ship?.operatorNote ?? null,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

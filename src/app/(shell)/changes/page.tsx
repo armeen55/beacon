@@ -6,30 +6,19 @@ import { redirect } from "next/navigation";
 import { requireReadyAccount } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import { PageHeader } from "@/components/data/page-header";
-import { loadChangesView, setAsideHint, toClientView } from "../changes-data";
+import { loadChangesView, setAsideHint } from "../changes-data";
 import { ChangesListClient } from "../changes-list-client";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { checkedAgoLabel } from "@/components/data/receipt-line";
 import { HonestDelay } from "@/components/honest-delay";
 import { serverNowMs } from "@/lib/server-clock";
 
-/**
- * /changes → the canonical CHANGES list (2026-07-01 consolidation). One object, a CHANGE, across
- * one lifecycle (suggested → ready → apply → verify → measuring → result), shown as one compact
- * list with a strategy control + status views + goal filter. The old per-move rich card is reused
- * on demand (expand a row), not the default view.
- *
- * FP5a (2026-07-02) - today's picked-changes cards (DailyExperimentsSection) render ONLY on
- * Today now; this page shows the one-line TodaySummaryChip instead (same FP3 counts, one home
- * per job). FP5b - the New Pages board's single home is HERE; Today shows a one-line summary.
- */
+/** /changes -> the canonical CHANGES list. One object, a CHANGE, across one lifecycle (suggested -> ready ->
+ *  apply -> verify -> measuring -> result), shown as one compact list with two lanes. The queue is unlimited
+ *  and this screen opens with one page of it; the rest pages in from the database on demand. */
 
-// W2-A (2026-07-02) - FP1 always-paint floor extended to this page: every async section
-// body is deadline-bounded so a wedged Supabase read (each 522 is ~30s) can never strand
-// a Suspense fallback or hold the HTTP stream open forever. The main list only reads a
-// durable snapshot now, so it gets a short ceiling; research and rebuilding are never
-// permitted to turn navigation into a wait. Self-hiding side sections keep their
-// existing fail-soft posture.
+// FP1 always-paint floor: every async section body is deadline-bounded, so a wedged Supabase read can
+// never strand a Suspense fallback or hold the HTTP stream open. Rebuilding never turns navigation into a wait.
 const MAIN_LIST_DEADLINE_MS = 5_000;
 
 // Exported for the render pin in changes-empty-vs-building.test.tsx (both empty-state
@@ -86,23 +75,18 @@ export async function ChangesSection() {
       {/* W2-B PAYLOAD - the client board gets SLIM move summaries only (the full
           dossiers stay server-side in the SWR snapshot; a row's detail loads its
           full TodayMove on demand via loadMoveDetailAction). */}
-      <ChangesListClient view={toClientView(view)} />
+      <ChangesListClient view={view} />
     </div>
   );
 }
 
-/** Content-shaped fallback for the main list: honest copy + row-shaped
- * placeholders instead of one mute gray pulse box. Paired with the 5s deadline
- * above, so it can never strand. */
+/** Content-shaped fallback for the main list: honest copy + row-shaped placeholders instead of one mute
+ *  pulse box. Paired with the 5s deadline above, so it can never strand. */
 function ChangesListFallback() {
   return (
     <div className="space-y-2 rounded-2xl border border-gray-100 bg-white p-4">
-      <p className="text-[12px] text-gray-400">
-        Opening your saved ranking.
-      </p>
-      <div className="h-9 animate-pulse rounded-lg bg-gray-50" />
-      <div className="h-9 animate-pulse rounded-lg bg-gray-50" />
-      <div className="h-9 animate-pulse rounded-lg bg-gray-50" />
+      <p className="text-[12px] text-gray-400">Opening your saved ranking.</p>
+      {[0, 1, 2].map((i) => <div key={i} className="h-9 animate-pulse rounded-lg bg-gray-50" />)}
     </div>
   );
 }

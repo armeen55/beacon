@@ -147,7 +147,9 @@ const retryDay = (iso: string): string =>
  *  ready list; the preview is the top three, so Today can never under-report the
  *  queue it is drawing from (it used to count the sliced preview). */
 export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProducerSignal = {}): TodayView {
-  const readyTotal = view.ready.length;
+  // THE COUNT IS THE COUNT, NEVER THE PAGE. `view.ready` is one page of the ranking now, so counting it
+  // would under-report the queue Today is drawing from; `summary` carries the total counted in the database.
+  const readyTotal = view.summary?.ready ?? view.ready.length;
   const ready = view.ready.slice(0, TODAY_PREVIEW_LIMIT).map(proposalToOpportunity);
   const readyFixes = view.ready
     .filter((p) => p.pagePath || p.pageUrl)
@@ -195,11 +197,11 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     // here would be a lie by omission, and showing yesterday's Ready work as
     // newly generated would be worse.
     headerSentence = `I found meaningful traffic gaps, but I am still checking the results pages and competing pages before asking you to change anything.${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
-  } else if (view.toDo.length > 0) {
+  } else if ((view.summary?.todo ?? view.toDo.length) > 0) {
     // WORK WAITING OUTRANKS HOUSEKEEPING. Saying I set old ideas aside while ideas sit
     // in To do buried the only thing the operator could actually pick up.
-    const tail = measuring > 0 ? `, and ${measuring} change${measuring === 1 ? " is" : "s are"} measuring` : "";
-    headerSentence = `I have ${view.toDo.length} idea${view.toDo.length === 1 ? "" : "s"} to review with you${tail}.`;
+    const n = view.summary?.todo ?? view.toDo.length, tail = measuring > 0 ? `, and ${measuring} change${measuring === 1 ? " is" : "s are"} measuring` : "";
+    headerSentence = `I have ${n} idea${n === 1 ? "" : "s"} to review with you${tail}.`;
   } else if ((view.demotedStaleBasis ?? 0) > 0) {
     // ONE sentence, owned by Changes: two copies of the same claim drift apart, and
     // the operator reads both on the same visit.

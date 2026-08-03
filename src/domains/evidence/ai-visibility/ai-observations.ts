@@ -17,9 +17,8 @@ import type { PromptAnswerObservation } from "./prompt-answer-observations";
  * IDENTITY is (tenant, prompt, prompt version, engine, reporting day, sample slot). A retry of the same
  * intent reuses that identity and upserts the SAME row; a deliberate second sample of the same pair on the
  * same day is a different SLOT and therefore a different row. Nothing else may mint an id here.
- *
- * prompt_answer_observations is now a DECLARED PROJECTION of this record (projectPromptAnswerObservation),
- * derived by the same writer at the same moment, so the native-intel readers keep working off one truth.
+ * prompt_answer_observations is a DECLARED PROJECTION of this record, derived by the same writer at the
+ * same moment, so the native-intel readers keep working off one truth.
  */
 
 /** THE frozen seam with Runtime's planner: exactly the pairs that are due, nothing implied. `day` is the
@@ -27,12 +26,8 @@ import type { PromptAnswerObservation } from "./prompt-answer-observations";
  *  be re-derived from the wall clock at write time, so a run resumed past midnight landed rows on a day the
  *  planner and the analysis pass never looked at, and nothing on a resumed run was ever analyzed. */
 export type DueObservation = {
-  promptId: string;
-  version: number;
-  text: string;
-  engine: "chatgpt" | "claude" | "gemini" | "perplexity";
-  slot: 0 | 1 | 2;
-  day: string;
+  promptId: string; version: number; text: string; day: string;
+  engine: "chatgpt" | "claude" | "gemini" | "perplexity"; slot: 0 | 1 | 2;
 };
 
 /** observed = a real answer in hand. unavailable = the engine had nothing to give. unsupported = I cannot
@@ -41,40 +36,23 @@ export type DueObservation = {
 export type AiObservationStatus = "observed" | "unavailable" | "unsupported" | "failed" | "pending";
 
 export type AiObservationRecord = {
-  id: string;
-  tenant_id: string;
-  site: string;
-  prompt_id: string;
-  prompt_version: number;
-  prompt_text: string;
-  engine: ResearchEngine;
-  model_requested: string | null;
-  model_served: string | null;
-  observation_mode: ObservationMode;
+  id: string; tenant_id: string; site: string; prompt_id: string; prompt_version: number;
+  prompt_text: string; engine: ResearchEngine;
+  model_requested: string | null; model_served: string | null; observation_mode: ObservationMode;
   /** The reporting day (Pacific) this observation belongs to; part of the identity. */
   reporting_day: string;
-  sample_slot: number;
-  language: string;
-  location: number;
-  requested_at: string;
-  completed_at: string | null;
-  capability_version: string;
+  sample_slot: number; language: string; location: number;
+  requested_at: string; completed_at: string | null; capability_version: string;
   /** The evidence_cache identity of the RAW envelope this row was read from. */
   cache_key: string | null;
-  cost_usd: number;
-  status: AiObservationStatus;
-  failure_reason: string | null;
-  answer_text: string | null;
-  answer_hash: string | null;
+  cost_usd: number; status: AiObservationStatus; failure_reason: string | null;
+  answer_text: string | null; answer_hash: string | null;
   /** The retrieval journey behind this answer. Every list keeps the tri-state: null = the provider does
    *  not report it on this path, [] = it reported none, nonempty = what it actually reported. Retrieved
    *  pages are kept strictly apart from cited ones: "it read this" and "it credited this" differ. */
   journey: {
-    fan_outs: string[] | null;
-    retrieved_results: ObservedCitation[] | null;
-    cited_sources: ObservedCitation[] | null;
-    brand_mentions: string[] | null;
-    web_search_reported: boolean | null;
+    fan_outs: string[] | null; brand_mentions: string[] | null; web_search_reported: boolean | null;
+    retrieved_results: ObservedCitation[] | null; cited_sources: ObservedCitation[] | null;
     /** What the PROVIDER said this ask cost it. It rides the journey jsonb rather than a column of its own, so nothing here needs a migration and every
      *  row written before it existed still reads clean. Kept strictly apart from cost_usd above, which is the money that moved through the ledger. */
     usage?: AnswerUsage | null;
@@ -90,26 +68,15 @@ const OBSERVATION_LOCATION = 2840;
 const AI_OBSERVATIONS_TABLE = "ai_observations";
 
 export type AiObservationDraft = {
-  tenantId: string;
-  site: string;
-  promptId: string;
-  promptVersion: number;
-  promptText: string;
-  engine: ResearchEngine;
-  mode: ObservationMode;
-  slot: number;
+  tenantId: string; site: string; promptId: string; promptVersion: number; promptText: string;
+  engine: ResearchEngine; mode: ObservationMode; slot: number;
   /** THE reporting day this reading belongs to, taken from the PLAN and never from a clock: one run, one
    *  day, whatever hour the request actually left. */
   day: string;
   /** Full ISO instant the request was made. It records WHEN, never WHICH DAY THIS COUNTS FOR. */
   requestedAt: string;
-  completedAt?: string | null;
-  capability: string;
-  cacheKey?: string | null;
-  costUsd?: number;
-  modelRequested?: string | null;
-  status: AiObservationStatus;
-  failureReason?: string | null;
+  completedAt?: string | null; capability: string; cacheKey?: string | null; costUsd?: number;
+  modelRequested?: string | null; status: AiObservationStatus; failureReason?: string | null;
   parsed?: ParsedAiAnswer | null;
 };
 
@@ -182,6 +149,11 @@ const PAGE_ROWS = 1000, MAX_ROWS = 40_000;
  *  timed out a statement here before. The keyset cursor rides on requested_at + id, so both stay in. */
 const OUTCOME_COLUMNS = "id,tenant_id,prompt_id,prompt_version,engine,reporting_day,sample_slot,status,analysis,analysis_hash,answer_hash,requested_at";
 
+/** THE LIST PROJECTION for a surface paging a day's readings: everything EXCEPT the one genuinely heavy
+ *  column. A screen of whole AI answers is the shape that has timed a statement out here before, so
+ *  `answer_text` is read only by the drill-down below, which asks for one row by id. */
+const LIST_COLUMNS = "id,tenant_id,site,prompt_id,prompt_version,prompt_text,engine,model_requested,model_served,observation_mode,reporting_day,sample_slot,requested_at,completed_at,cache_key,cost_usd,status,failure_reason,answer_hash,journey,analysis,analysis_hash";
+
 /**
  * Read stored observations back for RE-ANALYSIS. Everything a later pass needs is already on the row, so
  * re-reading an answer costs nothing and no provider is called. A failed read throws (an empty list would
@@ -196,29 +168,43 @@ const OUTCOME_COLUMNS = "id,tenant_id,prompt_id,prompt_version,engine,reporting_
  * is inserted mid-read, which is what the collect step does, so one row was read twice and another never.
  *
  * ASK FOR WHAT YOU READ. `projection: "outcome"` narrows the SELECT to the identity, day, slot, status and
- * stored verdict; a caller that needs the text or the journey does not pass it and gets the whole row.
+ * stored verdict, `"list"` drops only the whole answer text; a caller that passes neither gets the whole row.
+ *
+ * ONE BOUNDED PAGE, ON DEMAND. A surface that shows a day's readings passes `after` (the cursor off the last
+ * row it holds) with a `limit`, and gets exactly that page: the same keyset the loop below walks, handed to
+ * the caller so a screen can page a 140 answer day without any single request reading all of it. `id` asks
+ * for one stored reading by its own identity, which is how a drill-down loads the answer text.
  */
 export async function readAiObservations(
   tenantId: string,
-  opts: { day?: string; fromDay?: string; toDay?: string; promptId?: string; limit?: number; slot?: number; projection?: "full" | "outcome" } = {},
+  opts: { day?: string; fromDay?: string; toDay?: string; promptId?: string; id?: string; limit?: number;
+    slot?: number; after?: { at: string; id: string } | null; projection?: "full" | "outcome" | "list" } = {},
 ): Promise<AiObservationRecord[]> {
   const whole = opts.day !== undefined || opts.fromDay !== undefined || opts.toDay !== undefined;
   const want = Math.min(Math.max(1, Math.floor(opts.limit ?? (whole ? MAX_ROWS : 500))), MAX_ROWS);
   const rows: AiObservationRecord[] = [];
   let exhausted = false;
-  let after: { at: string; id: string } | null = null;
+  let after: { at: string; id: string } | null = opts.after ?? null;
   while (!exhausted && rows.length < want) {
     const size = Math.min(PAGE_ROWS, want - rows.length);
     let q = getSupabaseAdmin().from(AI_OBSERVATIONS_TABLE)
-      .select(opts.projection === "outcome" ? OUTCOME_COLUMNS : "*").eq("tenant_id", tenantId);
+      .select(opts.projection === "outcome" ? OUTCOME_COLUMNS : opts.projection === "list" ? LIST_COLUMNS : "*")
+      .eq("tenant_id", tenantId);
+    if (opts.id) q = q.eq("id", opts.id);
     if (opts.day) q = q.eq("reporting_day", opts.day);
     if (opts.fromDay) q = q.gte("reporting_day", opts.fromDay);
     if (opts.toDay) q = q.lte("reporting_day", opts.toDay);
     if (opts.promptId) q = q.eq("prompt_id", opts.promptId);
     // The slot is asked for HERE: filtering it afterwards spends every page on samples the caller drops.
     if (opts.slot !== undefined) q = q.eq("sample_slot", opts.slot);
-    // Strictly past the last row already read, in the same order the rows come back in.
-    if (after) q = q.or(`requested_at.lt."${after.at}",and(requested_at.eq."${after.at}",id.lt."${after.id}")`);
+    // Strictly past the last row already read, in the same order rows come back. The cursor came over the
+    // wire: only an ISO instant and this table's own id shape may enter the or() filter string.
+    if (after) {
+      if (!/^\d{4}-\d{2}-\d{2}[T ][0-9:.]+(?:Z|[+-]\d{2}:?\d{2})?$/.test(after.at) || !/^obs_[a-f0-9]{1,64}$/.test(after.id)) {
+        throw new Error("[ai_observations] the cursor did not parse, so I am not guessing where the page was");
+      }
+      q = q.or(`requested_at.lt."${after.at}",and(requested_at.eq."${after.at}",id.lt."${after.id}")`);
+    }
     // Newest first, id breaking every tie: without a unique tiebreaker two rows stamped the same instant
     // can land on both sides of a page edge, so one is read twice and another never at all.
     const { data, error } = await q.order("requested_at", { ascending: false }).order("id", { ascending: false }).limit(size);

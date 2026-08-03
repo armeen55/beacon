@@ -288,7 +288,7 @@ describe("the conditional day-56 read", () => {
     componentsApplied: [{ kind: "title", label: "Page title" }], implementedAt: STAMP,
     preChangeContentHash: null, shipmentBaseline: null,
     verification: { status: "verified", checkedAt: "2026-05-02T00:00:00.000Z", components: [] },
-    operatorOverrideReason: null, createdAt: STAMP, updatedAt: STAMP, ...over,
+    operatorNote: null, createdAt: STAMP, updatedAt: STAMP, ...over,
   });
   // Day 56 lands 2026-06-26; Google has finalized well past it.
   const AFTER_56 = new Date("2026-07-10T00:00:00Z"), FINAL = "2026-07-05";

@@ -4,17 +4,18 @@ import "server-only";
  * measurement/verify-shipment (V1 Truth Convergence Phase 6, 2026-07-31) - DID THE CHANGE ACTUALLY LAND ON
  * THE LIVE PAGE?
  *
- * A CLICK IS NOT A SHIPMENT. "Mark implemented" is the operator telling me what they did, and until I have
- * read the page myself that is a claim, not a fact. This module goes and looks: ONE read of a page the
- * account OWNS, through the same polite fetch and the same extractor every other read of their own pages
- * goes through, never a paid provider, never from a page render. Then it says, component by component, what
- * it could actually see, in the four honest states there are: verified, missing, differs, unknown.
+ * A CLICK IS NOT A SHIPMENT, AND IT NEVER BECOMES ONE. "Mark implemented" is the operator telling me what
+ * they did, and until I have read the page myself that is a claim, not a fact. The claim STARTS this check
+ * and can never finish it: there is no button, no note and no argument that lands a change in the verified
+ * state without page evidence behind it. This module goes and looks: ONE read of a page the account OWNS,
+ * through the same polite fetch and the same extractor every other read of their own pages goes through,
+ * never a paid provider, never from a page render. Then it says, component by component, what it could
+ * actually see, in the four honest states there are: verified, not_verified, changed_differently (the page
+ * carries a different change in that spot than the one I wrote), and unverifiable (I could not read it).
  *
- * WHAT IT WILL NEVER DO. It will never call a change verified because the operator clicked a button.
- * `operator_confirmed` exists for exactly one case, an override the operator makes on purpose, and it is
- * never a default and never a stand-in for a check I could not make. And it will never call a component
- * missing when the truth is that I cannot see that kind of change from outside the page (a noindex sent in a
- * header, structured data a raw fetch never renders): that is `unknown`, said out loud, every time.
+ * WHAT IT WILL NEVER DO. It will never call a component not_verified when the truth is that I cannot see
+ * that kind of change from outside the page (a noindex sent in a header, structured data a raw fetch never
+ * renders): that is `unverifiable`, said out loud, every time.
  *
  * WHY IT IS NOT A LOOP. A verification is written ONCE per shipment, so a page that refuses me is never
  * refetched on the next visit, or the one after that. That is the promise the owned-read retry memory
@@ -44,12 +45,11 @@ type ComponentState = ShipmentVerification["components"][number]["state"];
 
 /** What verification needs off a Shipment, named STRUCTURALLY: Measurement never imports Decision, so a
  *  component arrives as a kind and the exact copy the operator was handed, nothing else. `after` is the
- *  proposal (the copy, or the exact structural instruction); `operatorConfirmed` is the override. */
+ *  proposal (the copy, or the exact structural instruction). */
 type VerifiableShipment = {
   id: string;
   url: string;
-  components: Array<{ kind: string; after: string; anchorAfter?: string | null }>;
-  operatorConfirmed?: boolean;
+  components: Array<{ kind: string; after: string; anchorAfter?: string | null; redirectTo?: string | null }>;
   /** This is the ONE retry a site that did not answer earns. A recheck's own answer is final either way. */
   recheck?: boolean;
 };
@@ -70,7 +70,9 @@ const MAX_VERIFICATIONS_PER_PASS = 3;
 /** Under this many words at the proposed address, a new page is live but not yet a page. */
 const THIN_PAGE_WORDS = 120;
 /** The kinds a live page answers for on its own, with no wording needed to check them. */
-const COPY_FREE_KINDS: ReadonlySet<string> = new Set(["new_page", "noindex", "redirect", "consolidation", "schema"]);
+const COPY_FREE_KINDS: ReadonlySet<string> = new Set(["new_page", "noindex", "redirect", "consolidation", "schema", "navigation"]);
+/** Where a sitemap lives when nobody has told me otherwise. Anything else is honestly unreadable rather than graded against a guess. */
+const SITEMAP_PATH = "/sitemap.xml";
 
 const norm = (s: string): string => s.toLowerCase().replace(/[‘’“”]/g, "'").replace(/[^a-z0-9']+/g, " ").trim();
 /** The claim's own opening words, which is how much of a proposal I can honestly expect to find verbatim. */
@@ -82,7 +84,9 @@ const judged = (state: ComponentState, note: string): { state: ComponentState; n
 /** What the live page says, reduced to the facts a component can be checked against. `text` is the page's
  *  own words: the extractor's main-content capture PLUS the raw body stripped of markup, so a paragraph far
  *  below the fold is still found and "I did not see it" means I really did look at the whole page. */
-type LiveRead = { snap: PageSnapshot; text: string; finalUrl: string | null; requestedUrl: string };
+/** `sitemap` is the account's own sitemap as it reads right now, fetched ONLY when a change asked to be
+ *  listed in it and null when there was none to read: no read of the PAGE can answer whether it is on that list. */
+type LiveRead = { snap: PageSnapshot; text: string; finalUrl: string | null; requestedUrl: string; sitemap: string | null };
 
 function liveTextOf(snap: PageSnapshot, html: string): string {
   const captured = [snap.title, snap.h1, ...(snap.h2_list ?? []), ...(snap.h3_list ?? []),
@@ -91,18 +95,18 @@ function liveTextOf(snap: PageSnapshot, html: string): string {
 }
 
 /** ONE component, judged against the page as it stands right now. Pure. */
-function classify(component: { kind: string; after: string; anchorAfter?: string | null }, live: LiveRead): { state: ComponentState; note: string } {
+function classify(component: { kind: string; after: string; anchorAfter?: string | null; redirectTo?: string | null }, live: LiveRead): { state: ComponentState; note: string } {
   const { snap } = live, proposed = component.after ?? "";
   // NO COPY, NO CLAIM. Some kinds are visible without any wording at all (the address forwards, the page
   // asks to be left out of search, the page exists). Every other kind needs the exact wording that was
   // applied, and when I do not hold it I say so rather than checking the page against a guess.
   if (!norm(proposed) && !COPY_FREE_KINDS.has(component.kind)) {
-    return judged("unknown", "I do not hold the exact wording that was applied here, so I am not calling this one either way.");
+    return judged("unverifiable", "I do not hold the exact wording that was applied here, so I am not calling this one either way.");
   }
   const field = (value: string | null, what: string) =>
-    !value?.trim() ? judged("missing", `Your page has no ${what} at all.`)
+    !value?.trim() ? judged("not_verified", `Your page has no ${what} at all.`)
       : norm(value) === norm(proposed) ? judged("verified", `Your ${what} reads exactly as I wrote it.`)
-        : judged("differs", `Your ${what} is live but it is not the wording I gave you.`);
+        : judged("changed_differently", `Your ${what} is live but it is not the wording I gave you.`);
   const headings = [...(snap.h2_list ?? []), ...(snap.h3_list ?? [])].map(norm).filter(Boolean);
   const wanted = opener(firstLine(proposed), 8);
   const wantedWords = wanted.split(" ").filter(Boolean);
@@ -120,7 +124,10 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
   // A link is compared as an ADDRESS, never as a string: a relative href on the page and an absolute one in
   // the proposal are the same link, and www or a trailing slash is not a difference.
   const absolute = (href: string): string => { try { return new URL(href, live.requestedUrl).toString(); } catch { return href; } };
-  const target = urlIn(proposed);
+  // THE ADDRESS THE CHANGE NAMED, off the change itself. Picking the first url-shaped word out of the
+  // instruction picked the address being MOVED, so a correct forward read as one that went elsewhere. The
+  // sentence is the last resort now, kept for rows on file that carry no destination of their own.
+  const target = (component.redirectTo ?? "").trim() || urlIn(proposed);
   const targetKey = target ? canonicalUrlKey(absolute(target)) : null;
   const linkHit = !!targetKey && (snap.internal_links ?? []).some((l) => canonicalUrlKey(absolute(l.href)) === targetKey);
 
@@ -131,84 +138,96 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
     case "opening_answer": {
       const sample = norm((snap.body_paragraph_sample ?? []).join(" "));
       const want = opener(proposed);
-      if (!sample) return judged("unknown", "I could not read the opening of your page, so I am not calling this one either way.");
+      if (!sample) return judged("unverifiable", "I could not read the opening of your page, so I am not calling this one either way.");
       return sample.includes(want) ? judged("verified", "Your page opens with the answer I wrote.")
-        : judged("differs", "Your page opens with different words than the ones I gave you.");
+        : judged("changed_differently", "Your page opens with different words than the ones I gave you.");
     }
     case "section": case "section_add": case "section_rewrite": case "restructure": case "table_or_list_add":
       return headingHit ? judged("verified", "The section I asked for is on the page.")
-        : !wanted ? judged("unknown", "This change has no heading I can look for.")
-          : judged("missing", "I read every heading on your page and this section is not one of them.");
+        : !wanted ? judged("unverifiable", "This change has no heading I can look for.")
+          : judged("not_verified", "I read every heading on your page and this section is not one of them.");
     case "section_remove":
-      return !wanted ? judged("unknown", "This change has no heading I can look for.")
-        : headingHit ? judged("differs", "That section is still on the page.") : judged("verified", "That section is gone.");
+      return !wanted ? judged("unverifiable", "This change has no heading I can look for.")
+        : headingHit ? judged("not_verified", "That section is still on the page.") : judged("verified", "That section is gone.");
     // A RENAMED LINK IS CHECKED ON ITS WORDS, NEVER ON ITS ADDRESS. The swap renames a link that already
     // exists, so asking whether a link to that address is on the page answered yes the moment the change was
     // written: it read verified without anything having happened. What changed is the wording, so the wording
     // is what I read, off the live link itself, and if the exact new words did not travel I say so.
     case "anchor_text": {
       const want = norm(component.anchorAfter ?? "");
-      if (!want) return judged("unknown", "I do not hold the exact words that link was meant to read, so I am not calling this one either way.");
-      if (snap.internal_links == null) return judged("unknown", "I could not read the links on your page this time.");
+      if (!want) return judged("unverifiable", "I do not hold the exact words that link was meant to read, so I am not calling this one either way.");
+      if (snap.internal_links == null) return judged("unverifiable", "I could not read the links on your page this time.");
       const onTarget = targetKey ? snap.internal_links.filter((l) => canonicalUrlKey(absolute(l.href)) === targetKey) : snap.internal_links;
       const links = onTarget.length > 0 ? onTarget : snap.internal_links;
       return links.some((l) => norm(l.anchor_text ?? "").includes(want))
         ? judged("verified", "That link now reads the way I asked.")
-        : judged("missing", "That link is on your page, and it still does not read the way I asked.");
+        : judged("not_verified", "That link is on your page, and it still does not read the way I asked.");
     }
-    case "internal_links": case "internal_link_add": case "navigation":
-      return !target ? judged("unknown", "This change names no address I can look for.")
-        : snap.internal_links == null ? judged("unknown", "I could not read the links on your page this time.")
-          : linkHit ? judged("verified", "The link I asked for is on the page.") : judged("missing", "That link is not on the page yet.");
+    case "internal_links": case "internal_link_add":
+      return !target ? judged("unverifiable", "This change names no address I can look for.")
+        : snap.internal_links == null ? judged("unverifiable", "I could not read the links on your page this time.")
+          : linkHit ? judged("verified", "The link I asked for is on the page.") : judged("not_verified", "That link is not on the page yet.");
+    // A SITEMAP EDIT IS READ IN THE SITEMAP. This looked for a link on the PAGE, which no edit to
+    // sitemap.xml can ever put there, so every one of them read as work the operator had not done.
+    case "navigation": {
+      if (live.sitemap == null) return judged("unverifiable", `I could not read a sitemap at ${SITEMAP_PATH} on your site, so I am not calling this one either way. Tell me where your sitemap lives and I will read it.`);
+      if (/<sitemapindex/i.test(live.sitemap)) return judged("unverifiable", `Your ${SITEMAP_PATH} lists other sitemap files rather than pages, so I cannot tell from it whether this page is on one.`);
+      const listed = [...live.sitemap.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]!);
+      if (listed.length === 0) return judged("unverifiable", `Your ${SITEMAP_PATH} answered but lists no addresses I can read, so I am not calling this one either way.`);
+      const here = canonicalUrlKey(live.requestedUrl);
+      return listed.some((u) => canonicalUrlKey(absolute(u)) === here)
+        ? judged("verified", "Your sitemap now lists this page.")
+        : judged("not_verified", `I read the ${listed.length} ${listed.length === 1 ? "address" : "addresses"} in your sitemap and this page is not one of them.`);
+    }
     case "internal_link_remove":
-      return !target || snap.internal_links == null ? judged("unknown", "I could not check that link on your page this time.")
-        : linkHit ? judged("differs", "That link is still on the page.") : judged("verified", "That link is gone.");
+      return !target || snap.internal_links == null ? judged("unverifiable", "I could not check that link on your page this time.")
+        : linkHit ? judged("not_verified", "That link is still on the page.") : judged("verified", "That link is gone.");
     case "schema": {
       const types = snap.schema_types ?? [], named = (snap.schema_entity_names ?? []).length > 0;
       const askedFor = types.find((t) => norm(proposed).includes(norm(t)));
       if (askedFor) return judged("verified", `Your page carries ${askedFor} structured data.`);
-      if (types.length > 0 || named) return judged("unknown", "Your page carries structured data, but not in a form I can match to this change.");
+      if (types.length > 0 || named) return judged("unverifiable", "Your page carries structured data, but not in a form I can match to this change.");
       return snap.extraction_certainty === "uncertain"
-        ? judged("unknown", "Your page builds its content in the browser, so I cannot read its structured data from the outside.")
-        : judged("missing", "I read no structured data on your page.");
+        ? judged("unverifiable", "Your page builds its content in the browser, so I cannot read its structured data from the outside.")
+        : judged("not_verified", "I read no structured data on your page.");
     }
     case "canonical":
-      return !target ? judged("unknown", "This change names no address I can look for.")
-        : !snap.canonical_url ? judged("missing", "Your page names no preferred address.")
+      return !target ? judged("unverifiable", "This change names no address I can look for.")
+        : !snap.canonical_url ? judged("not_verified", "Your page names no preferred address.")
           : canonicalUrlKey(snap.canonical_url) === canonicalUrlKey(target) ? judged("verified", "Your page points at the address I asked for.")
-            : judged("differs", "Your page points at a different address than the one I asked for.");
+            : judged("changed_differently", "Your page points at a different address than the one I asked for.");
     case "redirect": case "consolidation": {
-      if (!live.finalUrl) return judged("unknown", "I could not see where that address ended up.");
+      if (!live.finalUrl) return judged("unverifiable", "I could not see where that address ended up.");
       const moved = canonicalUrlKey(live.finalUrl) !== canonicalUrlKey(live.requestedUrl);
-      if (!moved) return judged("missing", "That address still serves its own page, so nothing is forwarding yet.");
+      if (!moved) return judged("not_verified", "That address still serves its own page, so nothing is forwarding yet.");
       // MOVED IS NOT ARRIVED. A forward with no destination named could be landing anywhere, a login wall
       // included, so it is honestly unknown rather than a pass I cannot stand behind.
       if (!targetKey) {
-        return judged("unknown", "It forwards somewhere, and the proposal named no destination, so I cannot confirm it forwards where you wanted.");
+        return judged("unverifiable", "It forwards somewhere, and the proposal named no destination, so I cannot confirm it forwards where you wanted.");
       }
       return canonicalUrlKey(live.finalUrl) === targetKey
         ? judged("verified", "That address now forwards visitors on.")
-        : judged("differs", "That address forwards somewhere other than where I asked.");
+        : judged("changed_differently", "That address forwards somewhere other than where I asked.");
     }
     case "noindex":
-      return snap.robots_meta == null ? judged("unknown", "I cannot see this setting from outside your page.")
+      return snap.robots_meta == null ? judged("unverifiable", "I cannot see this setting from outside your page.")
         : /noindex/i.test(snap.robots_meta) ? judged("verified", "Your page now asks search engines to leave it out.")
-          : judged("differs", "Your page still asks search engines to keep it.");
+          : judged("changed_differently", "Your page still asks search engines to keep it.");
     case "new_page":
       return snap.word_count >= THIN_PAGE_WORDS ? judged("verified", "The new page is live and has real content on it.")
-        : judged("differs", `The address answers, but I count only ${snap.word_count} words on it.`);
+        : judged("changed_differently", `The address answers, but I count only ${snap.word_count} words on it.`);
     default: {
       const want = opener(proposed);
-      return !want ? judged("unknown", "This change has no wording I can look for.")
+      return !want ? judged("unverifiable", "This change has no wording I can look for.")
         : live.text.includes(want) ? judged("verified", "I found this wording on your page.")
-          : judged("missing", "I read your whole page and this wording is not on it.");
+          : judged("not_verified", "I read your whole page and this wording is not on it.");
     }
   }
 }
 
-/** Every component unknown, for the cases where the page itself could not be read. */
+/** Every component unverifiable, for the cases where the page itself could not be read. */
 const allUnknown = (shipment: VerifiableShipment, note: string) =>
-  shipment.components.map((c) => ({ kind: c.kind, state: "unknown" as ComponentState, note }));
+  shipment.components.map((c) => ({ kind: c.kind, state: "unverifiable" as ComponentState, note }));
 
 /**
  * VERIFY ONE SHIPMENT against the live page. One fetch, on the free owned-page path, and the answer is
@@ -218,11 +237,6 @@ const allUnknown = (shipment: VerifiableShipment, note: string) =>
  */
 export async function verifyShipment(tenantId: string, shipment: VerifiableShipment, deps: VerifyDeps = {}): Promise<ShipmentVerification> {
   const now = deps.now ?? Date.now, checkedAt = new Date(now()).toISOString();
-  // THE OVERRIDE, and only the override. The operator told me this is live and asked me not to argue, so
-  // I do not fetch and I do not claim to have checked anything.
-  if (shipment.operatorConfirmed === true) {
-    return { status: "operator_confirmed", checkedAt, components: allUnknown(shipment, "You confirmed this one yourself, so I did not check the page.") };
-  }
   const requested = /^https?:\/\//i.test(shipment.url) ? shipment.url : `https://${shipment.url}`;
   const fetchPage = deps.fetchPage ?? fetchPageHtml;
   // THE ONE ANSWER THAT IS NOT FINAL. A site that did not answer at all says nothing about the change, so
@@ -248,9 +262,15 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   // Fail-soft on purpose: the verification I just computed is the evidence, and a snapshot row I could not
   // save changes nothing about what I read with my own eyes.
   await (deps.writeOwnedPage ?? ((s: PageSnapshot, t: string) => syncPageSnapshots([s], t)))(snap, tenantId).catch(() => {});
-  const live: LiveRead = { snap, text: liveTextOf(snap, res.html), finalUrl: res.finalUrl ?? null, requestedUrl: requested };
+  // ONE extra read, only when a change asked to be listed in the sitemap, and never a second time.
+  let sitemap: string | null = null;
+  if (shipment.components.some((c) => c.kind === "navigation")) {
+    const got = await fetchPage(`${new URL(requested).origin}${SITEMAP_PATH}`, new Map(), {}).catch(() => null);
+    sitemap = got?.ok ? got.html : null;
+  }
+  const live: LiveRead = { snap, text: liveTextOf(snap, res.html), finalUrl: res.finalUrl ?? null, requestedUrl: requested, sitemap };
   const components = shipment.components.map((c) => ({ kind: c.kind, ...classify(c, live) }));
-  const seen = components.filter((c) => c.state !== "unknown");
+  const seen = components.filter((c) => c.state !== "unverifiable");
   const status: ShipmentVerification["status"] =
     seen.length === 0 ? "blocked"
       : seen.every((c) => c.state === "verified") ? "verified"
@@ -266,10 +286,10 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
  *  UNKNOWN when it cannot. Inventing wording to check against would be worse than saying I cannot tell. */
 function componentsOf(r: ShippedChangeRecord): VerifiableShipment["components"] {
   const copy = (r.after ?? "").trim();
-  const applied = (r.componentsApplied ?? []) as Array<{ kind: string; after?: string | null; anchorAfter?: string | null }>;
+  const applied = (r.componentsApplied ?? []) as Array<{ kind: string; after?: string | null; anchorAfter?: string | null; redirectTo?: string | null }>;
   if (applied.length === 0) return copy || r.actionType ? [{ kind: r.actionType || "content", after: copy }] : [];
   const lone = applied.length === 1;
-  return applied.map((c) => ({ kind: c.kind, anchorAfter: c.anchorAfter ?? null,
+  return applied.map((c) => ({ kind: c.kind, anchorAfter: c.anchorAfter ?? null, redirectTo: c.redirectTo ?? null,
     after: (c.after ?? "").trim() || (lone || c.kind === r.actionType ? copy : "") }));
 }
 
@@ -290,9 +310,11 @@ export async function shipmentsAwaitingVerification(tenantId: string, limit = MA
   // on the 4th when today came off a UTC instant, so the one retry a silent site earns was taken a day early
   // and its answer, taken before the site had a chance, stood as final.
   const today = reportingDay(deps.now ? deps.now() : Date.now());
-  /** Never checked, or a site that did not answer whose one promised retry day has arrived. */
+  /** Never checked, or a site that did not answer whose one promised retry day has arrived. A row carrying
+   *  the retired `operator_confirmed` label was never checked at all, whatever it says, so it is owed the
+   *  one real reading it never got; the answer it writes back is a real state and the row is done. */
   const due = (r: ShippedChangeRecord): boolean => {
-    if (r.verification == null) return true;
+    if (r.verification == null || r.verification.status === "operator_confirmed") return true;
     const at = r.verification.recheckAfter ?? null;
     return !!at && today >= at;
   };

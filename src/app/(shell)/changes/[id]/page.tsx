@@ -10,25 +10,18 @@ import {
 } from "@/lib/perf-trace";
 import { loadProofLedgerPersisted } from "@/domains/measurement";
 import { findProofForChange, proofResultHref } from "@/domains/measurement";
-import { causeLabel, loadChangeProposal, loadProposalQueue } from "@/domains/decision";
+import { causeLabel, loadChangeProposal, resolveCurrentBasis } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { MarkImplemented, SetAsideChange } from "../../changes-list-client";
 
-// Phase 1.6 (Sprint 1 follow-up, 2026-04-24): force dynamic render so every
-// request runs the fresh-repo-read pattern below. Matches /changes main list.
+// Force dynamic render so every request runs the fresh-repo-read pattern below. Matches /changes.
 export const dynamic = "force-dynamic";
 
 /**
- * `/changes/[id]` — canonical-Results redirect.
- *
- * Surface collapse (2026-06-15): the legacy data-rich detail layout and the
- * v2 proof brief were both retired. Results owns the measurement truth, so a
- * changelog row deep-links to its exact proof card; an older untracked row
- * lands on Results without inventing an outcome. This route now resolves the
- * changelog entry (fresh per-request repo read) and redirects — it renders no
- * detail body of its own. The dead brief render and its legacy-only loaders
- * were removed in the bounded cleanup wave (2026-07-20).
+ * `/changes/[id]`. A current-basis proposal carrying a bundle renders its two-layer detail; a set-aside one
+ * renders a single honest page; anything else resolves the changelog entry and redirects to Results, which
+ * owns the measurement truth, without inventing an outcome.
  */
 export default async function ChangeDetailPage({
   params,
@@ -47,25 +40,19 @@ export default async function ChangeDetailPage({
     const { access } = await requireReadyAccount(tenantId);
     if (access.kind === "suspended") redirect("/");
 
-    // A ranked proposal carrying a Change Bundle owns this route and renders its
-    // two-layer detail from the CURRENT-basis queue; one I have set aside renders a
-    // single honest page instead. Anything else, including a proposal with no bundle,
-    // falls through to the unchanged changelog to Results redirect below.
-    // ONE queue read serves both answers: the CURRENT-basis queue is the only source
-    // of a rendered bundle, so no cached release can resurrect copy I set aside.
-    const queue = await loadProposalQueue(tenantId).catch(() => null);
-    const found = queue?.ranked.find((p) => p.id === id) ?? null;
+    // ONE bounded row read serves both answers: the id names the row and the CURRENT basis proves it is
+    // live work, so no cached release resurrects set-aside copy and no unlimited queue is poured out to
+    // find one row whose address is already in hand. No bundle falls through to the redirect below.
+    const [proposal, basis] = await Promise.all([loadChangeProposal(tenantId, id), resolveCurrentBasis(tenantId)]);
+    const found = proposal && basis != null && proposal.basis === basis
+      && (proposal.status === "ready" || proposal.status === "needs_review") ? proposal : null;
     if (found?.bundle) return <BundleDetail proposal={found} bundle={found.bundle} />;
     // A bar I could not READ is not a bar I raised: claiming I judged this idea when
     // I never resolved the account would be a lie the operator cannot check.
-    if (await isSetAside(tenantId, id)) return <SetAsideDetail unreadable={queue?.basisUnreadable === true} />;
+    if (await isSetAside(tenantId, id)) return <SetAsideDetail unreadable={basis == null} />;
 
-    // Phase 1.6 (Sprint 1 follow-up, 2026-04-24): fresh per-request repo read.
-    // The prior implementation called `changelogEntries.find(...)` against the
-    // module-level array from @/lib/seed-data.server, which is hydrated once
-    // per Vercel lambda cold start. A scan_detection entry written by a
-    // different lambda was invisible here and the page rendered notFound.
-    // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read.
+    // Fresh per-request repo read: a module-level array hydrated at lambda cold start made entries
+    // written by another lambda invisible here, and the page rendered notFound.
     const repository = getRepository().forTenant(tenantId);
     let freshChangelogEntries: ChangelogEntry[];
     try {

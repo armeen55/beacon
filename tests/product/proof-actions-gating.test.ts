@@ -236,13 +236,17 @@ describe("markProposalImplementedAction — the shipment transaction", () => {
     expect(mocks.recordShippedChange.mock.calls[0][0].shipment.componentsApplied)
       .toEqual([{ kind: "title", label: "Page title", after: null, risk: "dangerous" }]);
   });
-  it("carries the operator's own confirmation through, so an override is expressible and never a default", async () => {
-    await markProposalImplementedAction({ proposalId: PROPOSAL_ID, operatorConfirmed: true, overrideReason: "I pasted it in myself." });
+  // PIN (B): THE BYPASS IS GONE. A press that still carries the retired override flag records a note and a
+  // Shipment with NO verification on it, so the live check is owed exactly as it is for every other press.
+  it("keeps the operator's words as a note and never lets a press stand in for a reading", async () => {
+    await markProposalImplementedAction({ proposalId: PROPOSAL_ID, operatorConfirmed: true, operatorNote: "I pasted it in myself." });
     const { shipment } = mocks.recordShippedChange.mock.calls[0][0];
-    expect([shipment.operatorConfirmed, shipment.operatorOverrideReason]).toEqual([true, "I pasted it in myself."]);
+    expect(shipment.operatorNote).toBe("I pasted it in myself.");
+    expect(shipment).not.toHaveProperty("operatorConfirmed");
+    expect(shipment).not.toHaveProperty("verification");
     mocks.recordShippedChange.mockClear();
     await markProposalImplementedAction({ proposalId: PROPOSAL_ID });
-    expect(mocks.recordShippedChange.mock.calls[0][0].shipment.operatorConfirmed).toBeUndefined();
+    expect(mocks.recordShippedChange.mock.calls[0][0].shipment.operatorNote).toBeNull();
   });
   it.each([
     ["a change I set aside", () => mocks.resolveCurrentBasis.mockResolvedValue("basis_today::d9")],

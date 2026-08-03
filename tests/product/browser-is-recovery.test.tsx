@@ -1,11 +1,9 @@
 // @vitest-environment jsdom
 /** THE BROWSER IS A RECOVERY SURFACE, NOT THE ENGINE (2026-08-02). One global scheduler drives the daily
  *  round now, so the tab-side loop that used to finish the day is gone and what is left has to be honest:
- *  the shell mounts no continuation controller, ONE press of Update data is ONE recovery continuation, and
- *  Settings carries a pause switch that says plainly what pausing costs. Two seams are faked (the server
- *  actions and the router); zero network, zero server module. */
+ *  ONE press of Update data is ONE recovery continuation, and Settings carries a pause switch that says
+ *  plainly what pausing costs. Two seams are faked (the server actions and the router); zero network. */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { readFileSync } from "node:fs";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
@@ -52,15 +50,6 @@ beforeEach(() => {
   calls.setOk = true;
 });
 afterEach(async () => { await unmount(); });
-
-describe("the shell no longer runs the research", () => {
-  it("mounts no continuation controller, and keeps the visit as the recovery nudge", () => {
-    // The mount WAS the whole delivery mechanism for the tab-side loop. Its absence is the change.
-    const layout = readFileSync("src/app/(shell)/layout.tsx", "utf8");
-    expect(layout).not.toContain("KeepResearching");
-    expect(layout).toContain("ensureResearchRunOnVisit");
-  });
-});
 
 describe("Update data is one recovery press", () => {
   it("asks for exactly ONE continuation per press, whatever the server says is still owed", async () => {

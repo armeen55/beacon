@@ -239,8 +239,8 @@ export type BundleComponent = {
   mechanism?: string;
   /** Required whenever this changes factual content: the shape the drafter emits and source_pack renders. */
   sourcePack?: { sourceRequirements: string[]; factRequirements: string[] };
-  /** THE NEW WORDS ON A LINK, for `anchor_text` only: the live check needs the exact wording it should find ON it. */
-  anchorAfter?: string;
+  /** THE NEW WORDS ON A LINK (`anchor_text`) and THE ADDRESS A FORWARD MUST LAND ON (`redirect`): the live check needs both exactly, because reading the destination back out of the instruction found the address being MOVED and graded a correct forward as a wrong one. */
+  anchorAfter?: string; redirectTo?: string;
   /** One sentence naming the metric and the window Beacon will read afterwards. */
   measurementPlan?: string;
   /** THE PRESERVATION MAP, owed by any component that REPLACES a page rather than adding to it (`full_rewrite`
@@ -394,7 +394,7 @@ const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
     objective: z.string().min(1).optional(),
     mechanism: z.string().min(1).optional(),
     sourcePack: z.object({ sourceRequirements: z.array(z.string()), factRequirements: z.array(z.string()) }).optional(),
-    measurementPlan: z.string().min(1).optional(),
+    measurementPlan: z.string().min(1).optional(), redirectTo: z.string().min(1).optional(), anchorAfter: z.string().min(1).optional(),
     preserves: z.object({ keeps: z.array(z.string()), losses: NAMED_SCHEMA }).optional(),
   })).min(1),
   plan: z.object({ keeps: z.array(z.string()), removes: NAMED_SCHEMA,

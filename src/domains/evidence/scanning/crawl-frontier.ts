@@ -1,20 +1,24 @@
 /**
  * crawl-frontier - the resumable, Vercel-safe crawl over the owned-page INVENTORY.
  *
- * WHY IT EXISTS: one serverless invocation can read a handful of pages and then dies, so every
- * invocation crawls exactly one BOUNDED batch (max pages plus a hard time budget, both inside a
- * serverless window), persists its cursor, and stops. A RENDER NEVER CRAWLS: the batches are due
- * work, driven one per pass by the research cycle's crawl_pages phase (runtime/ops/due-work).
+ * WHY IT EXISTS: one serverless invocation reads a handful of pages and then dies, so every invocation
+ * crawls exactly one BOUNDED batch (max pages plus a hard time budget), persists its cursor, and stops.
+ * A RENDER NEVER CRAWLS: batches are due work, driven one per pass by the crawl_pages phase.
  *
- * THE INVENTORY IS THE RECORD, not this blob. owned_pages is unbounded; this holds only the ORDER
- * of one crawl (a small working set refilled from the inventory: uncrawled first, then stale, then
- * blocked pages past their retry date) plus the per-page facts the first-look preview reads. Every
- * read writes its state back, so a blocked page waits out its backoff and a 404 is never asked for
- * again, and the crawl is finished ONLY when the inventory has nothing left to hand it.
+ * THE INVENTORY IS THE RECORD, not this blob. owned_pages is unbounded; this holds only the ORDER of one
+ * pass (a working set refilled from the inventory: uncrawled first, then stale, then blocked pages past
+ * their retry date) plus the facts the first-look preview reads. Every read writes its state back.
  *
- * Discipline (same posture as in-process-scan): crawl-only and $0, polite identified fetch with
- * robots respected and a hard timeout, sequential with a small delay, the SAME stable page ids so
- * batches upsert the same rows, and failure-soft returns instead of throws.
+ * NO LIFETIME CEILING. Every bound is per PASS: a pass reads at most `page_cap` pages and then ROLLS OVER
+ * (visited clears, the next pass refills from the inventory), and a discovery pass that could not
+ * enumerate the whole site leaves a cursor the next one resumes from. The cap used to be a lifetime clamp,
+ * so a bigger site simply had pages Beacon would never read. Passes provably advance: the inventory hands
+ * out uncrawled pages first and records every read, so pass N+1 is served what pass N did not reach.
+ * FINISHED IS A READING TAKEN FRESH EACH PASS, never a latch: it holds only while the inventory has nothing
+ * left, and a page shipped later or a read gone stale reopens the crawl for exactly that page.
+ *
+ * Discipline (same posture as in-process-scan): crawl-only and $0, polite identified fetch with robots
+ * respected and a hard timeout, sequential with a small delay, the SAME stable page ids, failure-soft.
  */
 
 import { fetchPageHtml } from "@/domains/evidence/competitor-intel/polite-fetch";
@@ -31,14 +35,11 @@ import {
   originFromDomain,
   pageIdFor,
 } from "./in-process-scan";
-import { markBlocked, markCrawled, nextCrawlCandidates, upsertDiscovery } from "./owned-pages-store";
+import { markBlocked, markCrawled, nextCrawlCandidates, readInventory, upsertDiscovery } from "./owned-pages-store";
 
 const STORE = "crawl-frontier";
 
-/** Total pages ONE site's cold-start crawl will ever read. Raised from 150 to 600 (2026-08-03):
- *  the inventory is unbounded, and a real small-business or encyclopedia site is hundreds of pages,
- *  not 150. Per-PASS work is unchanged, so this costs wall clock spread over visits, never one
- *  longer invocation. */
+/** Pages ONE PASS reads before rolling over: a working bound, never a lifetime one. It keeps the mirrored visited set small and spends wall clock over passes, never in one long call. */
 const CRAWL_PAGE_CAP = 600;
 /** One batch = one serverless invocation. Both bounds are hard. */
 const BATCH_MAX_PAGES = 15;
@@ -48,11 +49,9 @@ const PER_REQUEST_MS = 8_000;
 const INTER_FETCH_DELAY_MS = 250;
 /** Discovery (robots, sitemaps, homepage) shares one bounded budget at init. */
 const DISCOVERY_BUDGET_MS = 12_000;
-/** The queued WORKING SET, refilled from the inventory. Small on purpose: the durable list of URLs
- *  is owned_pages, and this blob is mirrored on every write. */
+/** The queued WORKING SET, refilled from the inventory. Small on purpose: owned_pages is the durable list. */
 const MAX_FRONTIER_URLS = 200;
-/** Preview facts kept in the blob, independent of the page cap so a 600-page site does not carry a
- *  600-entry payload through every mirror. */
+/** Preview facts kept in the blob, independent of the page cap so the payload stays small. */
 const MAX_PAGE_FACTS = 150;
 /** Question lines kept per page fact. */
 const MAX_QUESTIONS_PER_PAGE = 6;
@@ -78,13 +77,16 @@ export type CrawlFrontierState = {
   status: CrawlFrontierStatus;
   /** URLs waiting to be read (a bounded working set, refilled from the inventory). */
   frontier: string[];
-  /** Stable url keys already attempted this crawl. */
+  /** Stable url keys already attempted THIS PASS; cleared when the pass rolls over. */
   visited: string[];
-  /** Pages successfully read + snapshotted. */
+  /** Pages successfully read + snapshotted, over every pass. */
   pages_crawled: number;
   /** Fetch attempts that failed (robots block, HTTP error, timeout). */
   pages_failed: number;
+  /** The PER-PASS page bound. */
   page_cap: number;
+  /** Where the next discovery pass resumes in the site's own enumeration order; 0, or absent on a row written before this existed, means end to end. */
+  discovery_cursor?: number;
   source: "sitemap" | "homepage" | "none";
   started_at: string;
   updated_at: string;
@@ -114,6 +116,7 @@ type CrawlFrontierDeps = {
   pickCandidates?: typeof nextCrawlCandidates;
   recordCrawled?: typeof markCrawled;
   recordBlocked?: typeof markBlocked;
+  readInventoryImpl?: typeof readInventory;
 };
 
 // ---------------------------------------------------------------------------
@@ -139,10 +142,8 @@ async function saveCrawlFrontier(state: CrawlFrontierState): Promise<void> {
 // Pure helpers (exported for unit tests)
 // ---------------------------------------------------------------------------
 
-/**
- * PURE frontier math: add newly discovered links to the working set. Skips keys already visited or
- * already queued, and never grows the total workload (visited + queued) past the page cap.
- */
+/** PURE frontier math: add newly discovered links to the working set. Skips keys already visited or
+ *  queued, and never grows THIS PASS'S workload (visited + queued) past the page cap. */
 function enqueueDiscovered(
   state: Pick<CrawlFrontierState, "frontier" | "visited" | "page_cap" | "domain">,
   candidates: readonly string[],
@@ -172,12 +173,7 @@ function enqueueDiscovered(
 const QUESTION_SHAPE_RE = /^(what|how|why|when|where|who|which|is|are|does|do|can|should)\b|\?\s*$/i;
 
 /** Question-shaped lines on one snapshot: title, H1/H2s, FAQ questions. */
-function questionLinesFromSnapshot(snap: {
-  title: string | null;
-  h1: string | null;
-  h2_list: string[];
-  faqs: { question: string }[];
-}): string[] {
+function questionLinesFromSnapshot(snap: { title: string | null; h1: string | null; h2_list: string[]; faqs: { question: string }[] }): string[] {
   const out: string[] = [];
   const push = (line: string | null | undefined) => {
     const t = (line ?? "").trim();
@@ -195,33 +191,22 @@ function questionLinesFromSnapshot(snap: {
 
 /** The compact scorecard fact for one crawled page. */
 function pageFactFromSnapshot(snap: PageSnapshot, path: string): CrawlPageFact {
-  return {
-    url: snap.url,
-    path,
-    title: snap.title,
-    h1: snap.h1,
+  return { url: snap.url, path, title: snap.title, h1: snap.h1, word_count: snap.word_count,
     has_meta_description: Boolean(snap.meta_description?.trim()),
-    word_count: snap.word_count,
-    faq_count: snap.faqs.length,
-    questions: questionLinesFromSnapshot(snap),
-  };
+    faq_count: snap.faqs.length, questions: questionLinesFromSnapshot(snap) };
 }
 
-/** PURE. What one failed fetch means as an HTTP status: the server's own number when we have it,
- *  403 for a robots refusal (the site declining is the same fact from the crawler's side), and 0
- *  for a transport failure, which leaves the page eligible rather than writing it off. */
+/** PURE. What one failed fetch means as an HTTP status: the server's own number when we have it, 403 for
+ *  a robots refusal, and 0 for a transport failure, which leaves the page eligible rather than written off. */
 function failureStatusOf(result: { reason: string; detail?: string }): number {
   const m = /^http_(\d{3})$/.exec(result.detail ?? "");
   if (m) return Number(m[1]);
   return result.reason === "robots_blocked" ? 403 : 0;
 }
 
-/** PURE. How much of the page the stored snapshot holds. `partial` only when the extractor's own
- *  ceiling cut the text; everything else read whole is `complete`. */
+/** PURE. How much of the page the snapshot holds: `partial` only when the extractor's ceiling cut it. */
 export function completenessOf(snap: PageSnapshot): "complete" | "partial" {
-  return (snap.structural_warnings ?? []).some((w) => w.startsWith("body_text_truncated"))
-    ? "partial"
-    : "complete";
+  return (snap.structural_warnings ?? []).some((w) => w.startsWith("body_text_truncated")) ? "partial" : "complete";
 }
 
 // ---------------------------------------------------------------------------
@@ -236,17 +221,9 @@ type StartCrawlResult = {
   detail?: string;
 };
 
-/**
- * Initialize (or force-reset) the crawl for a tenant: one bounded discovery pass, recorded in the
- * DURABLE inventory, then a working set drawn from that inventory. Does NOT crawl content pages
- * itself. Failure-soft; never throws.
- */
-export async function startColdStartCrawl(args: {
-  tenantId: string;
-  domain: string;
-  force?: boolean;
-  deps?: CrawlFrontierDeps;
-}): Promise<StartCrawlResult> {
+/** Initialize (or force-reset) the crawl: one bounded discovery pass into the DURABLE inventory, then a
+ *  working set drawn from it. Does NOT crawl content pages itself. Failure-soft; never throws. */
+export async function startColdStartCrawl(args: { tenantId: string; domain: string; force?: boolean; deps?: CrawlFrontierDeps }): Promise<StartCrawlResult> {
   const deps = args.deps ?? {};
   const now = deps.now ?? Date.now;
   const fetchImpl = deps.fetchImpl ?? fetch;
@@ -270,39 +247,28 @@ export async function startColdStartCrawl(args: {
     }
 
     const started = now();
-    const { pages: discovered, source, truncated } = await discoverUrls(
+    const { pages: discovered, source, truncated, nextCursor } = await discoverUrls(
       site.origin, fetchImpl, perRequestMs, now, started + DISCOVERY_BUDGET_MS);
     if (truncated > 0) {
-      log.warn("[crawl-frontier] the site has more pages than one discovery pass records", {
-        tenant: args.tenantId, recorded: discovered.length, past_ceiling: truncated });
+      log.warn("[crawl-frontier] the site has more pages than one discovery pass records; I resume from here", {
+        tenant: args.tenantId, recorded: discovered.length, past_ceiling: truncated, resume_at: nextCursor });
     }
 
-    // THE INVENTORY IS THE RECORD. A failed write is logged and the crawl still runs off what this
-    // pass found, because a first look the operator can see beats a durable nothing.
+    // THE INVENTORY IS THE RECORD. A failed write is logged and the crawl still runs off what this pass
+    // found, because a first look the operator can see beats a durable nothing.
     const recorded = await recordDiscovery(args.tenantId, discovered).catch(() => 0);
     if (recorded === 0 && discovered.length > 0) {
       log.warn("[crawl-frontier] I found pages but could not record them in the inventory yet", {
         tenant: args.tenantId, found: discovered.length });
     }
 
-    // A single homepage seed is UNVERIFIED: discovery cannot tell "no links" from "no answer", so
-    // probe it once and let a dead site read as honestly unreachable.
+    // A single homepage seed is UNVERIFIED: discovery cannot tell "no links" from "no answer", so probe it once and let a dead site read as honestly unreachable.
     const nowIsoStart = new Date(now()).toISOString();
     const base: CrawlFrontierState = {
-      tenant_id: args.tenantId,
-      domain: site.host,
-      status: "in_progress",
-      frontier: [],
-      visited: [],
-      pages_crawled: 0,
-      pages_failed: 0,
-      page_cap: pageCap,
-      source,
-      started_at: nowIsoStart,
-      updated_at: nowIsoStart,
-      last_batch_at: null,
-      batches_run: 0,
-      page_facts: [],
+      tenant_id: args.tenantId, domain: site.host, status: "in_progress", frontier: [], visited: [],
+      pages_crawled: 0, pages_failed: 0, page_cap: pageCap, source,
+      started_at: nowIsoStart, updated_at: nowIsoStart, last_batch_at: null,
+      batches_run: 0, page_facts: [], discovery_cursor: nextCursor,
     };
     if (source === "homepage" && discovered.length === 1) {
       const probe = await fetchPageHtml(site.origin, new Map(), { fetchImpl, timeoutMs: perRequestMs });
@@ -318,8 +284,7 @@ export async function startColdStartCrawl(args: {
       }
     }
 
-    // The working set comes from the INVENTORY when it is there, so a resumed account picks up the
-    // pages it never reached; this pass's own findings are the fallback.
+    // The working set comes from the INVENTORY when it is there, so a resumed account picks up the pages it never reached; this pass's own findings are the fallback.
     const fromInventory = await pickCandidates(args.tenantId, MAX_FRONTIER_URLS, new Date(now())).catch(() => []);
     const seeds = fromInventory.length > 0 ? fromInventory : discovered.map((d) => d.url);
     const { frontier, added } = enqueueDiscovered(base, seeds);
@@ -339,6 +304,20 @@ export async function startColdStartCrawl(args: {
   }
 }
 
+/** DISCOVERY IS NOT ONE-SHOT. A pass that could not enumerate the whole site left a cursor; this resumes
+ *  there and records what it finds. Returns the next cursor (0 = enumerated end to end). Failure-soft. */
+async function resumeDiscovery(args: {
+  tenantId: string; domain: string; cursor: number; fetchImpl: typeof fetch; perRequestMs: number;
+  now: () => number; record: typeof upsertDiscovery;
+}): Promise<number> {
+  const site = originFromDomain(args.domain);
+  if (!site) return 0;
+  const { pages, nextCursor } = await discoverUrls(site.origin, args.fetchImpl, args.perRequestMs,
+    args.now, args.now() + DISCOVERY_BUDGET_MS, args.cursor);
+  if (pages.length > 0) await args.record(args.tenantId, pages).catch(() => 0);
+  return nextCursor;
+}
+
 // ---------------------------------------------------------------------------
 // One bounded batch (one serverless invocation)
 // ---------------------------------------------------------------------------
@@ -355,12 +334,11 @@ type CrawlBatchResult = {
 };
 
 /**
- * Crawl exactly one bounded batch: at most `maxPagesPerBatch` pages and at most `batchBudgetMs` of
- * wall clock, whichever ends first. The working set is refilled from the inventory when it runs
- * dry, each page is robots-checked and politely fetched, snapshotted through the SAME extractor and
- * dual-write as every other scan, and WHAT THE READ FOUND IS WRITTEN BACK to the inventory: crawled
- * with the hash of the text held, blocked with a bounded retry date, or gone. Newly discovered
- * same-host links are recorded too. Failure-soft; never throws.
+ * Crawl exactly one bounded batch: at most `maxPagesPerBatch` pages and `batchBudgetMs` of wall clock,
+ * whichever ends first. The working set refills from the inventory when it runs dry, each page is
+ * robots-checked and politely fetched, snapshotted through the SAME extractor and dual-write as every
+ * other scan, and WHAT THE READ FOUND IS WRITTEN BACK: crawled with the hash of the text held, blocked
+ * with a bounded retry date, or gone. New same-host links are recorded too. Failure-soft; never throws.
  */
 export async function runCrawlBatch(args: {
   tenantId: string;
@@ -381,6 +359,7 @@ export async function runCrawlBatch(args: {
   const recordDiscovery = deps.recordDiscovery ?? upsertDiscovery;
   const recordCrawled = deps.recordCrawled ?? markCrawled;
   const recordBlocked = deps.recordBlocked ?? markBlocked;
+  const readInventoryImpl = deps.readInventoryImpl ?? readInventory;
 
   const noRun = (detail: string, status: CrawlBatchResult["status"]): CrawlBatchResult => ({
     ran: false, status, crawled: 0, failed: 0, totalCrawled: 0, remaining: 0,
@@ -388,11 +367,18 @@ export async function runCrawlBatch(args: {
   });
 
   try {
-    const state = await load(args.tenantId);
+    let state = await load(args.tenantId);
     if (!state) return noRun("no_frontier_state", "no_crawl");
     if (state.status === "unreachable") return noRun("unreachable", "unreachable");
+    // FINISHED IS A READING, NEVER A LATCH. It used to be one: once a pass said "complete" nothing ever
+    // reopened it, so a page shipped afterwards was recorded and then never read, and the 30-day re-read
+    // the inventory promises could not happen. A finished crawl asks what every pass asks (never read,
+    // retry date arrived, read gone stale) and reopens on a CLEAN pass, same bounds; owed nothing, it stands.
     if (state.status === "complete") {
-      return { ...noRun("already_complete", "complete"), totalCrawled: state.pages_crawled };
+      const owed = await pickCandidates(args.tenantId, MAX_FRONTIER_URLS, new Date(now())).catch(() => []);
+      if (owed.length === 0) return { ...noRun("already_complete", "complete"), totalCrawled: state.pages_crawled };
+      state = { ...state, status: "in_progress", visited: [], frontier: enqueueDiscovered({ ...state, frontier: [], visited: [] }, owed).frontier };
+      await save(state);
     }
 
     const started = now();
@@ -401,8 +387,8 @@ export async function runCrawlBatch(args: {
     const visited = new Set(state.visited);
     let frontier = [...state.frontier];
 
-    // REFILL FROM THE INVENTORY. An empty working set no longer means the site is finished: it
-    // means this blob is spent, and the inventory knows what is still uncrawled or due again.
+    // REFILL FROM THE INVENTORY. An empty working set means this blob is spent, not that the site is
+    // finished: the inventory knows what is still uncrawled or due again.
     if (frontier.length === 0 && visited.size < state.page_cap) {
       const more = await pickCandidates(args.tenantId, MAX_FRONTIER_URLS, new Date(now())).catch(() => []);
       frontier = enqueueDiscovered({ ...state, frontier: [], visited: [...visited] }, more).frontier;
@@ -485,9 +471,8 @@ export async function runCrawlBatch(args: {
       }
     }
 
-    // Persist inventory FIRST (the pages registry is a prerequisite for snapshots), and only then
-    // advance the durable cursor. Neither write is optional: if either fails the cursor must NOT
-    // advance, or these pages are marked visited forever and never read again.
+    // Persist the registry FIRST (snapshots join to it), and only then advance the cursor. Neither write
+    // is optional: if either fails the cursor must NOT advance, or these pages are never read again.
     const notPersisted = (kind: string, e: unknown): CrawlBatchResult => ({
       ran: true, status: "in_progress", crawled: 0, failed,
       totalCrawled: state.pages_crawled, remaining: state.frontier.length, complete: false,
@@ -500,22 +485,38 @@ export async function runCrawlBatch(args: {
       catch (e) { return notPersisted("snapshot_write_failed", e); }
     }
 
-    // A DRAINED WORKING SET IS NOT A FINISHED SITE. This blob holds 200 URLs; the inventory holds
-    // every one the sitemaps named, and an orphan page nothing links to only ever arrives from
-    // there. Completion asks the inventory one last time, so "that is every page I could find" is
-    // said only when there is genuinely nothing left to hand out.
-    const capReached = visited.size >= state.page_cap;
-    if (frontier.length === 0 && !capReached) {
-      const left = await pickCandidates(args.tenantId, MAX_FRONTIER_URLS, new Date(now())).catch(() => []);
-      frontier = enqueueDiscovered({ ...state, frontier: [], visited: [...visited] }, left).frontier;
+    // A DRAINED WORKING SET IS NOT A FINISHED SITE. This blob holds 200 URLs; the inventory holds every one
+    // the sitemaps named, and an orphan page only ever arrives from there, so completion asks the inventory
+    // one last time and then DISCOVERY one last time. A SPENT PASS IS NOT A FINISHED SITE EITHER: the
+    // per-pass bound used to end the crawl for good, which is how a site larger than the number kept pages
+    // Beacon would never read. It rolls over instead, and the next pass refills from the inventory.
+    const passSpent = visited.size >= state.page_cap;
+    let cursor = state.discovery_cursor ?? 0;
+    if (frontier.length === 0 && !passSpent) {
+      const refill = async () => {
+        const left = await pickCandidates(args.tenantId, MAX_FRONTIER_URLS, new Date(now())).catch(() => []);
+        frontier = enqueueDiscovered({ ...state, frontier: [], visited: [...visited] }, left).frontier;
+      };
+      await refill();
+      if (frontier.length === 0 && cursor > 0 && now() < deadlineAt) {
+        cursor = await resumeDiscovery({ tenantId: args.tenantId, domain: state.domain, cursor,
+          fetchImpl, perRequestMs, now, record: recordDiscovery }).catch(() => cursor);
+        await refill();
+      }
     }
-    const complete = capReached || frontier.length === 0;
+    // A PAGE WAITING OUT A RETRY DATE IS NOT A PAGE I HAVE READ. Nothing whose date is in the future is handed
+    // out, so a drained working set alone would read as "that is your whole site" while a page still waits.
+    const owed = !passSpent && frontier.length === 0
+      ? await readInventoryImpl(args.tenantId, { limit: 1, states: ["uncrawled", "blocked"] }).catch(() => [])
+      : [];
+    const complete = !passSpent && frontier.length === 0 && owed.length === 0;
     const updatedIso = new Date(now()).toISOString();
     const next: CrawlFrontierState = {
       ...state,
       status: complete ? "complete" : "in_progress",
-      frontier: capReached ? [] : frontier,
-      visited: [...visited],
+      frontier: passSpent ? [] : frontier,
+      visited: passSpent ? [] : [...visited],
+      discovery_cursor: cursor,
       pages_crawled: state.pages_crawled + crawled,
       pages_failed: state.pages_failed + failed,
       updated_at: updatedIso,
@@ -539,10 +540,9 @@ export async function runCrawlBatch(args: {
   }
 }
 
-/**
- * Continue exactly one more batch for a tenant whose crawl is still in progress. A no-op when
- * never started, finished, or unreachable. Never throws.
- */
+/** Continue one more batch for a tenant whose crawl has work. A no-op when never started or unreachable; a
+ *  FINISHED crawl goes THROUGH, because the batch is the one place that asks whether anything is still
+ *  owed, and two places deciding that is two answers. Never throws. */
 export async function continueColdStartCrawlIfStarted(
   tenantId: string,
   deps?: CrawlFrontierDeps,
@@ -550,7 +550,7 @@ export async function continueColdStartCrawlIfStarted(
   const load = deps?.loadState ?? loadCrawlFrontier;
   try {
     const state = await load(tenantId);
-    if (!state || state.status !== "in_progress") {
+    if (!state || (state.status !== "in_progress" && state.status !== "complete")) {
       return {
         ran: false,
         status: state?.status ?? "no_crawl",

@@ -14,37 +14,7 @@ const db = vi.hoisted(() => {
     rows: [] as Row[], file: [] as Row[], offline: false,
     upsertError: null as Row | null, updateError: null as Row | null,
   };
-  const client = {
-    from() {
-      const eqs: Array<[string, unknown]> = [], gtes: Array<[string, string]> = [];
-      let op: "select" | "update" | "upsert" = "select", patch: Row = {}, sent: Row = {};
-      const hit = (r: Row) => eqs.every(([c, v]) => (r[c] ?? null) === v)
-        && gtes.every(([c, v]) => typeof r[c] === "string" && (r[c] as string) >= v);
-      const run = () => {
-        if (op === "select") return { data: state.rows.filter(hit).map((r) => ({ ...r })), error: null };
-        if (op === "update") {
-          if (state.updateError) return { data: null, error: state.updateError };
-          const affected = state.rows.filter(hit);
-          for (const r of affected) Object.assign(r, patch);
-          return { data: affected.map((r) => ({ id: r.id })), error: null };
-        }
-        if (state.upsertError) return { data: null, error: state.upsertError };
-        const at = state.rows.findIndex((r) => r.tenant_id === sent.tenant_id && r.id === sent.id);
-        if (at >= 0) state.rows[at] = { ...state.rows[at], ...sent }; else state.rows.push({ ...sent });
-        return { data: [{ id: sent.id }], error: null };
-      };
-      const q: Record<string, unknown> = {
-        select: () => q, limit: () => q,
-        eq: (c: string, v: unknown) => { eqs.push([c, v]); return q; },
-        gte: (c: string, v: string) => { gtes.push([c, v]); return q; },
-        update: (p: Row) => { op = "update"; patch = p; return q; },
-        upsert: (r: Row) => { op = "upsert"; sent = r; return q; },
-        then: (resolve: (v: unknown) => void) => resolve(run()),
-      };
-      return q;
-    },
-  };
-  return { state, client };
+  return { state, client: {} as Record<string, unknown> };
 });
 const gsc = vi.hoisted(() => ({ window: vi.fn(), lastFinal: vi.fn() }));
 const ai = vi.hoisted(() => ({ views: vi.fn() }));
@@ -78,6 +48,10 @@ import {
   loadShippedChangesForTenant, pagesUnderMeasurementFromShipments, recordVerification,
   upsertShippedChange, type ShipmentVerification,
 } from "@/domains/measurement/proof-gsc/shipped-change-store";
+import { supabaseFake } from "../helpers/supabase-fake";
+Object.assign(db.client, supabaseFake({ rows: () => db.state.rows,
+  error: (_t, op) => (op === "update" ? db.state.updateError : op === "upsert" ? db.state.upsertError : null) as { message: string } | null,
+  same: (stored, sent) => stored.tenant_id === sent.tenant_id && stored.id === sent.id }));
 
 const T = "acct-a", NOW = new Date("2026-07-31T12:00:00.000Z");
 const PAGE = "https://www.fixture-outdoors.example/nowruz-guide";
@@ -196,13 +170,13 @@ describe("the canonical Shipment", () => {
     await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: withCopy }) as never }));
     expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual(withCopy);
   });
-  it("records the operator's own confirmation as the answer itself, so the live check is never owed", async () => {
+  // PIN (B): the operator's words are kept as a NOTE, and the reading is still owed.
+  it("keeps what the operator says they did as a note, and still owes the live check", async () => {
     await upsertShippedChange(await ship({
-      shipment: origin({ operatorConfirmed: true, operatorOverrideReason: "I pasted it into my site myself." }) as never }));
+      shipment: origin({ operatorNote: "I pasted it into my site myself." }) as never }));
     const [stored] = await loadShippedChangesForTenant(T);
-    expect(stored.verification?.status).toBe("operator_confirmed");
-    expect(stored.verification?.components.every((c) => c.state === "unknown")).toBe(true);
-    expect(stored.operatorOverrideReason).toBe("I pasted it into my site myself.");
+    expect(stored.verification).toBeNull();
+    expect(stored.operatorNote).toBe("I pasted it into my site myself.");
   });
   it("still decodes a record written before there were Shipments", async () => {
     db.state.rows.push(legacyRow());
@@ -288,16 +262,17 @@ describe("when the Shipment columns are not there yet", () => {
   });
 });
 
-/** PRODUCT TRUTH: start measurement only after implementation is verified or explicitly
- *  operator-confirmed. Measuring a change I never found on the page would credit search movement
- *  to work that may never have landed. */
+/** PRODUCT TRUTH: start measurement only after implementation is VERIFIED on the live page. Measuring a
+ *  change I never found there would credit search movement to work that may never have landed. */
 describe("measurement waits for the change to be found on the page", () => {
   const LATER = new Date("2026-08-20T12:00:00.000Z"), FINAL = "2026-08-19";
   const due = async (v: ShipmentVerification | null) => isDueForMeasure({ ...(await ship()), verification: v }, FINAL, LATER);
-  it("measures a verified, partly verified or operator-confirmed change, and nothing else", async () => {
+  it("measures a verified or partly verified change, and nothing else", async () => {
     expect(await due(verification("verified"))).toBe(true);
     expect(await due(verification("partially_verified"))).toBe(true);
-    expect(await due(verification("operator_confirmed"))).toBe(true);
+    // PIN (B): a historical row carrying the retired override label was never actually checked, so it
+    // buys no measurement; verification owes it the one real reading it never got.
+    expect(await due(verification("operator_confirmed"))).toBe(false);
     expect(await due(null)).toBe(false);            // never checked: there is nothing honest to measure yet
     expect(await due(verification("not_found"))).toBe(false);
     expect(await due(verification("blocked"))).toBe(false);

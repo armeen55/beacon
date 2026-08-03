@@ -30,7 +30,7 @@ const input = (over: Partial<KernelInput> = {}): KernelInput => ({
 });
 const VERIFICATION: ShipmentVerification = {
   status: "partially_verified", checkedAt: "2026-05-03T09:00:00Z",
-  components: [{ kind: "title", state: "verified", note: null }, { kind: "section_add", state: "missing", note: null }, { kind: "schema", state: "unknown", note: null }],
+  components: [{ kind: "title", state: "verified", note: null }, { kind: "section_add", state: "not_verified", note: null }, { kind: "schema", state: "unverifiable", note: null }],
 };
 const AI: ShipmentAiOutcome = {
   direction: "improved",
@@ -99,11 +99,7 @@ describe("one shipped change tells its whole story", () => {
   });
   it("says what it learned in the operator's words, with no slug from the diagnosis or the action family", () => {
     const learned = shipmentStory(shipment()).learning;
-    expect(learned).toContain("I read this page as the line searchers saw not matching what they typed");
-    expect(learned).toContain("I answered it with a content change");
-    expect(learned).toContain("the page moved up after it");
-    expect(learned).toContain("6 pieces of evidence");
-    expect(learned).toContain("I carry that into what I recommend next");
+    for (const s of ["I read this page as the line searchers saw not matching what they typed", "I answered it with a content change", "the page moved up after it", "6 pieces of evidence", "I carry that into what I recommend next"]) expect(learned, s).toContain(s);
     // NOTHING IS CARRIED FORWARD FROM A READ THAT HAS NOT LANDED: no direction, no lesson.
     const early = shipmentStory(shipment({ read: evaluateChange(input({ windows: [] }), evaluateWindows(SHIPPED, new Date("2026-05-03T00:00:00Z"), "2026-05-03"), []) }));
     expect(early.learning).toContain("it is too early to say which way this went");

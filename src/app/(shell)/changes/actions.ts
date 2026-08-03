@@ -15,8 +15,7 @@ import { dismissChangeProposal, loadChangeProposal, markProposalImplemented, res
 import { getTenant } from "@/domains/account";
 import { captureChangeMeta, loadShippedChanges, recordShippedChange, upsertShippedChange } from "@/domains/measurement";
 import { invalidateCoreSurfaces } from "../surface-release";
-import { readReleasedChanges } from "../changes-data";
-import { CHANGES_PAGE_SIZE } from "./types";
+import { readChangesPage, type ChangesPage } from "../changes-data";
 
 /**
  * changes/actions (CORE 100K cutover, 2026-07-22): the manual "Mark implemented"
@@ -90,7 +89,7 @@ function liveUrlFor(raw: string, domain: string): { url: string } | { error: str
  */
 async function recordShipment(
   tenantId: string, proposal: ChangeProposal,
-  opts: { componentKinds?: readonly string[]; operatorConfirmed?: boolean; overrideReason?: string | null; liveUrl?: string } = {},
+  opts: { componentKinds?: readonly string[]; operatorNote?: string | null; liveUrl?: string } = {},
 ): Promise<boolean> {
   const componentKinds = opts.componentKinds;
   try {
@@ -113,7 +112,10 @@ async function recordShipment(
     // ordinary kind lost the day-56 follow up that exists for exactly those changes.
     const all = proposal.bundle?.components.map((c) => ({ kind: c.kind, label: c.label, after: c.after ?? null, risk: c.risk ?? null,
       // A renamed link is verified against the words that should now be ON it, so those words ride along.
-      ...(c.anchorAfter ? { anchorAfter: c.anchorAfter } : {}) }))
+      ...(c.anchorAfter ? { anchorAfter: c.anchorAfter } : {}),
+      // AND A FORWARD RIDES WITH ITS DESTINATION. Without it the live check read the first address out of
+      // the sentence, which is the one being MOVED, and graded a correct forward as a wrong one.
+      ...(c.redirectTo ? { redirectTo: c.redirectTo } : {}) }))
       // An atomic change has no component to carry a grade, so it reads null rather than a guess.
       ?? [{ kind: proposal.changeFamily, label: proposal.opportunityType, after: proposal.recommendedChange?.kind === "existing_edit" ? proposal.recommendedChange.after : null, risk: null }];
     const wanted = componentKinds && componentKinds.length > 0 ? new Set(componentKinds) : null;
@@ -149,12 +151,10 @@ async function recordShipment(
         componentsApplied,
         implementedAt: now,
         preChangeContentHash: meta?.contentHash ?? null,
-        // THE OVERRIDE TRAVELS WITH THE PRESS. When the operator states outright that a change is live, the
-        // Shipment carries that answer and the live check is never owed for it. Absent, which is the normal
-        // case, Beacon goes and looks at the page itself before it says anything.
-        ...(opts.operatorConfirmed === true
-          ? { operatorConfirmed: true, operatorOverrideReason: opts.overrideReason?.trim() || null }
-          : {}),
+        // THE NOTE TRAVELS WITH THE PRESS, and nothing else does. If they changed the page differently from
+        // the copy I handed them, their own words ride along beside the reading. The reading still happens:
+        // Beacon goes and looks at the page itself before it says anything, every single time.
+        operatorNote: opts.operatorNote?.trim() || null,
       },
     });
     await upsertShippedChange(record);
@@ -168,19 +168,21 @@ async function recordShipment(
 }
 
 /**
- * Record that the operator applied a change. Phase 8 built the two controls this action was
- * already written for: the component PICKER (tick the pieces you actually applied, all ticked by
- * default) and the OVERRIDE (say it is live and ask me not to check the page, with your reason).
- * Both arrive here as the arguments they were always declared as.
+ * Record that the operator applied a change. Two controls ride with it: the component PICKER (tick the
+ * pieces you actually applied, all ticked by default) and the NOTE (say what you put on the page if it
+ * was not my wording). THE CLAIM STARTS THE CHECK AND NEVER ENDS IT: whatever arrives here, the Shipment
+ * is written with no verification on it, so Beacon still goes and reads the live page before it says a
+ * change is there.
  */
 export async function markProposalImplementedAction(args: {
   proposalId: string;
   /** Which components the operator actually applied. Absent or empty means all of them. */
   componentKinds?: string[];
-  /** The operator states this is live and asks Beacon not to check the page. Never a default. */
+  /** What they actually put on the page, in their own words. A note beside the reading, never instead of it. */
+  operatorNote?: string;
+  /** RETIRED, and accepted only so an old page still open in a browser is not an error. It used to
+   *  suppress the live check; it does nothing now, and the check runs either way. */
   operatorConfirmed?: boolean;
-  /** Why they overrode the check, in their own words. */
-  overrideReason?: string;
   /** WHERE THE NEW PAGE IS LIVE. Required for a new page, which has no address until they publish it. */
   liveUrl?: string;
 }): Promise<MarkProposalImplementedResponse> {
@@ -224,7 +226,7 @@ export async function markProposalImplementedAction(args: {
     }
     // SHIPMENT FIRST, FLIP SECOND. Never the other way around.
     if (!(await recordShipment(tenantId, stored, {
-      componentKinds: args.componentKinds, operatorConfirmed: args.operatorConfirmed, overrideReason: args.overrideReason, liveUrl,
+      componentKinds: args.componentKinds, operatorNote: args.operatorNote, liveUrl,
     }))) {
       return { success: false, error: "I couldn't start measuring this change, so I haven't recorded it as done. Press it again in a moment." };
     }
@@ -247,17 +249,15 @@ export async function markProposalImplementedAction(args: {
 }
 
 /**
- * THE NEXT PAGE OF THE RANKED QUEUE. Read-only, and cut from the SAME stored release the first page
- * came from, so the order cannot move underneath the operator between one press and the next.
- * `remaining` is what is still behind the page just handed over, so the control never has to guess.
+ * THE NEXT PAGE OF THE RANKED QUEUE. Read-only, ONE page, cut at a rank offset inside the release the
+ * caller names: hand back the id you were given and you keep reading the same order. If that release has
+ * been replaced since, the answer is the fresh first page and the sentence saying so, never rows from an
+ * order the operator never saw.
  */
-export async function loadMoreChangesAction(args: { lane: "ready" | "todo"; cursor: number }): Promise<{
-  rows: ChangeProposal[]; remaining: number;
-}> {
-  const view = await readReleasedChanges(await currentTenantId()).catch(() => null);
-  const all = view == null ? [] : args.lane === "ready" ? view.ready : view.toDo;
-  const cursor = Math.max(0, Math.floor(args.cursor));
-  return { rows: all.slice(cursor, cursor + CHANGES_PAGE_SIZE), remaining: Math.max(0, all.length - cursor - CHANGES_PAGE_SIZE) };
+export async function loadMoreChangesAction(args: {
+  lane: "ready" | "todo"; cursor: number; releaseId?: string | null;
+}): Promise<ChangesPage> {
+  return readChangesPage(await currentTenantId(), args.lane, args.cursor, args.releaseId ?? null);
 }
 
 /**
@@ -325,7 +325,7 @@ function indexEditsByJoinKey<
   return map;
 }
 
-export type MarkChangelogEditShippedResponse = {
+type MarkChangelogEditShippedResponse = {
   success: boolean;
   error?: string;
   flipped?: number;

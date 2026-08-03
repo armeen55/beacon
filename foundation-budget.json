@@ -1,15 +1,15 @@
 {
-  "_doc": "Bloat firewall. Ceilings are NON-INCREASING and sit at the exact verified counts of the V1 Decision Honesty Closure (2026-08-02): ratchet DOWN as code shrinks, never up without operator approval. Enforced by scripts/check-foundation-budget.mjs (npm run guard:foundation). Foundation is frozen; see AGENTS.md for the growth policy and the 8-field feature rule.",
+  "_doc": "Bloat firewall. Ceilings are NON-INCREASING and sit at the exact verified counts of the Dream V1 landing (2026-08-03, operator-approved one-time test-pool correction, maxima 11600/85000): ratchet DOWN as code shrinks, never up without operator approval. Enforced by scripts/check-foundation-budget.mjs (npm run guard:foundation). Foundation is frozen; see AGENTS.md for the growth policy and the 8-field feature rule.",
   "production": {
     "max": 73286,
     "target": 55000
   },
   "tests": {
-    "max": 11081,
+    "max": 11523,
     "target": 4000
   },
   "combined": {
-    "hardCap": 84367,
+    "hardCap": 84808,
     "target": 60000
   },
   "domains": {

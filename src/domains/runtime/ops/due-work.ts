@@ -171,7 +171,8 @@ async function measurementDebt(tenantId: string, now: Date): Promise<{ measurabl
     import("@/domains/measurement/proof-gsc/measure-lifecycle"),
   ]);
   const [records, lastFinal] = await Promise.all([loadShippedChangesForTenant(tenantId), readLastFinalizedDate(tenantId)]);
-  // THE OPERATOR'S DAY, not the UTC one: a recheck promised for the 4th became legal at 5 PM on the 3rd.
+  // THE REPORTING DAY (src/lib/reporting-day.ts holds the contract), not the UTC one: a recheck promised
+  // for the 4th became legal at 5 PM on the 3rd.
   const today = reportingDay(now.getTime());
   return {
     measurable: records.filter((r) => isDueForMeasure(r, lastFinal, now)).length,
@@ -212,10 +213,11 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   const empty: DueWork = { due: [], readable: false, checks: NO_CHECKS, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null };
   if (!tenantId?.trim()) return empty;
   const nowMs = now.getTime();
-  // THE OPERATOR'S DAY, not the UTC one. Owed work was judged against a day that rolled at 5 PM Pacific, so
-  // for the last seven hours of every day Beacon asked "what is owed" about tomorrow while the person reading
-  // it was still in today. Days already stored under a UTC label are history and are never rewritten: where
-  // the two labels land on the same day, the readings already on file simply mean that work is done.
+  // THE REPORTING DAY, and src/lib/reporting-day.ts is the one place that defines it (V1 binds every
+  // account to the same zone; there is no per-account midnight to honour). Judging owed work against a UTC
+  // day meant that for the last seven hours of every day Beacon asked "what is owed" about tomorrow while
+  // the person reading it was still in today. Days already stored under a UTC label are history and are
+  // never rewritten: where the labels land on the same day, the readings on file just mean that work is done.
   const day = reportingDay(nowMs);
 
   const [sources, checks, run, basis] = await Promise.all([

@@ -173,6 +173,7 @@ export function researchStatusLine(view: ResearchRunStatusView, now: Date = new 
   }
   if (view.state === "paused") return `Research paused after ${view.stepsDone} of ${view.stepsTotal} steps. ${view.pauseReason}`;
   if (view.state === "completed" && view.completedAt) {
+    // The reporting zone, and there is only one of it in V1: src/lib/reporting-day.ts holds the contract.
     const tz = { timeZone: "America/Los_Angeles" } as const;
     const finished = new Date(view.completedAt);
     const at = finished.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", ...tz });
