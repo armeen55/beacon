@@ -6,11 +6,11 @@
 ## Current foundation
 
 - Branch `main`; MVP rebuild started at `4669fbb5`. Stack: Next.js App Router, strict TypeScript, Supabase, Vercel.
-- Production TypeScript is 79,886 lines; tests 11,193; combined 91,079 (ceilings at these exact counts).
+- Production TypeScript is 73,249 lines; tests 11,505; combined 84,754 (ceilings at these exact counts).
 - The foundation guard caps production, tests, combined LOC, domains, routes, exports, files, dependencies, and
   Markdown. `npm run gate` runs the guard, typecheck, tests, and build.
-- Five kernels exist (Account, Evidence, Decision, Measurement, Runtime); four primary surfaces (Today, Changes,
-  Results, Connections).
+- Five kernels exist (Account, Evidence, Decision, Measurement, Runtime); five surfaces (Today, Visibility,
+  Changes, Results, Connections). Wix is removed; publishing is manual for every account.
 - Supabase authentication provisions one membership and one tenant per new user.
 - One login resolves exactly one account, fail-closed (2026-07-23; loop-proofed 2026-07-26): on product paths the
   middleware injects the single membership's account; zero, multiple, erroring, or timed-out lookups redirect to
@@ -183,7 +183,7 @@ held page before they fire. Analysis coverage is resumable by piece: the answer 
 coverage, a partial stays due and resumes at the first unread piece, and every completed-check denominator
 counts only settled readings. A full rewrite or new page is Ready only when every planned section and the
 opening drafted and validated; source packs name the source whole or say the operator picks it and hold for
-review, and the component card renders where, why, and the sources. The first live run is the operator's.
+review, and the component card renders where, why, and the sources. Dream V1 is live at 9d8795a0: a pg_cron dispatcher (every 30 minutes, Vault bearer, honest receipts, 503 on an unreadable fleet) drives the same canonical cycle a visit drives; the first autonomous production day completed 2026-08-03 for Iranopedia (35 prompts x 4 engines, 107 whole answers with fan-outs and citations, 6 citing the operator's own site, $1.43 provider spend, one evidence-earned bundle stamped rank 1 in the database-paged unlimited queue); the lifecycle union is closed with the bridge decoder deleted, verification grades the destination an instruction named, competitor calls need overlap evidence, and Visibility exposes every observation of a day with a full drilldown. The operator's signed-in walk of the surfaces remains theirs to take.
 
 ## Verification
 
