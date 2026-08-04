@@ -260,8 +260,8 @@ describe("reading the answers back", () => {
     while (passes < 8 && selectAnalysisTargets([...store.values()]).length > 0) { passes += 1; await runAnswerAnalyses(T, DAY, deps); }
     // Every answer ends the day ANALYZED or explicitly REJECTED: nothing is left owing.
     expect(selectAnalysisTargets([...store.values()])).toEqual([]);
-    expect(passes).toBe(3);   // 60 answers a pass, so the day empties in three of its eight passes
-    expect(calls).toBe(10);   // ceil(140 / 15): exactly what the batch size predicts, not 140
+    expect(passes).toBe(7);   // 20 answers a pass, so the day empties in seven of the passes a day actually runs
+    expect(calls).toBe(28);   // ceil(140 / 5): exactly what the batch size predicts, and every call small enough to get through the minute
   });
   it("rejects ONE answer the batch left out, alone, and never lets it cost its neighbours their readings", async () => {
     const rows = Array.from({ length: 3 }, (_, i) => row(`m${i}`, `hm${i}`, null, false));
@@ -281,17 +281,15 @@ describe("reading the answers back", () => {
     expect(saved.some((s) => s[0] === "obs-nobody-asked-about")).toBe(false); // a reading for an id I never sent is dropped
   });
   it("degrades a REFUSED batch to one answer at a time, settles every answer it was carrying, and never lets it starve the batches after it", async () => {
-    // Four batches of fifteen. The gateway already retried batch one's shape once on its own, so a second identical batch buys the same refusal and the
-    // ladder drops a rung. The fallback allowance used to be FIVE FOR THE WHOLE PASS, so batch one's failure ate all of it and batches two, three and
-    // four settled nothing: the pass paid for sixty answers and left forty five of them on the worklist to be bought again.
-    const rows = Array.from({ length: 60 }, (_, i) => row(`b${String(i).padStart(2, "0")}`, `hb${i}`, null, false));
-    const saved = new Map<string, Record<string, unknown>>(); let batches = 0, singles = 0;
+    // Four batches of five, which is one pass's whole reach. The gateway already retried batch one's shape once on its own, so a second identical batch buys the same refusal and the ladder drops a rung. The fallback allowance used to be FIVE FOR THE WHOLE PASS, so batch one's failure ate all of it and batches two, three and four settled nothing.
+    const rows = Array.from({ length: 20 }, (_, i) => row(`b${String(i).padStart(2, "0")}`, `hb${i}`, null, false)), saved = new Map<string, Record<string, unknown>>();
+    let batches = 0, singles = 0;
     const written = await runAnswerAnalyses(T, DAY, { readObservations: async () => rows, readPrompts: async () => null, identity: BRAND,
       analyzeBatch: async ({ targets }) => { batches += 1; return batches === 1 ? null : readsAll({ targets }); },
       analyze: async () => { singles += 1; return singles === 1 ? null : analysis; }, // the poisoned answer is the first one
       persist: async (_t, id, a) => void saved.set(id, a) });
-    expect([batches, singles]).toEqual([4, 15]);    // one batch attempt each, and every answer the refused one carried re-read alone
-    expect([written, saved.size]).toEqual([59, 60]); // fifty nine real readings, and the poisoned answer settled rather than retried forever
+    expect([batches, singles]).toEqual([4, 5]);     // one batch attempt each, and every answer the refused one carried re-read alone
+    expect([written, saved.size]).toEqual([19, 20]); // nineteen real readings, and the poisoned answer settled rather than retried forever
     expect(saved.get("b00")).toMatchObject({ rejected: true, outcome: "refused" });
     expect(selectAnalysisTargets(rows.filter((r) => !saved.has(r.id)))).toEqual([]); // nothing this pass read is left owing
   });
@@ -327,19 +325,13 @@ describe("reading the answers back", () => {
     expect(selectAnalysisTargets([{ ...rejected, analysis: { rejected: true, outcome: "refused" }, analysisHash: "h-x" }])).toEqual([]);
     expect(selectAnalysisTargets([{ ...rejected, answerHash: "h-new", analysis: { rejected: true, outcome: "refused" }, analysisHash: "h-x" }]).map((r) => r.id)).toEqual(["x"]);
   });
-  it("treats a throttled reader as the provider's problem, not the answer's: no fan-out, no verdict, still due, and the 278 already stamped come back", async () => {
+  it("treats a throttled reader as the provider's problem, not the answer's: no verdict, still due, and the 278 already stamped come back", async () => {
     // Aug 3 and 4: 278 answers, every one rejected on a 429 and stamped with its own answer hash, so the system believed it had read them forever and
     // Visibility divided by the handful the matcher happened to match. A refusal on the CONTENT is the opposite: it settles, names itself permanent, and
     // carries the deterministic verdict in BOTH polarities, so the denominator is every answer read rather than every match found.
-    const rows = Array.from({ length: 20 }, (_, i) => row(`t${i}`, `ht${i}`, null, false));
-    const saved: Array<[string, Record<string, unknown>, string]> = []; let batches = 0, singles = 0;
-    const written = await runAnswerAnalyses(T, DAY, { readObservations: async () => rows, readPrompts: async () => null, identity: BRAND,
-      analyzeBatch: async () => { batches += 1; return "transient" as const; }, analyze: async () => { singles += 1; return analysis; },
-      persist: async (_t, id, a, hash) => void saved.push([id, a, hash]) });
-    expect([written, batches, singles, saved, selectAnalysisTargets(rows).length]).toEqual([0, 1, 0, [], rows.length]); // one throttled batch, ZERO single calls behind it, nothing stamped, everything still owed at no cost
+    const rows = Array.from({ length: 20 }, (_, i) => row(`t${i}`, `ht${i}`, null, false)), saved: Array<[string, Record<string, unknown>, string]> = [];
     const missed = { ...row("n", "h-n", null, false), answerText: "This answer names nobody at all." };
-    await runAnswerAnalyses(T, DAY, { readObservations: async () => [missed, row("y", "h-y", null, false)], readPrompts: async () => null,
-      identity: BRAND, analyzeBatch: async () => null, analyze: async () => null, persist: async (_t, id, a, hash) => void saved.push([id, a, hash]) });
+    await runAnswerAnalyses(T, DAY, { readObservations: async () => [missed, row("y", "h-y", null, false)], readPrompts: async () => null, identity: BRAND, analyzeBatch: async () => null, analyze: async () => null, persist: async (_t, id, a, hash) => void saved.push([id, a, hash]) });
     expect(saved.map((s) => [s[0], s[2], s[1].outcome, (s[1].ownedBrandMention as { mentioned: boolean }).mentioned])).toEqual([["n", "h-n", "refused", false], ["y", "h-y", "refused", true]]);
     const stamped = { ...rows[0]!, analysis: { rejected: true, reason: "the batch came back missing" }, analysisHash: "ht0" }; // AND THE HISTORY REQUEUES ITSELF
     expect([isAnalysisSettled(stamped), selectAnalysisTargets([stamped]).map((r) => r.id), isAnalysisSettled({ ...stamped, analysis: { rejected: true, outcome: "refused" } })]).toEqual([false, ["t0"], true]);
@@ -358,6 +350,14 @@ describe("reading the answers back", () => {
     // AND THE READINGS STILL LAND: an abandoned batch drops to ONE CALL PER ANSWER, the path that read 274 answers a day in July. A transport 429 is the opposite: nothing came back, nothing was billed, nothing is stored, every answer stays due.
     expect([await pass(async ({ kind }) => (kind === "answer_analysis_batch" ? abandoned : { value: analysis })), saved.every(([, a]) => a.rejected !== true)]).toEqual([3, true]);
     expect([await pass(async () => ({ error: "openai_429", retryable: true })), saved, selectAnalysisTargets(rows).length]).toEqual([0, [], 3]);
+  });
+  it("keeps reading through a sustained throttle: a batch too big for the minute drops to single reads on the SAME pass", async () => {
+    // PROVEN LIVE: the 15 answer batch was ~75,000 input tokens on its own, tripped the org's per-minute ceiling, took openai_http_429 twice every pass, and stopped the pass having tried nothing at all. A single read is ~1,500 tokens, which trickled through the same limits all July at 274 calls a day.
+    const rows = Array.from({ length: 3 }, (_, i) => row(`q${i}`, `hq${i}`, null, false)), saved: Array<[string, Record<string, unknown>]> = []; let batches = 0, singles = 0;
+    const written = await runAnswerAnalyses(T, DAY, { readObservations: async () => rows, readPrompts: async () => null, identity: BRAND, persist: async (_t, id, a) => void saved.push([id, a]),
+      analyzeBatch: async () => { batches += 1; return "transient" as const; }, analyze: async () => { singles += 1; return singles === 2 ? "transient" as const : analysis; } });
+    expect([batches, singles, written, saved.map(([id]) => id)]).toEqual([1, 2, 1, ["q0"]]); // the throttled batch degraded HERE, the first single landed, the throttled single stopped the pass
+    expect(selectAnalysisTargets(rows.slice(1)).map((r) => r.id)).toEqual(["q1", "q2"]); // and the answers nothing was told about are still due, with nothing stored against them
   });
   it("re-reads an answer bought on an earlier day, oldest owed day first, and stops looking back at seven days", async () => {
     // The readback only ever read the RUN's own day, so Aug 4's 138 requeued only if a pass ran on Aug 4 and Aug 3's 140 were unreachable forever.
@@ -441,22 +441,22 @@ describe("reading the answers back", () => {
       persist: async (_t, _id, a, hash) => { stored = { ...stored, analysis: a, analysisHash: hash }; } });
     await pass();
     const parts = (stored.analysis as { coverage: { parts: number } }).coverage.parts;
-    expect(parts).toBeGreaterThan(6);                                   // the old six-piece ceiling threw the rest away
-    expect(sent[0]).toEqual(Array.from({ length: 15 }, (_, i) => `X#${i + 1}`));
+    expect([parts > 6, sent[0]]).toEqual([true, Array.from({ length: 5 }, (_, i) => `X#${i + 1}`)]); // no six-piece ceiling throwing the tail away, and one pass reads one batch of it
     // A PART READ IS NOT AN ANALYSED ANSWER: the hash is deliberately not the answer's, so the row stays due.
     expect([stored.analysisHash === "h-X", isAnalysisSettled(stored), selectAnalysisTargets([stored]).map((r) => r.id)]).toEqual([false, false, ["X"]]);
-    expect(String((stored.analysis as Record<string, unknown>).reason)).toContain("the next pass reads part 16 onward");
+    expect(String((stored.analysis as Record<string, unknown>).reason)).toContain("the next pass reads part 6 onward");
     await pass();
-    expect(sent[1]).toEqual(Array.from({ length: parts - 15 }, (_, i) => `X#${i + 16}`)); // resumed at 16, never at 1
-    expect(new Set(sent.flat()).size).toBe(sent.flat().length);         // every piece bought exactly once
+    expect(sent[1]).toEqual(Array.from({ length: 5 }, (_, i) => `X#${i + 6}`)); // resumed at 6, never at 1
+    while (selectAnalysisTargets([stored]).length > 0) await pass();    // and it finishes, over as many passes as its length takes
+    const bought = sent.length; expect(new Set(sent.flat()).size).toBe(sent.flat().length); // every piece bought exactly once
     expect([stored.analysisHash, isAnalysisSettled(stored), selectAnalysisTargets([stored])]).toEqual(["h-X", true, []]); // only NOW analysed
     expect((stored.analysis as { topicEntities: string[] }).topicEntities).toContain(`entity ${"i".repeat(parts)}`); // the tail survived
-    await pass(); expect(sent.length).toBe(2);                          // a finished answer is never bought again
+    await pass(); expect(sent.length).toBe(bought);                     // a finished answer is never bought again
     // A CHANGED PROVIDER ANSWER RESETS THE COVERAGE against the new hash and is read from part one.
     stored = { ...stored, answerText: "The engine says something entirely different today.", answerHash: "h-X2" };
     expect(selectAnalysisTargets([stored]).map((r) => r.id)).toEqual(["X"]);
     await pass();
-    expect([sent[2], stored.analysisHash, isAnalysisSettled(stored)]).toEqual([["X"], "h-X2", true]);
+    expect([sent[bought], stored.analysisHash, isAnalysisSettled(stored)]).toEqual([["X"], "h-X2", true]);
   });
   it("degrades a broken batch to ONE CALL PER PIECE, each grounded in its own piece, and still finishes the answer", async () => {
     const grounded: string[] = [], saved: Array<[Record<string, unknown>, string]> = [];

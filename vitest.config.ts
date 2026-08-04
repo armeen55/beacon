@@ -71,7 +71,8 @@ export default defineConfig({
       DATAFORSEO_LOGIN: "",
       DATAFORSEO_PASSWORD: "",
       DATAFORSEO_MONTHLY_CAP_USD: "",
-      OPENAI_API_KEY: "",
+      // Restored under the same live escape hatch so a controlled live readback can run; hermetic otherwise.
+      OPENAI_API_KEY: process.env.BEACON_LIVE_DB_TESTS === "1" ? process.env.OPENAI_API_KEY ?? "" : "",
       PERPLEXITY_API_KEY: "",
       // Google OAuth / connector credentials:
       GOOGLE_CLIENT_ID: "",

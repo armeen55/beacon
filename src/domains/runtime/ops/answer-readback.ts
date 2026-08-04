@@ -51,10 +51,12 @@ const BATCH_ANALYSIS_SYSTEM = ANSWER_ANALYSIS_SYSTEM
   + "OBSERVATION, with observationId copied character for character from that OBSERVATION line. Never merge two answers into one entry, never write an "
   + "entry for an id you were not given, and never leave one out.";
 
-/** How many pieces ONE structured call reads back, how many such calls a pass may make, and the pass total. Fifteen compact readings is roughly 19,000
- *  tokens in, which one gpt-5-mini call reads comfortably; four of them is 60 pieces, so a 140 answer day is read back in three passes rather than the
- *  twenty-eight one-answer-per-call needed. Zero new answers still costs zero. */
-const ANSWERS_PER_BATCH = 15, BATCH_CALLS_PER_PASS = 4, MAX_ANALYSES_PER_PASS = ANSWERS_PER_BATCH * BATCH_CALLS_PER_PASS;
+/** How many pieces ONE structured call reads back, how many such calls a pass may make, and the pass total. FIVE, not fifteen: a fifteen piece batch is about 75,000 input tokens
+ *  on its own, which trips the account's per-minute token ceiling by itself, so every pass sent the giant batch, took a throttle twice, and read nothing at all. Five is roughly
+ *  7,000 tokens, four of them is 20 pieces a pass, and a 140 answer day is read back over seven of the day's passes. Zero new answers still costs zero. SINGLES_PER_PASS bounds
+ *  the one-at-a-time fallback at roughly 15,000 tokens a pass, which trickles through the very ceiling one batch used to blow: a CAP, not a sleep, because a pass holds a database
+ *  lease on a deadline and spending its seconds waiting would cost the run more than it saves, and a bound is exact where a delay is a guess. */
+const ANSWERS_PER_BATCH = 5, BATCH_CALLS_PER_PASS = 4, MAX_ANALYSES_PER_PASS = ANSWERS_PER_BATCH * BATCH_CALLS_PER_PASS, SINGLES_PER_PASS = 10;
 /** How much of ONE answer ONE slot reads (a longer answer is not cut off, it is SPLIT into this many characters at a time and every piece is read
  *  eventually), the estimated spend for one batch call and for one single-piece call, and the batch timeout: gpt-5-mini reasons before it writes and a
  *  batch writes fifteen readings, so it asks for more than the gateway's 90 second reasoning floor rather than have a slow one thrown away half-written. */
@@ -234,7 +236,7 @@ function findBrand(identity: BrandIdentity, answerText: string, citationUrls: re
   return null;
 }
 
-/** PURE. Whose failure a non-drafted gateway result was. A budget block bought nothing; a throttle, a server fault or a timeout is the provider's. */
+/** PURE. Whose failure a non-drafted gateway result was: a budget block bought nothing, a throttle or a server fault is the provider's. */
 function failureOf(out: { status: string; errors?: readonly string[] }): ReadFailure {
   if (out.status === "blocked_budget" || out.status === "off") return "budget";
   return (out.errors ?? []).some((e) => TRANSPORT.test(e)) ? "transient" : "refused";
@@ -298,7 +300,7 @@ async function analyzeMany(input: { tenantId: string; brand: string; targets: re
     // firewall is numberNotInOwnAnswer, which re-checks each returned item against its own piece's text.
     grounded: bodies.join("\n"),
     projectedCostUsd: BATCH_ANALYSIS_COST_USD,
-    maxTokens: 18_000,
+    maxTokens: 7_000,
     timeoutMs: BATCH_TIMEOUT_MS,
     ...(complete ? { complete } : {}),
   });
@@ -339,21 +341,19 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
   if (targets.length === 0) return 0; // nothing new: no call, no cent
   const deferred = dueForAnalysis(rows).length - targets.length; // what this pass is NOT taking on, said out loud: deferred answers stay due
   if (deferred > 0) log.info("[daily-observations] more new answers than one pass reads back; the rest stay due", { tenantId, day: reading, answers: targets.length, deferred });
-
   // WHO AM I LOOKING FOR. The pass used to send an EMPTY brand, so the model was asked whether an answer named nobody and every reading came back "not
   // mentioned". An identity with no forms buys nothing.
   const identity = deps.identity ?? await loadBrandIdentity(tenantId).catch(() => null);
   if (identity == null || identity.forms.length === 0) {
     log.warn("[daily-observations] no business name or website on file, so I am not reading answers back for a brand I cannot name", { tenantId, day });
-    return 0;
-  }
+    return 0; }
 
   const prompts = await (deps.readPrompts ?? readActiveTrackedPrompts)(tenantId).catch(() => null);
   const textOf = new Map((prompts ?? []).map((p) => [p.id, p.text]));
   // WHAT THIS PASS HAS ALREADY SPENT AND ALREADY SETTLED. `billed` counts the calls that genuinely returned something (a reading or an unusable body), so a
   // pass that paid and stored nothing is a contradiction I say out loud rather than repeat; `attempted` makes ONE attempt per answer per pass structural
   // rather than incidental, so no ladder below can send the same answer twice inside one pass.
-  let billed = 0, settledHere = 0; const attempted = new Set<string>();
+  let billed = 0, settledHere = 0, singlesLeft = SINGLES_PER_PASS; const attempted = new Set<string>();
   const analyze = deps.analyze ?? ((i: Parameters<typeof analyzeOne>[0]) => analyzeOne(i, deps.complete));
   const analyzeBatch = deps.analyzeBatch ?? ((i: Parameters<typeof analyzeMany>[0]) => analyzeMany(i, deps.complete));
   // The SAME budget selection packed against, so the two can never disagree about what this pass owns.
@@ -402,8 +402,7 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
    * passes merged, and the checkpoint records exactly which pieces are accounted for. Only an answer with nothing left owing is stamped with its own hash. */
   const settleAnswer = async (pieces: readonly AnalysisTarget[], readings: Map<string, AnswerAnalysis>): Promise<void> => {
     const row = pieces[0]!.row, parts = pieces[0]!.parts, was = coverageOf(row), prior = priorReading(row);
-    const read = [...(was?.read ?? [])], dropped = [...(was?.dropped ?? [])];
-    const landed: AnswerAnalysis[] = [], lost: string[] = [];
+    const read = [...(was?.read ?? [])], dropped = [...(was?.dropped ?? [])], landed: AnswerAnalysis[] = [], lost: string[] = [];
     for (const p of pieces) {
       const of = parts > 1 ? `part ${p.part} of ${parts} of this answer` : "this answer";
       const reading = readings.get(p.key);
@@ -413,8 +412,8 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
       if (invented != null) { lost.push(`The reading of ${of} used the number ${invented}, which that text never says, so I dropped it rather than store a number the answer cannot back.`); dropped.push(p.part); continue; }
       landed.push(reading); read.push(p.part);
     }
-    const coverage: Coverage = { hash: String(row.answerHash), parts, read: [...read].sort((a, b) => a - b), dropped: [...dropped].sort((a, b) => a - b) };
-    const owed = parts - read.length - dropped.length;
+    const coverage: Coverage = { hash: String(row.answerHash), parts, read: [...read].sort((a, b) => a - b), dropped: [...dropped].sort((a, b) => a - b) },
+      owed = parts - read.length - dropped.length;
     // A one piece answer needs no checkpoint: it is settled the moment it is read, either way.
     const book = parts > 1 ? { coverage } : {};
     const hash = owed > 0 ? partialHash(coverage) : String(row.answerHash);
@@ -442,6 +441,8 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
       const sent: AnalysisTarget[] = [];
       let stalled = false;
       for (const p of pieces) {
+        if (singlesLeft <= 0) { stalled = true; break; } // the pass's token allowance for single reads is spent; the rest is owed, unbought
+        singlesLeft -= 1;
         const one = await analyze({ tenantId, question: p.question, engine: p.row.engine, answerText: p.text, brand: identity.name }).catch(() => "transient" as const) ?? "refused";
         if (one === "transient" || one === "budget") { stalled = true; break; }
         billed += 1;
@@ -457,9 +458,7 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
   // ONE ANSWER'S UNREAD PIECES TRAVEL TOGETHER, so a long answer is merged inside the call that read it.
   const groups: AnalysisTarget[][] = [];
   for (const row of targets) {
-    const question = row.promptText || textOf.get(row.promptId) || "";
-    const all = splitAnswer(String(row.answerText ?? ""));
-    const owed = new Set(missingParts(row));
+    const question = row.promptText || textOf.get(row.promptId) || "", all = splitAnswer(String(row.answerText ?? "")), owed = new Set(missingParts(row));
     const pieces = all
       .map((text, i) => ({ row, question, key: all.length > 1 ? `${row.id}#${i + 1}` : row.id, part: i + 1, parts: all.length, text }))
       .filter((p) => owed.has(p.part))
@@ -480,10 +479,11 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     const readings = await analyzeBatch({ tenantId, brand: identity.name, targets: group }).catch(() => "transient" as const) ?? "refused";
     // A RATE LIMIT IS NOT FIFTEEN REFUSALS. One throttled batch used to fan into fifteen immediate single calls, which is how ten batch 429s became
     // sixty-nine more; the pass stops here and everything it was carrying stays due, unstamped and unpaid.
-    if (readings === "transient" || readings === "budget") {
-      log.warn("[daily-observations] the reader could not be reached, so I stopped this pass and left these answers to be read next time", { tenantId, day: reading, why: readings, owed: group.length });
-      break;
-    }
+    if (readings === "budget") { log.warn("[daily-observations] there is no allowance left to read answers back, so I stopped and left them due", { tenantId, day: reading, owed: group.length }); break; }
+    // A THROTTLE IS NOT A DEAD PASS. The batch was ~75,000 tokens, tripped the per-minute ceiling by itself and took a 429 twice, so the pass ended having tried nothing at all,
+    // forever. The batch is small now, and a throttled one still degrades to single reads on THIS pass at ~1,500 tokens each. Nothing is stored against a throttled batch: it was
+    // never billed, so every answer it carried is still due and is asked one at a time instead.
+    if (readings === "transient") { log.warn("[daily-observations] the batch read was throttled, so I am reading these answers one at a time instead", { tenantId, day: reading, owed: group.length }); if (await readOneByOne(byAnswer)) break; continue; }
     billed += 1;
     // REFUSED ON THE CONTENT, or abandoned at my own timeout with the meter running. The gateway already retried
     // this call once against the same schema, so a second identical batch would buy the same refusal: the group
