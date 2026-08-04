@@ -162,6 +162,17 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
     const fail = (detail?: string | null) => { if (detail) failedDetail = detail; };
 
     try {
+      // 0) RECONCILE STATE AGAINST THE CANONICAL ROW, once, before anything is collected or bought. A pair terminalizes where its disposition LANDS, and a pair
+      //    already set aside never crosses that code again: the collect below skips it (not posted) and the post below skips it (not pending). So a pair the old
+      //    code settled in memory alone kept a canonical row reading `failed`, the whole-day gate is derived from those rows, and two Perplexity checks held a
+      //    140 reading day at 138 through every recovery window for four days. THE PLANNER IS THE PROOF: it only hands me identities whose stored row it still
+      //    reads as owed, so a PLANNED pair already terminal in state IS that divergence and this is the one write that closes it. Free: no provider call, no
+      //    repost, no spend, and it settles the class rather than the instance.
+      for (const p of planned.filter((x) => x.status === "unsupported").slice(0, 40)) {
+        await note(p, "unavailable", "I set this check aside earlier today so I would not run it twice, and I could not confirm what the provider did with it.",
+          { cacheKey: p.cacheKey, completedAt: p.observedAt ?? nowIso() });
+      }
+
       // 1) collect prior posted tasks (only a PROVEN-dead identity ever reposts)
       for (const p of pairs.filter((x) => x.status === "posted" && x.cacheKey)) {
         if (d.now() > deadline) break;

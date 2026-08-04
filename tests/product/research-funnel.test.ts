@@ -107,6 +107,18 @@ describe("research funnel - current-set truth + the disposition ladder", () => {
     expect([r2.status, r2.detail, calls]).toEqual(["failed", "the provider could not finish it", 2]); // still paused, zero post-block calls
     let ecalls = 0; // a refusal carrying an EMPTY detail must still arm the block and the batch stop
     const empty = await unit(mk(memStore(), { callProvider: async () => { ecalls += 1; return { state: "error", cacheKey: null, disposition: "blocked", detail: "" } as CachedCallResult; } })); expect([empty.status, !!empty.detail, ecalls]).toEqual(["failed", true, 1]); });
+  it("reconciles a pair settled in state whose STORED row is still due, with no provider call, so a day cannot deadlock behind its own bookkeeping", async () => {
+    // Aug 4: two quarantined pairs were terminal in the funnel state and still `failed` on the canonical row. Terminalizing happens where the disposition LANDS, and a pair already set
+    // aside never crosses that code again (not posted, so the collect skips it; not pending, so the post skips it), so the whole-day gate read 138 of 140 on every window, for four fires.
+    const store = seedWith([{ promptId: "p1", engine: "chatgpt", mode: "consumer_search", day: DAY_A, cacheKey: "ck-q", status: "unsupported", observedAt: new Date(NOW).toISOString() }]);
+    const rows: AiObservationRecord[] = []; let touched = 0; const boom = async () => { touched += 1; return err("blocked"); };
+    const d = mk(store, { recordObservation: async (r: AiObservationRecord) => void rows.push(r), collectTask: boom, callProvider: boom });
+    const out = await unit(d, [{ promptId: "p1", version: 1, text: "best persian restaurant", engine: "chatgpt", slot: 0, day: DAY_A }]);
+    expect([out.status, touched, rows.map((r) => [r.prompt_id, r.status, r.completed_at != null, !!r.failure_reason])]).toEqual(["done", 0, [["p1", "unavailable", true, true]]]);
+    // AND ONLY WHILE THE PLANNER STILL SAYS IT IS OWED: an identity whose stored row is already terminal never reaches this plan, so nothing is rewritten and nothing is bought.
+    rows.length = 0; await unit(d, [{ promptId: "p2", version: 1, text: "where to buy saffron", engine: "gemini", slot: 0, day: DAY_A }]);
+    expect(rows.some((r) => r.prompt_id === "p1")).toBe(false);
+  });
   it("a quarantined POST is plain unavailable coverage: the CANONICAL row goes terminal too, and the day completes on it", async () => { const store = memStore(); let calls = 0; const rows: AiObservationRecord[] = [];
     const out = await unit(mk(store, { recordObservation: async (r: AiObservationRecord) => void rows.push(r), callProvider: async () => { calls += 1; return err("quarantined", "ck-q"); } })); // Aug 4: two quarantined pairs went `unsupported` in memory and `failed` on the stored row, so the planner saw them owed on every window and 138 of 140 repeated for nine hours
     expect([out.status, calls]).toEqual(["done", 4]); // one ambiguous key never deadlocks the phase: every pair got its turn and the phase is finished
