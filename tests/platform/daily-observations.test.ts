@@ -5,10 +5,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 /** The ONE fake in this file: Postgres, and only for the tracked-question read below. Every other test here
  *  is pure fixtures and injects its own readers, so nothing else ever reaches it. */
-const pg = vi.hoisted(() => ({ queued: [] as { data: unknown; error: unknown }[], queries: 0, cols: [] as string[] }));
+const pg = vi.hoisted(() => ({ queued: [] as { data: unknown; error: unknown }[], queries: 0, cols: [] as string[], inserted: [] as Record<string, unknown>[] }));
 vi.mock("@/lib/persistence/supabase", () => ({
-  getSupabaseAdmin: () => ({ from: () => { const q: Record<string, unknown> = {
+  getSupabaseAdmin: () => ({ from: (table: string) => { const q: Record<string, unknown> = {
     select: (c: string) => { pg.queries += 1; pg.cols.push(c); return q; }, eq: () => q, contains: () => q, order: () => q, limit: () => q,
+    insert: async (row: Record<string, unknown>) => { pg.inserted.push({ table, ...row }); return { error: null }; },
     then: (res: (v: unknown) => void) => res(pg.queued.shift() ?? { data: [], error: null }) }; return q; } }),
 }));
 /** The spend gate, allowed, so the read-back path below is exercised end to end without a ledger. */
@@ -348,6 +349,16 @@ describe("reading the answers back", () => {
       analyzeBatch: async () => { batch2 += 1; return null; }, analyze: async () => { single2 += 1; return "transient" as const; } });
     expect([batch2, single2]).toEqual([1, 1]); // one refused batch, one throttled single, and the pass stops there
   });
+  it("never pays twice to be told nothing: a call that RETURNED settles every answer it covered, and only a call that never returned stays due", async () => {
+    // 638 OpenAI calls and $0.80 bought ZERO analysis rows: a batch abandoned at MY OWN timeout after the model had been writing was classed transport-transient, so nothing was persisted and the next pass re-bought the identical batch. Billed is billed, and only a throttle, a server fault or a connection that never opened is due again.
+    const rows = Array.from({ length: 3 }, (_, i) => row(`z${i}`, `hz${i}`, null, false)), abandoned = { error: "The operation was aborted due to timeout", retryable: true };
+    const saved: Array<[string, Record<string, unknown>]> = []; pg.inserted.length = 0; const pass = async (complete: CompleteFn) => { saved.length = 0; return runAnswerAnalyses(T, DAY, { readObservations: async () => rows, readPrompts: async () => null, identity: BRAND, complete, persist: async (_t, id, a) => void saved.push([id, a]) }); };
+    expect([await pass(async () => abandoned), saved.length, saved.every(([, a]) => a.outcome === "refused"), selectAnalysisTargets(rows.map((r, i) => ({ ...r, analysis: saved[i]?.[1] ?? null, analysisHash: `hz${i}` })))]).toEqual([0, 3, true, []]); // every answer that call covered is settled once for this hash, and never bought again
+    expect(pg.inserted.map((r) => [r.table, r.rec_id, r.evidence_hash])).toEqual(rows.map((r) => ["llm_rejections", r.id, r.answerHash])); // the ledger that exists for exactly this is wired
+    // AND THE READINGS STILL LAND: an abandoned batch drops to ONE CALL PER ANSWER, the path that read 274 answers a day in July. A transport 429 is the opposite: nothing came back, nothing was billed, nothing is stored, every answer stays due.
+    expect([await pass(async ({ kind }) => (kind === "answer_analysis_batch" ? abandoned : { value: analysis })), saved.every(([, a]) => a.rejected !== true)]).toEqual([3, true]);
+    expect([await pass(async () => ({ error: "openai_429", retryable: true })), saved, selectAnalysisTargets(rows).length]).toEqual([0, [], 3]);
+  });
   it("re-reads an answer bought on an earlier day, oldest owed day first, and stops looking back at seven days", async () => {
     // The readback only ever read the RUN's own day, so Aug 4's 138 requeued only if a pass ran on Aug 4 and Aug 3's 140 were unreachable forever.
     const asked: string[][] = [], readDays: string[] = [];
@@ -653,8 +664,7 @@ describe("every written form that still means this business", () => {
     expect(identityFrom("  ", "   ")).toEqual({ name: "", forms: [], host: "" });
   });
   it("reads a company suffix as the same business, and offers the longest form first", () => {
-    // A reader who sees "Ritz Builders" has seen "Ritz Builders, Inc.", and the longest form is tried first
-    // so the whole name wins over a fragment of it.
+    // A reader who sees "Ritz Builders" has seen "Ritz Builders, Inc.", and the longest form is tried first so the whole name wins over a fragment of it.
     expect(identityFrom("Ritz Builders, Inc.", "https://www.ritz-builders.com/")).toEqual({
       name: "Ritz Builders, Inc.", host: "ritz-builders.com",
       forms: ["ritz builders, inc.", "ritz-builders.com", "ritz builders"],
