@@ -6,21 +6,16 @@ import "server-only";
  * DATABASE off the position stamped on each row when the ranking was built: the customer release carries
  * one page and the counts, never the queue.
  *
- * THE FIVE STAGES THE OPERATOR IS SHOWN, and where each one is decided:
- *   To do       = status "needs_review": generated, wants a look.
- *   Ready       = status "ready": validated safe, exact copy.
- *   Implemented = status "implemented_pending_verification": they say it is done, I have not read
- *                 their page yet. Counted here, never queued: it is not work waiting on them.
- *   Measuring   = the ledger: a verification landed and the reading windows are open.
- *   Results     = the ledger: the reading is decided.
- * The last two are DERIVED from the shipment ledger and never stored as a status, so the two can never
- * disagree (the ONE-COUNT RULE). READ-ONLY + fail-soft. Proposal PRODUCTION runs in the background release
- * build, not on the render path. Publishing stays MANUAL.
+ * THE FIVE STAGES THE OPERATOR IS SHOWN: To do (needs_review), Ready (ready), Implemented (they say it is
+ * done and I have not read their page yet, counted here and never queued), then Measuring and Results, which
+ * are DERIVED from the shipment ledger and never stored as a status, so the two can never disagree (the
+ * ONE-COUNT RULE). READ-ONLY + fail-soft. Production runs in the background release build, never on the
+ * render path. Publishing stays MANUAL.
  */
 import { cache } from "react";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadProposalQueue, readQueuePage, resolveCurrentBasis, stampQueueRanking } from "@/domains/decision";
+import { actionableProposalFailures, loadProposalQueue, readQueuePage, resolveCurrentBasis, stampQueueRanking } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { loadProofLedgerCached } from "@/domains/measurement";
 import { countLedgerLifecycle } from "@/domains/decision";
@@ -48,6 +43,9 @@ export type ChangesView = {
   basisUnreadable?: boolean;
   /** Whole-tenant decided count (proof ledger). */
   decidedCountCanonical: number;
+  /** TRUE when the ledger behind the two counts above could not be READ: they are zero because I could not
+   *  look, and every surface says so rather than printing the zero. */
+  countsUnavailable?: boolean;
   /** Set only when Ready is 0, so the tab is never a bare "0" with no reason. */
   readyZeroHint: string | null;
   /** One-line receipt above the list (when + from what this was ranked). */
@@ -85,12 +83,14 @@ export function setAsideHint(n: number, toDo = 0): string {
     : "Nothing needs your time today: I am still checking your pages and I will rank your next change here as soon as one earns it."}`;
 }
 
-/** A STORED release is a photograph, and the bar may have moved since it was taken. Every row is checked
- *  against the basis the account holds RIGHT NOW: same basis stays, anything else is withheld. Comparing the
- *  release only against ITSELF was the hole, because a uniformly stale release looks perfectly consistent. A
- *  basis I cannot read withholds everything: better nothing than yesterday's work. */
-export function withCurrentBasisOnly(view: ChangesView, currentBasis: string | null): ChangesView {
-  const keep = currentBasis == null ? [] : view.proposals.filter((p) => p.basis === currentBasis);
+/** A STORED release is a photograph, and the bar may have moved since it was taken. Every row is put through
+ *  the SAME one verdict the ranked queue, the detail page and the mutations ask, so a release can never serve
+ *  what those doors refuse: right account, current bar, still waiting on you, a receipt that still resolves,
+ *  readings that still stand. Comparing the release only against ITSELF was the hole, because a uniformly
+ *  stale release looks perfectly consistent. A basis I cannot read withholds everything. */
+export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string; currentBasis: string | null }): ChangesView {
+  const currentBasis = ctx.currentBasis;
+  const keep = view.proposals.filter((p) => actionableProposalFailures(p, ctx).length === 0);
   if (keep.length === view.proposals.length && currentBasis != null) return view;
   const id = new Set(keep.map((p) => p.id));
   const ready = view.ready.filter((p) => id.has(p.id));
@@ -115,39 +115,37 @@ export const loadChangesView = cache(
   async (): Promise<ChangesView> => loadChangesViewWithSwr(await currentTenantId()),
 );
 
-/** What one press of "Show more" gets back. `total` is the exact count of the lane, taken as a COUNT in the
- *  database and never the length of anything loaded. `cursor` is where the NEXT press resumes. `refreshed` is
- *  set ONLY when the ranking the operator was paging through is gone: they get the fresh FIRST page and the
- *  sentence saying why. */
+/** What one press of "Show more" gets back. `total` is a COUNT in the database, never a loaded length;
+ *  `cursor` is where the NEXT press resumes; `refreshed` is set ONLY when the ranking they were paging is
+ *  gone, and they get the fresh FIRST page with the sentence saying why. */
 export type ChangesPage = {
   rows: ChangeProposal[]; total: number; cursor: number; releaseId: string | null; refreshed: string | null;
   /** Whether the database read a FULL raw page: the only honest basis for offering another press. */ more: boolean;
+  /** Changes THIS page was stamped for and then refused. The screen takes them off its own count, so a
+   *  refusal sitting on page nineteen lowers the number the operator reads instead of inflating it. */ dropped: number;
 };
 
-/** ONE PAGE OF ONE LANE, CUT IN THE DATABASE. Nothing here loads the queue or the customer release: the rows
- *  come back keyed off the position stamped on each change when the ranking was built, filtered at the query
- *  for this account, the bar it holds now, still waiting on the operator, and the lane, so page nineteen
- *  costs exactly what page one costs. A CURSOR IS NOT JUST A NUMBER: it is a position IN A RANKING, and when
- *  the rebuild has replaced that ranking, position 25 of the new order is a different change from position 25
- *  of the old one, so paging on regardless would silently skip some and repeat others. A stale cursor is
- *  caught here and answered with the fresh first page and a sentence. */
+/** ONE PAGE OF ONE LANE, CUT IN THE DATABASE. Nothing here loads the queue or the release: rows come back
+ *  keyed off the position stamped when the ranking was built, filtered at the query for this account, the bar
+ *  it holds now, still waiting on the operator, and the lane, so page nineteen costs what page one costs. A
+ *  CURSOR IS A POSITION IN A RANKING: once the rebuild replaces that ranking, position 25 of the new order is
+ *  a different change, so a stale cursor is caught here and answered with the fresh first page. */
 export async function readChangesPage(
   tenantId: string, lane: "ready" | "todo", cursor: number, releaseId?: string | null,
 ): Promise<ChangesPage> {
   const basis = await resolveCurrentBasis(tenantId).catch(() => null);
   // A bar I cannot read is not proof anything is current, so I show nothing rather than yesterday's work.
-  if (basis == null) return { rows: [], total: 0, cursor: 0, releaseId: null, refreshed: null, more: false };
+  if (basis == null) return { rows: [], total: 0, cursor: 0, releaseId: null, refreshed: null, more: false, dropped: 0 };
   const asked = await readQueuePage(tenantId, lane, basis, cursor, CHANGES_PAGE_SIZE);
   const moved = releaseId != null && asked.release != null && releaseId !== asked.release;
   const page = moved ? await readQueuePage(tenantId, lane, basis, 0, CHANGES_PAGE_SIZE) : asked;
-  return { rows: page.rows, total: page.total, cursor: page.nextRank, releaseId: page.release, more: page.more,
+  return { rows: page.rows, total: page.total, cursor: page.nextRank, releaseId: page.release, more: page.more, dropped: page.dropped,
     refreshed: moved ? "The list moved under you while you were reading it, so here is the fresh first page." : null };
 }
 
-/** THE FIRST SCREEN IS NOT THE WHOLE QUEUE, and it never was in memory either. The release carries the
- *  receipt, the lifecycle counts and the reason a lane is empty; the ROWS and the true lane totals come from
- *  the persisted ranking, one bounded page each. When no ranking is stamped yet (a first deploy, or a stamp
- *  that could not land) the release's own first page is served rather than an empty screen. */
+/** THE FIRST SCREEN IS NOT THE WHOLE QUEUE. The release carries the receipt, the lifecycle counts and the
+ *  reason a lane is empty; the ROWS and the true lane totals come from the persisted ranking, one bounded
+ *  page each. With no ranking stamped yet the release's own first page is served, never an empty screen. */
 async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
   const view = await readReleasedChanges(tenantId);
   const basis = await resolveCurrentBasis(tenantId).catch(() => null);
@@ -189,7 +187,7 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
       surfaceComputedAt: sanitizeSurfaceComputedAt(customer.computedAt),
       surfaceBuilding: false,
       surfaceVersion: customer.releaseId,
-    }, await resolveCurrentBasis(tenantId).catch(() => null));
+    }, { tenantId, currentBasis: await resolveCurrentBasis(tenantId).catch(() => null) });
   }
   scheduleReleaseRebuild("cold-rebuild");
   return EMPTY_CHANGES_VIEW;
@@ -200,13 +198,18 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
  * production has persisted this tenant's proposals. Reads the persisted proposal
  * queue + the proof ledger; runs no LLM itself. Tenant passed explicitly.
  */
-export async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> {
-  const [queue, ledgerRows] = await Promise.all([
-    loadProposalQueue(tenantId).catch(() => ({ ranked: [], ready: [], toDo: [], implementedPendingVerification: 0, demotedStaleBasis: 0, basisUnreadable: true })),
-    loadProofLedgerCached(tenantId).catch(() => []),
+export async function buildChangesViewUncached(tenantId: string, releaseId: string): Promise<ChangesView> {
+  // ONE basis per release: the queue, the ranking stamp and every page cut from it answer to the same bar,
+  // so the list can never page a ranking built against a bar it is no longer filtering on.
+  const currentBasis = await resolveCurrentBasis(tenantId).catch(() => null);
+  const [queue, ledger] = await Promise.all([
+    loadProposalQueue(tenantId, { currentBasis }).catch(() => ({ ranked: [], ready: [], toDo: [], implementedPendingVerification: 0, demotedStaleBasis: 0, basisUnreadable: true })),
+    // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "0 measuring, 0 results"
+    // during an outage, which reads as "nothing you shipped is being watched" and is a lie they cannot check.
+    loadProofLedgerCached(tenantId).then((rows) => ({ rows, read: true })).catch(() => ({ rows: [] as Awaited<ReturnType<typeof loadProofLedgerCached>>, read: false })),
   ]);
 
-  const ledgerCounts = countLedgerLifecycle(ledgerRows);
+  const ledgerCounts = countLedgerLifecycle(ledger.rows);
   const summary: ChangesSummary = {
     todo: queue.toDo.length,
     ready: queue.ready.length,
@@ -233,9 +236,14 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
   // THE RANKING IS PERSISTED, THE RELEASE IS NOT THE QUEUE. Every row of the queue gets its position in THIS
   // ranking written down, so the list pages it in the database; the release below then carries one page, not
   // an unlimited blob of changes nobody on that screen can read.
+  // AND THE RANKING IS STAMPED WITH THE ID THIS RELEASE PUBLISHES UNDER, so Today, the Changes screen and
+  // every "show more" name one release. A stamp that does not land ABORTS THE PUBLISH: the previous complete
+  // release keeps serving, which is honest, where publishing a release the list cannot page is not.
   const nowMs = Date.now();
-  await stampQueueRanking(tenantId, `${tenantId}:${new Date(nowMs).toISOString()}`,
-    queue.ready.map((p) => p.id), queue.toDo.map((p) => p.id)).catch(() => false);
+  if (!(await stampQueueRanking(tenantId, releaseId,
+    queue.ready.map((p) => p.id), queue.toDo.map((p) => p.id)).catch(() => false))) {
+    throw new Error("I could not write down the order of your changes, so I kept the list you already had rather than publishing one I cannot page.");
+  }
   const receiptLine = buildReceiptLine({
     source: "your Search Console and AI demand data",
     checkedAt: new Date(nowMs).toISOString(),
@@ -255,5 +263,7 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
     decidedCountCanonical: ledgerCounts.decided,
     readyZeroHint,
     receiptLine,
+    surfaceVersion: releaseId,
+    ...(ledger.read ? {} : { countsUnavailable: true }),
   };
 }

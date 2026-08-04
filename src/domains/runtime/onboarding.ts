@@ -18,7 +18,7 @@ import { normalizeSiteUrl, invalidateBusinessProfileCache } from "@/domains/acco
 import type { CrawlPageFact } from "@/domains/evidence/scanning/crawl-frontier";
 import { callStructuredLLM } from "@/domains/decision/llm/structured-drafter";
 import {
-  resolve, PROMPT_INTENTS, PROMPT_TAGS, CONFIRMABLE_FIELDS, isProfileConfirmed, basisTag,
+  resolve, PROMPT_INTENTS, PROMPT_TAGS, CONFIRMABLE_FIELDS, SHOWN_FIELDS, isProfileConfirmed, basisTag,
   type OnboardingDeps, type OnboardingState, type OnboardingGoal,
   type ProfileEdits, type ProfilePatch, type PromptSelection, type TrackedPromptRow,
 } from "./onboarding-store";
@@ -26,7 +26,7 @@ import {
 // Re-export the candidate/approve/activate commands + the store type so the whole
 // facade is one import surface (runtime/index re-exports from here). The shared
 // types imported above are re-exported by name just below.
-export { generatePromptCandidates, approvePrompts, activateAccount, type OnboardingStore } from "./onboarding-store";
+export { generatePromptCandidates, approvePrompts, activateAccount, setupGap, type OnboardingStore } from "./onboarding-store";
 export type {
   OnboardingState, OnboardingGoal, OnboardingDeps,
   ProfileEdits, ProfilePatch, PromptSelection, TrackedPromptRow,
@@ -128,37 +128,41 @@ type FirstWin = { action: string; url: string; plainWhy: string; exactFix: strin
 function stripSiteSuffix(title: string): string {
   return title.split(/\s*(?:\||–|—|::|\s-\s)\s*/)[0]!.trim();
 }
+/** A FINDING NAMES THE ADDRESS THE OPERATOR HAS TO OPEN. A bare path made them reassemble the URL themselves before they could go fix anything. */
 function pageLabel(f: CrawlPageFact): string {
   if (f.path === "/") return "your homepage";
   const t = (f.title?.trim() || f.h1?.trim() || "").trim();
-  return t ? `"${stripSiteSuffix(t)}"` : f.path;
+  return t ? `"${stripSiteSuffix(t)}" (${f.url})` : f.url;
 }
 
 function pickFirstWin(facts: readonly CrawlPageFact[]): FirstWin | null {
   if (facts.length === 0) return null;
   const byWords = [...facts].sort((a, b) => b.word_count - a.word_count);
   const noTitle = byWords.find((f) => !f.title?.trim() && f.word_count >= 40);
+  // EVERY LINE HERE IS READ OFF A CRAWL OF THE OPERATOR'S OWN SITE AND NOTHING ELSE. No connector has been read yet at this point in
+  // setup, so no finding may say what Google does or does not hold: that would be a claim with no evidence under it at the exact
+  // moment trust is being built. Each one says what I actually saw on the page.
   if (noTitle) return {
     action: "Write a title", url: noTitle.url,
-    plainWhy: `The page at ${noTitle.path} has ${noTitle.word_count} words of content but no title, so Google has nothing to show for it in results.`,
+    plainWhy: `The page at ${noTitle.url} has ${noTitle.word_count} words of content and no title at all, so nothing on it says what it is.`,
     exactFix: "Give this page a title that says what it answers in plain words. That is the single highest-leverage line on the page.",
   };
   const home = facts.find((f) => f.path === "/");
   if (home && !home.has_meta_description) return {
     action: "Add a search description", url: home.url,
-    plainWhy: "Your homepage has no search description, so Google writes its own snippet for your most-seen page.",
+    plainWhy: `Your homepage (${home.url}) has no search description, so the snippet under it in search results is written for you rather than by you.`,
     exactFix: "Add a one-sentence description of who you help and what you do. I will check how the snippet changes after it goes live.",
   };
   const noMeta = byWords.find((f) => !f.has_meta_description && f.word_count >= 40);
   if (noMeta) return {
     action: "Add a search description", url: noMeta.url,
-    plainWhy: `${pageLabel(noMeta)} is one of your biggest pages (${noMeta.word_count} words) and has no search description, so its Google snippet is left to chance.`,
+    plainWhy: `${pageLabel(noMeta)} is one of your biggest pages (${noMeta.word_count} words) and has no search description, so its snippet is left to chance.`,
     exactFix: "Add a one-sentence description that answers the page's main question. Pages with a real description usually win a cleaner snippet.",
   };
   const thin = byWords.filter((f) => f.word_count > 0 && f.word_count < THIN_PAGE_WORDS && Boolean(f.title?.trim())).sort((a, b) => a.word_count - b.word_count)[0];
   if (thin) return {
     action: "Add real content", url: thin.url,
-    plainWhy: `${pageLabel(thin)} has only ${thin.word_count} words. Pages this thin almost never get picked by Google or AI assistants.`,
+    plainWhy: `${pageLabel(thin)} has only ${thin.word_count} words, which is rarely enough to answer the question somebody arrived with.`,
     exactFix: "Answer the page's main question in the first two sentences, then add the details a visitor would ask next.",
   };
   const noH1 = byWords.find((f) => !f.h1?.trim() && f.word_count >= 40);
@@ -275,11 +279,15 @@ export async function saveProfileEdits(tenantId: string, edits: ProfileEdits, de
   return saved.persisted ? { ok: true } : { ok: false, error: "I could not save that just now. Try again in a moment." };
 }
 
+/** CONFIRMING WHAT IS ON SCREEN CONFIRMS WHAT IS ON SCREEN. This used to stamp operator_confirmed on all eleven sections, so the
+ *  eight the step never renders (business type, archetype, problems, geography, differentiators, trust claims, both topic lists) came
+ *  out of setup carrying the operator's own word for a guess they were never shown. Only SHOWN_FIELDS may take the confirmation, and
+ *  isProfileConfirmed asks for exactly those, so the step still completes honestly and every unseen inference stays labelled as mine. */
 export async function confirmProfile(tenantId: string, deps?: OnboardingDeps): Promise<CommandResult> {
   const d = resolve(deps);
   const current = await d.loadProfile(tenantId);
   const patch: Partial<BusinessProfile> = {};
-  for (const key of PATCHABLE_FIELDS) {
+  for (const key of SHOWN_FIELDS) {
     const section = (current as unknown as Record<string, ProfileSection<unknown>>)[key];
     (patch as Record<string, unknown>)[key] = { ...section, origin: "operator_confirmed" };
   }

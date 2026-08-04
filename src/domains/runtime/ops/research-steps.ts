@@ -37,8 +37,11 @@ import type { ResearchPhase } from "../research-run";
 /** Reasons the deep-backfill continuation returns when there is simply nothing to do (no backfill started, already finished, or no synced property yet):
  *  healthy no-ops that advance the phase without a failure. Any OTHER reason is a real error and throws. */
 const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_synced_property", "no_cursor"]);
-/** How many accounts one stranded-day probe may look at. Bounded: this is a recovery sweep, not a fleet scan. */
-const RECOVERY_PROBE_ACCOUNTS = 20;
+/** How many accounts one recovery probe may look at, and how the fleet ROTATES past that bound. Twenty was a fixed HEAD of the account list, so account twenty one
+ *  was never probed, ever: it could be short every day forever and nothing would find it. The window MOVES now, by a deterministic offset off the clock in id
+ *  order, wrapping at the end of the fleet, so consecutive dispatches walk the whole list whatever its size with no cursor to persist, no fleet held in memory and
+ *  no second scheduler. Still bounded: this is a recovery sweep, not a fleet scan. */
+const RECOVERY_PROBE_ACCOUNTS = 20, PROBE_ROTATION_MS = 3_600_000;
 
 /** The refresh_sources phase outcome: how many sources were attempted, the identities of the ones that actually synced, and the bounded per-source
  *  failure detail for the rest. `succeeded` is a list of provider identities (not a count) so retries can UNION distinct successes rather than
@@ -78,8 +81,10 @@ export type ResearchCycleSteps = {
   dueWork: (tenantId: string, now: Date) => Promise<DueWork>;
   /** TODAY'S WHOLE-DAY STANDING off the canonical planner: settled of intended, and how the settled ones landed. Null = I could not read it, which is never "the day is finished". Free. */
   dayStanding: (tenantId: string, reportingDay: string) => Promise<DueWork["checks"] | null>;
-  /** Every active, unpaused account whose CURRENT reporting day is genuinely short. Free, bounded, and empty is the honest "nothing was left behind". */
-  strandedToday: (reportingDay: string) => Promise<string[]>;
+  /** Every active, unpaused account that still genuinely owes work right now, off the ONE canonical due-work truth. Free and bounded; the clock is passed in
+   *  because the bounded window ROTATES across the fleet with it. Empty = a read that SUCCEEDED and proved nothing was left behind; a read that could not be
+   *  made THROWS, because an outage and an idle fleet are different answers. */
+  strandedToday: (nowMs: number) => Promise<string[]>;
   /** The research notes' row version for a basis, read at the moment the decision step concludes: the watermark this pass consumed. Read AFTER the pass's own
    *  writes, never before, or a pass would forever count its own discovery as new evidence and re-open itself. */
   evidenceVersion: (tenantId: string, basis: string) => Promise<number | null>;
@@ -170,16 +175,25 @@ export const defaultSteps: ResearchCycleSteps = {
     return (await continueColdStartCrawlIfStarted(tenantId)).crawled; },
   async dayStanding(tenantId, day) { const c = await dailyChecks(tenantId, day);
     return c == null ? null : { done: c.done, total: c.total, answers: c.answers, unavailable: c.unavailable, unsupported: c.unsupported }; },
-  // THE DAY THE FLEET CLAIM CANNOT SEE. claim_due_research_work excludes an account the moment ANY run completed
-  // today, so a pass that settled its batch and left the day short is owed nothing further and the rest of the
-  // day never happens. This is the free question that finds those accounts: the canonical planner alone, one
-  // bounded read each, no provider and no cent. Empty is the honest "nobody was left behind".
-  async strandedToday(day) {
-    const { data } = await getSupabaseAdmin().from("tenants").select("id").eq("status", "active").not("research_paused", "is", true).limit(RECOVERY_PROBE_ACCOUNTS);
+  // THE DAY THE FLEET CLAIM CANNOT SEE. claim_due_research_work excludes an account the moment ANY run completed today, so a pass that settled its batch and left
+  // the day short is owed nothing further and the rest of the day never happens. This is the free question that finds those accounts, and it asks ONE canonical
+  // question: due-work, the same planner every other door consults. It used to ask only whether today's AI observations were short, so an account whose answers
+  // were all collected but whose website was two hundred pages unread, whose bought answers nobody had read closely, whose promised evidence date had arrived or
+  // whose release was never published looked finished and was never opened again that day. FREE either way (every read is a lean projection of state on file), and
+  // A READ THAT FAILED IS NOT AN EMPTY FLEET, so it THROWS rather than answering with a list: empty now means a read that succeeded and proved nobody was left.
+  async strandedToday(nowMs) {
+    const active = () => getSupabaseAdmin().from("tenants").select("id", { count: "exact" }).eq("status", "active").not("research_paused", "is", true).order("id", { ascending: true });
+    const read = async (start: number, take: number) => {
+      const { data, error, count } = await active().range(start, start + Math.max(1, take) - 1);
+      if (error != null) throw new Error(`[research-run] the recovery probe could not read the fleet: ${error.message}`);
+      return { ids: ((data ?? []) as Array<{ id: string }>).map((r) => String(r.id)), total: Number(count ?? 0) }; };
+    const head = await read(0, RECOVERY_PROBE_ACCOUNTS);
+    const from = head.total <= RECOVERY_PROBE_ACCOUNTS ? 0 : (Math.floor(nowMs / PROBE_ROTATION_MS) * RECOVERY_PROBE_ACCOUNTS) % head.total;
+    const ids = from === 0 ? [...head.ids] : (await read(from, RECOVERY_PROBE_ACCOUNTS)).ids;
+    // The window WRAPS: the tail of the fleet and its head belong to one rotation, so nobody sits in a seam.
+    if (ids.length < RECOVERY_PROBE_ACCOUNTS) ids.push(...head.ids.filter((id) => !ids.includes(id)).slice(0, RECOVERY_PROBE_ACCOUNTS - ids.length));
     const out: string[] = [];
-    for (const row of (data ?? []) as Array<{ id: string }>) {
-      const c = await dailyChecks(String(row.id), day).catch(() => null);
-      if (c != null && c.total > 0 && c.done < c.total) out.push(String(row.id)); }
+    for (const id of ids) { const work = await dueWork(id, new Date(nowMs)); if (work.readable && work.due.length > 0) out.push(id); }
     return out; },
   currentBasis: accountBasis,
   dueWork,

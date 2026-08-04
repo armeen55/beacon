@@ -4,9 +4,9 @@
  * changes-list-client: the ranked ChangeProposal queue, with the receipts the kernel computes actually
  * reaching the operator. EVERY CARD SAYS, WITHOUT BEING OPENED: whether it is one edit or a bundle that has
  * to land together, the exact primary action, how long it takes, its risk, how much evidence stands behind
- * it, and WHY IT SITS ABOVE THE ONE BELOW IT. A DANGEROUS CHANGE CARRIES ITS HOLD: the two-step
- * confirmation in this product is the `needs_review` stage, not a second flag. Publishing is MANUAL; the
- * mutating controls are "Mark implemented" and "Put this aside".
+ * it, and WHY IT SITS ABOVE THE ONE BELOW IT. A DANGEROUS CHANGE CARRIES ITS HOLD (the `needs_review` stage,
+ * never a second flag) and, where it moves or hides a page, one confirmation the server asks for again.
+ * Publishing is MANUAL; the mutating controls are "Mark implemented" and "Put this aside".
  */
 
 import { useMemo, useState, useTransition } from "react";
@@ -25,10 +25,10 @@ const EVIDENCE_LABEL: Record<ChangeProposal["confidence"], string> = {
   high: "Strong evidence", medium: "Early evidence", low: "Still building evidence" };
 
 /** WHAT IS ALREADY MOVING, and never a row of bare zeros: "Implemented 0 · Measuring 0 · Results 0" told a quiet account nothing and asked nothing of them, so an account with nothing in flight gets one sentence and the next step, and one with something in flight sees only the parts with a number behind them. */
-const flowLine = (s: ChangesView["summary"]): string =>
-  ([["Implemented", s.implemented], ["Measuring", s.measuring], ["Results", s.results]] as const)
-    .filter(([, n]) => n > 0).map(([what, n]) => `${what} ${n}`).join(" · ")
-  || "Nothing implemented yet. Ship your first ready change and I start measuring it.";
+const flowLine = (v: ChangesView, s = v.summary): string => v.countsUnavailable
+  ? "I could not read what is measuring just now, so I am not showing you a count I cannot stand behind. I am retrying automatically."
+  : ([["Implemented", s.implemented], ["Measuring", s.measuring], ["Results", s.results]] as const)
+    .filter(([, n]) => n > 0).map(([what, n]) => `${what} ${n}`).join(" · ") || "Nothing implemented yet. Ship your first ready change and I start measuring it.";
 
 /** THE TWO-STEP HOLD, in the operator's words. The validator refuses any bundle where a component that
  *  moves or hides the page is not graded `dangerous`, so this is the one check a surface has to make. */
@@ -59,13 +59,17 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // rows a count still names. A view with no page verdict yet defaults open; the first press settles it.
   const [canMore, setCanMore] = useState<Record<Tab, boolean>>(view.queueMore ?? { ready: true, todo: true });
   const [moved, setMoved] = useState<{ tab: Tab; note: string; total: number } | null>(null);
+  const [lost, setLost] = useState<Record<Tab, number>>({ ready: 0, todo: 0 }); // refusals a deeper page found
   const [loadingMore, startLoadMore] = useTransition();
   // A RESTARTED LANE SHOWS THE FRESH PAGE AND NOTHING ELSE: the rows from the ranking that went away are
   // dropped rather than stacked under the new ones, which is the only way "each change once" survives.
   const restarted = moved?.tab === tab;
   const rows = useMemo(() => (restarted ? more[tab] : [...(tab === "ready" ? view.ready : view.toDo), ...more[tab]]),
     [restarted, tab, view, more]);
-  const remaining = Math.max(0, (restarted ? moved!.total : tab === "ready" ? view.summary.ready : view.summary.todo) - rows.length);
+  // THE COUNT ON THE TAB IS THE COUNT OF THE LIST UNDER IT: a replaced ranking restarts the lane (the old total
+  // said 35 above a list holding 12), and `lost` takes off what a DEEPER page refused, so it only ever falls.
+  const countOf = (t: Tab) => (moved?.tab === t ? moved.total : t === "ready" ? view.summary.ready : view.summary.todo) - lost[t];
+  const remaining = Math.max(0, countOf(tab) - rows.length);
 
   return (
     <div className="space-y-4">
@@ -76,13 +80,13 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
 
       <div className="flex flex-wrap items-center gap-2 text-[13px]">
         <TabButton active={tab === "ready"} onClick={() => setTab("ready")}>
-          Ready {view.summary.ready}
+          Ready {countOf("ready")}
         </TabButton>
         <TabButton active={tab === "todo"} onClick={() => setTab("todo")}>
-          To do {view.summary.todo}
+          To do {countOf("todo")}
         </TabButton>
         <Link href="/results" className="ml-auto rounded-md border border-border px-3 py-1.5 text-muted-foreground hover:text-foreground">
-          {flowLine(view.summary)}
+          {flowLine(view)}
         </Link>
       </div>
 
@@ -117,6 +121,8 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
             setRelease(res.releaseId);
             setAt((prev) => ({ ...prev, [tab]: res.cursor }));
             setCanMore((prev) => ({ ...prev, [tab]: res.more }));
+            // A fresh first page's refusals are already out of its own total; only DEEPER pages accumulate.
+            setLost((prev) => ({ ...prev, [tab]: res.refreshed ? 0 : prev[tab] + res.dropped }));
             setMoved((prev) => (res.refreshed ? { tab, note: res.refreshed, total: res.total }
               : prev?.tab === tab ? { ...prev, total: res.total } : prev));
             setMore((prev) => ({ ...prev, [tab]: res.refreshed ? res.rows : [...prev[tab], ...res.rows] }));
@@ -162,12 +168,10 @@ function WhyRanked({ proposal }: { proposal: ChangeProposal }) {
   );
 }
 
-/** The two-step hold, said on the card so it cannot be missed. */
-function DangerousHold({ labels }: { labels: string[] }) {
+/** The two-step hold, said on the card so it cannot be missed. */ function DangerousHold({ labels }: { labels: string[] }) {
   if (labels.length === 0) return null;
   return (
-    <p data-dangerous-hold="true"
-      className="rounded-md border border-status-warning/40 bg-status-warning/5 px-3 py-2 text-[12px] leading-relaxed text-foreground">
+    <p data-dangerous-hold="true" className="rounded-md border border-status-warning/40 bg-status-warning/5 px-3 py-2 text-[12px] leading-relaxed text-foreground">
       {labels.join(" and ")}: this changes where the page lives or whether people can find it, so I am holding
       it for you to read once and confirm before you make the change.
     </p>
@@ -340,9 +344,7 @@ function Field({ label, value }: { label: string; value: string }) {
  *  store then refuses to re-draft the same change until the evidence itself moves. */
 export function SetAsideChange({ proposalId }: { proposalId: string }) {
   const [pending, startTransition] = useTransition();
-  const [state, setState] = useState<{ done: boolean; asked: boolean; error: string | null }>({
-    done: false, asked: false, error: null,
-  });
+  const [state, setState] = useState<{ done: boolean; asked: boolean; error: string | null }>({ done: false, asked: false, error: null });
 
   if (state.done) {
     return (
@@ -390,30 +392,31 @@ export function SetAsideChange({ proposalId }: { proposalId: string }) {
   );
 }
 
-/**
- * "Mark implemented" records that the OPERATOR applied the change. Three controls ride with it. THE
- * PARTIAL-BUNDLE PICKER: an operator who applied three of five pieces must not have all five recorded as
- * live, or the live check fails for reasons nobody caused; every piece starts ticked. THE NOTE: "I put
- * something else there" carries their own words beside my reading, never instead of it. THE ADDRESS, for a
- * new page only: it has none until they publish it, and without one I check nothing.
- */
+/** "Mark implemented" records that the OPERATOR applied the change. THE PARTIAL-BUNDLE PICKER: three of five
+ *  pieces applied must not record five, or the live check fails for reasons nobody caused; every piece starts
+ *  ticked. THE NOTE carries their own words beside my reading, never instead of it. THE ADDRESS, for a new
+ *  page only: it has none until they publish it. THE CONFIRMATION, for a piece that moves or hides a page. */
 export function MarkImplemented({ proposalId, label: idle = "Mark implemented", components, newPage = false }: {
   proposalId: string;
   label?: string;
-  /** The bundle's pieces, when there are several. Absent or single means nothing to pick. */
-  components?: { kind: string; label: string }[];
+  /** The bundle's pieces (several = a picker). `moves` marks one that changes where the page lives. */
+  components?: { kind: string; label: string; moves?: boolean }[];
   /** A page that did not exist has no address until they publish it, so I have to be told where it is. */
   newPage?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [state, setState] = useState<{ done: boolean; error: string | null }>({ done: false, error: null });
   const pickable = components && components.length > 1 ? components : null;
-  const [applied, setApplied] = useState<Set<string>>(() => new Set((pickable ?? []).map((c) => c.kind)));
+  const [applied, setApplied] = useState<Set<string>>(() => new Set((pickable ?? components ?? []).map((c) => c.kind)));
   const [note, setNote] = useState("");
   const [liveUrl, setLiveUrl] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
   const label = useMemo(() => (state.done ? "Marked implemented" : idle), [state.done, idle]);
   const nothingPicked = pickable != null && applied.size === 0;
   const addressOwed = newPage && liveUrl.trim().length === 0;
+  // THE DELIBERATE YES, asked only about the pieces they say they applied. The server asks again and refuses
+  // without it, so this box is the operator's act and never the gate.
+  const movesPage = (components ?? []).some((c) => c.moves && applied.has(c.kind));
 
   function onClick() {
     startTransition(async () => {
@@ -422,6 +425,7 @@ export function MarkImplemented({ proposalId, label: idle = "Mark implemented", 
         ...(newPage ? { liveUrl: liveUrl.trim() } : {}),
         ...(pickable && applied.size < pickable.length ? { componentKinds: [...applied] } : {}),
         ...(note.trim() ? { operatorNote: note.trim() } : {}),
+        ...(movesPage ? { destructiveConfirmed: confirmed } : {}),
       });
       if (res.success) setState({ done: true, error: null });
       else setState({ done: false, error: res.error ?? "Something went wrong." });
@@ -463,6 +467,11 @@ export function MarkImplemented({ proposalId, label: idle = "Mark implemented", 
         </div>
       ) : null}
 
+      {movesPage ? (
+        <label data-destructive-confirm="true" className="flex items-start gap-2 rounded-md border border-status-warning/40 bg-status-warning/5 px-3 py-2 text-[12px] leading-relaxed text-foreground">
+          <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+          I understand this moves or hides a page, and I have read what it does to my site above.
+        </label>) : null}
       <div className="space-y-1.5" data-operator-note="true">
         <label className="block text-[12px] text-muted-foreground" htmlFor={`note-${proposalId}`}>
           Wrote it your own way? Tell me what you put there and I will keep your words beside my reading.
@@ -473,14 +482,15 @@ export function MarkImplemented({ proposalId, label: idle = "Mark implemented", 
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <button type="button" onClick={onClick} disabled={pending || state.done || nothingPicked || addressOwed}
+        <button type="button" onClick={onClick} disabled={pending || state.done || nothingPicked || addressOwed || (movesPage && !confirmed)}
           className="rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-60">
           {pending ? "Saving…" : label}
         </button>
         <span className="text-[12px] text-muted-foreground">
           {addressOwed ? "Give me the address it is live at and I will go and read it."
             : nothingPicked ? "Tick at least one piece and I will start measuring it."
-              : "You apply the change on your site; I read the page myself and tell you what I found."}
+              : movesPage && !confirmed ? "Confirm you meant to move or hide the page and I will record it."
+                : "You apply the change on your site; I read the page myself and tell you what I found."}
         </span>
         {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}
       </div>

@@ -3,31 +3,24 @@ import "server-only";
 /**
  * answer-readback - READING THE STORED AI ANSWERS BACK.
  *
- * Collection buys the answers, this reads them. ONE strict structured call reads a BATCH of stored answers
- * (what each said, who it named, what it left out) and Evidence persists one reading per observation. One
- * call per answer capped a pass at five readings, so a 140 answer day needed twenty-eight passes and only
- * ever got eight. IT COSTS NOTHING WHEN NOTHING CHANGED: a call fires only on a piece nobody has read yet.
+ * Collection buys the answers, this reads them. ONE strict structured call reads a BATCH of stored answers (what each said, who it
+ * named, what it left out) and Evidence persists one reading per observation. One call per answer capped a pass at five readings, so
+ * a 140 answer day needed twenty-eight passes and only ever got eight. IT COSTS NOTHING WHEN NOTHING CHANGED: a call fires only on a
+ * piece nobody has read yet.
  *
- * A LONG ANSWER IS READ WHOLE, IN PIECES, ACROSS AS MANY PASSES AS IT TAKES. A slot reads 5,000 characters,
- * so a longer answer is split on its own paragraph breaks and every piece rides a batch keyed `id#part`. The
- * pieces a pass reads merge into ONE stored reading beside a COVERAGE CHECKPOINT naming exactly which pieces
- * of which answer hash are in it. An answer is ANALYZED only when every piece is accounted for; until then
- * the stored reading carries a deliberately different hash, so the row stays due and the next pass resumes
- * at the first unread piece. A six piece ceiling used to throw a long answer's tail away, and the
- * one-at-a-time fallback read 12,000 characters while stamping the FULL answer hash, so a row looked
- * finished and the rest was lost forever.
+ * A LONG ANSWER IS READ WHOLE, IN PIECES, ACROSS AS MANY PASSES AS IT TAKES. A slot reads 5,000 characters, so a longer answer is
+ * split on its own paragraph breaks and every piece rides a batch keyed `id#part`. The pieces a pass reads merge into ONE stored
+ * reading beside a COVERAGE CHECKPOINT naming exactly which pieces of which answer hash are in it. An answer is ANALYZED only when
+ * every piece is accounted for; until then the stored reading carries a deliberately different hash, so the row stays due and the
+ * next pass resumes at the first unread piece. A six piece ceiling used to throw a long answer's tail away, and the one-at-a-time
+ * fallback read 12,000 characters while stamping the FULL answer hash, so a row looked finished and the rest was lost forever.
  *
- * EVERY READING IS GROUNDED IN ITS OWN ANSWER. The gateway grounds one batch call against all fifteen
- * answers as one body of text, so a number only answer A contained could validate a fabricated claim about
- * answer B. Each returned item is re-checked against the exact text it was read from and a failing item is
- * dropped alone, with the number named in what is stored.
- *
- * EVERY PIECE THIS PASS SENDS COMES BACK SETTLED: merged, or dropped with the reason stored. A piece never
- * sent is still owed. A whole batch that comes back unusable drops to ONE CALL PER PIECE, each grounded in
- * its own piece's text, so one poisoned answer cannot stall the day.
- *
- * Runtime orchestrates: Decision's gateway produces the reading, Evidence stores it, Evidence never imports
- * Decision.
+ * EVERY READING IS GROUNDED IN ITS OWN ANSWER. The gateway grounds one batch call against all fifteen answers as one body of text, so
+ * a number only answer A contained could validate a fabricated claim about answer B. Each returned item is re-checked against the
+ * exact text it was read from and a failing item is dropped alone, with the number named in what is stored. EVERY PIECE THIS PASS
+ * SENDS COMES BACK SETTLED: merged, or dropped with the reason stored, and a piece never sent is still owed. A whole batch that comes
+ * back unusable drops to ONE CALL PER PIECE, each grounded in its own piece's text, so one poisoned answer cannot stall the day.
+ * Runtime orchestrates: Decision's gateway produces the reading, Evidence stores it, and Evidence never imports Decision.
  */
 
 import { loadBrandIdentity, type BrandIdentity } from "@/domains/account/brand-identity";

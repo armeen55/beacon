@@ -243,17 +243,13 @@ describe("canonical proposal persistence", () => {
       db.state.rows.push(canonRow(id, { terminal_disposition: "superseded", superseded_by: live[i % 5]! })); }
     seedLegacy(proposal({ id: `${T}::/old-7::existing_edit::title` })); // the old store still holds a copy of a retired row
     expect([...(await loadChangeProposals(T)).keys()].sort()).toEqual([...live].sort()); }); // five current rows, and not one resurrection
-  it("calls a write that landed no row a FAILURE and gives the predecessor its place back", async () => {
+  // A HANDOVER THAT DID NOT LAND IS A FAILURE, whether the write simply landed no row or a successor id raced
+  // in under another account after the guard read. Either way the predecessor keeps its place and its queue.
+  it.each([["a write that landed no row", () => { db.state.breakWrite = true; }],
+    ["a successor id racing in under another account", () => { db.state.raceForeign = "acct-b"; }],
+  ] as const)("%s is a FAILURE, and the predecessor keeps its place", async (_name, arrange) => {
     await saveChangeProposal(proposal());
-    db.state.breakWrite = true;
-    expect(await saveChangeProposal(deep())).toBe("failed");
-    expect(current().map((r) => [r.id, r.terminal_disposition, r.superseded_by])).toEqual([[proposal().id, null, null]]);
-    expect(db.state.rows).toHaveLength(1);
-    expect((await loadChangeProposals(T)).size).toBe(1); // the operator's queue is exactly what it was
-  });
-  it("a successor id racing in under another account is a FAILURE, and the predecessor keeps its place", async () => {
-    await saveChangeProposal(proposal());
-    db.state.raceForeign = "acct-b"; // lands after the guard read, so the guard cannot see it
+    arrange();
     expect(await saveChangeProposal(deep())).toBe("failed");
     expect(current().filter((r) => r.tenant_id === T).map((r) => [r.id, r.terminal_disposition, r.superseded_by]))
       .toEqual([[proposal().id, null, null]]);

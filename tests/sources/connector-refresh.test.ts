@@ -2,11 +2,8 @@
  * Connector refresh ledger: recordSourceRefresh outcome classification and the
  * honest Recent-upkeep sentences (retired sources render nothing false).
  */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-
 vi.mock("server-only", () => ({}));
-
 // ── on-use refresh + clarity: connector-store overrides ──────────────
 const state = vi.hoisted(() => ({
   connected: { google_gsc: true, google_ga4: true, clarity: true } as Record<string, boolean>,
@@ -16,7 +13,6 @@ const state = vi.hoisted(() => ({
     connected_at: "2026-06-12T00:00:00Z",
   } as unknown,
 }));
-
 vi.mock("@/lib/connector-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/connector-store")>();
   return {
@@ -31,7 +27,6 @@ vi.mock("@/lib/connector-store", async (importOriginal) => {
     getConnectorToken: async () => state.clarityToken,
   };
 });
-
 vi.mock("@/lib/connectors/gsc/sync-search-analytics", () => ({
   syncGscSearchAnalyticsForTenant: async () => ({ synced: true }),
 }));
@@ -41,15 +36,11 @@ vi.mock("@/lib/connectors/ga4/sync-url-traffic", () => ({
 vi.mock("@/lib/connectors/clarity/sync-daily-metrics", () => ({
   syncClarityDailyMetricsForTenant: async () => ({ synced: true }),
 }));
-
-
 vi.mock("@/domains/account/tenants/store", () => ({
   getTenant: vi.fn(async () => ({ domain: "example.com" })),
 }));
-
 import { syncSucceeded } from "@/lib/connectors/on-use-refresh";
 import { fetchClarityUrlMetrics } from "@/lib/connectors/clarity/client";
-
 beforeEach(() => {
   state.connected = { google_gsc: true, google_ga4: true, clarity: true };
   state.clarityToken = {
@@ -58,11 +49,9 @@ beforeEach(() => {
     connected_at: "2026-06-12T00:00:00Z",
   };
 });
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
-
 describe("what a stale source is allowed to open on its own", () => {
   it("GA4 and Clarity are modifiers: only Search Console staleness makes a refresh owed", async () => {
     const { dueWork } = await import("@/domains/runtime/ops/due-work"); // nothing below has ever synced, so every connected source is stale
@@ -71,11 +60,9 @@ describe("what a stale source is allowed to open on its own", () => {
     state.connected = { google_gsc: false, google_ga4: true, clarity: true }; expect((await dueWork("t1", new Date(), rest)).due).toEqual([]); // behaviour data going stale never wakes the run
     state.connected = { google_gsc: true, google_ga4: false, clarity: false }; expect((await dueWork("t1", new Date(), rest)).due).toEqual(["refresh_sources"]); }); // and that refresh still pulls every connected source
 });
-
 // ─────────────────────────────────────────────────────────────────────
 // syncSucceeded — the positive freshness gate
 // ─────────────────────────────────────────────────────────────────────
-
 describe("syncSucceeded (audit-3 #5)", () => {
   it("treats { synced: true } as success and { synced: false } as failure with reason", () => {
     expect(syncSucceeded({ synced: true, rows_upserted: 12 })).toEqual({ ok: true });
@@ -90,12 +77,9 @@ describe("syncSucceeded (audit-3 #5)", () => {
     expect(syncSucceeded("synced").ok).toBe(false);
   });
 });
-
-
 // ─────────────────────────────────────────────────────────────────────
 // Clarity Data Export parser
 // ─────────────────────────────────────────────────────────────────────
-
 const CLARITY_SAMPLE = [
   {
     metricName: "Traffic",
@@ -107,14 +91,12 @@ const CLARITY_SAMPLE = [
   { metricName: "RageClickCount", information: [{ subTotal: 7, Url: "https://x.com/a" }] },
   { metricName: "DeadClickCount", information: [{ subTotal: 3, Url: "https://x.com/b" }] },
 ];
-
 function mockClarityFetch(body: unknown, ok = true) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({ ok, status: ok ? 200 : 403, json: async () => body })),
   );
 }
-
 describe("fetchClarityUrlMetrics", () => {
   it("groups metrics by URL across the metric array (happy path)", async () => {
     mockClarityFetch(CLARITY_SAMPLE);
@@ -132,7 +114,6 @@ describe("fetchClarityUrlMetrics", () => {
     expect(await fetchClarityUrlMetrics({ tenantId: "t" })).toBeNull();
   });
 });
-
 // ─────────────────────────────────────────────────────────────────────
 // Verify-live → IndexNow wiring point
 // ─────────────────────────────────────────────────────────────────────

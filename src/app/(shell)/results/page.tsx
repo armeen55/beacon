@@ -29,7 +29,9 @@ export default async function ProofPage({
   const tenantId = await currentTenantId();
   const { access } = await requireReadyAccount(tenantId);
   if (access.kind === "suspended") redirect("/");
-  const surface = await loadResultsLedgerSurface().catch(() => ({ shipments: [] as ShipmentPresentation[], computedAt: null, checkedAgoLine: null }));
+  // A LEDGER I COULD NOT READ IS NOT AN EMPTY ONE. Both failure doors (the loader's own and this one) land on
+  // `unavailable`, which renders as an outage with a way to retry rather than "no changes are being measured".
+  const surface = await loadResultsLedgerSurface().catch(() => ({ shipments: [] as ShipmentPresentation[], computedAt: null, checkedAgoLine: null, unavailable: true }));
   const shipments = surface.shipments;
   const reads = shipments.map((s) => s.read);
   const checkedAgo = surface.checkedAgoLine ?? null;
@@ -74,7 +76,12 @@ export default async function ProofPage({
       <p className="mb-5 text-[13px] text-muted-foreground">How often AI assistants name you, question by question and assistant
         by assistant, is on <Link href="/visibility" className="font-medium text-accent-primary underline underline-offset-2">Visibility</Link>.</p>
 
-      {reads.length === 0 ? (
+      {surface.unavailable ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-6 text-[13px] text-amber-800" data-results-unavailable="true">
+          I could not read your measured changes just now, so I am not telling you there are none. Reload this
+          page and I will read them again.
+        </div>
+      ) : reads.length === 0 ? (
         <div className="rounded-lg border border-border-subtle bg-surface-raised px-4 py-6 text-[13px] text-muted-foreground">
           No changes are being measured yet. Record a change below and I will check how it does over
           the next 7, 14, and 28 days against similar pages.

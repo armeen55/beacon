@@ -4,7 +4,6 @@
  *  still decoding; a check naming another account's Shipment landing nothing; and the 28-day
  *  ranking window read from the stamp. Fixtures only: the fake Postgres below holds the rows. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-
 type Row = Record<string, unknown>;
 const db = vi.hoisted(() => {
   /** `offline` = no Supabase configured at all (local dev). `upsertError`/`updateError` = the
@@ -18,7 +17,6 @@ const db = vi.hoisted(() => {
 });
 const gsc = vi.hoisted(() => ({ window: vi.fn(), lastFinal: vi.fn() }));
 const ai = vi.hoisted(() => ({ views: vi.fn() }));
-
 vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => { if (db.state.offline) throw new Error("no Supabase configured"); return db.client; },
 }));
@@ -41,7 +39,6 @@ vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/assemble-pa
 vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => ({
   ...((await orig()) as object), readAiObservationViews: ai.views,
 }));
-
 import { measureRecord, recordShippedChange } from "@/domains/measurement/proof-gsc/measure-pass";
 import { isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import {
@@ -52,11 +49,9 @@ import { supabaseFake } from "../helpers/supabase-fake";
 Object.assign(db.client, supabaseFake({ rows: () => db.state.rows,
   error: (_t, op) => (op === "update" ? db.state.updateError : op === "upsert" ? db.state.upsertError : null) as { message: string } | null,
   same: (stored, sent) => stored.tenant_id === sent.tenant_id && stored.id === sent.id }));
-
 const T = "acct-a", NOW = new Date("2026-07-31T12:00:00.000Z");
 const PAGE = "https://www.fixture-outdoors.example/nowruz-guide";
 const COMPONENTS = [{ kind: "title", label: "Page title" }, { kind: "opening_answer", label: "Opening answer" }];
-
 const origin = (over: Record<string, unknown> = {}) => ({
   proposalId: `${T}::/nowruz-guide::existing_edit::bundle`, proposalVersion: "v-abc123",
   basis: "basis_today::d6", caseId: null,
@@ -78,7 +73,6 @@ const legacyRow = (): Row => ({
 });
 const verification = (status: ShipmentVerification["status"]): ShipmentVerification =>
   ({ status, checkedAt: "2026-08-02T00:00:00.000Z", components: [{ kind: "title", state: "verified", note: null }] });
-
 beforeEach(() => {
   db.state.rows = [];
   db.state.file = [];
@@ -95,7 +89,6 @@ beforeEach(() => {
     { slot: 0, status: "observed", day: "2026-06-01", analysis: { ownedBrandMention: { mentioned: true } }, analysisHash: "x", answerHash: "x" },
   ]);
 });
-
 describe("the canonical Shipment", () => {
   it("records ONE shipment with the stamp, the components and both starting numbers", async () => {
     await upsertShippedChange(await ship());
@@ -187,7 +180,6 @@ describe("the canonical Shipment", () => {
       .toEqual([null, null, null, null]);
   });
 });
-
 /** THE FOURTH CHECKPOINT IS BOUGHT ONCE. A recompute rebuilds 7/14/28 from scratch, so a day-56
  *  reading already taken and already judged on must be carried through it untouched. */
 describe("a day-56 reading already taken", () => {
@@ -209,7 +201,6 @@ describe("a day-56 reading already taken", () => {
     expect(measured.verdict).toBe("won");
   });
 });
-
 describe("recording what the live check found", () => {
   it("writes the verdict without touching the stamp or the starting numbers", async () => {
     const record = await ship();
@@ -228,7 +219,6 @@ describe("recording what the live check found", () => {
     expect((await loadShippedChangesForTenant(T))[0].verification).toBeNull();
   });
 });
-
 /** THE PRE-MIGRATION WINDOW. The columns are not there yet, the table is, and production reads the
  *  table: a write that quietly lands in a file is a write nobody will ever read back. */
 describe("when the Shipment columns are not there yet", () => {
@@ -261,7 +251,6 @@ describe("when the Shipment columns are not there yet", () => {
     expect((db.state.file[0] as { verification?: ShipmentVerification }).verification?.status).toBe("verified");
   });
 });
-
 /** PRODUCT TRUTH: start measurement only after implementation is VERIFIED on the live page. Measuring a
  *  change I never found there would credit search movement to work that may never have landed. */
 describe("measurement waits for the change to be found on the page", () => {
@@ -283,7 +272,6 @@ describe("measurement waits for the change to be found on the page", () => {
     expect(isDueForMeasure(legacy, FINAL, LATER)).toBe(true);
   });
 });
-
 describe("what is still under measurement", () => {
   const row = (id: string, implementedAt: string, path: string, v: ShipmentVerification | null): Row =>
     ({ ...legacyRow(), id, path, implemented_at: implementedAt, verification: v, proposal_id: `p-${id}` });

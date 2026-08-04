@@ -97,6 +97,15 @@ export function googleView(input: GoogleViewInput): { limitation: string | null;
   };
 }
 
+/** A FAN-OUT IS WHAT THE ASSISTANT WENT AND SEARCHED FOR, NEVER WHAT I ASKED IT. A tracked question of yours appearing in this list reads as the assistant's
+ *  own idea when it was mine, which is Beacon discovering the exact question Beacon put to it. The summary block dropped the self-echo and the per-answer
+ *  drill-down printed it straight back, so both go through HERE and cannot drift apart again. (Decision has a third site of this rule in produce-bundle.ts; if
+ *  that one is folded in too, this is the helper to hoist, most naturally into evidence/ai-visibility.) */
+const fanOutsExcluding = (fanOuts: readonly string[], asked: readonly string[]): string[] => {
+  const mine = new Set(asked.map((q) => q.trim().toLowerCase()));
+  return [...new Set(fanOuts.map((q) => q.trim()).filter(Boolean))].filter((q) => !mine.has(q.toLowerCase()));
+};
+
 const ENGINE_LABEL: Record<string, string> = { chatgpt: "ChatGPT", perplexity: "Perplexity", gemini: "Gemini", claude: "Claude" };
 const engineName = (raw: string): string => ENGINE_LABEL[(raw || "").toLowerCase()] ?? "An AI assistant";
 
@@ -195,12 +204,7 @@ export function aiView(input: AiViewInput): { empty: string | null; blocks: VisB
   const differed = compared.filter((r) => canonicalBy.get(`${r.promptId}|${r.engine}`) !== r.mentioned).length;
   const rows = input.landscape ?? [];
   const kindOf = new Map(rows.map((r) => [r.domain, r.kind]));
-  // A FAN-OUT IS WHAT THE ASSISTANT WENT AND SEARCHED FOR, NEVER WHAT I ASKED IT. A tracked question of
-  // yours appearing in this list would read as the assistant's own idea when it was mine, so every prompt
-  // I put to it is taken back out.
-  const asked = new Set(input.latest.rows.map((r) => r.promptText.trim().toLowerCase()));
-  const fanOuts = [...new Set(input.latest.rows.flatMap((r) => r.fanOuts ?? []).map((q) => q.trim()).filter(Boolean))]
-    .filter((q) => !asked.has(q.toLowerCase())).slice(0, MAX_FANOUTS);
+  const fanOuts = fanOutsExcluding(input.latest.rows.flatMap((r) => r.fanOuts ?? []), input.latest.rows.map((r) => r.promptText)).slice(0, MAX_FANOUTS);
 
   return {
     empty: null,
@@ -244,9 +248,10 @@ export function aiView(input: AiViewInput): { empty: string | null; blocks: VisB
  *  tell me what it used" are different claims, and printing the first for the second is the lie this
  *  surface exists to refuse. */
 export function answerView(
-  r: AnswerRow, kindOf: ReadonlyMap<string, CompetitorKind> = new Map(),
+  r: AnswerRow, kindOf: ReadonlyMap<string, CompetitorKind> = new Map(), costUsd: number | null = r.costUsd,
 ): { id: string; head: string; body: string; details: string[] } {
-  const engine = engineName(r.engine), own = (r.citations ?? []).filter((c) => c.owned).length;
+  const engine = engineName(r.engine), mine = (r.citations ?? []).filter((c) => c.owned).length;
+  const own = fanOutsExcluding(r.fanOuts ?? [], [r.promptText]); // the searches that were the assistant's own idea, not an echo of mine
   const cited = (c: NonNullable<AnswerRow["citations"]>[number]): string =>
     `${c.url} (${c.owned ? "your page" : `${c.domain}, ${(KIND_LABEL[kindOf.get(c.domain) ?? "irrelevant_unknown"]).toLowerCase()}`})`
     + (c.passage?.trim() ? ` It quoted this part: "${c.passage.trim()}"` : "");
@@ -259,12 +264,14 @@ export function answerView(
       `I asked ${engine}, word for word: "${r.promptText}"`,
       ...(r.answerText?.trim() ? [`What it answered, all of it: ${r.answerText.trim()}`]
         : ["I hold no answer text for this one, so there is nothing to quote."]),
+      // The tri-state survives the filter: null is still "this path reports nothing", and an answer whose only fan-out was the echo of my own question ran no
+      // search of its own, which is a true statement rather than a missing line.
       ...(r.fanOuts == null ? [`${engine} does not report the searches it ran on this path, so I cannot say whether it ran any.`]
-        : r.fanOuts.length === 0 ? ["It ran no searches of its own before answering."]
-          : [`Before answering it searched for: ${r.fanOuts.map((q) => `"${q.trim()}"`).join(", ")}.`]),
+        : own.length === 0 ? ["It ran no searches of its own before answering."]
+          : [`Before answering it searched for: ${own.map((q) => `"${q}"`).join(", ")}.`]),
       ...(r.citations == null ? [`${engine} does not report which pages it used on this path, so I am not claiming it credited nobody.`]
         : r.citations.length === 0 ? ["It credited no pages at all."]
-          : [`It credited ${num(r.citations.length)} ${r.citations.length === 1 ? "page" : "pages"}, ${own > 0 ? `${num(own)} of them yours` : "none of them yours"}:`,
+          : [`It credited ${num(r.citations.length)} ${r.citations.length === 1 ? "page" : "pages"}, ${mine > 0 ? `${num(mine)} of them yours` : "none of them yours"}:`,
             ...r.citations.map(cited)]),
       ...(r.retrievedNotCited == null ? [`${engine} does not report the pages it read but did not credit on this path.`]
         : r.retrievedNotCited.length === 0 ? ["Every page it read, it credited."]
@@ -275,7 +282,11 @@ export function answerView(
       r.reading === "read" ? "I have read every word of this answer closely."
         : r.reading === "part" ? "I have read part of this answer closely and the rest is still waiting its turn."
           : "Nobody has read this answer closely yet, so I make no claim here about who it named.",
-      ...(r.receipt ? [`The stored answer this all comes off is filed as ${r.receipt}${r.costUsd ? `, and it cost ${r.costUsd.toFixed(2)} dollars to buy once.` : "."}`]
+      // WHAT IT COST, or that I cannot prove it: a row whose own receipt was never preserved is UNKNOWN, and printing zero dollars would sell a paid answer as
+      // free. A real charge SMALLER than a cent is the same lie in miniature, because two decimals round 0.004 down to "0.00 dollars", so it says its own size.
+      ...(r.receipt ? [`The stored answer this all comes off is filed as ${r.receipt}${costUsd != null && costUsd > 0
+        ? `, and it cost ${costUsd < 0.01 ? "under a cent" : `${costUsd.toFixed(2)} dollars`} to buy once.`
+        : ", and I hold no receipt proving what it cost, so I am not putting a number on it."}`]
         : ["I did not keep an identity for the stored answer behind this one."]),
     ],
   };

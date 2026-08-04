@@ -10,7 +10,7 @@ import {
 } from "@/lib/perf-trace";
 import { loadProofLedgerPersisted } from "@/domains/measurement";
 import { findProofForChange, proofResultHref } from "@/domains/measurement";
-import { causeLabel, loadChangeProposal, resolveCurrentBasis } from "@/domains/decision";
+import { actionableProposalFailures, causeLabel, DANGEROUS_COMPONENT_KINDS, loadChangeProposal, resolveCurrentBasis, validateProposal } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { MarkImplemented, SetAsideChange } from "../../changes-list-client";
@@ -43,13 +43,20 @@ export default async function ChangeDetailPage({
     // ONE bounded row read serves both answers: the id names the row and the CURRENT basis proves it is
     // live work, so no cached release resurrects set-aside copy and no unlimited queue is poured out to
     // find one row whose address is already in hand. No bundle falls through to the redirect below.
+    // THE SAME ONE VERDICT THE LIST ASKS. A link is not a side entrance: a receipt that stopped resolving, a
+    // merge sitting in ready and readings that went cold are refused here exactly as they are refused there.
     const [proposal, basis] = await Promise.all([loadChangeProposal(tenantId, id), resolveCurrentBasis(tenantId)]);
-    const found = proposal && basis != null && proposal.basis === basis
-      && (proposal.status === "ready" || proposal.status === "needs_review") ? proposal : null;
+    const found = proposal && actionableProposalFailures(proposal, { tenantId, currentBasis: basis }).length === 0
+      && (proposal.kind !== "new_page" || validateProposal(proposal).verdict !== "rejected") ? proposal : null;
     if (found?.bundle) return <BundleDetail proposal={found} bundle={found.bundle} />;
-    // A bar I could not READ is not a bar I raised: claiming I judged this idea when
-    // I never resolved the account would be a lie the operator cannot check.
-    if (await isSetAside(tenantId, id)) return <SetAsideDetail unreadable={basis == null} />;
+    // LIVE WORK WITH NOTHING TO UNPACK IS NOT SET ASIDE: no bundle means no second layer, and its home is the
+    // ranked list that renders it whole. A bar I could not READ is likewise not a bar I raised. Only a MISS
+    // costs the extra bounded read, so a change put aside a moment ago reads as history, not as a 404.
+    if (found) redirect("/changes");
+    const stored = proposal ?? (await loadChangeProposal(tenantId, id, { retired: "include" }).catch(() => null));
+    if (stored != null && stored.status !== "implemented_pending_verification") {
+      return <SetAsideDetail unreadable={basis == null} />;
+    }
 
     // Fresh per-request repo read: a module-level array hydrated at lambda cold start made entries
     // written by another lambda invisible here, and the page rendered notFound.
@@ -73,12 +80,6 @@ export default async function ChangeDetailPage({
   } finally {
     trace.flush();
   }
-}
-
-/** A saved proposal the current queue no longer carries. An IMPLEMENTED one is not set aside. */
-async function isSetAside(tenantId: string, id: string): Promise<boolean> {
-  const stored = await loadChangeProposal(tenantId, id).catch(() => null);
-  return stored != null && stored.status !== "implemented_pending_verification";
 }
 
 /** The honest end of a stale direct link: no exact copy, no before and after, and
@@ -227,7 +228,7 @@ function BundleDetail({ proposal, bundle }: { proposal: ChangeProposal; bundle: 
           proposalId={proposal.id}
           label={isNew ? "I built this page" : "I made this change"}
           newPage={isNew}
-          components={bundle.components.map((c) => ({ kind: c.kind, label: c.label }))}
+          components={bundle.components.map((c) => ({ kind: c.kind, label: c.label, moves: DANGEROUS_COMPONENT_KINDS.has(c.kind) }))}
         />
         <p className="text-[12px] text-muted-foreground">
           After you make it, I check the page myself and the measurement starts from what I find.
@@ -344,6 +345,18 @@ function ComponentCard({
   // handed copy with no place to put it and a source pack they could not see.
   const plan: [string, string | undefined][] = [["Where it goes", component.where], ["What it does", component.objective], ["Why it works", component.mechanism]];
   const pack = component.sourcePack ?? null;
+  // A MERGE, A FORWARD, A CANONICAL OR A DE-INDEX IS THE ONE CHANGE A SENTENCE CANNOT TAKE BACK. Where it
+  // sends people, what survives it, what it drops and how to reverse it belong on the screen BEFORE the
+  // operator confirms it, and every line is held on the change itself, never worked out afterwards.
+  const moves = DANGEROUS_COMPONENT_KINDS.has(component.kind);
+  const to = component.redirectTo;
+  const consequences = moves ? [
+    to ? `Anyone who opens the old address lands on ${to}.` : "This page stops answering at its own address.",
+    ...(component.preserves?.keeps.length ? [`What survives the change: ${component.preserves.keeps.join(", ")}.`] : []),
+    ...(component.preserves?.losses ?? []).map((l) => `Dropped: ${l.what}, because ${l.why}.`),
+    to ? `To undo it: take the forward to ${to} off and publish this page at its own address again.`
+      : "To undo it: put the page back the way it was, then tell me here, and I read it again before I say anything.",
+  ] : [];
   return (
     <div className="space-y-2 rounded-2xl border border-border bg-surface-raised p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -362,12 +375,21 @@ function ComponentCard({
           </p>
         </div>
       ) : (
-        <p className="text-[12px] italic text-muted-foreground">This page has none today.</p>
+        // A piece that RETIRES or FORWARDS a page is not a page that happens to have nothing there today.
+        <p className="text-[12px] italic text-muted-foreground">
+          {moves ? "This one does not add anything to the page. Read what it does below before you confirm it." : "This page has none today."}
+        </p>
       )}
       <div className="space-y-1">
         <p className="text-[12px] text-muted-foreground">Use this</p>
         <CopyBlock component={component} />
       </div>
+      {consequences.length > 0 ? (
+        <div className="space-y-1 rounded-lg border border-status-warning/40 bg-status-warning/5 px-3 py-2" data-destructive-detail="true">
+          <p className="text-[12px] font-semibold text-foreground">What this does to your site</p>
+          <Bullets items={consequences} />
+        </div>
+      ) : null}
       {plan.some(([, v]) => v) ? (
         <div className="space-y-0.5 text-[12px] leading-relaxed text-muted-foreground">
           {plan.map(([label, value]) => (value ? <p key={label}><span className="font-semibold text-foreground">{label}:</span> {value}</p> : null))}
@@ -425,46 +447,19 @@ function CopyBlock({ component }: { component: BundleComponent }) {
   return <p className={`${box} whitespace-pre-wrap break-words`}>{component.after}</p>;
 }
 
-/**
- * Phase 1.6 (Sprint 1 follow-up, 2026-04-24) — honest error state.
- *
- * Rendered when the repository fetch fails. Deliberately does NOT fall back
- * to the stale module-level `changelogEntries` array that this page used to
- * read from — the whole point of the fresh-read pattern is that operators
- * never see a detail page that conflicts with /changes. A transient read
- * failure is rare enough that a plain retry message is the right UX.
- * Matches the error shape on /changes main list.
- */
+/** The honest read failure. It deliberately does NOT fall back to anything cached: the whole point of the
+ *  fresh-read pattern is that this page never contradicts /changes. */
 function ChangeDetailReadError({ error }: { error: unknown }) {
-  const message =
-    error instanceof Error
-      ? error.message
-      : "Unknown error reading changelog entry";
   return (
     <div className="max-w-3xl">
-      <section
-        className="rounded-lg border border-status-warning/40 bg-status-warning/5 px-5 py-5"
-        aria-labelledby="change-detail-read-error-heading"
-      >
-        <h2
-          id="change-detail-read-error-heading"
-          className="text-[13px] font-semibold text-foreground tracking-tight"
-        >
-          Couldn&apos;t load this change
-        </h2>
-        <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-          {message}
-        </p>
+      <section className="rounded-lg border border-status-warning/40 bg-status-warning/5 px-5 py-5" aria-labelledby="change-read-error">
+        <h2 id="change-read-error" className="text-[13px] font-semibold tracking-tight text-foreground">Couldn&apos;t load this change</h2>
+        <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">{error instanceof Error ? error.message : "Unknown error reading changelog entry"}</p>
         <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-          This usually means the database is temporarily unreachable. Refresh
-          the page to retry. We never fall back to cached data here, so you
-          won&apos;t see stale truth by accident.
+          I could not reach the database just now. Refresh to retry: I never show you cached truth by accident.
         </p>
-        <Link
-          href="/changes"
-          className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
-        >
-          ← Back to Changes
+        <Link href="/changes" className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
+          Back to Changes
         </Link>
       </section>
     </div>

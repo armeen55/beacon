@@ -106,7 +106,12 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
     if (produced?.outcome === "persistence_failed") {
       throw new Error("I produced changes this pass but could not save a single one, so I kept your last release instead of stamping a new time on work I cannot load back.");
     }
-    const changes = await buildChangesViewUncached(tenantId);
+    // ONE RELEASE IDENTITY, minted once and threaded through the ranking stamp, the Changes view and Today.
+    // Two ids were minted here and inside the build, so a "show more" could page one ranking while the screen
+    // above it named another, and the queue stamp could fail while the publish carried on regardless.
+    const computedAt = new Date().toISOString();
+    const releaseId = `${tenantId}:${computedAt}`;
+    const changes = await buildChangesViewUncached(tenantId, releaseId);
     // The verdicts for pages this pass JUDGED and declined to change, carried into the
     // release so Today can quote the decision for the page it blames instead of a
     // generic "still checking". Biggest measured gap first, bounded: Today quotes at
@@ -122,8 +127,6 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
       // A draft the store refused because that page already carries a change I am measuring. The
       // store has always answered this; carrying it here is what lets Today say so out loud.
       heldForMeasurement: produced?.heldForMeasurement, declineNotes });
-    const computedAt = new Date().toISOString();
-    const releaseId = `${tenantId}:${computedAt}`;
     const surface: CustomerSurface = {
       schemaVersion: 2,
       releaseId,

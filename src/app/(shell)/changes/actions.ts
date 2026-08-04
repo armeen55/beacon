@@ -11,37 +11,26 @@ import {
   editLifecycleStatus,
   markRecommendedEditsAsShipped,
 } from "@/domains/decision";
-import { dismissChangeProposal, loadChangeProposal, markProposalImplemented, resolveCurrentBasis, type ChangeProposal } from "@/domains/decision";
+import { actionableProposalFailures, DANGEROUS_COMPONENT_KINDS, dismissChangeProposal, loadChangeProposal, markProposalImplemented, resolveCurrentBasis, type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
 import { captureChangeMeta, loadShippedChanges, recordShippedChange, upsertShippedChange } from "@/domains/measurement";
 import { invalidateCoreSurfaces } from "../surface-release";
 import { readChangesPage, type ChangesPage } from "../changes-data";
 
 /**
- * changes/actions (CORE 100K cutover, 2026-07-22): the manual "Mark implemented"
- * action. Publishing authority is MANUAL and server-enforced: the kernel never
- * writes a live page and never flips this itself. The operator confirms they
- * applied a Ready change; we record it as implemented pending verification, so the
- * pre-ship queue drops it and the reading lives in the proof ledger.
- *
- * THE SHIPMENT TRANSACTION (V1 Truth Convergence Phase 6). Pressing this used to do
- * one thing: flip a status. So a change the operator really made left no record of
- * WHAT was applied, WHEN, or where the page stood beforehand, and nothing could ever
- * verify or measure it honestly. Now the press writes a Shipment FIRST and flips the
- * proposal SECOND, in that order and never the other way: a crash between the two
- * leaves a Shipment nobody has flipped yet, which the next press heals, whereas the
- * reverse would leave a change marked done that nothing on earth is measuring.
+ * changes/actions: the manual "Mark implemented" action. Publishing authority is MANUAL and server-enforced:
+ * the kernel never writes a live page and never flips this itself. THE SHIPMENT TRANSACTION: the press writes
+ * a Shipment FIRST and flips the proposal SECOND, never the other way, because a crash between the two leaves
+ * a Shipment nobody flipped (which the next press heals) where the reverse leaves a change marked done that
+ * nothing on earth is measuring. And nothing lands at all unless the ONE verdict passes at this moment.
  */
 export type MarkProposalImplementedResponse = {
   success: boolean;
   error?: string;
 };
 
-/**
- * The exact version of this change the operator applied: its copy, its components and
- * the basis it was drafted under. Deliberately EXCLUDES status, so the flip that
- * follows the Shipment cannot change the id and a retry lands on the same record.
- */
+/** The exact version applied: its copy, its components and the basis it was drafted under. Deliberately
+ *  EXCLUDES status, so the flip that follows cannot change the id and a retry lands on the same record. */
 function shippedVersionOf(p: ChangeProposal): string {
   const material = {
     change: p.recommendedChange,
@@ -52,12 +41,10 @@ function shippedVersionOf(p: ChangeProposal): string {
 }
 
 /**
- * WHERE THE NEW PAGE ACTUALLY LIVES. A page that did not exist has no address of its own until the
- * operator publishes it, so a new-page change marked done with no address left me checking nothing:
- * verification fetched the page LABEL as if it were a website. The address is now owed, and it has to
- * be one I can read and keep reading: on the account's own site, secure, and one plain page address
- * with no query attached, because a tracking link is not the page. Returns the exact address to record,
- * or the one sentence the operator reads instead.
+ * WHERE THE NEW PAGE ACTUALLY LIVES. A page that did not exist has no address until the operator publishes
+ * it, so a new-page change marked done with no address left verification fetching the page LABEL as if it
+ * were a website. The address is owed, and it has to be one I can keep reading: on their own site, secure,
+ * and one plain page address with no query, because a tracking link is not the page.
  */
 function liveUrlFor(raw: string, domain: string): { url: string } | { error: string } {
   const site = domain.trim().toLowerCase().replace(/^www\./, "");
@@ -75,17 +62,11 @@ function liveUrlFor(raw: string, domain: string): { url: string } | { error: str
 }
 
 /**
- * Write the Shipment for one proposal. Idempotent: the id is derived from the proposal
- * and the version applied, so a retry upserts itself and the store keeps the stamp and
- * the starting numbers it already holds. Returns false when nothing durable landed, and
- * the caller then refuses to flip anything.
- *
- * A SECOND PRESS ON THE SAME CHANGE DOES NOTHING AT ALL. It used to rebuild the whole record:
- * the live check I had already made was erased back to null and re-owed, the ship date moved to
- * today, and the displayed starting numbers were recomputed over a window that now included days
- * AFTER the change, so pressing twice quietly flattered the result of the change itself. The
- * record on file is the record. Only a genuinely new version of the copy is a new Shipment, and
- * that is a different id, so it makes its own record without touching this one.
+ * Write the Shipment for one proposal. Idempotent: the id is derived from the proposal and the version
+ * applied, so a retry keeps the stamp and the starting numbers already on file. False when nothing durable
+ * landed, and the caller then flips nothing. A SECOND PRESS DOES NOTHING AT ALL: rebuilding the record erased
+ * the live check back to null, moved the ship date to today and recomputed the starting numbers over a window
+ * that now included days AFTER the change, so pressing twice quietly flattered its own result.
  */
 async function recordShipment(
   tenantId: string, proposal: ChangeProposal,
@@ -94,7 +75,9 @@ async function recordShipment(
   const componentKinds = opts.componentKinds;
   try {
     const version = shippedVersionOf(proposal);
-    const held = (await loadShippedChanges().catch(() => []))
+    // FAIL CLOSED ON THE DUPLICATE CHECK. A ledger I could not read is not proof there is no prior record:
+    // writing blind resets the live check and moves the ship date, the exact bug this lookup exists to stop.
+    const held = (await loadShippedChanges())
       .find((r) => r.proposalId === proposal.id && r.proposalVersion === version);
     if (held) {
       log.info("markProposalImplemented: this exact change is already recorded, so I left its record alone", {
@@ -168,11 +151,8 @@ async function recordShipment(
 }
 
 /**
- * Record that the operator applied a change. Two controls ride with it: the component PICKER (tick the
- * pieces you actually applied, all ticked by default) and the NOTE (say what you put on the page if it
- * was not my wording). THE CLAIM STARTS THE CHECK AND NEVER ENDS IT: whatever arrives here, the Shipment
- * is written with no verification on it, so Beacon still goes and reads the live page before it says a
- * change is there.
+ * Record that the operator applied a change. THE CLAIM STARTS THE CHECK AND NEVER ENDS IT: whatever arrives
+ * here, the Shipment is written with no verification on it, so Beacon still reads the live page itself.
  */
 export async function markProposalImplementedAction(args: {
   proposalId: string;
@@ -183,6 +163,10 @@ export async function markProposalImplementedAction(args: {
   /** RETIRED, and accepted only so an old page still open in a browser is not an error. It used to
    *  suppress the live check; it does nothing now, and the check runs either way. */
   operatorConfirmed?: boolean;
+  /** THE ONE CONFIRMATION THAT IS REAL. Set only by an operator who ticked the box beside a piece that moves
+   *  or hides a page. Enforced HERE, on the server: a stale screen or a hand-made request cannot merge or
+   *  redirect a page merely because it reached this action. */
+  destructiveConfirmed?: boolean;
   /** WHERE THE NEW PAGE IS LIVE. Required for a new page, which has no address until they publish it. */
   liveUrl?: string;
 }): Promise<MarkProposalImplementedResponse> {
@@ -211,8 +195,21 @@ export async function markProposalImplementedAction(args: {
     if (stored == null) {
       return { success: false, error: "I couldn't find that change to mark it implemented." };
     }
-    if (stored.status !== "implemented_pending_verification" && (basis == null || stored.basis !== basis)) {
+    // THE VERDICT IS ASKED AT THE MOMENT OF THE MUTATION, not only where the screen was drawn. The button
+    // lives on a page that could have been open since before the bar moved or before this change's own
+    // receipt stopped resolving, and recording it would push a change I no longer stand behind into the proof
+    // ledger, where it would be measured and counted for weeks. No shipment lands unless this passes.
+    if (stored.status !== "implemented_pending_verification"
+      && actionableProposalFailures(stored, { tenantId, currentBasis: basis }).length > 0) {
       return { success: false, error: "I set this change aside, so I am not recording it. Open Changes for the work I stand behind now." };
+    }
+    // A CHANGE THAT MOVES OR HIDES A PAGE OWES A DELIBERATE YES. The tick is the operator's, and only the
+    // pieces they say they applied are asked for: skipping the merge means there is nothing to confirm.
+    const applied = args.componentKinds?.length
+      ? (stored.bundle?.components ?? []).filter((c) => args.componentKinds!.includes(c.kind))
+      : stored.bundle?.components ?? [];
+    if (applied.some((c) => DANGEROUS_COMPONENT_KINDS.has(c.kind)) && args.destructiveConfirmed !== true) {
+      return { success: false, error: "This one moves or hides a page, so I need you to confirm you meant that before I record it. Tick the confirmation and press it again." };
     }
     // THE ADDRESS GATE RUNS BEFORE ANYTHING IS WRITTEN, because the shipment is written first and a
     // shipment pointing at a page label is a reading I can never take.
@@ -248,12 +245,8 @@ export async function markProposalImplementedAction(args: {
   }
 }
 
-/**
- * THE NEXT PAGE OF THE RANKED QUEUE. Read-only, ONE page, cut at a rank offset inside the release the
- * caller names: hand back the id you were given and you keep reading the same order. If that release has
- * been replaced since, the answer is the fresh first page and the sentence saying so, never rows from an
- * order the operator never saw.
- */
+/** THE NEXT PAGE OF THE RANKED QUEUE. Read-only, ONE page, cut at a rank offset inside the release the caller
+ *  names. A release replaced since is answered with the fresh first page and the sentence saying so. */
 export async function loadMoreChangesAction(args: {
   lane: "ready" | "todo"; cursor: number; releaseId?: string | null;
 }): Promise<ChangesPage> {
@@ -261,13 +254,10 @@ export async function loadMoreChangesAction(args: {
 }
 
 /**
- * THE operator's "put this aside". A Suggested change the operator does not want takes the one
- * terminal disposition that means exactly that: dismissed. It is not a rejection by Beacon and
- * not a lifecycle stage, so the change keeps its status and simply stops being the current
- * answer, and the store refuses to re-draft the same hypothesis until the evidence itself moves.
- *
- * ONLY WORK STILL WAITING ON THE OPERATOR. A change already marked implemented is being measured,
- * so it is refused here in the operator's own words rather than quietly ignored.
+ * THE operator's "put this aside": the one terminal disposition that means exactly that, dismissed. Not a
+ * rejection by Beacon and not a lifecycle stage, so the change keeps its status, stops being the current
+ * answer, and the store refuses to re-draft that hypothesis until the evidence itself moves. ONLY WORK STILL
+ * WAITING ON THEM: a change already marked implemented is being measured, and is refused in their own words.
  */
 export async function dismissProposalAction(args: {
   proposalId: string;

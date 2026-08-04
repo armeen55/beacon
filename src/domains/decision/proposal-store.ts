@@ -15,6 +15,7 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { assertRowsScopedToTenant, dualWriteUpsertScoped } from "@/lib/persistence/dual-write";
 import { log } from "@/lib/logger";
 import { serializeChangeProposal, deserializeChangeProposal, type BundleComponentKind, type ChangeProposal } from "./contracts";
+import { actionableProposalFailures } from "./validate-proposal";
 
 /** The canonical table (migrations/2026-07-31_change_proposals.sql). */
 const TABLE = "change_proposals";
@@ -301,12 +302,15 @@ async function readLegacy(tenantId: string, limit: number, id?: string): Promise
   } catch { return []; }
 }
 
-/** Load one proposal by id. A row held as history is NOT served as current. Fail-soft to null. */
-export async function loadChangeProposal(tenantId: string, id: string): Promise<ChangeProposal | null> {
+/** Load one proposal by id. History is NOT served as current unless the caller asks for it: a change put
+ *  aside a moment ago must read as history, never as a page that never existed. Fail-soft to null. */
+export async function loadChangeProposal(
+  tenantId: string, id: string, opts: { retired?: "include" } = {},
+): Promise<ChangeProposal | null> {
   if (!tenantId || !id) return null;
   try {
     const row = await rowById(tenantId, id);
-    if (row) return row.terminal_disposition == null ? decode(row.payload) : null;
+    if (row) return row.terminal_disposition == null || opts.retired === "include" ? decode(row.payload) : null;
     return decode((await readLegacy(tenantId, 1, id))[0]?.content ?? null);
   } catch (e) { log.error("[proposal-store] load threw", { id, error: e instanceof Error ? e.message : String(e) }); return null; }
 }
@@ -333,9 +337,9 @@ export async function stampQueueRanking(
  *  dismissal leaves a hole, and counting rows through it would serve the change after it twice. */
 export async function readQueuePage(
   tenantId: string, lane: "ready" | "todo", basis: string, afterRank: number, limit: number,
-): Promise<{ rows: ChangeProposal[]; total: number; release: string | null; nextRank: number; more: boolean }> {
+): Promise<{ rows: ChangeProposal[]; total: number; dropped: number; release: string | null; nextRank: number; more: boolean }> {
   const at = Math.max(0, Math.floor(afterRank));
-  const nothing = { rows: [], total: 0, release: null, nextRank: at, more: false };
+  const nothing = { rows: [], total: 0, dropped: 0, release: null, nextRank: at, more: false };
   try {
     const sb = getSupabaseAdmin();
     // Both lanes of one ranking share a release, so rank 1 of either names the ranking that is live.
@@ -355,13 +359,20 @@ export async function readQueuePage(
     if (page.error) throw new Error(page.error.message);
     const read = (page.data ?? []) as unknown as Array<CanonRow & { queue_rank: number }>;
     const rows: ChangeProposal[] = [];
+    // THE SAME ANSWER THE FIRST SCREEN GIVES. Position, lane and basis are stamped once and read for weeks,
+    // so a change whose own receipt stopped resolving kept paging out of a ranking taken when it still did.
     for (const r of read) {
       if (r.terminal_disposition != null) continue;
       const p = decode(r.payload);
-      if (p && p.status !== "implemented_pending_verification") rows.push(p);
+      if (p && actionableProposalFailures(p, { tenantId, currentBasis: basis }).length === 0) rows.push(p);
     }
     // `more` is what the DATABASE said, never count arithmetic: a short raw page means the lane is exhausted.
-    return { rows, total: counted.count ?? rows.length, release,
+    // The count is what the lane holds LESS what this page just refused, never the raw stamp: offering to show
+    // more of a number that includes changes I will not hand over is a promise the next press cannot keep.
+    // `dropped` carries this page.s refusals on, so the caller takes DEEPER ones off the same count as it
+    // learns of them. No scan: I only ever subtract what I have actually read.
+    return { rows, dropped: read.length - rows.length, release,
+      total: Math.max(rows.length, (counted.count ?? rows.length) - (read.length - rows.length)),
       nextRank: read[read.length - 1]?.queue_rank ?? at, more: read.length === limit };
   } catch (e) {
     log.error("[proposal-store] the queue page did not read", { tenantId, lane, error: e instanceof Error ? e.message : String(e) });

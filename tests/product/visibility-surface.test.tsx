@@ -13,6 +13,7 @@ import { aiTrend } from "@/app/(shell)/results/results-presentation";
 import { aiView, answerView, googleView, type AnswerRow, type VisBlock } from "@/app/(shell)/visibility/visibility-view";
 import { readAiObservations } from "@/domains/evidence/ai-visibility/ai-observations";
 import { VisibilityTabs } from "@/app/(shell)/visibility/visibility-tabs";
+import VisibilityPage from "@/app/(shell)/visibility/page"; import type { ReactElement } from "react";
 import { ScoreboardChartTabs } from "@/app/(shell)/scoreboard-chart-tabs";
 type Day = AiOutcomeReport["segments"][number]["days"][number]; // one reporting day as the kernel hands it over
 const day = (d: string, rate: number | null, over: Partial<Day> = {}): Day => ({ day: d, observed: 10, analyzed: 10, mentioning: Math.round((rate ?? 0) * 10), mentionRate: rate,
@@ -41,6 +42,18 @@ const ROW: AnswerRow = { id: "obs_7", day: DAY, promptId: "p1", promptText: "whe
   modelRequested: "gpt-x-preview", modelServed: "gpt-x", mode: "api",
   askedAt: "9:02 AM Pacific", answeredAt: "9:02 AM Pacific", receipt: "answer:9f3c1", costUsd: 0.02,
   failureReason: null, reading: "read" };
+/** THE WHOLE SURFACE, so the server actions it hands the browser can be invoked exactly as a stale tab would invoke them. Everything except the observation
+ *  store itself is stubbed: what is under test is WHOSE account an action reads for, and what it says when it may not read at all. */
+const SESSION = vi.hoisted(() => ({ id: "acct-a" }));
+const JOURNEY = vi.hoisted(() => ({ props: null as null | { tenantId: string; days: Array<{ day: string; label: string }>;
+  page: (t: string, day: string, after: string | null) => Promise<{ rows: unknown[]; cursor: string | null; note: string | null; replace?: boolean }>;
+  open: (t: string, id: string) => Promise<string[]> } }));
+vi.mock("@/app/(shell)/visibility/answers-client", () => ({ AnswerJourney: (p: never) => { JOURNEY.props = p; return null; } }));
+vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => SESSION.id }));
+vi.mock("@/domains/account", () => ({ requireReadyAccount: async (t: string) => ({ access: { kind: t === SESSION.id ? "ready" : "suspended" } }), loadBusinessProfile: async () => null }));
+vi.mock("@/domains/decision", () => ({ loadDailyTotalsForTenant: async () => [] }));
+vi.mock("@/domains/runtime", () => ({ researchRunStatus: async () => null }));
+vi.mock("@/domains/measurement", () => ({ buildScoreboard: () => null, visibilitySeries: async () => SEGMENTS }));
 const { reads, fetched } = store;
 /** 140 stored readings on ONE day: 35 tracked questions across 4 assistants, which is a live day. */
 beforeEach(() => {
@@ -90,11 +103,16 @@ describe("Visibility explains where you stand, and never invents a score", () =>
       "I have read every word of this answer closely.", "answer:9f3c1", "0.02 dollars"]) expect(all, s).toContain(s);
     // EVERY citation and EVERY fan-out, past the old ten and twelve, and the whole 5,000 character answer.
     expect(one.details.filter((d) => d.startsWith("https://")).length).toBe(15);
-    expect((ROW.fanOuts ?? []).every((q) => all.includes(`"${q}"`))).toBe(true);
     expect(all).toContain(LONG_ANSWER); // not a first 1,400 characters with a count of what was cut
-    // A TRACKED QUESTION OF MINE IS NEVER A SEARCH THE ASSISTANT RAN: deduped in the summary, never in the row.
+    // A TRACKED QUESTION OF MINE IS NEVER A SEARCH THE ASSISTANT RAN. The summary already dropped the self-echo; the ROW printed it
+    // back as the assistant's own idea, which reads as Beacon discovering the exact question Beacon asked.
+    const searched = one.details.find((d) => d.startsWith("Before answering it searched for"))!;
+    expect((ROW.fanOuts ?? []).filter((q) => q !== ROW.promptText).every((q) => searched.includes(`"${q}"`))).toBe(true);
+    expect(searched).not.toContain(ROW.promptText);
     expect(at(v, "What the assistants searched for").chips).not.toContain(ROW.promptText);
-    expect(all).toContain(`"${ROW.promptText}"`);
+    expect(all).toContain(`I asked ChatGPT, word for word: "${ROW.promptText}"`); // the question is still quoted where it belongs
+    // An answer whose ONLY fan-out was the echo ran no search of its own, and says exactly that.
+    expect(answerView({ ...ROW, fanOuts: [ROW.promptText] }).details).toContain("It ran no searches of its own before answering.");
     // WHAT THE PROVIDER NEVER REPORTED SAYS SO, and is never printed as a factual none.
     const quiet = answerView({ ...ROW, fanOuts: null, citations: null, retrievedNotCited: null, reading: "unread" }).details.join("\n");
     for (const s of ["ChatGPT does not report the searches it ran on this path",
@@ -126,6 +144,30 @@ describe("Visibility explains where you stand, and never invents a score", () =>
     expect(one!.answer_text).toHaveLength(5000);                   // the whole answer, only when asked for by itself
     expect(fetched).toHaveLength(0);                               // nothing on this path ever asks a provider
   });
+  /** PHASE 4 (SECURITY) + 6C + 6D + 7, on the REAL surface. The actions used to close over the account the page was DRAWN with and read for THAT account with the
+   *  service role, so a tab left open on one account and clicked after signing into another handed back the first account's stored answers. */
+  it("refuses a stale tab's action for another account without reading a single row of it, keeps the way back open when a read fails, and opens any observed day", async () => {
+    SESSION.id = TENANT;
+    const page = await VisibilityPage() as ReactElement<{ children: ReactElement[] }>;
+    const holder = (page.props.children[1]! as ReactElement<{ children: ReactElement }>).props.children as ReactElement<{ tenantId: string }>;
+    renderToStaticMarkup(await (holder.type as (p: { tenantId: string }) => Promise<ReactElement>)(holder.props));
+    const j = JOURNEY.props!;
+    expect([j.tenantId, j.days.at(-1)]).toEqual([TENANT, { day: DAY, label: "Aug 2" }]); // every day I hold readings on is reachable, not only the newest
+    const mine = await j.page(TENANT, DAY, null);
+    expect([mine.rows.length, mine.note, mine.replace]).toEqual([25, null, true]);
+    SESSION.id = "acct-b"; store.reads.length = 0; // the operator signed into another account; this tab is now stale
+    const stale = await j.page(TENANT, DAY, "2026-08-02T05:00:05Z|obs_5");
+    expect([stale.rows, stale.note, stale.cursor]).toEqual([[], "This page was open for a different account. Reload it and I will show you this account's answers.", "2026-08-02T05:00:05Z|obs_5"]);
+    expect(await j.open(TENANT, "obs_7")).toEqual([stale.note]);
+    expect(store.reads).toEqual([]); // THE PIN: not one admin read was issued for account A, so nothing of A's could leak
+    expect(stale.note).not.toContain("every answer"); // and a refusal is never dressed up as the end of the day
+    SESSION.id = TENANT; });
+  it("says what one stored answer cost off the receipt it names, and refuses to call an unproven cost zero dollars", () => {
+    expect(answerView(ROW).details.at(-1)).toBe("The stored answer this all comes off is filed as answer:9f3c1, and it cost 0.02 dollars to buy once.");
+    expect(answerView({ ...ROW, costUsd: null }).details.at(-1)).toBe("The stored answer this all comes off is filed as answer:9f3c1, and I hold no receipt proving what it cost, so I am not putting a number on it.");
+    // A SUB-CENT RECEIPT IS NOT ZERO DOLLARS. Two decimals printed a real 0.004 charge as "0.00 dollars", the exact free-when-it-was-paid claim this refuses.
+    expect(answerView({ ...ROW, costUsd: 0.004 }).details.at(-1)).toContain("and it cost under a cent to buy once.");
+    expect(answerView({ ...ROW, costUsd: null }, new Map(), 0.0073).details.at(-1)).toContain("under a cent"); }); // the exact cache receipt, resolved for a row that preserved none
   it("dates every AI number, counts the days it missed, breaks the line where the assistant changed, and names each domain", () => {
     const lines = at(ai(), "How often AI answers name you").notes, runs = at(ai(), "How often AI answers name you").runs;
     expect(lines[0]).toBe("On Aug 2 you were named in 5 of the 10 answers I read closely, and a page of yours was credited in 2 of the 8 that told me what they used.");

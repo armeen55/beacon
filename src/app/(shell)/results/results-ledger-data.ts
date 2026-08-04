@@ -29,6 +29,9 @@ type ResultsLedgerSurface = {
   computedAt: string | null;
   /** The staleness line, clocked HERE at load time so the page render stays pure. */
   checkedAgoLine?: string | null;
+  /** TRUE WHEN THE LEDGER COULD NOT BE READ AT ALL. An empty list used to be the only answer this could give, so a database outage rendered as "no changes are
+   *  being measured yet" over an account with a full ledger: the one sentence that tells an operator to stop expecting measurement. Nothing read is not nothing. */
+  unavailable?: boolean;
 };
 
 /**
@@ -65,10 +68,10 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
   }));
 }
 
-/** Build the shipment stories for a tenant from the persisted records (no re-measure). */
+/** Build the shipment stories for a tenant from the persisted records (no re-measure). A read that FAILED
+ *  throws: it is the caller's job to say "I could not read this", never to serve an empty ledger. */
 async function persistedShipments(tenantId: string): Promise<ShipmentPresentation[]> {
-  const records = await loadProofLedgerPersisted(tenantId).catch(() => []);
-  return presentShipments(tenantId, records);
+  return presentShipments(tenantId, await loadProofLedgerPersisted(tenantId));
 }
 
 async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedgerSurface> {
@@ -87,7 +90,8 @@ async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedgerSurface
   }
   // First-ever / invalidated: do NOT re-measure on the GET. Serve the persisted
   // reads instantly and schedule the heavy rebuild in the background.
-  const shipments = await persistedShipments(tenantId).catch(() => [] as ShipmentPresentation[]);
+  // A COLD START THAT COULD NOT READ IS NOT AN EMPTY LEDGER. It says so, and the rebuild is still scheduled.
+  const read = await persistedShipments(tenantId).then((shipments) => ({ shipments, unavailable: false })).catch(() => ({ shipments: [] as ShipmentPresentation[], unavailable: true }));
   after(async () => {
     try {
       await runSingleFlight(`results-surface:${tenantId}`, () => rebuildResultsSurface(tenantId));
@@ -95,7 +99,7 @@ async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedgerSurface
       await recordAppError({ route: "/results", tenantId, action: "cold-rebuild", ...errorFieldsFrom(e) });
     }
   });
-  return { shipments, computedAt: null };
+  return { ...read, computedAt: null };
 }
 
 /** Request-memoized /results reads, SWR-cached cross-request. */

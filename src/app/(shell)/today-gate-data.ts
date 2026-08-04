@@ -19,6 +19,9 @@ import { PROMPT_TAGS } from "@/domains/runtime";
 export type TodayV2GateData = {
   isDemoMode: boolean;
   firstReading: import("@/domains/account/onboarding/first-reading-state").FirstReadingDetection;
+  /** TRUE when the reads that decide the two answers above could not be taken. Not being able to look is not
+   *  proof the account is empty, so Today says it is having trouble rather than sending them to connect. */
+  unreadable?: boolean;
 };
 
 export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
@@ -37,7 +40,9 @@ export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
     hasAnyConnectedDataSource(),
     currentTenantId(),
   ]);
-  const isDemoMode = !activeExperiment && !connectedDataSource;
+  // CONNECTING GOOGLE IS NOT THE PRICE OF ENTRY. An account with approved questions and research Beacon paid
+  // for was sent to the connect prompt purely for connecting nothing. "Demo" now means it holds nothing.
+  const noOwnSource = !activeExperiment && !connectedDataSource;
   // Phase 1 (2026-05-12): the gate used to call `loadCachedFreshCanonical`
   // (60d obs pull) just to inspect observationCount > 0 and active prompt
   // count. Now we read a narrow 7d obs window + tracked_prompts directly
@@ -70,13 +75,13 @@ export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
       (p) => p.is_active && (p.tags as string[] | null)?.includes(PROMPT_TAGS.core),
     ).length;
   } catch (err) {
-    // Defensive: if anything throws (e.g. repo init error during cold
-    // tenant context), short-circuit to "not first reading" — the
-    // section streams will still render normally and the page won't
-    // block on the gate.
+    // A READ I COULD NOT TAKE IS NOT AN EMPTY ACCOUNT: the connector answer alone sent a connector-free
+    // account to the connect prompt on a transient blip, the one screen that tells them they have nothing.
     console.error("[today-v2] gate cheap reads failed:", err);
-    return { isDemoMode, firstReading: { isFirstReading: false } };
+    return { isDemoMode: false, unreadable: true, firstReading: { isFirstReading: false } };
   }
+  // Questions this account approved, or a reading already taken, are its own data whoever paid for it.
+  const isDemoMode = noOwnSource && activePromptCount === 0 && observationCount === 0;
 
   if (observationCount > 0 || activePromptCount === 0) {
     return { isDemoMode, firstReading: { isFirstReading: false } };

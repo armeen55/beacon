@@ -254,9 +254,12 @@ describe("re-analysis reads what was already bought", () => {
   const stored = (n: number, from = 0) => Array.from({ length: n }, (_, i) => ({ id: `obs_${String(from + i).padStart(5, "0")}`,
     tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed",
     requested_at: new Date(Date.parse(`${DAY}T00:00:00.000Z`) + (from + i) * 1000).toISOString() }));
-  it("pages a whole day range instead of stopping at one query's worth of rows", async () => {
-    // 35 questions x 4 engines x 28 days. One capped query returned the newest 2,000 of these, so the
-    // report that claimed 28 days was built from about 14 and every total under it was short.
+  /** A NAMED RANGE COMES BACK WHOLE, ONCE EACH, AND WITHOUT THE ANSWERS RIDING ALONG. 35 questions x 4 engines x 28 days is 3,920 rows:
+   *  one capped query returned the newest 2,000, so a report that claimed 28 days was built from about 14 and every total under it was
+   *  short. Two rows stamped the same millisecond on a page edge come back either way round without a unique tiebreaker in the ORDER BY,
+   *  and the cursor then walks straight past one. And `answer_text` plus `journey` over a 56 day window is megabytes an account a visit,
+   *  the exact shape that has timed a statement out on this table before. */
+  it("walks a whole range by cursor, reads every stored row exactly once across a same-instant page edge, and asks for only the columns it reads", async () => {
     db.read = stored(3920);
     const rows = await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-28", slot: 0 });
     expect([rows.length, new Set(rows.map((r) => r.id)).size]).toEqual([3920, 3920]); // every stored row once
@@ -265,38 +268,17 @@ describe("re-analysis reads what was already bought", () => {
     expect([db.filters.tenant_id, db.filters.reporting_day_gte, db.filters.reporting_day_lte, db.filters.sample_slot])
       .toEqual([TENANT, "2026-07-01", "2026-07-28", 0]); // account, range and slot are all asked in the QUERY
     db.pages = []; db.read = stored(6000);
-    const bigger = await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-30", slot: 0 });
-    expect([bigger.length, db.pages.length]).toEqual([6000, 7]); // six full pages, and the short page that ends the walk
-  });
-  it("asks for only the columns an outcome read reads, and never drags the answers themselves across", async () => {
-    // A ledger read walks a 56 day window per shipped change. `answer_text` is a whole AI answer and
-    // `journey` is every page the engine read and credited, so a full-row read of that window is megabytes
-    // an account a visit, which is the exact shape that has timed a statement out on this table before.
-    db.read = stored(3);
+    expect([(await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-30", slot: 0 })).length, db.pages.length]).toEqual([6000, 7]);
+    db.pages = []; const tied = stored(1001); tied[1]!.requested_at = tied[0]!.requested_at; db.read = tied;
+    const walked = await readAiObservations(TENANT, { day: DAY });
+    expect([walked.length, new Set(walked.map((r) => r.id)).size, db.pages.map((p) => p.split("+")[1])]).toEqual([1001, 1001, ["1000", "1"]]);
+    db.read = stored(3); db.selected = [];
     await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-28", slot: 0, projection: "outcome" });
     const asked = db.selected[0]!;
-    for (const col of ["id", "tenant_id", "prompt_id", "engine", "reporting_day", "sample_slot", "status", "analysis", "requested_at"]) {
-      expect(asked.split(",")).toContain(col);
-    }
-    expect(asked).not.toContain("answer_text");
-    expect(asked).not.toContain("journey");
-    expect(asked).not.toBe("*");
-    db.selected = [];
-    // And a caller that needs the whole answer simply does not ask for the projection.
-    await readAiObservations(TENANT, { day: DAY });
+    for (const col of ["id", "tenant_id", "prompt_id", "engine", "reporting_day", "sample_slot", "status", "analysis", "requested_at"]) expect(asked.split(",")).toContain(col);
+    for (const heavy of ["answer_text", "journey"]) expect(asked).not.toContain(heavy);
+    db.selected = []; await readAiObservations(TENANT, { day: DAY }); // a caller that needs the whole answer simply does not ask for a projection
     expect(db.selected[0]).toBe("*");
-  });
-  it("breaks a same-instant tie by id IN THE QUERY, so a page edge never reads one row twice and loses another", async () => {
-    // Two rows stamped the same millisecond, sitting exactly on a 1,000 row page edge. Without a unique
-    // tiebreaker in the ORDER BY, Postgres may return them either way round on the two pages, and the
-    // cursor then walks straight past one of them: 1,001 stored rows come back as 1,000.
-    const rows = stored(1001);
-    rows[1]!.requested_at = rows[0]!.requested_at;
-    db.read = rows;
-    const walked = await readAiObservations(TENANT, { day: DAY });
-    expect(walked).toHaveLength(1001);
-    expect(new Set(walked.map((r) => r.id)).size).toBe(1001);
-    expect(db.pages.map((p) => p.split("+")[1])).toEqual(["1000", "1"]);
   });
   it("reads the addresses an answer credited off the stored journey, and keeps null a different claim from none", async () => {
     const at = (url: string, domain: string) => ({ url, domain, title: null });

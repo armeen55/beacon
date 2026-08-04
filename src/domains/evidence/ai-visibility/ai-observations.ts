@@ -9,16 +9,13 @@ import type { PromptAnswerObservation } from "./prompt-answer-observations";
 /**
  * ai-observations - THE canonical record of one AI answer, kept WHOLE.
  *
- * An answer used to be collapsed at capture: the text hashed and thrown away, the retrieved pages never
- * stored, and a re-read meant buying it again. One row here holds the full text, the whole journey
- * (fan-outs, retrieved pages, cited sources, brands, the reported web-search state), the money receipt and
- * the cache identity of the raw envelope, so later analysis re-reads what was paid for once.
- *
- * IDENTITY is (tenant, prompt, prompt version, engine, reporting day, sample slot). A retry of the same
- * intent reuses that identity and upserts the SAME row; a deliberate second sample of the same pair on the
- * same day is a different SLOT and therefore a different row. Nothing else may mint an id here.
- * prompt_answer_observations is a DECLARED PROJECTION of this record, derived by the same writer at the
- * same moment, so the native-intel readers keep working off one truth.
+ * An answer used to be collapsed at capture: the text hashed and thrown away, the retrieved pages never stored, and a re-read meant
+ * buying it again. One row here holds the full text, the whole journey (fan-outs, retrieved pages, cited sources, brands, the
+ * reported web-search state), the money receipt and the cache identity of the raw envelope, so later analysis re-reads what was paid
+ * for once. IDENTITY is (tenant, prompt, prompt version, engine, reporting day, sample slot): a retry of the same intent reuses that
+ * identity and upserts the SAME row, while a deliberate second sample of the same pair on the same day is a different SLOT and
+ * therefore a different row, and nothing else may mint an id here. prompt_answer_observations is a DECLARED PROJECTION of this
+ * record, derived by the same writer at the same moment, so the native-intel readers keep working off one truth.
  */
 
 /** THE frozen seam with Runtime's planner: exactly the pairs that are due, nothing implied. `day` is the
@@ -163,17 +160,14 @@ const LIST_COLUMNS = "id,tenant_id,site,prompt_id,prompt_version,prompt_text,eng
  * range of them, means asking for all of it. One `.limit(2000)` over the newest rows cut a 140 answer a day
  * account's "28 day" history around day 14, and the planner's read of one 600 row day held 500 of them.
  *
- * PAGES ADVANCE BY CURSOR, never by offset. Rows arrive newest first with the id breaking every tie, and
- * each page starts strictly after the last row before it. An offset window re-numbers itself whenever a row
- * is inserted mid-read, which is what the collect step does, so one row was read twice and another never.
- *
- * ASK FOR WHAT YOU READ. `projection: "outcome"` narrows the SELECT to the identity, day, slot, status and
- * stored verdict, `"list"` drops only the whole answer text; a caller that passes neither gets the whole row.
- *
- * ONE BOUNDED PAGE, ON DEMAND. A surface that shows a day's readings passes `after` (the cursor off the last
- * row it holds) with a `limit`, and gets exactly that page: the same keyset the loop below walks, handed to
- * the caller so a screen can page a 140 answer day without any single request reading all of it. `id` asks
- * for one stored reading by its own identity, which is how a drill-down loads the answer text.
+ * PAGES ADVANCE BY CURSOR, never by offset. Rows arrive newest first with the id breaking every tie, and each page starts strictly
+ * after the last row before it; an offset window re-numbers itself whenever a row is inserted mid-read, which is what the collect
+ * step does, so one row was read twice and another never. ASK FOR WHAT YOU READ: `projection: "outcome"` narrows the SELECT to the
+ * identity, day, slot, status and stored verdict, `"list"` drops only the whole answer text, and a caller that passes neither gets
+ * the whole row. ONE BOUNDED PAGE, ON DEMAND: a surface showing a day's readings passes `after` (the cursor off the last row it
+ * holds) with a `limit` and gets exactly that page, the same keyset the loop below walks, so a screen can page a 140 answer day
+ * without any single request reading all of it. `id` asks for one stored reading by its own identity, which is how a drill-down
+ * loads the answer text.
  */
 export async function readAiObservations(
   tenantId: string,
@@ -219,6 +213,21 @@ export async function readAiObservations(
   }
   if (!exhausted && rows.length >= MAX_ROWS) throw new Error(`[ai_observations] read hit the ${MAX_ROWS} row ceiling; ask for a narrower day range`);
   return rows;
+}
+
+/** WHAT ONE STORED ANSWER COST, off the EXACT receipt it names. No second ledger and no estimate: cache_key is the identity of the ONE evidence_cache receipt
+ *  this answer was read from, so the money that moved for it is that receipt's own cost_usd and nothing else. Rows placed before the cost was preserved on the
+ *  observation itself carry the receipt but no number, and this is how they get one back without inventing it. Null = I could not prove a cost, which every
+ *  surface must say out loud rather than printing zero dollars: a free answer and an unknown one are different claims.
+ *
+ *  IT TAKES NO ACCOUNT, ON PURPOSE. evidence_cache is content addressed and has no tenant column at all (the same ask from two accounts shares one receipt), so
+ *  this took a tenantId it could not and did not filter on: a signature that read as scoped while the query was not. THE SCOPING IS THE CALLER'S and happens
+ *  before this: the cache_key arrives off an observation row already read under that account's own id, so nothing here can reach a row that account cannot. */
+export async function observationReceiptCost(cacheKey: string): Promise<number | null> {
+  if (!cacheKey?.trim()) return null;
+  const { data, error } = await getSupabaseAdmin().from("evidence_cache").select("cost_usd").eq("cache_key", cacheKey).maybeSingle();
+  const cost = error != null || data == null ? NaN : Number((data as { cost_usd: number | null }).cost_usd);
+  return Number.isFinite(cost) && cost > 0 ? cost : null;
 }
 
 /** The READER's view of a stored observation: the identity, where it stands, and the text an analysis pass

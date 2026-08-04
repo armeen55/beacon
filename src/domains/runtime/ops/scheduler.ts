@@ -50,6 +50,9 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
 
   let claimed = 0, attempted = 0, succeeded = 0, paused = 0, failed = 0, released = 0;
   const leaseHeldUntil: string[] = [];
+  /** WHAT THIS DISPATCH HAS DONE SO FAR, buildable at any moment. The failure path needs it as much as the return does: an account really was driven, and a
+   *  throw that carried none of that turned a 503 into "nothing happened", which is its own quiet lie about a day. */
+  const receipt = (): SchedulerReceipt => ({ claimed, attempted, succeeded, paused, failed, leaseHeldUntil, released, remaining: claimed - succeeded });
   /** Hand the lease back through the canonical state. Only a finish that did not land is a held lease. */
   const handBack = async (run: { tenant_id: string; id: string; lease_expires_at: string | null }) => {
     const ok = await finishRun(run.tenant_id, run.id, ownerToken, "paused");
@@ -63,10 +66,17 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
    *  planner who is genuinely short and opens ONE more bounded pass through the SAME opener a visit uses; that opener refuses while any run is unfinished, so a
    *  repeat tick and a racing tick open at most one between them, and a terminal day opens nothing at all. */
   const stranded = async (): Promise<ResearchRun | undefined> => {
-    const day = reportingDay(nowFn().getTime());
-    for (const t of await steps.strandedToday(day).catch(() => [] as string[])) {
+    const nowMs = nowFn().getTime();
+    // A PROBE THAT COULD NOT READ IS NOT AN EMPTY FLEET. This swallowed every failure into an empty list, so an outage, a revoked permission and a genuinely finished
+    // fleet were one answer and the dispatch reported a clean 200 over a day nothing was recovered on. The failure travels now, and the endpoint answers 503.
+    // THE WORK ALREADY LANDED IS NOT ERASED BY THE PROBE THAT FAILED AFTER IT. The accounts above this line were genuinely claimed and driven, so the receipt
+    // goes down as a receipt and rides ON the thrown error, and a caller that must answer 503 can still say what the dispatch actually did before it broke.
+    for (const t of await steps.strandedToday(nowMs).catch((error: unknown) => {
+      const done = receipt();
+      log.warn("[research-run] the recovery probe could not read the fleet, so this dispatch fails; here is what it did land first", done);
+      throw Object.assign(error instanceof Error ? error : new Error(String(error)), { receipt: done }); })) {
       if (worked.has(t)) continue;
-      const opened = await startExtraPass(t, ownerToken, day);
+      const opened = await startExtraPass(t, ownerToken, reportingDay(nowMs));
       if (opened != null) { log.info("[research-run] today's checks were left short, so I opened one more pass", { tenantId: t }); return opened; }
     }
     return undefined; };
@@ -113,5 +123,5 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
   }
   if (claimed === 0) log.info("[research-run] the daily dispatch found nothing owed right now", {});
   else log.info("[research-run] daily dispatch done", { claimed, succeeded, failed, paused });
-  return { claimed, attempted, succeeded, paused, failed, leaseHeldUntil, released, remaining: claimed - succeeded };
+  return receipt();
 }

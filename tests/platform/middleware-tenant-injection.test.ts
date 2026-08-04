@@ -98,103 +98,39 @@ describe("middleware account injection — one login, one account, fail-closed",
     delete process.env.BEACON_AUTH_DISABLED;
     vi.restoreAllMocks();
   });
-  it("strips the inbound x-beacon-tenant header on every path (client spoof defense)", async () => {
-    supabaseState.user = { id: "user-1" }; supabaseState.tenantMembersRows = [{ tenant_id: "tenant-real" }];
-    const res = await updateSession(
-      makeRequest("/today", { headers: { "x-beacon-tenant": "tenant-attacker" } }),
-    );
-    expect(injectedTenant(res)).toBe("tenant-real");
-  });
-  it("exactly one membership injects exactly that account", async () => {
-    supabaseState.user = { id: "user-1" };
-    supabaseState.tenantMembersRows = [{ tenant_id: "tenant-mine" }];
-    const res = await updateSession(makeRequest("/today"));
-    expect(res.status).toBe(200);
-    expect(injectedTenant(res)).toBe("tenant-mine");
-    expectRetiredCookieExpired(res);
-  });
-  it("zero memberships fail closed to /login?error=no_account", async () => {
-    supabaseState.user = { id: "user-none" };
-    supabaseState.tenantMembersRows = [];
-    const res = await updateSession(makeRequest("/today"));
-    expect(res.status).toBeGreaterThanOrEqual(300);
-    expect(res.headers.get("location")).toContain("error=no_account");
-  });
-  it("a stranded session (zero memberships) still reaches /login and /auth/signout", async () => {
-    supabaseState.user = { id: "user-none" };
-    for (const p of ["/login", "/login?error=no_account", "/auth/signout"]) {
-      const res = await updateSession(makeRequest(p));
-      expect(res.status, `${p} must not bounce for a stranded session`).toBe(200);
-    }
-  });
-  it("multiple memberships fail closed — never earliest-membership guessing", async () => {
-    supabaseState.user = { id: "user-multi" };
-    supabaseState.tenantMembersRows = [{ tenant_id: "tenant-earliest" }, { tenant_id: "tenant-later" }];
-    const res = await updateSession(makeRequest("/today"));
-    expect(res.status).toBeGreaterThanOrEqual(300);
-    expect(res.headers.get("location")).toContain("error=multiple_accounts_unsupported");
-    expect(injectedTenant(res)).not.toBe("tenant-earliest");
-  });
-  it("a query error fails closed even with a forged beacon_tenant cookie", async () => {
-    supabaseState.user = { id: "user-1" }; supabaseState.tenantMembersError = { message: "boom" };
-    const res = await updateSession(makeCookieRequest("/today", "tenant-forged"));
-    expect(res.status).toBeGreaterThanOrEqual(300);
-    expect(res.headers.get("location")).toContain("error=account_unavailable");
-    expect(injectedTenant(res)).not.toBe("tenant-forged");
-    expectRetiredCookieExpired(res);
-  });
-  it("a lookup throw fails closed even with a forged cookie", async () => {
-    supabaseState.user = { id: "user-1" }; supabaseState.tenantQueryThrows = true;
-    const res = await updateSession(makeCookieRequest("/today", "tenant-forged"));
-    expect(res.headers.get("location")).toContain("error=account_unavailable");
-    expect(injectedTenant(res)).not.toBe("tenant-forged");
-  });
-  it("a hung membership lookup fails closed (no 504, no cookie honor)", async () => {
-    supabaseState.user = { id: "user-1" }; supabaseState.tenantHangs = true;
-    const res = await updateSession(makeCookieRequest("/today", "tenant-forged"));
-    expect(res.headers.get("location")).toContain("error=account_unavailable");
-    expect(injectedTenant(res)).not.toBe("tenant-forged");
-  }, 15000);
-  it("a valid single membership ignores any cookie naming another account (A cannot reach B)", async () => {
-    supabaseState.user = { id: "user-a" };
-    supabaseState.tenantMembersRows = [{ tenant_id: "tenant-a" }];
-    const res = await updateSession(makeCookieRequest("/today", "tenant-b"));
-    expect(res.status).toBe(200);
-    expect(injectedTenant(res)).toBe("tenant-a");
-    expectRetiredCookieExpired(res);
-  });
-  it("a hung auth.getUser degrades to the login redirect (never a 504)", async () => {
-    supabaseState.authHangs = true;
-    const res = await updateSession(makeRequest("/today"));
-    expect(res.status).toBeGreaterThanOrEqual(300);
-    expect(res.headers.get("location")).toContain("/login");
-  }, 15000);
-  it("unauthenticated private-path requests redirect to /login?next=...", async () => {
-    const res = await updateSession(makeRequest("/changes"));
-    expect(res.status).toBeGreaterThanOrEqual(300);
-    expect(res.headers.get("location")).toContain("/login?next=%2Fchanges");
-  });
-  it("only /api/cron is machine-auth-exempt; other /api/* paths still redirect", async () => {
-    const cron = await updateSession(makeRequest("/api/cron/warm"));
-    expect(cron.status).toBe(200);
-    const other = await updateSession(makeRequest("/api/anything"));
-    expect(other.status).toBeGreaterThanOrEqual(300);
-  });
-  it("auth-disabled local mode ignores the cookie and strips spoofed headers (env account only)", async () => {
-    process.env.BEACON_AUTH_DISABLED = "1";
-    const res = await updateSession(
-      makeRequest("/today", {
-        headers: {
-          "x-beacon-tenant": "tenant-attacker",
-          cookie: "beacon_tenant=tenant-cookie-choice",
-        },
-      }),
-    );
-    expect(res.status).toBe(200);
-    // No header injection at all: the resolver falls through to the explicit
-    // BEACON_TENANT_ID env config; the cookie contributes nothing.
-    expect(injectedTenant(res)).not.toBe("tenant-attacker");
-    expect(injectedTenant(res)).not.toBe("tenant-cookie-choice");
-    expectRetiredCookieExpired(res);
-  });
+  /** ONE table, one claim per row: which account a request is allowed to reach, and what happens when the
+   *  answer cannot be trusted. A forged header, a forged cookie, two memberships, none at all, a query that
+   *  errored, threw or hung, and local auth-disabled mode all resolve HERE, so a new bypass has to survive a
+   *  row rather than a whole file nobody re-reads. `injected` is the account the request actually reaches. */
+  it.each([
+    { name: "strips a spoofed x-beacon-tenant header and injects the real account instead", rows: ["tenant-real"], headers: { "x-beacon-tenant": "tenant-attacker" }, injected: "tenant-real" },
+    { name: "exactly one membership injects exactly that account, and retires the selection cookie", rows: ["tenant-mine"], status: 200, injected: "tenant-mine", expired: true },
+    { name: "zero memberships fail closed to no_account", rows: [], location: "error=no_account" },
+    { name: "two memberships fail closed rather than guessing the earliest", rows: ["tenant-earliest", "tenant-later"], location: "error=multiple_accounts_unsupported", not: "tenant-earliest" },
+    { name: "a membership query that ERRORED fails closed, and a forged cookie buys nothing", rows: ["x"], state: { tenantMembersError: { message: "boom" } }, cookie: "tenant-forged", location: "error=account_unavailable", not: "tenant-forged", expired: true },
+    { name: "a membership query that THREW fails closed, and a forged cookie buys nothing", state: { tenantQueryThrows: true }, cookie: "tenant-forged", location: "error=account_unavailable", not: "tenant-forged" },
+    { name: "a membership query that HUNG fails closed with no 504 and no cookie honoured", state: { tenantHangs: true }, cookie: "tenant-forged", location: "error=account_unavailable", not: "tenant-forged" },
+    { name: "a valid single membership ignores a cookie naming another account, so A can never reach B", rows: ["tenant-a"], cookie: "tenant-b", status: 200, injected: "tenant-a", expired: true },
+    { name: "an auth lookup that HUNG degrades to the login redirect, never a 504", state: { authHangs: true }, noUser: true, location: "/login" },
+    { name: "an unauthenticated private path redirects to login carrying where it was going", path: "/changes", noUser: true, location: "/login?next=%2Fchanges" },
+    { name: "local auth-disabled mode takes the env account only: no spoofed header, no cookie choice", env: true, headers: { "x-beacon-tenant": "tenant-attacker", cookie: "beacon_tenant=tenant-cookie-choice" }, status: 200, not: "tenant-attacker", expired: true },
+  ] as Array<{ name: string; rows?: string[]; state?: Partial<typeof supabaseState>; noUser?: boolean; env?: boolean; path?: string;
+    headers?: Record<string, string>; cookie?: string; status?: number; location?: string; injected?: string; not?: string; expired?: boolean }>)("$name", async (c) => {
+    if (c.env) process.env.BEACON_AUTH_DISABLED = "1";
+    if (!c.noUser && !c.env) supabaseState.user = { id: "user-1" };
+    if (c.rows) supabaseState.tenantMembersRows = c.rows.map((tenant_id) => ({ tenant_id }));
+    Object.assign(supabaseState, c.state ?? {});
+    const res = await updateSession(c.cookie ? makeCookieRequest(c.path ?? "/today", c.cookie) : makeRequest(c.path ?? "/today", { headers: c.headers ?? {} }));
+    if (c.status != null) expect(res.status).toBe(c.status);
+    if (c.location) { expect(res.status).toBeGreaterThanOrEqual(300); expect(res.headers.get("location")).toContain(c.location); }
+    if (c.injected) expect(injectedTenant(res)).toBe(c.injected);
+    if (c.not) expect(injectedTenant(res)).not.toBe(c.not);
+    if (c.env) expect(injectedTenant(res)).not.toBe("tenant-cookie-choice");
+    if (c.expired) expectRetiredCookieExpired(res);
+  }, 15_000);
+  it("never strands a session it refused: login, the error page and sign out all stay reachable, and only /api/cron is machine exempt", async () => {
+    supabaseState.user = { id: "user-none" }; // signed in, no membership: the one state that can trap somebody
+    for (const p of ["/login", "/login?error=no_account", "/auth/signout", "/api/cron/warm"]) {
+      expect((await updateSession(makeRequest(p))).status, `${p} must not bounce`).toBe(200); }
+    expect((await updateSession(makeRequest("/api/anything"))).status).toBeGreaterThanOrEqual(300); });
 });

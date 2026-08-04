@@ -9,11 +9,10 @@ import "server-only";
  */
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadChangesView, sanitizeSurfaceComputedAt, setAsideClause, withCurrentBasisOnly, type ChangesView } from "./changes-data";
+import { loadChangesView, sanitizeSurfaceComputedAt, setAsideClause, type ChangesView } from "./changes-data";
 import { normalizedFixKey } from "@/components/today/today-smoke-alarm";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
 import { countTrackedQuestions } from "@/domains/runtime";
-import { resolveCurrentBasis } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import type { ProducerOutcome } from "@/domains/decision";
 import type { TodayOpportunity, EvidenceStrength } from "@/domains/measurement/today/today-command";
@@ -24,41 +23,31 @@ import type { TodayOpportunity, EvidenceStrength } from "@/domains/measurement/t
 export type TodayView = {
   headerSentence: string;
   nextOpportunities: TodayOpportunity[];
-  /** Pages that already have a READY proposal in THIS release, keyed by the same
-   *  normalized path the smoke alarm blames, carrying the proposal to open. Today
-   *  says "I have a fix ready" only from this list, and links straight at it.
-   *  Optional so a release blob written before this field degrades to no claim.
-   *  proposalId is EMPTY STRING when the change has no bundle: the fix is real
-   *  (so the claim stays honest) but /changes/<id> would 404 for it, so the CTA
-   *  falls back to the Changes queue. */
+  /** Pages with a READY proposal in THIS release, keyed by the path the smoke alarm blames, carrying the
+   *  change to open. Today says "I have a fix ready" only from here, and links straight at it. proposalId is
+   *  EMPTY when the change has no bundle: the fix is real, but /changes/<id> would 404, so the CTA falls back
+   *  to the queue. */
   readyFixes?: { page: string; proposalId: string }[];
-  /** The kernel's OWN verdict for pages it judged and declined to change, keyed by
-   *  the same normalized path readyFixes uses. Today quotes the verdict for the
-   *  page it blames instead of a generic "still checking", so a page the decision
-   *  resolved to watch reads as a decision, not as an absence. Optional: a release
-   *  written before this field quotes nothing. */
+  /** The kernel's OWN verdict for pages it judged and declined to change, keyed the same way. Today quotes it
+   *  instead of a generic "still checking", so a page it resolved to watch reads as a decision, not silence. */
   declineNotes?: { page: string; note: string }[];
-  /** The earliest date a page I could not read may be tried again, or absent when nothing is waiting.
-   *  Today says the date instead of "checking", because a wait is not activity. */
+  /** The earliest date a page I could not read may be tried again. Today says the date, because a wait is
+   *  not activity. */
   waitingUntil?: string;
-  /** Proven losses this pass is still identifying a cause for, carried so Today's researching
-   *  state can name the number instead of looking quiet. */
+  /** Proven losses this pass is still identifying a cause for, so researching names a number. */
   investigating?: number;
-  /** New ideas the store refused to file because the page already carries a change I am
-   *  measuring. A held draft is not a failed draft, and a page holding one must not look
-   *  forgotten. Absent when this pass held nothing back. */
+  /** Ideas the store refused because the page already carries a change I am measuring: a held draft is not a
+   *  failed draft, and a page holding one must not look forgotten. */
   heldForMeasurement?: number;
-  /** THE SIZE OF THE READY QUEUE, uncapped, beside the capped `nextOpportunities` preview.
-   *  ONE queue, ONE number: the command used to count the preview and say "4 more" under a
-   *  header that said 12. Optional so a release written before this field falls back to the
-   *  preview length. */
+  /** THE SIZE OF THE READY QUEUE, uncapped, beside the capped `nextOpportunities` preview. ONE queue, ONE
+   *  number: the command used to count the preview and say "4 more" under a header that said 12. */
   readyTotal?: number;
-  /** The canonical measuring count THIS release was built with, the same number the Changes
-   *  summary in this release carries. Both surfaces read it, so one navigation cannot show two
-   *  answers for one question. Optional: an older release falls back to the live ledger count. */
+  /** The canonical measuring count THIS release was built with, the same number Changes carries, so one
+   *  navigation cannot show two answers to one question. ABSENT when the ledger could not be read. */
   measuringCount?: number;
-  /** What the production pass behind this release concluded, kept on the blob so a rebuild
-   *  from the same release can hand it back rather than losing it. */
+  /** TRUE when that ledger could not be read: the count is withheld, never printed as a zero. */
+  countsUnavailable?: boolean;
+  /** What the production pass behind this release concluded, kept so a rebuild can hand it back. */
   producerOutcome?: ProducerOutcome;
 };
 
@@ -155,7 +144,9 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     .filter((p) => p.pagePath || p.pageUrl)
     .map((p) => ({ page: normalizedFixKey(p.pagePath ?? p.pageUrl ?? ""), proposalId: p.bundle ? p.id : "" }))
     .filter((f) => f.page.length > 0);
-  const measuring = view.measuringCountCanonical;
+  // A LEDGER I COULD NOT READ IS NOT AN EMPTY ONE: no measuring clause is claimed and no count is handed on.
+  const unread = view.countsUnavailable === true;
+  const measuring = unread ? 0 : view.measuringCountCanonical;
   // Carried verbatim from the pass that judged those pages; omitted when empty so a
   // release stays as small as what it actually knows.
   const declineNotes = producer.declineNotes?.length ? { declineNotes: producer.declineNotes } : {};
@@ -168,7 +159,7 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     ...(held > 0 ? { heldForMeasurement: held } : {}),
     ...(producer.outcome ? { producerOutcome: producer.outcome } : {}),
     readyTotal,
-    measuringCount: measuring,
+    ...(unread ? { countsUnavailable: true } : { measuringCount: measuring }),
   };
   let headerSentence: string;
   if (readyTotal > 0) {
@@ -214,14 +205,6 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   return { headerSentence, nextOpportunities: ready, readyFixes, ...rest };
 }
 
-async function loadTodayViewUncached(): Promise<TodayComposite> {
-  const view = await loadChangesView().catch(() => null);
-  if (!view) {
-    return { today: { headerSentence: "Nothing needs a decision today.", nextOpportunities: [] }, hasChanges: false };
-  }
-  return { today: buildTodayViewFromChanges(view), hasChanges: view.proposals.length > 0 };
-}
-
 /** Compose Today from the exact Changes release that will ship beside it, and from
  *  what that release's own production pass concluded. */
 export async function buildTodayCompositeFromChanges(view: ChangesView, producer: TodayProducerSignal = {}): Promise<TodayComposite> {
@@ -232,13 +215,7 @@ export async function loadTodayView(): Promise<TodayComposite> {
   return loadTodayViewWithSwr(await currentTenantId());
 }
 
-type TodayViewBuilder = (tenantId: string) => Promise<TodayComposite>;
-
-async function loadTodayViewWithSwr(
-  tenantId: string,
-  deps: { build?: TodayViewBuilder } = {},
-): Promise<TodayComposite> {
-  const build = deps.build ?? (() => loadTodayViewUncached());
+async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
   const scheduleReleaseRebuild = () =>
     after(async () => {
       const { refreshCustomerSurface } = await import("./surface-release");
@@ -259,22 +236,23 @@ async function loadTodayViewWithSwr(
 
   if (customer) {
     if (isCustomerSurfaceStale(customer.computedAt, Date.now())) scheduleReleaseRebuild();
-    // THE SAME BAR CHANGES APPLIES. Serving today's slice straight off the stored
-    // release let Today promise "I have a fix ready" and link to a change the detail
-    // page then called set aside, on one click. The release is re-checked against the
-    // basis this account holds now, and Today is rebuilt from what survives.
-    const gated = withCurrentBasisOnly(customer.changes, await resolveCurrentBasis(tenantId).catch(() => null));
-    const today = gated.proposals.length === customer.changes.proposals.length
-      ? customer.today.today
-      : buildTodayViewFromChanges(gated, carriedProducerSignal(customer.today.today));
+    // ONE READ, THE SAME ONE CHANGES USES. Serving Today's slice off the stored release let it count a change
+    // the operator had just put aside and offer a fix whose link 404'd, because a blob has no way to say "put
+    // aside" and no way to know a stamp landed while its own write did not. The counts, the ready fixes and
+    // the release id now all come from the database-gated lane Changes reads, so a dismissal lands on both
+    // surfaces on the very next render; only what the PRODUCTION pass concluded is still carried on the blob.
+    const view = await loadChangesView().catch(() => null);
     return {
       ...customer.today,
-      today,
+      today: view ? buildTodayViewFromChanges(view, carriedProducerSignal(customer.today.today)) : customer.today.today,
       ...paused,
-      surfaceVersion: customer.releaseId,
+      surfaceVersion: view?.surfaceVersion ?? customer.releaseId,
       surfaceComputedAt: sanitizeSurfaceComputedAt(customer.computedAt) ?? undefined,
     };
   }
+  // No release on file yet: build one page of Today off the Changes read, and say nothing I cannot show.
   scheduleReleaseRebuild();
-  return { ...(await build(tenantId)), ...paused };
+  const view = await loadChangesView().catch(() => null);
+  if (!view) return { today: { headerSentence: "Nothing needs a decision today.", nextOpportunities: [] }, hasChanges: false, ...paused };
+  return { today: buildTodayViewFromChanges(view), hasChanges: view.proposals.length > 0, ...paused };
 }

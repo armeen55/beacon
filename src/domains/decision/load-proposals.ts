@@ -26,7 +26,7 @@ import "server-only";
 import { basisTag, getTenant, loadBusinessProfile, type BusinessProfile } from "@/domains/account";
 import { loadChangeProposals } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
-import { receiptIntegrityFailures, validateProposal } from "./validate-proposal";
+import { actionableProposalFailures, validateProposal } from "./validate-proposal";
 import type { ChangeProposal } from "./contracts";
 
 /**
@@ -163,9 +163,8 @@ export async function loadProposalQueue(
   // AND EVERY DEEP CHANGE PASSES ITS OWN RECEIPT AT READ TIME. A stored bundle whose claims stopped resolving
   // kept rendering exactly as written until something re-selected its page, so the screen is the safety net:
   // a row that cannot show its work is withheld here whatever the producer pass has had a chance to do.
-  const current = currentBasis == null ? []
-    : all.filter((p) => p.basis === currentBasis && (p.kind !== "new_page" || validateProposal(p).verdict !== "rejected")
-      && (!p.bundle || receiptIntegrityFailures(p).length === 0));
+  const current = all.filter((p) => actionableProposalFailures(p, { tenantId, currentBasis }).length === 0
+    && (p.kind !== "new_page" || validateProposal(p).verdict !== "rejected"));
   const demotedStaleBasis = all.length - current.length;
   // WHY the queue is empty decides what I may say. "I raised the bar" is true of an
   // older or missing basis and a lie when I simply could not read the account, so the

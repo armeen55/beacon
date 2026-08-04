@@ -35,12 +35,36 @@ export const CONFIRMABLE_FIELDS = [
   "geographicScope", "differentiators", "trustClaims", "topicsToOwn", "topicsToExclude",
 ] as const;
 
-/** Truthful confirmation (D3): confirmed ONLY when every confirmable section is
- *  operator-confirmed, so a name-only edit never advances the wizard past confirm. Pure. */
+/** THE THREE SECTIONS THE CONFIRM STEP ACTUALLY PUTS ON SCREEN. Confirmation is the operator's word about what they READ, so it
+ *  reaches exactly these and no further; the other eight stay inferred until somebody edits them on purpose. */
+export const SHOWN_FIELDS = ["name", "offerings", "audiences"] as const;
+
+/** Truthful confirmation (D3): confirmed ONLY when every section the operator was SHOWN carries their own provenance, so a
+ *  name-only edit never advances the wizard past confirm and a guess they never saw never counts as agreement. Pure. */
 export function isProfileConfirmed(profile: BusinessProfile): boolean {
-  return CONFIRMABLE_FIELDS.every(
+  return SHOWN_FIELDS.every(
     (k) => (profile as unknown as Record<string, { origin?: string }>)[k]?.origin === "operator_confirmed",
   );
+}
+
+/** WHAT AN ACTIVE ACCOUNT IS STILL MISSING, and nothing else. Being active is a STATUS, not proof of setup: an account flipped
+ *  active without a website, without a confirmed profile or without one approved question rendered every product surface off
+ *  nothing at all. `{ step }` is the first genuinely incomplete step, so the operator resumes where they actually stopped; null
+ *  means set up. AN OUTAGE IS NOT INCOMPLETENESS, so this THROWS rather than guessing: the profile read fails SOFT to an empty
+ *  profile, which is the exact shape of one nobody ever filled in, so a blank profile on an active account is unreadable and never
+ *  a reason to bounce a customer who finished setup months ago. The prompts read throws on its own. Free: one memoized profile
+ *  read and one lean row read, no provider and no crawl. */
+export async function setupGap(tenantId: string, domain: string, deps?: OnboardingDeps): Promise<{ step: 1 | 3 | 5 } | null> {
+  const d = resolve(deps);
+  if (!domain.trim()) return { step: 1 }; // proven off the same account row the caller was resolved from
+  const profile = await d.loadProfile(tenantId);
+  const held = (k: string): boolean => { const v = (profile as unknown as Record<string, { value?: unknown }>)[k]?.value;
+    return Array.isArray(v) ? v.length > 0 : v != null && String(v).trim() !== ""; };
+  if (!isProfileConfirmed(profile)) {
+    if (!CONFIRMABLE_FIELDS.some(held)) throw new Error("I could not read this account's business profile, so I cannot say whether its setup is finished.");
+    return { step: 3 };
+  }
+  return (await d.store.readPrompts(tenantId)).some((r) => r.is_active && r.tags?.includes(PROMPT_TAGS.core)) ? null : { step: 5 };
 }
 
 export type OnboardingState = {

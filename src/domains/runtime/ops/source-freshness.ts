@@ -1,15 +1,9 @@
 /**
- * source-freshness (Wave 3A, 2026-07-10) - THE one place a data source's freshness is
- * judged, against a per-source DATA-age SLA. Kills the three coexisting thresholds that
- * let "5 sources healthy" render while the AI-answers data was two weeks old:
- *   - connector-store STALE_DAYS = 14 (sync age, connection liveness)
- *   - data-sources-strip FRESH_WINDOW_MS = 24h (sync age)
- *   - today/golden-path FRESH_WITHIN_DAYS = 2 (data age)
- *
- * The clock that decides health is DATA-THROUGH age (how recent the source's newest data
- * is), NOT sync age (when we last pulled): a source can sync hourly yet report data from
- * two weeks ago. GA4 is "removed" (the cross-page session sum is a false total, Wave 1 P1)
- * so it is excluded from the tally entirely. PURE, no I/O.
+ * source-freshness - THE one place a data source's freshness is judged, against a per-source DATA-age SLA. It killed the three coexisting thresholds
+ * that let "5 sources healthy" render while the AI-answers data was two weeks old: connector-store STALE_DAYS = 14 (sync age, connection liveness),
+ * data-sources-strip FRESH_WINDOW_MS = 24h (sync age), and today/golden-path FRESH_WITHIN_DAYS = 2 (data age). The clock that decides health is
+ * DATA-THROUGH age (how recent the source's newest data is), NOT sync age (when we last pulled), because a source can sync hourly yet report data from
+ * two weeks ago. GA4 is "removed" (the cross-page session sum is a false total) so it is excluded from the tally entirely. PURE, no I/O.
  */
 
 import {

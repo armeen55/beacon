@@ -1,18 +1,12 @@
 import "server-only";
 
 /**
- * source-data-date (refresh-reliability wave, 2026-07-11, BUG 3).
+ * source-data-date - the newest data date each read source actually has stored, per tenant. The refresh ledger records this AFTER a run so
+ * /settings/connectors can say "data through <date>" honestly, and so a source reporting "synced" while its freshest row is weeks old is visible.
  *
- * The newest data date each read source actually has stored, per tenant. The
- * refresh ledger records this AFTER a run so /settings/connectors can say "data
- * through <date>" honestly - and so a source that reports "synced" while its
- * freshest row is weeks old is visible.
- *
- * FAIL-SOFT BY CONTRACT: every reader returns null on any error, missing table,
- * or absent Supabase env (local dev / vitest). A latest-date read must never
- * fail the sync it is annotating. One bounded query per source (SELECT date
- * ORDER BY date DESC LIMIT 1 - the same shape as GSC's own readWatermark), so
- * it is cheap and never scans the table.
+ * FAIL-SOFT BY CONTRACT: every reader returns null on any error, missing table, or absent Supabase env (local dev, vitest), because a latest-date
+ * read must never fail the sync it is annotating. One bounded query per source (SELECT date ORDER BY date DESC LIMIT 1, the same shape as GSC's own
+ * readWatermark), so it is cheap and never scans the table.
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";

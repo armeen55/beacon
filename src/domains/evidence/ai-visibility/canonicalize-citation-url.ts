@@ -1,46 +1,17 @@
 /**
- * 2026-05-13 Phase A.1 Step 3 — citation-lifecycle URL canonicalizer.
+ * THE ONE canonical form a cited address is matched in. Pure, total, and it never fetches, follows a redirect or throws.
  *
- * Pure, total function that turns a raw URL string into the canonical
- * form used for first-citation matching. Built for Phase A.1 per
- * Section 2 Decision Lock D3 because neither of the two existing
- * helpers cleanly satisfies the locked contract:
+ * It keeps the HOST, which is the whole reason it exists: the path-only normalizer in lib/url cannot tell one of your own pages
+ * from an external lookalike (ritzbuilders.com/services is not demattei.com/services), and pages/classify#normalizePageUrl strips
+ * only utm_* (letting every other param leak), returns a structured object, and quietly drops m. prefixes.
  *
- *   • `src/lib/url/normalize.ts` is a PATH-ONLY normalizer (strips host).
- *     Citation matching needs host to distinguish owned URLs from
- *     external lookalikes (`ritzbuilders.com/services` ≠
- *     `demattei.com/services`).
+ * Locked behavior: lowercase the host; strip a leading `www.` and ONLY `www.` (never `m.` or any other prefix); normalize http to
+ * https; strip ALL query params and every fragment; strip a trailing slash except on root; preserve the path's exact case. It never
+ * fuzzy-matches parent against child paths and never strips a locale prefix.
  *
- *   • `src/domains/evidence/pages/classify.ts#normalizePageUrl` is closer but
- *     (a) only strips `utm_*` query params, leaving others to leak,
- *     (b) returns a structured `{url, domain, path}` object, and
- *     (c) silently strips `m.` mobile-host prefixes (outside D3).
- *     Modifying it would touch four production callers
- *     (attribution / citation-index / evidence-tier / discover).
- *
- * Locked behavior (Section 2 Decision Lock D3):
- *   - Lowercase host
- *   - Strip leading `www.` (and ONLY `www.` — do NOT strip `m.` or
- *     other prefixes)
- *   - Normalize `http://` to `https://`
- *   - Strip ALL query params (not just `utm_*`)
- *   - Strip fragments
- *   - Strip trailing slash (except root `/`)
- *   - Preserve exact path case
- *   - Do NOT fuzzy-match parent/child paths
- *   - Do NOT strip locale prefixes (D14 deferred)
- *   - Do NOT follow redirects, do NOT fetch
- *
- * Returns `null` for: null/undefined/empty/whitespace; the
- * `"needs_new_page"` sentinel that `recommended_edits.target_url`
- * uses for create-page recs; non-http(s) schemes (`mailto:`,
- * `javascript:`, `data:`, fragment-only); and any input the URL
- * constructor cannot parse. Never throws.
- *
- * Used by:
- *   - `compute-time-to-citation.ts` (Step 4) — applies on both sides
- *     of the citation ↔ target_url comparison so trailing-slash and
- *     `www.` mismatches don't produce false uncited verdicts.
+ * Null for: null, undefined, empty or whitespace; the `needs_new_page` sentinel a create-page recommendation carries in
+ * target_url; any non-http(s) scheme (mailto:, javascript:, data:, fragment-only); and anything the URL constructor cannot parse.
+ * Applied to BOTH sides of the citation against target_url comparison, so a trailing slash or a `www.` can never fake an uncited verdict.
  */
 
 /**

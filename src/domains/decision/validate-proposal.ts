@@ -67,26 +67,64 @@ export function receiptIntegrityFailures(proposal: ChangeProposal, now: Date = n
   const bundle = proposal.bundle;
   if (!bundle) return [];
   const out: string[] = [];
-  const keys = new Set(bundle.receipt.items.map((i) => i.key));
-  const cited = [...bundle.components.flatMap((c) => c.evidenceKeys), ...(proposal.causeFinding?.evidenceKeys ?? [])];
+  // A DOOR MAY REFUSE A CHANGE; IT MAY NEVER CRASH ON ONE: this runs on every read path, so a row missing an
+  // array a fresh draft always carries is judged, never thrown on top of the operator as a 500.
+  const some = <T,>(x: readonly T[] | undefined): readonly T[] => x ?? [];
+  const items = some(bundle.receipt?.items), components = some(bundle.components);
+  const keys = new Set(items.map((i) => i.key));
+  const cited = [...components.flatMap((c) => some(c.evidenceKeys)), ...some(proposal.causeFinding?.evidenceKeys)];
   if (cited.some((k) => !keys.has(k))) out.push("Part of this change points at evidence I cannot show you, so I am not putting it in front of you.");
   // EVERYTHING THE OPERATOR READS ON THIS CHANGE, the copy itself included: a contradiction in the sentence
   // being pasted is the one they act on, so it may not hide from a check the notes around it pass.
-  const says = [...proposal.limitations, ...bundle.risks, ...bundle.confidenceReasons, ...bundle.receipt.missing,
-    ...bundle.receipt.items.map((i) => i.fact), ...bundle.components.map((c) => `${c.after} ${c.objective ?? ""} ${c.mechanism ?? ""}`),
-    ...(proposal.causeFinding ? [proposal.causeFinding.explanation, ...proposal.causeFinding.notConsidered.map((n) => n.missing)] : [])].join(" ");
+  const says = [...some(proposal.limitations), ...some(bundle.risks), ...some(bundle.confidenceReasons), ...some(bundle.receipt?.missing),
+    ...items.map((i) => i.fact), ...components.map((c) => `${c.after} ${c.objective ?? ""} ${c.mechanism ?? ""}`),
+    ...(proposal.causeFinding ? [proposal.causeFinding.explanation, ...some(proposal.causeFinding.notConsidered).map((n) => n.missing)] : [])].join(" ");
   if (HOLDS_PAGE.test(says) && MISSING_PAGE.test(says)) out.push("I say two different things about whether I hold this page's own words, so I am not putting it in front of you.");
-  if (dangerousComponents(bundle.components).length > 0 && (proposal.riskLevel !== "high" || proposal.status === "ready")) {
+  if (dangerousComponents(components).length > 0 && (proposal.riskLevel !== "high" || proposal.status === "ready")) {
     out.push("This change moves or hides a page and it is filed as something lighter than that, so I am not putting it in front of you.");
   }
   // A READING IS CURRENT ONLY IF IT WAS TAKEN TODAY, and an UNDATED reading is not current either: skipping the
   // undated ones let the one line that carries no date say "today" and mean whenever it was last collected.
   const day = now.toISOString().slice(0, 10);
-  for (const item of bundle.receipt.items) {
+  for (const item of items) {
     const read = (item.observedAt ?? "").slice(0, 10);
     if (read === day || !CURRENT_CLAIM.test(item.fact)) continue;
     out.push(read ? `I call what I read on ${read} what this page says today, so I am not putting it in front of you.`
       : "I call a reading with no date on it what this page says today, so I am not putting it in front of you.");
+  }
+  return [...new Set(out)];
+}
+
+/** A receipt is a set of READINGS, and a reading goes out of date. Past this a stored change proves nothing
+ *  current: the basis stamp only moves when the ACCOUNT changes, so without this a change stayed Ready forever
+ *  on a profile nobody had edited. `proposalFingerprint` already carries each item's key, fact and date, so a
+ *  redraft off moved evidence writes a new version; this is the half for the change nobody redrafts at all. */
+const EVIDENCE_VALID_DAYS = 30;
+
+/**
+ * THE ONE ANSWER EVERY DOOR ASKS about a stored change, so a direct link can never render what the ranked
+ * list refuses and no mutation can land on a change the screen would not show. It composes the row's own
+ * integrity above with the four things only the account can answer: whose change this is, whether it was
+ * drafted under the bar I hold right now, whether anyone is still being asked, and whether the readings
+ * behind it still stand. PURE. Empty means this change is work. The new-page BRIEF bar (`validateProposal`)
+ * stays out on purpose: it decides which briefs may become work and be SHOWN as work, so it rides the queue
+ * and the detail page, where a page the operator has already BUILT is not up for reconsideration.
+ */
+export function actionableProposalFailures(
+  p: ChangeProposal, ctx: { tenantId: string; currentBasis: string | null; now?: Date },
+): string[] {
+  const now = ctx.now ?? new Date();
+  const out = [...receiptIntegrityFailures(p, now)];
+  if (p.tenantId !== ctx.tenantId) out.push("This change was drafted for another account, so I am not putting it in front of you.");
+  if (ctx.currentBasis == null || p.basis !== ctx.currentBasis) out.push("I raised the bar for what counts as worth your time, and this one no longer clears it, so I am not putting it in front of you.");
+  if (p.status !== "ready" && p.status !== "needs_review") out.push("This one is not waiting on you any more, so I am not putting it in front of you.");
+  // THE ITEMS ARE THE READINGS: `freshestObservedAt` is a number the producer wrote beside them, so it is
+  // consulted ONLY when there are no items. Freshest-of-all ACROSS ITEMS stands: a receipt is mixed by design.
+  const receipt = p.bundle?.receipt;
+  const read = p.bundle ? (receipt?.items?.length ? receipt.items.map((i) => i.observedAt) : [receipt?.freshestObservedAt ?? null])
+    .map((d) => Date.parse(d ?? "")).filter((t) => Number.isFinite(t)) : [now.getTime()]; // no receipt, no reading to age
+  if (!(read.length > 0 && Math.max(...read) >= now.getTime() - EVIDENCE_VALID_DAYS * 86_400_000)) {
+    out.push("The readings behind this change are too old to stand on now, so I am taking them again before I put it in front of you.");
   }
   return [...new Set(out)];
 }

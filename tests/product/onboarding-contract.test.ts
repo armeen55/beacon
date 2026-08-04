@@ -12,7 +12,7 @@ import type { OnboardingDeps, OnboardingStore, TrackedPromptRow } from "@/domain
 import {
   loadOnboardingState, submitWebsite, inferProfile, saveProfileEdits, proposeProfilePatch,
   applyConfirmedPatch, saveGoal, generatePromptCandidates, approvePrompts, activateAccount,
-  applyTrackedSelection, projectTrackedQuestions,
+  applyTrackedSelection, projectTrackedQuestions, confirmProfile, setupGap,
 } from "@/domains/runtime";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import { CONNECTOR_REGISTRY } from "@/lib/connectors/registry";
@@ -359,6 +359,53 @@ describe("setup and settings surfaces (Phase 8)", () => {
     seedCrawl(w, A); Object.assign(w.crawls.get(A)!.page_facts[0], { path: "/rugs", has_meta_description: false });
     const win = (await loadOnboardingState(A, w.deps)).findings.firstWin!; expect(win.action).toBe("Add a search description"); expect(win.plainWhy).toContain("(200 words)");
   });
+  /** PHASE 6E.1 + 6E.2. Being ACTIVE is a status, not proof of setup. An account flipped active without a website, without a confirmed
+   *  profile or without a single approved question rendered every product surface off nothing at all. And the opposite error is worse:
+   *  a profile read that failed comes back EMPTY, which is indistinguishable from never having been filled in, so treating it as a gap
+   *  would bounce a fully onboarded customer into onboarding over a five second outage. */
+  it("sends an ACTIVE account missing setup truth to the exact step it is missing, and never mistakes a read outage for incompleteness", async () => {
+    const w = makeWorld();
+    const live = async (domain: string) => setupGap(A, domain, w.deps);
+    seedPending(w, A, { domain: "acme.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
+    await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC });
+    await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
+    w.tenants.get(A)!.status = "active"; // setup finished, the account is live
+    expect(await live("acme.com")).toBeNull(); // set up: the product renders, nothing resumes
+    expect(await live("")).toEqual({ step: 1 }); // no website at all, proven off the account row this account was read from
+    for (const r of w.prompts) r.is_active = false;
+    expect(await live("acme.com")).toEqual({ step: 5 }); // nothing to ask the assistants, so questions are what is owed
+    for (const r of w.prompts) r.is_active = true;
+    // A profile with real content that nobody confirmed IS a gap, and it names the confirm step.
+    const unconfirmed = confirmedProfile(A); (unconfirmed as any).offerings = { value: ["rug cleaning"], origin: "inferred", confidence: 0.7, sourceUrls: [] };
+    w.profiles.set(A, unconfirmed); expect(await live("acme.com")).toEqual({ step: 3 });
+    // THE PIN THAT MATTERS: an EMPTY profile is exactly what a failed read hands back, so it is unreadable, never a gap.
+    w.profiles.set(A, emptyBusinessProfile(A));
+    await expect(live("acme.com")).rejects.toThrow();
+    w.profiles.set(A, confirmedProfile(A));
+    await expect(setupGap(A, "acme.com", { ...w.deps, store: { ...w.deps.store!, readPrompts: async () => { throw new Error("prompts unreadable"); } } })).rejects.toThrow(); });
+  /** PHASE 6E.3. Confirm used to stamp operator_confirmed on ALL eleven sections, including the eight the step never
+   *  rendered, so a model's guess about trust claims and excluded topics became the operator's own word. */
+  it("confirms only the profile fields the operator actually saw on that step, and leaves every unseen inference marked as mine", async () => {
+    const w = makeWorld(); seedPending(w, A, { domain: "acme.com" });
+    const inferred = emptyBusinessProfile(A);
+    for (const k of CONFIRMABLE) (inferred as any)[k] = { value: (confirmedProfile(A) as any)[k].value, origin: "inferred", confidence: 0.7, sourceUrls: ["https://acme.com/"] };
+    w.profiles.set(A, inferred);
+    await confirmProfile(A, w.deps);
+    const after = w.profiles.get(A)! as any;
+    for (const k of ["name", "offerings", "audiences"]) expect(after[k].origin, `${k} was on screen`).toBe("operator_confirmed");
+    for (const k of ["trustClaims", "differentiators", "topicsToExclude", "customerProblems", "geographicScope", "siteArchetype", "businessType", "topicsToOwn"]) {
+      expect(after[k].origin, `${k} was never shown, so it is still my inference`).toBe("inferred"); }
+    expect((await loadOnboardingState(A, w.deps)).profile.confirmed).toBe(true); }); // and the step still completes
+  /** PHASE 6E.4. The first finding is read off a CRAWL. It has no Google evidence at all, so it may not speak for Google. */
+  it("names the first finding's real address and never claims what Google does or does not have without Google evidence", async () => {
+    const w = makeWorld(); seedPending(w, A, { domain: "acme.com" }); seedCrawl(w, A);
+    Object.assign(w.crawls.get(A)!.page_facts[0], { url: "https://acme.com/rug-cleaning", path: "/rug-cleaning", title: "", word_count: 220 });
+    const win = (await loadOnboardingState(A, w.deps)).findings.firstWin!;
+    expect(win.url).toBe("https://acme.com/rug-cleaning");
+    expect(win.plainWhy).toContain("https://acme.com/rug-cleaning"); // the real address, not a bare path the operator has to reassemble
+    const copy = [win.action, win.plainWhy, win.exactFix].join(" ");
+    expect(copy.toLowerCase()).not.toMatch(/google has nothing|nothing to show|stay signed in|keep this tab|each time you visit/);
+    expect(copy).not.toMatch(/[–—]/); });
   it("never locks a thin business out of its own setup: it approves what it found and says why that is fewer", async () => {
     const { renderToStaticMarkup } = await import("react-dom/server");
     const { createElement } = await import("react");

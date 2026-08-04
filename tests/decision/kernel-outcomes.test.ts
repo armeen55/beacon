@@ -56,7 +56,7 @@ const EXISTING_INPUT: EvidenceInput = {
 /** A minimal safe existing-edit proposal, for constructing rejection variants. */
 function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal {
   return {
-    id: "referencepedia::/x::existing_edit::title", tenantId: "referencepedia", kind: "existing_edit", pagePath: "/x", pageUrl: "https://fixture-content.example/x",
+    id: "fixture-tenant::/x::existing_edit::title", tenantId: "fixture-tenant", kind: "existing_edit", pagePath: "/x", pageUrl: "https://fixture-content.example/x",
     pageLabel: "X", primaryQuery: "nowruz traditions", opportunityType: "Capture clicks", changeFamily: "title", status: "ready", evidence: { query: "nowruz traditions", hints: ["gsc demand"], evidenceRefCount: 1 },
     recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen" },
     whyItMatters: "The title misses the customs searchers ask about.", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "high", limitations: [],
@@ -600,6 +600,19 @@ describe("why this page loses the click, one named cause at a time", () => {
     reset(snap([WINNER])); env.store = new Map([[bad("basis_test").id, bad("basis_test")]]); // and no door opens on that page at all
     await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: async () => ({ value: VALID_ATOMIC_EDIT }) });
     expect(env.withdrawn).toEqual([bad("b").id]); });
+  /** AND THE SAME NET CATCHES A ROW THAT WENT COLD. Refused at every door but never taken back, it sits in
+   *  its own slot forever: an identical redraft answers "unchanged", so nothing fresh can replace it. */
+  it("takes back a change whose readings went cold, so a redraft off fresh evidence can take its slot", async () => {
+    const aged = (observedAt: string): ChangeProposal => baseProposal({ id: "fixture-tenant::/aged::existing_edit::bundle", pagePath: "/aged", basis: "basis_test", status: "ready",
+      bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, alternatives: [], risks: [], confidenceReasons: [],
+        receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "f", observedAt }], missing: [], freshestObservedAt: observedAt },
+        components: [{ kind: "title", label: "Title", before: "a", after: "b", evidenceKeys: ["k1"], risk: "safe" }] } });
+    // Cold goes back; a receipt whose readings still stand is left exactly where it is.
+    for (const [at, taken] of [[new Date(NOW.getTime() - 200 * 86_400_000).toISOString(), [aged("x").id]], [NOW.toISOString(), []]] as const) {
+      reset(snap([WINNER])); env.store = new Map([[aged(at).id, aged(at)]]);
+      await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: async () => ({ value: VALID_ATOMIC_EDIT }) });
+      expect(env.withdrawn, at).toEqual(taken);
+    } });
   it("never emits a diagnosis without a competing explanation, a falsifier, and every unheld cause named", () => {
     for (const world of [snap([WINNER]), SEEN(), snap([GAP]), snap([ACTORS], actorsSerp(DISPLAYED)), snap([GAP], CITED_ELSEWHERE()), BOTH()]) {
       for (const c of compileCandidates(world)) {

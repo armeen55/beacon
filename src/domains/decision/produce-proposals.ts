@@ -30,7 +30,7 @@ import { selectDeepCandidates } from "./deep-candidates";
 import { produceBundleForSnapshot } from "./produce-bundle";
 import { proposeExistingPageChange, type ProposeOptions } from "./propose";
 import { loadChangeProposals, saveChangeProposal, withdrawChangeProposal, withdrawnProposalIds } from "./proposal-store";
-import { receiptIntegrityFailures } from "./validate-proposal";
+import { actionableProposalFailures } from "./validate-proposal";
 import { rankProposals } from "./rank-proposals";
 import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
@@ -281,11 +281,11 @@ export async function produceProposalsForTenant(
   const currentBundleFor = (match: (p: ChangeProposal) => boolean): ChangeProposal | null =>
     live.find((p) => !!p.bundle && current(p) && match(p)) ?? null;
 
-  // A CHANGE THAT CANNOT SHOW ITS WORK IS TAKEN BACK, whether or not anything re-selects its page this pass:
-  // withdrawal used to ride on the deep loop, so a stored row for a page no door opened today simply stayed.
+  // A CHANGE THAT CANNOT SHOW ITS WORK, OR WHOSE READINGS WENT COLD, IS TAKEN BACK, on the SAME verdict every
+  // door asks: left on file it kept its slot, and an identical redraft answered "unchanged" forever.
   const retired = new Set<string>();
   for (const p of held) {
-    if (!p.bundle || receiptIntegrityFailures(p, opts.now).length === 0) continue;
+    if (!p.bundle || actionableProposalFailures(p, { tenantId: p.tenantId, currentBasis: p.basis ?? null, now: opts.now }).length === 0) continue;
     if (persist) await withdrawChangeProposal(p);
     existing.delete(p.id); retired.add(p.id);
   }

@@ -84,8 +84,8 @@ const observationFact = (o: Observation): string => {
     : `In a plain assistant answer to "${o.promptText}" (background reading, not what a searching customer sees), `;
   const cited = o.citations == null ? "I could not see which pages it leaned on."
     : domains.length === 0 ? "it answers without pointing at anyone." : `it points people at ${domains.join(", ")}.`;
-  // Fan-out lineage: the searches the ASSISTANT itself ran. A question I track is mine and is never reported as the provider's.
-  const fan = (o.fanOutQueries ?? []).slice(0, 3);
+  // Fan-out lineage: the searches the ASSISTANT itself ran, never the question I track, which is mine.
+  const mine = canonicalQueryKey(o.promptText), fan = (o.fanOutQueries ?? []).filter((q) => canonicalQueryKey(q) !== mine).slice(0, 3);
   return `${seen}${cited}${fan.length ? ` To answer it the assistant went and searched ${fan.map((q) => `"${q}"`).join(", ")}.` : ""}`;
 };
 

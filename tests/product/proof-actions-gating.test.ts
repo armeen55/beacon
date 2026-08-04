@@ -29,11 +29,15 @@ vi.mock("@/lib/auth/can-publish", () => ({
   isAccountOwner: async () => ownerFlag.value,
   canPublishForCurrentTenant: async () => ownerFlag.value,
 }));
-vi.mock("@/domains/decision", () => ({
+vi.mock("@/domains/decision", async () => ({
   loadPageSurgeonContext: mocks.loadPageSurgeonContext, topPagesByDemand: mocks.topPagesByDemand,
   loadChangeProposal: mocks.loadChangeProposal, markProposalImplemented: mocks.markProposalImplemented,
   resolveCurrentBasis: mocks.resolveCurrentBasis,
   editLifecycleStatus: () => "accepted", markRecommendedEditsAsShipped: async () => ({ flipped: 0, skipped: 0 }),
+  // The ONE verdict every door asks, and the kinds that move or hide a page: the REAL ones, so the mutation
+  // door under test is gated here exactly as production gates it.
+  actionableProposalFailures: (await vi.importActual<typeof import("@/domains/decision/validate-proposal")>("@/domains/decision/validate-proposal")).actionableProposalFailures,
+  DANGEROUS_COMPONENT_KINDS: (await vi.importActual<typeof import("@/domains/decision/contracts")>("@/domains/decision/contracts")).DANGEROUS_COMPONENT_KINDS,
 }));
 vi.mock("@/lib/persistence/repositories", () => ({ getRepository: () => ({ forTenant: () => ({}) }) }));
 vi.mock("@/domains/account", async (orig) => ({ ...(await orig() as object), getTenant: async () => ({ id: "tenant-test", domain: "x.test" }) }));
@@ -64,13 +68,18 @@ const PROPOSAL_ID = "tenant-test::/nowruz-guide::existing_edit::bundle";
 const proposal = (over: Record<string, unknown> = {}) => ({
   id: PROPOSAL_ID, tenantId: "tenant-test", kind: "existing_edit", pagePath: "/nowruz-guide",
   pageUrl: "https://x.test/nowruz-guide", pageLabel: "Nowruz guide", primaryQuery: "nowruz traditions",
-  opportunityType: "Capture clicks", changeFamily: "title", status: "ready", basis: BASIS, publish: "manual",
+  // A bundle carrying a piece graded dangerous is a HIGH-RISK change and is held for a look, never ready:
+  // the one verdict every door asks refuses the other shape, so the shipment path is exercised on a change
+  // the ranked queue would really hand over. Its readings are dated relative to now for the same reason.
+  opportunityType: "Capture clicks", changeFamily: "title", status: "needs_review", riskLevel: "high", basis: BASIS, publish: "manual",
   recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" },
   whyItMatters: "The line Google shows misses the words people search for.",
   bundle: { objective: "Say what the searcher asked for in the line Google shows.",
     scope: { queries: ["nowruz traditions"], prompts: [] },
+    receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "1,200 impressions and 9 clicks.", observedAt: new Date(Date.now() - 86_400_000).toISOString() }],
+      missing: [], freshestObservedAt: new Date(Date.now() - 86_400_000).toISOString() },
     // One component graded dangerous on an ORDINARY kind: the grade is the only thing that says so.
-    components: [{ kind: "title", label: "Page title", after: null, risk: "dangerous" }, { kind: "opening_answer", label: "Opening answer", risk: "safe" }] },
+    components: [{ kind: "title", label: "Page title", after: null, risk: "dangerous", evidenceKeys: ["k1"] }, { kind: "opening_answer", label: "Opening answer", risk: "safe", evidenceKeys: ["k1"] }] },
   ...over,
 });
 

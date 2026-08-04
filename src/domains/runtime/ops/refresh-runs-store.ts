@@ -4,27 +4,17 @@ import "server-only";
  * refresh-runs-store (refresh-reliability wave, 2026-07-11, BUG 3) - the durable
  * source-by-source refresh ledger.
  *
- * EVERY refresh path records here through the ONE `recordRefreshRun` function:
- *   - the nightly cron (cron-sync.ts syncOneTenant),
- *   - the manual "Refresh my data" / per-source "Sync now" (settings actions),
- *   - the on-use auto-refresh (cron-sync.ts autoRefreshStaleConnectorsForTenant).
+ * EVERY refresh path records here through the ONE `recordRefreshRun` function: the nightly cron (cron-sync syncOneTenant), the
+ * manual "Refresh my data" and per-source "Sync now" (settings actions), and the on-use auto-refresh
+ * (autoRefreshStaleConnectorsForTenant). Each call is ONE row per (tenant, source, trigger, run) with an HONEST result (ok, partial
+ * or failed), the rows it persisted, the newest source data date after the run, the failure category and the next scheduled retry.
+ * That is what closed three probe findings at once: manual and on-use pulls leave a row, a per-source failure is named instead of
+ * hidden behind a run-level ok:true, and a source that wrote zero rows while claiming success reads as partial ("no new data").
  *
- * Each call is ONE row per (tenant, source, trigger, run) with an HONEST result
- * (ok / partial / failed), the rows it persisted, the newest source data date
- * after the run, the failure category, and the next scheduled retry. This is
- * what closes the three probe findings: manual/on-use pulls now leave a row, a
- * per-source failure is named instead of hidden behind a run-level ok:true, and
- * a source that wrote 0 rows while claiming success reads as partial ("no new
- * data") rather than a clean success.
- *
- * Mirrors cron-runs-store.ts EXACTLY:
- *   - Service-role admin client; getSupabaseAdmin() throwing (no env, local dev)
- *     routes straight to the file mirror.
- *   - PGRST205 / 42P01 / PGRST204 (table not migrated in yet) also route to the
- *     file mirror, so deploy order (code before migration) can never break the
- *     sync this ledger observes.
- *   - Fail-soft by contract: recordRefreshRun NEVER throws. A ledger write
- *     failure must never fail the sync/refresh it is trying to record.
+ * Mirrors cron-runs-store.ts EXACTLY. Service-role admin client, and getSupabaseAdmin() throwing (no env, local dev) routes straight
+ * to the file mirror; PGRST205 / 42P01 / PGRST204 (table not migrated in yet) route there too, so deploy order (code before
+ * migration) can never break the sync this ledger observes. Fail-soft by contract: recordRefreshRun NEVER throws, because a ledger
+ * write failure must never fail the sync or refresh it is trying to record.
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";

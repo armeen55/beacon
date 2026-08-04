@@ -2,11 +2,8 @@
  *  validation before I/O, the fail-closed write contract, and the canonical
  *  Account/BusinessProfile + lifecycle promises. Structural pushdown lives in the
  *  foundation guard, not source scans. */
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
-
 vi.mock("server-only", () => ({}));
-
 // ONE in-memory repository seam for every write in this file: `mem.upsert` is null
 // by default, so an unexpected write hits a client it cannot reach and fails loud.
 const mem = vi.hoisted(() => ({ upsert: null as null | ((table: string, rows: unknown[]) => { data: unknown[] | null; error: { message: string } | null }) }));
@@ -17,7 +14,6 @@ vi.mock("@/lib/persistence/supabase", () => ({
     return { from: (table: string) => ({ upsert: (rows: unknown[]) => ({ select: async () => handler(table, rows) }) }) };
   },
 }));
-
 import { buildTenantRepo } from "@/lib/persistence/repositories/tenant-repo";
 import type { SeedDataRepository } from "@/lib/persistence/repositories/types";
 import type { CrawlFrontierState } from "@/domains/evidence/scanning/crawl-frontier";
@@ -28,12 +24,9 @@ import {
   tenantizeRows,
   syncImportRuns,
 } from "@/lib/persistence/dual-write";
-
 const TENANT = "tenant-fixture-local";
 const OTHER = "tenant-other";
-
 // ── A. buildTenantRepo facade ───────────────────────────────────────────────
-
 describe("buildTenantRepo behavioral isolation", () => {
   const prompt = (id: string, tenant_id: string) =>
     ({ id, tenant_id, account_id: tenant_id, text: id, is_active: true }) as unknown as never;
@@ -73,9 +66,7 @@ describe("buildTenantRepo behavioral isolation", () => {
     expect(promptsC.length).toBe(1);
   });
 });
-
 // ── B. dual-write validation layer ──────────────────────────────────────────
-
 describe("dual-write tenant validation (fires before any I/O)", () => {
   it("assertRowsScopedToTenant throws on empty tenantId and on any mismatched row", () => {
     expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }], "", "results")).toThrow(/tenantId must be a non-empty string/);
@@ -108,7 +99,6 @@ describe("dual-write tenant validation (fires before any I/O)", () => {
     expect(() => tenantizeRows([], "", "results")).toThrow(/tenantId must be a non-empty string/);
   });
 });
-
 describe("a canonical write that did not land never reads as done", () => {
   const ROW = [{ tenant_id: TENANT, id: "r1" }];
   it("only rows Postgres hands back count as written: an error throws, zero rows throws, an empty batch never reaches the client", async () => {
@@ -143,7 +133,6 @@ describe("a canonical write that did not land never reads as done", () => {
     expect([out.status, out.crawled, out.complete, saved.length]).toEqual(["in_progress", 0, false, 0]);
     expect(out.detail).toMatch(/^snapshot_write_failed:/); });
 });
-
 // ONE READING OF DATA_SOURCE, EVERYWHERE. Three modules asked `=== "supabase"` on their own, so an unset
 // variable sent the repository to Supabase and those three to disk: one process, two truths, and the disk
 // one wins silently in production. Supabase unless the operator asks for files out loud.
@@ -169,14 +158,12 @@ describe("an unset DATA_SOURCE means Supabase, in every module that asks", () =>
     } finally { if (held === undefined) delete process.env.DATA_SOURCE; else process.env.DATA_SOURCE = held; vi.doUnmock("@/lib/persistence/repositories"); vi.resetModules(); }
   });
 });
-
 describe("Tier A sync* helpers stay tenant-wired", () => {
   it("runtime: a representative Tier A helper rejects a cross-tenant row and an empty tenantId", async () => {
     await expect(syncImportRuns([{ id: "r1", tenant_id: OTHER } as unknown as Parameters<typeof syncImportRuns>[0][number]], TENANT)).rejects.toThrow(/tenant mismatch/);
     await expect(syncImportRuns([{ id: "r1", tenant_id: "" } as unknown as Parameters<typeof syncImportRuns>[0][number]], "")).rejects.toThrow(/tenantId must be a non-empty string/);
   });
 });
-
 describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
   const FORBIDDEN_VOCAB =
     /(harborview|referencepedia|builder|project_mix|budget_range|cities_served|publish_target|email_frequency|profound|semrush|founder|bay area)/i;
@@ -378,6 +365,14 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       expect(await resolveAccountAccess("tenant-lc")).toMatchObject({ kind: "suspended", reason: "paused" });
       repo(withStatus({ status: "active" }));
       expect((await resolveAccountAccess("tenant-lc")).kind).toBe("ready");
+      // ACTIVE IS A STATUS, NOT PROOF OF SETUP. An account with no website at all resumes at the step that asks for one,
+      // instead of rendering every product surface off nothing.
+      repo(withStatus({ status: "active", domain: "" }));
+      await expect(requireReadyAccount("tenant-lc")).rejects.toMatchObject({ digest: expect.stringContaining("/onboard?step=1") });
+      // AND AN OUTAGE IS NOT INCOMPLETENESS: with no database here the setup truth cannot be read at all, so this is the
+      // bounded retry surface and never a bounce back into setup for a customer who finished it months ago.
+      repo(withStatus({ status: "active" }));
+      await expect(requireReadyAccount("tenant-lc")).rejects.toBeInstanceOf(AccountUnavailableError);
     } finally {
       store.setAccountRepositoryForTests(null);
     }

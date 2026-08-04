@@ -49,9 +49,10 @@ export async function writeResultsSurface(
   tenantId?: string,
 ): Promise<void> {
   const reads = shipments.map((s) => s.read);
-  // Empty-rebuild guard: loadProofLedger is fail-soft, so during an outage it can
-  // "successfully" build an empty ledger. Never replace a non-empty snapshot with
-  // an empty one; a legitimate reset goes through invalidateResultsSurface().
+  // Empty-rebuild guard, now the SECOND line of defence rather than the only one: loadProofLedger
+  // THROWS on a ledger it could not read, so an outage no longer reaches this write at all. This still
+  // stands, because an empty snapshot must never replace a real one whatever produced it; a legitimate
+  // reset goes through invalidateResultsSurface().
   if (reads.length === 0) {
     const existing = await readResultsSurface(tenantId);
     if (existing && existing.shipments.length > 0) {

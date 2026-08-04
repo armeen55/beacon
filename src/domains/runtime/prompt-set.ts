@@ -1,29 +1,19 @@
 import "server-only";
 
 /**
- * prompt-set (no-stranded-account slice, 2026-07-26) - THE one owner of the
- * tracked-question set: the id + normalize rules, the tag and count vocabulary,
- * the projection every surface reads, and the pure declarative save an ACTIVE
- * account drives from Settings. onboarding-store imports its helpers from here,
- * and the research funnel reads the SAME tag constant, so what the operator sees
- * listed is exactly what research checks.
+ * prompt-set - THE one owner of the tracked-question set: the id and normalize rules, the tag and count vocabulary, the projection
+ * every surface reads, and the pure declarative save an ACTIVE account drives from Settings. onboarding-store imports its helpers
+ * from here and the research funnel reads the SAME tag constant, so what the operator sees listed is exactly what research checks.
  *
- * Identity rule (PRODUCT_TRUTH question stability): unchanged wording KEEPS its
- * row id, so its measurement history survives every save. Only NEW wording mints
- * a new id, and a reworded question keeps its ancestry through a
- * "superseded:<oldRowId>" tag while the old row stays as inactive history. A row
- * WITHOUT the core tag is never touched: legacy seed rows are somebody else's
- * history, not my tracked set.
+ * IDENTITY RULE (PRODUCT_TRUTH question stability): unchanged wording KEEPS its row id, so its measurement history survives every
+ * save. Only NEW wording mints a new id, and a reworded question keeps its ancestry through a "superseded:<oldRowId>" tag while the
+ * old row stays as inactive history. A row WITHOUT the core tag is never touched: legacy seed rows are somebody else's history.
  *
- * VERSION rule (2026-07-31, V1 Truth Convergence): a tracked question is a
- * measurement series, and `version` is which series an observation belongs to.
- * Any wording edit, any change to the engines a question is asked on, and any
- * add or revival of a question starts a NEW series, so it bumps the version and
- * the daily planner treats (prompt id, version, engine, day) as a fresh identity
- * from that day on. Nothing is backfilled across the seam: the old series keeps
- * its rows and the trend line breaks where the question changed, instead of
- * bending through a discontinuity nobody can see. Dropping a question does NOT
- * bump (it just stops); bringing it back does, because the gap is real.
+ * VERSION RULE: a tracked question is a measurement series, and `version` is which series an observation belongs to. Any wording
+ * edit, any change to the engines a question is asked on, and any add or revival starts a NEW series, so it bumps the version and
+ * the daily planner treats (prompt id, version, engine, day) as a fresh identity from that day on. Nothing is backfilled across the
+ * seam: the old series keeps its rows and the trend line BREAKS where the question changed rather than bending through a
+ * discontinuity nobody can see. Dropping a question does NOT bump (it just stops); bringing it back does, because the gap is real.
  */
 
 import { createHash } from "node:crypto";

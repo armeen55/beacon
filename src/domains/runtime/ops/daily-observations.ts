@@ -4,39 +4,27 @@ import "server-only";
  * daily-observations - WHAT I ASK THE AI ENGINES TODAY, and what I do with the
  * answers that come back (V1 Truth Convergence Phase 1, 2026-07-31).
  *
- * THE ONE CANONICAL SAMPLE. A tracked question on one engine gets exactly ONE
- * reading per reporting day, and that reading is slot 0. That is the whole trend:
- * one point per question, per engine, per day, so a chart of "how often did the
- * engines name me" is comparing like with like. Slots 1 and 2 exist for the days
- * an operator wants to see how much an engine wobbles, and they are NEVER planned
- * automatically: an unasked second read triples the bill and reweights the average
- * toward whichever question got sampled more. They come only from an explicit ask,
- * only after slot 0 is complete, and never past three.
+ * THE ONE CANONICAL SAMPLE. A tracked question on one engine gets exactly ONE reading per reporting day, and that reading is slot 0.
+ * That is the whole trend: one point per question, per engine, per day, so a chart of "how often did the engines name me" compares
+ * like with like. Slots 1 and 2 exist for the days an operator wants to see how much an engine wobbles and are NEVER planned
+ * automatically, because an unasked second read triples the bill and reweights the average toward whichever question got sampled
+ * more. They come only from an explicit ask, only after slot 0 is complete, and never past three.
  *
- * THE REPORTING DAY IS THE OPERATOR'S DAY (Pacific, src/lib/reporting-day.ts):
- * the day a person reading Beacon is actually in, and the day Search Console
- * reports on. It is handed IN by the caller and stored verbatim on every row, so
- * a run and its observations can never disagree about which day they belong to.
+ * THE REPORTING DAY IS THE OPERATOR'S DAY (Pacific, src/lib/reporting-day.ts): the day the person reading Beacon is actually in, and
+ * the day Search Console reports on. It is handed IN by the caller and stored verbatim on every row, so a run and its observations
+ * can never disagree about which day they belong to. A MISSED DAY IS GONE and nothing here backfills: if the run never reached a
+ * question on Tuesday, Tuesday has no point for it and Wednesday asks about Wednesday, because a hole filled later would put a
+ * number on the chart at a date it was never true.
  *
- * A PAIR'S DAY ENDS ONE OF FOUR WAYS, and the row says which: `observed` (the
- * answer is in), `unavailable` (the engine had nothing readable to give today),
- * `unsupported` (I cannot ask this engine at all) or `failed` with its retries
- * spent, which I settle to `unavailable` keeping the provider's own reason. The
- * planner reads all four as finished, because a row that only ever says "failed"
- * reads as owed on every look and was re-bought on every pass forever.
+ * A PAIR'S DAY ENDS ONE OF FOUR WAYS and the row says which: `observed` (the answer is in), `unavailable` (the engine had nothing
+ * readable to give today), `unsupported` (I cannot ask this engine at all) or `failed` with its retries spent, which I settle to
+ * `unavailable` keeping the provider's own reason. The planner reads all four as finished, because a row that only ever says
+ * "failed" reads as owed on every look and was re-bought on every pass forever.
  *
- * A MISSED DAY IS GONE. Nothing here backfills. If the run never got to a question
- * on Tuesday, Tuesday has no point for it and Wednesday asks about Wednesday: a hole
- * filled later would put a number on the chart at a date it was never true.
- *
- * IDENTITY IS (prompt id, VERSION, engine, day). A wording edit, an engine-set
- * change, an add or a revival bumps the version in prompt-set.ts, so from that
- * day on the question is a NEW series and yesterday's readings are not mixed into
- * it. That is why a rewording shows as a break in the line and not a bend.
- *
- * THE ANALYSIS STEP is the other half and lives in answer-readback.ts: what the
- * answers this plan bought actually said. It is re-exported from here so every
- * caller of the daily loop keeps one import.
+ * IDENTITY IS (prompt id, VERSION, engine, day). A wording edit, an engine-set change, an add or a revival bumps the version in
+ * prompt-set.ts, so from that day on the question is a NEW series and yesterday's readings are never mixed into it. That is why a
+ * rewording shows as a break in the line and not a bend. THE ANALYSIS STEP is the other half and lives in answer-readback.ts (what
+ * the answers this plan bought actually said), re-exported from here so every caller of the daily loop keeps one import.
  */
 
 import type { CapabilityKey } from "@/domains/evidence/dataforseo/funnel-boundary";

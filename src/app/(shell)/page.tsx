@@ -152,6 +152,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   if (gateRaced.timedOut) return <HonestDelay />;
   const gate = gateRaced.data;
 
+  if (gate.unreadable) return <HonestDelay message="Couldn’t read your account just now. Your data is safe, and Beacon is retrying automatically." />;
   if (gate.isDemoMode) {
     return (
       <div className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5">
@@ -164,8 +165,6 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       </div>
     );
   }
-  if (gate.firstReading.isFirstReading) return <FirstReadingWaiting context={gate.firstReading.context} />;
-
   let composite: Awaited<ReturnType<typeof loadTodayView>>;
   try {
     // FP1 - loadTodayView serves the SWR snapshot instantly when one exists; the
@@ -179,12 +178,15 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   } catch {
     return <HonestDelay message="Couldn’t load Today just now. Your data is safe, and Beacon is retrying automatically." />;
   }
+  // WAITING FOR A FIRST READING IS ONLY TRUE WHILE THERE IS NOTHING TO SHOW. An account whose research has
+  // already ranked changes was told to sit and wait beside work it could have done, because the waiting
+  // screen was decided before the release was ever read.
+  if (gate.firstReading.isFirstReading && !composite.hasChanges) {
+    return <FirstReadingWaiting context={gate.firstReading.context} />;
+  }
   const { today } = composite;
   const tenantId = await currentTenantId();
   const nowPacific = new Date();
-  // The daily-experiment plan was removed with the experiments domain (CORE 100K);
-  // Today's picks/minutes and "fix ready" set now come from the ranked changes.
-
   // Today context parallelization (2026-07-12): these reads are mutually
   // independent once tenant + cached composite are known. Start each exactly
   // once and wait for the slowest, never the sum. Every one feeds either the
@@ -225,21 +227,17 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // loader, which classifies the SAME request-cached ledger rows with the SAME rule
   // Results uses for its bands. So "16 measuring" here lands on exactly 16 "In flight"
   // rows on Results - never contradicting answers. Fail-soft to zeros, never blocks.
-  // ONE QUESTION, ONE SOURCE. The release Today and Changes share carries the measuring count it
-  // was built with, and Changes renders that exact number on its own strip. Reading a live ledger
-  // count here instead meant one navigation could answer "6 measuring" and "5 measuring" for the
-  // same account, seconds apart. The live count is the fallback for a release written before the
-  // field existed, never a second opinion.
-  const measuringCount = today.measuringCount ?? lifecycle.measuring;
+  // ONE QUESTION, ONE SOURCE. The release Today and Changes share carries the measuring count it was
+  // built with, so both surfaces answer with one number. A count the release does not carry (a pre-field
+  // blob) or could not read is WITHHELD: a ledger I could not read is not an empty one, and the swallowed
+  // lifecycle fallback that let "Nothing is measuring yet" print over an outage is gone.
+  const countsUnread = today.countsUnavailable === true || today.measuringCount == null;
+  const measuringCount = countsUnread ? 0 : today.measuringCount ?? 0;
 
   // Item 42: the assistant sets the scene like a person would.
   const dayLine = nowPacific.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "America/Los_Angeles" });
   const hour = Number(nowPacific.toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "America/Los_Angeles" }));
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-  const picks = 0;
-  const minutes = 0;
-  // The same 84-day click series the scoreboard reads (react.cache-shared, so this costs
-  // nothing extra). Feeds the command's week-over-week loss check.
   const nowMs = Date.now();
 
   // P14 item 2 (v1 324) - the smoke alarm with page blame: ONE honest line naming the exact
@@ -333,11 +331,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           streak >= 10 && commandAllowsCelebration(command) ? ", you are on a roll" : ""
         }.`
       : "";
-  // Operator spec 2026-07-09 B-14: no "team" framing - purely functional.
-  // The daily-plan picks/minutes brief was removed with the experiments domain
-  // (CORE 100K); the header sentence carries the day's summary.
-  void picks;
-  void minutes;
+  // Operator spec 2026-07-09 B-14: no "team" framing, purely functional. The header sentence is the day.
   const brief = `${dayLine}. ${today.headerSentence}` + streakLine;
   const researchLine = researchStatusLine(research, nowPacific);
 
@@ -371,13 +365,17 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       <Suspense fallback={<div className="h-56 animate-pulse rounded-2xl border border-border bg-surface-inset" />}>
         <ScoreboardSection tenantId={tenantId} />
       </Suspense>
-      <TodayProofStrip
-        measuringCount={measuringCount}
-        firstReadOn={firstReadOn}
-        firstSettledReadOn={schedule.finalVerdictOn}
-        gscThrough={leadStoryDays[leadStoryDays.length - 1]?.date ?? null}
-        nowMs={nowMs}
-      />
+      {countsUnread ? (
+        <p className="text-[13px] text-muted-foreground">I could not read what is measuring just now, so I am not showing you a count I cannot stand behind. I am retrying automatically.</p>
+      ) : (
+        <TodayProofStrip
+          measuringCount={measuringCount}
+          firstReadOn={firstReadOn}
+          firstSettledReadOn={schedule.finalVerdictOn}
+          gscThrough={leadStoryDays[leadStoryDays.length - 1]?.date ?? null}
+          nowMs={nowMs}
+        />
+      )}
     </div>
   );
 }

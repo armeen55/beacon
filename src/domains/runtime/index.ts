@@ -48,6 +48,7 @@ export {
   generatePromptCandidates,
   approvePrompts,
   activateAccount,
+  setupGap,
   type OnboardingState,
   type OnboardingGoal,
   type ProfileEdits,

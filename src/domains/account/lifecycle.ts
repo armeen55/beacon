@@ -13,6 +13,7 @@
  */
 
 import "server-only";
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { getTenant } from "./tenants/store";
 import type { Account } from "./tenants/types";
@@ -61,13 +62,24 @@ export class AccountUnavailableError extends Error {
   }
 }
 
+/** IS THIS ACTIVE ACCOUNT ACTUALLY SET UP? Runtime owns the answer (see runtime/onboarding-store setupGap); this asks it once per
+ *  request so a per-render read never becomes a per-render query. Imported lazily because Runtime imports Account, and the truth
+ *  belongs beside the onboarding steps rather than copied here. */
+const setupGapOnce = cache(async (tenantId: string, domain: string) =>
+  (await import("@/domains/runtime")).setupGap(tenantId, domain));
+
 /**
  * Guard for signed-in product surfaces.
  *
  *   unavailable → throw AccountUnavailableError (bounded retry boundary)
  *   incomplete  → redirect("/onboard")
  *   suspended   → returned, so the caller renders the notice
- *   ready       → returned
+ *   ready       → returned, ONCE its setup truth is proven present
+ *
+ * ACTIVE IS A STATUS, NOT PROOF OF SETUP. An account flipped active without a website, without a confirmed profile or without a
+ * single approved question passed this guard and rendered every surface off nothing at all. It now resumes at the FIRST genuinely
+ * incomplete step instead. AN OUTAGE IS NOT INCOMPLETENESS: a gap I could not read is the bounded retry surface, never a bounce
+ * into onboarding, because sending an established customer back to setup over a transient read is the worse of the two failures.
  */
 export async function requireReadyAccount(
   tenantId: string,
@@ -75,5 +87,9 @@ export async function requireReadyAccount(
   const access = await resolveAccountAccess(tenantId);
   if (access.kind === "unavailable") throw new AccountUnavailableError(tenantId);
   if (access.kind === "incomplete") redirect("/onboard");
+  if (access.kind === "ready") {
+    const gap = await setupGapOnce(tenantId, access.account.domain ?? "").catch(() => { throw new AccountUnavailableError(tenantId); });
+    if (gap) redirect(`/onboard?step=${gap.step}`);
+  }
   return { access };
 }

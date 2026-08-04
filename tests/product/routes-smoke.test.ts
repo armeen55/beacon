@@ -19,6 +19,20 @@ vi.mock("@/domains/runtime/research-run", () => ({ researchRunStatus: vi.fn(asyn
 vi.mock("@/domains/account/lifecycle", () => ({ requireReadyAccount: vi.fn(async () => ({ access: { kind: "ready", account: { status: "active" } } })),
   resolveAccountAccess: vi.fn(async () => ({ kind: "ready", account: { status: "active" } })), AccountUnavailableError: class extends Error {} }));
 
+/** THE LEDGER READ, as its two DIFFERENT answers, driven from THE STORE rather than from a stub of the module that decides. It only ever had one answer: every
+ *  layer swallowed a failed read into an empty list, so a database outage rendered the one sentence that tells an operator to stop expecting measurement ("No
+ *  changes are being measured yet") over an account with a full ledger. `ledgerError` is what Supabase hands back; every other table reads clean and empty. */
+// after() is only legal in a request scope, so the background rebuild it schedules is a no-op here; the RENDER path is what is under test.
+vi.mock("next/server", async (orig) => ({ ...(await orig<Record<string, unknown>>()), after: () => {} }));
+const DB = vi.hoisted(() => ({ ledgerError: null as { code: string; message: string } | null }));
+vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...(await orig<Record<string, unknown>>()), isSupabaseConfigured: () => true,
+  getSupabaseAdmin: () => ({ from: (table: string) => { const q: Record<string, unknown> = {};
+    const answer = () => Promise.resolve(table === "shipped_change_proof" && DB.ledgerError ? { data: null, error: DB.ledgerError } : { data: [], error: null });
+    for (const k of ["select", "eq", "in", "not", "is", "gte", "lte", "order", "limit"]) q[k] = () => q;
+    q.maybeSingle = async () => ({ data: null, error: null });
+    q.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => answer().then(res, rej);
+    return q; } }) }));
+
 describe("Today renders, and tells the truth about its own queue", () => {
   it.each([["@/app/(shell)/page", ["max-w-3xl", 'aria-label="Loading today"']], ["@/app/(shell)/changes/page", ["Changes", "ranked execution queue"]],
     ["@/app/(shell)/results/page", ["Results", "7, 14, and 28 days"]]] as const)("renders the %s frame without throwing", async (mod, claims) => {
@@ -26,6 +40,17 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
     for (const claim of claims) expect(html).toContain(claim);
   }, 15_000);
+  it("says it could not read the measured changes, and never that there are none, when THE STORE itself errors", async () => {
+    const { default: Page } = await import("@/app/(shell)/results/page") as { default: (a?: unknown) => Promise<ReactElement> };
+    // The failure enters where it really enters: Supabase hands the ledger table back an error, three layers under the page.
+    DB.ledgerError = { code: "PGRST301", message: "JWT expired" };
+    const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
+    expect(html).toContain("I could not read your measured changes just now, so I am not telling you there are none.");
+    expect(html).not.toContain("No changes are being measured yet");
+    // AND THE MISSING-TABLE CASE IS STILL A VALID EMPTY: the file fallback is how a pre-migration deploy reads, not an outage.
+    DB.ledgerError = { code: "PGRST205", message: "Could not find the table in the schema cache" };
+    expect(renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }))).toContain("7, 14, and 28 days");
+    DB.ledgerError = null; }, 15_000);
   const readyView = (n: number, measuring: number) => ({
     ready: Array.from({ length: n }, (_, i) => ({ id: `t::/p${i}::existing_edit::title`, pagePath: `/p${i}`, pageUrl: null, pageLabel: `P${i}`, primaryQuery: "q",
       opportunityType: "Sharpen the title", estimatedEffortMinutes: 2, upsidePerMonth: null, confidence: "high", recommendedChange: { kind: "existing_edit", field: "title" } })),

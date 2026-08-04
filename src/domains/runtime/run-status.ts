@@ -80,16 +80,11 @@ const PHASE_LABEL: Record<ResearchPhase, string> = {
 /**
  * PURE: a persisted run (or none) -> the compact Today view.
  *
- * THE LEASE IS NOT A STATUS. This used to present a `running` row whose lease had expired as
- * paused, which meant two requests seconds apart could read the same unchanged row and report
- * different things, and the operator watched a status flicker while nothing had happened. The
- * lease decides WHICH invocation may work; it says nothing about what the account should be
- * told. Every field below comes from the row's own persisted columns and progress.
- *
- * A DEAD PROCESS IS NOT WORK IN PROGRESS EITHER. Deleting the lease projection also deleted the
- * honesty that came with it: a `running` row whose owner died read "Research in progress" forever.
- * A row that has not been TOUCHED in STALE_RUN_MS is reported as interrupted, which is true and
- * cannot flicker, because updated_at only ever moves forward on a real write.
+ * THE LEASE IS NOT A STATUS. This used to present a `running` row whose lease had expired as paused, so two requests seconds apart could read the same
+ * unchanged row and report different things while the operator watched a status flicker over nothing. The lease decides WHICH invocation may work and says
+ * nothing about what the account should be told; every field below comes from the row's own persisted columns and progress. A DEAD PROCESS IS NOT WORK IN
+ * PROGRESS EITHER: deleting the lease projection also deleted the honesty that came with it, and a `running` row whose owner died read "Research in progress"
+ * forever. A row untouched for STALE_RUN_MS is reported as interrupted, which is true and cannot flicker, because updated_at only moves forward on a real write.
  */
 export function projectStatusView(run: ResearchRun | null, nowMs: number): ResearchRunStatusView {
   if (run == null) return { state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: RESEARCH_RUN_STEPS_TOTAL, counters: {}, updatedAt: null, completedAt: null, pauseReason: null };

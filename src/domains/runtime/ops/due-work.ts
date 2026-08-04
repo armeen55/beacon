@@ -6,23 +6,18 @@ import "server-only";
  * file, never a lease, a timer, or a memory of what this process did, so it is the same for every request,
  * every instance, every tab, and for the daily scheduler as for a visit.
  *
- * FIVE SEPARATE CONCEPTS, deliberately not collapsed into one "is it fresh" test, because conflating them is
- * what produced both the same-day stall and the repeat spending:
- *   1. DAILY OBSERVATION ELIGIBILITY - one canonical reading per question, per engine, per reporting day
- *      (plus explicitly granted extras). Owned by the existing planner.
- *   2. EVIDENCE FRESHNESS - a connected source past its sync SLA, and research notes that moved since the
- *      last decide pass (the basis + row-version watermark).
- *   3. CASE LIVENESS - is there a frozen plan at all, and is it bound to the basis this account holds NOW.
- *      A plan frozen under a dead basis is not work, it is debris.
- *   4. BOUNDED ATTEMPTS - what this account already spent its one-per-day allowance on. Day-scoped markers,
- *      so they clear by rollover instead of by a cleanup pass nobody runs.
- *   5. EXTERNAL WAITS - a retry date I promised. A wait is NEVER due work; it is the reason nothing is due,
- *      and it carries the date I said I would try again.
+ * FIVE SEPARATE CONCEPTS, deliberately not collapsed into one "is it fresh" test, because conflating them is what produced both the
+ * same-day stall and the repeat spending. (1) DAILY OBSERVATION ELIGIBILITY: one canonical reading per question, per engine, per
+ * reporting day, plus explicitly granted extras, owned by the existing planner. (2) EVIDENCE FRESHNESS: a connected source past its
+ * sync SLA, and research notes that moved since the last decide pass (the basis and row-version watermark). (3) CASE LIVENESS: is
+ * there a frozen plan at all, and is it bound to the basis this account holds NOW, because a plan frozen under a dead basis is not
+ * work but debris. (4) BOUNDED ATTEMPTS: what this account already spent its one-per-day allowance on, in day-scoped markers that
+ * clear by rollover instead of by a cleanup pass nobody runs. (5) EXTERNAL WAITS: a retry date I promised, which is NEVER due work
+ * but the reason nothing is due, carrying the date I said I would try again.
  *
- * FAIL POSTURE. Every read is fail-soft and `readable` false means I could not judge. The two callers fall
- * opposite ways on purpose: starting an EXTRA same-day pass requires a positive due signal (fail closed, so
- * an unreadable state never re-spends), while finishing a run early requires a positive EMPTY signal (fail
- * open, so an unreadable state never stalls the research).
+ * FAIL POSTURE. Every read is fail-soft and `readable` false means I could not judge. The two callers fall opposite ways on purpose:
+ * starting an EXTRA same-day pass requires a positive due signal (fail closed, so an unreadable state never re-spends), while
+ * finishing a run early requires a positive EMPTY signal (fail open, so an unreadable state never stalls the research).
  */
 
 import { basisTag, getTenant, loadBusinessProfile } from "@/domains/account";
@@ -40,6 +35,7 @@ type DuePhase =
   | "refresh_sources"
   | "crawl_pages"
   | "daily_observations"
+  | "analyze_answers"
   | "plan_cases"
   | "acquire_case_evidence"
   | "decide_and_prepare"
@@ -131,6 +127,15 @@ async function pagesAwaitCrawl(tenantId: string, now: Date): Promise<boolean> {
   return (await nextCrawlCandidates(tenantId, 1, now)).length > 0;
 }
 
+/** ANSWERS ALREADY BOUGHT THAT NOBODY HAS READ CLOSELY. A day can be fully COLLECTED and still owe every verdict on it, and a plan that counted only placements
+ *  called that day finished, so the reading debt sat there until somebody happened to visit. Lean projection on purpose (identity, status, the two settlement
+ *  hashes; never the answer text or the journey). Free, and it calls nothing. */
+async function answersAwaitAnalysis(tenantId: string, day: string): Promise<boolean> {
+  const { isAnalysisSettled, readAiObservations } = await import("@/domains/evidence");
+  return (await readAiObservations(tenantId, { day, projection: "outcome" })).some((r) => r.status === "observed"
+    && r.answer_hash != null && !isAnalysisSettled({ analysis: r.analysis, analysisHash: r.analysis_hash ?? null, answerHash: r.answer_hash ?? null }));
+}
+
 /** How many CONNECTED trigger sources are past their sync SLA right now. */
 async function staleSourceCount(tenantId: string, now: Date): Promise<number> {
   const infos = await Promise.all(DUE_TRIGGER_PROVIDERS.map(async (p) => {
@@ -199,6 +204,7 @@ type DueWorkDeps = {
   surfaceStale?: (tenantId: string, nowMs: number) => Promise<boolean>;
   debt?: (tenantId: string, now: Date) => Promise<{ measurable: number; unverified: number }>;
   pagesToCrawl?: (tenantId: string, now: Date) => Promise<boolean>;
+  answersToAnalyze?: (tenantId: string, day: string) => Promise<boolean>;
 };
 
 const settled = async <T,>(p: Promise<T>, fallback: T): Promise<{ value: T; ok: boolean }> =>
@@ -230,11 +236,12 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     settled((deps.basis ?? accountBasis)(tenantId), null as string | null),
   ]);
 
-  const [version, surface, debt, pages] = await Promise.all([
+  const [version, surface, debt, pages, unread] = await Promise.all([
     basis.value ? settled((deps.evidenceVersion ?? evidenceRowVersion)(tenantId, basis.value), null as number | null) : Promise.resolve({ value: null, ok: false }),
     settled((deps.surfaceStale ?? surfaceIsStale)(tenantId, nowMs), false),
     settled((deps.debt ?? measurementDebt)(tenantId, now), { measurable: 0, unverified: 0 }),
     settled((deps.pagesToCrawl ?? pagesAwaitCrawl)(tenantId, now), false),
+    settled((deps.answersToAnalyze ?? answersAwaitAnalysis)(tenantId, day), false),
   ]);
 
   const progress = run.value?.progress ?? {};
@@ -269,6 +276,8 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   // whose inventory still holds pages I have never opened is owed a batch, whatever else is quiet today.
   if (pages.value) due.push("crawl_pages");
   if ((checks.value?.due ?? 0) > 0) due.push("daily_observations");
+  // AN ANSWER BOUGHT AND NEVER READ IS OWED WORK. It rides the observation phase, so naming it here OPENS a pass for a day that collected everything and read none.
+  if (unread.value) due.push("analyze_answers");
   // A plan is owed when the notes moved (what is stuck may have changed) or when a run is still OPEN and
   // has no plan bound to this basis: that run genuinely owes one. An idle account with no plan owes
   // nothing, because re-planning unchanged notes reaches the identical answer at the same price.

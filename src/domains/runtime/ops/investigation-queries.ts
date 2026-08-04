@@ -1,25 +1,22 @@
 import "server-only";
 
 /**
- * What THIS run buys, and why (ONE frozen research plan, 2026-07-28). Runtime asks Decision ONE question -
- * what is the research actually stuck on - and hands Evidence plain strings and plain pages, so Decision
- * never reaches a provider and Evidence never reads Decision. The answer comes from the SAME free verdict
- * that decides whether this account already owns the right page.
+ * What THIS run buys, and why (ONE frozen research plan). Runtime asks Decision ONE question, what the research is actually stuck
+ * on, and hands Evidence plain strings and plain pages, so Decision never reaches a provider and Evidence never reads Decision. The
+ * answer comes from the SAME free verdict that decides whether this account already owns the right page.
  *
- * WHAT THE PLAN DOES AND DOES NOT BIND. It JUMPS THE QUEUE for searches and winner reads: the frozen
- * queries go to `selectSerpAgenda` and `rankWinningPages` as priorities beside the account's own page
- * queries, tracked questions and retained keywords, and the agenda still runs to 40. The live run of
- * 2026-07-29 paid for two searches outside its plan, at $0.0006 each, exactly as designed. An earlier
- * version of this header claimed every search a run pays for belongs to a frozen topic; it does not,
- * and only the COMPARISON is bound that way. Saying otherwise made a queue-jump read as a spend cap.
+ * WHAT THE PLAN DOES AND DOES NOT BIND. It JUMPS THE QUEUE for searches and winner reads: the frozen queries go to
+ * `selectSerpAgenda` and `rankWinningPages` as priorities beside the account's own page queries, tracked questions and retained
+ * keywords, and the agenda still runs to 40. A live run paid for two searches outside its plan, at $0.0006 each, exactly as
+ * designed. An earlier version of this header claimed every search a run pays for belongs to a frozen topic; it does not, and only
+ * the COMPARISON is bound that way, so saying otherwise made a queue-jump read as a spend cap.
  *
- * ONE SELECTOR, AND IT IS A PLAN, NOT A SINGLE TOPIC. A pass freezes up to three topics in priority order
- * (see MAX_PRIORITY_QUERIES) and never re-picks them; it only recomputes the next requirement for THOSE
- * topics as evidence lands. The invariant that actually protects the money is narrower than "one topic",
- * and it is the one worth stating: the comparison this run buys must be earned by a topic in the frozen
- * plan, under the basis it was frozen under. Anything else buys nothing. Only what buying can close is
- * queued: a mixed shape or an unsettled meaning is already settled by the results page on file, and queueing
- * it spent real fetches to reach the same refusal. Fail-soft: no answer means no priority, never a stall.
+ * ONE SELECTOR, AND IT IS A PLAN, NOT A SINGLE TOPIC. A pass freezes up to three topics in priority order (see
+ * MAX_PRIORITY_QUERIES) and never re-picks them; it only recomputes the next requirement for THOSE topics as evidence lands. The
+ * invariant that actually protects the money is narrower than "one topic": the comparison this run buys must be earned by a topic in
+ * the frozen plan, under the basis it was frozen under, and anything else buys nothing. Only what buying can close is queued, since
+ * a mixed shape or an unsettled meaning is already settled by the results page on file and queueing it spent real fetches to reach
+ * the same refusal. Fail-soft: no answer means no priority, never a stall.
  */
 import { loadBusinessProfile } from "@/domains/account";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";

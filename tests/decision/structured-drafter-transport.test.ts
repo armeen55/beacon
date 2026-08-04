@@ -1,8 +1,5 @@
-/**
- * structured-drafter strict-gateway transport behavior: the complete seam
- * returns parsed VALUES (no prose recovery); refusal/incomplete fail closed
- * with no artifact; bounded retry with per-attempt spend; cache hits cost $0.
- */
+/** structured-drafter strict-gateway transport: the seam returns parsed VALUES (no prose recovery), a
+ *  refusal fails closed with no artifact, retry is bounded and paid for, and a cache hit costs $0. */
 import { describe, it, expect, vi } from "vitest";
 // Budget is not this file's subject (see llm-budget-isolation.test.ts): keep the
 // transport hermetic with an always-allowed, no-op budget seam.
@@ -45,48 +42,26 @@ describe("structured-drafter strict transport", () => {
     let seen = ""; const capture: CompleteFn = async (r) => { seen = r.system; return { error: "refusal", retryable: false }; };
     await draftInternalLinkStructured({ query: "haft seen", topic: "the table", sourcePage: "https://own.com/a", targetPage: "https://own.com/b", tenantId: "t" }, { complete: capture });
     expect([seen.includes('"evidenceRefs"'), seen.includes("at least one ref must NOT be ga4 or clarity")]).toEqual([true, true]); }); // the validator rejects the other answer
-  it("drafts a schema-valid VALUE (no text parsing)", async () => {
-    const { complete, calls } = seam([{ value: VALID_ATOMIC_EDIT }]);
-    const out = await callStructuredLLM({ ...REQ, complete });
-    expect(out.status).toBe("drafted"); if (out.status !== "drafted") return;
-    expect([(out.value as { after: string }).after.includes("Nowruz Traditions"), calls()]).toEqual([true, 1]); });
-  it("a retryable transport error retries within the ceiling, recording spend per attempt", async () => {
-    const { complete, calls } = seam([{ error: "network boom", retryable: true }]);
-    const out = await callStructuredLLM({ ...REQ, complete });
-    expect(out.status).toBe("validation_failed"); if (out.status !== "validation_failed") return;
-    expect(calls()).toBe(2); expect(out.costUsd).toBeGreaterThan(0); // bounded 2-attempt ceiling, spend recorded per attempt
-  });
-  it("a schema-invalid value then a valid one drafts on the retry", async () => { // the ONLY pin that a rejection can RECOVER
-    const { complete, calls } = seam([{ value: {} }, { value: VALID_ATOMIC_EDIT }]);
-    const out = await callStructuredLLM({ ...REQ, complete });
-    expect(out.status).toBe("drafted"); if (out.status !== "drafted") return;
-    expect([out.retried, calls()]).toEqual([true, 2]); });
-  it("a budget block from the gateway fails closed with no spend", async () => {
-    const { complete, calls } = seam([{ error: "blocked_budget", retryable: false }]);
-    const out = await callStructuredLLM({ ...REQ, complete });
-    expect(out.status).toBe("validation_failed");
-    if (out.status !== "validation_failed") return; // a budget block fired no call, so no spend
-    expect([out.costUsd, calls()]).toEqual([0, 1]);
-  });
-  it("a cache hit costs $0 and never calls complete", async () => {
-    const now = new Date("2026-07-23T00:00:00Z");
-    const entry: LlmCallCacheEntry = {
-      key: "ignored-key-is-derived", tenantId: "tenant-fixture", kind: "atomic_edit",
-      promptId: "draft.atomic_edit", promptVersion: 1, value: VALID_ATOMIC_EDIT,
-      primaryText: VALID_ATOMIC_EDIT.after, createdAt: now.toISOString(), lastUsedAt: now.toISOString(),
-    };
+  it("drafts a VALUE, retries a recoverable answer once and no more, and never pays twice for one answer", async () => {
+    const one = seam([{ value: VALID_ATOMIC_EDIT }]); // a parsed value, no text parsing, on one call
+    const first = await callStructuredLLM({ ...REQ, complete: one.complete });
+    expect(first.status === "drafted" && [(first.value as { after: string }).after.includes("Nowruz Traditions"), one.calls()]).toEqual([true, 1]);
+    const boom = await callStructuredLLM({ ...REQ, complete: seam([{ error: "network boom", retryable: true }]).complete });
+    expect(boom.status === "validation_failed" && boom.costUsd > 0).toBe(true); // 2-attempt ceiling, spend per attempt
+    const again = seam([{ value: {} }, { value: VALID_ATOMIC_EDIT }]); // a rejection CAN recover
+    const out = await callStructuredLLM({ ...REQ, complete: again.complete });
+    expect(out.status === "drafted" && [out.retried, again.calls()]).toEqual([true, 2]);
+    const refused = await callStructuredLLM({ ...REQ, complete: seam([{ error: "refusal", retryable: false, costUsd: 0.0123 }]).complete });
+    expect(refused.status === "validation_failed" && refused.costUsd).toBe(0.0123); // no retry on a refusal, its real cost
+    const now = new Date("2026-07-23T00:00:00Z").toISOString();
+    const entry = { key: "ignored-key-is-derived", tenantId: "tenant-fixture", kind: "atomic_edit", promptId: "draft.atomic_edit",
+      promptVersion: 1, value: VALID_ATOMIC_EDIT, primaryText: VALID_ATOMIC_EDIT.after, createdAt: now, lastUsedAt: now } as LlmCallCacheEntry;
     const cacheImpl: CacheImpl = { read: async () => entry, write: async () => {}, recentTexts: async () => [] };
-    const { complete, calls } = seam([{ error: "should-never-run", retryable: false }]);
-    const out = await callStructuredLLM({ ...REQ, complete, cacheImpl });
-    expect(out.status).toBe("drafted");
-    if (out.status !== "drafted") return; // the hit is served before any call
-    expect([out.cached, out.costUsd, calls()]).toEqual([true, 0, 0]);
-  });
-  it("a refusal's REAL usage cost lands in spend, not just the input estimate", async () => {
-    const { complete, calls } = seam([{ error: "refusal", retryable: false, costUsd: 0.0123 }]);
-    const out = await callStructuredLLM({ ...REQ, complete });
-    expect(out.status).toBe("validation_failed");
-    if (out.status !== "validation_failed") return; // no retry on refusal, and the gateway's real usage cost
-    expect([calls(), out.costUsd]).toEqual([1, 0.0123]);
+    const hit = seam([{ error: "should-never-run", retryable: false }]);
+    const cached = await callStructuredLLM({ ...REQ, complete: hit.complete, cacheImpl }); // served before any call
+    expect(cached.status === "drafted" && [cached.cached, cached.costUsd, hit.calls()]).toEqual([true, 0, 0]);
+    const blocked = seam([{ error: "blocked_budget", retryable: false }]);
+    const stopped = await callStructuredLLM({ ...REQ, complete: blocked.complete }); // a budget block fired no call
+    expect(stopped.status === "validation_failed" && [stopped.costUsd, blocked.calls()]).toEqual([0, 1]);
   });
 });

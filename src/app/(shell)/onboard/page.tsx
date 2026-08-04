@@ -9,6 +9,7 @@
  * gate. The legacy URL-first scorecard flow was retired with this slice.
  */
 
+import { redirect } from "next/navigation";
 import { requireOnboardingTenant } from "@/domains/account";
 import { loadOnboardingState } from "@/domains/runtime";
 import { OnboardWizard, type FirstFindings } from "./onboard-wizard";
@@ -26,8 +27,12 @@ export default async function OnboardPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { tenantId } = await requireOnboardingTenant();
+  // AN ACTIVE ACCOUNT MAY LAND HERE, and it has to: the product guard sends one back when its setup truth is genuinely missing
+  // (see account/lifecycle requireReadyAccount), and a gate that bounced every active account home would put those two redirects
+  // in a loop. One that has nothing missing is still sent home, exactly as before.
+  const { tenantId } = await requireOnboardingTenant({ allowActive: true });
   const state = await loadOnboardingState(tenantId);
+  if (state.status === "active" && state.currentStep === 6) redirect("/?notice=already_launched");
 
   const requested = clampStep((await searchParams).step);
   const current = state.currentStep;

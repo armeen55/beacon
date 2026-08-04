@@ -13,9 +13,10 @@ import { measureRecord } from "./measure-pass";
 import { readLastFinalizedDate } from "./gsc-window";
 import { activeTreatmentPaths } from "./change-family";
 
-/** Re-measure every record against fresh GSC. The heavy engine; background/actions only. */
+/** Re-measure every record against fresh GSC. The heavy engine; background/actions only. A LEDGER IT COULD NOT READ THROWS rather than
+ *  re-measuring nothing: this feeds the snapshot rebuild, so swallowing the failure wrote an EMPTY snapshot over a good one. */
 export async function loadProofLedger(tenantId: string, now: Date = new Date()): Promise<ShippedChangeRecord[]> {
-  const records = await loadShippedChangesForTenant(tenantId).catch(() => [] as ShippedChangeRecord[]);
+  const records = await loadShippedChangesForTenant(tenantId);
   if (records.length === 0) return [];
   const lastFinal = await readLastFinalizedDate(tenantId).catch(() => null);
   // A comparison page that is itself an active treatment can not anchor a diff in
@@ -24,9 +25,11 @@ export async function loadProofLedger(tenantId: string, now: Date = new Date()):
   return Promise.all(records.map((r) => measureRecord(tenantId, r, now, lastFinal, activeTreatments).catch(() => r)));
 }
 
-/** The render-safe read: serves the last persisted records, no re-measure. */
+/** The render-safe read: serves the last persisted records, no re-measure. It does NOT swallow a failed read. Every caller that would
+ *  rather show a quiet empty than an error catches for itself; the surface whose whole job is to say "I could not read this" must be
+ *  able to tell the two apart, and it could not while this returned [] for both. */
 export async function loadProofLedgerPersisted(tenantId: string): Promise<ShippedChangeRecord[]> {
-  return loadShippedChangesForTenant(tenantId).catch(() => [] as ShippedChangeRecord[]);
+  return loadShippedChangesForTenant(tenantId);
 }
 
 /** THE render entry (request-cached): serves persisted records with zero re-measure. */

@@ -75,13 +75,6 @@ async function runPhase(phase: ResearchPhase, tenantId: string, now: Date, progr
     }
     return { progress: next };
   }
-  if (phase === "crawl_pages") {
-    // ONE bounded batch of the account's own pages, then advance whatever it found: a site already read whole, or one
-    // with nothing left owed, is a healthy no-op. The inventory keeps the score, so the next pass is due only while pages are genuinely unread.
-    const read = await steps.crawlPages(tenantId, now);
-    if (read > 0) log.info("[research-run] read more of your website", { tenantId, pages: read });
-    return { progress };
-  }
   if (phase === "gsc_backfill_chunk") {
     const result = await steps.backfillChunk(tenantId, now, attemptKey);
     return { progress: { ...progress, backfill: result.kind === "advanced" ? { ran: true, complete: result.complete, daysPulled: result.daysPulled } : { ran: false } } };
@@ -126,14 +119,18 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   let conflictRetried: ResearchPhase | null = null;
 
   /** How many observation WINDOWS one drive may chain. Seven cover 35 questions on four engines at twenty a pass; the rest is slack, and past it I pause rather than
-   *  let a planner and an executor that disagree turn this into a hot loop on the database until the deadline kills it. */
-  const MAX_DAY_WINDOWS = 12; let windows = 0;
+   *  let a planner and an executor that disagree turn this into a hot loop on the database until the deadline kills it. MAX_CRAWL_ROUNDS is the same idea for the
+   *  website: four fifteen-page batches is sixty pages a pass, inside the cycle deadline with room to spare, and the rest is owed to the next pass. */
+  const MAX_DAY_WINDOWS = 12, MAX_CRAWL_ROUNDS = 4; let windows = 0, crawlRounds = 0;
   while (phase !== "done") {
     if (nowFn().getTime() >= deadline) return pause(); // out of time before this phase; leave durable progress and resume next visit
-    // A DEAD DAY IS NEVER BOUGHT LATE. The observation plan is scoped to the RUN'S OWN reporting day, so a run that paused before midnight Pacific and resumed after
-    // it would place and stamp readings for a day that is gone, which is the one thing daily-observations forbids: a missed day is missed. The pass closes instead,
-    // its remainder visibly short forever, and closing is also what frees TODAY's own cycle past the one-open-run index.
-    if (phase === "prompt_observations" && run.cycle_key.slice(-10) !== reportingDay(nowFn().getTime())) {
+    // A DEAD DAY IS NEVER WORKED LATE, FROM ANY PHASE. Every phase's work is scoped to the RUN'S OWN reporting day, so a run that paused before midnight Pacific and
+    // resumed after it would buy, crawl, publish and stamp for a day that is gone: a missed day is missed. This guard used to fire only on the observation phase, so a
+    // run paused at keyword_discovery, serp_analysis, winning_pages, crawl_pages, gsc_backfill_chunk or publish_surface could pause its way across midnight over and
+    // over and HOLD the one-open-run index against today's own cycle. It sits at the top of EVERY resumed drive now, in front of the lease renewal and therefore in
+    // front of any paid or externally visible side effect in any phase; the pass closes with every piece of evidence it wrote intact and its remainder visibly short
+    // forever, and closing is what frees TODAY's cycle to be claimed.
+    if (run.cycle_key.slice(-10) !== reportingDay(nowFn().getTime())) {
       log.info("[research-run] this pass belongs to a day that has ended, so I closed it and start today fresh", { tenantId, day: run.cycle_key.slice(-10) });
       await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: null }); // the numbers go down first, and they are TODAY's, read by this pass's own due-work
       return (await finishRun(tenantId, run.id, ownerToken, "completed")) ? "completed" : "failed";
@@ -228,6 +225,21 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       if (!await advancePhase(tenantId, run.id, ownerToken, { phase: nextAfterFunnel, progress, cursor: null })) return "lost_lease";
       phase = nextAfterFunnel; cursor = null;
       continue;
+    }
+
+    // THE WEBSITE, READ UNTIL THERE IS NOTHING LEFT TO READ. One bounded batch per pass meant an account holding two hundred pages nobody had opened waited most of a
+    // year for its own inventory, which is not the product. The phase REPEATS its batch now, each round under a lease renewed at the loop top (a crawl is a real fetch,
+    // so it never runs on an unrenewed lease), until a batch reads nothing at all, the round cap stops it, or the pass runs out of time. A batch that reads nothing is
+    // the honest terminal answer (every page crawled, blocked with a retry date, unsupported, gone, or deferred by a bound on file) and the durable inventory keeps the
+    // whole score, so nothing here remembers anything between passes.
+    if (phase === "crawl_pages") {
+      let read = 0;
+      try { read = await steps.crawlPages(tenantId, nowFn()); }
+      catch (error) { return pause({ phase, message: (error instanceof Error ? error.message : String(error)).slice(0, 300), at: nowFn().toISOString() }); }
+      if (read > 0) log.info("[research-run] read more of your website", { tenantId, pages: read });
+      const again = read > 0 && (crawlRounds += 1) < MAX_CRAWL_ROUNDS, next = again ? phase : nextPhase(phase);
+      if (!await advancePhase(tenantId, run.id, ownerToken, { phase: next, progress, cursor: again ? attemptCursor : null })) return "lost_lease";
+      phase = next; cursor = again ? attemptCursor : null; continue;
     }
 
     // VERIFY BEFORE ANYTHING IS PUBLISHED OFF IT (verify_and_measure). A change the operator marked as done is a claim until I have read their page, and Results

@@ -11,7 +11,7 @@ import { loadDailyTotalsForTenant } from "@/domains/decision";
 import { buildScoreboard, visibilitySeries } from "@/domains/measurement";
 import { researchRunStatus } from "@/domains/runtime";
 import { competitorLandscape, isAnalysisSettled, loadEvidenceSnapshot, loadGscDecaySignalsForTenant,
-  loadGscPageSignalsForTenant, loadGscWeeklyLens, readAiObservations, type AiObservationRecord,
+  loadGscPageSignalsForTenant, loadGscWeeklyLens, observationReceiptCost, readAiObservations, type AiObservationRecord,
   type ClassifiedDomain, type CompetitorKind, type GscPageSignal } from "@/domains/evidence";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { aiTrend } from "../results/results-presentation";
@@ -65,10 +65,28 @@ function answerRow(r: AiObservationRecord): AnswerRow {
     retrievedNotCited: got == null ? null : got.filter((c) => !creditedUrls.has(c.url)).map((c) => c.url),
     modelRequested: r.model_requested ?? null, modelServed: r.model_served ?? null, mode: r.observation_mode ?? null,
     askedAt: r.requested_at ?? null, answeredAt: r.completed_at ?? null, receipt: r.cache_key ?? null,
-    costUsd: r.cost_usd ?? null, failureReason: r.failure_reason ?? null,
+    // A ROW THAT PRESERVED NO COST IS UNKNOWN, NEVER FREE: zero is the absence of a receipt, and the drill-down resolves it from the cache receipt this row names.
+    costUsd: Number(r.cost_usd) > 0 ? Number(r.cost_usd) : null, failureReason: r.failure_reason ?? null,
     reading: settled ? "read" : r.analysis != null ? "part" : "unread",
   };
 }
+
+/** WHOSE ACCOUNT IS ACTING, RE-PROVED AT ACTION TIME. A server action closes over the id the page was DRAWN with, so a tab left open on one account and clicked
+ *  after signing into another used to issue a service-role read for the FIRST account: the stale tab leaked. The live session is re-resolved, matched against the
+ *  captured id and its membership re-checked BEFORE any admin read is issued, and every doubt (mismatch, unreadable session, missing membership, not ready,
+ *  suspended) FAILS CLOSED with nothing read at all. `NOT_YOURS` and `READ_FAILED` are what those refusals say; neither may EVER read as "that is every answer". */
+async function actingOn(captured: string): Promise<boolean> {
+  if (!captured?.trim() || (await currentTenantId().catch(() => null)) !== captured) return false;
+  const ready = await requireReadyAccount(captured).catch(() => null);
+  return ready != null && ready.access.kind !== "suspended";
+}
+const NOT_YOURS = "This page was open for a different account. Reload it and I will show you this account's answers.";
+const READ_FAILED = "I could not read the rest of that day back just now. Try again and I will pick up where I left off.";
+/** ONE page of a day plus the honest reason when it is empty (`replace` marks a fresh day rather than more of one), and WHAT ONE STORED ANSWER COST, or
+ *  unavailable: the row's own preserved receipt wins, and with none the exact evidence_cache receipt it names (cache_key, one to one) is asked. NEVER zero. */
+type AnswerPage = { rows: ReturnType<typeof answerView>[]; cursor: string | null; note: string | null; replace?: boolean };
+const costOf = async (r: AiObservationRecord): Promise<number | null> => Number(r.cost_usd) > 0 ? Number(r.cost_usd)
+  : r.cache_key ? await observationReceiptCost(r.cache_key).catch(() => null) : null;
 
 /** ONE screen of a day's readings; the day itself is unbounded from here. A cursor is the last row already
  *  in hand, in the store's own keyset order, and it is opaque to the client. */
@@ -127,21 +145,23 @@ async function VisibilityBody({ tenantId }: { tenantId: string }) {
     latest: { day: dayRows.length > 0 ? latestDay : null, rows: latest },
   });
 
-  // THE REST OF THE DAY, AND THE WHOLE OF ONE READING. Both are reads of answers already bought and stored:
-  // nothing on this page ever asks an assistant anything. Declared here so they carry this account's
-  // identity from the server and can never be pointed at another one from a browser.
-  async function moreAnswers(cursor: string): Promise<{ rows: ReturnType<typeof answerView>[]; cursor: string | null }> {
+  // ANY OBSERVED DAY, AND THE WHOLE OF ONE READING. Both are reads of answers already bought and stored: nothing on this page ever asks an assistant anything.
+  // Both re-prove WHOSE account is acting before they read a single row (see `actingOn`), and a read I could not make hands the cursor back so the way forward
+  // stays open rather than settling into "that is every answer".
+  async function pageOf(captured: string, day: string, after: string | null): Promise<AnswerPage> {
     "use server";
-    const page = await readAiObservations(tenantId, {
-      day: latestDay, limit: ANSWERS_PAGE, projection: "list", after: cursorFrom(cursor) }).catch(() => []);
-    return { rows: page.map((r) => answerView(answerRow(r))), cursor: cursorOf(page) };
+    if (!(await actingOn(captured))) return { rows: [], cursor: after, note: NOT_YOURS };
+    const page = await readAiObservations(captured, { day, limit: ANSWERS_PAGE, projection: "list", ...(after ? { after: cursorFrom(after) } : {}) }).catch(() => null);
+    if (page == null) return { rows: [], cursor: after, note: READ_FAILED };
+    return { rows: page.map((r) => answerView(answerRow(r))), cursor: cursorOf(page), note: null, replace: after == null };
   }
-  async function openAnswer(id: string): Promise<string[]> {
+  async function openAnswer(captured: string, id: string): Promise<string[]> {
     "use server";
-    const [one] = await readAiObservations(tenantId, { id, limit: 1 }).catch(() => []);
+    if (!(await actingOn(captured))) return [NOT_YOURS];
+    const [one] = await readAiObservations(captured, { id, limit: 1 }).catch(() => []);
     if (!one) return ["I could not read that answer back just now. Close this and open it again in a moment."];
-    const kinds = await landscapeFor(tenantId).catch(() => [] as ClassifiedDomain[]);
-    return answerView(answerRow(one), new Map((kinds ?? []).map((k) => [k.domain, k.kind]))).details;
+    const kinds = await landscapeFor(captured).catch(() => [] as ClassifiedDomain[]);
+    return answerView(answerRow(one), new Map((kinds ?? []).map((k) => [k.domain, k.kind])), await costOf(one)).details;
   }
   // The clicks picture with every change you shipped marked on it is drawn by the SAME section Today
   // draws, so the two surfaces can never disagree about your traffic. It self-hides under two weeks
@@ -160,8 +180,9 @@ async function VisibilityBody({ tenantId }: { tenantId: string }) {
       ai={<div className="space-y-4">{ai.empty
         ? <Block b={{ title: "AI answers", notes: [ai.empty], rows: [], chips: [], runs: [] }} />
         : <>{ai.blocks.map((b) => <Block key={b.title} b={b} />)}
-          <AnswerJourney note={`${monthDayLabel(latestDay) ?? latestDay}: the questions I put to the assistants that day and what came back. Open one for the whole answer behind it.`}
-            first={latest.map((r) => answerView(r))} cursor={cursorOf(stored)} more={moreAnswers} open={openAnswer} /></>}</div>}
+          <AnswerJourney tenantId={tenantId} days={dayRows.map((d) => ({ day: d.day, label: monthDayLabel(d.day) ?? d.day }))} day={latestDay}
+            note="The questions I put to the assistants on the day you pick, and what came back. Open one for the whole answer behind it."
+            first={latest.map((r) => answerView(r))} cursor={cursorOf(stored)} page={pageOf} open={openAnswer} /></>}</div>}
     />
   );
 }

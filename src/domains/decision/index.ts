@@ -30,6 +30,7 @@ export {
   proposalFamily,
   proposalId,
   effortForFamily,
+  DANGEROUS_COMPONENT_KINDS,
 } from "./contracts";
 
 // Ranked queue load (surface data)
@@ -74,7 +75,7 @@ export type { ProposalOutcome, ProposeOptions } from "./propose";
 export { proposeExistingPageChange } from "./propose";
 export { rankProposals, proposalValueScore } from "./rank-proposals";
 export type { ProposalVerdict, ProposalValidation, ValidateProposalOptions } from "./validate-proposal";
-export { validateProposal } from "./validate-proposal";
+export { validateProposal, actionableProposalFailures } from "./validate-proposal";
 
 // --- App/component surface re-exports (curated) ---
 

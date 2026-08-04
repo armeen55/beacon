@@ -30,70 +30,56 @@ const LOSING = { page: "/famous-iranian-comedians", pageKey: "/famous-iranian-co
 const base: TodayCommandInput = { blockers: [], smokeAlarm: null, scoreboardDeltaPct: null, readyChanges: [], firstReadOn: null, measuringCount: 0 };
 
 describe("Today is in exactly one of four primary states", () => {
-  it("a genuine blocker outranks everything, and it is the only thing that does", () => {
-    const c = buildTodayCommand({ ...base, blockers: ["I am not tracking any questions for you yet, so my research cannot start."],
-      blockerHref: "/settings/config#tracked-ai-prompts", readyChanges: [OPP], measuringCount: 4 });
-    expect([c.state, c.why[0]!.includes("I am not tracking any questions for you yet")]).toEqual(["needs_attention", true]);
-    expect(c.cta).toEqual({ label: "Fix this now", href: "/settings/config#tracked-ai-prompts" });
-    expect(c.ranked).toEqual([]); // a blocked day does not also hand you work
-  });
-  it("one ready change is act now, and the top three carry the ranker's own reason for the order", () => {
-    const c = buildTodayCommand({ ...base, readyChanges: [OPP, SECOND], measuringCount: 9 });
-    expect([c.state, c.headline]).toEqual(["act_now", "Do this next: Answer the exact question people search."]);
-    expect([c.ranked.map((r) => r.changeId), c.ranked[0]!.whyRankedAboveNext!.includes("I put this ahead of")]).toEqual([["c1", "c2"], true]);
-    expect(c.why).toContain("About 4 minutes of work.");
-    expect(c.why.some((l) => l.includes("1 more change is ranked under it"))).toBe(true);
-  });
-  it("a promised retry date is researching, and it names the date instead of claiming to be checking", () => {
-    const c = buildTodayCommand({ ...base, waitingUntil: "2026-08-04T18:00:00.000Z", measuringCount: 2 });
-    expect([c.state, c.cta]).toEqual(["researching", null]);
-    expect([c.headline.includes("waiting until August 4 to try them again"), /checking/i.test(c.headline)]).toEqual([true, false]);
-    expect(c.exactAction).toContain("There is nothing for you to do here today");
-  });
-  it("researching carries the run's own persisted numbers, the open topics, and the drafts I held back", () => {
-    const c = buildTodayCommand({ ...base, measuringCount: 3, heldForMeasurement: 2,
-      research: { running: true, phaseLabel: "reading the results pages for your strongest topics", checksDone: 7, checksTotal: 12, casesActive: 5 } });
-    expect(c.state).toBe("researching");
-    expect(c.headline).toBe("I am researching right now: reading the results pages for your strongest topics.");
-    expect(c.why).toContain("7 of 12 AI checks done today.");
-    expect(c.why).toContain("5 topics are still open.");
-    expect(c.why.some((l) => l.includes("holding 2 new ideas back because those pages already carry a change I am measuring"))).toBe(true);
-  });
-  it("work you applied and nothing stronger is monitoring, and a cold account is never a bare zero", () => {
-    const c = buildTodayCommand({ ...base, measuringCount: 6, firstReadOn: "2026-08-12", research: { running: false } });
-    expect([c.state, c.headline, c.why[0]]).toEqual(["monitoring", "6 changes are live and measuring.", "The first read lands around August 12."]);
-    expect(c.cta).toEqual({ label: "See what's measuring", href: "/results" });
-    // Nothing measuring, nothing ready, nothing running: still one state, and still something true.
-    const cold = buildTodayCommand(base); expect(cold.state).toBe("researching");
-    expect(cold.headline).toBe("I am still gathering evidence, and I will rank your next move here as soon as one earns it.");
-    expect(cold.headline).not.toMatch(/\b0\b/);
-  });
-  it("gives ONE queue ONE number: the card counts what is ranked, never the preview it was cut from", () => {
-    const preview = [OPP, SECOND, { ...SECOND, changeId: "c3" }, { ...SECOND, changeId: "c4" }, { ...SECOND, changeId: "c5" }];
-    const c = buildTodayCommand({ ...base, readyChanges: preview, readyTotal: 12 });
-    expect(c.why.some((l) => l.includes("11 more changes are ranked under it"))).toBe(true);
-    expect(c.why.some((l) => l.includes("4 more"))).toBe(false); // the preview length is not a queue size
-    expect(c.ranked).toHaveLength(3); // the card may still render three of them
-  });
-  it("keeps monitoring when nothing is actually running, and says the numbers monitoring owes", () => {
-    // A proven loss nobody is working and an idea held back are facts, not present-tense work.
-    const held = buildTodayCommand({ ...base, measuringCount: 6, heldForMeasurement: 2, firstReadOn: "2026-08-12", research: { running: false } });
-    expect([held.state, held.why[0], held.why.some((l) => l.includes("holding 2 new ideas back"))]).toEqual(["monitoring", "The first read lands around August 12.", true]);
-    expect(held.cta).toEqual({ label: "See what's measuring", href: "/results" });
-    const watching = buildTodayCommand({ ...base, measuringCount: 6, investigating: 2, research: { running: false } });
-    expect([watching.state, watching.why.some((l) => l.includes("I found 2 pages losing clicks"))]).toEqual(["monitoring", true]);
-    // A run that IS open is researching, and it still owes the measuring count and the read date.
-    const running = buildTodayCommand({ ...base, measuringCount: 4, investigating: 2, firstReadOn: "2026-08-12",
-      research: { running: true, phaseLabel: "reading the results pages for your strongest topics" } });
-    expect(running.state).toBe("researching");
-    expect(running.why).toEqual(expect.arrayContaining(["4 of your changes are still measuring.", "The first read on those lands around August 12."]));
-  });
+  // ONE state per day, whatever the signals, and never a fifth. The states themselves are settled here; each
+  // test below only adds the SENTENCES and NUMBERS that state owes on top.
   it("every combination of signals lands on exactly one of the four, and never a fifth", () => {
     const cases: TodayCommandInput[] = [base, { ...base, readyChanges: [OPP] }, { ...base, investigating: 3 },
       { ...base, measuringCount: 5, research: { running: false } }, { ...base, blockers: ["Search Console stopped answering me."] },
-      { ...base, measuringCount: 5, research: { running: false }, smokeAlarm: LOSING }];
-    const states = cases.map((c) => buildTodayCommand(c).state);
-    expect(states).toEqual(["researching", "act_now", "researching", "monitoring", "needs_attention", "monitoring"]);
+      { ...base, measuringCount: 5, research: { running: false }, smokeAlarm: LOSING },
+      { ...base, waitingUntil: "2026-08-04T18:00:00.000Z" }, { ...base, measuringCount: 4, investigating: 2, research: { running: true, phaseLabel: "reading" } }];
+    expect(cases.map((c) => buildTodayCommand(c).state)).toEqual(["researching", "act_now", "researching", "monitoring",
+      "needs_attention", "monitoring", "researching", "researching"]);
+  });
+  it("a genuine blocker takes the whole day, hands you no work, and points at the one fix", () => {
+    const c = buildTodayCommand({ ...base, blockers: ["I am not tracking any questions for you yet, so my research cannot start."],
+      blockerHref: "/settings/config#tracked-ai-prompts", readyChanges: [OPP], measuringCount: 4 });
+    expect([c.why[0]!.includes("I am not tracking any questions for you yet"), c.ranked]).toEqual([true, []]);
+    expect(c.cta).toEqual({ label: "Fix this now", href: "/settings/config#tracked-ai-prompts" });
+  });
+  it("act now names the change, the effort, the ranker's own reason, and ONE queue ONE number", () => {
+    const c = buildTodayCommand({ ...base, readyChanges: [OPP, SECOND], measuringCount: 9 });
+    expect(c.headline).toBe("Do this next: Answer the exact question people search.");
+    expect([c.ranked.map((r) => r.changeId), c.ranked[0]!.whyRankedAboveNext!.includes("I put this ahead of")]).toEqual([["c1", "c2"], true]);
+    expect(c.why).toContain("About 4 minutes of work.");
+    expect(c.why.some((l) => l.includes("1 more change is ranked under it"))).toBe(true);
+    // The card counts what is RANKED, never the preview it was cut from.
+    const many = buildTodayCommand({ ...base, readyTotal: 12, readyChanges: [OPP, SECOND, ...[3, 4, 5].map((n) => ({ ...SECOND, changeId: `c${n}` }))] });
+    expect([many.why.some((l) => l.includes("11 more changes are ranked under it")), many.why.some((l) => l.includes("4 more")), many.ranked.length]).toEqual([true, false, 3]);
+  });
+  it("researching names the retry DATE rather than claiming to check, and carries the run's own persisted numbers", () => {
+    const waiting = buildTodayCommand({ ...base, waitingUntil: "2026-08-04T18:00:00.000Z", measuringCount: 2 });
+    expect([waiting.headline.includes("waiting until August 4 to try them again"), /checking/i.test(waiting.headline), waiting.cta]).toEqual([true, false, null]);
+    expect(waiting.exactAction).toContain("There is nothing for you to do here today");
+    const c = buildTodayCommand({ ...base, measuringCount: 3, heldForMeasurement: 2,
+      research: { running: true, phaseLabel: "reading the results pages for your strongest topics", checksDone: 7, checksTotal: 12, casesActive: 5 } });
+    expect(c.headline).toBe("I am researching right now: reading the results pages for your strongest topics.");
+    expect(c.why).toEqual(expect.arrayContaining(["7 of 12 AI checks done today.", "5 topics are still open."]));
+    expect(c.why.some((l) => l.includes("holding 2 new ideas back because those pages already carry a change I am measuring"))).toBe(true);
+    // An open run still owes the measuring count and the read date.
+    const running = buildTodayCommand({ ...base, measuringCount: 4, investigating: 2, firstReadOn: "2026-08-12",
+      research: { running: true, phaseLabel: "reading the results pages for your strongest topics" } });
+    expect(running.why).toEqual(expect.arrayContaining(["4 of your changes are still measuring.", "The first read on those lands around August 12."]));
+  });
+  it("monitoring says every number it owes, and a cold account is never a bare zero", () => {
+    // A proven loss nobody is working and an idea held back are facts, not present-tense work.
+    const c = buildTodayCommand({ ...base, measuringCount: 6, heldForMeasurement: 2, firstReadOn: "2026-08-12", research: { running: false } });
+    expect([c.headline, c.why[0], c.why.some((l) => l.includes("holding 2 new ideas back"))]).toEqual(["6 changes are live and measuring.", "The first read lands around August 12.", true]);
+    expect(c.cta).toEqual({ label: "See what's measuring", href: "/results" });
+    const watching = buildTodayCommand({ ...base, measuringCount: 6, investigating: 2, research: { running: false } });
+    expect(watching.why.some((l) => l.includes("I found 2 pages losing clicks"))).toBe(true);
+    const cold = buildTodayCommand(base); // nothing measuring, ready or running: still something true
+    expect(cold.headline).toBe("I am still gathering evidence, and I will rank your next move here as soon as one earns it.");
+    expect(cold.headline).not.toMatch(/\b0\b/);
   });
 });
 
@@ -120,8 +106,10 @@ describe("a screen with losses on it never reads as all clear", () => {
 // ── Changes: the receipts reach the operator ─────────────────────────────────
 
 const ID = "t::/nowruz-guide::existing_edit::bundle";
+/** Relative to now: a hard-coded reading date is a test that fails on a calendar day nobody chose. */
+const SEEN = new Date(Date.now() - 5 * 86_400_000).toISOString();
 const FINDING: CauseFinding = {
-  cause: "cannibalization", action: "consolidate", evidenceKeys: ["gsc"],
+  cause: "cannibalization", action: "consolidate", evidenceKeys: ["k1"],
   explanation: "2 of your own pages come up for \"nowruz traditions\", so Google is choosing between them every time somebody searches it.",
   competingExplanations: [{ cause: "ctr_snippet", reason: "a sharper line cannot fix two of your own pages competing for the same search" }],
   falsifier: "If my next look shows only one page of yours coming up for \"nowruz traditions\", this is not the explanation.",
@@ -129,9 +117,10 @@ const FINDING: CauseFinding = {
 };
 const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   id: ID, kind: "existing_edit", pagePath: "/nowruz-guide", pageUrl: "https://site.example/nowruz-guide", pageLabel: "Nowruz guide",
-  primaryQuery: "nowruz traditions", opportunityType: "Capture clicks", changeFamily: "title", status: "ready",
+  primaryQuery: "nowruz traditions", opportunityType: "Capture clicks", changeFamily: "title", status: "needs_review",
   recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" },
-  whyItMatters: "This page lost 163 clicks last month.", estimatedEffortMinutes: 6, riskLevel: "low", confidence: "high",
+  // A bundle carrying a piece that moves or hides the page IS a high-risk change and can never sit in ready.
+  whyItMatters: "This page lost 163 clicks last month.", estimatedEffortMinutes: 6, riskLevel: "high", confidence: "high",
   limitations: [], evidence: { query: "nowruz traditions", hints: ["1,200 impressions and 9 clicks for that search."], evidenceRefCount: 2 },
   impactScore: 163, upsidePerMonth: 210, tenantId: "t", basis: "basis_now::d4", publish: "manual", createdAt: "2026-07-31T00:00:00.000Z",
   whyRankedAboveNext: "I put this ahead of the change for \"haft seen\" because it wins back more of what you are losing: about 163 clicks against about 20 clicks.",
@@ -148,12 +137,13 @@ const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
       where: "the page title itself", objective: "Say what this page answers.", mechanism: "The line a searcher reads is what wins the click.",
       sourcePack: { sourceRequirements: ["The date needs a source a reader can check."], factRequirements: ["Nowruz falls on the spring equinox."] } },
       { kind: "canonical", label: "Canonical tag", risk: "dangerous", before: null, after: "Point /haft-seen at this page.", evidenceKeys: ["k1"] }],
-    receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "1,200 impressions and 9 clicks for that search.", observedAt: "2026-07-25T00:00:00.000Z" }],
-      missing: [], freshestObservedAt: "2026-07-25T00:00:00.000Z" } },
+    receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "1,200 impressions and 9 clicks for that search.", observedAt: SEEN }],
+      missing: [], freshestObservedAt: SEEN } },
   ...over,
 } as ChangeProposal);
 /** The same change with only its one safe piece: nothing to pick between, and no hold to claim. */
-const atomic = (): ChangeProposal => proposal({ bundle: { ...proposal().bundle!, components: [proposal().bundle!.components[0]!] } });
+const atomic = (): ChangeProposal => proposal({ status: "ready", riskLevel: "low",
+  bundle: { ...proposal().bundle!, components: [proposal().bundle!.components[0]!] } });
 
 const viewOf = (rows: ChangeProposal[]): ChangesView => ({
   proposals: rows, ready: rows, toDo: [], summary: { todo: 0, ready: rows.length, implemented: 0, measuring: 0, results: 0 },
@@ -176,7 +166,7 @@ describe("a ranked card explains itself without being opened", () => {
   beforeEach(() => vi.clearAllMocks());
   it("shows the shape of the change, the exact action, effort, risk, evidence, and why it outranks the next one", async () => {
     const html = await renderList(viewOf([proposal()]));
-    for (const s of ["Bundled change", "Settle which page owns that search", "about 6 min", "Low risk",
+    for (const s of ["Bundled change", "Settle which page owns that search", "about 6 min", "High risk",
       "Strong evidence", "it wins back more of what you are losing", "Put this aside"]) expect(html, s).toContain(s);
     expect(await renderList(viewOf([atomic()]))).toContain("One edit"); // one component is one edit, never a bundle
   });
@@ -232,6 +222,22 @@ describe("a change detail hands over the whole investigation and the controls to
     const twin = (label: string) => ({ ...proposal().bundle!.components[0]!, kind: "section" as const, label });
     const twins = await renderDetail(proposal({ bundle: { ...proposal().bundle!, components: [twin("The opening section"), twin("The sizing section")] } }));
     expect([twins.includes("The opening section"), twins.includes("The sizing section"), twins.match(/type="checkbox" checked=""/g)?.length]).toEqual([true, true, 2]);
+  });
+  // A MERGE IS THE ONE CHANGE THAT CANNOT BE TAKEN BACK BY RETYPING A SENTENCE. Everything it does to the
+  // page has to be on the screen before the operator confirms it, and confirming it has to be a real act.
+  it("a change that moves a page shows what moves, what survives, where it forwards, and how to undo it", async () => {
+    const b = proposal().bundle!;
+    const html = await renderDetail(proposal({ bundle: { ...b, risks: ["The old address stops answering the moment you publish this."],
+      components: [{ kind: "consolidation", label: "Merge the thin page into this one", risk: "dangerous", before: null,
+        after: "Move the sizing table off /haft-seen onto this page and retire /haft-seen.", evidenceKeys: ["k1"],
+        redirectTo: "https://site.example/nowruz-guide",
+        preserves: { keeps: ["The sizing table"], losses: [{ what: "The 2019 photo gallery", why: "nothing links to it and nobody searches for it" }] } }] } }));
+    for (const s of ["Merge the thin page into this one", "retire /haft-seen", "https://site.example/nowruz-guide",
+      "The sizing table", "The 2019 photo gallery", "nothing links to it", "The old address stops answering",
+      "To undo it"]) expect(html, s).toContain(s);
+    // A piece that RETIRES a page is not a page that happens to have nothing today.
+    expect(html).not.toContain("This page has none today.");
+    expect(html).toContain("I understand this moves or hides a page");
   });
   it("opens the investigation only when it holds one, never onto a line the card above already said", async () => {
     expect(await renderDetail(proposal({ causeFinding: undefined, rankingReceipt: undefined }))).not.toContain("Show me how you worked this out");

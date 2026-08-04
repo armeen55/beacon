@@ -1,9 +1,5 @@
-/**
- * Account isolation for the structured-output cache + budget: per-tenant store,
- * account-keyed hashes, explicit routing with owner stamping, tenant-scoped
- * recentTexts, and fail-closed missing-account behavior — each layer pinned
- * independently, plus the end-to-end promises through callStructuredLLM.
- */
+/** Account isolation for the structured-output cache and budget: per-account store, account-keyed hashes,
+ *  explicit routing with owner stamping, scoped recentTexts, and fail-closed on a missing account. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 // Budget seam: spy on the real adjudicator budget so we can assert the explicit
 // account reaches the cap check + spend record (drafter uses these directly).
@@ -59,11 +55,9 @@ beforeEach(() => {
 });
 // ── store classification + key isolation ─────────────────────────────────────
 describe("the call cache is per-account, keyed by account", () => {
-  it("the 'llm-call-cache' store is TENANT_SCOPED, never global", () => {
-    expect(classifyStore("llm-call-cache")).toBe("per-tenant");
-  });
-  // The REAL impl: an omitted tenantId falls back to AMBIENT resolution downstream, so a regression here is silent.
+  // The REAL impl: an omitted tenantId falls back to AMBIENT resolution downstream, so a regression is silent.
   it("storeCacheImpl routes with an EXPLICIT { tenantId }, stamps the owner, and throws on an empty account", async () => {
+    expect(classifyStore("llm-call-cache")).toBe("per-tenant"); // the store itself is per account, never global
     const entry = { key: "k1", tenantId: "ignored-overwritten", kind: "atomic_edit", promptId: "p",
       promptVersion: 1, value: VALID, primaryText: "A", createdAt: "t", lastUsedAt: "t" } as LlmCallCacheEntry;
     await storeCacheImpl.write("tenant-a", entry);
@@ -98,17 +92,10 @@ describe("callStructuredLLM keeps accounts isolated end to end", () => {
     // Account A's key is absent from account B's partition.
     const aKey = (cache.store.get("tenant-a") ?? [])[0]!.key;
     expect((cache.store.get("tenant-b") ?? []).some((e: LlmCallCacheEntry) => e.key === aKey)).toBe(false);
-  });
-  it("de-templating recentTexts never sees another account's outputs", async () => {
-    const cache = partitionedCache();
-    await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: seam([{ value: VALID }]).complete, cacheImpl: cache.impl });
-    // Account B's history is empty even though account A has a stored output.
-    expect([await cache.impl.recentTexts("tenant-b", "atomic_edit", 5), await cache.impl.recentTexts("tenant-a", "atomic_edit", 5)]).toEqual([[], [VALID.after]]);
-    // callStructuredLLM asked recentTexts for the right account each time.
+    // De-templating asked for the right account every time, and an account that generated nothing sees nothing.
     for (const r of cache.recents) expect(["tenant-a", "tenant-b"]).toContain(r.tenantId);
-  });
-  it("the budget check + spend record receive the EXPLICIT account", async () => {
-    await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: seam([{ value: VALID }]).complete, cacheImpl: partitionedCache().impl });
+    expect([await cache.impl.recentTexts("tenant-c", "atomic_edit", 5), await cache.impl.recentTexts("tenant-a", "atomic_edit", 5)]).toEqual([[], [VALID.after]]);
+    // And the money seams were told WHICH account, explicitly, never left to the ambient one.
     expect(checkBudget).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "tenant-a" }));
     expect(recordSpend).toHaveBeenCalledWith(expect.any(Number), expect.objectContaining({ tenantId: "tenant-a" }));
   });

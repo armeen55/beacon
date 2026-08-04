@@ -290,9 +290,13 @@ async function queryTenantLedger(
 ): Promise<ShippedChangeRecord[]> {
   const { data, error } = await admin.from(TABLE).select("*").eq("tenant_id", tid);
   if (error != null) {
+    // A TABLE THAT IS NOT THERE YET IS A VALID EMPTY: the pre-migration deploy window reads the file mirror, exactly as it always has.
     if (isUndefinedTableError(error)) return sortNewest(await fallback());
-    console.error(`[shipped-change-store] read failed for ${tid}: ${error.message ?? String(error)}`);
-    return [];
+    // ANY OTHER ERROR IS AN OUTAGE, AND AN OUTAGE IS NOT AN EMPTY LEDGER. This returned [], so a revoked permission, an expired token or a
+    // dead connection reached /results as "No changes are being measured yet": the one sentence that tells an operator to stop expecting
+    // measurement, printed over a full ledger. It THROWS now; every caller that would rather degrade already catches, and the one caller
+    // that must tell the truth (results-ledger-data) does not.
+    throw new Error(`[shipped-change-store] ledger read failed for ${tid}: ${error.message ?? String(error)}`);
   }
   return sortNewest((data as LedgerRow[]).map(rowToRecord));
 }

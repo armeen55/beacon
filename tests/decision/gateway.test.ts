@@ -6,9 +6,10 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import {
-  openAIStructuredResponse, effectiveTimeoutMs, isReasoningModel, estimateCost,
+  openAIStructuredResponse, effectiveTimeoutMs, isReasoningModel, estimateCost, strictJsonSchemaFor,
   type StructuredCallArgs, type CostBreakerImpl,
 } from "@/domains/decision/llm/gateway";
+import { SCHEMA_BY_KIND } from "@/domains/decision/llm/schemas";
 // note = optional-not-nullable (provider null must be stripped); score = genuinely nullable (null kept).
 const SCHEMA = z.object({ title: z.string(), note: z.string().optional(), score: z.number().nullable() });
 /** A completed Responses envelope carrying `structuredText` as the output_text. */
@@ -38,24 +39,37 @@ function baseArgs(over: Partial<StructuredCallArgs> = {}): StructuredCallArgs {
   };
 }
 const allowBreaker: CostBreakerImpl = { check: async () => ({ tripped: false }) };
-// Schema conversion + null-normalization promises live in the committed all-kinds
-// sweep (schema-strict-conversion.test.ts); the unsupported-schema fail-closed
-// promise is pinned behaviorally below (zero-fetch invalid_response).
+/** EVERY drafter schema the registry holds converts, and converts FULLY STRICT: every object
+ *  additionalProperties:false with every property required, recursively, through anyOf branches and array
+ *  items. A schema that drifts out of strict fails only LIVE, as an invalid_response the operator pays for. */
+function assertFullyStrict(n: Record<string, unknown>, at: string): void {
+  if (Array.isArray(n.anyOf)) return void (n.anyOf as Record<string, unknown>[]).forEach((v, i) => assertFullyStrict(v, `${at}|${i}`));
+  if (n.type === "array" && n.items && typeof n.items === "object") return assertFullyStrict(n.items as Record<string, unknown>, `${at}[]`);
+  if (n.type !== "object") return;
+  const keys = Object.keys((n.properties ?? {}) as Record<string, unknown>);
+  expect([n.additionalProperties, new Set(n.required as string[])], `${at}: strict and fully required`).toEqual([false, new Set(keys)]);
+  for (const k of keys) assertFullyStrict((n.properties as Record<string, Record<string, unknown>>)[k]!, `${at}.${k}`);
+}
 describe("openAIStructuredResponse — fails closed before any fetch", () => {
-  it("blocks on a tripped global cost breaker without calling fetch", async () => {
-    const { impl, capture } = fakeFetch(completedEnvelope("{}"));
-    const res = await openAIStructuredResponse(baseArgs({ budget: { mode: "gateway_check", projectedCostUsd: 0.01 }, costBreakerImpl: { check: async () => ({ tripped: true, reason: "ceiling reached" }) }, fetchImpl: impl }));
-    expect([res.kind, res.kind === "blocked_budget" && res.reason, capture.calls]).toEqual(["blocked_budget", "ceiling reached", 0]);
+  it("converts EVERY drafter schema in the registry, with no unsupported construct and nothing left loose", () => {
+    for (const kind of Object.keys(SCHEMA_BY_KIND) as Array<keyof typeof SCHEMA_BY_KIND>) {
+      const out = strictJsonSchemaFor(SCHEMA_BY_KIND[kind], kind);
+      expect("unsupported" in out, `${kind}: ${(out as { unsupported?: string }).unsupported}`).toBe(false);
+      if (!("unsupported" in out)) assertFullyStrict(out.schema as Record<string, unknown>, kind);
+    }
   });
-  it("blocks on the per-platform budget cap without calling fetch", async () => {
+  // Every pre-network refusal spends nothing, calls nobody, and SAYS WHY. One promise, so one test.
+  it.each([
+    ["a tripped global cost breaker", { budget: { mode: "gateway_check", projectedCostUsd: 0.01 }, costBreakerImpl: { check: async () => ({ tripped: true, reason: "ceiling reached" }) } }, "blocked_budget", "ceiling reached"],
+    ["the per-platform budget cap", { budget: { mode: "gateway_check", projectedCostUsd: 0.01 }, costBreakerImpl: allowBreaker, budgetImpl: { check: async () => ({ allowed: false, reason: "cap reached" }), record: async () => {} } }, "blocked_budget", "cap reached"],
+    ["a schema the provider cannot take", { zodSchema: z.object({ a: z.any() }) }, "invalid_response", "unsupported_schema"],
+    ["no account to charge", { tenantId: "  " }, "invalid_response", "missing_tenant"],
+  ] as const)("%s blocks with no fetch, no spend, and a named reason", async (_name, over, kind, reason) => {
     const { impl, capture } = fakeFetch(completedEnvelope("{}"));
-    const res = await openAIStructuredResponse(baseArgs({ budget: { mode: "gateway_check", projectedCostUsd: 0.01 }, costBreakerImpl: allowBreaker, budgetImpl: { check: async () => ({ allowed: false, reason: "cap reached" }), record: async () => {} }, fetchImpl: impl }));
-    expect([res.kind, capture.calls]).toEqual(["blocked_budget", 0]);
-  });
-  it("returns invalid_response for an unsupported schema without calling fetch", async () => {
-    const { impl, capture } = fakeFetch(completedEnvelope("{}"));
-    const res = await openAIStructuredResponse(baseArgs({ zodSchema: z.object({ a: z.any() }), fetchImpl: impl }));
-    expect([res.kind, res.kind === "invalid_response" && res.reason.includes("unsupported_schema"), capture.calls]).toEqual(["invalid_response", true, 0]);
+    const res = await openAIStructuredResponse(baseArgs({ ...(over as Partial<StructuredCallArgs>), fetchImpl: impl }));
+    expect([res.kind, capture.calls]).toEqual([kind, 0]);
+    if (res.kind === "blocked_budget") expect(res.reason).toBe(reason);
+    if (res.kind === "invalid_response") { expect(res.reason).toContain(reason); expect(res.provenance).toBeUndefined(); } // no provenance, no cost
   });
 });
 describe("openAIStructuredResponse — request body", () => {
@@ -95,45 +109,24 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
     const res = await openAIStructuredResponse(baseArgs({ fetchImpl: fakeFetch(env).impl }));
     expect([res.kind, res.kind === "incomplete" && res.reason]).toEqual(["incomplete", "max_output_tokens"]);
   });
-  it("returns invalid_response for a failed status, RETAINING the real usage cost (post-network)", async () => {
-    const env = completedEnvelope("x", { status: "failed", output: [] });
-    const res = await openAIStructuredResponse(baseArgs({ fetchImpl: fakeFetch(env).impl }));
-    expect(res.kind).toBe("invalid_response");
-    if (res.kind !== "invalid_response") return;
-    // A POST-network invalid supplied usage, so its cost is real spend and must not be discarded.
-    expect([res.reason, res.provenance?.tenantId, res.provenance?.costUsd]).toEqual(["failed_status", "tenant-fixture", estimateCost("gpt-5-mini", 1200, 300)]);
+  // Every answer that is NOT a usable value, named exactly, and never substring-hunted out of prose.
+  it.each([
+    ["a failed status", completedEnvelope("x", { status: "failed", output: [] }), {}, "invalid_response", "failed_status"],
+    ["a completed answer with no structured output", completedEnvelope("x", { output: [], output_text: "" }), {}, "invalid_response", "no_structured_output"],
+    ["prose where JSON was owed", completedEnvelope("this is prose, not json"), {}, "invalid_response", "structured output was not valid JSON"],
+    ["a non-2xx answer", completedEnvelope("{}"), { ok: false, status: 429 }, "http_error", 429],
+    ["a fetch that threw", completedEnvelope("{}"), { throwErr: new Error("The operation was aborted") }, "error", "aborted"],
+  ] as const)("%s is named, never guessed at", async (_name, env, opts, kind, detail) => {
+    const res = await openAIStructuredResponse(baseArgs({ fetchImpl: fakeFetch(env, opts).impl }));
+    expect(res.kind).toBe(kind);
+    if (res.kind === "http_error") expect(res.status).toBe(detail);
+    else if (res.kind === "error") expect(res.reason).toContain(detail);
+    else if (res.kind === "invalid_response") {
+      expect(res.reason).toBe(detail);
+      // A POST-network invalid supplied usage, so its cost is real spend and must not be discarded.
+      if (detail === "failed_status") expect([res.provenance?.tenantId, res.provenance?.costUsd]).toEqual(["tenant-fixture", estimateCost("gpt-5-mini", 1200, 300)]);
+    }
   });
-  it("a missing tenantId fails closed with NO fetch and NO provenance (pre-network)", async () => {
-    const { impl, capture } = fakeFetch(completedEnvelope("{}"));
-    const res = await openAIStructuredResponse(baseArgs({ tenantId: "  ", fetchImpl: impl }));
-    expect(res.kind).toBe("invalid_response");
-    if (res.kind === "invalid_response") { expect(res.reason).toBe("missing_tenant"); expect(res.provenance).toBeUndefined(); } // no provenance, no cost
-    expect(capture.calls).toBe(0);
-  });
-  it("returns invalid_response when a completed response has no structured output", async () => {
-    const env = completedEnvelope("x", { output: [], output_text: "" });
-    const res = await openAIStructuredResponse(baseArgs({ fetchImpl: fakeFetch(env).impl }));
-    expect(res.kind).toBe("invalid_response");
-    if (res.kind === "invalid_response") expect(res.reason).toBe("no_structured_output");
-  });
-  it("returns invalid_response when the structured text is not valid JSON", async () => { // never substring-hunt for JSON inside prose
-    const res = await openAIStructuredResponse(baseArgs({ fetchImpl: fakeFetch(completedEnvelope("this is prose, not json")).impl }));
-    expect(res.kind).toBe("invalid_response");
-    if (res.kind === "invalid_response") expect(res.reason).toBe("structured output was not valid JSON"); });
-  it("returns http_error(status) on a non-2xx response", async () => {
-    const { impl } = fakeFetch(completedEnvelope("{}"), { ok: false, status: 429 });
-    const res = await openAIStructuredResponse(baseArgs({ fetchImpl: impl }));
-    expect(res.kind).toBe("http_error");
-    if (res.kind === "http_error") expect(res.status).toBe(429);
-  });
-  it("returns error on a fetch throw / abort", async () => {
-    const { impl } = fakeFetch(completedEnvelope("{}"), { throwErr: new Error("The operation was aborted") });
-    const res = await openAIStructuredResponse(baseArgs({ fetchImpl: impl }));
-    expect(res.kind).toBe("error");
-    if (res.kind === "error") expect(res.reason).toContain("aborted");
-  });
-});
-describe("gateway pure helpers", () => {
   it("floors reasoning-model timeouts to 90s and leaves others alone", () => {
     expect([isReasoningModel("gpt-5-mini"), isReasoningModel("gpt-4o-mini")]).toEqual([true, false]);
     expect([effectiveTimeoutMs("gpt-5-mini", 1_000), effectiveTimeoutMs("gpt-5-mini", 120_000), effectiveTimeoutMs("gpt-4o-mini", 1_000)]).toEqual([90_000, 120_000, 1_000]);

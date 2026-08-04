@@ -69,46 +69,32 @@ describe("the one reading a case may buy", () => {
     expect([out?.winners, out?.publishers, s.calls()]).toEqual([4, ["guide.example", "museum.example", "weavers.example", "atlas.example"], 1]);
     expect([out?.archetype, out?.commonHeadings[0]?.seenOn, out?.ownedGaps[0]?.gap, out?.fingerprint.length]).toEqual(["informational_guide", [0, 1, 2], "your page never explains how one is made", 16]);
   });
-  it("throws away the WHOLE reading when any number it cites is a page I never showed it", async () => {
-    const strayHeading = reading({ commonHeadings: [{ heading: "how one is made", seenOn: [0, 4] }] });
-    const strayGap = reading({ ownedGaps: [{ gap: "your page never explains how one is made", seenOn: [9] }] });
-    const strayEntity = reading({ commonEntities: [{ entity: "Tabriz", seenOn: [0, 7] }] });
-    for (const bad of [strayHeading, strayGap, strayEntity]) {
-      expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(bad).complete })).toBeNull();
-    }
-    // And a gap that cites real pages is kept, so the refusal above is about the stranger and nothing else.
-    const good = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete });
-    expect(good?.ownedGaps[0]?.seenOn).toEqual([0, 1, 2]);
-  });
-  it("refuses a heading handed back word for word, because a pattern is an abstraction and not a quote", async () => {
-    const copied = reading({ commonHeadings: [{ heading: MADE, seenOn: [0, 1, 2] }] });
-    expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(copied).complete })).toBeNull();
-    // A short section name several of them share is a pattern, not a quotation, and it survives.
-    const short = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete });
-    expect(short?.commonHeadings[1]?.heading).toEqual(CARE);
-    // Neither may the opening pattern carry a run of one of their own sentences.
-    const quoted = reading({ openingPattern: "They open by saying a Persian rug is a hand knotted floor covering woven in Iran by families." });
-    expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(quoted).complete })).toBeNull();
-  });
-  it("throws the reading away when ANY field carries eight words in a row off a line I showed it", async () => {
-    // FOUR fields the run check never used to read at all. Each carries the same run off a winner's own opening,
-    // and each one of them rendered straight to the operator as my own plain-words summary.
+  it("throws the WHOLE reading away for a stranger, a quotation, or a claim no page it cited carries", async () => {
+    // A pattern is an abstraction: it may cite only pages I showed it, it may not hand a line back word for
+    // word (in ANY field, including the four the run check never used to read), and it may not claim a
+    // section or a named thing is on a page that does not carry it. Eight words in a row IS that page's line.
     const RUN = "a hand knotted floor covering woven in Iran";
-    const leaks: Partial<WinningPatternRead>[] = [
+    const swapped = MADE.replace("villages", "towns"); // one word swapped is still their line, and 65 chars
+    expect(swapped.length).toBe(65); // under the old sixty-character bar this walked through untouched
+    const bad: Partial<WinningPatternRead>[] = [
+      { commonHeadings: [{ heading: "how one is made", seenOn: [0, 4] }] },              // a page I never showed it
+      { ownedGaps: [{ gap: "your page never explains how one is made", seenOn: [9] }] },
+      { commonEntities: [{ entity: "Tabriz", seenOn: [0, 7] }] },
+      { commonHeadings: [{ heading: MADE, seenOn: [0, 1, 2] }] },                        // handed back verbatim
+      { commonHeadings: [{ heading: swapped, seenOn: [0, 1, 2] }] },
+      { openingPattern: "They open by saying a Persian rug is a hand knotted floor covering woven in Iran by families." },
       { disagreements: [`Some of them treat ${RUN} as the subject and others do not.`] },
       { ownedGaps: [{ gap: `your page never says ${RUN}`, seenOn: [0, 1, 2] }] },
       { questionsAnswered: [`What is ${RUN}?`] },
-      { uniqueNotCommon: [{ detail: `one of them opens by calling it ${RUN}`, seenOn: [1] }] }];
-    for (const leak of leaks) expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading(leak)).complete })).toBeNull();
-    // ONE WORD SWAPPED IS STILL THAT PAGE'S LINE, and it measures 65 characters: under the old sixty-character
-    // bar this walked through untouched, which is why no real heading was ever caught.
-    const swapped = MADE.replace("villages", "towns"); expect(swapped.length).toBe(65);
-    expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading({ commonHeadings: [{ heading: swapped, seenOn: [0, 1, 2] }] })).complete })).toBeNull(); });
-  it("refuses a section or a named thing that is not actually ON every page it cited for it", async () => {
-    // Three real page numbers beside something no page carries still counts pages that never had it.
-    const invented = reading({ commonHeadings: [{ heading: "shipping and returns", seenOn: [0, 1] }] });
-    const stranger = reading({ commonEntities: [{ entity: "Isfahan", seenOn: [0] }] });
-    for (const bad of [invented, stranger]) expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(bad).complete })).toBeNull(); });
+      { uniqueNotCommon: [{ detail: `one of them opens by calling it ${RUN}`, seenOn: [1] }] },
+      { commonHeadings: [{ heading: "shipping and returns", seenOn: [0, 1] }] },         // on no page it cited
+      { commonEntities: [{ entity: "Isfahan", seenOn: [0] }] },
+    ];
+    for (const one of bad) expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading(one)).complete }), JSON.stringify(one)).toBeNull();
+    // And an honest reading survives all of it, so every refusal above is about the defect and nothing else.
+    const good = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete });
+    expect([good?.ownedGaps[0]?.seenOn, good?.commonHeadings[1]?.heading]).toEqual([[0, 1, 2], CARE]);
+  });
   it("never re-votes a shape the results already settled, and writes no gap about a page it was never shown", async () => {
     // The reading says informational_guide; the results counted a list, and the deterministic count wins.
     expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete, pageType: "list" })).toBeNull();

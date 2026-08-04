@@ -5,16 +5,13 @@ import "server-only";
  * and publish the Today + Changes surface release, so the first render after fresh data is instant AND complete. Composition only: each step calls the
  * EXISTING loader/builder, and the one piece of judgment below exists because Evidence may not reach a provider and this is the pass that pays for one.
  *
- * Why it exists (2026-07-08): the manual "Update data" refresh pulls fresh data and then repaints via `revalidatePath("/")`. Without this, that repaint pays
- * the full ~6s cold demand-graph build right when the operator is watching, and the deadline-raced Today sections fall back to "here on your next visit".
- * Warming here (build-then-write always rebuilds from the just-pulled data) makes the post-refresh repaint instant and complete.
- *
- * Money posture: the graph/changes/today loaders are cached/durable reads only ($0); the competitor inspection is capped, cached against the exact evidence
- * it was decided on, and asks nobody anything while that evidence has not moved.
- *
- * FAILURE POSTURE (Slice 4 truth boundary): this PROPAGATES a build failure. The Research Run publish_surface phase depends on that truth - it may set
- * surfacePublished:true only after a real publish resolved, and must pause (not advance) when the publish fails. Callers that want fail-soft warming (the
- * connectors "Update data" action) own an explicit .catch at their call site.
+ * WHY IT EXISTS: the manual "Update data" refresh pulls fresh data and then repaints via `revalidatePath("/")`, and without this that repaint pays the full
+ * ~6s cold demand-graph build right when the operator is watching while the deadline-raced Today sections fall back to "here on your next visit". Warming here
+ * (build-then-write always rebuilds from the just-pulled data) makes the post-refresh repaint instant and complete. MONEY POSTURE: the graph, changes and today
+ * loaders are cached or durable reads only ($0), and the competitor inspection is capped, cached against the exact evidence it was decided on, and asks nobody
+ * anything while that evidence has not moved. FAILURE POSTURE (Slice 4 truth boundary): this PROPAGATES a build failure, because the Research Run
+ * publish_surface phase may set surfacePublished:true only after a real publish resolved and must pause rather than advance when it fails. Callers that want
+ * fail-soft warming (the connectors "Update data" action) own an explicit .catch at their call site.
  */
 
 import { z } from "zod";
