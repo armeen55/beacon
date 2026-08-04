@@ -102,8 +102,11 @@ export function googleView(input: GoogleViewInput): { limitation: string | null;
  *  drill-down printed it straight back, so both go through HERE and cannot drift apart again. (Decision has a third site of this rule in produce-bundle.ts; if
  *  that one is folded in too, this is the helper to hoist, most naturally into evidence/ai-visibility.) */
 const fanOutsExcluding = (fanOuts: readonly string[], asked: readonly string[]): string[] => {
-  const mine = new Set(asked.map((q) => q.trim().toLowerCase()));
-  return [...new Set(fanOuts.map((q) => q.trim()).filter(Boolean))].filter((q) => !mine.has(q.toLowerCase()));
+  // MY QUESTION WITH A CAPITAL LETTER AND A QUESTION MARK IS STILL MY QUESTION. Matching on a bare lowercase trim was the one reader of a fan-out that
+  // did not normalize the way every other one does, so an assistant echoing "Where to buy a haft seen set?" back was reported as a search it ran itself.
+  const same = (q: string) => q.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const mine = new Set(asked.map(same));
+  return [...new Set(fanOuts.map((q) => q.trim()).filter(Boolean))].filter((q) => !mine.has(same(q)));
 };
 
 const ENGINE_LABEL: Record<string, string> = { chatgpt: "ChatGPT", perplexity: "Perplexity", gemini: "Gemini", claude: "Claude" };

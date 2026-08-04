@@ -1,11 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-/**
- * Live implementation verification (V1 Truth Convergence Phase 6). These pin CUSTOMER TRUTH, not the
- * implementation: what Beacon says it saw on the operator's live page, and what it refuses to say. Fixtures
- * only, zero network: the polite fetch is seamed exactly the way the owned-page read seams it.
- */
-
+/** Live implementation verification (V1 Truth Convergence Phase 6). These pin CUSTOMER TRUTH, not the implementation: what Beacon says it saw on the operator's live
+ *  page, and what it refuses to say. Fixtures only, zero network: the polite fetch is seamed exactly the way the owned-page read seams it. */
 const ROWS: Array<Record<string, unknown>> = [];
 const WRITES: Array<[string, string, { status: string }]> = [];
 vi.mock("@/domains/measurement/proof-gsc/shipped-change-store", () => ({
@@ -23,11 +18,9 @@ vi.mock("@/domains/evidence", () => {
     },
   };
 });
-
 import { isCurrent } from "@/domains/evidence/freshness";
 import { shipmentBustedAt, shipmentsAwaitingVerification, verifyDueShipments, verifyShipment } from "@/domains/measurement/verify-shipment";
 import { readTechnicalFindings, technicalComponents } from "@/domains/decision/technical-findings";
-
 const T = "tenant-1", URL_ = "https://own.com/nowruz", NOW = Date.parse("2026-07-31T12:00:00Z"), DAY = 86_400_000;
 const PAGE = `<html><head><title>How to set a nowruz table</title>
 <meta name="description" content="Set a nowruz table in seven steps."/>
@@ -40,7 +33,6 @@ const PAGE = `<html><head><title>How to set a nowruz table</title>
 <p>Every item on the cloth stands for a wish for the year that is starting, and families choose their own.</p>
 <p><a href="/haft-seen">the haft seen explained</a></p>
 </main></body></html>`;
-
 /** The polite fetch, seamed: every test answers for the customer's website itself. */
 type Fetcher = () => Promise<{ ok: true; html: string; status: number; finalUrl?: string } | { ok: false; reason: "robots_blocked" | "fetch_failed"; detail?: string }>;
 const serve = (html: string, over: { status?: number; finalUrl?: string } = {}): Fetcher =>
@@ -48,14 +40,12 @@ const serve = (html: string, over: { status?: number; finalUrl?: string } = {}):
 const refuse = (reason: "robots_blocked" | "fetch_failed", detail?: string): Fetcher =>
   async () => ({ ok: false, reason, detail });
 const base = { loadProfile: async () => null, writeOwnedPage: async () => {}, now: () => NOW };
-
 /** ONE verification of one page, with the components under test. */
 const check = async (components: Array<{ kind: string; after: string; anchorAfter?: string | null }>, page: Fetcher = serve(PAGE), over: Record<string, unknown> = {}) =>
   verifyShipment(T, { id: "s1", url: URL_, components }, { ...base, fetchPage: page, ...over });
 /** What ONE component was judged to be. */
 const state = async (kind: string, after: string, page: Fetcher = serve(PAGE), over: Record<string, unknown> = {}) =>
   (await check([{ kind, after }], page, over)).components[0]!.state;
-
 describe("what Beacon can see on the live page, component by component", () => {
   it("reads the page's own fields exactly: the wording I gave, other wording, or no field at all", async () => {
     expect(await state("title", "How to set a nowruz table")).toBe("verified");
@@ -92,9 +82,8 @@ describe("what Beacon can see on the live page, component by component", () => {
     const noLinks = serve("<html><head><title>t</title></head><body><main><p>words enough to count as a paragraph here</p></main></body></html>");
     expect(await state("internal_link_add", "Link to /haft-seen", noLinks)).toBe("unverifiable");
   });
-  // A RENAMED LINK IS NOT VERIFIED BY THE LINK EXISTING. The swap renames a link that is already there, so
-  // checking for the address answered yes the moment the change was written: it read verified before the
-  // operator touched the page. The words on the live link are the only thing that can settle it.
+  // A RENAMED LINK IS NOT VERIFIED BY THE LINK EXISTING. The swap renames a link that is already there, so checking for the address answered yes the moment the change
+  // was written: it read verified before the operator touched the page. The words on the live link are the only thing that can settle it.
   it("checks a renamed link on the words that are actually on it, both ways, and says unknown without them", async () => {
     const swap = async (anchorAfter: string | null) => (await check([{ kind: "anchor_text",
       after: 'I would change the words "read more" that already point at /haft-seen so they read "the haft seen explained".',
@@ -127,9 +116,8 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("noindex", "Take it out of search", noindex)).toBe("verified");
     expect(await state("noindex", "Take it out of search")).toBe("unverifiable"); // a header I cannot see could carry it
   });
-  // PIN (B, F2a): the whole road, finding to reading. A shortened forward names /haft-seen, and the check
-  // has to read THAT address: taking the first address out of the sentence took the one being MOVED, so an
-  // operator who did exactly what I asked was told their forward went somewhere other than where I asked.
+  // PIN (B, F2a): the whole road, finding to reading. A shortened forward names /haft-seen, and the check has to read THAT address: taking the first address out of the
+  // sentence took the one being MOVED, so an operator who did exactly what I asked was told their forward went somewhere other than where I asked.
   it("verifies a forward against the destination the change named, never the address it moved", async () => {
     const chain = (url: string, to: string) => ({ url, discovered_via: "nav", crawl_state: "crawled", http_status: 200, redirects_to: to });
     const found = readTechnicalFindings({ inventory: [chain(URL_, "https://own.com/mid"), chain("https://own.com/mid", "https://own.com/haft-seen")] })
@@ -147,8 +135,8 @@ describe("what Beacon can see on the live page, component by component", () => {
       { ...base, fetchPage: serve(PAGE, { finalUrl: "https://own.com/login" }) });
     expect(wrong.components[0]!.state).toBe("changed_differently");
   });
-  // PIN (B, F2c): an edit to sitemap.xml can never put a link on the page, so looking for one graded every
-  // sitemap change as work the operator had not done. It is read in the sitemap, or it is not graded.
+  // PIN (B, F2c): an edit to sitemap.xml can never put a link on the page, so looking for one graded every sitemap change as work the operator had not done. It is read
+  // in the sitemap, or it is not graded.
   it("reads a sitemap change in the sitemap itself, and refuses to grade one it could not read", async () => {
     const listing = (...locs: string[]) => `<urlset>${locs.map((l) => `<url><loc>${l}</loc></url>`).join("")}</urlset>`;
     const graded = async (xml: string | null) => (await check([{ kind: "navigation", after: "I would add /nowruz to the sitemap you already publish." }],
@@ -161,9 +149,8 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect((await graded("<sitemapindex><sitemap><loc>https://own.com/s1.xml</loc></sitemap></sitemapindex>")).state).toBe("unverifiable");
     expect((await graded(listing())).state).toBe("unverifiable"); // a sitemap answering with no addresses grades nothing
   });
-  // PIN (F2d): a broken link is checked on the DEAD address, not the page carrying it. The regex took the
-  // first address in the sentence, the carrying page, and asked whether it links to itself: that answered
-  // verified whether or not the operator touched anything, and unearned work entered measurement.
+  // PIN (F2d): a broken link is checked on the DEAD address, not the page carrying it. The regex took the first address in the sentence, the carrying page, and asked
+  // whether it links to itself: that answered verified whether or not the operator touched anything, and unearned work entered measurement.
   it("checks a broken link fix on the dead address it named, in both directions", async () => {
     const found = readTechnicalFindings({
       inventory: [{ url: "https://own.com/old-price", discovered_via: "nav", crawl_state: "crawled", http_status: 404 }],
@@ -187,7 +174,6 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("new_page", "", serve("<html><head><title>t</title></head><body><main><p>almost nothing is here yet at all</p></main></body></html>"))).toBe("changed_differently");
   });
 });
-
 describe("what Beacon says overall, and what it refuses to say", () => {
   it("rolls the components up honestly: all of them, some of them, or none of them", async () => {
     expect((await check([{ kind: "title", after: "How to set a nowruz table" }, { kind: "h1", after: "How to set a nowruz table" }])).status).toBe("verified");
@@ -204,9 +190,8 @@ describe("what Beacon says overall, and what it refuses to say", () => {
     // A page I reached but nothing on it I can check is NOT a difference and never a pass: it is a check I could not complete.
     expect((await check([{ kind: "noindex", after: "" }])).status).toBe("blocked");
   });
-  // PIN (B): THE CLAIM STARTS THE CHECK AND NEVER FINISHES IT. No argument to verifyShipment suppresses the
-  // read, and no state it returns says verified unless the page itself said so. CHANGED DIFFERENTLY is its
-  // own answer: the spot moved, and it moved to something other than what I wrote.
+  // PIN (B): THE CLAIM STARTS THE CHECK AND NEVER FINISHES IT. No argument to verifyShipment suppresses the read, and no state it returns says verified unless the page
+  // itself said so. CHANGED DIFFERENTLY is its own answer: the spot moved, and it moved to something other than what I wrote.
   it("goes and reads the page whatever the operator claimed, and cannot land verified without page evidence", async () => {
     let fetched = 0;
     const claimed = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }] },
@@ -214,7 +199,6 @@ describe("what Beacon says overall, and what it refuses to say", () => {
     expect([claimed.status, fetched, claimed.components[0]!.state]).toEqual(["differs", 1, "changed_differently"]);
   });
 });
-
 describe("the pass: what is due, how much of it runs, and what it writes", () => {
   const row = (o: Record<string, unknown>) => ({
     id: "s1", page: URL_, path: "/nowruz", actionType: "title", after: "How to set a nowruz table",
@@ -271,9 +255,8 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     const tomorrow = await shipmentsAwaitingVerification(T, 3, { now: () => NOW + DAY });
     expect(tomorrow.map((s) => [s.id, s.recheck])).toEqual([["waiting", true]]);
   });
-  /** THE PROMISED DAY IS THE OPERATOR'S DAY, not the UTC one. Read off a UTC instant, a retry promised for
-   *  the 5th came due at 5 PM Pacific on the 4th, so the one retry a silent site earns was spent a day
-   *  early and its answer, which is final either way, stood. */
+  /** THE PROMISED DAY IS THE OPERATOR'S DAY, not the UTC one. Read off a UTC instant, a retry promised for the 5th came due at 5 PM Pacific on the 4th, so the one retry
+   *  a silent site earns was spent a day early and its answer, which is final either way, stood. */
   it("owes the retry on the promised day where the operator lives, not from 5 PM the evening before", async () => {
     const blocked = { status: "blocked", checkedAt: "2026-08-01T09:00:00Z", components: [], recheckAfter: "2026-08-05" };
     ROWS.push(row({ id: "waiting", verification: blocked }));
@@ -288,7 +271,6 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     expect(dead.recheckAfter).toBe("2026-08-05");
   });
 });
-
 describe("a change the operator implemented busts that page's freshness", () => {
   beforeEach(() => { ROWS.length = 0; passedBustedAt = undefined; });
   it("hands back the LATEST moment that page was implemented, and nothing for a page nobody changed", async () => {

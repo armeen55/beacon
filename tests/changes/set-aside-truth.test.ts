@@ -1,9 +1,6 @@
-/**
- * A change I set aside stays set aside (truth convergence). The ranked queue is the ONLY
- * source a direct link may render exact copy from, a stored release that predates my current
- * evidence bar may not present its rows as work, and an empty queue reads as a decision on
- * Changes and on Today alike. Every test name states the promise it pins.
- */
+/** A change I set aside stays set aside (truth convergence). The ranked queue is the ONLY source a direct link may render exact copy from, a stored release that predates
+ *  my current evidence bar may not present its rows as work, and an empty queue reads as a decision on Changes and on Today alike. Every test name states the promise it
+ *  pins. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server"; import type { ReactElement } from "react";
 import type { ChangeProposal } from "@/domains/decision";
@@ -22,9 +19,10 @@ vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof im
 vi.mock("@/app/(shell)/changes-data", async () => ({ ...(await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data")),
   loadChangesView: vi.fn() }));
 vi.mock("@/lib/auth/can-publish", () => ({ canPublishForCurrentTenant: async () => true }));
-const shipped = vi.hoisted(() => ({ records: [] as unknown[] }));
+const shipped = vi.hoisted(() => ({ records: [] as unknown[], held: [] as any[] }));
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
-  loadShippedChanges: async () => [], captureChangeMeta: async () => null,
+  loadShippedChanges: async () => shipped.held, captureChangeMeta: async () => null, loadProofLedgerPersisted: async () => shipped.held,
+  selectControlPages: async () => ["https://site.example/a", "https://site.example/b"], // fewer is refused; pinned in proof-actions-gating
   recordShippedChange: async (r: unknown) => r, upsertShippedChange: async (r: unknown) => { shipped.records.push(r); } }));
 
 const NOW = "basis_now::d4";
@@ -73,8 +71,8 @@ describe("a direct link renders only what the ranked list would, and always land
     expect([stale.includes("I set this idea aside"), stale.includes("See what I am working on now")]).toEqual([true, true]);
     expect(stale).not.toMatch(new RegExp(`${EXACT}|Comedians</p>|I made this change`));
   });
-  // THE DOOR IS THE SAME DOOR. A direct link is not a side entrance: everything the ranked list refuses is
-  // refused here too, on the row's own evidence rather than on its basis stamp alone.
+  // THE DOOR IS THE SAME DOOR. A direct link is not a side entrance: everything the ranked list refuses is refused here too, on the row's own evidence rather than on its
+  // basis stamp alone.
   it("refuses at the link what the list refuses: a receipt that does not resolve, a merge filed as ready, evidence gone cold", async () => {
     const b = bundled(NOW).bundle!, cold = new Date(Date.now() - 120 * 86_400_000).toISOString();
     for (const bundle of [
@@ -86,13 +84,22 @@ describe("a direct link renders only what the ranked list would, and always land
       expect([html.includes(EXACT), html.includes("I made this change")], JSON.stringify(bundle.components[0])).toEqual([false, false]);
     }
   });
+  /** P1-2. The picker pre-ticked EVERY piece with no memory of what is already recorded, so the obvious next press offered to record a component I am already measuring.
+   *  It now opens on what is genuinely still theirs to do. */
+  it("opens the picker on the pieces nobody has recorded yet", async () => {
+    const b = bundled(NOW).bundle!;
+    shipped.held = [{ proposalId: ID, componentsApplied: [{ id: "0:title", kind: "title", label: "Title" }] }];
+    const html = await link({ ...bundled(NOW), bundle: { ...b, components: [b.components[0]!, { ...b.components[0]!, kind: "meta", label: "Description", after: "A description" }] } } as ChangeProposal);
+    const boxes = [...html.matchAll(/<input type="checkbox"[^>]*>/g)].map((m) => m[0]); shipped.held = [];
+    expect([boxes.length, boxes[0]!.includes("checked"), boxes[1]!.includes("checked")]).toEqual([2, false, true]);
+  });
   it("sends live work with nothing to unpack home to the list, and gives a put-aside change the put-aside screen", async () => {
     const { bundle: _b, ...flat } = bundled(NOW); // live, actionable, but nothing to unpack: its home is the list
     await expect(link(flat as ChangeProposal)).rejects.toThrow("NEXT_REDIRECT:/changes");
     expect(await link(null, bundled(NOW))).toContain("I set this idea aside"); // history, not a page that never was
   });
-  // AND NOTHING LANDS IN THE LEDGER THAT THIS SCREEN WOULD NOT SHOW: the same verdict runs at the moment of
-  // the press, and a stale screen or a hand-made request cannot merge a page on its own say-so.
+  // AND NOTHING LANDS IN THE LEDGER THAT THIS SCREEN WOULD NOT SHOW: the same verdict runs at the moment of the press, and a stale screen or a hand-made request cannot
+  // merge a page on its own say-so.
   it("refuses a receipt that no longer resolves, and holds a page-mover until the operator confirms it here", async () => {
     shipped.records = [];
     const b = bundled(NOW).bundle!;
@@ -111,8 +118,8 @@ describe("a direct link renders only what the ranked list would, and always land
 });
 
 describe("an account that skipped the connectors still reaches its own Today", () => {
-  // Connecting Google is worth doing and it is not the price of entry: an account with approved questions
-  // and research of its own must not be told to connect before it may see anything at all.
+  // Connecting Google is worth doing and it is not the price of entry: an account with approved questions and research of its own must not be told to connect before it
+  // may see anything at all.
   it("calls an account a demo only when it truly holds nothing, never merely because it connected nothing", async () => {
     const gate = async (repo: () => unknown) => {
       vi.resetModules();
@@ -146,8 +153,8 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     expect([today.headerSentence.includes(said), today.nextOpportunities.length, (await renderChanges(view)).includes(said)]).toEqual([true, 0, true]);
   });
   it("keeps everything this release actually knows when the bar moves under it", async () => {
-    // The gated rebuild used to be handed NOTHING, so a basis shift silently erased the retry date,
-    // the pages under investigation, the ideas held back and the kernel's own verdicts.
+    // The gated rebuild used to be handed NOTHING, so a basis shift silently erased the retry date, the pages under investigation, the ideas held back and the kernel's
+    // own verdicts.
     const stored = { schemaVersion: 2, releaseId: "t:1", computedAt: new Date().toISOString(), tenantId: "t",
       changes: { ...emptyView(0), proposals: [bundled("basis_old::d2", "t::old")], ready: [bundled("basis_old::d2", "t::old")],
         summary: { todo: 0, ready: 1, measuring: 0, results: 0 } } as ChangesView,

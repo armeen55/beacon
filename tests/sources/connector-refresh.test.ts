@@ -7,6 +7,7 @@ vi.mock("server-only", () => ({}));
 // ── on-use refresh + clarity: connector-store overrides ──────────────
 const state = vi.hoisted(() => ({
   connected: { google_gsc: true, google_ga4: true, clarity: true } as Record<string, boolean>,
+  throw: false,
   clarityToken: {
     provider: "clarity",
     api_token: "tok",
@@ -17,12 +18,12 @@ vi.mock("@/lib/connector-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/connector-store")>();
   return {
     ...actual,
-    getConnectorInfo: async (provider: string) => ({
+    getConnectorInfo: async (provider: string) => (state.throw ? Promise.reject(new Error("connector store unreachable")) : {
       status: state.connected[provider] ? "connected" : "disconnected",
       last_synced_at: null, // never synced → stale → the on-use refresh runs it
       connected_at: null,
       expires_at: null,
-    }),
+    }) as never,
     updateConnectorToken: async () => {},
     getConnectorToken: async () => state.clarityToken,
   };
@@ -56,9 +57,10 @@ describe("what a stale source is allowed to open on its own", () => {
   it("GA4 and Clarity are modifiers: only Search Console staleness makes a refresh owed", async () => {
     const { dueWork } = await import("@/domains/runtime/ops/due-work"); // nothing below has ever synced, so every connected source is stale
     const rest = { checks: async () => ({ done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0, due: 0 }), basis: async () => "b1", evidenceVersion: async () => 7,
-      surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 } } }) };
+      surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), pagesToCrawl: async () => false, answersToAnalyze: async () => false, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 } } }) };
     state.connected = { google_gsc: false, google_ga4: true, clarity: true }; expect((await dueWork("t1", new Date(), rest)).due).toEqual([]); // behaviour data going stale never wakes the run
-    state.connected = { google_gsc: true, google_ga4: false, clarity: false }; expect((await dueWork("t1", new Date(), rest)).due).toEqual(["refresh_sources"]); }); // and that refresh still pulls every connected source
+    state.connected = { google_gsc: true, google_ga4: false, clarity: false }; expect((await dueWork("t1", new Date(), rest)).due).toEqual(["refresh_sources"]); // and that refresh still pulls every connected source
+    state.throw = true; const blind = await dueWork("t1", new Date(), rest); state.throw = false; expect([blind.readable, blind.due]).toEqual([false, []]); }); // A SOURCE I COULD NOT READ IS NOT A FRESH ONE: this leg swallowed its own failure per provider, so it could never make dueWork unreadable
 });
 // ─────────────────────────────────────────────────────────────────────
 // syncSucceeded — the positive freshness gate

@@ -1,20 +1,16 @@
-/** CANONICAL PROPOSAL PERSISTENCE (V1 Truth Convergence Phase 5): one current row per hypothesis
- *  (account, case, page, action family), a re-draft supersedes with a pointer and a version, an
- *  identical draft writes nothing, a dismissed change is not resurrected under the same evidence,
- *  history stays readable and is never revived, and a write that lands nothing is a failure.
- *  Fixtures only: the fake Postgres below enforces the primary key and the partial unique index. */
+/** CANONICAL PROPOSAL PERSISTENCE (V1 Truth Convergence Phase 5): one current row per hypothesis (account, case, page, action family), a re-draft supersedes with a
+ *  pointer and a version, an identical draft writes nothing, a dismissed change is not resurrected under the same evidence, history stays readable and is never revived,
+ *  and a write that lands nothing is a failure. Fixtures only: the fake Postgres below enforces the primary key and the partial unique index. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 type Row = Record<string, unknown>;
 const db = vi.hoisted(() => {
-  // `missing` = the TABLE is not in the schema cache; `rpcMissing` = the table is there and the supersession FUNCTION
-  // is not. They are separate flags because they are separate deploy accidents, and one flag could only ever test the
-  // first: the table read failed before the function was ever called. `raceForeign` is a concurrent insert of the
-  // SUCCESSOR id under another account, landing after the guard read: the upsert's tenant WHERE then matches nothing,
-  // so nothing lands and the whole handover must unwind rather than report saved.
+  // `missing` = the TABLE is not in the schema cache; `rpcMissing` = the table is there and the supersession FUNCTION is not. They are separate flags because they are
+  // separate deploy accidents, and one flag could only ever test the first: the table read failed before the function was ever called. `raceForeign` is a concurrent
+  // insert of the SUCCESSOR id under another account, landing after the guard read: the upsert's tenant WHERE then matches nothing, so nothing lands and the whole
+  // handover must unwind rather than report saved.
   const state = { rows: [] as Row[], legacy: [] as Row[], missing: false, rpcMissing: false, breakWrite: false, rpcCalls: 0, raceForeign: "" };
   const client: Record<string, unknown> = {
-    // The atomic handover: guard, step-aside, and landing commit together or not at
-    // all, exactly like the supersede_change_proposal function in production.
+    // The atomic handover: guard, step-aside, and landing commit together or not at all, exactly like the supersede_change_proposal function in production.
     rpc(name: string, args: { p_tenant_id: string; p_predecessor_id: string; p_row: Row }) {
       state.rpcCalls += 1;
       const run = (): { data: string | null; error: { message: string; code?: string } | null } => {
@@ -31,8 +27,8 @@ const db = vi.hoisted(() => {
           && ["tenant_id", "case_id", "page_key", "action_family"].every((c) => r[c] === row[c]));
         if (clash) return { data: "failed", error: null };
         if (state.raceForeign) state.rows.push({ id: row.id, tenant_id: state.raceForeign, status: "ready", created_at: "2026-07-01T00:00:00.000Z" });
-        // THE INSERT'S OWN LANDING IS THE PROOF, exactly as the SQL now reads it: zero rows back means the
-        // successor never landed, so it raises and BOTH writes unwind with the predecessor still in place.
+        // THE INSERT'S OWN LANDING IS THE PROOF, exactly as the SQL now reads it: zero rows back means the successor never landed, so it raises and BOTH writes unwind
+        // with the predecessor still in place.
         const at = state.rows.findIndex((r) => r.id === row.id);
         if (at >= 0 && state.rows[at]!.tenant_id !== args.p_tenant_id) return { data: "failed", error: null };
         Object.assign(pred, { terminal_disposition: "superseded", superseded_by: row.id, updated_at: row.updated_at });
@@ -52,8 +48,8 @@ vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: (
 import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, saveChangeProposal } from "@/domains/decision/proposal-store";
 import { deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
 import { supabaseFake } from "../helpers/supabase-fake";
-// The row budget and the sort order are part of what the queue read is asked to prove, so the fake honours
-// order + limit; `clash` is the partial unique index: one current row per (tenant, case, page, family).
+// The row budget and the sort order are part of what the queue read is asked to prove, so the fake honours order + limit; `clash` is the partial unique index: one
+// current row per (tenant, case, page, family).
 Object.assign(db.client, supabaseFake({
   rows: (t) => (t === "change_proposals" ? db.state.rows : db.state.legacy),
   error: (t) => (t === "change_proposals" && db.state.missing ? { code: "PGRST205", message: "table not found in schema cache" } : null),
@@ -84,9 +80,8 @@ const deep = (over: Partial<ChangeProposal> = {}) => proposal({ id: `${T}::${PAG
 const current = () => db.state.rows.filter((r) => r.terminal_disposition == null);
 const seedLegacy = (p: ChangeProposal) => db.state.legacy.push({ tenant_id: p.tenantId, rec_id: p.id, kind: "change_proposal", content: serializeChangeProposal(p), created_at: p.createdAt });
 beforeEach(() => { db.state.rows = []; db.state.legacy = []; db.state.missing = false; db.state.rpcMissing = false; db.state.breakWrite = false; db.state.rpcCalls = 0; db.state.raceForeign = ""; });
-/** POST-CONTRACT HISTORY (packet acceptance 22). The contract migration moved every row onto the three
- *  lifecycle words and the bridge decoder is deleted with it: the same reads answer identically without
- *  one, and no historical proposal disappears. */
+/** POST-CONTRACT HISTORY (packet acceptance 22). The contract migration moved every row onto the three lifecycle words and the bridge decoder is deleted with it: the
+ *  same reads answer identically without one, and no historical proposal disappears. */
 describe("rows written after the lifecycle contract", () => {
   const row = (id: string, word: string): Row => ({
     tenant_id: T, id, proposal_version: 1, status: word, terminal_disposition: null, superseded_by: null,
@@ -186,18 +181,17 @@ describe("canonical proposal persistence", () => {
     expect(await saveChangeProposal(proposal({ status: "implemented_pending_verification" }))).toBe("failed");
   });
   it("proves the handover row belongs to this account BEFORE it writes, and names a missing supersession function for what it is", async () => {
-    // NOTHING UNSCOPED EVER REACHES THE HANDOVER. The store refuses a save with no account before it reads
-    // anything, and the row handed to the function is asserted against the caller's own account on the way
-    // in (the same check every other write in this product passes through, which going straight to .rpc()
-    // had given up), so a row that cannot prove its scope is never written by it.
+    // NOTHING UNSCOPED EVER REACHES THE HANDOVER. The store refuses a save with no account before it reads anything, and the row handed to the function is asserted
+    // against the caller's own account on the way in (the same check every other write in this product passes through, which going straight to .rpc() had given up), so a
+    // row that cannot prove its scope is never written by it.
     db.state.rows.push({ id: "held", tenant_id: "", site: "fixture-outdoors.example", case_id: "", page_key: PAGE,
       action_family: "title-family", status: "ready", terminal_disposition: null, proposal_version: 1,
       payload: JSON.parse(serializeChangeProposal(proposal({ id: "held" }))) as unknown });
     expect(await saveChangeProposal(proposal({ tenantId: "" }))).toBe("failed");
     expect(db.state.rpcCalls).toBe(0);
     expect(db.state.rows[0]!.terminal_disposition).toBeNull(); // nothing moved
-    // THE FUNCTION IS NOT THERE. A deploy that ran ahead of its migration is not a blocked handover, and it
-    // used to read exactly like one. The table is fine here; only the routine is missing.
+    // THE FUNCTION IS NOT THERE. A deploy that ran ahead of its migration is not a blocked handover, and it used to read exactly like one. The table is fine here; only
+    // the routine is missing.
     db.state.rows = [];
     expect(await saveChangeProposal(proposal())).toBe("saved");
     db.state.rpcMissing = true;
@@ -243,8 +237,8 @@ describe("canonical proposal persistence", () => {
       db.state.rows.push(canonRow(id, { terminal_disposition: "superseded", superseded_by: live[i % 5]! })); }
     seedLegacy(proposal({ id: `${T}::/old-7::existing_edit::title` })); // the old store still holds a copy of a retired row
     expect([...(await loadChangeProposals(T)).keys()].sort()).toEqual([...live].sort()); }); // five current rows, and not one resurrection
-  // A HANDOVER THAT DID NOT LAND IS A FAILURE, whether the write simply landed no row or a successor id raced
-  // in under another account after the guard read. Either way the predecessor keeps its place and its queue.
+  // A HANDOVER THAT DID NOT LAND IS A FAILURE, whether the write simply landed no row or a successor id raced in under another account after the guard read. Either way
+  // the predecessor keeps its place and its queue.
   it.each([["a write that landed no row", () => { db.state.breakWrite = true; }],
     ["a successor id racing in under another account", () => { db.state.raceForeign = "acct-b"; }],
   ] as const)("%s is a FAILURE, and the predecessor keeps its place", async (_name, arrange) => {
@@ -255,8 +249,8 @@ describe("canonical proposal persistence", () => {
       .toEqual([[proposal().id, null, null]]);
     expect((await loadChangeProposals(T)).size).toBe(1); // one proposal, still current, still this account's
   });
-  // PIN: the schema keeps every word a check reads later. A renamed link is verified on anchorAfter and a
-  // forward on redirectTo; a schema that strips either sends the check out wordless and it grades nothing.
+  // PIN: the schema keeps every word a check reads later. A renamed link is verified on anchorAfter and a forward on redirectTo; a schema that strips either sends the
+  // check out wordless and it grades nothing.
   it("anchorAfter and redirectTo survive the persistence round trip", () => {
     const b = bundle("anchor_text");
     b.components[0] = { ...b.components[0]!, anchorAfter: "Read the Haft-Seen guide", redirectTo: "https://own.com/haft-seen" };

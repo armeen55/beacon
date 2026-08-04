@@ -4,7 +4,6 @@
  * structural interface this module OWNS) into a ranked, exact, safe `ChangeProposal`: the page, the
  * opportunity, the frozen evidence that grounds it, the exact change, why it matters,
  * effort/risk/confidence/limitations, the ranking receipt, and the proposal status.
- *
  * PUBLISHING AUTHORITY IS MANUAL. Nothing here writes to a live page; `publish: "manual"` is a structural
  * reminder carried on every proposal. PURE: types + Zod schema + pure derivations + (de)serialization only,
  * no I/O. Proposal PATHS (propose.ts) and PERSISTENCE (proposal-store.ts) are siblings.
@@ -60,12 +59,10 @@ export interface EvidenceInput {
 
 // ── Candidate diagnosis (decision truth replacement, 2026-07-27) ──────────────
 
-/**
- * What the evidence actually justifies for one page or topic, decided BEFORE any draft is written. Doing
- * nothing is the default: a page is not a problem because it is big. Only the two `act_` outcomes may become
- * a ChangeProposal; the rest are the honest answer and live in the run receipt, never as manufactured work.
- * Internal to Decision: NOT persisted as its own record and never a public type.
- */
+/** What the evidence actually justifies for one page or topic, decided BEFORE any draft is written. Doing
+ *  nothing is the default: a page is not a problem because it is big. Only the two `act_` outcomes may become
+ *  a ChangeProposal; the rest are the honest answer and live in the run receipt, never manufactured work.
+ *  Internal to Decision: NOT persisted as its own record and never a public type. */
 type CandidateAction =
   // No `act_new_page`: a page this account does not own is decided by the coverage ladder
   // over researched TOPICS, never by this per-page diagnosis over pages it already has.
@@ -95,12 +92,10 @@ export const MIN_QUERY_IMPRESSIONS = 500;
 export const MIN_CTR_DEFICIT = 0.02;
 export const MIN_RECOVERABLE_CLICKS = 50;
 
-/**
- * EVIDENCE READINESS (evidence-qualified changes, 2026-07-27). A click gap proves something is WRONG. It
- * never proves WHAT TO CHANGE: the same gap is explained by a weak title, a search feature eating the click,
- * the wrong page ranking, an ambiguous query, or nothing at all. So a gap opens an INVESTIGATION, and only
- * the exact evidence below can close it into an action.
- */
+/** EVIDENCE READINESS (evidence-qualified changes, 2026-07-27). A click gap proves something is WRONG. It
+ *  never proves WHAT TO CHANGE: the same gap is explained by a weak title, a search feature eating the click,
+ *  the wrong page ranking, an ambiguous query, or nothing at all. So a gap opens an INVESTIGATION, and only
+ *  the exact evidence below can close it into an action. */
 export type EvidenceReadiness = {
   /** Exact GSC rows for this query on this page. */
   gsc: boolean;
@@ -133,11 +128,10 @@ export type DiagnosedAction =
   | "title" | "meta" | "opening_answer" | "section"
   | "full_page" | "new_page" | "consolidate" | "watch";
 
-/**
- * THE reasoning step between "this page underperforms" and "change this", held inside the existing candidate
- * and receipt path. `diagnosed` means the evidence NAMES a cause, the action follows from it, a competing
- * explanation is ruled out with its own evidence, and every claim cites receipt keys. Anything else is
- * `inconclusive`: still under investigation, no draft spend. */
+/** THE reasoning step between "this page underperforms" and "change this", held inside the existing candidate
+ *  and receipt path. `diagnosed` means the evidence NAMES a cause, the action follows from it, a competing
+ *  explanation is ruled out with its own evidence, and every claim cites receipt keys. Anything else is
+ *  `inconclusive`: still under investigation, no draft spend. */
 export type ActionDiagnosis = {
   status: "diagnosed" | "inconclusive";
   cause: DiagnosisCause;
@@ -263,6 +257,12 @@ export type ComponentPlan = {
 
 /** PURE: does this component change factual content, so a source pack is owed? */
 export function needsSourcePack(c: BundleComponent): boolean { return FACTUAL_KINDS.has(c.kind); }
+
+/** THE STABLE NAME OF ONE PIECE INSIDE ITS BUNDLE: position plus kind, derived from the stored bundle and
+ *  nothing else, so no schema moves. Two pieces of one kind are ticked apart instead of sharing one state, and
+ *  the server intersects what the operator says they applied against what it holds, never a list of kinds a
+ *  hand-made request could invent. */
+export const componentIdOf = (component: { kind: string }, index: number): string => `${index}:${component.kind}`;
 
 /** THE TWO-STEP HOLD. There is no parallel confirmation flag in this product: `needs_review` means Beacon
  *  will not present the change as ready and the operator has to look and then act. */

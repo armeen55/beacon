@@ -1,14 +1,11 @@
-/** THE CANONICAL SHIPMENT (V1 Truth Convergence Phase 6). Protected here: ONE Shipment per
- *  (proposal, version applied) and a retry that heals instead of duplicating; a partial bundle
- *  stored as one; the stamp and the starting numbers written exactly once; pre-Phase-6 rows
- *  still decoding; a check naming another account's Shipment landing nothing; and the 28-day
- *  ranking window read from the stamp. Fixtures only: the fake Postgres below holds the rows. */
+/** THE CANONICAL SHIPMENT (V1 Truth Convergence Phase 6). Protected here: ONE Shipment per (proposal, version applied) and a retry that heals instead of duplicating; a
+ *  partial bundle stored as one; the stamp and the starting numbers written exactly once; pre-Phase-6 rows still decoding; a check naming another account's Shipment
+ *  landing nothing; and the 28-day ranking window read from the stamp. Fixtures only: the fake Postgres below holds the rows. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 type Row = Record<string, unknown>;
 const db = vi.hoisted(() => {
-  /** `offline` = no Supabase configured at all (local dev). `upsertError`/`updateError` = the
-   *  pre-migration window, where the table is there and the Shipment columns are not. `file` is the
-   *  per-tenant ledger file both fallbacks write to. */
+  /** `offline` = no Supabase configured at all (local dev). `upsertError`/`updateError` = the pre-migration window, where the table is there and the Shipment columns are
+   *  not. `file` is the per-tenant ledger file both fallbacks write to. */
   const state = {
     rows: [] as Row[], file: [] as Row[], offline: false,
     upsertError: null as Row | null, updateError: null as Row | null,
@@ -60,7 +57,8 @@ const origin = (over: Record<string, unknown> = {}) => ({
 });
 const ship = (over: Record<string, unknown> = {}) => recordShippedChange({
   tenantId: T, page: PAGE, path: "/nowruz-guide", actionType: "title-family", before: "Nowruz",
-  after: "Nowruz Traditions and the Haft-Seen Table", targetQueries: ["nowruz traditions"], controlPages: [],
+  // A record needs its comparison pages to be worth writing at all, so the writer itself refuses fewer than two.
+  after: "Nowruz Traditions and the Haft-Seen Table", targetQueries: ["nowruz traditions"], controlPages: ["https://x.test/a", "https://x.test/b"],
   shippedAt: NOW.toISOString(), now: NOW, shipment: origin() as never, ...over });
 /** A pre-Phase-6 row: the manual "Record shipped change" path, no Shipment columns at all. */
 const legacyRow = (): Row => ({
@@ -107,9 +105,8 @@ describe("the canonical Shipment", () => {
     expect(stored.verification).toBeNull(); // nobody has checked it, and that null makes it due
   });
   it("counts the AI starting number over the WHOLE day, never the newest page of it", async () => {
-    // The baseline used to be read off the newest 60 rows and frozen, so a 140 answer day was compared
-    // against a sample of itself for the next 28 days: the before side was a fraction and the after side
-    // was a day. The day is found off a small probe and then READ BY NAME, which returns all of it.
+    // The baseline used to be read off the newest 60 rows and frozen, so a 140 answer day was compared against a sample of itself for the next 28 days: the before side
+    // was a fraction and the after side was a day. The day is found off a small probe and then READ BY NAME, which returns all of it.
     const DAY = "2026-07-30";
     const whole = Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY,
       analysis: { ownedBrandMention: { mentioned: i % 2 === 0 } }, analysisHash: "x", answerHash: "x" }));
@@ -120,10 +117,9 @@ describe("the canonical Shipment", () => {
     expect(stored.shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 140, mentioning: 70 });
   });
   it("writes down HOW MANY of that day's answers were read closely, which is the denominator the rate uses", async () => {
-    // The starting number used to count mentions over every answer that came back, so an answer nobody had
-    // read yet was an implicit miss, while the after side divides by the answers actually read. The change
-    // was then judged by comparing one measure against a different one. 140 answers, 100 of them read
-    // closely, 60 naming the account: the starting rate is 0.6, and it was 0.43.
+    // The starting number used to count mentions over every answer that came back, so an answer nobody had read yet was an implicit miss, while the after side divides by
+    // the answers actually read. The change was then judged by comparing one measure against a different one. 140 answers, 100 of them read closely, 60 naming the
+    // account: the starting rate is 0.6, and it was 0.43.
     const DAY = "2026-07-30";
     const whole = Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY,
       analysis: i < 100 ? { ownedBrandMention: { mentioned: i < 60 } } : null, analysisHash: i < 100 ? "x" : null, answerHash: "x" }));
@@ -180,8 +176,8 @@ describe("the canonical Shipment", () => {
       .toEqual([null, null, null, null]);
   });
 });
-/** THE FOURTH CHECKPOINT IS BOUGHT ONCE. A recompute rebuilds 7/14/28 from scratch, so a day-56
- *  reading already taken and already judged on must be carried through it untouched. */
+/** THE FOURTH CHECKPOINT IS BOUGHT ONCE. A recompute rebuilds 7/14/28 from scratch, so a day-56 reading already taken and already judged on must be carried through it
+ *  untouched. */
 describe("a day-56 reading already taken", () => {
   const LATER = new Date("2026-10-01T00:00:00.000Z"), BEHIND_56 = "2026-09-05";
   const ranWindow = (day: number, adjustedLift: number) => ({
@@ -219,8 +215,8 @@ describe("recording what the live check found", () => {
     expect((await loadShippedChangesForTenant(T))[0].verification).toBeNull();
   });
 });
-/** THE PRE-MIGRATION WINDOW. The columns are not there yet, the table is, and production reads the
- *  table: a write that quietly lands in a file is a write nobody will ever read back. */
+/** THE PRE-MIGRATION WINDOW. The columns are not there yet, the table is, and production reads the table: a write that quietly lands in a file is a write nobody will
+ *  ever read back. */
 describe("when the Shipment columns are not there yet", () => {
   const MISSING_COLUMN = { code: "PGRST204", message: "Could not find the 'implemented_at' column of 'shipped_change_proof' in the schema cache" };
   it("refuses a Shipment it cannot store durably instead of pretending it landed", async () => {
@@ -251,16 +247,16 @@ describe("when the Shipment columns are not there yet", () => {
     expect((db.state.file[0] as { verification?: ShipmentVerification }).verification?.status).toBe("verified");
   });
 });
-/** PRODUCT TRUTH: start measurement only after implementation is VERIFIED on the live page. Measuring a
- *  change I never found there would credit search movement to work that may never have landed. */
+/** PRODUCT TRUTH: start measurement only after implementation is VERIFIED on the live page. Measuring a change I never found there would credit search movement to work
+ *  that may never have landed. */
 describe("measurement waits for the change to be found on the page", () => {
   const LATER = new Date("2026-08-20T12:00:00.000Z"), FINAL = "2026-08-19";
   const due = async (v: ShipmentVerification | null) => isDueForMeasure({ ...(await ship()), verification: v }, FINAL, LATER);
   it("measures a verified or partly verified change, and nothing else", async () => {
     expect(await due(verification("verified"))).toBe(true);
     expect(await due(verification("partially_verified"))).toBe(true);
-    // PIN (B): a historical row carrying the retired override label was never actually checked, so it
-    // buys no measurement; verification owes it the one real reading it never got.
+    // PIN (B): a historical row carrying the retired override label was never actually checked, so it buys no measurement; verification owes it the one real reading it
+    // never got.
     expect(await due(verification("operator_confirmed"))).toBe(false);
     expect(await due(null)).toBe(false);            // never checked: there is nothing honest to measure yet
     expect(await due(verification("not_found"))).toBe(false);

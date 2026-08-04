@@ -1,17 +1,11 @@
-/**
- * /onboard - the seven-step setup (Slice 5, 2026-07-24).
- *
- * Server component: resolves the pending account, reads the durable onboarding
- * state, computes the first incomplete step, and renders the wizard. The ?step
- * query may show an EARLIER completed step (or step 7 once connections are
- * reached); every mutation re-checks its own prerequisites server-side, so a
- * URL cannot skip ahead. An active account is redirected to the dashboard by the
- * gate. The legacy URL-first scorecard flow was retired with this slice.
- */
+/** /onboard - the seven-step setup (Slice 5, 2026-07-24). Server component: resolves the account, reads the
+ *  durable onboarding state, computes the first incomplete step, and renders the wizard. The ?step query may
+ *  show an EARLIER completed step (or step 7 once connections are reached); every mutation re-checks its own
+ *  prerequisites server-side, so a URL cannot skip ahead. An active account with nothing missing goes home. */
 
 import { redirect } from "next/navigation";
-import { requireOnboardingTenant } from "@/domains/account";
-import { loadOnboardingState } from "@/domains/runtime";
+import { getTenant, requireOnboardingTenant } from "@/domains/account";
+import { loadOnboardingState, setupGap } from "@/domains/runtime";
 import { OnboardWizard, type FirstFindings } from "./onboard-wizard";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +26,12 @@ export default async function OnboardPage({
   // in a loop. One that has nothing missing is still sent home, exactly as before.
   const { tenantId } = await requireOnboardingTenant({ allowActive: true });
   const state = await loadOnboardingState(tenantId);
-  if (state.status === "active" && state.currentStep === 6) redirect("/?notice=already_launched");
+  // An active account goes home only when NOTHING is actually missing. Sending it home on step 6 alone bounced
+  // the one case this page exists for: terms nobody accepted are owed at step 7, and the guard sends it back.
+  if (state.status === "active") {
+    const account = await getTenant(tenantId).catch(() => null);
+    if (account && (await setupGap(tenantId, account).catch(() => ({ step: 1 as const }))) == null) redirect("/?notice=already_launched");
+  }
 
   const requested = clampStep((await searchParams).step);
   const current = state.currentStep;

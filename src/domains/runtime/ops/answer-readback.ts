@@ -3,82 +3,73 @@ import "server-only";
 /**
  * answer-readback - READING THE STORED AI ANSWERS BACK.
  *
- * Collection buys the answers, this reads them. ONE strict structured call reads a BATCH of stored answers (what each said, who it
- * named, what it left out) and Evidence persists one reading per observation. One call per answer capped a pass at five readings, so
- * a 140 answer day needed twenty-eight passes and only ever got eight. IT COSTS NOTHING WHEN NOTHING CHANGED: a call fires only on a
- * piece nobody has read yet.
+ * Collection buys the answers, this reads them. ONE strict structured call reads a BATCH of stored answers (what each said, who it named, what it left
+ * out) and Evidence persists one reading per observation; one call per answer capped a pass at five readings, so a 140 answer day needed twenty-eight
+ * passes and only ever got eight. IT COSTS NOTHING WHEN NOTHING CHANGED: a call fires only on a piece nobody has read yet. A LONG ANSWER IS READ WHOLE,
+ * IN PIECES, ACROSS AS MANY PASSES AS IT TAKES: it is split on its own paragraph breaks, every piece rides a batch keyed `id#part`, and what a pass
+ * reads merges into ONE stored reading beside a COVERAGE CHECKPOINT naming which pieces of which answer hash are in it. Until every piece is accounted
+ * for that reading carries a deliberately different hash, so the row stays due and the next pass resumes at the first unread piece; a six piece ceiling
+ * used to throw a long answer's tail away and the one-at-a-time fallback stamped the FULL hash over 12,000 characters it had not read.
  *
- * A LONG ANSWER IS READ WHOLE, IN PIECES, ACROSS AS MANY PASSES AS IT TAKES. A slot reads 5,000 characters, so a longer answer is
- * split on its own paragraph breaks and every piece rides a batch keyed `id#part`. The pieces a pass reads merge into ONE stored
- * reading beside a COVERAGE CHECKPOINT naming exactly which pieces of which answer hash are in it. An answer is ANALYZED only when
- * every piece is accounted for; until then the stored reading carries a deliberately different hash, so the row stays due and the
- * next pass resumes at the first unread piece. A six piece ceiling used to throw a long answer's tail away, and the one-at-a-time
- * fallback read 12,000 characters while stamping the FULL answer hash, so a row looked finished and the rest was lost forever.
+ * EVERY READING IS GROUNDED IN ITS OWN ANSWER: each returned item is re-checked against the exact text it was read from and a failing item is dropped
+ * alone with the number named in what is stored, because one batch grounded as a single body of text let a number only answer A contained validate a
+ * fabricated claim about answer B. EVERY PIECE THIS PASS SENDS COMES BACK SETTLED: merged, or dropped with its reason, and a piece never sent is owed.
  *
- * EVERY READING IS GROUNDED IN ITS OWN ANSWER. The gateway grounds one batch call against all fifteen answers as one body of text, so
- * a number only answer A contained could validate a fabricated claim about answer B. Each returned item is re-checked against the
- * exact text it was read from and a failing item is dropped alone, with the number named in what is stored. EVERY PIECE THIS PASS
- * SENDS COMES BACK SETTLED: merged, or dropped with the reason stored, and a piece never sent is still owed. A whole batch that comes
- * back unusable drops to ONE CALL PER PIECE, each grounded in its own piece's text, so one poisoned answer cannot stall the day.
- * Runtime orchestrates: Decision's gateway produces the reading, Evidence stores it, and Evidence never imports Decision.
+ * WHOSE FAILURE WAS IT DECIDES EVERYTHING. A 429, a 5xx, a dropped connection or a spent budget is the PROVIDER's: nothing is stored, the answers stay
+ * due, and the pass STOPS rather than fanning one throttled batch into fifteen immediate single calls. A refusal on the CONTENT settles, naming itself
+ * permanent, and a batch refused that way still drops to ONE CALL PER PIECE so one poisoned answer cannot stall the day. On 3 and 4 August all 278
+ * answers were rejected on a rate limit and stamped with their own answer hash, so the system believed it had read every one forever; dueness comes off
+ * the stored state now, which brings those rows back with no migration and no answer bought twice. A DAY IS NOT THE UNIT OF THE DEBT EITHER: a pass reads
+ * the OLDEST day inside a seven day window that still owes a reading, not whichever day the run happens to belong to, because the answers are already
+ * bought and re-reading them costs the reader alone. Older than that window an answer stays unread forever and every surface says so. THE DETERMINISTIC
+ * VERDICT IS NEVER THE MODEL'S TO
+ * REFUSE either: every answer this pass settles carries mentioned true OR false, off the answer's own words and the addresses it credited, so Visibility
+ * divides by every answer read rather than by the ones the matcher happened to match. Runtime orchestrates, and Evidence never imports Decision.
  */
 
 import { loadBrandIdentity, type BrandIdentity } from "@/domains/account/brand-identity";
 import { buildGroundedNumbers, findUngroundedNumbers } from "@/domains/decision/llm/numeric-fidelity";
 import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import { draftProseStringValues, type AnswerAnalysis, type AnswerAnalysisBatch } from "@/domains/decision/llm/schemas";
-import type { AiObservationView } from "@/domains/evidence/ai-visibility/ai-observations";
+import { isAnalysisSettled, type AiObservationView } from "@/domains/evidence/ai-visibility/ai-observations";
 import { log } from "@/lib/logger";
 import { readActiveTrackedPrompts, type TrackedQuestion } from "../prompt-set";
 
 type AnalyzableObservation = AiObservationView;
 
-/** Evidence owns the observation store; Runtime asks for it lazily so this module
- *  loads (and every test runs) without touching it. */
-async function evidenceObservations() {
-  return import("@/domains/evidence/ai-visibility/ai-observations");
-}
+/** Evidence owns the observation store; Runtime asks for it lazily so this module loads (and every test runs) without touching it. */
+const evidenceObservations = () => import("@/domains/evidence/ai-visibility/ai-observations");
 
 const ANSWER_ANALYSIS_SYSTEM =
-  "You read one AI assistant's answer and record what it says. You are a reader, not an author. " +
-  "Restate only what the ANSWER TEXT contains: every claim must use the answer's own wording, every entity, " +
-  "competitor, content type and question must be one the answer itself names. " +
-  "Never invent or infer a URL, a number, a statistic, a price, a date, a ranking or a fact that is not in the answer text. " +
-  "Never add your own knowledge about the subject and never judge whether the answer is correct. " +
-  "If the answer does not name the brand you are given, set mentioned to false and leave position and context null. " +
-  "position is the order the name appears in the answer (1 means named first), never a search ranking. " +
-  "materialOmissions lists what a reader of THIS answer still would not know, described in plain words, with no invented facts. " +
-  "Return every field; use an empty array when the answer gives you nothing for it.";
+  "You read one AI assistant's answer and record what it says. You are a reader, not an author. Restate only what the ANSWER TEXT contains: every claim "
+  + "must use the answer's own wording, every entity, competitor, content type and question must be one the answer itself names. Never invent or infer a "
+  + "URL, a number, a statistic, a price, a date, a ranking or a fact that is not in the answer text. Never add your own knowledge about the subject and "
+  + "never judge whether the answer is correct. If the answer does not name the brand you are given, set mentioned to false and leave position and "
+  + "context null. position is the order the name appears in the answer (1 means named first), never a search ranking. materialOmissions lists what a "
+  + "reader of THIS answer still would not know, described in plain words, with no invented facts. Return every field; use an empty array when the "
+  + "answer gives you nothing for it.";
 
 /** The BATCH framing on top of exactly the same reader rules: many answers, one call, one reading each. */
-const BATCH_ANALYSIS_SYSTEM = ANSWER_ANALYSIS_SYSTEM +
-  " You are given SEVERAL answers, each introduced by its own OBSERVATION line. Read each answer entirely on its own: " +
-  "never carry a claim, an entity or a competitor from one answer into another, and never let one answer fill a gap in another. " +
-  "Return exactly one entry in analyses for each OBSERVATION, with observationId copied character for character from that " +
-  "OBSERVATION line. Never merge two answers into one entry, never write an entry for an id you were not given, and never leave one out.";
+const BATCH_ANALYSIS_SYSTEM = ANSWER_ANALYSIS_SYSTEM
+  + " You are given SEVERAL answers, each introduced by its own OBSERVATION line. Read each answer entirely on its own: never carry a claim, an entity "
+  + "or a competitor from one answer into another, and never let one answer fill a gap in another. Return exactly one entry in analyses for each "
+  + "OBSERVATION, with observationId copied character for character from that OBSERVATION line. Never merge two answers into one entry, never write an "
+  + "entry for an id you were not given, and never leave one out.";
 
-/** How many pieces ONE structured call reads back. Fifteen: one reading is a compact object, and fifteen
- *  pieces of 5,000 characters is roughly 19,000 tokens in, which one gpt-5-mini call reads comfortably. */
-const ANSWERS_PER_BATCH = 15;
-/** How many BATCH calls one pass may make. Four is 60 pieces a pass, so a 140 answer day is read back in
- *  three passes rather than the twenty-eight one-answer-per-call needed. */
-const BATCH_CALLS_PER_PASS = 4;
-/** How many pieces one pass may read back in total. Zero new answers still costs zero. */
-const MAX_ANALYSES_PER_PASS = ANSWERS_PER_BATCH * BATCH_CALLS_PER_PASS;
-/** How much of ONE answer ONE slot reads. A longer answer is not cut off: it is SPLIT into this many
- *  characters at a time, and every piece is read eventually even if that takes several passes. */
-const BATCH_ANSWER_CHARS = 5_000;
-/** When a whole batch comes back unusable, how many of ITS OWN pieces this pass may re-read ONE AT A TIME.
- *  Sized to cover one whole batch PER FAILED BATCH: a pass budget meant batch one's wholesale failure ate
- *  the entire allowance and batches two, three and four settled nothing at all. */
-const SINGLE_FALLBACKS_PER_BATCH = ANSWERS_PER_BATCH;
-/** Estimated spend: one batch call reads about fifteen pieces (gpt-5-mini, roughly 19k tokens in). */
-const BATCH_ANALYSIS_COST_USD = 0.05;
-/** Estimated spend for one single-piece call (gpt-5-mini, one piece in). */
-const ANSWER_ANALYSIS_COST_USD = 0.01;
-/** gpt-5-mini reasons before it writes, and a batch writes fifteen readings. The gateway floors every
- *  reasoning call at 90 seconds; a batch asks for more so a slow one is not thrown away half-written. */
-const BATCH_TIMEOUT_MS = 180_000;
+/** How many pieces ONE structured call reads back, how many such calls a pass may make, and the pass total. Fifteen compact readings is roughly 19,000
+ *  tokens in, which one gpt-5-mini call reads comfortably; four of them is 60 pieces, so a 140 answer day is read back in three passes rather than the
+ *  twenty-eight one-answer-per-call needed. Zero new answers still costs zero. */
+const ANSWERS_PER_BATCH = 15, BATCH_CALLS_PER_PASS = 4, MAX_ANALYSES_PER_PASS = ANSWERS_PER_BATCH * BATCH_CALLS_PER_PASS;
+/** How much of ONE answer ONE slot reads (a longer answer is not cut off, it is SPLIT into this many characters at a time and every piece is read
+ *  eventually), the estimated spend for one batch call and for one single-piece call, and the batch timeout: gpt-5-mini reasons before it writes and a
+ *  batch writes fifteen readings, so it asks for more than the gateway's 90 second reasoning floor rather than have a slow one thrown away half-written. */
+const BATCH_ANSWER_CHARS = 5_000, BATCH_ANALYSIS_COST_USD = 0.05, ANSWER_ANALYSIS_COST_USD = 0.01, BATCH_TIMEOUT_MS = 180_000;
+/** How many reporting days back a pass looks for answers nobody has read (due-work's unread probe holds the same number). Seven: the answers are already
+ *  bought so a re-read costs the reader and no provider, and a bound is what stops one outage becoming an unbounded backlog. ONE DAY IS READ PER PASS,
+ *  chosen off a lean projection of the window, so the egress stays exactly what reading a single day always was. `dayMinus` is `day` less n days as a
+ *  label, taken at noon so no daylight-saving edge can move it. */
+const READBACK_WINDOW_DAYS = 7;
+const dayMinus = (day: string, n: number): string => new Date(Date.parse(`${day}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
 
 /** THE RESUME CHECKPOINT, stored beside the reading. `read` are the pieces merged into it, `dropped` those
  *  sent that came back unusable. A piece in NEITHER is still owed, which keeps a part-read answer on the
@@ -93,27 +84,24 @@ function coverageOf(row: AnalyzableObservation): Coverage | null {
 
 /** PURE. The pieces of this answer nobody has settled yet, in the order the answer said them. */
 function missingParts(row: AnalyzableObservation): number[] {
-  const parts = splitAnswer(String(row.answerText ?? "")).length;
-  const c = coverageOf(row);
+  const parts = splitAnswer(String(row.answerText ?? "")).length, c = coverageOf(row);
   const settled = new Set([...(c?.read ?? []), ...(c?.dropped ?? [])]);
   return Array.from({ length: parts }, (_, i) => i + 1).filter((p) => !settled.has(p));
 }
 
-/** PURE. The reading already merged for this answer, without the bookkeeping, so a later pass merges its
- *  new pieces on top instead of starting over and re-paying for what is already read. */
+/** PURE. The reading already merged for this answer, without the bookkeeping, so a later pass merges its new pieces on top instead of starting over. */
 function priorReading(row: AnalyzableObservation): AnswerAnalysis | null {
   if (coverageOf(row) == null || row.analysis == null) return null;
-  const { coverage: _c, readParts: _p, answerReadInPart: _a, reason: _r, matchedBy: _m, rejected: _j, ...rest } =
+  const { coverage: _c, readParts: _p, answerReadInPart: _a, reason: _r, matchedBy: _m, rejected: _j, outcome: _o, ...rest } =
     row.analysis as Record<string, unknown>;
   return rest as unknown as AnswerAnalysis;
 }
 
-/** PURE. The hash a PART READ answer is stamped with: derived from the answer hash and deliberately NOT
- *  equal to it, so the settled test (analysisHash === answerHash) keeps saying "not done yet". */
+/** PURE. The hash a PART READ answer is stamped with: derived from the answer hash and deliberately NOT equal to it, so the settled test says "not yet". */
 const partialHash = (c: Coverage): string => `${c.hash}~${c.read.length + c.dropped.length}of${c.parts}`;
 
-/** PURE. Which stored observations still owe a reading: an answer that landed, and whose reading is missing,
- *  was taken against a DIFFERENT answer, or covers only some of this one. */
+/** PURE. Which stored observations still owe a reading: an answer that landed whose reading is missing, was taken against a DIFFERENT answer, covers
+ *  only some of this one, or was rejected for a reason that was never the answer's own. */
 export function selectAnalysisTargets(rows: readonly AnalyzableObservation[], max = MAX_ANALYSES_PER_PASS): readonly AnalyzableObservation[] {
   // A PASS TAKES ON ONLY WHAT IT CAN FINISH, COUNTED IN PIECES. Selection packs the same batches the reader
   // packs, so the call budget can never run out mid-list. An answer with more unread pieces than one batch
@@ -134,24 +122,18 @@ export function selectAnalysisTargets(rows: readonly AnalyzableObservation[], ma
   return out;
 }
 
-/** PURE. Every stored answer that owes a reading, before any budget is applied. */
+/** PURE. Every stored answer that owes a reading, before any budget is applied, on the SAME rule Evidence's own `isAnalysisSettled` applies, so the
+ *  planner, the due-work probe and this pass can never disagree about what is finished. */
 function dueForAnalysis(rows: readonly AnalyzableObservation[]): readonly AnalyzableObservation[] {
   return rows
     .filter((r) => Boolean(r.id) && Boolean(r.answerText) && Boolean(r.answerHash))
-    .filter((r) => r.analysis == null || r.analysisHash !== r.answerHash);
+    .filter((r) => !isAnalysisSettled({ analysis: r.analysis, analysisHash: r.analysisHash, answerHash: r.answerHash }));
 }
 
-/** ONE PIECE of one answer as a call sees it: the row, the question it answered, the exact text this piece
- *  was read from, and which piece of how many it is. A short answer is one piece keyed by the observation
- *  id alone, so nothing about reading a short answer changed. */
-type AnalysisTarget = {
-  row: AnalyzableObservation; question: string;
-  /** What the model echoes back: the observation id for a one piece answer, `id#2` for the second piece of
-   *  a split one, so a reading always comes home to the piece it was taken on. */
-  key: string; part: number; parts: number;
-  /** The only text this piece may be checked against, which is what makes per answer grounding possible. */
-  text: string;
-};
+/** ONE PIECE of one answer as a call sees it: the row, the question it answered, the exact text this piece was read from (the only text it may be
+ *  checked against, which is what makes per answer grounding possible), and which piece of how many it is. `key` is what the model echoes back: the
+ *  observation id for a one piece answer, `id#2` for the second piece of a split one, so a reading always comes home to the piece it was taken on. */
+type AnalysisTarget = { row: AnalyzableObservation; question: string; key: string; part: number; parts: number; text: string };
 
 /** PURE. One answer as the bounded pieces a call can read, covering ALL of it. A short answer is ONE piece.
  *  A long one is cut at the last paragraph break before the budget (then a sentence end, then a space, then
@@ -210,30 +192,35 @@ function numberNotInOwnAnswer(analysis: AnswerAnalysis, ownText: string): string
   return findUngroundedNumbers(draftProseStringValues(analysis).join("\n"), ledger)[0] ?? null;
 }
 
+/** WHY A READING DID NOT LAND, and therefore who owes what. `transient` = the provider throttled, broke or timed out, so nothing is stored and the
+ *  answer stays due; `budget` = no call was made at all; `refused` = the model genuinely would not read THIS content, which settles. `TRANSIENT` is
+ *  the provider's fault as it appears in the error strings callStructuredLLM collects; anything else belongs to the answer. */
+type ReadFailure = "transient" | "budget" | "refused";
+const TRANSIENT = /openai_(429|5\d\d)|fetch_failed|time(d|-| )?out|abort|network|socket|ECONN/i;
+
 type AnalysisDeps = {
   readObservations?: (tenantId: string, opts: { day?: string }) => Promise<readonly AnalyzableObservation[]>;
+  /** Which recent days still owe a reading, oldest first, off the CHEAPEST projection there is (identity, status and the two settlement hashes, never the
+   *  answer text or the journey): a whole-window read of full rows is megabytes an account per pass and is the shape that has timed a statement out here. */
+  unreadDays?: (tenantId: string, fromDay: string, toDay: string) => Promise<readonly string[]>;
   persist?: (tenantId: string, observationId: string, analysis: Record<string, unknown>, analysisHash: string) => Promise<void>;
-  analyze?: (input: { tenantId: string; question: string; engine: string; answerText: string; brand: string }) => Promise<AnswerAnalysis | null>;
-  /** ONE call over many pieces. Returns a reading per piece key; null = the whole call was unusable
-   *  (a refusal, a firewall, or a shape the gateway could not validate even after its own one retry). */
-  analyzeBatch?: (input: { tenantId: string; brand: string; targets: readonly AnalysisTarget[] }) => Promise<Map<string, AnswerAnalysis> | null>;
+  analyze?: (input: { tenantId: string; question: string; engine: string; answerText: string; brand: string }) => Promise<AnswerAnalysis | ReadFailure | null>;
+  /** ONE call over many pieces. Returns a reading per piece key, or WHY the whole call produced none. Null is
+   *  read as `refused`, so a caller that only knows "unusable" still degrades exactly as it always did. */
+  analyzeBatch?: (input: { tenantId: string; brand: string; targets: readonly AnalysisTarget[] }) => Promise<Map<string, AnswerAnalysis> | ReadFailure | null>;
   readPrompts?: (tenantId: string) => Promise<TrackedQuestion[] | null>;
-  /** WHO THIS ACCOUNT IS. Tests inject it; production always loads the real one and
-   *  never falls back to an empty brand (see runAnswerAnalyses). */
+  /** WHO THIS ACCOUNT IS. Tests inject it; production always loads the real one and never falls back to an empty brand (see runAnswerAnalyses). */
   identity?: BrandIdentity;
-  /** The LLM transport, so a test can exercise this exact prompt without a key. */
-  complete?: CompleteFn;
+  complete?: CompleteFn; // the LLM transport, so a test can exercise this exact prompt without a key
   max?: number;
 };
 
-/** Which path found the account in an answer: the model's reading, the answer's own
- *  words, an address it credited, or both the model and the words. A later reader can
- *  tell a model miss from a real absence, which a bare true/false never could. */
+/** Which path found the account in an answer: the model's reading, the answer's own words, an address it credited, or both the model and the words. A
+ *  later reader can tell a model miss from a real absence, which a bare true/false never could. */
 type BrandMatchPath = "model" | "text" | "citation" | "both";
 
-/** A name counts only as a WHOLE word, tolerant of the spacing and punctuation a
- *  writer chose ("Ritz Builders", "ritz-builders"), so "Ritz" is never found inside
- *  "Ritzy" and no substring of an unrelated word can invent a mention. */
+/** A name counts only as a WHOLE word, tolerant of the spacing and punctuation a writer chose ("Ritz Builders", "ritz-builders"), so "Ritz" is never
+ *  found inside "Ritzy" and no substring of an unrelated word can invent a mention. */
 function formPattern(form: string): RegExp | null {
   const parts = form.match(/[\p{L}\p{N}]+/gu);
   if (parts == null || parts.length === 0) return null;
@@ -244,8 +231,7 @@ function formPattern(form: string): RegExp | null {
 const hostOfUrl = (raw: string): string =>
   raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? "";
 
-/** PURE. Does this answer name the account, in its own text or in what it credited?
- *  null = neither, which is a real absence and not a shrug. */
+/** PURE. Does this answer name the account, in its own text or in what it credited? null = neither, a real absence and not a shrug. */
 function findBrand(identity: BrandIdentity, answerText: string, citationUrls: readonly string[] | null): Exclude<BrandMatchPath, "model" | "both"> | null {
   if (answerText && identity.forms.some((f) => formPattern(f)?.test(answerText) === true)) return "text";
   const host = identity.host;
@@ -253,9 +239,15 @@ function findBrand(identity: BrandIdentity, answerText: string, citationUrls: re
   return null;
 }
 
-/** ONE strict structured call per PIECE. The piece's own text is the whole input and the whole grounding, so
- *  a fallback reading is grounded exactly like a batch one. Null on anything that is not a validated draft. */
-async function analyzeOne(input: { tenantId: string; question: string; engine: string; answerText: string; brand: string }, complete?: CompleteFn): Promise<AnswerAnalysis | null> {
+/** PURE. Whose failure a non-drafted gateway result was. A budget block bought nothing; a throttle, a server fault or a timeout is the provider's. */
+function failureOf(out: { status: string; errors?: readonly string[] }): ReadFailure {
+  if (out.status === "blocked_budget" || out.status === "off") return "budget";
+  return (out.errors ?? []).some((e) => TRANSIENT.test(e)) ? "transient" : "refused";
+}
+
+/** ONE strict structured call per PIECE: the piece's own text is the whole input and the whole grounding, so a fallback reading is grounded exactly
+ *  like a batch one. Otherwise, whose failure it was. */
+async function analyzeOne(input: { tenantId: string; question: string; engine: string; answerText: string; brand: string }, complete?: CompleteFn): Promise<AnswerAnalysis | ReadFailure> {
   const user = [
     `BRAND TO LOOK FOR: ${input.brand || "(none supplied)"}`,
     `QUESTION ASKED: ${input.question}`,
@@ -273,16 +265,16 @@ async function analyzeOne(input: { tenantId: string; question: string; engine: s
     maxTokens: 3000,
     ...(complete ? { complete } : {}),
   });
-  return out.status === "drafted" ? (out.value as AnswerAnalysis) : null;
+  return out.status === "drafted" ? (out.value as AnswerAnalysis) : failureOf(out);
 }
 
 /**
  * ONE strict structured call over MANY pieces, same gateway, same reader rules. Returns a reading per piece
- * key; null means the whole call was unusable, which the caller degrades from rather than treating as fifteen
+ * key, or WHOSE failure produced none, which the caller degrades from rather than treating as fifteen
  * refusals. An entry naming a key this batch did not ask about is DROPPED and a repeated key keeps the first:
  * a reading must belong to the piece it was taken on.
  */
-async function analyzeMany(input: { tenantId: string; brand: string; targets: readonly AnalysisTarget[] }, complete?: CompleteFn): Promise<Map<string, AnswerAnalysis> | null> {
+async function analyzeMany(input: { tenantId: string; brand: string; targets: readonly AnalysisTarget[] }, complete?: CompleteFn): Promise<Map<string, AnswerAnalysis> | ReadFailure> {
   const bodies = input.targets.map((t) => t.text);
   const user = [`BRAND TO LOOK FOR: ${input.brand || "(none supplied)"}`, `Read all ${input.targets.length} answers below. Return one entry per OBSERVATION.`]
     .concat(input.targets.map((t, i) => [
@@ -309,8 +301,9 @@ async function analyzeMany(input: { tenantId: string; brand: string; targets: re
     ...(complete ? { complete } : {}),
   });
   if (out.status !== "drafted") {
-    log.warn("[daily-observations] a batch reading of stored answers came back unusable; falling back to one piece at a time", { tenantId: input.tenantId, pieces: input.targets.length, status: out.status });
-    return null;
+    const why = failureOf(out);
+    log.warn("[daily-observations] a batch reading of stored answers did not land", { tenantId: input.tenantId, pieces: input.targets.length, status: out.status, why });
+    return why;
   }
   const asked = new Set(input.targets.map((t) => t.key));
   const byId = new Map<string, AnswerAnalysis>();
@@ -335,14 +328,22 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
   const readObservations = deps.readObservations ?? (async (t, o) => (await evidenceObservations()).readAiObservationViews(t, o));
   const persist = deps.persist
     ?? (async (t, id, analysis, hash) => (await evidenceObservations()).persistAnswerAnalysis(t, id, analysis, hash));
-  const rows = await readObservations(tenantId, { day }).catch(() => null);
+  // THE DAY THIS PASS READS IS THE OLDEST ONE THAT STILL OWES A READING, which is not always the run's own: an answer bought on Monday and never read is
+  // a debt on Tuesday too, and reading only the run's day left every earlier day permanently unreachable the moment its own passes ended.
+  const unreadDays = deps.unreadDays ?? (async (t: string, from: string, to: string) => {
+    const ev = await evidenceObservations(), seen = await ev.readAiObservations(t, { fromDay: from, toDay: to, projection: "outcome" });
+    return [...new Set(seen.filter((r) => r.status === "observed" && r.answer_hash != null
+      && !ev.isAnalysisSettled({ analysis: r.analysis, analysisHash: r.analysis_hash ?? null, answerHash: r.answer_hash ?? null })).map((r) => r.reporting_day))].sort(); });
+  const owed = await unreadDays(tenantId, dayMinus(day, READBACK_WINDOW_DAYS - 1), day).catch(() => null);
+  const reading = owed?.[0] ?? day; // the day this pass actually reads, which every line below names rather than the run's own
+  const rows = await readObservations(tenantId, { day: reading }).catch(() => null);
   if (rows == null || rows.length === 0) return 0;
   const budget = deps.max ?? MAX_ANALYSES_PER_PASS;
   const targets = selectAnalysisTargets(rows, budget);
   if (targets.length === 0) return 0; // nothing new: no call, no cent
   // WHAT THIS PASS IS NOT TAKING ON, said out loud. Deferred answers stay due and the next pass reads them.
   const deferred = dueForAnalysis(rows).length - targets.length;
-  if (deferred > 0) log.info("[daily-observations] more new answers than one pass reads back; the rest stay due", { tenantId, day, reading: targets.length, deferred });
+  if (deferred > 0) log.info("[daily-observations] more new answers than one pass reads back; the rest stay due", { tenantId, day: reading, answers: targets.length, deferred });
 
   // WHO AM I LOOKING FOR. The pass used to send an EMPTY brand, so the model was asked whether an answer
   // named nobody and every reading came back "not mentioned". An identity with no forms buys nothing.
@@ -368,13 +369,15 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     // reads the piece; this reads the same answer for the account's own name and its own address. The verdict
     // is either one of them, and `matchedBy` records which found it, so a model miss never looks like a real absence.
     const found = findBrand(identity, answerText, row.citationUrls);
-    // A REFUSAL IS A RESULT, stored against the answer it was taken on. Persisting nothing left the row at the
-    // top of the worklist, so a rejection re-bought the same calls every pass, forever. What I DID see in the
-    // text still rides along: a refusal is not a reason to lose a mention I can prove.
+    // A REFUSAL ON THE CONTENT IS A RESULT, stored against the answer it was taken on and named PERMANENT, so
+    // the row leaves the worklist instead of re-buying the same refusal every pass. A provider fault never
+    // reaches here at all. THE DETERMINISTIC VERDICT RIDES ALONG IN BOTH POLARITIES: storing it only when the
+    // name was found is what left every negative with no verdict, so the mention rate divided by its own
+    // matches and read 100 percent on a day nothing was actually read.
     if (analysis == null) {
       const rejection = {
-        rejected: true, reason, ...extra,
-        ...(found ? { ownedBrandMention: { mentioned: true, position: null, context: null }, matchedBy: found } : {}),
+        rejected: true, outcome: "refused", reason, ...extra,
+        ownedBrandMention: { mentioned: found != null, position: null, context: null }, matchedBy: found,
       };
       // A REFUSAL IS WRITTEN WITH THE SAME DISCIPLINE AS A READING: one retry, and a loss said out loud.
       const kept = await persist(tenantId, row.id, rejection, hash).then(() => true)
@@ -434,23 +437,24 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     }, hash);
   };
 
-  /** The degrade: re-read what a broken batch was carrying, ONE CALL PER PIECE, each grounded in that piece's
-   *  own text, bounded to THAT batch. What the bound leaves is untouched, so the next pass picks it up free. */
-  const readOneByOne = async (group: readonly (readonly AnalysisTarget[])[]): Promise<void> => {
-    let singles = SINGLE_FALLBACKS_PER_BATCH;
+  /** The degrade: re-read what a REFUSED batch was carrying, ONE CALL PER PIECE, each grounded in that piece's
+   *  own text. A provider fault ENDS the fallback where it happened: what was already read is settled, and the
+   *  rest is untouched, unpaid and still owed. Fanning a rate limit into fifteen more calls is the storm. */
+  const readOneByOne = async (group: readonly (readonly AnalysisTarget[])[]): Promise<boolean> => {
     for (const pieces of group) {
-      if (singles <= 0) return; // untouched, unpaid, still owed
       const readings = new Map<string, AnswerAnalysis>();
       const sent: AnalysisTarget[] = [];
+      let stalled = false;
       for (const p of pieces) {
-        if (singles <= 0) break;
-        singles -= 1;
+        const one = await analyze({ tenantId, question: p.question, engine: p.row.engine, answerText: p.text, brand: identity.name }).catch(() => "transient" as const) ?? "refused";
+        if (one === "transient" || one === "budget") { stalled = true; break; }
         sent.push(p);
-        const one = await analyze({ tenantId, question: p.question, engine: p.row.engine, answerText: p.text, brand: identity.name }).catch(() => null);
-        if (one != null) readings.set(p.key, one);
+        if (one !== "refused") readings.set(p.key, one);
       }
-      await settleAnswer(sent, readings);
+      if (sent.length > 0) await settleAnswer(sent, readings);
+      if (stalled) return true; // the provider is refusing to serve; the next batch would only ask it again
     }
+    return false;
   };
 
   // ONE ANSWER'S UNREAD PIECES TRAVEL TOGETHER, so a long answer is merged inside the call that read it.
@@ -474,13 +478,20 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     if (calls <= 0) break;
     calls -= 1;
     const byAnswer = [...group.reduce((m, p) => m.set(p.row.id, [...(m.get(p.row.id) ?? []), p]), new Map<string, AnalysisTarget[]>()).values()];
-    const readings = await analyzeBatch({ tenantId, brand: identity.name, targets: group }).catch(() => null);
-    // WHOLESALE FAILURE. The gateway already retried this call once against the same schema, so a second
+    const readings = await analyzeBatch({ tenantId, brand: identity.name, targets: group }).catch(() => "transient" as const) ?? "refused";
+    // A RATE LIMIT IS NOT FIFTEEN REFUSALS. One throttled batch used to fan into fifteen immediate single
+    // calls, which is how ten batch 429s became sixty-nine more; the pass stops here and everything it was
+    // carrying stays due, unstamped and unpaid.
+    if (readings === "transient" || readings === "budget") {
+      log.warn("[daily-observations] the reader could not be reached, so I stopped this pass and left these answers to be read next time", { tenantId, day: reading, why: readings, owed: group.length });
+      break;
+    }
+    // REFUSED ON THE CONTENT. The gateway already retried this call once against the same schema, so a second
     // identical batch would buy the same refusal: the group drops to one piece at a time instead.
-    if (readings == null) { await readOneByOne(byAnswer); continue; }
+    if (readings === "refused") { if (await readOneByOne(byAnswer)) break; continue; }
     // A MISSING, UNKNOWN OR UNGROUNDED PIECE IS ONE DROP, not fifteen. Its neighbours keep their readings.
     for (const pieces of byAnswer) await settleAnswer(pieces, readings);
   }
-  if (written > 0) log.info("[daily-observations] read back new AI answers", { tenantId, day, written });
+  if (written > 0) log.info("[daily-observations] read back new AI answers", { tenantId, day: reading, written });
   return written;
 }

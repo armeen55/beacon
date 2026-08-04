@@ -67,7 +67,7 @@ function answerRow(r: AiObservationRecord): AnswerRow {
     askedAt: r.requested_at ?? null, answeredAt: r.completed_at ?? null, receipt: r.cache_key ?? null,
     // A ROW THAT PRESERVED NO COST IS UNKNOWN, NEVER FREE: zero is the absence of a receipt, and the drill-down resolves it from the cache receipt this row names.
     costUsd: Number(r.cost_usd) > 0 ? Number(r.cost_usd) : null, failureReason: r.failure_reason ?? null,
-    reading: settled ? "read" : r.analysis != null ? "part" : "unread",
+    reading: settled ? "read" : r.analysis != null && (r.analysis as { rejected?: unknown }).rejected !== true ? "part" : "unread",
   };
 }
 
@@ -125,11 +125,11 @@ async function VisibilityBody({ tenantId }: { tenantId: string }) {
   // one whole answer loads only when the operator opens that one reading.
   const dayRows = segments.flatMap((s) => s.days).filter((d) => d.observed > 0);
   const latestDay = dayRows[dayRows.length - 1]?.day ?? reportingDay(new Date());
+  // A READ I COULD NOT MAKE IS NOT AN EMPTY DAY. Falling back to a bare empty list DELETED the whole answer journey from the page over one slow or
+  // broken read, which a customer reads as "there is nothing here".
   const stored = await valueWithDeadline(
-    readAiObservations(tenantId, { day: latestDay, limit: ANSWERS_PAGE, projection: "list" }).catch(() => [] as AiObservationRecord[]),
-    [] as AiObservationRecord[],
-  );
-  const latest = stored.map(answerRow);
+    readAiObservations(tenantId, { day: latestDay, limit: ANSWERS_PAGE, projection: "list" }).catch(() => null), null as AiObservationRecord[] | null);
+  const latest = (stored ?? []).map(answerRow);
 
   const decayRows = Array.from((decay as Map<string, GoogleViewInput["decay"][number] & { windowNowEnd?: string }>).values());
   const queriesByPage = new Map([...(pageSignals as Map<string, GscPageSignal>).entries()]
@@ -182,7 +182,8 @@ async function VisibilityBody({ tenantId }: { tenantId: string }) {
         : <>{ai.blocks.map((b) => <Block key={b.title} b={b} />)}
           <AnswerJourney tenantId={tenantId} days={dayRows.map((d) => ({ day: d.day, label: monthDayLabel(d.day) ?? d.day }))} day={latestDay}
             note="The questions I put to the assistants on the day you pick, and what came back. Open one for the whole answer behind it."
-            first={latest.map((r) => answerView(r))} cursor={cursorOf(stored)} page={pageOf} open={openAnswer} /></>}</div>}
+            unavailable={stored == null ? READ_FAILED : null}
+            first={latest.map((r) => answerView(r))} cursor={cursorOf(stored ?? [])} page={pageOf} open={openAnswer} /></>}</div>}
     />
   );
 }

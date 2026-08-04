@@ -51,10 +51,9 @@ export const RESEARCH_CYCLE_DEADLINE_MS = 210_000;
 /** A day I cannot count is never a day I finished. */
 const DAY_UNREADABLE = "I could not read where today's AI checks stand, so I stopped rather than call the day finished. I will pick this up on the next pass.";
 
-/** The four Slice 6 evidence phases, each backed by one funnel unit executor. */ const FUNNEL_PHASES = new Set<ResearchPhase>(["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]);
-
+/** The four Slice 6 evidence phases, each backed by one funnel unit executor. */
+const FUNNEL_PHASES = new Set<ResearchPhase>(["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]);
 type ResearchCycleOptions = { now?: () => Date; deadlineMs?: number; steps?: Partial<ResearchCycleSteps> };
-
 /** One phase's outcome: the merged progress, plus an optional `pause` error when the phase reported a recoverable failure that is NOT a throw (a partial
  *  connector refresh). A thrown error is handled separately by the cycle loop, which records the error and pauses. */
 type PhaseOutcome = { progress: ResearchRunProgress; pause?: ResearchRunError };
@@ -132,7 +131,9 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     // forever, and closing is what frees TODAY's cycle to be claimed.
     if (run.cycle_key.slice(-10) !== reportingDay(nowFn().getTime())) {
       log.info("[research-run] this pass belongs to a day that has ended, so I closed it and start today fresh", { tenantId, day: run.cycle_key.slice(-10) });
-      await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: null }); // the numbers go down first, and they are TODAY's, read by this pass's own due-work
+      // THE DEAD RUN KEEPS ITS OWN NUMBERS. `progress` above carries the counters this pass's due-work read for the day that has ALREADY begun, so
+      // closing with them stamped the new day's denominator onto yesterday's receipt: a day that reached 96 of 140 closed reading 3 of 140.
+      await advancePhase(tenantId, run.id, ownerToken, { phase, progress: { ...progress, state: run.progress?.state ?? {} }, cursor: null });
       return (await finishRun(tenantId, run.id, ownerToken, "completed")) ? "completed" : "failed";
     }
 
@@ -216,7 +217,8 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
         progress = { ...progress, state: { ...progress.state, checksDone: day.done, checksTotal: day.total,
           checksAnswers: day.answers, checksUnavailable: day.unavailable, checksUnsupported: day.unsupported } };
         if (day.done < day.total) {
-          if ((windows += 1) > MAX_DAY_WINDOWS) return pause({ phase, at: nowFn().toISOString(),
+          // The ceiling is the number of rounds, so the round that REACHES it is the last: `>` let a thirteenth window through.
+          if ((windows += 1) >= MAX_DAY_WINDOWS) return pause({ phase, at: nowFn().toISOString(),
             message: `I ran ${MAX_DAY_WINDOWS} rounds of checks on this pass and ${day.total - day.done} of today's ${day.total} AI checks are still owed. I will pick the rest up on the next pass.` });
           if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: unitCursor })) return "lost_lease";
           cursor = unitCursor; continue; }
@@ -275,11 +277,10 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       return pause(outcome.pause);
     }
     progress = outcome.progress;
-    // THE DECIDE WATERMARK. A pass that reached the end of the decision step stamps the basis and the
-    // research-notes version it consumed, published or not: in both cases it looked and concluded.
-    // Notes that move PAST this are new evidence, which is what makes another pass the same day worth
-    // its money instead of a repeat. It is read here, after this pass's own writes, so a pass never
-    // counts its own discovery as somebody else's news and re-opens itself forever.
+    // THE DECIDE WATERMARK. A pass that reached the end of the decision step stamps the basis and the research-notes version it consumed, published or not:
+    // in both cases it looked and concluded. Notes that move PAST this are new evidence, which is what makes another pass the same day worth its money
+    // instead of a repeat. It is read here, after this pass's own writes, so a pass never counts its own discovery as somebody else's news and re-opens
+    // itself forever.
     if (phase === "publish_surface" && basis) {
       const version = await steps.evidenceVersion(tenantId, basis).catch(() => null);
       if (version != null) progress = { ...progress, decided: { basis, rowVersion: version } };
@@ -359,10 +360,9 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
   });
 }
 
-/** How many continuations ONE account may chain in ONE reporting day. BROWSER RECOVERY MACHINERY ONLY: a
- *  hop exists so an open tab can finish work the scheduler left, and the daily scheduler never uses one. The
- *  bound is the whole safety story: each hop is its own request with its own lease claim, so a closed tab
- *  simply stops, and this stops a live one from looping forever on a due list it can never clear. */
+/** How many continuations ONE account may chain in ONE reporting day. BROWSER RECOVERY MACHINERY ONLY: a hop exists so an open tab can finish work the
+ * scheduler left, and the daily scheduler never uses one. The bound is the whole safety story: each hop is its own request with its own lease claim, so a
+ * closed tab simply stops, and this stops a live one from looping forever on a due list it can never clear. */
 const MAX_CONTINUATIONS = 6;
 
 /** ONE bounded continuation hop, and an honest answer about whether another is owed. The trigger stays what it was: next/after on render, one hop, no unawaited promise living past the response. What

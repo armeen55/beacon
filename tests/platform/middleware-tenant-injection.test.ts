@@ -5,10 +5,8 @@
  * local mode uses only the explicit env account, and public paths stay reachable
  * for a session with zero memberships (no /login redirect loop).
  */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
-
 const supabaseState = vi.hoisted(() => ({
   user: null as { id: string } | null,
   tenantMembersRows: [] as Array<{ tenant_id: string }>,
@@ -17,9 +15,7 @@ const supabaseState = vi.hoisted(() => ({
   authHangs: false,
   tenantHangs: false,
 }));
-
 const NEVER = new Promise<never>(() => {});
-
 vi.mock("@supabase/ssr", () => ({
   createServerClient: () => ({
     auth: {
@@ -48,9 +44,7 @@ vi.mock("@supabase/ssr", () => ({
     }),
   }),
 }));
-
 import { updateSession } from "@/lib/auth/supabase-middleware";
-
 function makeRequest(
   url: string,
   init: { headers?: Record<string, string> } = {},
@@ -59,16 +53,13 @@ function makeRequest(
     headers: init.headers,
   });
 }
-
 /** A request carrying a forged/stale account-selection cookie. */
 function makeCookieRequest(url: string, cookieTenant: string): NextRequest {
   return makeRequest(url, { headers: { cookie: `beacon_tenant=${cookieTenant}` } });
 }
-
 function injectedTenant(res: Response): string | null {
   return res.headers.get("x-middleware-request-x-beacon-tenant");
 }
-
 /** The retired cookie must be actively expired on the response. */
 function expectRetiredCookieExpired(res: Response): void {
   const setCookies = (res.headers as unknown as { getSetCookie(): string[] }).getSetCookie();
@@ -76,12 +67,10 @@ function expectRetiredCookieExpired(res: Response): void {
   expect(retired, "beacon_tenant must be actively expired").toBeTruthy();
   expect(retired).toMatch(/Max-Age=0/i);
 }
-
 const REQUIRED_ENV = {
   NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co",
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-stub",
 };
-
 describe("middleware account injection — one login, one account, fail-closed", () => {
   beforeEach(() => {
     supabaseState.user = null;

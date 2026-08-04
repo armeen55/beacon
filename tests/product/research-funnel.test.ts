@@ -8,7 +8,7 @@ import { keywordDiscoveryUnit } from "@/domains/evidence/funnel/discovery"; impo
 import { retainDiverse, selectSerpAgenda } from "@/domains/evidence/funnel/normalize"; import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { caseResearchReceipt } from "@/domains/evidence/case-receipt"; import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { emptyFunnelState, loadFunnelState, MAX_RETAINED, type FunnelKeyword, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
-import { CONFLICT_DETAIL, type FunnelDeps } from "@/domains/evidence/funnel/shared"; import { aiObservationId, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations"; import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
+import { CONFLICT_DETAIL, type FunnelDeps } from "@/domains/evidence/funnel/shared"; import { aiObservationId, type AiObservationRecord, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations"; import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 const BASIS = "basis_aaa"; const NOW = 1_700_000_000_000; // a fixed clock far past the 7-day freshness window
 const WEEKS_AGO = new Date(NOW - 30 * 24 * 3600 * 1000).toISOString(); const ENG = ["chatgpt", "gemini", "claude", "perplexity"] as const;
 const cur = (basis: string | null = BASIS) => (basis ? { basis } : {}); const confirmed = <V>(value: V): ProfileSection<V> => ({ value, origin: "operator_confirmed", confidence: null, sourceUrls: [] });
@@ -95,7 +95,7 @@ describe("research funnel - current-set truth + the disposition ladder", () => {
     const r1 = await unit(d); expect(r1.status).toBe("waiting"); expect(chat()).toMatchObject({ status: "posted", cacheKey: "ck-new", reposts: 1 }); expect(chat().requestedAt).toBeTruthy(); // ONE clean repost, stamped with ITS OWN moment
     const r2 = await unit(d); expect(chat()).toMatchObject({ status: "unsupported", requestedAt: undefined }); expect(r2.status).toBe("waiting"); // unavailable coverage named; the run is not stuck
     expect(posts).toBe(7); // 4 first-pass posts + the OTHER three pairs' single recovery; the dead key never reposts again
-    const r3 = await unit(d); expect(posts).toBe(7); expect(r3.status).toBe("failed"); }); // every repost spent, and the day's budget is NOT reset by a revisit: zero further spend, honest failure, never done
+    const r3 = await unit(d); expect(posts).toBe(7); expect([r3.status, r3.detail]).toEqual(["done", "I could not get an answer to any of today's 4 prompt checks; the provider had nothing to give on every one. Tomorrow's round asks them again."]); }); // every repost spent, zero further spend, and a day proven unavailable CLOSES instead of repeating forever
   it("pauses honestly when a pass processes nothing or coverage is unavailable, never a fake done", async () => { const store = memStore(); let t = 0; // the deadline passes immediately after it is set: zero pairs run
     const stalled = await promptObservationUnit(mk(store, { now: () => (t += 100_000), callProvider: async () => waiting("ck") }), one())("tp", cur(), 1_000);
     const unavailable = await unit(mk(store, { callProvider: async () => ({ state: "not_configured", cacheKey: null, detail: "not configured" }) })); expect([stalled.status, unavailable.status, !!stalled.detail, !!unavailable.detail]).toEqual(["failed", "failed", true, true]); });
@@ -107,8 +107,13 @@ describe("research funnel - current-set truth + the disposition ladder", () => {
     expect([r2.status, r2.detail, calls]).toEqual(["failed", "the provider could not finish it", 2]); // still paused, zero post-block calls
     let ecalls = 0; // a refusal carrying an EMPTY detail must still arm the block and the batch stop
     const empty = await unit(mk(memStore(), { callProvider: async () => { ecalls += 1; return { state: "error", cacheKey: null, disposition: "blocked", detail: "" } as CachedCallResult; } })); expect([empty.status, !!empty.detail, ecalls]).toEqual(["failed", true, 1]); });
-  it("a quarantined POST is plain unavailable coverage: the pair is marked unsupported and the batch keeps running", async () => { const store = memStore(); let calls = 0; const out = await unit(mk(store, { callProvider: async () => { calls += 1; return err("quarantined", "ck-q"); } }));
-    expect([out.status, calls]).toEqual(["failed", 4]); // one ambiguous key never deadlocks the phase: every pair still got its turn
+  it("a quarantined POST is plain unavailable coverage: the CANONICAL row goes terminal too, and the day completes on it", async () => { const store = memStore(); let calls = 0; const rows: AiObservationRecord[] = [];
+    const out = await unit(mk(store, { recordObservation: async (r: AiObservationRecord) => void rows.push(r), callProvider: async () => { calls += 1; return err("quarantined", "ck-q"); } })); // Aug 4: two quarantined pairs went `unsupported` in memory and `failed` on the stored row, so the planner saw them owed on every window and 138 of 140 repeated for nine hours
+    expect([out.status, calls]).toEqual(["done", 4]); // one ambiguous key never deadlocks the phase: every pair got its turn and the phase is finished
+    expect([rows.every((r) => r.status === "unavailable"), out.detail]).toEqual([true, "I could not get an answer to any of today's 4 prompt checks; the provider had nothing to give on every one. Tomorrow's round asks them again."]); // terminal on the row a planner reads, never "failed", and NEVER "the rest are in" over a day where nothing came back
+    let first = true; // and a day that DID get answers names both halves rather than claiming a rest that does not exist
+    const out2 = await unit(mk(memStore(), { callProvider: async () => (first ? ((first = false), ok(aiAnswer({ citations: [] }))) : err("quarantined", "ck-q")) }));
+    expect([out2.status, out2.detail]).toEqual(["done", "1 of today's 4 prompt checks came back; the other 3 were unavailable from the provider this round. Tomorrow's round asks those again."]);
     expect(store.peek("tp", BASIS)!.prompts.pairs.every((p) => p.status === "unsupported" && p.observedAt && p.requestedAt === undefined)).toBe(true); // explicit, dated, unavailable, and never stamped with a stale ask
   });
 });
@@ -317,7 +322,7 @@ describe("research funnel - the CASE-SCOPED keyword universe", () => {
   const observed = (): FunnelState => { const s = emptyFunnelState("tc", BASIS);
     s.cases = [{ id: CASE, anchors: [canonicalQueryKey("price saffron")] }, { id: ABSORBED, anchors: [], aliasOf: CASE }];
     s.serps.queries = [{ query: "price saffron", cacheKey: "ck-serp", status: "done", observedAt: at, paa: [{ question: "How much does saffron cost per gram", answeringDomain: null }], related: ["saffron grades"] }];
-    s.prompts.pairs = [{ promptId: "p1", promptText: "where to buy saffron", engine: "chatgpt", mode: "consumer_search", cacheKey: null, status: "done", observedAt: at, fanOutQueries: ["best saffron brands"] }];
+    s.prompts.pairs = [{ promptId: "p1", promptText: "where to buy saffron", engine: "chatgpt", mode: "consumer_search", cacheKey: null, status: "done", observedAt: at, fanOutQueries: ["best saffron brands", "Where to buy saffron?"] }];
     return s; };
   const PLAN = [{ caseId: ABSORBED, query: "where to buy saffron" }]; // the plan names an id a merge already absorbed
   const disc = (store: ReturnType<typeof memStore>, over: Partial<FunnelDeps> = {}, plan = PLAN) => keywordDiscoveryUnit({
@@ -333,6 +338,7 @@ describe("research funnel - the CASE-SCOPED keyword universe", () => {
     expect([held.get("how much does saffron cost per gram"), held.get("saffron grades"), held.get("where to buy saffron"), held.get("best saffron brands"), held.get("saffron benefits"), held.get("iranian saffron"), held.get("does saffron expire")])
       .toEqual(["paa", "related_search", "prompt", "fanout", "gsc", "answer_entity", "answer_entity"]); // the questions on my results page, the searches the engines ran, my own Search Console rows and the entities my answers named
     expect(held.get("price saffron")).toBe("ranked"); // one subject, ONE row: the richest source wins the merge
+    expect(store.peek("tc", BASIS)!.discovery.retained.filter((k) => k.keyword === "where to buy saffron").map((k) => k.discoveredVia)).toEqual(["prompt"]); // A TRACKED QUESTION IS NEVER ITS OWN FAN-OUT: the answer echoed my words back and the receipt called it a search the engine ran itself
     expect(batch.filter((k) => k === "price saffron" || k === "saffron price").length).toBe(1); }); // deduped BEFORE the purchase, so a reordered variant is never priced twice
   it("files a keyword under the case that answers for it now, even when the plan named an id a merge absorbed", async () => {
     const store = memStore(observed()); await disc(store);
@@ -367,9 +373,8 @@ describe("research funnel - the CASE-SCOPED keyword universe", () => {
     await run(); expect(calls).toBe(1); // inside the week the answer on file is the answer: zero further spend
     await run({ now: () => NOW + 8 * 24 * 3600 * 1000 }); expect(calls).toBe(2); }); // past it, exactly one fresh look
 });
-/** THE JOURNEY, not just the first step: a fan-out has to be traceable back to the approved question, the
- *  engine, the reporting day and the stored answer it came out of, or Beacon cannot say why it belongs to a
- *  page. Route alone was all that survived discovery before this. */
+/** THE JOURNEY, not just the first step: a fan-out has to be traceable back to the approved question, the engine, the reporting day and the stored answer it came out of,
+ * or Beacon cannot say why it belongs to a page. Route alone was all that survived discovery before this. */
 describe("research funnel - the journey behind a keyword", () => {
   const JCASE = "inv_j", jAt = new Date(NOW).toISOString(); const FAN = "best saffron brands";
   const pair = (over: Partial<FunnelPair> = {}): FunnelPair => ({ promptId: "p1", promptText: "where to buy saffron", engine: "chatgpt", mode: "consumer_search", promptVersion: 2, day: DAY_A, cacheKey: null, status: "done", observedAt: jAt, fanOutQueries: [FAN], ...over });

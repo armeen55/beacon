@@ -1,6 +1,5 @@
-/** THE CAUSE PRODUCERS. A named cause reaches a producer, it works off the structure the ladder read, every
- *  component survives the REAL validator, a cause with no producer refuses in its own words, a drafter that will
- *  not land is a refusal, thin evidence never reaches a drafter, and wording keeps its own path. */
+/** THE CAUSE PRODUCERS. A named cause reaches a producer, it works off the structure the ladder read, every component survives the REAL validator, a cause with no
+ *  producer refuses in its own words, a drafter that will not land is a refusal, thin evidence never reaches a drafter, and wording keeps its own path. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
@@ -125,13 +124,12 @@ describe("a named cause produces the change that fixes it", () => {
     expect(out.reason).toBe("The change you applied here is still being measured, so I am not stacking another one on top of it.");
     expect(bought).toEqual([]); // a cause with no producer costs nothing
   });
-  /** A REBUILD IS EARNED BY CAUSES THAT FIRED, never by ones checked and RULED OUT: counting the whole list
-   *  told the operator "2 separate things are wrong" where the second clause contradicted the evidence. */
+  /** A REBUILD IS EARNED BY CAUSES THAT FIRED, never by ones checked and RULED OUT: counting the whole list told the operator "2 separate things are wrong" where the
+   *  second clause contradicted the evidence. */
   describe("a rebuild is earned by what fired", () => {
-    // The cause's OWN producer can write nothing, so the rebuild is reachable; the rebuild's own sections do
-    // land, because a rebuild that cannot write the whole page now emits nothing at all.
-    // No superlative in the rebuilt copy: this fixture supplies no opening pattern, so "the first" would be
-    // an ungrounded claim and the factual firewall would rightly refuse the whole rebuild.
+    // The cause's OWN producer can write nothing, so the rebuild is reachable; the rebuild's own sections do land, because a rebuild that cannot write the whole page now
+    // emits nothing at all. No superlative in the rebuilt copy: this fixture supplies no opening pattern, so "the first" would be an ungrounded claim and the factual
+    // firewall would rightly refuse the whole rebuild.
     const REBUILT = { ...SECTION, body: SECTION.body.replace("the first heavy storm", "a heavy storm") };
     const rebuildSeam: CompleteFn = async ({ kind, user }) => { bought.push(kind);
       if (kind !== "section_draft") return { value: { field: "answer_block", before: null, after: ANSWER, rationale: "The opening never says what the search is about.", ...TAIL } as never };
@@ -160,9 +158,8 @@ describe("a named cause produces the change that fixes it", () => {
       expect(out.reason).toBe("I could not write the section that would close the gap on the winning pages, so I am handing you nothing rather than filler.");
     });
   });
-  /** A SPLIT IS AN INVESTIGATION UNTIL THE EVIDENCE NAMES THE SURVIVOR, and the merge that does ship names it,
-   *  names what moves, and keeps the two-step hold: downgrading a merge's danger took that hold off the one
-   *  change that needs it AND made the stored row fail re-validation as mislabelled. */
+  /** A SPLIT IS AN INVESTIGATION UNTIL THE EVIDENCE NAMES THE SURVIVOR, and the merge that does ship names it, names what moves, and keeps the two-step hold: downgrading
+   *  a merge's danger took that hold off the one change that needs it AND made the stored row fail re-validation as mislabelled. */
   it("writes no merge while the survivor is unproven, then hands over the proven one and holds it for review", async () => {
     const RIVAL = "fixture-content.example/rain-barrel-guide";
     const world = (rival: OwnedPageEvidence[]) => snapshot({ ownedPages: [page(), ...rival], cannibalization: [{ query: "rain barrel sizing", note: "two of your own pages", competingUrls: [URL, RIVAL] }] });
@@ -188,8 +185,8 @@ describe("a named cause produces the change that fixes it", () => {
     const again = validateProposal(p, { evidenceText: b.receipt.items.map((i) => i.fact).join(" ") });
     expect([again.verdict, again.reasons.join(" ").includes("confirm it before you make the change"), bought]).toEqual(["needs_review", true, []]);
   });
-  /** THE ASSEMBLED ROW IS GATED, NOT ONLY ITS PIECES: the per-component gate reads a synthetic proposal that
-   *  carries no cause and no limitations, so a cause pointing at a receipt line nobody wrote sailed past it. */
+  /** THE ASSEMBLED ROW IS GATED, NOT ONLY ITS PIECES: the per-component gate reads a synthetic proposal that carries no cause and no limitations, so a cause pointing at
+   *  a receipt line nobody wrote sailed past it. */
   it("refuses to ship an assembled change whose cause points at a receipt line the receipt never carried", async () => {
     // No body on file, so the opening this cause read came off the comparison and the receipt has no line for it.
     const { bodyByUrl: _drop, ...noBody } = OPTS; void _drop;
@@ -199,8 +196,8 @@ describe("a named cause produces the change that fixes it", () => {
     const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, complete: seam() }); // no pattern, so no cause that needs one is even considered
     expect([out.status, bought, out.status === "none" && out.reason.includes("I have not looked at the results page for that search yet")]).toEqual(["none", [], true]); });
 });
-/** A DOOR ANSWERS FOR ITS OWN CASE: a page selected because an engine skipped it, whose answer I no longer
- *  hold, is refused in that door's words. The wrong reason is worse than no reason, and neither is drafted. */
+/** A DOOR ANSWERS FOR ITS OWN CASE: a page selected because an engine skipped it, whose answer I no longer hold, is refused in that door's words. The wrong reason is
+ *  worse than no reason, and neither is drafted. */
 describe("every door answers for its own evidence", () => {
   const DOOR = { door: "ai_absence" as "ai_absence" | "coverage_verdict" | "cannibalization" | "recent_decline", entry: "I gave this page my deepest read because an assistant answered around it.",
     evidence: { query: "rain barrel sizing", engine: "ChatGPT", promptText: "what size rain barrel do I need", competingUrls: [] as string[], window: null as string | null } };

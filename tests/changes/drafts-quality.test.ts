@@ -1,7 +1,4 @@
-/**
- * Draft quality gates (the customer-copy floor): every test name states the
- * accept/hold/reject promise it pins, with real prose fixtures as inputs.
- */
+/** Draft quality gates (the customer-copy floor): every test name states the accept/hold/reject promise it pins, with real prose fixtures as inputs. */
 import { describe, it, expect } from "vitest";
 import { evaluateDraftQuality, evaluateTitleMetaQuality } from "@/domains/decision/drafts/draft-quality";
 
@@ -70,5 +67,5 @@ describe("evaluateTitleMetaQuality - atomic edits", () => {
   it("rejects a rewrite that drops the entity", () => { const r = evaluateTitleMetaQuality({ before: "Persian Wolf Range and Behavior", after: "Range, Behavior, and Conservation Status", field: "title", contextTokens: ["wolf"] }); expect(r.status).toBe("relevance_rejected"); expect(r.copyAllowed).toBe(false); });
   it("a formatting-only edit is exempt: never missing_source, even with zero sources", () => { const r = evaluateTitleMetaQuality({ before: "Persian Holidays: Explore the Traditions", after: "Persian Holidays and Traditions Explained", field: "title" }); expect(r.status).not.toBe("missing_source"); expect(r.status).toBe("ready"); });
 });
-// Dormant-kind evaluators (section drafts, internal-link/CRO formatting, prepared-pack dispatch) have zero production
-// callers since the Foundation rebuild; their pins were retired 2026-07-24 with the dormant machinery.
+// Dormant-kind evaluators (section drafts, internal-link/CRO formatting, prepared-pack dispatch) have zero production callers since the Foundation rebuild; their pins
+// were retired 2026-07-24 with the dormant machinery.

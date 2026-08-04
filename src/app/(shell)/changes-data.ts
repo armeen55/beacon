@@ -1,17 +1,11 @@
 import "server-only";
 
-/**
- * changes-data: the server loader for the canonical Changes list, backed entirely by the Decision kernel.
- * The ranked queue is the account's persisted, re-validated `ChangeProposal`s, and it is PAGED IN THE
- * DATABASE off the position stamped on each row when the ranking was built: the customer release carries
- * one page and the counts, never the queue.
- *
- * THE FIVE STAGES THE OPERATOR IS SHOWN: To do (needs_review), Ready (ready), Implemented (they say it is
- * done and I have not read their page yet, counted here and never queued), then Measuring and Results, which
- * are DERIVED from the shipment ledger and never stored as a status, so the two can never disagree (the
- * ONE-COUNT RULE). READ-ONLY + fail-soft. Production runs in the background release build, never on the
- * render path. Publishing stays MANUAL.
- */
+/** changes-data: the server loader for the canonical Changes list, backed entirely by the Decision kernel. The ranked queue is the
+ *  account's persisted, re-validated `ChangeProposal`s, and it is PAGED IN THE DATABASE off the position stamped on each row when the
+ *  ranking was built: the release carries one page and the counts. THE FIVE STAGES THE OPERATOR IS SHOWN: To do (needs_review), Ready
+ *  (ready), Implemented (they say it is done and I have not read their page yet, counted here and never queued), then Measuring and
+ *  Results, which are DERIVED from the shipment ledger and never stored as a status, so the two can never disagree (the ONE-COUNT RULE).
+ *  READ-ONLY + fail-soft; production runs in the background release build. Publishing stays MANUAL. */
 import { cache } from "react";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
@@ -43,9 +37,12 @@ export type ChangesView = {
   basisUnreadable?: boolean;
   /** Whole-tenant decided count (proof ledger). */
   decidedCountCanonical: number;
-  /** TRUE when the ledger behind the two counts above could not be READ: they are zero because I could not
-   *  look, and every surface says so rather than printing the zero. */
+  /** TRUE when the ledger behind the two counts above could not be READ: they are zero because I could not look, and every surface says so
+   *  rather than printing the zero. */
   countsUnavailable?: boolean;
+  /** TRUE when the customer RELEASE itself could not be read. Distinct from a cold first-ever load, which is what this used to be
+   *  indistinguishable from, so an outage painted "I am building it for the first time". */
+  releaseUnreadable?: boolean;
   /** Set only when Ready is 0, so the tab is never a bare "0" with no reason. */
   readyZeroHint: string | null;
   /** One-line receipt above the list (when + from what this was ranked). */
@@ -56,8 +53,8 @@ export type ChangesView = {
   surfaceBuilding?: boolean;
   /** Atomic customer release id shared with Today. */
   surfaceVersion?: string | null;
-  /** Where each lane's NEXT page resumes: the last RANK on this screen, never its row count. A change put
-   *  aside since the ranking was stamped leaves a hole, and counting rows through it repeats one change. */
+  /** Where each lane's NEXT page resumes: the last RANK on this screen, never its row count. A change put aside since the ranking was
+   *  stamped leaves a hole, and counting rows through it repeats one change. */
   queueCursor?: { ready: number; todo: number };
   queueMore?: { ready: boolean; todo: boolean };
 };
@@ -76,18 +73,16 @@ export function setAsideClause(n: number): string {
   return `I raised the bar for what counts as worth your time, so I set aside ${n} earlier ${n === 1 ? "idea" : "ideas"} that no longer clear it.`;
 }
 export function setAsideHint(n: number, toDo = 0): string {
-  // "Nothing needs your time today" is FALSE with review work waiting, and it was
-  // printed directly above a tab labelled To do.
+  // "Nothing needs your time today" is FALSE with review work waiting, and it was printed above a To do tab.
   return `${setAsideClause(n)} ${toDo > 0
     ? `The ${toDo} ${toDo === 1 ? "idea" : "ideas"} still on your To do list are the ones I can back today.`
     : "Nothing needs your time today: I am still checking your pages and I will rank your next change here as soon as one earns it."}`;
 }
 
-/** A STORED release is a photograph, and the bar may have moved since it was taken. Every row is put through
- *  the SAME one verdict the ranked queue, the detail page and the mutations ask, so a release can never serve
- *  what those doors refuse: right account, current bar, still waiting on you, a receipt that still resolves,
- *  readings that still stand. Comparing the release only against ITSELF was the hole, because a uniformly
- *  stale release looks perfectly consistent. A basis I cannot read withholds everything. */
+/** A STORED release is a photograph, and the bar may have moved since it was taken. Every row is put through the SAME one verdict the
+ *  ranked queue, the detail page and the mutations ask, so a release can never serve what those doors refuse: right account, current bar,
+ *  still waiting on you, a receipt that still resolves, readings that still stand. Comparing the release only against ITSELF was the hole,
+ *  because a uniformly stale release looks perfectly consistent. A basis I cannot read withholds everything. */
 export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string; currentBasis: string | null }): ChangesView {
   const currentBasis = ctx.currentBasis;
   const keep = view.proposals.filter((p) => actionableProposalFailures(p, ctx).length === 0);
@@ -109,27 +104,24 @@ const EMPTY_CHANGES_VIEW: ChangesView = {
   readyZeroHint: null, receiptLine: null, surfaceComputedAt: null, surfaceBuilding: true,
 };
 
-/** THE render entry (request-cached). A present release serves instantly and, when stale, schedules the ONE
- *  background rebuild; a cold first-ever load serves the honest "building" empty state. */
-export const loadChangesView = cache(
-  async (): Promise<ChangesView> => loadChangesViewWithSwr(await currentTenantId()),
-);
+/** THE render entry (request-cached). A present release serves instantly and, when stale, schedules the ONE background rebuild; a cold
+ *  first-ever load serves the honest "building" empty state. */
+export const loadChangesView = cache(async (): Promise<ChangesView> => loadChangesViewWithSwr(await currentTenantId()));
 
-/** What one press of "Show more" gets back. `total` is a COUNT in the database, never a loaded length;
- *  `cursor` is where the NEXT press resumes; `refreshed` is set ONLY when the ranking they were paging is
- *  gone, and they get the fresh FIRST page with the sentence saying why. */
+/** What one press of "Show more" gets back. `total` is a COUNT in the database, never a loaded length; `cursor` is where the NEXT press
+ *  resumes; `refreshed` is set ONLY when the ranking they were paging is gone, and they get the fresh FIRST page with the sentence saying
+ *  why. */
 export type ChangesPage = {
   rows: ChangeProposal[]; total: number; cursor: number; releaseId: string | null; refreshed: string | null;
   /** Whether the database read a FULL raw page: the only honest basis for offering another press. */ more: boolean;
-  /** Changes THIS page was stamped for and then refused. The screen takes them off its own count, so a
-   *  refusal sitting on page nineteen lowers the number the operator reads instead of inflating it. */ dropped: number;
+  /** Changes THIS page was stamped for and then refused. The screen takes them off its own count, so a refusal sitting on page nineteen
+   *  lowers the number the operator reads instead of inflating it. */ dropped: number;
 };
 
-/** ONE PAGE OF ONE LANE, CUT IN THE DATABASE. Nothing here loads the queue or the release: rows come back
- *  keyed off the position stamped when the ranking was built, filtered at the query for this account, the bar
- *  it holds now, still waiting on the operator, and the lane, so page nineteen costs what page one costs. A
- *  CURSOR IS A POSITION IN A RANKING: once the rebuild replaces that ranking, position 25 of the new order is
- *  a different change, so a stale cursor is caught here and answered with the fresh first page. */
+/** ONE PAGE OF ONE LANE, CUT IN THE DATABASE. Nothing here loads the queue or the release: rows come back keyed off the position stamped
+ *  when the ranking was built, filtered at the query for this account, the bar it holds now, still waiting on the operator, and the lane,
+ *  so page nineteen costs what page one costs. A CURSOR IS A POSITION IN A RANKING: once the rebuild replaces that ranking, position 25 of
+ *  the new order is a different change, so a stale cursor is caught here and answered with the fresh first page. */
 export async function readChangesPage(
   tenantId: string, lane: "ready" | "todo", cursor: number, releaseId?: string | null,
 ): Promise<ChangesPage> {
@@ -143,9 +135,9 @@ export async function readChangesPage(
     refreshed: moved ? "The list moved under you while you were reading it, so here is the fresh first page." : null };
 }
 
-/** THE FIRST SCREEN IS NOT THE WHOLE QUEUE. The release carries the receipt, the lifecycle counts and the
- *  reason a lane is empty; the ROWS and the true lane totals come from the persisted ranking, one bounded
- *  page each. With no ranking stamped yet the release's own first page is served, never an empty screen. */
+/** THE FIRST SCREEN IS NOT THE WHOLE QUEUE. The release carries the receipt, the lifecycle counts and the reason a lane is empty; the ROWS
+ *  and the true lane totals come from the persisted ranking, one bounded page each. With no ranking stamped yet the release's own first
+ *  page is served, never an empty screen. */
 async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
   const view = await readReleasedChanges(tenantId);
   const basis = await resolveCurrentBasis(tenantId).catch(() => null);
@@ -154,8 +146,8 @@ async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
     readQueuePage(tenantId, "ready", basis, 0, CHANGES_PAGE_SIZE),
     readQueuePage(tenantId, "todo", basis, 0, CHANGES_PAGE_SIZE),
   ]);
-  // No ranking stamped: serve the release's own page, and COUNT ONLY WHAT I CAN SERVE, so the screen never
-  // offers a "show more" that has nothing behind it.
+  // No ranking stamped: serve the release's own page, and COUNT ONLY WHAT I CAN SERVE, so the screen never offers a "show more" that has
+  // nothing behind it.
   if (ready.release == null) return { ...view, summary: { ...view.summary, ready: view.ready.length, todo: view.toDo.length } };
   return { ...view, proposals: [...ready.rows, ...toDo.rows], ready: ready.rows, toDo: toDo.rows,
     summary: { ...view.summary, ready: ready.total, todo: toDo.total }, surfaceVersion: ready.release,
@@ -163,8 +155,8 @@ async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
     queueMore: { ready: ready.more, todo: toDo.more } };
 }
 
-/** The released Changes state for this account, basis-checked, scheduling the ONE background rebuild when
- *  the release is stale or missing. */
+/** The released Changes state for this account, basis-checked, scheduling the ONE background rebuild when the release is stale or missing.
+ */
 async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
   const scheduleReleaseRebuild = (action: string) =>
     after(async () => {
@@ -174,10 +166,10 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
       } catch (e) { await recordAppError({ route: "/changes", tenantId, action, ...errorFieldsFrom(e) }); }
     });
 
-  const customer = await readCustomerSurface(tenantId).catch(() => null);
-  // Shape guard (CORE 100K kernel cutover): a blob written by the pre-kernel
-  // changes-data has no `proposals` array. Ignore a stale-shaped release and
-  // rebuild in the new shape rather than crash on `view.proposals`.
+  const read = await readCustomerSurface(tenantId).then((s) => ({ s, ok: true })).catch(() => ({ s: null, ok: false }));
+  const customer = read.s;
+  // Shape guard (CORE 100K kernel cutover): a blob written by the pre-kernel changes-data has no `proposals` array. Ignore a stale-shaped
+  // release and rebuild rather than crash on `view.proposals`.
   const changesShapeOk =
     customer != null && Array.isArray((customer.changes as ChangesView | undefined)?.proposals);
   if (customer && changesShapeOk) {
@@ -190,22 +182,21 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
     }, { tenantId, currentBasis: await resolveCurrentBasis(tenantId).catch(() => null) });
   }
   scheduleReleaseRebuild("cold-rebuild");
-  return EMPTY_CHANGES_VIEW;
+  // A RELEASE I COULD NOT READ IS NOT A FIRST-EVER LOAD: claiming I am building their ranking for the first time during an outage is a
+  // sentence an established customer knows is false the moment they read it.
+  return read.ok ? EMPTY_CHANGES_VIEW : { ...EMPTY_CHANGES_VIEW, surfaceBuilding: false, releaseUnreadable: true };
 }
 
-/**
- * THE heavy build body, called from refreshCustomerSurface AFTER proposal
- * production has persisted this tenant's proposals. Reads the persisted proposal
- * queue + the proof ledger; runs no LLM itself. Tenant passed explicitly.
- */
+/** THE heavy build body, called from refreshCustomerSurface AFTER proposal production has persisted this tenant's proposals. Reads the
+ *  persisted proposal queue + the proof ledger; runs no LLM itself. Tenant passed explicitly. */
 export async function buildChangesViewUncached(tenantId: string, releaseId: string): Promise<ChangesView> {
-  // ONE basis per release: the queue, the ranking stamp and every page cut from it answer to the same bar,
-  // so the list can never page a ranking built against a bar it is no longer filtering on.
+  // ONE basis per release: the queue, the ranking stamp and every page cut from it answer to the same bar, so the list can never page a
+  // ranking built against a bar it is no longer filtering on.
   const currentBasis = await resolveCurrentBasis(tenantId).catch(() => null);
   const [queue, ledger] = await Promise.all([
     loadProposalQueue(tenantId, { currentBasis }).catch(() => ({ ranked: [], ready: [], toDo: [], implementedPendingVerification: 0, demotedStaleBasis: 0, basisUnreadable: true })),
-    // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "0 measuring, 0 results"
-    // during an outage, which reads as "nothing you shipped is being watched" and is a lie they cannot check.
+    // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "0 measuring, 0 results" during an outage, which reads
+    // as "nothing you shipped is being watched" and is a lie they cannot check.
     loadProofLedgerCached(tenantId).then((rows) => ({ rows, read: true })).catch(() => ({ rows: [] as Awaited<ReturnType<typeof loadProofLedgerCached>>, read: false })),
   ]);
 
@@ -233,12 +224,11 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
     }
   }
 
-  // THE RANKING IS PERSISTED, THE RELEASE IS NOT THE QUEUE. Every row of the queue gets its position in THIS
-  // ranking written down, so the list pages it in the database; the release below then carries one page, not
-  // an unlimited blob of changes nobody on that screen can read.
-  // AND THE RANKING IS STAMPED WITH THE ID THIS RELEASE PUBLISHES UNDER, so Today, the Changes screen and
-  // every "show more" name one release. A stamp that does not land ABORTS THE PUBLISH: the previous complete
-  // release keeps serving, which is honest, where publishing a release the list cannot page is not.
+  // THE RANKING IS PERSISTED, THE RELEASE IS NOT THE QUEUE. Every row of the queue gets its position in THIS ranking written down, so the
+  // list pages it in the database; the release below then carries one page, not an unlimited blob of changes nobody on that screen can
+  // read. AND THE RANKING IS STAMPED WITH THE ID THIS RELEASE PUBLISHES UNDER, so Today, the Changes screen and every "show more" name one
+  // release. A stamp that does not land ABORTS THE PUBLISH: the previous complete release keeps serving, which is honest, where publishing
+  // a release the list cannot page is not.
   const nowMs = Date.now();
   if (!(await stampQueueRanking(tenantId, releaseId,
     queue.ready.map((p) => p.id), queue.toDo.map((p) => p.id)).catch(() => false))) {

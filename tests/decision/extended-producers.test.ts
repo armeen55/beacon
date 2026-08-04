@@ -1,6 +1,5 @@
-/** The four causes that used to reach the operator as a sentence and a shrug: links to somewhere real, sources and
- *  subjects assembled ONLY from evidence held, a merge that arrives as a question, a rebuild only when the causes
- *  agree. Each runs on a fixture context and then the REAL validator, plus the pinned dangerous-kind list. */
+/** The four causes that used to reach the operator as a sentence and a shrug: links to somewhere real, sources and subjects assembled ONLY from evidence held, a merge
+ *  that arrives as a question, a rebuild only when the causes agree. Each runs on a fixture context and then the REAL validator, plus the pinned dangerous-kind list. */
 import { describe, it, expect } from "vitest";
 import type { BundleComponent, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
 import { DANGEROUS_COMPONENT_KINDS as DECISION_DANGEROUS } from "@/domains/decision/contracts";
@@ -27,8 +26,8 @@ const PATTERN: WinningPattern = { archetype: "informational_guide", disagreement
   ownedGaps: [{ gap: "None of this page covers overflow", seenOn: [0] }], publishers: ["a.example", "b.example", "c.example"] };
 const LINKS = [["/roof-area-calculator", "roof area"], ["/barrel-sizes", "barrel sizes"], ["/rain-barrels", "this page"],
   ["https://other.example/partner", "our partner"], ["/contact", "read more"]].map(([href, anchorText]) => ({ href: href!, anchorText: anchorText! }));
-// The account's own inventory: rain-collection and storm-drains are on topic and UNLINKED (the wins); barrel-sizes
-// and roof-area-calculator are already linked; contact is linked and off topic; careers is unlinked and off topic.
+// The account's own inventory: rain-collection and storm-drains are on topic and UNLINKED (the wins); barrel-sizes and roof-area-calculator are already linked; contact
+// is linked and off topic; careers is unlinked and off topic.
 const OWNED = [["rain-collection", "Rain collection basics", "Rain collection"], ["storm-drains", "Storm drains", "Storm drains"],
   ["barrel-sizes", "Barrel sizes", "Barrel sizes"], ["roof-area-calculator", "Roof area calculator", "Roof area"],
   ["contact", "Contact us", "Contact"], ["careers", "Careers", "Careers"]].map(([p, title, h1]) => ({ url: `https://fixture-content.example/${p}`, title: title!, h1: h1! }));
@@ -62,8 +61,8 @@ const bundleOf = (components: BundleComponent[]): ChangeBundle => ({ objective: 
   metric: "Clicks over 28 days.", scope: { queries: [QUERY], prompts: [] }, components, alternatives: [], risks: [], confidenceReasons: [],
   receipt: { items: KEYS.map((key) => ({ key, kind: "gsc_demand" as const, fact: FACTS[0]!, observedAt: null })), missing: [], freshestObservedAt: null },
   measurementPlan: "I will read clicks, views and average position at 7, 14 and 28 days." });
-/** THE PAGE'S OWN WORDS AND THE EVIDENCE, exactly as produce-bundle hands them to a component: receipt lines, the
- *  outline, the winners' whole reading and this page's own subjects and link words. A thing I read is not invented. */
+/** THE PAGE'S OWN WORDS AND THE EVIDENCE, exactly as produce-bundle hands them to a component: receipt lines, the outline, the winners' whole reading and this page's own
+ *  subjects and link words. A thing I read is not invented. */
 const NOW = new Date("2026-07-25T00:00:00.000Z");
 const OUTLINE = ["How much rain a roof collects", "Barrel sizes"];
 const RECEIPT_ONLY = [...FACTS, ...OUTLINE, "Rain Barrels"].join(" ");
@@ -96,8 +95,8 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const out = await (CORE_PRODUCERS.incomplete_coverage as (c: ProducerCtx) => Promise<{ refusal: string | null }>)(
       ctxOf({ finding: finding("incomplete_coverage", { cause: "incomplete_coverage", absentHeadings: ["Roof area"], absentEntities: [] }) }));
     expect(out.refusal).toBe("I checked the page itself and it already carries what the winning pages cover, so there is nothing to add here."); });
-  // MY FIGURES GROUND THE DIAGNOSIS, THEY ARE NEVER PAGE COPY: the link drafter's sentence is published on the
-  // operator's page, so a click count was one model call away from being live copy. The hints are the page's own words.
+  // MY FIGURES GROUND THE DIAGNOSIS, THEY ARE NEVER PAGE COPY: the link drafter's sentence is published on the operator's page, so a click count was one model call away
+  // from being live copy. The hints are the page's own words.
   it("never feeds one of my own numbers to the drafter that writes page copy", async () => {
     const heard: string[] = [];
     const out = await produceInternalLinks(ctxOf({
@@ -125,8 +124,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
   it("sends the reader to a page this account actually has, and survives the component gate", async () => {
     const out = await produceInternalLinks(ctxOf());
     expect([out.refusal, out.components.map((c) => c.kind)]).toEqual([null, ["internal_link_add", "internal_link_add"]]);
-    // deterministic, and FROM THE INVENTORY: pages already linked never return, this page and other sites
-    // never appear, and ties break on the page's own name.
+    // deterministic, and FROM THE INVENTORY: pages already linked never return, this page and other sites never appear, and ties break on the page's own name.
     expect(out.components.map((c) => c.label)).toEqual(["Link to /rain-collection", "Link to /storm-drains"]);
     expect(out.components.every((c) => answered(c) && c.risk === "safe" && c.before === null)).toBe(true);
     expect(out.components[0]!.mechanism).toContain("about 12 of their own pages and this one points to 3");
@@ -195,8 +193,8 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
       finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }) }));
     expect([empty.components.length, empty.refusal!.includes("I hold nothing this page could say")]).toEqual([0, true]);
   });
-  /** TWO PAGES ON ONE SEARCH IS A SIGNAL TO INVESTIGATE, never proof the clicks are splitting, and never a
-   *  decision handed back to the operator: the survivor is proven off inspectable evidence or nothing ships. */
+  /** TWO PAGES ON ONE SEARCH IS A SIGNAL TO INVESTIGATE, never proof the clicks are splitting, and never a decision handed back to the operator: the survivor is proven
+   *  off inspectable evidence or nothing ships. */
   it("settles a split only when the survivor is proven, and then hands over the exact merge", async () => {
     const split = (over: Record<string, unknown> = {}) => finding("cannibalization", { cause: "cannibalization", competingPaths: [PAGE_URL, OTHER_URL], comparison: [], survivor: null, ...over });
     const merge = (over: Record<string, unknown> = {}, bodies?: typeof BODIES) => produceConsolidation(ctxOf({ finding: split(over), ...(bodies ? { heldBodies: bodies } : {}) }));
@@ -222,9 +220,8 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const renamed = await produceConsolidation(ctxOf({ heldBodies: BODIES, finding: { ...finding("cannibalization"), detail: { competingPaths: [PAGE_URL, OTHER_URL], comparison: CMP, survivor: PAGE_URL } } as CauseFinding }));
     expect(renamed.components).toHaveLength(1);
   });
-  /** THE RECEIPT IS THE PROOF. A claim that does not resolve to a line the operator can read is not a claim, one
-   *  change may not say two things about one page, danger may not ride under a soft label, and a reading I took
-   *  in June is not what the page says today. Every one of these shipped on one live change. */
+  /** THE RECEIPT IS THE PROOF. A claim that does not resolve to a line the operator can read is not a claim, one change may not say two things about one page, danger may
+   *  not ride under a soft label, and a reading I took in June is not what the page says today. Every one of these shipped on one live change. */
   it("refuses a change whose evidence does not resolve, contradicts itself, understates danger, or dates a stale reading as today", () => {
     const link: BundleComponent = { kind: "internal_link_add", label: "Link to your own page", before: null, after: "I would point readers from here on to your page on Barrel sizes.",
       evidenceKeys: ["links"], risk: "safe", where: "the section on sizes", objective: "Give the reader somewhere to go next.",
@@ -293,8 +290,8 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
   });
 });
 describe("what a change actually costs the operator", () => {
-  // ONE map for the field a kind writes into, ONE for what it costs: the envelope a test builds is the one production
-  // persists, and a merge and a whole rebuild are not one price.
+  // ONE map for the field a kind writes into, ONE for what it costs: the envelope a test builds is the one production persists, and a merge and a whole rebuild are not
+  // one price.
   it("files and prices a change by the kind of component it actually is", async () => {
     const kinds: BundleComponent["kind"][] = ["internal_link_add", "full_rewrite", "consolidation", "title", "meta", "h1", "opening_answer", "section_rewrite"];
     expect(kinds.map(fieldForComponent)).toEqual(["section", "section", "section", "title", "meta", "h1", "answer_block", "section"]);

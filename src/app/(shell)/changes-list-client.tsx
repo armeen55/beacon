@@ -1,18 +1,18 @@
 "use client";
 
-/**
- * changes-list-client: the ranked ChangeProposal queue, with the receipts the kernel computes actually
- * reaching the operator. EVERY CARD SAYS, WITHOUT BEING OPENED: whether it is one edit or a bundle that has
- * to land together, the exact primary action, how long it takes, its risk, how much evidence stands behind
- * it, and WHY IT SITS ABOVE THE ONE BELOW IT. A DANGEROUS CHANGE CARRIES ITS HOLD (the `needs_review` stage,
- * never a second flag) and, where it moves or hides a page, one confirmation the server asks for again.
- * Publishing is MANUAL; the mutating controls are "Mark implemented" and "Put this aside".
- */
+/** changes-list-client: the ranked ChangeProposal queue, with the receipts the kernel computes actually reaching the operator. EVERY CARD
+ *  SAYS, WITHOUT BEING OPENED: whether it is one edit or a bundle that has to land together, the exact primary action, how long it takes,
+ *  its risk, how much evidence stands behind it, and WHY IT SITS ABOVE THE ONE BELOW IT. A DANGEROUS CHANGE CARRIES ITS HOLD (the
+ *  `needs_review` stage, never a second flag) and, where it moves or hides a page, one confirmation the server asks for again. Publishing
+ *  is MANUAL; the mutating controls are "Mark implemented" and "Put this aside". */
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import type { ChangesView } from "./changes-data";
 import type { ChangeProposal, ChangeBundle } from "@/domains/decision";
+// A client bundle cannot import the server-only kernel facade, so the ONE pure rule for what is dangerous comes from the contract module
+// itself rather than a copy of it living here.
+import { dangerousComponents } from "@/domains/decision/contracts";
 import { dismissProposalAction, loadMoreChangesAction, markProposalImplementedAction } from "./changes/actions";
 import { CHANGES_PAGE_SIZE } from "./changes/types";
 
@@ -21,20 +21,18 @@ type Tab = "ready" | "todo";
 const RISK_LABEL: Record<ChangeProposal["riskLevel"], string> = { low: "Low risk", medium: "Medium risk", high: "High risk" };
 
 /** How much comparison evidence stands behind the change, in the same words Today uses for the field. */
-const EVIDENCE_LABEL: Record<ChangeProposal["confidence"], string> = {
-  high: "Strong evidence", medium: "Early evidence", low: "Still building evidence" };
+const EVIDENCE_LABEL: Record<ChangeProposal["confidence"], string> = { high: "Strong evidence", medium: "Early evidence", low: "Still building evidence" };
 
-/** WHAT IS ALREADY MOVING, and never a row of bare zeros: "Implemented 0 · Measuring 0 · Results 0" told a quiet account nothing and asked nothing of them, so an account with nothing in flight gets one sentence and the next step, and one with something in flight sees only the parts with a number behind them. */
+/** WHAT IS ALREADY MOVING, never a row of bare zeros: "Implemented 0 · Measuring 0 · Results 0" told a quiet account nothing, so an account with nothing in flight gets one sentence and the next step, and one with something in flight sees only the parts with a number behind them. */
 const flowLine = (v: ChangesView, s = v.summary): string => v.countsUnavailable
   ? "I could not read what is measuring just now, so I am not showing you a count I cannot stand behind. I am retrying automatically."
   : ([["Implemented", s.implemented], ["Measuring", s.measuring], ["Results", s.results]] as const)
     .filter(([, n]) => n > 0).map(([what, n]) => `${what} ${n}`).join(" · ") || "Nothing implemented yet. Ship your first ready change and I start measuring it.";
 
-/** THE TWO-STEP HOLD, in the operator's words. The validator refuses any bundle where a component that
- *  moves or hides the page is not graded `dangerous`, so this is the one check a surface has to make. */
-function dangerousParts(bundle: ChangeBundle | undefined): string[] {
-  return (bundle?.components ?? []).filter((c) => c.risk === "dangerous").map((c) => c.label);
-}
+/** THE TWO-STEP HOLD, in the operator's words, off the ONE canonical rule: the grade, the kind, or a correction to a high-stakes fact. A
+ *  copy of it here read the grade alone and missed the other two. */
+const dangerousParts = (bundle: ChangeBundle | undefined): string[] =>
+  dangerousComponents(bundle?.components ?? []).map((c) => c.label);
 
 /** The exact primary action in one line: a bundle's objective, or the field an atomic edit rewrites. */
 function primaryAction(p: ChangeProposal): string {
@@ -47,27 +45,25 @@ function primaryAction(p: ChangeProposal): string {
 
 export function ChangesListClient({ view }: { view: ChangesView }) {
   const [tab, setTab] = useState<Tab>(view.ready.length > 0 ? "ready" : "todo");
-  // THE QUEUE IS UNLIMITED AND THE SCREEN IS NOT. The server cuts one page per lane in the database and
-  // counts the rest there too, so what is behind this screen is a fact rather than a length.
+  // THE QUEUE IS UNLIMITED AND THE SCREEN IS NOT: the server cuts one page per lane in the database and counts the rest there too, so what
+  // is behind this screen is a fact rather than a length.
   const [more, setMore] = useState<Record<Tab, ChangeProposal[]>>({ ready: [], todo: [] });
-  // THE CURSOR IS A POSITION IN A RANKING, so the ranking it was taken against travels with every press.
-  // When the background rebuild has replaced it, the server says so and this lane restarts from the top.
-  const [at, setAt] = useState<Record<Tab, number>>(view.queueCursor
-    ?? { ready: view.ready.length, todo: view.toDo.length });
+  // THE CURSOR IS A POSITION IN A RANKING, so the ranking it was taken against travels with every press. When the background rebuild has
+  // replaced it, the server says so and this lane restarts from the top.
+  const [at, setAt] = useState<Record<Tab, number>>(view.queueCursor ?? { ready: view.ready.length, todo: view.toDo.length });
   const [release, setRelease] = useState<string | null>(view.surfaceVersion ?? null);
-  // THE BUTTON DIES ON WHAT THE DATABASE READ: a short raw page means the lane is exhausted however many
-  // rows a count still names. A view with no page verdict yet defaults open; the first press settles it.
+  // THE BUTTON DIES ON WHAT THE DATABASE READ: a short raw page means the lane is exhausted however many rows a count still names. A view
+  // with no page verdict yet defaults open; the first press settles it.
   const [canMore, setCanMore] = useState<Record<Tab, boolean>>(view.queueMore ?? { ready: true, todo: true });
   const [moved, setMoved] = useState<{ tab: Tab; note: string; total: number } | null>(null);
   const [lost, setLost] = useState<Record<Tab, number>>({ ready: 0, todo: 0 }); // refusals a deeper page found
   const [loadingMore, startLoadMore] = useTransition();
-  // A RESTARTED LANE SHOWS THE FRESH PAGE AND NOTHING ELSE: the rows from the ranking that went away are
-  // dropped rather than stacked under the new ones, which is the only way "each change once" survives.
+  // A RESTARTED LANE SHOWS THE FRESH PAGE AND NOTHING ELSE: rows from the ranking that went away are dropped rather than stacked under the
+  // new ones, which is the only way "each change once" survives.
   const restarted = moved?.tab === tab;
-  const rows = useMemo(() => (restarted ? more[tab] : [...(tab === "ready" ? view.ready : view.toDo), ...more[tab]]),
-    [restarted, tab, view, more]);
-  // THE COUNT ON THE TAB IS THE COUNT OF THE LIST UNDER IT: a replaced ranking restarts the lane (the old total
-  // said 35 above a list holding 12), and `lost` takes off what a DEEPER page refused, so it only ever falls.
+  const rows = useMemo(() => (restarted ? more[tab] : [...(tab === "ready" ? view.ready : view.toDo), ...more[tab]]), [restarted, tab, view, more]);
+  // THE COUNT ON THE TAB IS THE COUNT OF THE LIST UNDER IT: a replaced ranking restarts the lane (the old total said 35 above a list
+  // holding 12), and `lost` takes off what a DEEPER page refused, so it only ever falls.
   const countOf = (t: Tab) => (moved?.tab === t ? moved.total : t === "ready" ? view.summary.ready : view.summary.todo) - lost[t];
   const remaining = Math.max(0, countOf(tab) - rows.length);
 
@@ -116,8 +112,8 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         <button type="button" disabled={loadingMore} data-show-more="true"
           onClick={() => startLoadMore(async () => {
             const res = await loadMoreChangesAction({ lane: tab, cursor: at[tab], releaseId: release });
-            // A LIST THAT MOVED IS NOT PAGED ON. The ranking I was reading is gone, so the server sent
-            // the fresh first page and the sentence saying why, and this lane starts again from it.
+            // A LIST THAT MOVED IS NOT PAGED ON. The ranking I was reading is gone, so the server sent the fresh first page and the
+            // sentence saying why, and this lane starts again from it.
             setRelease(res.releaseId);
             setAt((prev) => ({ ...prev, [tab]: res.cursor }));
             setCanMore((prev) => ({ ...prev, [tab]: res.more }));
@@ -178,11 +174,9 @@ function WhyRanked({ proposal }: { proposal: ChangeProposal }) {
   );
 }
 
-/**
- * A proposal carrying a Change Bundle is the flagship row: the primary action, the strongest reason, the
- * four facts, the hold when there is one, the ranker's sentence, and two controls. The exact copy lives on
- * the detail page. A new-page bundle uses the same row with a different badge and parts wording.
- */
+/** A proposal carrying a Change Bundle is the flagship row: the primary action, the strongest reason, the four facts, the hold when there
+ *  is one, the ranker's sentence, and two controls. The exact copy lives on the detail page. A new-page bundle uses the same row with a
+ *  different badge and parts wording. */
 function BundleRow({ proposal, bundle, rank, inReadyLane }: { proposal: ChangeProposal; bundle: ChangeBundle; rank: number; inReadyLane: boolean }) {
   const checks = bundle.receipt.items.length;
   const parts = bundle.components.length;
@@ -268,6 +262,8 @@ function ProposalRow({ proposal, rank, canApply }: { proposal: ChangeProposal; r
               </ul>
             </div>
           ) : null}
+          {/* An ATOMIC change: it has no pieces to pick apart, so the picker and the tick live on the detail
+              page beside the bundle they belong to, and the server asks for the tick again either way. */}
           {canApply ? <MarkImplemented proposalId={proposal.id} newPage={proposal.kind === "new_page"} /> : null}
           <SetAsideChange proposalId={proposal.id} />
         </div>
@@ -294,10 +290,9 @@ function ChangeBody({ proposal }: { proposal: ChangeProposal }) {
       </div>
     );
   }
-  // FAQPage is not a win to recommend: Google restricts FAQ rich results to
-  // authoritative government and health sites, so a normal page marking it up gets
-  // nothing extra in search. It stays in the saved brief; it just never renders as
-  // something I am telling the operator to add.
+  // FAQPage is not a win to recommend: Google restricts FAQ rich results to authoritative government and health sites, so a normal page
+  // marking it up gets nothing extra in search. It stays in the saved brief; it just never renders as something I am telling the operator
+  // to add.
   const schemaToShow = c.schemaTypes.filter((s) => s.trim().toLowerCase() !== "faqpage");
   return (
     <div className="space-y-3">
@@ -340,8 +335,8 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** "Put this aside" is the operator's own dismissal, with the consequence stated before they press it. The
- *  store then refuses to re-draft the same change until the evidence itself moves. */
+/** "Put this aside" is the operator's own dismissal, with the consequence stated before they press it. The store then refuses to re-draft
+ *  the same change until the evidence itself moves. */
 export function SetAsideChange({ proposalId }: { proposalId: string }) {
   const [pending, startTransition] = useTransition();
   const [state, setState] = useState<{ done: boolean; asked: boolean; error: string | null }>({ done: false, asked: false, error: null });
@@ -392,43 +387,46 @@ export function SetAsideChange({ proposalId }: { proposalId: string }) {
   );
 }
 
-/** "Mark implemented" records that the OPERATOR applied the change. THE PARTIAL-BUNDLE PICKER: three of five
- *  pieces applied must not record five, or the live check fails for reasons nobody caused; every piece starts
- *  ticked. THE NOTE carries their own words beside my reading, never instead of it. THE ADDRESS, for a new
- *  page only: it has none until they publish it. THE CONFIRMATION, for a piece that moves or hides a page. */
+/** "Mark implemented" records that the OPERATOR applied the change. THE PARTIAL-BUNDLE PICKER: three of five pieces applied must not record
+ *  five, and the two they skipped stay theirs to do; every piece starts ticked. THE NOTE carries their own words beside my reading. THE
+ *  ADDRESS, for a new page only. THE CONFIRMATION, for a piece that moves or hides a page, which the server asks for again and refuses
+ *  without. */
 export function MarkImplemented({ proposalId, label: idle = "Mark implemented", components, newPage = false }: {
   proposalId: string;
   label?: string;
-  /** The bundle's pieces (several = a picker). `moves` marks one that changes where the page lives. */
-  components?: { kind: string; label: string; moves?: boolean }[];
+  /** The bundle's pieces (several = a picker), each with the STABLE id it carries inside the stored bundle so two pieces of one kind are
+   *  ticked apart. `moves` marks one that changes where the page lives; `recorded` marks one already on file. */
+  components?: { id: string; kind: string; label: string; moves?: boolean; recorded?: boolean }[];
   /** A page that did not exist has no address until they publish it, so I have to be told where it is. */
   newPage?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
-  const [state, setState] = useState<{ done: boolean; error: string | null }>({ done: false, error: null });
+  const [state, setState] = useState<{ done: boolean; error: string | null; note: string | null }>({ done: false, error: null, note: null });
   const pickable = components && components.length > 1 ? components : null;
-  const [applied, setApplied] = useState<Set<string>>(() => new Set((pickable ?? components ?? []).map((c) => c.kind)));
-  const [note, setNote] = useState("");
-  const [liveUrl, setLiveUrl] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
+  // OPEN ON WHAT IS GENUINELY STILL THEIRS TO DO. Pre-ticking every piece with no memory of what is already recorded offered to record a
+  // component I am already measuring; the server refuses to write it twice anyway, and the screen should not ask.
+  const [applied, setApplied] = useState<Set<string>>(() => {
+    const all = pickable ?? components ?? [], open = all.filter((c) => !c.recorded);
+    return new Set((open.length > 0 ? open : all).map((c) => c.id));
+  });
+  const [note, setNote] = useState(""), [liveUrl, setLiveUrl] = useState(""), [confirmed, setConfirmed] = useState(false);
   const label = useMemo(() => (state.done ? "Marked implemented" : idle), [state.done, idle]);
-  const nothingPicked = pickable != null && applied.size === 0;
-  const addressOwed = newPage && liveUrl.trim().length === 0;
-  // THE DELIBERATE YES, asked only about the pieces they say they applied. The server asks again and refuses
-  // without it, so this box is the operator's act and never the gate.
-  const movesPage = (components ?? []).some((c) => c.moves && applied.has(c.kind));
+  const nothingPicked = pickable != null && applied.size === 0, addressOwed = newPage && liveUrl.trim().length === 0;
+  // THE DELIBERATE YES, asked only about the pieces they say they applied. The server asks again and refuses without it, so this box is the
+  // operator's act and never the gate.
+  const movesPage = (components ?? []).some((c) => c.moves && applied.has(c.id));
 
   function onClick() {
     startTransition(async () => {
       const res = await markProposalImplementedAction({
         proposalId,
         ...(newPage ? { liveUrl: liveUrl.trim() } : {}),
-        ...(pickable && applied.size < pickable.length ? { componentKinds: [...applied] } : {}),
+        ...(pickable && applied.size < pickable.length ? { componentIds: [...applied] } : {}),
         ...(note.trim() ? { operatorNote: note.trim() } : {}),
         ...(movesPage ? { destructiveConfirmed: confirmed } : {}),
       });
-      if (res.success) setState({ done: true, error: null });
-      else setState({ done: false, error: res.error ?? "Something went wrong." });
+      if (res.success) setState({ done: true, error: null, note: res.note ?? null });
+      else setState({ done: false, error: res.error ?? "Something went wrong.", note: null });
     });
   }
 
@@ -437,13 +435,13 @@ export function MarkImplemented({ proposalId, label: idle = "Mark implemented", 
       {pickable ? (
         <div className="space-y-1.5" data-component-picker="true">
           <p className="text-[12px] font-semibold text-foreground">Which pieces did you apply?</p>
-          {/* KEYED BY POSITION AS WELL AS KIND: two sections sharing one React key collapse into one. */}
-          {pickable.map((c, i) => (
-            <label key={`${c.kind}-${i}`} className="flex items-center gap-2 text-[12px] text-muted-foreground">
-              <input type="checkbox" checked={applied.has(c.kind)}
+          {/* KEYED BY THE PIECE'S OWN ID: two sections sharing one key ticked and untickd as one. */}
+          {pickable.map((c) => (
+            <label key={c.id} className="flex items-center gap-2 text-[12px] text-muted-foreground">
+              <input type="checkbox" checked={applied.has(c.id)}
                 onChange={(e) => setApplied((prev) => {
                   const next = new Set(prev);
-                  if (e.target.checked) next.add(c.kind); else next.delete(c.kind);
+                  if (e.target.checked) next.add(c.id); else next.delete(c.id);
                   return next;
                 })} />
               {c.label}
@@ -494,6 +492,8 @@ export function MarkImplemented({ proposalId, label: idle = "Mark implemented", 
         </span>
         {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}
       </div>
+      {/* WHAT IS STILL THEIRS TO DO after a partial apply: the change stays open carrying the rest. */}
+      {state.note ? <p className="text-[12px] leading-relaxed text-muted-foreground">{state.note}</p> : null}
     </div>
   );
 }

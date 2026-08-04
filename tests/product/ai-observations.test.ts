@@ -70,7 +70,6 @@ import type { CachedCallResult, CapabilityKey } from "@/domains/evidence/datafor
 import { promptObservationUnit } from "@/domains/evidence/funnel/observe";
 import { resolveDeps, type FunnelDeps } from "@/domains/evidence/funnel/shared";
 import * as fx from "../fixtures/replay";
-
 const { BASIS, SITE, TENANT } = fx;
 const OTHER = "rival-tenant";
 const NOW = Date.parse("2026-07-21T09:00:00.000Z"), DAY = "2026-07-21";
@@ -80,7 +79,6 @@ const ENGINES = ["chatgpt", "claude", "gemini", "perplexity"] as const;
  *  reporting day the PLAN names (never a clock, so a run resumed past midnight still lands on one day). */
 const duePlan = (slot: 0 | 1 | 2 = 0, version = 1, day = DAY): DueObservation[] =>
   QUESTIONS.flatMap((p) => ENGINES.map((engine) => ({ promptId: p.id, version, text: p.text, engine, slot, day })));
-
 /** A provider that charges ONCE per cache identity and hands back the same envelope for free after that.
  *  The identity is THE WHOLE ASK, exactly as the registry keys it, so what the executor actually hands the
  *  boundary decides whether a reading is a new question or a free replay. */
@@ -97,7 +95,6 @@ function provider(fail: CachedCallResult | null = null) {
   };
   return { call, paid: () => paid };
 }
-
 function world(over: Partial<FunnelDeps> = {}, fail: CachedCallResult | null = null) {
   const store = fx.memFunnelStore(), p = provider(fail);
   const deps: FunnelDeps = { ...store.deps, callProvider: p.call, now: () => NOW, getAccount: async () => ({ domain: SITE } as Account), ...over };
@@ -107,9 +104,7 @@ const rowsFor = (table: string) => db.written.filter((w) => w.table === table).m
 const observations = () => rowsFor("ai_observations") as unknown as AiObservationRecord[];
 const history = () => rowsFor("prompt_answer_observations") as unknown as PromptAnswerObservation[];
 const run = (deps: FunnelDeps, due: DueObservation[] | null, tenantId = TENANT) => promptObservationUnit(deps, due)(tenantId, { basis: BASIS, runId: "run-1" }, 60_000);
-
 beforeEach(() => { db.written = []; db.read = []; db.updated = null; db.matched = []; db.error = null; db.filters = {}; db.selected = []; db.pages = []; db.onPage = null; });
-
 describe("one canonical identity per observation", () => {
   it("stores exactly the pairs that came due, each on the identity a retry can only ever reuse", async () => {
     const w = world();
@@ -181,7 +176,6 @@ describe("one canonical identity per observation", () => {
     expect(w.paid()).toBe(24); // and a DIFFERENT question to the provider: a second sample that replayed the first for $0 would not be a second opinion
   });
 });
-
 describe("the answer is kept whole", () => {
   it("keeps the full text and the whole journey, with retrieved pages held apart from cited sources", async () => {
     await run(world().deps, duePlan());
@@ -208,7 +202,6 @@ describe("the answer is kept whole", () => {
     expect([w.paid(), out.status]).toEqual([12, "done"]); // the gap is named and the twelve engines I can reach still finish
   });
 });
-
 describe("tenant isolation and the derived history row", () => {
   it("never lets one account's answers carry another account's identity", async () => {
     await run(world().deps, duePlan(), TENANT);
@@ -235,7 +228,6 @@ describe("tenant isolation and the derived history row", () => {
     expect(past.every((h) => h.run_id === "run-1" && h.tenant_id === TENANT)).toBe(true);
   });
 });
-
 describe("re-analysis reads what was already bought", () => {
   it("reads stored answers back and records a verdict beside them without asking any provider again", async () => {
     db.read = [{ id: "obs_1", tenant_id: TENANT, prompt_id: "q1", prompt_version: 1, engine: "chatgpt", sample_slot: 0, reporting_day: DAY,
@@ -325,7 +317,6 @@ describe("re-analysis reads what was already bought", () => {
     expect(walked.filter((r) => Number(String(r.id).slice(4)) < 2500).length).toBe(2500); // and nothing already stored was skipped
   });
 });
-
 /** The two readers the research funnel falls back on when a caller injects nothing. Both were built to carry
  *  PROVENANCE, and provenance is invisible from the outside: a keyword harvested downstream can name the
  *  answer or the page it came from only because these fields ride along. Run for real over the fakes. */
@@ -362,7 +353,6 @@ describe("the funnel's own default readers carry provenance, not just payload", 
     ]);
   });
 });
-
 describe("retrieved is not the same claim as not cited", () => {
   const at = (url: string) => ({ url, domain: url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0]!, title: null });
   const MINE = "https://mine.example/guide";

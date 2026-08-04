@@ -1,8 +1,7 @@
-/** THE RANKED QUEUE IS UNLIMITED AND IT PAGES IN THE DATABASE (blocker 3). 501 current changes are seeded as
- *  the store's own rows and stamped by the real ranking writer; the list then hands over every one of them
- *  exactly once, each request reads ONE bounded page and never the queue or the release blob, a ranking
- *  replaced underneath the operator restarts honestly, a retired or already-implemented row never reaches a
- *  pre-ship lane, the canonical current read is no longer capped at 500, and Today still takes only three. */
+/** THE RANKED QUEUE IS UNLIMITED AND IT PAGES IN THE DATABASE (blocker 3). 501 current changes are seeded as the store's own rows and stamped by the real ranking writer;
+ *  the list then hands over every one exactly once, each request reads ONE bounded page and never the queue or the release blob, a ranking replaced underneath the
+ *  operator restarts honestly, a retired or already-implemented row never reaches a pre-ship lane, the canonical current read is no longer capped at 500, and Today still
+ *  takes only three. */
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { supabaseFake, type Row } from "../helpers/supabase-fake";
 
@@ -24,13 +23,16 @@ Object.assign(client, supabaseFake({ rows: (t) => (t === "change_proposals" ? db
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => client }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
 vi.mock("next/server", () => ({ after: () => {} }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/changes", useRouter: () => ({ refresh: () => {} }) }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "acct-a", runWithTenant: async (_t: string, f: () => unknown) => f() }));
+const releaseFails = vi.hoisted(() => ({ value: false }));
 vi.mock("@/app/(shell)/surface-release", () => ({
   invalidateCoreSurfaces: async () => {}, refreshCustomerSurface: async () => {}, isCustomerSurfaceStale: () => false,
-  readCustomerSurface: async () => ({ releaseId: "blob-1", computedAt: "2026-08-02T00:00:00.000Z",
+  readCustomerSurface: async () => { if (releaseFails.value) throw new Error("the release did not read"); // a read that FAILED, not an absent release
+    return ({ releaseId: "blob-1", computedAt: "2026-08-02T00:00:00.000Z",
     today: { today: { headerSentence: "stale", nextOpportunities: [] }, hasChanges: false },
     changes: { proposals: [], ready: [], toDo: [], measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0,
-      readyZeroHint: null, receiptLine: null, summary: { todo: 0, ready: 0, implemented: 0, measuring: 0, results: 0 } } }),
+      readyZeroHint: null, receiptLine: null, summary: { todo: 0, ready: 0, implemented: 0, measuring: 0, results: 0 } } }); },
 }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
   resolveCurrentBasis: async () => db.basis }));
@@ -69,9 +71,8 @@ beforeEach(async () => {
 });
 
 describe("Today and Changes answer one question once", () => {
-  // The release blob has no way to say "put aside", so Today counted a dismissed row and offered a fix whose
-  // link 404s, while Changes (reading the database) had already dropped it. Both surfaces read the SAME
-  // database-gated lane now, so a dismissal lands on both on the very next render, with no operator action.
+  // The release blob has no way to say "put aside", so Today counted a dismissed row and offered a fix whose link 404s, while Changes (reading the database) had already
+  // dropped it. Both surfaces read the SAME database-gated lane now, so a dismissal lands on both on the very next render, with no operator action.
   it("drops a dismissed change from Today's count and its ready fixes on the next render, naming the same release as Changes", async () => {
     const before = await loadTodayView();
     expect([before.today.readyTotal, before.today.readyFixes?.some((f) => f.page === "/p0")]).toEqual([N, true]);
@@ -81,10 +82,9 @@ describe("Today and Changes answer one question once", () => {
     // ONE release id and ONE actionable count across the two screens, on the same render.
     expect([after.surfaceVersion, after.today.readyTotal]).toEqual([changes.surfaceVersion, changes.summary.ready]);
   });
-  // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "Measuring 0 · Results 0"
-  // on Changes and "Nothing is measuring yet" on Today, the one claim a shipped change disproves. And a count
-  // that includes changes I will refuse to hand over is a promise the next press cannot keep, wherever the
-  // refusals sit: the number the operator reads may only FALL as I learn, never climb back.
+  // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "Measuring 0 · Results 0" on Changes and "Nothing is measuring yet" on Today, the one
+  // claim a shipped change disproves. And a count that includes changes I will refuse to hand over is a promise the next press cannot keep, wherever the refusals sit:
+  // the number the operator reads may only FALL as I learn, never climb back.
   it("withholds a count it could not read, and never counts a lane higher than it can hand over", async () => {
     ledgerFails.value = true;
     const view = await buildChangesViewUncached(T, "rel-8"), today = buildTodayViewFromChanges(view);
@@ -102,6 +102,16 @@ describe("Today and Changes answer one question once", () => {
     for (const i of [1, 2, 30]) db.rows.find((r) => r.id === ALL[i]!.id)!.payload = JSON.parse(serializeChangeProposal(expired(i)));
     const first = await readChangesPage(T, "ready", 0, "rel-1"), second = await readChangesPage(T, "ready", first.cursor, "rel-1");
     expect([first.total, first.rows.length, first.dropped, second.dropped, first.total - second.dropped]).toEqual([N - 2, CHANGES_PAGE_SIZE - 2, 2, 1, N - 3]);
+  });
+  // A RELEASE I COULD NOT READ IS NOT A COLD START AND IS NOT A CLEAR DAY. Both loaders swallowed the read and painted "I am putting your ranked changes together for the
+  // first time" / "Nothing needs a decision today".
+  it("tells the truth when the release itself could not be read, on Changes and on Today", async () => {
+    releaseFails.value = true; db.rows = [];
+    const view = await loadChangesView(), { ChangesSection } = await import("@/app/(shell)/changes/page");
+    expect([view.releaseUnreadable, view.surfaceBuilding, view.proposals.length,
+      renderToStaticMarkup(await ChangesSection()).includes("I could not read your saved changes just now"),
+      (await loadTodayView()).today.headerSentence.includes("I could not read your changes just now")]).toEqual([true, false, 0, true, true]);
+    releaseFails.value = false;
   });
 });
 

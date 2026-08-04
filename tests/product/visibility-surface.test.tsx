@@ -4,9 +4,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { supabaseFake, type Row } from "../helpers/supabase-fake";
 import { renderToStaticMarkup } from "react-dom/server";
-const store = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], reads: [] as { max: number; cols: string }[], fetched: [] as unknown[] }));
+const store = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], reads: [] as { max: number; cols: string }[], fetched: [] as unknown[], fail: false }));
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => supabaseFake({
-  rows: () => store.rows, onSelect: (_t, r) => store.reads.push({ max: r.max, cols: r.cols }) }) }));
+  rows: () => store.rows, onSelect: (_t, r) => { if (store.fail) throw new Error("the store could not be read"); store.reads.push({ max: r.max, cols: r.cols }); } }) }));
 globalThis.fetch = (async (...a: unknown[]) => { store.fetched.push(a); throw new Error("no provider call is allowed from Visibility"); }) as typeof fetch;
 import type { AiOutcomeReport } from "@/domains/measurement";
 import { aiTrend } from "@/app/(shell)/results/results-presentation";
@@ -32,7 +32,7 @@ const LONG_ANSWER = `You can order a haft seen set from a few specialist shops. 
 const ROW: AnswerRow = { id: "obs_7", day: DAY, promptId: "p1", promptText: "where to buy a haft seen set", engine: "chatgpt",
   slot: 0, answered: true, mentioned: true, cited: true,
   // MORE THAN TWELVE real fan-outs, and the tracked question itself among them: the row keeps it, the summary drops it.
-  fanOuts: [...Array.from({ length: 13 }, (_, i) => `haft seen search ${i}`), "haft seen set delivery", "nowruz table shop", "where to buy a haft seen set"],
+  fanOuts: [...Array.from({ length: 13 }, (_, i) => `haft seen search ${i}`), "haft seen set delivery", "nowruz table shop", "Where to buy a haft seen set?"],
   answerText: LONG_ANSWER,
   // FIFTEEN cited pages, past the old ten, with the passage the provider stored on the first of them.
   citations: [{ url: "https://own.example/haft-seen", domain: "own.example", owned: true },
@@ -45,7 +45,7 @@ const ROW: AnswerRow = { id: "obs_7", day: DAY, promptId: "p1", promptText: "whe
 /** THE WHOLE SURFACE, so the server actions it hands the browser can be invoked exactly as a stale tab would invoke them. Everything except the observation
  *  store itself is stubbed: what is under test is WHOSE account an action reads for, and what it says when it may not read at all. */
 const SESSION = vi.hoisted(() => ({ id: "acct-a" }));
-const JOURNEY = vi.hoisted(() => ({ props: null as null | { tenantId: string; days: Array<{ day: string; label: string }>;
+const JOURNEY = vi.hoisted(() => ({ props: null as null | { tenantId: string; days: Array<{ day: string; label: string }>; unavailable: string | null;
   page: (t: string, day: string, after: string | null) => Promise<{ rows: unknown[]; cursor: string | null; note: string | null; replace?: boolean }>;
   open: (t: string, id: string) => Promise<string[]> } }));
 vi.mock("@/app/(shell)/visibility/answers-client", () => ({ AnswerJourney: (p: never) => { JOURNEY.props = p; return null; } }));
@@ -107,12 +107,12 @@ describe("Visibility explains where you stand, and never invents a score", () =>
     // A TRACKED QUESTION OF MINE IS NEVER A SEARCH THE ASSISTANT RAN. The summary already dropped the self-echo; the ROW printed it
     // back as the assistant's own idea, which reads as Beacon discovering the exact question Beacon asked.
     const searched = one.details.find((d) => d.startsWith("Before answering it searched for"))!;
-    expect((ROW.fanOuts ?? []).filter((q) => q !== ROW.promptText).every((q) => searched.includes(`"${q}"`))).toBe(true);
-    expect(searched).not.toContain(ROW.promptText);
-    expect(at(v, "What the assistants searched for").chips).not.toContain(ROW.promptText);
+    expect((ROW.fanOuts ?? []).filter((q) => q.toLowerCase() !== `${ROW.promptText}?`).every((q) => searched.includes(`"${q}"`))).toBe(true);
+    expect(searched.toLowerCase()).not.toContain(ROW.promptText); // a capital letter and a question mark are the SAME question, and every other reader of a fan-out already knows it
+    expect(at(v, "What the assistants searched for").chips.map((c) => c.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim())).not.toContain(ROW.promptText);
     expect(all).toContain(`I asked ChatGPT, word for word: "${ROW.promptText}"`); // the question is still quoted where it belongs
     // An answer whose ONLY fan-out was the echo ran no search of its own, and says exactly that.
-    expect(answerView({ ...ROW, fanOuts: [ROW.promptText] }).details).toContain("It ran no searches of its own before answering.");
+    expect(answerView({ ...ROW, fanOuts: [` ${ROW.promptText.toUpperCase()}? `] }).details).toContain("It ran no searches of its own before answering.");
     // WHAT THE PROVIDER NEVER REPORTED SAYS SO, and is never printed as a factual none.
     const quiet = answerView({ ...ROW, fanOuts: null, citations: null, retrievedNotCited: null, reading: "unread" }).details.join("\n");
     for (const s of ["ChatGPT does not report the searches it ran on this path",
@@ -148,10 +148,10 @@ describe("Visibility explains where you stand, and never invents a score", () =>
    *  service role, so a tab left open on one account and clicked after signing into another handed back the first account's stored answers. */
   it("refuses a stale tab's action for another account without reading a single row of it, keeps the way back open when a read fails, and opens any observed day", async () => {
     SESSION.id = TENANT;
-    const page = await VisibilityPage() as ReactElement<{ children: ReactElement[] }>;
-    const holder = (page.props.children[1]! as ReactElement<{ children: ReactElement }>).props.children as ReactElement<{ tenantId: string }>;
-    renderToStaticMarkup(await (holder.type as (p: { tenantId: string }) => Promise<ReactElement>)(holder.props));
-    const j = JOURNEY.props!;
+    const draw = async () => { const page = await VisibilityPage() as ReactElement<{ children: ReactElement[] }>;
+      const holder = (page.props.children[1]! as ReactElement<{ children: ReactElement }>).props.children as ReactElement<{ tenantId: string }>;
+      renderToStaticMarkup(await (holder.type as (p: { tenantId: string }) => Promise<ReactElement>)(holder.props)); };
+    await draw(); const j = JOURNEY.props!;
     expect([j.tenantId, j.days.at(-1)]).toEqual([TENANT, { day: DAY, label: "Aug 2" }]); // every day I hold readings on is reachable, not only the newest
     const mine = await j.page(TENANT, DAY, null);
     expect([mine.rows.length, mine.note, mine.replace]).toEqual([25, null, true]);
@@ -161,7 +161,9 @@ describe("Visibility explains where you stand, and never invents a score", () =>
     expect(await j.open(TENANT, "obs_7")).toEqual([stale.note]);
     expect(store.reads).toEqual([]); // THE PIN: not one admin read was issued for account A, so nothing of A's could leak
     expect(stale.note).not.toContain("every answer"); // and a refusal is never dressed up as the end of the day
-    SESSION.id = TENANT; });
+    SESSION.id = TENANT;
+    store.fail = true; JOURNEY.props = null; await draw(); // AND WHEN THE FIRST READ ITSELF FAILS the journey is not deleted from the page: it says so and keeps the way back
+    expect(JOURNEY.props!.unavailable).toBe("I could not read the rest of that day back just now. Try again and I will pick up where I left off."); store.fail = false; });
   it("says what one stored answer cost off the receipt it names, and refuses to call an unproven cost zero dollars", () => {
     expect(answerView(ROW).details.at(-1)).toBe("The stored answer this all comes off is filed as answer:9f3c1, and it cost 0.02 dollars to buy once.");
     expect(answerView({ ...ROW, costUsd: null }).details.at(-1)).toBe("The stored answer this all comes off is filed as answer:9f3c1, and I hold no receipt proving what it cost, so I am not putting a number on it.");

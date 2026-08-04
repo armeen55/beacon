@@ -32,6 +32,8 @@ export {
   measureRecord,
   captureChangeMeta,
   recordShippedChange,
+  selectControlPages,
+  MIN_CONTROLS,
   type KernelRead,
   type BundleRead,
   type ShippedChangeRecord,

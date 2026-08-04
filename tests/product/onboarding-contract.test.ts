@@ -1,11 +1,6 @@
-/**
- * PRODUCT - the onboarding + 50-core-prompt approval contract (Slice 5). One
- * behavioral contract over the Runtime onboarding facade, driven by injected seams
- * (fake durable store + profile repo, an injected CompleteFn for all LLM kinds,
- * injected crawl/probe) with NO network. The one real seam is the durable budget
- * ledger, mocked as a tiny accumulating row so the $2 reserve-then-reconcile cap is
- * exercised. Each scenario states the customer stake it protects.
- */
+/** PRODUCT - the onboarding + 50-core-prompt approval contract (Slice 5). One behavioral contract over the Runtime onboarding facade, driven by injected seams (fake
+ *  durable store + profile repo, an injected CompleteFn for all LLM kinds, injected crawl/probe) with NO network. The one real seam is the durable budget ledger, mocked
+ *  as a tiny accumulating row so the $2 reserve-then-reconcile cap is exercised. Each scenario states the customer stake it protects. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { emptyBusinessProfile, type Account, type BusinessProfile } from "@/domains/account";
 import type { OnboardingDeps, OnboardingStore, TrackedPromptRow } from "@/domains/runtime";
@@ -64,8 +59,13 @@ function makeWorld() {
       profiles.set(id, emptyBusinessProfile(id));
       return "replaced";
     },
-    async updateTenantGoal(id, goal) { const t = tenants.get(id); if (!t || t.status !== "pending_onboarding") return "not_pending"; t.growth_goal = goal; return "ok"; },
-    async activateTenant(id, now) { const t = tenants.get(id); if (!t) return "blocked"; if (t.status === "active") return "already_active"; if (t.status !== "pending_onboarding") return "blocked"; t.status = "active"; t.tos = now; return "activated"; },
+    async updateTenantGoal(id, goal, _at, statuses) { const t = tenants.get(id); if (!t || !(statuses ?? ["pending_onboarding"]).includes(t.status)) return "not_pending"; t.growth_goal = goal; return "ok"; },
+    // Mirrors the one statement: it writes only where the terms are unstamped, so an account already running with its terms on file is untouched and one flipped active
+    // without them can still accept them.
+    async activateTenant(id, now) { const t = tenants.get(id); if (!t) return "blocked";
+      if (t.tos) return t.status === "active" ? "already_active" : "blocked";
+      if (t.status !== "pending_onboarding" && t.status !== "active") return "blocked";
+      t.status = "active"; t.tos = now; return "activated"; },
     async readPrompts(id) { return prompts.filter((r) => r.tenant_id === id).map((r) => ({ ...r, tags: [...r.tags] })); },
     async upsertPrompts(rows) { for (const row of rows) { const i = prompts.findIndex((r) => r.id === row.id); if (i >= 0) prompts[i] = { ...row }; else prompts.push({ ...row }); } },
   };
@@ -99,6 +99,10 @@ function seedPending(w: ReturnType<typeof makeWorld>, id: string, over: Partial<
   w.tenants.set(id, { status: "pending_onboarding", domain: "", growth_goal: null, tos: null, ...over });
 }
 function seedConfirmedProfile(w: ReturnType<typeof makeWorld>, id: string) { w.profiles.set(id, confirmedProfile(id)); }
+/** N extra live core questions under a basis nobody holds any more: exactly what a Settings edit or an old goal leaves behind. */
+const seedCore = (w: ReturnType<typeof makeWorld>, id: string, n: number) => { for (let i = 0; i < n; i += 1) w.prompts.push({ id: `seeded-${w.prompts.length}`, tenant_id: id,
+  account_id: id, text: `seeded question ${i}`, topic_id: "t", location_scope: null, service_scope: null, intent_type: "category", platforms: [], is_active: true,
+  tags: ["candidate_v1", "set_v1", "core_v1", "basis_longgone"], version: 1, core: true, created_at: "", updated_at: "" } as TrackedPromptRow); };
 function seedCrawl(w: ReturnType<typeof makeWorld>, id: string) {
   w.crawls.set(id, { tenant_id: id, domain: "acme.test", status: "in_progress", frontier: [], visited: [], pages_crawled: 3, pages_failed: 0,
     page_cap: 150, source: "homepage", started_at: "", updated_at: "", last_batch_at: null, batches_run: 1,
@@ -317,14 +321,11 @@ describe("onboarding contract (Slice 5)", () => {
   });
 });
 
-/**
- * PHASE 8 SURFACES. The three promises the setup and settings screens make to a customer: approving
- * the recommendation is ONE action over topics rather than a hundred and fifty rows, an account that
- * stopped halfway comes back to the step it actually reached, and Connections offers the customer's
- * own tools and nothing Beacon runs on its own account.
- */
-/** Fourteen topics of five questions: a broad candidate universe (70) an operator must never be
- *  asked to read row by row. The first seven topics are the ones approved as a group below. */
+/** PHASE 8 SURFACES. The three promises the setup and settings screens make to a customer: approving the recommendation is ONE action over topics rather than a hundred
+ *  and fifty rows, an account that stopped halfway comes back to the step it actually reached, and Connections offers the customer's own tools and nothing Beacon runs on
+ *  its own account. */
+/** Fourteen topics of five questions: a broad candidate universe (70) an operator must never be asked to read row by row. The first seven topics are the ones approved as
+ *  a group below. */
 const TOPICS = [
   ...INTENTS.map((intent) => ({ slug: `${intent}first`, half: "first", intent, size: 5 })),
   ...INTENTS.slice(0, 5).map((intent) => ({ slug: `${intent}second`, half: "second", intent, size: 7 })),
@@ -359,32 +360,69 @@ describe("setup and settings surfaces (Phase 8)", () => {
     seedCrawl(w, A); Object.assign(w.crawls.get(A)!.page_facts[0], { path: "/rugs", has_meta_description: false });
     const win = (await loadOnboardingState(A, w.deps)).findings.firstWin!; expect(win.action).toBe("Add a search description"); expect(win.plainWhy).toContain("(200 words)");
   });
-  /** PHASE 6E.1 + 6E.2. Being ACTIVE is a status, not proof of setup. An account flipped active without a website, without a confirmed
-   *  profile or without a single approved question rendered every product surface off nothing at all. And the opposite error is worse:
-   *  a profile read that failed comes back EMPTY, which is indistinguishable from never having been filled in, so treating it as a gap
-   *  would bounce a fully onboarded customer into onboarding over a five second outage. */
-  it("sends an ACTIVE account missing setup truth to the exact step it is missing, and never mistakes a read outage for incompleteness", async () => {
+  /** PHASE 6E.1 + 6E.2 + P1-1. Being ACTIVE is a status, not proof of setup, and the whole activation contract gates now. The opposite error is worse: a profile read
+   *  that failed comes back EMPTY, indistinguishable from never filled in, so treating that as a gap would bounce a fully onboarded customer into onboarding over a five
+   *  second outage. */
+  it("asks a RUNNING account only for what it cannot run without, and a PENDING one for the whole activation contract", async () => {
     const w = makeWorld();
-    const live = async (domain: string) => setupGap(A, domain, w.deps);
+    const acct = (over: Record<string, unknown> = {}) => ({ status: "active", domain: "acme.com", growth_goal: "grow", tos_accepted_at: "2026-07-24T00:00:00.000Z", ...over });
+    const live = async (over: Record<string, unknown> = {}) => setupGap(A, acct(over) as any, w.deps);
     seedPending(w, A, { domain: "acme.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
     await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC });
     await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
-    w.tenants.get(A)!.status = "active"; // setup finished, the account is live
-    expect(await live("acme.com")).toBeNull(); // set up: the product renders, nothing resumes
-    expect(await live("")).toEqual({ step: 1 }); // no website at all, proven off the account row this account was read from
-    for (const r of w.prompts) r.is_active = false;
-    expect(await live("acme.com")).toEqual({ step: 5 }); // nothing to ask the assistants, so questions are what is owed
+    w.tenants.get(A)!.status = "active"; w.tenants.get(A)!.tos = "2026-07-24T00:00:00.000Z"; // setup finished, the account is live
+    expect(await live()).toBeNull(); // set up: the product renders, nothing resumes
+    // A RUNNING ACCOUNT'S GAP IS OPERATIONAL, NEVER A RE-DERIVATION OF THE ACTIVATION INPUTS. The live account predates goals and runs with growth_goal NULL: the product
+    // works, so that is a nudge, never a lockout, and forcing the write would re-mint the basis and orphan every prompt behind it. Its questions are counted the way the
+    // research funnel counts them, basis-agnostically, because a basis that moved is not something an operator can see or fix. Website, a confirmed profile and terms are
+    // the real floor.
+    expect([await live({ growth_goal: null }), await live({ domain: "" }), await live({ tos_accepted_at: null })]).toEqual([null, { step: 1 }, { step: 7 }]);
+    for (const r of w.prompts) if (r.is_active) r.tags = [...r.tags.filter((t) => !t.startsWith("basis_")), "basis_longgone"];
+    // A basis nobody re-approved is still 35 questions I am really asking; a PENDING account still owes every activation input, goal included.
+    expect([await live({ growth_goal: null }), await setupGap(A, acct({ status: "pending_onboarding", growth_goal: null }) as any, w.deps)]).toEqual([null, { step: 4 }]);
+    seedCore(w, A, 25); expect(await live()).toBeNull(); // 60 live questions: legal in Settings' 10..100 window, so never a lockout
+    seedCore(w, A, 45); expect(await live()).toEqual({ step: 5 }); // 105 is past the cap the funnel enforces, and that IS operational
+    for (const r of w.prompts.filter((p) => p.is_active).slice(5)) r.is_active = false; // five is under the floor of ten
+    expect(await live()).toEqual({ step: 5 });
+    for (const r of w.prompts) r.is_active = false; // and nothing to ask the assistants at all is the same owed step
+    expect(await live()).toEqual({ step: 5 });
+    // THE RENDERED PICKER MUST LAND: the wizard draws the goal step for a gapped running account, so that save may not answer "locked" under a live button.
+    w.tenants.get(A)!.growth_goal = null;
+    expect((await saveGoal(A, "balanced", w.deps)).ok && w.tenants.get(A)!.growth_goal).toBe("balanced");
     for (const r of w.prompts) r.is_active = true;
-    // A profile with real content that nobody confirmed IS a gap, and it names the confirm step.
+    // A profile with real content that nobody confirmed IS a gap and names the confirm step; an EMPTY one is exactly what a failed read hands back, so it is unreadable,
+    // never a gap.
     const unconfirmed = confirmedProfile(A); (unconfirmed as any).offerings = { value: ["rug cleaning"], origin: "inferred", confidence: 0.7, sourceUrls: [] };
-    w.profiles.set(A, unconfirmed); expect(await live("acme.com")).toEqual({ step: 3 });
-    // THE PIN THAT MATTERS: an EMPTY profile is exactly what a failed read hands back, so it is unreadable, never a gap.
-    w.profiles.set(A, emptyBusinessProfile(A));
-    await expect(live("acme.com")).rejects.toThrow();
+    w.profiles.set(A, unconfirmed); expect(await live()).toEqual({ step: 3 });
+    w.profiles.set(A, emptyBusinessProfile(A)); await expect(live()).rejects.toThrow();
     w.profiles.set(A, confirmedProfile(A));
-    await expect(setupGap(A, "acme.com", { ...w.deps, store: { ...w.deps.store!, readPrompts: async () => { throw new Error("prompts unreadable"); } } })).rejects.toThrow(); });
-  /** PHASE 6E.3. Confirm used to stamp operator_confirmed on ALL eleven sections, including the eight the step never
-   *  rendered, so a model's guess about trust claims and excluded topics became the operator's own word. */
+    await expect(setupGap(A, acct() as any, { ...w.deps, store: { ...w.deps.store!, readPrompts: async () => { throw new Error("prompts unreadable"); } } })).rejects.toThrow(); });
+  /** P0-5. The product guard sent an ACTIVE account with a real setup gap to /onboard, /onboard rendered it, and every mutation there refused it and redirected home,
+   *  which sent it straight back: a loop with no way out. */
+  it("lets an ACTIVE account finish the step it is actually missing, and never activates it a second time", async () => {
+    const w = makeWorld();
+    seedPending(w, A, { domain: "acme.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
+    await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC });
+    await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
+    const gap = async () => { const t = w.tenants.get(A)!; return setupGap(A, { status: t.status, domain: t.domain, growth_goal: t.growth_goal, tos_accepted_at: t.tos } as any, w.deps); };
+    expect([(await activateAccount(A, true, w.deps)).ok, w.tenants.get(A)!.status, w.scheduled.length]).toEqual([true, "active", 1]);
+    for (const r of w.prompts) r.is_active = false; // the account is live with nothing to ask: a genuine gap
+    seedCore(w, A, 5); // five strays under a basis nobody holds: enough to be swept, not enough to answer anything
+    expect(await gap()).toEqual({ step: 5 });
+    expect((await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps)).ok).toBe(true);
+    // THE SWEEP RUNS FOR A RUNNING ACCOUNT TOO. Skipping it stacked the strays under the new set, and the funnel counts basis-agnostically, so 5 + 35 would have become
+    // 40 questions I pay for every day and nobody chose. The gap then closes, and nothing started a second research run.
+    expect([activeCore(w, A).length, await gap(), w.scheduled.length]).toEqual([35, null, 1]);
+    // A running account with nothing missing is still locked out of setup.
+    expect((await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps)).ok).toBe(false);
+    // Terms nobody ever accepted are the one thing the launch step still owes, and accepting them starts nothing.
+    w.tenants.get(A)!.tos = null;
+    expect(await gap()).toEqual({ step: 7 });
+    expect((await activateAccount(A, true, w.deps)).ok).toBe(true);
+    expect([w.tenants.get(A)!.tos, w.scheduled.length]).toEqual([NOW.toISOString(), 1]);
+  });
+  /** PHASE 6E.3. Confirm used to stamp operator_confirmed on ALL eleven sections, including the eight the step never rendered, so a model's guess about trust claims and
+   *  excluded topics became the operator's own word. */
   it("confirms only the profile fields the operator actually saw on that step, and leaves every unseen inference marked as mine", async () => {
     const w = makeWorld(); seedPending(w, A, { domain: "acme.com" });
     const inferred = emptyBusinessProfile(A);

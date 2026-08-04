@@ -24,9 +24,8 @@ const canonicalMode = (e: ResearchEngine): ObservationMode => (e === "chatgpt" ?
 /** A deliberate second sample of one pair on one day is a DIFFERENT observation, so the slot is part of the
  *  working identity exactly as it is part of the stored one. A row without a slot is slot 0. */
 const slotOf = (p: FunnelPair) => p.slot ?? 0;
-/** THE working identity IS the stored identity, reporting day and all. A row from another day is another
- *  observation, never this one's retry: carrying a done row across days is what made day 2 plan twelve
- *  readings and execute none. */
+/** THE working identity IS the stored identity, reporting day and all. A row from another day is another observation, never this one's retry: carrying a done
+ * row across days is what made day 2 plan twelve readings and execute none. */
 const pairKey = (p: FunnelPair) => `${p.promptId}|${p.engine}|${modeOf(p)}|${slotOf(p)}|${p.day ?? ""}`;
 const capabilityFor = (p: FunnelPair): CapabilityKey => (p.engine === "chatgpt" && modeOf(p) === "consumer_search" ? "llm_scraper_chatgpt" : (`llm_${p.engine}` as CapabilityKey));
 /** The engines I can actually ask. Anything else is answered honestly as unsupported at ZERO spend. */
@@ -77,10 +76,9 @@ function draftOf(p: FunnelPair, ids: ObsIds, text: string, at: string, status: A
   };
 }
 
-/** THE full-fidelity landing: the whole answer, the whole retrieval journey, the money receipt and the cache
- *  identity of the raw envelope land as ONE canonical row, and the historical prompt_answer_observations row
- *  is DERIVED from that same record in the same breath. Two writes, one truth: nothing composes a history row
- *  independently any more, so the two can never disagree. */
+/** THE full-fidelity landing: the whole answer, the whole retrieval journey, the money receipt and the cache identity of the raw envelope land as ONE
+ * canonical row, and the historical prompt_answer_observations row is DERIVED from that same record in the same breath. Two writes, one truth: nothing
+ * composes a history row independently any more, so the two can never disagree. */
 async function landAnswer(p: FunnelPair, r: Interp, parsed: ParsedAiAnswer, promptText: string, ids: ObsIds, nowIso: string, d: ResolvedDeps): Promise<void> {
   // THE MONEY IS THE PLACEMENT'S. A posted ask is finished by a FREE collect, so the cost on the final row is
   // what the placement paid PLUS whatever this landing itself cost; the collect's own zero never erases it.
@@ -103,10 +101,9 @@ async function landAnswer(p: FunnelPair, r: Interp, parsed: ParsedAiAnswer, prom
   await d.syncHistory([projectPromptAnswerObservation(rec, ids.runId)], ids.tenantId);
 }
 
-/** The set Runtime's planner says is DUE: one row per (prompt, version, engine, slot, reporting day), each
- *  in that engine's canonical retrieval mode. THE PLANNER IS THE FRESHNESS AUTHORITY (it reads the stored
- *  observations), so a persisted row NEVER overrules it: only an in-flight task on the very same identity
- *  carries forward, and only so today's free collect finishes what today's post started. */
+/** The set Runtime's planner says is DUE: one row per (prompt, version, engine, slot, reporting day), each in that engine's canonical retrieval mode. THE
+ * PLANNER IS THE FRESHNESS AUTHORITY (it reads the stored observations), so a persisted row NEVER overrules it: only an in-flight task on the very same
+ * identity carries forward, and only so today's free collect finishes what today's post started. */
 function pairsFromDue(due: DueObservation[], persisted: FunnelPair[]): FunnelPair[] {
   const byKey = new Map(persisted.map((p) => [pairKey(p), p]));
   return due.map((x) => {
@@ -121,14 +118,11 @@ function pairsFromDue(due: DueObservation[], persisted: FunnelPair[]): FunnelPai
   });
 }
 
-/** `due`: the exact (prompt, version, engine, slot, reporting day) observations Runtime's planner says are
- *  owed right now. THE PLANNER IS THE ONLY SELECTOR. There is no standing sweep of the tracked set here any
- *  more: two selectors meant one of them re-asked a question the other had already read today, and the
- *  fallback fired precisely when the observation store was unreadable, which is the one moment re-asking the
- *  whole set is worst. So silence is never a licence:
- *    null = the planner could not read what is due -> I do nothing and spend nothing.
- *    []   = nothing is owed -> today's round is already complete.
- *  A due engine I cannot ask is answered as unsupported at ZERO spend, never quietly dropped. */
+/** `due`: the exact (prompt, version, engine, slot, reporting day) observations Runtime's planner says are owed right now. THE PLANNER IS THE ONLY SELECTOR.
+ * There is no standing sweep of the tracked set here any more: two selectors meant one of them re-asked a question the other had already read today, and the
+ * fallback fired precisely when the observation store was unreadable, which is the one moment re-asking the whole set is worst. So silence is never a
+ * licence: null = the planner could not read what is due -> I do nothing and spend nothing. [] = nothing is owed -> today's round is already complete. A due
+ * engine I cannot ask is answered as unsupported at ZERO spend, never quietly dropped. */
 export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation[] | null = null): FunnelUnitFn {
   const d = resolveDeps(deps);
   return async (tenantId, cursor, budgetMs) => {
@@ -143,9 +137,8 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
     const runId = beginCycle(state, cursor, unitKey), ctx: SaveCtx = { rowVersion: loaded.rowVersion };
     const nowIso = () => new Date(d.now()).toISOString();
     const obs: ObsIds = { tenantId, site: await siteOf(d, tenantId), runId };
-    // The planner already excludes an engine it cannot ask, so this is DEFENSE against plan-versus-execution
-    // drift (a newly added engine, an older plan): the row is written unsupported without a provider call, so
-    // the gap is named rather than disappearing.
+    // The planner already excludes an engine it cannot ask, so this is DEFENSE against plan-versus-execution drift (a newly added engine, an older plan): the
+    // row is written unsupported without a provider call, so the gap is named rather than disappearing.
     for (const x of due.filter((y) => !OBSERVABLE.has(y.engine))) {
       await d.recordObservation(buildAiObservation({ tenantId, site: obs.site, promptId: x.promptId, promptVersion: x.version, promptText: x.text,
         engine: x.engine, mode: canonicalMode(x.engine), slot: x.slot, day: x.day, requestedAt: nowIso(), capability: "unavailable", status: "unsupported",
@@ -154,10 +147,9 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
     const askable = due.filter((x) => x.promptId && x.text && x.day && OBSERVABLE.has(x.engine)).slice(0, 400);
     if (askable.length === 0) return { status: "failed", cursor, progress: pairProgress(state), detail: "None of the questions that came due can be checked on an engine I can reach yet, so I spent nothing. I will pick them up as soon as one is available." };
     const planned = pairsFromDue(askable, state.prompts.pairs), plannedKeys = new Set(planned.map(pairKey));
-    // A task posted on an EARLIER day is collected FREE and lands on ITS OWN day: the money already moved, so
-    // abandoning it would be waste. It is never re-posted, because a missed day is gone.
-    // A pre-repair posted pair carries no day; its money is already spent, so it is collected ONCE
-    // onto the day it lands rather than abandoned (legacy rows only, they die out after one collect).
+    // A task posted on an EARLIER day is collected FREE and lands on ITS OWN day: the money already moved, so abandoning it would be waste. It is never
+    // re-posted, because a missed day is gone. A pre-repair posted pair carries no day; its money is already spent, so it is collected ONCE onto the day it
+    // lands rather than abandoned (legacy rows only, they die out after one collect).
     const carried = state.prompts.pairs.filter((p) => p.status === "posted" && p.cacheKey && !plannedKeys.has(pairKey(p))).slice(0, 40);
     const pairs = [...carried, ...planned];
     state.prompts.intendedPairs = planned.length;
@@ -180,12 +172,15 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
           if (parsed) await landAnswer(p, r, parsed, textOf.get(p.promptId) ?? p.promptText ?? "", obs, nowIso(), d);
           else { await note(p, "unavailable", "The provider answered with something I could not read.", { cacheKey: r.cacheKey }); fail("I collected an answer I could not read. I will retry it on the next pass."); }
         } else if (r.kind === "failed") {
-          // The DISPOSITION decides: blocked = held refusal (row untouched, batch stops, run pauses); repost_once = ONE.
-          // A cleared requestedAt is the point of the recovery ones: whatever lands later stamps its OWN moment.
-          await note(p, "failed", r.detail ?? null, { cacheKey: r.cacheKey });
+          // The DISPOSITION decides: blocked = held refusal (row untouched, batch stops, run pauses); repost_once = ONE. A cleared requestedAt is the
+          // point of the recovery ones: whatever lands later stamps its OWN moment. AND THE CANONICAL ROW SAYS WHAT THE DISPOSITION DECIDED, because a
+          // pair set aside for good went `unsupported` in memory and `failed` on the stored row: the planner read it as owed on every window, so on
+          // 4 August two of them repeated 138 of 140 every half hour for nine hours and the day never crawled, never synthesized and never published.
+          const dead = r.disposition === "quarantined" || (r.disposition === "repost_once" && (p.reposts ?? 0) >= 1);
+          await note(p, dead ? "unavailable" : "failed", r.detail ?? null, { cacheKey: r.cacheKey, ...(dead ? { completedAt: nowIso() } : {}) });
           if (r.disposition === "daily_limit") { limitDetail = r.detail ?? null; break; }
           if (r.disposition === "blocked") { blockedDetail = blockedNote(r); break; }
-          if (r.disposition === "repost_once") { p.cacheKey = null; p.requestedAt = undefined; if ((p.reposts ?? 0) >= 1) { p.status = "unsupported"; p.observedAt = nowIso(); } else { p.status = "pending"; p.reposts = 1; } }
+          if (r.disposition === "repost_once") { p.cacheKey = null; p.requestedAt = undefined; if (dead) { p.status = "unsupported"; p.observedAt = nowIso(); } else { p.status = "pending"; p.reposts = 1; } }
           else if (r.disposition === "quarantined") { p.status = "unsupported"; p.observedAt = nowIso(); p.requestedAt = undefined; }
           else fail(r.detail ?? pauseDetail(r.disposition, "A prompt check did not come back. I will collect it on the next pass."));
         }
@@ -208,8 +203,8 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
           if (parsed) { await landAnswer(p, r, parsed, text, obs, nowIso(), d); progressed = true; }
           else { await note(p, "unavailable", "The provider answered with something I could not read.", { cacheKey: r.cacheKey }); fail("I got an answer I could not read. I will retry it on the next pass."); }
         } else if (r.kind === "failed") {
-          // Same ladder as the collect above; quarantined = EXPLICIT unavailable coverage.
-          await note(p, "failed", r.detail ?? null, { cacheKey: r.cacheKey });
+          const held = r.disposition === "quarantined"; // same ladder as the collect above, and the same terminal row: quarantined = EXPLICIT unavailable coverage
+          await note(p, held ? "unavailable" : "failed", r.detail ?? null, { cacheKey: r.cacheKey, ...(held ? { completedAt: nowIso() } : {}) });
           if (r.disposition === "daily_limit") { limitDetail = r.detail ?? null; break; }
           if (r.disposition === "blocked") { blockedDetail = blockedNote(r); break; }
           if (r.disposition === "quarantined") { p.status = "unsupported"; p.cacheKey = r.cacheKey; p.observedAt = nowIso(); p.requestedAt = undefined; fail(r.detail); }
@@ -227,14 +222,18 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
       const done = planned.filter((p) => p.status === "done").length, unsupported = planned.filter((p) => p.status === "unsupported").length;
       const anyPosted = planned.some((p) => p.status === "posted");
       let status: FunnelUnitOutcome["status"];
-      if (done > 0 && done + unsupported >= planned.length) { status = "done";
-        if (unsupported > 0) failedDetail = `${unsupported} prompt checks were unavailable from the provider this round; the rest are in.`; }
+      // A DAY PROVEN UNAVAILABLE IS A FINISHED DAY. Completion used to require a NEW answer in this very window, so a recovery round that only
+      // terminalized the last two identities could never close and the phase repeated on itself forever.
+      if (planned.length > 0 && done + unsupported >= planned.length) { status = "done";
+        if (unsupported > 0) failedDetail = done === 0 // "the rest are in" over a day where NOTHING came back is a claim about answers that do not exist
+          ? `I could not get an answer to any of today's ${planned.length} prompt checks; the provider had nothing to give on every one. Tomorrow's round asks them again.`
+          : `${done} of today's ${planned.length} prompt checks came back; the other ${unsupported} were unavailable from the provider this round. Tomorrow's round asks those again.`; }
       else if (failedDetail) status = "failed";
       else if (anyPosted) status = "waiting";
       else if (progressed) status = "advanced";
       else if (softUnavailable) { status = "failed"; failedDetail = "I could not reach the AI engines to check your prompts. I will try again on the next pass."; }
       else if (planned.some((p) => p.status === "pending")) { status = "failed"; failedDetail = "Some prompt checks did not run this pass. I will pick them up on the next pass."; }
-      else if (done === 0) { status = "failed"; failedDetail = "The provider could not return any prompt answers this round. I will try the whole set fresh on the next pass."; }
+      else if (done === 0) { status = "failed"; failedDetail = "I did not get any new prompt answers this round. I will pick the rest up on the next pass."; }
       else { status = "failed"; failedDetail = `${planned.length - done - unsupported} prompt checks are still outstanding. I will finish them on the next pass.`; }
       return { status, cursor: { runId }, progress: pairProgress(state), ...(failedDetail ? { detail: failedDetail } : {}) };
     } catch (e) {
@@ -264,9 +263,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     const loaded = await d.loadState(tenantId, basis), state = loaded.state;
     beginCycle(state, cursor, unitKey);
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion }, retained = state.discovery.retained;
-    // PRUNE to the CURRENT chosen set: an obsolete query can never satisfy a new one. The agenda is
-    // DECISION-scoped, never volume-ranked (my own page queries, my tracked questions, every confirmed
-    // theme, then bounded exploration), and every trusted query is bought in the customer's own words.
+    // PRUNE to the CURRENT chosen set: an obsolete query can never satisfy a new one. The agenda is DECISION-scoped, never volume-ranked (my own page
+    // queries, my tracked questions, every confirmed theme, then bounded exploration), and every trusted query is bought in the customer's own words.
     const profile = await d.loadProfile(tenantId).catch(() => null);
     const themes = profile ? [...profile.offerings.value, ...profile.topicsToOwn.value, ...profile.customerProblems.value] : [];
     const byPrompt = new Map<string, { text: string; fanOutQueries: string[] }>(); // ONE row per tracked question: approved text + every fan-out observed for it
@@ -285,9 +283,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     const serps: FunnelSerp[] = chosen.map((q) => byQ.get(q) ?? { query: q, cacheKey: null, status: "pending" });
     const nowIso = () => new Date(d.now()).toISOString(), parseSerp = (payload: unknown) => d.parse("serp_organic", payload as never) as ParsedSerp | null;
     let failedDetail: string | null = null, blockedDetail: string | null = null;
-    // HOT VERSUS COLD, and the plan is what tells them apart: a search a frozen case is stuck on is checked
-    // DAILY, because the whole run is waiting on it, and every other search keeps the weekly window. One
-    // constant for both meant a case diagnosed this morning sat on yesterday's look for six more days.
+    // HOT VERSUS COLD, and the plan is what tells them apart: a search a frozen case is stuck on is checked DAILY, because the whole run is waiting on it,
+    // and every other search keeps the weekly window. One constant for both meant a case diagnosed this morning sat on yesterday's look for six more days.
     const hot = new Set((priorityQueries ?? []).map((q) => canonicalQueryKey(normalizeKeyword(q))).filter(Boolean));
     // A look older than ITS OWN window is DUE (done OR exhausted-failed): it re-enters with a fresh per-incident budget and its AI Mode observation re-opens, so nothing freezes forever.
     for (const s of serps) {

@@ -1,16 +1,9 @@
 import "server-only";
 
-/**
- * measure-pass (CORE 100K) - the GSC before/after comparison engine. Reads the
- * treated page + its comparison pages over the pre-ship window and each 7/14/28
- * post window via the existing GSC connector reads (gsc-window), computes the
- * observational diff in diff, and stamps the record's windows + a stored verdict
- * from the kernel. Replaces the retired run-measurement/measure stack.
- *
- * Observational, never causal: adjustedLift = (treatedPost - treatedPre) -
- * mean(controlPost - controlPre). No permutation nulls, FDR, calibration
- * self-tests, or forecast machinery.
- */
+/** measure-pass (CORE 100K) - the GSC before/after comparison engine. Reads the treated page + its comparison pages over the pre-ship
+ *  window and each 7/14/28 post window via the existing GSC connector reads (gsc-window), computes the observational diff in diff, and
+ *  stamps the record's windows + a stored verdict from the kernel. Observational, never causal: adjustedLift = (treatedPost - treatedPre) -
+ *  mean(controlPost - controlPre). No permutation nulls, FDR, calibration self-tests, or forecast machinery. */
 
 import { createHash } from "node:crypto";
 
@@ -19,8 +12,10 @@ import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canoni
 import { isAnalysisSettled, readAiObservationViews } from "@/domains/evidence/ai-visibility/ai-observations";
 import {
   loadPageSurgeonContext,
+  topPagesByDemand,
   assemblePacketForUrl,
 } from "@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet";
+import { loadShippedChangesForTenant } from "./shipped-change-store";
 import { readWindowForPages, readLastFinalizedDate } from "./gsc-window";
 import {
   BASELINE_WINDOW_DAYS,
@@ -30,13 +25,13 @@ import {
   type ProofWindowResult,
 } from "./types";
 import type { ShippedChangeRecord } from "./shipped-change-store";
-import { addDays, evaluateWindows, readLedger } from "./kernel";
+import { addDays, evaluateWindows, MIN_CONTROLS, readLedger } from "./kernel";
 import { day56Followup, FOLLOW_UP_WINDOW_DAY } from "./measure-lifecycle";
 
 const NULL_METRICS: GscWindowMetrics = { clicks: 0, impressions: 0, ctr: 0, position: 0 };
 
-/** GSC's reporting zone is Pacific and so is the operator's; default a ship date to that day, through the
- *  ONE definition of a reporting day rather than a second copy of the zone. */
+/** GSC's reporting zone is Pacific and so is the operator's; default a ship date to that day, through the ONE definition of a reporting day
+ *  rather than a second copy of the zone. */
 export function defaultPacificShipDate(now: Date = new Date()): string {
   return reportingDay(now);
 }
@@ -57,11 +52,8 @@ const ctrDelta = (m0: GscWindowMetrics, m1: GscWindowMetrics): number =>
 const posImprove = (m0: GscWindowMetrics, m1: GscWindowMetrics): number =>
   m0.position > 0 && m1.position > 0 ? m0.position - m1.position : 0;
 
-/**
- * One window's observational diff in diff from already-read treated + control
- * window metrics. Pure. Pre clicks are pro-rated to the post window length so a
- * 28-day pre sum is never subtracted from a 7-day post sum.
- */
+/** One window's observational diff in diff from already-read treated + control window metrics. Pure. Pre clicks are pro-rated to the post
+ *  window length so a 28-day pre sum never meets a 7-day post sum. */
 function computeWindowLift(args: {
   day: ProofWindowDay;
   checkOn: string;
@@ -126,18 +118,11 @@ function storedVerdictFor(record: ShippedChangeRecord, now: Date, lastFinal: str
   }
 }
 
-/**
- * Recompute the outcome for a shipped change from GSC. Reads the pre window once and each
- * post window once, for the treated page + all controls. Returns a NEW record with
- * windows/verdict/confidence/measuredAt updated. A control that is itself an active
- * treatment can be excluded from the diff.
- *
- * EVERY CHECKPOINT COUNTS FROM THE STAMP (implementedAt), because that is the day the
- * change actually went live; a record written before there was a stamp counts from its
- * ship date exactly as it always did. The day-56 read is CONDITIONAL: it runs only for a
- * change whose 28-day read did not settle, or that moved or hid the page. A clean 28-day
- * read closes measurement and no day-56 read is taken.
- */
+/** Recompute the outcome for a shipped change from GSC. Reads the pre window once and each post window once, for the treated page + all
+ *  controls, and returns a NEW record with windows/verdict/confidence/measuredAt updated. A control that is itself an active treatment can
+ *  be excluded from the diff. EVERY CHECKPOINT COUNTS FROM THE STAMP (implementedAt), the day the change actually went live; a record
+ *  written before there was a stamp counts from its ship date as it always did. The day-56 read is CONDITIONAL: it runs only for a change
+ *  whose 28-day read did not settle, or that moved or hid the page. */
 export async function measureRecord(
   tenantId: string,
   record: ShippedChangeRecord,
@@ -171,10 +156,9 @@ export async function measureRecord(
   for (const day of PROOF_WINDOW_DAYS) {
     windows.push(await readWindow(day, windowStates.find((w) => w.day === day)!.state === "closed"));
   }
-  // A DAY-56 READING THAT HAS RUN IS KEPT, ALWAYS. The rebuild above covers 7/14/28 only, so a
-  // recompute that arrives when the fourth checkpoint is not due again (the ordinary case: it is
-  // due exactly once) used to drop a reading Beacon already took and had already judged on. It is
-  // carried forward untouched, never re-read, and never re-bought.
+  // A DAY-56 READING THAT HAS RUN IS KEPT, ALWAYS. The rebuild above covers 7/14/28 only, so a recompute that arrives when the fourth
+  // checkpoint is not due again (the ordinary case: it is due exactly once) used to drop a reading Beacon already took and had already
+  // judged on. It is carried forward untouched, never re-read, and never re-bought.
   const readSomething = windows.some((w) => w.ran); // what THIS pass read, before the kept reading
   const kept56 = (record.windows ?? []).find((w) => w.day === FOLLOW_UP_WINDOW_DAY && w.ran);
   if (kept56) windows.push(kept56);
@@ -202,13 +186,9 @@ export async function measureRecord(
   return measured;
 }
 
-/**
- * Pull the human context for a shipped change from the cached page context:
- * canonical page, path and the page's top target queries. Before/after text and
- * the headline action come from the operator's own entry (Slice 7 removed the
- * superseded brief lookup that used to guess them). Best-effort; every field
- * degrades to null/[].
- */
+/** Pull the human context for a shipped change from the cached page context: canonical page, path and the page's top target queries.
+ *  Before/after text and the headline action come from the operator's own entry (Slice 7 removed the superseded brief lookup that used to
+ *  guess them). Best-effort; every field degrades to null/[]. */
 export async function captureChangeMeta(
   tenantId: string,
   pageUrl: string,
@@ -216,9 +196,8 @@ export async function captureChangeMeta(
   let canonPage = canonicalizeCitationUrl(pageUrl) ?? pageUrl;
   const path = toPath(canonPage);
   let targetQueries: string[] = [];
-  // The page's HELD content as of the last crawl. Never fetched here: a Shipment
-  // records what Beacon already had on file the moment the operator marked the
-  // change done, so a later crawl can say whether the page actually moved.
+  // The page's HELD content as of the last crawl. Never fetched here: a Shipment records what Beacon already had on file the moment the
+  // operator marked the change done, so a later crawl can say whether the page actually moved.
   let contentHash: string | null = null;
   try {
     const ctx = await loadPageSurgeonContext(tenantId);
@@ -235,38 +214,31 @@ export async function captureChangeMeta(
   return { canonPage, path, before: null, after: null, targetQueries, headlineAction: null, contentHash };
 }
 
-/** How many rows the probe below reads to find WHICH day the answers on file end on. It never counts
- *  anything: the day it names is then read whole. */
+/** How many rows the probe below reads to find WHICH day the answers on file end on. It never counts anything: the day it names is then
+ *  read whole. */
 const AI_BASELINE_ROWS = 60;
 
-/**
- * The AI half of the Shipment baseline, from answers ALREADY on file: the latest
- * reporting day's FIRST reading of each tracked question, how many of those were read
- * closely enough to say whether this account was named (`analyzed`), and how many named
- * it. Zero provider calls, zero cost. Null when nothing is on file, which is a different
- * claim from zero mentions and is stored as such.
- *
- * `analyzed` IS THE DENOMINATOR the later comparison divides by, and it is stored here so
- * both sides of a shipped change are the same measure. Counting mentions over every answer
- * that came back made an answer nobody had read yet an implicit miss, while the after side
- * divided by the answers actually read: a change was then judged by comparing one rate
- * against a different one.
- */
+/** The AI half of the Shipment baseline, from answers ALREADY on file: the latest reporting day's FIRST reading of each tracked question,
+ *  how many of those were read closely enough to say whether this account was named (`analyzed`), and how many named it. Zero provider
+ *  calls, zero cost. Null when nothing is on file, which is a different claim from zero mentions and is stored as such. `analyzed` IS THE
+ *  DENOMINATOR the later comparison divides by, and it is stored here so both sides of a shipped change are the same measure. Counting
+ *  mentions over every answer that came back made an answer nobody had read yet an implicit miss, while the after side divided by the
+ *  answers actually read: a change was then judged by comparing one rate against a different one. */
 async function latestAiPresence(tenantId: string): Promise<{ day: string; checked: number; analyzed: number; mentioning: number } | null> {
   try {
-    // Slot 0 is asked for in the QUERY, not filtered afterwards: the extra volatility samples
-    // would otherwise eat the row cap and leave the baseline reading a fraction of the day.
+    // Slot 0 is asked for in the QUERY, not filtered afterwards: the extra volatility samples would otherwise eat the row cap and leave the
+    // baseline reading a fraction of the day.
     const probe = (await readAiObservationViews(tenantId, { limit: AI_BASELINE_ROWS, slot: 0 }))
       .filter((r) => r.slot === 0 && r.status === "observed");
     const day = probe.map((r) => r.day).sort().pop();
     if (!day) return null;
-    // THEN THE WHOLE DAY, named as a day so the reader hands back all of it. A 140 answer day counted off
-    // the newest 60 rows froze a baseline over a fraction of the day and compared every later reading
-    // against it, so the "before" side of a shipped change was a sample and the "after" side was a day.
+    // THEN THE WHOLE DAY, named as a day so the reader hands back all of it. A 140 answer day counted off the newest 60 rows froze a
+    // baseline over a fraction of the day and compared every later reading against it, so the "before" side of a shipped change was a
+    // sample and the "after" side was a day.
     const onDay = (await readAiObservationViews(tenantId, { day, slot: 0 }))
       .filter((r) => r.slot === 0 && r.status === "observed" && r.day === day);
-    // Read closely = the WHOLE answer was read and carries an owned-brand verdict. A reading still
-    // missing pieces is real work, not a finished check, so it never enters the baseline denominator.
+    // Read closely = the WHOLE answer was read and carries an owned-brand verdict. A reading still missing pieces is real work, not a
+    // finished check, so it never enters the baseline denominator.
     const verdictOf = (r: { analysis: Record<string, unknown> | null }) =>
       (r.analysis as { ownedBrandMention?: { mentioned?: unknown } | null } | null)?.ownedBrandMention ?? null;
     const analyzed = onDay.filter((r) => isAnalysisSettled(r) && verdictOf(r) != null);
@@ -277,40 +249,49 @@ async function latestAiPresence(tenantId: string): Promise<{ day: string; checke
   }
 }
 
-/** ONE Shipment per (proposal, exact version applied). A retry computes the same id and
- *  upserts itself, so a double press can never leave two records of one change. */
+/** ONE Shipment per (proposal, exact version applied). A retry computes the same id and upserts itself, so a double press can never leave
+ *  two records of one change. */
 function shipmentIdFor(proposalId: string, proposalVersion: string): string {
   return `shp_${createHash("sha256").update(`${proposalId}|${proposalVersion}`).digest("hex").slice(0, 32)}`;
 }
 
-/** What the mark-implemented action knows about the change being shipped. Structural on
- *  purpose: the caller passes the object, Measurement never names a Decision type. */
+/** What the mark-implemented action knows about the change being shipped. Structural on purpose: the caller passes the object, Measurement
+ *  never names a Decision type. */
 type ShipmentOrigin = {
   proposalId: string;
   proposalVersion: string;
   basis: string | null;
   caseId: string | null;
   bundleHypothesis: string;
-  /** The components the operator says they applied, each with the exact copy it carried and the risk
-   *  the proposal graded it at. A subset = a partial bundle, and the copy is what the live check
-   *  compares the page against. */
+  /** The components the operator says they applied, each with the exact copy it carried and the risk the proposal graded it at. A subset =
+   *  a partial bundle, and the copy is what the live check compares the page against. */
   componentsApplied: Array<{ kind: string; label: string; after?: string | null; risk?: string | null }>;
   implementedAt: string;
   preChangeContentHash: string | null;
-  /** What they say they actually put on the page, in their own words. A NOTE beside the reading, never a
-   *  substitute for it: no note has ever made a change verified and none ever will. */
+  /** What they say they actually put on the page, in their own words. A NOTE beside the reading, never a substitute for it: no note has
+   *  ever made a change verified and none ever will. */
   operatorNote?: string | null;
 };
 
-/**
- * Capture a 28-day baseline + create the ledger record for a manually-shipped
- * change, then measure it immediately. Preserves the (path, ship-date) id.
- *
- * With `shipment`, the SAME record is the canonical Shipment for one ChangeProposal:
- * its id is derived from the proposal and the exact version applied (so a retry lands
- * on the same row), it carries the stamp the measurement window is read from, and its
- * starting numbers cover search AND AI. Every read here is of data already bought.
- */
+/** THE ONE COMPARISON-PAGE CHOOSER, for every door that writes a ledger record. A change is read against pages on the same site nobody
+ *  touched: top same-site pages by search demand, canonicalized, never the treated page and never one already under measurement, whose own
+ *  change contaminates the difference. Read for THIS account explicitly, never off an ambient tenant, and frozen at selection time. NULL is
+ *  a read that FAILED, a different sentence from a site that genuinely has too few pages. */
+export async function selectControlPages(tenantId: string, treatedPage: string): Promise<string[] | null> {
+  const ledger = await loadShippedChangesForTenant(tenantId).catch(() => null);
+  const ctx = await loadPageSurgeonContext(tenantId).catch(() => null);
+  if (ledger == null || ctx == null) return null;
+  const path = (u: string): string => u.replace(/\/+$/, "") || "/";
+  const treated = new Set(ledger.map((r) => path(r.path)));
+  const untreated = (u: string): boolean => { try { return !treated.has(path(new URL(u).pathname)); } catch { return true; } };
+  return topPagesByDemand(ctx, 12).map((u) => canonicalizeCitationUrl(u) ?? u)
+    .filter((u) => u && u !== treatedPage && untreated(u)).slice(0, 3);
+}
+
+/** Capture a 28-day baseline + create the ledger record for a manually-shipped change, then measure it immediately. Preserves the (path,
+ *  ship-date) id. With `shipment`, the SAME record is the canonical Shipment for one ChangeProposal: its id is derived from the proposal
+ *  and the exact version applied (so a retry lands on the same row), it carries the stamp the measurement window is read from, and its
+ *  starting numbers cover search AND AI. Every read here is of data already bought. */
 export async function recordShippedChange(args: {
   tenantId: string;
   page: string;
@@ -327,6 +308,9 @@ export async function recordShippedChange(args: {
   shipment?: ShipmentOrigin;
   now?: Date;
 }): Promise<ShippedChangeRecord> {
+  // THE FLOOR LIVES WITH THE WRITE, so a third door added later need not know: a record with nothing to compare it against can only ever
+  // settle "not enough evidence", so it is never written at all.
+  if (args.controlPages.length < MIN_CONTROLS) throw new Error(`a shipment needs ${MIN_CONTROLS} comparison pages and this one has ${args.controlPages.length}`);
   const now = args.now ?? new Date();
   const shippedAt = args.shippedAt ?? defaultPacificShipDate(now);
   const shipDate = dateOnly(shippedAt);
@@ -367,8 +351,8 @@ export async function recordShippedChange(args: {
     shipmentBaseline: ship
       ? { search: searchBaseline, ai: await latestAiPresence(args.tenantId), capturedAt: now.toISOString() }
       : null,
-    // NULL, ALWAYS, and null IS the due marker the verification runtime reads. Marking a change done starts
-    // the check; nothing the operator can press or type ends it, so this is never written at mark time.
+    // NULL, ALWAYS, and null IS the due marker the verification runtime reads. Marking a change done starts the check; nothing the operator
+    // can press or type ends it, so this is never written at mark time.
     verification: null,
     operatorNote: ship?.operatorNote ?? null,
     createdAt: now.toISOString(),

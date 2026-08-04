@@ -1,13 +1,10 @@
 "use client";
 
 /**
- * answers-client - THE day's AI readings, question by question, with a way to EVERY one of them and a way
- * into the whole of any one of them.
- *
- * A live day is thirty five questions across four assistants, so a hundred and forty readings. This screen
- * opens with one bounded page and pages the rest from the server on demand: never a first fifty with no next
- * page. Opening one reading fetches that ONE stored answer by its own identity, which is the only place a
- * whole answer text is ever loaded. Both are READS of answers already bought; no assistant is asked anything.
+ * answers-client - THE day's AI readings, question by question, with a way to EVERY one of them and a way into the whole of any one of them. A live day
+ * is thirty five questions across four assistants, so a hundred and forty readings. This screen opens with one bounded page and pages the rest from the
+ * server on demand: never a first fifty with no next page. Opening one reading fetches that ONE stored answer by its own identity, which is the only
+ * place a whole answer text is ever loaded. Both are READS of answers already bought; no assistant is asked anything.
  */
 
 import { useState, useTransition } from "react";
@@ -16,14 +13,15 @@ export type AnswerLine = { id: string; head: string; body: string };
 
 /** `tenantId` is the account this tab was DRAWN for and travels with every action so the server can refuse a stale tab. `days` is every day I actually hold
  *  readings on, so any one of them can be inspected and not only the newest. `cursor` is where the next page of the chosen day resumes, null at its end. */
-export function AnswerJourney({ tenantId, days, day, note, first, cursor, page, open }: {
+export function AnswerJourney({ tenantId, days, day, note, unavailable, first, cursor, page, open }: {
   tenantId: string; days: Array<{ day: string; label: string }>; day: string; note: string;
-  first: AnswerLine[]; cursor: string | null;
+  /** THE FIRST READ FAILED: set, the section still renders and says so, because a hidden journey reads as an empty day. */
+  unavailable: string | null; first: AnswerLine[]; cursor: string | null;
   page: (tenantId: string, day: string, after: string | null) => Promise<{ rows: AnswerLine[]; cursor: string | null; note: string | null; replace?: boolean }>;
   open: (tenantId: string, id: string) => Promise<string[]>;
 }) {
   const [rows, setRows] = useState(first); const [at, setAt] = useState(cursor); const [on, setOn] = useState(day);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(unavailable);
   const [reading, setReading] = useState<Record<string, string[]>>({}); const [busy, start] = useTransition();
   /** ONE way in for the day picker and the show-more button, so a refused or failed read can never clear the rows or the way forward. */
   const load = (forDay: string, after: string | null) => start(async () => {
@@ -59,7 +57,7 @@ export function AnswerJourney({ tenantId, days, day, note, first, cursor, page, 
       </ul>
       {/* A READ THAT FAILED KEEPS THE WAY FORWARD. The cursor comes back unchanged from a refused or broken
           read, so the button stays and this can never settle into "that is every answer" over an outage. */}
-      {at ? (
+      {at || problem ? (
         <button type="button" disabled={busy} data-more-answers="true" onClick={() => load(on, at)}
           className="mt-2 w-full rounded-xl border border-border px-3 py-2 text-[13px] font-semibold text-muted-foreground hover:text-foreground disabled:opacity-60">
           {busy ? "Reading them back…" : problem ? "Try that again" : "Show me more of this day's answers"}

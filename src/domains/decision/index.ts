@@ -31,6 +31,8 @@ export {
   proposalId,
   effortForFamily,
   DANGEROUS_COMPONENT_KINDS,
+  dangerousComponents,
+  componentIdOf,
 } from "./contracts";
 
 // Ranked queue load (surface data)

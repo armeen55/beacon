@@ -1,8 +1,5 @@
-/**
- * Strict OpenAI Responses gateway: fail-closed-before-network (breaker, budget,
- * unsupported schema, missing tenant), exact request contract (Responses fields
- * present, Chat-Completions fields absent), and every envelope outcome.
- */
+/** Strict OpenAI Responses gateway: fail-closed-before-network (breaker, budget, unsupported schema, missing tenant), exact request contract (Responses fields present,
+ *  Chat-Completions fields absent), and every envelope outcome. */
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import {
@@ -39,9 +36,8 @@ function baseArgs(over: Partial<StructuredCallArgs> = {}): StructuredCallArgs {
   };
 }
 const allowBreaker: CostBreakerImpl = { check: async () => ({ tripped: false }) };
-/** EVERY drafter schema the registry holds converts, and converts FULLY STRICT: every object
- *  additionalProperties:false with every property required, recursively, through anyOf branches and array
- *  items. A schema that drifts out of strict fails only LIVE, as an invalid_response the operator pays for. */
+/** EVERY drafter schema the registry holds converts, and converts FULLY STRICT: every object additionalProperties:false with every property required, recursively,
+ *  through anyOf branches and array items. A schema that drifts out of strict fails only LIVE, as an invalid_response the operator pays for. */
 function assertFullyStrict(n: Record<string, unknown>, at: string): void {
   if (Array.isArray(n.anyOf)) return void (n.anyOf as Record<string, unknown>[]).forEach((v, i) => assertFullyStrict(v, `${at}|${i}`));
   if (n.type === "array" && n.items && typeof n.items === "object") return assertFullyStrict(n.items as Record<string, unknown>, `${at}[]`);

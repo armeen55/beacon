@@ -237,10 +237,9 @@ describe("research-run idempotency identity", () => {
     refreshFails = false; await run(steps); // refresh succeeds → resumes the SAME phase (identical key), then advances
     expect([rows[0]!.status, rows[0]!.id]).toEqual(["completed", "seed"]); expect(refreshKeys[2]).toBe(refreshKeys[0]); // an interrupted retry reuses the identical key
     expect(backfillKeys[0]).not.toBe(refreshKeys[2]); expect(refreshKeys[0]).toMatch(/^rr_[0-9a-f]{32}$/); }); // the next phase gets a different key
-  /** PHASE 5A. A run may pause at ANY phase, and a paused run that lives past midnight used to keep the one
-   *  open-run index against TODAY's cycle: the guard that closed a dead day sat on the observation phase
-   *  alone, so a pass parked at keyword_discovery, serp_analysis, winning_pages, crawl_pages, gsc_backfill or
-   *  publish_surface could pause its way across the date forever, and today never opened at all. */
+  /** PHASE 5A. A run may pause at ANY phase, and a paused run that lives past midnight used to keep the one open-run index against TODAY's cycle: the guard that closed a
+   * dead day sat on the observation phase alone, so a pass parked at keyword_discovery, serp_analysis, winning_pages, crawl_pages, gsc_backfill or publish_surface could
+   * pause its way across the date forever, and today never opened at all. */
   it.each(["keyword_discovery", "serp_analysis", "winning_pages", "crawl_pages", "gsc_backfill_chunk", "publish_surface"] as const)(
     "closes a run stranded past midnight at %s, keeps every piece of evidence it wrote, buys nothing for the dead day, and frees today", async (phase) => {
       const rows = withRun({ current_phase: phase, progress: { sourcesRefreshed: 2, funnel: { answersAnalyzed: 7 } } });
@@ -442,20 +441,20 @@ describe("a day of AI checks ends when the day ends, never when a batch does", (
     await run(steps); expect([rows[0]!.status, rows[0]!.current_phase, rows[0]!.last_error]).toEqual(["paused", "prompt_observations", null]); // a wait is not a failure and is never completion
     inFlight = false; await run(steps); expect([rows.length, rows[0]!.status, done]).toEqual([1, "completed", 140]); }); // the SAME run finishes the day it started
   it("closes a pass whose reporting day has already ended instead of buying that day late, and lets today's own cycle open", async () => {
-    const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); rows.push(mk({ id: "stale", status: "paused", current_phase: "prompt_observations", cycle_key: `${T}:2026-07-01`, started_at: iso(NOW - DAY) }));
+    const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); rows.push(mk({ id: "stale", status: "paused", current_phase: "prompt_observations", cycle_key: `${T}:2026-07-01`, started_at: iso(NOW - DAY), progress: { state: { checksDone: 96, checksTotal: 140 } } }));
     const asked: string[] = [], planned: string[] = [];
     const steps: Partial<ResearchCycleSteps> = { funnelUnit: async (phase) => (asked.push(phase), { status: "done", cursor: null, progress: {} }),
-      dayStanding: async (_t, d) => (planned.push(d), standing(TOTAL)) };
+      dueWork: async () => ({ ...SOMETHING_DUE, checks: { ...NO_CHECKS, done: 3, total: 140 } }), dayStanding: async (_t, d) => (planned.push(d), standing(TOTAL)) };
     await run(steps); // a run that paused before midnight Pacific and was picked up after it
     expect([asked.filter((a) => a === "prompt_observations"), planned]).toEqual([[], []]); // nothing placed, nothing collected onto that day, nothing even planned for it
-    expect([rows.length, rows[0]!.status, rows[0]!.progress.state?.checksTotal]).toEqual([1, "completed", 0]); // closed honestly, and the dead day's denominator never landed as today's
+    expect([rows.length, rows[0]!.status, rows[0]!.progress.state]).toEqual([1, "completed", { checksDone: 96, checksTotal: 140 }]); // closed on ITS OWN last numbers; today's 3-of-140 never overwrote the dead day's receipt
     await run(steps); // and TODAY's own cycle is free to open, which the one-open-run index refused while that run stayed open
     expect([rows.length, rows[1]!.cycle_key.endsWith(new Date(NOW).toISOString().slice(0, 10)), rows[1]!.status]).toEqual([2, true, "completed"]); });
   it("stops an observation phase that never converges instead of looping on the database, and says how much is still owed", async () => {
     const rows = withRun({ current_phase: "prompt_observations" }); let seen = 0;
     await run({ funnelUnit: async () => ({ status: "done", cursor: null, progress: {} }), // the planner and the executor disagree: settled never moves
       dayStanding: async () => { if ((seen += 1) > 60) throw new Error("the phase never stopped asking"); return standing(20); } });
-    expect([seen <= 13, rows[0]!.status, rows[0]!.current_phase]).toEqual([true, "paused", "prompt_observations"]); expect(rows[0]!.last_error!.message).toContain("120 of today's 140 AI checks are still owed"); });
+    expect([seen, rows[0]!.status, rows[0]!.current_phase]).toEqual([12, "paused", "prompt_observations"]); expect(rows[0]!.last_error!.message).toContain("120 of today's 140 AI checks are still owed"); }); // TWELVE rounds, exactly what the ceiling says: the boundary let a thirteenth through
   it("never calls a day finished it could not count: an unreadable planner pauses the AI phase and advances nothing", async () => {
     const rows = withRun({ current_phase: "prompt_observations" }); await run({ dayStanding: async () => null });
     expect([rows[0]!.status, rows[0]!.current_phase]).toEqual(["paused", "prompt_observations"]); expect(rows[0]!.last_error!.message).toContain("where today's AI checks stand"); });
@@ -777,7 +776,7 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
 /** The rules themselves, on injected persisted state: no network, no clock tricks, no lease. */
 describe("dueWork: what is genuinely owed, computed from persisted state only", () => {
   const parked = (ms: number) => ({ basis: "b1", topics: [{ topicKey: "t1", query: "haft seen", requirement: "exact_serp", retryAfter: new Date(ms).toISOString() }] });
-  const base = { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 4, total: 4, answers: 4, due: 0 }), basis: async () => "b1", evidenceVersion: async () => 7,
+  const base = { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 4, total: 4, answers: 4, due: 0 }), basis: async () => "b1", evidenceVersion: async () => 7, answersToAnalyze: async () => false,
     surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), pagesToCrawl: async () => false, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY) } }) };
   it("owes nothing when the sources are fresh, today's round has landed, the notes have not moved past the last decision, and the rest is waiting on a date I promised", async () => {
     const w = await dueWork(T, new Date(NOW), base);
@@ -791,6 +790,8 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     expect(await due({ debt: async () => ({ measurable: 3, unverified: 0 }) })).toEqual(["verify_and_measure"]);
     expect(await due({ debt: async () => ({ measurable: 0, unverified: 1 }) })).toEqual(["verify_and_measure"]);  // A change marked implemented but never checked live owes the same unit. ONE ledger read answers both.
     expect(await due({ surfaceStale: async () => true })).toEqual(["publish_surfaces"]);
+    let win: string[] = []; expect(await due({ answersToAnalyze: async (_t, f, t2) => { win = [f, t2]; return true; } })).toEqual(["analyze_answers"]);
+    expect(win).toEqual([reportingDay(NOW - 6 * DAY), reportingDay(NOW)]); // A BOUNDED SEVEN DAY LOOK-BACK: the probe asked about TODAY only, so an answer bought yesterday and never read requeued only if a pass happened to run yesterday
     expect(await due({ run: async () => ({ open: true, progress: { decided: { basis: "b1", rowVersion: 7 } } }) })).toEqual(["plan_cases"]);  // An OPEN run with no plan bound to this basis owes one; an idle account with no plan owes nothing.
     expect(await due({ run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 } } }) })).toEqual([]); });
   it("treats a completed pass's frozen plan as a receipt, not a standing queue: only an arrived retry date or a still-open run makes a topic owed", async () => {
@@ -799,8 +800,11 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     expect(await due(false)).toEqual([]); // the pass that froze it CONSUMED it: a quiet account takes the zero-cost exit
     expect(await due(true)).toEqual(["acquire_case_evidence"]); // the run that froze it is still open and genuinely owes the work
     expect((await dueWork(T, new Date(NOW), { ...base, run: async () => ({ open: false, progress: { decided, focus: parked(NOW - 1) } }) })).due) .toEqual(["acquire_case_evidence"]); });  // And a date I promised that has ARRIVED is owed whether or not a run is open.
-  it("says UNREADABLE rather than empty when the durable state cannot be read, so a caller never mistakes a failed read for a finished day", async () => {
+  it("says UNREADABLE rather than empty when ANY durable signal cannot be read, so a caller never mistakes a failed read for a healthy idle", async () => {
     const blind = await dueWork(T, new Date(NOW), { ...base, run: async () => { throw new Error("db down"); } }); expect([blind.readable, blind.due]).toEqual([false, []]);
     const noPlan = await dueWork(T, new Date(NOW), { ...base, checks: async () => null }); expect(noPlan.readable).toBe(false);
+    const down = async () => { throw new Error("down"); }; // EVERY signal, not just the two: a swallowed read answered 200 with an empty due list over a day it could not judge. An individually EMPTY signal is untouched by that, which is what `base` is
+    for (const k of ["staleSources", "basis", "evidenceVersion", "surfaceStale", "debt", "pagesToCrawl", "answersToAnalyze"] as const) expect([k, (await dueWork(T, new Date(NOW), { ...base, [k]: down })).readable]).toEqual([k, false]);
+    expect((await dueWork(T, new Date(NOW), base)).readable).toBe(true);
     expect((await dueWork("", new Date(NOW), base)).readable).toBe(false); }); // no tenant, no answer, no I/O
 });

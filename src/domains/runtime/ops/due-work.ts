@@ -1,22 +1,20 @@
 import "server-only";
 
 /**
- * due-work (V1 Truth Convergence Phase 5, 2026-07-31) - WHAT IS GENUINELY OWED RIGHT NOW, computed from
- * PERSISTED state only. A day is not a unit of work; owed work is. Every answer comes off rows already on
- * file, never a lease, a timer, or a memory of what this process did, so it is the same for every request,
- * every instance, every tab, and for the daily scheduler as for a visit.
+ * due-work (V1 Truth Convergence Phase 5, 2026-07-31) - WHAT IS GENUINELY OWED RIGHT NOW, computed from PERSISTED state only. A day is not a unit of
+ * work; owed work is. Every answer comes off rows already on file, never a lease, a timer, or a memory of what this process did, so it is the same for
+ * every request, every instance, every tab, and for the daily scheduler as for a visit.
  *
- * FIVE SEPARATE CONCEPTS, deliberately not collapsed into one "is it fresh" test, because conflating them is what produced both the
- * same-day stall and the repeat spending. (1) DAILY OBSERVATION ELIGIBILITY: one canonical reading per question, per engine, per
- * reporting day, plus explicitly granted extras, owned by the existing planner. (2) EVIDENCE FRESHNESS: a connected source past its
- * sync SLA, and research notes that moved since the last decide pass (the basis and row-version watermark). (3) CASE LIVENESS: is
- * there a frozen plan at all, and is it bound to the basis this account holds NOW, because a plan frozen under a dead basis is not
- * work but debris. (4) BOUNDED ATTEMPTS: what this account already spent its one-per-day allowance on, in day-scoped markers that
- * clear by rollover instead of by a cleanup pass nobody runs. (5) EXTERNAL WAITS: a retry date I promised, which is NEVER due work
- * but the reason nothing is due, carrying the date I said I would try again.
+ * FIVE SEPARATE CONCEPTS, deliberately not collapsed into one "is it fresh" test, because conflating them is what produced both the same-day stall and
+ * the repeat spending. (1) DAILY OBSERVATION ELIGIBILITY: one canonical reading per question, per engine, per reporting day, plus explicitly granted
+ * extras, owned by the existing planner. (2) EVIDENCE FRESHNESS: a connected source past its sync SLA, and research notes that moved since the last
+ * decide pass (the basis and row-version watermark). (3) CASE LIVENESS: is there a frozen plan at all, and is it bound to the basis this account holds
+ * NOW, because a plan frozen under a dead basis is not work but debris. (4) BOUNDED ATTEMPTS: what this account already spent its one-per-day allowance
+ * on, in day-scoped markers that clear by rollover instead of by a cleanup pass nobody runs. (5) EXTERNAL WAITS: a retry date I promised, which is NEVER
+ * due work but the reason nothing is due, carrying the date I said I would try again.
  *
- * FAIL POSTURE. Every read is fail-soft and `readable` false means I could not judge. The two callers fall opposite ways on purpose:
- * starting an EXTRA same-day pass requires a positive due signal (fail closed, so an unreadable state never re-spends), while
+ * FAIL POSTURE. `readable` false means I could not judge, and EVERY read this answer leans on must come back for it to be true. The two callers fall
+ * opposite ways on purpose: starting an EXTRA same-day pass requires a positive due signal (fail closed, so an unreadable state never re-spends), while
  * finishing a run early requires a positive EMPTY signal (fail open, so an unreadable state never stalls the research).
  */
 
@@ -54,9 +52,8 @@ export type DueWork = {
   cases: { active: number; parked: number };
   /** The earliest date something waiting becomes legal again, or null when nothing is waiting. */
   nextDueAt: string | null;
-  /** The research notes' current row version for the account's basis, or null when unreadable.
-   *  The pass that decides off these notes stamps this as its watermark, which is what lets the
-   *  NEXT pass tell new evidence from a repeat of the same question. */
+  /** The research notes' current row version for the account's basis, or null when unreadable. The pass that decides off these notes stamps this as its
+   * watermark, which is what lets the NEXT pass tell new evidence from a repeat of the same question. */
   evidenceVersion: number | null;
 };
 
@@ -67,6 +64,9 @@ const NO_CHECKS = { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 
  *  reporting what people did once they had already arrived, and letting either open work by itself woke the whole run for a number no decision rests on.
  *  The refresh step still pulls EVERY connected source whenever a pass runs for any other reason, so nothing goes unrefreshed. Only the trigger narrows. */
 const DUE_TRIGGER_PROVIDERS = ["google_gsc"] as const;
+/** How many reporting days back the unread-answer probe looks, held identical to answer-readback's own window (the probe opens the pass, the readback
+ *  reads one day of it), and a test pins both to the same first day so the two can never drift apart. */
+const UNREAD_WINDOW_DAYS = 7;
 
 /** The account's CURRENT onboarding basis: the one fingerprint every derived read and write
  *  is scoped to. Null = not resolvable, which is a stop, never a default. */
@@ -80,13 +80,11 @@ export async function accountBasis(tenantId: string): Promise<string | null> {
   }
 }
 
-/** THE OPERATOR'S OWN OFF SWITCH for daily research, read and written in the one place that answers "is
- *  anything owed". It is a column of its own (tenants.research_paused), never an overload of the account
- *  status: pausing research must not suspend the account. Both doors honour it, the fleet enumeration in its
- *  WHERE clause and the visit path through this read. RESUME NEVER BACKFILLS: the planner only ever asks what
- *  TODAY owes, so days that passed while research was paused stay unplanned and unbought, forever. Fail-soft
- *  on read (a database I cannot reach is not evidence the operator paused anything, and the claim below is
- *  guarded anyway); honest on write, so no surface may claim a pause the database never took. */
+/** THE OPERATOR'S OWN OFF SWITCH for daily research, read and written in the one place that answers "is anything owed". It is a column of its own
+ * (tenants.research_paused), never an overload of the account status: pausing research must not suspend the account. Both doors honour it, the fleet
+ * enumeration in its WHERE clause and the visit path through this read. RESUME NEVER BACKFILLS: the planner only ever asks what TODAY owes, so days that
+ * passed while research was paused stay unplanned and unbought, forever. Fail-soft on read (a database I cannot reach is not evidence the operator paused
+ * anything, and the claim below is guarded anyway); honest on write, so no surface may claim a pause the database never took. */
 export async function isResearchPaused(tenantId: string): Promise<boolean> {
   try {
     const { data, error } = await getSupabaseAdmin().from("tenants").select("research_paused").eq("id", tenantId).maybeSingle();
@@ -95,10 +93,9 @@ export async function isResearchPaused(tenantId: string): Promise<boolean> {
   } catch { return false; }
 }
 
-/** Turn the daily research run off or on for one account. True = the database holds the new answer, PROVED
- *  by the row it handed back. An update that matched nothing answers 204 with no error at all, so a bare
- *  "no error" reported success over a database that never heard of this account and the switch flipped on
- *  screen for the rest of the day. Row or nothing. */
+/** Turn the daily research run off or on for one account. True = the database holds the new answer, PROVED by the row it handed back. An update that matched
+ * nothing answers 204 with no error at all, so a bare "no error" reported success over a database that never heard of this account and the switch flipped on
+ * screen for the rest of the day. Row or nothing. */
 export async function setResearchPaused(tenantId: string, paused: boolean): Promise<boolean> {
   if (!tenantId?.trim()) return false;
   try {
@@ -118,31 +115,30 @@ export async function setResearchPaused(tenantId: string, paused: boolean): Prom
   }
 }
 
-/** IS ANY PAGE OF THIS ACCOUNT'S OWN WEBSITE OWED A READ? One bounded question to the durable inventory, which
- *  answers in exactly the crawl's own priority order: never-read pages first, then reads gone stale past the
- *  30-day ladder, then pages that refused us whose promised retry date has arrived. One row is the whole answer,
- *  so this is the cheapest read on this path. Free, fail-soft, and it fetches nothing from the website itself. */
+/** IS ANY PAGE OF THIS ACCOUNT'S OWN WEBSITE OWED A READ? One bounded question to the durable inventory, which answers in exactly the crawl's own priority
+ * order: never-read pages first, then reads gone stale past the 30-day ladder, then pages that refused us whose promised retry date has arrived. One row is
+ * the whole answer, so this is the cheapest read on this path. Free, fail-soft, and it fetches nothing from the website itself. */
 async function pagesAwaitCrawl(tenantId: string, now: Date): Promise<boolean> {
   const { nextCrawlCandidates } = await import("@/domains/evidence/scanning/owned-pages-store");
   return (await nextCrawlCandidates(tenantId, 1, now)).length > 0;
 }
 
-/** ANSWERS ALREADY BOUGHT THAT NOBODY HAS READ CLOSELY. A day can be fully COLLECTED and still owe every verdict on it, and a plan that counted only placements
- *  called that day finished, so the reading debt sat there until somebody happened to visit. Lean projection on purpose (identity, status, the two settlement
- *  hashes; never the answer text or the journey). Free, and it calls nothing. */
-async function answersAwaitAnalysis(tenantId: string, day: string): Promise<boolean> {
+/** ANSWERS ALREADY BOUGHT THAT NOBODY HAS READ CLOSELY, over a BOUNDED WINDOW of recent days rather than today alone. A day can be fully COLLECTED and
+ *  still owe every verdict on it, and a probe that only ever asked about today meant a day whose answers were bought and never read could requeue only
+ *  if a pass happened to run on that same day: the day before it was unreachable forever. The window length is answer-readback's own (seven days), and
+ *  the pass it opens reads ONE day of it. Lean projection on purpose (identity, status, the two settlement hashes; never the answer text or the
+ *  journey). Free, and it calls nothing. */
+async function answersAwaitAnalysis(tenantId: string, fromDay: string, toDay: string): Promise<boolean> {
   const { isAnalysisSettled, readAiObservations } = await import("@/domains/evidence");
-  return (await readAiObservations(tenantId, { day, projection: "outcome" })).some((r) => r.status === "observed"
+  return (await readAiObservations(tenantId, { fromDay, toDay, projection: "outcome" })).some((r) => r.status === "observed"
     && r.answer_hash != null && !isAnalysisSettled({ analysis: r.analysis, analysisHash: r.analysis_hash ?? null, answerHash: r.answer_hash ?? null }));
 }
 
-/** How many CONNECTED trigger sources are past their sync SLA right now. */
-async function staleSourceCount(tenantId: string, now: Date): Promise<number> {
-  const infos = await Promise.all(DUE_TRIGGER_PROVIDERS.map(async (p) => {
-    try { return { p, info: await getConnectorInfo(p, tenantId) }; } catch { return { p, info: null }; }
-  }));
-  return infos.filter(({ p, info }) => info?.status === "connected" && isStale(info.last_synced_at, AUTO_REFRESH_STALE_HOURS[p], now)).length;
-}
+/** How many CONNECTED trigger sources are past their sync SLA right now. A READ THAT FAILED IS NOT A FRESH SOURCE: this swallowed its own failure per
+ *  provider, so an unreachable connector store counted as zero stale sources and this leg could never tell dueWork it was blind. It throws now. */
+const staleSourceCount = async (tenantId: string, now: Date): Promise<number> =>
+  (await Promise.all(DUE_TRIGGER_PROVIDERS.map(async (p) => ({ p, info: await getConnectorInfo(p, tenantId) }))))
+    .filter(({ p, info }) => info?.status === "connected" && isStale(info.last_synced_at, AUTO_REFRESH_STALE_HOURS[p], now)).length;
 
 /** The account's latest run row, lean projection (never the whole history). */
 async function latestRunFacts(tenantId: string): Promise<{ progress: ResearchRunProgress; open: boolean } | null> {
@@ -154,8 +150,7 @@ async function latestRunFacts(tenantId: string): Promise<{ progress: ResearchRun
   return { progress: row.progress ?? {}, open: row.status === "running" || row.status === "paused" };
 }
 
-/** The research document's row version for THIS basis, read WITHOUT the document itself: the
- *  watermark that says "the notes moved", not the notes. */
+/** The research document's row version for THIS basis, read WITHOUT the document itself: the watermark that says "the notes moved", not the notes. */
 export async function evidenceRowVersion(tenantId: string, basis: string): Promise<number | null> {
   const { data, error } = await getSupabaseAdmin().from("research_state")
     .select("row_version").eq("tenant_id", tenantId).eq("basis_tag", basis).maybeSingle();
@@ -163,13 +158,10 @@ export async function evidenceRowVersion(tenantId: string, basis: string): Promi
   return Number((data as { row_version: number }).row_version) || 0;
 }
 
-/**
- * THE TWO MEASUREMENT DEBTS, off ONE read of the ledger. They used to be two independent probes and the
- * ledger came back twice per due-work call, doubling the egress of the biggest read on this path for a
- * count. They are also the same debt in sequence: `unverified` is a change I have never checked on the
- * live page, and until that check lands `isDueForMeasure` refuses to measure it at all, so the first
- * number gates the second. Free either way, and fail-soft to zero through the caller's `settled`.
- */
+/** THE TWO MEASUREMENT DEBTS, off ONE read of the ledger. They used to be two independent probes and the ledger came back twice per due-work call, doubling
+ * the egress of the biggest read on this path for a count. They are also the same debt in sequence: `unverified` is a change I have never checked on the live
+ * page, and until that check lands `isDueForMeasure` refuses to measure it at all, so the first number gates the second. Free either way, and fail-soft to
+ * zero through the caller's `settled`. */
 async function measurementDebt(tenantId: string, now: Date): Promise<{ measurable: number; unverified: number }> {
   const [{ loadShippedChangesForTenant, readLastFinalizedDate }, { isDueForMeasure }] = await Promise.all([
     import("@/domains/measurement/proof-gsc"),
@@ -188,12 +180,12 @@ async function measurementDebt(tenantId: string, now: Date): Promise<{ measurabl
   };
 }
 
-/** Is the published customer release genuinely stale (or missing)? */
+/** Is the published customer release genuinely stale (or missing)? A read I could not make is neither, so it THROWS and this leg goes unreadable:
+ *  readCustomerSurface already separates "no release yet" (null) from "I could not read it", and swallowing that here erased the distinction again. */
 async function surfaceIsStale(tenantId: string, nowMs: number): Promise<boolean> {
   const { readCustomerSurface, isCustomerSurfaceStale } = await import("@/app/(shell)/surface-release");
-  const surface = await readCustomerSurface(tenantId).catch(() => null);
-  return surface == null || isCustomerSurfaceStale(surface.computedAt, nowMs);
-}
+  const surface = await readCustomerSurface(tenantId);
+  return surface == null || isCustomerSurfaceStale(surface.computedAt, nowMs); }
 
 type DueWorkDeps = {
   staleSources?: (tenantId: string, now: Date) => Promise<number>;
@@ -204,26 +196,22 @@ type DueWorkDeps = {
   surfaceStale?: (tenantId: string, nowMs: number) => Promise<boolean>;
   debt?: (tenantId: string, now: Date) => Promise<{ measurable: number; unverified: number }>;
   pagesToCrawl?: (tenantId: string, now: Date) => Promise<boolean>;
-  answersToAnalyze?: (tenantId: string, day: string) => Promise<boolean>;
+  answersToAnalyze?: (tenantId: string, fromDay: string, toDay: string) => Promise<boolean>;
 };
 
 const settled = async <T,>(p: Promise<T>, fallback: T): Promise<{ value: T; ok: boolean }> =>
   p.then((value) => ({ value, ok: true })).catch(() => ({ value: fallback, ok: false }));
 
-/**
- * WHAT IS OWED RIGHT NOW for one account. Bounded, parallel, fail-soft, and free: every read
- * is a lean projection of state already on file, and nothing here calls a provider or spends
- * a cent. Requires an explicit tenant.
- */
+/** WHAT IS OWED RIGHT NOW for one account. Bounded, parallel, fail-soft, and free: every read is a lean projection of state already on file, and nothing here
+ * calls a provider or spends a cent. Requires an explicit tenant. */
 export async function dueWork(tenantId: string, now: Date = new Date(), deps: DueWorkDeps = {}): Promise<DueWork> {
   const empty: DueWork = { due: [], readable: false, checks: NO_CHECKS, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null };
   if (!tenantId?.trim()) return empty;
   const nowMs = now.getTime();
-  // THE REPORTING DAY, and src/lib/reporting-day.ts is the one place that defines it (V1 binds every
-  // account to the same zone; there is no per-account midnight to honour). Judging owed work against a UTC
-  // day meant that for the last seven hours of every day Beacon asked "what is owed" about tomorrow while
-  // the person reading it was still in today. Days already stored under a UTC label are history and are
-  // never rewritten: where the labels land on the same day, the readings on file just mean that work is done.
+  // THE REPORTING DAY, and src/lib/reporting-day.ts is the one place that defines it (V1 binds every account to the same zone; there is no per-account
+  // midnight to honour). Judging owed work against a UTC day meant that for the last seven hours of every day Beacon asked "what is owed" about tomorrow
+  // while the person reading it was still in today. Days already stored under a UTC label are history and are never rewritten: where the labels land on the
+  // same day, the readings on file just mean that work is done.
   const day = reportingDay(nowMs);
 
   const [sources, checks, run, basis] = await Promise.all([
@@ -237,11 +225,12 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   ]);
 
   const [version, surface, debt, pages, unread] = await Promise.all([
-    basis.value ? settled((deps.evidenceVersion ?? evidenceRowVersion)(tenantId, basis.value), null as number | null) : Promise.resolve({ value: null, ok: false }),
+    // No basis is not a failed read: nothing was asked, so nothing failed, and the basis read above is what says whether it resolved at all.
+    basis.value ? settled((deps.evidenceVersion ?? evidenceRowVersion)(tenantId, basis.value), null as number | null) : Promise.resolve({ value: null, ok: true }),
     settled((deps.surfaceStale ?? surfaceIsStale)(tenantId, nowMs), false),
     settled((deps.debt ?? measurementDebt)(tenantId, now), { measurable: 0, unverified: 0 }),
     settled((deps.pagesToCrawl ?? pagesAwaitCrawl)(tenantId, now), false),
-    settled((deps.answersToAnalyze ?? answersAwaitAnalysis)(tenantId, day), false),
+    settled((deps.answersToAnalyze ?? answersAwaitAnalysis)(tenantId, reportingDay(nowMs - (UNREAD_WINDOW_DAYS - 1) * 86_400_000), day), false),
   ]);
 
   const progress = run.value?.progress ?? {};
@@ -252,20 +241,18 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   const topics = bound ? focus!.topics : [];
   // 5. EXTERNAL WAITS. A promised retry date is the reason nothing is due, never work.
   const parked = topics.filter((t) => !!t.retryAfter && Date.parse(t.retryAfter) > nowMs);
-  // A FROZEN PLAN IS NOT A STANDING DEBT. The pass that froze it CONSUMED it: to a completed run the
-  // plan is a receipt, not a queue. Reading it as owed work meant an account whose plan named a topic
-  // nothing could satisfy opened a full pass on every navigation, all day, forever. A topic is owed on
-  // exactly two proofs: a retry date I promised has actually ARRIVED, or the run that froze the plan is
-  // still OPEN and genuinely owes the work. Never merely because a finished pass once wrote it down.
+  // A FROZEN PLAN IS NOT A STANDING DEBT. The pass that froze it CONSUMED it: to a completed run the plan is a receipt, not a queue. Reading it as owed work
+  // meant an account whose plan named a topic nothing could satisfy opened a full pass on every navigation, all day, forever. A topic is owed on exactly two
+  // proofs: a retry date I promised has actually ARRIVED, or the run that froze the plan is still OPEN and genuinely owes the work. Never merely because a
+  // finished pass once wrote it down.
   const arrived = (t: { retryAfter?: string | null }): boolean => !!t.retryAfter && Date.parse(t.retryAfter) <= nowMs;
   const openRun = run.value?.open === true;
   const active = topics.filter((t) => !parked.includes(t) && (!!t.query || !!t.requirement) && (openRun || arrived(t)));
   const nextDueAt = parked.map((t) => t.retryAfter!).sort()[0] ?? null;
 
-  // 2. EVIDENCE FRESHNESS as a WATERMARK, not as a feeling: the research notes moved past the version
-  //    the last decide pass ran against, or no pass has ever decided under the basis this account holds
-  //    now. NOT "the notes exist" and NOT "a day passed": a pass that concluded stamps what it consumed,
-  //    so re-asking the same question of unchanged notes is never owed and never charged for.
+  // 2. EVIDENCE FRESHNESS as a WATERMARK, not as a feeling: the research notes moved past the version the last decide pass ran against, or no pass has ever
+  // decided under the basis this account holds now. NOT "the notes exist" and NOT "a day passed": a pass that concluded stamps what it consumed, so re-asking
+  // the same question of unchanged notes is never owed and never charged for.
   const decided = progress.decided ?? null;
   const notesMoved = version.value != null
     && (decided == null || decided.basis !== basis.value || decided.rowVersion < version.value);
@@ -278,9 +265,8 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   if ((checks.value?.due ?? 0) > 0) due.push("daily_observations");
   // AN ANSWER BOUGHT AND NEVER READ IS OWED WORK. It rides the observation phase, so naming it here OPENS a pass for a day that collected everything and read none.
   if (unread.value) due.push("analyze_answers");
-  // A plan is owed when the notes moved (what is stuck may have changed) or when a run is still OPEN and
-  // has no plan bound to this basis: that run genuinely owes one. An idle account with no plan owes
-  // nothing, because re-planning unchanged notes reaches the identical answer at the same price.
+  // A plan is owed when the notes moved (what is stuck may have changed) or when a run is still OPEN and has no plan bound to this basis: that run genuinely
+  // owes one. An idle account with no plan owes nothing, because re-planning unchanged notes reaches the identical answer at the same price.
   if (notesMoved || (openRun && !bound)) due.push("plan_cases");
   if (active.length > 0) due.push("acquire_case_evidence");
   if (notesMoved) due.push("decide_and_prepare");
@@ -290,11 +276,11 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   if (debt.value.measurable > 0 || debt.value.unverified > 0) due.push("verify_and_measure");
   if (surface.value) due.push("publish_surfaces");
 
-  // Trustworthy ONLY when the two reads every rule leans on came back: the run row (the frozen
-  // plan, the watermarks, the day-scoped markers) and the day's check plan. A list built on a
-  // read that failed is not a shorter answer, it is a different question, so it is not returned
-  // at all: an unreadable state says exactly that and lets the caller decide.
-  const readable = run.ok && checks.value != null;
+  // Trustworthy ONLY when EVERY read this answer leans on came back. A list built on a read that failed is not a shorter answer, it is a different
+  // question, so it is not returned at all. It used to lean on two of the nine, so a crawl debt, a measurement ledger, a surface, a source, a basis or
+  // an unread-answer probe that THREW was swallowed into "nothing is due" and the scheduler reported a healthy idle over a day it could not judge. An
+  // individually EMPTY signal is untouched by this: zero stale sources is an honest zero, not an outage.
+  const readable = run.ok && checks.value != null && sources.ok && basis.ok && version.ok && surface.ok && debt.ok && pages.ok && unread.ok;
   if (!readable) log.debug("[due-work] durable state unreadable; the caller decides which way that falls", { tenantId });
   return {
     due: readable ? due : [], readable,

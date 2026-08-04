@@ -1,6 +1,5 @@
-/** FIVE DOORS INTO THE DEEP READ (V1 final truth repair): a page earns the deep producer through the
- *  evidence that actually accuses it, never only through a Google click gap. Pure selection: these pins
- *  run the real selectDeepCandidates and prove the doors, the dedup, the bound, and the regression path. */
+/** FIVE DOORS INTO THE DEEP READ (V1 final truth repair): a page earns the deep producer through the evidence that actually accuses it, never only through a Google click
+ *  gap. Pure selection: these pins run the real selectDeepCandidates and prove the doors, the dedup, the bound, and the regression path. */
 import { describe, it, expect } from "vitest";
 import { selectDeepCandidates } from "@/domains/decision/deep-candidates";
 import type { QualifiedCandidate } from "@/domains/decision/opportunities";
@@ -62,8 +61,8 @@ describe("the five doors into the deep read", () => {
     });
     expect(picked.map((p) => [p.door, p.pageUrl])).toEqual([["ctr_gap", AI_PAGE]]);
   });
-  /** THE LIVE COUNTEREXAMPLE'S OWN COUNT: six answers carrying one everyday word became "I watch 7 questions
-   *  like it" on the line the operator reads. Only answers that belong to THIS search may ever be counted. */
+  /** THE LIVE COUNTEREXAMPLE'S OWN COUNT: six answers carrying one everyday word became "I watch 7 questions like it" on the line the operator reads. Only answers that
+   *  belong to THIS search may ever be counted. */
   it("counts only the questions that belong to this search, never every answer sharing one word", () => {
     const generic = ["best places to visit in iran", "iran travel advice", "iran food guide", "iran history timeline", "iran music scene", "iran visa rules"];
     const picked = selectDeepCandidates({ snapshot: snapshot([["what does the iran flag mean", ["iran flag"]], ...generic], { "iran flag": 1300 }),

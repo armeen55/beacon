@@ -1,15 +1,12 @@
 "use server";
 
-/**
- * /onboard server actions (Slice 5, 2026-07-24) - thin wrappers over the Runtime
- * onboarding facade. Each resolves the current user + pending account through the
- * one gate (requireOnboardingTenant), then calls exactly one facade command. No
- * business logic lives here; the facade owns every rule, guard, and fallback.
- */
+/** /onboard server actions (Slice 5, 2026-07-24) - thin wrappers over the Runtime onboarding facade. Each resolves the current user +
+ *  account through the one gate below, then calls exactly one facade command. No business logic lives here; the facade owns every rule,
+ *  guard, and fallback. */
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { requireOnboardingTenant } from "@/domains/account";
+import { getTenant, requireOnboardingTenant } from "@/domains/account";
 import {
   submitWebsite,
   inferProfile,
@@ -21,14 +18,24 @@ import {
   generatePromptCandidates,
   approvePrompts,
   activateAccount,
+  setupGap,
   type OnboardingGoal,
   type ProfileEdits,
   type ProfilePatch,
   type PromptSelection,
 } from "@/domains/runtime";
 
+/** THE ONE DOOR. Pending onboarding always. An ACTIVE account only while its setup is genuinely unfinished: the product guard sends one
+ *  back here for the exact step it is missing, so a door that refused every active account left the operator bouncing between two redirects
+ *  with nothing they could press. Each command below enforces its own step again, so this opens the room and never the write. A gap I could
+ *  not READ is not proof there is none, so those commands get their say. */
 async function tid(): Promise<string> {
-  const { tenantId } = await requireOnboardingTenant();
+  const { tenantId, tenant } = await requireOnboardingTenant({ allowActive: true });
+  if (tenant.status === "active") {
+    const account = await getTenant(tenantId).catch(() => null);
+    if (!account) redirect("/?error=tenant_fetch_failed");
+    if ((await setupGap(tenantId, account).catch(() => ({ step: 1 as const }))) == null) redirect("/?notice=already_launched");
+  }
   return tenantId;
 }
 

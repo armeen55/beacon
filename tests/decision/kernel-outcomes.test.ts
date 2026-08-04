@@ -1,5 +1,5 @@
-/** DECISION kernel outcomes: what the evidence justifies BEFORE anything is drafted, then generate ->
- *  validate -> rank -> persist -> REUSE, and fail-closed rejections. Each test name states its promise. */
+/** DECISION kernel outcomes: what the evidence justifies BEFORE anything is drafted, then generate -> validate -> rank -> persist -> REUSE, and fail-closed rejections.
+ *  Each test name states its promise. */
 import { describe, it, expect, vi } from "vitest";
 // Budget is not this file's subject: always-allowed, no-op hermetic seam.
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
@@ -109,8 +109,8 @@ const WINNER = ownedPage("fixture-outdoors.example/trail-shoes", "Trail Shoes", 
 /** A far smaller page with a REAL gap: 3.0 percent against the 8.0 percent that position usually earns. */
 const GAP_URL = "fixture-outdoors.example/nowruz-guide"; const GAP = ownedPage(GAP_URL, "Nowruz", { impressions: 6400, clicks: 190 }, [{ query: "nowruz traditions", impressions: 6000, clicks: 180, position: 4.1 }], ["Persian New Year Customs", "Haft-Seen"]);
 const SEEN = () => snap([GAP], looked([["nowruz traditions", GAP_URL]]));
-/** THE LIVE PRODUCTION CASE, verified 2026-07-27: 2,451 views and 15 clicks at position 6.1 on one search, a stored title missing
- *  the searcher's own word, and a results page where Google already displays that word back to them. */
+/** THE LIVE PRODUCTION CASE, verified 2026-07-27: 2,451 views and 15 clicks at position 6.1 on one search, a stored title missing the searcher's own word, and a results
+ *  page where Google already displays that word back to them. */
 const ACTORS_URL = "iranopedia.example/iranian-actors-actresses"; const DISPLAYED = "Famous Iranian & Persian Actors, Actresses & Celebrities";
 const ACTORS = ownedPage(ACTORS_URL, "Top 20 Famous Persian Actresses and Actors | Iranopedia", { impressions: 2451, clicks: 15 }, [{ query: "iranian actors", impressions: 2451, clicks: 15, position: 6.1 }]);
 const actorsSerp = (ownedTitle: string): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), serpEvidence: [{ observedAt: null, query: "iranian actors", aiOverview: [], aiMode: [], paa: [], related: [],
@@ -178,8 +178,8 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     for (const changed of [{ ...p, status: "needs_review" as const }, { ...p, confidence: "low" as const }, { ...p, basis: "after the business changed" },
       { ...p, recommendedChange: { kind: "existing_edit" as const, field: "title" as const, before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" } }]) expect(proposalFingerprint(changed)).not.toBe(proposalFingerprint(p)); });
   it("keeps the cause that actually produced the change, and still names one for a change that brought none", async () => {
-    // THE LADDER IS ASKED TWICE with different inputs: once over the opportunities query, once inside the bundle over the
-    // exact search it drafted for. They can disagree, and the bundle's answer stands. A proposal with NO cause takes this pass's.
+    // THE LADDER IS ASKED TWICE with different inputs: once over the opportunities query, once inside the bundle over the exact search it drafted for. They can disagree,
+    // and the bundle's answer stands. A proposal with NO cause takes this pass's.
     reset(SEEN());
     const plain = await run(counting().complete);
     const here = plain.candidates.find((c) => c.action === "act_existing_page")!.cause.cause;
@@ -243,8 +243,8 @@ describe("the pass says what it is investigating without turning any of it into 
     expect([(await comparisonForFocus("fixture-tenant", mixed, "basis_today"))?.topicKey, // the earned one, picked out of a plan holding a stranger
       await comparisonForFocus("fixture-tenant", { basis: "basis_today", topics: mixed.topics.slice(0, 1) }, "basis_today"), // a plan this run froze that never earned this comparison
       await comparisonForFocus("fixture-tenant", mixed, "basis_moved_on")]).toEqual([key, null, null]); }); }); // and one frozen under a basis the account has left
-/** A SECOND topic that outranks the one holding the comparison and that no purchase can move: bigger demand,
- *  results I have read, and a page of my own that could already be the answer whose words I have never held. */
+/** A SECOND topic that outranks the one holding the comparison and that no purchase can move: bigger demand, results I have read, and a page of my own that could already
+ *  be the answer whose words I have never held. */
 const PARKED = "nowruz table settings"; const PARK_RIVAL = (n: number) => `https://p${n}.example/a`; const UNREAD_URL = "fixture-outdoors.example/nowruz-table";
 const UNREAD: OwnedPageEvidence = { ...ownedPage(UNREAD_URL, "T", { impressions: 10, clicks: 1 }, []), content: null };
 const PARKED_DEMAND: EvidenceSnapshot["keywordDemand"] = [{ query: PARKED, searchVolume: 2000, source: "dataforseo", competition: null, competitionLevel: null, gscImpressions: null }];
@@ -322,8 +322,8 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     const written = page.bundle!.components.find((c) => c.kind === "section")!.after;
     for (const s of BRIEF.sections) expect(written).toContain(`${s.heading}: a haft seen table is the spread`);
     expect(written).not.toContain("Answer this plainly"); // the brief's own instruction never ships as the page
-    // A SOURCE I HOLD IS NAMED WHOLE: the page, its publisher, what it stands behind, and the day I read it. But a
-    // requirement of the model's own is never a source, so it keeps the caveat and the page is held for review.
+    // A SOURCE I HOLD IS NAMED WHOLE: the page, its publisher, what it stands behind, and the day I read it. But a requirement of the model's own is never a source, so
+    // it keeps the caveat and the page is held for review.
     const pack = page.bundle!.components.find((c) => c.kind === "source_pack")!.after;
     expect(pack).toContain(`${RIVAL(1)}, published by r1.example, read on 2026-07-25: it is one of the pages that win "${HAFT}"`);
     expect(pack).toContain("Cite a cultural reference for what each item stands for. You pick the exact source for this one");
@@ -454,8 +454,8 @@ describe("a page earns the deep read through the door its own evidence opens", (
     // AND IT CAN SHOW THE ANSWER IT WAS MADE FROM: the cause cites the receipt id the receipt actually writes.
     expect([deep.bundle!.components[0]!.evidenceKeys, deep.bundle!.receipt.items.find((i) => i.key === "ai-citations")!.fact.includes(`what goes on a ${HAFT}`)]).toEqual([["ai-citations"], true]);
   });
-  /** WHAT A REFUSAL COSTS AND WHAT IT SETTLES: the sentence reaches the operator's receipt, and a stored change
-   *  whose claims stopped resolving is re-judged and TAKEN BACK rather than quietly kept on their list. */
+  /** WHAT A REFUSAL COSTS AND WHAT IT SETTLES: the sentence reaches the operator's receipt, and a stored change whose claims stopped resolving is re-judged and TAKEN
+   *  BACK rather than quietly kept on their list. */
   it("carries a refusal onto the candidate line, and takes back the stored change whose evidence stopped resolving", async () => {
     const owed = "I could write 1 of the 3 sections this rebuild needs and 2 are still owed, so I am not handing you half a page.";
     reset(doorWorld()); env.bundle = { status: "none", reason: owed };
@@ -587,8 +587,8 @@ describe("why this page loses the click, one named cause at a time", () => {
       return (await loadProposalQueue("fixture-tenant", { currentBasis: "b" })).ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "overlap")!; };
     const fresh = await overlapOf(10); const stale = await overlapOf(180); // the production read, not an injected context
     expect([fresh.contribution, stale.contribution, stale.input]).toEqual([-30, 0, "nothing is being measured on this page"]); });
-  /** THE SAFETY NET ON BOTH SIDES OF THE STORE: a stored change whose claims stopped resolving may not RENDER,
-   *  and the next canonical pass takes it back even when nothing re-selects that page for a deep read. */
+  /** THE SAFETY NET ON BOTH SIDES OF THE STORE: a stored change whose claims stopped resolving may not RENDER, and the next canonical pass takes it back even when
+   *  nothing re-selects that page for a deep read. */
   it("neither renders nor keeps a stored change whose claims no longer resolve, without waiting to be re-selected", async () => {
     // a merge whose only component cites a comparison its receipt never carried: the live defect, stored
     const bad = (basis: string): ChangeProposal => baseProposal({ id: "fixture-tenant::/split::existing_edit::bundle", pagePath: "/split", basis, status: "needs_review", riskLevel: "high",
@@ -600,8 +600,8 @@ describe("why this page loses the click, one named cause at a time", () => {
     reset(snap([WINNER])); env.store = new Map([[bad("basis_test").id, bad("basis_test")]]); // and no door opens on that page at all
     await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: async () => ({ value: VALID_ATOMIC_EDIT }) });
     expect(env.withdrawn).toEqual([bad("b").id]); });
-  /** AND THE SAME NET CATCHES A ROW THAT WENT COLD. Refused at every door but never taken back, it sits in
-   *  its own slot forever: an identical redraft answers "unchanged", so nothing fresh can replace it. */
+  /** AND THE SAME NET CATCHES A ROW THAT WENT COLD. Refused at every door but never taken back, it sits in its own slot forever: an identical redraft answers
+   *  "unchanged", so nothing fresh can replace it. */
   it("takes back a change whose readings went cold, so a redraft off fresh evidence can take its slot", async () => {
     const aged = (observedAt: string): ChangeProposal => baseProposal({ id: "fixture-tenant::/aged::existing_edit::bundle", pagePath: "/aged", basis: "basis_test", status: "ready",
       bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, alternatives: [], risks: [], confidenceReasons: [],

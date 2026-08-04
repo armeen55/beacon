@@ -1,14 +1,10 @@
 import "server-only";
 
-/**
- * onboarding-store (Slice 5, 2026-07-24) - the shared core of the onboarding
- * facade: the injectable deps, the durable Supabase seam, the pure prompt helpers,
- * and the three commands that persist + activate (generate, approve, activate).
- * The profile + state commands live in onboarding.ts and import from here (one
- * direction, no cycle). Trust rails: every write is status-guarded (pending only,
- * or the atomic activation flip); no paid run before activation; every prompt row
- * carries tenant_id = account_id = the canonical tenant id (never the slug).
- */
+/** onboarding-store (Slice 5, 2026-07-24) - the shared core of the onboarding facade: the injectable deps, the durable Supabase seam, the
+ *  pure prompt helpers, and the three commands that persist + activate. The profile + state commands live in onboarding.ts and import from
+ *  here (one direction, no cycle). Trust rails: every write is status-guarded (pending, or a running account at the exact step it is still
+ *  missing, or the atomic activation flip); no paid run before activation; every prompt row carries tenant_id = account_id = the canonical
+ *  tenant id (never the slug). */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { LIMITS, PROMPT_TAGS, normalizePromptText, promptIdFor, type TrackedPromptRow } from "./prompt-set";
@@ -35,28 +31,37 @@ export const CONFIRMABLE_FIELDS = [
   "geographicScope", "differentiators", "trustClaims", "topicsToOwn", "topicsToExclude",
 ] as const;
 
-/** THE THREE SECTIONS THE CONFIRM STEP ACTUALLY PUTS ON SCREEN. Confirmation is the operator's word about what they READ, so it
- *  reaches exactly these and no further; the other eight stay inferred until somebody edits them on purpose. */
+/** THE THREE SECTIONS THE CONFIRM STEP ACTUALLY PUTS ON SCREEN. Confirmation is the operator's word about what they READ, so it reaches
+ *  exactly these and no further; the other eight stay inferred until somebody edits them on purpose. */
 export const SHOWN_FIELDS = ["name", "offerings", "audiences"] as const;
 
-/** Truthful confirmation (D3): confirmed ONLY when every section the operator was SHOWN carries their own provenance, so a
- *  name-only edit never advances the wizard past confirm and a guess they never saw never counts as agreement. Pure. */
+/** Truthful confirmation (D3): confirmed ONLY when every section the operator was SHOWN carries their own provenance, so a name-only edit
+ *  never advances the wizard past confirm and a guess they never saw never counts as agreement. Pure. */
 export function isProfileConfirmed(profile: BusinessProfile): boolean {
   return SHOWN_FIELDS.every(
     (k) => (profile as unknown as Record<string, { origin?: string }>)[k]?.origin === "operator_confirmed",
   );
 }
 
-/** WHAT AN ACTIVE ACCOUNT IS STILL MISSING, and nothing else. Being active is a STATUS, not proof of setup: an account flipped
- *  active without a website, without a confirmed profile or without one approved question rendered every product surface off
- *  nothing at all. `{ step }` is the first genuinely incomplete step, so the operator resumes where they actually stopped; null
- *  means set up. AN OUTAGE IS NOT INCOMPLETENESS, so this THROWS rather than guessing: the profile read fails SOFT to an empty
- *  profile, which is the exact shape of one nobody ever filled in, so a blank profile on an active account is unreadable and never
- *  a reason to bounce a customer who finished setup months ago. The prompts read throws on its own. Free: one memoized profile
- *  read and one lean row read, no provider and no crawl. */
-export async function setupGap(tenantId: string, domain: string, deps?: OnboardingDeps): Promise<{ step: 1 | 3 | 5 } | null> {
+/** The account facts setup is judged against, passed in by the caller that already read the row, never re-read here: a tenants read fails
+ *  SOFT to null, and a null read must never be mistaken for a customer who never filled anything in. */
+type SetupAccount = { status: Account["status"]; domain: string | null; growth_goal: string | null; tos_accepted_at: string | null };
+
+/** WHAT THIS ACCOUNT IS STILL MISSING, and nothing else. `{ step }` is the first genuinely incomplete step, so the operator resumes where
+ *  they stopped; null means nothing is owed. A PENDING account owes the whole activation contract, because activation is what it is walking
+ *  toward. A RUNNING ACCOUNT'S GAP IS THE OPERATIONAL CONTRACT: what it cannot function without, NEVER a re-derivation of the inputs
+ *  required the day it launched, because legitimate later states violate those inputs and the product still works. The live account
+ *  predates goals and runs with growth_goal NULL, so demanding one would bounce every surface to setup and writing one would re-mint the
+ *  basis and orphan every prompt behind it. Its questions are counted the way the research funnel counts them, basis-agnostically and
+ *  against Settings' own 10 to 100 window, because a basis that moved is not something an operator can see. AN OUTAGE IS NOT
+ *  INCOMPLETENESS, so this THROWS rather than guessing: the profile read fails SOFT to an empty profile, the exact shape of one nobody ever
+ *  filled in, so a blank profile on an active account is unreadable and never a reason to bounce a customer who finished setup months ago.
+ *  Free: one memoized profile read and one lean row read, no provider and no crawl. */
+export async function setupGap(tenantId: string, account: SetupAccount, deps?: OnboardingDeps): Promise<{ step: 1 | 3 | 4 | 5 | 7 } | null> {
   const d = resolve(deps);
-  if (!domain.trim()) return { step: 1 }; // proven off the same account row the caller was resolved from
+  const running = account.status === "active";
+  const domain = (account.domain ?? "").trim();
+  if (!domain) return { step: 1 }; // proven off the same account row the caller was resolved from
   const profile = await d.loadProfile(tenantId);
   const held = (k: string): boolean => { const v = (profile as unknown as Record<string, { value?: unknown }>)[k]?.value;
     return Array.isArray(v) ? v.length > 0 : v != null && String(v).trim() !== ""; };
@@ -64,7 +69,25 @@ export async function setupGap(tenantId: string, domain: string, deps?: Onboardi
     if (!CONFIRMABLE_FIELDS.some(held)) throw new Error("I could not read this account's business profile, so I cannot say whether its setup is finished.");
     return { step: 3 };
   }
-  return (await d.store.readPrompts(tenantId)).some((r) => r.is_active && r.tags?.includes(PROMPT_TAGS.core)) ? null : { step: 5 };
+  const g = account.growth_goal;
+  const goal: OnboardingGoal | null = g === "recover" || g === "grow" || g === "balanced" ? g : null;
+  if (!running && goal === null) return { step: 4 }; // a running account is nudged toward a goal on Today, never locked out of the product
+  const rows = await d.store.readPrompts(tenantId);
+  const core = running
+    ? rows.filter((r) => r.is_active && r.tags?.includes(PROMPT_TAGS.core)) // exactly projectTrackedQuestions, which is what actually gets asked
+    : rows.filter((r) => r.is_active && r.tags?.includes(PROMPT_TAGS.core) && r.tags?.includes(basisTag(tenantId, domain, profile, goal))
+      && r.tenant_id === tenantId && r.account_id === tenantId);
+  if (core.length < LIMITS.minActive || core.length > (running ? LIMITS.maxActive : LIMITS.onboardingMax)) return { step: 5 };
+  return account.tos_accepted_at ? null : { step: 7 };
+}
+
+/** MAY THIS ACCOUNT STILL BE SET UP AT THIS STEP? Pending always. ACTIVE only where this exact step is the one genuinely missing: the
+ *  product guard sends an active account back to the step it owes, so a write that refused every active account left the operator bouncing
+ *  between two redirects with no way out. Nothing else about a running account is editable here. */
+async function resumableAt(account: Account | null, step: 4 | 5 | 7, d: Resolved): Promise<boolean> {
+  if (account?.status === "pending_onboarding") return true;
+  if (account?.status !== "active") return false;
+  return (await setupGap(account.id, account, d).catch(() => null))?.step === step;
 }
 
 export type OnboardingState = {
@@ -112,11 +135,10 @@ type CandidateDraft = { text: string; groupSlug: string; groupName: string; inte
 // ── injectable dependencies ─────────────────────────────────────────────────
 
 export type OnboardingStore = {
-  /** Atomic website replacement (D1): sets the domain and, only on a real change,
-   *  clears the goal, deactivates prompts, and resets the profile in one
-   *  transaction. 'unchanged' = same domain re-submitted; 'not_pending' = locked. */
+  /** Atomic website replacement (D1): sets the domain and, only on a real change, clears the goal, deactivates prompts, and resets the
+   *  profile in one transaction. 'unchanged' = same domain re-submitted; 'not_pending' = locked. */
   replaceWebsite(tenantId: string, domain: string, now: string): Promise<"replaced" | "unchanged" | "not_pending">;
-  updateTenantGoal(tenantId: string, goal: string, now: string): Promise<"ok" | "not_pending">;
+  updateTenantGoal(tenantId: string, goal: string, now: string, statuses: readonly string[]): Promise<"ok" | "not_pending">;
   activateTenant(tenantId: string, now: string): Promise<"activated" | "already_active" | "blocked">;
   readPrompts(tenantId: string): Promise<TrackedPromptRow[]>;
   upsertPrompts(rows: TrackedPromptRow[]): Promise<void>;
@@ -159,23 +181,18 @@ export function resolve(deps?: OnboardingDeps): Resolved {
 
 // ── pure candidate helpers (internal; ids + normalization live in prompt-set) ─
 
-function slugify(name: string): string {
-  return (name ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "group";
-}
+const slugify = (name: string): string =>
+  (name ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "group";
 function dedupeCandidates(cands: CandidateDraft[]): CandidateDraft[] {
   const seen = new Set<string>();
   const out: CandidateDraft[] = [];
   for (const c of cands) {
     const key = normalizePromptText(c.text);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(c);
+    if (key && !seen.has(key)) { seen.add(key); out.push(c); }
   }
   return out;
 }
-function countFamily(list: CandidateDraft[], intent: PromptIntent): number {
-  return list.filter((r) => r.intent === intent).length;
-}
+const countFamily = (list: CandidateDraft[], intent: PromptIntent): number => list.filter((r) => r.intent === intent).length;
 /** Force EXACTLY `target` recommended, preferring balance across the seven families. Pure. */
 function fixRecommendedCount(cands: CandidateDraft[], target: number): CandidateDraft[] {
   const rows = cands.map((c) => ({ ...c }));
@@ -184,8 +201,7 @@ function fixRecommendedCount(cands: CandidateDraft[], target: number): Candidate
     const ordered = [...rec()].sort((a, b) => countFamily(rec(), b.intent) - countFamily(rec(), a.intent));
     for (const r of ordered) {
       if (rec().length <= target) break;
-      if (countFamily(rec(), r.intent) <= 1) continue;
-      r.recommended = false;
+      if (countFamily(rec(), r.intent) > 1) r.recommended = false;
     }
     for (const r of rec()) { if (rec().length <= target) break; r.recommended = false; }
     return rows;
@@ -205,12 +221,8 @@ function fixRecommendedCount(cands: CandidateDraft[], target: number): Candidate
 function norm(values: string[] | undefined): string[] {
   return [...new Set((values ?? []).map((v) => v.trim().toLowerCase()).filter((v) => v.length >= 2 && v.length <= 80))];
 }
-/**
- * Honest deterministic candidates from CONFIRMED facts only (D7): natural customer
- * questions per intent family (category, problem, comparison, commercial, factual,
- * trust, brand), deduped, NEVER padded with numbered filler. A thin profile yields
- * FEWER prompts, not junk; fixRecommendedCount balances the recommended set.
- */
+/** Honest deterministic candidates from CONFIRMED facts only (D7): natural customer questions per intent family, deduped, NEVER padded with
+ *  numbered filler. A thin profile yields FEWER prompts, not junk. */
 function deterministicCandidates(profile: BusinessProfile): CandidateDraft[] {
   const name = profile.name.value.trim();
   const offerings = norm(profile.offerings.value);
@@ -248,20 +260,30 @@ function deterministicCandidates(profile: BusinessProfile): CandidateDraft[] {
 
 export function supabaseOnboardingStore(): OnboardingStore {
   return {
-    async replaceWebsite(tenantId, domain) {
+    async replaceWebsite(tenantId, domain, now) {
       // One atomic RPC: sets the domain and, only on a real change, clears the goal, deactivates prompts, resets the profile.
       const { data, error } = await getSupabaseAdmin().rpc("replace_onboarding_website", { p_tenant_id: tenantId, p_domain: domain });
       if (error) throw new Error(error.message);
       const outcome = String(data ?? "");
-      return outcome === "replaced" || outcome === "unchanged" || outcome === "not_pending" ? outcome : "not_pending";
+      if (outcome === "not_pending") {
+        // AN ACTIVE ACCOUNT WITH NO WEBSITE ON FILE still owes one, and the guard that sends it back here needs the write to land or the
+        // operator loops forever. ONLY a blank domain is filled in; a running site is never replaced.
+        const { data: cur } = await getSupabaseAdmin().from("tenants").select("status, domain").eq("id", tenantId).maybeSingle();
+        if (cur?.status !== "active" || String(cur.domain ?? "").trim()) return "not_pending";
+        const { data: filled } = await getSupabaseAdmin().from("tenants").update({ domain, updated_at: now }).eq("id", tenantId).eq("status", "active").select("id");
+        return filled && filled.length > 0 ? "replaced" : "not_pending";
+      }
+      return outcome === "replaced" || outcome === "unchanged" ? outcome : "not_pending";
     },
-    async updateTenantGoal(tenantId, goal, now) {
-      const { data, error } = await getSupabaseAdmin().from("tenants").update({ growth_goal: goal, updated_at: now }).eq("id", tenantId).eq("status", "pending_onboarding").select("id");
+    async updateTenantGoal(tenantId, goal, now, statuses) {
+      const { data, error } = await getSupabaseAdmin().from("tenants").update({ growth_goal: goal, updated_at: now }).eq("id", tenantId).in("status", statuses).select("id");
       if (error) throw new Error(error.message);
       return data && data.length > 0 ? "ok" : "not_pending";
     },
     async activateTenant(tenantId, now) {
-      const { data, error } = await getSupabaseAdmin().from("tenants").update({ status: "active", tos_accepted_at: now, updated_at: now }).eq("id", tenantId).eq("status", "pending_onboarding").is("tos_accepted_at", null).select("id");
+      // The terms guard is what makes this idempotent: a row that already carries them is never rewritten, so an account flipped active
+      // WITHOUT them can still accept them here and one already running is untouched.
+      const { data, error } = await getSupabaseAdmin().from("tenants").update({ status: "active", tos_accepted_at: now, updated_at: now }).eq("id", tenantId).in("status", ["pending_onboarding", "active"]).is("tos_accepted_at", null).select("id");
       if (error) throw new Error(error.message);
       if (data && data.length > 0) return "activated";
       const { data: cur } = await getSupabaseAdmin().from("tenants").select("status").eq("id", tenantId).maybeSingle();
@@ -288,8 +310,9 @@ export async function generatePromptCandidates(tenantId: string, deps?: Onboardi
   const d = resolve(deps);
   const account = await d.getAccount(tenantId);
   const canonicalId = account?.id ?? tenantId;
-  // Status rail: prompt writes happen only while the account is still onboarding.
-  if (account?.status !== "pending_onboarding") return { ok: false, error: "Your account is already running, so its prompts are locked here." };
+  // Status rail: prompt writes happen while the account is still onboarding, or on a running account whose question set is the exact thing
+  // it is missing. Anything else is locked.
+  if (!(await resumableAt(account, 5, d))) return { ok: false, error: "Your account is already running, so its prompts are locked here." };
   const profile = await d.loadProfile(tenantId);
   if (!isProfileConfirmed(profile)) return { ok: false, error: "Confirm your business first, then I will build your prompts." };
   const goal = account?.growth_goal ?? null;
@@ -298,10 +321,8 @@ export async function generatePromptCandidates(tenantId: string, deps?: Onboardi
   const basis = basisTag(canonicalId, account?.domain?.trim() ?? "", profile, goal);
   const existing = await d.store.readPrompts(canonicalId);
   const currentCandidates = existing.filter((r) => r.tags?.includes(PROMPT_TAGS.candidate) && r.tags?.includes(basis));
-  if (currentCandidates.length > 0) {
-    // A prompt set already exists for this exact basis: reuse it, spend nothing.
-    return { ok: true, candidateCount: currentCandidates.length, recommendedCount: currentCandidates.filter((r) => r.tags.includes(PROMPT_TAGS.recommended)).length };
-  }
+  // A prompt set already exists for this exact basis: reuse it, spend nothing.
+  if (currentCandidates.length > 0) return { ok: true, candidateCount: currentCandidates.length, recommendedCount: currentCandidates.filter((r) => r.tags.includes(PROMPT_TAGS.recommended)).length };
 
   let candidates: CandidateDraft[] = [];
   const llm = await callStructuredLLM({
@@ -332,9 +353,7 @@ export async function generatePromptCandidates(tenantId: string, deps?: Onboardi
   }
   // In the SAME write, deactivate any still-active rows from OTHER bases so a changed basis never leaves an old prompt tracked.
   const stale: TrackedPromptRow[] = [];
-  for (const r of existing) {
-    if (r.is_active && !r.tags?.includes(basis)) stale.push({ ...r, is_active: false, updated_at: nowIso });
-  }
+  for (const r of existing) if (r.is_active && !r.tags?.includes(basis)) stale.push({ ...r, is_active: false, updated_at: nowIso });
   await d.store.upsertPrompts([...byId.values(), ...stale]);
   return { ok: true, candidateCount: byId.size, recommendedCount: [...byId.values()].filter((r) => r.tags.includes(PROMPT_TAGS.recommended)).length };
 }
@@ -345,7 +364,7 @@ export async function approvePrompts(tenantId: string, selection: PromptSelectio
   const d = resolve(deps);
   const account = await d.getAccount(tenantId);
   const canonicalId = account?.id ?? tenantId;
-  if (account?.status !== "pending_onboarding") return { ok: false, error: "Your account is already running, so its prompts are locked here." };
+  if (!(await resumableAt(account, 5, d))) return { ok: false, error: "Your account is already running, so its prompts are locked here." };
   const profile = await d.loadProfile(tenantId);
   const basis = basisTag(canonicalId, account?.domain?.trim() ?? "", profile, account?.growth_goal ?? null);
   const rows = await d.store.readPrompts(canonicalId);
@@ -359,22 +378,18 @@ export async function approvePrompts(tenantId: string, selection: PromptSelectio
   const groupSlugs = new Set(candidates.map((r) => r.topic_id).filter((s): s is string => Boolean(s)));
   for (const a of selection.additions ?? []) if (!groupSlugs.has(a.groupSlug)) return { ok: false, error: "You can only add a prompt to one of your own topics." };
 
-  const removed = new Set(selection.removedIds ?? []);
   const approvedIds = new Set<string>();
   if (selection.useRecommendedDefault) for (const r of candidates) if (r.tags.includes(PROMPT_TAGS.recommended)) approvedIds.add(r.id);
   for (const id of selection.approvedIds ?? []) approvedIds.add(id);
-  if (selection.approvedGroups?.length) {
-    const groups = new Set(selection.approvedGroups);
-    for (const r of candidates) if (r.topic_id && groups.has(r.topic_id)) approvedIds.add(r.id);
-  }
-  for (const id of removed) approvedIds.delete(id);
+  const groups = new Set(selection.approvedGroups ?? []);
+  if (groups.size > 0) for (const r of candidates) if (r.topic_id && groups.has(r.topic_id)) approvedIds.add(r.id);
+  for (const id of selection.removedIds ?? []) approvedIds.delete(id);
 
   const nowIso = d.now().toISOString();
   const writes: TrackedPromptRow[] = [];
   const usedTexts = new Set<string>();
-  // Edits + additions become NEW current-basis rows (an edit supersedes its source
-  // candidate; an addition inherits the group's intent), built FIRST so a
-  // superseded source never also lands as an approved active row.
+  // Edits + additions become NEW current-basis rows (an edit supersedes its source candidate; an addition inherits the group's intent),
+  // built FIRST so a superseded source never also lands as an approved active row.
   for (const edit of selection.edits ?? []) {
     const norm = normalizePromptText(edit.text);
     if (!norm || usedTexts.has(norm)) continue;
@@ -392,30 +407,22 @@ export async function approvePrompts(tenantId: string, selection: PromptSelectio
   }
   for (const r of candidates) if (approvedIds.has(r.id)) writes.push({ ...r, is_active: true, tags: [...new Set([...r.tags, PROMPT_TAGS.core])], updated_at: nowIso });
 
-  // Approval is DECLARATIVE: this selection IS the active core set. Dedupe by id,
-  // bound the true resulting count, then deactivate any previously-approved row
-  // the new selection dropped, so a re-approve can never accumulate past the bound.
+  // Approval is DECLARATIVE: this selection IS the active core set. Dedupe by id, bound the true resulting count, then deactivate any row
+  // the new selection dropped, so a re-approve never accumulates past the bound.
   const byId = new Map(writes.map((w) => [w.id, w]));
   const activeCount = byId.size;
-  // THE UI'S 20-50 WINDOW HOLDS HERE TOO, so no other caller can say yes where the page said no. The
-  // floor bends to a thin candidate pool (a 16 question profile approves its 16), never below minActive.
+  // THE UI'S 20-50 WINDOW HOLDS HERE TOO, so no other caller can say yes where the page said no. The floor bends to a thin candidate pool
+  // (a 16 question profile approves its 16), never below minActive.
   const floor = Math.max(LIMITS.minActive, Math.min(LIMITS.onboardingMin, candidates.length));
   if (activeCount < floor) return { ok: false, error: `Pick at least ${floor} prompts so I can track something meaningful. You have ${activeCount}.` };
   if (activeCount > LIMITS.onboardingMax) return { ok: false, error: `That is ${activeCount} prompts. Keep it to ${LIMITS.onboardingMax} or fewer so each one gets real attention.` };
   const finalWrites = [...byId.values()];
-  // Sweep EVERY active prompt row not in this selection, across ALL bases: a goal
-  // toggled back reuses old candidates without the mint sweep, so approval is what
-  // keeps abandoned-basis rows from staying live and paid-for.
-  //
-  // THE RAIL (no stranded account): the sweep is guarded LOCALLY, not only at the
-  // top of this function. A running account changes its questions in Settings,
-  // where wording keeps its identity, so no future caller of approvePrompts can
-  // reach this loop and silently stop a live account's research.
-  if (account.status === "pending_onboarding") {
-    for (const r of rows) {
-      if (r.is_active && !byId.has(r.id) && (r.tags?.includes(PROMPT_TAGS.candidate) || r.tags?.includes(PROMPT_TAGS.core))) {
-        finalWrites.push({ ...r, is_active: false, updated_at: nowIso });
-      }
+  // Sweep EVERY active prompt row not in this selection, across ALL bases, and FOR A RUNNING ACCOUNT TOO: skipping it there stacked the
+  // strays under the new set, and the funnel counts basis-agnostically, so five orphans plus a fresh thirty-five became forty questions I
+  // pay for daily and nobody chose. A row this selection KEEPS is never swept. Settings edits through its own door.
+  for (const r of rows) {
+    if (r.is_active && !byId.has(r.id) && (r.tags?.includes(PROMPT_TAGS.candidate) || r.tags?.includes(PROMPT_TAGS.core))) {
+      finalWrites.push({ ...r, is_active: false, updated_at: nowIso });
     }
   }
   await d.store.upsertPrompts(finalWrites);
@@ -439,7 +446,10 @@ export async function activateAccount(tenantId: string, tosAccepted: boolean, de
   if (!tosAccepted) return { ok: false, error: "Check the box to start tracking your site." };
   const [account, profile] = await Promise.all([d.getAccount(tenantId), d.loadProfile(tenantId)]);
   const canonicalId = account?.id ?? tenantId;
-  if (account?.status === "active") return { ok: true, redirect: "/" };
+  // AN ACCOUNT ALREADY RUNNING WITH ITS TERMS ON FILE HAS NOTHING TO DO HERE. One flipped active WITHOUT them still owes that step, and the
+  // guard that sends it back to the launch step needs somewhere to send it.
+  const wasActive = account?.status === "active";
+  if (wasActive && !(await resumableAt(account, 7, d))) return { ok: true, redirect: "/" };
   if (!account?.domain?.trim()) return { ok: false, error: "Add your website first." };
   if (!isProfileConfirmed(profile)) return { ok: false, error: "Confirm your business first." };
   const goal = account.growth_goal ?? null;
@@ -448,17 +458,18 @@ export async function activateAccount(tenantId: string, tosAccepted: boolean, de
   const basis = basisTag(canonicalId, account.domain.trim(), profile, goal);
   const rows = await d.store.readPrompts(canonicalId);
   const activeCore = rows.filter((r) => r.is_active && r.tags?.includes(PROMPT_TAGS.core) && r.tags?.includes(basis) && r.tenant_id === canonicalId && r.account_id === canonicalId);
-  // THE SETUP WINDOW, THE SAME ONE APPROVAL ENFORCED. Activation used to allow 10 to 100 while approval
-  // allowed 20 to 50 bent down to a thin candidate pool, so the two gates disagreed about the same set.
-  // Approval already held the bent floor, so activation asks only that a real set survived it and that
-  // nothing pushed it past the setup ceiling.
+  // THE SETUP WINDOW, THE SAME ONE APPROVAL ENFORCED. Activation used to allow 10 to 100 while approval allowed 20 to 50 bent down to a
+  // thin candidate pool, so the two gates disagreed about the same set. Approval already held the bent floor, so activation asks only that
+  // a real set survived it and that nothing pushed it past the setup ceiling.
   if (activeCore.length < LIMITS.minActive) return { ok: false, error: "Approve your prompts first." };
   if (activeCore.length > LIMITS.onboardingMax) return { ok: false, error: `That is ${activeCore.length} prompts. Keep it to ${LIMITS.onboardingMax} or fewer so each one gets real attention.` };
 
   const nowIso = d.now().toISOString();
   const outcome = await d.store.activateTenant(canonicalId, nowIso).catch(() => "blocked" as const);
   if (outcome === "blocked") return { ok: false, error: "I could not start your account just now. Try again in a moment." };
-  if (outcome === "activated") {
+  // THE SIDE EFFECTS BELONG TO THE FIRST ACTIVATION AND NOWHERE ELSE. Stamping the terms an already running account never accepted must
+  // never start a second research run over the top of the one already going.
+  if (outcome === "activated" && !wasActive) {
     try {
       const inventory = await d.loadCrawl(canonicalId).catch(() => null);
       if (!inventory || inventory.pages_crawled === 0) await d.coldStartScan({ tenantId: canonicalId, domain: account.domain.trim() });

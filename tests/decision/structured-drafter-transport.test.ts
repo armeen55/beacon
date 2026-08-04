@@ -1,16 +1,14 @@
-/** structured-drafter strict-gateway transport: the seam returns parsed VALUES (no prose recovery), a
- *  refusal fails closed with no artifact, retry is bounded and paid for, and a cache hit costs $0. */
+/** structured-drafter strict-gateway transport: the seam returns parsed VALUES (no prose recovery), a refusal fails closed with no artifact, retry is bounded and paid
+ *  for, and a cache hit costs $0. */
 import { describe, it, expect, vi } from "vitest";
-// Budget is not this file's subject (see llm-budget-isolation.test.ts): keep the
-// transport hermetic with an always-allowed, no-op budget seam.
+// Budget is not this file's subject (see llm-budget-isolation.test.ts): keep the transport hermetic with an always-allowed, no-op budget seam.
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
   checkBudget: async () => ({ allowed: true, remaining: 10 }),
   recordSpend: async () => {},
 }));
 import { callStructuredLLM, draftInternalLinkStructured, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
-// A schema-valid AtomicEditDraft value (the simplest kind — no source-verify /
-// word-count / superlative machinery in the way of the transport assertions).
+// A schema-valid AtomicEditDraft value (the simplest kind, no source-verify / word-count / superlative machinery in the way of the transport assertions).
 const VALID_ATOMIC_EDIT = {
   field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen",
   rationale: "The current title is one word and misses the customs searchers ask about.",

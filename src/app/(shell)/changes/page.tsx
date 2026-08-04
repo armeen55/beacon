@@ -31,6 +31,10 @@ export async function ChangesSection() {
   if (raced.timedOut) return <HonestDelay />;
   const view = raced.data;
   if (view.proposals.length === 0) {
+    // A RELEASE I COULD NOT READ IS NOT AN EMPTY QUEUE AND NOT A FIRST-EVER LOAD.
+    if (view.releaseUnreadable) {
+      return <HonestDelay message="I could not read your saved changes just now, so I am not showing you an empty list. Beacon is checking again automatically." />;
+    }
     // W2-B - distinguish a COLD first-ever render (the SWR snapshot is building in
     // the background) from a genuinely empty list. Never claim "no changes" while
     // the rebuild is still running.

@@ -1,7 +1,7 @@
-/** The ONE change contract: an existing-page repair (Slice 7), and NOTHING ELSE. Selection on a PROVEN recoverable gap,
- *  receipt-first grounding for the EXACT candidate search, scope named on every number, QUERY IDENTITY per query, winners attaching only on exact
- *  membership, atomic bundling, confidence and readiness by EVIDENCE HELD, determinism, honest refusal, no page is ever invented however much
- *  research backs the topic, a release publishing only on a real production result, dedupe, and a round trip. */
+/** The ONE change contract: an existing-page repair (Slice 7), and NOTHING ELSE. Selection on a PROVEN recoverable gap, receipt-first grounding for the EXACT candidate
+ *  search, scope named on every number, QUERY IDENTITY per query, winners attaching only on exact membership, atomic bundling, confidence and readiness by EVIDENCE HELD,
+ *  determinism, honest refusal, no page is ever invented however much research backs the topic, a release publishing only on a real production result, dedupe, and a
+ *  round trip. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"; import type { BundleComponent, BundleComponentKind, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
 import { DANGEROUS_COMPONENT_KINDS, dangerousComponents, needsSourcePack } from "@/domains/decision/contracts"; import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals"; import { validateProposal } from "@/domains/decision/validate-proposal";
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
@@ -16,8 +16,8 @@ import { CORE_PRODUCERS } from "@/domains/decision/producers/core";
 import type { Producer, ProducerCtx } from "@/domains/decision/producers/contract"; import { fieldForComponent } from "@/domains/decision/producers/contract";
 import { emptyResearchEvidence, type ResearchPageExtract, type ResearchWinningAppearance } from "@/domains/evidence/funnel/research-evidence"; const TENANT = "fixture-tenant"; const NOW = new Date("2026-07-25T00:00:00.000Z");
 const TITLE_AFTER = "Rain barrel sizing: gallons per storm by roof area"; const TAIL = { evidenceRefs: [{ source: "gsc", detail: "real page demand" }], confidence: "high", risks: [], operatorSteps: ["Replace the field"], proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "untouched pages" } };
-/** Every system prompt the drafter sent this run (so no vertical assumption can hide in one), every draft KIND it was
- *  asked for (so a page can never be written for a topic), and the injected drafter seam itself. */
+/** Every system prompt the drafter sent this run (so no vertical assumption can hide in one), every draft KIND it was asked for (so a page can never be written for a
+ *  topic), and the injected drafter seam itself. */
 const sent: string[] = []; const kinds: string[] = []; const seam: CompleteFn = async ({ system, kind }) => { sent.push(system); kinds.push(kind); return { value: { field: "title", before: null, after: TITLE_AFTER, rationale: "The current copy does not say what the page answers.", ...TAIL } }; };
 const page = (over: Partial<OwnedPageEvidence> & { url: string }): OwnedPageEvidence => ({ content: { title: "Rain Barrels", metaDescription: null, h1: "Rain Barrels", h2: [], outline: ["Rain barrel sizing", "Roof area and gallons", "Chaining a second barrel"], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 900, internalLinks: [], fetchedAt: "2026-07-20T00:00:00.000Z" },
     // "rain barrel sizing" earns 90 clicks where position 3 normally earns about 660: a 570-click gap. The second search sits at position 11 and earns about what that position should, so it is no gap at all.
@@ -71,8 +71,8 @@ beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; store.rows.clear(); 
   it("produces an identical result when every input list arrives in the opposite order", async () => { const base = snapshot(); const flipped = snapshot({ ownedPages: reverse(base.ownedPages).map((pg) => ({ ...pg, search: pg.search ? { ...pg.search, topQueries: reverse(pg.search.topQueries) } : null })), research: { ...RESEARCH, retainedKeywords: reverse(RESEARCH.retainedKeywords), aiObservations: reverse(RESEARCH.aiObservations), winningPages: reverse(RESEARCH.winningPages), serpEvidence: RESEARCH.serpEvidence.map((s) => ({ ...s, organic: reverse(s.organic) })) }, }); expect(JSON.stringify(await produceBundleForSnapshot(flipped, { complete: seam, ...OPTS }))).toBe(JSON.stringify(await produceBundleForSnapshot(base, { complete: seam, ...OPTS }))); }); }); // ── a topic is never a page: no amount of research invents one ────────────────
 const obs = (citations: { url: string; domain: string; title: string }[] | null) => ({ promptId: "t1", promptText: PROMPT2, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: citations != null, citations, fanOutQueries: null, observedAt: "2026-07-23T00:00:00.000Z" });
 const topicKeyword = { query: TOPIC, searchVolume: 1600, competition: 0.3, competitionLevel: "low" as const, difficulty: null, intent: "informational" }; describe("no evidence about a topic I own no page for may become a page", () => {
-  // The last row also proves the seam is LIVE: on the same evidence the drafter really is called, twice, and both times
-  // for an edit to a page that already exists. A silent seam would make every assertion below true for the wrong reason.
+  // The last row also proves the seam is LIVE: on the same evidence the drafter really is called, twice, and both times for an edit to a page that already exists. A
+  // silent seam would make every assertion below true for the wrong reason.
   it.each([ ["a tracked prompt alone", { ...emptyResearchEvidence(), aiObservations: [obs(null)] }, []],
     ["a tracked prompt and one cited page", { ...emptyResearchEvidence(), aiObservations: [obs([{ url: URL2, domain: "waterwise.example", title: "P" }])] }, []],
     ["a tracked prompt and real monthly search volume", { ...emptyResearchEvidence(), aiObservations: [obs(null)], retainedKeywords: [topicKeyword] }, []],
@@ -104,8 +104,8 @@ describe("evidence attaches only where it is topically anchored", () => {
     const only = [page({ url: "fixture-content.example/compost", search: { clicks90d: 40, impressions90d: 9000, ctr90d: 0.004, position90d: 5, topQueries: [{ query: "compost bin sizing", impressions: 9000, clicks: 40, position: 5 }] } })]; const out = await produceBundleForSnapshot(anchorSnap({ ownedPages: only }), { complete: seam, ...OPTS }); if (out.status !== "bundled") throw new Error("expected a bundle");
     const b = out.proposal.bundle!; expect(b.components.map((c) => c.kind)).toEqual(["title"]); // one field, and only the evidence that is about this page
     expect(b.receipt.missing).toEqual(expect.arrayContaining(['I have not gathered an AI answer about "compost bin sizing" yet.', 'I have not read the pages that come up for "compost bin sizing" yet.'])); expect(b.receipt.items.every((i) => i.kind !== "ai_observation" && i.kind !== "winning_page")).toBe(true); expect(b.scope.prompts).toEqual([]); });
-  /** THE LIVE COUNTEREXAMPLE, in miniature: a small corpus switches the everywhere-word net off, and one shared
-   *  subject word carried a "best places to visit" answer onto a page judged on a different search entirely. */
+  /** THE LIVE COUNTEREXAMPLE, in miniature: a small corpus switches the everywhere-word net off, and one shared subject word carried a "best places to visit" answer onto
+   *  a page judged on a different search entirely. */
   it("never attaches an AI answer to a page, a winner, the receipt or a component on a shared subject word alone", async () => {
     const ELSE = "https://elsewhere.example/places"; const broad = { ...obsRow("what are the best places to visit for rain gardens", "2026-07-22T00:00:00.000Z", ELSE), promptId: "broad" };
     const out = await produceBundleForSnapshot(snapshot({ research: { ...RESEARCH, aiObservations: [broad], winningPages: [...RESEARCH.winningPages, winRow(ELSE, { title: "P", h1: "P", wordCount: 2000, headings: ["Places"], faqCount: 1 })] } }), { complete: seam, ...OPTS });
@@ -291,8 +291,8 @@ describe("what is wrong with how a page is served", () => {
     expect(found.map((f) => f.kind)).toEqual(["non_200", "redirect_chain", "orphaned_page", "sitemap_omission",
       "broken_internal_link", "canonical_conflict", "duplicate_title", "robots_noindex", "canonical_missing", "duplicate_title", "missing_h1"]);
     expect(found.every((f) => f.url.startsWith(AT) && f.exactFix.length > 20 && f.evidence.length > 20)).toBe(true);
-    // PIN (B, F2): a dead address with no replacement page ASKS for one; a forward carries its destination
-    // as an address, so the live check reads where it was told to land instead of the address being moved.
+    // PIN (B, F2): a dead address with no replacement page ASKS for one; a forward carries its destination as an address, so the live check reads where it was told to
+    // land instead of the address being moved.
     expect(found[0]!.exactFix).toBe("Tell me the address that replaced /gone and I will write you the forward. Until then I keep it out of your queue.");
     expect(found[0]!.redirectTo).toBeUndefined();
     expect(found[1]!.evidence).toBe("/old sends people to /mid, and /mid sends them on again to /rain-barrels.");
@@ -310,9 +310,8 @@ describe("what is wrong with how a page is served", () => {
     // NOTHING FIRES WITHOUT HELD EVIDENCE: no inventory and no capture is no findings, never a clean bill
     expect([readTechnicalFindings({}), readTechnicalFindings({ inventory: [row(`${AT}/a`)] })]).toEqual([[], []]);
   });
-  // PIN (D, packet 5 + 6): AN ACCESS STATE IS NOT A DEAD PAGE. Only the two answers that mean "the support
-  // is gone" produce a dead-page change; being turned away, rate-limited or unreachable says something
-  // about me, not about the page. A server error is a bad minute until a SECOND read on a LATER day agrees.
+  // PIN (D, packet 5 + 6): AN ACCESS STATE IS NOT A DEAD PAGE. Only the two answers that mean "the support is gone" produce a dead-page change; being turned away,
+  // rate-limited or unreachable says something about me, not about the page. A server error is a bad minute until a SECOND read on a LATER day agrees.
   it("calls a page dead only on 404, 410 or a twice-confirmed server error, and never on an access state", () => {
     const dead = (over: Record<string, unknown>) => readTechnicalFindings({ inventory: [row(`${AT}/`), row(`${AT}/x`, over)] })
       .filter((f) => f.kind === "non_200");
@@ -326,8 +325,8 @@ describe("what is wrong with how a page is served", () => {
     const twice = dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z", status_reconfirmed_at: "2026-08-03T09:00:00Z" });
     expect(twice[0]!.evidence).toContain("two different days");
   });
-  // PIN (D, packet 20): vague advice cannot enter Ready. Without the words to type there is no finding, and
-  // a copy fault with no copy behind it never reaches the operator as a change.
+  // PIN (D, packet 20): vague advice cannot enter Ready. Without the words to type there is no finding, and a copy fault with no copy behind it never reaches the
+  // operator as a change.
   it("writes no change it has not written the wording for, and says so instead", async () => {
     const noWords = readTechnicalFindings({
       inventory: [row(`${AT}/`), row(`${AT}/rain-barrels`), row(`${AT}/orphan`, { discovered_via: "nav" })],
@@ -344,8 +343,7 @@ describe("what is wrong with how a page is served", () => {
     // The same producer DOES hand over the ones whose exact wording it holds.
     expect((await run(readTechnicalFindings({ pages: [{ url: `${AT}/a`, title: "Rain Barrel Sizing Guide", h1: "" }] }))).components.map((c) => c.after))
       .toEqual(["Rain Barrel Sizing Guide"]);
-    // PIN (B, F2b): a dead address with nowhere to send people is held the same deterministic way, and the
-    // operator is asked the one question that turns it into work.
+    // PIN (B, F2b): a dead address with nowhere to send people is held the same deterministic way, and the operator is asked the one question that turns it into work.
     const stranded = await run(readTechnicalFindings({ inventory: [row(`${AT}/`), row(`${AT}/gone`, { crawl_state: "gone", http_status: 404 })] }));
     expect(stranded.components).toEqual([]);
     expect(stranded.refusal).toContain("Tell me the address that replaced it");

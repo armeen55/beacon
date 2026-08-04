@@ -84,4 +84,5 @@ export {
   measureRecord,
   captureChangeMeta,
   recordShippedChange,
+  selectControlPages,
 } from "./measure-pass";

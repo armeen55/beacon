@@ -1,8 +1,7 @@
-/** AI OUTCOME MEASUREMENT (V1 Truth Convergence Phase 7). Protected here: only the canonical first
- *  reading of a question feeds a trend; a rate with nothing behind it is null and never zero; a model or
- *  mode change splits the series and is named; a Shipment is judged before against after on the same rule
- *  with its coverage visible; thin coverage is "unclear", not a verdict; a missed day stays missed; and one
- *  account never reads another's answers. Fixtures only: every read is injected, zero network, zero cost. */
+/** AI OUTCOME MEASUREMENT (V1 Truth Convergence Phase 7). Protected here: only the canonical first reading of a question feeds a trend; a rate with nothing behind it is
+ *  null and never zero; a model or mode change splits the series and is named; a Shipment is judged before against after on the same rule with its coverage visible; thin
+ *  coverage is "unclear", not a verdict; a missed day stays missed; and one account never reads another's answers. Fixtures only: every read is injected, zero network,
+ *  zero cost. */
 import { describe, it, expect, vi } from "vitest";
 
 import { aiOutcomeForShipment, aiOutcomes, aiOutcomesForShipments, visibilitySeries } from "@/domains/measurement/ai-outcomes";
@@ -25,16 +24,15 @@ function row(over: RowOver = {}): AiObservationRecord {
     requested_at: `${reporting_day}T09:00:00.000Z`, completed_at: `${reporting_day}T09:00:10.000Z`,
     cost_usd: 0, status: "observed", failure_reason: null, answer_text: "an answer", answer_hash: "abc",
     journey: { fan_outs: null, retrieved_results: null, cited_sources: null, brand_mentions: null, web_search_reported: null },
-    // A settled reading carries the ANSWER's own hash: the whole answer was read. A stored partial
-    // deliberately carries a different hash, which is exactly what keeps it out of every denominator.
+    // A settled reading carries the ANSWER's own hash: the whole answer was read. A stored partial deliberately carries a different hash, which is exactly what keeps it
+    // out of every denominator.
     analysis, analysis_hash: analysis ? "abc" : null, ...rest,
   } as AiObservationRecord;
 }
 
 const link = (domain: string) => ({ url: `https://${domain}/page`, domain, title: null });
-/** A store that answers like the real one: only the slot and the day range that were ASKED for, a named
- *  range read whole, and a fixed count never exceeded. A module that asks for the newest N rows and
- *  narrows to its range afterwards gets a truncated history here, exactly as it does in production. */
+/** A store that answers like the real one: only the slot and the day range that were ASKED for, a named range read whole, and a fixed count never exceeded. A module that
+ *  asks for the newest N rows and narrows to its range afterwards gets a truncated history here, exactly as it does in production. */
 const reader = (rows: AiObservationRecord[]) =>
   vi.fn(async (_t: string, o: { limit?: number; slot?: number; fromDay?: string; toDay?: string }) =>
     rows.filter((r) => (o.slot === undefined || r.sample_slot === o.slot)
@@ -68,8 +66,8 @@ describe("the daily AI trend, over stored answers only", () => {
       row({ day: "2026-07-20", prompt_id: "p2", mentioned: false, journey: journey({ cited_sources: [link("rival.example")], retrieved_results: [link(SITE)] }) }),
       // The engine reported nothing about its sources at all: it joins neither sample.
       row({ day: "2026-07-20", prompt_id: "p3", mentioned: false }),
-      // THE SAME page of yours, read and then CREDITED, differing only by www, scheme, a trailing slash
-      // and a fragment. A page the engine cited was never a page it read and passed over.
+      // THE SAME page of yours, read and then CREDITED, differing only by www, scheme, a trailing slash and a fragment. A page the engine cited was never a page it read
+      // and passed over.
       row({ day: "2026-07-20", prompt_id: "p4", mentioned: true, journey: journey({
         cited_sources: [{ url: `https://www.${SITE}/guide/`, domain: `www.${SITE}`, title: null }],
         retrieved_results: [{ url: `http://${SITE}/guide#top`, domain: SITE, title: null }] }) }),
@@ -81,9 +79,8 @@ describe("the daily AI trend, over stored answers only", () => {
     });
   });
   it("counts a page of yours read and passed over even when the answer credited a DIFFERENT page of yours", async () => {
-    // The subtraction is per PAGE, through the one canonical-url derivation. Asking only "did it credit
-    // anybody on this site" answers yes here and reports zero, so the page the engine actually read and
-    // then ignored disappears behind a neighbour of its own that happened to get the credit.
+    // The subtraction is per PAGE, through the one canonical-url derivation. Asking only "did it credit anybody on this site" answers yes here and reports zero, so the
+    // page the engine actually read and then ignored disappears behind a neighbour of its own that happened to get the credit.
     const readObservations = reader([row({ day: "2026-07-20", prompt_id: "p1", mentioned: true, journey: {
       fan_outs: null, brand_mentions: null, web_search_reported: null,
       retrieved_results: [{ url: `https://${SITE}/guide`, domain: SITE, title: null }],
@@ -129,8 +126,8 @@ describe("the daily AI trend, over stored answers only", () => {
   it("asks the store for the day range and the first readings, so nothing is narrowed after the read", async () => {
     const readObservations = reader([row({ day: "2026-07-20", mentioned: true })]);
     await aiOutcomes(T, { from: "2026-07-19", to: "2026-07-21", readObservations });
-    // Asking for the newest N rows and cutting to the range afterwards spends the whole read on the
-    // newest days and on samples this trend then throws away, so the older half of the range vanishes.
+    // Asking for the newest N rows and cutting to the range afterwards spends the whole read on the newest days and on samples this trend then throws away, so the older
+    // half of the range vanishes.
     expect(readObservations).toHaveBeenCalledWith(T, { fromDay: "2026-07-19", toDay: "2026-07-21", slot: 0 });
   });
   /** `prompts` questions x four engines x `days` days of first readings: the shape a real account stores. */
@@ -214,13 +211,12 @@ describe("what the AI answers did around one shipped change", () => {
     }
     return out;
   };
-  /** BOTH SIDES ARE ONE MEASURE. The starting number written at mark time counts the answers that came back
-   *  AND the ones read closely enough to say whether the account was named, and the rate divides by the
-   *  second. Dividing by everything that came back made the before side a different metric from the after
-   *  side, so a change was judged by a subtraction of two unlike numbers. */
+  /** BOTH SIDES ARE ONE MEASURE. The starting number written at mark time counts the answers that came back AND the ones read closely enough to say whether the account
+   *  was named, and the rate divides by the second. Dividing by everything that came back made the before side a different metric from the after side, so a change was
+   *  judged by a subtraction of two unlike numbers. */
   it("divides the starting number by the answers READ CLOSELY, so before and after are the same measure", async () => {
-    // 140 answers, 100 read closely, 60 naming the account: the rate before is 0.6. Counted the old way it
-    // was 0.43, which is BELOW the 0.5 the answers since have run at, so the same day's data read as a rise.
+    // 140 answers, 100 read closely, 60 naming the account: the rate before is 0.6. Counted the old way it was 0.43, which is BELOW the 0.5 the answers since have run
+    // at, so the same day's data read as a rise.
     const readObservations = reader(stretch("2026-07-21", "2026-07-31", 2));
     const outcome = await aiOutcomeForShipment(T, {
       implementedAt: STAMP,
@@ -232,9 +228,8 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.line).toContain("60 of 100 before it");
   });
   it("recounts a starting number written the old way from that day's own answers, and asks for that exact day", async () => {
-    // A baseline written before `analyzed` existed carries no denominator I can trust, and it is write-once,
-    // so it is never rewritten. The day itself is still on file, well outside the 28 days ahead of the
-    // stamp, so the store is asked for that one day and the before side is recounted the same way as the after.
+    // A baseline written before `analyzed` existed carries no denominator I can trust, and it is write-once, so it is never rewritten. The day itself is still on file,
+    // well outside the 28 days ahead of the stamp, so the store is asked for that one day and the before side is recounted the same way as the after.
     const readObservations = reader([...stretch("2026-06-10", "2026-06-10", 3), ...stretch("2026-07-21", "2026-07-31", 3)]);
     const outcome = await aiOutcomeForShipment(T, {
       implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-06-10", checked: 8, mentioning: 2 } },
@@ -254,8 +249,8 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.line).not.toMatch(/[—–]/);
   });
   it("says unclear when the starting day itself was barely read, however clear the days since are", async () => {
-    // 40 of 140 answers read closely on the day this change starts from. The share those 40 carry is a fact
-    // about how much analysis finished that day, not about what AI said, so it is not one end of a direction.
+    // 40 of 140 answers read closely on the day this change starts from. The share those 40 carry is a fact about how much analysis finished that day, not about what AI
+    // said, so it is not one end of a direction.
     const readObservations = reader(stretch("2026-07-21", "2026-07-31", 4));
     const outcome = await aiOutcomeForShipment(T, {
       implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 140, analyzed: 40, mentioning: 24 } },
@@ -287,8 +282,8 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.line).toContain("down from 3 of 4 before it");
   });
   it("counts the share over the answers it actually READ, so unfinished analysis is not a fall", async () => {
-    // Every answer read closely named the account; a quarter of them have not been read yet. Dividing
-    // by everything that came back would report that backlog as AI turning against the account.
+    // Every answer read closely named the account; a quarter of them have not been read yet. Dividing by everything that came back would report that backlog as AI
+    // turning against the account.
     const readObservations = reader(stretch("2026-07-21", "2026-07-31", 4)
       .map((r, i) => (i % 4 === 3 ? { ...r, analysis: null, analysis_hash: null } : r)));
     const outcome = await aiOutcomeForShipment(T, {
@@ -349,9 +344,8 @@ describe("what the AI answers did around one shipped change", () => {
     expect(await aiOutcomeForShipment(T, { implementedAt: null }, { readObservations, now: NOW })).toBeNull();
   });
   it("reads the whole ledger's answers ONCE, on the lean projection, and still judges each change on its own window", async () => {
-    // EVERY shipment used to open its own paged 56 day read of WHOLE rows, all of them at once: ten
-    // shipments meant eighty round trips carrying every answer text and retrieval journey in the window,
-    // which is the exact shape that has timed a statement out on this table before.
+    // EVERY shipment used to open its own paged 56 day read of WHOLE rows, all of them at once: ten shipments meant eighty round trips carrying every answer text and
+    // retrieval journey in the window, which is the exact shape that has timed a statement out on this table before.
     const rows = stretch("2026-06-01", "2026-07-31", 3);
     const readObservations = reader(rows);
     const shipments = [
@@ -361,8 +355,8 @@ describe("what the AI answers did around one shipped change", () => {
     ];
     const batch = await aiOutcomesForShipments(T, shipments, { readObservations, now: NOW });
     expect(readObservations).toHaveBeenCalledTimes(1);
-    // ONE union window covering every stamped shipment, and the projection NAMES what it reads: the
-    // identity, the day, the slot, the status and the stored verdict. Never the answer text, never the journey.
+    // ONE union window covering every stamped shipment, and the projection NAMES what it reads: the identity, the day, the slot, the status and the stored verdict. Never
+    // the answer text, never the journey.
     expect(readObservations).toHaveBeenCalledWith(T, { fromDay: "2026-06-07", toDay: "2026-07-31", slot: 0, projection: "outcome" });
     expect(batch).toHaveLength(3);
     expect(batch[2]).toBeNull();
@@ -371,10 +365,9 @@ describe("what the AI answers did around one shipped change", () => {
       expect(batch[i]).toEqual(await aiOutcomeForShipment(T, s, { readObservations: reader(rows), now: NOW }));
     }
   });
-  /** ONE OVERSIZED READ USED TO TAKE THE WHOLE LEDGER'S AI SIDE DOWN. The union window ran from the oldest
-   *  shipment to the newest, and an account asking 35 questions of 4 engines writes 140 first readings a
-   *  day, so a ledger spanning a year asked for about 51,000 rows and the store refuses anything past
-   *  40,000. Every change then showed no AI outcome at all, including the ones whose own answers read fine. */
+  /** ONE OVERSIZED READ USED TO TAKE THE WHOLE LEDGER'S AI SIDE DOWN. The union window ran from the oldest shipment to the newest, and an account asking 35 questions of
+   *  4 engines writes 140 first readings a day, so a ledger spanning a year asked for about 51,000 rows and the store refuses anything past 40,000. Every change then
+   *  showed no AI outcome at all, including the ones whose own answers read fine. */
   it("reads overlapping windows once and fails only the changes whose own days could not be read", async () => {
     const rows = [...stretch("2026-01-04", "2026-02-28", 3), ...stretch("2026-06-01", "2026-07-31", 3)];
     const asked: Array<{ fromDay?: string; toDay?: string }> = [];
@@ -392,8 +385,7 @@ describe("what the AI answers did around one shipped change", () => {
       { implementedAt: "2026-07-10T10:00:00.000Z", shipmentBaseline: held },
       { implementedAt: "2026-02-01T10:00:00.000Z", shipmentBaseline: held },   // its own stretch, and it throws
     ], { readObservations, now: NOW });
-    // Three overlapping windows are ONE read, so a day two changes both need is fetched once; the fourth
-    // change sits on its own stretch and is read on its own.
+    // Three overlapping windows are ONE read, so a day two changes both need is fetched once; the fourth change sits on its own stretch and is read on its own.
     expect(asked).toEqual([
       { fromDay: "2026-01-04", toDay: "2026-02-28" },
       { fromDay: "2026-06-07", toDay: "2026-07-31" },
@@ -405,9 +397,8 @@ describe("what the AI answers did around one shipped change", () => {
     expect(batch[3]).toMatchObject({ direction: "unclear", coverage: { daysObserved: 0, daysElapsed: 28 } });
     expect(batch[3]?.line).toBe("I could not read the answers for this period just now. They are safe and I will read them on the next refresh.");
   });
-  /** THE DAY A CHANGE SHIPPED IS THE OPERATOR'S DAY. Observations are filed under the Pacific reporting
-   *  day; deriving the shipped day in UTC put every evening stamp on tomorrow, so that same evening's
-   *  answers, taken AFTER the operator made the change, were counted on the BEFORE side of it. */
+  /** THE DAY A CHANGE SHIPPED IS THE OPERATOR'S DAY. Observations are filed under the Pacific reporting day; deriving the shipped day in UTC put every evening stamp on
+   *  tomorrow, so that same evening's answers, taken AFTER the operator made the change, were counted on the BEFORE side of it. */
   it("stamps the shipped day in the operator's own zone, so an evening change counts that evening after it", async () => {
     const evening = "2026-08-05T02:00:00.000Z"; // 7 PM on the 4th where the operator is
     const readObservations = reader([

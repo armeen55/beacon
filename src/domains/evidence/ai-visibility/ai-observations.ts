@@ -7,15 +7,12 @@ import type { AnswerUsage, ObservedCitation, ParsedAiAnswer } from "@/domains/ev
 import type { PromptAnswerObservation } from "./prompt-answer-observations";
 
 /**
- * ai-observations - THE canonical record of one AI answer, kept WHOLE.
- *
- * An answer used to be collapsed at capture: the text hashed and thrown away, the retrieved pages never stored, and a re-read meant
- * buying it again. One row here holds the full text, the whole journey (fan-outs, retrieved pages, cited sources, brands, the
- * reported web-search state), the money receipt and the cache identity of the raw envelope, so later analysis re-reads what was paid
- * for once. IDENTITY is (tenant, prompt, prompt version, engine, reporting day, sample slot): a retry of the same intent reuses that
- * identity and upserts the SAME row, while a deliberate second sample of the same pair on the same day is a different SLOT and
- * therefore a different row, and nothing else may mint an id here. prompt_answer_observations is a DECLARED PROJECTION of this
- * record, derived by the same writer at the same moment, so the native-intel readers keep working off one truth.
+ * ai-observations - THE canonical record of one AI answer, kept WHOLE. An answer used to be collapsed at capture: the text hashed and thrown away, the
+ * retrieved pages never stored, and a re-read meant buying it again. One row here holds the full text, the whole journey (fan-outs, retrieved pages,
+ * cited sources, brands, the reported web-search state), the money receipt and the cache identity of the raw envelope, so later analysis re-reads what
+ * was paid for once. IDENTITY is (tenant, prompt, prompt version, engine, reporting day, sample slot): a retry of the same intent reuses that identity
+ * and upserts the SAME row, while a deliberate second sample of the same pair on the same day is a different SLOT and therefore a different row, and
+ * nothing else may mint an id here. prompt_answer_observations is a DECLARED PROJECTION of this record, derived by the same writer at the same moment.
  */
 
 /** THE frozen seam with Runtime's planner: exactly the pairs that are due, nothing implied. `day` is the
@@ -273,7 +270,7 @@ function viewAiObservation(r: AiObservationRecord): AiObservationView {
 
 /** THE re-analysis read: everything a later pass needs, already bought, in the reader's own shape. */
 export async function readAiObservationViews(
-  tenantId: string, opts: { day?: string; promptId?: string; limit?: number; slot?: number } = {},
+  tenantId: string, opts: { day?: string; fromDay?: string; toDay?: string; promptId?: string; limit?: number; slot?: number } = {},
 ): Promise<AiObservationView[]> {
   return (await readAiObservations(tenantId, opts)).map(viewAiObservation);
 }
@@ -293,15 +290,17 @@ export async function settleFailedObservation(
 }
 
 /**
- * SETTLED FOR ANALYSIS. A reading is done ONLY when it was taken against the answer on file AND covers all
- * of it. A pass that read some of a long answer persists what it merged with a DIFFERENT hash on purpose,
- * so the row stays due and the next pass resumes at the first piece nobody has read. Anything counting
- * completed checks must ask this, never `analysis != null`: a stored partial is real work, not a finished
- * one. A settled reading that still has a named gap carries `answerReadInPart`, which is what a
- * "partially analyzed" line on a surface should read.
+ * SETTLED FOR ANALYSIS. A reading is done ONLY when it was taken against the answer on file AND covers all of it. A pass that read some of a long
+ * answer persists what it merged with a DIFFERENT hash on purpose, so the row stays due and the next pass resumes at the first piece nobody has read;
+ * anything counting completed checks must ask this, never `analysis != null`. A settled reading that still has a named gap carries `answerReadInPart`.
+ * AND A REJECTION IS FINISHED ONLY WHEN IT NAMES A PERMANENT REASON: on 3 and 4 August every one of 278 answers was rejected on a rate limit and
+ * stamped with its own answer hash, so the hash alone said "read, forever" about answers nothing had read at all. A rejection naming no `outcome` of
+ * `refused` was the provider's failure, not the answer's, so it is due again, and the whole 278 come back through this test with no migration at all.
  */
 export function isAnalysisSettled(r: { analysis: unknown; analysisHash: string | null; answerHash: string | null }): boolean {
-  return r.analysis != null && r.analysisHash != null && r.analysisHash === r.answerHash;
+  const a = r.analysis as { rejected?: unknown; outcome?: unknown } | null;
+  if (a == null || r.analysisHash == null || r.analysisHash !== r.answerHash) return false;
+  return a.rejected !== true || a.outcome === "refused";
 }
 
 /**

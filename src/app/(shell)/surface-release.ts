@@ -32,7 +32,9 @@ export type CustomerSurface = {
 };
 
 export async function readCustomerSurface(tenantId: string): Promise<CustomerSurface | null> {
-  const rows = await readStore<CustomerSurface>(STORE, [], { tenantId }).catch(() => [] as CustomerSurface[]);
+  // A READ THAT FAILED IS NOT AN ABSENT RELEASE. Swallowing it here made every caller see "no release yet",
+  // which Today and Changes both paint as a cold start. It THROWS now; each caller decides what that means.
+  const rows = await readStore<CustomerSurface>(STORE, [], { tenantId });
   const row = rows[0];
   if (!row || row.schemaVersion !== 2 || row.tenantId !== tenantId || !row.changes || !row.today) return null;
   return row;

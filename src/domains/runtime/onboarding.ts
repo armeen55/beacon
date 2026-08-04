@@ -1,42 +1,32 @@
 import "server-only";
 
-/**
- * onboarding (Slice 5, 2026-07-24) - the state read plus the website + profile
- * commands of the onboarding facade. Thin "use server" actions call these; the
- * candidate/approve/activate commands and the shared core (types, deps,
- * `resolve`, the durable store) live in onboarding-store.ts, imported here.
- *
- * Trust rails: every write is status-guarded; the LLM is optional and injected
- * (an off/refused/budget-blocked model falls back to a deterministic result read
- * from the site, honestly labeled, and onboarding still proceeds); the model can
- * never touch identity, the domain, provenance, status, or cost (not
- * representable in the schemas, and re-checked against a field whitelist here).
- */
+/** onboarding (Slice 5, 2026-07-24) - the state read plus the website + profile commands of the onboarding facade. Thin "use server"
+ *  actions call these; the candidate/approve/activate commands and the shared core (types, deps, `resolve`, the durable store) live in
+ *  onboarding-store.ts, imported here. Trust rails: every write is status-guarded; the LLM is optional and injected (an
+ *  off/refused/budget-blocked model falls back to a deterministic result read from the site, honestly labeled, and onboarding still
+ *  proceeds); the model can never touch identity, the domain, provenance, status or cost (not representable in the schemas, and re-checked
+ *  against a field whitelist here). */
 
 import type { BusinessProfile, BusinessType, ProfileSection } from "@/domains/account";
 import { normalizeSiteUrl, invalidateBusinessProfileCache } from "@/domains/account";
 import type { CrawlPageFact } from "@/domains/evidence/scanning/crawl-frontier";
 import { callStructuredLLM } from "@/domains/decision/llm/structured-drafter";
 import {
-  resolve, PROMPT_INTENTS, PROMPT_TAGS, CONFIRMABLE_FIELDS, SHOWN_FIELDS, isProfileConfirmed, basisTag,
+  resolve, setupGap, PROMPT_INTENTS, PROMPT_TAGS, CONFIRMABLE_FIELDS, SHOWN_FIELDS, isProfileConfirmed, basisTag,
   type OnboardingDeps, type OnboardingState, type OnboardingGoal,
   type ProfileEdits, type ProfilePatch, type PromptSelection, type TrackedPromptRow,
 } from "./onboarding-store";
 
-// Re-export the candidate/approve/activate commands + the store type so the whole
-// facade is one import surface (runtime/index re-exports from here). The shared
-// types imported above are re-exported by name just below.
-export { generatePromptCandidates, approvePrompts, activateAccount, setupGap, type OnboardingStore } from "./onboarding-store";
-export type {
-  OnboardingState, OnboardingGoal, OnboardingDeps,
-  ProfileEdits, ProfilePatch, PromptSelection, TrackedPromptRow,
-};
+// Re-export the candidate/approve/activate commands + the store type so the whole facade is one import surface (runtime/index re-exports
+// from here). The shared types imported above are re-exported by name too.
+export { generatePromptCandidates, approvePrompts, activateAccount, type OnboardingStore } from "./onboarding-store";
+export { setupGap };
+export type { OnboardingState, OnboardingGoal, OnboardingDeps, ProfileEdits, ProfilePatch, PromptSelection, TrackedPromptRow };
 
 type CommandResult = { ok: true } | { ok: false; error: string };
 
-/** The editable business fields a natural-language patch (or a direct edit) may
- *  touch. Same set as the confirmable fields, so confirming all of them is a
- *  true "every section confirmed" (D3). */
+/** The editable business fields a natural-language patch (or a direct edit) may touch. Same set as the confirmable fields, so confirming
+ *  all of them is a true "every section confirmed" (D3). */
 const PATCHABLE_FIELDS = CONFIRMABLE_FIELDS;
 type PatchField = (typeof PATCHABLE_FIELDS)[number];
 
@@ -87,8 +77,7 @@ function firstIncompleteStep(domain: string, hasInference: boolean, confirmed: b
 }
 
 function projectPrompts(rows: TrackedPromptRow[], basis: string): OnboardingState["prompts"] {
-  // Only CURRENT-basis candidate rows are the live set; superseded-basis rows are
-  // inactive history and never shown or counted.
+  // Only CURRENT-basis candidate rows are the live set; superseded-basis rows are history, never counted.
   const candidates = rows.filter((r) => r.tags?.includes(PROMPT_TAGS.candidate) && r.tags?.includes(basis));
   const byGroup = new Map<string, OnboardingState["prompts"]["groups"][number]>();
   let recommendedCount = 0;
@@ -116,11 +105,9 @@ function titleize(slug: string): string {
   return slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-// ── first-look preview (folded from the retired first-audit module) ──────────
-// The ONE strongest deterministic first change from the crawl facts, $0, no
-// connectors, no model. Pure. Priority order: a real page with no title, the
-// homepage missing its search description, the biggest page missing one, a thin
-// page with a real title, then the biggest page missing its headline.
+// ── first-look preview (folded from the retired first-audit module) ────────── The ONE strongest deterministic first change from the crawl
+// facts, $0, no connectors, no model. Pure. Priority order: a real page with no title, the homepage missing its search description, the
+// biggest page missing one, a thin page with a real title, then the biggest page missing its headline.
 
 const THIN_PAGE_WORDS = 120;
 type FirstWin = { action: string; url: string; plainWhy: string; exactFix: string };
@@ -139,9 +126,9 @@ function pickFirstWin(facts: readonly CrawlPageFact[]): FirstWin | null {
   if (facts.length === 0) return null;
   const byWords = [...facts].sort((a, b) => b.word_count - a.word_count);
   const noTitle = byWords.find((f) => !f.title?.trim() && f.word_count >= 40);
-  // EVERY LINE HERE IS READ OFF A CRAWL OF THE OPERATOR'S OWN SITE AND NOTHING ELSE. No connector has been read yet at this point in
-  // setup, so no finding may say what Google does or does not hold: that would be a claim with no evidence under it at the exact
-  // moment trust is being built. Each one says what I actually saw on the page.
+  // EVERY LINE HERE IS READ OFF A CRAWL OF THE OPERATOR'S OWN SITE AND NOTHING ELSE. No connector has been read yet at this point in setup,
+  // so no finding may say what Google does or does not hold: that would be a claim with no evidence under it at the exact moment trust is
+  // being built. Each one says what I actually saw on the page.
   if (noTitle) return {
     action: "Write a title", url: noTitle.url,
     plainWhy: `The page at ${noTitle.url} has ${noTitle.word_count} words of content and no title at all, so nothing on it says what it is.`,
@@ -193,11 +180,9 @@ export async function submitWebsite(tenantId: string, url: string, deps?: Onboar
   const outcome = await d.store.replaceWebsite(tenantId, normalized.domain, d.now().toISOString()).catch(() => "not_pending" as const);
   if (outcome === "not_pending") return { ok: false, error: "Your account has already started. Head to your dashboard." };
 
-  // A REAL website change invalidates everything the old site produced: the RPC
-  // already cleared the goal, deactivated the old prompts, and reset the profile
-  // in one transaction. Drop the in-process profile cache so the next read sees
-  // the reset row, and force a fresh crawl of the new site. An UNCHANGED domain
-  // keeps today's idempotent behavior (probe + crawl continue, nothing reset).
+  // A REAL website change invalidates everything the old site produced: the RPC already cleared the goal, deactivated the old prompts, and
+  // reset the profile in one transaction. Drop the in-process profile cache so the next read sees the reset row, and force a fresh crawl of
+  // the new site. An UNCHANGED domain keeps today's idempotent behavior (probe + crawl continue, nothing reset).
   const replaced = outcome === "replaced";
   if (replaced) invalidateBusinessProfileCache(tenantId);
 
@@ -279,10 +264,10 @@ export async function saveProfileEdits(tenantId: string, edits: ProfileEdits, de
   return saved.persisted ? { ok: true } : { ok: false, error: "I could not save that just now. Try again in a moment." };
 }
 
-/** CONFIRMING WHAT IS ON SCREEN CONFIRMS WHAT IS ON SCREEN. This used to stamp operator_confirmed on all eleven sections, so the
- *  eight the step never renders (business type, archetype, problems, geography, differentiators, trust claims, both topic lists) came
- *  out of setup carrying the operator's own word for a guess they were never shown. Only SHOWN_FIELDS may take the confirmation, and
- *  isProfileConfirmed asks for exactly those, so the step still completes honestly and every unseen inference stays labelled as mine. */
+/** CONFIRMING WHAT IS ON SCREEN CONFIRMS WHAT IS ON SCREEN. This used to stamp operator_confirmed on all eleven sections, so the eight the
+ *  step never renders (business type, archetype, problems, geography, differentiators, trust claims, both topic lists) came out of setup
+ *  carrying the operator's own word for a guess they were never shown. Only SHOWN_FIELDS may take the confirmation, and isProfileConfirmed
+ *  asks for exactly those, so the step still completes honestly and every unseen inference stays labelled as mine. */
 export async function confirmProfile(tenantId: string, deps?: OnboardingDeps): Promise<CommandResult> {
   const d = resolve(deps);
   const current = await d.loadProfile(tenantId);
@@ -361,14 +346,22 @@ function renderValue(v: unknown): string {
   return v == null ? "" : String(v);
 }
 
-// ── goal ────────────────────────────────────────────────────────────────────
-// Without trustworthy trend evidence, the honest default recommendation is
-// 'balanced'; the wizard shows that recommendation on Step 4.
+// ── goal ──────────────────────────────────────────────────────────────────── Without trustworthy trend evidence, the honest default
+// recommendation is 'balanced'; the wizard shows that recommendation on Step 4.
 
 export async function saveGoal(tenantId: string, goal: OnboardingGoal, deps?: OnboardingDeps): Promise<CommandResult> {
   const d = resolve(deps);
   if (goal !== "recover" && goal !== "grow" && goal !== "balanced") return { ok: false, error: "Pick one of the three goals." };
-  const wrote = await d.store.updateTenantGoal(tenantId, goal, d.now().toISOString()).catch(() => "not_pending" as const);
+  // A RUNNING ACCOUNT WITH NO GOAL ON FILE still owes one, and the guard that sends it back to this step needs a write that lands. Every
+  // other running account keeps its goal locked here, exactly as before.
+  const account = await d.getAccount(tenantId).catch(() => null);
+  // The running-branch gap never says step 4 (a NULL goal is not a gap there), but the wizard a gapped
+  // running account lands on still RENDERS the goal picker when no goal is on file, so THAT write must
+  // land. An active account whose goal is already set keeps it locked here, exactly as before.
+  const trapped = account?.status === "active" && account.growth_goal == null
+    && (await setupGap(tenantId, account, d).catch(() => null))?.step != null;
+  const statuses = trapped ? ["pending_onboarding", "active"] : ["pending_onboarding"];
+  const wrote = await d.store.updateTenantGoal(tenantId, goal, d.now().toISOString(), statuses).catch(() => "not_pending" as const);
   return wrote === "ok" ? { ok: true } : { ok: false, error: "Your account has already started, so the goal is locked." };
 }
 

@@ -3,16 +3,10 @@ import { evaluateChange, evaluateWindows, type KernelInput } from "@/domains/mea
 import type { ShipmentAiOutcome, ShipmentVerification } from "@/domains/measurement";
 import { shipmentStory, type ShipmentPresentation } from "@/app/(shell)/results/results-presentation";
 
-/**
- * RESULTS, WHOLE (V1 Truth Convergence Phase 8). These pin what a customer READS on a shipped
- * change, not how it is computed: did it land on the live page, where the page started, what has
- * been read so far, what happened in Google and in AI answers, and what I take away. Fixtures only,
- * zero network.
- *
- * The promise that matters most here: a measurement window shared with a later change is never
- * painted as this change's own win. The AI trend and its named breaks moved to Visibility with the
- * surface that draws them (tests/product/visibility-surface.test.ts).
- */
+/** RESULTS, WHOLE (V1 Truth Convergence Phase 8). These pin what a customer READS on a shipped change, not how it is computed: did it land on the live page, where the
+ *  page started, what has been read so far, what happened in Google and in AI answers, and what I take away. Fixtures only, zero network. The promise that matters most
+ *  here: a measurement window shared with a later change is never painted as this change's own win. The AI trend and its named breaks moved to Visibility with the
+ *  surface that draws them (tests/product/visibility-surface.test.ts). */
 
 const NOW = new Date("2026-06-01T00:00:00Z");
 const SHIPPED = "2026-05-01";

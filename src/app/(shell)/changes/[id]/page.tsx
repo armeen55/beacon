@@ -10,7 +10,7 @@ import {
 } from "@/lib/perf-trace";
 import { loadProofLedgerPersisted } from "@/domains/measurement";
 import { findProofForChange, proofResultHref } from "@/domains/measurement";
-import { actionableProposalFailures, causeLabel, DANGEROUS_COMPONENT_KINDS, loadChangeProposal, resolveCurrentBasis, validateProposal } from "@/domains/decision";
+import { actionableProposalFailures, causeLabel, componentIdOf, dangerousComponents, loadChangeProposal, resolveCurrentBasis, validateProposal } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { MarkImplemented, SetAsideChange } from "../../changes-list-client";
@@ -48,7 +48,14 @@ export default async function ChangeDetailPage({
     const [proposal, basis] = await Promise.all([loadChangeProposal(tenantId, id), resolveCurrentBasis(tenantId)]);
     const found = proposal && actionableProposalFailures(proposal, { tenantId, currentBasis: basis }).length === 0
       && (proposal.kind !== "new_page" || validateProposal(proposal).verdict !== "rejected") ? proposal : null;
-    if (found?.bundle) return <BundleDetail proposal={found} bundle={found.bundle} />;
+    // WHAT IS ALREADY ON FILE, so the picker opens on the pieces nobody has recorded yet. Fail-soft: an unreadable ledger offers
+    // everything, which the server subtracts from anyway, so no press can record one piece twice.
+    if (found?.bundle) {
+      const recorded = new Set((await loadProofLedgerPersisted(tenantId).catch(() => []))
+        .filter((r) => r.proposalId === found.id)
+        .flatMap((r) => (r.componentsApplied ?? []).map((c) => c.id).filter((cid): cid is string => Boolean(cid))));
+      return <BundleDetail proposal={found} bundle={found.bundle} recorded={recorded} />;
+    }
     // LIVE WORK WITH NOTHING TO UNPACK IS NOT SET ASIDE: no bundle means no second layer, and its home is the
     // ranked list that renders it whole. A bar I could not READ is likewise not a bar I raised. Only a MISS
     // costs the extra bounded read, so a change put aside a moment ago reads as history, not as a 404.
@@ -138,7 +145,7 @@ function Bullets({ items }: { items: string[] }) {
  *  Slice 8: the same two layers render a new-page bundle. Nothing forks: the
  *  page-does-not-exist truth is stated once and every component is a pure
  *  insertion, so the before/after framing simply drops away. */
-function BundleDetail({ proposal, bundle }: { proposal: ChangeProposal; bundle: ChangeBundle }) {
+function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeProposal; bundle: ChangeBundle; recorded: Set<string> }) {
   const facts = new Map(bundle.receipt.items.map((i) => [i.key, i]));
   const chips = [...bundle.scope.queries, ...bundle.scope.prompts];
   const isNew = proposal.kind === "new_page";
@@ -228,7 +235,8 @@ function BundleDetail({ proposal, bundle }: { proposal: ChangeProposal; bundle: 
           proposalId={proposal.id}
           label={isNew ? "I built this page" : "I made this change"}
           newPage={isNew}
-          components={bundle.components.map((c) => ({ kind: c.kind, label: c.label, moves: DANGEROUS_COMPONENT_KINDS.has(c.kind) }))}
+          components={bundle.components.map((c, i) => ({ id: componentIdOf(c, i), kind: c.kind, label: c.label,
+            moves: dangerousComponents([c]).length > 0, recorded: recorded.has(componentIdOf(c, i)) }))}
         />
         <p className="text-[12px] text-muted-foreground">
           After you make it, I check the page myself and the measurement starts from what I find.
@@ -348,7 +356,7 @@ function ComponentCard({
   // A MERGE, A FORWARD, A CANONICAL OR A DE-INDEX IS THE ONE CHANGE A SENTENCE CANNOT TAKE BACK. Where it
   // sends people, what survives it, what it drops and how to reverse it belong on the screen BEFORE the
   // operator confirms it, and every line is held on the change itself, never worked out afterwards.
-  const moves = DANGEROUS_COMPONENT_KINDS.has(component.kind);
+  const moves = dangerousComponents([component]).length > 0;
   const to = component.redirectTo;
   const consequences = moves ? [
     to ? `Anyone who opens the old address lands on ${to}.` : "This page stops answering at its own address.",

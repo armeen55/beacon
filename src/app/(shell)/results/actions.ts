@@ -1,31 +1,22 @@
 "use server";
 
-/**
- * GSC Proof ledger — server actions (Phase 5, Path B). Operator-gated.
- *
- * recordShippedChangeAction: the manual "Record shipped change" path. Captures a
- * GSC baseline + control set for an approved/reviewed page and starts measuring.
- * Publishing is always manual, so this is the operator confirming they shipped
- * it. Never publishes anything.
- *
- * recomputeProofLedgerAction: re-measure + persist every recorded change's
- * 7/14/28-day outcome from fresh GSC (on-demand; no cron).
- */
+/** GSC Proof ledger server actions (Phase 5, Path B). Operator-gated. recordShippedChangeAction is the manual "Record shipped change" path:
+ *  it captures a GSC baseline + the comparison set for a page and starts measuring, and since publishing is always manual this is the
+ *  operator confirming they shipped it. It never publishes anything. recomputeProofLedgerAction re-measures and persists every recorded
+ *  change's 7/14/28-day outcome from fresh GSC (on-demand; no cron). */
 
 import { revalidatePath } from "next/cache";
 
+import { log } from "@/lib/logger";
 import { isAccountOwner } from "@/lib/auth/can-publish";
 import { currentTenantId } from "@/lib/tenant-context";
-import {
-  loadPageSurgeonContext,
-  topPagesByDemand,
-} from "@/domains/decision";
-import { canonicalizeCitationUrl } from "@/domains/evidence";
 import {
   recordShippedChange,
   captureChangeMeta,
   measureRecord,
   defaultPacificShipDate,
+  selectControlPages,
+  MIN_CONTROLS,
 } from "@/domains/measurement";
 import {
   loadShippedChanges,
@@ -35,15 +26,12 @@ import {
 import { writeResultsSurface } from "./results-surface-store";
 import { presentShipments } from "./results-ledger-data";
 
-export type ProofLedgerActionResponse = { success: boolean; error?: string };
+type ProofLedgerActionResponse = { success: boolean; error?: string };
 
 /** Change types that describe a "no-edit" decision — no before/after needed. */
-// keep_current/monitor record no edit; new_page records a page that had no
-// before copy at all, so the before/after gate cannot apply to it either.
+// keep_current/monitor record no edit; new_page records a page that had no before copy at all, so the before/after gate cannot apply to it
+// either.
 const NO_EDIT_CHANGE_TYPES = new Set(["keep_current", "monitor", "new_page"]);
-
-/** Minimum comparable control pages needed for an observational diff-in-diff. */
-const MIN_CONTROLS = 2;
 
 function dateOnly(iso: string): string {
   return iso.length > 10 ? iso.slice(0, 10) : iso;
@@ -93,9 +81,8 @@ export async function recordShippedChangeAction(args: {
     const tenantId = await currentTenantId();
     const meta = await captureChangeMeta(tenantId, pageUrl);
 
-    // The treated page must resolve to an absolute URL. GSC windows are keyed by
-    // canonical full URLs, so a bare/unresolved path silently reads zero clicks
-    // and produces a misleading verdict. Refuse rather than measure garbage.
+    // The treated page must resolve to an absolute URL. GSC windows are keyed by canonical full URLs, so a bare/unresolved path silently
+    // reads zero clicks and produces a misleading verdict. Refuse rather than measure garbage.
     if (!/^https?:\/\//i.test(meta.canonPage)) {
       return {
         success: false,
@@ -120,57 +107,31 @@ export async function recordShippedChangeAction(args: {
       };
     }
 
-    // Load the ledger ONCE: used to (a) exclude any page that is ITSELF treated
-    // from the control set — a treated page is not a clean comparator, its own
-    // change contaminates the diff-in-diff and biases the treated page's verdict
-    // — and (b) dedup below.
+    // The ledger, read once, for the dedup clash check below.
     const existing = await loadShippedChanges();
-    const normPath = (p: string): string => p.replace(/\/+$/, "") || "/";
-    const treatedPaths = new Set(existing.map((r) => normPath(r.path)));
-    const isUntreated = (u: string): boolean => {
-      try {
-        return !treatedPaths.has(normPath(new URL(u).pathname));
-      } catch {
-        return true;
-      }
-    };
 
-    // Controls: top same-site pages by GSC demand, excluding the treated page AND
-    // any page that is itself mid-measurement. Pull a wider candidate pool (12) so
-    // enough untreated pages remain to fill 3.
-    let controlPages: string[] = [];
-    {
-      try {
-        const ctx = await loadPageSurgeonContext(tenantId);
-        controlPages = topPagesByDemand(ctx, 12)
-          .map((u) => canonicalizeCitationUrl(u) ?? u)
-          .filter((u) => u && u !== meta.canonPage && isUntreated(u))
-          .slice(0, 3);
-      } catch {
-        controlPages = [];
-      }
+    // THE ONE COMPARISON-PAGE CHOOSER, shared with the shipment door so both refuse on the same evidence. Without MIN_CONTROLS untreated
+    // same-site pages there is no honest difference to read, and a record I cannot stand behind is worse than no record. A READ THAT FAILED
+    // IS NOT A SMALL SITE, and it gets its own sentence rather than a fix the operator already did.
+    const controlPages = await selectControlPages(tenantId, meta.canonPage).catch(() => null);
+    if (controlPages == null) {
+      return { success: false, error: "I could not read your other pages just now, so I have not recorded this yet. Try it again in a moment." };
     }
-
-    // Fail gracefully: without ≥2 comparable untreated pages there's no honest
-    // diff-in-diff. Don't record a measurement we can't stand behind.
     if (controlPages.length < MIN_CONTROLS) {
       return {
         success: false,
-        error: `Not enough comparable pages to measure this honestly (found ${controlPages.length}, need ${MIN_CONTROLS}). Connect GSC for more pages, or wait for more search data on this site.`,
+        error: `I found only ${controlPages.length} page${controlPages.length === 1 ? "" : "s"} on your site I could fairly compare this against, and I need ${MIN_CONTROLS}. Connect Search Console, or give me a few more days of search data, then try it again.`,
       };
     }
 
     const shippedAt = normalizeShippedAt(args.shippedAt);
-    // audit-4: default to the PACIFIC day (GSC's zone) so the dedup-clash check
-    // matches the same default recordShippedChange stores (was UTC → off-by-one
-    // for evening-Pacific ships). See defaultPacificShipDate.
+    // audit-4: default to the PACIFIC day (GSC's zone) so the dedup-clash check matches the same default recordShippedChange stores (was
+    // UTC → off-by-one for evening-Pacific ships). See defaultPacificShipDate.
     const shipDate = dateOnly(shippedAt ?? defaultPacificShipDate());
 
-    // Dedup: reject a second proof record for the same page + ship date. The
-    // ledger PK is (page-path, ship-date), so a duplicate would silently
-    // overwrite the live measurement. Name the existing change type when it
-    // differs so the operator understands the collision. (`existing` was loaded
-    // above for the treated-page control exclusion.)
+    // Dedup: reject a second proof record for the same page + ship date. The ledger PK is (page-path, ship-date), so a duplicate would
+    // silently overwrite the live measurement. Name the existing change type when it differs so the operator understands the collision.
+    // (`existing` was loaded above for the treated-page control exclusion.)
     const clash = existing.find(
       (r) => r.path === meta.path && dateOnly(r.shippedAt) === shipDate,
     );
@@ -209,10 +170,9 @@ export async function recordShippedChangeAction(args: {
     revalidatePath("/changes");
     return { success: true };
   } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "Failed to record the shipped change.",
-    };
+    // THE RAW MESSAGE GOES TO THE LOG AND NOWHERE ELSE: a Supabase relation name is not an answer.
+    log.error("recordShippedChange: failed", { pageUrl, error: err instanceof Error ? err.message : String(err) });
+    return { success: false, error: "I could not record that change just now. Try it again in a moment." };
   }
 }
 
@@ -227,10 +187,9 @@ export async function recomputeProofLedgerAction(): Promise<ProofLedgerActionRes
       await upsertShippedChange(measured);
       measuredAll.push(measured);
     }
-    // R4 (2026-07-03): each upsert above invalidated the /results SWR snapshot
-    // (shipped-change-store choke point). We JUST measured every record, so persist
-    // the fresh snapshot now instead of making the very next render re-measure the
-    // whole ledger a second time. Measurement history itself lives in the upserts.
+    // R4 (2026-07-03): each upsert above invalidated the /results SWR snapshot (shipped-change-store choke point). We JUST measured every
+    // record, so persist the fresh snapshot now instead of making the very next render re-measure the whole ledger a second time.
+    // Measurement history itself lives in the upserts.
     if (measuredAll.length > 0) {
       await writeResultsSurface(await presentShipments(tenantId, measuredAll), new Date().toISOString(), tenantId);
     }
@@ -238,9 +197,7 @@ export async function recomputeProofLedgerAction(): Promise<ProofLedgerActionRes
     revalidatePath("/changes");
     return { success: true };
   } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "Failed to recompute.",
-    };
+    log.error("recomputeProofLedger: failed", { error: err instanceof Error ? err.message : String(err) });
+    return { success: false, error: "I could not read your results again just now. Try it again in a moment." };
   }
 }

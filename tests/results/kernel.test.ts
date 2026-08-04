@@ -8,12 +8,9 @@ import { day56Followup, isDueForMeasure } from "@/domains/measurement/proof-gsc/
 import { verdictSchedule, type VerdictScheduleRow } from "@/domains/measurement/proof-gsc/verdict-schedule";
 import type { ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
 import type { ProofWindowDay, ProofWindowResult } from "@/domains/measurement/proof-gsc/types";
-/**
- * Outcome-level contract tests for the measurement kernel. These pin CUSTOMER TRUTH, not
- * implementation: every historical shipment maps to exactly one read (nothing disappears);
- * the 7/14/28 windows respect Google's reporting lag; overlapping changes on one page read
- * as confounded; only cleanly-settled reads feed ranking; no operator string claims cause.
- */
+/** Outcome-level contract tests for the measurement kernel. These pin CUSTOMER TRUTH, not implementation: every historical shipment maps to exactly one read (nothing
+ *  disappears); the 7/14/28 windows respect Google's reporting lag; overlapping changes on one page read as confounded; only cleanly-settled reads feed ranking; no
+ *  operator string claims cause. */
 const NOW = new Date("2026-06-01T00:00:00Z");
 function win(day: 7 | 14 | 28, over: Partial<KernelInput["windows"][number]> = {}) {
   return {
@@ -136,12 +133,8 @@ describe("ranking outcome signal", () => {
     expect(rankingPriors([{ actionType: "meta", read: { rankingSignal: 0.6 } }]).has("meta")).toBe(false);
   });
 });
-/**
- * PHASE 7: the windows count from the stamp, a later change on the same page closes the
- * earlier one's clean window instead of being silently measured as if it were clean, the
- * day-56 read runs only when the day-28 read did not settle, and every settled read
- * carries the learning shape. Fixtures only.
- */
+/** PHASE 7: the windows count from the stamp, a later change on the same page closes the earlier one's clean window instead of being silently measured as if it were
+ *  clean, the day-56 read runs only when the day-28 read did not settle, and every settled read carries the learning shape. Fixtures only. */
 const ledgerRow = (over: Partial<LedgerRecordLike> = {}): LedgerRecordLike => ({
   id: "a", page: "https://site.com/x", path: "/x", actionType: "content", shippedAt: "2026-05-01",
   baseline: { impressions: 5000, clicks: 400 },
@@ -200,13 +193,11 @@ describe("overlap honesty: a later change closes the earlier one's clean window"
     expect(reads[0].verdict).toBe("directional_improvement");
   });
 });
-/** A reading that RAN is a reading the operator has already been shown. Moving the clock under it
- *  (a stamp that lands after the ship date, a second press that moves the ship date) may never
- *  un-decide it, and the promised dates on Today move with the stamp, never with the press. */
+/** A reading that RAN is a reading the operator has already been shown. Moving the clock under it (a stamp that lands after the ship date, a second press that moves the
+ *  ship date) may never un-decide it, and the promised dates on Today move with the stamp, never with the press. */
 describe("a settled reading survives the clock moving under it", () => {
   const SETTLED = new Date("2026-06-10T00:00:00Z"), WATERMARK = "2026-06-05";
-  // Shipped 2026-05-01 and read at 28 days on 2026-05-29. The stamp arrives 19 days after the
-  // ship date, so a recomputed 28-day window would not close until 2026-06-17.
+  // Shipped 2026-05-01 and read at 28 days on 2026-05-29. The stamp arrives 19 days after the ship date, so a recomputed 28-day window would not close until 2026-06-17.
   const stamped = ledgerRow({
     implementedAt: "2026-05-20T00:00:00.000Z",
     windows: [{ day: 28, ran: true, checkOn: "2026-05-29", adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 }],
@@ -269,8 +260,7 @@ describe("the learning shape every read carries", () => {
     expect(waiting.headline).toContain("still measuring");
   });
 });
-/** Product Truth: 7, 14 and 28 always; 56 ONLY when the 28-day read was confounded,
- *  insufficient or unclear, or the change was a dangerous one. A clean 28 closes it. */
+/** Product Truth: 7, 14 and 28 always; 56 ONLY when the 28-day read was confounded, insufficient or unclear, or the change was a dangerous one. A clean 28 closes it. */
 describe("the conditional day-56 read", () => {
   const STAMP = "2026-05-01T00:00:00.000Z";
   const pw = (day: ProofWindowDay, ran: boolean): ProofWindowResult => ({

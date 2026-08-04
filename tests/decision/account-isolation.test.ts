@@ -1,8 +1,7 @@
-/** Account isolation for the structured-output cache and budget: per-account store, account-keyed hashes,
- *  explicit routing with owner stamping, scoped recentTexts, and fail-closed on a missing account. */
+/** Account isolation for the structured-output cache and budget: per-account store, account-keyed hashes, explicit routing with owner stamping, scoped recentTexts, and
+ *  fail-closed on a missing account. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-// Budget seam: spy on the real adjudicator budget so we can assert the explicit
-// account reaches the cap check + spend record (drafter uses these directly).
+// Budget seam: spy on the real adjudicator budget so we can assert the explicit account reaches the cap check + spend record (drafter uses these directly).
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: vi.fn(async () => ({ allowed: true, remaining: 10 })), recordSpend: vi.fn(async () => {}) }));
 // json-store seam: assert storeCacheImpl routes with an EXPLICIT { tenantId }.
 const readStoreMock = vi.fn(async () => [] as unknown[]);
@@ -24,8 +23,7 @@ const REQ = {
   user: "Page: Nowruz. Field to edit: title. Current title: Nowruz.",
   grounded: "nowruz traditions persian new year customs haft-seen",
 };
-/** A per-account partitioned cache mirroring storeCacheImpl's isolation, plus call
- *  captures so we can assert callStructuredLLM threaded the right account through. */
+/** A per-account partitioned cache mirroring storeCacheImpl's isolation, plus call captures so we can assert callStructuredLLM threaded the right account through. */
 function partitionedCache() {
   const store = new Map<string, LlmCallCacheEntry[]>();
   const reads: Array<{ tenantId: string; key: string }> = [];
@@ -84,8 +82,7 @@ describe("callStructuredLLM keeps accounts isolated end to end", () => {
     const b1 = seam([{ value: VALID }]);
     const outB = await callStructuredLLM({ ...REQ, tenantId: "tenant-b", complete: b1.complete, cacheImpl: cache.impl });
     expect([outB.status, outB.status === "drafted" && outB.cached, b1.calls()]).toEqual(["drafted", undefined, 1]);
-    // The cache never crossed accounts: A's read keys are all tenant-a, B's tenant-b,
-    // and every stored entry records its own owner.
+    // The cache never crossed accounts: A's read keys are all tenant-a, B's tenant-b, and every stored entry records its own owner.
     expect(cache.reads.filter((r) => r.tenantId === "tenant-a").length).toBeGreaterThan(0);
     for (const e of cache.store.get("tenant-a") ?? []) expect(e.tenantId).toBe("tenant-a");
     for (const e of cache.store.get("tenant-b") ?? []) expect(e.tenantId).toBe("tenant-b");

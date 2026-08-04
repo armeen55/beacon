@@ -106,7 +106,7 @@ export type ShippedChangeRecord = {
    *  components_applied JSON, exactly as `after` does, so they need no migration and a row written before
    *  they existed decodes with the field absent (read as null), never failing to decode. A subset of the
    *  components = a partial bundle. */
-  componentsApplied: Array<{ kind: string; label: string; after?: string | null; risk?: string | null; anchorAfter?: string | null; redirectTo?: string | null }> | null;
+  componentsApplied: Array<{ id?: string | null; kind: string; label: string; after?: string | null; risk?: string | null; anchorAfter?: string | null; redirectTo?: string | null }> | null;
   /** THE STAMP. When the operator marked it done; the window is read from it. Write-once. */
   implementedAt: string | null;
   /** The owned page's HELD content hash at mark time, from the snapshot on file. */
