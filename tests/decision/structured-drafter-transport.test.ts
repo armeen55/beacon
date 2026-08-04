@@ -60,6 +60,4 @@ describe("structured-drafter strict transport", () => {
     expect(cached.status === "drafted" && [cached.cached, cached.costUsd, hit.calls()]).toEqual([true, 0, 0]);
     const blocked = seam([{ error: "blocked_budget", retryable: false }]);
     const stopped = await callStructuredLLM({ ...REQ, complete: blocked.complete }); // a budget block fired no call
-    expect(stopped.status === "validation_failed" && [stopped.costUsd, blocked.calls()]).toEqual([0, 1]);
-  });
-});
+    expect(stopped.status === "validation_failed" && [stopped.costUsd, blocked.calls()]).toEqual([0, 1]); }); });

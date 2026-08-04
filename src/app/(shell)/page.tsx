@@ -23,7 +23,6 @@ import { ScoreboardSection } from "./scoreboard-section";
 import { loadProofLedgerCached } from "@/domains/measurement";
 import { perfMark, perfStage } from "@/lib/obs/perf-log";
 import { shippedInLastDays } from "@/domains/measurement";
-import { loadLifecycleCounts } from "./lifecycle-counts-data";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
@@ -156,12 +155,12 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   if (gate.isDemoMode) {
     return (
       <div className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5">
-        <h2 className="text-[13px] font-semibold tracking-tight text-foreground">Connect your data sources to see your command center</h2>
+        <h2 className="text-[13px] font-semibold tracking-tight text-foreground">I am researching your site, and this fills in on its own</h2>
         <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-          Connect Google Search Console (plus GA4 or Clarity) and refresh to see your ranked changes.
-          Three steps: 1. Connect your sources → 2. Refresh → 3. Review your changes.
+          I run a full round once a day whether or not you are here, so there is nothing to press. Connecting Google Search Console is
+          optional: it lets me name the exact searches you already earn clicks on instead of estimating them.
         </p>
-        <Link href="/settings/connectors" className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">Connect data sources →</Link>
+        <Link href="/settings/connectors" className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">Connect Search Console →</Link>
       </div>
     );
   }
@@ -195,7 +194,6 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const [
     connectedSourceCount,
     ledgerRows,
-    lifecycle,
     leadStoryDays,
     decaySignals,
     research,
@@ -204,11 +202,6 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     valueWithDeadline(
       loadProofLedgerCached(tenantId).catch(() => [] as Awaited<ReturnType<typeof loadProofLedgerCached>>),
       [],
-    ),
-    valueWithDeadline(
-      loadLifecycleCounts().catch(() => ({ toDo: 0, measuring: 0, decided: 0, won: 0 })),
-      { toDo: 0, measuring: 0, decided: 0, won: 0 },
-      TODAY_HERO_DEADLINE_MS,
     ),
     valueWithDeadline(
       loadDailyTotalsForTenant(tenantId, 84).catch(() => [] as Awaited<ReturnType<typeof loadDailyTotalsForTenant>>),

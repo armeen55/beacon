@@ -275,14 +275,14 @@ describe("what is still under measurement", () => {
     db.state.rows = [
       row("s1", "2026-07-25T00:00:00.000Z", "/nowruz-guide", null),              // waiting on its first check
       row("s2", "2026-07-20T00:00:00.000Z", "/tehran", verification("verified")),
-      row("s3", "2026-07-28T00:00:00.000Z", "/shiraz", verification("not_found")), // nothing shipped
-      row("s4", "2026-07-29T00:00:00.000Z", "/isfahan", verification("blocked")),  // could not be checked
+      row("s3", "2026-07-28T00:00:00.000Z", "/shiraz", verification("not_found")), // I looked and nothing is there, so the page is free
+      row("s4", "2026-07-29T00:00:00.000Z", "/isfahan", verification("blocked")),  // I could not look, which is when I am least sure: it HOLDS
       row("s5", "2026-05-01T00:00:00.000Z", "/kish", verification("verified")),    // past the window
       { ...legacyRow(), id: "s6", path: "/never-shipped" },                        // no stamp at all
     ];
   });
   it("windows on the stamp, keeps only what is really being measured, and belongs to one account", async () => {
-    expect(await pagesUnderMeasurementFromShipments(T, NOW)).toEqual(["/nowruz-guide", "/tehran"]);
+    expect(await pagesUnderMeasurementFromShipments(T, NOW)).toEqual(["/nowruz-guide", "/tehran", "/isfahan"]);
     expect(await pagesUnderMeasurementFromShipments("acct-b", NOW)).toEqual([]);
   });
 });

@@ -24,7 +24,7 @@ import type { WinningPattern } from "./winning-pattern";
 import { CORE_PRODUCERS } from "./producers/core"; import { produceFullRewriteRecommendation } from "./producers/extended"; import { effortMinutesFor, fieldForComponent, type ProducerCtx, type ProducerDraft } from "./producers/contract";
 import type { ProposeOptions } from "./propose"; import { receiptIntegrityFailures, validateProposal } from "./validate-proposal";
 import { anchoredTopicMatch, canonicalQueryKey, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
-import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split";
+import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store";
 
 type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string };
 
@@ -153,8 +153,7 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   else if (serps.length > 0) missing.push(`The pages that come up for "${primary}" share no recurring wording I can point at.`);
 
   // ABOUT THIS SEARCH OR IT IS SOMEBODY ELSE'S EVIDENCE: ONE membership predicate decides every join below.
-  const ofCase = { queries: [primary], provenancePromptIds: new Set((research?.retainedKeywords ?? []).filter((k) => isPrimary(k.query))
-    .flatMap((k) => (k.origins ?? []).map((o) => o.promptId).filter((id): id is string => !!id))) };
+  const ofCase = { queries: [primary], provenance: (research?.retainedKeywords ?? []).filter((k) => isPrimary(k.query)).flatMap((k) => k.origins ?? []) };
   const observations = [...(research?.aiObservations ?? [])].filter((o) => observationJoinsCase(o, ofCase)).sort(
     (a, b) => byText(a.observationMode, b.observationMode) || byText(a.promptText, b.promptText) || byText(a.engine, b.engine));
   const consumer = observations.filter((o) => o.observationMode === "consumer_search");
@@ -163,28 +162,23 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   else if (consumer.length === 0) missing.push(`I have not yet watched what a customer sees when they ask an assistant about "${primary}".`);
   // THE FIRST ANSWER CARRIES THE ID THE CAUSE LADDER CITES (RECEIPT.ai), or a change made off it cites nothing.
   [...consumer.slice(0, 2), ...plain.slice(0, 1)].forEach((o, i) => {
-    const key = i === 0 ? RECEIPT.ai : `ai${i + 1}`;
-    add(key, "ai_observation", observationFact(o), o.observedAt);
+    const key = i === 0 ? RECEIPT.ai : `ai${i + 1}`; add(key, "ai_observation", observationFact(o), o.observedAt);
     if (o.citations == null) contextOnly.push(key); // context, never component support
-    prompts.push(o.promptText);
-  });
+    prompts.push(o.promptText); });
 
   // A winner belongs to THIS search only: on that results page, or in an answer that joined this case above. A fan-out that never carried this search carries no winner either.
-  const memberPrompts = new Set(observations.map((o) => norm(o.promptText)));
-  const memberQueries = new Set(ofCase.queries.map(canonicalQueryKey));
+  const memberPrompts = new Set(observations.map((o) => norm(o.promptText))), memberQueries = new Set(ofCase.queries.map(canonicalQueryKey));
   const memberUrls = new Set([...observations.flatMap((o) => (o.citations ?? []).map((cit) => cit.url)),
     ...serps.flatMap((e) => [...e.organic.map((x) => x.url), ...e.aiOverview.map((cit) => cit.url), ...e.aiMode.map((cit) => cit.url)])].map(canonicalUrlKey));
   const belongs = [...(research?.winningPages ?? [])].filter((w) => winnerBelongs(w, memberQueries, memberPrompts, memberUrls)).sort((a, b) => byText(a.url, b.url));
-  const read = belongs.filter((w) => !!w.extract); const winners = belongs.slice(0, 2);
+  const read = belongs.filter((w) => !!w.extract), winners = belongs.slice(0, 2);
   if (winners.length === 0) missing.push(`I have not read the pages that come up for "${primary}" yet.`);
   winners.forEach((w, i) => add(`win${i + 1}`, "winning_page",
     `${w.domain} ${w.appearances.some((a) => a.kind !== "serp_organic") ? "is one of the pages AI keeps citing here" : `comes up on the results page for "${primary}"`}${w.extract ? `, and it runs ${w.extract.wordCount.toLocaleString()} words under ${w.extract.headings.length} headings` : ""}.`,
     [...w.appearances].sort((a, b) => byText(b.observedAt, a.observedAt))[0]?.observedAt ?? null));
-  const winners2 = winnerPattern(read, c, primary);
-  if (winners2) add("winpattern", "winning_page", winners2, null);
+  const winners2 = winnerPattern(read, c, primary); if (winners2) add("winpattern", "winning_page", winners2, null);
 
-  const links = [...snapshot.internalLinkOpportunities].filter((l) => l.fromUrl === page.url && onTopic(l.anchor))
-    .sort((a, b) => byText(a.toUrl, b.toUrl)).slice(0, 3);
+  const links = [...snapshot.internalLinkOpportunities].filter((l) => l.fromUrl === page.url && onTopic(l.anchor)).sort((a, b) => byText(a.toUrl, b.toUrl)).slice(0, 3);
 
   if (mine) {
     const inv = mine.investigation; const p = mine.decision.pattern ?? null;
@@ -471,14 +465,19 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   };
 
   const primaryComponent = components[0]!;
+  // THE FAMILY THIS CHANGE BELONGS TO, worn by the id AND the stamp. The id ended in the literal word "bundle" and the family
+  // read "single", so a snippet rewrite and a body rebuild on one page fought over one id and every shipped bundle reached the
+  // proof ledger unclassifiable. Both read the store's own derivation now.
+  const recommendedChange: RecommendedChange = { kind: "existing_edit", field: fieldForComponent(primaryComponent.kind), before: primaryComponent.before, after: primaryComponent.after };
+  const family = actionFamilyOf({ kind: "existing_edit", bundle, recommendedChange });
   const proposal: ChangeProposal = {
-      id: `${tenantId}::${pathOf(page.url)}::existing_edit::bundle`,
-      tenantId, kind: "existing_edit", changeFamily: "single", publish: "manual",
+      id: `${tenantId}::${pathOf(page.url)}::existing_edit::${family}`,
+      tenantId, kind: "existing_edit", changeFamily: family, publish: "manual",
       pagePath: pathOf(page.url), pageUrl: page.url.startsWith("http") ? page.url : `https://${page.url}`,
       pageLabel: content.h1 ?? content.title ?? page.url, primaryQuery: primary,
       opportunityType: OPPORTUNITY_OF[finding.cause] ?? "Rewrite the page that already has the demand",
       status: heldForReview ? "needs_review" : "ready", // an investigation I cannot close never reaches here at all
-      recommendedChange: { kind: "existing_edit", field: fieldForComponent(primaryComponent.kind), before: primaryComponent.before, after: primaryComponent.after },
+      recommendedChange,
       whyItMatters: lead
         ? `Searching "${primary}" brings this page ${lead.impressions.toLocaleString()} views and only ${lead.clicks.toLocaleString()} clicks over 90 days, about ${Math.round(lead.recoverable).toLocaleString()} clicks short of what position ${Math.round(lead.position)} usually earns, and that gap is big enough to look into.`
         : door!.entry,

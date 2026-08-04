@@ -9,6 +9,7 @@ import {
   applyConfirmedPatch, saveGoal, generatePromptCandidates, approvePrompts, activateAccount,
   applyTrackedSelection, projectTrackedQuestions, confirmProfile, setupGap,
 } from "@/domains/runtime";
+import { SHOWN_FIELDS, isProfileConfirmed } from "@/domains/runtime/onboarding-store";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import { CONNECTOR_REGISTRY } from "@/lib/connectors/registry";
 import { historyNote } from "@/app/(shell)/settings/config/tracked-prompts-section";
@@ -421,19 +422,31 @@ describe("setup and settings surfaces (Phase 8)", () => {
     expect((await activateAccount(A, true, w.deps)).ok).toBe(true);
     expect([w.tenants.get(A)!.tos, w.scheduled.length]).toEqual([NOW.toISOString(), 1]);
   });
-  /** PHASE 6E.3. Confirm used to stamp operator_confirmed on ALL eleven sections, including the eight the step never rendered, so a model's guess about trust claims and
-   *  excluded topics became the operator's own word. */
-  it("confirms only the profile fields the operator actually saw on that step, and leaves every unseen inference marked as mine", async () => {
+  /** PHASE 6E.3, corrected. Confirm once stamped ALL eleven sections including eight never rendered; the repair then swung too far and stamped THREE while six more facts
+   *  that decide what gets researched sat on screen still labelled as my guess. A confirmation now speaks for exactly what the step renders. */
+  it("confirms every research-driving field it puts on screen, claims nothing it holds nothing for, and never locks out the account that confirmed three", async () => {
     const w = makeWorld(); seedPending(w, A, { domain: "acme.com" });
     const inferred = emptyBusinessProfile(A);
     for (const k of CONFIRMABLE) (inferred as any)[k] = { value: (confirmedProfile(A) as any)[k].value, origin: "inferred", confidence: 0.7, sourceUrls: ["https://acme.com/"] };
     w.profiles.set(A, inferred);
     await confirmProfile(A, w.deps);
     const after = w.profiles.get(A)! as any;
-    for (const k of ["name", "offerings", "audiences"]) expect(after[k].origin, `${k} was on screen`).toBe("operator_confirmed");
-    for (const k of ["trustClaims", "differentiators", "topicsToExclude", "customerProblems", "geographicScope", "siteArchetype", "businessType", "topicsToOwn"]) {
-      expect(after[k].origin, `${k} was never shown, so it is still my inference`).toBe("inferred"); }
-    expect((await loadOnboardingState(A, w.deps)).profile.confirmed).toBe(true); }); // and the step still completes
+    // THE LITERAL NINE, never SHOWN_FIELDS itself: iterating the module's own list passed just as happily when that list held three, so it falsified nothing.
+    expect([...SHOWN_FIELDS].sort()).toEqual(["audiences", "businessType", "customerProblems", "geographicScope", "name", "offerings", "siteArchetype", "topicsToExclude", "topicsToOwn"]);
+    for (const k of ["name", "businessType", "siteArchetype", "offerings", "audiences", "customerProblems", "geographicScope", "topicsToOwn"]) expect(after[k].origin, `${k} steers research and was on screen`).toBe("operator_confirmed");
+    // Nothing reads these two, so nothing is owed a confirmation for them; the excluded-topics list is empty, so it is not on screen either.
+    for (const k of ["trustClaims", "differentiators", "topicsToExclude"]) expect(after[k].origin, `${k} was never shown`).toBe("inferred");
+    expect((await loadOnboardingState(A, w.deps)).profile.confirmed).toBe(true); // and the step still completes
+    // THE LIVE ACCOUNT confirmed three before this existed. Its setup is finished, and widening what confirm covers must never send it back to step 3.
+    const legacy = emptyBusinessProfile(A);
+    for (const k of CONFIRMABLE) (legacy as any)[k] = { value: (confirmedProfile(A) as any)[k].value, origin: ["name", "offerings", "audiences"].includes(k) ? "operator_confirmed" : "inferred", confidence: 1, sourceUrls: [] };
+    expect(isProfileConfirmed(legacy)).toBe(true);
+    // AN ARRAY OF BLANKS IS NOT A FACT. The step joins a list and drops it when the join is blank, so [""] never reaches the screen and may not be stamped either.
+    const blanks = emptyBusinessProfile(A);
+    for (const k of CONFIRMABLE) (blanks as any)[k] = { value: k === "offerings" ? ["", "  "] : (confirmedProfile(A) as any)[k].value, origin: "inferred", confidence: 0.7, sourceUrls: [] };
+    const w2 = makeWorld(); seedPending(w2, A, { domain: "acme.com" }); w2.profiles.set(A, blanks);
+    await confirmProfile(A, w2.deps);
+    expect((w2.profiles.get(A)! as any).offerings.origin).toBe("inferred"); });
   /** PHASE 6E.4. The first finding is read off a CRAWL. It has no Google evidence at all, so it may not speak for Google. */
   it("names the first finding's real address and never claims what Google does or does not have without Google evidence", async () => {
     const w = makeWorld(); seedPending(w, A, { domain: "acme.com" }); seedCrawl(w, A);

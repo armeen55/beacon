@@ -64,9 +64,9 @@ const strongest = (xs: readonly QualifiedCandidate[]): QualifiedCandidate | null
  *  every answer that shares the account's own subject word told an operator I watch seven questions about
  *  their flag page when six of them were about visiting the country. */
 function aiDemand(snapshot: EvidenceSnapshot, query: string): { prompts: number; volume: number } {
-  const ofCase = { queries: [query], provenancePromptIds: new Set(snapshot.research.retainedKeywords
+  const ofCase = { queries: [query], provenance: snapshot.research.retainedKeywords
     .filter((k) => canonicalQueryKey(k.query) === canonicalQueryKey(query))
-    .flatMap((k) => (k.origins ?? []).map((o) => o.promptId).filter((id): id is string => !!id))) };
+    .flatMap((k) => k.origins ?? []) };
   const prompts = new Set(snapshot.research.aiObservations
     .filter((o) => o.citationsObserved && o.citations != null && observationJoinsCase(o, ofCase))
     .map((o) => o.promptText.trim().toLowerCase()));

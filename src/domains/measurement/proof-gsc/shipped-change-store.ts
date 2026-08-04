@@ -452,9 +452,12 @@ const MEASUREMENT_WINDOW_DAYS = 28;
  * The pages this account changed in the last 28 days and is still measuring: a fresh
  * proposal for one of them is work already in flight, not a new idea, and the ranker
  * needs to know that. Read from `implementedAt`, which is what the stamp exists for.
- * A change the check could not find, or was blocked from checking, is NOT under
- * measurement (nothing shipped, so the page is free); everything else counts,
- * including a Shipment still waiting for its first check. Four columns, bounded.
+ * ONLY A RESOLVED ANSWER FREES THE PAGE. `not_found` is one: I read the live page and none of
+ * the change is on it, so nothing shipped and the page is free. `blocked` is NOT: it means I
+ * could not read the page at all, which is the moment I am LEAST sure, and it used to let a
+ * second proposal onto a page that may well be carrying a change already. It holds the page
+ * exactly as an in-flight verification does. Everything else counts too, including a Shipment
+ * still waiting for its first check. Four columns, bounded.
  */
 export async function pagesUnderMeasurementFromShipments(
   tenantId: string, now: Date = new Date(),
@@ -478,7 +481,7 @@ export async function pagesUnderMeasurementFromShipments(
     const out: string[] = [];
     for (const r of data as Array<Pick<LedgerRow, "path" | "page" | "implemented_at" | "verification">>) {
       const status = r.verification?.status ?? null;
-      if (status === "not_found" || status === "blocked") continue;
+      if (status === "not_found") continue;
       const key = (r.path || r.page || "").trim();
       if (key && !out.includes(key)) out.push(key);
     }

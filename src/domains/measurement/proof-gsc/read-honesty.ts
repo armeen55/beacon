@@ -89,47 +89,77 @@ export function overlapClosures(
 export type BundleRead = {
   path: string;
   changeIds: string[];
-  /** The group's combined directional read on clicks vs comparable pages, when every
-   *  member shares a closed basis window. */
+  /** The group's directional read against comparable pages, when every member shares a closed
+   *  basis window. Up only when every metric moved up, down only when every one moved down; a
+   *  group whose metrics disagree reads as no clear movement and says both out loud. */
   verdict: KernelVerdict;
   headline: string;
 };
 
 /**
- * A same-page group of overlapping changes gets ONE honest group read: the changes cannot
- * be separated, but their combined effect on the page can still be reported, and the
- * credit is never split between them. Pure. One BundleRead per overlapping group of 2+.
+ * ONE PAGE IS NOT ONE WINDOW. Grouping every overlapping change on a path put changes months
+ * apart into one "in the same window" callout, so two separate stretches of work read as one
+ * pile. A group is a CLUSTER: the connected changes whose measurement windows genuinely
+ * overlap, taken off the overlap graph the kernel already computed pairwise. PURE.
  */
-export function bundleReads(reads: ReadonlyArray<KernelRead>): BundleRead[] {
-  const byPath = new Map<string, KernelRead[]>();
-  for (const r of reads) {
-    if (r.overlappingIds.length === 0) continue;
-    const arr = byPath.get(r.path) ?? [];
-    arr.push(r);
-    byPath.set(r.path, arr);
-  }
-  const out: BundleRead[] = [];
-  for (const [path, group] of byPath) {
-    if (group.length < 2) continue;
-    const withBasis = group.filter((g) => g.basisDay != null);
-    const combinedLift = withBasis.reduce((s, g) => s + g.lift, 0);
-    let verdict: KernelVerdict = "insufficient_evidence";
-    let headline = `I made ${group.length} changes on this page in the same window. I am still gathering enough data to read them as a group.`;
-    if (withBasis.length === group.length && withBasis.length > 0) {
-      if (combinedLift > 0) {
-        verdict = "directional_improvement";
-        headline = `As a group, the ${group.length} changes on this page are pointing up compared to similar pages. I cannot split the credit between them, but the page as a whole is improving.`;
-      } else if (combinedLift < 0) {
-        verdict = "directional_decline";
-        headline = `As a group, the ${group.length} changes on this page are pointing down compared to similar pages. Worth a look at what changed together here.`;
-      } else {
-        verdict = "no_clear_movement";
-        headline = `As a group, the ${group.length} changes on this page have not clearly moved it compared to similar pages.`;
-      }
+function clustersOf(reads: ReadonlyArray<KernelRead>): KernelRead[][] {
+  const byId = new Map(reads.map((r) => [r.id, r]));
+  const seen = new Set<string>();
+  const out: KernelRead[][] = [];
+  for (const start of reads) {
+    if (start.overlappingIds.length === 0 || seen.has(start.id)) continue;
+    const cluster: KernelRead[] = [];
+    const queue = [start.id];
+    seen.add(start.id);
+    while (queue.length > 0) {
+      const r = byId.get(queue.pop()!);
+      if (!r) continue;
+      cluster.push(r);
+      for (const id of r.overlappingIds) if (!seen.has(id) && byId.has(id)) { seen.add(id); queue.push(id); }
     }
-    out.push({ path, changeIds: group.map((g) => g.id), verdict, headline });
+    if (cluster.length >= 2) out.push(cluster);
   }
   return out;
+}
+
+/** THE DIRECTION OF ONE METRIC, in its own words and its own unit. Clicks, click rate and rank are
+ *  three different things, and a sum across them measures nothing. PURE. */
+function metricMovement(metric: KernelMetric, lift: number): string {
+  if (lift === 0) return `${formatLift(metric, 0)} either way`;
+  return `${formatLift(metric, lift)} ${lift > 0 ? "ahead of" : "behind"} similar pages`;
+}
+
+/**
+ * A cluster of overlapping changes gets ONE honest group read: they cannot be separated, so the
+ * credit is never split between them, and the page's movement is reported ONE METRIC AT A TIME.
+ * Lifts are only ever added within a single metric; clicks are never added onto a click rate or a
+ * rank. Pure. One BundleRead per cluster of 2+.
+ */
+export function bundleReads(reads: ReadonlyArray<KernelRead>): BundleRead[] {
+  return clustersOf(reads).map((group) => {
+    const path = group[0]!.path;
+    const changeIds = group.map((g) => g.id);
+    const withBasis = group.filter((g) => g.basisDay != null);
+    if (withBasis.length !== group.length) {
+      return { path, changeIds, verdict: "insufficient_evidence" as KernelVerdict,
+        headline: `I made ${group.length} changes on this page in the same window. I am still gathering enough data to read them as a group.` };
+    }
+    // One running total PER METRIC, in the order the metrics first appear, so nothing is added across units.
+    const totals = new Map<KernelMetric, number>();
+    for (const g of group) totals.set(g.metric, (totals.get(g.metric) ?? 0) + g.lift);
+    const moves = [...totals.entries()].map(([m, lift]) => metricMovement(m, lift));
+    const ups = [...totals.values()].filter((l) => l > 0).length;
+    const downs = [...totals.values()].filter((l) => l < 0).length;
+    const verdict: KernelVerdict = ups === totals.size ? "directional_improvement"
+      : downs === totals.size ? "directional_decline" : "no_clear_movement";
+    const together = moves.length === 1 ? moves[0]! : `${moves.slice(0, -1).join(", ")}, and ${moves[moves.length - 1]}`;
+    const closing = verdict === "directional_improvement" ? "I cannot split the credit between them, but the page as a whole is improving."
+      : verdict === "directional_decline" ? "I cannot split the credit between them. Worth a look at what changed together here."
+        : moves.length > 1 ? "I cannot split the credit between them, and those measure different things, so I will not turn them into one answer."
+          : "I cannot split the credit between them, and the page has not clearly moved.";
+    return { path, changeIds, verdict,
+      headline: `I made ${group.length} changes on this page in the same window. Since then the page is ${together}. ${closing}` };
+  });
 }
 
 // ── The learning shape (record shapes preserved, nothing aggregated) ──────────

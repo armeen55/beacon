@@ -118,15 +118,46 @@ export function actionableProposalFailures(
   if (p.tenantId !== ctx.tenantId) out.push("This change was drafted for another account, so I am not putting it in front of you.");
   if (ctx.currentBasis == null || p.basis !== ctx.currentBasis) out.push("I raised the bar for what counts as worth your time, and this one no longer clears it, so I am not putting it in front of you.");
   if (p.status !== "ready" && p.status !== "needs_review") out.push("This one is not waiting on you any more, so I am not putting it in front of you.");
-  // THE ITEMS ARE THE READINGS: `freshestObservedAt` is a number the producer wrote beside them, so it is
-  // consulted ONLY when there are no items. Freshest-of-all ACROSS ITEMS stands: a receipt is mixed by design.
-  const receipt = p.bundle?.receipt;
-  const read = p.bundle ? (receipt?.items?.length ? receipt.items.map((i) => i.observedAt) : [receipt?.freshestObservedAt ?? null])
-    .map((d) => Date.parse(d ?? "")).filter((t) => Number.isFinite(t)) : [now.getTime()]; // no receipt, no reading to age
-  if (!(read.length > 0 && Math.max(...read) >= now.getTime() - EVIDENCE_VALID_DAYS * 86_400_000)) {
+  if (staleReadings(p, now)) {
     out.push("The readings behind this change are too old to stand on now, so I am taking them again before I put it in front of you.");
   }
   return [...new Set(out)];
+}
+
+/** PURE: the newest of these readings, or null when none of them carries a date at all. An undated reading is
+ *  not a fresh one and not a stale one either: it is a figure with no clock on it (a 90 day total, a pattern
+ *  across a results page), so it neither keeps a component alive nor kills it. */
+const newestReading = (items: readonly { observedAt: string | null }[]): number | null => {
+  const read = items.map((i) => Date.parse(i.observedAt ?? "")).filter((t) => Number.isFinite(t));
+  return read.length > 0 ? Math.max(...read) : null;
+};
+
+/**
+ * IS THIS CHANGE STANDING ON COLD READINGS? PER COMPONENT, because a receipt is mixed by design and the whole
+ * receipt's freshest date is not any one component's evidence: ONE AI answer taken this morning kept a body
+ * rewrite alive on a page nobody had read in two months and a results page nobody had checked since. A
+ * component is fresh only if the items ITS OWN evidenceKeys cite are inside the window, and the change is
+ * only as fresh as its coldest component, because the operator applies all of them together.
+ *
+ * A proposal with NO BUNDLE has no receipt to read, so it ages on ITS OWN CLOCK: it was drafted from evidence
+ * that day and nothing has re-derived it since. It used to be seeded with `now` and could never expire at
+ * all, which left an atomic change Ready forever on a profile nobody had edited.
+ */
+function staleReadings(p: ChangeProposal, now: Date): boolean {
+  const floor = now.getTime() - EVIDENCE_VALID_DAYS * 86_400_000;
+  const receipt = p.bundle?.receipt;
+  if (!receipt) { const drafted = Date.parse(p.createdAt ?? ""); return !Number.isFinite(drafted) || drafted < floor; }
+  const components = p.bundle?.components ?? [];
+  // A row carrying no component to ask (a legacy shape) still answers on the receipt as a whole rather than
+  // silently passing, and an empty receipt falls back to the one date the producer wrote beside it.
+  if (components.length === 0) return (newestReading(receipt.items.length ? receipt.items : [{ observedAt: receipt.freshestObservedAt }]) ?? -Infinity) < floor;
+  const byKey = new Map(receipt.items.map((i) => [i.key, i]));
+  const dates = components.map((c) => newestReading(c.evidenceKeys.map((k) => byKey.get(k)).filter((i) => !!i)));
+  // NOTHING DATED ANYWHERE ON THE RECEIPT still ages. Real receipt keys carry no observation date at all (the page's own demand, the diagnosis I wrote, the pattern the
+  // winners share), so per-component freshness on its own would have let a change whose every reading is undated stand for ever. It falls back to the day it was
+  // drafted, exactly as a change with no receipt does. One dated reading anywhere hands the verdict back to the components.
+  if (dates.every((d) => d == null)) { const drafted = Date.parse(p.createdAt ?? ""); return !Number.isFinite(drafted) || drafted < floor; }
+  return dates.some((d) => d != null && d < floor); // an undated component beside a dated one ages with the change, never against its sibling
 }
 
 export type ProposalVerdict = "ready" | "needs_review" | "rejected";

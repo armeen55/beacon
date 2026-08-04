@@ -34,8 +34,7 @@ describe("the five doors into the deep read", () => {
     const both = cand({ pageUrl: AI_PAGE, query: "saffron price", action: "act_existing_page", recoverableClicks: 120,
       cause: cause("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "where to buy saffron" }) });
     const picked = selectDeepCandidates({ snapshot: snapshot([["where to buy saffron", ["saffron price"]]]), candidates: [both], coverage: null, limit: 3 });
-    expect([picked.length, picked[0]!.door, picked[0]!.unit]).toEqual([1, "ctr_gap", "clicks"]);
-  });
+    expect([picked.length, picked[0]!.door, picked[0]!.unit]).toEqual([1, "ctr_gap", "clicks"]); });
   it("holds the bound, strongest proof first, and every entry names its own door", () => {
     const picked = selectDeepCandidates({
       snapshot: snapshot([["where to buy saffron", ["saffron price"]]]),
@@ -59,8 +58,7 @@ describe("the five doors into the deep read", () => {
       ],
       coverage: null, limit: 3,
     });
-    expect(picked.map((p) => [p.door, p.pageUrl])).toEqual([["ctr_gap", AI_PAGE]]);
-  });
+    expect(picked.map((p) => [p.door, p.pageUrl])).toEqual([["ctr_gap", AI_PAGE]]); });
   /** THE LIVE COUNTEREXAMPLE'S OWN COUNT: six answers carrying one everyday word became "I watch 7 questions like it" on the line the operator reads. Only answers that
    *  belong to THIS search may ever be counted. */
   it("counts only the questions that belong to this search, never every answer sharing one word", () => {
@@ -77,6 +75,4 @@ describe("the five doors into the deep read", () => {
         cause: cause("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "where to buy saffron" }) })],
       coverage: null, limit: 3,
     });
-    expect(picked).toEqual([]);
-  });
-});
+    expect(picked).toEqual([]); }); });

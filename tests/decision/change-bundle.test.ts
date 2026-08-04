@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"; import type { BundleComponent, BundleComponentKind, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
 import { DANGEROUS_COMPONENT_KINDS, dangerousComponents, needsSourcePack } from "@/domains/decision/contracts"; import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals"; import { validateProposal } from "@/domains/decision/validate-proposal";
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
-vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) })); vi.mock("@/domains/decision/proposal-store", () => ({ loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); },
+vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) })); vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); },
   withdrawnProposalIds: async () => new Set<string>(), withdrawChangeProposal: async () => true }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap })); vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "fixture-tenant", domain: "fixture-content.example", growth_goal: null }), basisTag: () => "basis_test" })); import { produceBundleForSnapshot } from "@/domains/decision/produce-bundle";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals"; import { loadProposalQueue } from "@/domains/decision/load-proposals"; import { confidenceFor, serializeChangeProposal, deserializeChangeProposal } from "@/domains/decision/contracts";
@@ -45,7 +45,7 @@ const reverse = <T,>(a: readonly T[]): T[] => [...a].reverse(); const OPTS = { n
 const expectCleanCopy = (p: ChangeProposal): void => { const b = p.bundle!; const copy = [b.objective, b.metric, b.measurementPlan, p.whyItMatters, ...b.receipt.items.map((i) => i.fact), ...b.receipt.missing, ...b.risks,
     ...b.confidenceReasons, ...b.components.map((c) => `${c.label} ${c.after}`), ...b.alternatives.map((a) => `${a.option} ${a.reason}`)].join(" "); expect(copy).not.toMatch(/chatgpt|gemini|dataforseo|SERP|baseline|control group/i); expect(copy).not.toMatch(/[–—]/); };
 beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; store.rows.clear(); sent.length = 0; kinds.length = 0; }); afterEach(() => { delete process.env.OPENAI_API_KEY; }); describe("produceBundleForSnapshot", () => {
-  it("repairs the page with the biggest proven gap, in exact drafted copy, on a receipt every component cites", async () => { const out = await produceBundleForSnapshot(snapshot(), { complete: seam, ...OPTS }); expect(out.status).toBe("bundled"); if (out.status !== "bundled") return; const p = out.proposal; const bundle = p.bundle!; expect(p.id).toBe(`${TENANT}::/rain-barrels::existing_edit::bundle`); expect(p.pagePath).toBe("/rain-barrels"); expect(p.changeFamily).toBe("single"); expect(p.kind).toBe("existing_edit"); // the 570-click gap, not the 55-click one
+  it("repairs the page with the biggest proven gap, in exact drafted copy, on a receipt every component cites", async () => { const out = await produceBundleForSnapshot(snapshot(), { complete: seam, ...OPTS }); expect(out.status).toBe("bundled"); if (out.status !== "bundled") return; const p = out.proposal; const bundle = p.bundle!; expect(p.id).toBe(`${TENANT}::/rain-barrels::existing_edit::title-family`); expect(p.pagePath).toBe("/rain-barrels"); expect(p.changeFamily).toBe("title-family"); // the family, in the id AND the stamp: a snippet rewrite and a body rebuild are two changes, and the ledger must be able to tell them apart expect(p.kind).toBe("existing_edit"); // the 570-click gap, not the 55-click one
     // ONE field, the one the results page accused. A description or an opening answer would need the line Google shows under the result or this page's own words, and neither is on file.
     expect(p.impactScore).toBe(570); expect(bundle.components.map((c) => c.kind)).toEqual(["title"]); expect(bundle.components[0].before).toBe("Rain Barrels"); expect(bundle.components[0].after).toBe(TITLE_AFTER); expect(p.recommendedChange).toEqual({ kind: "existing_edit", field: "title", before: "Rain Barrels", after: TITLE_AFTER }); expect(bundle.receipt.items.map((i) => i.kind)).toEqual(expect.arrayContaining(["gsc_demand", "page_extract", "keyword", "serp", "ai_observation", "winning_page"]));
     // the receipt a ready title stands on: the exact search, this page's stored copy, the results page, the line Google displays for it, and the wording the winners share
@@ -153,10 +153,35 @@ describe("what a receipt will and will not accept", () => {
 }); describe("one pass, one row per change", () => {
   it("bundles the proven page once, and carries no vertical assumption into a single prompt", async () => {
     env.snap = topicSnapshot(); const res = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS });
-    expect(res.proposals.map((p) => p.id)).toEqual([`${TENANT}::/rain-barrels::existing_edit::bundle`]); expect(res.coverage).toBeNull(); const queue = await loadProposalQueue(TENANT);
+    expect(res.proposals.map((p) => p.id)).toEqual([`${TENANT}::/rain-barrels::existing_edit::title-family`]); expect(res.coverage).toBeNull(); const queue = await loadProposalQueue(TENANT);
     expect(queue.ranked.every((p) => p.kind === "existing_edit")).toBe(true); // research this thin decides nothing, so no topic becomes a page
     // B6: generic product code carries no vertical assumption, whatever this account happens to sell.
     expect(sent.join(" ")).not.toMatch(/encyclopedia|wikipedia|culture|dynast|cuisine|province/i); });
+  /** ONE TRACKED QUESTION IS ASKED OF SEVERAL ENGINES, so its id names several different answers. Matching lineage on the question id alone handed one engine's fan-out to
+   *  another engine's answer: below, only the answer this account's lineage actually names may join, and its neighbour's searches stay its neighbour's. */
+  it("never lets one engine's answer borrow the searches another engine's answer went and ran", async () => {
+    const obs = (engine: string, promptText: string) => ({ promptId: "px", promptText, engine, observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url: WIN1, domain: "gardenguide.example", title: "A" }], fanOutQueries: null, observedAt: "2026-07-22T00:00:00.000Z" });
+    const research = { ...RESEARCH, aiObservations: [obs("chatgpt", "how much rain does a roof catch"), obs("gemini", "roof runoff calculator")],
+      retainedKeywords: RESEARCH.retainedKeywords.map((k) => k.query === "rain barrel sizing" ? { ...k, origins: [{ route: "fanout" as const, promptId: "px", engine: "chatgpt" }] } : k) };
+    const out = await produceBundleForSnapshot(snapshot({ research }), { complete: seam, ...OPTS });
+    if (out.status !== "bundled") throw new Error("expected a change");
+    expect(out.proposal.bundle!.scope.prompts).toEqual(["how much rain does a roof catch"]); });
+  /** A CHANGE MAY NOT OUTLIVE ITS OWN EXPLANATION. This used to DEMOTE the row to needs_review, which is "look at this first" and still fully actionable, so an
+   *  unsupported change kept its place on the operator's list under a quieter name. It is taken back now, and a page that still earns an action is untouched. */
+  it("takes back the change whose page it read and can no longer prove anything about, and leaves the one it still can", async () => {
+    env.snap = snapshot(); await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS });
+    const held = [...store.rows.values()].find((p) => !!p.bundle)!;
+    store.rows.set("orphan", { ...held, id: "orphan", pagePath: "/compost", status: "needs_review" }); // a page I DID read, that no door proves
+    const after = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS });
+    expect([after.proposals.some((p) => p.id === "orphan"), store.rows.has("orphan"), store.rows.has(held.id)]).toEqual([false, false, true]); });
+  /** P0. THE SNAPSHOT IS FAIL-SOFT BY DESIGN: every leg catches to empty, so one database blip reads as an account with no pages. The retire loop then proved nothing
+   *  about anything, took back EVERY live change, and the refusal kept them shut afterwards. A pass may only speak about a page it actually read. */
+  it("takes nothing back about a page this pass never read, however healthy the rest of the pass looks", async () => {
+    env.snap = snapshot(); await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS });
+    const held = [...store.rows.values()].find((p) => !!p.bundle)!;
+    store.rows.set("unread", { ...held, id: "unread", pagePath: "/nothing-reached-this-page" }); // its page is not in the read at all
+    await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS });
+    expect([store.rows.has("unread"), store.rows.has(held.id)]).toEqual([true, true]); });
   it("queues only the changes it can show are current, and sets aside every basis it cannot match", async () => {
     env.snap = topicSnapshot(); await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); const seed = [...store.rows.values()].find((p) => p.kind === "existing_edit")!; store.rows.clear();
     const put = (id: string, over: Partial<ChangeProposal>) => store.rows.set(id, { ...seed, id, status: "ready", basis: "basis_today", limitations: [], ...over });
@@ -308,8 +333,7 @@ describe("what is wrong with how a page is served", () => {
     expect(orphan.exactFix).toContain('in the part of it about "Rain Barrel Sizing Guide"');
     expect(JSON.stringify(found)).not.toMatch(/[–—]|SERP|crawl_state|http_status|discovered_via/);
     // NOTHING FIRES WITHOUT HELD EVIDENCE: no inventory and no capture is no findings, never a clean bill
-    expect([readTechnicalFindings({}), readTechnicalFindings({ inventory: [row(`${AT}/a`)] })]).toEqual([[], []]);
-  });
+    expect([readTechnicalFindings({}), readTechnicalFindings({ inventory: [row(`${AT}/a`)] })]).toEqual([[], []]); });
   // PIN (D, packet 5 + 6): AN ACCESS STATE IS NOT A DEAD PAGE. Only the two answers that mean "the support is gone" produce a dead-page change; being turned away,
   // rate-limited or unreachable says something about me, not about the page. A server error is a bad minute until a SECOND read on a LATER day agrees.
   it("calls a page dead only on 404, 410 or a twice-confirmed server error, and never on an access state", () => {
@@ -323,8 +347,7 @@ describe("what is wrong with how a page is served", () => {
     expect(dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z" })).toEqual([]);
     expect(dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z", status_reconfirmed_at: "2026-08-01T18:00:00Z" })).toEqual([]);
     const twice = dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z", status_reconfirmed_at: "2026-08-03T09:00:00Z" });
-    expect(twice[0]!.evidence).toContain("two different days");
-  });
+    expect(twice[0]!.evidence).toContain("two different days"); });
   // PIN (D, packet 20): vague advice cannot enter Ready. Without the words to type there is no finding, and a copy fault with no copy behind it never reaches the
   // operator as a change.
   it("writes no change it has not written the wording for, and says so instead", async () => {
@@ -348,8 +371,7 @@ describe("what is wrong with how a page is served", () => {
     expect(stranded.components).toEqual([]);
     expect(stranded.refusal).toContain("Tell me the address that replaced it");
     const forwarded = await run(readTechnicalFindings({ inventory: [row(`${AT}/`), row(`${AT}/gone`, { crawl_state: "gone", http_status: 404, redirects_to: `${AT}/rain-barrels` })] }));
-    expect(forwarded.components.map((c) => [c.kind, c.redirectTo])).toEqual([["redirect", `${AT}/rain-barrels`]]);
-  });
+    expect(forwarded.components.map((c) => [c.kind, c.redirectTo])).toEqual([["redirect", `${AT}/rain-barrels`]]); });
   it("turns each fault into a component that answers for itself, and holds the dangerous ones", () => {
     const parts = technicalComponents(readTechnicalFindings(SERVED), "rain barrel sizing").map((c) => ({ ...c, evidenceKeys: ["demand-exact"] }));
     expect([parts.every((c) => !!c.where && !!c.objective && !!c.mechanism && !!c.measurementPlan && c.before === null), [...new Set(dangerousComponents(parts).map((c) => c.kind))].sort()]).toEqual([true, ["canonical", "noindex", "redirect"]]);
@@ -359,8 +381,7 @@ describe("what is wrong with how a page is served", () => {
     // and the ordinary ones pass the gate as the changes they are, copy and all
     const safe = parts.filter((c) => !dangerousComponents(parts).includes(c));
     for (const c of safe) expect(validateProposal(prop({ recommendedChange: { kind: "existing_edit", field: fieldForComponent(c.kind), before: null, after: c.after }, bundle: bundleOf([c]) })).verdict).not.toBe("rejected");
-  });
-});
+  }); });
 // ── the complete change universe + the ONE unified ranking (Phase 4) ──────────
 /** Every kind in the union, so a new lever can never be added without answering the gate. */
 const ALL_KINDS: BundleComponentKind[] = ["title", "meta", "h1", "opening_answer", "section", "internal_links", "source_pack",
@@ -402,8 +423,7 @@ describe("the complete change universe answers for itself", () => {
     expect([mute.verdict, mute.reasons.some((r) => r.includes("where on the page it goes, why it fixes what I diagnosed"))]).toEqual(["rejected", true]);
     // a lever that moves the page and is NOT marked as one is a mislabelled change, never a safe paste
     const sneaky = validateProposal(prop({ bundle: bundleOf([comp({ kind: "redirect", risk: "safe" })]) }));
-    expect([sneaky.verdict, sneaky.reasons.some((r) => r.includes("not marked as one that needs your confirmation"))]).toEqual(["rejected", true]);
-  });
+    expect([sneaky.verdict, sneaky.reasons.some((r) => r.includes("not marked as one that needs your confirmation"))]).toEqual(["rejected", true]); });
   it("refuses a page move, a de-indexing or a merge smuggled through an ordinary component", () => {
     // the kind is a label somebody typed, and the copy is the change: a section rewrite that redirects and de-indexes the page is neither
     const smuggled = validateProposal(prop({ bundle: bundleOf([comp({ kind: "section", after: "Add a 301 redirect to the sizing guide and noindex this page." })]) }));
@@ -423,9 +443,7 @@ describe("the complete change universe answers for itself", () => {
     // an unmarked one is a MISLABELLED change, and a mislabelled change is the one that gets pasted without a second look
     expect(validateProposal(prop({ bundle: bundleOf([legal("safe")]) })).verdict).toBe("rejected");
     const held = validateProposal(prop({ riskLevel: "high", status: "needs_review", bundle: bundleOf([legal("dangerous")]) }));
-    expect([held.verdict, held.reasons.some((r) => r.includes("confirm it before you make the change"))]).toEqual(["needs_review", true]);
-  });
-});
+    expect([held.verdict, held.reasons.some((r) => r.includes("confirm it before you make the change"))]).toEqual(["needs_review", true]); }); });
 describe("one score orders every kind of change, and says why", () => {
   it("puts the lever the evidence named above a bigger one it did not, on the same page", () => {
     const named = prop({ id: "title-fix", impactScore: 120, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]) });
@@ -459,8 +477,7 @@ describe("one score orders every kind of change, and says why", () => {
     expect(factorOf(ranked.find((p) => p.id === "safe")!, "overlap")).toBe(0);
     expect(ranked[0]!.whyRankedAboveNext).toContain("/measuring already has a change I am measuring");
     // every factor stays inside its own ceiling, so no single input can quietly decide the order
-    for (const p of ranked) for (const f of p.rankingReceipt!.factors) expect(Math.abs(f.contribution)).toBeLessThanOrEqual(f.max);
-  });
+    for (const p of ranked) for (const f of p.rankingReceipt!.factors) expect(Math.abs(f.contribution)).toBeLessThanOrEqual(f.max); });
   it("holds every factor on its own floor, and never punishes a stored change for the age of its vocabulary", () => {
     // a tampered evidence count used to contribute -1,500 and drag a safe change down through the lifecycle tiers
     const [floored] = rankProposals([prop({ id: "floored", evidence: { query: "rain barrel sizing", hints: [], evidenceRefCount: -1000 } })]);
@@ -470,8 +487,7 @@ describe("one score orders every kind of change, and says why", () => {
     // the older undifferentiated kinds ARE the levers their newer names describe, on a bundle and on a pre-bundle row alike
     const bundled = rankProposals([prop({ diagnosisCause: "incomplete_coverage", bundle: bundleOf([comp({ kind: "section" })]) })]);
     const stored = rankProposals([prop({ diagnosisCause: "incomplete_coverage", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A section on roof area." } })]);
-    expect([factorOf(bundled[0]!, "causeFit"), factorOf(stored[0]!, "causeFit")]).toEqual([25, 25]);
-  });
+    expect([factorOf(bundled[0]!, "causeFit"), factorOf(stored[0]!, "causeFit")]).toEqual([25, 25]); });
   it("ranks a change it holds no proven figure for as a direction, never a size, and says so", () => {
     const [blind] = rankProposals([prop({ impactScore: null, upsidePerMonth: null })]);
     expect(blind!.rankingReceipt!.directional).toBe(true);
@@ -479,8 +495,7 @@ describe("one score orders every kind of change, and says why", () => {
     expect(factorOf(blind!, "visibility")).toBe(0);
     const [sized] = rankProposals([prop({ impactScore: 570 })]);
     expect([sized!.rankingReceipt!.directional, factorOf(sized!, "visibility")]).toEqual([false, 22.8]);
-    expect(sized!.rankingReceipt!.basis).toContain("about 570 clicks I can show are recoverable");
-  });
+    expect(sized!.rankingReceipt!.basis).toContain("about 570 clicks I can show are recoverable"); });
   it("decodes and ranks a stored row that predates every field this ranking added", () => {
     const { rankingReceipt: _r, whyRankedAboveNext: _w, diagnosisCause: _c, bundle: _b, ...old } = prop({ impactScore: 300, bundle: bundleOf([comp({ kind: "title" })]) });
     void _r; void _w; void _c; void _b;
@@ -489,6 +504,4 @@ describe("one score orders every kind of change, and says why", () => {
     const [ranked] = rankProposals([back!]);
     expect(ranked!.rankingReceipt!.factors.map((f) => f.name)).toEqual(["actionability", "visibility", "evidence", "causeFit", "strategic", "effort", "risk", "overlap", "confounding"]);
     expect(factorOf(ranked!, "causeFit")).toBe(0); // no diagnosis on the row, so nothing is matched and nothing is punished
-    expect(proposalValueScore(back!)).toBeGreaterThan(proposalValueScore(prop({ status: "needs_review", impactScore: 9999 })));
-  });
-});
+    expect(proposalValueScore(back!)).toBeGreaterThan(proposalValueScore(prop({ status: "needs_review", impactScore: 9999 }))); }); });

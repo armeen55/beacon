@@ -119,8 +119,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
         sources: [], containsNumber: false }) },
     }));
     const after = out.components[0]!.after; // "a  b" never ships, and the paragraph break is left exactly where it was
-    expect([/ {2}/.test(after), after.includes("barrel.\n\nThe cited")]).toEqual([false, true]);
-  });
+    expect([/ {2}/.test(after), after.includes("barrel.\n\nThe cited")]).toEqual([false, true]); });
   it("sends the reader to a page this account actually has, and survives the component gate", async () => {
     const out = await produceInternalLinks(ctxOf());
     expect([out.refusal, out.components.map((c) => c.kind)]).toEqual([null, ["internal_link_add", "internal_link_add"]]);
@@ -146,8 +145,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect([offTopic.components.length, offTopic.refusal ?? ""]).toEqual([0, expect.stringContaining("I am not inventing one")]);
     // No body means I cannot see what this page already links to, so a link is a coin flip: none.
     const blind = await produceInternalLinks(ctxOf({ body: null }));
-    expect([blind.components.length, blind.refusal!.includes("Tell me the page it should lead to")]).toEqual([0, true]);
-  });
+    expect([blind.components.length, blind.refusal!.includes("Tell me the page it should lead to")]).toEqual([0, true]); });
   it("assembles a source pack out of claims that belong on the page, never my own numbers", async () => {
     const section = async (i: { heading: string | null }) => ({
       heading: i.heading ?? "Where these claims come from",
@@ -191,8 +189,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const empty = await produceSourceExpansion(ctxOf({ body: null,
       pattern: { ...PATTERN, commonEntities: [] },
       finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }) }));
-    expect([empty.components.length, empty.refusal!.includes("I hold nothing this page could say")]).toEqual([0, true]);
-  });
+    expect([empty.components.length, empty.refusal!.includes("I hold nothing this page could say")]).toEqual([0, true]); });
   /** TWO PAGES ON ONE SEARCH IS A SIGNAL TO INVESTIGATE, never proof the clicks are splitting, and never a decision handed back to the operator: the survivor is proven
    *  off inspectable evidence or nothing ships. */
   it("settles a split only when the survivor is proven, and then hands over the exact merge", async () => {
@@ -218,8 +215,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect([held.verdict, held.reasons.join(" ").includes("confirm it before you make the change")]).toEqual(["needs_review", true]);
     // the payload is read by SHAPE, so the ladder may carry it under any field name and a producer still reads it
     const renamed = await produceConsolidation(ctxOf({ heldBodies: BODIES, finding: { ...finding("cannibalization"), detail: { competingPaths: [PAGE_URL, OTHER_URL], comparison: CMP, survivor: PAGE_URL } } as CauseFinding }));
-    expect(renamed.components).toHaveLength(1);
-  });
+    expect(renamed.components).toHaveLength(1); });
   /** THE RECEIPT IS THE PROOF. A claim that does not resolve to a line the operator can read is not a claim, one change may not say two things about one page, danger may
    *  not ride under a soft label, and a reading I took in June is not what the page says today. Every one of these shipped on one live change. */
   it("refuses a change whose evidence does not resolve, contradicts itself, understates danger, or dates a stale reading as today", () => {
@@ -239,8 +235,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const stale = dated("2026-06-11T00:00:00.000Z"); // an undated reading called today is the same claim with the date hidden
     expect([stale.verdict, stale.reasons.some((r) => r.includes("2026-06-11")), dated(null).verdict]).toEqual(["rejected", true, "rejected"]);
     expect(validate([{ ...link, after: "I read this page's stored words and would point readers on to Barrel sizes." }], undefined, // a contradiction in the copy itself, not only in the notes around it
-      { limitations: ["I do not hold this page's full body text, so I checked every draft against its title."] }).verdict).toBe("rejected");
-  });
+      { limitations: ["I do not hold this page's full body text, so I checked every draft against its title."] }).verdict).toBe("rejected"); });
   /** READY MEANS WHOLE: a rebuild shipping planning sentences under half its copy promised what it did not hold. */
   it("rebuilds a page only when the causes agree, and only when the WHOLE page is written", async () => {
     const one = await produceFullRewriteRecommendation(ctxOf(), ["weak_opening"]);
@@ -272,8 +267,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect([mute.components.length, mute.refusal!.includes("no way in")]).toEqual([0, true]);
     // no reading of the pages that win means no rebuild, however many causes fired
     const blind = await produceFullRewriteRecommendation(ctxOf({ pattern: null, draft: whole() }), causes);
-    expect([blind.components.length, blind.refusal!.includes("side by side")]).toEqual([0, true]);
-  });
+    expect([blind.components.length, blind.refusal!.includes("side by side")]).toEqual([0, true]); });
   it("refuses on every producer when the finding carries no structured payload", async () => {
     const bare = { finding: finding("internal_link_weakness") };
     const links = await produceInternalLinks(ctxOf(bare));
@@ -286,9 +280,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     }
     // a finding with nothing on file behind it never becomes a component, whatever the payload says
     const unbacked = await produceConsolidation(ctxOf({ finding: { ...finding("cannibalization", { cause: "cannibalization", competingPaths: ["/a", "/b"] }), evidenceKeys: [] } }));
-    expect([unbacked.components.length, unbacked.refusal!.includes("cannot show you anything behind this")]).toEqual([0, true]);
-  });
-});
+    expect([unbacked.components.length, unbacked.refusal!.includes("cannot show you anything behind this")]).toEqual([0, true]); }); });
 describe("what a change actually costs the operator", () => {
   // ONE map for the field a kind writes into, ONE for what it costs: the envelope a test builds is the one production persists, and a merge and a whole rebuild are not
   // one price.
@@ -298,10 +290,7 @@ describe("what a change actually costs the operator", () => {
     const merge = await produceConsolidation(ctxOf({ heldBodies: BODIES, finding: finding("cannibalization", { cause: "cannibalization", competingPaths: [PAGE_URL, OTHER_URL], comparison: CMP, survivor: PAGE_URL }) }));
     const rebuild = await produceFullRewriteRecommendation(ctxOf({ draft: whole() }), ["weak_opening", "incomplete_coverage"]);
     expect([merge.components[0]!.kind, rebuild.components[0]!.kind].map(effortMinutesFor)).toEqual([90, 120]);
-    expect([effortMinutesFor("section_rewrite"), effortMinutesFor("section_add"), effortMinutesFor("title")]).toEqual([30, 15, 1]);
-  });
+    expect([effortMinutesFor("section_rewrite"), effortMinutesFor("section_add"), effortMinutesFor("title")]).toEqual([30, 15, 1]); });
   // Measurement may not import Decision (guard), so its private dangerous-kind list is pinned here instead.
   it("pins measurement's private dangerous-kind list against the decision contract", () => {
-    expect([...MEASUREMENT_DANGEROUS].sort()).toEqual([...DECISION_DANGEROUS].sort());
-  });
-});
+    expect([...MEASUREMENT_DANGEROUS].sort()).toEqual([...DECISION_DANGEROUS].sort()); }); });

@@ -141,7 +141,9 @@ const PAGE_ROWS = 1000, MAX_ROWS = 40_000;
  *  two heavy ones. `answer_text` is a whole AI answer and `journey` is every page it read and credited, so
  *  a full-row read of a 28 day window is megabytes per account per visit and is exactly the shape that has
  *  timed out a statement here before. The keyset cursor rides on requested_at + id, so both stay in. */
-const OUTCOME_COLUMNS = "id,tenant_id,prompt_id,prompt_version,engine,reporting_day,sample_slot,status,analysis,analysis_hash,answer_hash,requested_at";
+// prompt_text rides the lean projection so scope joins can fire on the WORDING route; answer_text and
+// journey stay off it, which is what keeps this read lean.
+const OUTCOME_COLUMNS = "id,tenant_id,prompt_id,prompt_version,engine,reporting_day,sample_slot,status,analysis,analysis_hash,answer_hash,requested_at,prompt_text";
 
 /** THE LIST PROJECTION for a surface paging a day's readings: everything EXCEPT the one genuinely heavy
  *  column. A screen of whole AI answers is the shape that has timed a statement out here before, so

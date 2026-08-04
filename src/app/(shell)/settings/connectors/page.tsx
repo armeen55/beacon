@@ -32,10 +32,7 @@ const CONNECTORS_DEADLINE_MS = 15_000;
 /** Everything the page body needs, loaded exactly as before - just gathered into one
  *  bounded unit. Behavior of each individual read is unchanged. */
 async function loadConnectorsPageData() {
-  // GSC is the v1 Google card. GBP card is deferred (Section 7 wire-up).
-  // GA4 card added in Slice 9.A1β (2026-05-18) — consumes the GA4
-  // connector substrate that shipped in Slice 9.A1α (commit e88a060).
-  // Each provider reads independently — each card renders its own
+  // The three live connectors, each read independently: every card renders its own
   // state without cross-provider coupling.
   const googleGsc = await getConnectorInfo("google_gsc");
   const googleGa4 = await getConnectorInfo("google_ga4");
@@ -122,9 +119,7 @@ async function loadConnectorsPageData() {
 
   // FP10a (2026-07-02) - one summary strip fact instead of the same three
   // facts stated five-plus times across the page. "N of M connected" counts
-  // the self-serve sources that actually render a card on this page
-  // (GSC, GA4, Clarity); Yelp is removed from the UI (2026-06-18), GBP is
-  // deferred, and Wix left the product, so none of them count toward M.
+  // the three sources that render a card on this page: GSC, GA4 and Clarity.
   const connectedCount = [googleGsc, googleGa4, clarity].filter(
     (c) => c.status === "connected",
   ).length;

@@ -5,23 +5,18 @@ import "server-only";
  * Every number is computed at read time from answers ALREADY bought and stored: nothing fetched, paid,
  * or written, so the summary can never drift from the answers it claims to summarize. SLOT 0 ONLY:
  * volatility samples are never trend (a question sampled three times must not outvote one read once).
- * WHO ELSE THE ANSWERS NAMED left this report in Phase 7: the classified competitor landscape
- * (evidence/competitors) is what Visibility renders, with a group and a why per domain.
  * NULL IS A CLAIM: "no answer of yours was analyzed" and "you were named in none" are different
  * statements, and a missing day stays absent, never filled from its neighbours. MODEL AND MODE
  * BOUNDARIES ARE VISIBLE: a change in either splits the series into named segments, so a step reads
- * as "the instrument changed here", never as a silent win or loss. Rendered on Results per segment,
- * with each shipped change carrying its own AI direction, coverage and before-and-after line.
+ * as "the instrument changed here", never as a silent win or loss. AND ONE CHANGE IS READ ON ITS OWN
+ * SEARCHES: a Shipment's AI outcome sees only the answers its own scope claims, never the account's.
  */
 
-import {
-  isAnalysisSettled,
-  readAiObservations,
-  type AiObservationRecord,
-} from "@/domains/evidence/ai-visibility/ai-observations";
+import { isAnalysisSettled, readAiObservations, type AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations";
 import { reportingDay } from "@/lib/reporting-day";
 import { addDays, daysBetween, mergeRanges, overlaps, readPartitioned, type DayRange } from "./outcome-windows";
 import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
+import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 
 const FIRST_READING_SLOT = 0; // slot 0: the ONE canonical reading of a question on a day
 const SHIPMENT_WINDOW_DAYS = 28; // the longest stretch one Shipment is judged over
@@ -265,10 +260,7 @@ const readRows = async (tenantId: string, window: { from: string; to: string }, 
 
 /** THE DAILY TREND READ over stored answers. Pure over what is on file; a failed read THROWS, because
  *  an empty report reads as "AI never mentions you", which is a different and false claim. */
-export async function aiOutcomes(
-  tenantId: string,
-  range: { from: string; to: string } & ReadOpts,
-): Promise<AiOutcomeReport> {
+export async function aiOutcomes(tenantId: string, range: { from: string; to: string } & ReadOpts): Promise<AiOutcomeReport> {
   // Read in bounded pieces for the same reason the ledger is: a year of first readings is past the store's
   // own row ceiling. The trend still THROWS on a piece it could not read, because a short series drawn as if
   // it were the whole stretch would read as days AI said nothing, which is a different and false claim.
@@ -279,23 +271,14 @@ export async function aiOutcomes(
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([day, forDay]) => dayTotals(day, forDay, root))
     .filter((d) => d.observed > 0 || d.byEngine.length > 0);
-  return {
-    from: range.from,
-    to: range.to,
-    daysObserved: days.filter((d) => d.observed > 0).length,
-    segments: segmentize(days),
-  };
+  return { from: range.from, to: range.to, daysObserved: days.filter((d) => d.observed > 0).length, segments: segmentize(days) };
 }
 
 /**
  * THE TREND CHART'S READ: the last `days` reporting days, already cut at every model or mode change so the
  * surface can draw the break instead of joining two different instruments into one line.
  */
-export async function visibilitySeries(
-  tenantId: string,
-  days: number,
-  opts: ReadOpts & { now?: Date } = {},
-): Promise<AiOutcomeReport["segments"]> {
+export async function visibilitySeries(tenantId: string, days: number, opts: ReadOpts & { now?: Date } = {}): Promise<AiOutcomeReport["segments"]> {
   const to = dayOfInstant(opts.now ?? new Date());
   const span = Math.max(1, Math.min(Math.floor(days), 365));
   return (await aiOutcomes(tenantId, { from: addDays(to, -(span - 1)), to, ...opts })).segments;
@@ -346,7 +329,37 @@ function outcomeLine(direction: ShipmentAiOutcome["direction"], before: Shipment
 /** WHAT THE AI ANSWERS DID AROUND ONE SHIPPED CHANGE: the held starting number (or the last stored day
  *  ahead of the stamp), against stamp-to-now bounded to 28 days, both counted the same way. Coverage
  *  rides the answer; under half is `unclear`, not a verdict; no stamp means null. */
-type ShipmentForOutcome = { implementedAt: string | null; shipmentBaseline?: { ai: { day: string; checked: number; analyzed?: number; mentioning: number } | null } | null };
+type ShipmentForOutcome = {
+  implementedAt: string | null;
+  shipmentBaseline?: { ai: { day: string; checked: number; analyzed?: number; mentioning: number } | null } | null;
+  /** THE SEARCHES THIS ONE CHANGE WAS AIMED AT, frozen onto the Shipment at mark time: a tracked question's
+   *  own id, or the search itself in words. Empty or absent = I cannot tell which answers belong to this
+   *  change, and it says so rather than reading the whole account on this one page's behalf. */
+  scopeQueries?: readonly string[] | null;
+};
+
+/** ONE SHIPMENT'S MEMBERSHIP KEYS: ids matched exactly, wordings matched on their canonical words. Null when
+ *  the change carries no scope at all, which is a state and not an empty filter. PURE. */
+function scopeKeysOf(shipment: ShipmentForOutcome): Set<string> | null {
+  const keys = new Set<string>();
+  for (const raw of shipment.scopeQueries ?? []) {
+    const text = (raw ?? "").trim();
+    if (text.length > 0) { keys.add(text); const k = canonicalQueryKey(text); if (k.length > 0) keys.add(k); }
+  }
+  return keys.size > 0 ? keys : null;
+}
+
+/** DOES THIS ANSWER BELONG TO THIS CHANGE? The closed rule Decision holds (decision/membership.ts), spelled
+ *  out here because Measurement may not import Decision, and narrowed to what THIS read can actually see:
+ *  the question asked is one of the change's tracked ids, or its exact wording. Nothing else is a route in:
+ *  a word an account puts on everything is not evidence about one page. PURE. */
+function answerJoinsScope(rec: AiObservationRecord, scope: ReadonlySet<string>): boolean {
+  if (scope.has(rec.prompt_id)) return true;
+  const asked = canonicalQueryKey(rec.prompt_text ?? "");
+  // Two routes only, because the lean outcome projection this read runs on carries no journey: the exact
+  // question id, or the exact question wording. A fan-out route here would be a claim the read cannot keep.
+  return asked.length > 0 && scope.has(asked);
+}
 
 /** The two ends of ONE shipment's read: the 28 days ahead of the stamp, where the fallback before-number is
  *  found, and the 28 days after it, bounded by today. Null when the change carries no stamp to measure from. */
@@ -364,28 +377,25 @@ function shipmentWindow(shipment: ShipmentForOutcome, nowDay: string): { stamp: 
  *  ceiling at a year of 140 readings a day, nulling every outcome at once. So the union is merged,
  *  partitioned into pieces one read can hold, and shared; a piece that will not read fails only the
  *  shipments whose windows touch it (see outcome-windows.ts). */
-export async function aiOutcomesForShipments(
-  tenantId: string,
-  shipments: readonly ShipmentForOutcome[],
-  opts: ReadOpts & { now?: Date } = {},
-): Promise<(ShipmentAiOutcome | null)[]> {
+export async function aiOutcomesForShipments(tenantId: string, shipments: readonly ShipmentForOutcome[], opts: ReadOpts & { now?: Date } = {}): Promise<(ShipmentAiOutcome | null)[]> {
   const nowDay = dayOfInstant(opts.now ?? new Date());
   const windows = shipments.map((s) => shipmentWindow(s, nowDay));
-  const needed = shipments.map((s, i) => (windows[i] ? rangesFor(s, windows[i]!) : []));
-  if (needed.every((r) => r.length === 0)) return shipments.map(() => null);
+  // A CHANGE WITH NO SCOPE ASKS FOR NOTHING. Reading the account's whole window on its behalf is what made
+  // one page's answers into another page's result, so an unscopable Shipment never widens this read at all.
+  const scopes = shipments.map(scopeKeysOf);
+  const needed = shipments.map((s, i) => (windows[i] && scopes[i] ? rangesFor(s, windows[i]!) : []));
   const { rows, failed } = await readPartitioned(mergeRanges(needed.flat()), (from, to) => readRows(tenantId, { from, to }, { ...opts, projection: "outcome" }));
   return shipments.map((s, i) => {
     const w = windows[i];
     if (w == null) return null;
-    return failed.some((f) => needed[i]!.some((r) => overlaps(f, r))) ? unreadableOutcome(w) : outcomeFromRows(rows, s, w);
+    const scope = scopes[i];
+    if (scope == null) return unscopableOutcome(w);
+    if (failed.some((f) => needed[i]!.some((r) => overlaps(f, r)))) return unreadableOutcome(w);
+    return outcomeFromRows(rows.filter((r) => answerJoinsScope(r, scope)), s, w);
   });
 }
 
-export async function aiOutcomeForShipment(
-  tenantId: string,
-  shipment: ShipmentForOutcome,
-  opts: ReadOpts & { now?: Date } = {},
-): Promise<ShipmentAiOutcome | null> {
+export async function aiOutcomeForShipment(tenantId: string, shipment: ShipmentForOutcome, opts: ReadOpts & { now?: Date } = {}): Promise<ShipmentAiOutcome | null> {
   return (await aiOutcomesForShipments(tenantId, [shipment], opts))[0] ?? null;
 }
 
@@ -404,24 +414,28 @@ function rangesFor(shipment: ShipmentForOutcome, window: { stamp: string; from: 
 const elapsedSince = (stamp: string, to: string): number =>
   Math.max(1, Math.min(daysBetween(stamp, to) + 1, SHIPMENT_WINDOW_DAYS));
 
-/** WHEN THE ANSWERS THEMSELVES COULD NOT BE READ. Not a verdict and not a zero: the answers are on file and
- *  I say plainly that I could not get to them this time. */
-function unreadableOutcome(window: { stamp: string; to: string }): ShipmentAiOutcome {
+/** NOTHING READ, AND WHY. Not a verdict and not a zero: every count is honestly empty and the line says which
+ *  of the two silences this is. */
+function noReadOutcome(window: { stamp: string; to: string }, line: string): ShipmentAiOutcome {
   return {
     direction: "unclear",
     before: { day: null, checked: 0, mentioning: 0, rate: null, from: "unavailable" },
     after: { from: window.stamp, to: window.to, checked: 0, analyzed: 0, mentioning: 0, rate: null },
     coverage: { daysObserved: 0, daysElapsed: elapsedSince(window.stamp, window.to) },
-    line: "I could not read the answers for this period just now. They are safe and I will read them on the next refresh.",
+    line,
   };
 }
 
+/** THE ANSWERS ARE ON FILE AND I COULD NOT GET TO THEM THIS TIME. */
+const unreadableOutcome = (window: { stamp: string; to: string }): ShipmentAiOutcome =>
+  noReadOutcome(window, "I could not read the answers for this period just now. They are safe and I will read them on the next refresh.");
+
+/** I CANNOT TELL WHICH ANSWERS BELONG TO THIS CHANGE, and above all I will not hand it the whole account's. */
+const unscopableOutcome = (window: { stamp: string; to: string }): ShipmentAiOutcome =>
+  noReadOutcome(window, "I did not keep which searches this change was aimed at, so I cannot say which AI answers belong to it, and I will not hand it every answer this account bought. Every change I record from now on carries its own searches.");
+
 /** PURE over rows already in hand: one shipment's before, after, coverage and direction. */
-function outcomeFromRows(
-  all: readonly AiObservationRecord[],
-  shipment: ShipmentForOutcome,
-  window: { stamp: string; from: string; to: string },
-): ShipmentAiOutcome {
+function outcomeFromRows(all: readonly AiObservationRecord[], shipment: ShipmentForOutcome, window: { stamp: string; from: string; to: string }): ShipmentAiOutcome {
   const { stamp, to } = window;
   const rows = all.filter((r) => r.reporting_day >= window.from && r.reporting_day <= to);
 

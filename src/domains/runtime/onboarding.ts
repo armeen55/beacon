@@ -264,21 +264,29 @@ export async function saveProfileEdits(tenantId: string, edits: ProfileEdits, de
   return saved.persisted ? { ok: true } : { ok: false, error: "I could not save that just now. Try again in a moment." };
 }
 
-/** CONFIRMING WHAT IS ON SCREEN CONFIRMS WHAT IS ON SCREEN. This used to stamp operator_confirmed on all eleven sections, so the eight the
- *  step never renders (business type, archetype, problems, geography, differentiators, trust claims, both topic lists) came out of setup
- *  carrying the operator's own word for a guess they were never shown. Only SHOWN_FIELDS may take the confirmation, and isProfileConfirmed
- *  asks for exactly those, so the step still completes honestly and every unseen inference stays labelled as mine. */
+/** CONFIRMING WHAT IS ON SCREEN CONFIRMS WHAT IS ON SCREEN, AND EVERYTHING ON SCREEN. Two ways to get that
+ *  wrong have now been fixed here: stamping all eleven sections put the operator's word on facts the step
+ *  never rendered, and stamping only three left six research-steering facts on screen, read and left alone,
+ *  still labelled as my guess. The step renders every SHOWN_FIELD that holds a value, and this stamps exactly
+ *  those: a section with nothing in it is not on the screen, so it takes no confirmation and stays mine. */
 export async function confirmProfile(tenantId: string, deps?: OnboardingDeps): Promise<CommandResult> {
   const d = resolve(deps);
   const current = await d.loadProfile(tenantId);
   const patch: Partial<BusinessProfile> = {};
   for (const key of SHOWN_FIELDS) {
     const section = (current as unknown as Record<string, ProfileSection<unknown>>)[key];
+    if (!heldValue(section?.value)) continue;
     (patch as Record<string, unknown>)[key] = { ...section, origin: "operator_confirmed" };
   }
   const saved = await d.saveProfile(tenantId, patch);
   return saved.persisted ? { ok: true } : { ok: false, error: "I could not confirm that just now. Try again." };
 }
+
+/** PURE: is there anything here for the operator to read and agree with? THE SAME TEST THE STEP ITSELF APPLIES:
+ *  it joins a list and drops the row when the join comes out blank, so a list of empty strings never reaches
+ *  the screen and may not be stamped as read either. */
+const heldValue = (v: unknown): boolean => Array.isArray(v) ? v.some((x) => String(x ?? "").trim().length > 0)
+  : typeof v === "string" ? v.trim().length > 0 : v != null;
 
 function confirmedSection(value: unknown): ProfileSection<unknown> {
   return { value, origin: "operator_confirmed", confidence: 1, sourceUrls: [] };

@@ -37,14 +37,12 @@ describe("Today is in exactly one of four primary states", () => {
       { ...base, measuringCount: 5, research: { running: false }, smokeAlarm: LOSING },
       { ...base, waitingUntil: "2026-08-04T18:00:00.000Z" }, { ...base, measuringCount: 4, investigating: 2, research: { running: true, phaseLabel: "reading" } }];
     expect(cases.map((c) => buildTodayCommand(c).state)).toEqual(["researching", "act_now", "researching", "monitoring",
-      "needs_attention", "monitoring", "researching", "researching"]);
-  });
+      "needs_attention", "monitoring", "researching", "researching"]); });
   it("a genuine blocker takes the whole day, hands you no work, and points at the one fix", () => {
     const c = buildTodayCommand({ ...base, blockers: ["I am not tracking any questions for you yet, so my research cannot start."],
       blockerHref: "/settings/config#tracked-ai-prompts", readyChanges: [OPP], measuringCount: 4 });
     expect([c.why[0]!.includes("I am not tracking any questions for you yet"), c.ranked]).toEqual([true, []]);
-    expect(c.cta).toEqual({ label: "Fix this now", href: "/settings/config#tracked-ai-prompts" });
-  });
+    expect(c.cta).toEqual({ label: "Fix this now", href: "/settings/config#tracked-ai-prompts" }); });
   it("act now names the change, the effort, the ranker's own reason, and ONE queue ONE number", () => {
     const c = buildTodayCommand({ ...base, readyChanges: [OPP, SECOND], measuringCount: 9 });
     expect(c.headline).toBe("Do this next: Answer the exact question people search.");
@@ -67,8 +65,7 @@ describe("Today is in exactly one of four primary states", () => {
     // An open run still owes the measuring count and the read date.
     const running = buildTodayCommand({ ...base, measuringCount: 4, investigating: 2, firstReadOn: "2026-08-12",
       research: { running: true, phaseLabel: "reading the results pages for your strongest topics" } });
-    expect(running.why).toEqual(expect.arrayContaining(["4 of your changes are still measuring.", "The first read on those lands around August 12."]));
-  });
+    expect(running.why).toEqual(expect.arrayContaining(["4 of your changes are still measuring.", "The first read on those lands around August 12."])); });
   it("monitoring says every number it owes, and a cold account is never a bare zero", () => {
     // A proven loss nobody is working and an idea held back are facts, not present-tense work.
     const c = buildTodayCommand({ ...base, measuringCount: 6, heldForMeasurement: 2, firstReadOn: "2026-08-12", research: { running: false } });
@@ -78,9 +75,7 @@ describe("Today is in exactly one of four primary states", () => {
     expect(watching.why.some((l) => l.includes("I found 2 pages losing clicks"))).toBe(true);
     const cold = buildTodayCommand(base); // nothing measuring, ready or running: still something true
     expect(cold.headline).toBe("I am still gathering evidence, and I will rank your next move here as soon as one earns it.");
-    expect(cold.headline).not.toMatch(/\b0\b/);
-  });
-});
+    expect(cold.headline).not.toMatch(/\b0\b/); }); });
 
 describe("a screen with losses on it never reads as all clear", () => {
   const quiet = { ...base, measuringCount: 6, research: { running: false } };
@@ -98,9 +93,7 @@ describe("a screen with losses on it never reads as all clear", () => {
   it("the greeting never celebrates on a screen that names a blocker or a loss", () => {
     expect(commandAllowsCelebration(buildTodayCommand(quiet))).toBe(true);
     expect(commandAllowsCelebration(buildTodayCommand({ ...quiet, smokeAlarm: LOSING }))).toBe(false);
-    expect(commandAllowsCelebration(buildTodayCommand({ ...base, blockers: ["Search Console stopped answering me."] }))).toBe(false);
-  });
-});
+    expect(commandAllowsCelebration(buildTodayCommand({ ...base, blockers: ["Search Console stopped answering me."] }))).toBe(false); }); });
 
 // ── Changes: the receipts reach the operator ─────────────────────────────────
 
@@ -175,15 +168,13 @@ describe("a ranked card explains itself without being opened", () => {
     expect(quiet).toContain("Nothing implemented yet. Ship your first ready change and I start measuring it.");
     expect(quiet).not.toMatch(/Implemented 0|Measuring 0|Results 0/);
     const moving = await renderList({ ...view, summary: { ...view.summary, measuring: 2 } });
-    expect([moving.includes("Measuring 2"), /Implemented 0|Results 0/.test(moving)]).toEqual([true, false]);
-  });
+    expect([moving.includes("Measuring 2"), /Implemented 0|Results 0/.test(moving)]).toEqual([true, false]); });
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {
     const html = await renderList(viewOf([proposal()]));
     for (const s of ["Canonical tag", "changes where the page lives or whether people can find it",
       "read once and confirm before you make the change"]) expect(html, s).toContain(s);
     expect(await renderList(viewOf([atomic()]))).not.toContain("changes where the page lives"); // nothing dangerous, no hold
-  });
-});
+  }); });
 
 describe("a change detail hands over the whole investigation and the controls to act on it", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -194,8 +185,7 @@ describe("a change detail hands over the whole investigation and the controls to
       "a sharper line cannot fix two of your own pages", "What would change my mind", "this is not the explanation",
       "What I could not test, and why", "I do not hold this page&#x27;s indexing or canonical state."]) expect(html, s).toContain(s);
     // Not one raw slug reaches the screen.
-    for (const slug of ["cannibalization", "ctr_snippet", "technical_indexability"]) expect(html, slug).not.toContain(slug);
-  });
+    for (const slug of ["cannibalization", "ctr_snippet", "technical_indexability"]) expect(html, slug).not.toContain(slug); });
   it("the piece to paste says where it goes, why it works, and which sources are still owed", async () => {
     const html = await renderDetail(proposal());
     for (const s of ["Where it goes", "the page title itself", "What it does", "Why it works", "wins the click", "Sources to add before this goes out",
@@ -205,8 +195,7 @@ describe("a change detail hands over the whole investigation and the controls to
     // A factor that changed nothing says so; it never prints a bare zero.
     for (const s of ["Why this one ranks where it does", "this draft passed every safety check (moved it up 500 of a possible 500)",
       "this page already has a change I am measuring (moved it down 30 of a possible 30)", "did not move this one either way",
-      "I ranked this on about 163 clicks I can show are recoverable"]) expect(html, s).toContain(s);
-  });
+      "I ranked this on about 163 clicks I can show are recoverable"]) expect(html, s).toContain(s); });
   it("the operator can say which pieces they applied, what they actually wrote, or put the change away", async () => {
     const html = await renderDetail(proposal());
     // PIN (B): the control asks what they wrote; it never offers to skip the check.
@@ -220,8 +209,7 @@ describe("a change detail hands over the whole investigation and the controls to
     // the other.
     const twin = (label: string) => ({ ...proposal().bundle!.components[0]!, kind: "section" as const, label });
     const twins = await renderDetail(proposal({ bundle: { ...proposal().bundle!, components: [twin("The opening section"), twin("The sizing section")] } }));
-    expect([twins.includes("The opening section"), twins.includes("The sizing section"), twins.match(/type="checkbox" checked=""/g)?.length]).toEqual([true, true, 2]);
-  });
+    expect([twins.includes("The opening section"), twins.includes("The sizing section"), twins.match(/type="checkbox" checked=""/g)?.length]).toEqual([true, true, 2]); });
   // A MERGE IS THE ONE CHANGE THAT CANNOT BE TAKEN BACK BY RETYPING A SENTENCE. Everything it does to the page has to be on the screen before the operator confirms it,
   // and confirming it has to be a real act.
   it("a change that moves a page shows what moves, what survives, where it forwards, and how to undo it", async () => {
@@ -236,10 +224,8 @@ describe("a change detail hands over the whole investigation and the controls to
       "To undo it"]) expect(html, s).toContain(s);
     // A piece that RETIRES a page is not a page that happens to have nothing today.
     expect(html).not.toContain("This page has none today.");
-    expect(html).toContain("I understand this moves or hides a page");
-  });
+    expect(html).toContain("I understand this moves or hides a page"); });
   it("opens the investigation only when it holds one, never onto a line the card above already said", async () => {
     expect(await renderDetail(proposal({ causeFinding: undefined, rankingReceipt: undefined }))).not.toContain("Show me how you worked this out");
     expect(await renderDetail(proposal({ causeFinding: undefined }))).toContain("Show me how you worked this out"); // a ranking receipt is reasoning too
-  });
-});
+  }); });

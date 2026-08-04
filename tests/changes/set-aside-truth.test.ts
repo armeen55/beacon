@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server"; import type { ReactElement } from "react";
 import type { ChangeProposal } from "@/domains/decision";
+import { actionableProposalFailures as failures } from "@/domains/decision/validate-proposal";
 import type { ChangesView } from "@/app/(shell)/changes-data";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -33,7 +34,7 @@ const SEEN = new Date(Date.now() - 2 * 86_400_000).toISOString();
 const bundled = (basis: string, id = ID): ChangeProposal => ({
   id, tenantId: "t", kind: "existing_edit", pagePath: "/famous-iranian-comedians", pageLabel: "Famous Iranian comedians", primaryQuery: "iranian comedians",
   whyItMatters: "This page lost 163 clicks last month.", opportunityType: "Answer the exact search", estimatedEffortMinutes: 6, upsidePerMonth: 163,
-  confidence: "high", riskLevel: "low", status: "ready", basis, limitations: [], changeFamily: "title",
+  confidence: "high", riskLevel: "low", status: "ready", basis, limitations: [], changeFamily: "title", createdAt: SEEN,
   recommendedChange: { kind: "existing_edit", field: "title", before: "Comedians", after: EXACT },
   bundle: { objective: "Answer the exact question people search", metric: "clicks from that search", measurementPlan: "I compare the next 28 days with the last 28.",
     scope: { queries: ["iranian comedians"], prompts: [] }, confidenceReasons: ["163 clicks lost in 4 weeks"], alternatives: [], risks: [],
@@ -69,8 +70,7 @@ describe("a direct link renders only what the ranked list would, and always land
     expect([live.includes(EXACT), live.includes("I made this change"), live.includes("I set this idea aside")]).toEqual([true, true, false]);
     const stale = await link(bundled("basis_old::d2")); // no exact copy, no before/after, no way to record it
     expect([stale.includes("I set this idea aside"), stale.includes("See what I am working on now")]).toEqual([true, true]);
-    expect(stale).not.toMatch(new RegExp(`${EXACT}|Comedians</p>|I made this change`));
-  });
+    expect(stale).not.toMatch(new RegExp(`${EXACT}|Comedians</p>|I made this change`)); });
   // THE DOOR IS THE SAME DOOR. A direct link is not a side entrance: everything the ranked list refuses is refused here too, on the row's own evidence rather than on its
   // basis stamp alone.
   it("refuses at the link what the list refuses: a receipt that does not resolve, a merge filed as ready, evidence gone cold", async () => {
@@ -91,8 +91,21 @@ describe("a direct link renders only what the ranked list would, and always land
     shipped.held = [{ proposalId: ID, componentsApplied: [{ id: "0:title", kind: "title", label: "Title" }] }];
     const html = await link({ ...bundled(NOW), bundle: { ...b, components: [b.components[0]!, { ...b.components[0]!, kind: "meta", label: "Description", after: "A description" }] } } as ChangeProposal);
     const boxes = [...html.matchAll(/<input type="checkbox"[^>]*>/g)].map((m) => m[0]); shipped.held = [];
-    expect([boxes.length, boxes[0]!.includes("checked"), boxes[1]!.includes("checked")]).toEqual([2, false, true]);
-  });
+    expect([boxes.length, boxes[0]!.includes("checked"), boxes[1]!.includes("checked")]).toEqual([2, false, true]); });
+  /** FRESHNESS IS PER COMPONENT, because a receipt is mixed by design. One AI answer taken this morning used to keep a whole change alive beside a page reading and a
+   *  results check nobody had taken in months. And an atomic change carried no receipt at all, so it could never go stale: it ages on the day it was drafted. */
+  it("expires the change whose own component cites only cold readings, keeps the one whose readings are current, and ages a change with no receipt on its drafted date", () => {
+    const cold = new Date(Date.now() - 40 * 86_400_000).toISOString(), ctx = { tenantId: "t", currentBasis: NOW };
+    const b = bundled(NOW).bundle!, item = b.receipt.items[0]!;
+    const mixed = { ...bundled(NOW), bundle: { ...b, components: [b.components[0]!, { ...b.components[0]!, kind: "meta" as const, label: "Description", after: "A description", evidenceKeys: ["k2"] }],
+      receipt: { items: [item, { ...item, key: "k2", observedAt: cold }], missing: [], freshestObservedAt: SEEN } } } as ChangeProposal;
+    const { bundle: _b, ...atomic } = bundled(NOW);
+    // AND A BUNDLE WHOSE EVERY READING IS UNDATED still ages: real receipt keys (the page's own demand, the diagnosis, the winner pattern) carry no observation date at
+    // all, so per-component freshness alone would have let such a change stand forever. With nothing dated to age, it ages on the day it was drafted, exactly as an
+    // atomic change does.
+    const undated = { ...bundled(NOW), createdAt: cold, bundle: { ...b, receipt: { items: [{ ...item, observedAt: null }], missing: [], freshestObservedAt: null } } } as ChangeProposal;
+    expect([failures(mixed, ctx).length > 0, failures(bundled(NOW), ctx).length, failures({ ...atomic, createdAt: cold } as ChangeProposal, ctx).length > 0,
+      failures(undated, ctx).length > 0, failures({ ...undated, createdAt: SEEN } as ChangeProposal, ctx).length]).toEqual([true, 0, true, true, 0]); });
   it("sends live work with nothing to unpack home to the list, and gives a put-aside change the put-aside screen", async () => {
     const { bundle: _b, ...flat } = bundled(NOW); // live, actionable, but nothing to unpack: its home is the list
     await expect(link(flat as ChangeProposal)).rejects.toThrow("NEXT_REDIRECT:/changes");
@@ -113,9 +126,7 @@ describe("a direct link renders only what the ranked list would, and always land
       components: [{ ...b.components[0]!, kind: "consolidation", label: "Merge the two pages", risk: "dangerous", redirectTo: "https://site.example/keep" }] } } as unknown as ChangeProposal;
     const refused = await mark(merge);
     expect([refused.success, refused.error?.includes("confirm"), shipped.records.length]).toEqual([false, true, 0]);
-    expect([(await mark(merge, { destructiveConfirmed: true })).success, shipped.records.length]).toEqual([true, 1]);
-  });
-});
+    expect([(await mark(merge, { destructiveConfirmed: true })).success, shipped.records.length]).toEqual([true, 1]); }); });
 
 describe("an account that skipped the connectors still reaches its own Today", () => {
   // Connecting Google is worth doing and it is not the price of entry: an account with approved questions and research of its own must not be told to connect before it
@@ -134,9 +145,7 @@ describe("an account that skipped the connectors still reaches its own Today", (
     const blind = await gate(() => { throw new Error("database unreachable"); });
     expect([blind.isDemoMode, blind.unreadable]).toEqual([false, true]);
     for (const m of ["@/lib/seed-data.server", "@/lib/connector-store", "@/lib/persistence/repositories"]) vi.doUnmock(m);
-    vi.resetModules();
-  });
-});
+    vi.resetModules(); }); });
 
 describe("an empty Changes queue reads as a decision, not an empty screen", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -145,13 +154,11 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     for (const said of ["I set aside 21 earlier ideas that no longer clear it", "I am still checking your pages", "I will rank your next change here as soon as one earns it"]) expect(html).toContain(said);
     expect(html).not.toMatch(/No changes yet|error|sorry|oops/i);
     // A bar I could not READ is not a bar I raised, so that case may not claim one.
-    expect(await renderChanges({ ...emptyView(21), basisUnreadable: true })).not.toContain("I set aside 21");
-  });
+    expect(await renderChanges({ ...emptyView(21), basisUnreadable: true })).not.toContain("I set aside 21"); });
   it("Changes and Today tell the same story when the decision has zero actionable candidates", async () => {
     const view = emptyView(21); const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
     const today = buildTodayViewFromChanges(view); const said = "I set aside 21 earlier ideas that no longer clear it";
-    expect([today.headerSentence.includes(said), today.nextOpportunities.length, (await renderChanges(view)).includes(said)]).toEqual([true, 0, true]);
-  });
+    expect([today.headerSentence.includes(said), today.nextOpportunities.length, (await renderChanges(view)).includes(said)]).toEqual([true, 0, true]); });
   it("keeps everything this release actually knows when the bar moves under it", async () => {
     // The gated rebuild used to be handed NOTHING, so a basis shift silently erased the retry date, the pages under investigation, the ideas held back and the kernel's
     // own verdicts.
@@ -172,8 +179,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     expect([today.headerSentence === "stale", today.headerSentence.includes("waiting until August 4")]).toEqual([false, true]);
     expect([today.waitingUntil, today.investigating, today.heldForMeasurement]).toEqual(["2026-08-04T18:00:00.000Z", 2, 3]);
     expect(today.declineNotes).toEqual(stored.today.today.declineNotes);
-    vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/runtime"); vi.resetModules();
-  });
+    vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/runtime"); vi.resetModules(); });
   it("checks a stored release against the bar I hold NOW, not against itself", async () => {
     const { withCurrentBasisOnly, setAsideHint } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data");
     // demotedStaleBasis 2 OVERLAPS the 3 listed rows in an old-rule release: 3, never 5.

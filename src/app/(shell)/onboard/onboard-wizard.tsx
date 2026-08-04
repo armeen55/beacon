@@ -175,6 +175,8 @@ function ConfirmStep({ state }: { state: OnboardingState }) {
         <button type="button" onClick={() => saveEdits(() => router.refresh())} disabled={pending} className={GHOST}>Save changes</button>
       </div>
 
+      <AlsoConfirming state={state} />
+
       <div className="rounded-lg border border-border/60 bg-surface-inset/30 p-4 space-y-3">
         <p className="text-[13px] font-medium">Or tell me in plain words</p>
         <textarea value={instruction} onChange={(e) => setInstruction(e.target.value)} rows={2} placeholder="e.g. We also serve small law firms, and drop the plumbing mention." className={FIELD} />
@@ -195,6 +197,33 @@ function ConfirmStep({ state }: { state: OnboardingState }) {
 
       {error ? <p className="text-[13px] text-rose-600" role="alert">{error}</p> : null}
       <button type="button" onClick={() => saveEdits(() => run(() => confirmProfileAction(), () => router.push("/onboard?step=4")))} disabled={pending} className={BTN}>Confirm and continue</button>
+    </div>
+  );
+}
+
+/** THE REST OF WHAT "CONFIRM" MEANS. Six more facts I read off the site steer the research: what I search for,
+ *  the questions I ask an assistant, the pages I read and the subjects I leave alone. They used to be stamped
+ *  as the operator's own word without ever appearing, so the button claimed more than the screen showed. Read
+ *  them here, correct any of them in plain words below, and pressing confirm speaks for all of them. Only
+ *  what I actually hold is listed: an empty line is not a fact, and nothing empty takes a confirmation. */
+function AlsoConfirming({ state }: { state: OnboardingState }) {
+  const p = state.profile;
+  const rows: Array<[string, string]> = ([
+    ["Kind of business", p.businessType ?? ""], ["Kind of site", p.siteArchetype ?? ""],
+    ["Problems you solve", p.customerProblems.join(", ")], ["Where you work", p.geographicScope.join(", ")],
+    ["Topics to own", p.topicsToOwn.join(", ")], ["Topics to leave alone", p.topicsToExclude.join(", ")],
+  ] as Array<[string, string]>).filter(([, v]) => v.trim().length > 0);
+  if (rows.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-border/60 bg-surface divide-y divide-border/60">
+      <p className="px-4 py-3 text-[13px] font-medium">Confirming also covers these {rows.length}, which decide what I research</p>
+      {rows.map(([k, v]) => (
+        <div key={k} className="px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{k}</p>
+          <p className="text-[14px]">{v}</p>
+        </div>
+      ))}
+      <p className="px-4 py-2 text-[12px] text-muted-foreground">Anything wrong here, change it in plain words below before you confirm.</p>
     </div>
   );
 }

@@ -193,8 +193,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
       pagePath: "/nowruz-guide", pageUrl: "https://fixture-outdoors.example/nowruz-guide", diagnosisCause: "weak_opening", causeFinding: own }) };
     const res = await run(counting().complete);
     const bundled = res.proposals.find((p) => p.id.endsWith("::bundle"))!;
-    expect([bundled.diagnosisCause, bundled.causeFinding!.cause]).toEqual(["weak_opening", "weak_opening"]);
-  });
+    expect([bundled.diagnosisCause, bundled.causeFinding!.cause]).toEqual(["weak_opening", "weak_opening"]); });
   it("calls a pass that saved nothing a FAILURE, and a real gap with no trusted draft exactly that", async () => {
     reset(SEEN()); env.failWrites = true; const failed = await run(counting().complete);
     expect([failed.outcome, failed.persisted, env.saved.length]).toEqual(["persistence_failed", 0, 1]); // it tried, and it says so
@@ -413,8 +412,7 @@ describe("what the winning pages share reaches the operator, and never one of th
     const page = res.proposals.find((p) => p.kind === "new_page")!; const keys = page.bundle!.receipt.items.map((i) => i.key);
     expect(keys).toEqual(expect.arrayContaining(["pattern", "opening", "common1"])); // the verdict's OWN lines, not a second paraphrase of one reading
     expect(keys).not.toContain("gap1"); // I own no page for this subject, so none was supplied and no gap was ever written
-    expect(page.bundle!.receipt.items.find((i) => i.key === "common1")!.fact).toBe("3 of the 3 cover what each piece means."); });
-});
+    expect(page.bundle!.receipt.items.find((i) => i.key === "common1")!.fact).toBe("3 of the 3 cover what each piece means."); }); });
 // ── every door reaches the deep producer, not only a proven click gap ─────────
 /** A page the click door can NEVER select: about 27 clicks short of the 50 a change owes, and its displayed line already carries the searcher's words. */
 const WHOLE = ownedPage(GAP_URL, `${HAFT} guide for Nowruz`, { impressions: 900, clicks: 45 }, [{ query: HAFT, impressions: 900, clicks: 45, position: 4.1 }], ["Persian New Year Customs", "what each piece means"]);
@@ -471,8 +469,7 @@ describe("a page earns the deep read through the door its own evidence opens", (
     const res = await doorRun(doorWorld({}, [WHOLE, split], [{ query: HAFT, note: "two of your own pages", competingUrls: [GAP_URL, SPLIT_URL] }]));
     const deep = res.proposals.find((p) => p.bundle);
     expect(res.proposals.every((p) => p.bundle?.components.some((c) => c.kind === "title") !== true)).toBe(true);
-    if (deep) expect(deep.bundle!.components.map((c) => c.kind)).toEqual(["consolidation"]);
-  });
+    if (deep) expect(deep.bundle!.components.map((c) => c.kind)).toEqual(["consolidation"]); });
 }); // ── do I already have the right page for what I investigated? ────────────────
 const FOOD = "fixture-outdoors.example/nowruz-food"; const cands = (s: EvidenceSnapshot) => ownedCandidatesFor(s, buildTopicInvestigations(s)[0]!);
 const UBIQUITOUS = ["food", "music", "gifts", "fire", "dance", "poetry", "cards", "tables", "flowers", "travel"].map((w) => ({ query: `nowruz ${w}`, searchVolume: null, competition: null, competitionLevel: null, difficulty: null, intent: null })); const LOOKALIKE = ownedPage("fixture-outdoors.example/nowruz-gifts", "Nowruz Traditions and Gifts", { impressions: 400, clicks: 8 }, [{ query: "nowruz gifts", impressions: 400, clicks: 8, position: 9 }]); // every phrase this account owns carries one word, so that word proves nothing here
@@ -620,5 +617,4 @@ describe("why this page loses the click, one named cause at a time", () => {
         expect(c.cause.competingExplanations.every((x) => x.reason.length > 0)).toBe(true); expect(c.cause.falsifier.length).toBeGreaterThan(0);
         expect(c.cause.notConsidered.map((n) => n.cause)).toEqual(expect.arrayContaining(NEVER_HELD));
         expect(c.cause.notConsidered.every((n) => n.missing.length > 0)).toBe(true);
-        expect(`${c.cause.explanation} ${c.cause.falsifier}`).not.toMatch(/[–—]|SERP|experiment|baseline/); } } });
-});
+        expect(`${c.cause.explanation} ${c.cause.falsifier}`).not.toMatch(/[–—]|SERP|experiment|baseline/); } } }); });

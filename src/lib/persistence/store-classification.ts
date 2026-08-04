@@ -33,7 +33,6 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "tracked-prompts",
   "tracked-entities",
   "prompt-answer-observations",
-  "local-reviews",
   "page-visibility",
   "recommendation-responses",
   "pattern-evidence",

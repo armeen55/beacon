@@ -12,7 +12,8 @@
  *
  * SCOPE: this registry lists the THREE live connectors only, and every one of them
  * READS. The stored-row provider union in connector-store (google_gbp, yelp,
- * callrail, wix, ...) is deliberately WIDER for historical token rows.
+ * callrail, wix, ...) is deliberately WIDER, and holds ONLY so historical token rows
+ * still decode: the server-side code behind those sources was deleted, not hidden.
  * "Live" = shows a connect card, is counted in the health rollup, and feeds a
  * real surface.
  *

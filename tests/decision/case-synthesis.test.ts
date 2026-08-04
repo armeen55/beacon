@@ -87,8 +87,7 @@ describe("what the semantic reading may change about my case registry", () => {
     expect(Object.keys(held(apply(reading()), LEADER.id)!)).toEqual(["id", "anchors"]); // an old row stays exactly the case it was: no page, no parent, no new key
     const first = apply(reading({ pageLinks: [{ caseId: RUGS.id, url: "/persian-rugs", relation: "covers", reason: "This page is the answer." }] }));
     const saved = JSON.parse(JSON.stringify(first.cases)) as ResearchCase[]; // saved, then read back in a fresh process
-    expect(held(applySynthesis(saved, reading(), DOMAINS), RUGS.id)!.pages).toEqual([{ url: "/persian-rugs", relation: "covers" }]); });
-});
+    expect(held(applySynthesis(saved, reading(), DOMAINS), RUGS.id)!.pages).toEqual([{ url: "/persian-rugs", relation: "covers" }]); }); });
 // ── the gateway wrapper: what may come back, and what costs a second call ─────
 const candidate = (c: ResearchCase, queries: string[], ownedUrls: string[] = []): SynthesisCandidate =>
   ({ id: c.id, label: queries[0]!, queries, prompts: [], ownedUrls, groupedBy: ["shared_entity"] });
@@ -120,8 +119,7 @@ describe("the one reading a pass may buy", () => {
     const s = seam(MERGE); const cacheImpl = memoryCache();
     const first = await synthesizeCases(CANDIDATES, "t_fixture", { complete: s.complete, cacheImpl });
     const again = await synthesizeCases([...CANDIDATES].reverse(), "t_fixture", { complete: s.complete, cacheImpl }); // the same set, listed the other way round
-    expect([first, again, s.calls()]).toEqual([MERGE, MERGE, 1]); });
-});
+    expect([first, again, s.calls()]).toEqual([MERGE, MERGE, 1]); }); });
 it("keeps the FILE's survivor when the model prefers the smaller case, and an emptied case aliases to its real taker", () => {
   // The model says keep the 1-anchor case; the file's rule (most anchors, then smaller id) keeps the 4-anchor case.
   const big = { id: "inv_zzz_big", anchors: ["b1", "b2", "b3", "b4"] }, small = { id: "inv_aaa_small", anchors: ["s1"] };

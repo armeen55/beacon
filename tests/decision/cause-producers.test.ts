@@ -155,9 +155,7 @@ describe("a named cause produces the change that fixes it", () => {
       const out = await rebuildOf("Rain barrel sizing"); // a subject this page already covers: it does not fire
       expect(out.status).toBe("none");
       if (out.status !== "none") return;
-      expect(out.reason).toBe("I could not write the section that would close the gap on the winning pages, so I am handing you nothing rather than filler.");
-    });
-  });
+      expect(out.reason).toBe("I could not write the section that would close the gap on the winning pages, so I am handing you nothing rather than filler."); }); });
   /** A SPLIT IS AN INVESTIGATION UNTIL THE EVIDENCE NAMES THE SURVIVOR, and the merge that does ship names it, names what moves, and keeps the two-step hold: downgrading
    *  a merge's danger took that hold off the one change that needs it AND made the stored row fail re-validation as mislabelled. */
   it("writes no merge while the survivor is unproven, then hands over the proven one and holds it for review", async () => {
@@ -183,8 +181,7 @@ describe("a named cause produces the change that fixes it", () => {
     expect(c.evidenceKeys).toContain("demand-competing");
     // AND THROUGH THE VALIDATOR AGAIN on exactly the shape stored: an unmarked lever is rejected as mislabelled.
     const again = validateProposal(p, { evidenceText: b.receipt.items.map((i) => i.fact).join(" ") });
-    expect([again.verdict, again.reasons.join(" ").includes("confirm it before you make the change"), bought]).toEqual(["needs_review", true, []]);
-  });
+    expect([again.verdict, again.reasons.join(" ").includes("confirm it before you make the change"), bought]).toEqual(["needs_review", true, []]); });
   /** THE ASSEMBLED ROW IS GATED, NOT ONLY ITS PIECES: the per-component gate reads a synthetic proposal that carries no cause and no limitations, so a cause pointing at
    *  a receipt line nobody wrote sailed past it. */
   it("refuses to ship an assembled change whose cause points at a receipt line the receipt never carried", async () => {
@@ -194,8 +191,7 @@ describe("a named cause produces the change that fixes it", () => {
     expect([out.status, out.status === "none" && out.reason.includes("could not show you")]).toEqual(["none", true]); });
   it("never reaches a drafter on evidence too thin to name a cause", async () => {
     const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, complete: seam() }); // no pattern, so no cause that needs one is even considered
-    expect([out.status, bought, out.status === "none" && out.reason.includes("I have not looked at the results page for that search yet")]).toEqual(["none", [], true]); });
-});
+    expect([out.status, bought, out.status === "none" && out.reason.includes("I have not looked at the results page for that search yet")]).toEqual(["none", [], true]); }); });
 /** A DOOR ANSWERS FOR ITS OWN CASE: a page selected because an engine skipped it, whose answer I no longer hold, is refused in that door's words. The wrong reason is
  *  worse than no reason, and neither is drafted. */
 describe("every door answers for its own evidence", () => {
@@ -215,8 +211,7 @@ describe("every door answers for its own evidence", () => {
       expect(await refused({ door })).not.toMatch(/losing enough clicks|[–—]|experiment|control group|baseline|SERP/i);
     }
     expect(bought).toEqual([]); // a door that cannot show its own case never reaches a drafter
-  });
-});
+  }); });
 describe("the wording cause keeps the path it has always had", () => {
   const SERP = { ...emptyResearchEvidence(), serpEvidence: [{ observedAt: null, query: "rain barrel sizing", aiOverview: [], aiMode: [], paa: [], related: [],
     organic: [{ rank: 1, domain: "gardenguide.example", url: "https://gardenguide.example/a", title: "Rain barrel sizing guide" },
@@ -234,10 +229,8 @@ describe("the wording cause keeps the path it has always had", () => {
     expect([p.diagnosisCause, p.estimatedEffortMinutes, p.riskLevel, p.status]).toEqual(["ctr_snippet", 1, "low", "ready"]);
     expect(p.bundle!.risks[0]).toBe("Changing a title moves where the page ranks while search engines re-read it, so give this the full 28 days before you judge it.");
     expect(p.bundle!.risks[1]).toBe("I do not hold this page's full body text, so read each line once before you paste it.");
-    expect(bought).toEqual(["atomic_edit"]);
-  });
+    expect(bought).toEqual(["atomic_edit"]); });
   it("refuses a headline for a door that never measured a click, and buys nothing writing it", async () => {
     const door = { door: "coverage_verdict" as const, entry: "I gave this page my deepest read because my comparison named it.", evidence: { query: "rain barrel sizing", engine: null, promptText: null, competingUrls: [] as string[], window: null } };
     const out = await produceBundleForSnapshot(snapshot({ research: SERP }), { ...OPTS, complete: titleSeam, door, coverage: decided(pattern({ commonHeadings: [{ heading: "Rain barrel sizing", seenOn: [0, 1, 2] }], openingPattern: "" })) });
-    expect(out.status === "none" && out.reason).toContain("coverage of what it is missing, not a new headline"); expect(bought).toEqual([]); });
-});
+    expect(out.status === "none" && out.reason).toContain("coverage of what it is missing, not a new headline"); expect(bought).toEqual([]); }); });

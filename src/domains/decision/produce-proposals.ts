@@ -94,11 +94,9 @@ export type ProduceProposalsResult = {
 
 /** Bounded drafting: the strongest few, never a queue. */
 export const DEFAULT_MAX_DRAFTS = 3;
-/** One bounded page of this account's own inventory, never the whole site. */
-const MAX_INVENTORY = 200;
+const MAX_INVENTORY = 200; // one bounded page of this account's own inventory, never the whole site
 
-/** THE ONE PAGE OF MINE A VERDICT DECIDED TO IMPROVE, as facts, out of words this pass ALREADY holds. Null
- *  for `create_new`, and null when I do not hold that page's own words. */
+/** THE ONE PAGE OF MINE A VERDICT DECIDED TO IMPROVE, as facts, out of words this pass ALREADY holds. Null for `create_new`, and null when I do not hold its own words. */
 function ownedFactsFor(snapshot: EvidenceSnapshot, decided: DecidedTopic): ReturnType<typeof extractPageFacts>[number] | null {
   if (decided.decision.verdict !== "improve_existing") return null;
   const url = decided.decision.ownedUrls[0];
@@ -114,11 +112,7 @@ function ownedFactsFor(snapshot: EvidenceSnapshot, decided: DecidedTopic): Retur
 const pageKeys = (pageUrl: string | null | undefined): string[] => {
   const url = (pageUrl ?? "").trim().toLowerCase();
   if (!url) return [];
-  try {
-    return [url, new URL(url.startsWith("http") ? url : `https://${url}`).pathname || "/"];
-  } catch {
-    return [url];
-  }
+  try { return [url, new URL(url.startsWith("http") ? url : `https://${url}`).pathname || "/"]; } catch { return [url]; }
 };
 
 /** The pages still being measured: what the caller passed, else the Shipment STAMPS (Decision -> Measurement is the
@@ -284,10 +278,11 @@ export async function produceProposalsForTenant(
   // A CHANGE THAT CANNOT SHOW ITS WORK, OR WHOSE READINGS WENT COLD, IS TAKEN BACK, on the SAME verdict every
   // door asks: left on file it kept its slot, and an identical redraft answered "unchanged" forever.
   const retired = new Set<string>();
+  /** THE ONE WAY A CHANGE LEAVES: a change nothing supports is not a change to look at more carefully. */
+  const retire = async (p: ChangeProposal): Promise<void> => { if (persist) await withdrawChangeProposal(p); existing.delete(p.id); retired.add(p.id); };
   for (const p of held) {
     if (!p.bundle || actionableProposalFailures(p, { tenantId: p.tenantId, currentBasis: p.basis ?? null, now: opts.now }).length === 0) continue;
-    if (persist) await withdrawChangeProposal(p);
-    existing.delete(p.id); retired.add(p.id);
+    await retire(p);
   }
   const live = held.filter((p) => !retired.has(p.id));
   // A HOLD HAPPENS WHERE THE DECISION IS MADE, NOT WHERE THE ROW IS WRITTEN: the ladder's
@@ -319,17 +314,12 @@ export async function produceProposalsForTenant(
     // SECOND live page for one subject the first time two investigations merged.
     const ids = [decided.investigation.key, ...decided.investigation.aliasKeys];
     const heldPage = live.find((p) => p.kind === "new_page" && current(p) && ids.some((k) => p.id.includes(`::${k}::`))) ?? null;
-    if (heldPage) {
-      proposals.push(heldPage);
-      reused += 1;
-    } else {
+    if (heldPage) { proposals.push(heldPage); reused += 1; }
+    else {
       const built = await buildNewPageProposal(decided, tenantId, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache })
         .catch((e) => ({ status: "none" as const, reason: e instanceof Error ? e.message : String(e) }));
-      if (built.status === "built") {
-        const page = { ...built.proposal, ...(basis ? { basis } : {}) };
-        proposals.push(page);
-        await persistIfChanged(page);
-      } else log.info("[produce-proposals] no new page this pass", { tenantId, reason: built.reason });
+      if (built.status === "built") { const page = { ...built.proposal, ...(basis ? { basis } : {}) }; proposals.push(page); await persistIfChanged(page); }
+      else log.info("[produce-proposals] no new page this pass", { tenantId, reason: built.reason });
     }
   }
 
@@ -367,16 +357,25 @@ export async function produceProposalsForTenant(
   }
   const enteredBy = new Map<string, string>(); // which door each page that got a deep change came through
 
-  // A READY CHANGE MAY NOT OUTLIVE ITS OWN EXPLANATION. The basis fingerprints the account, not the evidence,
-  // so a stored row kept rendering Ready while today's diagnosis no longer supported it. Every live bundle whose
-  // page no longer earns an action this pass is set aside, with the reason the operator reads.
+  // A CHANGE MAY NOT OUTLIVE ITS OWN EXPLANATION. This used to DEMOTE such a row to needs_review, which left it fully actionable:
+  // needs_review means "look at this first", not "this is unproven", so an unsupported change kept its place on the operator's list
+  // under a quieter name and could still be applied. A page this pass no longer proves anything about is TAKEN BACK; one that still
+  // earns an action is untouched, whatever its status.
+  // AND ONLY ABOUT A PAGE THIS PASS ACTUALLY READ. The snapshot is FAIL-SOFT BY DESIGN: every loader leg catches to empty, so a database blip is indistinguishable from
+  // an account with fewer pages, and a pass that reached half the site would have taken back every change on the half it never saw. Silence is not a verdict.
+  const readNow = new Set(snapshot.ownedPages.flatMap((o) => pageKeys(o.url)));
   const provenNow = new Set([...acted.flatMap((c) => pageKeys(c.pageUrl)), ...selectedKeys]);
   for (const p of live) {
-    if (!p.bundle || p.kind !== "existing_edit" || p.status !== "ready" || !current(p)) continue;
-    if (provenNow.has((p.pagePath ?? "").trim().toLowerCase())) continue;
-    const why = candidates.find((c) => pageKeys(c.pageUrl).includes((p.pagePath ?? "").trim().toLowerCase()))?.diagnosis?.explanation;
-    await persistIfChanged({ ...p, status: "needs_review", confidence: "low",
-      limitations: [...new Set([...p.limitations, why ?? "My evidence no longer shows that this change is the fix, so I set it aside instead of leaving it on your list."])] });
+    const key = (p.pagePath ?? "").trim().toLowerCase();
+    if (!p.bundle || p.kind !== "existing_edit" || !current(p) || retired.has(p.id) || !readNow.has(key) || provenNow.has(key)) continue;
+    await retire(p);
+  }
+  // AND THE PAGE NOBODY EARNED. A new page rests on ONE coverage verdict; when that verdict stopped earning it nothing touched the row, so it sat current and invisible
+  // until its receipt aged out weeks later. Only a pass that actually REACHED a verdict may retire one, so a research gap never destroys real work.
+  if (decided) for (const p of live) {
+    if (p.kind !== "new_page" || !current(p) || retired.has(p.id)) continue;
+    if (earnedNewPage(decided.decision) && [decided.investigation.key, ...decided.investigation.aliasKeys].some((k) => p.id.includes(`::${k}::`))) continue;
+    await retire(p);
   }
 
   let noDraft = 0;

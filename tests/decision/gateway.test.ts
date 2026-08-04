@@ -66,8 +66,7 @@ describe("openAIStructuredResponse — fails closed before any fetch", () => {
     expect([res.kind, capture.calls]).toEqual([kind, 0]);
     if (res.kind === "blocked_budget") expect(res.reason).toBe(reason);
     if (res.kind === "invalid_response") { expect(res.reason).toContain(reason); expect(res.provenance).toBeUndefined(); } // no provenance, no cost
-  });
-});
+  }); });
 describe("openAIStructuredResponse — request body", () => {
   it("sends EXACT Responses fields and omits Chat-Completions fields", async () => {
     const { impl, capture } = fakeFetch(completedEnvelope(JSON.stringify({ title: "T", note: null, score: 1 })));
@@ -79,9 +78,7 @@ describe("openAIStructuredResponse — request body", () => {
     expect(body.text.format.schema.additionalProperties).toBe(false); // reasoning model gets reasoning.effort default
     expect(body.reasoning).toEqual({ effort: "low" });
     // Chat-Completions fields MUST be absent.
-    for (const k of ["messages", "max_completion_tokens", "reasoning_effort", "response_format"]) expect(body[k]).toBeUndefined();
-  });
-});
+    for (const k of ["messages", "max_completion_tokens", "reasoning_effort", "response_format"]) expect(body[k]).toBeUndefined(); }); });
 describe("openAIStructuredResponse — envelope outcomes", () => {
   it("parses a completed valid response to ok with provenance and normalized nulls", async () => {
     const { impl } = fakeFetch(completedEnvelope(JSON.stringify({ title: "Hello", note: null, score: null })));
@@ -92,19 +89,16 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
     expect([value.title, "note" in value, value.score, SCHEMA.safeParse(value).success]).toEqual(["Hello", false, null, true]); // optional-not-nullable null stripped, nullable kept
     const p = res.provenance; // provenance carries the account
     expect([p.tenantId, p.responseId, p.servedModel, p.requestedModel, p.status]).toEqual(["tenant-fixture", "resp_abc123", "gpt-5-mini", "gpt-5-mini", "completed"]);
-    expect([p.inputTokens, p.outputTokens, p.costUsd, p.retryCount]).toEqual([1200, 300, estimateCost("gpt-5-mini", 1200, 300), 0]);
-  });
+    expect([p.inputTokens, p.outputTokens, p.costUsd, p.retryCount]).toEqual([1200, 300, estimateCost("gpt-5-mini", 1200, 300), 0]); });
   it("returns refusal (no value) when the message carries a refusal part", async () => {
     const env = completedEnvelope("ignored");
     env.output = [{ type: "message", role: "assistant", content: [{ type: "refusal", refusal: "I can't." }] }] as any;
     const res = await openAIStructuredResponse(baseArgs({ fetchImpl: fakeFetch(env).impl }));
-    expect([res.kind, res.kind === "refusal" && res.provenance.responseId]).toEqual(["refusal", "resp_abc123"]);
-  });
+    expect([res.kind, res.kind === "refusal" && res.provenance.responseId]).toEqual(["refusal", "resp_abc123"]); });
   it("returns incomplete (no value) when status is incomplete", async () => {
     const env = completedEnvelope("partial", { status: "incomplete", incomplete_details: { reason: "max_output_tokens" } });
     const res = await openAIStructuredResponse(baseArgs({ fetchImpl: fakeFetch(env).impl }));
-    expect([res.kind, res.kind === "incomplete" && res.reason]).toEqual(["incomplete", "max_output_tokens"]);
-  });
+    expect([res.kind, res.kind === "incomplete" && res.reason]).toEqual(["incomplete", "max_output_tokens"]); });
   // Every answer that is NOT a usable value, named exactly, and never substring-hunted out of prose.
   it.each([
     ["a failed status", completedEnvelope("x", { status: "failed", output: [] }), {}, "invalid_response", "failed_status"],
@@ -125,6 +119,5 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
   });
   it("floors reasoning-model timeouts to 90s and leaves others alone", () => {
     expect([isReasoningModel("gpt-5-mini"), isReasoningModel("gpt-4o-mini")]).toEqual([true, false]);
-    expect([effectiveTimeoutMs("gpt-5-mini", 1_000), effectiveTimeoutMs("gpt-5-mini", 120_000), effectiveTimeoutMs("gpt-4o-mini", 1_000)]).toEqual([90_000, 120_000, 1_000]);
-  });
+    expect([effectiveTimeoutMs("gpt-5-mini", 1_000), effectiveTimeoutMs("gpt-5-mini", 120_000), effectiveTimeoutMs("gpt-4o-mini", 1_000)]).toEqual([90_000, 120_000, 1_000]); });
 });

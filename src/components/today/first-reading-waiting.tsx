@@ -41,14 +41,15 @@ export function FirstReadingWaiting({
           </h1>
           <p className="text-[14px] text-muted-foreground">
             I am reading your site and checking how AI assistants answer your
-            questions. This fills in while you are signed in. Connecting Google
-            Search Console makes the first reading sharper.
+            questions. This runs once a day on its own, so you can close this
+            and come back. Connecting Google Search Console is optional and
+            makes the reading sharper.
           </p>
           <Link
             href="/settings/connectors"
             className="inline-flex items-center rounded-md bg-accent-primary px-4 py-2 text-[13px] font-semibold text-white hover:bg-accent-primary/90"
           >
-            Connect your data sources →
+            Connect Search Console →
           </Link>
         </div>
 
@@ -126,18 +127,20 @@ export function FirstReadingWaiting({
           <p className="font-medium">What happens next</p>
           <ol className="list-decimal pl-5 text-muted-foreground space-y-1">
             <li>
+              I do the research: once a day I read your pages, check how AI
+              assistants answer your questions, and fill this dashboard with
+              your search demand and who you get compared to. Nothing here waits
+              on you being signed in.
+            </li>
+            <li>
               <Link
                 href="/settings/connectors"
                 className="font-medium text-foreground underline underline-offset-2 hover:text-accent-primary"
               >
-                Connect your sources
-              </Link>: Google Search Console plus optional GA4 or
-              Clarity.
-            </li>
-            <li>
-              Stay signed in: I read your pages and check how AI assistants
-              answer your questions while you use Beacon, then fill this
-              dashboard with your search demand and who you get compared to.
+                Connect Search Console
+              </Link>{" "}
+              when you want to: optional, and it lets me name the exact searches
+              you already earn clicks on instead of estimating them.
             </li>
             <li>
               Review your recommendations: once your first reading comes in,

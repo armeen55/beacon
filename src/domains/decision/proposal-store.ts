@@ -54,8 +54,11 @@ const FAMILY_BY_KIND: Record<BundleComponentKind, ActionFamily> = {
  *  page outranks rewriting the body. Deterministic, so one bundle always lands on the same identity. */
 const FAMILY_PRECEDENCE: readonly ActionFamily[] = ["new_page", "consolidation", "technical-family", "section-family", "links-family", "title-family"];
 
-/** PURE: which family this change belongs to, off a bundle's components or an atomic edit's own field. */
-function actionFamilyOf(p: ChangeProposal): ActionFamily {
+/** PURE: which family this change belongs to, off a bundle's components or an atomic edit's own field. THE ONE
+ *  ANSWER: the id a producer mints, the `changeFamily` it stamps and the identity this store files it under
+ *  all read it here, so a page can hold a snippet rewrite and a body rebuild at once without either wearing
+ *  the other's name. Structural on purpose, so a producer can ask before it has a whole proposal to hand. */
+export function actionFamilyOf(p: Pick<ChangeProposal, "kind" | "bundle" | "recommendedChange">): ActionFamily {
   if (p.kind === "new_page") return "new_page";
   const families = new Set((p.bundle?.components ?? []).map((c) => FAMILY_BY_KIND[c.kind]));
   for (const f of FAMILY_PRECEDENCE) if (families.has(f)) return f;
@@ -91,6 +94,23 @@ function identityOf(p: ChangeProposal): Identity {
     page_key: p.kind === "new_page" ? "" : anchor, action_family: actionFamilyOf(p) };
 }
 
+/** THE READINGS THEMSELVES, in the order the receipt carries them. ORDER IS KEPT HERE on purpose: this feeds
+ *  `proposalFingerprint`, whose whole job is "did anything at all about this row change", and loosening it
+ *  would rewrite every stored row once for no gain. The refusal below sorts its own copy instead. */
+const evidenceMaterial = (p: ChangeProposal): unknown[] =>
+  (p.bundle?.receipt.items ?? []).map((i) => [i.key, i.kind, i.fact, i.observedAt]);
+
+/** PURE: what this change STANDS ON, and nothing about how it reads. Two drafts off the same readings share it;
+ *  one reading taken again, added or dropped moves it. SORTED, so a producer that merely reorders its receipt
+ *  cannot quietly lift a refusal the operator meant to stand. AN ATOMIC CHANGE HAS NO RECEIPT, and hashing an
+ *  empty list gave every one of them the same constant: they matched each other unconditionally and stayed
+ *  shut for ever on an unchanged basis. What one of those stands on is the frozen evidence summary it carries
+ *  and the exact edit it argues for, so that is what it is asked about. */
+function evidenceFingerprint(p: ChangeProposal): string {
+  const material = p.bundle ? evidenceMaterial(p) : [p.evidence, p.recommendedChange];
+  return createHash("sha256").update(JSON.stringify(material.map((m) => JSON.stringify(m)).sort())).digest("hex").slice(0, 16);
+}
+
 /** PURE: the fingerprint of everything an operator would act on. EXCLUDES createdAt and anything else that
  *  moves on its own, so a pass re-deriving the same decision writes nothing. THE REASONING IS MATERIAL:
  *  leaving `causeFinding` out let a re-stamped cause short-circuit as "unchanged" and never persist. */
@@ -99,7 +119,7 @@ export function proposalFingerprint(p: ChangeProposal): string {
     id: p.id, status: p.status, confidence: p.confidence, basis: p.basis ?? null,
     change: p.recommendedChange, limitations: p.limitations, cause: p.causeFinding ?? null,
     components: (p.bundle?.components ?? []).map((c) => [c.kind, c.before, c.after, c.evidenceKeys, c.risk]),
-    receipt: (p.bundle?.receipt.items ?? []).map((i) => [i.key, i.kind, i.fact, i.observedAt]),
+    receipt: evidenceMaterial(p),
     missing: p.bundle?.receipt.missing ?? [],
   };
   return createHash("sha256").update(JSON.stringify(material)).digest("hex").slice(0, 16);
@@ -181,11 +201,17 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<Save
     const mine = rows.find((r) => r.id === proposal.id) ?? (await rowById(proposal.tenantId, proposal.id));
     const current = rows.find((r) => r.terminal_disposition == null) ?? null;
 
-    // A CHANGE PUT AWAY STAYS AWAY, and a draft I WITHDREW stays withdrawn, until the evidence moves: same
-    // basis, same answer. ASK EVERY RETIRED ROW, not whichever came back first, or an older dismissal
-    // sorting first lets a dismissed page be re-drafted.
+    // A CHANGE PUT AWAY STAYS AWAY, and a draft I WITHDREW stays withdrawn, UNTIL THE EVIDENCE MOVES: same
+    // basis AND the same readings underneath. The basis fingerprints the ACCOUNT, so basis alone held a row
+    // shut through a whole generation while the readings under it changed completely, and the redraft the
+    // moved evidence had earned was answered "refused" forever. A retired row whose evidence no longer
+    // matches has been overtaken and no longer speaks for this one. ASK EVERY RETIRED ROW, not whichever
+    // came back first, or an older dismissal sorting first lets a dismissed page be re-drafted; a row that
+    // will not decode keeps its refusal, because an unreadable answer is not a moved one.
     if ([mine, ...rows].some((r) => { const d = r?.terminal_disposition ?? null;
-      return (d === "dismissed" || d === "withdrawn") && (r!.basis ?? null) === (proposal.basis ?? null); })) return "refused";
+      if ((d !== "dismissed" && d !== "withdrawn") || (r!.basis ?? null) !== (proposal.basis ?? null)) return false;
+      const stored = decode(r!.payload);
+      return !stored || evidenceFingerprint(stored) === evidenceFingerprint(proposal); })) return "refused";
 
     // Nothing material changed: no write, no new timestamp, so a refreshed surface never
     // reads yesterday's thinking as today's work.

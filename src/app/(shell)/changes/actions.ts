@@ -123,8 +123,10 @@ async function recordShipment(tenantId: string, proposal: ChangeProposal,
       actionType: proposal.changeFamily,
       before: change.kind === "existing_edit" ? change.before : null,
       after: change.kind === "existing_edit" ? change.after : change.proposedTitle,
-      targetQueries: [proposal.primaryQuery, ...(proposal.bundle?.scope.queries ?? [])]
-        .filter((q, i, xs) => q && xs.indexOf(q) === i).slice(0, 5),
+      // THE AI QUESTIONS RIDE TOO: the shipment's AI outcome joins observations on the tracked question
+      // texts, and dropping scope.prompts here left every future Result's AI half permanently dark.
+      targetQueries: [proposal.primaryQuery, ...(proposal.bundle?.scope.queries ?? []), ...(proposal.bundle?.scope.prompts ?? [])]
+        .filter((q, i, xs) => q && xs.indexOf(q) === i).slice(0, 10),
       controlPages,
       shippedAt: now,
       notes: null,

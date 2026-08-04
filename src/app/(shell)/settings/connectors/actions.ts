@@ -5,7 +5,6 @@ import { continueResearch, requestExtraSample, warmFreeSurfaces } from "@/domain
 import {
   getConnectorInfo,
   getGoogleConnectorToken,
-  getYelpConnectorToken,
   deleteConnectorToken,
   saveConnectorToken,
   updateConnectorToken,
@@ -24,12 +23,6 @@ import {
   type GoogleConnectorKind,
   type OAuthIntent,
 } from "@/lib/connectors/google-auth";
-import {
-  runGoogleReviewsSync,
-  fetchGoogleLocations,
-  type GbpLocationInfo,
-} from "@/lib/connectors/google-reviews-sync";
-import { runYelpReviewsSync } from "@/lib/connectors/yelp-reviews-sync";
 import { currentTenantId } from "@/lib/tenant-context";
 import { now } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
@@ -83,13 +76,8 @@ export async function getGoogleGscConnectorStatus(): Promise<ConnectorInfo> {
   return getConnectorInfo("google_gsc");
 }
 
-export async function getGoogleGbpConnectorStatus(): Promise<ConnectorInfo> {
-  return getConnectorInfo("google_gbp");
-}
-
 /**
- * Slice 9.A1β (2026-05-18), read GA4 connector status. Mirrors the
- * GSC/GBP read shape. Returns disconnected when no token exists OR
+ * Read GA4 connector status. Returns disconnected when no token exists OR
  * when the existing token has `disconnected_at` set (soft-disconnect
  * aware via `getConnectorInfo`'s shared branch).
  */
@@ -97,42 +85,24 @@ export async function getGoogleGa4ConnectorStatus(): Promise<ConnectorInfo> {
   return getConnectorInfo("google_ga4");
 }
 
-export async function getYelpConnectorStatus(): Promise<ConnectorInfo> {
-  return getConnectorInfo("yelp");
-}
+/**
+ * WHAT A FAILURE SAYS TO THE OPERATOR. Every catch below logs the real error and hands back ONE of these:
+ * a raw exception ("BEACON_OAUTH_STATE_SECRET is not set", a driver stack, a store message) is a fact about
+ * Beacon's insides, and on this screen it read as advice the operator could act on. The log keeps the truth
+ * for whoever can use it; the screen gets a sentence that says what happened and what to do next.
+ */
+const TROUBLE = {
+  auth: "I could not start the Google sign in just now. Try again in a moment.",
+  save: "I could not save that just now. Try again in a moment.",
+  disconnect: "I could not disconnect that just now. Try again in a moment.",
+  list: "I could not read your Analytics properties just now. Try again in a moment.",
+  sync: "I could not refresh this source just now. Try again in a moment.",
+} as const;
 
-export async function saveYelpApiKey(
-  apiKeyRaw: string,
-): Promise<{ success: boolean; error?: string }> {
-  const action = "saveYelpApiKey";
-  const t0 = Date.now();
-  const trimmed = apiKeyRaw.trim();
-  if (!trimmed) {
-    return { success: false, error: "Enter a Yelp API key." };
-  }
-  log.info("Action started", { action });
-  try {
-    // Connection owns connector configuration; the business id lives on the
-    // connector token, never on the BusinessProfile.
-    const existingToken = await getYelpConnectorToken();
-    await saveConnectorToken({
-      provider: "yelp",
-      api_key: trimmed,
-      connected_at: now(),
-      business_id: existingToken?.business_id ?? "",
-    });
-    revalidatePath("/settings/connectors");
-    log.info("Action completed", { action, durationMs: Date.now() - t0 });
-    return { success: true };
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: err.slice(0, 500),
-    });
-    return { success: false, error: err };
-  }
+/** ONE place the real error reaches the log, and it never reaches the screen. */
+function logActionFailure(action: string, t0: number, e: unknown): void {
+  const err = e instanceof Error ? e.message : String(e);
+  log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
 }
 
 /**
@@ -140,10 +110,7 @@ export async function saveYelpApiKey(
  * "gsc"). Each kind requests exactly ONE data scope, plus the basic
  * openid + email identity scopes (per-tenant OAuth, 2026-07-09):
  *   • gsc → webmasters.readonly
- *   • gbp → business.manage
- *   • ga4 → analytics.readonly      (Slice 9.A1α scaffold; Slice
- *                                    9.A1β surfaces the Connect
- *                                    button)
+ *   • ga4 → analytics.readonly
  *
  * INTENT (per-tenant OAuth, 2026-07-09): the caller says WHY it wants a
  * flow ("connect" for a first grant, "replace" to swap the Google account
@@ -215,156 +182,8 @@ export async function getGoogleAuthUrl(
     log.info("Google auth URL generated", { action, kind, intent });
     return { url };
   } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Failed to build Google auth URL", {
-      action,
-      kind,
-      error: err.slice(0, 500),
-    });
-    return { url: null, error: err };
-  }
-}
-
-export async function loadGoogleLocations(): Promise<
-  | { ok: true; locations: GbpLocationInfo[] }
-  | { ok: false; message: string }
-> {
-  const action = "loadGoogleLocations";
-  const t0 = Date.now();
-  log.info("Action started", { action });
-  try {
-    const result = await fetchGoogleLocations();
-    log.info("Action completed", {
-      action,
-      durationMs: Date.now() - t0,
-      ok: result.ok,
-      count: result.ok ? result.locations.length : 0,
-    });
-    if (!result.ok) {
-      return { ok: false, message: result.message };
-    }
-    return { ok: true, locations: result.locations };
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
-    return { ok: false, message: err.slice(0, 500) };
-  }
-}
-
-export async function selectGoogleLocation(
-  locationId: string,
-  locationName: string,
-): Promise<{ success: boolean; error?: string }> {
-  const action = "selectGoogleLocation";
-  const t0 = Date.now();
-  log.info("Action started", { action, locationId });
-  try {
-    await updateConnectorToken("google_gbp", {
-      selected_location_id: locationId,
-      selected_location_name: locationName,
-    });
-    revalidatePath("/settings/connectors");
-    log.info("Action completed", { action, durationMs: Date.now() - t0 });
-    return { success: true };
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
-    return { success: false, error: err.slice(0, 500) };
-  }
-}
-
-export async function syncGoogleReviews(): Promise<
-  | {
-      ok: true;
-      imported: number;
-      rejected: number;
-      partial: boolean;
-      warnings: string[];
-    }
-  | { ok: false; code: string; message: string }
-> {
-  const action = "syncGoogleReviews";
-  const t0 = Date.now();
-  log.info("Action started", { action });
-  try {
-    const result = await runGoogleReviewsSync();
-    log.info("Action completed", {
-      action,
-      durationMs: Date.now() - t0,
-      ok: result.ok,
-    });
-    return result;
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: err.slice(0, 500),
-    });
-    return {
-      ok: false,
-      code: "sync_failed",
-      message: err.slice(0, 500),
-    };
-  }
-}
-
-export async function syncYelpReviews(): Promise<
-  | {
-      ok: true;
-      imported: number;
-      rejected: number;
-      partial: boolean;
-      warnings: string[];
-    }
-  | { ok: false; code: string; message: string }
-> {
-  const action = "syncYelpReviews";
-  const t0 = Date.now();
-  log.info("Action started", { action });
-  try {
-    const result = await runYelpReviewsSync();
-    log.info("Action completed", {
-      action,
-      durationMs: Date.now() - t0,
-      ok: result.ok,
-    });
-    return result;
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: err.slice(0, 500),
-    });
-    return {
-      ok: false,
-      code: "sync_failed",
-      message: err.slice(0, 500),
-    };
-  }
-}
-
-export async function disconnectYelp(): Promise<{
-  success: boolean;
-  error?: string;
-}> {
-  const action = "disconnectYelp";
-  const t0 = Date.now();
-  log.info("Action started", { action });
-  try {
-    await deleteConnectorToken("yelp");
-    revalidatePath("/settings/connectors");
-    log.info("Action completed", { action, durationMs: Date.now() - t0 });
-    return { success: true };
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: err.slice(0, 500),
-    });
-    return { success: false, error: err };
+    log.error("Failed to build Google auth URL", { action, kind, error: e instanceof Error ? e.message.slice(0, 500) : String(e) });
+    return { url: null, error: TROUBLE.auth };
   }
 }
 
@@ -376,37 +195,26 @@ export async function disconnectGoogle(): Promise<{
   const t0 = Date.now();
   log.info("Action started", { action });
   try {
-    // Disconnect both Google providers, GSC + GBP are separate token
-    // grants, but a single "Disconnect Google" affordance clears both
-    // so the operator doesn't have to click twice.
-    //
-    // J5 (2026-05-18), GSC uses SOFT disconnect so cached historical
-    // state in `gsc_url_inspections` is preserved. Reconnect via the
-    // standard OAuth flow naturally clears `disconnected_at` because
+    // GSC uses SOFT disconnect so cached historical state in `gsc_url_inspections` is preserved.
+    // Reconnect via the standard OAuth flow naturally clears `disconnected_at` because
     // saveConnectorToken upserts a fresh payload without the field.
-    // GBP keeps its existing destructive delete path (Section 7
-    // owns the GBP soft-disconnect migration when warranted).
     //
-    // Slice 9.A1β (2026-05-18), GA4 is INTENTIONALLY excluded from
-    // this combined affordance. The Google Analytics card on
-    // /settings/connectors owns its own `disconnectGoogleGa4` server
-    // action so the operator can manage GA4 independently of the GSC
-    // + GBP combo (e.g., rotate the property selection without
+    // GA4 is INTENTIONALLY excluded from this affordance. The Google Analytics card on
+    // /settings/connectors owns its own `disconnectGoogleGa4` server action so the operator can
+    // manage GA4 independently of Search Console (e.g. rotate the property selection without
     // re-running Search Console OAuth).
     const tenantId = await currentTenantId();
     await softDisconnectGsc({ tenantId });
+    // A GRANT NOBODY DRIVES ANY MORE IS STILL A GRANT. Business Profile is no longer a connector this product
+    // reads, but an account that connected one before then still holds the stored row, and disconnecting Google
+    // has to mean it. Leaving it behind kept a live business.manage grant on file that no screen would ever show.
     await deleteConnectorToken("google_gbp");
     revalidatePath("/settings/connectors");
     log.info("Action completed", { action, durationMs: Date.now() - t0 });
     return { success: true };
   } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: err.slice(0, 500),
-    });
-    return { success: false, error: err };
+    logActionFailure(action, t0, e);
+    return { success: false, error: TROUBLE.disconnect };
   }
 }
 
@@ -436,13 +244,8 @@ export async function listGa4Properties(): Promise<Ga4PropertyListResult> {
     });
     return result;
   } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: err.slice(0, 500),
-    });
-    return { ok: false, reason: "api_error", message: err.slice(0, 500) };
+    logActionFailure(action, t0, e);
+    return { ok: false, reason: "api_error", message: TROUBLE.list };
   }
 }
 
@@ -499,13 +302,8 @@ export async function selectGa4Property(
     log.info("Action completed", { action, durationMs: Date.now() - t0 });
     return { success: true };
   } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: err.slice(0, 500),
-    });
-    return { success: false, error: err.slice(0, 500) };
+    logActionFailure(action, t0, e);
+    return { success: false, error: TROUBLE.save };
   }
 }
 
@@ -538,13 +336,8 @@ export async function disconnectGoogleGa4(): Promise<{
     log.info("Action completed", { action, durationMs: Date.now() - t0 });
     return { success: true };
   } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: err.slice(0, 500),
-    });
-    return { success: false, error: err.slice(0, 500) };
+    logActionFailure(action, t0, e);
+    return { success: false, error: TROUBLE.save };
   }
 }
 
@@ -573,9 +366,8 @@ export async function saveClarityConnection(input: {
     log.info("Action completed", { action, durationMs: Date.now() - t0 });
     return { success: true };
   } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
-    return { success: false, error: err };
+    logActionFailure(action, t0, e);
+    return { success: false, error: TROUBLE.save };
   }
 }
 
@@ -589,9 +381,8 @@ export async function disconnectClarity(): Promise<{ success: boolean; error?: s
     log.info("Action completed", { action, durationMs: Date.now() - t0 });
     return { success: true };
   } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
-    return { success: false, error: err };
+    logActionFailure(action, t0, e);
+    return { success: false, error: TROUBLE.save };
   }
 }
 
@@ -862,9 +653,8 @@ async function runConnectorSyncNow(
     log.info("Action completed", { action, durationMs: Date.now() - t0, ok: summary.ok });
     return summary;
   } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
-    return { ok: false, error: err.slice(0, 500) };
+    logActionFailure(action, t0, e);
+    return { ok: false, error: TROUBLE.sync };
   }
 }
 

@@ -978,7 +978,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
 // date, not a definition (the chaharshanbe failure). This directive is injected into the prompt so
 // the LLM writes the right kind of answer. Intent strings mirror answer-intent.ts (kept as a loose
 // string to avoid an llm -> experiments domain import). Empty string when unknown = no constraint.
-export function intentDirective(intent?: string): string {
+function intentDirective(intent?: string): string {
   switch (intent) {
     case "when": return "The searcher wants a DATE or timeline. Lead with the specific date or schedule, never a definition.";
     case "cost": return "The searcher wants a PRICE or number. Lead with the concrete cost or range, never a definition.";

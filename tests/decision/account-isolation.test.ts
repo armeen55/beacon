@@ -49,8 +49,7 @@ beforeEach(() => {
   (recordSpend as unknown as ReturnType<typeof vi.fn>).mockClear();
   readStoreMock.mockClear();
   readStoreMock.mockResolvedValue([]);
-  writeStoreMock.mockClear();
-});
+  writeStoreMock.mockClear(); });
 // ── store classification + key isolation ─────────────────────────────────────
 describe("the call cache is per-account, keyed by account", () => {
   // The REAL impl: an omitted tenantId falls back to AMBIENT resolution downstream, so a regression is silent.
@@ -63,9 +62,7 @@ describe("the call cache is per-account, keyed by account", () => {
     const w = writeStoreMock.mock.calls.at(-1) as unknown as [string, LlmCallCacheEntry[], { tenantId: string }];
     expect(w[2]).toEqual({ tenantId: "tenant-a" }); // explicit routing, never the ambient fallback
     expect(w[1][0]!.tenantId).toBe("tenant-a"); // owner stamped, not the caller's value
-    await expect(storeCacheImpl.read("", "k")).rejects.toThrow(/tenantId is required/);
-  });
-});
+    await expect(storeCacheImpl.read("", "k")).rejects.toThrow(/tenantId is required/); }); });
 // ── callStructuredLLM: end-to-end account isolation ──────────────────────────
 describe("callStructuredLLM keeps accounts isolated end to end", () => {
   it("account B gets a MISS on account A's byte-identical prompt; A still hits at $0", async () => {
@@ -94,8 +91,7 @@ describe("callStructuredLLM keeps accounts isolated end to end", () => {
     expect([await cache.impl.recentTexts("tenant-c", "atomic_edit", 5), await cache.impl.recentTexts("tenant-a", "atomic_edit", 5)]).toEqual([[], [VALID.after]]);
     // And the money seams were told WHICH account, explicitly, never left to the ambient one.
     expect(checkBudget).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "tenant-a" }));
-    expect(recordSpend).toHaveBeenCalledWith(expect.any(Number), expect.objectContaining({ tenantId: "tenant-a" }));
-  });
+    expect(recordSpend).toHaveBeenCalledWith(expect.any(Number), expect.objectContaining({ tenantId: "tenant-a" })); });
   it("a MISSING account fails closed BEFORE cache, budget, or the completion fn", async () => {
     const cache = partitionedCache();
     const s = seam([{ value: VALID }]);
@@ -106,6 +102,4 @@ describe("callStructuredLLM keeps accounts isolated end to end", () => {
     expect(s.calls()).toBe(0);
     expect(cache.reads.length).toBe(0);
     expect(checkBudget).not.toHaveBeenCalled();
-    expect(recordSpend).not.toHaveBeenCalled();
-  });
-});
+    expect(recordSpend).not.toHaveBeenCalled(); }); });

@@ -206,7 +206,6 @@ export function aiView(input: AiViewInput): { empty: string | null; blocks: VisB
   const compared = input.latest.rows.filter((r) => r.slot > 0 && r.mentioned != null && canonicalBy.has(`${r.promptId}|${r.engine}`));
   const differed = compared.filter((r) => canonicalBy.get(`${r.promptId}|${r.engine}`) !== r.mentioned).length;
   const rows = input.landscape ?? [];
-  const kindOf = new Map(rows.map((r) => [r.domain, r.kind]));
   const fanOuts = fanOutsExcluding(input.latest.rows.flatMap((r) => r.fanOuts ?? []), input.latest.rows.map((r) => r.promptText)).slice(0, MAX_FANOUTS);
 
   return {

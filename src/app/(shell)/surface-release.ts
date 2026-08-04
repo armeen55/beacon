@@ -104,6 +104,11 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
     // proposals exist only in memory: publishing would stamp a fresh timestamp on a
     // release nobody can load back. That aborts here, so the previous release stays
     // byte-identical and the phase pauses where a human can see it.
+    // THE RELEASE THIS ONE REPLACES, held from before the build. The queue stamp lands inside the build and
+    // the blob lands at the end, so a blob write that fails left the NEW order stamped in the database beside
+    // the OLD release: "show more" paged a ranking the screen above it did not belong to. Read now, used only
+    // on that failure path, so the happy path costs one extra read and nothing else.
+    const previous = await readCustomerSurface(tenantId).catch(() => null);
     const produced = await produceProposalsForTenant(tenantId);
     if (produced?.outcome === "persistence_failed") {
       throw new Error("I produced changes this pass but could not save a single one, so I kept your last release instead of stamping a new time on work I cannot load back.");
@@ -137,8 +142,20 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
       changes,
       today: { ...today, surfaceVersion: releaseId, surfaceComputedAt: computedAt },
     };
-    // Atomically publish the one shared release consumed by Today + Changes.
-    await writeCustomerSurface(surface);
+    // Publish the one shared release consumed by Today + Changes. THE TWO WRITES END TOGETHER OR NOT AT ALL:
+    // if the blob does not land, the order stamped a moment ago is rolled back onto the release still serving,
+    // so the list always pages the ranking the screen it sits on was published with. The previous release
+    // carries one page per lane, so this restores exactly what that release could ever serve; with no previous
+    // release the stamp is cleared, and the reader falls back to the release's own page. A restamp that
+    // itself fails is swallowed: the publish failure below is the news, and it must not be replaced.
+    try { await writeCustomerSurface(surface); }
+    catch (publishFailure) {
+      const { stampQueueRanking } = await import("@/domains/decision");
+      const prior = previous?.changes ?? null;
+      await stampQueueRanking(tenantId, prior?.surfaceVersion ?? `${tenantId}:rolled-back`,
+        (prior?.ready ?? []).map((p) => p.id), (prior?.toDo ?? []).map((p) => p.id)).catch(() => false);
+      throw publishFailure;
+    }
     return surface;
   }));
 }

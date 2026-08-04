@@ -77,9 +77,9 @@ export async function resolveGscAccessToken(
  * genuinely must reconnect). Best-effort persist (a persist failure does NOT
  * fail the refresh — the in-memory token is valid for this run).
  *
- * wave-9 (2026-06-14): persisting the refreshed token (mirrors
- * google-reviews-sync, epoch-ms format `evaluateExpiry` reads) stopped every
- * nightly sync re-refreshing the same stale token (~9 wasted OAuth calls/day).
+ * wave-9 (2026-06-14): persisting the refreshed token (in the epoch-ms format
+ * `evaluateExpiry` reads) stopped every nightly sync re-refreshing the same
+ * stale token (~9 wasted OAuth calls/day).
  */
 async function refreshAndPersistGscToken(
   tenantId: string,

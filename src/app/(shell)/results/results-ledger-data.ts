@@ -49,8 +49,10 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
   if (records.length === 0) return [];
   const latestGscDate = await readLastFinalizedDate(tenantId).catch(() => null);
   const reads = readLedger(records, new Date(), latestGscDate);
+  // EACH CHANGE IS READ ON ITS OWN SEARCHES, the ones frozen onto the Shipment when it was marked done. A
+  // record that never kept them says so on the card rather than borrowing the whole account's answers.
   const ai = await aiOutcomesForShipments(tenantId, records.map((r) => ({
-    implementedAt: r.implementedAt ?? null, shipmentBaseline: r.shipmentBaseline,
+    implementedAt: r.implementedAt ?? null, shipmentBaseline: r.shipmentBaseline, scopeQueries: r.targetQueries ?? null,
   }))).catch(() => records.map(() => null));
   return records.map((r, i) => ({
     read: reads[i]!,

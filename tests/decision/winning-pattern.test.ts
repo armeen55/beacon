@@ -56,9 +56,7 @@ describe("the facts I read off the winning pages myself", () => {
     expect([legacy!.hasList, legacy!.hasTable, legacy!.hasSchema, legacy!.opening, legacy!.faqCount, legacy!.domain]).toEqual([null, null, null, null, 0, "old.example"]);
     // A read that banked cards but no list flag still knows it saw a list; one that banked no structured data says so.
     const cards = extractPageFacts([{ url: "https://cards.example/rugs", extract: { headings: [], cardTexts: ["Tabriz rug", "Kashan rug"], entityNames: [] } }])[0]!;
-    expect([cards!.hasList, cards!.hasSchema]).toEqual([true, false]);
-  });
-});
+    expect([cards!.hasList, cards!.hasSchema]).toEqual([true, false]); }); });
 describe("the one reading a case may buy", () => {
   it("says what four winning pages share, counts them itself, and names the sites without the reading ever seeing one", async () => {
     const s = seam(reading());
@@ -89,8 +87,7 @@ describe("the one reading a case may buy", () => {
     for (const one of bad) expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading(one)).complete }), JSON.stringify(one)).toBeNull();
     // And an honest reading survives all of it, so every refusal above is about the defect and nothing else.
     const good = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete });
-    expect([good?.ownedGaps[0]?.seenOn, good?.commonHeadings[1]?.heading]).toEqual([[0, 1, 2], CARE]);
-  });
+    expect([good?.ownedGaps[0]?.seenOn, good?.commonHeadings[1]?.heading]).toEqual([[0, 1, 2], CARE]); });
   it("never re-votes a shape the results already settled, and writes no gap about a page it was never shown", async () => {
     // The reading says informational_guide; the results counted a list, and the deterministic count wins.
     expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete, pageType: "list" })).toBeNull();
@@ -104,8 +101,7 @@ describe("the one reading a case may buy", () => {
     const s = seam(reading()); const cacheImpl = memoryCache();
     const first = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, cacheImpl });
     const again = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, cacheImpl });
-    expect([first?.fingerprint, again?.fingerprint, s.calls()]).toEqual([first?.fingerprint, first?.fingerprint, 1]);
-  });
+    expect([first?.fingerprint, again?.fingerprint, s.calls()]).toEqual([first?.fingerprint, first?.fingerprint, 1]); });
   it("asks nothing at all under three publishers I could actually read", async () => {
     const s = seam(reading());
     const twoRead = [...WINNERS.slice(0, 2), { url: "https://blocked.example/rugs", domain: "blocked.example", extract: null }];
@@ -114,5 +110,4 @@ describe("the one reading a case may buy", () => {
     const twoSites = [WINNERS[0]!, page("guide.example", ["What a Persian rug is"]), WINNERS[1]!, page("museum.example", [CARE])];
     expect(await readWinningPattern(extractPageFacts(twoSites), ownedFacts(), "t_fixture", { complete: s.complete })).toBeNull();
     expect(s.calls()).toBe(0); // and not one cent was spent reaching either answer
-  });
-});
+  }); });

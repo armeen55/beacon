@@ -138,7 +138,8 @@ function BundleCallouts({ bundles }: { bundles: BundleRead[] }) {
   return (
     <div className="mb-4 space-y-2">
       {bundles.map((b) => (
-        <div key={b.path} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+        // One page can carry two separate stretches of work, so the cluster's own members name the row, never the path alone.
+        <div key={b.changeIds.join("|")} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
           <span className="font-semibold">{b.path}:</span> {b.headline}
         </div>
       ))}

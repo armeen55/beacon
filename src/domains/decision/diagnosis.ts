@@ -391,10 +391,10 @@ const winnerLinks = (c: Ctx): number[] => {
 /** The observed AI answers that are actually ABOUT this page's search, decided by the ONE membership predicate:
  *  a shared word this account puts on everything can never pull an unrelated answer in. */
 const aiAnswers = (c: Ctx): EvidenceSnapshot["research"]["aiObservations"] => {
-  const ids = new Set(c.snapshot.research.retainedKeywords.filter((k) => canonicalQueryKey(k.query) === c.queryKey)
-    .flatMap((k) => (k.origins ?? []).map((o) => o.promptId).filter((id): id is string => !!id)));
+  const provenance = c.snapshot.research.retainedKeywords.filter((k) => canonicalQueryKey(k.query) === c.queryKey)
+    .flatMap((k) => k.origins ?? []);
   return c.snapshot.research.aiObservations.filter((o) => o.citationsObserved && o.citations != null
-    && observationJoinsCase(o, { queries: [c.query], provenancePromptIds: ids }));
+    && observationJoinsCase(o, { queries: [c.query], provenance }));
 };
 
 /** CAUSES THIS GENERATION CANNOT TEST AT ALL, said out loud rather than left as a silence. Each one names

@@ -35,9 +35,13 @@ vi.mock("@/app/(shell)/surface-release", () => ({
       readyZeroHint: null, receiptLine: null, summary: { todo: 0, ready: 0, implemented: 0, measuring: 0, results: 0 } } }); },
 }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
-  resolveCurrentBasis: async () => db.basis }));
+  resolveCurrentBasis: async () => db.basis, produceProposalsForTenant: async () => ({ outcome: "proposals_persisted", candidates: [] }) }));
 vi.mock("@/domains/runtime", async () => ({ ...(await vi.importActual<typeof import("@/domains/runtime")>("@/domains/runtime")),
   countTrackedQuestions: async () => 30 }));
+const blob = vi.hoisted(() => ({ stored: null as unknown, writeFails: false }));
+vi.mock("@/lib/persistence/json-store", async () => ({ ...(await vi.importActual<typeof import("@/lib/persistence/json-store")>("@/lib/persistence/json-store")),
+  readStore: async (name: string) => (name === "customer-surface" && blob.stored ? [blob.stored] : []),
+  writeStore: async () => { if (blob.writeFails) throw new Error("the release blob did not land"); } }));
 const ledgerFails = vi.hoisted(() => ({ value: false }));
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   loadProofLedgerCached: async () => { if (ledgerFails.value) throw new Error("the ledger did not read"); return []; } }));
@@ -66,9 +70,8 @@ const seed = (p: ChangeProposal, over: Row = {}): Row => ({ id: p.id, tenant_id:
 const ALL = Array.from({ length: N }, (_, i) => proposal(i));
 async function stamp(release: string, ready = ALL) { await stampQueueRanking(T, release, ready.map((p) => p.id), []); }
 beforeEach(async () => {
-  db.rows = ALL.map((p) => seed(p)); db.legacy = []; db.reads = []; db.basis = "b1"; db.stampFails = false;
-  await stamp("rel-1");
-});
+  db.rows = ALL.map((p) => seed(p)); db.legacy = []; db.reads = []; db.basis = "b1"; db.stampFails = false; blob.stored = null; blob.writeFails = false;
+  await stamp("rel-1"); });
 
 describe("Today and Changes answer one question once", () => {
   // The release blob has no way to say "put aside", so Today counted a dismissed row and offered a fix whose link 404s, while Changes (reading the database) had already
@@ -80,8 +83,7 @@ describe("Today and Changes answer one question once", () => {
     const after = await loadTodayView(), changes = await loadChangesView();
     expect([after.today.readyTotal, after.today.readyFixes?.some((f) => f.page === "/p0")]).toEqual([N - 1, false]);
     // ONE release id and ONE actionable count across the two screens, on the same render.
-    expect([after.surfaceVersion, after.today.readyTotal]).toEqual([changes.surfaceVersion, changes.summary.ready]);
-  });
+    expect([after.surfaceVersion, after.today.readyTotal]).toEqual([changes.surfaceVersion, changes.summary.ready]); });
   // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "Measuring 0 · Results 0" on Changes and "Nothing is measuring yet" on Today, the one
   // claim a shipped change disproves. And a count that includes changes I will refuse to hand over is a promise the next press cannot keep, wherever the refusals sit:
   // the number the operator reads may only FALL as I learn, never climb back.
@@ -101,8 +103,7 @@ describe("Today and Changes answer one question once", () => {
       receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "f", observedAt: cold }], missing: [], freshestObservedAt: cold } } } as Partial<ChangeProposal>);
     for (const i of [1, 2, 30]) db.rows.find((r) => r.id === ALL[i]!.id)!.payload = JSON.parse(serializeChangeProposal(expired(i)));
     const first = await readChangesPage(T, "ready", 0, "rel-1"), second = await readChangesPage(T, "ready", first.cursor, "rel-1");
-    expect([first.total, first.rows.length, first.dropped, second.dropped, first.total - second.dropped]).toEqual([N - 2, CHANGES_PAGE_SIZE - 2, 2, 1, N - 3]);
-  });
+    expect([first.total, first.rows.length, first.dropped, second.dropped, first.total - second.dropped]).toEqual([N - 2, CHANGES_PAGE_SIZE - 2, 2, 1, N - 3]); });
   // A RELEASE I COULD NOT READ IS NOT A COLD START AND IS NOT A CLEAR DAY. Both loaders swallowed the read and painted "I am putting your ranked changes together for the
   // first time" / "Nothing needs a decision today".
   it("tells the truth when the release itself could not be read, on Changes and on Today", async () => {
@@ -111,9 +112,7 @@ describe("Today and Changes answer one question once", () => {
     expect([view.releaseUnreadable, view.surfaceBuilding, view.proposals.length,
       renderToStaticMarkup(await ChangesSection()).includes("I could not read your saved changes just now"),
       (await loadTodayView()).today.headerSentence.includes("I could not read your changes just now")]).toEqual([true, false, 0, true, true]);
-    releaseFails.value = false;
-  });
-});
+    releaseFails.value = false; }); });
 
 describe("one release identity, or no release at all", () => {
   it("stamps the ranking with the id it publishes under, never publishes one it could not stamp, and pages no change whose receipt stopped resolving", async () => {
@@ -129,8 +128,7 @@ describe("one release identity, or no release at all", () => {
     db.stampFails = true;
     await expect(buildChangesViewUncached(T, "rel-10")).rejects.toThrow();
     expect((await readQueuePage(T, "ready", "b1", 0, 1)).release).toBe("rel-9"); // the complete release on file is untouched
-  });
-});
+  }); });
 
 describe("the ranked queue pages in the database", () => {
   it("hands over all 501 changes exactly once, and every request reads one bounded page", async () => {
@@ -161,12 +159,23 @@ describe("the ranked queue pages in the database", () => {
   });
   it("withholds everything under a bar it cannot read, and everything drafted under an older one", async () => {
     db.basis = null; expect((await readChangesPage(T, "ready", 0, null)).rows).toEqual([]);
-    db.basis = "b2"; expect((await readQueuePage(T, "ready", "b2", 0, CHANGES_PAGE_SIZE)).total).toBe(0);
-  });
+    db.basis = "b2"; expect((await readQueuePage(T, "ready", "b2", 0, CHANGES_PAGE_SIZE)).total).toBe(0); });
   it("no longer caps the canonical current queue at 500, and Today still takes only three", async () => {
     expect((await loadChangeProposals(T)).size).toBe(N);
     const view = await loadChangesView(); // the count is the count, and the screen is one page
     expect([view.summary.ready, view.ready.length]).toEqual([N, CHANGES_PAGE_SIZE]);
-    expect(buildTodayViewFromChanges(view).nextOpportunities.map((o) => o.changeId)).toEqual(ALL.slice(0, 3).map((p) => p.id));
-  });
+    expect(buildTodayViewFromChanges(view).nextOpportunities.map((o) => o.changeId)).toEqual(ALL.slice(0, 3).map((p) => p.id)); }); });
+
+/** THE TWO WRITES END TOGETHER OR NOT AT ALL. The order is stamped inside the build and the release blob is written at the end, so a blob write that failed left the NEW
+ *  ranking live in the database beside the OLD release: "show more" paged an order the screen above it was never published with. */
+describe("a publish that half landed", () => {
+  it("rolls the order back onto the release still serving when the blob does not land", async () => {
+    const real = await vi.importActual<typeof import("@/app/(shell)/surface-release")>("@/app/(shell)/surface-release");
+    await stamp("rel-prev", ALL.slice(0, 3));
+    blob.stored = { schemaVersion: 2, releaseId: "rel-prev", computedAt: "2026-08-03T00:00:00.000Z", tenantId: T,
+      changes: { surfaceVersion: "rel-prev", ready: ALL.slice(0, 3), toDo: [] }, today: {} };
+    blob.writeFails = true;
+    await expect(real.refreshCustomerSurface(T)).rejects.toThrow();
+    const page = await readQueuePage(T, "ready", "b1", 0, CHANGES_PAGE_SIZE);
+    expect([page.release, page.rows.map((p) => p.id)]).toEqual(["rel-prev", ALL.slice(0, 3).map((p) => p.id)]); });
 });

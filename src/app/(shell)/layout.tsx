@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic"; // shell layout reads tenant context (Supabase) - force the whole shell subtree dynamic so NO page prerenders at build (avoids build-time "Invalid API key")
 export const maxDuration = 300; // the post-response autonomous research cycle is bounded but intentionally comprehensive
 
-import { ShellProvider, ShellDataHydrator, type NavBadges, type LatePaletteItem } from "@/components/shell/shell-provider";
+import { ShellProvider, ShellDataHydrator, type LatePaletteItem } from "@/components/shell/shell-provider";
 import { AppSidebar, MobileSidebar } from "@/components/shell/app-sidebar";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { Suspense } from "react";
@@ -10,12 +10,6 @@ import { AppHeader } from "@/components/shell/app-header";
 import { CommandPalette, type PaletteItem } from "@/components/shell/command-palette";
 import { getChangelogEntries } from "@/lib/seed-data.server";
 import { allNavItems } from "@/lib/navigation";
-import { getPendingFindings } from "@/domains/evidence";
-import { CONTENT_CHANGE_TYPES } from "@/domains/evidence";
-import {
-  getWatchingUrlOutcomes,
-  ensureUrlChangeOutcomesSeeded,
-} from "@/domains/measurement";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -47,17 +41,17 @@ const NAV_SHORTCUTS: Record<string, string> = {
 
 const CHANGELOG_PALETTE_CAP = 50;
 
-/** FP1 (2026-07-02) - the six Supabase reads behind badges/demo/palette get this
+/** FP1 (2026-07-02) - the deferred Supabase reads behind the palette get this
  *  long, TOTAL, before the shell gives up on them for this navigation. The shell
- *  itself has already painted by then; a wedged read only costs the badges. */
+ *  itself has already painted by then; a wedged read only costs the palette. */
 const SHELL_DATA_DEADLINE_MS = 8000;
 
 /**
  * FP1 (2026-07-02) - the shell paints INSTANTLY. Every Supabase read this layout
- * used to await before returning (badge counts, demo-mode detection, changelog
+ * used to await before returning (demo-mode detection, changelog
  * palette entries: the audit counted 6 blocking awaits taxing EVERY signed-in
  * click) now lives in <DeferredShellData/>, streamed behind Suspense AFTER the
- * nav/header/page shell is on the wire. Badges and the demo banner hydrate
+ * nav/header/page shell is on the wire. The palette and demo banner hydrate
  * client-side when the data lands; if it never lands, the app still works.
  */
 export default async function ShellLayout({
@@ -107,7 +101,7 @@ export default async function ShellLayout({
         </div>
       </div>
       <CommandPalette items={paletteItems} />
-      {/* FP1 - badges/demo/palette-extras stream in AFTER first paint; a slow or
+      {/* FP1 - demo/palette-extras stream in AFTER first paint; a slow or
           wedged read renders nothing rather than delaying or stranding the shell. */}
       <Suspense fallback={null}>
         <DeferredShellData />
@@ -118,23 +112,17 @@ export default async function ShellLayout({
 
 /** FP1 (2026-07-02) - the old render-blocking body of the layout, now streamed.
  *  Bounded by SHELL_DATA_DEADLINE_MS and fail-soft: timeout or error just means
- *  no badges this navigation, never a hung stream. */
+ *  no extra palette items this navigation, never a hung stream. */
 async function DeferredShellData() {
   const result = await loadWithDeadline(
     loadShellData().catch(() => null),
     SHELL_DATA_DEADLINE_MS,
   );
   if (result.timedOut || !result.data) return null;
-  const { badges, latePaletteItems } = result.data;
-  return (
-    <ShellDataHydrator badges={badges} latePaletteItems={latePaletteItems} />
-  );
+  return <ShellDataHydrator latePaletteItems={result.data.latePaletteItems} />;
 }
 
-async function loadShellData(): Promise<{
-  badges: NavBadges;
-  latePaletteItems: LatePaletteItem[];
-}> {
+async function loadShellData(): Promise<{ latePaletteItems: LatePaletteItem[] }> {
   // Perf bundle 7 (2026-05-12) - production-safe perf tracing.
   // NOOP when BEACON_PERF_TRACE != "true". When enabled, correlates
   // with middleware via the `x-beacon-perf-trace-id` header.
@@ -148,64 +136,12 @@ async function loadShellData(): Promise<{
   // the cycle exactly-once, so a visit during a healthy day costs nothing.
   ensureResearchRunOnVisit(await currentTenantId());
 
-  // Perf bundle 6 (2026-05-12) - parallelize the independent shell reads
-  // that fire on EVERY signed-in click. Pre-fix: five sequential awaits, a
-  // 100-500 ms warm tax on every route under (shell). Post-fix: the
-  // independent operations run in parallel; the one ordered dependency
-  // (getWatchingUrlOutcomes uses the seed cache populated by
-  // ensureUrlChangeOutcomesSeeded) runs after the Promise.all.
-  //
-  // Phase 3.5C (2026-04-22): the seed is required so the Changes-badge
-  // count reflects real verdict state on Vercel.
-  const [, pendingFindings, changelogEntries] = await trace.time(
-    "parallel_4_awaits",
-    () =>
-      Promise.all([
-        trace.time("ensureUrlChangeOutcomesSeeded", () =>
-          ensureUrlChangeOutcomesSeeded(),
-        ),
-        trace.time("getPendingFindings", () => getPendingFindings()),
-        trace.time("getChangelogEntries", () => getChangelogEntries()),
-      ]),
-  );
-  const watchingUrlOutcomes = await trace.time("getWatchingUrlOutcomes", () =>
-    getWatchingUrlOutcomes(),
-  );
-
-  // ── Badge computation ──
-  //
-  // Each badge is wired to something the operator can act on.
-  //
-  //   Today  - pending CONTENT_CHANGE findings waiting for confirm/dismiss.
-  //            Same filter as the "Scan diffs to review (N)" accordion inside
-  //            Today (renamed from "N changes detected" in Phase 6A.4 to stop
-  //            implying raw scan diffs are tracked changes), so the sidebar
-  //            number matches what the operator sees on the page.
-  //
-  //   Changes - URLs whose post-change verdict is `hurting`. One row per URL.
-  //             v2 QA polish bundle (2026-05-11) narrowed this from the
-  //             full WATCHING_VERDICTS set ({hurting, weak_signal,
-  //             nothing_yet, too_early}) down to `hurting` only. Pre-
-  //             narrow, the badge counted in-flight watching states
-  //             (too_early / nothing_yet / weak_signal) the same as
-  //             genuine alarms, which conflated the v2 page's
-  //             "Watching for signal" counter with its "Needs attention"
-  //             counter and read as "sidebar 3 vs page 24" - confusing.
-  //             Post-narrow, the badge means exactly: "URLs that need
-  //             your attention now", matching the v2 page's "Needs
-  //             attention" half of the counter strip using only the
-  //             existing `getWatchingUrlOutcomes()` fetch (no new
-  //             round-trip from the shell layout).
-  const todayBadge = pendingFindings.filter((f) =>
-    CONTENT_CHANGE_TYPES.has(f.type),
-  ).length;
-  const changesBadge = watchingUrlOutcomes.filter(
-    (o) => o.verdict === "hurting",
-  ).length;
-
-  const badges: NavBadges = {};
-  if (todayBadge > 0) badges["/"] = todayBadge;
-  if (changesBadge > 0) badges["/results"] = changesBadge;
+  // ONE READ PER NAVIGATION. THE SIDEBAR NUMBERS ARE GONE, and with them three reads that fired on every
+  // signed-in click. They counted raw scan diffs waiting to be triaged and URLs a retired verdict system
+  // called hurting: two vocabularies this product no longer decides anything in, so the number beside Today
+  // never matched Today and the number beside Results never matched the ledger. A count belongs on the screen
+  // that can explain it, where both of those now live.
+  const changelogEntries = await trace.time("getChangelogEntries", () => getChangelogEntries());
 
   // ── Late palette items ──
   // T-CustomerNav (2026-05-08) - palette items only surface customer-facing
@@ -224,9 +160,7 @@ async function loadShellData(): Promise<{
 
   trace.data("changelog_count", changelogEntries.length);
   trace.data("palette_items", latePaletteItems.length);
-  trace.data("today_badge", badges["/"] ?? 0);
-  trace.data("changes_badge", badges["/results"] ?? 0);
   trace.flush();
 
-  return { badges, latePaletteItems };
+  return { latePaletteItems };
 }

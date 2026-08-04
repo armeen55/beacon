@@ -257,7 +257,7 @@ export function ConnectorsClient({
   // Customer "Pull my data now" affordances (2026-06-14), each
   // connected source gets a per-card sync button wired to its
   // server action; a per-card pending flag + last-result message
-  // mirror the Google/Yelp Sync-now idiom above.
+  // mirror the Sync-now idiom above.
   type SyncResultMsg = { ok: boolean; text: string } | null;
   const [gscSyncPending, setGscSyncPending] = useState(false);
   const [gscSyncResult, setGscSyncResult] = useState<SyncResultMsg>(null);
@@ -996,9 +996,6 @@ export function ConnectorsClient({
           </p>
         </div>
       )}
-
-      {/* Yelp connector removed 2026-06-18 (operator request, not relevant to
-          content/AEO tenants). State + actions remain wired but no card renders. */}
 
       {/* ── Microsoft Clarity, Connect-cards slice (2026-06-12) ── */}
       {clarity.status === "connected" ? (

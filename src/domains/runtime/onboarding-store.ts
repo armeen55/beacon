@@ -31,16 +31,20 @@ export const CONFIRMABLE_FIELDS = [
   "geographicScope", "differentiators", "trustClaims", "topicsToOwn", "topicsToExclude",
 ] as const;
 
-/** THE THREE SECTIONS THE CONFIRM STEP ACTUALLY PUTS ON SCREEN. Confirmation is the operator's word about what they READ, so it reaches
- *  exactly these and no further; the other eight stay inferred until somebody edits them on purpose. */
-export const SHOWN_FIELDS = ["name", "offerings", "audiences"] as const;
+/** EVERY SECTION THE CONFIRM STEP PUTS ON SCREEN, and therefore every section a confirmation may speak for: exactly the nine the basis
+ *  fingerprints, which is exactly the nine that steer research. It used to be three, so approving "your business basics" approved eight
+ *  facts never shown, six of which decide what gets researched. `differentiators` and `trustClaims` are absent: nothing reads them. */
+export const SHOWN_FIELDS = ["name", "businessType", "siteArchetype", "offerings", "audiences", "customerProblems", "geographicScope", "topicsToOwn", "topicsToExclude"] as const;
 
-/** Truthful confirmation (D3): confirmed ONLY when every section the operator was SHOWN carries their own provenance, so a name-only edit
- *  never advances the wizard past confirm and a guess they never saw never counts as agreement. Pure. */
+/** THE FLOOR THAT LETS SETUP CONTINUE: the three the step asks the operator to TYPE. The other six are shown to be read and corrected,
+ *  and most accounts leave several empty, so demanding their provenance would strand every setup on step 3 and lock out the live
+ *  account that confirmed three before this existed. */
+const CONFIRM_FLOOR = ["name", "offerings", "audiences"] as const;
+
+/** Truthful confirmation (D3): confirmed ONLY when every section the operator was ASKED FOR carries their own provenance, so a
+ *  name-only edit never advances the wizard past confirm. Pure. */
 export function isProfileConfirmed(profile: BusinessProfile): boolean {
-  return SHOWN_FIELDS.every(
-    (k) => (profile as unknown as Record<string, { origin?: string }>)[k]?.origin === "operator_confirmed",
-  );
+  return CONFIRM_FLOOR.every((k) => (profile as unknown as Record<string, { origin?: string }>)[k]?.origin === "operator_confirmed");
 }
 
 /** The account facts setup is judged against, passed in by the caller that already read the row, never re-read here: a tenants read fails
