@@ -89,6 +89,10 @@ export type FunnelPair = {
   status: "pending" | "posted" | "done" | "unsupported";
   /** Terminal-collect recoveries: ONE clean repost, then unsupported. */
   reposts?: number;
+  /** THE MONEY THAT MOVED WHEN THIS ASK WAS PLACED. The free collect that finishes a posted task carries
+   *  zero, and that zero used to overwrite the placement receipt on the canonical row, so a paid day read
+   *  as free. It ACCUMULATES across a reposted identity, carries with the posted pair, and clears on landing. */
+  postCostUsd?: number;
   /** When the request that produced this row was actually made (a posted task keeps it across the free
    *  collect), so the canonical observation records asked-at and answered-at as different moments. */
   requestedAt?: string;

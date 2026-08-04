@@ -16,18 +16,20 @@
  */
 
 import { topicTokens } from "@/domains/evidence/relevance-gate";
+import { classifyResult } from "@/domains/evidence/serp-shape"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { BundleComponent } from "../contracts";
 import type { CauseFinding } from "../diagnosis";
 import type { Produced, Producer, ProducerCtx } from "./contract";
 
-/** Two links is the whole budget: a stranded reader needs a way through, not a directory. And a rebuild is
- *  the biggest swing there is, so it is earned by causes agreeing, never by one loud one. */
+/** Two links is the whole budget: a stranded reader needs a way through, not a directory. A rebuild is the biggest swing there is, so it is earned by causes agreeing, never by one loud one. */
 const MAX_LINKS = 2;
 const MAX_REQUIREMENTS = 4;
 const MAX_HEADINGS = 6;
 const MIN_STRUCTURAL_CAUSES = 2;
 /** A rebuild that names more losses than this is not a rebuild, it is a different page. */
 const MAX_LOSSES = 8;
+/** A merge that lists more than this is not a merge, it is a rebuild of the page that survives. */
+const MAX_MOVED = 6;
 
 const count = (n: number): string => Math.round(n).toLocaleString("en-US");
 /** The last net: no em or en dash ever reaches an operator, and the double gap one leaves is collapsed. */
@@ -36,18 +38,18 @@ const plain = (s: string): string => nodash(s).replace(/\s+/g, " ").trim();
 const sentence = (s: string): string => (/[.?!]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
 const refuse = (refusal: string): Produced => ({ components: [], refusal });
 
-/** Nothing on file behind the cause means nothing may be claimed from it: every producer shares this one. */
 const NO_EVIDENCE = "I cannot show you anything behind this, so I am not writing a change for it. Let me research this page again and I will come back with what I found.";
+/** A SPLIT IS SETTLED BY EVIDENCE OR IT IS NOT SETTLED: neither of these ever hands the decision back. */
+const UNSETTLED = "I have not settled which of your own pages come up for that search, so I am not telling you to combine anything. Let me check which of your pages Google is serving for it first.";
+const UNPROVEN = "Two of your own pages come up for that search, which is a reason to look and not proof that either one is taking the other's clicks. I cannot yet show you which of them earns that search, so I am not telling you to combine anything. Let me read what each of them earns for it and I will come back with which page to keep.";
 
 function evidenceKeysOf(ctx: ProducerCtx): string[] | null {
   const keys = ctx.finding.evidenceKeys.filter((k) => k.trim().length > 0);
   return keys.length > 0 ? keys : null;
 }
 
-// ── the structured payload, read by SHAPE ────────────────────────────────────
 // The ladder attaches a small structured payload so a producer never parses an operator sentence back into
-// numbers. Read by SHAPE, not by field name: a finding stored before that payload existed carries none of
-// it, and the honest answer to that is a refusal saying what is missing, never a guess.
+// numbers. Read by SHAPE, not by field name: a finding stored before that payload existed carries none of it, and the honest answer is a refusal naming what is missing.
 
 type Bag = Record<string, unknown>;
 const MAX_SCAN = 60;
@@ -89,12 +91,19 @@ function enginePrompt(f: CauseFinding): { engine: string; promptText: string } |
   return null;
 }
 
-function competingPages(f: CauseFinding): { paths: string[]; stronger: string | null } | null {
+/** THE SPLIT AS THE LADDER READ IT: the pages, what each earns for that exact search, and the survivor its
+ *  own comparison PROVED, which is null far more often than not. Read by SHAPE, like every payload here. */
+type Split = { paths: string[]; survivor: string | null; comparison: Array<{ url: string; clicks: number | null; position: number | null }> };
+function competingPages(f: CauseFinding): Split | null {
   for (const b of bagsOf(f)) {
     if (!Array.isArray(b.competingPaths)) continue;
     const paths = [...new Set((b.competingPaths as unknown[])
       .filter((p): p is string => typeof p === "string" && p.trim().length > 0).map((p) => p.trim()))];
-    if (paths.length >= 2) return { paths, stronger: textAt(b, "strongerPath") };
+    const rows = Array.isArray(b.comparison) ? (b.comparison as Array<Record<string, unknown>>) : [];
+    const comparison = rows.map((r) => ({ url: typeof r.url === "string" ? r.url : "",
+      clicks: typeof r.clicks === "number" ? r.clicks : null, position: typeof r.position === "number" ? r.position : null }))
+      .filter((r) => r.url.length > 0);
+    if (paths.length >= 2) return { paths, survivor: textAt(b, "survivor"), comparison };
   }
   return null;
 }
@@ -207,10 +216,8 @@ export const produceInternalLinks: Producer = async (ctx) => {
     const line = plain(drafted.linkSentence);
     if (!anchor || !line) continue;
     const place = placeFor(ctx, target);
-    // EVERY SENTENCE OPENS ON A WORD THE FIREWALL CAN PLACE, and the copy says the page's own subject out
-    // loud: an instruction opening "Point the words" was read as a named thing this file invented, and a
-    // link sentence that never repeated what the page is about was refused as off-topic. Both were true copy
-    // refused for how it was worded, so the wording is what changed.
+    // EVERY SENTENCE OPENS ON A WORD THE FIREWALL CAN PLACE, and the copy says the page's own subject out loud:
+    // true copy was refused twice for how it was worded, so the wording is what changed.
     components.push({
       kind: "internal_link_add",
       label: `Link to ${target.path}`,
@@ -230,8 +237,7 @@ export const produceInternalLinks: Producer = async (ctx) => {
     kind: "anchor_text",
     label: `Rename the link to ${swap.path}`,
     before: swap.anchor,
-    // The exact new wording travels structured, so the live check reads the LINK'S OWN WORDS rather than
-    // re-parsing my sentence about them.
+    // The exact new wording travels structured, so the live check reads the LINK'S OWN WORDS.
     anchorAfter: swap.name,
     after: `I would change the words "${swap.anchor}" that already point at ${swap.path} so they read "${swap.name}", because a reader who came for "${ctx.primary}" cannot tell where that link goes until they have spent the click.`,
     evidenceKeys: keys,
@@ -282,9 +288,8 @@ export const produceSourceExpansion: Producer = async (ctx) => {
     .map((e) => e.entity.trim()).filter((e) => e.length > 0)
     .filter((e) => { const t = topicTokens(e); return t.length > 0 && !t.some((x) => mine.has(x)); })
     .slice(0, MAX_REQUIREMENTS);
-  // Credibility first: an engine that READ this page and named somebody else did not miss it, it judged it,
-  // and what it judged is whether the page can be checked, so that one sources what the page already claims.
-  // A gap the engine never reached is a coverage question, answered by covering what every cited page covers.
+  // Credibility first: an engine that READ this page and named somebody else judged whether it can be checked,
+  // so that one sources what the page already claims; a gap it never reached is a coverage question.
   const expansion = cause === "ai_citation_gap" && missing.length > 0;
   // 1. THE CLAIM, and it has to belong on the page.
   const claims = (expansion ? missing : pageClaims(ctx)).slice(0, MAX_REQUIREMENTS);
@@ -323,10 +328,8 @@ export const produceSourceExpansion: Producer = async (ctx) => {
       mechanism: cause === "retrieved_not_cited"
         ? `${seen.engine} read this page while answering "${seen.promptText}" and named other sites instead, so the page was seen and passed over: what it is missing is something a reader can check, not a sharper line.`
         : `${seen.engine} answered "${seen.promptText}" naming other sites and never this page, so the fix is to carry what those answers are built on rather than to reword what is already here.`,
-      // ONLY PAGE CLAIMS, never a figure of mine. WHAT I HOLD HERE IS THE KIND OF SOURCE, not the source: I
-      // read who is being cited for this search and never a page that backs this exact claim. That is a
-      // research requirement, so it says out loud that the operator picks the source, and this component is
-      // held for review rather than handed over as ready to paste.
+      // ONLY PAGE CLAIMS, never a figure of mine. WHAT I HOLD HERE IS THE KIND OF SOURCE and never the source
+      // itself, so it says out loud that the operator picks it, and this component is held for review.
       sourcePack: {
         sourceRequirements: claims.map((c) => `${c} needs a source a reader can check, of the kind the pages being cited for "${ctx.primary}" point at: ${publishers.join(", ")}. You pick the exact page: I hold the kind of source this needs and not the source itself.`),
         factRequirements: claims.map(sentence),
@@ -344,22 +347,38 @@ export const produceConsolidation: Producer = async (ctx) => {
   const keys = evidenceKeysOf(ctx);
   if (!keys) return refuse(NO_EVIDENCE);
   const group = competingPages(ctx.finding);
-  if (!group) return refuse("I have not settled which of your own pages come up for that search, so I am not telling you to combine anything. Let me check which of your pages Google is serving for it first.");
+  if (!group) return refuse(UNSETTLED);
   // The ladder carries the competing pages as whole addresses; an operator reads them as paths on their
   // own site, and anything I cannot resolve is named exactly as it was given rather than reshaped.
-  const short = (p: string): string => ownPath(p, ctx.page.url) ?? p;
+  const abs = (u: string): string => (u.startsWith("http") || u.startsWith("/") ? u : `https://${u}`);
+  const short = (p: string): string => ownPath(abs(p), abs(ctx.page.url)) ?? p;
   const named = [...new Set(group.paths.map(short))].slice(0, 4);
-  if (named.length < 2) return refuse("I have not settled which of your own pages come up for that search, so I am not telling you to combine anything. Let me check which of your pages Google is serving for it first.");
-  // NO DRAFT SPEND: this is a recommendation with evidence behind it, not copy. Writing paragraphs for a
-  // change that starts with a decision the operator has to make is money spent before the decision exists.
-  const keep = group.stronger && named.includes(short(group.stronger)) ? short(group.stronger) : null;
-  const others = named.filter((p) => p !== keep);
-  // EVERY SENTENCE OPENS IN BEACON'S OWN VOICE, and that is not only style: the factual firewall reads a
-  // capitalized word it cannot find in the evidence as a named thing this copy invented, so an instruction
-  // opening "Pick the one you want" was refused as a fabricated claim and this change never reached anyone.
-  const after = keep
-    ? `${named.length} of your own pages come up for "${ctx.primary}": ${named.join(", ")}. ${keep} holds the stronger position of the two, so keep that one as the single page for this search, move anything worth keeping from ${others.join(" and ")} into it, and send those addresses on to ${keep}.`
-    : `${named.length} of your own pages come up for "${ctx.primary}": ${named.join(", ")}. I cannot see which of them holds the stronger position, so I am not choosing for you. You pick the one you want to own this search, then move anything worth keeping from the other into it and send the old address on to the one you kept.`;
+  if (named.length < 2) return refuse(UNSETTLED);
+  // NO SURVIVOR, NO CHANGE. Two pages coming up for one search says they both come up for it, never that the
+  // clicks are divided and never which page should live: the comparison decides that, or this stays research.
+  const keep = group.survivor ? short(group.survivor) : null;
+  const earns = new Map(group.comparison.map((r) => [short(r.url), r]));
+  if (!keep || !named.includes(keep) || named.some((p) => (earns.get(p)?.clicks ?? null) == null)) return refuse(UNPROVEN);
+  const losers = named.filter((p) => p !== keep);
+  // THE WORDS EACH PAGE CARRIES TODAY, or nothing may be said about what moves: a merge that cannot name what it preserves is research, not a change.
+  const bodies = ctx.heldBodies ?? new Map();
+  const bodyFor = (p: string): OwnedPageBody | null => [...bodies.values()].find((b) => short(b.url) === p) ?? null;
+  const held = named.map((p) => ({ path: p, body: bodyFor(p) }));
+  if (held.some((h) => !h.body)) return refuse(`I have not read ${held.filter((h) => !h.body).map((h) => h.path).join(" and ")} closely enough to tell you what would be lost by folding ${losers.length === 1 ? "it" : "them"} into ${keep}, so I am not telling you to combine anything yet. Let me read ${losers.length === 1 ? "that page" : "those pages"} and I will come back with exactly what moves.`);
+  // ONE JOB, OR THEY ARE NOT DUPLICATES: two pages built for different jobs are not a merge, and folding them
+  // loses the job one of them does. A PROVEN disagreement refuses; a kind I cannot read is not a disagreement,
+  // and what stands there is that Google serves both for the one search, which is why this is still a question.
+  const kinds = new Set(held.map((h) => classifyResult(h.body!.title ?? h.body!.h1, abs(h.body!.url || h.path))).filter((k) => !!k));
+  if (kinds.size > 1) return refuse(`Your pages at ${named.join(" and ")} come up for the same search and they are not the same kind of page, so folding one into the other would lose the job it does. Let me read them side by side against that search and I will come back with what each of them is for.`);
+  // WHAT MOVES AND WHAT STAYS, named off the words I hold on both sides, so this is work rather than a decision.
+  const survivorHas = new Set((bodyFor(keep)?.headings ?? []).map((h) => h.trim().toLowerCase()).filter(Boolean));
+  const moves = [...new Set(losers.flatMap((p) => (bodyFor(p)?.headings ?? []).map((h) => h.trim())
+    .filter((h) => h.length > 0 && !survivorHas.has(h.toLowerCase()))))].slice(0, MAX_MOVED);
+  const win = earns.get(keep)!;
+  const rest = losers.map((p) => `${count(earns.get(p)!.clicks!)} on ${p}`).join(" and ");
+  // EVERY SENTENCE OPENS IN BEACON'S OWN VOICE: the firewall reads a capitalized word it cannot place as an
+  // invention, so an instruction opening "Pick the one you want" was refused and never reached anyone.
+  const after = plain(`${count(named.length)} of your own pages come up for "${ctx.primary}": ${named.join(", ")}. ${keep} earns ${count(win.clicks!)} clicks from that search against ${rest}${win.position == null ? "" : `, at about position ${count(win.position)}`}, so keep ${keep} as the one page for it. ${moves.length > 0 ? `I would move ${moves.map((m) => `"${m}"`).join(", ")} from ${losers.join(" and ")} into ${keep}, then send ${losers.join(" and ")} on to ${keep} for good.` : `I hold nothing on ${losers.join(" or ")} that ${keep} does not already say, so send ${losers.join(" and ")} on to ${keep} for good.`}`);
   return {
     components: [{
       kind: "consolidation",
@@ -367,12 +386,12 @@ export const produceConsolidation: Producer = async (ctx) => {
       before: null,
       after,
       evidenceKeys: keys,
-      // MANDATORY: this kind moves where a page lives, and a lever like that always reaches you as a
-      // question rather than as a paste.
+      // MANDATORY: this kind moves where a page lives, so it always reaches you as a question, never a paste.
       risk: "dangerous",
-      where: "across both pages, starting with the one you keep",
-      objective: `Put one page of yours in front of "${ctx.primary}" instead of ${count(named.length)}, so the clicks stop splitting.`,
-      mechanism: `Google is picking between ${count(named.length)} pages of yours for that search and the clicks divide between them, which is the one thing no wording change on either page can fix.`,
+      where: `across ${named.join(" and ")}, starting with ${keep}`,
+      redirectTo: keep,
+      objective: `Put ${keep} in front of "${ctx.primary}" on its own instead of ${count(named.length)} pages of yours, and keep everything the others say.`,
+      mechanism: `Google is choosing between ${count(named.length)} pages of yours for that search every time somebody runs it, and ${keep} is the one already earning the clicks, which is the one thing no wording change on either page can settle.`,
       measurementPlan: `I will read clicks and average position for "${ctx.primary}" across all ${count(named.length)} addresses at 7, 14, 28 and 56 days after you make the change.`,
     }],
     refusal: null,
@@ -439,12 +458,10 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
     });
     if (section) drafted.push(`${plain(section.heading)}\n\n${nodash(section.body).trim()}`);
   }
-  // The page's own new first lines, and only once every section landed: nothing is bought to sit in front
-  // of a body with a hole in it.
+  // The page's own new first lines, only once every section landed: nothing sits in front of a body with a hole.
   const owed = planned.length - drafted.length;
-  // READY MEANS WHOLE. Half a page pasted over a working one is a loss, so a rebuild that stopped part way
-  // is not shipped dressed as a change. Nothing already written is re-paid: asking for the same section
-  // again is served from what I already bought, so picking this up next pass costs the operator nothing.
+  // READY MEANS WHOLE: a rebuild that stopped part way is not shipped dressed as a change, and nothing already
+  // written is re-paid, so picking it up next pass costs the operator nothing.
   if (owed > 0) return refuse(`I could write ${count(drafted.length)} of the ${count(planned.length)} sections this rebuild needs and ${count(owed)} ${owed === 1 ? "is" : "are"} still owed, so I am not handing you half a page. Ask me again and I will pick up where I stopped: the sections I already wrote cost nothing to ask for a second time.`);
   const opening = ctx.draft.openingAnswer
     ? await ctx.draft.openingAnswer({ query: ctx.primary, pageLabel: ctx.page.h1 ?? ctx.page.title ?? ctx.page.url,
@@ -452,10 +469,9 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
     : null;
   if (!opening) return refuse(`I wrote all ${count(planned.length)} sections this rebuild needs and could not write the page's own opening lines, so I am not handing you a page with no way in. Ask me again and the opening is the only thing left: the sections I already wrote cost nothing to ask for a second time.`);
   const after = [nodash(opening).trim(), ...drafted].join("\n\n");
-  // THE PRESERVATION MAP. A rebuild is the one change that can quietly delete something that ranks, so every
-  // section and named thing I hold is checked against the draft I just wrote: what appears in it SURVIVES,
-  // and what does not is named as a LOSS with the reason it goes. The check is containment in the drafted
-  // words, the same honesty pageContains uses, so a section kept under different wording still counts as kept.
+  // THE PRESERVATION MAP. A rebuild can quietly delete something that ranks, so every section and named thing
+  // I hold is checked against the draft: what appears SURVIVES, what does not is named as a LOSS with its
+  // reason. The check is containment in the drafted words, so a section kept under other wording still counts.
   const written = plain(after).toLowerCase();
   const holds = [...new Set([...(ctx.body?.headings ?? ctx.page.outline), ...(ctx.body?.entityNames ?? [])]
     .map((h) => h.trim()).filter((h) => h.length > 0))];

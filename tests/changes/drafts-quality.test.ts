@@ -38,10 +38,7 @@ describe("evaluateDraftQuality - J-71 word band (80-150 words)", () => {
   // Deliberately claim-free so these isolate the LENGTH decision from J-69.
   const BASE =
     "Nowruz begins each year on the March equinox and marks the start of the Persian calendar new year across Iran, Afghanistan, and many neighboring countries. Families spend the final days before the holiday cleaning their homes from top to bottom, a custom known as khouneh tekouni, and setting a haft-seen table with seven symbolic items that each start with the Persian letter sin. Relatives visit each other's homes across the full two-week holiday, starting with the oldest members of the family first, and children receive small gifts of money tucked inside books or handed over directly by grandparents and uncles. Markets fill with fresh greens, painted eggs, goldfish, and pastries such as baklava and nan-e nokhodchi in the weeks leading up to the holiday, and many cities in Iran and across the Persian diaspora host public concerts, poetry readings, and craft fairs timed to the same two-week celebration window that closes with a picnic on the thirteenth day known as Sizdah Bedar.";
-  function words(n: number): string {
-    const w = BASE.trim().split(/\s+/).slice(0, n).join(" ");
-    return /[.!?]$/.test(w) ? w : `${w}.`;
-  }
+  const words = (n: number): string => { const w = BASE.trim().split(/\s+/).slice(0, n).join(" "); return /[.!?]$/.test(w) ? w : `${w}.`; };
   it("79 words is too_thin; 80 clears the floor and is ready (claim-free, no source needed)", () => { const under = evaluateDraftQuality({ answer: words(79) }); expect(under.status).toBe("too_thin"); expect(under.reasons[0]).toContain("80-150"); expect(evaluateDraftQuality({ answer: words(80) }).status).toBe("ready"); });
   it("150 words is still ready; 151 is not_quotable (trim, don't rewrite from scratch)", () => { expect(evaluateDraftQuality({ answer: words(150) }).status).toBe("ready"); const over = evaluateDraftQuality({ answer: words(151) }); expect(over.status).toBe("not_quotable"); expect(over.canRegenerate).toBe(true); });
 });

@@ -71,8 +71,7 @@ describe("the ranked queue pages in the database", () => {
       cursor = page.cursor;
       expect(page.total).toBe(N); // a COUNT, never the length of something loaded
     }
-    expect(seen).toEqual(ALL.map((p) => p.id));  // every one, in the stamped order
-    expect(new Set(seen).size).toBe(N);          // and not one of them twice
+    expect([seen, new Set(seen).size]).toEqual([ALL.map((p) => p.id), N]); // every one, in the stamped order, and not one of them twice
     expect(Math.max(...db.reads)).toBeLessThanOrEqual(CHANGES_PAGE_SIZE); // never an unbounded read
   });
   it("restarts honestly when the ranking moved, and never serves a retired or implemented row", async () => {
@@ -84,24 +83,18 @@ describe("the ranked queue pages in the database", () => {
     db.rows[1]!.terminal_disposition = "dismissed";              // put aside after the ranking was stamped
     db.rows[2]!.terminal_disposition = "withdrawn";
     db.rows[3]!.payload = JSON.parse(serializeChangeProposal(proposal(3, { status: "implemented_pending_verification" })));
-    const after = await readChangesPage(T, "ready", 0, "rel-2");
-    expect(after.rows.map((p) => p.id)).not.toContain(ALL[1]!.id);
-    expect(after.rows.map((p) => p.id)).not.toContain(ALL[2]!.id);
-    expect(after.rows.map((p) => p.id)).not.toContain(ALL[3]!.id);
+    const after = await readChangesPage(T, "ready", 0, "rel-2"); const ids = after.rows.map((p) => p.id);
+    for (const gone of [1, 2, 3]) expect(ids).not.toContain(ALL[gone]!.id);
     expect(after.cursor).toBeGreaterThan(after.rows.length); // the cursor is the RANK read, not a row count
   });
   it("withholds everything under a bar it cannot read, and everything drafted under an older one", async () => {
-    db.basis = null;
-    expect((await readChangesPage(T, "ready", 0, null)).rows).toEqual([]);
-    db.basis = "b2";
-    expect((await readQueuePage(T, "ready", "b2", 0, CHANGES_PAGE_SIZE)).total).toBe(0);
+    db.basis = null; expect((await readChangesPage(T, "ready", 0, null)).rows).toEqual([]);
+    db.basis = "b2"; expect((await readQueuePage(T, "ready", "b2", 0, CHANGES_PAGE_SIZE)).total).toBe(0);
   });
   it("no longer caps the canonical current queue at 500, and Today still takes only three", async () => {
     expect((await loadChangeProposals(T)).size).toBe(N);
-    const view = await loadChangesView();
-    expect(view.summary.ready).toBe(N);              // the count is the count
-    expect(view.ready).toHaveLength(CHANGES_PAGE_SIZE); // the screen is one page
-    const three = buildTodayViewFromChanges(view).nextOpportunities.map((o) => o.changeId);
-    expect(three).toEqual(ALL.slice(0, 3).map((p) => p.id));
+    const view = await loadChangesView(); // the count is the count, and the screen is one page
+    expect([view.summary.ready, view.ready.length]).toEqual([N, CHANGES_PAGE_SIZE]);
+    expect(buildTodayViewFromChanges(view).nextOpportunities.map((o) => o.changeId)).toEqual(ALL.slice(0, 3).map((p) => p.id));
   });
 });

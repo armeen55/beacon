@@ -3,7 +3,7 @@
 import { describe, it, expect, vi } from "vitest";
 // Budget is not this file's subject: always-allowed, no-op hermetic seam.
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
-const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), failWrites: false, bundleTarget: null as string | null, bundle: null as unknown, realBundle: false, door: null as { door: string; evidence: { query: string | null } } | null }));
+const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), withdrawn: [] as string[], failWrites: false, bundleTarget: null as string | null, bundle: null as unknown, realBundle: false, door: null as { door: string; evidence: { query: string | null } } | null }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
 // Keyed the way the producer reads it (canonical, so a stored row and a full address are one page), or the page's own words are silently dropped.
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...((await orig()) as object),
@@ -12,7 +12,9 @@ vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...((await 
 // The REAL fingerprint is under test; only the two I/O calls are seams. The deep bundle has its own suite, so here it only reports WHICH page it was aimed at.
 vi.mock("@/domains/decision/proposal-store", async () => { const actual = await vi.importActual<typeof import("@/domains/decision/proposal-store")>("@/domains/decision/proposal-store");
   // The canonical store's OWN rule, emulated: a proposal identical to the stored row writes nothing at all.
-  return { ...actual, loadChangeProposals: async () => env.store, saveChangeProposal: async (p: ChangeProposal) => {
+  return { ...actual, loadChangeProposals: async () => env.store, withdrawnProposalIds: async () => new Set<string>(),
+    withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); env.store.delete(p.id); return true; },
+    saveChangeProposal: async (p: ChangeProposal) => {
     const prior = env.store.get(p.id); if (prior && actual.proposalFingerprint(prior) === actual.proposalFingerprint(p)) return "unchanged";
     env.saved.push(p); if (env.failWrites) return "failed"; env.store.set(p.id, p); return "saved"; } }; });
 // A PASSTHROUGH, NOT A STAND-IN: it records which page and which DOOR the pass aimed at, then replays a pinned answer or runs the REAL producer.
@@ -159,7 +161,7 @@ const NOW = new Date("2026-07-26T00:00:00.000Z");
 /** A REAL but smaller gap (169 clicks) that is listed FIRST, ahead of GAP's 300. */
 const WEAK = ownedPage("fixture-outdoors.example/nowruz-food", "Nowruz Food", { impressions: 3000, clicks: 60 }, [{ query: "nowruz food traditions", impressions: 2800, clicks: 55, position: 4.1 }], ["Persian New Year Customs", "Haft-Seen"]);
 const BOTH = () => snap([WEAK, GAP], looked([["nowruz food traditions", "fixture-outdoors.example/nowruz-food"], ["nowruz traditions", GAP_URL]]));
-const reset = (s: EvidenceSnapshot): void => { env.snap = s; env.saved = []; env.store = new Map(); env.failWrites = false; env.bundleTarget = null; env.bundle = null; env.realBundle = false; env.door = null; };
+const reset = (s: EvidenceSnapshot): void => { env.snap = s; env.saved = []; env.store = new Map(); env.withdrawn = []; env.failWrites = false; env.bundleTarget = null; env.bundle = null; env.realBundle = false; env.door = null; };
 /** Count every drafter call a pass made, answering with one valid edit. */
 const counting = (): { complete: CompleteFn; calls: () => number } => { let n = 0; return { complete: async () => { n += 1; return { value: VALID_ATOMIC_EDIT }; }, calls: () => n }; };
 const run = (complete: CompleteFn) => produceProposalsForTenant("fixture-tenant", { complete, now: NOW, bypassCache: true });
@@ -418,10 +420,14 @@ describe("what the winning pages share reaches the operator, and never one of th
 const WHOLE = ownedPage(GAP_URL, `${HAFT} guide for Nowruz`, { impressions: 900, clicks: 45 }, [{ query: HAFT, impressions: 900, clicks: 45, position: 4.1 }], ["Persian New Year Customs", "what each piece means"]);
 const SPLIT_URL = "fixture-outdoors.example/haft-seen-table";
 const ASKED = { promptId: "p8", promptText: `what goes on a ${HAFT}`, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null,
-  modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url: RIVAL(1), domain: "r1.example", title: "g" }], fanOutQueries: [], observedAt: LOOKED_AT };
+  modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url: RIVAL(1), domain: "r1.example", title: "g" }], fanOutQueries: [HAFT], observedAt: LOOKED_AT };
 const doorWorld = (over: Partial<FunnelResearchEvidence> = {}, pages: OwnedPageEvidence[] = [WHOLE], can: EvidenceSnapshot["cannibalization"] = []): EvidenceSnapshot => {
-  const r = READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) });
-  return { ...snap(pages, { ...r, serpEvidence: [{ ...r.serpEvidence[0]!, organic: [...GUIDED.serpEvidence[0]!.organic, { rank: 4, domain: "fixture-outdoors.example", url: GAP_URL, title: `${HAFT} guide` }] }], ...over }, DEMAND), cannibalization: can };
+  const r = READABLE({ comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) });
+  const research = { ...r, serpEvidence: [{ ...r.serpEvidence[0]!, organic: [...GUIDED.serpEvidence[0]!.organic, { rank: 4, domain: "fixture-outdoors.example", url: GAP_URL, title: `${HAFT} guide` }] }], ...over };
+  const world = { ...snap(pages, research, DEMAND), cannibalization: can };
+  // The comparison is pinned to the case THIS world actually builds, so an extra answer in the evidence never orphans it.
+  const key = buildTopicInvestigations(world).find((i) => i.label === HAFT)?.key ?? "";
+  return { ...world, research: { ...research, pageComparisons: (research.pageComparisons ?? []).map((c) => ({ ...c, topicKey: key })) } };
 };
 /** The REAL producer, through the REAL pass: nothing about the deep change is stubbed here. */
 const doorRun = (world: EvidenceSnapshot, read: (u: string) => unknown = PATTERN) => { reset(world); env.realBundle = true;
@@ -446,14 +452,20 @@ describe("a page earns the deep read through the door its own evidence opens", (
     expect(deep.bundle!.components.map((c) => c.kind)).toEqual(["source_update"]); // a source improvement, never a reworded title
     expect(deep.opportunityType).toBe("Give the assistants a reason to name this page");
     // AND IT CAN SHOW THE ANSWER IT WAS MADE FROM: the cause cites the receipt id the receipt actually writes.
-    expect(deep.bundle!.components[0]!.evidenceKeys).toEqual(["ai-citations"]);
-    expect(deep.bundle!.receipt.items.find((i) => i.key === "ai-citations")!.fact).toContain(`what goes on a ${HAFT}`);
+    expect([deep.bundle!.components[0]!.evidenceKeys, deep.bundle!.receipt.items.find((i) => i.key === "ai-citations")!.fact.includes(`what goes on a ${HAFT}`)]).toEqual([["ai-citations"], true]);
   });
-  it("carries a refused rebuild's own sentence onto that page's candidate line, so the receipt says I started and stopped", async () => {
+  /** WHAT A REFUSAL COSTS AND WHAT IT SETTLES: the sentence reaches the operator's receipt, and a stored change
+   *  whose claims stopped resolving is re-judged and TAKEN BACK rather than quietly kept on their list. */
+  it("carries a refusal onto the candidate line, and takes back the stored change whose evidence stopped resolving", async () => {
     const owed = "I could write 1 of the 3 sections this rebuild needs and 2 are still owed, so I am not handing you half a page.";
     reset(doorWorld()); env.bundle = { status: "none", reason: owed };
     const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: pageSeam(BRIEF) });
-    expect(res.candidates.some((c) => c.reason.includes(owed))).toBe(true); });
+    expect(res.candidates.some((c) => c.reason.includes(owed))).toBe(true);
+    const kept = (await doorRun(doorWorld({ aiObservations: [ASKED] }), (u: string) => ({ ...PATTERN(u), ownedGaps: [], openingPattern: "" }))).proposals.find((p) => p.bundle)!;
+    env.store.set(kept.id, { ...kept, causeFinding: { ...kept.causeFinding!, evidenceKeys: [...kept.causeFinding!.evidenceKeys, "demand-competing"] } });
+    env.realBundle = false; env.bundle = { status: "none", reason: owed }; env.saved = []; env.withdrawn = [];
+    const again = await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: pageSeam(BRIEF) });
+    expect([env.withdrawn, again.proposals.some((p) => p.id === kept.id)]).toEqual([[kept.id], false]); });
   it("never rewords one of two pages fighting over one search: it settles the split or it refuses", async () => {
     const split = ownedPage(SPLIT_URL, `${HAFT} table`, { impressions: 900, clicks: 30 }, [{ query: HAFT, impressions: 900, clicks: 30, position: 9 }]);
     const res = await doorRun(doorWorld({}, [WHOLE, split], [{ query: HAFT, note: "two of your own pages", competingUrls: [GAP_URL, SPLIT_URL] }]));
@@ -486,7 +498,7 @@ const NEVER_HELD = ["demand_decline", "ranking_loss", "technical_indexability", 
 /** An engine answering this page's own search and naming everybody except this page. */
 const CITED_ELSEWHERE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [{ promptId: "p1", promptText: "nowruz traditions explained", engine: "chatgpt",
   observationMode: "consumer_search", modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true,
-  citations: [{ url: "https://rival.example/a", domain: "rival.example", title: null }], fanOutQueries: null, observedAt: LOOKED_AT }] });
+  citations: [{ url: "https://rival.example/a", domain: "rival.example", title: null }], fanOutQueries: ["nowruz traditions"], observedAt: LOOKED_AT }] });
 const ACTORS_SEEN = () => snap([ACTORS], actorsSerp("Persian Screen | Iranopedia"));
 describe("why this page loses the click, one named cause at a time", () => {
   it("blames the wording only where the results page accuses it, and says what it beat and what would kill it", () => {
@@ -574,8 +586,20 @@ describe("why this page loses the click, one named cause at a time", () => {
     const overlapOf = async (ageDays: number) => { env.store = new Map([["live", baseProposal({ id: "live", basis: "b" })], ["applied", applied(ageDays)]]);
       return (await loadProposalQueue("fixture-tenant", { currentBasis: "b" })).ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "overlap")!; };
     const fresh = await overlapOf(10); const stale = await overlapOf(180); // the production read, not an injected context
-    expect([fresh.contribution, stale.contribution]).toEqual([-30, 0]);
-    expect(stale.input).toBe("nothing is being measured on this page"); });
+    expect([fresh.contribution, stale.contribution, stale.input]).toEqual([-30, 0, "nothing is being measured on this page"]); });
+  /** THE SAFETY NET ON BOTH SIDES OF THE STORE: a stored change whose claims stopped resolving may not RENDER,
+   *  and the next canonical pass takes it back even when nothing re-selects that page for a deep read. */
+  it("neither renders nor keeps a stored change whose claims no longer resolve, without waiting to be re-selected", async () => {
+    // a merge whose only component cites a comparison its receipt never carried: the live defect, stored
+    const bad = (basis: string): ChangeProposal => baseProposal({ id: "fixture-tenant::/split::existing_edit::bundle", pagePath: "/split", basis, status: "needs_review", riskLevel: "high",
+      bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, alternatives: [], risks: [], confidenceReasons: [],
+        receipt: { items: [{ key: "demand-exact", kind: "gsc_demand", fact: "f", observedAt: null }], missing: [], freshestObservedAt: null },
+        components: [{ kind: "consolidation", label: "Settle which page owns this search", before: null, after: "Keep one of these pages.", evidenceKeys: ["demand-competing"], risk: "dangerous", where: "across both", objective: "o", mechanism: "m", measurementPlan: "p" }] } });
+    env.store = new Map([["good", baseProposal({ id: "good", basis: "b" })], [bad("b").id, bad("b")]]);
+    expect((await loadProposalQueue("fixture-tenant", { currentBasis: "b" })).ranked.map((p) => p.id)).toEqual(["good"]); // it never reaches the screen
+    reset(snap([WINNER])); env.store = new Map([[bad("basis_test").id, bad("basis_test")]]); // and no door opens on that page at all
+    await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: async () => ({ value: VALID_ATOMIC_EDIT }) });
+    expect(env.withdrawn).toEqual([bad("b").id]); });
   it("never emits a diagnosis without a competing explanation, a falsifier, and every unheld cause named", () => {
     for (const world of [snap([WINNER]), SEEN(), snap([GAP]), snap([ACTORS], actorsSerp(DISPLAYED)), snap([GAP], CITED_ELSEWHERE()), BOTH()]) {
       for (const c of compileCandidates(world)) {

@@ -27,7 +27,7 @@ const COMPOST = { clicks90d: 5, impressions90d: 1200, ctr90d: 0.004, position90d
   // The owned page is ON this results page, worded without the searcher's own word, while two rivals share it: the mismatch a diagnosis may name.
   serpEvidence: [{ observedAt: null, query: "rain barrel sizing", organic: [{ rank: 1, domain: "gardenguide.example", url: WIN1, title: "Rain barrel sizing guide" }, { rank: 2, domain: "waterwise.example", url: "https://waterwise.example/b", title: "Sizing a rain barrel by roof area" },
     { rank: 3, domain: "fixture-content.example", url: "https://fixture-content.example/rain-barrels", title: "Rain Barrels" }], aiOverview: [{ url: WIN1, domain: "gardenguide.example", title: "A" }], aiMode: [], paa: [], related: [] }],
-  aiObservations: [{ promptId: "p1", promptText: "what size rain barrel do I need", engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url: WIN1, domain: "gardenguide.example", title: "A" }], fanOutQueries: ["rain barrel gallons"], observedAt: "2026-07-22T00:00:00.000Z" },
+  aiObservations: [{ promptId: "p1", promptText: "what size rain barrel do I need", engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url: WIN1, domain: "gardenguide.example", title: "A" }], fanOutQueries: ["rain barrel sizing"], observedAt: "2026-07-22T00:00:00.000Z" },
   { promptId: "p2", promptText: "rain barrel sizing rule of thumb", engine: "gemini", observationMode: "standardized_response" as const, modelRequested: null, modelServed: null, webSearchReported: null, citationsObserved: false, citations: null, fanOutQueries: null, observedAt: "2026-07-21T00:00:00.000Z" }],
   winningPages: [{ url: WIN1, domain: "gardenguide.example", engines: ["chatgpt"], examplePrompts: ["what size rain barrel do I need"], appearances: [{ kind: "ai_answer" as const, query: null, promptId: "p1", promptText: "what size rain barrel do I need", engine: "chatgpt", rank: null, citedUrl: WIN1, observedAt: "2026-07-22T00:00:00.000Z", modelServed: null }], extract: { title: "A", h1: "A", wordCount: 1400, headings: ["Sizing", "Overflow"], faqCount: 2 } }] };
 // ── a topic the account owns NO page for, researched to the hilt ───────────────
@@ -49,14 +49,14 @@ beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; store.rows.clear(); 
     // ONE field, the one the results page accused. A description or an opening answer would need the line Google shows under the result or this page's own words, and neither is on file.
     expect(p.impactScore).toBe(570); expect(bundle.components.map((c) => c.kind)).toEqual(["title"]); expect(bundle.components[0].before).toBe("Rain Barrels"); expect(bundle.components[0].after).toBe(TITLE_AFTER); expect(p.recommendedChange).toEqual({ kind: "existing_edit", field: "title", before: "Rain Barrels", after: TITLE_AFTER }); expect(bundle.receipt.items.map((i) => i.kind)).toEqual(expect.arrayContaining(["gsc_demand", "page_extract", "keyword", "serp", "ai_observation", "winning_page"]));
     // the receipt a ready title stands on: the exact search, this page's stored copy, the results page, the line Google displays for it, and the wording the winners share
-    expect(bundle.components[0].evidenceKeys).toEqual(["demand-exact", "copy-current", "serp1", "serp-owned", "serp-pattern"]); expect(bundle.receipt.items.find((i) => i.key === "copy-current")!.fact).toContain('is titled "Rain Barrels"'); expect(bundle.receipt.items.find((i) => i.key === "serp-owned")!.fact).toBe('On that results page Google shows this page worded "Rain Barrels".'); expect(bundle.receipt.items.find((i) => i.key === "serp-pattern")!.fact).toBe('Across the other pages that come up for "rain barrel sizing", "barrel", "rain", "sizing" recur in the wording Google shows.');
+    expect(bundle.components[0].evidenceKeys).toEqual(["demand-exact", "copy-current", "serp1", "serp-owned", "serp-pattern"]); expect(bundle.receipt.items.find((i) => i.key === "copy-current")!.fact).toBe('When I read this page on 2026-07-20 it was titled "Rain Barrels" and ran 900 words across 3 sections.'); expect(bundle.receipt.items.find((i) => i.key === "serp-owned")!.fact).toBe('On that results page Google shows this page worded "Rain Barrels".'); expect(bundle.receipt.items.find((i) => i.key === "serp-pattern")!.fact).toBe('Across the other pages that come up for "rain barrel sizing", "barrel", "rain", "sizing" recur in the wording Google shows.');
     expect(bundle.confidenceReasons.some((r) => r.startsWith("I checked the results page:"))).toBe(true); // the diagnosis itself, in the operator's words
     expect(bundle.alternatives[0]).toEqual({ option: "Google is already showing the words people search for", reason: 'Google shows this page as "Rain Barrels", and that line does not say "sizing".' }); expect(bundle.receipt.freshestObservedAt).toBe("2026-07-22T00:00:00.000Z"); expectKeysResolve(bundle); expectCleanCopy(p);
-    expect(bundle.scope).toEqual({ queries: ["rain barrel sizing", "how many gallons rain barrel"], prompts: ["rain barrel sizing rule of thumb", "what size rain barrel do I need"] }); expect(bundle.alternatives.some((a) => a.option.includes("/compost"))).toBe(true); expect(p.evidence.evidenceRefCount).toBe(bundle.receipt.items.length); // the count IS the receipt
+    expect(bundle.scope).toEqual({ queries: ["rain barrel sizing", "how many gallons rain barrel"], prompts: ["what size rain barrel do I need"] }); // the answer whose own fan-out ran this page's search, and no other expect(bundle.alternatives.some((a) => a.option.includes("/compost"))).toBe(true); expect(p.evidence.evidenceRefCount).toBe(bundle.receipt.items.length); // the count IS the receipt
     expect(p.diagnosisCause).toBe("ctr_snippet"); }); // the named cause rides to the ranker, so cause and lever are judged together on a real change
   it("names every number's scope, so a page total is never read as one search", async () => { const out = await produceBundleForSnapshot(snapshot(), { complete: seam, ...OPTS }); if (out.status !== "bundled") throw new Error("expected a change"); const p = out.proposal; const b = p.bundle!; const facts = b.receipt.items.filter((i) => i.kind === "gsc_demand").map((i) => i.fact); expect(facts[0]).toContain("this page overall earned 120 clicks from 9,000 views"); // the page total, said as a page total
     expect(facts[1]).toBe('That one search "rain barrel sizing" brings this page 6,000 views and 90 clicks, at about position 3.'); for (const line of [p.whyItMatters, b.objective, b.confidenceReasons[0]]) expect(line).not.toContain("9,000"); // no query claim ever borrows the page total
-    expect(p.whyItMatters).toContain('Searching "rain barrel sizing" brings this page 6,000 views and only 90 clicks over 90 days, about 570 clicks short of what position 3 usually earns'); expect(b.receipt.items.find((i) => i.kind === "ai_observation")!.fact).toBe('When a customer searches "what size rain barrel do I need" inside an assistant, it points people at gardenguide.example. To answer it the assistant went and searched "rain barrel gallons".'); }); it("spends nothing on a search whose results page it has never looked at, and says exactly that", async () => {
+    expect(p.whyItMatters).toContain('Searching "rain barrel sizing" brings this page 6,000 views and only 90 clicks over 90 days, about 570 clicks short of what position 3 usually earns'); expect(b.receipt.items.find((i) => i.kind === "ai_observation")!.fact).toBe('When a customer searches "what size rain barrel do I need" inside an assistant, it points people at gardenguide.example. To answer it the assistant went and searched "rain barrel sizing".'); }); it("spends nothing on a search whose results page it has never looked at, and says exactly that", async () => {
     let called = 0; const counting: CompleteFn = async (r) => { called += 1; return seam(r); }; const out = await produceBundleForSnapshot(snapshot({ research: emptyResearchEvidence() }), { complete: counting, ...OPTS });
     // A gap proves something is wrong, never what to change: unseen is an investigation, and an investigation costs no drafter call.
     expect(out.status).toBe("none"); if (out.status !== "none") return; expect(called).toBe(0); expect(out.reason).toBe("I have not looked at the results page for that search yet, so I cannot tell you what to change. It is first in line on my next research pass."); });
@@ -65,8 +65,7 @@ beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; store.rows.clear(); 
   it("says what the change keeps, what it replaces, and what it adds", async () => {
     const out = await produceBundleForSnapshot(snapshot(), { complete: seam, ...OPTS }); if (out.status !== "bundled") throw new Error("expected a change");
     const plan = out.proposal.bundle!.plan!; // the operator reads that most of their page is not being touched
-    expect(plan.entries).toEqual([{ kind: "title", label: "Page title", disposition: "change" }]);
-    expect(plan.keeps).toEqual(["Rain barrel sizing", "Roof area and gallons", "Chaining a second barrel"]);
+    expect([plan.entries, plan.keeps]).toEqual([[{ kind: "title", label: "Page title", disposition: "change" }], ["Rain barrel sizing", "Roof area and gallons", "Chaining a second barrel"]]);
     expect(plan.removes).toEqual([{ what: "Rain Barrels", why: "Page title takes its place." }]); // a REMOVE row only where something is genuinely replaced
     expect(deserializeChangeProposal(serializeChangeProposal(out.proposal))!.bundle!.plan).toEqual(plan); });
   it("produces an identical result when every input list arrives in the opposite order", async () => { const base = snapshot(); const flipped = snapshot({ ownedPages: reverse(base.ownedPages).map((pg) => ({ ...pg, search: pg.search ? { ...pg.search, topQueries: reverse(pg.search.topQueries) } : null })), research: { ...RESEARCH, retainedKeywords: reverse(RESEARCH.retainedKeywords), aiObservations: reverse(RESEARCH.aiObservations), winningPages: reverse(RESEARCH.winningPages), serpEvidence: RESEARCH.serpEvidence.map((s) => ({ ...s, organic: reverse(s.organic) })) }, }); expect(JSON.stringify(await produceBundleForSnapshot(flipped, { complete: seam, ...OPTS }))).toBe(JSON.stringify(await produceBundleForSnapshot(base, { complete: seam, ...OPTS }))); }); }); // ── a topic is never a page: no amount of research invents one ────────────────
@@ -105,6 +104,16 @@ describe("evidence attaches only where it is topically anchored", () => {
     const only = [page({ url: "fixture-content.example/compost", search: { clicks90d: 40, impressions90d: 9000, ctr90d: 0.004, position90d: 5, topQueries: [{ query: "compost bin sizing", impressions: 9000, clicks: 40, position: 5 }] } })]; const out = await produceBundleForSnapshot(anchorSnap({ ownedPages: only }), { complete: seam, ...OPTS }); if (out.status !== "bundled") throw new Error("expected a bundle");
     const b = out.proposal.bundle!; expect(b.components.map((c) => c.kind)).toEqual(["title"]); // one field, and only the evidence that is about this page
     expect(b.receipt.missing).toEqual(expect.arrayContaining(['I have not gathered an AI answer about "compost bin sizing" yet.', 'I have not read the pages that come up for "compost bin sizing" yet.'])); expect(b.receipt.items.every((i) => i.kind !== "ai_observation" && i.kind !== "winning_page")).toBe(true); expect(b.scope.prompts).toEqual([]); });
+  /** THE LIVE COUNTEREXAMPLE, in miniature: a small corpus switches the everywhere-word net off, and one shared
+   *  subject word carried a "best places to visit" answer onto a page judged on a different search entirely. */
+  it("never attaches an AI answer to a page, a winner, the receipt or a component on a shared subject word alone", async () => {
+    const ELSE = "https://elsewhere.example/places"; const broad = { ...obsRow("what are the best places to visit for rain gardens", "2026-07-22T00:00:00.000Z", ELSE), promptId: "broad" };
+    const out = await produceBundleForSnapshot(snapshot({ research: { ...RESEARCH, aiObservations: [broad], winningPages: [...RESEARCH.winningPages, winRow(ELSE, { title: "P", h1: "P", wordCount: 2000, headings: ["Places"], faqCount: 1 })] } }), { complete: seam, ...OPTS });
+    if (out.status !== "bundled") throw new Error("expected a bundle"); const b = out.proposal.bundle!;
+    expect([b.receipt.items.some((i) => i.kind === "ai_observation"), b.scope.prompts]).toEqual([false, []]); // no receipt line, and no winner it vouched for
+    expect([b.receipt.items.map((i) => i.fact).join(" "), b.confidenceReasons.join(" ")].join(" ")).not.toMatch(/places to visit|elsewhere|an AI answer I watched/);
+    expect(b.receipt.missing).toContain('I have not gathered an AI answer about "rain barrel sizing" yet.');
+    expect(b.components.every((c) => c.evidenceKeys.every((k) => !k.startsWith("ai")))).toBe(true); }); // and nothing it says is supported by it
 }); // ── query identity for what is bought per query; confidence by evidence class ──
 const serpRow = (query: string) => ({ query, observedAt: null, aiOverview: [], aiMode: [], paa: [], related: [], organic: [{ rank: 1, domain: "gardenguide.example", url: WIN1, title: "Rain barrel sizing guide" }, { rank: 2, domain: "waterwise.example", url: "https://waterwise.example/b", title: "Sizing a rain barrel by roof area" }, { rank: 3, domain: "fixture-content.example", url: "https://fixture-content.example/rain-barrels", title: "Rain Barrels" }] });
 const winRow = (url: string, extract: ResearchPageExtract | null = null) => ({ url, domain: url.split("/")[2]!, engines: ["chatgpt"], examplePrompts: [], appearances: [], extract });
@@ -121,7 +130,7 @@ describe("what a receipt will and will not accept", () => {
     const links = [linkRow("fixture-content.example/", "Home"), linkRow("fixture-content.example/contact", "Contact us"), linkRow("fixture-content.example/gallons", "Rain barrel gallons per storm")]; const out = await produceBundleForSnapshot(snapshot({ internalLinkOpportunities: links }), { complete: seam, ...OPTS });
     if (out.status !== "bundled") throw new Error("expected a change"); const b = out.proposal.bundle!; // one destination is on topic, but no body text means no honest placement
     expect(b.components.some((c) => c.kind === "internal_links")).toBe(false); expect(b.receipt.items.some((i) => i.kind === "internal_link")).toBe(false); expect(b.alternatives.find((a) => a.option === "Links out to your own pages")!.reason).toContain("I can see 1 of your own page worth linking to");
-    const reasons = b.confidenceReasons.join(" "); expect(reasons).toContain("your own search data"); expect(reasons).toContain("what the page says today"); expect(reasons).not.toMatch(/\d+ pieces/);
+    const reasons = b.confidenceReasons.join(" "); expect(reasons).toContain("your own search data"); expect(reasons).toContain("the page as I last read it"); expect(reasons).not.toMatch(/\d+ pieces/);
     expect(confidenceFor({ gsc: true, ownedCopy: true, serp: false, winners: 0, body: false })).toBe("low"); }); // my own demand rows and copy are still only my own data
   it("anchors coverage to the account's own corpus, so its everywhere-word relates nothing", async () => {
     const { buildEvidenceSnapshot } = await import("@/domains/evidence/snapshot"); const src = <T,>(payload: T) => ({ status: "fresh" as const, lastSyncedAt: null, payload });
@@ -229,8 +238,7 @@ describe("the coverage verdict never invents a page this account already owns", 
       expect(d.explanation).toContain("I will pick this back up on its own the day one kind of page takes the lead"); } }); // and it says exactly what would reopen it
   it("refuses to write words for a page search engines are not being served, and names the one thing to fix", async () => {
     const blocked = await adjudicateCoverage(INV(), [ONE], TENANT, { technical: readTechnicalFindings({ pages: [{ url: ONE_URL, robots_meta: "noindex" }] }) });
-    expect([blocked.verdict, blocked.ownedUrls, blocked.missing]).toEqual(["technical_only", [ONE.url], []]);
-    expect(blocked.explanation).toContain('I would take "noindex" out of the robots tag on /rain-barrels');
+    expect([blocked.verdict, blocked.ownedUrls, blocked.missing, blocked.explanation.includes('I would take "noindex" out of the robots tag on /rain-barrels')]).toEqual(["technical_only", [ONE.url], [], true]);
     // a fault on somebody else's page, and a fault that stops nothing, both leave the ordinary ladder alone
     const elsewhere = await adjudicateCoverage(INV(), [ONE], TENANT, { technical: readTechnicalFindings({ pages: [{ url: `${AT}/other`, robots_meta: "noindex" }] }) });
     const cosmetic = await adjudicateCoverage(INV(), [ONE], TENANT, { technical: readTechnicalFindings({ pages: [{ url: ONE_URL, h1: null }] }) });
@@ -346,10 +354,10 @@ describe("what is wrong with how a page is served", () => {
   });
   it("turns each fault into a component that answers for itself, and holds the dangerous ones", () => {
     const parts = technicalComponents(readTechnicalFindings(SERVED), "rain barrel sizing").map((c) => ({ ...c, evidenceKeys: ["demand-exact"] }));
-    expect(parts.every((c) => !!c.where && !!c.objective && !!c.mechanism && !!c.measurementPlan && c.before === null)).toBe(true);
-    expect([...new Set(dangerousComponents(parts).map((c) => c.kind))].sort()).toEqual(["canonical", "noindex", "redirect"]);
-    const held = validateProposal(prop({ bundle: bundleOf(parts) }));
+    expect([parts.every((c) => !!c.where && !!c.objective && !!c.mechanism && !!c.measurementPlan && c.before === null), [...new Set(dangerousComponents(parts).map((c) => c.kind))].sort()]).toEqual([true, ["canonical", "noindex", "redirect"]]);
+    const held = validateProposal(prop({ riskLevel: "high", status: "needs_review", bundle: bundleOf(parts) }));
     expect([held.verdict, held.reasons.some((r) => r.includes("confirm it before you make the change"))]).toEqual(["needs_review", true]);
+    expect(validateProposal(prop({ bundle: bundleOf(parts) })).verdict).toBe("rejected"); // the same levers filed as a low risk ready change
     // and the ordinary ones pass the gate as the changes they are, copy and all
     const safe = parts.filter((c) => !dangerousComponents(parts).includes(c));
     for (const c of safe) expect(validateProposal(prop({ recommendedChange: { kind: "existing_edit", field: fieldForComponent(c.kind), before: null, after: c.after }, bundle: bundleOf([c]) })).verdict).not.toBe("rejected");
@@ -383,7 +391,7 @@ describe("the complete change universe answers for itself", () => {
     for (const kind of ALL_KINDS) {
       const dangerous = DANGEROUS_COMPONENT_KINDS.has(kind);
       const c = comp({ kind, risk: dangerous ? "dangerous" : "safe", ...(needsSourcePack(comp({ kind })) ? { sourcePack: { sourceRequirements: ["Cite the county rule page."], factRequirements: ["Check the 2026 limit."] } } : {}) });
-      const v = validateProposal(prop({ bundle: bundleOf([c]) }));
+      const v = validateProposal(prop({ ...(dangerous ? { riskLevel: "high" as const, status: "needs_review" as const } : {}), bundle: bundleOf([c]) }));
       expect(v.verdict).not.toBe("rejected"); // every kind in the union is a shape this validator understands
       if (dangerous) { expect(v.verdict).toBe("needs_review"); expect(v.reasons.join(" ")).toContain("confirm it before you make the change"); }
     }
@@ -416,7 +424,7 @@ describe("the complete change universe answers for itself", () => {
     expect(dangerousComponents([legal("safe")])).toHaveLength(1); // a statute is dangerous whatever the row claims
     // an unmarked one is a MISLABELLED change, and a mislabelled change is the one that gets pasted without a second look
     expect(validateProposal(prop({ bundle: bundleOf([legal("safe")]) })).verdict).toBe("rejected");
-    const held = validateProposal(prop({ bundle: bundleOf([legal("dangerous")]) }));
+    const held = validateProposal(prop({ riskLevel: "high", status: "needs_review", bundle: bundleOf([legal("dangerous")]) }));
     expect([held.verdict, held.reasons.some((r) => r.includes("confirm it before you make the change"))]).toEqual(["needs_review", true]);
   });
 });

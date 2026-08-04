@@ -66,6 +66,9 @@ export type ProducerCtx = {
    *  the links the page already carries could only ever propose a second link to a place it already sends
    *  people. Empty is a real answer and the honest refusal that follows it. */
   ownedPages: { url: string; title: string | null; h1: string | null }[];
+  /** THE PAGES WHOSE CURRENT WORDS I HOLD, by canonical address. A change that moves content off another page
+   *  of this account may name only what it can read there; absent means I hold none but the page under work. */
+  heldBodies?: ReadonlyMap<string, OwnedPageBody>;
   pattern: WinningPattern | null;
   /** The receipt facts, in plain English, as the drafter's grounding. */
   receiptFacts: string[];

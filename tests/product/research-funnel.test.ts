@@ -470,7 +470,8 @@ describe("evidence - the per-case research receipt", () => {
       { keyword: "saffron grades", searchVolume: null, competition: null, difficulty: null, intent: null, discoveredVia: "related_search", caseId: null }];
     s.discovery.counts.retained = 2;
     s.serps.queries = [{ query: "saffron price", cacheKey: "ck-serp", status: "done", observedAt: at, organic: [] }];
-    s.prompts.pairs = [{ promptId: "p1", promptText: "saffron price", engine: "gemini", mode: "standardized_response", cacheKey: null, status: "done", observedAt: at, citationsObserved: false, citations: null }];
+    s.prompts.pairs = [{ promptId: "p1", promptText: "saffron price", engine: "gemini", mode: "standardized_response", cacheKey: null, status: "done", observedAt: at, citationsObserved: false, citations: null },
+      { promptId: "p2", promptText: "how to store saffron at home", engine: "gemini", mode: "standardized_response", cacheKey: null, status: "done", observedAt: at, citationsObserved: false, citations: null, fanOutQueries: ["how to store saffron at home"] }]; // the self-echo may not vouch for membership
     s.pageComparisons = [{ topicKey: ABSORBED, askKey: "ak", pages: ["https://a.com/x", "https://b.com/y"], excludePages: [], observedAt: at, receipt: "ck-pi", comparison: null, unavailable: "capped" }];
     s.discovery.caseCompetitors = [{ caseId: CASE, keywordsAsked: 2, domains: [{ domain: "rival.com", avgPosition: 4, rating: 91, keywordsCount: 12 }], observedAt: at, receipt: "ck-comp", served: "cache" }];
     s.cycle = { runId: "run-r", cycleKey: null, spentUsd: 0.05, cacheHits: 1 }; return s; };

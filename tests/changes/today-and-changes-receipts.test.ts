@@ -33,25 +33,21 @@ describe("Today is in exactly one of four primary states", () => {
   it("a genuine blocker outranks everything, and it is the only thing that does", () => {
     const c = buildTodayCommand({ ...base, blockers: ["I am not tracking any questions for you yet, so my research cannot start."],
       blockerHref: "/settings/config#tracked-ai-prompts", readyChanges: [OPP], measuringCount: 4 });
-    expect(c.state).toBe("needs_attention");
-    expect(c.why[0]).toContain("I am not tracking any questions for you yet");
+    expect([c.state, c.why[0]!.includes("I am not tracking any questions for you yet")]).toEqual(["needs_attention", true]);
     expect(c.cta).toEqual({ label: "Fix this now", href: "/settings/config#tracked-ai-prompts" });
     expect(c.ranked).toEqual([]); // a blocked day does not also hand you work
   });
   it("one ready change is act now, and the top three carry the ranker's own reason for the order", () => {
     const c = buildTodayCommand({ ...base, readyChanges: [OPP, SECOND], measuringCount: 9 });
-    expect(c.state).toBe("act_now");
-    expect(c.headline).toBe("Do this next: Answer the exact question people search.");
-    expect(c.ranked.map((r) => r.changeId)).toEqual(["c1", "c2"]);
-    expect(c.ranked[0]!.whyRankedAboveNext).toContain("I put this ahead of");
+    expect([c.state, c.headline]).toEqual(["act_now", "Do this next: Answer the exact question people search."]);
+    expect([c.ranked.map((r) => r.changeId), c.ranked[0]!.whyRankedAboveNext!.includes("I put this ahead of")]).toEqual([["c1", "c2"], true]);
     expect(c.why).toContain("About 4 minutes of work.");
     expect(c.why.some((l) => l.includes("1 more change is ranked under it"))).toBe(true);
   });
   it("a promised retry date is researching, and it names the date instead of claiming to be checking", () => {
     const c = buildTodayCommand({ ...base, waitingUntil: "2026-08-04T18:00:00.000Z", measuringCount: 2 });
     expect([c.state, c.cta]).toEqual(["researching", null]);
-    expect(c.headline).toContain("waiting until August 4 to try them again");
-    expect(c.headline).not.toMatch(/checking/i);
+    expect([c.headline.includes("waiting until August 4 to try them again"), /checking/i.test(c.headline)]).toEqual([true, false]);
     expect(c.exactAction).toContain("There is nothing for you to do here today");
   });
   it("researching carries the run's own persisted numbers, the open topics, and the drafts I held back", () => {
@@ -65,13 +61,10 @@ describe("Today is in exactly one of four primary states", () => {
   });
   it("work you applied and nothing stronger is monitoring, and a cold account is never a bare zero", () => {
     const c = buildTodayCommand({ ...base, measuringCount: 6, firstReadOn: "2026-08-12", research: { running: false } });
-    expect(c.state).toBe("monitoring");
-    expect(c.headline).toBe("6 changes are live and measuring.");
-    expect(c.why[0]).toBe("The first read lands around August 12.");
+    expect([c.state, c.headline, c.why[0]]).toEqual(["monitoring", "6 changes are live and measuring.", "The first read lands around August 12."]);
     expect(c.cta).toEqual({ label: "See what's measuring", href: "/results" });
     // Nothing measuring, nothing ready, nothing running: still one state, and still something true.
-    const cold = buildTodayCommand(base);
-    expect(cold.state).toBe("researching");
+    const cold = buildTodayCommand(base); expect(cold.state).toBe("researching");
     expect(cold.headline).toBe("I am still gathering evidence, and I will rank your next move here as soon as one earns it.");
     expect(cold.headline).not.toMatch(/\b0\b/);
   });
@@ -85,19 +78,15 @@ describe("Today is in exactly one of four primary states", () => {
   it("keeps monitoring when nothing is actually running, and says the numbers monitoring owes", () => {
     // A proven loss nobody is working and an idea held back are facts, not present-tense work.
     const held = buildTodayCommand({ ...base, measuringCount: 6, heldForMeasurement: 2, firstReadOn: "2026-08-12", research: { running: false } });
-    expect(held.state).toBe("monitoring");
-    expect(held.why[0]).toBe("The first read lands around August 12.");
-    expect(held.why.some((l) => l.includes("holding 2 new ideas back"))).toBe(true);
+    expect([held.state, held.why[0], held.why.some((l) => l.includes("holding 2 new ideas back"))]).toEqual(["monitoring", "The first read lands around August 12.", true]);
     expect(held.cta).toEqual({ label: "See what's measuring", href: "/results" });
     const watching = buildTodayCommand({ ...base, measuringCount: 6, investigating: 2, research: { running: false } });
-    expect(watching.state).toBe("monitoring");
-    expect(watching.why.some((l) => l.includes("I found 2 pages losing clicks"))).toBe(true);
+    expect([watching.state, watching.why.some((l) => l.includes("I found 2 pages losing clicks"))]).toEqual(["monitoring", true]);
     // A run that IS open is researching, and it still owes the measuring count and the read date.
     const running = buildTodayCommand({ ...base, measuringCount: 4, investigating: 2, firstReadOn: "2026-08-12",
       research: { running: true, phaseLabel: "reading the results pages for your strongest topics" } });
     expect(running.state).toBe("researching");
-    expect(running.why).toContain("4 of your changes are still measuring.");
-    expect(running.why).toContain("The first read on those lands around August 12.");
+    expect(running.why).toEqual(expect.arrayContaining(["4 of your changes are still measuring.", "The first read on those lands around August 12."]));
   });
   it("every combination of signals lands on exactly one of the four, and never a fifth", () => {
     const cases: TodayCommandInput[] = [base, { ...base, readyChanges: [OPP] }, { ...base, investigating: 3 },
@@ -118,8 +107,7 @@ describe("a screen with losses on it never reads as all clear", () => {
     expect(researching.losingNote).toContain("lost 163 clicks vs the previous 4 weeks (data through Jul 9)");
     expect(researching.losingNote).toContain("I have not found a change on it my evidence supports yet");
     const sitewide = buildTodayCommand({ ...quiet, scoreboardDeltaPct: -14 }); // nobody to blame, still a sentence
-    expect(sitewide.losingNote).toContain("down 14% vs the week before");
-    expect(sitewide.losingNote).toContain("no single page took the blame");
+    expect(sitewide.losingNote).toMatch(/down 14% vs the week before[\s\S]*no single page took the blame/);
     expect(buildTodayCommand(quiet).losingNote).toBeNull(); // a genuinely clean day claims nothing
   });
   it("the greeting never celebrates on a screen that names a blocker or a loss", () => {
@@ -134,7 +122,7 @@ describe("a screen with losses on it never reads as all clear", () => {
 const ID = "t::/nowruz-guide::existing_edit::bundle";
 const FINDING: CauseFinding = {
   cause: "cannibalization", action: "consolidate", evidenceKeys: ["gsc"],
-  explanation: "2 of your own pages come up for \"nowruz traditions\", so Google is picking between them and the clicks split.",
+  explanation: "2 of your own pages come up for \"nowruz traditions\", so Google is choosing between them every time somebody searches it.",
   competingExplanations: [{ cause: "ctr_snippet", reason: "a sharper line cannot fix two of your own pages competing for the same search" }],
   falsifier: "If my next look shows only one page of yours coming up for \"nowruz traditions\", this is not the explanation.",
   notConsidered: [{ cause: "technical_indexability", missing: "I do not hold this page's indexing or canonical state." }],
@@ -194,13 +182,11 @@ describe("a ranked card explains itself without being opened", () => {
   });
   // PIN (B, F6): "Implemented 0 · Measuring 0 · Results 0" told a quiet account nothing and asked nothing.
   it("tells a quiet account what is not moving yet, and shows only the counts that exist", async () => {
-    const quiet = await renderList(viewOf([proposal()]));
+    const quiet = await renderList(viewOf([proposal()])); const view = viewOf([proposal()]);
     expect(quiet).toContain("Nothing implemented yet. Ship your first ready change and I start measuring it.");
     expect(quiet).not.toMatch(/Implemented 0|Measuring 0|Results 0/);
-    const view = viewOf([proposal()]);
     const moving = await renderList({ ...view, summary: { ...view.summary, measuring: 2 } });
-    expect(moving).toContain("Measuring 2");
-    expect(moving).not.toMatch(/Implemented 0|Results 0/);
+    expect([moving.includes("Measuring 2"), /Implemented 0|Results 0/.test(moving)]).toEqual([true, false]);
   });
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {
     const html = await renderList(viewOf([proposal()]));
@@ -215,7 +201,7 @@ describe("a change detail hands over the whole investigation and the controls to
   it("the investigation carries the cause, what it beat, what would kill it, and what could not be tested", async () => {
     const html = await renderDetail(proposal());
     for (const s of ["Show me how you worked this out", "two of your own pages competing for one search",
-      "Google is picking between them and the clicks split", "What else I considered and why it lost",
+      "so Google is choosing between them every time somebody searches it", "What else I considered and why it lost",
       "a sharper line cannot fix two of your own pages", "What would change my mind", "this is not the explanation",
       "What I could not test, and why", "I do not hold this page&#x27;s indexing or canonical state."]) expect(html, s).toContain(s);
     // Not one raw slug reaches the screen.
@@ -245,13 +231,10 @@ describe("a change detail hands over the whole investigation and the controls to
     // row, so an operator could not say they applied one section and skipped the other.
     const twin = (label: string) => ({ ...proposal().bundle!.components[0]!, kind: "section" as const, label });
     const twins = await renderDetail(proposal({ bundle: { ...proposal().bundle!, components: [twin("The opening section"), twin("The sizing section")] } }));
-    expect(twins).toContain("The opening section");
-    expect(twins).toContain("The sizing section");
-    expect(twins.match(/type="checkbox" checked=""/g)?.length).toBe(2);
+    expect([twins.includes("The opening section"), twins.includes("The sizing section"), twins.match(/type="checkbox" checked=""/g)?.length]).toEqual([true, true, 2]);
   });
   it("opens the investigation only when it holds one, never onto a line the card above already said", async () => {
-    const bare = proposal({ causeFinding: undefined, rankingReceipt: undefined });
-    expect(await renderDetail(bare)).not.toContain("Show me how you worked this out");
+    expect(await renderDetail(proposal({ causeFinding: undefined, rankingReceipt: undefined }))).not.toContain("Show me how you worked this out");
     expect(await renderDetail(proposal({ causeFinding: undefined }))).toContain("Show me how you worked this out"); // a ranking receipt is reasoning too
   });
 });

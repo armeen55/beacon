@@ -12,7 +12,7 @@
  * write. PURE + deterministic: no I/O, no LLM, no clock; the same evidence produces a byte-identical
  * finding, reading only what the pass already paid for. */
 
-import { anchoredTopicMatch, canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
+import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { classifyResult, publisherHost } from "@/domains/evidence/serp-shape";
 import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url"; import { pageContains, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
@@ -20,6 +20,7 @@ import type { ActionDiagnosis, DiagnosedAction } from "./contracts";
 import type { DecidedTopic } from "./coverage-pass";
 import { technicalKey, type TechnicalFinding } from "./technical-findings";
 import { RECEIPT } from "./diagnose";
+import { observationJoinsCase } from "./membership"; import { provenSurvivor, splitComparison, type SplitRow } from "./split";
 
 /** WHY one page loses the click, as ONE closed vocabulary, every member decided from evidence this account
  *  holds. No member means "some other reason": a cause I cannot name is `no_problem` plus a missing input. */
@@ -42,7 +43,7 @@ export type CausePayload =
   | { cause: "intent_shift"; intent: string; ownShape: string }
   | { cause: "retrieved_not_cited"; engine: string; promptText: string }
   | { cause: "ai_citation_gap"; engine: string; promptText: string }
-  | { cause: "cannibalization"; competingPaths: string[] }
+  | { cause: "cannibalization"; competingPaths: string[]; comparison: SplitRow[]; survivor: string | null }
   | { cause: "technical_indexability"; findings: TechnicalFinding[] };
 
 /** ONE cause, everything it was read off, and everything it beat. Carried INSIDE the candidate (no new
@@ -156,10 +157,9 @@ const RULES: Rule[] = [
     rulesOut: { cause: "ctr_snippet", reason: "a second edit here would make the first one unreadable, whatever its wording does" },
   },
   {
-    // TWO OF YOUR OWN PAGES ON ONE SEARCH is the one cause no wording change can touch, so it is asked
-    // before every wording question. Read off the account's own rankings, never off a family of URLs.
-    // SCOPED TO THIS SEARCH, exactly like the read below it: an unrelated pair splitting a different query
-    // says nothing about this one, and counting it as considered turned "never checked" into "ruled out".
+    // TWO OF YOUR OWN PAGES ON ONE SEARCH is the one cause no wording change can touch, so it is asked before
+    // every wording question, read off the account's own rankings and SCOPED TO THIS SEARCH: an unrelated pair
+    // splitting a different query says nothing about this one.
     cause: "cannibalization",
     held: (c) => (c.snapshot.cannibalization.some((g) => canonicalQueryKey(g.query) === c.queryKey)
       || c.snapshot.research.retainedKeywords.some((k) => canonicalQueryKey(k.query) === c.queryKey && k.supports != null)
@@ -170,10 +170,12 @@ const RULES: Rule[] = [
         && g.competingUrls.some((u) => canonicalUrlKey(u) === c.urlKey));
       const kw = c.snapshot.research.retainedKeywords.find((k) => canonicalQueryKey(k.query) === c.queryKey && k.supports === "consolidation");
       if (!group && !kw) return { fired: false, reason: "only one page of yours comes up for that search, so nothing of yours is taking the click from it" };
+      // WHAT THIS PROVES IS THAT BOTH PAGES COME UP, never that the clicks are being divided: the comparison decides the survivor or nobody does.
+      const comparison = splitComparison(c.snapshot, c.query);
       const pages = group?.competingUrls.length ?? 2;
-      return { fired: true, action: "consolidate", evidenceKeys: [RECEIPT.gsc, RECEIPT.competing],
-        payload: { cause: "cannibalization", competingPaths: [...(group?.competingUrls ?? [])] },
-        explanation: `${num(pages)} of your own pages come up for ${quote(c.query)}, so Google is picking between them and the clicks split. I would settle which page owns that search before changing a word on either of them.` };
+      return { fired: true, action: "consolidate", evidenceKeys: comparison.length > 0 ? [RECEIPT.gsc, RECEIPT.competing] : [RECEIPT.gsc],
+        payload: { cause: "cannibalization", competingPaths: [...(group?.competingUrls ?? [])], comparison, survivor: provenSurvivor(comparison) },
+        explanation: `${num(pages)} of your own pages come up for ${quote(c.query)}, so Google is choosing between them every time somebody searches it. I would settle which one owns that search before changing a word on either of them.` };
     },
     falsifier: (c) => `If my next look shows only one page of yours coming up for ${quote(c.query)}, this is not the explanation.`,
     rulesOut: { cause: "ctr_snippet", reason: "a sharper line cannot fix two of your own pages competing for the same search" },
@@ -196,7 +198,6 @@ const RULES: Rule[] = [
       const gaps = c.pattern!.ownedGaps;
       if (gaps.length === 0) return { fired: false, reason: "the pages that win this subject do nothing this page does not already do" };
       const first = gaps[0]!;
-      // EVERY GAP, NOT THE FIRST ONE: the reading names up to eight things this page does not do, and keeping one dropped seven proven gaps that were read and paid for.
       const publishers = c.pattern!.publishers;
       return { fired: true, action: null, evidenceKeys: [RECEIPT.winners, RECEIPT.winnersGap],
         payload: { cause: "competitor_content_gap", gaps: gaps.map((g) => ({ gap: g.gap, seenOn: [...g.seenOn],
@@ -207,7 +208,6 @@ const RULES: Rule[] = [
     rulesOut: { cause: "ctr_snippet", reason: "the pages beating this one carry something it does not, so a sharper line would send people to a page that still does not answer them" },
   },
   {
-    // THE SECTIONS THEY ALL COVER AND THIS PAGE HAS NONE OF, against its own outline AND its held body.
     cause: "incomplete_coverage",
     held: (c) => (!c.pattern ? "I hold no reading of what the pages winning this subject have in common, taken against this page."
       : !c.page.content ? "I do not hold this page's own sections, so I cannot say what it leaves out." : null),
@@ -302,15 +302,14 @@ const RULES: Rule[] = [
     rulesOut: { cause: "incomplete_coverage", reason: "the page covers the subject and then strands the reader on it" },
   },
   {
-    // READ AND PASSED OVER: the retrieval list held this page and the answer cited somebody else, so it was seen and judged, which is a content verdict rather than a wording one.
+    // READ AND PASSED OVER: the retrieval list held this page and the answer cited somebody else, which is a content verdict rather than a wording one.
     cause: "retrieved_not_cited",
     held: (c) => (aiAnswers(c).some((o) => (o.retrievedResults ?? null) != null)
       ? null : "I hold what the engines cited, and none of these observations recorded what was read before answering."),
     read: (c) => {
       const hosts = ownHosts(c.snapshot);
-      // THIS PAGE, not this domain: a retrieval hit on any page of mine fired the accusation on every other page of mine, so an untouched page was told it had been read and declined.
-      // A stored retrieval list is what the engine reported READING and may hold pages it then credited, so the
-      // citations are subtracted first, by canonical url, or a page that WAS cited reads as read and passed over.
+      // THIS PAGE, not this domain, and the citations are subtracted from the retrieval list first, by canonical
+      // url, or a page that WAS cited reads as read and passed over.
       const seen = aiAnswers(c).find((o) => retrievedNotCitedLinks(o.retrievedResults, o.citations).some((r) => canonicalUrlKey(r.url) === c.urlKey)
         && (o.citations ?? []).length > 0 && (o.citations ?? []).every((x) => !hosts.has(publisherHost(x.url))));
       if (!seen) return { fired: false, reason: "no engine read this page and then cited only other sites" };
@@ -375,7 +374,7 @@ const namesPage = (path: string | null, urlKey: string): boolean => {
 
 /** This page's own opening words, from the ONE place the pass already read them. */
 const openingOf = (c: Ctx): string | null =>
-  c.mine?.candidates.find((x) => canonicalUrlKey(x.url) === c.urlKey)?.openingSample ?? null;
+  (c.body?.openingSample ?? null) || (c.mine?.candidates.find((x) => canonicalUrlKey(x.url) === c.urlKey)?.openingSample ?? null);
 
 /** What kind of page this one IS, by the same classifier that typed the results it is measured against. */
 const ownShape = (c: Ctx): string | null => classifyResult(c.page.content?.title ?? null, c.page.url);
@@ -389,12 +388,13 @@ const winnerLinks = (c: Ctx): number[] => {
     .sort((a, b) => a - b);
 };
 
-/** The observed AI answers that are actually ABOUT this page's search, anchored on the account's own
- *  corpus so one word it puts on everything can never pull an unrelated answer in. */
+/** The observed AI answers that are actually ABOUT this page's search, decided by the ONE membership predicate:
+ *  a shared word this account puts on everything can never pull an unrelated answer in. */
 const aiAnswers = (c: Ctx): EvidenceSnapshot["research"]["aiObservations"] => {
-  const weak = weakAnchorsOf(c.snapshot.ownedPages, c.snapshot.research);
+  const ids = new Set(c.snapshot.research.retainedKeywords.filter((k) => canonicalQueryKey(k.query) === c.queryKey)
+    .flatMap((k) => (k.origins ?? []).map((o) => o.promptId).filter((id): id is string => !!id)));
   return c.snapshot.research.aiObservations.filter((o) => o.citationsObserved && o.citations != null
-    && anchoredTopicMatch(c.query, o.promptText, weak).relevant);
+    && observationJoinsCase(o, { queries: [c.query], provenancePromptIds: ids }));
 };
 
 /** CAUSES THIS GENERATION CANNOT TEST AT ALL, said out loud rather than left as a silence. Each one names

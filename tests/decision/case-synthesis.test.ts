@@ -131,8 +131,7 @@ it("keeps the FILE's survivor when the model prefers the smaller case, and an em
   const big = { id: "inv_zzz_big", anchors: ["b1", "b2", "b3", "b4"] }, small = { id: "inv_aaa_small", anchors: ["s1"] };
   const out = applySynthesis([big, small], { merges: [{ keepId: small.id, absorbIds: [big.id] }], splits: [], pageLinks: [], parentOf: [] },
     new Map([[big.id, ["shared.example"]], [small.id, ["shared.example"]]]));
-  const alive = out.cases.filter((c) => !c.aliasOf);
-  expect([alive.map((c) => c.id), out.cases.find((c) => c.id === small.id)?.aliasOf]).toEqual([[big.id], big.id]);
+  const alive = out.cases.filter((c) => !c.aliasOf); expect([alive.map((c) => c.id), out.cases.find((c) => c.id === small.id)?.aliasOf]).toEqual([[big.id], big.id]);
   // And a case the partition empties aliases to the case that took its last anchor, never to whoever sorts first.
   const fold = foldCases([["t1"], ["t2"]], [
     { id: "inv_aaa_unrelated", anchors: ["u1"] }, { id: "inv_stale", anchors: ["t1", "t2"] },

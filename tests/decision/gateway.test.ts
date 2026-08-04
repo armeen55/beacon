@@ -45,9 +45,7 @@ describe("openAIStructuredResponse — fails closed before any fetch", () => {
   it("blocks on a tripped global cost breaker without calling fetch", async () => {
     const { impl, capture } = fakeFetch(completedEnvelope("{}"));
     const res = await openAIStructuredResponse(baseArgs({ budget: { mode: "gateway_check", projectedCostUsd: 0.01 }, costBreakerImpl: { check: async () => ({ tripped: true, reason: "ceiling reached" }) }, fetchImpl: impl }));
-    expect(res.kind).toBe("blocked_budget");
-    if (res.kind === "blocked_budget") expect(res.reason).toBe("ceiling reached");
-    expect(capture.calls).toBe(0);
+    expect([res.kind, res.kind === "blocked_budget" && res.reason, capture.calls]).toEqual(["blocked_budget", "ceiling reached", 0]);
   });
   it("blocks on the per-platform budget cap without calling fetch", async () => {
     const { impl, capture } = fakeFetch(completedEnvelope("{}"));
@@ -57,9 +55,7 @@ describe("openAIStructuredResponse — fails closed before any fetch", () => {
   it("returns invalid_response for an unsupported schema without calling fetch", async () => {
     const { impl, capture } = fakeFetch(completedEnvelope("{}"));
     const res = await openAIStructuredResponse(baseArgs({ zodSchema: z.object({ a: z.any() }), fetchImpl: impl }));
-    expect(res.kind).toBe("invalid_response");
-    if (res.kind === "invalid_response") expect(res.reason).toContain("unsupported_schema");
-    expect(capture.calls).toBe(0);
+    expect([res.kind, res.kind === "invalid_response" && res.reason.includes("unsupported_schema"), capture.calls]).toEqual(["invalid_response", true, 0]);
   });
 });
 describe("openAIStructuredResponse — request body", () => {
@@ -92,14 +88,12 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
     const env = completedEnvelope("ignored");
     env.output = [{ type: "message", role: "assistant", content: [{ type: "refusal", refusal: "I can't." }] }] as any;
     const res = await openAIStructuredResponse(baseArgs({ fetchImpl: fakeFetch(env).impl }));
-    expect(res.kind).toBe("refusal");
-    if (res.kind === "refusal") expect(res.provenance.responseId).toBe("resp_abc123");
+    expect([res.kind, res.kind === "refusal" && res.provenance.responseId]).toEqual(["refusal", "resp_abc123"]);
   });
   it("returns incomplete (no value) when status is incomplete", async () => {
     const env = completedEnvelope("partial", { status: "incomplete", incomplete_details: { reason: "max_output_tokens" } });
     const res = await openAIStructuredResponse(baseArgs({ fetchImpl: fakeFetch(env).impl }));
-    expect(res.kind).toBe("incomplete");
-    if (res.kind === "incomplete") expect(res.reason).toBe("max_output_tokens");
+    expect([res.kind, res.kind === "incomplete" && res.reason]).toEqual(["incomplete", "max_output_tokens"]);
   });
   it("returns invalid_response for a failed status, RETAINING the real usage cost (post-network)", async () => {
     const env = completedEnvelope("x", { status: "failed", output: [] });

@@ -79,7 +79,8 @@ export function caseResearchReceipt(snapshot: EvidenceSnapshot, caseId: string, 
   for (const s of serps) calls.push({ kind: "search_results", subject: s.query, identity: null, served: "unknown", observedAt: s.observedAt });
   for (const o of research.aiObservations) {
     const asked = canonicalQueryKey(o.promptText);
-    const fans = (o.fanOutQueries ?? []).map(canonicalQueryKey);
+    // A tracked prompt is never its own fan-out: the self-echo cannot vouch for membership.
+    const fans = (o.fanOutQueries ?? []).map(canonicalQueryKey).filter((f) => f !== asked);
     if (!owns.has(asked) && !fans.some((f) => owns.has(f))) continue;
     calls.push({ kind: "ai_answer", subject: `${o.promptText} (${o.engine})`, identity: null, served: "unknown", observedAt: o.observedAt });
   }

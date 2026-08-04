@@ -68,21 +68,16 @@ describe("a set-aside change never comes back through a direct link", () => {
     const { loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
     vi.mocked(resolveCurrentBasis).mockResolvedValue("basis_now::d4"); // the bar the account holds NOW
     vi.mocked(loadChangeProposal).mockResolvedValue(bundled("basis_old::d2")); // but the stored row still exists
-    const html = await renderDetail();
-    expect(html).toContain("I set this idea aside");
-    expect(html).not.toContain(EXACT);
-    expect(html).not.toContain("Comedians</p>"); // no before/after either
-    expect(html).not.toContain("I made this change");
-    expect(html).toContain("See what I am working on now");
+    const html = await renderDetail(); // no exact copy, no before/after, and no way to record work I withdrew
+    expect([html.includes("I set this idea aside"), html.includes("See what I am working on now")]).toEqual([true, true]);
+    expect(html).not.toMatch(new RegExp(`${EXACT}|Comedians</p>|I made this change`));
   });
   it("a current-basis bundle link still renders its exact edits", async () => {
     const { loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
     vi.mocked(resolveCurrentBasis).mockResolvedValue("basis_now::d4");
     vi.mocked(loadChangeProposal).mockResolvedValue(bundled("basis_now::d4")); // the row IS the current bar's work
     const html = await renderDetail();
-    expect(html).toContain(EXACT);
-    expect(html).toContain("I made this change");
-    expect(html).not.toContain("I set this idea aside");
+    expect([html.includes(EXACT), html.includes("I made this change"), html.includes("I set this idea aside")]).toEqual([true, true, false]);
   });
 });
 
@@ -90,21 +85,15 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
   beforeEach(() => vi.clearAllMocks());
   it("says how many ideas I set aside, why, and what happens next", async () => {
     const html = await renderChanges(emptyView(21));
-    expect(html).toContain("I set aside 21 earlier ideas that no longer clear it");
-    expect(html).toContain("I am still checking your pages");
-    expect(html).toContain("I will rank your next change here as soon as one earns it");
-    expect(html).not.toContain("No changes yet");
-    expect(html).not.toMatch(/error|sorry|oops/i);
+    for (const said of ["I set aside 21 earlier ideas that no longer clear it", "I am still checking your pages", "I will rank your next change here as soon as one earns it"]) expect(html).toContain(said);
+    expect(html).not.toMatch(/No changes yet|error|sorry|oops/i);
     // A bar I could not READ is not a bar I raised, so that case may not claim one.
     expect(await renderChanges({ ...emptyView(21), basisUnreadable: true })).not.toContain("I set aside 21");
   });
   it("Changes and Today tell the same story when the decision has zero actionable candidates", async () => {
-    const view = emptyView(21);
-    const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
-    const today = buildTodayViewFromChanges(view);
-    expect(today.headerSentence).toContain("I set aside 21 earlier ideas that no longer clear it");
-    expect(today.nextOpportunities).toHaveLength(0);
-    expect(await renderChanges(view)).toContain("I set aside 21 earlier ideas that no longer clear it");
+    const view = emptyView(21); const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
+    const today = buildTodayViewFromChanges(view); const said = "I set aside 21 earlier ideas that no longer clear it";
+    expect([today.headerSentence.includes(said), today.nextOpportunities.length, (await renderChanges(view)).includes(said)]).toEqual([true, 0, true]);
   });
   it("keeps everything this release actually knows when the bar moves under it", async () => {
     // The gated rebuild used to be handed NOTHING, so a basis shift silently erased the retry date,
@@ -122,11 +111,10 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     vi.doMock("@/domains/runtime", async () => ({ ...(await vi.importActual<typeof import("@/domains/runtime")>("@/domains/runtime")),
       countTrackedQuestions: async () => 30 }));
     const { loadTodayView } = await import("@/app/(shell)/today-view-data");
-    const { today } = await loadTodayView();
-    expect(today.headerSentence).not.toBe("stale"); // it really was rebuilt from what survived the bar
+    const { today } = await loadTodayView(); // it really was rebuilt from what survived the bar
+    expect([today.headerSentence === "stale", today.headerSentence.includes("waiting until August 4")]).toEqual([false, true]);
     expect([today.waitingUntil, today.investigating, today.heldForMeasurement]).toEqual(["2026-08-04T18:00:00.000Z", 2, 3]);
     expect(today.declineNotes).toEqual(stored.today.today.declineNotes);
-    expect(today.headerSentence).toContain("waiting until August 4");
     vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/runtime"); vi.resetModules();
   });
   it("checks a stored release against the bar I hold NOW, not against itself", async () => {
@@ -135,9 +123,8 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     // demotedStaleBasis 2 OVERLAPS the 3 listed rows in an old-rule release: 3, never 5.
     const mixed = { ...emptyView(2), proposals: [bundled("basis_old::d2", "old"), bundled(NOW, "now"), { ...bundled("", "none"), basis: undefined }],
       ready: [bundled("basis_old::d2", "old")], summary: { todo: 0, ready: 1, measuring: 0, results: 0 } } as ChangesView;
-    const held = withCurrentBasisOnly(mixed, NOW);
-    expect(held.proposals.map((p) => p.basis)).toEqual([NOW]); // the current row survives; it was never set aside
-    expect(held.ready).toHaveLength(0); expect(held.summary.ready).toBe(0); expect(held.demotedStaleBasis).toBe(2);
+    const held = withCurrentBasisOnly(mixed, NOW); // the current row survives; it was never set aside
+    expect([held.proposals.map((p) => p.basis), held.ready.length, held.summary.ready, held.demotedStaleBasis]).toEqual([[NOW], 0, 0, 2]);
     const uniformlyStale = { ...emptyView(0), proposals: [bundled("basis_old::d3", "old")], ready: [bundled("basis_old::d3", "old")],
       summary: { todo: 0, ready: 1, measuring: 0, results: 0 } } as ChangesView;
     const stale = withCurrentBasisOnly(uniformlyStale, NOW); // ONE bar, and it is not mine: consistency is not currency

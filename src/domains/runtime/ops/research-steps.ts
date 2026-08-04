@@ -22,12 +22,14 @@ import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { synthesizeCases } from "@/domains/decision/case-synthesis";
 import { buildTopicInvestigations, reconcileResearchCases } from "@/domains/evidence/topic-investigation";
 import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
-import { continueColdStartCrawlIfStarted } from "@/domains/evidence/scanning/crawl-frontier";
+import { continueColdStartCrawlIfStarted, startColdStartCrawl } from "@/domains/evidence/scanning/crawl-frontier";
+import { getTenant } from "@/domains/account";
+import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { shipmentBustedAt, verifyDueShipments } from "@/domains/measurement/verify-shipment";
 import { log } from "@/lib/logger";
 import { warmFreeSurfaces } from "./warm-caches";
 import { chooseInvestigation, comparisonForFocus, focusReads, type ResearchFocus } from "./investigation-queries";
-import { dueObservations, runAnswerAnalyses } from "./daily-observations";
+import { dailyChecks, dueObservations, runAnswerAnalyses } from "./daily-observations";
 import { reportingDay } from "@/lib/reporting-day";
 import { accountBasis, dueWork, evidenceRowVersion, type DueWork } from "./due-work";
 import type { ResearchPhase } from "../research-run";
@@ -35,16 +37,13 @@ import type { ResearchPhase } from "../research-run";
 /** Reasons the deep-backfill continuation returns when there is simply nothing to do (no backfill started, already finished, or no synced property yet):
  *  healthy no-ops that advance the phase without a failure. Any OTHER reason is a real error and throws. */
 const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_synced_property", "no_cursor"]);
-
+/** How many accounts one stranded-day probe may look at. Bounded: this is a recovery sweep, not a fleet scan. */
+const RECOVERY_PROBE_ACCOUNTS = 20;
 
 /** The refresh_sources phase outcome: how many sources were attempted, the identities of the ones that actually synced, and the bounded per-source
  *  failure detail for the rest. `succeeded` is a list of provider identities (not a count) so retries can UNION distinct successes rather than
  *  double-count them. */
-type RefreshSourcesResult = {
-  attempted: number;
-  succeeded: string[];
-  failures: Array<{ provider: string; detail: string }>;
-};
+type RefreshSourcesResult = { attempted: number; succeeded: string[]; failures: Array<{ provider: string; detail: string }> };
 
 /** The gsc_backfill_chunk phase outcome. `advanced` = a chunk pulled (or the backfill defensively completed); `no_work` = a benign skip. A real error is
  *  a THROW, never a value. */
@@ -55,8 +54,7 @@ type BackfillChunkResult = { kind: "advanced"; complete?: boolean; daysPulled?: 
 export type ResearchCycleSteps = {
   refreshSources: (tenantId: string, now: Date, attemptKey: string) => Promise<RefreshSourcesResult>;
   backfillChunk: (tenantId: string, now: Date, attemptKey: string) => Promise<BackfillChunkResult>;
-  /** ONE bounded batch of the account's OWN website (crawl_pages). Free: polite owned reads on the same fetch
-   *  path as every other owned read, never a provider. Returns how many pages this batch actually read. */
+  /** ONE bounded batch of the account's OWN website (crawl_pages). Free: polite owned reads on the same fetch path as every other owned read, never a provider. Returns how many pages this batch read. */
   crawlPages: (tenantId: string, now: Date) => Promise<number>;
   /** The four Slice 6 evidence executors (evidence facade), one per funnel phase. */
   funnelUnit: (phase: ResearchPhase, tenantId: string, cursor: Record<string, unknown> | null, budgetMs: number, focus: ResearchFocus | null) => Promise<FunnelUnitOutcome>;
@@ -72,18 +70,18 @@ export type ResearchCycleSteps = {
   surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
   /** Read back the day's NEW answers (bounded, $0 when nothing changed). Returns how many analyses were persisted. Derived work: it never pauses the run. */
   analyzeAnswers: (tenantId: string, reportingDay: string) => Promise<number>;
-  /** WHAT THE OPERATOR SAID THEY SHIPPED, checked on the live page (verify_and_measure). Bounded to three
-   *  pages per pass and free: every one is a read of a page the account owns, on the same polite-fetch path
-   *  as every other owned read, never a provider. Returns how many verifications landed. Derived work: a
-   *  check I could not make never pauses the run. */
+  /** WHAT THE OPERATOR SAID THEY SHIPPED, checked on the live page (verify_and_measure). Bounded to three pages per pass and free: every one is a read of a page the account owns, on the same polite-fetch
+   *  path as every other owned read, never a provider. Returns how many verifications landed. Derived work: a check I could not make never pauses the run. */
   verifyShipments: (tenantId: string, now: Date) => Promise<number>;
-  /** WHAT IS GENUINELY OWED, from persisted state only (see due-work). Free. It decides two things and
-   *  nothing else: whether a second pass may open on a day that already completed one, and whether the
+  /** WHAT IS GENUINELY OWED, from persisted state only (see due-work). Free. It decides two things and nothing else: whether a second pass may open on a day that already completed one, and whether the
    *  pass that just opened has anything at all to do. */
   dueWork: (tenantId: string, now: Date) => Promise<DueWork>;
-  /** The research notes' row version for a basis, read at the moment the decision step concludes: the
-   *  watermark this pass consumed. Read AFTER the pass's own writes, never before, or a pass would
-   *  forever count its own discovery as new evidence and re-open itself. */
+  /** TODAY'S WHOLE-DAY STANDING off the canonical planner: settled of intended, and how the settled ones landed. Null = I could not read it, which is never "the day is finished". Free. */
+  dayStanding: (tenantId: string, reportingDay: string) => Promise<DueWork["checks"] | null>;
+  /** Every active, unpaused account whose CURRENT reporting day is genuinely short. Free, bounded, and empty is the honest "nothing was left behind". */
+  strandedToday: (reportingDay: string) => Promise<string[]>;
+  /** The research notes' row version for a basis, read at the moment the decision step concludes: the watermark this pass consumed. Read AFTER the pass's own
+   *  writes, never before, or a pass would forever count its own discovery as new evidence and re-open itself. */
   evidenceVersion: (tenantId: string, basis: string) => Promise<number | null>;
 };
 
@@ -157,11 +155,32 @@ export const defaultSteps: ResearchCycleSteps = {
     // identical window.
     throw new Error(`gsc backfill chunk did not advance: ${result.reason}`.slice(0, 200));
   },
-  // THE ONE PLACE THE WEBSITE GETS READ. A render must never crawl, so the resumable frontier is driven here,
-  // exactly one bounded batch per pass, and the inventory it works through is what makes the next pass due.
-  // Fail-soft by contract: continueColdStartCrawlIfStarted returns a structured result and never throws, and a
-  // pass with no crawl started, nothing left, or an unreachable site is a healthy no-op that advances.
-  async crawlPages(tenantId) { return (await continueColdStartCrawlIfStarted(tenantId)).crawled; },
+  // THE ONE PLACE THE WEBSITE GETS READ, AND THE ONE PLACE A CRAWL BEGINS. A render must never crawl, so the
+  // resumable frontier is driven here, one bounded batch per pass. Cold start used to fire only from onboarding,
+  // so an account that predates it had no frontier at all: every pass asked to CONTINUE one, was told there is
+  // none, and called that a healthy no-op forever. A missing frontier is now initialized once, NEVER forced, so
+  // an instance that got there first is loaded and continued rather than reset; unreachable is persisted truth
+  // and stops here. Fail-soft throughout, and a site already read whole is still a no-op that advances.
+  async crawlPages(tenantId) {
+    const first = await continueColdStartCrawlIfStarted(tenantId);
+    if (first.status !== "no_crawl" || first.detail !== "no_frontier_state") return first.crawled;
+    const domain = (await getTenant(tenantId).catch(() => null))?.domain?.trim();
+    if (!domain) return 0;
+    if ((await startColdStartCrawl({ tenantId, domain })).status === "unreachable") return 0;
+    return (await continueColdStartCrawlIfStarted(tenantId)).crawled; },
+  async dayStanding(tenantId, day) { const c = await dailyChecks(tenantId, day);
+    return c == null ? null : { done: c.done, total: c.total, answers: c.answers, unavailable: c.unavailable, unsupported: c.unsupported }; },
+  // THE DAY THE FLEET CLAIM CANNOT SEE. claim_due_research_work excludes an account the moment ANY run completed
+  // today, so a pass that settled its batch and left the day short is owed nothing further and the rest of the
+  // day never happens. This is the free question that finds those accounts: the canonical planner alone, one
+  // bounded read each, no provider and no cent. Empty is the honest "nobody was left behind".
+  async strandedToday(day) {
+    const { data } = await getSupabaseAdmin().from("tenants").select("id").eq("status", "active").not("research_paused", "is", true).limit(RECOVERY_PROBE_ACCOUNTS);
+    const out: string[] = [];
+    for (const row of (data ?? []) as Array<{ id: string }>) {
+      const c = await dailyChecks(String(row.id), day).catch(() => null);
+      if (c != null && c.total > 0 && c.done < c.total) out.push(String(row.id)); }
+    return out; },
   currentBasis: accountBasis,
   dueWork,
   evidenceVersion: evidenceRowVersion,

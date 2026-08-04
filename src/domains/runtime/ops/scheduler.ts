@@ -5,12 +5,14 @@ import "server-only";
  *  calls this. No per-account schedule, no queue, no worker fleet, no second orchestrator: this claims ONE account at a time under the SAME database leases a visit claims under and drives it through
  *  the SAME canonical cycle (driveClaimed). SAFE TO FIRE TWICE. claim_due_research_work claims each account through claim_research_run, which takes a per-account advisory lock and refuses a foreign
  *  live lease, and the partial unique index allows at most one unfinished run per account. A duplicate dispatch claims nothing the first one holds and reports zero; a dispatch racing a live visit
- *  loses the same way. NEVER: a continuation hop (browser-recovery machinery), a cent outside the existing per-cycle deadline and spend caps, or a day that has already passed. Resume after a pause
- *  picks up TODAY; missed days stay missed. */
+ *  loses the same way. A COMPLETED PASS IS NOT A FINISHED DAY, and the claim cannot tell them apart: it excludes an account the moment any run completed today, so a pass that settled its batch and
+ *  left the day short went unclaimed and the rest of the day never happened. An empty claim therefore probes who is genuinely short and opens ONE more pass through the shared same-day opener. NEVER:
+ *  a continuation hop (browser-recovery machinery), a cent outside the existing per-cycle deadline and spend caps, or a day that has already passed. Resume after a pause picks up TODAY; missed days stay missed. */
 
 import { log } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
-import { claimDueRuns, finishRun, newOwnerToken } from "../research-run";
+import { reportingDay } from "@/lib/reporting-day";
+import { claimDueRuns, finishRun, newOwnerToken, startExtraPass, type ResearchRun } from "../research-run";
 import { driveClaimed, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } from "./on-visit-refresh";
 import { defaultSteps } from "./research-steps";
 
@@ -56,17 +58,31 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
   };
 
   const worked = new Set<string>();
+  /** THE STRANDED DAY, and why it is a SECOND phase of this loop rather than a branch of the claim. The fleet claim excludes an account the moment ANY run completed
+   *  today, so a pass that settled its batch and left the day short was owed nothing further and the remaining checks simply never happened. This asks the canonical
+   *  planner who is genuinely short and opens ONE more bounded pass through the SAME opener a visit uses; that opener refuses while any run is unfinished, so a
+   *  repeat tick and a racing tick open at most one between them, and a terminal day opens nothing at all. */
+  const stranded = async (): Promise<ResearchRun | undefined> => {
+    const day = reportingDay(nowFn().getTime());
+    for (const t of await steps.strandedToday(day).catch(() => [] as string[])) {
+      if (worked.has(t)) continue;
+      const opened = await startExtraPass(t, ownerToken, day);
+      if (opened != null) { log.info("[research-run] today's checks were left short, so I opened one more pass", { tenantId: t }); return opened; }
+    }
+    return undefined; };
+  let claiming = true; // the claim comes first; once it drains, or hands back an account already worked, the rest of this dispatch belongs to the probe
   while (endsAt - nowFn().getTime() >= MIN_ACCOUNT_SLICE_MS) {
-    const [run] = await claimDueRuns(ownerToken, 1);
-    if (run == null) break; // nothing else is owed, or what is owed is somebody else's live work
-    if (worked.has(run.tenant_id)) {
-      // ONE TURN PER ACCOUNT PER DISPATCH: a paused account is due again the moment it is released, so
-      // without this a failing account is re-claimed and re-failed until the budget dies while the fleet
-      // waits. Its next turn is the next dispatch's. The re-claim still lands in a bucket: receipts sum.
+    let run = claiming ? (await claimDueRuns(ownerToken, 1) as Array<ResearchRun | undefined>)[0] : undefined;
+    if (run != null && worked.has(run.tenant_id)) {
+      // ONE TURN PER ACCOUNT PER DISPATCH: a paused account is due again the moment it is released, so without this a failing account is re-claimed and
+      // re-failed until the budget dies while the fleet waits. Its next turn is the next dispatch's. Ending the whole dispatch here was the second half of
+      // that bug: an account the claim can no longer see at all never got probed. The re-claim still lands in a bucket, so receipts sum.
       claimed += 1;
       if (await handBack(run)) paused += 1; else failed += 1;
-      break;
+      claiming = false; run = undefined;
     }
+    if (run == null) { claiming = false; run = await stranded(); }
+    if (run == null) break; // nothing else is owed, or what is owed is somebody else's live work
     worked.add(run.tenant_id);
     claimed += 1;
     const left = endsAt - nowFn().getTime();

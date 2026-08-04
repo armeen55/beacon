@@ -19,7 +19,7 @@ import { loadCrawlFrontier, type CrawlFrontierState } from "@/domains/evidence/s
 import { syncPageSnapshots, syncPromptAnswerObservations } from "@/lib/persistence/dual-write";
 import type { PageSnapshot } from "@/domains/evidence/pages/types";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
-import { readAiObservationViews, recordAiObservation, type AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations";
+import { readAiObservations, readAiObservationViews, recordAiObservation, type AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations";
 import type {
   CachedCallResult,
   CapabilityInputByKey,
@@ -79,6 +79,10 @@ export type FunnelDeps = {
   /** THE canonical full-fidelity observation write (ai_observations). Separate seam from syncHistory
    *  because the history row is a PROJECTION of this record, derived from it at the same instant. */
   recordObservation?: (rec: AiObservationRecord, tenantId: string) => Promise<void>;
+  /** THE PAID PLACEMENT ALREADY ON FILE for one stored identity, read ONLY when a landing computed nothing of
+   *  its own, so a free collect can never write a paid receipt down to zero on a row placed before the pair
+   *  carried its cost. It only ever RAISES what this landing would have written; the ledger stays the authority. */
+  readObservationCost?: (tenantId: string, observationId: string) => Promise<number>;
   fetchPage?: typeof fetchPageHtml;
   /** The ONE canonical persistence of a page of the ACCOUNT'S OWN: the same page_snapshots row every other
    *  read of my own pages writes, so a body acquired here is the body Decision reads back. */
@@ -108,6 +112,7 @@ export function resolveDeps(deps: FunnelDeps) {
     getAccount: deps.getAccount ?? getTenant,
     syncHistory: deps.syncHistory ?? syncPromptAnswerObservations,
     recordObservation: deps.recordObservation ?? recordAiObservation,
+    readObservationCost: deps.readObservationCost ?? (async (t: string, id: string) => Number((await readAiObservations(t, { id, limit: 1, projection: "list" }))[0]?.cost_usd ?? 0) || 0),
     fetchPage: deps.fetchPage ?? fetchPageHtml,
     writeOwnedPage: deps.writeOwnedPage ?? ((snapshot: PageSnapshot, tenantId: string) => syncPageSnapshots([snapshot], tenantId)),
     readOwnedBodies: deps.readOwnedBodies ?? loadOwnedPageBodies,

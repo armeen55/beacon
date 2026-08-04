@@ -13,8 +13,9 @@
  * own words. THIS FILE SELECTS AND NOTHING ELSE: no draft, no purchase, no model, no clock, no I/O.
  */
 
-import { anchoredTopicMatch, canonicalQueryKey } from "@/domains/evidence/relevance-gate";
-import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
+import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
+import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
+import { observationJoinsCase } from "./membership";
 import type { DecidedTopic } from "./coverage-pass";
 import type { QualifiedCandidate } from "./opportunities";
 
@@ -59,11 +60,15 @@ const strongest = (xs: readonly QualifiedCandidate[]): QualifiedCandidate | null
   [...xs].sort((a, b) => b.recoverableClicks - a.recoverableClicks || (a.pageUrl ?? "").localeCompare(b.pageUrl ?? ""))[0] ?? null;
 
 /** The questions this account ALREADY WATCHES about one page's own search, and what that search is worth a
- *  month where a count is on file. Anchored exactly as the cause ladder anchors, so one word the account
- *  puts on everything can never pull an unrelated question in. */
-function aiDemand(snapshot: EvidenceSnapshot, query: string, weak: ReadonlySet<string>): { prompts: number; volume: number } {
+ *  month where a count is on file. Membership is the ONE canonical predicate, not a word in common: counting
+ *  every answer that shares the account's own subject word told an operator I watch seven questions about
+ *  their flag page when six of them were about visiting the country. */
+function aiDemand(snapshot: EvidenceSnapshot, query: string): { prompts: number; volume: number } {
+  const ofCase = { queries: [query], provenancePromptIds: new Set(snapshot.research.retainedKeywords
+    .filter((k) => canonicalQueryKey(k.query) === canonicalQueryKey(query))
+    .flatMap((k) => (k.origins ?? []).map((o) => o.promptId).filter((id): id is string => !!id))) };
   const prompts = new Set(snapshot.research.aiObservations
-    .filter((o) => o.citationsObserved && o.citations != null && anchoredTopicMatch(query, o.promptText, weak).relevant)
+    .filter((o) => o.citationsObserved && o.citations != null && observationJoinsCase(o, ofCase))
     .map((o) => o.promptText.trim().toLowerCase()));
   const key = canonicalQueryKey(query);
   const volume = snapshot.keywordDemand.find((k) => canonicalQueryKey(k.query) === key)?.searchVolume ?? 0;
@@ -92,10 +97,9 @@ export function selectDeepCandidates(input: {
 
   // DOOR 2: AN ENGINE THAT READ THIS PAGE, OR ANSWERED AROUND IT. This asks only that the question is one
   // I watch and that real demand sits behind it, so an accusation with nothing riding on it takes no slot.
-  const weak = weakAnchorsOf(snapshot.ownedPages, snapshot.research);
   const ai = candidates
     .filter((c) => !!c.pageUrl && !!c.query && (c.cause.cause === "ai_citation_gap" || c.cause.cause === "retrieved_not_cited"))
-    .map((c) => ({ c, ...aiDemand(snapshot, c.query!, weak) }))
+    .map((c) => ({ c, ...aiDemand(snapshot, c.query!) }))
     .filter((r) => r.prompts > 0 && (clicksOf(r.c) > 0 || r.volume > 0))
     .sort((a, b) => b.c.recoverableClicks - a.c.recoverableClicks || b.prompts - a.prompts
       || (a.c.pageUrl ?? "").localeCompare(b.c.pageUrl ?? ""))[0];

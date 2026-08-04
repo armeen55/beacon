@@ -160,31 +160,44 @@ describe("a named cause produces the change that fixes it", () => {
       expect(out.reason).toBe("I could not write the section that would close the gap on the winning pages, so I am handing you nothing rather than filler.");
     });
   });
-  /** THE TWO-STEP HOLD SURVIVES THE GATE: rewriting a merge's dangerous grade to "review" on the way out took
-   *  the hold off the one change that needs it AND made the stored row fail re-validation as mislabelled. */
-  it("keeps a merge marked dangerous, holds it for review, and the stored shape re-validates", async () => {
-    const twoPages = snapshot({ cannibalization: [{ query: "rain barrel sizing", note: "two of your own pages",
-      competingUrls: [URL, "fixture-content.example/rain-barrel-guide"] }] });
-    const out = await produceBundleForSnapshot(twoPages, { ...OPTS, complete: seam(), coverage: decided(pattern()) });
+  /** A SPLIT IS AN INVESTIGATION UNTIL THE EVIDENCE NAMES THE SURVIVOR, and the merge that does ship names it,
+   *  names what moves, and keeps the two-step hold: downgrading a merge's danger took that hold off the one
+   *  change that needs it AND made the stored row fail re-validation as mislabelled. */
+  it("writes no merge while the survivor is unproven, then hands over the proven one and holds it for review", async () => {
+    const RIVAL = "fixture-content.example/rain-barrel-guide";
+    const world = (rival: OwnedPageEvidence[]) => snapshot({ ownedPages: [page(), ...rival], cannibalization: [{ query: "rain barrel sizing", note: "two of your own pages", competingUrls: [URL, RIVAL] }] });
+    // The rival comes up for the same search and I hold no figures of its own: a reason to look, never a merge.
+    const unproven = await produceBundleForSnapshot(world([]), { ...OPTS, complete: seam(), coverage: decided(pattern()) });
+    expect([unproven.status, unproven.status === "none" && unproven.reason.includes("not proof that either one is taking the other's clicks")]).toEqual(["none", true]);
+    // PROVEN: both pages' own figures for that exact search, and both pages' current words on file.
+    const rival = page({ url: RIVAL, content: { ...page().content!, title: "Rain barrel guide", h1: "Rain barrel guide", outline: ["Barrel sizes", "Winter care"] },
+      search: { clicks90d: 20, impressions90d: 900, ctr90d: 0.02, position90d: 9, topQueries: [{ query: "rain barrel sizing", impressions: 900, clicks: 20, position: 9 }] } });
+    const out = await produceBundleForSnapshot(world([rival]), { ...OPTS, complete: seam(), coverage: decided(pattern()),
+      bodyByUrl: new Map([...BODY, [RIVAL, { ...BODY.get(URL)!, headings: ["Barrel sizes", "Winter care"] }]]) });
     expect(out.status).toBe("bundled");
     if (out.status !== "bundled") return;
-    const p = out.proposal; const b = p.bundle!;
-    expect(p.diagnosisCause).toBe("cannibalization");
-    expect(b.components.map((c) => [c.kind, c.risk])).toEqual([["consolidation", "dangerous"]]);
-    expect(p.status).toBe("needs_review"); // it reaches the operator as a question, never as a paste
-    // AND THROUGH THE VALIDATOR AGAIN on exactly the shape stored: an unmarked lever is rejected as mislabelled, so a downgrade here sinks the proposal on the next read.
+    const p = out.proposal; const b = p.bundle!; const c = b.components[0]!;
+    expect([p.diagnosisCause, p.status, p.riskLevel]).toEqual(["cannibalization", "needs_review", "high"]); // a question, never a paste, priced as the lever it is
+    expect([c.kind, c.risk, c.redirectTo]).toEqual(["consolidation", "dangerous", "/rain-barrels"]);
+    expect(c.after).toContain("/rain-barrels earns 90 clicks from that search against 20 on /rain-barrel-guide");
+    expect(c.after).toContain('I would move "Barrel sizes", "Winter care" from /rain-barrel-guide into /rain-barrels, then send /rain-barrel-guide on to /rain-barrels for good.');
+    // the comparison that proves it is a line the operator can read, and the component cites it
+    expect(b.receipt.items.find((i) => i.key === "demand-competing")!.fact).toContain("/rain-barrel-guide takes 20 clicks from 900 views at about position 9");
+    expect(c.evidenceKeys).toContain("demand-competing");
+    // AND THROUGH THE VALIDATOR AGAIN on exactly the shape stored: an unmarked lever is rejected as mislabelled.
     const again = validateProposal(p, { evidenceText: b.receipt.items.map((i) => i.fact).join(" ") });
-    expect(again.verdict).toBe("needs_review");
-    expect(again.reasons.join(" ")).toContain("confirm it before you make the change");
-    expect(bought).toEqual([]); // a merge starts with a decision the operator has to make, so no copy is bought
+    expect([again.verdict, again.reasons.join(" ").includes("confirm it before you make the change"), bought]).toEqual(["needs_review", true, []]);
   });
+  /** THE ASSEMBLED ROW IS GATED, NOT ONLY ITS PIECES: the per-component gate reads a synthetic proposal that
+   *  carries no cause and no limitations, so a cause pointing at a receipt line nobody wrote sailed past it. */
+  it("refuses to ship an assembled change whose cause points at a receipt line the receipt never carried", async () => {
+    // No body on file, so the opening this cause read came off the comparison and the receipt has no line for it.
+    const { bodyByUrl: _drop, ...noBody } = OPTS; void _drop;
+    const out = await produceBundleForSnapshot(snapshot(), { ...noBody, complete: seam(), coverage: decided(pattern()) });
+    expect([out.status, out.status === "none" && out.reason.includes("could not show you")]).toEqual(["none", true]); });
   it("never reaches a drafter on evidence too thin to name a cause", async () => {
-    const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, complete: seam() });
-    expect(out.status).toBe("none");
-    if (out.status !== "none") return;
-    expect(bought).toEqual([]); // no pattern, so no cause that needs one is even considered
-    expect(out.reason).toContain("I have not looked at the results page for that search yet");
-  });
+    const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, complete: seam() }); // no pattern, so no cause that needs one is even considered
+    expect([out.status, bought, out.status === "none" && out.reason.includes("I have not looked at the results page for that search yet")]).toEqual(["none", [], true]); });
 });
 /** A DOOR ANSWERS FOR ITS OWN CASE: a page selected because an engine skipped it, whose answer I no longer
  *  hold, is refused in that door's words. The wrong reason is worse than no reason, and neither is drafted. */

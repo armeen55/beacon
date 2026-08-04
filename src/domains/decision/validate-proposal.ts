@@ -51,6 +51,45 @@ const REJECT_STATUSES: ReadonlySet<DraftQualityStatus> = new Set<DraftQualitySta
 ]);
 
 const DASH_RE = /[–—]/; // en-dash, em-dash
+/** THE ONE PAGE, ONE STORY nets: a change may not hold this page's words in one sentence and miss them in the
+ *  next, and a reading I took weeks ago is not what the page says while the operator is looking at it. */
+const HOLDS_PAGE = /\bI (?:read|hold) this page's (?:stored words|own words|full body text)\b/i;
+const MISSING_PAGE = /\bI do not hold this page's (?:full body text|own words|own opening words|own sections)\b/i;
+const CURRENT_CLAIM = /\b(?:today|right now|currently|as it stands)\b/i;
+
+/**
+ * THE ROW'S OWN INTEGRITY, in ONE place, so the gate judging a fresh draft and the pass re-judging a stored one
+ * ask exactly the same questions. Every one of these shipped to a paying operator on one live change: a cause
+ * citing a comparison the receipt never carried, a page both held and not held in the same card, a dangerous
+ * merge filed as a medium risk, and a June reading described as what the page says today. PURE.
+ */
+export function receiptIntegrityFailures(proposal: ChangeProposal, now: Date = new Date()): string[] {
+  const bundle = proposal.bundle;
+  if (!bundle) return [];
+  const out: string[] = [];
+  const keys = new Set(bundle.receipt.items.map((i) => i.key));
+  const cited = [...bundle.components.flatMap((c) => c.evidenceKeys), ...(proposal.causeFinding?.evidenceKeys ?? [])];
+  if (cited.some((k) => !keys.has(k))) out.push("Part of this change points at evidence I cannot show you, so I am not putting it in front of you.");
+  // EVERYTHING THE OPERATOR READS ON THIS CHANGE, the copy itself included: a contradiction in the sentence
+  // being pasted is the one they act on, so it may not hide from a check the notes around it pass.
+  const says = [...proposal.limitations, ...bundle.risks, ...bundle.confidenceReasons, ...bundle.receipt.missing,
+    ...bundle.receipt.items.map((i) => i.fact), ...bundle.components.map((c) => `${c.after} ${c.objective ?? ""} ${c.mechanism ?? ""}`),
+    ...(proposal.causeFinding ? [proposal.causeFinding.explanation, ...proposal.causeFinding.notConsidered.map((n) => n.missing)] : [])].join(" ");
+  if (HOLDS_PAGE.test(says) && MISSING_PAGE.test(says)) out.push("I say two different things about whether I hold this page's own words, so I am not putting it in front of you.");
+  if (dangerousComponents(bundle.components).length > 0 && (proposal.riskLevel !== "high" || proposal.status === "ready")) {
+    out.push("This change moves or hides a page and it is filed as something lighter than that, so I am not putting it in front of you.");
+  }
+  // A READING IS CURRENT ONLY IF IT WAS TAKEN TODAY, and an UNDATED reading is not current either: skipping the
+  // undated ones let the one line that carries no date say "today" and mean whenever it was last collected.
+  const day = now.toISOString().slice(0, 10);
+  for (const item of bundle.receipt.items) {
+    const read = (item.observedAt ?? "").slice(0, 10);
+    if (read === day || !CURRENT_CLAIM.test(item.fact)) continue;
+    out.push(read ? `I call what I read on ${read} what this page says today, so I am not putting it in front of you.`
+      : "I call a reading with no date on it what this page says today, so I am not putting it in front of you.");
+  }
+  return [...new Set(out)];
+}
 
 export type ProposalVerdict = "ready" | "needs_review" | "rejected";
 
@@ -302,7 +341,8 @@ export function validateProposal(
 
   // ── the component gate + the two-step hold ──────────────────────────────────
   const components = proposal.bundle?.components ?? [];
-  const componentFails = componentFailures(components, opts.heldHeadings ?? []);
+  const componentFails = [...componentFailures(components, opts.heldHeadings ?? []),
+    ...receiptIntegrityFailures(proposal, opts.now ?? new Date())];
   // THE TWO-STEP CONFIRMATION, in the one vocabulary this product already has: a
   // dangerous component can never read as ready, it is held for the operator to look at
   // and then act. There is no second flag and no second lifecycle.

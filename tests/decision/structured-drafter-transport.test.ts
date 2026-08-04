@@ -65,9 +65,8 @@ describe("structured-drafter strict transport", () => {
     const { complete, calls } = seam([{ error: "blocked_budget", retryable: false }]);
     const out = await callStructuredLLM({ ...REQ, complete });
     expect(out.status).toBe("validation_failed");
-    if (out.status !== "validation_failed") return;
-    expect(out.costUsd).toBe(0); // a budget block fired no call → no spend
-    expect(calls()).toBe(1);
+    if (out.status !== "validation_failed") return; // a budget block fired no call, so no spend
+    expect([out.costUsd, calls()]).toEqual([0, 1]);
   });
   it("a cache hit costs $0 and never calls complete", async () => {
     const now = new Date("2026-07-23T00:00:00Z");
@@ -80,17 +79,14 @@ describe("structured-drafter strict transport", () => {
     const { complete, calls } = seam([{ error: "should-never-run", retryable: false }]);
     const out = await callStructuredLLM({ ...REQ, complete, cacheImpl });
     expect(out.status).toBe("drafted");
-    if (out.status !== "drafted") return;
-    expect(out.cached).toBe(true);
-    expect(out.costUsd).toBe(0);
-    expect(calls()).toBe(0); // the hit is served before any call
+    if (out.status !== "drafted") return; // the hit is served before any call
+    expect([out.cached, out.costUsd, calls()]).toEqual([true, 0, 0]);
   });
   it("a refusal's REAL usage cost lands in spend, not just the input estimate", async () => {
     const { complete, calls } = seam([{ error: "refusal", retryable: false, costUsd: 0.0123 }]);
     const out = await callStructuredLLM({ ...REQ, complete });
     expect(out.status).toBe("validation_failed");
-    if (out.status !== "validation_failed") return;
-    expect(calls()).toBe(1); // no retry on refusal
-    expect(out.costUsd).toBeCloseTo(0.0123, 6); // gateway usage cost, not estimate
+    if (out.status !== "validation_failed") return; // no retry on refusal, and the gateway's real usage cost
+    expect([calls(), out.costUsd]).toEqual([1, 0.0123]);
   });
 });

@@ -47,8 +47,7 @@ const memoryCache = (): CacheImpl => { const rows = new Map<string, LlmCallCache
 describe("the facts I read off the winning pages myself", () => {
   it("carries what the read captured and fills in nothing it did not", () => {
     const [first] = facts();
-    expect([first!.domain, first!.headings, first!.questionHeadings, first!.entities])
-      .toEqual(["guide.example", ["What a Persian rug is", MADE, CARE], ["What a Persian rug is", MADE], ["Tabriz", "Kashan"]]);
+    expect([first!.domain, first!.headings, first!.questionHeadings, first!.entities]).toEqual(["guide.example", ["What a Persian rug is", MADE, CARE], ["What a Persian rug is", MADE], ["Tabriz", "Kashan"]]);
     expect([first!.wordCount, first!.faqCount, first!.hasList, first!.hasTable, first!.hasSchema]).toEqual([1400, 3, true, false, true]);
     // A PAGE I NEVER READ IS NOT A PAGE OF ZEROES. Every scalar is null and every list is empty, so nothing
     // downstream can read "no sections, no words, no structured data" off a page nobody ever fetched.
@@ -68,9 +67,7 @@ describe("the one reading a case may buy", () => {
     const s = seam(reading());
     const out = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete });
     expect([out?.winners, out?.publishers, s.calls()]).toEqual([4, ["guide.example", "museum.example", "weavers.example", "atlas.example"], 1]);
-    expect([out?.archetype, out?.commonHeadings[0]?.seenOn, out?.ownedGaps[0]?.gap])
-      .toEqual(["informational_guide", [0, 1, 2], "your page never explains how one is made"]);
-    expect(out?.fingerprint).toHaveLength(16);
+    expect([out?.archetype, out?.commonHeadings[0]?.seenOn, out?.ownedGaps[0]?.gap, out?.fingerprint.length]).toEqual(["informational_guide", [0, 1, 2], "your page never explains how one is made", 16]);
   });
   it("throws away the WHOLE reading when any number it cites is a page I never showed it", async () => {
     const strayHeading = reading({ commonHeadings: [{ heading: "how one is made", seenOn: [0, 4] }] });

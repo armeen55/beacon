@@ -30,6 +30,7 @@ import { selectDeepCandidates } from "./deep-candidates";
 import { produceBundleForSnapshot } from "./produce-bundle";
 import { proposeExistingPageChange, type ProposeOptions } from "./propose";
 import { loadChangeProposals, saveChangeProposal, withdrawChangeProposal, withdrawnProposalIds } from "./proposal-store";
+import { receiptIntegrityFailures } from "./validate-proposal";
 import { rankProposals } from "./rank-proposals";
 import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
@@ -160,12 +161,11 @@ export async function produceProposalsForTenant(
   const existing = persist
     ? await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>())
     : new Map<string, ChangeProposal>();
-  /** The drafts I already took back under this basis. A withdrawn row is history, so it is not in the map
-   *  above, and without this read the next pass would pay to redraft every safety failure. */
+  /** The drafts I already took back under this basis: history, so not in the map above, and without this read the next pass would pay to redraft every safety failure. */
   const withdrawn = persist ? await withdrawnProposalIds(tenantId, basis) : new Set<string>();
   /** THE measurement context, derived once and shared by the diagnosis and both rankings. THE STAMP IS WHAT
-   *  RANKS: a Shipment holds the moment the operator implemented the change, which is what the 28-day window
-   *  is read from, while a proposal's `createdAt` is only the day it was drafted and can be weeks off. */
+   *  RANKS: a Shipment holds the moment the change was implemented, which the 28-day window is read from,
+   *  while `createdAt` is only the day it was drafted and can be weeks off. */
   const measuring = { measuringPagePaths: await measuringPaths(tenantId, existing, opts) };
 
   // THE RESEARCH PACKETS, over the same evidence this pass judges. Non-actionable by construction: they only
@@ -223,8 +223,7 @@ export async function produceProposalsForTenant(
   }
   const research = { investigations, coverage, waitingUntil };
 
-  // THE DIAGNOSIS FIRST. Doing nothing is the default; only a proven gap is work. The decided topic rides
-  // in so the cause ladder can ask the page that verdict NAMES what the winning pages do that it does not.
+  // THE DIAGNOSIS FIRST. Doing nothing is the default; only a proven gap is work. The decided topic rides in so the ladder can ask the page it NAMES what the winning pages do that it does not.
   const candidates = compileCandidates(snapshot, { coverage, ...measuring });
   const acted = candidates.filter((c) => c.action === "act_existing_page");
   const recoverableByKey = new Map<string, number>();
@@ -272,9 +271,8 @@ export async function produceProposalsForTenant(
     };
   };
 
-  const live = [...existing.values()].filter((p) => p.status !== "implemented_pending_verification");
-  /** A stored row generated under THIS basis. Null basis proves nothing, so it
-   *  reuses nothing: an account I cannot read must never freeze its own queue. */
+  const held = [...existing.values()].filter((p) => p.status !== "implemented_pending_verification");
+  /** A stored row generated under THIS basis. Null basis proves nothing, so it reuses nothing: an account I cannot read must never freeze its own queue. */
   const current = (p: ChangeProposal): boolean => basis != null && p.basis === basis;
   const currentById = (id: string): ChangeProposal | null => {
     const p = existing.get(id);
@@ -283,6 +281,15 @@ export async function produceProposalsForTenant(
   const currentBundleFor = (match: (p: ChangeProposal) => boolean): ChangeProposal | null =>
     live.find((p) => !!p.bundle && current(p) && match(p)) ?? null;
 
+  // A CHANGE THAT CANNOT SHOW ITS WORK IS TAKEN BACK, whether or not anything re-selects its page this pass:
+  // withdrawal used to ride on the deep loop, so a stored row for a page no door opened today simply stayed.
+  const retired = new Set<string>();
+  for (const p of held) {
+    if (!p.bundle || receiptIntegrityFailures(p, opts.now).length === 0) continue;
+    if (persist) await withdrawChangeProposal(p);
+    existing.delete(p.id); retired.add(p.id);
+  }
+  const live = held.filter((p) => !retired.has(p.id));
   // A HOLD HAPPENS WHERE THE DECISION IS MADE, NOT WHERE THE ROW IS WRITTEN: the ladder's
   // `measuring_change` and the skipped applied row are both held ideas, counted here beside the store's.
   const heldByDiagnosis = candidates.filter((c) => c.cause.cause === "measuring_change").length;
@@ -333,10 +340,8 @@ export async function produceProposalsForTenant(
   const deep = selectDeepCandidates({ snapshot, candidates, coverage, limit: bound });
 
   const investigating = candidates.filter((c) => c.action === "research_needed").length;
-  // A CONSOLIDATION IS WORK, NOT SILENCE. The ladder names two of your own pages splitting one search and
-  // no producer here can write that change yet, so it used to count as nothing at all and the pass reported
-  // a quiet day over a proven loss. It is counted with what I am watching and carries its own reason onto
-  // the run receipt, so the operator reads the consolidation even while nothing drafts it.
+  // A CONSOLIDATION IS WORK, NOT SILENCE: a split nothing can draft yet used to count as nothing at all and
+  // the pass reported a quiet day over it, so it is counted here and carries its reason onto the run receipt.
   const consolidating = candidates.filter((c) => c.action === "consolidate").length;
   if (acted.length === 0 && deep.length === 0) {
     log.info("[produce-proposals] nothing earned an action this pass", { tenantId, judged: candidates.length,
@@ -362,11 +367,9 @@ export async function produceProposalsForTenant(
   }
   const enteredBy = new Map<string, string>(); // which door each page that got a deep change came through
 
-  // A READY CHANGE MAY NOT OUTLIVE ITS OWN EXPLANATION. The basis fingerprints the account,
-  // not the evidence, so a stored row kept rendering Ready while today's diagnosis no longer
-  // supported it (Google rewrites the line it displays, a rival retitles, the page slips off
-  // the results page I check). Every live bundle whose page no longer earns an action this
-  // pass is set aside, in the queue and in the store, with the reason the operator reads.
+  // A READY CHANGE MAY NOT OUTLIVE ITS OWN EXPLANATION. The basis fingerprints the account, not the evidence,
+  // so a stored row kept rendering Ready while today's diagnosis no longer supported it. Every live bundle whose
+  // page no longer earns an action this pass is set aside, with the reason the operator reads.
   const provenNow = new Set([...acted.flatMap((c) => pageKeys(c.pageUrl)), ...selectedKeys]);
   for (const p of live) {
     if (!p.bundle || p.kind !== "existing_edit" || p.status !== "ready" || !current(p)) continue;
@@ -378,13 +381,10 @@ export async function produceProposalsForTenant(
 
   let noDraft = 0;
   for (const input of inputs) {
-    // A refresh re-pays nothing. A current-generation row already covering this
-    // candidate (its own row, or the deep bundle that replaced it) is carried
-    // forward as-is: no drafter call, no write, no new timestamp.
-    // SETTLED WORK IS NOT REDRAFTED. The newest row wins on read, so redrafting an IMPLEMENTED change
-    // would overwrite the record of something already shipped. A WITHDRAWN row is the safety gate's
-    // verdict, so the same basis would fail the same way; once the basis moves, the page gets a fair
-    // second attempt.
+    // A refresh re-pays nothing: a current-generation row already covering this candidate is carried forward
+    // as-is, with no drafter call, no write and no new timestamp.
+    // SETTLED WORK IS NOT REDRAFTED: redrafting an IMPLEMENTED change would overwrite the record of something
+    // already shipped, and a WITHDRAWN row would fail the same way until the basis moves.
     const settled = existing.get(proposalId(input));
     // An IMPLEMENTED row is a change I am reading, so the fresh idea for that page is HELD, not
     // dropped, and it is counted here rather than left to a store call this loop never makes.
@@ -421,10 +421,8 @@ export async function produceProposalsForTenant(
     await persistIfChanged(proposal);
   }
 
-  // ONE bundle per SELECTED page, strongest door first and never more than the bound. A bundle
-  // REPLACES its own shallow drafts (never the same change twice); a refusal is honest and silent
-  // and the shallow drafts stand. A bundle for a page NO door selected is dropped: the deep form of
-  // a change nobody needs is still a change nobody needs.
+  // ONE bundle per SELECTED page, strongest door first and never more than the bound. A bundle REPLACES its
+  // own shallow drafts; a refusal is honest and silent. A bundle for a page NO door selected is dropped.
   const bundleOpts = { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, technical };
   const onThrow = (e: unknown) => {
     log.warn("[produce-proposals] bundle threw (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
@@ -432,6 +430,8 @@ export async function produceProposalsForTenant(
   };
 
   for (const d of deep) {
+    // A CHANGE MAY NOT OUTLIVE THE RULES IT WAS MADE UNDER: anything whose claims stopped resolving was taken
+    // back above, so what reaches here is a stored bundle that still shows its work and is carried forward.
     const heldBundle = heldDeep.get(d.pageUrl) ?? null;
     if (heldBundle) {
       // A held bundle used to reach the queue only through the atomic-input loop, and that loop is
@@ -446,10 +446,10 @@ export async function produceProposalsForTenant(
       enteredBy.set(d.pageUrl, d.entry);
       continue;
     }
-    // The page a door selected gets its own words read, through the targeted Evidence reader
-    // (explicit tenant, this URL only). A diagnosis written from a title and a word count is a
-    // guess; fail-soft to none, which stays honest.
-    const bodyByUrl = await loadOwnedPageBodies(tenantId, [d.pageUrl]).catch(() => null);
+    // The page a door selected gets its own words read, through the targeted Evidence reader. A diagnosis
+    // written from a title and a word count is a guess; fail-soft to none, which stays honest.
+    // THE PAGES THIS CASE IS ABOUT, not only the one it lands on: a split cannot say what moves off the other page without its words.
+    const bodyByUrl = await loadOwnedPageBodies(tenantId, [d.pageUrl, ...d.evidence.competingUrls]).catch(() => null);
     // THE DOOR TRAVELS WITH THE PAGE. Selection knows why this page is here and the producer has to prove
     // THAT case, so a page an engine skipped is never refused, or explained, in the click door's words.
     const bundled = await produceBundleForSnapshot(snapshot, { ...bundleOpts, onlyPageUrl: d.pageUrl, door: d,

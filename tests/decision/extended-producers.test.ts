@@ -32,6 +32,9 @@ const LINKS = [["/roof-area-calculator", "roof area"], ["/barrel-sizes", "barrel
 const OWNED = [["rain-collection", "Rain collection basics", "Rain collection"], ["storm-drains", "Storm drains", "Storm drains"],
   ["barrel-sizes", "Barrel sizes", "Barrel sizes"], ["roof-area-calculator", "Roof area calculator", "Roof area"],
   ["contact", "Contact us", "Contact"], ["careers", "Careers", "Careers"]].map(([p, title, h1]) => ({ url: `https://fixture-content.example/${p}`, title: title!, h1: h1! }));
+/** THE SECOND PAGE ON THE SAME SEARCH: its own exact-search numbers, and the words it carries today. */
+const OTHER_URL = "https://fixture-content.example/barrel-sizes";
+const CMP = [{ url: PAGE_URL, clicks: 90, impressions: 6000, position: 3 }, { url: OTHER_URL, clicks: 20, impressions: 900, position: 9 }];
 const ctxOf = (over: Partial<ProducerCtx> = {}): ProducerCtx => ({
   finding: finding("internal_link_weakness", { cause: "internal_link_weakness", medianWinnerLinks: 12, ownedLinks: 3 }),
   primary: QUERY, tenantId: TENANT, ownedPages: OWNED,
@@ -45,6 +48,9 @@ const ctxOf = (over: Partial<ProducerCtx> = {}): ProducerCtx => ({
     internalLink: async (i) => ({ anchorText: `${i.topic} guide`, linkSentence: `If you are working out ${i.topic}, that page walks through it`, reason: "same subject" }) },
   ...over,
 });
+/** BOTH PAGES AS I CURRENTLY HOLD THEM, by the same canonical address the producer looks them up under. */
+const BODIES = new Map([["fixture-content.example/rain-barrels", { ...ctxOf().body!, title: "Rain barrel sizing guide", h1: "Rain barrel sizing guide" }],
+  ["fixture-content.example/barrel-sizes", { ...ctxOf().body!, url: OTHER_URL, title: "Barrel sizes guide", h1: "Barrel sizes guide", headings: ["Barrel sizes", "Gallons per storm"] }]]);
 /** A drafter that writes every section AND the page's own opening: the only shape a rebuild may ever ship on. */
 const OPENING = "Rain barrel sizing comes down to roof area and how much rain one storm brings.";
 const whole = (refuseAt = -1): ProducerCtx["draft"] => { let n = 0; return { internalLink: async () => null,
@@ -70,7 +76,7 @@ const GATE_OPTS = { pageBodyText: "Rain barrels catch what runs off a roof.", no
 const envelope = (primary: BundleComponent) =>
   ({ kind: "existing_edit" as const, field: fieldForComponent(primary.kind), before: primary.before, after: primary.after });
 /** THE PROPOSAL PRODUCTION ACTUALLY GATES: that envelope, priced by the kind of change it is, page words alongside. */
-const validate = (components: BundleComponent[], evidenceText?: string): ReturnType<typeof validateProposal> => {
+const validate = (components: BundleComponent[], evidenceText?: string, over: Partial<ChangeProposal> = {}): ReturnType<typeof validateProposal> => {
   const primary = components[0]!;
   return validateProposal({
     id: "p", tenantId: TENANT, kind: "existing_edit", pagePath: "/rain-barrels", pageUrl: PAGE_URL, pageLabel: "Rain Barrels",
@@ -78,7 +84,7 @@ const validate = (components: BundleComponent[], evidenceText?: string): ReturnT
     recommendedChange: envelope(primary),
     whyItMatters: "The title misses the word people search.", estimatedEffortMinutes: effortMinutesFor(primary.kind), riskLevel: "low", confidence: "medium",
     limitations: [], evidence: { query: QUERY, hints: [], evidenceRefCount: 1 }, impactScore: 100, upsidePerMonth: null,
-    publish: "manual", createdAt: "2026-07-25T00:00:00.000Z", bundle: bundleOf(components),
+    publish: "manual", createdAt: "2026-07-25T00:00:00.000Z", bundle: bundleOf(components), ...over,
   } as ChangeProposal, { ...GATE_OPTS, ...(evidenceText === undefined ? {} : { evidenceText }) });
 };
 /** THE COMPONENT GATE'S OWN ANSWER: every component refusal ends in the operator's words, never the validator's. */
@@ -100,13 +106,10 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
         heard.push(...i.evidenceHints ?? []);
         return { anchorText: `${i.topic} guide`, linkSentence: `Working out ${i.topic} means reading ${(i.evidenceHints ?? []).join(" ")}`, reason: "same subject" }; } },
     }));
-    expect(heard.length).toBeGreaterThan(0);                       // it is grounded, not starved
+    expect(heard.length).toBeGreaterThan(0); // it is grounded, not starved, and never on one of my own figures
     for (const fact of FACTS) expect(heard).not.toContain(fact);
-    const copy = out.components.map((c) => c.after).join(" ");
-    expect(copy).not.toContain("6,000");                           // the number in the receipt never reaches the page
-    expect(copy).not.toContain("90 clicks");
-    expect(heard).toContain("Rain Barrels");                       // the page's own words, and the winners' headings
-    expect(heard).toContain("How much rain a roof collects");
+    expect(out.components.map((c) => c.after).join(" ")).not.toMatch(/6,000|90 clicks/); // the receipt's numbers never reach the page
+    expect(heard).toEqual(expect.arrayContaining(["Rain Barrels", "How much rain a roof collects"])); // the page's own words, and the winners' headings
   });
   // A DOUBLE GAP IS A TYPO ON SOMEBODY'S PAGE: a dash beside a space shipped two. Paragraph breaks survive untouched.
   it("never ships drafted body copy with a run of spaces in it, and never touches a line break", async () => {
@@ -116,14 +119,12 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
         body: "A diverter splits roof water \u2014 between the drain and the barrel.\n\nThe cited pages  say when one is needed.",
         sources: [], containsNumber: false }) },
     }));
-    const after = out.components[0]!.after;
-    expect(after).not.toMatch(/ {2}/);              // "a  b" never ships
-    expect(after).toContain("barrel.\n\nThe cited");  // and the paragraph break is left exactly where it was
+    const after = out.components[0]!.after; // "a  b" never ships, and the paragraph break is left exactly where it was
+    expect([/ {2}/.test(after), after.includes("barrel.\n\nThe cited")]).toEqual([false, true]);
   });
   it("sends the reader to a page this account actually has, and survives the component gate", async () => {
     const out = await produceInternalLinks(ctxOf());
-    expect(out.refusal).toBeNull();
-    expect(out.components.map((c) => c.kind)).toEqual(["internal_link_add", "internal_link_add"]);
+    expect([out.refusal, out.components.map((c) => c.kind)]).toEqual([null, ["internal_link_add", "internal_link_add"]]);
     // deterministic, and FROM THE INVENTORY: pages already linked never return, this page and other sites
     // never appear, and ties break on the page's own name.
     expect(out.components.map((c) => c.label)).toEqual(["Link to /rain-collection", "Link to /storm-drains"]);
@@ -132,13 +133,10 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     // THE COPY ITSELF SURVIVES, not only the gate: it names this page's search and opens on no word the firewall cannot place.
     const c = out.components[0]!;
     expect(c.after).toBe('I would add this line to the section headed "How much rain a roof collects": if you are working out Rain collection basics, that page walks through it. The words "Rain collection basics guide" then point at /rain-collection, so a reader who came for "rain barrel sizing" has somewhere to go next.');
-    expect(componentRefusals(validate(out.components))).toEqual([]);
-    expect(validate(out.components).verdict).toBe("ready");
+    expect([componentRefusals(validate(out.components)), validate(out.components).verdict]).toEqual([[], "ready"]);
     // and the gate is live: the instruction tail this used to carry is still refused, twice over
     const old = validate([{ ...c, after: 'If you are working out Roof area, that page walks through it. Point the words "Roof area guide" at /roof-area-calculator.' }]);
-    expect(old.verdict).toBe("rejected");
-    expect(old.reasons.join(" ")).toContain("Rewrite drops the words this page is actually about");
-    expect(old.factViolations.join(" ")).toContain('names "Point"');
+    expect([old.verdict, old.reasons.join(" ").includes("Rewrite drops the words this page is actually about"), old.factViolations.join(" ").includes('names "Point"')]).toEqual(["rejected", true, true]);
   });
   it("refuses honestly when no page of this account is named by the evidence", async () => {
     // No inventory on file at all: nothing to send a reader to, and nothing is invented.
@@ -197,25 +195,54 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
       finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }) }));
     expect([empty.components.length, empty.refusal!.includes("I hold nothing this page could say")]).toEqual([0, true]);
   });
-  it("hands a merge over as a question the operator answers, never as a paste", async () => {
-    const both = await produceConsolidation(ctxOf({ finding: finding("cannibalization", { cause: "cannibalization", competingPaths: [PAGE_URL, "https://fixture-content.example/barrel-sizes"] }) }));
-    const c = both.components[0]!;
-    expect([c.kind, c.risk, c.before, answered(c)]).toEqual(["consolidation", "dangerous", null, true]);
-    // the operator reads their own pages as paths, and the ladder's whole addresses never leak into the copy
+  /** TWO PAGES ON ONE SEARCH IS A SIGNAL TO INVESTIGATE, never proof the clicks are splitting, and never a
+   *  decision handed back to the operator: the survivor is proven off inspectable evidence or nothing ships. */
+  it("settles a split only when the survivor is proven, and then hands over the exact merge", async () => {
+    const split = (over: Record<string, unknown> = {}) => finding("cannibalization", { cause: "cannibalization", competingPaths: [PAGE_URL, OTHER_URL], comparison: [], survivor: null, ...over });
+    const merge = (over: Record<string, unknown> = {}, bodies?: typeof BODIES) => produceConsolidation(ctxOf({ finding: split(over), ...(bodies ? { heldBodies: bodies } : {}) }));
+    const unproven = await merge(); // no comparison and no survivor: an investigation, not a change, and never a question handed back
+    expect([unproven.components.length, unproven.refusal!.includes("I am not telling you to combine anything")]).toEqual([0, true]);
+    expect(unproven.refusal).not.toMatch(/you pick|choosing for you|stronger position/i);
+    expect((await merge({ comparison: CMP })).components).toHaveLength(0); // both pages' numbers, still no proven survivor
+    expect((await merge({ comparison: CMP, survivor: PAGE_URL })).components).toHaveLength(0); // a survivor whose losing page I never read claims nothing about what moves
+    const c = (await merge({ comparison: CMP, survivor: PAGE_URL }, BODIES)).components[0]!; // PROVEN: both pages' numbers, both pages' words, one ahead on both
+    expect([c.kind, c.risk, c.before, c.redirectTo, answered(c)]).toEqual(["consolidation", "dangerous", null, "/rain-barrels", true]);
+    // the operator reads their own pages as paths, the comparison that proves it is in the copy, and so is what moves
     expect(c.after).toContain('2 of your own pages come up for "rain barrel sizing": /rain-barrels, /barrel-sizes');
-    expect(c.after).not.toContain("https://");
-    expect(c.after).toContain("I am not choosing for you");
+    expect(c.after).toContain("/rain-barrels earns 90 clicks from that search against 20 on /barrel-sizes");
+    expect([c.after.includes("Gallons per storm"), c.after.includes("https://")]).toEqual([true, false]);
+    expect(c.after).not.toMatch(/I am not choosing for you|you pick|stronger position/i);
     // The change the row would carry IS this component: a merge filed as a section change, never a title rewrite.
     expect(envelope(c)).toEqual({ kind: "existing_edit", field: "section", before: null, after: c.after });
-    const held = validate(both.components);
-    expect(held.verdict).toBe("needs_review");
-    expect(held.reasons.join(" ")).toContain("confirm it before you make the change");
-    // when the evidence does say which page holds the stronger position, it says which absorbs which
-    const picked = await produceConsolidation(ctxOf({ finding: finding("cannibalization", { cause: "cannibalization", competingPaths: [PAGE_URL, "https://fixture-content.example/barrel-sizes"], strongerPath: PAGE_URL }) }));
-    expect(picked.components[0]!.after).toContain("/rain-barrels holds the stronger position");
+    // The same grounding production hands it: the receipt's own comparison line and the words of both pages.
+    const held = validate([c], [GATE_OPTS.evidenceText, ...[...BODIES.values()].flatMap((b) => b.headings),
+      ...CMP.map((r) => `${r.url} takes ${r.clicks} clicks at about position ${r.position}`)].join(" "), { riskLevel: "high", status: "needs_review" });
+    expect([held.verdict, held.reasons.join(" ").includes("confirm it before you make the change")]).toEqual(["needs_review", true]);
     // the payload is read by SHAPE, so the ladder may carry it under any field name and a producer still reads it
-    const renamed = await produceConsolidation(ctxOf({ finding: { ...finding("cannibalization"), detail: { competingPaths: ["/a", "/b"] } } as CauseFinding }));
+    const renamed = await produceConsolidation(ctxOf({ heldBodies: BODIES, finding: { ...finding("cannibalization"), detail: { competingPaths: [PAGE_URL, OTHER_URL], comparison: CMP, survivor: PAGE_URL } } as CauseFinding }));
     expect(renamed.components).toHaveLength(1);
+  });
+  /** THE RECEIPT IS THE PROOF. A claim that does not resolve to a line the operator can read is not a claim, one
+   *  change may not say two things about one page, danger may not ride under a soft label, and a reading I took
+   *  in June is not what the page says today. Every one of these shipped on one live change. */
+  it("refuses a change whose evidence does not resolve, contradicts itself, understates danger, or dates a stale reading as today", () => {
+    const link: BundleComponent = { kind: "internal_link_add", label: "Link to your own page", before: null, after: "I would point readers from here on to your page on Barrel sizes.",
+      evidenceKeys: ["links"], risk: "safe", where: "the section on sizes", objective: "Give the reader somewhere to go next.",
+      mechanism: "The pages that win link on and this one does not.", measurementPlan: "I will read clicks at 7, 14 and 28 days." };
+    const bundle = bundleOf([link]); const merge: BundleComponent = { ...link, kind: "consolidation", label: "Settle which page owns this search", risk: "dangerous" };
+    expect(validate([{ ...link, evidenceKeys: ["nowhere"] }]).verdict).toBe("rejected"); // a component citing a line that is not there
+    const causeMissing = validate([link], undefined, { causeFinding: { ...finding("cannibalization"), evidenceKeys: ["demand-competing"] } });
+    expect([causeMissing.verdict, causeMissing.reasons.some((r) => r.includes("evidence I cannot show you"))]).toEqual(["rejected", true]);
+    expect(validate([link], undefined, { causeFinding: finding("cannibalization") }).verdict).not.toBe("rejected"); // the same cause, citing lines that resolve
+    expect(validate([link], undefined, { limitations: ["I do not hold this page's own opening words."], // two stories about one page's words
+      bundle: { ...bundle, risks: ["I read this page's stored words, not today's live page, so read each line once."] } }).verdict).toBe("rejected");
+    expect([validate([merge]).verdict, validate([merge], undefined, { riskLevel: "high", status: "needs_review" }).verdict]).toEqual(["rejected", "needs_review"]); // danger is priced on the row or refused
+    const dated = (observedAt: string | null) => validate([link], undefined, { bundle: { ...bundle, receipt: { ...bundle.receipt, items: [...bundle.receipt.items,
+      { key: "copy-current", kind: "page_extract" as const, fact: 'Today the page is titled "Rain Barrels".', observedAt }] } } });
+    const stale = dated("2026-06-11T00:00:00.000Z"); // an undated reading called today is the same claim with the date hidden
+    expect([stale.verdict, stale.reasons.some((r) => r.includes("2026-06-11")), dated(null).verdict]).toEqual(["rejected", true, "rejected"]);
+    expect(validate([{ ...link, after: "I read this page's stored words and would point readers on to Barrel sizes." }], undefined, // a contradiction in the copy itself, not only in the notes around it
+      { limitations: ["I do not hold this page's full body text, so I checked every draft against its title."] }).verdict).toBe("rejected");
   });
   /** READY MEANS WHOLE: a rebuild shipping planning sentences under half its copy promised what it did not hold. */
   it("rebuilds a page only when the causes agree, and only when the WHOLE page is written", async () => {
@@ -226,14 +253,9 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const c = many.components[0]!;
     expect([c.kind, c.risk, answered(c)]).toEqual(["full_rewrite", "review", true]);
     // THE COPY IS THE CHANGE: the opening first, then every section the winners agree on, and not one planning sentence.
-    expect(c.after.startsWith(OPENING)).toBe(true);
-    expect(c.after).toContain("How much water a roof collects");
-    expect(c.after).toContain("Choosing a barrel size");
-    expect(c.after).not.toContain("still owed");
-    expect(c.objective).toContain("a guide that answers the question from end to end");
-    expect(c.mechanism).toContain("2 things are wrong at once");
-    expect(componentRefusals(validate(many.components))).toEqual([]);
-    expect(validate(many.components).verdict).toBe("ready");
+    expect([c.after.startsWith(OPENING), c.after.includes("How much water a roof collects"), c.after.includes("Choosing a barrel size"), c.after.includes("still owed")]).toEqual([true, true, true, false]);
+    expect([c.objective!.includes("a guide that answers the question from end to end"), c.mechanism!.includes("2 things are wrong at once")]).toEqual([true, true]);
+    expect([componentRefusals(validate(many.components)), validate(many.components).verdict]).toEqual([[], "ready"]);
     // THE PRESERVATION MAP: what survives the rebuild in its own words, and every held thing it drops named with the reason
     expect(c.preserves!.keeps).toEqual(["Roof area", "Storm"]);
     expect(c.preserves!.losses.map((l) => l.what)).toEqual(["Rain Barrels", "How much rain a roof collects", "Barrel sizes"]);
@@ -243,13 +265,11 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect([silent.verdict, silent.reasons.some((r) => r === 'The rebuild drops "Barrel sizes" and never says why, so I am not putting it in front of you.')]).toEqual(["rejected", true]);
     // the winners' reading grounds the sections it quotes: on receipt lines alone, a true second section reads as invention
     const narrow = validate(many.components, RECEIPT_ONLY);
-    expect(narrow.verdict).toBe("rejected");
-    expect(narrow.factViolations.join(" ")).toContain('names "Choosing"');
+    expect([narrow.verdict, narrow.factViolations.join(" ").includes('names "Choosing"')]).toEqual(["rejected", true]);
     // ONE SECTION SHORT IS NO REBUILD: nothing is emitted, the refusal counts what is owed, and resuming costs nothing.
     const four = { pattern: { ...PATTERN, commonHeadings: FOUR.map((heading, i) => ({ heading, seenOn: [i] })) } };
     const partial = await produceFullRewriteRecommendation(ctxOf({ ...four, draft: whole(2) }), causes);
-    expect(partial.components).toHaveLength(0);
-    expect(partial.refusal).toBe("I could write 3 of the 4 sections this rebuild needs and 1 is still owed, so I am not handing you half a page. Ask me again and I will pick up where I stopped: the sections I already wrote cost nothing to ask for a second time.");
+    expect([partial.components.length, partial.refusal]).toEqual([0, "I could write 3 of the 4 sections this rebuild needs and 1 is still owed, so I am not handing you half a page. Ask me again and I will pick up where I stopped: the sections I already wrote cost nothing to ask for a second time."]);
     // and a page whose sections all landed with no opening to lead them is still not a page
     const mute = await produceFullRewriteRecommendation(ctxOf({ draft: { ...whole(), openingAnswer: async () => null } }), causes);
     expect([mute.components.length, mute.refusal!.includes("no way in")]).toEqual([0, true]);
@@ -278,7 +298,7 @@ describe("what a change actually costs the operator", () => {
   it("files and prices a change by the kind of component it actually is", async () => {
     const kinds: BundleComponent["kind"][] = ["internal_link_add", "full_rewrite", "consolidation", "title", "meta", "h1", "opening_answer", "section_rewrite"];
     expect(kinds.map(fieldForComponent)).toEqual(["section", "section", "section", "title", "meta", "h1", "answer_block", "section"]);
-    const merge = await produceConsolidation(ctxOf({ finding: finding("cannibalization", { cause: "cannibalization", competingPaths: [PAGE_URL, "https://fixture-content.example/barrel-sizes"] }) }));
+    const merge = await produceConsolidation(ctxOf({ heldBodies: BODIES, finding: finding("cannibalization", { cause: "cannibalization", competingPaths: [PAGE_URL, OTHER_URL], comparison: CMP, survivor: PAGE_URL }) }));
     const rebuild = await produceFullRewriteRecommendation(ctxOf({ draft: whole() }), ["weak_opening", "incomplete_coverage"]);
     expect([merge.components[0]!.kind, rebuild.components[0]!.kind].map(effortMinutesFor)).toEqual([90, 120]);
     expect([effortMinutesFor("section_rewrite"), effortMinutesFor("section_add"), effortMinutesFor("title")]).toEqual([30, 15, 1]);

@@ -82,9 +82,14 @@ function draftOf(p: FunnelPair, ids: ObsIds, text: string, at: string, status: A
  *  is DERIVED from that same record in the same breath. Two writes, one truth: nothing composes a history row
  *  independently any more, so the two can never disagree. */
 async function landAnswer(p: FunnelPair, r: Interp, parsed: ParsedAiAnswer, promptText: string, ids: ObsIds, nowIso: string, d: ResolvedDeps): Promise<void> {
-  const rec = buildAiObservation(draftOf(p, ids, promptText, nowIso, "observed", { completedAt: nowIso, cacheKey: r.cacheKey, costUsd: r.costUsd, parsed }));
-  p.status = "done"; p.cacheKey = r.cacheKey; p.observedAt = nowIso; p.promptText = promptText;
-  p.reposts = undefined; p.requestedAt = undefined; // a landed answer closes the incident: fresh budget next time
+  // THE MONEY IS THE PLACEMENT'S. A posted ask is finished by a FREE collect, so the cost on the final row is
+  // what the placement paid PLUS whatever this landing itself cost; the collect's own zero never erases it.
+  const rec = buildAiObservation(draftOf(p, ids, promptText, nowIso, "observed", { completedAt: nowIso, cacheKey: r.cacheKey ?? p.cacheKey, costUsd: round(r.costUsd + (p.postCostUsd ?? 0)), parsed }));
+  // AN IDENTITY POSTED BEFORE the pair carried its own cost still holds the paid placement on the pending row
+  // this upserts over: when the landing computed nothing, keep what is on file rather than zeroing a receipt.
+  if (rec.cost_usd === 0) rec.cost_usd = await d.readObservationCost(ids.tenantId, rec.id).catch(() => 0);
+  p.status = "done"; p.cacheKey = r.cacheKey ?? p.cacheKey; p.observedAt = nowIso; p.promptText = promptText;
+  p.reposts = undefined; p.requestedAt = undefined; p.postCostUsd = undefined; // a landed answer closes the incident: fresh budget next time
   p.modelServed = parsed.modelServed ?? r.modelServed; p.webSearchReported = parsed.webSearchReported;
   p.citationsObserved = parsed.citations !== null;
   p.citations = parsed.citations ? parsed.citations.map((c) => ({ url: c.url, domain: c.domain, title: c.title })) : null;
@@ -108,7 +113,7 @@ function pairsFromDue(due: DueObservation[], persisted: FunnelPair[]): FunnelPai
     const ip: FunnelPair = { promptId: x.promptId, engine: x.engine, mode: canonicalMode(x.engine), slot: x.slot, day: x.day,
       promptVersion: x.version, promptText: x.text, cacheKey: null, status: "pending" };
     const kept = byKey.get(pairKey(ip));
-    if (kept?.status === "posted" && kept.cacheKey) return { ...ip, status: "posted", cacheKey: kept.cacheKey, reposts: kept.reposts, requestedAt: kept.requestedAt, modelRequested: kept.modelRequested };
+    if (kept?.status === "posted" && kept.cacheKey) return { ...ip, status: "posted", cacheKey: kept.cacheKey, reposts: kept.reposts, requestedAt: kept.requestedAt, modelRequested: kept.modelRequested, postCostUsd: kept.postCostUsd };
     // A pair PROVEN unavailable on this very day keeps that answer: the repost budget is per incident, and
     // an incident is one day. Without it every visit re-posted a dead identity at full price all day long.
     if (kept?.status === "unsupported") return { ...ip, status: "unsupported", cacheKey: kept.cacheKey, observedAt: kept.observedAt, reposts: kept.reposts };
@@ -197,7 +202,7 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
         if (p.engine === "perplexity") perp += 1;
         const r = interp(await observeCall(d.callProvider, p, text, ids)); track(state, r);
         p.modelRequested = r.modelRequested ?? p.modelRequested ?? null;
-        if (r.kind === "waiting") { p.status = "posted"; p.cacheKey = r.cacheKey; p.requestedAt = nowIso(); progressed = true; await note(p, "pending", null, { costUsd: r.costUsd }); }
+        if (r.kind === "waiting") { p.status = "posted"; p.cacheKey = r.cacheKey; p.requestedAt = nowIso(); p.postCostUsd = (p.postCostUsd ?? 0) + r.costUsd; progressed = true; await note(p, "pending", null, { costUsd: r.costUsd }); }
         else if (r.kind === "evidence") {
           const parsed = d.parse(capabilityFor(p), r.payload as never) as ParsedAiAnswer | null;
           if (parsed) { await landAnswer(p, r, parsed, text, obs, nowIso(), d); progressed = true; }

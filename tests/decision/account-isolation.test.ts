@@ -81,20 +81,15 @@ describe("callStructuredLLM keeps accounts isolated end to end", () => {
     // Account A generates + caches (pays).
     const a1 = seam([{ value: VALID }]);
     const outA = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: a1.complete, cacheImpl: cache.impl });
-    expect(outA.status).toBe("drafted");
-    expect(a1.calls()).toBe(1);
+    expect([outA.status, a1.calls()]).toEqual(["drafted", 1]);
     // Account A repeats the SAME prompt: $0 cache hit, no call.
     const a2 = seam([{ error: "must-not-run", retryable: false }]);
     const outA2 = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: a2.complete, cacheImpl: cache.impl });
-    expect(outA2.status === "drafted" && outA2.cached).toBe(true);
-    expect(outA2.status === "drafted" && outA2.costUsd).toBe(0);
-    expect(a2.calls()).toBe(0);
+    expect([outA2.status === "drafted" && outA2.cached, outA2.status === "drafted" && outA2.costUsd, a2.calls()]).toEqual([true, 0, 0]);
     // Account B, byte-identical prompt: MISS -> it generates its own (would pay).
     const b1 = seam([{ value: VALID }]);
     const outB = await callStructuredLLM({ ...REQ, tenantId: "tenant-b", complete: b1.complete, cacheImpl: cache.impl });
-    expect(outB.status).toBe("drafted");
-    expect(outB.status === "drafted" && outB.cached).toBeUndefined();
-    expect(b1.calls()).toBe(1);
+    expect([outB.status, outB.status === "drafted" && outB.cached, b1.calls()]).toEqual(["drafted", undefined, 1]);
     // The cache never crossed accounts: A's read keys are all tenant-a, B's tenant-b,
     // and every stored entry records its own owner.
     expect(cache.reads.filter((r) => r.tenantId === "tenant-a").length).toBeGreaterThan(0);
@@ -108,8 +103,7 @@ describe("callStructuredLLM keeps accounts isolated end to end", () => {
     const cache = partitionedCache();
     await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: seam([{ value: VALID }]).complete, cacheImpl: cache.impl });
     // Account B's history is empty even though account A has a stored output.
-    expect(await cache.impl.recentTexts("tenant-b", "atomic_edit", 5)).toEqual([]);
-    expect(await cache.impl.recentTexts("tenant-a", "atomic_edit", 5)).toEqual([VALID.after]);
+    expect([await cache.impl.recentTexts("tenant-b", "atomic_edit", 5), await cache.impl.recentTexts("tenant-a", "atomic_edit", 5)]).toEqual([[], [VALID.after]]);
     // callStructuredLLM asked recentTexts for the right account each time.
     for (const r of cache.recents) expect(["tenant-a", "tenant-b"]).toContain(r.tenantId);
   });
