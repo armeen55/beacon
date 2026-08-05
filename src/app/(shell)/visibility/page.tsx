@@ -67,7 +67,11 @@ function answerRow(r: AiObservationRecord): AnswerRow {
     askedAt: r.requested_at ?? null, answeredAt: r.completed_at ?? null, receipt: r.cache_key ?? null,
     // A ROW THAT PRESERVED NO COST IS UNKNOWN, NEVER FREE: zero is the absence of a receipt, and the drill-down resolves it from the cache receipt this row names.
     costUsd: Number(r.cost_usd) > 0 ? Number(r.cost_usd) : null, failureReason: r.failure_reason ?? null,
-    reading: settled ? "read" : r.analysis != null && (r.analysis as { rejected?: unknown }).rejected !== true ? "part" : "unread",
+    // A REFUSED READING IS STILL A SETTLED ONE, but what settled it was the deterministic look for this account's own
+    // name and address, not a reading of the answer. Calling that "I read every word closely" sells a string match as
+    // comprehension, so it says exactly which of the two it was.
+    reading: settled ? ((r.analysis as { rejected?: unknown }).rejected === true ? "checked" : "read")
+      : r.analysis != null && (r.analysis as { rejected?: unknown }).rejected !== true ? "part" : "unread",
   };
 }
 

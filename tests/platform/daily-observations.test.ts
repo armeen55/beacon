@@ -1,6 +1,5 @@
 /** The daily AI-answer plan (V1 Truth Convergence Phase 1): ONE canonical reading per tracked question, per engine, per UTC day; core questions first and
- * oldest-missing-first; an already-answered pair is never asked twice; extra readings only on an explicit ask, only after the canonical round, never past three; a
- * version bump is a NEW measurement identity; an engine I cannot ask is excluded and blocks nobody. Plus the read-back step: one gateway call per NEW answer hash, and
+ * oldest-missing-first; an already-answered pair is never asked twice; extra readings only on an explicit ask, only after the canonical round, never past three; a version bump is a NEW measurement identity; an engine I cannot ask is excluded and blocks nobody. Plus the read-back step: one gateway call per NEW answer hash, and
  * zero calls on a re-run. Fixtures only, zero network. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 /** The ONE fake in this file: Postgres, and only for the tracked-question read below. Every other test here
@@ -101,8 +100,7 @@ describe("daily observation plan", () => {
     const plan = planObservations(DAY, { prompts: bumped, observed: fullDay(), maxBatch: 99 });
     expect(plan).toHaveLength(4);
     expect(plan.every((d) => d.promptId === "p1" && d.version === 2)).toBe(true);
-    // And the writer is what bumps it. A rewording retires the old row untouched and mints a fresh series;
-    // dropping a question then bringing it back is a real gap, so the revival starts series 2 on the SAME id.
+    // And the writer is what bumps it. A rewording retires the old row untouched and mints a fresh series; dropping a question then bringing it back is a real gap, so the revival starts series 2 on the SAME id.
     const row = (id: string, text: string, is_active: boolean, version: number): TrackedPromptRow => ({
       id, tenant_id: T, account_id: T, text, topic_id: null, location_scope: null, service_scope: null,
       intent_type: "category", platforms: ["chatgpt", "claude", "gemini", "perplexity"], tags: ["core_v1"],
@@ -206,8 +204,7 @@ describe("reading the approved questions", () => {
     const migrating = await readActiveTrackedPrompts(T);
     expect(migrating).toEqual([{ id: "p1", text: "question p1", version: 1, core: true, createdAt: "2026-01-01" }]);
     expect([pg.queries, pg.cols[1]]).toEqual([2, "id,text,tags,is_active,created_at"]);
-    // Any OTHER error is a FAILED READ. Retrying it once read live rows as series 1 and minted a duplicate
-    // same-day identity under a version the question had already moved past.
+    // Any OTHER error is a FAILED READ. Retrying it once read live rows as series 1 and minted a duplicate same-day identity under a version the question had already moved past.
     pg.queued = [{ data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } }, { data: rows, error: null }];
     pg.queries = 0;
     expect(await readActiveTrackedPrompts(T)).toBeNull();
@@ -293,8 +290,7 @@ describe("reading the answers back", () => {
     expect(saved.get("b00")).toMatchObject({ rejected: true, outcome: "refused" });
     expect(selectAnalysisTargets(rows.filter((r) => !saved.has(r.id)))).toEqual([]); // nothing this pass read is left owing
   });
-  // Selection counted ANSWERS while the budget is spent in PIECES, so the calls ran out part way down the
-  // list and the remainder was dropped where nothing said so. Overflow is deferred now, never abandoned.
+  // Selection counted ANSWERS while the budget is spent in PIECES, so the calls ran out part way down the list and the remainder was dropped where nothing said so. Overflow is deferred now, never abandoned.
   it("defers whole answers it cannot finish this pass, and abandons no piece of the ones it takes", async () => {
     const long = (id: string) => ({ ...row(id, `h-${id}`, null, false), answerText: "Acme is open on Sundays. ".repeat(1_400) });
     const rows = Array.from({ length: 20 }, (_, i) => long(`L${String(i).padStart(2, "0")}`));
@@ -311,23 +307,33 @@ describe("reading the answers back", () => {
     // And the rest are still due, exactly as they were: nothing was consumed to produce nothing.
     expect(selectAnalysisTargets(rows.filter((r) => !saved.has(r.id))).length).toBeGreaterThan(0);
   });
-  it("records a refusal against the answer it was refused on, so the same answer is never bought twice", async () => {
-    const rejected = row("x", "h-x", null, false);
-    const saved: Array<[string, Record<string, unknown>, string]> = [];
-    const written = await runAnswerAnalyses(T, DAY, { readObservations: async () => [rejected], readPrompts: async () => null, identity: BRAND,
-      analyzeBatch: async () => null, analyze: async () => null, // the firewall or the schema refused it
-      persist: async (_t, id, a, hash) => void saved.push([id, a, hash]) });
-    expect([written, saved.length]).toEqual([0, 1]); // a refusal is not an analysis, but it IS recorded
-    expect(saved[0]![0]).toBe("x");
-    expect(saved[0]![1]).toMatchObject({ rejected: true });
-    expect(saved[0]![2]).toBe("h-x"); // stamped with the answer hash, so this row leaves the worklist
+  /** ONE WORD, `refused`, USED TO COVER EVERYTHING: a reader saying no, a shape I could not parse, an answer cut off half way, a call abandoned at my own
+   *  timeout and a spent provider balance. Nobody could tell a provider's no from a bug of mine, and every one of them was made permanent on the same evidence. */
+  it("names WHY a reading did not land, and each name decides whether the answer settles for good or stays owed", async () => {
+    const settle = async (id: string, out: { error: string; retryable: boolean }) => {
+      const saved: Array<[Record<string, unknown>, string]> = [];
+      await runAnswerAnalyses(T, DAY, { readObservations: async () => [row(id, `h-${id}`, null, false)], readPrompts: async () => null, identity: BRAND,
+        complete: async () => out, persist: async (_t, _i, a, h) => void saved.push([a, h]) });
+      return saved[0] == null ? "nothing stored, still owed" : [saved[0][0].readOutcome, saved[0][0].outcome, saved[0][1] === `h-${id}`]; };
+    // RETURNED AND BILLED, so permanent for this exact answer, each under its own name and all stamped with the answer's own hash.
+    expect(await settle("r", { error: "refusal", retryable: false })).toEqual(["provider_refused", "refused", true]);
+    expect(await settle("i", { error: "incomplete", retryable: false })).toEqual(["incomplete", "refused", true]);
+    expect(await settle("s", { error: "response body was not JSON", retryable: false })).toEqual(["schema_invalid", "refused", true]);
+    // NEVER RETURNED, NEVER BILLED: nothing is stored and the answer is still owed a reading, whether it was a throttle or the account's own credit running out.
+    expect(await settle("t", { error: "openai_429", retryable: true })).toBe("nothing stored, still owed");
+    expect(await settle("c", { error: "openai_402", retryable: false })).toBe("nothing stored, still owed");
+    // AND THE LADDER IS BOUNDED: one batch, then one call for this answer alone, neither usable and both billed, settles under its own name rather than forever.
+    const spent = row("x", "h-x", null, false), saved: Array<[string, Record<string, unknown>, string]> = [];
+    const written = await runAnswerAnalyses(T, DAY, { readObservations: async () => [spent], readPrompts: async () => null, identity: BRAND,
+      analyzeBatch: async () => null, analyze: async () => null, persist: async (_t, id, a, hash) => void saved.push([id, a, hash]) });
+    expect([written, saved.length]).toEqual([0, 1]); // a non-reading is not an analysis, but it IS recorded
+    expect(saved[0]).toEqual(["x", expect.objectContaining({ rejected: true, readOutcome: "attempts_exhausted" }), "h-x"]);
     // Which is exactly what the next pass reads: the row is settled, and only a NEW answer re-qualifies it.
-    expect(selectAnalysisTargets([{ ...rejected, analysis: { rejected: true, outcome: "refused" }, analysisHash: "h-x" }])).toEqual([]);
-    expect(selectAnalysisTargets([{ ...rejected, answerHash: "h-new", analysis: { rejected: true, outcome: "refused" }, analysisHash: "h-x" }]).map((r) => r.id)).toEqual(["x"]);
+    expect(selectAnalysisTargets([{ ...spent, analysis: { rejected: true, outcome: "refused" }, analysisHash: "h-x" }])).toEqual([]);
+    expect(selectAnalysisTargets([{ ...spent, answerHash: "h-new", analysis: { rejected: true, outcome: "refused" }, analysisHash: "h-x" }]).map((r) => r.id)).toEqual(["x"]);
   });
   it("treats a throttled reader as the provider's problem, not the answer's: no verdict, still due, and the 278 already stamped come back", async () => {
-    // Aug 3 and 4: 278 answers, every one rejected on a 429 and stamped with its own answer hash, so the system believed it had read them forever and
-    // Visibility divided by the handful the matcher happened to match. A refusal on the CONTENT is the opposite: it settles, names itself permanent, and
+    // Aug 3 and 4: 278 answers, every one rejected on a 429 and stamped with its own answer hash, so the system believed it had read them forever and Visibility divided by the handful the matcher happened to match. A refusal on the CONTENT is the opposite: it settles, names itself permanent, and
     // carries the deterministic verdict in BOTH polarities, so the denominator is every answer read rather than every match found.
     const rows = Array.from({ length: 20 }, (_, i) => row(`t${i}`, `ht${i}`, null, false)), saved: Array<[string, Record<string, unknown>, string]> = [];
     const missed = { ...row("n", "h-n", null, false), answerText: "This answer names nobody at all." };
@@ -335,12 +341,7 @@ describe("reading the answers back", () => {
     expect(saved.map((s) => [s[0], s[2], s[1].outcome, (s[1].ownedBrandMention as { mentioned: boolean }).mentioned])).toEqual([["n", "h-n", "refused", false], ["y", "h-y", "refused", true]]);
     const stamped = { ...rows[0]!, analysis: { rejected: true, reason: "the batch came back missing" }, analysisHash: "ht0" }; // AND THE HISTORY REQUEUES ITSELF
     expect([isAnalysisSettled(stamped), selectAnalysisTargets([stamped]).map((r) => r.id), isAnalysisSettled({ ...stamped, analysis: { rejected: true, outcome: "refused" } })]).toEqual([false, ["t0"], true]);
-    // AND A THROTTLE DISCOVERED IN THE FALLBACK ENDS THE PASS TOO: the next batch used to go straight back to a provider that had just refused to serve it.
-    let batch2 = 0, single2 = 0;
-    await runAnswerAnalyses(T, DAY, { readObservations: async () => rows, readPrompts: async () => null, identity: BRAND, persist: async () => {},
-      analyzeBatch: async () => { batch2 += 1; return null; }, analyze: async () => { single2 += 1; return "transient" as const; } });
-    expect([batch2, single2]).toEqual([1, 1]); // one refused batch, one throttled single, and the pass stops there
-  });
+  }); // a throttle discovered in the FALLBACK ends the pass too, which the sustained-throttle test below pins directly
   it("never pays twice to be told nothing: a call that RETURNED settles every answer it covered, and only a call that never returned stays due", async () => {
     // 638 OpenAI calls and $0.80 bought ZERO analysis rows: a batch abandoned at MY OWN timeout after the model had been writing was classed transport-transient, so nothing was persisted and the next pass re-bought the identical batch. Billed is billed, and only a throttle, a server fault or a connection that never opened is due again.
     const rows = Array.from({ length: 3 }, (_, i) => row(`z${i}`, `hz${i}`, null, false)), abandoned = { error: "The operation was aborted due to timeout", retryable: true };
@@ -359,13 +360,19 @@ describe("reading the answers back", () => {
     expect([batches, singles, written, saved.map(([id]) => id)]).toEqual([1, 2, 1, ["q0"]]); // the throttled batch degraded HERE, the first single landed, the throttled single stopped the pass
     expect(selectAnalysisTargets(rows.slice(1)).map((r) => r.id)).toEqual(["q1", "q2"]); // and the answers nothing was told about are still due, with nothing stored against them
   });
-  it("re-reads an answer bought on an earlier day, oldest owed day first, and stops looking back at seven days", async () => {
-    // The readback only ever read the RUN's own day, so Aug 4's 138 requeued only if a pass ran on Aug 4 and Aug 3's 140 were unreachable forever.
-    const asked: string[][] = [], readDays: string[] = [];
-    const written = await runAnswerAnalyses(T, DAY, { readPrompts: async () => null, identity: BRAND, analyzeBatch: readsAll, persist: async () => {},
-      unreadDays: async (_t, from, to) => { asked.push([from, to]); return ["2026-07-26", DAY]; },
-      readObservations: async (_t, o) => { readDays.push(String(o.day)); return [{ ...row("o", "h-o", null, false), day: "2026-07-26" }]; } });
-    expect([asked, readDays, written]).toEqual([[["2026-07-25", DAY]], ["2026-07-26"], 1]); // a seven day window ending today, and the OLDEST day owed is read first
+  it("reads the OLDEST answer nobody has read first, and reaches days the seven day window abandoned forever", async () => {
+    // Seven days ending today is never quiet, because today keeps producing fresh debt, so an answer bought eight days ago could never be reached again however many passes ran and everything older than a week was abandoned permanently. The window ROTATES now, an hour at a time, so the old days come round.
+    const back = (n: number) => new Date(Date.parse(`${DAY}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+    const unread = new Set([DAY, back(8), back(30)]); const asked: string[][] = []; let read = "", passes = 0, widest = 0;
+    const pass = async (now: number) => { const before = asked.length; passes += 1;
+      await runAnswerAnalyses(T, DAY, { readPrompts: async () => null, identity: BRAND, analyzeBatch: readsAll, now,
+        unreadDays: async (_t, from, to) => { asked.push([from, to]); return [...unread].filter((d) => d >= from && d <= to).sort(); },
+        readObservations: async (_t, o) => { read = String(o.day); return [{ ...row("o", `h-${read}`, null, false), day: read }]; },
+        persist: async () => { unread.delete(read); } });
+      widest = Math.max(widest, asked.length - before); };
+    for (let tick = 0; tick < 30 && unread.size > 0; tick += 1) await pass(tick * 3_600_000);
+    expect([...unread]).toEqual([]);          // nothing bought is abandoned: the 8 day old and the 30 day old answer are both read
+    expect([widest, passes < 30]).toEqual([2, true]); // and the per-pass bound holds: at most two lean window reads, never a scan of the whole store
   });
   it("gives a LOST refusal write the same retry and the same loud failure as a lost reading", async () => {
     // A silently swallowed rejection left the row at the top of the worklist, re-buying the same refusal.
@@ -430,8 +437,7 @@ describe("reading the answers back", () => {
     // Byte for byte what a short answer stored before pieces existed: no part bookkeeping is invented for it.
     expect(saved[0]).toEqual({ ...analysis, ownedBrandMention: { mentioned: true, position: 1, context: null }, matchedBy: "both" });
   });
-  // A PARTIAL READ WAS MARKED COMPLETE. Past six pieces the tail was never sent, and the one-at-a-time fallback read 12,000 characters while stamping the FULL answer
-  // hash, so the row left the worklist finished and everything after it was lost forever. Coverage now makes a part read resumable.
+  // A PARTIAL READ WAS MARKED COMPLETE. Past six pieces the tail was never sent, and the one-at-a-time fallback read 12,000 characters while stamping the FULL answer hash, so the row left the worklist finished and everything after it was lost forever. Coverage now makes a part read resumable.
   it("finishes a 100,000 character answer across passes, resuming at the exact unread piece and paying for none twice", async () => {
     let stored = { ...row("X", "h-X", null, false), answerText: longAnswer("The Zephyr Archive is the last thing this answer names.", 100_000) };
     const sent: string[][] = [];
@@ -477,8 +483,7 @@ describe("reading the answers back", () => {
     // And the zone carries its own daylight-saving rule: in January the same instant is an hour further back.
     expect(reportingDay(Date.parse("2026-01-05T07:00:00.000Z"))).toBe("2026-01-04");
     expect(reportingDay(Date.parse("2026-01-05T08:00:00.000Z"))).toBe("2026-01-05");
-    // An instant it cannot read still answers in Pacific. The fallback used to slice a UTC string, so the
-    // one module that exists to end UTC days named tomorrow every evening after 5 PM.
+    // An instant it cannot read still answers in Pacific. The fallback used to slice a UTC string, so the one module that exists to end UTC days named tomorrow every evening after 5 PM.
     vi.useFakeTimers(); vi.setSystemTime(new Date("2026-08-05T02:00:00.000Z"));
     expect([reportingDay(NaN), reportingDay(new Date("not a date"))]).toEqual(["2026-08-04", "2026-08-04"]);
     vi.useRealTimers();
@@ -507,8 +512,7 @@ describe("work that is genuinely finished", () => {
     expect(plan([seen({ promptId: "p1", engine: "chatgpt", status: "failed" })], { "p1|1|chatgpt|0": FAILED_RETRIES_PER_DAY })).toEqual([]);
   });
   it("derives the engines it plans from the provider registry itself, with nobody handing it a list", async () => {
-    // The engine-to-capability map is checked by the compiler and nothing more: a `satisfies` proves the mapping is well typed and proves nothing about whether the
-    // planner ever consults it. Turning ONE capability off in the registry is the only way to show the derivation actually reaches a plan.
+    // The engine-to-capability map is checked by the compiler and nothing more: a `satisfies` proves the mapping is well typed and proves nothing about whether the planner ever consults it. Turning ONE capability off in the registry is the only way to show the derivation actually reaches a plan.
     const world = { readPrompts: async () => ONE, readObservations: async () => [], readMarkers: async () => null, maxBatch: 99 };
     expect(new Set((await dueObservations(T, DAY, world))!.map((d) => d.engine))).toEqual(new Set(ENGINES));
     registry.off.add("llm_gemini");
@@ -520,8 +524,7 @@ describe("work that is genuinely finished", () => {
   });
   it("never plans an engine the registry cannot ask, on any day, and does not resurrect it from a stored row", () => {
     const yesterday = [seen({ promptId: "p1", engine: "perplexity", status: "unsupported", day: "2026-07-30" })];
-    // The engine set is derived from the capability registry, so an engine that cannot be asked is simply absent from every plan. Nothing stores an "impossible forever"
-    // flag, so the day the capability comes back the pair is planned again with no cleanup pass and no stale marker to undo.
+    // The engine set is derived from the capability registry, so an engine that cannot be asked is simply absent from every plan. Nothing stores an "impossible forever" flag, so the day the capability comes back the pair is planned again with no cleanup pass and no stale marker to undo.
     const askable = planObservations(DAY, { prompts: ONE, observed: yesterday, engines: ["chatgpt"], maxBatch: 99 });
     expect(askable.some((d) => d.engine === "perplexity")).toBe(false);
     const restored = planObservations(DAY, { prompts: ONE, observed: yesterday, engines: ["chatgpt", "perplexity"], maxBatch: 99 });
@@ -545,8 +548,7 @@ describe("work that is genuinely finished", () => {
     const executorAsks = () => { asks += 1; store[0]!.requestedAt = `${DAY}T09:0${asks}:00.000Z`; };
     expect(await pass()).toBe(1);                                    // retry one is planned
     expect(markers!.observationRetries!.counts).toEqual({ "p1|1|chatgpt|0": 0 }); // and nothing is spent yet
-    // A PLAN THE PASS NEVER REACHED SPENDS NOTHING. The batch cap, the pass deadline or a provider that
-    // stopped the batch all leave a planned pair unasked, and it used to burn a retry all the same.
+    // A PLAN THE PASS NEVER REACHED SPENDS NOTHING. The batch cap, the pass deadline or a provider that stopped the batch all leave a planned pair unasked, and it used to burn a retry all the same.
     expect(await pass()).toBe(1);
     expect(markers!.observationRetries!.counts).toEqual({ "p1|1|chatgpt|0": 0 });
     executorAsks();
@@ -565,8 +567,7 @@ describe("work that is genuinely finished", () => {
     expect(await pass()).toBe(1);
   });
   it("settles a failed row on an engine the registry cannot ask as UNSUPPORTED, and never plans that engine again while that holds", async () => {
-    // The engine set handed to the planner IS what the provider registry can ask today. A pair that broke on an engine outside it is not "the engine had nothing to
-    // give": I cannot ask it at all, and saying so is the difference between a gap I am working on and one I am not.
+    // The engine set handed to the planner IS what the provider registry can ask today. A pair that broke on an engine outside it is not "the engine had nothing to give": I cannot ask it at all, and saying so is the difference between a gap I am working on and one I am not.
     const store = [seen({ promptId: "p1", engine: "perplexity", status: "failed", failureReason: REASON })];
     const settled: Array<[string, string]> = [];
     const world = {
@@ -579,15 +580,13 @@ describe("work that is genuinely finished", () => {
     const due = (await dueObservations(T, DAY, world))!;
     expect(settled).toEqual([[store[0]!.id, "unsupported"]]);
     expect(due.some((d) => d.engine === "perplexity")).toBe(false);
-    // AND THE DAY CAN SAY SO. The count reads a settled row off its OWN stored status: derived from today's
-    // engine list, "I cannot ask" was a state it could never reach, so a lost engine read as pure silence.
+    // AND THE DAY CAN SAY SO. The count reads a settled row off its OWN stored status: derived from today's engine list, "I cannot ask" was a state it could never reach, so a lost engine read as pure silence.
     expect(await dailyChecks(T, DAY, world)).toMatchObject({ done: 1, total: 2, answers: 0, unavailable: 0, unsupported: 1 });
     // Tomorrow is no different while the registry still cannot reach it, and no stored flag has to be undone.
     expect((await dueObservations(T, "2026-08-01", { ...world, readObservations: async () => [] }))!
       .some((d) => d.engine === "perplexity")).toBe(false);
   });
-  // A SETTLE THAT THREW IS NOT A SETTLE. The exhausted-retry marker used to land regardless, so the row said
-  // `failed` with no budget left to ask again: permanently owed and contradicted by the ledger beside it.
+  // A SETTLE THAT THREW IS NOT A SETTLE. The exhausted-retry marker used to land regardless, so the row said `failed` with no budget left to ask again: permanently owed and contradicted by the ledger beside it.
   it("leaves a pair whose settle threw exactly where it was, says so out loud, and closes it on the next pass", async () => {
     const K = "p1|1|chatgpt|0", OLD = `${DAY}T08:00:00.000Z`;
     const store = [seen({ promptId: "p1", engine: "chatgpt", status: "failed", failureReason: REASON, requestedAt: `${DAY}T09:00:00.000Z` })];
@@ -612,8 +611,7 @@ describe("work that is genuinely finished", () => {
     expect([settled, store[0]!.status]).toEqual([["unavailable"], "unavailable"]);
   });
   it("asks the observation store for the DAY it is planning, so a 600 row day is read whole", async () => {
-    // An unnamed read defaults to the newest 500 rows. A tracked set of 35 questions on 4 engines writes more than that in a day (retries and settles included), so the
-    // planner was deciding what was still owed off a truncated day and re-buying readings it could not see.
+    // An unnamed read defaults to the newest 500 rows. A tracked set of 35 questions on 4 engines writes more than that in a day (retries and settles included), so the planner was deciding what was still owed off a truncated day and re-buying readings it could not see.
     const asked: Array<{ day?: string }> = [];
     const big = Array.from({ length: 600 }, (_, i) => seen({ promptId: `p${i}`, engine: "chatgpt", id: `obs-${i}` }));
     const plan = await dueObservations(T, DAY, {
@@ -632,12 +630,10 @@ describe("work that is genuinely finished", () => {
     expect(tomorrow![0]).toMatchObject({ promptId: "p1", engine: "chatgpt", slot: 0, day: "2026-08-01" });
   });
   it("reads a row already stored under the day it computes as that pair being done, and leaves every other day alone", async () => {
-    // THE CUTOVER. Pacific runs behind UTC, so the operator's day can be a day that already holds rows taken under the old UTC label. Those rows are history: they mean
-    // the work is done, nothing is re-asked, and nothing is rewritten. A day that was genuinely missed stays missed rather than being filled in late.
+    // THE CUTOVER. Pacific runs behind UTC, so the operator's day can be a day that already holds rows taken under the old UTC label. Those rows are history: they mean the work is done, nothing is re-asked, and nothing is rewritten. A day that was genuinely missed stays missed rather than being filled in late.
     const day = reportingDay(Date.parse("2026-08-05T02:00:00.000Z"));
     expect(day).toBe("2026-08-04");
-    // A BROKEN ROW WITH ITS BUDGET SPENT, so the settle path this pass owns actually RUNS. Without one the
-    // ledger returns at its first line and "a pass rewrote nothing" could never have failed.
+    // A BROKEN ROW WITH ITS BUDGET SPENT, so the settle path this pass owns actually RUNS. Without one the ledger returns at its first line and "a pass rewrote nothing" could never have failed.
     const spent = seen({ promptId: "p2", engine: "chatgpt", day: "2026-08-04", status: "failed", failureReason: "The provider refused this request." });
     const history = [seen({ promptId: "p1", engine: "chatgpt", day: "2026-08-04" }), seen({ promptId: "p1", engine: "chatgpt", day: "2026-08-02" }), spent];
     const before = JSON.stringify(history);
@@ -654,12 +650,10 @@ describe("work that is genuinely finished", () => {
 });
 
 /** WHO the answer was read for. Beacon used to ask the model "was this brand mentioned" with an EMPTY brand, so every reading came back "not mentioned" and the AI trend
- * was computed from that. These go through the real production wiring (no injected identity): the Account kernel derives the name from the confirmed profile and the
- * account's own website, and a deterministic second read of the same answer catches what the model missed. */
+ * was computed from that. These go through the real production wiring (no injected identity): the Account kernel derives the name from the confirmed profile and the account's own website, and a deterministic second read of the same answer catches what the model missed. */
 describe("every written form that still means this business", () => {
   it("says nothing at all about an account that has neither a name nor a website", () => {
-    // No forms is the caller's signal to stop: asking a model "was this brand mentioned" with an empty
-    // brand comes back "no" every time, and a whole AI trend was computed off that answer.
+    // No forms is the caller's signal to stop: asking a model "was this brand mentioned" with an empty brand comes back "no" every time, and a whole AI trend was computed off that answer.
     expect(identityFrom("", "")).toEqual({ name: "", forms: [], host: "" });
     expect(identityFrom("  ", "   ")).toEqual({ name: "", forms: [], host: "" });
   });
@@ -671,8 +665,7 @@ describe("every written form that still means this business", () => {
     });
   });
   it("keeps a bare domain label only when it could not be an ordinary English word", () => {
-    // The mention verdict ORs every form together, so a generic label on its own turns "a guide to Nowruz"
-    // into a mention of guide.com. The whole address always counts; the label has to earn its place.
+    // The mention verdict ORs every form together, so a generic label on its own turns "a guide to Nowruz" into a mention of guide.com. The whole address always counts; the label has to earn its place.
     expect(identityFrom("", "https://guide.com").forms).toEqual(["guide.com"]);          // an everyday word
     expect(identityFrom("", "https://ritz.com").forms).toEqual(["ritz.com"]);            // too short to stand alone
     expect(identityFrom("", "https://iranopedia.com").forms).toEqual(["iranopedia.com", "iranopedia"]);
@@ -723,8 +716,7 @@ describe("who the answer was read for", () => {
   });
   it("keeps a mention the model missed, from the answer's own words or an address it credited, and says which found it", async () => {
     onFile("Iranopedia", "https://www.iranopedia.com/");
-    // The model read this answer IN A BATCH and said "not mentioned": the deterministic second read still runs
-    // per observation, and the merged verdict is still what lands on that observation's own row.
+    // The model read this answer IN A BATCH and said "not mentioned": the deterministic second read still runs per observation, and the merged verdict is still what lands on that observation's own row.
     const missed = { analyzeBatch: async ({ targets }: { targets: readonly { row: { id: string } }[] }) => new Map(targets.map((t) => [t.row.id, READING])) };
     const byText = await readBack(answer("t", "Iranopedia covers the festivals in depth."), missed);
     expect(byText.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "text" });
@@ -734,8 +726,7 @@ describe("who the answer was read for", () => {
     expect(neither.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: false }, matchedBy: null }); // a real absence, not a model miss
   });
   it("never reads a bare domain label as the business name when the label is an ordinary English word", async () => {
-    // The mention verdict ORs every written form together, so the label on its own ("guide", "best") matched
-    // any sentence using that word and every such account read as mentioned in answers about nobody.
+    // The mention verdict ORs every written form together, so the label on its own ("guide", "best") matched any sentence using that word and every such account read as mentioned in answers about nobody.
     const missed = { analyzeBatch: async ({ targets }: { targets: readonly { row: { id: string } }[] }) => new Map(targets.map((t) => [t.row.id, READING])) };
     onFile("", "https://guide.com");
     const generic = await readBack(answer("g", "Here is a guide to the festivals."), missed);

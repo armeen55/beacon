@@ -1,8 +1,5 @@
 /**
- * Middleware account injection: one login -> one account, fail-closed on zero/
- * multiple/erroring/hung membership lookups, forged beacon_tenant cookies never
- * honored (and actively expired), inbound tenant headers stripped, auth-disabled
- * local mode uses only the explicit env account, and public paths stay reachable
+ * Middleware account injection: one login -> one account, fail-closed on zero/ multiple/erroring/hung membership lookups, forged beacon_tenant cookies never honored (and actively expired), inbound tenant headers stripped, auth-disabled local mode uses only the explicit env account, and public paths stay reachable
  * for a session with zero memberships (no /login redirect loop).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -88,9 +85,7 @@ describe("middleware account injection — one login, one account, fail-closed",
     vi.restoreAllMocks();
   });
   /** ONE table, one claim per row: which account a request is allowed to reach, and what happens when the
-   *  answer cannot be trusted. A forged header, a forged cookie, two memberships, none at all, a query that
-   *  errored, threw or hung, and local auth-disabled mode all resolve HERE, so a new bypass has to survive a
-   *  row rather than a whole file nobody re-reads. `injected` is the account the request actually reaches. */
+   *  answer cannot be trusted. A forged header, a forged cookie, two memberships, none at all, a query that errored, threw or hung, and local auth-disabled mode all resolve HERE, so a new bypass has to survive a row rather than a whole file nobody re-reads. `injected` is the account the request actually reaches. */
   it.each([
     { name: "strips a spoofed x-beacon-tenant header and injects the real account instead", rows: ["tenant-real"], headers: { "x-beacon-tenant": "tenant-attacker" }, injected: "tenant-real" },
     { name: "exactly one membership injects exactly that account, and retires the selection cookie", rows: ["tenant-mine"], status: 200, injected: "tenant-mine", expired: true },

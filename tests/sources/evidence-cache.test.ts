@@ -1,9 +1,6 @@
 /**
- * Slice 6/6C/6D/6E/6F canonical evidence cache + atomic money path + task lifecycle. Every seam injected: no
- * network, no Supabase, no spend. Proves reserve -> network -> reconcile, single-flight, tenant-independent
- * identity, the envelope rule, free resumption, the STRUCTURED dispositions, the PAID-RESPONSE status policy (a
- * reported zero cost never authorizes a silent paid retry), the DURABLE blocked hold beside the INDEFINITE
- * uncertain quarantine, the one-GET listing memo, fail-closed reads and writes. No paid call is ever repeated.
+ * Slice 6/6C/6D/6E/6F canonical evidence cache + atomic money path + task lifecycle. Every seam injected: no network, no Supabase, no spend. Proves reserve -> network -> reconcile, single-flight, tenant-independent identity, the envelope rule, free resumption, the STRUCTURED dispositions, the PAID-RESPONSE status policy (a
+ * reported zero cost never authorizes a silent paid retry), the DURABLE blocked hold beside the INDEFINITE uncertain quarantine, the one-GET listing memo, fail-closed reads and writes. No paid call is ever repeated.
  */
 import { describe, it, expect, vi } from "vitest";
 import { runResolvedCall, collectResolvedTask, identityCacheKey, type CachedCallDeps, type ResolvedCall } from "@/domains/evidence/dataforseo/cached-call";
@@ -80,8 +77,7 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
     expect([identityCacheKey(resolved({ tenantId: "tenant-b" })), others.includes(a)]).toEqual([a, false]); // tenant never enters identity; location and model always split it
   });
   it("a REPORTED zero cost is refunded and BLOCKED durably unless the exact code is a documented temporary failure; an unknown cost quarantines", async () => {
-    // 50100 terminal, 50401/50402 live timeouts (any retry is a NEW paid call), 61234 undocumented,
-    // 40401 collection-only (a fresh POST proves nothing) -> blocked. 50301/50000 -> the ONE retry path.
+    // 50100 terminal, 50401/50402 live timeouts (any retry is a NEW paid call), 61234 undocumented, 40401 collection-only (a fresh POST proves nothing) -> blocked. 50301/50000 -> the ONE retry path.
     const cases: [number, number | undefined, "blocked" | "none" | "quarantined"][] = [
       [50100, 0, "blocked"], [50401, 0, "blocked"], [50402, 0, "blocked"], [61234, 0, "blocked"], [40401, 0, "blocked"],
       [50301, 0, "none"], [50000, 0, "none"], [50100, undefined, "quarantined"], [50301, undefined, "quarantined"]]; // no cost field = it may have been charged

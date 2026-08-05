@@ -137,8 +137,9 @@ export type AnswerRow = {
   modelRequested: string | null; modelServed: string | null; mode: string | null;
   askedAt: string | null; answeredAt: string | null; receipt: string | null;
   costUsd: number | null; failureReason: string | null;
-  /** read = every word of it has been read closely. part = some of it, the rest still queued. unread. */
-  reading: "read" | "part" | "unread";
+  /** read = every word of it has been read closely. part = some of it, the rest still queued. checked = only the
+   *  deterministic look for this account's own name and address settled it, which is a check and not a reading. unread. */
+  reading: "read" | "part" | "checked" | "unread";
 };
 
 type AiViewInput = {
@@ -187,18 +188,36 @@ export function aiView(input: AiViewInput): { empty: string | null; blocks: VisB
     return { empty: "I have not read a single AI answer for this account yet. My daily round reads them for you, and this tab fills in from the first one it stores.", blocks: [] };
   }
   const analyzed = days.filter((d) => d.analyzed > 0), newest = analyzed[analyzed.length - 1] ?? null;
+  // FINISHED CHECKING, never "read closely": a settled verdict can come from the close reading OR from the second
+  // pair of eyes that only looks for the account's own name and address, and calling the second one a close reading
+  // sells a string match as comprehension.
   const standing = newest == null ? null
-    : `On ${monthDayLabel(newest.day) ?? newest.day} you were named in ${num(newest.mentioning)} of the ${num(newest.analyzed)} answers I read closely`
+    : `On ${monthDayLabel(newest.day) ?? newest.day} you were named in ${num(newest.mentioning)} of the ${num(newest.analyzed)} answers I have finished checking`
     + (newest.citationSample > 0
       ? `, and a page of yours was credited in ${num(newest.ownedCiting)} of the ${num(newest.citationSample)} that told me what they used.`
       : ". None of that day's answers told me which pages they used, so I am not claiming a citation number.");
   const owned = days.reduce((a, d) => a + d.ownedCiting, 0);
 
-  const byEngine = new Map<string, { asked: number; observed: number; mentioning: number; cited: number }>();
+  // NOTHING CHECKED IS NOT ZERO MENTIONS. Every assistant carries ITS OWN settled count (analyzed), so each row
+  // states its own fraction and never borrows the day's pooled one; a mention count over a denominator nobody
+  // has checked is a false zero, so an unchecked row says so instead.
+  const byEngine = new Map<string, { asked: number; observed: number; mentioning: number; cited: number; analyzed: number }>();
   for (const d of days) for (const e of d.byEngine) {
-    const a = byEngine.get(e.engine) ?? { asked: 0, observed: 0, mentioning: 0, cited: 0 };
-    a.asked += e.asked; a.observed += e.observed; a.mentioning += e.mentioning; a.cited += e.citedOwned;
+    const a = byEngine.get(e.engine) ?? { asked: 0, observed: 0, mentioning: 0, cited: 0, analyzed: 0 };
+    a.asked += e.asked; a.observed += e.observed; a.mentioning += e.mentioning; a.cited += e.citedOwned; a.analyzed += e.analyzed;
     byEngine.set(e.engine, a); }
+  /** What one assistant's row may honestly claim about mentions, off ITS OWN settled count rather than the
+   *  day's pooled one. The credit clause rides along in every case: what the assistant credited comes
+   *  straight from the provider's own journey and needs no reading of mine. */
+  const engineBody = (a: { asked: number; observed: number; mentioning: number; cited: number; analyzed: number }): string => {
+    const credited = `, and a page of yours was credited in ${num(a.cited)}.`;
+    const came = `${num(a.observed)} of the ${num(a.asked)} questions I put to it came back. `;
+    // Nothing came back = nothing to count mentions over: the empty denominator must not read as a zero.
+    if (a.observed === 0) return `None of the ${num(a.asked)} questions I put to it came back this stretch${credited}`;
+    if (a.analyzed >= a.observed) return `${came}You were named in ${num(a.mentioning)} of those answers${credited}`;
+    if (a.analyzed === 0) return `${came}I have not finished reading them closely enough to report mentions yet${credited}`;
+    return `${came}You are named in ${num(a.mentioning)} of them so far, counted over the ${num(a.analyzed)} of ${num(a.observed)} answers I have finished checking on it${credited}`;
+  };
 
   const askedDay = monthDayLabel(input.latest.day);
   const canonical = input.latest.rows.filter((r) => r.slot === 0);
@@ -212,7 +231,7 @@ export function aiView(input: AiViewInput): { empty: string | null; blocks: VisB
     empty: null,
     blocks: keep([
       block("How often AI answers name you", {
-        notes: [standing, owned > 0 ? `Across the last ${num(input.windowDays)} days your own pages were credited ${num(owned)} ${owned === 1 ? "time" : "times"} in the answers I read.` : null,
+        notes: [standing, owned > 0 ? `Across the last ${num(input.windowDays)} days your own pages were credited ${num(owned)} ${owned === 1 ? "time" : "times"} in the answers that came back.` : null,
           input.trend.summary, coverageLine(input.checks), missingLine(days, input.windowDays)].filter((s): s is string => !!s),
         runs: input.trend.runs.map((r) => {
           const read = r.points.filter((p) => p.rate != null);
@@ -221,10 +240,8 @@ export function aiView(input: AiViewInput): { empty: string | null; blocks: VisB
         }),
       }),
       block("Assistant by assistant", {
-        rows: [...byEngine.entries()].sort((a, b2) => b2[1].observed - a[1].observed).map(([engine, a]) => ({
-          head: engineName(engine),
-          body: `${num(a.observed)} of the ${num(a.asked)} questions I put to it came back. You were named in ${num(a.mentioning)} of those answers, and a page of yours was credited in ${num(a.cited)}.`,
-        })),
+        rows: [...byEngine.entries()].sort((a, b2) => b2[1].observed - a[1].observed)
+          .map(([engine, a]) => ({ head: engineName(engine), body: engineBody(a) })),
       }),
       block("What the assistants searched for", { chips: fanOuts,
         notes: fanOuts.length === 0 ? [] : [`These are searches the assistants ran themselves before answering${askedDay ? ` on ${askedDay}` : ""}, in their own words rather than mine, off the first ${num(input.latest.rows.length)} readings of the day. Open any question below for every search behind that one answer.`,
@@ -283,7 +300,8 @@ export function answerView(
         + (r.askedAt ? ` Asked ${r.askedAt}${r.answeredAt ? `, answered ${r.answeredAt}` : ", and it never came back"}.` : ""),
       r.reading === "read" ? "I have read every word of this answer closely."
         : r.reading === "part" ? "I have read part of this answer closely and the rest is still waiting its turn."
-          : "Nobody has read this answer closely yet, so I make no claim here about who it named.",
+          : r.reading === "checked" ? "I checked this answer for your name and your website address, and nobody has read the rest of it closely."
+            : "Nobody has read this answer closely yet, so I make no claim here about who it named.",
       // WHAT IT COST, or that I cannot prove it: a row whose own receipt was never preserved is UNKNOWN, and printing zero dollars would sell a paid answer as
       // free. A real charge SMALLER than a cent is the same lie in miniature, because two decimals round 0.004 down to "0.00 dollars", so it says its own size.
       ...(r.receipt ? [`The stored answer this all comes off is filed as ${r.receipt}${costUsd != null && costUsd > 0

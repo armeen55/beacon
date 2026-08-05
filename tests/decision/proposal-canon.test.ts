@@ -11,8 +11,7 @@ const db = vi.hoisted(() => {
   const state = { rows: [] as Row[], legacy: [] as Row[], missing: false, rpcMissing: false, breakWrite: false, rpcCalls: 0, raceForeign: "" };
   const client: Record<string, unknown> = {
     // The atomic handover: guard, step-aside, and landing commit together or not at all, exactly like the supersede_change_proposal function in production.
-    rpc(name: string, args: { p_tenant_id: string; p_predecessor_id: string; p_row: Row }) {
-      state.rpcCalls += 1;
+    rpc(name: string, args: { p_tenant_id: string; p_predecessor_id: string; p_row: Row }) { state.rpcCalls += 1;
       const run = (): { data: string | null; error: { message: string; code?: string } | null } => {
         if (name !== "supersede_change_proposal") return { data: null, error: { message: `unknown function ${name}` } };
         if (state.rpcMissing) return { data: null, error: { code: "PGRST202", message: "Could not find the function public.supersede_change_proposal" } };
@@ -36,14 +35,12 @@ const db = vi.hoisted(() => {
         return { data: "saved", error: null };
       };
       return Promise.resolve(run());
-    },
-  };
+    }, };
   return { state, client }; });
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client }));
 /** What the store SAID, so a distinct failure can be pinned as distinct rather than as one more "failed". */
 const said = vi.hoisted(() => ({ errors: [] as string[] }));
-vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {},
-  error: (msg: string) => { said.errors.push(msg); } } }));
+vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: (msg: string) => { said.errors.push(msg); } } }));
 import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, saveChangeProposal } from "@/domains/decision/proposal-store";
 import { deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
 import { supabaseFake } from "../helpers/supabase-fake";

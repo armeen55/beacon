@@ -26,12 +26,13 @@ import { continueColdStartCrawlIfStarted, startColdStartCrawl } from "@/domains/
 import { getTenant } from "@/domains/account";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { shipmentBustedAt, verifyDueShipments } from "@/domains/measurement/verify-shipment";
+import { settleDueMeasurements } from "@/domains/measurement/proof-gsc/auto-measure-on-use";
 import { log } from "@/lib/logger";
 import { warmFreeSurfaces } from "./warm-caches";
 import { chooseInvestigation, comparisonForFocus, focusReads, type ResearchFocus } from "./investigation-queries";
 import { dailyChecks, dueObservations, runAnswerAnalyses } from "./daily-observations";
 import { reportingDay } from "@/lib/reporting-day";
-import { accountBasis, dueWork, evidenceRowVersion, type DueWork } from "./due-work";
+import { accountBasis, dueWork, evidenceRowVersion, type DuePhase, type DueWork } from "./due-work";
 import type { ResearchPhase } from "../research-run";
 
 /** Reasons the deep-backfill continuation returns when there is simply nothing to do (no backfill started, already finished, or no synced property yet):
@@ -76,15 +77,19 @@ export type ResearchCycleSteps = {
   /** WHAT THE OPERATOR SAID THEY SHIPPED, checked on the live page (verify_and_measure). Bounded to three pages per pass and free: every one is a read of a page the account owns, on the same polite-fetch
    *  path as every other owned read, never a provider. Returns how many verifications landed. Derived work: a check I could not make never pauses the run. */
   verifyShipments: (tenantId: string, now: Date) => Promise<number>;
+  /** WHAT THOSE SHIPMENTS ACTUALLY DID, read on the schedule instead of on somebody opening Results (the second half of verify_and_measure). Free (Search Console
+   *  and Analytics are already synced), bounded per pass, fail-soft, and it rebuilds the Results surface itself when a reading moved. Returns how many were measured. */
+  measureShipments: (tenantId: string, now: Date) => Promise<number>;
   /** WHAT IS GENUINELY OWED, from persisted state only (see due-work). Free. It decides two things and nothing else: whether a second pass may open on a day that already completed one, and whether the
    *  pass that just opened has anything at all to do. */
   dueWork: (tenantId: string, now: Date) => Promise<DueWork>;
   /** TODAY'S WHOLE-DAY STANDING off the canonical planner: settled of intended, and how the settled ones landed. Null = I could not read it, which is never "the day is finished". Free. */
   dayStanding: (tenantId: string, reportingDay: string) => Promise<DueWork["checks"] | null>;
-  /** Every active, unpaused account that still genuinely owes work right now, off the ONE canonical due-work truth. Free and bounded; the clock is passed in
-   *  because the bounded window ROTATES across the fleet with it. Empty = a read that SUCCEEDED and proved nothing was left behind; a read that could not be
-   *  made THROWS, because an outage and an idle fleet are different answers. */
-  strandedToday: (nowMs: number) => Promise<string[]>;
+  /** Every active, unpaused account that still genuinely owes work right now AND EXACTLY WHAT IT OWES, off the ONE canonical due-work truth. The probe already
+   *  computed that list to decide the account was short, and throwing it away is what left the pass it opens with no idea why it existed. Free and bounded; the
+   *  clock is passed in because the bounded window ROTATES across the fleet with it. Empty = a read that SUCCEEDED and proved nothing was left behind; a read
+   *  that could not be made THROWS, because an outage and an idle fleet are different answers. */
+  strandedToday: (nowMs: number) => Promise<Array<{ tenantId: string; due: DuePhase[] }>>;
   /** The research notes' row version for a basis, read at the moment the decision step concludes: the watermark this pass consumed. Read AFTER the pass's own
    *  writes, never before, or a pass would forever count its own discovery as new evidence and re-open itself. */
   evidenceVersion: (tenantId: string, basis: string) => Promise<number | null>;
@@ -192,8 +197,8 @@ export const defaultSteps: ResearchCycleSteps = {
     const ids = from === 0 ? [...head.ids] : (await read(from, RECOVERY_PROBE_ACCOUNTS)).ids;
     // The window WRAPS: the tail of the fleet and its head belong to one rotation, so nobody sits in a seam.
     if (ids.length < RECOVERY_PROBE_ACCOUNTS) ids.push(...head.ids.filter((id) => !ids.includes(id)).slice(0, RECOVERY_PROBE_ACCOUNTS - ids.length));
-    const out: string[] = [];
-    for (const id of ids) { const work = await dueWork(id, new Date(nowMs)); if (work.readable && work.due.length > 0) out.push(id); }
+    const out: Array<{ tenantId: string; due: DuePhase[] }> = [];
+    for (const id of ids) { const work = await dueWork(id, new Date(nowMs)); if (work.readable && work.due.length > 0) out.push({ tenantId: id, due: work.due }); }
     return out; },
   currentBasis: accountBasis,
   dueWork,
@@ -236,6 +241,7 @@ export const defaultSteps: ResearchCycleSteps = {
   },
   async analyzeAnswers(tenantId, reportingDay) { return runAnswerAnalyses(tenantId, reportingDay); },
   async verifyShipments(tenantId) { return verifyDueShipments(tenantId); },
+  async measureShipments(tenantId, now) { return settleDueMeasurements(tenantId, { now }); },
   // warmFreeSurfaces PROPAGATES failure (no internal swallow): a throw pauses publish_surface and the previously saved surface stays visible.
   async publishSurface(tenantId) { await warmFreeSurfaces(tenantId); },
   async surfaceStale(tenantId, nowMs) {

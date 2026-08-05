@@ -27,9 +27,10 @@ import { reportingDay } from "@/lib/reporting-day";
 import { dailyChecks } from "./daily-observations";
 import type { ResearchRunProgress } from "../research-run";
 
-/** The logical units of owed work. NOT the executor's phases: the executor still runs its
- *  own ordered cycle, and this only decides whether ANOTHER cycle has anything to do. */
-type DuePhase =
+/** The logical units of owed work. NOT the executor's phases: a fresh daily cycle still runs its own ordered
+ *  sequence. What these DO decide, when a RECOVERY pass is opened on them, is which phases that pass may run
+ *  at all: a pass opened to read stored answers has no business re-buying keywords, results pages or winners. */
+export type DuePhase =
   | "refresh_sources"
   | "crawl_pages"
   | "daily_observations"
@@ -65,8 +66,9 @@ const NO_CHECKS = { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 
  *  The refresh step still pulls EVERY connected source whenever a pass runs for any other reason, so nothing goes unrefreshed. Only the trigger narrows. */
 const DUE_TRIGGER_PROVIDERS = ["google_gsc"] as const;
 /** How many reporting days back the unread-answer probe looks, held identical to answer-readback's own window (the probe opens the pass, the readback
- *  reads one day of it), and a test pins both to the same first day so the two can never drift apart. */
-const UNREAD_WINDOW_DAYS = 7;
+ *  reads one day of it), and a test pins both to the same first day so the two can never drift apart. The probe ALSO asks the same hourly-rotating older
+ *  window the readback reads, because a quiet account with only old debt would otherwise never open the pass that reaches it. */
+const UNREAD_WINDOW_DAYS = 7, UNREAD_LOOKBACK_WINDOWS = 26, UNREAD_ROTATION_MS = 3_600_000;
 
 /** The account's CURRENT onboarding basis: the one fingerprint every derived read and write
  *  is scoped to. Null = not resolvable, which is a stop, never a default. */
@@ -132,6 +134,19 @@ async function answersAwaitAnalysis(tenantId: string, fromDay: string, toDay: st
   const { isAnalysisSettled, readAiObservations } = await import("@/domains/evidence");
   return (await readAiObservations(tenantId, { fromDay, toDay, projection: "outcome" })).some((r) => r.status === "observed"
     && r.answer_hash != null && !isAnalysisSettled({ analysis: r.analysis, analysisHash: r.analysis_hash ?? null, answerHash: r.answer_hash ?? null }));
+}
+
+/** The unread probe over BOTH windows the readback reads: the recent seven days, and the hourly-rotating
+ *  older seven wrapping at 26 weeks (answer-readback's own formula), so old debt on an otherwise quiet
+ *  account still opens the pass that reaches it. Two lean reads, short-circuiting on the first hit. */
+async function probeUnread(ask: (t: string, from: string, to: string) => Promise<boolean>, tenantId: string, nowMs: number, day: string): Promise<boolean> {
+  // Day labels move by plain label arithmetic anchored at noon UTC, the readback's own method, so a
+  // daylight-saving edge can never make the probe and the reader disagree about a window's first day.
+  const minus = (n: number): string => new Date(Date.parse(`${day}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+  if (await ask(tenantId, minus(UNREAD_WINDOW_DAYS - 1), day)) return true;
+  const back = UNREAD_WINDOW_DAYS * (Math.floor(nowMs / UNREAD_ROTATION_MS) % UNREAD_LOOKBACK_WINDOWS);
+  if (back === 0) return false; // the rotated window IS the recent one this hour
+  return ask(tenantId, minus(back + UNREAD_WINDOW_DAYS - 1), minus(back));
 }
 
 /** How many CONNECTED trigger sources are past their sync SLA right now. A READ THAT FAILED IS NOT A FRESH SOURCE: this swallowed its own failure per
@@ -230,7 +245,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     settled((deps.surfaceStale ?? surfaceIsStale)(tenantId, nowMs), false),
     settled((deps.debt ?? measurementDebt)(tenantId, now), { measurable: 0, unverified: 0 }),
     settled((deps.pagesToCrawl ?? pagesAwaitCrawl)(tenantId, now), false),
-    settled((deps.answersToAnalyze ?? answersAwaitAnalysis)(tenantId, reportingDay(nowMs - (UNREAD_WINDOW_DAYS - 1) * 86_400_000), day), false),
+    settled(probeUnread(deps.answersToAnalyze ?? answersAwaitAnalysis, tenantId, nowMs, day), false),
   ]);
 
   const progress = run.value?.progress ?? {};

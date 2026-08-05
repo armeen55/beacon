@@ -94,10 +94,10 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } {
         const claimed = await repo.claim({ tenantId: t, owner, leaseSeconds });
         if (claimed) out.push(claimed); }
       return out; },
-    async startPass({ tenantId, owner, leaseSeconds, day }) {  // The same-day EXTRA pass: the partial unique index refuses any insert while a run is unfinished, and (tenant, cycle_key) stays unique because the pass ordinal rides in the middle, the day on the tail.
+    async startPass({ tenantId, owner, leaseSeconds, day, progress }) {  // The same-day EXTRA pass: the partial unique index refuses any insert while a run is unfinished, and (tenant, cycle_key) stays unique because the pass ordinal rides in the middle, the day on the tail. The row is BORN carrying why it was opened, exactly as the insert does.
       if (statusOf(tenantId) !== "active" || openRun(tenantId)) return null; const key = `${tenantId}:p${rows.filter((x) => x.tenant_id === tenantId && x.cycle_key.endsWith(day)).length + 1}:${day}`;
       if (rows.some((x) => x.tenant_id === tenantId && x.cycle_key === key)) return null;
-      rows.push(mk({ id: `r${rows.length}`, tenant_id: tenantId, cycle_key: key, status: "running", lease_owner: owner, lease_expires_at: iso(NOW + leaseSeconds * 1000) }));
+      rows.push(mk({ id: `r${rows.length}`, tenant_id: tenantId, cycle_key: key, status: "running", lease_owner: owner, lease_expires_at: iso(NOW + leaseSeconds * 1000), ...(progress ? { progress } : {}) }));
       return { ...rows[rows.length - 1]! }; },
     async advance({ tenantId, id, owner, leaseSeconds, patch }) {
       const r = find(id, tenantId); if (!r || !live(r, owner) || r.status !== "running") return false;
@@ -136,7 +136,7 @@ const BENIGN: ResearchCycleSteps = {
   funnelUnit: async () => ({ status: "done", cursor: null, progress: {} }), // evidence phases no-op in these lease/truth tests
   currentBasis: async () => "basis_test", publishSurface: async () => {}, surfaceStale: async () => false, // the account basis the funnel scopes to
   analyzeAnswers: async () => 0, // no new answers to read back in these lease/truth tests
-  verifyShipments: async () => 0, // nothing marked implemented is waiting on a live check in these tests
+  verifyShipments: async () => 0, measureShipments: async () => 0, // nothing marked implemented is waiting on a live check or a reading in these tests
 };
 /** Healthy logging stub: each step logs its name so phase ordering is observable. */
 const healthySteps = (log: string[]): Partial<ResearchCycleSteps> => ({
@@ -211,19 +211,49 @@ describe("research-run partial-success durability + deduped refreshed providers"
   it("decodes a legacy numeric-only progress row: projection and resume never crash and the number survives", async () => {
     const rows = withRun({ current_phase: "publish_surface", progress: { sourcesRefreshed: 2 } }); expect((await RR.researchRunStatus(T, new Date(NOW))).counters.sourcesRefreshed).toBe(2); // decodes the bare number
     await run({ ...BENIGN, surfaceStale: async () => false }); expect([rows[0]!.status, rows[0]!.progress.sourcesRefreshed]).toEqual(["completed", 2]); }); // legacy number survives the resume (refresh_sources not re-run)
-  it("checks what the operator marked as done BEFORE it publishes off it, and only when a check is genuinely owed", async () => {
+  /** MEASUREMENT USED TO NEED A VISITOR. dueWork named verify_and_measure and the run only VERIFIED; the engine that turns a verified change into a won or lost
+   *  verdict fired solely from a Results render, so production sat on sixteen measurable shipments, every one already verified, that no scheduled pass could settle. */
+  it("checks and then MEASURES what the operator marked as done before it publishes off it, with nobody opening Results, and only when one is genuinely owed", async () => {
     const order: string[] = [];
     const steps = (due: DueWork): Partial<ResearchCycleSteps> => ({ dueWork: async () => due,
-      verifyShipments: async () => (order.push("verify"), 1), publishSurface: async () => void order.push("publish"), surfaceStale: async () => true });
+      verifyShipments: async () => (order.push("verify"), 1), measureShipments: async () => (order.push("measure"), 16),
+      publishSurface: async () => void order.push("publish"), surfaceStale: async () => true });
     const owed: DueWork = { ...SOMETHING_DUE, due: ["verify_and_measure"] }; withRun({ current_phase: "publish_surface" }); await run(steps(owed));
-    expect(order).toEqual(["verify", "publish"]); // the live check lands first, so the surface publishes what was actually verified
+    expect(order).toEqual(["verify", "measure", "publish"]); // verified first because measuring refuses an unverified change, then read, then published off both
     order.length = 0; withRun({ current_phase: "publish_surface" }); await run(steps(SOMETHING_DUE)); // nothing marked implemented is waiting
-    expect(order).toEqual(["publish"]); }); // no shipment owed a check, so not one page of the customer's site is read
-  it("never lets a check I could not make pause the pass: the surface still publishes", async () => {
+    expect(order).toEqual(["publish"]); }); // no shipment owed a check, so not one page of the customer's site is read and not one reading is taken
+  it("never lets a check or a reading I could not make pause the pass: the surface still publishes", async () => {
     const rows = withRun({ current_phase: "publish_surface" });
     await run({ dueWork: async () => ({ ...SOMETHING_DUE, due: ["verify_and_measure"] }),
-      verifyShipments: async () => { throw new Error("your website did not answer"); }, surfaceStale: async () => true });
+      verifyShipments: async () => { throw new Error("your website did not answer"); },
+      measureShipments: async () => { throw new Error("the ledger did not answer"); }, surfaceStale: async () => true });
     expect([rows[0]!.status, rows[0]!.progress.surfacePublished]).toEqual(["completed", true]); });
+});
+/** DUE WORK DECIDES WHETHER A PASS RUNS; IT DECIDES WHAT THE PASS DOES TOO. Once a run opened, the executor traversed the COMPLETE cycle whatever the debt was, so
+ *  recovery for one stored-answer reading re-ran keyword discovery, results pages, winner reads, a crawl and a publication: four live passes spent about 69 cents on
+ *  research nobody had asked for. The reason a pass was opened now rides its own row, and every phase outside that reason is skipped BEFORE a lease renewal or a cent. */
+describe("research-run: a recovery pass runs what it was opened for", () => {
+  const spy = (touched: string[]): Partial<ResearchCycleSteps> => ({
+    refreshSources: async () => (touched.push("refresh"), { attempted: 0, succeeded: [], failures: [] }),
+    backfillChunk: async () => (touched.push("backfill"), { kind: "no_work" }), crawlPages: async () => (touched.push("crawl"), 0),
+    funnelUnit: async (phase) => (touched.push(phase), { status: "done", cursor: null, progress: {} }),
+    verifyShipments: async () => (touched.push("verify"), 0), measureShipments: async () => (touched.push("measure"), 0),
+    publishSurface: async () => void touched.push("publish"), surfaceStale: async () => true });
+  /** A day that already completed a pass, so the next one can only open through the same-day door that carries the reason. */
+  const settled = () => { const rows = freshRepo(); rows.push(mk({ id: "done1", status: "completed", completed_at: iso(), current_phase: "done", started_at: iso() })); return rows; };
+  it("settles a reading debt by READING, and buys no keyword, results page, winner, crawl or publication to do it", async () => {
+    const rows = settled(); const touched: string[] = []; let analysed = 0;
+    await run({ ...spy(touched), dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers"] }), analyzeAnswers: async () => (analysed += 1, 7) });
+    expect([touched, analysed]).toEqual([[], 1]); // not one phase outside the debt ran, so not one cent of research was spent
+    expect([rows[1]!.status, rows[1]!.progress.plan?.units, rows[1]!.progress.funnel?.answersAnalyzed]).toEqual(["completed", ["analyze_answers"], 7]); });
+  it("runs exactly the owed set on a mixed debt, and nothing beside it", async () => {
+    settled(); const touched: string[] = [];
+    await run({ ...spy(touched), dueWork: async () => ({ ...SOMETHING_DUE, due: ["crawl_pages", "verify_and_measure"] }) });
+    expect(touched).toEqual(["crawl", "verify", "measure", "publish"]); });
+  it("still walks the whole ordered cycle on the day's first genuine run, which is a recovery of nothing", async () => {
+    freshRepo(); const touched: string[] = [];
+    await run({ ...spy(touched), dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers"] }) });
+    expect(touched).toEqual(["refresh", "backfill", "crawl", "keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages", "publish"]); });
 });
 describe("research-run idempotency identity", () => {
   it("hands each phase its persisted attempt key: an interrupted retry reuses it, the next phase gets a different one, and no second run opens", async () => {
@@ -238,8 +268,7 @@ describe("research-run idempotency identity", () => {
     expect([rows[0]!.status, rows[0]!.id]).toEqual(["completed", "seed"]); expect(refreshKeys[2]).toBe(refreshKeys[0]); // an interrupted retry reuses the identical key
     expect(backfillKeys[0]).not.toBe(refreshKeys[2]); expect(refreshKeys[0]).toMatch(/^rr_[0-9a-f]{32}$/); }); // the next phase gets a different key
   /** PHASE 5A. A run may pause at ANY phase, and a paused run that lives past midnight used to keep the one open-run index against TODAY's cycle: the guard that closed a
-   * dead day sat on the observation phase alone, so a pass parked at keyword_discovery, serp_analysis, winning_pages, crawl_pages, gsc_backfill or publish_surface could
-   * pause its way across the date forever, and today never opened at all. */
+   * dead day sat on the observation phase alone, so a pass parked at keyword_discovery, serp_analysis, winning_pages, crawl_pages, gsc_backfill or publish_surface could pause its way across the date forever, and today never opened at all. */
   it.each(["keyword_discovery", "serp_analysis", "winning_pages", "crawl_pages", "gsc_backfill_chunk", "publish_surface"] as const)(
     "closes a run stranded past midnight at %s, keeps every piece of evidence it wrote, buys nothing for the dead day, and frees today", async (phase) => {
       const rows = withRun({ current_phase: phase, progress: { sourcesRefreshed: 2, funnel: { answersAnalyzed: 7 } } });
@@ -596,7 +625,7 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     expect(await RR.startExtraPass(T, "cron", day)).not.toBeNull(); }); // the day itself still has room
   it("counts continuation hops on the account's own row, so a client that keeps claiming hop 0 is refused once the day's bound is spent", async () => {
     const rows = completedToday(); let cycles = 0; const seen: Array<{ hop: number; more: boolean }> = [];
-    const steps = { ...BENIGN, dueWork: async () => SOMETHING_DUE,
+    const steps = { ...BENIGN, dueWork: async () => ({ ...SOMETHING_DUE, due: ["refresh_sources" as const, "daily_observations" as const] }), // a stranded day that owes its sources too, so the pass this hop opens genuinely reaches refresh
       refreshSources: async () => (cycles += 1, { attempted: 0, succeeded: [], failures: [] }) };
     for (let i = 0; i < 8; i += 1) seen.push(await continueResearch(T, 0, { now: () => new Date(NOW), steps })); // the same made-up hop, every time
     expect(seen.map((s) => s.hop)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]); // the SERVER counts, and the count survives every new pass row
@@ -682,7 +711,7 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     rows.push(mk({ id: "done1", status: "completed", completed_at: iso(), current_phase: "done", started_at: iso() })); // today's pass finished its batch and stopped at 107
     let done = 107, paidUnits = 0;
     const steps: Partial<ResearchCycleSteps> = { dueWork: async () => SOMETHING_DUE,
-      strandedToday: async () => (done < 140 ? [T] : []),
+      strandedToday: async () => (done < 140 ? [{ tenantId: T, due: ["daily_observations" as const] }] : []),
       dayStanding: async () => ({ done, total: 140, answers: done, unavailable: 0, unsupported: 0 }),
       funnelUnit: async (phase) => { if (phase === "prompt_observations") { paidUnits += 1; done = Math.min(140, done + 20); } return { status: "done", cursor: null, progress: {} }; } };
     expect(await dispatch(steps)).toEqual(R({ claimed: 1, attempted: 1, succeeded: 1 })); // the stranded day is claimed and driven, not skipped
@@ -699,8 +728,7 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
   it("says 503 rather than a quiet day when the recovery probe itself could not read the fleet", async () => {
     freshRepo(); PAUSED.add(T); PAUSED.add(U); DB.fleetError = { message: "connect ECONNREFUSED" }; // nothing to claim, so the probe is the whole dispatch
     await expect(runDueAccounts({ now: () => new Date(NOW), steps: { ...BENIGN, strandedToday: defaultSteps.strandedToday, ...NO_PHASE } })).rejects.toThrow();
-    // AND THE WORK ALREADY LANDED SURVIVES THE THROW: one account really was claimed and driven before the probe broke, so the receipt rides on the error
-    // rather than a 503 erasing it. `rejects.toMatchObject` reads the thrown value's own fields.
+    // AND THE WORK ALREADY LANDED SURVIVES THE THROW: one account really was claimed and driven before the probe broke, so the receipt rides on the error rather than a 503 erasing it. `rejects.toMatchObject` reads the thrown value's own fields.
     PAUSED.clear(); const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); // one claimable account, so one drive lands before the probe runs
     await expect(runDueAccounts({ now: () => new Date(NOW), steps: { ...BENIGN, strandedToday: defaultSteps.strandedToday } }))
       .rejects.toMatchObject({ receipt: R({ claimed: 1, attempted: 1, succeeded: 1 }) });
@@ -720,14 +748,14 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     const rows = freshRepo(); // U stays open with provider work in flight; T finished its batch and left the day short
     rows.push(mk({ id: "openU", tenant_id: U, status: "paused", current_phase: "prompt_observations", started_at: iso() }));
     rows.push(mk({ id: "doneT", tenant_id: T, status: "completed", completed_at: iso(), current_phase: "done", started_at: iso() }));
-    const steps: Partial<ResearchCycleSteps> = { dueWork: async () => SOMETHING_DUE, strandedToday: async () => [T],
+    const steps: Partial<ResearchCycleSteps> = { dueWork: async () => SOMETHING_DUE, strandedToday: async () => [{ tenantId: T, due: ["daily_observations" as const] }],
       dayStanding: async () => ({ done: 107, total: 140, answers: 107, unavailable: 0, unsupported: 0 }),
       funnelUnit: async (phase) => (phase === "prompt_observations" ? { status: "waiting", cursor: null, progress: {} } : { status: "done", cursor: null, progress: {} }) };
     await dispatch(steps);
     expect(rows.filter((r) => r.tenant_id === T && r.cycle_key.includes(":p"))).toHaveLength(1); }); // U being re-claimed must not cost T its recovery
   it("two ticks racing the same stranded day open at most one pass between them", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); rows.push(mk({ id: "done1", status: "completed", completed_at: iso(), current_phase: "done", started_at: iso() }));
-    const steps: Partial<ResearchCycleSteps> = { dueWork: async () => SOMETHING_DUE, strandedToday: async () => [T],
+    const steps: Partial<ResearchCycleSteps> = { dueWork: async () => SOMETHING_DUE, strandedToday: async () => [{ tenantId: T, due: ["daily_observations" as const] }],
       dayStanding: async () => ({ done: 107, total: 140, answers: 107, unavailable: 0, unsupported: 0 }),
       funnelUnit: async (phase) => (phase === "prompt_observations" ? { status: "waiting", cursor: null, progress: {} } : { status: "done", cursor: null, progress: {} }) };
     await Promise.all([dispatch(steps), dispatch(steps)]); expect(rows.filter((r) => r.cycle_key.includes(":p"))).toHaveLength(1); }); // the one-open-run invariant is the whole guard, and it holds

@@ -6,7 +6,7 @@
 ## Current foundation
 
 - Branch `main`; MVP rebuild started at `4669fbb5`. Stack: Next.js App Router, strict TypeScript, Supabase, Vercel.
-- Production TypeScript is 73,249 lines; tests 11,505; combined 84,754 (ceilings at these exact counts).
+- Production TypeScript is 72,379 lines under a 73,249 ceiling; tests 11,501 under 11,505; combined 83,880.
 - The foundation guard caps production, tests, combined LOC, domains, routes, exports, files, dependencies, and
   Markdown. `npm run gate` runs the guard, typecheck, tests, and build.
 - Five kernels exist (Account, Evidence, Decision, Measurement, Runtime); five surfaces (Today, Visibility,

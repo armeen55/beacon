@@ -31,11 +31,13 @@ type Analysis = { ownedBrandMention?: { mentioned?: unknown } | null };
 type ReadRows = (tenantId: string, opts: { limit?: number; slot?: number; fromDay?: string; toDay?: string; projection?: "full" | "outcome" }) => Promise<AiObservationRecord[]>;
 type ReadOpts = { ownedHost?: string | null; readObservations?: ReadRows };
 
-/** What one engine was serving on one day. `asked` is every first reading planned that day whatever came
- *  back, `observed` the ones that actually answered, so an engine that went quiet reads as quiet. */
+/** What one engine was serving on one day. `asked` is every first reading planned that day whatever came back, `observed` the ones that actually answered, so an
+ *  engine that went quiet reads as quiet. `analyzed` is how many of those answers a settled reading exists for, counted by the SAME rule the day pools (namedIn),
+ *  so the engines sum to the day and a surface can say "3 of the 4 I read on ChatGPT" instead of falling back to one pooled fraction of a part-read day. Without
+ *  it a per-engine `mentioning` had no denominator of its own and every engine line had to borrow the day's. */
 type EnginePresence = {
   engine: string; modelServed: string | null; mode: string;
-  asked: number; observed: number; mentioning: number; citedOwned: number;
+  asked: number; observed: number; analyzed: number; mentioning: number; citedOwned: number;
 };
 
 /** One reporting day, pooled across engines. Counts ride beside every rate so the surface can say what the
@@ -163,6 +165,8 @@ function presenceOf(engine: string, rows: AiObservationRecord[], root: string): 
     mode: newest?.observation_mode ?? "",
     asked: new Set(rows.map((r) => r.prompt_id)).size,
     observed: new Set(answered.map((r) => r.prompt_id)).size,
+    // The denominator `mentioning` is a share OF. A reading that landed says true or false; one nobody has finished says nothing at all and enters neither count.
+    analyzed: answered.filter((r) => namedIn(r) !== null).length,
     mentioning: answered.filter((r) => namedIn(r) === true).length,
     citedOwned: answered.filter((r) => (r.journey?.cited_sources ?? null)?.some((c) => isOwned(c, root)) === true).length,
   };
@@ -284,7 +288,8 @@ export async function visibilitySeries(tenantId: string, days: number, opts: Rea
   return (await aiOutcomes(tenantId, { from: addDays(to, -(span - 1)), to, ...opts })).segments;
 }
 
-/** How often this account was named, over the answers ACTUALLY READ CLOSELY: the rate divides by
+/** How often this account was named, over the answers with a SETTLED CHECK (a close reading or the
+ *  deterministic name-and-address match): the rate divides by
  *  `analyzed`, never `checked`, the same rule on both sides of a shipment, null when nothing was
  *  analyzed (a different claim from a zero share, and it stays different). */
 function namedShare(rows: AiObservationRecord[]): { checked: number; analyzed: number; mentioning: number; rate: number | null } {
@@ -305,7 +310,7 @@ function namedShare(rows: AiObservationRecord[]): { checked: number; analyzed: n
 const tooThin = (s: { checked: number; analyzed: number }): boolean => s.analyzed <= 0 || s.analyzed * 2 < s.checked;
 
 function outcomeLine(direction: ShipmentAiOutcome["direction"], before: ShipmentAiOutcome["before"], after: ShipmentAiOutcome["after"], coverage: ShipmentAiOutcome["coverage"]): string {
-  const since = `I read ${after.checked} AI ${after.checked === 1 ? "answer" : "answers"} on ${coverage.daysObserved} of the ${coverage.daysElapsed} days since you marked this done`;
+  const since = `I collected ${after.checked} AI ${after.checked === 1 ? "answer" : "answers"} on ${coverage.daysObserved} of the ${coverage.daysElapsed} days since you marked this done`;
   if (direction === "unclear") {
     if (before.from === "nothing") {
       return `${since}, and I have nothing from before the change to compare them against. I keep reading every day and will say which way this went once both sides are there.`;
@@ -317,9 +322,9 @@ function outcomeLine(direction: ShipmentAiOutcome["direction"], before: Shipment
     }
     return `${since}, which is too little to call either way yet. I keep reading every day.`;
   }
-  // The denominator the share was computed over, said out loud: "36 of 60" would compare a count
-  // over the answers I read closely against a total that includes answers nobody has read.
-  const now = `you were named in ${after.mentioning} of the ${after.analyzed} I read closely`;
+  // The denominator the share was computed over, said out loud, and named for what it is: a settled check,
+  // which may be a name-and-address match rather than a close reading, so "finished checking" never overclaims.
+  const now = `you were named in ${after.mentioning} of the ${after.analyzed} I have finished checking`;
   const then = `${before.mentioning} of ${before.checked} before it`;
   if (direction === "improved") return `${since}, ${now}, up from ${then}. I keep reading every day.`;
   if (direction === "worsened") return `${since}, ${now}, down from ${then}. I keep reading every day, and I will bring you the next move on this page.`;

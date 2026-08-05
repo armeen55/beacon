@@ -9,8 +9,7 @@ import { verdictSchedule, type VerdictScheduleRow } from "@/domains/measurement/
 import type { ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
 import type { ProofWindowDay, ProofWindowResult } from "@/domains/measurement/proof-gsc/types";
 /** Outcome-level contract tests for the measurement kernel. These pin CUSTOMER TRUTH, not implementation: every historical shipment maps to exactly one read (nothing
- *  disappears); the 7/14/28 windows respect Google's reporting lag; overlapping changes on one page read as confounded; only cleanly-settled reads feed ranking; no
- *  operator string claims cause. */
+ *  disappears); the 7/14/28 windows respect Google's reporting lag; overlapping changes on one page read as confounded; only cleanly-settled reads feed ranking; no operator string claims cause. */
 const NOW = new Date("2026-06-01T00:00:00Z");
 function win(day: 7 | 14 | 28, over: Partial<KernelInput["windows"][number]> = {}) {
   return {

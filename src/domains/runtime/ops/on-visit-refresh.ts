@@ -9,7 +9,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { NO_BASIS_DETAIL } from "@/domains/evidence/funnel/shared";
 import { runFocus } from "./investigation-queries";
 import { reportingDay } from "@/lib/reporting-day";
-import { dueWork, isResearchPaused, type DueWork } from "./due-work";
+import { dueWork, isResearchPaused, type DueWork, type DuePhase } from "./due-work";
 import { defaultSteps, type ResearchCycleSteps } from "./research-steps";
 // The phase bodies live in research-steps; the contract between the two files is this type, so a
 // caller that drives a run keeps importing the runner and gets the shape it must satisfy.
@@ -53,6 +53,39 @@ const DAY_UNREADABLE = "I could not read where today's AI checks stand, so I sto
 
 /** The four Slice 6 evidence phases, each backed by one funnel unit executor. */
 const FUNNEL_PHASES = new Set<ResearchPhase>(["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]);
+
+/** WHAT EACH OWED UNIT ACTUALLY COSTS IN PHASES. Due-work decides WHETHER another pass runs; this is what turns its answer into WHAT that pass may do. Once a run
+ *  opened, the executor traversed the complete cycle whatever the debt was, so recovery for one stored-answer reading re-ran keyword discovery, results pages,
+ *  winner reads, a crawl and a publication: four live passes spent about 69 cents on research nobody had asked for. A recovery pass now runs the phases its own
+ *  debt names and skips the rest in ONE advance. A fresh daily cycle carries no plan at all and still walks everything, in order. */
+const PHASES_FOR: Record<DuePhase, readonly ResearchPhase[]> = {
+  refresh_sources: ["refresh_sources", "gsc_backfill_chunk"],
+  crawl_pages: ["crawl_pages"],
+  daily_observations: ["prompt_observations"],
+  // The reading of answers already bought rides the observation phase, and buys nothing: see the analyze-only branch below.
+  analyze_answers: ["prompt_observations"],
+  plan_cases: ["keyword_discovery", "serp_analysis"],
+  acquire_case_evidence: ["serp_analysis", "winning_pages"],
+  decide_and_prepare: ["publish_surface"],
+  verify_and_measure: ["publish_surface"],
+  publish_surfaces: ["publish_surface"],
+};
+
+/** PURE. The phases one pass's plan allows, or null when it has none (a fresh daily cycle: everything, in order). */
+function plannedPhases(progress: ResearchRunProgress | null): Set<ResearchPhase> | null {
+  const units = progress?.plan?.units;
+  if (!Array.isArray(units) || units.length === 0) return null;
+  const out = new Set<ResearchPhase>();
+  for (const u of units) for (const p of PHASES_FOR[u] ?? []) out.add(p);
+  return out;
+}
+
+/** PURE. The next phase this plan actually allows, walking the SAME ordered cycle; `done` when none is left. */
+function nextPlanned(phase: ResearchPhase, allowed: Set<ResearchPhase>): ResearchPhase {
+  let next = phase;
+  while (next !== "done" && !allowed.has(next)) next = nextPhase(next);
+  return next;
+}
 type ResearchCycleOptions = { now?: () => Date; deadlineMs?: number; steps?: Partial<ResearchCycleSteps> };
 /** One phase's outcome: the merged progress, plus an optional `pause` error when the phase reported a recoverable failure that is NOT a throw (a partial
  *  connector refresh). A thrown error is handled separately by the cycle loop, which records the error and pauses. */
@@ -114,6 +147,11 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     casesActive: work.cases.active, casesParked: work.cases.parked, nextDueAt: work.nextDueAt, blocker: null } };
   let phase = run.current_phase;
   let cursor: Record<string, unknown> | null = run.phase_cursor ?? null;
+  /** THE PASS RUNS WHAT IT WAS OPENED FOR. Null on the day's first genuine run, which walks the whole cycle. */
+  const allowed = plannedPhases(run.progress ?? null);
+  /** This pass owes a READING of answers already bought, and owes nobody a new one: the observation phase reads and buys nothing. */
+  const planUnits = run.progress?.plan?.units ?? [];
+  const readingOnly = planUnits.includes("analyze_answers") && !planUnits.includes("daily_observations");
   /** The phase whose attempt already spent its ONE state-conflict retry (never global). */
   let conflictRetried: ResearchPhase | null = null;
 
@@ -137,6 +175,15 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       return (await finishRun(tenantId, run.id, ownerToken, "completed")) ? "completed" : "failed";
     }
 
+    // A DEBT IS NOT A CYCLE. A phase this pass's plan never named is skipped in ONE advance rather than walked: no lease renewal, no basis read, no unit, no
+    // provider, no cent. The skip happens in front of every side effect for exactly that reason, and a plan whose phases are all behind us simply reaches done.
+    if (allowed != null && !allowed.has(phase)) {
+      const next = nextPlanned(nextPhase(phase), allowed);
+      log.debug("[research-run] this pass was not opened for that phase, so it skips it", { tenantId, phase, next });
+      if (!await advancePhase(tenantId, run.id, ownerToken, { phase: next, progress, cursor: null })) return "lost_lease";
+      phase = next; cursor = null; continue;
+    }
+
     // Persist the phase attempt identity + renew the lease BEFORE the side effect. Funnel phases carry their durable unit cursor forward inside the attempt cursor.
     const attemptKey = resolveAttemptKey(tenantId, run.id, run.cycle_key, phase, cursor);
     const priorUnit = cursor?.phase === phase && cursor.unit != null ? (cursor.unit as Record<string, unknown>) : null;
@@ -144,6 +191,17 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     const held = await renewLease(tenantId, run.id, ownerToken, attemptCursor);
     if (!held) return "lost_lease"; // lease lost/expired → abort BEFORE any side effect
     cursor = attemptCursor;
+
+    // A DEBT OF READING IS NOT A DEBT OF BUYING. A pass opened because answers already paid for have never been read closely reads THEM and asks no engine
+    // anything: no plan, no observation unit, no re-read of the day's standing, and no basis to resolve first. It runs here under the lease just renewed,
+    // because a reading spends money, and it is fail-soft like every other derived step.
+    if (phase === "prompt_observations" && allowed != null && readingOnly) {
+      const analysed = await steps.analyzeAnswers(tenantId, run.cycle_key.slice(-10)).catch(() => 0);
+      if (analysed > 0) progress = { ...progress, funnel: { ...progress.funnel, answersAnalyzed: (progress.funnel?.answersAnalyzed ?? 0) + analysed } };
+      const next = nextPlanned(nextPhase(phase), allowed);
+      if (!await advancePhase(tenantId, run.id, ownerToken, { phase: next, progress, cursor: null })) return "lost_lease";
+      phase = next; cursor = null; continue;
+    }
 
     // Every funnel unit runs under the account's CURRENT basis; a change in website/profile/goal mints a new basis and strands prior derived state.
     // PUBLISHING NEEDS THAT BASIS TOO, because a run resumed straight at publish_surface would otherwise reach the staleness check and the release build with
@@ -250,6 +308,12 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     if (phase === "publish_surface" && work.due.includes("verify_and_measure")) {
       const verified = await steps.verifyShipments(tenantId, nowFn()).catch(() => 0);
       if (verified > 0) log.info("[research-run] checked what you marked as done on your live pages", { tenantId, verified });
+      // AND THEN THE READING ITSELF. Verifying was only ever the first half: measuring is what turns a verified change into a won or lost verdict, and it fired
+      // ONLY from a Results render, so an account holding sixteen changes whose windows had closed could never settle one of them without somebody opening the
+      // page. It runs here, under the same renewed lease, right after the verification it depends on: free (Search Console and Analytics are already synced),
+      // bounded per pass, fail-soft, and it rebuilds the Results surface itself when a reading actually moved, so the first view serves the fresh truth.
+      const measured = await steps.measureShipments(tenantId, nowFn()).catch(() => 0);
+      if (measured > 0) log.info("[research-run] read how what you shipped is doing", { tenantId, measured });
     }
 
     let outcome: PhaseOutcome;
@@ -352,7 +416,8 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
       if (work == null || !work.readable || work.due.length === 0) {
         log.debug("[research-run] no claim and nothing due; nothing runs", { tenantId, due: work?.due.length ?? null });
         return; }
-      run = await startExtraPass(tenantId, ownerToken, reportingDay(now.getTime()), VISIT_EXTRA_PASSES_PER_DAY);
+      // The pass is opened ON that due list, so it carries it: this door already knows exactly why it opened one.
+      run = await startExtraPass(tenantId, ownerToken, reportingDay(now.getTime()), VISIT_EXTRA_PASSES_PER_DAY, work.due);
       if (run == null) return;
       log.info("[research-run] same-day pass opened on genuinely due work", { tenantId, due: work.due });
     }

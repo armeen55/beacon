@@ -7,26 +7,29 @@ import "server-only";
  * `openAIStructuredResponse` is the one door every internal-reasoning call uses.
  * It converts the caller's Zod schema to a strict JSON Schema, POSTs to
  * `POST /v1/responses` with `text.format.{type:"json_schema", strict:true}`, and
- * returns a typed outcome (ok / blocked_budget / refusal / incomplete /
- * invalid_response / http_error / error). The caller still Zod-validates the
+ * returns a typed outcome (ok / blocked_budget / blocked_credit / refusal /
+ * incomplete / invalid_response / http_error / error). The caller still Zod-validates the
  * returned `value` against its ORIGINAL schema - the gateway only guarantees the
  * value parsed as JSON and had its provider-nulls normalized away.
  *
  * ONE policy in one place, in this ORDER (unchanged intent from R16):
  *   1. perfCountExternal - every reach to the LLM transport is tallied so a page
  *      GET can be proven to fire ZERO LLM calls.
- *   2. GLOBAL COST BREAKER (outer guard), FAIL-CLOSED, before any per-platform
+ *   2. CREDIT STOP (account level), FAIL-FAST. When the provider has said this
+ *      account's balance is empty, the door itself refuses with `blocked_credit`
+ *      before any network, so no lane has to carry that logic of its own.
+ *   3. GLOBAL COST BREAKER (outer guard), FAIL-CLOSED, before any per-platform
  *      read. A trip refuses the call outright; it never loosens the inner cap.
- *   3. MONTHLY CAP (per-platform), FAIL-CLOSED. `budget: { mode: "gateway_check" }`
+ *   4. MONTHLY CAP (per-platform), FAIL-CLOSED. `budget: { mode: "gateway_check" }`
  *      consults the dual-write ledger BEFORE the call; `{ mode: "caller", note }`
  *      is a greppable, explicit exemption for call sites that gate spend
  *      themselves and record via `recordGatewaySpend` post-parse.
- *   4. SCHEMA CONVERSION - an unsupported schema fails closed as invalid_response
+ *   5. SCHEMA CONVERSION - an unsupported schema fails closed as invalid_response
  *      BEFORE any network call (strictness is never weakened to force it through).
- *   5. REASONING TIMEOUT FLOOR - reasoning models are floored to >= 90s (the
+ *   6. REASONING TIMEOUT FLOOR - reasoning models are floored to >= 90s (the
  *      gpt-5-mini lesson: a sub-90s ceiling made every call silently fall back).
- *   6. REASONING EFFORT - reasoning models get `reasoning.effort: "low"`.
- *   7. LOUD FALLBACK - every non-ok outcome logs an unmissable warn line and
+ *   7. REASONING EFFORT - reasoning models get `reasoning.effort: "low"`.
+ *   8. LOUD FALLBACK - every non-ok outcome logs an unmissable warn line and
  *      (outside tests) lands in the error ledger via `recordAppError`.
  *
  * VITEST HERMETICS: under vitest, budget/breaker checks default to "allowed" and
@@ -44,6 +47,7 @@ import { perfCountExternal } from "@/lib/obs/perf-log";
 import { z } from "zod";
 import { checkBudget } from "./adjudicator-budget";
 import { assertPaidCallAllowed } from "@/lib/cost/cost-breaker";
+import { clearCreditBreaker, creditBreakerActive, tripCreditBreaker } from "@/lib/cost/credit-breaker";
 import type { PromptId } from "./prompt-registry";
 import {
   classifyResponsesEnvelope,
@@ -53,6 +57,10 @@ import {
 } from "./responses-envelope";
 
 export { strictJsonSchemaFor, normalizeStructuredValue };
+/** THE account-level credit stop, read here and re-exported so every lane asks the same question of the same
+ *  durable row: is this account held because the provider says its balance is empty. See lib/cost/credit-breaker.ts
+ *  for the trip, the 15 minute probe, and the clear. */
+export { creditBreakerActive };
 
 /** The canonical structured-generation endpoint (verified against OpenAI docs 2026-07-23). */
 const OPENAI_RESPONSES_API = "https://api.openai.com/v1/responses";
@@ -111,6 +119,21 @@ export type CostBreakerImpl = {
   check: (projectedCostUsd: number) => Promise<{ tripped: boolean; reason?: string }>;
 };
 
+/** The durable account-level credit stop as a seam. Production wires the ledger-backed breaker; tests inject. */
+export type CreditBreakerImpl = {
+  active: (tenantId: string) => Promise<boolean>;
+  trip: (tenantId: string) => Promise<void>;
+  clear: (tenantId: string) => Promise<void>;
+};
+
+/** OpenAI's own name for an empty balance is `insufficient_quota`; this is what Beacon calls it everywhere after. */
+const CREDIT_EXHAUSTED = "credit_balance_exhausted";
+/** A code is a machine identifier. Anything shaped otherwise is provider prose and is dropped, never carried. */
+const CODE_SHAPE = /^[a-z0-9_.-]{1,64}$/i;
+/** What the operator is told while the stop holds: what happened, what I am doing about it, what ends it. */
+const CREDIT_STOP_REASON =
+  "My OpenAI account is out of credit, so I am holding every call that needs it. I try one call every 15 minutes and pick straight back up the moment one goes through. Add credit to that account to end the hold now.";
+
 /** Everything the transport needs to name and account for the failure. */
 type GatewayIdentity = {
   promptId: PromptId;
@@ -162,6 +185,8 @@ export type StructuredCallArgs = {
   budgetImpl?: BudgetImpl;
   /** Test seam for the global cost breaker; hermetic under vitest otherwise. */
   costBreakerImpl?: CostBreakerImpl;
+  /** Test seam for the account-level credit stop; hermetic under vitest otherwise. */
+  creditBreakerImpl?: CreditBreakerImpl;
 };
 
 type StructuredCallOutcome =
@@ -173,7 +198,11 @@ type StructuredCallOutcome =
   // real usage/cost); a PRE-network invalid (unsupported schema, missing tenant)
   // has no provider provenance and no cost.
   | { kind: "invalid_response"; reason: string; provenance?: LlmProvenance }
-  | { kind: "http_error"; status: number }
+  // `code` is the provider's OWN machine code (`credit_balance_exhausted`, `rate_limit_exceeded`, ...), never its
+  // prose, so a caller can tell an empty balance from a busy minute without a single word of the body escaping.
+  | { kind: "http_error"; status: number; code?: string; retryAfterMs?: number }
+  // The account is held for credit. No network, no cost, and every caller inherits the stop without its own logic.
+  | { kind: "blocked_credit"; reason: string }
   | { kind: "error"; reason: string };
 
 function underVitest(): boolean {
@@ -234,6 +263,38 @@ async function checkGatewayBudget(
   }
 }
 
+/** The credit stop as one object: the injected seam, or the durable ledger-backed one. */
+function creditBreaker(impl: CreditBreakerImpl | undefined): CreditBreakerImpl {
+  return impl ?? { active: creditBreakerActive, trip: tripCreditBreaker, clear: clearCreditBreaker };
+}
+
+/**
+ * THE PROVIDER'S OWN MACHINE CODE, AND NOTHING ELSE. The error body may carry a whole billing sentence, an org id,
+ * or a sales address; only `error.code` / `error.type` are read, and only when they are shaped like a code, so no
+ * provider prose can reach a log line, an exception message, or an operator surface. An empty balance
+ * (`insufficient_quota`) is named apart from ordinary throttling, because retrying one buys nothing.
+ */
+async function providerErrorCode(response: Response): Promise<string | undefined> {
+  let body: unknown;
+  try { body = await response.json(); } catch { return undefined; }
+  const err = (body as { error?: { code?: unknown; type?: unknown } } | null)?.error;
+  const named = [err?.code, err?.type].find((v): v is string => typeof v === "string" && CODE_SHAPE.test(v.trim()));
+  const code = named?.trim().toLowerCase();
+  if (code === "insufficient_quota") return CREDIT_EXHAUSTED;
+  if (!code && response.status === 429) return "rate_limit_exceeded";
+  return code;
+}
+
+/** Retry-After in ms: seconds or an HTTP date, floored at zero and capped at an hour so a bad header can never
+ *  park a lane for a day. Absent header, absent claim. */
+function retryAfterMs(raw: string | null | undefined): number | undefined {
+  if (!raw) return undefined;
+  const seconds = Number(raw.trim());
+  const ms = Number.isFinite(seconds) ? seconds * 1_000 : Date.parse(raw) - Date.now();
+  if (!Number.isFinite(ms)) return undefined;
+  return Math.min(Math.max(Math.round(ms), 0), 3_600_000);
+}
+
 /** LOUD, durable failure reporting - warn line always; error ledger outside tests. */
 async function reportGatewayFailure(id: GatewayIdentity, reason: string, detail?: string): Promise<void> {
   log.warn(`[llm-gateway] ${id.promptId} v${id.promptVersion} ${reason}`, {
@@ -272,21 +333,32 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   // 1. Tally every reach to the LLM transport (page-GET zero-LLM invariant).
   perfCountExternal("llm", args.model || undefined);
 
-  // 2. Global breaker (outer guard) first: refuse before the per-platform cap is read.
+  // 2. NO CREDIT, NO CALL. A durable account-level stop, tripped by the provider's own credit_balance_exhausted and
+  //    cleared by the next call that goes through. It sits HERE, in the one door, so answer readback, competitor
+  //    verdicts and every drafter inherit the same stop instead of each re-storming a dead account on every pass.
+  //    The hold logs but does NOT write an error-ledger row: the trip that caused it already wrote one, and a row
+  //    per held call would spend a store round trip on repeating a fact already on file.
+  const credit = creditBreaker(args.creditBreakerImpl);
+  if (await credit.active(tenantId).catch(() => false)) {
+    log.warn(`[llm-gateway] ${id.promptId} v${id.promptVersion} blocked_credit`, { action: id.action, tenantId });
+    return { kind: "blocked_credit", reason: CREDIT_STOP_REASON };
+  }
+
+  // 3. Global breaker (outer guard): refuse before the per-platform cap is read.
   const breaker = await checkGatewayCostBreaker(args.budget, args.costBreakerImpl);
   if (!breaker.allowed) {
     await reportGatewayFailure(id, "blocked_budget", breaker.reason);
     return { kind: "blocked_budget", reason: breaker.reason };
   }
 
-  // 3. Per-platform monthly cap, fail-closed (scoped to the explicit account).
+  // 4. Per-platform monthly cap, fail-closed (scoped to the explicit account).
   const budget = await checkGatewayBudget(args.budget, args.budgetImpl, tenantId);
   if (!budget.allowed) {
     await reportGatewayFailure(id, "blocked_budget", budget.reason);
     return { kind: "blocked_budget", reason: budget.reason };
   }
 
-  // 4. Schema conversion - fail closed BEFORE any network call on an unsupported schema.
+  // 5. Schema conversion - fail closed BEFORE any network call on an unsupported schema.
   const converted = strictJsonSchemaFor(args.zodSchema, args.schemaName);
   if ("unsupported" in converted) {
     await reportGatewayFailure(id, "invalid_response_unsupported_schema", converted.unsupported);
@@ -300,10 +372,10 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     max_output_tokens: args.maxOutputTokens,
     text: { format: { type: "json_schema", name: converted.name, schema: converted.schema, strict: true } },
   };
-  // 6. Reasoning effort default (only for reasoning models; older models reject it).
+  // 7. Reasoning effort default (only for reasoning models; older models reject it).
   if (reasoning) requestBody.reasoning = { effort: "low" };
 
-  // 5. Reasoning timeout floor.
+  // 6. Reasoning timeout floor.
   const timeoutMs = effectiveTimeoutMs(args.model, args.timeoutMs);
   const fetchImpl = args.fetchImpl ?? fetch;
 
@@ -322,9 +394,17 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   }
 
   if (!response.ok) {
-    await reportGatewayFailure(id, `openai_http_${response.status}`);
-    return { kind: "http_error", status: response.status };
+    // A FAILED CALL IS NOT A PURCHASE AND IT IS NOT A MYSTERY EITHER: the status alone made an empty balance and a
+    // busy minute the same event to every caller, so the drafter retried the one that can never succeed. No usage
+    // came back, so no cost is claimed anywhere on this path.
+    const code = await providerErrorCode(response);
+    const retryMs = retryAfterMs(response.headers?.get?.("retry-after"));
+    await reportGatewayFailure(id, `openai_http_${response.status}`, code);
+    if (code === CREDIT_EXHAUSTED) await credit.trip(tenantId).catch(() => {});
+    return { kind: "http_error", status: response.status, ...(code ? { code } : {}), ...(retryMs === undefined ? {} : { retryAfterMs: retryMs }) };
   }
+  // The provider answered, so the balance is not empty: lift any stop on file before the envelope is even read.
+  await credit.clear(tenantId).catch(() => {});
 
   let json: unknown;
   try {
@@ -365,7 +445,7 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     return { kind: "invalid_response", reason: classified.reason, provenance };
   }
 
-  // 7. Structured text present. With strict:true a JSON.parse failure signals a
+  // 8. Structured text present. With strict:true a JSON.parse failure signals a
   //    provider malfunction; never substring-hunt for JSON in prose.
   let parsed: unknown;
   try {

@@ -1,10 +1,11 @@
 /** structured-drafter strict-gateway transport: the seam returns parsed VALUES (no prose recovery), a refusal fails closed with no artifact, retry is bounded and paid
  *  for, and a cache hit costs $0. */
 import { describe, it, expect, vi } from "vitest";
-// Budget is not this file's subject (see llm-budget-isolation.test.ts): keep the transport hermetic with an always-allowed, no-op budget seam.
+// Budget is not this file's subject (see llm-budget-isolation.test.ts): keep the transport hermetic with an always-allowed budget seam that RECORDS what it was told to bill.
+const BILLED = vi.hoisted(() => ({ usd: [] as number[] }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
   checkBudget: async () => ({ allowed: true, remaining: 10 }),
-  recordSpend: async () => {},
+  recordSpend: async (usd: number) => { BILLED.usd.push(usd); },
 }));
 import { callStructuredLLM, draftInternalLinkStructured, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
@@ -44,8 +45,14 @@ describe("structured-drafter strict transport", () => {
     const one = seam([{ value: VALID_ATOMIC_EDIT }]); // a parsed value, no text parsing, on one call
     const first = await callStructuredLLM({ ...REQ, complete: one.complete });
     expect(first.status === "drafted" && [(first.value as { after: string }).after.includes("Nowruz Traditions"), one.calls()]).toEqual([true, 1]);
+    // A CALL THAT BOUGHT NOTHING IS BILLED NOTHING. Two attempts died with no usage receipt; the drafter used to substitute an ESTIMATE and record it against the
+    // cap, so a throttled minute read back as real money and could later block a working account on spend that never happened.
+    BILLED.usd.length = 0;
     const boom = await callStructuredLLM({ ...REQ, complete: seam([{ error: "network boom", retryable: true }]).complete });
-    expect(boom.status === "validation_failed" && boom.costUsd > 0).toBe(true); // 2-attempt ceiling, spend per attempt
+    expect([boom.status === "validation_failed" && boom.costUsd, BILLED.usd]).toEqual([0, []]);
+    BILLED.usd.length = 0; // and a real receipt is billed exactly once, exactly as it was issued
+    const paid = await callStructuredLLM({ ...REQ, complete: seam([{ error: "incomplete", retryable: false, costUsd: 0.0042 }]).complete });
+    expect([paid.status === "validation_failed" && paid.costUsd, BILLED.usd]).toEqual([0.0042, [0.0042]]);
     const again = seam([{ value: {} }, { value: VALID_ATOMIC_EDIT }]); // a rejection CAN recover
     const out = await callStructuredLLM({ ...REQ, complete: again.complete });
     expect(out.status === "drafted" && [out.retried, again.calls()]).toEqual([true, 2]);

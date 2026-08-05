@@ -1,29 +1,27 @@
 import "server-only";
 
 /**
- * answer-readback - READING THE STORED AI ANSWERS BACK. Collection buys the answers, this reads them: ONE strict structured call reads a BATCH of stored
- * answers (what each said, who it named, what it left out) and Evidence persists one reading per observation. IT COSTS NOTHING WHEN NOTHING CHANGED, a
- * call fires only on a piece nobody has read yet, and A LONG ANSWER IS READ WHOLE, IN PIECES, ACROSS AS MANY PASSES AS IT TAKES: split on its own
- * paragraph breaks, every piece keyed `id#part`, merged into ONE stored reading beside a COVERAGE CHECKPOINT naming which pieces of which answer hash are
- * in it. Until every piece is accounted for that reading carries a deliberately different hash, so the row stays due and the next pass resumes at the
- * first unread piece. EVERY READING IS GROUNDED IN ITS OWN ANSWER: each returned item is re-checked against the exact text it was read from and a failing
- * item is dropped alone with the number named, because one batch grounded as a single body of text let a number only answer A contained validate a
- * fabricated claim about answer B. EVERY PIECE THIS PASS SENDS COMES BACK SETTLED: merged, or dropped with its reason, and a piece never sent is owed.
+ * answer-readback - READING THE STORED AI ANSWERS BACK. Collection buys the answers, this reads them: ONE strict structured call reads a BATCH of stored answers
+ * (what each said, who it named, what it left out) and Evidence persists one reading per observation. IT COSTS NOTHING WHEN NOTHING CHANGED, a call fires only on
+ * a piece nobody has read yet, and A LONG ANSWER IS READ WHOLE, IN PIECES, ACROSS AS MANY PASSES AS IT TAKES: split on its own paragraph breaks, every piece keyed
+ * `id#part`, merged into ONE stored reading beside a COVERAGE CHECKPOINT naming which pieces of which answer hash are in it. Until every piece is accounted for
+ * that reading carries a deliberately different hash, so the row stays due and the next pass resumes at the first unread piece. EVERY READING IS GROUNDED IN ITS
+ * OWN ANSWER: each returned item is re-checked against the exact text it was read from and a failing item is dropped alone with the number named, because one
+ * batch grounded as a single body of text let a number only answer A contained validate a fabricated claim about answer B. EVERY PIECE THIS PASS SENDS COMES BACK
+ * SETTLED: merged, or dropped with its reason, and a piece never sent is owed.
  *
- * WHOSE FAILURE WAS IT DECIDES EVERYTHING, AND BILLED IS BILLED. Only a throttle, a server fault, a dead connection or a spent budget leaves nothing
- * stored and the answers due; the pass STOPS there rather than fanning one throttled batch into fifteen more calls. ANYTHING THAT RETURNED settles every
- * answer it covered, permanently, for that hash: a call abandoned at my own timeout counted as transport once, so 638 calls and $0.80 changed zero rows
- * and every pass re-bought the identical batch. A batch that settles this way still drops to ONE CALL PER PIECE first, so the readings themselves land.
- * On 3 and 4 August all 278 answers were rejected on a rate limit and stamped with their own answer hash, so the system believed it had read every one
- * forever; dueness comes off the stored state now, which brings those rows back with no migration and no answer bought twice. A DAY IS NOT THE UNIT OF
- * THE DEBT EITHER: a pass reads the OLDEST day inside a seven day window that still owes a reading, not whichever day the run belongs to, and older than
- * that window an answer stays unread forever with every surface saying so. THE DETERMINISTIC VERDICT IS NEVER THE MODEL'S TO REFUSE: every answer this
- * pass settles carries mentioned true OR false, off the answer's own words and the addresses it credited, so Visibility divides by every answer read
- * rather than by the ones the matcher happened to match. Runtime orchestrates, and Evidence never imports Decision.
+ * WHOSE FAILURE WAS IT DECIDES EVERYTHING, AND BILLED IS BILLED (see ReadFailure below, which names all seven). Only a call that never returned a body leaves
+ * nothing stored and the answers due, and the pass STOPS there rather than fanning one throttled batch into fifteen more calls; anything that RETURNED settles
+ * every answer it covered, permanently, for that hash, after dropping to ONE CALL PER PIECE first so the readings themselves still land. EVERYTHING PURCHASED IS
+ * OWED A READING: a pass reads the OLDEST day that still owes one across a ROTATING lookback, not the run's own day and not a fixed recent week, because today's
+ * fresh debt kept that week busy and permanently abandoned everything behind it. THE DETERMINISTIC VERDICT IS NEVER THE MODEL'S TO REFUSE: every answer this pass
+ * settles carries mentioned true OR false, off the answer's own words and the addresses it credited, and `matchedBy` says which found it, so Visibility divides by
+ * every answer read rather than by the ones the matcher happened to match. Runtime orchestrates, and Evidence never imports Decision.
  */
 
 import { loadBrandIdentity, type BrandIdentity } from "@/domains/account/brand-identity";
 import { buildGroundedNumbers, findUngroundedNumbers } from "@/domains/decision/llm/numeric-fidelity";
+import { creditBreakerActive } from "@/domains/decision/llm/gateway";
 import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import { draftProseStringValues, type AnswerAnalysis, type AnswerAnalysisBatch } from "@/domains/decision/llm/schemas";
 import { isAnalysisSettled, type AiObservationView } from "@/domains/evidence/ai-visibility/ai-observations";
@@ -53,19 +51,19 @@ const BATCH_ANALYSIS_SYSTEM = ANSWER_ANALYSIS_SYSTEM
 
 /** How many pieces ONE structured call reads back, how many such calls a pass may make, and the pass total. FIVE, not fifteen: a fifteen piece batch is about 75,000 input tokens
  *  on its own, which trips the account's per-minute token ceiling by itself, so every pass sent the giant batch, took a throttle twice, and read nothing at all. Five is roughly
- *  7,000 tokens, four of them is 20 pieces a pass, and a 140 answer day is read back over seven of the day's passes. Zero new answers still costs zero. SINGLES_PER_PASS bounds
- *  the one-at-a-time fallback at roughly 15,000 tokens a pass, which trickles through the very ceiling one batch used to blow: a CAP, not a sleep, because a pass holds a database
- *  lease on a deadline and spending its seconds waiting would cost the run more than it saves, and a bound is exact where a delay is a guess. */
+ *  7,000 tokens, four of them is 20 pieces a pass, and a 140 answer day is read back over seven of the day's passes. SINGLES_PER_PASS bounds the one-at-a-time fallback at roughly
+ *  15,000 tokens a pass, which trickles through the very ceiling one batch used to blow: a CAP, not a sleep, because a bound is exact where a delay is a guess. */
 const ANSWERS_PER_BATCH = 5, BATCH_CALLS_PER_PASS = 4, MAX_ANALYSES_PER_PASS = ANSWERS_PER_BATCH * BATCH_CALLS_PER_PASS, SINGLES_PER_PASS = 10;
-/** How much of ONE answer ONE slot reads (a longer answer is not cut off, it is SPLIT into this many characters at a time and every piece is read
- *  eventually), the estimated spend for one batch call and for one single-piece call, and the batch timeout: gpt-5-mini reasons before it writes and a
- *  batch writes fifteen readings, so it asks for more than the gateway's 90 second reasoning floor rather than have a slow one thrown away half-written. */
+/** How much of ONE answer ONE slot reads (a longer answer is not cut off, it is SPLIT into this many characters at a time and every piece is read eventually), the
+ *  estimated spend for one batch call and for one single-piece call, and the batch timeout: gpt-5-mini reasons before it writes, so a batch asks for more than the
+ *  gateway's 90 second reasoning floor rather than have a slow one thrown away half-written. */
 const BATCH_ANSWER_CHARS = 5_000, BATCH_ANALYSIS_COST_USD = 0.05, ANSWER_ANALYSIS_COST_USD = 0.01, BATCH_TIMEOUT_MS = 180_000;
-/** How many reporting days back a pass looks for answers nobody has read (due-work's unread probe holds the same number). Seven: the answers are already
- *  bought so a re-read costs the reader and no provider, and a bound is what stops one outage becoming an unbounded backlog. ONE DAY IS READ PER PASS,
- *  chosen off a lean projection of the window, so the egress stays exactly what reading a single day always was. `dayMinus` is `day` less n days as a
- *  label, taken at noon so no daylight-saving edge can move it. */
-const READBACK_WINDOW_DAYS = 7;
+/** WHICH DAY A PASS READS, and the honest bound on how far back it can see. Seven days ending today was a PERMANENT ABANDONMENT: today keeps producing fresh debt, so
+ *  that window was never quiet and an answer bought eight days ago could never be reached again however many passes ran. A pass now reads at most TWO lean windows,
+ *  the seven days the clock has ROTATED to and the recent seven, and takes the OLDEST day either still owes. The rotation moves every hour and wraps at
+ *  LOOKBACK_WINDOWS, so every one of the last 26 weeks is reached within about a day of passes and the per-pass cost stays two lean projections and one day of rows.
+ *  Older than 26 weeks is the bound I state rather than hide. `dayMinus` is `day` less n days as a label, taken at noon so no daylight-saving edge can move it. */
+const READBACK_WINDOW_DAYS = 7, LOOKBACK_WINDOWS = 26, WINDOW_ROTATION_MS = 3_600_000;
 const dayMinus = (day: string, n: number): string => new Date(Date.parse(`${day}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
 
 /** THE RESUME CHECKPOINT, stored beside the reading. `read` are the pieces merged into it, `dropped` those
@@ -187,13 +185,25 @@ function numberNotInOwnAnswer(analysis: AnswerAnalysis, ownText: string): string
   return findUngroundedNumbers(draftProseStringValues(analysis).join("\n"), ledger)[0] ?? null;
 }
 
-/** WHY A READING DID NOT LAND, and therefore who owes what. `budget` = no call was made at all. `transient` = the provider never gave me a body and
- *  billed nothing for it, so nothing is stored and the answer stays due. `refused` = a call RETURNED and what came back could not be used, which is a
- *  permanent result for this answer at this hash and settles. TRANSPORT is anchored to the exact shapes that mean "no response at all": loose word matching
- *  swept in a call I abandoned at MY OWN timeout after the model had been writing, which OpenAI bills, so 638 calls and $0.80 changed zero rows while every
- *  pass re-bought the identical batch. Billed is billed, and paying twice to be told nothing is the loop this closes. */
-type ReadFailure = "transient" | "budget" | "refused";
+/** WHY A READING DID NOT LAND, BY NAME. One word, `refused`, used to cover a reader saying no, an output whose shape I could not parse, an answer cut off half way
+ *  and a call I abandoned at my own timeout, so nobody could tell a provider's failure from a bug of mine and every one of them was made permanent on the same
+ *  evidence. Each name decides two things: does the answer settle for good, and does the pass go on. RETURNED AND BILLED, so PERMANENT for this answer at this
+ *  hash: `provider_refused` (the reader refused the content), `schema_invalid` (a shape I could not use, or a number its own answer never says; ledgered) and
+ *  `incomplete` (it returned and left this answer out, or cut it off). NEVER RETURNED, NEVER BILLED, so nothing is stored and the answer stays owed: `transient`
+ *  (a throttle, a server fault, a dead connection), `credit_exhausted` (the ACCOUNT'S own provider balance) and `budget` (Beacon's own cap: no call was made).
+ *  The last two also STOP the pass. TRANSPORT stays anchored to the exact shapes that mean "no response at all": loose word matching swept in a call abandoned at
+ *  MY OWN timeout after the model had been writing, which OpenAI bills, so 638 calls and $0.80 changed zero rows. Billed is billed. */
+type ReadFailure = "provider_refused" | "schema_invalid" | "incomplete" | "transient" | "credit_exhausted" | "budget";
+/** The names a PERMANENT non-reading is stored under. `attempts_exhausted` is the bounded ladder itself running out: one batch, then one call for this piece
+ *  alone, neither usable and both billed, so a third ask only buys the same nothing. */
+type ReadOutcome = "provider_refused" | "schema_invalid" | "incomplete" | "attempts_exhausted";
 const TRANSPORT = /^llm_openai_(429|5\d\d)$|^llm_(fetch_failed|ECONNREFUSED|ECONNRESET|ENOTFOUND)$/i;
+/** The account's own credit, not a throttle and not Beacon's cap. Loose on purpose: the gateway's typed `credit_balance_exhausted` code arrives with its own work,
+ *  and this must be right both before and after that lands. */
+const CREDIT_SPENT = /credit_balance_exhausted|insufficient_quota|billing_hard_limit|^llm_openai_402$/i;
+/** What each named non-reading says on the record, in the operator's own words. */
+const WHY_SAID: Record<ReadOutcome, string> = { provider_refused: "the reader refused to read it", schema_invalid: "the reading came back in a shape I could not use",
+  incomplete: "it was left out of the reading that came back", attempts_exhausted: "I asked for it in a batch and then on its own, and neither came back usable" };
 
 type AnalysisDeps = {
   readObservations?: (tenantId: string, opts: { day?: string }) => Promise<readonly AnalyzableObservation[]>;
@@ -206,6 +216,8 @@ type AnalysisDeps = {
    *  read as `refused`, so a caller that only knows "unusable" still degrades exactly as it always did. */
   analyzeBatch?: (input: { tenantId: string; brand: string; targets: readonly AnalysisTarget[] }) => Promise<Map<string, AnswerAnalysis> | ReadFailure | null>;
   readPrompts?: (tenantId: string) => Promise<TrackedQuestion[] | null>;
+  /** The clock the lookback ROTATES on. Tests move it to prove an old day is reached; production passes nothing. */
+  now?: number;
   /** WHO THIS ACCOUNT IS. Tests inject it; production always loads the real one and never falls back to an empty brand (see runAnswerAnalyses). */
   identity?: BrandIdentity;
   complete?: CompleteFn; // the LLM transport, so a test can exercise this exact prompt without a key
@@ -236,15 +248,20 @@ function findBrand(identity: BrandIdentity, answerText: string, citationUrls: re
   return null;
 }
 
-/** PURE. Whose failure a non-drafted gateway result was: a budget block bought nothing, a throttle or a server fault is the provider's. */
+/** PURE. WHICH named failure a non-drafted gateway result was, in the order that decides who owes what: my own allowance first (no call was made), then the
+ *  account's spent credit, then a transport that never returned a body, then what the reader said. Anything else RETURNED and was billed: a shape, not a shrug. */
 function failureOf(out: { status: string; errors?: readonly string[] }): ReadFailure {
   if (out.status === "blocked_budget" || out.status === "off") return "budget";
-  return (out.errors ?? []).some((e) => TRANSPORT.test(e)) ? "transient" : "refused";
+  const errors = out.errors ?? [];
+  if (errors.some((e) => CREDIT_SPENT.test(e))) return "credit_exhausted";
+  if (errors.some((e) => TRANSPORT.test(e))) return "transient";
+  if (errors.some((e) => /^llm_refusal$/i.test(e))) return "provider_refused";
+  if (errors.some((e) => /^llm_incomplete$/i.test(e))) return "incomplete";
+  return "schema_invalid";
 }
 
-/** THE REJECTION LEDGER, wired. llm_rejections was created for exactly this and has been empty since: a call that RETURNED and could not be used is money
- *  already spent on nothing, and a ledger nobody writes cannot show that. Fail-soft, because a ledger I could not write is never a reason to lose the
- *  verdict persisted beside it. */
+/** THE REJECTION LEDGER, wired. llm_rejections was created for exactly this and has been empty since: a call that RETURNED and could not be used is money already
+ *  spent on nothing. Fail-soft, because a ledger I could not write is never a reason to lose the verdict persisted beside it. */
 async function recordRejection(tenantId: string, row: AnalyzableObservation, reason: string): Promise<void> {
   try {
     await (await import("@/lib/persistence/supabase")).getSupabaseAdmin().from("llm_rejections").insert({
@@ -252,32 +269,18 @@ async function recordRejection(tenantId: string, row: AnalyzableObservation, rea
       model: "gpt-5-mini", evidence_hash: row.answerHash, validation_error: reason.slice(0, 500) });
   } catch { /* recorded or not, the reading verdict beside it already landed */ } }
 
-/** ONE strict structured call per PIECE: the piece's own text is the whole input and the whole grounding, so a fallback reading is grounded exactly
- *  like a batch one. Otherwise, whose failure it was. */
+/** ONE strict structured call per PIECE: the piece's own text is the whole input and the whole grounding, so a fallback reading is grounded exactly like a batch
+ *  one. Otherwise, whose failure it was. */
 async function analyzeOne(input: { tenantId: string; question: string; engine: string; answerText: string; brand: string }, complete?: CompleteFn): Promise<AnswerAnalysis | ReadFailure> {
-  const user = [
-    `BRAND TO LOOK FOR: ${input.brand || "(none supplied)"}`,
-    `QUESTION ASKED: ${input.question}`,
-    `ENGINE: ${input.engine}`,
-    "ANSWER TEXT (the only thing you may restate):",
-    input.answerText,
-  ].join("\n");
-  const out = await callStructuredLLM({
-    kind: "answer_analysis",
-    tenantId: input.tenantId,
-    system: ANSWER_ANALYSIS_SYSTEM,
-    user,
-    grounded: input.answerText,
-    projectedCostUsd: ANSWER_ANALYSIS_COST_USD,
-    maxTokens: 3000,
-    ...(complete ? { complete } : {}),
-  });
+  const user = [`BRAND TO LOOK FOR: ${input.brand || "(none supplied)"}`, `QUESTION ASKED: ${input.question}`, `ENGINE: ${input.engine}`,
+    "ANSWER TEXT (the only thing you may restate):", input.answerText].join("\n");
+  const out = await callStructuredLLM({ kind: "answer_analysis", tenantId: input.tenantId, system: ANSWER_ANALYSIS_SYSTEM, user, grounded: input.answerText,
+    projectedCostUsd: ANSWER_ANALYSIS_COST_USD, maxTokens: 3000, ...(complete ? { complete } : {}) });
   return out.status === "drafted" ? (out.value as AnswerAnalysis) : failureOf(out);
 }
 
-/** ONE strict structured call over MANY pieces, same gateway, same reader rules. Returns a reading per piece key, or WHOSE failure produced none, which the
- * caller degrades from rather than treating as fifteen refusals. An entry naming a key this batch did not ask about is DROPPED and a repeated key keeps the
- * first: a reading must belong to the piece it was taken on. */
+/** ONE strict structured call over MANY pieces, same gateway, same reader rules. Returns a reading per piece key, or WHOSE failure produced none, which the caller
+ * degrades from rather than treating as fifteen refusals. An entry naming a key this batch did not ask about is DROPPED and a repeated key keeps the first. */
 async function analyzeMany(input: { tenantId: string; brand: string; targets: readonly AnalysisTarget[] }, complete?: CompleteFn): Promise<Map<string, AnswerAnalysis> | ReadFailure> {
   const bodies = input.targets.map((t) => t.text);
   const user = [`BRAND TO LOOK FOR: ${input.brand || "(none supplied)"}`, `Read all ${input.targets.length} answers below. Return one entry per OBSERVATION.`]
@@ -290,32 +293,18 @@ async function analyzeMany(input: { tenantId: string; brand: string; targets: re
         : "ANSWER TEXT (the only thing you may restate):",
       bodies[i] ?? "",
     ].join("\n"))).join("\n\n");
-  const out = await callStructuredLLM({
-    kind: "answer_analysis_batch",
-    tenantId: input.tenantId,
-    system: BATCH_ANALYSIS_SYSTEM,
-    user,
-    // A COARSE FIRST NET ONLY. The gateway reads every piece here as one body of text, so it catches a number
-    // no piece in the batch contains and cannot catch a number carried from one answer to another. The real
-    // firewall is numberNotInOwnAnswer, which re-checks each returned item against its own piece's text.
-    grounded: bodies.join("\n"),
-    projectedCostUsd: BATCH_ANALYSIS_COST_USD,
-    maxTokens: 7_000,
-    timeoutMs: BATCH_TIMEOUT_MS,
-    ...(complete ? { complete } : {}),
-  });
+  // `grounded` IS A COARSE FIRST NET ONLY. The gateway reads every piece here as one body of text, so it catches a number no piece in the batch contains and
+  // cannot catch one carried from answer to answer. The real firewall is numberNotInOwnAnswer, which re-checks each returned item against its own piece's text.
+  const out = await callStructuredLLM({ kind: "answer_analysis_batch", tenantId: input.tenantId, system: BATCH_ANALYSIS_SYSTEM, user, grounded: bodies.join("\n"),
+    projectedCostUsd: BATCH_ANALYSIS_COST_USD, maxTokens: 7_000, timeoutMs: BATCH_TIMEOUT_MS, ...(complete ? { complete } : {}) });
   if (out.status !== "drafted") {
     const why = failureOf(out);
     log.warn("[daily-observations] a batch reading of stored answers did not land", { tenantId: input.tenantId, pieces: input.targets.length, status: out.status, why });
-    return why;
-  }
-  const asked = new Set(input.targets.map((t) => t.key));
-  const byId = new Map<string, AnswerAnalysis>();
+    return why; }
+  const asked = new Set(input.targets.map((t) => t.key)), byId = new Map<string, AnswerAnalysis>();
   for (const entry of (out.value as AnswerAnalysisBatch).analyses) {
     const { observationId, ...analysis } = entry;
-    if (!asked.has(observationId) || byId.has(observationId)) continue;
-    byId.set(observationId, analysis as AnswerAnalysis);
-  }
+    if (asked.has(observationId) && !byId.has(observationId)) byId.set(observationId, analysis as AnswerAnalysis); }
   return byId;
 }
 
@@ -327,72 +316,74 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
   const readObservations = deps.readObservations ?? (async (t, o) => (await evidenceObservations()).readAiObservationViews(t, o));
   const persist = deps.persist
     ?? (async (t, id, analysis, hash) => (await evidenceObservations()).persistAnswerAnalysis(t, id, analysis, hash));
-  // THE DAY THIS PASS READS IS THE OLDEST ONE THAT STILL OWES A READING, which is not always the run's own: an answer bought on Monday and never read is
-  // a debt on Tuesday too, and reading only the run's day left every earlier day permanently unreachable the moment its own passes ended.
+  // THE DAY THIS PASS READS IS THE OLDEST ONE THAT STILL OWES A READING, never the run's own: an answer bought on Monday is a debt on Tuesday too.
   const unreadDays = deps.unreadDays ?? (async (t: string, from: string, to: string) => {
     const ev = await evidenceObservations(), seen = await ev.readAiObservations(t, { fromDay: from, toDay: to, projection: "outcome" });
     return [...new Set(seen.filter((r) => r.status === "observed" && r.answer_hash != null
       && !ev.isAnalysisSettled({ analysis: r.analysis, analysisHash: r.analysis_hash ?? null, answerHash: r.answer_hash ?? null })).map((r) => r.reporting_day))].sort(); });
-  const owed = await unreadDays(tenantId, dayMinus(day, READBACK_WINDOW_DAYS - 1), day).catch(() => null);
-  const reading = owed?.[0] ?? day, // the day this pass actually reads, which every line below names rather than the run's own
+  // OLDEST UNSETTLED FIRST, ACROSS THE STORE AND NOT ACROSS ONE WEEK. Two lean window reads at most (the seven days the rotation points at, then the recent
+  // seven) and the oldest day either owes is what this pass reads. BOTH reads failing falls back to the run's own day, which is what it always did when blind.
+  const back = (READBACK_WINDOW_DAYS * (Math.floor((deps.now ?? Date.now()) / WINDOW_ROTATION_MS) % LOOKBACK_WINDOWS));
+  const owed: string[] = []; let looked = false;
+  for (const n of back === 0 ? [0] : [back, 0]) {
+    const to = dayMinus(day, n);
+    const seen = await unreadDays(tenantId, dayMinus(to, READBACK_WINDOW_DAYS - 1), to).catch(() => null);
+    if (seen != null) { looked = true; owed.push(...seen); } }
+  const reading = (looked ? owed.sort()[0] : null) ?? day, // the day this pass actually reads, which every line below names rather than the run's own
     rows = await readObservations(tenantId, { day: reading }).catch(() => null);
   if (rows == null || rows.length === 0) return 0;
   const budget = deps.max ?? MAX_ANALYSES_PER_PASS, targets = selectAnalysisTargets(rows, budget);
   if (targets.length === 0) return 0; // nothing new: no call, no cent
-  const deferred = dueForAnalysis(rows).length - targets.length; // what this pass is NOT taking on, said out loud: deferred answers stay due
+  const deferred = dueForAnalysis(rows).length - targets.length; // what this pass is NOT taking on, said out loud: a deferred answer stays due
   if (deferred > 0) log.info("[daily-observations] more new answers than one pass reads back; the rest stay due", { tenantId, day: reading, answers: targets.length, deferred });
-  // WHO AM I LOOKING FOR. The pass used to send an EMPTY brand, so the model was asked whether an answer named nobody and every reading came back "not
-  // mentioned". An identity with no forms buys nothing.
+  // WHO AM I LOOKING FOR. The pass used to send an EMPTY brand, so the model was asked whether an answer named nobody and every reading came back "not mentioned".
   const identity = deps.identity ?? await loadBrandIdentity(tenantId).catch(() => null);
   if (identity == null || identity.forms.length === 0) {
     log.warn("[daily-observations] no business name or website on file, so I am not reading answers back for a brand I cannot name", { tenantId, day });
     return 0; }
 
+  // NOTHING IS BOUGHT AGAINST A SPENT ACCOUNT. The gateway's durable account-level stop is the one authority on that, and asking it costs one read against a row
+  // no monthly cap can see; a balance at zero cannot produce a reading, so a pass that spends its whole ladder discovering that bought nothing and lost the time.
+  if (await creditBreakerActive(tenantId).catch(() => false)) {
+    log.warn("[daily-observations] your AI provider credit is spent, so I read nothing back and every answer is still owed a reading", { tenantId, day: reading, owed: targets.length });
+    return 0; }
+
   const prompts = await (deps.readPrompts ?? readActiveTrackedPrompts)(tenantId).catch(() => null);
   const textOf = new Map((prompts ?? []).map((p) => [p.id, p.text]));
-  // WHAT THIS PASS HAS ALREADY SPENT AND ALREADY SETTLED. `billed` counts the calls that genuinely returned something (a reading or an unusable body), so a
-  // pass that paid and stored nothing is a contradiction I say out loud rather than repeat; `attempted` makes ONE attempt per answer per pass structural
-  // rather than incidental, so no ladder below can send the same answer twice inside one pass.
+  // WHAT THIS PASS HAS ALREADY SPENT AND ALREADY SETTLED. `billed` counts the calls that genuinely returned something, so a pass that paid and stored nothing is a
+  // contradiction I say out loud; `attempted` makes ONE attempt per answer per pass structural, so no ladder below can send the same answer twice in one pass.
   let billed = 0, settledHere = 0, singlesLeft = SINGLES_PER_PASS; const attempted = new Set<string>();
   const analyze = deps.analyze ?? ((i: Parameters<typeof analyzeOne>[0]) => analyzeOne(i, deps.complete));
   const analyzeBatch = deps.analyzeBatch ?? ((i: Parameters<typeof analyzeMany>[0]) => analyzeMany(i, deps.complete));
   // The SAME budget selection packed against, so the two can never disagree about what this pass owns.
   let calls = Math.max(1, Math.ceil(Math.max(0, budget) / ANSWERS_PER_BATCH)), written = 0;
 
-  /** ONE reading lands for ONE answer, whatever produced it. `analysis` null means I could not produce a reliable one; `extra` carries what the stored
-   * reading must admit about itself, including the coverage checkpoint; `hash` is the answer's own hash only when the answer is finished. */
-  const settleOne = async (row: AnalyzableObservation, analysis: AnswerAnalysis | null, reason: string, extra: Record<string, unknown>, hash: string): Promise<void> => {
+  /** ONE reading lands for ONE answer, whatever produced it. `analysis` null means none could be produced; `extra` carries what the stored reading must admit about
+   * itself, including the coverage checkpoint; `hash` is the answer's own hash only when the answer is finished; `why` names the failure a null reading settles as. */
+  const settleOne = async (row: AnalyzableObservation, analysis: AnswerAnalysis | null, reason: string, extra: Record<string, unknown>, hash: string, why: ReadOutcome = "incomplete"): Promise<void> => {
     const answerText = String(row.answerText ?? "");
-    // THE SECOND PAIR OF EYES, on the WHOLE answer even when the model was handed one piece of it. The model
-    // reads the piece; this reads the same answer for the account's own name and its own address. The verdict
-    // is either one of them, and `matchedBy` records which found it, so a model miss never looks like a real absence.
+    // THE SECOND PAIR OF EYES, on the WHOLE answer even when the model was handed one piece of it. The model reads the piece; this reads the same answer for the
+    // account's own name and its own address. The verdict is either one of them, and `matchedBy` records WHICH found it, so a model miss never looks like a real
+    // absence and no surface may call a deterministic name match a close reading.
     const found = findBrand(identity, answerText, row.citationUrls);
-    // A REFUSAL ON THE CONTENT IS A RESULT, stored against the answer it was taken on and named PERMANENT, so the row leaves the worklist instead of
-    // re-buying the same refusal every pass. A provider fault never reaches here at all. THE DETERMINISTIC VERDICT RIDES ALONG IN BOTH POLARITIES: storing
-    // it only when the name was found is what left every negative with no verdict, so the mention rate divided by its own matches and read 100 percent on a
-    // day nothing was actually read.
+    // A NON-READING THAT RETURNED IS A RESULT, stored against the answer it was taken on and named PERMANENT, so the row leaves the worklist instead of re-buying
+    // the same nothing every pass; a call that never returned never reaches here at all. THE DETERMINISTIC VERDICT RIDES ALONG IN BOTH POLARITIES: storing it only
+    // when the name was found is what left every negative with no verdict, so the mention rate divided by its own matches and read 100 percent on a day nothing
+    // was read. `outcome` is the PERMANENCE token Evidence's settle test reads; `readOutcome` is WHICH named failure it was, so four facts stay four facts.
     if (analysis == null) {
-      const rejection = {
-        rejected: true, outcome: "refused", reason, ...extra,
-        ownedBrandMention: { mentioned: found != null, position: null, context: null }, matchedBy: found,
-      };
+      const rejection = { rejected: true, outcome: "refused", readOutcome: why, reason, ...extra,
+        ownedBrandMention: { mentioned: found != null, position: null, context: null }, matchedBy: found };
       // A REFUSAL IS WRITTEN WITH THE SAME DISCIPLINE AS A READING: one retry, and a loss said out loud.
       const kept = await persist(tenantId, row.id, rejection, hash).then(() => true)
         .catch(() => persist(tenantId, row.id, rejection, hash).then(() => true).catch(() => false));
       if (kept) { settledHere += 1; await recordRejection(tenantId, row, reason); }
       else log.warn("[daily-observations] I could not record that I was refused a reading of this answer, so it will be asked for again", { tenantId, observationId: row.id });
-      return;
-    }
+      return; }
     const byModel = analysis.ownedBrandMention?.mentioned === true;
-    const record = {
-      ...analysis,
-      ownedBrandMention: { ...analysis.ownedBrandMention, mentioned: byModel || found != null },
-      matchedBy: (byModel && found ? "both" : byModel ? "model" : found) as BrandMatchPath | null,
-      // HOW MUCH OF THIS ANSWER I ACTUALLY READ, on the record. A reading of some of a long answer is never allowed to look like a reading of all of it.
-      ...extra,
-    } as unknown as Record<string, unknown>;
-    // ONE retry on a lost write. Still lost leaves the row for the next pass, where the gateway's own call
-    // cache serves the identical request at $0, so a retry costs nothing but the round trip.
+    // `extra` carries HOW MUCH OF THIS ANSWER I ACTUALLY READ: a reading of some of a long answer never looks like a reading of all of it.
+    const record = { ...analysis, ownedBrandMention: { ...analysis.ownedBrandMention, mentioned: byModel || found != null },
+      matchedBy: (byModel && found ? "both" : byModel ? "model" : found) as BrandMatchPath | null, ...extra } as unknown as Record<string, unknown>;
+    // ONE retry on a lost write. Still lost leaves the row for the next pass, where the gateway's own call cache serves the identical request at $0.
     const saved = await persist(tenantId, row.id, record, hash).then(() => true)
       .catch(() => persist(tenantId, row.id, record, hash).then(() => true).catch(() => false));
     if (saved) { written += 1; settledHere += 1; }
@@ -400,16 +391,19 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
 
   /** ONE ANSWER'S PIECES, SETTLED AS ONE ANSWER, ACROSS PASSES. Each piece is checked against its own text, what landed is merged ON TOP of what earlier
    * passes merged, and the checkpoint records exactly which pieces are accounted for. Only an answer with nothing left owing is stamped with its own hash. */
-  const settleAnswer = async (pieces: readonly AnalysisTarget[], readings: Map<string, AnswerAnalysis>): Promise<void> => {
+  const settleAnswer = async (pieces: readonly AnalysisTarget[], readings: Map<string, AnswerAnalysis>, classOf?: Map<string, ReadOutcome>): Promise<void> => {
     const row = pieces[0]!.row, parts = pieces[0]!.parts, was = coverageOf(row), prior = priorReading(row);
-    const read = [...(was?.read ?? [])], dropped = [...(was?.dropped ?? [])], landed: AnswerAnalysis[] = [], lost: string[] = [];
+    const read = [...(was?.read ?? [])], dropped = [...(was?.dropped ?? [])], landed: AnswerAnalysis[] = [], lost: string[] = [], named: ReadOutcome[] = [];
     for (const p of pieces) {
       const of = parts > 1 ? `part ${p.part} of ${parts} of this answer` : "this answer";
       const reading = readings.get(p.key);
-      if (reading == null) { lost.push(`I read a batch of answers back and ${of} came back missing from the reading.`); dropped.push(p.part); continue; }
+      if (reading == null) {
+        // A piece the call NAMED a reason for keeps that reason; one a returned call simply left out is incomplete.
+        const why = classOf?.get(p.key) ?? "incomplete";
+        lost.push(`I asked for a reading of ${of} and ${WHY_SAID[why]}.`); dropped.push(p.part); named.push(why); continue; }
       // PER ANSWER GROUNDING. A number is checked against the text THIS piece was read from, never the batch.
       const invented = numberNotInOwnAnswer(reading, p.text);
-      if (invented != null) { lost.push(`The reading of ${of} used the number ${invented}, which that text never says, so I dropped it rather than store a number the answer cannot back.`); dropped.push(p.part); continue; }
+      if (invented != null) { lost.push(`The reading of ${of} used the number ${invented}, which that text never says, so I dropped it rather than store a number the answer cannot back.`); dropped.push(p.part); named.push("schema_invalid"); continue; }
       landed.push(reading); read.push(p.part);
     }
     const coverage: Coverage = { hash: String(row.answerHash), parts, read: [...read].sort((a, b) => a - b), dropped: [...dropped].sort((a, b) => a - b) },
@@ -419,37 +413,33 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     const hash = owed > 0 ? partialHash(coverage) : String(row.answerHash);
     const merged = mergeAnswerReadings([...(prior ? [prior] : []), ...landed]);
     if (merged == null) {
-      await settleOne(row, null, `${lost.join(" ")} I recorded that rather than paying to be told nothing twice.`.trim(), book, hash);
-      return;
-    }
+      // An unusable SHAPE outranks a missing piece: it is the more specific thing that went wrong, and the one the ledger exists for.
+      const why = named.includes("schema_invalid") ? "schema_invalid" : named[0] ?? "incomplete";
+      await settleOne(row, null, `${lost.join(" ")} I recorded that rather than paying to be told nothing twice.`.trim(), book, hash, why);
+      return; }
     const note = [...lost, ...(owed > 0
       ? [`I have read ${read.length} of this answer's ${parts} parts so far; the next pass reads part ${parts - owed + 1} onward and pays nothing for the parts already read.`]
       : [])].join(" ");
-    await settleOne(row, merged, "", {
-      ...(parts > 1 ? { readParts: read.length } : {}),
-      ...(note ? { answerReadInPart: true, reason: `${note} What I did read is stored, and a new answer is what asks again.` } : {}),
-      ...book,
-    }, hash);
+    await settleOne(row, merged, "", { ...(parts > 1 ? { readParts: read.length } : {}),
+      ...(note ? { answerReadInPart: true, reason: `${note} What I did read is stored, and a new answer is what asks again.` } : {}), ...book }, hash);
   };
 
-  /** The degrade: re-read what a REFUSED batch was carrying, ONE CALL PER PIECE, each grounded in that piece's
-   *  own text. A provider fault ENDS the fallback where it happened: what was already read is settled, and the
-   *  rest is untouched, unpaid and still owed. Fanning a rate limit into fifteen more calls is the storm. */
+  /** The degrade: re-read what an UNUSABLE batch was carrying, ONE CALL PER PIECE, each grounded in that piece's own text. A provider fault ENDS the fallback where
+   *  it happened: what was already read is settled, the rest is untouched, unpaid and still owed. Fanning a rate limit into fifteen more calls is the storm. */
   const readOneByOne = async (group: readonly (readonly AnalysisTarget[])[]): Promise<boolean> => {
     for (const pieces of group) {
-      const readings = new Map<string, AnswerAnalysis>();
-      const sent: AnalysisTarget[] = [];
+      const readings = new Map<string, AnswerAnalysis>(), classOf = new Map<string, ReadOutcome>(), sent: AnalysisTarget[] = [];
       let stalled = false;
       for (const p of pieces) {
         if (singlesLeft <= 0) { stalled = true; break; } // the pass's token allowance for single reads is spent; the rest is owed, unbought
         singlesLeft -= 1;
-        const one = await analyze({ tenantId, question: p.question, engine: p.row.engine, answerText: p.text, brand: identity.name }).catch(() => "transient" as const) ?? "refused";
-        if (one === "transient" || one === "budget") { stalled = true; break; }
-        billed += 1;
-        sent.push(p);
-        if (one !== "refused") readings.set(p.key, one);
+        // A reader that names no reason at all has now failed this piece TWICE, both billed: the ladder is spent, and that is the name it is settled under.
+        const one = await analyze({ tenantId, question: p.question, engine: p.row.engine, answerText: p.text, brand: identity.name }).catch(() => "transient" as const) ?? ("attempts_exhausted" as const);
+        if (one === "transient" || one === "budget" || one === "credit_exhausted") { stalled = true; break; }
+        billed += 1; sent.push(p);
+        if (typeof one === "string") classOf.set(p.key, one); else readings.set(p.key, one);
       }
-      if (sent.length > 0) await settleAnswer(sent, readings);
+      if (sent.length > 0) await settleAnswer(sent, readings, classOf);
       if (stalled) return true; // the provider is refusing to serve; the next batch would only ask it again
     }
     return false;
@@ -476,19 +466,22 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     if (calls <= 0) break;
     calls -= 1;
     const byAnswer = [...group.reduce((m, p) => m.set(p.row.id, [...(m.get(p.row.id) ?? []), p]), new Map<string, AnalysisTarget[]>()).values()];
-    const readings = await analyzeBatch({ tenantId, brand: identity.name, targets: group }).catch(() => "transient" as const) ?? "refused";
+    const readings = await analyzeBatch({ tenantId, brand: identity.name, targets: group }).catch(() => "transient" as const) ?? ("schema_invalid" as const);
     // A RATE LIMIT IS NOT FIFTEEN REFUSALS. One throttled batch used to fan into fifteen immediate single calls, which is how ten batch 429s became
     // sixty-nine more; the pass stops here and everything it was carrying stays due, unstamped and unpaid.
     if (readings === "budget") { log.warn("[daily-observations] there is no allowance left to read answers back, so I stopped and left them due", { tenantId, day: reading, owed: group.length }); break; }
+    // AN EMPTY ACCOUNT BUYS NOTHING, EVER. A spent provider balance cannot answer, so every further call this pass would make is a call that can only fail:
+    // it stops here, stores nothing at all, and leaves every answer it was carrying due for the pass that runs once the account has credit again.
+    if (readings === "credit_exhausted") { log.error("[daily-observations] your AI provider credit is spent, so I stopped reading answers back and left every one of them owed a reading", { tenantId, day: reading, owed: group.length }); break; }
     // A THROTTLE IS NOT A DEAD PASS. The batch was ~75,000 tokens, tripped the per-minute ceiling by itself and took a 429 twice, so the pass ended having tried nothing at all,
     // forever. The batch is small now, and a throttled one still degrades to single reads on THIS pass at ~1,500 tokens each. Nothing is stored against a throttled batch: it was
     // never billed, so every answer it carried is still due and is asked one at a time instead.
     if (readings === "transient") { log.warn("[daily-observations] the batch read was throttled, so I am reading these answers one at a time instead", { tenantId, day: reading, owed: group.length }); if (await readOneByOne(byAnswer)) break; continue; }
     billed += 1;
-    // REFUSED ON THE CONTENT, or abandoned at my own timeout with the meter running. The gateway already retried
-    // this call once against the same schema, so a second identical batch would buy the same refusal: the group
-    // drops to one piece at a time instead, and every answer it was carrying ends this pass settled either way.
-    if (readings === "refused") { if (await readOneByOne(byAnswer)) break; continue; }
+    // IT RETURNED AND I COULD NOT USE IT: a refusal, a shape I could not parse, a body cut off half way, or a call abandoned at my own timeout with the meter
+    // running. The gateway already retried this call once against the same schema, so a second identical batch buys the same answer: the group drops to one piece
+    // at a time instead, each named by whatever the single read says, and ends this pass settled either way.
+    if (typeof readings === "string") { if (await readOneByOne(byAnswer)) break; continue; }
     // A MISSING, UNKNOWN OR UNGROUNDED PIECE IS ONE DROP, not fifteen. Its neighbours keep their readings.
     for (const pieces of byAnswer) await settleAnswer(pieces, readings);
   }

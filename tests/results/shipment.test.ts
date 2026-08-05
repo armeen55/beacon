@@ -1,6 +1,5 @@
 /** THE CANONICAL SHIPMENT (V1 Truth Convergence Phase 6). Protected here: ONE Shipment per (proposal, version applied) and a retry that heals instead of duplicating; a
- *  partial bundle stored as one; the stamp and the starting numbers written exactly once; pre-Phase-6 rows still decoding; a check naming another account's Shipment
- *  landing nothing; and the 28-day ranking window read from the stamp. Fixtures only: the fake Postgres below holds the rows. */
+ *  partial bundle stored as one; the stamp and the starting numbers written exactly once; pre-Phase-6 rows still decoding; a check naming another account's Shipment landing nothing; and the 28-day ranking window read from the stamp. Fixtures only: the fake Postgres below holds the rows. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 type Row = Record<string, unknown>;
 const db = vi.hoisted(() => {
@@ -36,6 +35,12 @@ vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/assemble-pa
 vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => ({
   ...((await orig()) as object), readAiObservationViews: ai.views,
 }));
+/** The settle pass's own three seams: what it measured, and the two things a fresh verdict is worthless without. */
+const settle = vi.hoisted(() => ({ pass: vi.fn(), rebuilt: [] as string[], harvested: [] as string[] }));
+vi.mock("@/domains/measurement/proof-gsc/auto-measure-pass", () => ({ autoMeasureDuePass: settle.pass }));
+vi.mock("@/app/(shell)/results/results-ledger-data", () => ({ rebuildResultsSurface: async (t: string) => void settle.rebuilt.push(t) }));
+vi.mock("@/domains/decision/llm/winner-memory", () => ({ harvestWinners: async (t: string) => void settle.harvested.push(t) }));
+import { settleDueMeasurements } from "@/domains/measurement/proof-gsc/auto-measure-on-use";
 import { measureRecord, recordShippedChange } from "@/domains/measurement/proof-gsc/measure-pass";
 import { isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import {
@@ -105,8 +110,7 @@ describe("the canonical Shipment", () => {
     expect(stored.verification).toBeNull(); // nobody has checked it, and that null makes it due
   });
   it("counts the AI starting number over the WHOLE day, never the newest page of it", async () => {
-    // The baseline used to be read off the newest 60 rows and frozen, so a 140 answer day was compared against a sample of itself for the next 28 days: the before side
-    // was a fraction and the after side was a day. The day is found off a small probe and then READ BY NAME, which returns all of it.
+    // The baseline used to be read off the newest 60 rows and frozen, so a 140 answer day was compared against a sample of itself for the next 28 days: the before side was a fraction and the after side was a day. The day is found off a small probe and then READ BY NAME, which returns all of it.
     const DAY = "2026-07-30";
     const whole = Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY,
       analysis: { ownedBrandMention: { mentioned: i % 2 === 0 } }, analysisHash: "x", answerHash: "x" }));
@@ -117,8 +121,7 @@ describe("the canonical Shipment", () => {
     expect(stored.shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 140, mentioning: 70 });
   });
   it("writes down HOW MANY of that day's answers were read closely, which is the denominator the rate uses", async () => {
-    // The starting number used to count mentions over every answer that came back, so an answer nobody had read yet was an implicit miss, while the after side divides by
-    // the answers actually read. The change was then judged by comparing one measure against a different one. 140 answers, 100 of them read closely, 60 naming the
+    // The starting number used to count mentions over every answer that came back, so an answer nobody had read yet was an implicit miss, while the after side divides by the answers actually read. The change was then judged by comparing one measure against a different one. 140 answers, 100 of them read closely, 60 naming the
     // account: the starting rate is 0.6, and it was 0.43.
     const DAY = "2026-07-30";
     const whole = Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY,
@@ -255,8 +258,7 @@ describe("measurement waits for the change to be found on the page", () => {
   it("measures a verified or partly verified change, and nothing else", async () => {
     expect(await due(verification("verified"))).toBe(true);
     expect(await due(verification("partially_verified"))).toBe(true);
-    // PIN (B): a historical row carrying the retired override label was never actually checked, so it buys no measurement; verification owes it the one real reading it
-    // never got.
+    // PIN (B): a historical row carrying the retired override label was never actually checked, so it buys no measurement; verification owes it the one real reading it never got.
     expect(await due(verification("operator_confirmed"))).toBe(false);
     expect(await due(null)).toBe(false);            // never checked: there is nothing honest to measure yet
     expect(await due(verification("not_found"))).toBe(false);
@@ -284,5 +286,22 @@ describe("what is still under measurement", () => {
   it("windows on the stamp, keeps only what is really being measured, and belongs to one account", async () => {
     expect(await pagesUnderMeasurementFromShipments(T, NOW)).toEqual(["/nowruz-guide", "/tehran", "/isfahan"]);
     expect(await pagesUnderMeasurementFromShipments("acct-b", NOW)).toEqual([]);
+  });
+});
+
+/** MEASUREMENT USED TO NEED A VISITOR: the engine fired only from a Results render, so a verdict waited on somebody
+ *  opening the page and production sat on sixteen measurable shipments. The scheduled run drives this now, and a reading is only true on screen once Results is rebuilt and only reaches ranking once winner memory re-harvests. */
+describe("the measurement pass settles itself, all the way to the screen", () => {
+  const result = (over: Record<string, number>) => ({ considered: 16, due: 16, measured: 0, changed: 0, settled: 0, failed: 0, outcomes: [], ...over });
+  beforeEach(() => { settle.rebuilt.length = 0; settle.harvested.length = 0; settle.pass.mockReset(); });
+  it("rebuilds Results the moment a reading lands, harvests only once a verdict settled, and never throws into the run", async () => {
+    settle.pass.mockResolvedValue(result({ measured: 16, changed: 3 }));
+    expect([await settleDueMeasurements(T), settle.rebuilt, settle.harvested]).toEqual([16, [T], []]); // the first view serves the fresh truth, and nothing settled yet
+    settle.pass.mockResolvedValue(result({ due: 0 }));
+    expect([await settleDueMeasurements(T), settle.rebuilt]).toEqual([0, [T]]); // nothing read, so nothing is rebuilt a second time
+    settle.pass.mockResolvedValue(result({ due: 1, measured: 1, changed: 1, settled: 1 }));
+    await settleDueMeasurements(T); expect(settle.harvested).toEqual([T]); // a won or lost verdict reaches ranking
+    settle.pass.mockRejectedValue(new Error("the ledger did not answer"));
+    expect(await settleDueMeasurements(T)).toBe(0); // fail-soft: a reading I could not take never pauses the pass that asked for it
   });
 });

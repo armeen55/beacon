@@ -1,7 +1,5 @@
 /**
- * Provider-contract proof: the capability registry composed with the money-safe core, bound to BOUNDED official
- * DataForSEO fixtures. No network, no Supabase, no spend. Pins the exact paths (post, FREE task_get, FREE
- * tasks_ready), the PER-ENGINE request body with its documented output-token bound, DYNAMIC Standard-vs-Live
+ * Provider-contract proof: the capability registry composed with the money-safe core, bound to BOUNDED official DataForSEO fixtures. No network, no Supabase, no spend. Pins the exact paths (post, FREE task_get, FREE tasks_ready), the PER-ENGINE request body with its documented output-token bound, DYNAMIC Standard-vs-Live
  * routing, the envelope rule, and method-aware resolution.
  */
 import { describe, it, expect, vi } from "vitest";
@@ -102,8 +100,7 @@ describe("web-enabled request bodies per engine (only documented fields)", () =>
     expect(slot0.key).toBe(retry.key);           // the same reading retried the same day is ONE ask and stays $0
     expect(slot0.key).not.toBe(slot1.key);       // a second sample is a SECOND question, never a free replay of the first
     expect(slot0.key).not.toBe(tomorrow.key);    // and tomorrow is a new question, so a 23:00 answer is never served as tomorrow's
-    // Neither field is a provider field: the request body is identical to one asked without them (the only
-    // difference is `tag`, which IS the cache identity and is how a quarantined task is recovered for free).
+    // Neither field is a provider field: the request body is identical to one asked without them (the only difference is `tag`, which IS the cache identity and is how a quarantined task is recovered for free).
     expect([slot1.body.observation_day, slot1.body.sample_slot]).toEqual([undefined, undefined]);
     const plain = (b: Record<string, unknown>) => ({ ...b, tag: undefined });
     expect(plain(slot1.body)).toEqual(plain((await post({})).body));
@@ -188,8 +185,7 @@ describe("envelope parsing + method-aware resolution", () => {
     const r2 = await providerCall("labs_keywords_for_site", { target: "apple.com" }, IDS, hit.deps); if (r2.state !== "hit") throw new Error(r2.state); expect(hit.calls.fetch).toHaveLength(0); expect(parseCapability("labs_keywords_for_site", r2.envelope)).toEqual(parsed);
     let reserved = 0; const ov = harness(labsKeywordsForSiteLive, { reserveProviderSpend: async (_t: string, _p: string, amount: number) => { reserved = amount; return true; } }); await providerCall("labs_keyword_overview", { keywords: ["a"] }, IDS, ov.deps); expect(reserved).toBeGreaterThanOrEqual(700 * 0.0003); }); // 150 keywords really charged $0.02988, so a FULL 700-keyword batch lands near $0.21: never reserved under it
   it("asks ranked_keywords for ORGANIC rankings only, so an ad this account bought is never one of its own pages", async () => {
-    // The endpoint defaults to organic AND paid, so one page ranking once organically and once as an ad came
-    // back as two pages of mine, which is the whole arithmetic behind calling a search a consolidation.
+    // The endpoint defaults to organic AND paid, so one page ranking once organically and once as an ad came back as two pages of mine, which is the whole arithmetic behind calling a search a consolidation.
     const rk = harness(labsKeywordsForSiteLive); await providerCall("labs_ranked_keywords", { target: "apple.com" }, IDS, rk.deps);
     expect(rk.calls.bodies[0]![0]).toMatchObject({ target: "apple.com", location_code: 2840, language_code: "en", item_types: ["organic"] });
     const site = harness(labsKeywordsForSiteLive); await providerCall("labs_keywords_for_site", { target: "apple.com" }, IDS, site.deps);

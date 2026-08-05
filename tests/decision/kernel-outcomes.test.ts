@@ -13,8 +13,7 @@ vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...((await 
 vi.mock("@/domains/decision/proposal-store", async () => { const actual = await vi.importActual<typeof import("@/domains/decision/proposal-store")>("@/domains/decision/proposal-store");
   // The canonical store's OWN rule, emulated: a proposal identical to the stored row writes nothing at all.
   return { ...actual, loadChangeProposals: async () => env.store, withdrawnProposalIds: async () => new Set<string>(),
-    withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); env.store.delete(p.id); return true; },
-    saveChangeProposal: async (p: ChangeProposal) => {
+    withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); env.store.delete(p.id); return true; }, saveChangeProposal: async (p: ChangeProposal) => {
     const prior = env.store.get(p.id); if (prior && actual.proposalFingerprint(prior) === actual.proposalFingerprint(p)) return "unchanged";
     env.saved.push(p); if (env.failWrites) return "failed"; env.store.set(p.id, p); return "saved"; } }; });
 // A PASSTHROUGH, NOT A STAND-IN: it records which page and which DOOR the pass aimed at, then replays a pinned answer or runs the REAL producer.
@@ -42,8 +41,7 @@ import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 function fakeComplete(responses: Array<{ value: unknown } | { error: string; retryable?: boolean }>): CompleteFn {
   let i = 0; return async () => { const r = responses[Math.min(i++, responses.length - 1)]!; return "error" in r ? { error: r.error, retryable: r.retryable ?? false } : { value: r.value }; };
 } const PROOF = { metrics: ["clicks", "position"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" };
-const VALID_ATOMIC_EDIT = {
-  field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen", confidence: "high",
+const VALID_ATOMIC_EDIT = { field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen", confidence: "high",
   rationale: "The current title is one word and misses the specific customs searchers ask about.", risks: ["keep the title concise"],
   evidenceRefs: [{ source: "gsc", detail: "many impressions for nowruz traditions with a low click rate" }], operatorSteps: ["Replace the page title field with the new value"], proofPlan: PROOF };
 const KEYS = ["demand-exact", "copy-current", "serp1", "serp-owned", "serp-pattern"];
@@ -54,8 +52,7 @@ const EXISTING_INPUT: EvidenceInput = {
   opportunity: { query: "nowruz traditions", kind: "existing_edit", field: "title", opportunityType: "Capture clicks", currentValue: "Nowruz", intent: "what" },
   evidence: { hints: ["Search Console shows strong demand for nowruz traditions, the persian new year customs"], diagnosis: DIAGNOSED, outline: ["History of Nowruz", "Haft-Seen table", "Persian customs and foods"] } };
 /** A minimal safe existing-edit proposal, for constructing rejection variants. */
-function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal {
-  return {
+function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal { return {
     id: "fixture-tenant::/x::existing_edit::title", tenantId: "fixture-tenant", kind: "existing_edit", pagePath: "/x", pageUrl: "https://fixture-content.example/x",
     pageLabel: "X", primaryQuery: "nowruz traditions", opportunityType: "Capture clicks", changeFamily: "title", status: "ready", evidence: { query: "nowruz traditions", hints: ["gsc demand"], evidenceRefCount: 1 },
     recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen" },
@@ -63,8 +60,7 @@ function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal {
     impactScore: 50, upsidePerMonth: 20, publish: "manual", createdAt: "2026-07-22T00:00:00.000Z", ...over };
 } /** The exact-edit rewrite under test, with one field swapped. */
 const edited = (field: "title" | "meta", before: string | null, after: string): ChangeProposal => baseProposal({ recommendedChange: { kind: "existing_edit", field, before, after } });
-describe("existing-page cold proposal", () => {
-  it("generates, validates, persists (serialize), and re-loads (deserialize)", async () => {
+describe("existing-page cold proposal", () => { it("generates, validates, persists (serialize), and re-loads (deserialize)", async () => {
     const out = await proposeExistingPageChange(EXISTING_INPUT, { complete: fakeComplete([{ value: VALID_ATOMIC_EDIT }]), now: new Date("2026-07-22T00:00:00Z") });
     expect(out.status).toBe("ready"); if (out.status !== "ready") return;
     const p = out.proposal; if (p.recommendedChange.kind === "existing_edit") { expect(p.recommendedChange.before).toBe("Nowruz"); expect(p.recommendedChange.after).toContain("Nowruz Traditions"); } else throw new Error("expected an exact edit");
@@ -78,8 +74,7 @@ describe("existing-page cold proposal", () => {
   it("never calls the drafter for a candidate the results page has not accused", async () => { let called = 0; // no completion call, no copy, no row
     const out = await proposeExistingPageChange({ ...EXISTING_INPUT, evidence: { ...EXISTING_INPUT.evidence, diagnosis: undefined } }, { complete: async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; } });
     expect([out.status, called, out.status === "no_draft" && out.reason]).toEqual(["no_draft", 0, "I checked the results page, but it does not yet show that the title is the problem."]); });
-}); describe("safety gates reject unsafe drafts", () => {
-  const LONG_META = "Nowruz is the Persian New Year celebrated with the Haft-Seen table, customs, and foods across Iran and the diaspora.";
+}); describe("safety gates reject unsafe drafts", () => { const LONG_META = "Nowruz is the Persian New Year celebrated with the Haft-Seen table, customs, and foods across Iran and the diaspora.";
   it.each([ // one gate per row: the flag it must raise
     ["a placeholder stub", edited("title", "Nowruz", "Nowruz [insert customs here]"), /placeholder|stub/i],
     ["an em dash in operator copy", edited("title", "Nowruz", "Nowruz Traditions — Persian New Year"), /dash/i],
@@ -116,8 +111,7 @@ const ACTORS = ownedPage(ACTORS_URL, "Top 20 Famous Persian Actresses and Actors
 const actorsSerp = (ownedTitle: string): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), serpEvidence: [{ observedAt: null, query: "iranian actors", aiOverview: [], aiMode: [], paa: [], related: [],
   organic: [{ rank: 1, domain: "imdb.example", url: "https://imdb.example/list", title: "Iranian Actors" }, { rank: 2, domain: "wiki.example", url: "https://wiki.example/list", title: "List of Iranian male actors" },
     { rank: 3, domain: "pantheon.example", url: "https://pantheon.example/iran", title: "Greatest Iranian Actors" }, { rank: 6, domain: "iranopedia.example", url: ACTORS_URL, title: ownedTitle }] }] });
-describe("what the evidence justifies before anything is drafted", () => {
-  it("leaves a page that already beats the clicks its positions earn alone, however big it is", () => {
+describe("what the evidence justifies before anything is drafted", () => { it("leaves a page that already beats the clicks its positions earn alone, however big it is", () => {
     const c = compileCandidates(snap([WINNER]))[0]!; expect([c.action, c.query, c.recoverableClicks]).toEqual(["watch", "trail shoe reviews", 66]); // one soft search on a winning page is watched, not worked
     expect(c.reason).toContain("1,331"); expect(c.reason).not.toContain("75,646"); expect(c.reason).not.toContain("3,246"); // a page total is never quoted as a query number
     expect(snapshotToEvidenceInputs(snap([WINNER]))).toEqual([]); }); // no title, no description, no work
@@ -187,8 +181,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     expect(here).not.toBe("weak_opening"); // the ladder here reaches a DIFFERENT cause: the whole fixture
     reset(SEEN());
     const own = { cause: "weak_opening" as const, action: null, evidenceKeys: ["demand-exact"], competingExplanations: [], notConsidered: [],
-      falsifier: "If the page already answers the search in its first lines, this is not it.",
-      explanation: "The page takes too long to answer the search." };
+      falsifier: "If the page already answers the search in its first lines, this is not it.", explanation: "The page takes too long to answer the search." };
     env.bundle = { status: "bundled", proposal: baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::bundle",
       pagePath: "/nowruz-guide", pageUrl: "https://fixture-outdoors.example/nowruz-guide", diagnosisCause: "weak_opening", causeFinding: own }) };
     const res = await run(counting().complete);
@@ -283,8 +276,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     const owed = (r: Awaited<ReturnType<typeof readCoverage>>) => r.needs.find((n) => n.requirement === "owned_content");
     const net: string[] = []; const realFetch = globalThis.fetch; // ANY website read, by any module, through the one socket a render could use
     globalThis.fetch = (async (u: RequestInfo | URL) => { net.push(String(u)); throw new Error("a render may never reach a website"); }) as typeof fetch;
-    try {
-      const named = await read(world()); reset(world()); const produced = await produceProposalsForTenant("fixture-tenant", { now: NOW });
+    try { const named = await read(world()); reset(world()); const produced = await produceProposalsForTenant("fixture-tenant", { now: NOW });
       expect([owed(named)!.ownedUrl, named.waitingUntil, produced.waitingUntil, net]).toEqual([DARK_URL, null, null, []]); // NAMED as plain data; the coverage pass AND a whole surface build fetch nothing
       const first = await read(world([{ url: DARK_URL, state: "temporarily_unavailable", attemptedAt: "2026-07-26T00:00:00.000Z", retryAfter: HOLD }]));
       const again = await read(world([{ url: DARK_URL, state: "temporarily_unavailable", attemptedAt: "2026-07-26T00:00:00.000Z", retryAfter: HOLD }])); // a second visit, one stored outcome
@@ -356,8 +348,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
       { openingAnswer: `${BRIEF.openingAnswer} Around 91% of households set one out.` }, // a figure the evidence never supplied
       { sourceRequirements: ["Cite the 4,500 searches a month this phrase gets."] }, // and one smuggled in as a requirement rather than a claim
       { headKeys: ["made-up"] }];
-    for (const stray of strays) {
-      reset(snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND));
+    for (const stray of strays) { reset(snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND));
       const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: pageSeam({ ...BRIEF, ...stray }) });
       expect(res.proposals.every((p) => p.kind !== "new_page")).toBe(true); expect(env.saved.every((p) => p.kind !== "new_page")).toBe(true); }
     reset(snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND)); // a question I DID supply survives even though it names a site, because I am the one who showed it
@@ -395,8 +386,7 @@ describe("what the winning pages share reaches the operator, and never one of th
   it("shows the reading MY OWN page before it may name a gap in it, counts only the winners I currently hold, and carries its lines onto the verdict", async () => {
     const research = READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) });
     reset(snap([GAP], research, DEMAND)); let shown = "";
-    const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async ({ kind, user }) => {
-      if (kind !== "winning_pattern") return { value: VALID_ATOMIC_EDIT as never };
+    const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async ({ kind, user }) => { if (kind !== "winning_pattern") return { value: VALID_ATOMIC_EDIT as never };
       shown = user; return { value: PATTERN(user) as never }; } });
     const d = res.coverage!.decision; expect(d.verdict).toBe("improve_existing");
     expect(shown).toContain("Persian New Year Customs"); expect(shown).not.toContain("I hold no page of my own"); // the page the gap is about was really put in front of it
@@ -405,10 +395,8 @@ describe("what the winning pages share reaches the operator, and never one of th
     expect(d.pattern!.ownedGaps[0]!.gap).toContain("piece"); // and the gap stands only because the page it is about was supplied
     expect(d.evidence!.find((e) => e.id === "gap1")!.fact).toContain("Your own page does not do what 3 of them do");
     expect(d.evidence!.find((e) => e.id === "pattern")!.fact).toContain("I read the 3 pages that win here"); });
-  it("puts what each winner contributed into the page it drafts, in the verdict's own words", async () => {
-    reset(snap([GAP], READABLE({ topicKey: keyOf(READY()) }), DEMAND));
-    const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async (r) =>
-      (r.kind === "winning_pattern" ? { value: PATTERN(r.user) as never } : pageSeam(BRIEF)(r)) });
+  it("puts what each winner contributed into the page it drafts, in the verdict's own words", async () => { reset(snap([GAP], READABLE({ topicKey: keyOf(READY()) }), DEMAND));
+    const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async (r) => (r.kind === "winning_pattern" ? { value: PATTERN(r.user) as never } : pageSeam(BRIEF)(r)) });
     const page = res.proposals.find((p) => p.kind === "new_page")!; const keys = page.bundle!.receipt.items.map((i) => i.key);
     expect(keys).toEqual(expect.arrayContaining(["pattern", "opening", "common1"])); // the verdict's OWN lines, not a second paraphrase of one reading
     expect(keys).not.toContain("gap1"); // I own no page for this subject, so none was supplied and no gap was ever written
@@ -432,8 +420,7 @@ const doorRun = (world: EvidenceSnapshot, read: (u: string) => unknown = PATTERN
   return produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true,
     complete: async (r) => (r.kind === "winning_pattern" ? { value: read(r.user) as never } : pageSeam(BRIEF)(r)) }); };
 describe("a page earns the deep read through the door its own evidence opens", () => {
-  it("acts on a page with ZERO recoverable clicks because my comparison named it, off the comparison's own search", async () => {
-    const res = await doorRun(doorWorld());
+  it("acts on a page with ZERO recoverable clicks because my comparison named it, off the comparison's own search", async () => { const res = await doorRun(doorWorld());
     expect(res.candidates.every((c) => c.action !== "act_existing_page")).toBe(true); // no click gap anywhere: the old pass stopped here
     expect([env.door!.door, env.door!.evidence.query]).toEqual(["coverage_verdict", HAFT]);
     const deep = res.proposals.find((p) => p.bundle)!;
@@ -473,8 +460,7 @@ describe("a page earns the deep read through the door its own evidence opens", (
 }); // ── do I already have the right page for what I investigated? ────────────────
 const FOOD = "fixture-outdoors.example/nowruz-food"; const cands = (s: EvidenceSnapshot) => ownedCandidatesFor(s, buildTopicInvestigations(s)[0]!);
 const UBIQUITOUS = ["food", "music", "gifts", "fire", "dance", "poetry", "cards", "tables", "flowers", "travel"].map((w) => ({ query: `nowruz ${w}`, searchVolume: null, competition: null, competitionLevel: null, difficulty: null, intent: null })); const LOOKALIKE = ownedPage("fixture-outdoors.example/nowruz-gifts", "Nowruz Traditions and Gifts", { impressions: 400, clicks: 8 }, [{ query: "nowruz gifts", impressions: 400, clicks: 8, position: 9 }]); // every phrase this account owns carries one word, so that word proves nothing here
-describe("do I already have the right page for what I investigated", () => {
-  it("treats an exact Search Console query as proof of coverage and matching wording as only a hint", () => {
+describe("do I already have the right page for what I investigated", () => { it("treats an exact Search Console query as proof of coverage and matching wording as only a hint", () => {
     const out = cands(snap([GAP, LOOKALIKE], looked([["nowruz traditions", GAP_URL]]))); expect(out.map((c) => [c.url, c.strongSignals])).toEqual([[GAP_URL, 2], ["fixture-outdoors.example/nowruz-gifts", 0]]); // the page Google serves beats the page that only reads like the topic
     expect(out[0]!.signals.map((s) => s.kind)).toEqual(["gsc_exact_query", "ranks_for_query"]); expect(out[1]!.signals.every((s) => s.strength !== "strong")).toBe(true);
     expect(out[0]!.signals[0]!.detail).toContain('Google already shows this page for "nowruz traditions": 6,000 views and 180 clicks.'); });
@@ -497,8 +483,7 @@ const CITED_ELSEWHERE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidenc
   observationMode: "consumer_search", modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true,
   citations: [{ url: "https://rival.example/a", domain: "rival.example", title: null }], fanOutQueries: ["nowruz traditions"], observedAt: LOOKED_AT }] });
 const ACTORS_SEEN = () => snap([ACTORS], actorsSerp("Persian Screen | Iranopedia"));
-describe("why this page loses the click, one named cause at a time", () => {
-  it("blames the wording only where the results page accuses it, and says what it beat and what would kill it", () => {
+describe("why this page loses the click, one named cause at a time", () => { it("blames the wording only where the results page accuses it, and says what it beat and what would kill it", () => {
     const c = compileCandidates(ACTORS_SEEN())[0]!;
     expect([c.action, c.cause.cause, c.cause.action]).toEqual(["act_existing_page", "ctr_snippet", "title"]); // one cause, and it is the one the results page proved
     expect(c.cause.competingExplanations.map((x) => x.cause)).toEqual(["competitor_content_gap"]); expect(c.cause.falsifier).toContain("wording");
@@ -532,8 +517,7 @@ describe("why this page loses the click, one named cause at a time", () => {
     expect((await laddered(listy, bare)).cause.cause).toBe("serp_shape_shift"); // and the kind of page that wins is asked after that
     const stopped = await laddered(GAP, bare); expect([stopped.action, stopped.cause.cause]).toEqual(["research_needed", "no_problem"]);
     expect(stopped.cause.notConsidered.map((n) => n.cause)).toEqual(expect.arrayContaining(["weak_opening", "serp_shape_shift", "internal_link_weakness", "ai_citation_gap"])); }); // each one named, none of them guessed
-  it("says when an engine cites everybody but this page, and only where an answer with its sources is on file", () => {
-    const c = compileCandidates(snap([GAP], CITED_ELSEWHERE()))[0]!;
+  it("says when an engine cites everybody but this page, and only where an answer with its sources is on file", () => { const c = compileCandidates(snap([GAP], CITED_ELSEWHERE()))[0]!;
     expect([c.action, c.cause.cause]).toEqual(["watch", "ai_citation_gap"]); expect(c.reason).toContain("chatgpt answered"); expect(c.reason).toContain("named 1 other site without"); // one site is one site, never "1 other sites"
     expect(compileCandidates(snap([GAP]))[0]!.cause.notConsidered.find((n) => n.cause === "ai_citation_gap")!.missing).toContain("no AI answer"); });
   it("tells a page the engine READ and passed over from one it never found, and only when the retrieval list was recorded", () => {
@@ -545,8 +529,7 @@ describe("why this page loses the click, one named cause at a time", () => {
   it("answers a page that is losing nothing with no problem, and still says what it ruled out", () => {
     const c = compileCandidates(snap([WINNER]))[0]!; expect([c.action, c.cause.cause]).toEqual(["watch", "no_problem"]);
     expect(c.cause.competingExplanations.map((x) => x.cause)).toEqual(["ctr_snippet"]); expect(c.cause.falsifier).toContain("click rate"); });
-  it("accuses THIS page of being read and passed over, never the page next door on the same site", () => {
-    const retrieved = (url: string): FunnelResearchEvidence => ({ ...CITED_ELSEWHERE(),
+  it("accuses THIS page of being read and passed over, never the page next door on the same site", () => { const retrieved = (url: string): FunnelResearchEvidence => ({ ...CITED_ELSEWHERE(),
       aiObservations: CITED_ELSEWHERE().aiObservations.map((o) => ({ ...o, retrievedResults: [{ url, domain: "fixture-outdoors.example", title: null }] })) });
     expect(compileCandidates(snap([GAP], retrieved("https://fixture-outdoors.example/nowruz-food")))[0]!.cause.cause).toBe("ai_citation_gap"); // a hit on another page of mine proves nothing about this one
     const mine = compileCandidates(snap([GAP], retrieved(`https://www.${GAP_URL}/`)))[0]!; // and a www or trailing-slash spelling of THIS page still is this page
@@ -576,8 +559,7 @@ describe("why this page loses the click, one named cause at a time", () => {
     const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; } });
     expect([res.outcome, res.actionable, res.proposals.length, called]).toEqual(["actionable_but_no_trusted_draft", 1, 0, 0]); // named, counted, and not one paid call
     expect(res.candidates.find((c) => c.action === "consolidate")!.cause.cause).toBe("cannibalization"); });
-  it("discounts a page only while its applied change is still being measured", async () => {
-    const day = 24 * 60 * 60 * 1000; const applied = (ageDays: number): ChangeProposal =>
+  it("discounts a page only while its applied change is still being measured", async () => { const day = 24 * 60 * 60 * 1000; const applied = (ageDays: number): ChangeProposal =>
       baseProposal({ id: "applied", status: "implemented_pending_verification", basis: "b", createdAt: new Date(Date.now() - ageDays * day).toISOString() });
     expect(pagesUnderMeasurement([applied(10), applied(180)].map((p, i) => ({ ...p, pagePath: `/p${i}` })), new Date())).toEqual(["/p0"]);
     const overlapOf = async (ageDays: number) => { env.store = new Map([["live", baseProposal({ id: "live", basis: "b" })], ["applied", applied(ageDays)]]);
@@ -611,8 +593,7 @@ describe("why this page loses the click, one named cause at a time", () => {
       expect(env.withdrawn, at).toEqual(taken);
     } });
   it("never emits a diagnosis without a competing explanation, a falsifier, and every unheld cause named", () => {
-    for (const world of [snap([WINNER]), SEEN(), snap([GAP]), snap([ACTORS], actorsSerp(DISPLAYED)), snap([GAP], CITED_ELSEWHERE()), BOTH()]) {
-      for (const c of compileCandidates(world)) {
+    for (const world of [snap([WINNER]), SEEN(), snap([GAP]), snap([ACTORS], actorsSerp(DISPLAYED)), snap([GAP], CITED_ELSEWHERE()), BOTH()]) { for (const c of compileCandidates(world)) {
         expect(c.cause.competingExplanations.length).toBeGreaterThan(0); expect(c.cause.competingExplanations.length).toBeLessThanOrEqual(3);
         expect(c.cause.competingExplanations.every((x) => x.reason.length > 0)).toBe(true); expect(c.cause.falsifier.length).toBeGreaterThan(0);
         expect(c.cause.notConsidered.map((n) => n.cause)).toEqual(expect.arrayContaining(NEVER_HELD));

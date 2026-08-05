@@ -18,7 +18,7 @@ import { ScoreboardChartTabs } from "@/app/(shell)/scoreboard-chart-tabs";
 type Day = AiOutcomeReport["segments"][number]["days"][number]; // one reporting day as the kernel hands it over
 const day = (d: string, rate: number | null, over: Partial<Day> = {}): Day => ({ day: d, observed: 10, analyzed: 10, mentioning: Math.round((rate ?? 0) * 10), mentionRate: rate,
   citationSample: 8, ownedCiting: 2, ownedCitationRate: 0.25, ownedCitationRank: 1, retrievalSample: 0, ownedRetrieved: 0, retrievedNotCited: 0, retrievedNotCitedRate: null,
-  byEngine: [{ engine: "chatgpt", modelServed: "a", mode: "api", asked: 10, observed: 10, mentioning: 4, citedOwned: 2 }], ...over });
+  byEngine: [{ engine: "chatgpt", modelServed: "a", mode: "api", asked: 10, observed: 10, analyzed: 0, mentioning: 4, citedOwned: 2 }], ...over });
 const SEGMENTS: AiOutcomeReport["segments"] = [
   { from: "2026-07-30", to: "2026-07-31", models: [], boundary: null, days: [day("2026-07-30", 0.2), day("2026-07-31", 0.3)] },
   { from: "2026-08-01", to: "2026-08-02", models: [], days: [day("2026-08-01", null, { observed: 0, analyzed: 0, citationSample: 0, ownedCiting: 0 }), day("2026-08-02", 0.5)], boundary: [{ engine: "chatgpt", day: "2026-08-02", fromModel: "a", toModel: "b", fromMode: "api", toMode: "api" }] }];
@@ -164,6 +164,18 @@ describe("Visibility explains where you stand, and never invents a score", () =>
     SESSION.id = TENANT;
     store.fail = true; JOURNEY.props = null; await draw(); // AND WHEN THE FIRST READ ITSELF FAILS the journey is not deleted from the page: it says so and keeps the way back
     expect(JOURNEY.props!.unavailable).toBe("I could not read the rest of that day back just now. Try again and I will pick up where I left off."); store.fail = false; });
+  /** PIN: NOTHING READ IS NOT ZERO MENTIONS. The live account had 138 answers on file and not one of them read closely, and this block said "You were named in 0 of
+   *  those answers" about every assistant: a customer-facing false negative built out of an empty denominator. What the provider itself credited still rides along. */
+  it("refuses to report a mention count it has not read, names the fraction while it is still reading, and never calls a name match a close reading", () => {
+    const rowOf = (over: Partial<Day>, mentioning = 0) => { const segments = [{ from: "2026-08-02", to: "2026-08-02", models: [], boundary: null, days: [day("2026-08-02", null,
+      { ...over, byEngine: [{ engine: "chatgpt", modelServed: "a", mode: "api", asked: 35, observed: 35, analyzed: over.analyzed ?? 0, mentioning, citedOwned: 3 }] })] }];
+      return at(ai({ segments, trend: aiTrend(segments) }), "Assistant by assistant").rows[0]!.body; };
+    const unread = rowOf({ observed: 35, analyzed: 0, mentioning: 0 }), came = "35 of the 35 questions I put to it came back. ";
+    expect([unread, unread.includes("named in 0")]).toEqual([`${came}I have not finished reading them closely enough to report mentions yet, and a page of yours was credited in 3.`, false]);
+    expect(rowOf({ observed: 35, analyzed: 12, mentioning: 4 }, 4)).toBe(`${came}You are named in 4 of them so far, counted over the 12 of 35 answers I have finished checking on it, and a page of yours was credited in 3.`);
+    expect(rowOf({ observed: 35, analyzed: 35, mentioning: 4 }, 4)).toBe(`${came}You were named in 4 of those answers, and a page of yours was credited in 3.`);
+    // A DETERMINISTIC NAME MATCH IS A CHECK, NOT A READING: nobody read this answer, so the drill-down may not say somebody did.
+    expect(answerView({ ...ROW, reading: "checked" }).details).toContain("I checked this answer for your name and your website address, and nobody has read the rest of it closely."); });
   it("says what one stored answer cost off the receipt it names, and refuses to call an unproven cost zero dollars", () => {
     expect(answerView(ROW).details.at(-1)).toBe("The stored answer this all comes off is filed as answer:9f3c1, and it cost 0.02 dollars to buy once.");
     expect(answerView({ ...ROW, costUsd: null }).details.at(-1)).toBe("The stored answer this all comes off is filed as answer:9f3c1, and I hold no receipt proving what it cost, so I am not putting a number on it.");
@@ -172,7 +184,7 @@ describe("Visibility explains where you stand, and never invents a score", () =>
     expect(answerView({ ...ROW, costUsd: null }, new Map(), 0.0073).details.at(-1)).toContain("under a cent"); }); // the exact cache receipt, resolved for a row that preserved none
   it("dates every AI number, counts the days it missed, breaks the line where the assistant changed, and names each domain", () => {
     const lines = at(ai(), "How often AI answers name you").notes, runs = at(ai(), "How often AI answers name you").runs;
-    expect(lines[0]).toBe("On Aug 2 you were named in 5 of the 10 answers I read closely, and a page of yours was credited in 2 of the 8 that told me what they used.");
+    expect(lines[0]).toBe("On Aug 2 you were named in 5 of the 10 answers I have finished checking, and a page of yours was credited in 2 of the 8 that told me what they used.");
     expect(lines).toContain("I have settled 42 of the 48 answer checks I planned for today: 40 came back with an answer, 2 found nothing to give me.");
     expect(lines[lines.length - 1]).toBe("I read answers on 3 of the last 5 days. Aug 1 came back with nothing. A day I missed stays missed, and I never fill one in."); expect(runs).toHaveLength(2); expect(runs[0]!.breakLabel).toBeNull(); expect(runs.map((r) => r.span)).toEqual(["Jul 30 to Jul 31", "Aug 2 to Aug 2"]);
     expect(runs[1]!.breakLabel).toBe("ChatGPT changed the version behind its answers on Aug 2, so I start a new line here rather than joining two different readings.");

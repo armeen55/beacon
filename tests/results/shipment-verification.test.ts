@@ -82,8 +82,7 @@ describe("what Beacon can see on the live page, component by component", () => {
     const noLinks = serve("<html><head><title>t</title></head><body><main><p>words enough to count as a paragraph here</p></main></body></html>");
     expect(await state("internal_link_add", "Link to /haft-seen", noLinks)).toBe("unverifiable");
   });
-  // A RENAMED LINK IS NOT VERIFIED BY THE LINK EXISTING. The swap renames a link that is already there, so checking for the address answered yes the moment the change
-  // was written: it read verified before the operator touched the page. The words on the live link are the only thing that can settle it.
+  // A RENAMED LINK IS NOT VERIFIED BY THE LINK EXISTING. The swap renames a link that is already there, so checking for the address answered yes the moment the change was written: it read verified before the operator touched the page. The words on the live link are the only thing that can settle it.
   it("checks a renamed link on the words that are actually on it, both ways, and says unknown without them", async () => {
     const swap = async (anchorAfter: string | null) => (await check([{ kind: "anchor_text",
       after: 'I would change the words "read more" that already point at /haft-seen so they read "the haft seen explained".',
@@ -116,8 +115,7 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("noindex", "Take it out of search", noindex)).toBe("verified");
     expect(await state("noindex", "Take it out of search")).toBe("unverifiable"); // a header I cannot see could carry it
   });
-  // PIN (B, F2a): the whole road, finding to reading. A shortened forward names /haft-seen, and the check has to read THAT address: taking the first address out of the
-  // sentence took the one being MOVED, so an operator who did exactly what I asked was told their forward went somewhere other than where I asked.
+  // PIN (B, F2a): the whole road, finding to reading. A shortened forward names /haft-seen, and the check has to read THAT address: taking the first address out of the sentence took the one being MOVED, so an operator who did exactly what I asked was told their forward went somewhere other than where I asked.
   it("verifies a forward against the destination the change named, never the address it moved", async () => {
     const chain = (url: string, to: string) => ({ url, discovered_via: "nav", crawl_state: "crawled", http_status: 200, redirects_to: to });
     const found = readTechnicalFindings({ inventory: [chain(URL_, "https://own.com/mid"), chain("https://own.com/mid", "https://own.com/haft-seen")] })
@@ -135,8 +133,7 @@ describe("what Beacon can see on the live page, component by component", () => {
       { ...base, fetchPage: serve(PAGE, { finalUrl: "https://own.com/login" }) });
     expect(wrong.components[0]!.state).toBe("changed_differently");
   });
-  // PIN (B, F2c): an edit to sitemap.xml can never put a link on the page, so looking for one graded every sitemap change as work the operator had not done. It is read
-  // in the sitemap, or it is not graded.
+  // PIN (B, F2c): an edit to sitemap.xml can never put a link on the page, so looking for one graded every sitemap change as work the operator had not done. It is read in the sitemap, or it is not graded.
   it("reads a sitemap change in the sitemap itself, and refuses to grade one it could not read", async () => {
     const listing = (...locs: string[]) => `<urlset>${locs.map((l) => `<url><loc>${l}</loc></url>`).join("")}</urlset>`;
     const graded = async (xml: string | null) => (await check([{ kind: "navigation", after: "I would add /nowruz to the sitemap you already publish." }],
@@ -149,8 +146,7 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect((await graded("<sitemapindex><sitemap><loc>https://own.com/s1.xml</loc></sitemap></sitemapindex>")).state).toBe("unverifiable");
     expect((await graded(listing())).state).toBe("unverifiable"); // a sitemap answering with no addresses grades nothing
   });
-  // PIN (F2d): a broken link is checked on the DEAD address, not the page carrying it. The regex took the first address in the sentence, the carrying page, and asked
-  // whether it links to itself: that answered verified whether or not the operator touched anything, and unearned work entered measurement.
+  // PIN (F2d): a broken link is checked on the DEAD address, not the page carrying it. The regex took the first address in the sentence, the carrying page, and asked whether it links to itself: that answered verified whether or not the operator touched anything, and unearned work entered measurement.
   it("checks a broken link fix on the dead address it named, in both directions", async () => {
     const found = readTechnicalFindings({
       inventory: [{ url: "https://own.com/old-price", discovered_via: "nav", crawl_state: "crawled", http_status: 404 }],
@@ -190,8 +186,7 @@ describe("what Beacon says overall, and what it refuses to say", () => {
     // A page I reached but nothing on it I can check is NOT a difference and never a pass: it is a check I could not complete.
     expect((await check([{ kind: "noindex", after: "" }])).status).toBe("blocked");
   });
-  // PIN (B): THE CLAIM STARTS THE CHECK AND NEVER FINISHES IT. No argument to verifyShipment suppresses the read, and no state it returns says verified unless the page
-  // itself said so. CHANGED DIFFERENTLY is its own answer: the spot moved, and it moved to something other than what I wrote.
+  // PIN (B): THE CLAIM STARTS THE CHECK AND NEVER FINISHES IT. No argument to verifyShipment suppresses the read, and no state it returns says verified unless the page itself said so. CHANGED DIFFERENTLY is its own answer: the spot moved, and it moved to something other than what I wrote.
   it("goes and reads the page whatever the operator claimed, and cannot land verified without page evidence", async () => {
     let fetched = 0;
     const claimed = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }] },

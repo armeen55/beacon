@@ -38,8 +38,9 @@ function partitionedCache() {
   };
   return { impl, store, reads, recents };
 }
-/** A completion double that replays a value queue and counts calls. */
-function seam(values: Array<{ value: unknown } | { error: string; retryable: boolean }>) {
+/** A completion double that replays a value queue and counts calls. A value may carry the provider's usage RECEIPT, which is the only thing that is ever billed. */
+const RECEIPT = { tenantId: "provider", responseId: "resp_1", requestedModel: "gpt-5-mini", servedModel: "gpt-5-mini", status: "completed", createdAt: 1, inputTokens: 900, outputTokens: 120, costUsd: 0.0031, retryCount: 0 };
+function seam(values: Array<{ value: unknown; provenance?: typeof RECEIPT } | { error: string; retryable: boolean }>) {
   let i = 0, calls = 0;
   const complete: CompleteFn = async () => { calls += 1; return values[Math.min(i++, values.length - 1)]!; };
   return { complete, calls: () => calls };
@@ -68,7 +69,7 @@ describe("callStructuredLLM keeps accounts isolated end to end", () => {
   it("account B gets a MISS on account A's byte-identical prompt; A still hits at $0", async () => {
     const cache = partitionedCache();
     // Account A generates + caches (pays).
-    const a1 = seam([{ value: VALID }]);
+    const a1 = seam([{ value: VALID, provenance: RECEIPT }]);
     const outA = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: a1.complete, cacheImpl: cache.impl });
     expect([outA.status, a1.calls()]).toEqual(["drafted", 1]);
     // Account A repeats the SAME prompt: $0 cache hit, no call.
@@ -91,7 +92,9 @@ describe("callStructuredLLM keeps accounts isolated end to end", () => {
     expect([await cache.impl.recentTexts("tenant-c", "atomic_edit", 5), await cache.impl.recentTexts("tenant-a", "atomic_edit", 5)]).toEqual([[], [VALID.after]]);
     // And the money seams were told WHICH account, explicitly, never left to the ambient one.
     expect(checkBudget).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "tenant-a" }));
-    expect(recordSpend).toHaveBeenCalledWith(expect.any(Number), expect.objectContaining({ tenantId: "tenant-a" })); });
+    // A RECEIPT IS BILLED TO ITS OWN ACCOUNT, and account B's receipt-less attempt is billed to nobody at all: no estimate stands in for a purchase that never happened.
+    expect(recordSpend).toHaveBeenCalledWith(0.0031, expect.objectContaining({ tenantId: "tenant-a" }));
+    expect(recordSpend).toHaveBeenCalledTimes(1); });
   it("a MISSING account fails closed BEFORE cache, budget, or the completion fn", async () => {
     const cache = partitionedCache();
     const s = seam([{ value: VALID }]);

@@ -15,10 +15,8 @@ const PAGE_URL = "https://fixture-content.example/rain-barrels";
 const FACTS = ["That one search brings this page 6,000 views and 90 clicks.", "This page links to 3 of your own pages."];
 const INVENTED = "Rain barrels cost $99 at every hardware store.";
 const KEYS = ["links", "ai", "competing"];
-const finding = (cause: CauseFinding["cause"], payload?: unknown): CauseFinding =>
-  ({ cause, action: null, evidenceKeys: KEYS, competingExplanations: [], notConsidered: [],
-    falsifier: "If my next look shows something else, this is not the explanation.",
-    explanation: "This is what I found.", ...(payload === undefined ? {} : { payload }) }) as CauseFinding;
+const finding = (cause: CauseFinding["cause"], payload?: unknown): CauseFinding => ({ cause, action: null, evidenceKeys: KEYS, competingExplanations: [], notConsidered: [],
+    falsifier: "If my next look shows something else, this is not the explanation.", explanation: "This is what I found.", ...(payload === undefined ? {} : { payload }) }) as CauseFinding;
 const PATTERN: WinningPattern = { archetype: "informational_guide", disagreements: [], uniqueNotCommon: [], winners: 3, fingerprint: "fp",
   commonHeadings: [{ heading: "How much water a roof collects", seenOn: [0, 1] }, { heading: "Choosing a barrel size", seenOn: [0, 2] }],
   commonEntities: [{ entity: "Roof area", seenOn: [0] }, { entity: "Downspout diverter", seenOn: [0, 1] }],
@@ -34,26 +32,22 @@ const OWNED = [["rain-collection", "Rain collection basics", "Rain collection"],
 /** THE SECOND PAGE ON THE SAME SEARCH: its own exact-search numbers, and the words it carries today. */
 const OTHER_URL = "https://fixture-content.example/barrel-sizes";
 const CMP = [{ url: PAGE_URL, clicks: 90, impressions: 6000, position: 3 }, { url: OTHER_URL, clicks: 20, impressions: 900, position: 9 }];
-const ctxOf = (over: Partial<ProducerCtx> = {}): ProducerCtx => ({
-  finding: finding("internal_link_weakness", { cause: "internal_link_weakness", medianWinnerLinks: 12, ownedLinks: 3 }),
+const ctxOf = (over: Partial<ProducerCtx> = {}): ProducerCtx => ({ finding: finding("internal_link_weakness", { cause: "internal_link_weakness", medianWinnerLinks: 12, ownedLinks: 3 }),
   primary: QUERY, tenantId: TENANT, ownedPages: OWNED,
   page: { url: PAGE_URL, title: "Rain Barrels", h1: "Rain Barrels", outline: ["How much rain a roof collects", "Barrel sizes"], internalLinkCount: 3 },
   body: { url: PAGE_URL, title: "Rain Barrels", h1: "Rain Barrels", headings: ["Rain Barrels", "How much rain a roof collects", "Barrel sizes"],
     passages: ["Rain barrels catch what runs off a roof."], openingSample: "Rain barrels catch what runs off a roof.",
     cardTexts: [], faqs: [], entityNames: ["Roof area", "Storm"], internalLinks: LINKS, metaDescription: null,
     fetchedAt: "2026-07-30T00:00:00.000Z", completeness: "sample_only", heldNote: "I hold a sample of this page, not the whole page." },
-  pattern: PATTERN, receiptFacts: FACTS, readiness: { gsc: true, ownedCopy: true, serp: true, winners: 3, body: true },
-  draft: { section: async () => null,
-    internalLink: async (i) => ({ anchorText: `${i.topic} guide`, linkSentence: `If you are working out ${i.topic}, that page walks through it`, reason: "same subject" }) },
-  ...over,
+  pattern: PATTERN, receiptFacts: FACTS, readiness: { gsc: true, ownedCopy: true, serp: true, winners: 3, body: true }, draft: { section: async () => null,
+    internalLink: async (i) => ({ anchorText: `${i.topic} guide`, linkSentence: `If you are working out ${i.topic}, that page walks through it`, reason: "same subject" }) }, ...over,
 });
 /** BOTH PAGES AS I CURRENTLY HOLD THEM, by the same canonical address the producer looks them up under. */
 const BODIES = new Map([["fixture-content.example/rain-barrels", { ...ctxOf().body!, title: "Rain barrel sizing guide", h1: "Rain barrel sizing guide" }],
   ["fixture-content.example/barrel-sizes", { ...ctxOf().body!, url: OTHER_URL, title: "Barrel sizes guide", h1: "Barrel sizes guide", headings: ["Barrel sizes", "Gallons per storm"] }]]);
 /** A drafter that writes every section AND the page's own opening: the only shape a rebuild may ever ship on. */
 const OPENING = "Rain barrel sizing comes down to roof area and how much rain one storm brings.";
-const whole = (refuseAt = -1): ProducerCtx["draft"] => { let n = 0; return { internalLink: async () => null,
-  openingAnswer: async () => OPENING,
+const whole = (refuseAt = -1): ProducerCtx["draft"] => { let n = 0; return { internalLink: async () => null, openingAnswer: async () => OPENING,
   section: async (i) => (n++ === refuseAt ? null : { heading: i.heading ?? "Rain barrel sizing", sources: [], containsNumber: false,
     body: `Rain barrel sizing comes down to roof area and how much rain one storm brings, and that is what this part of the page has to say about ${(i.heading ?? "sizing").toLowerCase()}.` }) }; };
 const FOUR = ["How much water a roof collects", "Choosing a barrel size", "Storm overflow", "Roof area by pitch"];

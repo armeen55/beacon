@@ -1,6 +1,5 @@
 /**
- * Connector refresh ledger: recordSourceRefresh outcome classification and the
- * honest Recent-upkeep sentences (retired sources render nothing false).
+ * Connector refresh ledger: recordSourceRefresh outcome classification and the honest Recent-upkeep sentences (retired sources render nothing false).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("server-only", () => ({}));
@@ -62,9 +61,7 @@ describe("what a stale source is allowed to open on its own", () => {
     state.connected = { google_gsc: true, google_ga4: false, clarity: false }; expect((await dueWork("t1", new Date(), rest)).due).toEqual(["refresh_sources"]); // and that refresh still pulls every connected source
     state.throw = true; const blind = await dueWork("t1", new Date(), rest); state.throw = false; expect([blind.readable, blind.due]).toEqual([false, []]); }); // A SOURCE I COULD NOT READ IS NOT A FRESH ONE: this leg swallowed its own failure per provider, so it could never make dueWork unreadable
 });
-// ─────────────────────────────────────────────────────────────────────
-// syncSucceeded — the positive freshness gate
-// ─────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────── syncSucceeded — the positive freshness gate ─────────────────────────────────────────────────────────────────────
 describe("syncSucceeded (audit-3 #5)", () => {
   it("treats { synced: true } as success and { synced: false } as failure with reason", () => {
     expect(syncSucceeded({ synced: true, rows_upserted: 12 })).toEqual({ ok: true });
@@ -79,9 +76,7 @@ describe("syncSucceeded (audit-3 #5)", () => {
     expect(syncSucceeded("synced").ok).toBe(false);
   });
 });
-// ─────────────────────────────────────────────────────────────────────
-// Clarity Data Export parser
-// ─────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────── Clarity Data Export parser ─────────────────────────────────────────────────────────────────────
 const CLARITY_SAMPLE = [
   {
     metricName: "Traffic",
@@ -116,9 +111,7 @@ describe("fetchClarityUrlMetrics", () => {
     expect(await fetchClarityUrlMetrics({ tenantId: "t" })).toBeNull();
   });
 });
-// ─────────────────────────────────────────────────────────────────────
-// Verify-live → IndexNow wiring point
-// ─────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────── Verify-live → IndexNow wiring point ─────────────────────────────────────────────────────────────────────
 // A CONNECTIONS FAILURE IS THE OPERATOR'S OWN SENTENCE, never the exception's: raw store and network messages used to reach the screen as if they were advice.
 describe("what Connections says when something goes wrong", () => {
   it("hands back plain language instead of the raw error", async () => {

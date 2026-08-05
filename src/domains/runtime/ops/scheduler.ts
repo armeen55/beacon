@@ -75,9 +75,11 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
       const done = receipt();
       log.warn("[research-run] the recovery probe could not read the fleet, so this dispatch fails; here is what it did land first", done);
       throw Object.assign(error instanceof Error ? error : new Error(String(error)), { receipt: done }); })) {
-      if (worked.has(t)) continue;
-      const opened = await startExtraPass(t, ownerToken, reportingDay(nowMs));
-      if (opened != null) { log.info("[research-run] today's checks were left short, so I opened one more pass", { tenantId: t }); return opened; }
+      if (worked.has(t.tenantId)) continue;
+      // THE PROBE ALREADY KNOWS WHY. It computed this account's due list to decide it was short, and the pass it opens carries that list, so recovery for one
+      // debt settles that debt instead of walking a whole research cycle around it.
+      const opened = await startExtraPass(t.tenantId, ownerToken, reportingDay(nowMs), undefined, t.due);
+      if (opened != null) { log.info("[research-run] today's checks were left short, so I opened one more pass", { tenantId: t.tenantId, due: t.due }); return opened; }
     }
     return undefined; };
   let claiming = true; // the claim comes first; once it drains, or hands back an account already worked, the rest of this dispatch belongs to the probe

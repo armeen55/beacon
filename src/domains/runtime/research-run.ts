@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
+import type { DuePhase } from "./ops/due-work";
 
 /** research-run - the durable Research Run record (Slice 4, 2026-07-24). THE canonical type + repository for a resumable research cycle. At most ONE unfinished (running or paused) run per account
  *  across ALL dates (partial unique index). Two doors claim through claim_research_run: the global daily scheduler (claim_due_research_work, one bounded dispatch for every account whose reporting day
@@ -50,6 +51,13 @@ export type ResearchRunProgress = {
    *  cannot be judged without: Decision NAMES it and never fetches it, one read per run under this lease. */
   focus?: { basis: string | null; topics: Array<{ topicKey: string | null; query: string | null; requirement: string | null; retryAfter?: string | null; ownedUrl?: string | null }> };
   surfacePublished?: boolean;
+  /** WHY THIS PASS WAS OPENED, and therefore WHAT IT OWES. Due-work decides whether another pass runs; without
+   *  its answer on the row the executor traversed the whole cycle whatever the debt was, so a pass opened to
+   *  read stored answers re-ran keyword discovery, results pages, winner reads, a crawl and a publication and
+   *  spent real money on research nobody asked for. A recovery pass carries the exact units due-work named
+   *  when it opened and SKIPS every phase outside them. Absent on the day's first genuine run, which still
+   *  walks the full ordered sequence. It rides progress (an existing jsonb column), so no schema moves. */
+  plan?: { units: DuePhase[] };
   /** The operator's durable ask for extra readings of today's AI answers: the day and how many EXTRA readings per pair were granted (max two); the press and the pass that acts on it are two requests.
    *  And whether this run already attempted its ONE advisory reading of the case registry: reconciliation runs before every unit, so without a marker of its own that reading was bounded per iteration. */
   extraSamples?: { day: string; granted: number };
@@ -177,8 +185,9 @@ export type ResearchRunRepo = {
    *  or a visit already holds is simply absent from the result. */
   claimDue(input: { owner: string; limit: number; leaseSeconds: number }): Promise<ResearchRun[]>;
   /** Open ANOTHER pass on a day that already completed one, for an account with genuinely due work. Null =
-   *  it must not run: the one-open-run-per-account index refuses the insert while any run is unfinished. */
-  startPass(input: { tenantId: string; owner: string; leaseSeconds: number; day: string }): Promise<ResearchRun | null>;
+   *  it must not run: the one-open-run-per-account index refuses the insert while any run is unfinished.
+   *  `progress` is what the opener already knows (the plan it opened on), written with the row itself. */
+  startPass(input: { tenantId: string; owner: string; leaseSeconds: number; day: string; progress?: ResearchRunProgress }): Promise<ResearchRun | null>;
   /** Guarded advance at DATABASE time (id + tenant + owner + a LIVE lease + status='running'). Extends the
    *  lease. False ⇒ our lease was lost or expired. */
   advance(input: { tenantId: string; id: string; owner: string; leaseSeconds: number; patch: AdvancePatch }): Promise<boolean>;
@@ -248,7 +257,7 @@ const supabaseRepo: ResearchRunRepo = {
     if (error != null) throw new Error(error.message ?? String(error));
     return ((data ?? []) as Array<Record<string, unknown>>).map(mapRow);
   },
-  async startPass({ tenantId, owner, leaseSeconds, day }) {
+  async startPass({ tenantId, owner, leaseSeconds, day, progress }) {
     const admin = getSupabaseAdmin();
     // The pass ordinal keeps (tenant, cycle_key) unique for a second pass on the same day, and the
     // key still ENDS in the day because the reporting day is read off its tail: a pass that spans
@@ -259,6 +268,7 @@ const supabaseRepo: ResearchRunRepo = {
       tenant_id: tenantId, cycle_key: `${tenantId}:p${(count ?? 1) + 1}:${day}`, status: "running",
       current_phase: "refresh_sources", lease_owner: owner,
       lease_expires_at: new Date(Date.now() + leaseSeconds * 1000).toISOString(),
+      ...(progress ? { progress } : {}),
     }).select("*").maybeSingle();
     // A unique violation is the expected LOSS (another pass is open, or another tab inserted
     // first), never an error worth surfacing: the caller simply does nothing.
@@ -384,8 +394,9 @@ export async function claimDueRuns(ownerToken: string, limit: number): Promise<R
 
 /** Open ANOTHER pass on a day that already completed one. The caller must already know work is genuinely due (see due-work): a day is not a unit of work, but nor is a visit, so nothing here decides
  *  that question. Null = a pass must not open (any unfinished run, a concurrent claimer, the day's ceiling, or unavailable persistence). Never throws. THE CEILING BELONGS TO THE DOOR: a door passes
- *  its own allowance, clamped to the day's absolute runaway stop, so no door can widen the day for the others. */
-export async function startExtraPass(tenantId: string, ownerToken: string, day: string, ceiling = DAILY_PASS_RUNAWAY_CEILING): Promise<ResearchRun | null> {
+ *  its own allowance, clamped to the day's absolute runaway stop, so no door can widen the day for the others. THE REASON TRAVELS WITH THE PASS: every door here already knows WHICH units due-work
+ *  named, and the row is born carrying them, so the executor settles that debt instead of walking a whole cycle around it. An opener that names nothing gets the full ordered sequence, as before. */
+export async function startExtraPass(tenantId: string, ownerToken: string, day: string, ceiling = DAILY_PASS_RUNAWAY_CEILING, plan?: readonly DuePhase[]): Promise<ResearchRun | null> {
   requireTenant(tenantId);
   const stop = Math.min(Math.max(1, Math.trunc(ceiling)), DAILY_PASS_RUNAWAY_CEILING);
   try {
@@ -394,7 +405,8 @@ export async function startExtraPass(tenantId: string, ownerToken: string, day: 
       log.info("[research-run] this account has opened all of today's research passes; the next one opens tomorrow", { tenantId, day, passes: priors.length });
       return null;
     }
-    const run = await repo.startPass({ tenantId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS, day });
+    const run = await repo.startPass({ tenantId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS, day,
+      ...(plan != null && plan.length > 0 ? { progress: { plan: { units: [...plan] } } } : {}) });
     return run == null ? null : await inheritDayState(run, ownerToken, priors);
   } catch (error) {
     log.warn("[research-run] extra same-day pass could not open; nothing runs", { tenantId, error: error instanceof Error ? error.message : String(error) });

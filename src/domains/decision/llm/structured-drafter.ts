@@ -125,11 +125,6 @@ function fewShotProvenanceFrom(
   return { pattern: hint.pattern, winningPage: hint.winningPage, sentence };
 }
 
-/** Rough gpt-5-mini cost (~$0.25/1M in, ~$2/1M out; ~4 chars/token). */
-function estimateCostUsd(promptChars: number, completionChars: number): number {
-  return (promptChars / 4 / 1_000_000) * 0.25 + (completionChars / 4 / 1_000_000) * 2;
-}
-
 const SUPERLATIVES = /\b(best|leading|#1|number one|top-rated|guaranteed|world-class|ultimate|premier)\b/i;
 
 /** Pilot loop 6: a rephrase-class retry asks the model to REWRITE its answer -
@@ -569,10 +564,16 @@ function httpStatusRetryable(status: number): boolean {
   return status === 429 || status >= 500;
 }
 
-/** Spend for one attempt: the gateway's usage-based cost, else an input estimate. */
-function attemptCostUsd(costUsd: number | null | undefined, promptChars: number): number {
+/**
+ * WHAT ONE ATTEMPT ACTUALLY COST: the provider's own usage receipt, or ZERO. An attempt that came back with no receipt (a 429, a socket that died, a stop before the
+ * network) bought nothing, so nothing is recorded against any cap. This used to substitute an ESTIMATE, which is how a throttled minute became money on the books: a
+ * projection may RESERVE spend before a call, but only a receipt may record it, or a refill lands on an account Beacon has already blocked over purchases it never made.
+ * RECONCILIATION, PLAINLY: rows written BEFORE this fix overstate. The 660 calls and $0.832 recorded on 4 August 2026 mix real receipts with estimates for calls that
+ * returned nothing. History is not rewritten here; it is simply not trustworthy below the receipt line before this change.
+ */
+function attemptCostUsd(costUsd: number | null | undefined): number {
   const c = costUsd;
-  return typeof c === "number" && Number.isFinite(c) && c > 0 ? c : estimateCostUsd(promptChars, 0);
+  return typeof c === "number" && Number.isFinite(c) && c > 0 ? c : 0;
 }
 
 function defaultComplete(apiKey: string, promptId: PromptId): CompleteFn {
@@ -607,8 +608,10 @@ function defaultComplete(apiKey: string, promptId: PromptId): CompleteFn {
       case "invalid_response":
         // A POST-network invalid carries provenance: bill its REAL usage cost.
         return { error: outcome.reason || "invalid_response", retryable: false, costUsd: outcome.provenance?.costUsd ?? undefined };
-      case "http_error":
-        return { error: `openai_${outcome.status}`, retryable: httpStatusRetryable(outcome.status) };
+      case "blocked_credit": // the door already holds every call for this account, so asking again is the storm this closes
+        return { error: "blocked_credit", retryable: false };
+      case "http_error": // AN EMPTY BALANCE IS NEVER RETRYABLE however it is dressed: it arrives as a 429, which the throttle rule alone would send back into the same wall
+        return { error: `openai_${outcome.status}${outcome.code ? `_${outcome.code}` : ""}`, retryable: outcome.code !== "credit_balance_exhausted" && httpStatusRetryable(outcome.status) };
       case "error":
         return { error: outcome.reason || "fetch_failed", retryable: true };
     }
@@ -793,9 +796,8 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       }
     }
 
-    // The retry-instruction flags above have now been consumed for this attempt;
-    // clear them so any failure below re-sets only the reason that actually
-    // applies (the explicit resets on each failure path stay as documentation).
+    // The retry-instruction flags above have now been consumed for this attempt; clear them so any failure below
+    // re-sets only the reason that actually applies (the explicit resets on each failure path stay as documentation).
     lastFailureWasSuperlative = false;
     lastFailureWasTemplated = false;
     lastFailureWasThin = false;
@@ -808,14 +810,12 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
 
     const out = await complete({ system, user: req.user, maxTokens, timeoutMs, kind: req.kind, tenantId });
 
-    const blockedBudget = "error" in out && out.error === "blocked_budget"; // budget block fired NO call
-    if (!blockedBudget) {
-      const attemptCost = attemptCostUsd("error" in out ? out.costUsd : out.provenance?.costUsd, system.length + req.user.length);
-      totalCost += attemptCost;
-      // Onboarding SETTLES its reservation to the real cost (reserved == projectedCostUsd); others record against the monthly cap.
-      if (isOnboarding) await reconcileOnboardingSpend(projectedCostUsd, attemptCost, { tenantId }).catch(() => {});
-      else await recordSpend(attemptCost, { tenantId }).catch(() => {});
-    }
+    const attemptCost = attemptCostUsd("error" in out ? out.costUsd : out.provenance?.costUsd); totalCost += attemptCost;
+    // Onboarding SETTLES its reservation against the real cost EVERY time, including zero, which refunds in full the
+    // reservation an attempt that bought nothing had already parked. Everyone else records only a receipt: a call
+    // that returned no usage records no spend (onboarding still reconciles to zero, touching the row and its capless call counter: money stays purchases-only).
+    if (isOnboarding) await reconcileOnboardingSpend(projectedCostUsd, attemptCost, { tenantId }).catch(() => {});
+    else if (attemptCost > 0) await recordSpend(attemptCost, { tenantId }).catch(() => {});
 
     if ("error" in out) {
       errors.push(`llm_${out.error}`);
