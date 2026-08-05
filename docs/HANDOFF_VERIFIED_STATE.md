@@ -6,7 +6,7 @@
 ## Current foundation
 
 - Branch `main`; MVP rebuild started at `4669fbb5`. Stack: Next.js App Router, strict TypeScript, Supabase, Vercel.
-- Production TypeScript is 72,441 lines under a 73,249 ceiling; tests 11,505 at the 11,505 ceiling; combined 83,946.
+- Production TypeScript is 71,835 lines under a 73,249 ceiling; tests 11,505 at the 11,505 ceiling; combined 83,340.
 - The foundation guard caps production, tests, combined LOC, domains, routes, exports, files, dependencies, and
   Markdown. `npm run gate` runs the guard, typecheck, tests, and build.
 - Five kernels exist (Account, Evidence, Decision, Measurement, Runtime); five surfaces (Today, Visibility,
@@ -26,8 +26,7 @@
   confidence, source URLs) over the approved Product Truth fields, backed by the `business_config` row at
   schemaVersion 2 with raw pre-canonical JSON preserved under an inert `legacy` key. Profile reads are async and
   Supabase-only: a cold first read resolves the real identity, a missing row or transient failure is never cached,
-  and no file, env, founder, or process-global fallback exists. Provisioning writes a generic row; missing
-  configuration fails generic at every former leak site.
+  and no file, env, founder, or process-global fallback exists. Provisioning writes a generic row; missing configuration fails generic at every former leak site.
 - Test fixtures carry generic identities; synthetic non-Latin-script sample content is retained for coverage.
 - Revenue settings were removed (an MVP non-goal); unit economics is dormant; publishing remains manual.
 - No account can become stranded (2026-07-26): signup writes the real `business_name` column (every prior signup
@@ -59,11 +58,15 @@
   starting exactly one durable Research Run. Verified end to end rendered, desktop and mobile, with real crawl,
   real model calls, mid-flow website/goal changes. One inert synthetic pending account remains for review.
 - Durable Research Runs exist (Slice 4, 2026-07-24), triggered by the Supabase-scheduled dispatcher every 30
-  minutes (Dream V1, live since 2026-08-03; deployed and verified at `0d6a8b30`), with an authenticated visit as
+  minutes (Dream V1, live since 2026-08-03; deployed and verified at `5f4cf1a9`), with an authenticated visit as
   the recovery trigger only. Recovery passes carry a scoped unit plan; answer re-reads reach the last 26 weeks
   exactly; the credit breaker allows bounded concurrent probes, one per process; a call abandoned at the client's
-  own deadline carries no usage receipt and never settles an answer, which stays owed until a real reading
-  lands. Everything below describes the runtime as built. A visit renders the saved
+  own deadline carries no usage receipt and never settles an answer, which stays owed until a real reading lands.
+  The EvidenceSnapshot and keyword discovery read the canonical ai_observations record (latest useful row per
+  active question and engine, with fan-outs, citations, retrieved pages and settled readings; live-verified at
+  140 pairs for the live account), never the funnel's transient window and never the deleted legacy projection;
+  harvested keywords accumulate across passes, a failed read keeps history and says so, and four read states
+  carry four distinct claims. Everything below describes the runtime as built. A visit renders the saved
   surfaces first, then claims or resumes the account's Research Run through an atomic database-time lease RPC. At
   most one unfinished run per account across all dates (partial unique index): the claim resumes it whatever day
   it started (same row, phase, cursor, progress; a live foreign lease blocks, an expired one reclaims), a
@@ -128,8 +131,7 @@
   withheld while no body backs them, metric sentences naming their scope, and a producer failure never publishing a
   fresh timestamp over stale proposals. Page snapshots read Supabase. Business Info is provenance-safe. Results
   bands are maturity-true: early = Promising, Win = 28-day only, still-measuring carries no verdict. Today counts
-  the full Ready list, names how many pages are under investigation, and carries the decision's own verdict for the
-  page it blames; manual implementation and 7/14/28 stand.
+  the full Ready list, names how many pages are under investigation, and carries the decision's own verdict for the page it blames; manual implementation and 7/14/28 stand.
 ## Known target mismatches
 
 - Profound and SEMrush survive only as historical-row reads and inert comments (Slice 2 removed the connector
@@ -142,7 +144,6 @@
 ## Environment readiness
 
 Verified variable-name presence without reading or printing values:
-
 - Local and Vercel production have Supabase and OpenAI credentials.
 - Vercel production has Google OAuth client credentials and a GSC site configuration.
 - DataForSEO credentials are live-validated locally AND set on Vercel production; missing credentials fail
@@ -151,8 +152,7 @@ Verified variable-name presence without reading or printing values:
 ## Current routes
 
 - Today `/`; Changes `/changes` and `/changes/[id]`; Results `/results`; Connections `/settings/connectors`;
-  minimal settings, onboarding, login, signup, Google callback, and version routes. New customer routes
-  require operator approval.
+  minimal settings, onboarding, login, signup, Google callback, and version routes. New customer routes require operator approval.
 
 ## V1 Truth Convergence (Phases 0-9 complete, 2026-08-01)
 
