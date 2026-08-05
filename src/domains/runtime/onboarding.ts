@@ -210,11 +210,12 @@ export async function inferProfile(tenantId: string, deps?: OnboardingDeps): Pro
 
   const suppliedUrls = new Set(facts.map((f) => f.url));
   const domain = crawl?.domain ?? "";
-  const llm = await callStructuredLLM({
-    kind: "business_profile_inference", tenantId, budgetPlatform: "onboarding-openai",
-    system: INFER_SYSTEM, user: buildInferUser(domain, facts), grounded: factsGrounding(facts),
-    complete: d.complete, now: d.now(),
-  });
+  const ask = () => callStructuredLLM({ kind: "business_profile_inference", tenantId, budgetPlatform: "onboarding-openai",
+    system: INFER_SYSTEM, user: buildInferUser(domain, facts), grounded: factsGrounding(facts), complete: d.complete, now: d.now() });
+  // ONE SLOW CALL MAY NOT DOWNGRADE AN ACCOUNT FOR GOOD. The deterministic profile below writes topicsToOwn, which makes this whole step read as already inferred forever, so a single
+  // call abandoned at my own deadline would cost this account its model read permanently, with no way back. That call bought no answer and left no receipt, so this lane asks once more.
+  let llm = await ask();
+  if (llm.status === "validation_failed" && llm.failure === "client_timeout") llm = await ask();
 
   if (llm.status === "drafted") {
     const v = llm.value;

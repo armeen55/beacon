@@ -10,9 +10,9 @@ import "server-only";
  * batch grounded as a single body of text let a number only answer A contained validate a fabricated claim about answer B. EVERY PIECE THIS PASS SENDS COMES BACK
  * SETTLED: merged, or dropped with its reason, and a piece never sent is owed.
  *
- * WHOSE FAILURE WAS IT DECIDES EVERYTHING, AND BILLED IS BILLED (see ReadFailure below, which names all seven). Only a call that never returned a body leaves
- * nothing stored and the answers due, and the pass STOPS there rather than fanning one throttled batch into fifteen more calls; anything that RETURNED settles
- * every answer it covered, permanently, for that hash, after dropping to ONE CALL PER PIECE first so the readings themselves still land. EVERYTHING PURCHASED IS
+ * WHOSE FAILURE WAS IT DECIDES EVERYTHING, AND ONLY A RECEIPT SETTLES (see ReadFailure below, which names all seven). A call that returned no body leaves nothing
+ * stored and the answers due, and the pass STOPS there rather than fanning one throttled batch into fifteen more calls; anything that RETURNED settles every
+ * answer it covered, permanently, for that hash, after dropping to ONE CALL PER PIECE first so the readings themselves still land. EVERYTHING PURCHASED IS
  * OWED A READING: a pass reads the OLDEST day that still owes one across a ROTATING lookback of THE LAST 26 WEEKS (182 days), not the run's own day, not a fixed
  * recent week, and not any age at all, because today's fresh debt kept that week busy and permanently abandoned everything behind it. THE DETERMINISTIC VERDICT IS NEVER THE MODEL'S TO REFUSE: every answer this pass
  * settles carries mentioned true OR false, off the answer's own words and the addresses it credited, and `matchedBy` says which found it, so Visibility divides by
@@ -189,22 +189,23 @@ function numberNotInOwnAnswer(analysis: AnswerAnalysis, ownText: string): string
 /** WHY A READING DID NOT LAND, BY NAME, AND THE NAME IS THE TRANSPORT'S OWN TYPE (gateway.ts's LlmFailure, threaded through the drafter). One word, `refused`,
  *  used to cover a reader saying no, an output whose shape I could not parse, an answer cut off half way and a call I abandoned at my own timeout, so nobody could
  *  tell a provider's failure from a bug of mine and every one of them was made permanent on the same evidence. Each name decides two things: does the answer settle
- *  for good, and does the pass go on. RETURNED AND BILLED, so PERMANENT for this answer at this hash: `provider_refused` (the reader refused the content),
- *  `schema_invalid` (a shape I could not use, or a number its own answer never says; ledgered), `incomplete` (it returned and left this answer out, or cut it off)
- *  and `client_timeout` (I gave up at my own deadline while the model was writing, which OpenAI bills; billed is billed, so 638 calls and $0.80 settle rather than
- *  buy the same nothing twice). NEVER RETURNED, NEVER BILLED, so nothing is stored and the answer stays owed: `transient` (a throttle, a server fault, a dead
- *  connection, a request the provider would not take), `credit_exhausted` (the ACCOUNT'S own provider balance) and `budget` (Beacon's own cap: no call was made).
- *  The last two also STOP the pass. NOTHING IS MATCHED OUT OF AN ERROR SENTENCE ANY MORE: anchoring on the exact string `llm_openai_429` meant the same throttle
- *  wearing the code OpenAI actually sends (`openai_429_rate_limit_exceeded`) fell through to schema_invalid, and 50 answers on 3 August were settled as refused,
- *  stamped with their own answer hash, for calls that returned nothing and cost nothing. */
+ *  for good, and does the pass go on. IT RETURNED A BODY AND A USAGE RECEIPT, so it is PERMANENT for this answer at this hash: `provider_refused` (the reader
+ *  refused the content), `schema_invalid` (a shape I could not use, or a number its own answer never says; ledgered) and `incomplete` (it returned and left this
+ *  answer out, or cut it off). NO BODY AND NO RECEIPT, so nothing is stored and the answer stays owed: `transient` (a throttle, a server fault, a dead connection,
+ *  a request the provider would not take), `client_timeout` (I abandoned the call at my own deadline, which returned nothing and carries no receipt, so I cannot
+ *  prove the reader ever began or that a cent was charged; the storm it used to justify settling is prevented by the BOUNDED LADDER instead, one batch attempt then
+ *  bounded singles, and a single that also runs past the deadline stops the pass at two unbilled calls, so an answer that keeps timing out stays owed at that price
+ *  and settles itself the first time any reading lands), `credit_exhausted` (the ACCOUNT'S own provider balance) and `budget` (Beacon's
+ *  own cap: no call was made). The last three also STOP the pass. NOTHING IS MATCHED OUT OF AN ERROR SENTENCE ANY MORE: anchoring on the exact string
+ *  `llm_openai_429` meant the same throttle wearing the code OpenAI actually sends (`openai_429_rate_limit_exceeded`) fell through to schema_invalid, and 50
+ *  answers on 3 August were settled as refused, stamped with their own answer hash, for calls that returned nothing and cost nothing. */
 type ReadFailure = LlmFailure;
-/** The names a PERMANENT non-reading is stored under. `attempts_exhausted` is the bounded ladder itself running out: one batch, then one call for this piece
- *  alone, neither usable and both billed, so a third ask only buys the same nothing. */
-type ReadOutcome = "provider_refused" | "schema_invalid" | "incomplete" | "client_timeout" | "attempts_exhausted";
+/** The names a PERMANENT non-reading is stored under, every one of them a call that RETURNED. `attempts_exhausted` is the bounded ladder itself running out: one
+ *  batch, then one call for this piece alone, neither usable and both billed, so a third ask only buys the same nothing. */
+type ReadOutcome = "provider_refused" | "schema_invalid" | "incomplete" | "attempts_exhausted";
 /** What each named non-reading says on the record, in the operator's own words. */
 const WHY_SAID: Record<ReadOutcome, string> = { provider_refused: "the reader refused to read it", schema_invalid: "the reading came back in a shape I could not use",
-  incomplete: "it was left out of the reading that came back", client_timeout: "I gave up waiting for it after three minutes, and the reader had already started writing",
-  attempts_exhausted: "I asked for it in a batch and then on its own, and neither came back usable" };
+  incomplete: "it was left out of the reading that came back", attempts_exhausted: "I asked for it in a batch and then on its own, and neither came back usable" };
 
 type AnalysisDeps = {
   readObservations?: (tenantId: string, opts: { day?: string }) => Promise<readonly AnalyzableObservation[]>;
@@ -432,7 +433,8 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
         singlesLeft -= 1;
         // A reader that names no reason at all has now failed this piece TWICE, both billed: the ladder is spent, and that is the name it is settled under.
         const one = await analyze({ tenantId, question: p.question, engine: p.row.engine, answerText: p.text, brand: identity.name }).catch(() => "transient" as const) ?? ("attempts_exhausted" as const);
-        if (one === "transient" || one === "budget" || one === "credit_exhausted") { stalled = true; break; }
+        // A single that returned nothing (a throttle, my own deadline, a spent balance, my own cap) stores nothing for this piece: the pass ends here and it is still owed.
+        if (one === "transient" || one === "client_timeout" || one === "budget" || one === "credit_exhausted") { stalled = true; break; }
         billed += 1; sent.push(p);
         if (typeof one === "string") classOf.set(p.key, one); else readings.set(p.key, one);
       }
@@ -474,10 +476,13 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     // forever. The batch is small now, and a throttled one still degrades to single reads on THIS pass at ~1,500 tokens each. Nothing is stored against a throttled batch: it was
     // never billed, so every answer it carried is still due and is asked one at a time instead.
     if (readings === "transient") { log.warn("[daily-observations] the batch read was throttled, so I am reading these answers one at a time instead", { tenantId, day: reading, owed: group.length }); if (await readOneByOne(byAnswer)) break; continue; }
+    // MY OWN DEADLINE IS NOT A PURCHASE AND NOT A VERDICT. The call was abandoned with no body and no usage receipt, so nothing here proves the reader began or that
+    // anything was charged: it is never counted as billed, nothing is stored against the answers it carried, and they are asked one at a time on THIS pass instead.
+    if (readings === "client_timeout") { log.warn("[daily-observations] the batch read ran past my own deadline, so I am reading these answers one at a time instead", { tenantId, day: reading, owed: group.length }); if (await readOneByOne(byAnswer)) break; continue; }
     billed += 1;
-    // IT RETURNED AND I COULD NOT USE IT: a refusal, a shape I could not parse, a body cut off half way, or a call abandoned at my own timeout with the meter
-    // running. The gateway already retried this call once against the same schema, so a second identical batch buys the same answer: the group drops to one piece
-    // at a time instead, each named by whatever the single read says, and ends this pass settled either way.
+    // IT RETURNED AND I COULD NOT USE IT: a refusal, a shape I could not parse, or a body cut off half way. The gateway already retried this call once against the
+    // same schema, so a second identical batch buys the same answer: the group drops to one piece at a time instead, each named by whatever the single read says,
+    // and ends this pass settled either way.
     if (typeof readings === "string") { if (await readOneByOne(byAnswer)) break; continue; }
     // A MISSING, UNKNOWN OR UNGROUNDED PIECE IS ONE DROP, not fifteen. Its neighbours keep their readings.
     for (const pieces of byAnswer) await settleAnswer(pieces, readings);

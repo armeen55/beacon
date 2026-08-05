@@ -309,6 +309,7 @@ export function isAnalysisSettled(r: { analysis: unknown; analysisHash: string |
   if (a == null || r.analysisHash == null || r.analysisHash !== r.answerHash) return false;
   if (a.rejected !== true) return true;
   if (a.outcome !== "refused") return false;
+  if (a.readOutcome === "client_timeout") return false; // a call abandoned at my own deadline returned no body and no usage receipt, so it can never be the reason an answer is finished
   return a.readOutcome !== "schema_invalid" || a.verdictRules === TYPED_FAILURE_RULES;
 }
 

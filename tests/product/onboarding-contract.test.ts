@@ -138,10 +138,13 @@ describe("onboarding contract (Slice 5)", () => {
     const w = makeWorld();
     seedPending(w, A, { domain: "acme.test" }); seedCrawl(w, A);
     const r = await inferProfile(A, { ...w.deps, complete: completeInfer(["https://acme.test/", "https://evil.test/steal"]) });
-    expect(r.status).toBe("inferred");
     const p = w.profiles.get(A)!;
-    expect(p.name.origin).toBe("inferred"); expect(p.offerings.value).toContain("rug cleaning");
-    expect(p.name.sourceUrls).toEqual(["https://acme.test/"]); // the outside URL is stripped
+    expect([r.status, p.name.origin, p.offerings.value.includes("rug cleaning"), p.name.sourceUrls]).toEqual(["inferred", "inferred", true, ["https://acme.test/"]]); // the outside URL is stripped
+    // ONE SLOW CALL IS NOT A DOWNGRADE, TWO IS. The deterministic profile makes this whole step read as already inferred forever, so a single call abandoned at my own deadline used to cost this account its model read permanently with no way back. That call bought no answer and left no receipt, so it is asked once more, and only a second deadline settles for the profile I can read off the crawl myself.
+    const ladder = async (slow: number, failure: "client_timeout" | "provider_refused" = "client_timeout") => { let asks = 0; const w2 = makeWorld();
+      seedPending(w2, A, { domain: "acme.test" }); seedCrawl(w2, A); const slowAsk = { error: "the reader would not serve this call", retryable: false, failure };
+      const got = await inferProfile(A, { ...w2.deps, complete: async (a) => ((asks += 1) <= slow ? slowAsk : completeInfer(["https://acme.test/"])(a)) }); return [got.source, asks]; };
+    expect([await ladder(1), await ladder(2), await ladder(1, "provider_refused")]).toEqual([["site_model", 2], ["site_read", 2], ["site_read", 1]]); // only a receiptless deadline earns the re-ask; a refusal carried a receipt and settles first time
   });
   it("3. the goal vocabulary is closed and a single field edit never confirms the whole profile", async () => {
     const w = makeWorld();

@@ -194,29 +194,27 @@ type StructuredCallOutcome =
   | { kind: "blocked_budget"; reason: string }
   | { kind: "refusal"; provenance: LlmProvenance }
   | { kind: "incomplete"; reason: string; provenance: LlmProvenance }
-  // provenance present ONLY for a POST-network invalid (the envelope supplied
-  // real usage/cost); a PRE-network invalid (unsupported schema, missing tenant)
-  // has no provider provenance and no cost.
+  // provenance present ONLY for a POST-network invalid (the envelope supplied real usage/cost); a PRE-network invalid (unsupported schema, missing tenant) has none, and no cost either.
   | { kind: "invalid_response"; reason: string; provenance?: LlmProvenance }
-  // `code` is the provider's OWN machine code (`credit_balance_exhausted`, `rate_limit_exceeded`, ...), never its
-  // prose, so a caller can tell an empty balance from a busy minute without a single word of the body escaping.
+  // `code` is the provider's OWN machine code (`credit_balance_exhausted`, `rate_limit_exceeded`, ...), never its prose: a caller tells an empty balance from a busy minute, no body text escaping.
   | { kind: "http_error"; status: number; code?: string; retryAfterMs?: number }
   // The account is held for credit. No network, no cost, and every caller inherits the stop without its own logic.
   | { kind: "blocked_credit"; reason: string }
-  // `timedOut` separates a call I ABANDONED at my own deadline (the model may have been writing, and OpenAI bills
-  // that) from a connection that never delivered a body at all. Nobody may tell those apart from the message text.
+  // `timedOut` is my OWN deadline firing and nothing more: no response and no usage receipt came back, so it proves
+  // neither that generation began nor that anything was charged. Only the error's own NAME may set it, never wording.
   | { kind: "error"; reason: string; timedOut: boolean };
 
 /**
  * WHOSE FAILURE IT WAS, AS A TYPE. THE one name for a call that produced no usable value, decided HERE at the transport
  * boundary and carried by every caller, because reading it back out of an error string is how an ordinary throttle
- * became a permanent verdict on somebody's answer. Each name answers two questions: was anything BILLED (so is it
+ * became a permanent verdict on somebody's answer. Each name answers two questions: did a RECEIPT come back (so is it
  * honest to settle on it), and does the pass go on. `budget` is my own allowance saying no, before any call.
  * `credit_exhausted` is the PROVIDER saying this account's balance is empty. `transient` is a call that came back with
  * nothing and was billed nothing (a busy minute, a server fault, a dead socket, a request the provider would not take),
- * so the work stays owed rather than being settled on a failure of mine. `client_timeout` is me giving up at my own
- * deadline while the model was writing, which is billed, so settling on it is honest. `provider_refused` is the reader
- * refusing the content, `incomplete` is an answer cut off or left out, and `schema_invalid` is a body I could not use.
+ * so the work stays owed rather than being settled on a failure of mine. `client_timeout` is me abandoning the call at
+ * my own deadline: no body and no usage receipt came back, so nothing proves generation began or that the provider
+ * charged, and it is a distinct transport fact for telemetry that NEVER settles an answer. `provider_refused` is the
+ * reader refusing the content, `incomplete` is an answer cut off or left out, `schema_invalid` a body I could not use.
  */
 export type LlmFailure =
   | "budget" | "credit_exhausted" | "transient" | "client_timeout" | "provider_refused" | "incomplete" | "schema_invalid";
@@ -240,6 +238,9 @@ export function llmFailureOf(outcome: StructuredCallOutcome): LlmFailure {
   }
 }
 
+/** PURE. WHAT A THROW ON THE WIRE WAS, and the answer is the same whether the connection never opened or the envelope stopped arriving half read: ONLY the error's own NAME says my deadline fired
+ *  (AbortSignal.timeout aborts with a DOMException named TimeoutError), because a message sniff made every socket abort a deadline. Neither case read a usage receipt, so neither may settle an answer. */
+const threwOnTheWire = (e: unknown, fallback: string) => ({ reason: (e instanceof Error ? e.message.slice(0, 80) : "") || fallback, timedOut: e instanceof Error && e.name === "TimeoutError" });
 function underVitest(): boolean {
   return process.env.VITEST === "true";
 }
@@ -423,12 +424,9 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (e) {
-    const reason = e instanceof Error ? e.message.slice(0, 80) : "fetch_failed";
-    // MY OWN DEADLINE IS NOT A DEAD CONNECTION. AbortSignal.timeout throws a TimeoutError; the provider had already
-    // started writing and bills it, so the caller must be told that here rather than guess it from the wording later.
-    const timedOut = e instanceof Error && (e.name === "TimeoutError" || /\babort/i.test(e.message));
+    const { reason, timedOut } = threwOnTheWire(e, "fetch_failed");
     await reportGatewayFailure(id, timedOut ? "client_timeout" : "network_failed", reason);
-    return { kind: "error", reason: reason || "fetch_failed", timedOut };
+    return { kind: "error", reason, timedOut };
   }
 
   if (!response.ok) {
@@ -447,9 +445,11 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   let json: unknown;
   try {
     json = await response.json();
-  } catch {
-    await reportGatewayFailure(id, "invalid_response_body_not_json");
-    return { kind: "invalid_response", reason: "response body was not JSON" };
+  } catch (e) {
+    // AN ENVELOPE THAT STOPPED ARRIVING IS NOT A SHAPE I COULD NOT USE, and it was read as one, so a deadline or a socket reset mid body came back as schema_invalid and was stamped on somebody's answer as a permanent refusal. NOTHING THROWN HERE MAY SETTLE ANYTHING: no usage receipt was ever readable, and that covers a complete body that is not JSON too.
+    const { reason, timedOut } = threwOnTheWire(e, "body_read_failed");
+    await reportGatewayFailure(id, timedOut ? "client_timeout" : "body_read_failed", reason);
+    return { kind: "error", reason, timedOut };
   }
 
   const fields = readProvenanceFields(json);

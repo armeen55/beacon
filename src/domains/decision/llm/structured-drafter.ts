@@ -610,7 +610,7 @@ function defaultComplete(apiKey: string, promptId: PromptId): CompleteFn {
       case "invalid_response": return { error: outcome.reason || "invalid_response", retryable: false, costUsd: outcome.provenance?.costUsd ?? undefined, failure }; // a POST-network invalid carries provenance: bill its REAL usage cost
       // AN EMPTY BALANCE IS NEVER RETRYABLE however it is dressed: it arrives as a 429, which the throttle rule alone would send back into the same wall.
       case "http_error": return { error: `openai_${outcome.status}${outcome.code ? `_${outcome.code}` : ""}`, retryable: failure !== "credit_exhausted" && httpStatusRetryable(outcome.status), failure };
-      case "error": return { error: outcome.reason || "fetch_failed", retryable: true, failure };
+      case "error": return { error: outcome.reason || "fetch_failed", retryable: !outcome.timedOut, failure }; // a dead socket is worth one more try; MY OWN DEADLINE only re-buys the same slow call, and it has no receipt to show either way
     }
   };
 }

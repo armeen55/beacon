@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import {
-  openAIStructuredResponse, effectiveTimeoutMs, isReasoningModel, estimateCost, strictJsonSchemaFor,
+  openAIStructuredResponse, effectiveTimeoutMs, isReasoningModel, estimateCost, strictJsonSchemaFor, llmFailureOf,
   type StructuredCallArgs, type CostBreakerImpl,
 } from "@/domains/decision/llm/gateway";
 import { decideCreditBreaker } from "@/lib/cost/credit-breaker";
@@ -118,6 +118,11 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
       // A POST-network invalid supplied usage, so its cost is real spend and must not be discarded.
       if (detail === "failed_status") expect([res.provenance?.tenantId, res.provenance?.costUsd]).toEqual(["tenant-fixture", estimateCost("gpt-5-mini", 1200, 300)]);
     }
+  });
+  it("calls a timeout a timeout by name only, never by wording, because my own deadline brings back no body and no usage receipt", async () => {
+    const sig = AbortSignal.timeout(1); await new Promise((r) => setTimeout(r, 5)); // ONE IDENTITY: the NAME on AbortSignal.timeout's reason. Sniffing "abort" out of a message made every dead socket a deadline.
+    const err = async (e: Error) => openAIStructuredResponse(baseArgs({ fetchImpl: fakeFetch(completedEnvelope("{}"), { throwErr: e }).impl }));
+    expect([await err(sig.reason as Error), await err(new Error("socket hang up: request aborted"))].map((r) => [r.kind === "error" && r.timedOut, llmFailureOf(r)])).toEqual([[true, "client_timeout"], [false, "transient"]]);
   });
   it("floors reasoning-model timeouts to 90s and leaves others alone", () => {
     expect([isReasoningModel("gpt-5-mini"), isReasoningModel("gpt-4o-mini")]).toEqual([true, false]);
