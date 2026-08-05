@@ -92,29 +92,39 @@ type ResearchKeyword = {
 
 type ResearchCitation = { url: string; domain: string; title: string | null };
 
-type ResearchAiObservation = {
+/** ONE stored AI answer, as the snapshot carries it: the identity it lives under in ai_observations, the whole journey
+ *  the engine reported, and the settled reading of it when there is one. It replaces the funnel's projected working
+ *  pair, which held one 20 pair window, so an account with 140 answers a day read as an account with one answer.
+ *  TRI-STATE DISCIPLINE on every list: null = this path does not report it at all, [] = it reported none.
+ *  `analysis` is present ONLY for a reading settled under current rules against THIS answer, and never for a refusal. */
+export type CanonicalPairObservation = {
+  observationId: string;
   promptId: string;
+  promptVersion: number;
   /** The REAL prompt text observed (never a prompt id surfaced as evidence). */
   promptText: string;
   engine: string;
-  /** Frozen provenance: which retrieval experience produced this observation. */
-  observationMode: ObservationMode;
   modelRequested: string | null;
   modelServed: string | null;
+  /** Frozen provenance: which retrieval experience produced this observation. */
+  observationMode: ObservationMode;
+  reportingDay: string;
+  /** When the reading landed; null = the row never recorded a completion. */
+  observedAt: string | null;
+  answerHash: string;
   /** Provider-REPORTED web-search state; null = not reported. */
   webSearchReported: boolean | null;
-  /** true = citations were observable on this path; false = not observable. */
-  citationsObserved: boolean;
-  /** null = not observable; [] = observed zero; nonempty = real citations. */
-  citations: ResearchCitation[] | null;
-  /** null = not observable on this path. */
+  /** DERIVED, never stored: citations !== null, which every reader of this shape asks as "was this path able to
+   *  credit anybody at all". The loader always fills it; absent only on a row a test built by hand. */
+  citationsObserved?: boolean;
   fanOutQueries: string[] | null;
+  citations: ResearchCitation[] | null;
   /** The pages the engine reported it RETRIEVED. A page here may also appear in `citations`, so the
-   *  not-cited half is derived by `retrievedNotCitedLinks`, never read off this list. null = not observable. */
-  retrievedResults?: { url: string; domain: string; title: string | null }[] | null;
+   *  not-cited half is derived by `retrievedNotCitedLinks`, never read off this list. */
+  retrievedResults: ResearchCitation[] | null;
   /** Brand names the engine itself surfaced; null = not observable, [] never fabricated. */
-  brandMentions?: string[] | null;
-  observedAt: string;
+  brandMentions: string[] | null;
+  analysis: Record<string, unknown> | null;
 };
 
 type ResearchSerpEvidence = {
@@ -296,7 +306,8 @@ type ResearchReceipt = {
 
 export type FunnelResearchEvidence = {
   retainedKeywords: ResearchKeyword[];
-  aiObservations: ResearchAiObservation[];
+  /** THE CANONICAL RECORD, loaded from ai_observations by the snapshot loader; the funnel never fills this. */
+  aiObservations: CanonicalPairObservation[];
   serpEvidence: ResearchSerpEvidence[];
   winningPages: ResearchWinningPage[];
   /** Optional so a bundle built before comparisons existed still reads (as none of them). */

@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { dualWriteUpsertScoped } from "@/lib/persistence/dual-write";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import type { ObservationMode, ResearchEngine } from "@/domains/evidence/funnel/research-evidence";
+import type { CanonicalPairObservation, ObservationMode, ResearchEngine } from "@/domains/evidence/funnel/research-evidence";
 import type { AnswerUsage, ObservedCitation, ParsedAiAnswer } from "@/domains/evidence/dataforseo/funnel-boundary";
 import type { PromptAnswerObservation } from "./prompt-answer-observations";
 
@@ -212,6 +212,76 @@ export async function readAiObservations(
   }
   if (!exhausted && rows.length >= MAX_ROWS) throw new Error(`[ai_observations] read hit the ${MAX_ROWS} row ceiling; ask for a narrower day range`);
   return rows;
+}
+
+export type { CanonicalPairObservation };
+
+/** THE CEILING ON THE SNAPSHOT'S OWN READ, newest first: 1,000 rows. At 140 readings a day that reaches about a week,
+ *  and every active pair is re-observed daily, so the latest useful row of each pair sits well inside it. A pair whose
+ *  newest reading is older than that is honestly ABSENT here rather than quietly presented as current. */
+const CANONICAL_ROWS = 1000;
+
+/** A READ THAT DID NOT HAPPEN, said out loud. An empty list here would claim the account has no AI answers, and on a
+ *  418 answer account a Supabase blip did exactly that. Every caller either handles this or lets it travel. */
+export class CanonicalReadFailure extends Error {}
+
+/**
+ * THE ACCOUNT'S AI EVIDENCE: the latest useful stored answer for every ACTIVE tracked question on every engine, read
+ * back off the canonical record. Zero provider calls, zero writes. A failed read THROWS `CanonicalReadFailure`; only
+ * an account that genuinely has no tracked questions and no stored answer comes back empty.
+ *
+ * SCOPE, all of it decided here so nothing downstream has to guess: this account, sample slot 0, an answer actually in
+ * hand (`observed` with a hash), and the question's CURRENT version only. A retired question and a superseded wording
+ * are both somebody else's history, so neither speaks for today. `prompts` is injectable; by default the ONE owner of
+ * the tracked set is asked, so what the operator approved and what this reads can never disagree.
+ */
+export async function readCanonicalPairObservations(
+  tenantId: string, opts: { prompts?: readonly { id: string; version: number }[] } = {},
+): Promise<CanonicalPairObservation[]> {
+  try {
+    // LAZY ON PURPOSE: Evidence owns no value import of Runtime. prompt-set is THE owner of the tracked set and it
+    // imports Evidence's engine vocabulary, so a static import here would be the one Evidence to Runtime edge and a
+    // cycle the day prompt-set reaches the Evidence facade. `opts.prompts` stays the injectable override.
+    const active = opts.prompts ?? (await (await import("@/domains/runtime/prompt-set")).readActiveTrackedPrompts(tenantId));
+    // null = the question set itself could not be read, which is NOT an account with no questions.
+    if (active == null) throw new CanonicalReadFailure("[ai_observations] I could not read which questions are tracked");
+    if (active.length === 0) return [];
+    const current = new Map(active.map((p) => [p.id, p.version]));
+    const rows = await readAiObservations(tenantId, { slot: 0, limit: CANONICAL_ROWS, projection: "list" });
+    // ONE ROW PER PAIR: the newest reporting day, ties broken by the newest ask. A day is fixed width, so the two
+    // stamps compare as one string without inventing a clock here.
+    const latest = new Map<string, AiObservationRecord>();
+    for (const r of rows) {
+      if (r.status !== "observed" || !r.answer_hash || current.get(r.prompt_id) !== r.prompt_version) continue;
+      const key = `${r.prompt_id}|${r.engine}`, held = latest.get(key);
+      if (!held || `${r.reporting_day}|${r.requested_at}` > `${held.reporting_day}|${held.requested_at}`) latest.set(key, r);
+    }
+    return [...latest.values()].map(canonicalPairOf)
+      .sort((a, b) => a.promptId.localeCompare(b.promptId) || a.engine.localeCompare(b.engine));
+  } catch (e) {
+    throw e instanceof CanonicalReadFailure ? e : new CanonicalReadFailure(`[ai_observations] canonical read failed: ${e instanceof Error ? e.message.slice(0, 200) : String(e)}`);
+  }
+}
+
+/** Pure: one stored row -> the snapshot's shape. A reading that is unsettled, taken against a different answer, or
+ *  shaped like a refusal carries NO analysis here, so a verdict nobody actually reached can never leak onto a surface. */
+export function canonicalPairOf(r: AiObservationRecord): CanonicalPairObservation {
+  // A READING IS AN OBJECT. A stored jsonb string or array with a matching hash used to be cast straight onto the
+  // snapshot, so `analysis` arrived as text nothing could read a question or an entity out of.
+  const verdict = typeof r.analysis === "object" && r.analysis !== null && !Array.isArray(r.analysis)
+    ? (r.analysis as { rejected?: unknown; outcome?: unknown }) : null;
+  const real = verdict != null && verdict.rejected !== true && verdict.outcome !== "refused"
+    && isAnalysisSettled({ analysis: r.analysis, analysisHash: r.analysis_hash, answerHash: r.answer_hash });
+  const cited = r.journey?.cited_sources ?? null;
+  return {
+    observationId: r.id, promptId: r.prompt_id, promptVersion: r.prompt_version, promptText: r.prompt_text,
+    engine: r.engine, modelRequested: r.model_requested, modelServed: r.model_served,
+    observationMode: r.observation_mode, reportingDay: r.reporting_day, observedAt: r.completed_at,
+    answerHash: r.answer_hash ?? "", webSearchReported: r.journey?.web_search_reported ?? null,
+    citationsObserved: cited !== null, citations: cited, fanOutQueries: r.journey?.fan_outs ?? null,
+    retrievedResults: r.journey?.retrieved_results ?? null, brandMentions: r.journey?.brand_mentions ?? null,
+    analysis: real ? (r.analysis as Record<string, unknown>) : null,
+  };
 }
 
 /** WHAT ONE STORED ANSWER COST, off the EXACT receipt it names. No second ledger and no estimate: cache_key is the identity of the ONE evidence_cache receipt

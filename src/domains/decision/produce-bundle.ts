@@ -162,7 +162,7 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   else if (consumer.length === 0) missing.push(`I have not yet watched what a customer sees when they ask an assistant about "${primary}".`);
   // THE FIRST ANSWER CARRIES THE ID THE CAUSE LADDER CITES (RECEIPT.ai), or a change made off it cites nothing.
   [...consumer.slice(0, 2), ...plain.slice(0, 1)].forEach((o, i) => {
-    const key = i === 0 ? RECEIPT.ai : `ai${i + 1}`; add(key, "ai_observation", observationFact(o), o.observedAt);
+    const key = i === 0 ? RECEIPT.ai : `ai${i + 1}`; add(key, "ai_observation", observationFact(o), o.observedAt); items[items.length - 1]!.observationId = o.observationId;
     if (o.citations == null) contextOnly.push(key); // context, never component support
     prompts.push(o.promptText); });
 

@@ -152,7 +152,7 @@ describe("a correction survives a save and a reload", () => {
 });
 
 const ASKED = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [{ promptId: "p1", promptText: QUERY, engine: "chatgpt", observationMode: "standardized_response",
-  modelRequested: null, modelServed: null, observedAt: FRESH, webSearchReported: null, citationsObserved: true, citations: [], fanOutQueries: [] }] });
+  modelRequested: null, modelServed: null, observedAt: FRESH, webSearchReported: null, citationsObserved: true, citations: [], fanOutQueries: [], observationId: "obs_p1", promptVersion: 1, reportingDay: "2026-07-01", answerHash: "h1", retrievedResults: null, brandMentions: null, analysis: null }] });
 /** A subject I have genuinely finished investigating: a fresh exact look, priced demand I can trace back to
  *  how I found it, an engine I asked, and three separate publishers whose pages I have actually read. */
 function COMPLETE(): EvidenceSnapshot {

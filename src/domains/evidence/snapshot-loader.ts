@@ -3,18 +3,18 @@
  * It REUSES the existing cached connector readers (it does not re-read or
  * re-shape connectors) to assemble the six loaded-source payloads, then hands
  * them to the PURE `buildEvidenceSnapshot`. Every source is wrapped fail-soft:
- * a throw becomes `status: "failed"` with an empty payload, an empty read
- * becomes `status: "empty"`, and native AI with no observation rows becomes
- * `status: "dormant"` — the source slot is ALWAYS present so its absence is
- * honest and visible on every surface.
+ * a throw becomes `status: "failed"` with an empty payload and an empty read
+ * becomes `status: "empty"`, and the source slot is ALWAYS present so its
+ * absence is honest and visible on every surface.
  *
- * Build-pass note: additive. No consumer is rewired onto this yet; the cutover
- * that repoints Decisions + surfaces and deletes the old engines is later.
+ * The AI evidence comes from the CANONICAL record (ai_observations) and from
+ * nowhere else: not from the funnel's transient working window, and not from
+ * the legacy prompt_answer_observations projection, both of which held less
+ * than the account had actually paid for.
  */
 
 import "server-only";
 
-import { log } from "@/lib/logger";
 import { basisTag, getTenant, loadBusinessProfile } from "@/domains/account";
 import { loadGscPageSignalsForTenant, type GscPageSignal } from "@/domains/evidence/readers/gsc-page-signals";
 import { loadGa4PageValuesForTenant, loadGa4PageRevenueForTenant, type Ga4PageValue } from "@/domains/evidence/readers/ga4-page-values";
@@ -22,8 +22,8 @@ import type { PageRevenueValue } from "@/domains/evidence/readers/ga4-revenue";
 import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/evidence/readers/clarity-page-signals";
 import { projectFunnelEvidence } from "@/domains/evidence/funnel/observe";
 import { loadFunnelState, type FunnelState } from "@/domains/evidence/funnel/state";
-import { emptyResearchEvidence, type FunnelResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
-import { loadNativeIntelForTenant } from "@/domains/evidence/readers/native-intel-loader";
+import { emptyResearchEvidence, type CanonicalPairObservation, type FunnelResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
+import { readCanonicalPairObservations } from "@/domains/evidence/ai-visibility/ai-observations";
 import { getRepository } from "@/lib/persistence/repositories";
 
 import {
@@ -45,6 +45,8 @@ export type LoadEvidenceSnapshotOptions = {
    *  getTenant + loadBusinessProfile + basisTag; injectable for tests. */
   resolveBasis?: (tenantId: string) => Promise<string | null>;
   loadState?: (tenantId: string, basisTag: string) => Promise<{ state: FunnelState; rowVersion: number }>;
+  /** The canonical AI evidence read; injectable so a test seeds observations without a store. */
+  loadObservations?: (tenantId: string) => Promise<CanonicalPairObservation[]>;
 };
 
 /** The account's current basis (same inputs Runtime folds into the funnel cursor). */
@@ -86,18 +88,27 @@ export async function loadEvidenceSnapshot(
 ): Promise<EvidenceSnapshot> {
   const now = options.now ?? new Date();
 
-  const [gscMap, ga4Map, revenueMap, clarityMap, research, nativeSource, snapshots] =
+  const [gscMap, ga4Map, revenueMap, clarityMap, loaded, answers, snapshots] =
     await Promise.all([
       loadGscPageSignalsForTenant(tenantId, now).catch(() => new Map<string, GscPageSignal>()),
       loadGa4PageValuesForTenant(tenantId, now).catch(() => new Map<string, Ga4PageValue>()),
       loadGa4PageRevenueForTenant(tenantId, now).catch(() => new Map<string, PageRevenueValue>()),
       loadClarityPageSignalsForTenant(tenantId, now).catch(() => new Map<string, ClarityPageSignal>()),
       loadResearch(tenantId, now, options).catch(() => ({ basis: null as string | null, evidence: emptyResearchEvidence() })),
-      loadSourceNativeIntel(tenantId),
+      // THE ACCOUNT'S AI EVIDENCE IS THE CANONICAL RECORD, never the funnel's working window: that window holds one
+      // 20 pair slice, so an account with 140 stored answers a day read here as an account with a single answer.
+      // AND A READ THAT FAILED IS NOT AN EMPTY ACCOUNT: it travels as `unread` and is said out loud on the source slot.
+      (options.loadObservations ?? readCanonicalPairObservations)(tenantId)
+        .then((rows) => ({ rows, unread: false })).catch(() => ({ rows: [] as CanonicalPairObservation[], unread: true })),
       // Supabase is the one persistence path: the tenant repo's lean projection,
       // never the legacy .data file (empty on every hosted deploy).
       getRepository().forTenant(tenantId).getPageSnapshots().catch(() => []),
     ]);
+  // Freshness takes the newer of the two lanes, so a current answer is never dated by an older search look.
+  const freshestAt = [loaded.evidence.receipt.freshestObservationAt, ...answers.rows.map((o) => o.observedAt)]
+    .filter((t): t is string => !!t).sort().at(-1) ?? null;
+  const research = { basis: loaded.basis, evidence: { ...loaded.evidence, aiObservations: answers.rows,
+    receipt: { ...loaded.evidence.receipt, freshestObservationAt: freshestAt } } };
 
   // ── GSC ──
   const gscPayload = [...gscMap.values()].map((s) => ({
@@ -202,11 +213,6 @@ export async function loadEvidenceSnapshot(
     accountHost ??
     [...ownedHosts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ??
     null;
-  const ownedUrlKeys = new Set([
-    ...gscPayload.map((p) => canonicalUrlKey(p.url)),
-    ...[...wixByUrl.keys()],
-  ]);
-
   const input: EvidenceSnapshotInput = {
     scope: { tenantId, site, builtAt: now.toISOString() },
     gsc: { status: statusFor(gscPayload.length), lastSyncedAt: null, payload: gscPayload },
@@ -215,7 +221,7 @@ export async function loadEvidenceSnapshot(
     clarity: { status: statusFor(clarityPayload.length), lastSyncedAt: null, payload: clarityPayload },
     dataforseo: { status: statusFor(dfsPayload.length), lastSyncedAt: null, payload: dfsPayload },
     research: researchSource,
-    nativeAi: buildNativeSourceInput(nativeSource, site, ownedUrlKeys),
+    aiAnswersUnread: answers.unread,
   };
 
   return buildEvidenceSnapshot(input);
@@ -223,68 +229,4 @@ export async function loadEvidenceSnapshot(
 
 function statusFor(count: number): "fresh" | "empty" {
   return count > 0 ? "fresh" : "empty";
-}
-
-// ── native AI adapter (fail-soft / dormant) ──────────────────────────────────
-
-type NativeSourceResult =
-  | { ok: true; report: Awaited<ReturnType<typeof loadNativeIntelForTenant>> }
-  | { ok: false };
-
-async function loadSourceNativeIntel(tenantId: string): Promise<NativeSourceResult> {
-  try {
-    const report = await loadNativeIntelForTenant(tenantId);
-    return { ok: true, report };
-  } catch (e) {
-    log.warn("[evidence-snapshot] native AI read failed (fail-soft / dormant)", {
-      error: e instanceof Error ? e.message.slice(0, 200) : String(e),
-    });
-    return { ok: false };
-  }
-}
-
-function buildNativeSourceInput(
-  result: NativeSourceResult,
-  site: string | null,
-  ownedUrlKeys: Set<string>,
-): EvidenceSnapshotInput["nativeAi"] {
-  if (!result.ok) {
-    return {
-      status: "failed",
-      lastSyncedAt: null,
-      note: "I could not read AI-answer observations this run.",
-      payload: { citedPages: [], questions: [], rowsScanned: 0, enginesSeen: [] },
-    };
-  }
-  const { report } = result;
-  const citedPages = report.recurringPages.map((p) => {
-    const key = canonicalUrlKey(p.url);
-    const isOwned = ownedUrlKeys.has(key) || (site != null && domainOf(p.url) === site);
-    return {
-      url: p.url,
-      isOwned,
-      citationCount: p.citationCount,
-      distinctPrompts: p.distinctPrompts,
-      engines: p.engines,
-      examplePrompts: p.examplePrompts,
-    };
-  });
-  const questions = report.nativeQuestions.map((q) => ({
-    text: q.text,
-    weight: q.weight,
-    sourcePrompts: q.sourcePrompts,
-  }));
-  // rowsScanned 0 = no observations exist yet → the adapter is present but
-  // dormant (not configured / no nightly runs), reported honestly.
-  const status = report.rowsScanned === 0 ? "dormant" : citedPages.length > 0 ? "fresh" : "empty";
-  return {
-    status,
-    lastSyncedAt: null,
-    payload: {
-      citedPages,
-      questions,
-      rowsScanned: report.rowsScanned,
-      enginesSeen: report.enginesSeen,
-    },
-  };
 }

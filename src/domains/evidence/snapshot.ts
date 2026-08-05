@@ -12,7 +12,8 @@
  *   Wix/crawl  → owned-page CONTENT (title/h1/outline/schema/faq/word count/internal links)
  *   Clarity    → owned-page friction (rage/dead/quickback/script errors)
  *   DataForSEO → keyword/volume demand
- *   native AI  → AI-answer questions + citations (owned + competitor)  [may be dormant]
+ *   native AI  → DERIVED from the canonical AI answers on the research payload: the questions those
+ *                answers answered and the addresses they credited. No input slot, so there is ONE AI truth.
  *
  * This module is PURE and deterministic (no I/O, no LLM, no Date.now beyond the
  * caller-supplied `builtAt`). The I/O edge that reuses the existing cached
@@ -24,11 +25,6 @@
  * projects the same snapshot into non-actionable research packets (what has been
  * investigated about a topic and whether it is enough to compare), computed on
  * demand by the slice that needs it rather than on every snapshot build.
- *
- * Build-pass note: this is ADDITIVE. The old per-move EvidencePacket /
- * ResearchDossier engines still exist; the destructive cutover that rewires
- * consumers onto this contract and deletes those engines is a later sequenced
- * pass. See snapshot.test.ts for the pinned outcomes.
  */
 
 import { createHash } from "node:crypto";
@@ -271,24 +267,19 @@ export type EvidenceSnapshotInput = {
   clarity: LoadedSource<({ url: string } & OwnedPageFriction)[]>;
   /** DataForSEO: keyword volume rows. */
   dataforseo: LoadedSource<{ query: string; searchVolume: number | null; competition: number | null; competitionLevel: "low" | "medium" | "high" | null }[]>;
-  /** Research funnel: retained keywords WITH intent, exact AI observations,
-   *  per-query SERP evidence, winning pages with true provenance, + the receipt. */
+  /** Research funnel: retained keywords WITH intent, the CANONICAL AI answers,
+   *  per-query SERP evidence, winning pages with true provenance, + the receipt.
+   *  The native-AI source is DERIVED from the answers on this payload; it has no
+   *  input slot of its own, so there is one AI truth and never a weaker second. */
   research: LoadedSource<FunnelResearchEvidence>;
-  /** native AI: cited pages (owned + competitor) + surfaced questions. */
-  nativeAi: LoadedSource<{
-    citedPages: {
-      url: string;
-      isOwned: boolean;
-      citationCount: number;
-      distinctPrompts: number;
-      engines: string[];
-      examplePrompts: string[];
-    }[];
-    questions: { text: string; weight: number; sourcePrompts: string[] }[];
-    rowsScanned: number;
-    enginesSeen: string[];
-  }>;
+  /** TRUE when the canonical answer read FAILED this run: not an empty account (it told a 418 answer account "nothing stored yet"). REQUIRED so no later builder can forget it and quietly claim the same. */
+  aiAnswersUnread: boolean;
 };
+
+/** Grounding and redirect hosts an engine routes its citations through: infrastructure, never a source AI keeps recommending, so unfiltered they are a fake number one. */
+const CITATION_WRAPPERS = new Set(["vertexaisearch.cloud.google.com", "www.google.com", "google.com", "www.bing.com", "bing.com"]);
+/** The bounds the AI lists keep, unchanged from the reader they replace: a snapshot is a decision surface, not a dump, and a fragment too short or too long to be a question stays out. */
+const MAX_CITED_PAGES = 15, MAX_QUESTIONS = 30, MIN_QUESTION_LEN = 12, MAX_QUESTION_LEN = 160;
 
 // ── pure helpers ─────────────────────────────────────────────────────────────
 
@@ -418,35 +409,33 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
     }
   }
 
-  // ── native AI: split cited pages into owned (attach) vs competitor ──
+  // ── the AI answers on file: which addresses they keep crediting, split into this account's and everybody else's ──
+  // RECURRENCE ACROSS ANSWERS, never inside one: an address is evidence because it comes back on question after
+  // question. An address the account owns attaches to that page; every other one is a competitor citation.
+  const observations = input.research.payload.aiObservations;
+  const citedByUrl = new Map<string, { url: string; count: number; prompts: Map<string, string>; engines: Set<string> }>();
+  for (const o of observations) for (const c of o.citations ?? []) {
+    // A HOST OR IT IS NOT AN ADDRESS: a citation with no parseable host (`about:blank` and its kind) used to land as a competitor with an empty domain and inflate the count.
+    const key = canonicalUrlKey(c.url), host = domainOf(c.url);
+    if (!key || !host.includes(".") || CITATION_WRAPPERS.has(host)) continue;
+    let agg = citedByUrl.get(key);
+    if (!agg) { agg = { url: c.url, count: 0, prompts: new Map(), engines: new Set() }; citedByUrl.set(key, agg); }
+    agg.count += 1; agg.engines.add(o.engine); agg.prompts.set(o.promptId, o.promptText);
+  }
   const competitorByUrl = new Map<string, CompetitorEvidence>();
-  for (const cited of input.nativeAi.payload.citedPages) {
-    if (cited.isOwned) {
-      const row = ensure(cited.url);
-      if (row)
-        row.aiCitations = {
-          count: cited.citationCount,
-          distinctPrompts: cited.distinctPrompts,
-          engines: [...new Set(cited.engines)].sort(),
-        };
+  for (const [key, agg] of citedByUrl) {
+    const counts = { citationCount: agg.count, distinctPrompts: agg.prompts.size, engines: [...agg.engines].sort() };
+    if (ownedByUrl.has(key) || (scope.site != null && domainOf(agg.url) === scope.site)) {
+      const row = ensure(agg.url);
+      if (row) row.aiCitations = { count: counts.citationCount, distinctPrompts: counts.distinctPrompts, engines: counts.engines };
     } else {
-      const url = canonicalUrlKey(cited.url);
-      if (!url) continue;
-      competitorByUrl.set(url, {
-        url,
-        domain: domainOf(cited.url),
-        citationCount: cited.citationCount,
-        distinctPrompts: cited.distinctPrompts,
-        engines: [...new Set(cited.engines)].sort(),
-        examplePrompts: cited.examplePrompts.slice(0, 5),
-      });
+      competitorByUrl.set(key, { url: key, domain: domainOf(agg.url), ...counts, examplePrompts: [...agg.prompts.values()].slice(0, 5) });
     }
   }
 
   const ownedPages = [...ownedByUrl.values()].sort((a, b) => a.url.localeCompare(b.url));
-  const competitors = [...competitorByUrl.values()].sort(
-    (a, b) => b.citationCount - a.citationCount || a.url.localeCompare(b.url),
-  );
+  const competitors = [...competitorByUrl.values()]
+    .sort((a, b) => b.citationCount - a.citationCount || a.url.localeCompare(b.url)).slice(0, MAX_CITED_PAGES);
 
   // ── keyword demand: GSC served queries ∪ DataForSEO volume ──
   const kwByQuery = new Map<string, KeywordDemandSignal>();
@@ -502,20 +491,27 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
   );
   const weak = weakAnchorsOf(ownedPages, input.research.payload);
   const relatedTopic = (a: string, b: string): boolean => anchoredTopicMatch(a, b, weak).relevant;
-  const questionDemand: QuestionDemandSignal[] = input.nativeAi.payload.questions
-    .map((q) => {
-      const covered = ownedContentText.some((text) => relatedTopic(q.text, text));
-      const coverageStatus: QuestionDemandSignal["coverageStatus"] =
-        ownedContentText.length === 0 ? "unknown" : covered ? "answered" : "unanswered";
+  // The questions the answers themselves ANSWERED, read off the settled readings only: an unsettled or refused
+  // reading carries no analysis, so nothing here is ever a question nobody actually read out of an answer.
+  const askedByText = new Map<string, { weight: number; prompts: Set<string> }>();
+  for (const o of observations) for (const q of Array.isArray(o.analysis?.questionsAnswered) ? o.analysis.questionsAnswered : []) {
+    const text = typeof q === "string" ? q.trim() : "";
+    if (text.length < MIN_QUESTION_LEN || text.length > MAX_QUESTION_LEN) continue;
+    const entry = askedByText.get(text) ?? { weight: 0, prompts: new Set<string>() };
+    entry.weight += 1; entry.prompts.add(o.promptText); askedByText.set(text, entry);
+  }
+  const questionDemand: QuestionDemandSignal[] = [...askedByText.entries()]
+    .map(([question, entry]) => {
+      const covered = ownedContentText.some((text) => relatedTopic(question, text));
       return {
-        question: q.text,
-        weight: q.weight,
-        sourcePrompts: q.sourcePrompts.slice(0, 8),
+        question,
+        weight: entry.weight,
+        sourcePrompts: [...entry.prompts].slice(0, 8),
         source: "native_ai" as const,
-        coverageStatus,
+        coverageStatus: (ownedContentText.length === 0 ? "unknown" : covered ? "answered" : "unanswered") as QuestionDemandSignal["coverageStatus"],
       };
     })
-    .sort((a, b) => b.weight - a.weight || a.question.localeCompare(b.question));
+    .sort((a, b) => b.weight - a.weight || a.question.localeCompare(b.question)).slice(0, MAX_QUESTIONS);
 
   // ── intent clusters from owned served queries + AI questions ──
   const clusterByTopic = new Map<string, IntentCluster>();
@@ -588,14 +584,18 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
     (a, b) => a.fromUrl.localeCompare(b.fromUrl) || a.toUrl.localeCompare(b.toUrl),
   );
 
-  // ── AI citation rollup ──
+  // ── AI citation rollup, off the same answers everything above was built from ──
   const ownedCited = ownedPages.filter((p) => p.aiCitations.count > 0).length;
-  const aiEngines = [
-    ...new Set([
-      ...input.nativeAi.payload.enginesSeen,
-      ...competitors.flatMap((c) => c.engines),
-    ]),
-  ].sort();
+  const aiEngines = [...new Set(observations.map((o) => o.engine))].sort();
+  // FOUR STATES, FOUR CLAIMS, each in my own words: a read I did not get, no answer stored yet, answers that named
+  // nobody, answers that named pages. The shared default said "nothing recorded yet" over a row counting stored answers.
+  const unread = input.aiAnswersUnread, credited = citedByUrl.size > 0;
+  const nativeAi: LoadedSource<null> = { payload: null,
+    status: unread ? "failed" : observations.length === 0 ? "dormant" : credited ? "fresh" : "empty",
+    lastSyncedAt: observations.map((o) => o.observedAt).filter((t): t is string => !!t).sort().at(-1) ?? null,
+    ...(unread ? { note: "I could not read your stored AI answers this run, so I am deciding without them." }
+      : observations.length === 0 ? { note: "I have not stored an AI answer for your questions yet, so I am working without that evidence for now." }
+      : credited ? {} : { note: `I have ${observations.length} stored AI answers and not one of them has named a page yet, so I have nothing to compare pages on.` }) };
 
   // ── freshness for all six sources ──
   const sources: SourceFreshness[] = [
@@ -604,7 +604,7 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
     freshnessOf("wix", input.wix, input.wix.payload.length),
     freshnessOf("clarity", input.clarity, input.clarity.payload.length),
     freshnessOf("dataforseo", input.dataforseo, input.dataforseo.payload.length),
-    freshnessOf("native_ai", input.nativeAi, input.nativeAi.payload.citedPages.length),
+    freshnessOf("native_ai", nativeAi, observations.length),
   ];
 
   const snapshot: Omit<EvidenceSnapshot, "evidenceHash"> = {
@@ -622,7 +622,7 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
       ownedCited,
       competitorCited: competitors.length,
       engines: aiEngines,
-      rowsScanned: input.nativeAi.payload.rowsScanned,
+      rowsScanned: observations.length,
     },
     research: input.research.payload,
   };

@@ -19,7 +19,7 @@ import "server-only";
  */
 
 import type { BusinessProfile } from "@/domains/account";
-import { aiObservationId } from "@/domains/evidence/ai-visibility/ai-observations";
+import type { CanonicalPairObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import { caseIdByAnchor } from "@/domains/evidence/case-identity";
 import { isCurrent } from "@/domains/evidence/freshness";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
@@ -28,8 +28,8 @@ import type { CapabilityInputByKey, FunnelCounters, FunnelUnitFn, ParsedByCapabi
 import { log } from "@/lib/logger";
 import { applyFilters, dedupeKeywords, filterContextFrom, keywordsFromParsed, mergeOrigins, normalizeKeyword, retainDiverse, type SerpAgendaPageQuery } from "./normalize";
 import type { KeywordOrigin } from "./research-evidence";
-import { type FunnelKeyword, type FunnelPair, type FunnelState, MAX_REJECTED, MAX_RETAINED } from "./state";
-import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, StateConflictError, track, type AnswerAnalysisRecord, type FunnelDeps } from "./shared";
+import { type FunnelKeyword, type FunnelState, MAX_REJECTED, MAX_RETAINED } from "./state";
+import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, StateConflictError, track, type FunnelDeps } from "./shared";
 
 /** ONE case of the run's FROZEN plan, as plain data: Evidence never reads Runtime or Decision. */
 type PlanCase = { caseId: string; query: string | null };
@@ -107,38 +107,38 @@ function discoveryPlan(domain: string, seeds: string[]): DiscStep[] {
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
-/** THE ANSWER a tracked question's working row stands for, named in exactly the terms ai_observations files
- *  it under. `aiObservationId` is that store's OWN deterministic identity, so this is a join key and never a
- *  minted id: it appears only when every part of the identity was actually recorded on the row, and a row
- *  missing its version or its reporting day says so by absence rather than by borrowing a default. */
-function answerIdentity(tenantId: string, p: FunnelPair): Omit<KeywordOrigin, "route"> {
-  const promptVersion = p.promptVersion, reportingDay = p.day;
-  // A JOIN KEY POINTS AT A ROW THAT EXISTS. A pair still waiting to be asked has no observation behind it,
-  // so computing its id here minted a reference to nothing: the identity was complete and the answer was
-  // not. A pair the executor has actually reached carries the moment it was asked or the moment it landed,
-  // and only that row is named.
-  const recorded = p.status !== "pending" && Boolean(p.requestedAt || p.observedAt);
-  return {
-    promptId: p.promptId, engine: p.engine,
-    ...(promptVersion != null ? { promptVersion } : {}),
-    ...(reportingDay ? { reportingDay } : {}),
-    ...(recorded && promptVersion != null && reportingDay
-      ? { observationId: aiObservationId({ tenantId, promptId: p.promptId, promptVersion, engine: p.engine, day: reportingDay, slot: p.slot ?? 0 }) }
-      : {}),
-  };
+/** THE ANSWER one canonical row IS, named in exactly the terms ai_observations files it under, so the trip
+ *  back from a keyword to the answer that produced it is a lookup and never a guess. Every part is present
+ *  because the row exists: the loader hands back only settled answers under current questions. */
+function answerIdentity(o: CanonicalPairObservation): Omit<KeywordOrigin, "route"> {
+  return { promptId: o.promptId, promptVersion: o.promptVersion, engine: o.engine, reportingDay: o.reportingDay, observationId: o.observationId };
 }
 
-/** The same identity read off a stored analysis, which carries it because the reader now keeps the analysis
- *  attached to the answer it was written about. Whatever that record does not hold stays absent. */
-function analysisIdentity(a: AnswerAnalysisRecord): Omit<KeywordOrigin, "route"> {
-  return {
-    ...(a.promptId ? { promptId: a.promptId } : {}),
-    ...(a.promptVersion != null ? { promptVersion: a.promptVersion } : {}),
-    ...(a.engine ? { engine: a.engine } : {}),
-    ...(a.reportingDay ? { reportingDay: a.reportingDay } : {}),
-    ...(a.observationId ? { observationId: a.observationId } : {}),
-    ...(a.promptText ? { parentQuery: a.promptText } : {}),
-  };
+/** A read I could not make is not an account with no answers, and it may never be reported as one. */
+const AI_READ_FAILED = "I could not read your stored answers this pass, so I added nothing new from them. Everything I already found is still here and I will read them again on your next visit.";
+
+/** The routes that come OUT of a stored answer. A kept row whose whole journey is answers to questions this
+ *  account no longer asks is dropped on any pass that actually read the canonical set; a row that also
+ *  arrived by search, by a results page or by a page of my own is not an answer's row and is never pruned. */
+const AI_ROUTES = new Set(["prompt", "fanout", "answer_entity"]);
+function stillAsked(rows: readonly FunnelKeyword[], observations: readonly CanonicalPairObservation[]): FunnelKeyword[] {
+  const live = new Set(observations.map((o) => o.promptId));
+  // The shelter reads only the KEPT origins: a non-AI arrival pushed past MAX_ORIGINS into the overflow count cannot shelter, which is narrow (seven-plus arrivals, the sheltering one last) and self-heals the next pass that source reports the query.
+  return rows.filter((k) => (k.origins ?? []).length === 0
+    || !k.origins!.every((o) => AI_ROUTES.has(o.route) && (!o.promptId || !live.has(o.promptId))));
+}
+
+/** THE SAME TAIL IS NOT DROPPED FOREVER. A route's ceiling always cuts somewhere, and a fixed walk cuts the
+ *  SAME rows on every pass, so an account holding more answers than one pass can carry would never once reach
+ *  the far end of its own set. The walk starts at an index derived from the newest reporting day, so a
+ *  different head fills the ceiling tomorrow and what was turned away today gets its turn. Two passes inside
+ *  one day agree only while the answer set itself is unchanged; a new answer moves the head. What earlier
+ *  passes already harvested is kept by the union below, so the head moving costs nothing. */
+function rotated(rows: readonly CanonicalPairObservation[]): readonly CanonicalPairObservation[] {
+  if (rows.length < 2) return rows;
+  const day = rows.reduce((newest, o) => (o.reportingDay > newest ? o.reportingDay : newest), "");
+  const at = [...day].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % rows.length, 7);
+  return [...rows.slice(at), ...rows.slice(0, at)];
 }
 
 /** EVERYTHING THIS ACCOUNT ALREADY OBSERVED, as keyword candidates, each carrying the ARRIVAL that produced
@@ -147,12 +147,18 @@ function analysisIdentity(a: AnswerAnalysisRecord): Omit<KeywordOrigin, "route">
  *  question Google puts at the top of its own results page never entered the funnel; then it kept the route
  *  and threw the journey away, so a fan-out could not say which question, which engine or which answer
  *  produced it. THE SAME KEYWORD SEEN TWICE ON ONE ROUTE NOW MERGES rather than dropping the second
- *  arrival: two answers asking the same follow-up is two pieces of evidence, not one. Pure. */
+ *  arrival: two answers asking the same follow-up is two pieces of evidence, not one.
+ *
+ *  THE ANSWERS ARE READ OFF THE CANONICAL SET, not off the pairs one pass happens to be working. The working
+ *  set holds whatever today's plan is mid-flight, which on this account was a single question, so almost
+ *  every search the engines actually ran was invisible to discovery while sitting on file the whole time. */
 function observedCandidates(
-  tenantId: string, state: FunnelState, gscQueries: SerpAgendaPageQuery[] | null, analyses: readonly AnswerAnalysisRecord[],
+  tenantId: string, state: FunnelState, gscQueries: SerpAgendaPageQuery[] | null, observations: readonly CanonicalPairObservation[],
 ): FunnelKeyword[] {
   const rows = new Map<string, FunnelKeyword>();
   const taken = new Map<string, number>();
+  /** The DISTINCT candidates a route's ceiling turned away, so a cap is reported and never silent. */
+  const overflow = new Set<string>();
   /** EVERY arrival this pass saw for one candidate, kept WHOLE until the bound is applied once at the end.
    *  Folding the bound in arrival by arrival threw the seventh away and then counted the eighth against a
    *  list it was no longer in, so eight answers asking one follow-up came out as seven. */
@@ -167,7 +173,7 @@ function observedCandidates(
     const id = `${origin.route}|${keyword}`;
     if (rows.has(id)) { arrivals.get(id)!.push(at); return; }
     const spent = taken.get(origin.route) ?? 0;
-    if (spent >= MAX_PER_ROUTE) return;
+    if (spent >= MAX_PER_ROUTE) { overflow.add(id); return; }
     taken.set(origin.route, spent + 1);
     rows.set(id, { keyword, searchVolume: null, competition: null, difficulty: null, intent: null, discoveredVia: origin.route, origins: [at] });
     arrivals.set(id, [at]);
@@ -176,19 +182,23 @@ function observedCandidates(
     for (const q of s.paa ?? []) take(q.question, { route: "paa", ...(s.query ? { parentQuery: s.query } : {}) });
     for (const r of s.related ?? []) take(r, { route: "related_search", ...(s.query ? { parentQuery: s.query } : {}) });
   }
-  for (const p of state.prompts.pairs) {
-    const from = answerIdentity(tenantId, p);
-    take(p.promptText, { route: "prompt", ...from });
-    for (const f of p.fanOutQueries ?? []) take(f, { route: "fanout", ...from, ...(p.promptText ? { parentQuery: p.promptText } : {}) });
+  // ONE answer at a time: the question it asked, the searches the engine itself went and ran to answer it,
+  // and (only where a reading was validly settled against this exact answer) what that answer was about and
+  // what it actually answered. All three routes carry the SAME identity, so every one of them leads back.
+  for (const o of rotated(observations)) {
+    const from = answerIdentity(o), parent = o.promptText ? { parentQuery: o.promptText } : {};
+    take(o.promptText, { route: "prompt", ...from });
+    for (const f of o.fanOutQueries ?? []) take(f, { route: "fanout", ...from, ...parent });
+    for (const e of [...strings(o.analysis?.topicEntities), ...strings(o.analysis?.questionsAnswered)]) take(e, { route: "answer_entity", ...from, ...parent });
   }
   for (const q of gscQueries ?? []) take(q.query, { route: "gsc", ...(q.page ? { pageUrl: q.page } : {}) });
-  // The analysis of an answer already bought: what the answer was ABOUT and what it actually answered,
-  // still attached to the answer that said it.
-  for (const a of analyses) {
-    const from = analysisIdentity(a);
-    for (const e of strings(a.analysis.topicEntities)) take(e, { route: "answer_entity", ...from });
-    for (const q of strings(a.analysis.questionsAnswered)) take(q, { route: "answer_entity", ...from });
-  }
+  // A CEILING IS NEWS, NOT HOUSEKEEPING, AND EVERY ROUTE HAS ONE. Reporting only the follow-ups hid the pool
+  // that actually overflows: 140 settled readings offer thousands of entities and questions, so the route that
+  // lost the most is the one that has to be named. Counted per route, said out loud, never quietly deleted.
+  const dropped = new Map<string, number>();
+  for (const k of overflow) { const route = k.slice(0, k.indexOf("|")); dropped.set(route, (dropped.get(route) ?? 0) + 1); }
+  if (dropped.size > 0) log.info(`[research-funnel] I reached my limit of ${MAX_PER_ROUTE} candidates and set ${[...dropped.values()].reduce((a, b) => a + b, 0)} more aside this pass (${[...dropped].sort().map(([r, n]) => `${r} ${n}`).join(", ")}). Each day I start from a different answer, so the ones I set aside get their turn on a later day.`,
+    { tenantId, kept: MAX_PER_ROUTE, dropped: Object.fromEntries([...dropped].sort()) });
   // The bound, applied ONCE per candidate: the first MAX_ORIGINS distinct arrivals plus an exact count of
   // the rest.
   return [...rows.entries()].map(([id, row]) => ({ ...row, ...mergeOrigins({ origins: arrivals.get(id) ?? row.origins }) }));
@@ -230,6 +240,8 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
     }
     const stage = (cursor?.stage as string) ?? "labs";
     const cases = caseLookup(state, planCases);
+    /** The one honest sentence a finished pass still owes the operator: coverage this pass could not get. */
+    let softDetail: string | null = null;
 
     try {
       if (stage === "labs") {
@@ -292,17 +304,25 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
             }
           }
         }
-        // FREE, and already paid for once: my own Search Console queries, the answers I have analyzed, and
-        // everything my own results pages and tracked questions have shown me. A failed read of either is
-        // absence of that source, never a claim that it holds nothing.
+        // FREE, and already paid for once: my own Search Console queries, every answer on file with the
+        // searches it ran and the reading of it, and everything my own results pages have shown me. Read
+        // ONCE per pass. A failed read of either is absence of that source, never a claim it holds nothing.
         const gscQueries = await d.loadPageQueries(tenantId).catch(() => null);
-        const analyses = await d.loadAnswerAnalyses(tenantId).catch(() => []);
-        raw.push(...observedCandidates(tenantId, state, gscQueries, analyses));
-        // WHAT THE LAST PASS ALREADY LEARNED ABOUT A KEYWORD'S JOURNEY IS NOT RE-LEARNED AND NOT LOST: a
-        // row this pass rediscovers merges its arrivals into the ones already on file, under the same bound.
-        const priorOrigins = new Map(state.discovery.retained.map((k) => [k.keyword, k]));
+        // null = the READ FAILED; [] = the account genuinely holds no answers yet. The old pairs source lived
+        // in memory and could not fail, so nothing here ever had to tell those apart. This one is a table read
+        // that times out, and a failure costs this pass its fresh AI look and NOTHING ELSE.
+        const observations = await d.loadCanonicalObservations(tenantId).catch(() => null);
+        if (!observations) { log.warn(`[research-funnel] ${AI_READ_FAILED}`, { tenantId }); softDetail = AI_READ_FAILED; }
+        raw.push(...observedCandidates(tenantId, state, gscQueries, observations ?? []));
+        // THE HARVEST ACCUMULATES, IT DOES NOT REPLACE. A wholesale rewrite from this pass's raw deleted every
+        // keyword the pass did not happen to see again, journey, case join and bought volume with it, and the
+        // rotation above guarantees a pass does NOT see the same slice twice. So what is retained is carried
+        // into the pool and each pass ADDS its slice. GROWTH BOUND: at most MAX_RETAINED carried rows plus
+        // this pass's own pool, which every route caps at MAX_PER_ROUTE, cut back to MAX_RETAINED below, so
+        // the stored set can never exceed the ceiling it already had.
+        const carried = observations ? stillAsked(state.discovery.retained, observations) : state.discovery.retained;
         // narrow: normalize -> dedupe -> join to a case -> filter -> diverse retain (before any SERP spend)
-        const deduped = dedupeKeywords(raw).map((k) => {
+        const deduped = dedupeKeywords([...carried, ...raw]).map((k) => {
           // DISTINCT PAGES, NEVER ROWS. Counting rows made ONE page appearing twice for a search look like two
           // pages of mine competing, which is precisely the arithmetic "consolidation" is supposed to prove.
           // Best position first, so the surviving row for a page is its best one.
@@ -310,7 +330,7 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
           const owned = rows.filter((o, i) => rows.findIndex((x) => x.url === o.url) === i);
           const best = owned[0] ?? (k.ownedRankingUrl ? { url: k.ownedRankingUrl, rank: k.ownedPosition ?? 0 } : null);
           const held = owned.length > 0 ? owned.length : best ? 1 : 0;
-          return { ...k, ...mergeOrigins(priorOrigins.get(k.keyword), k), caseId: cases.of(k.keyword), ownedRankingUrl: best?.url ?? null, ownedPosition: best?.rank ?? null,
+          return { ...k, ...mergeOrigins(k), caseId: cases.of(k.keyword), ownedRankingUrl: best?.url ?? null, ownedPosition: best?.rank ?? null,
             supports: (!rankedLanded ? null : held >= 2 ? "consolidation" : held === 1 ? "existing_page" : "new_page") as FunnelKeyword["supports"] };
         });
         // A candidate that provably belongs to a case I am already investigating is not weighed against the
@@ -319,26 +339,31 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
         const filters = ctxFrom(profile);
         const joined = applyFilters(deduped.filter((k) => k.caseId), { ...filters, relevanceTokens: new Set<string>() }, MAX_REJECTED);
         const open = applyFilters(deduped.filter((k) => !k.caseId), filters, MAX_REJECTED);
+        // ONE diverse cut over the whole pool, carried and fresh together. A priced-first tranche was tried
+        // here and it is a cliff: once the ceiling fills with priced rows a fresh arrival can never land
+        // again, so the AI harvest becomes a permanent silent no-op. retainDiverse's per-group round robin
+        // already keeps every source's share, which protects paid rows without making any row immortal.
         const capped = retainDiverse([...joined.retained, ...open.retained], MAX_RETAINED);
         const rejected = [...joined.rejected, ...open.rejected].slice(0, MAX_REJECTED);
         state.discovery.seeds = seeds;
         state.discovery.retained = capped;
         state.discovery.rejected = rejected;
         state.discovery.counts = { raw: raw.length, normalized: deduped.length, retained: capped.length, rejected: rejected.length };
-        if (raw.length === 0) {
+        // NOTHING NEW IS NOT NOTHING AT ALL: a pass that found no fresh candidate while holding a researched
+        // set of its own has not failed, and must never say it has.
+        if (raw.length === 0 && carried.length === 0) {
           await save(d, tenantId, basis, state, ctx);
-          return { status: "failed", cursor: { stage: "labs" }, progress: discProgress(state), detail: "I found no keywords from the research provider yet." };
+          return { status: "failed", cursor: { stage: "labs" }, progress: discProgress(state), detail: softDetail ?? "I found no keywords from the research provider yet." };
         }
         if (capped.length === 0) {
           await save(d, tenantId, basis, state, ctx);
-          return { status: "done", cursor: null, progress: discProgress(state), detail: "No keywords survived the relevance filters this run." };
+          return { status: "done", cursor: null, progress: discProgress(state), detail: softDetail ?? "No keywords survived the relevance filters this run." };
         }
         await save(d, tenantId, basis, state, ctx);
         if (d.now() > deadline) return { status: "advanced", cursor: { stage: "overview" }, progress: discProgress(state) };
       }
 
       // overview: enrich retained with volume/intent/difficulty, ceil(n / 700) REQUESTS
-      let softDetail: string | null = null;
       if (stage !== "competitors") {
         const retained = state.discovery.retained;
         const eligible = retained.map((k) => k.keyword).filter(overviewEligible);

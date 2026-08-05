@@ -8,7 +8,7 @@ import { keywordDiscoveryUnit } from "@/domains/evidence/funnel/discovery"; impo
 import { retainDiverse, selectSerpAgenda } from "@/domains/evidence/funnel/normalize"; import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { caseResearchReceipt } from "@/domains/evidence/case-receipt"; import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { emptyFunnelState, loadFunnelState, MAX_RETAINED, type FunnelKeyword, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
-import { CONFLICT_DETAIL, type FunnelDeps } from "@/domains/evidence/funnel/shared"; import { aiObservationId, type AiObservationRecord, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations"; import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
+import { CONFLICT_DETAIL, type FunnelDeps } from "@/domains/evidence/funnel/shared"; import type { AiObservationRecord, CanonicalPairObservation, DueObservation } from "@/domains/evidence/ai-visibility/ai-observations"; import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 const BASIS = "basis_aaa"; const NOW = 1_700_000_000_000; // a fixed clock far past the 7-day freshness window
 const WEEKS_AGO = new Date(NOW - 30 * 24 * 3600 * 1000).toISOString(); const ENG = ["chatgpt", "gemini", "claude", "perplexity"] as const;
 const cur = (basis: string | null = BASIS) => (basis ? { basis } : {}); const confirmed = <V>(value: V): ProfileSection<V> => ({ value, origin: "operator_confirmed", confidence: null, sourceUrls: [] });
@@ -28,6 +28,8 @@ const base = (profile: BusinessProfile, domain = "iranopedia.com"): FunnelDeps =
 const DAY_A = "2026-07-21", DAY_B = "2026-07-22"; // THE PLANNER owns the reporting day; the unit never derives one
 /** Runtime's daily plan: every question on every engine, at one slot, on one named reporting day. */
 const plan = (ps: { id: string; text: string }[], day = DAY_A, slot: 0 | 1 | 2 = 0): DueObservation[] => ps.flatMap((p) => ENG.map((engine) => ({ promptId: p.id, version: 1, text: p.text, engine, slot, day })));
+/** ONE row of the CANONICAL answer set, with the loader's guarantees already applied: settled, current, one per question and engine, and a reading present only where it was validly settled against this exact answer. */
+const canon = (over: Partial<CanonicalPairObservation> = {}): CanonicalPairObservation => ({ observationId: "obs_1", promptId: "p1", promptVersion: 2, promptText: "where to buy saffron", engine: "chatgpt", modelRequested: null, modelServed: null, observationMode: "consumer_search", reportingDay: DAY_A, observedAt: null, answerHash: "h", webSearchReported: null, fanOutQueries: null, citations: null, retrievedResults: null, brandMentions: null, analysis: null, ...over });
 describe("research funnel - basis-scoped discovery + isolation", () => {
   const profile = profileOf("t1", ["persian recipes"], ["nowruz", "persian food"], ["politics"], ["gambling"]); const bulk = Array.from({ length: 60 }, (_, i) => ({ keyword: `persian food dish ${i}`, volume: 900 - i }));
   const rejects = [{ keyword: "gambling bonus offer" }, { keyword: "politics debate today" }, { keyword: "login account page" }, { keyword: "unrelated widget gadget" }]; const callProvider = async (cap: CapabilityKey) => (cap === "labs_keywords_for_site" ? ok(parsedKw([...bulk, ...rejects])) : ok(parsedKw([])));
@@ -108,8 +110,7 @@ describe("research funnel - current-set truth + the disposition ladder", () => {
     let ecalls = 0; // a refusal carrying an EMPTY detail must still arm the block and the batch stop
     const empty = await unit(mk(memStore(), { callProvider: async () => { ecalls += 1; return { state: "error", cacheKey: null, disposition: "blocked", detail: "" } as CachedCallResult; } })); expect([empty.status, !!empty.detail, ecalls]).toEqual(["failed", true, 1]); });
   it("reconciles a pair settled in state whose STORED row is still due, with no provider call, so a day cannot deadlock behind its own bookkeeping", async () => {
-    // Aug 4: two quarantined pairs were terminal in the funnel state and still `failed` on the canonical row. Terminalizing happens where the disposition LANDS, and a pair already set
-    // aside never crosses that code again (not posted, so the collect skips it; not pending, so the post skips it), so the whole-day gate read 138 of 140 on every window, for four fires.
+    // Aug 4: two quarantined pairs were terminal in the funnel state and still `failed` on the canonical row. Terminalizing happens where the disposition LANDS, and a pair already set aside never crosses that code again (not posted, so the collect skips it; not pending, so the post skips it), so the whole-day gate read 138 of 140 on every window, for four fires.
     const store = seedWith([{ promptId: "p1", engine: "chatgpt", mode: "consumer_search", day: DAY_A, cacheKey: "ck-q", status: "unsupported", observedAt: new Date(NOW).toISOString() }]);
     const rows: AiObservationRecord[] = []; let touched = 0; const boom = async () => { touched += 1; return err("blocked"); };
     const d = mk(store, { recordObservation: async (r: AiObservationRecord) => void rows.push(r), collectTask: boom, callProvider: boom });
@@ -334,12 +335,11 @@ describe("research funnel - the CASE-SCOPED keyword universe", () => {
   const observed = (): FunnelState => { const s = emptyFunnelState("tc", BASIS);
     s.cases = [{ id: CASE, anchors: [canonicalQueryKey("price saffron")] }, { id: ABSORBED, anchors: [], aliasOf: CASE }];
     s.serps.queries = [{ query: "price saffron", cacheKey: "ck-serp", status: "done", observedAt: at, paa: [{ question: "How much does saffron cost per gram", answeringDomain: null }], related: ["saffron grades"] }];
-    s.prompts.pairs = [{ promptId: "p1", promptText: "where to buy saffron", engine: "chatgpt", mode: "consumer_search", cacheKey: null, status: "done", observedAt: at, fanOutQueries: ["best saffron brands", "Where to buy saffron?"] }];
     return s; };
   const PLAN = [{ caseId: ABSORBED, query: "where to buy saffron" }]; // the plan names an id a merge already absorbed
   const disc = (store: ReturnType<typeof memStore>, over: Partial<FunnelDeps> = {}, plan = PLAN) => keywordDiscoveryUnit({
     ...base(profileOf("tc", ["saffron"], ["saffron price"])), ...store.deps, keywordIdeas: async () => [], loadPageQueries: async () => [{ query: "saffron benefits", impressions: 90 }],
-    loadAnswerAnalyses: async () => [{ analysis: { topicEntities: ["iranian saffron"], questionsAnswered: ["does saffron expire"] }, observationId: "obs_a", promptId: "p1", promptVersion: 1, engine: "chatgpt", reportingDay: DAY_A, promptText: "where to buy saffron" }],
+    loadCanonicalObservations: async () => [canon({ observationId: "obs_a", promptVersion: 1, fanOutQueries: ["best saffron brands", "Where to buy saffron?"], analysis: { topicEntities: ["iranian saffron"], questionsAnswered: ["does saffron expire"] } })],
     // The last two rows are ONE page of mine reported twice for one search: rows, not pages.
     callProvider: async (cap: CapabilityKey) => ok(cap === "labs_ranked_keywords" ? ranked([["price saffron", "https://own.com/a", 4], ["price saffron", "https://own.com/b", 9], ["saffron threads", "https://own.com/t", 7], ["saffron threads", "https://own.com/t", 2]]) : parsedKw([])), ...over }, plan)("tc", cur(), 60_000);
   it("takes every source the account already observed, tagged with the route it actually arrived by, and never buys one subject twice", async () => {
@@ -369,7 +369,7 @@ describe("research funnel - the CASE-SCOPED keyword universe", () => {
     const s = emptyFunnelState("tc", BASIS); const pool = Array.from({ length: 1500 }, (_, i) => ({ keyword: `gadget topic ${i}`, volume: 2000 - i }));
     s.cases = [{ id: CASE, anchors: pool.slice(0, 500).map((k) => canonicalQueryKey(k.keyword)) }];
     const store = memStore(s); const batches: number[] = [], sets: number[] = [];
-    const out = await keywordDiscoveryUnit({ ...base(profileOf("tc", [], ["gadget"])), ...store.deps, keywordIdeas: async () => [], loadPageQueries: async () => [], loadAnswerAnalyses: async () => [],
+    const out = await keywordDiscoveryUnit({ ...base(profileOf("tc", [], ["gadget"])), ...store.deps, keywordIdeas: async () => [], loadPageQueries: async () => [], loadCanonicalObservations: async () => [],
       callProvider: async (cap: CapabilityKey, input: unknown) => { if (cap === "labs_keyword_overview") batches.push((input as { keywords: string[] }).keywords.length);
         if (cap === "labs_serp_competitors") sets.push((input as { keywords: string[] }).keywords.length);
         return ok(cap === "labs_keywords_for_site" ? parsedKw(pool) : cap === "labs_serp_competitors" ? [{ domain: "rival.com", avgPosition: 4, rating: 91, keywordsCount: 120 }] : parsedKw([])); } }, [{ caseId: CASE, query: null }])("tc", cur(), 60_000);
@@ -389,88 +389,88 @@ describe("research funnel - the CASE-SCOPED keyword universe", () => {
  * or Beacon cannot say why it belongs to a page. Route alone was all that survived discovery before this. */
 describe("research funnel - the journey behind a keyword", () => {
   const JCASE = "inv_j", jAt = new Date(NOW).toISOString(); const FAN = "best saffron brands";
-  const pair = (over: Partial<FunnelPair> = {}): FunnelPair => ({ promptId: "p1", promptText: "where to buy saffron", engine: "chatgpt", mode: "consumer_search", promptVersion: 2, day: DAY_A, cacheKey: null, status: "done", observedAt: jAt, fanOutQueries: [FAN], ...over });
-  const seeded = (pairs: FunnelPair[]): FunnelState => { const s = emptyFunnelState("tj", BASIS);
-    s.cases = [{ id: JCASE, anchors: [canonicalQueryKey("price saffron")] }];
-    s.serps.queries = [{ query: "price saffron", cacheKey: "ck", status: "done", observedAt: jAt, paa: [{ question: "How much does saffron cost per gram", answeringDomain: null }], related: [] }];
-    s.prompts.pairs = pairs; return s; };
-  const run = (store: ReturnType<typeof memStore>) => keywordDiscoveryUnit({ ...base(profileOf("tj", ["saffron"], ["saffron price"])), ...store.deps, keywordIdeas: async () => [],
+  const ask = (over: Partial<CanonicalPairObservation> = {}) => canon({ observedAt: jAt, fanOutQueries: [FAN], ...over });
+  const seeded = (): FunnelState => { const s = emptyFunnelState("tj", BASIS);
+    s.cases = [{ id: JCASE, anchors: [canonicalQueryKey("price saffron"), canonicalQueryKey(FAN)] }];
+    s.serps.queries = [{ query: "price saffron", cacheKey: "ck", status: "done", observedAt: jAt, paa: [{ question: "How much does saffron cost per gram", answeringDomain: null }], related: [] }]; return s; };
+  // The default set is one answer with a follow-up, one answer whose reading was validly settled, and one whose reading was not: an unsettled or rejection-shaped reading reaches this seam as a null analysis, so there is no row to harvest.
+  const run = (store: ReturnType<typeof memStore>, answers: CanonicalPairObservation[] | null = [ask(), canon({ observationId: "obs_read", promptId: "p9", promptVersion: 4, promptText: "is saffron worth it", engine: "gemini", reportingDay: DAY_B, analysis: { topicEntities: ["iranian saffron"], questionsAnswered: [] } }), canon({ observationId: "obs_unread", promptId: "p7", promptText: "how long does saffron keep", engine: "claude", fanOutQueries: ["saffron shelf life"] })]) => keywordDiscoveryUnit({ ...base(profileOf("tj", ["saffron"], ["saffron price"])), ...store.deps, keywordIdeas: async () => [],
     loadPageQueries: async () => [{ query: "saffron benefits", impressions: 90, page: "https://own.com/saffron" }],
-    loadAnswerAnalyses: async () => [{ analysis: { topicEntities: ["iranian saffron"], questionsAnswered: [] }, observationId: "obs_read", promptId: "p9", promptVersion: 4, engine: "gemini", reportingDay: DAY_B, promptText: "is saffron worth it" }],
+    loadCanonicalObservations: async () => { if (!answers) throw new Error("canceling statement due to statement timeout"); return answers; }, // null = the read itself fails, which is not an account with no answers
     callProvider: async () => ok(parsedKw([])) }, [{ caseId: JCASE, query: "price saffron" }])("tj", cur(), 60_000);
   const rowsOf = (store: ReturnType<typeof memStore>) => new Map(store.peek("tj", BASIS)!.discovery.retained.map((k) => [k.keyword, k]));
   it("traces every free candidate back to the exact thing that produced it, and invents nothing a route cannot know", async () => {
-    const store = memStore(seeded([pair()])); expect((await run(store)).status).toBe("done"); const rows = rowsOf(store);
-    expect(rows.get(FAN)!.origins).toEqual([{ route: "fanout", promptId: "p1", promptVersion: 2, engine: "chatgpt", reportingDay: DAY_A, parentQuery: "where to buy saffron",
-      observationId: aiObservationId({ tenantId: "tj", promptId: "p1", promptVersion: 2, engine: "chatgpt", day: DAY_A, slot: 0 }) }]); // the answer this search came out of, named the way the store files it
+    const store = memStore(seeded()); expect((await run(store)).status).toBe("done"); const rows = rowsOf(store);
+    expect(rows.get(FAN)!.origins).toEqual([{ route: "fanout", promptId: "p1", promptVersion: 2, engine: "chatgpt", reportingDay: DAY_A, observationId: "obs_1", parentQuery: "where to buy saffron" }]); // the answer this search came out of, named the way the store files it
     expect(rows.get("saffron benefits")!.origins).toEqual([{ route: "gsc", pageUrl: "https://own.com/saffron" }]); // my own page earned it; it claims no prompt, no engine, no day it never had
     expect(rows.get("how much does saffron cost per gram")!.origins).toEqual([{ route: "paa", parentQuery: "price saffron", sourceQuery: "How much does saffron cost per gram" }]); // the results page it sat on, in Google's own spelling
+    expect([...rows.values()].filter((k) => k.discoveredVia === "answer_entity").map((k) => k.keyword)).toEqual(["iranian saffron"]); // ONLY the answer whose reading was settled; the unsettled one contributes no entity at all
     expect(rows.get("iranian saffron")!.origins).toEqual([{ route: "answer_entity", promptId: "p9", promptVersion: 4, engine: "gemini", reportingDay: DAY_B, observationId: "obs_read", parentQuery: "is saffron worth it" }]);
-  });
+    expect(rows.get("saffron shelf life")!.discoveredVia).toBe("fanout"); // and that same unsettled answer's searches still count, because the engine really did run them
+    const snapshot = await loadEvidenceSnapshot("tj", { resolveBasis: async () => BASIS, loadState: async () => ({ state: store.peek("tj", BASIS)!, rowVersion: 1 }), now: new Date(NOW) });
+    expect(caseResearchReceipt(snapshot, JCASE)!.keywords.find((k) => k.query === FAN)!.origins![0]!.observationId).toBe("obs_1"); }); // answer, fan-out, keyword, case, receipt: the chain names the exact answer end to end
   it("traces a BOUGHT candidate back to the pull it arrived on and the theme it was asked for", async () => {
-    // The free routes each carry their lineage. The paid ones are where the money went, and a keyword that
-    // arrives with no journey at all can never tell the operator which request they paid for produced it.
-    const store = memStore(seeded([pair()]));
+    // The free routes each carry their lineage. The paid ones are where the money went, and a keyword that arrives with no journey at all can never tell the operator which request they paid for produced it.
+    const store = memStore(seeded());
     const out = await keywordDiscoveryUnit({ ...base(profileOf("tj", ["saffron"], ["saffron price"])), ...store.deps,
-      keywordIdeas: async () => [], loadPageQueries: async () => [], loadAnswerAnalyses: async () => [],
-      callProvider: async (cap, input) => {
-        if (cap === "labs_keywords_for_site") return ok(parsedKw([{ keyword: "Saffron Price Per Gram", volume: 700 }]));
-        if (cap === "labs_related_keywords" && (input as { keyword: string }).keyword === "saffron price") return ok(parsedKw([{ keyword: "saffron grades", volume: 300 }]));
-        return ok(parsedKw([]));
-      } }, [{ caseId: JCASE, query: "price saffron" }])("tj", cur(), 60_000);
-    expect(out.status).toBe("done");
-    const rows = rowsOf(store);
-    // The whole-site pull answers for itself and has no parent theme; the provider's own spelling is kept
-    // because normalization is about to change it.
-    expect(rows.get("saffron price per gram")!.origins).toEqual([{ route: "site", sourceQuery: "Saffron Price Per Gram" }]);
-    // A themed pull names the theme it was bought for.
-    expect(rows.get("saffron grades")!.origins).toEqual([{ route: "related", parentQuery: "saffron price" }]);
-  });
-  it("merges one follow-up seen in two different answers into ONE row that names both", async () => {
-    const store = memStore(seeded([pair(), pair({ promptId: "p2", promptText: "cheapest saffron", day: DAY_B })])); await run(store);
-    const row = rowsOf(store).get(FAN)!;
-    expect(row.origins!.map((o) => [o.promptId, o.reportingDay])).toEqual([["p1", DAY_A], ["p2", DAY_B]]); // two answers asking one follow-up is two pieces of evidence, never one
-    expect(row.moreOrigins).toBeUndefined(); });
-  it("keeps six arrivals and COUNTS the rest, so a bounded journey never reads as the whole story", async () => {
-    const store = memStore(seeded(Array.from({ length: 7 }, (_, i) => pair({ promptId: `p${i}`, promptText: `question ${i}` })))); await run(store);
-    const row = rowsOf(store).get(FAN)!;
-    expect([row.origins!.map((o) => o.promptId), row.moreOrigins]).toEqual([["p0", "p1", "p2", "p3", "p4", "p5"], 1]); }); // the seventh grows the count, never the list
+      keywordIdeas: async () => [], loadPageQueries: async () => [], loadCanonicalObservations: async () => [],
+      callProvider: async (cap, input) => cap === "labs_keywords_for_site" ? ok(parsedKw([{ keyword: "Saffron Price Per Gram", volume: 700 }]))
+        : cap === "labs_related_keywords" && (input as { keyword: string }).keyword === "saffron price" ? ok(parsedKw([{ keyword: "saffron grades", volume: 300 }])) : ok(parsedKw([])),
+      }, [{ caseId: JCASE, query: "price saffron" }])("tj", cur(), 60_000);
+    expect(out.status).toBe("done"); const rows = rowsOf(store);
+    expect(rows.get("saffron price per gram")!.origins).toEqual([{ route: "site", sourceQuery: "Saffron Price Per Gram" }]); // the whole-site pull answers for itself and has no parent theme, in the provider's own spelling
+    expect(rows.get("saffron grades")!.origins).toEqual([{ route: "related", parentQuery: "saffron price" }]); }); // a themed pull names the theme it was bought for
+  it("harvests the searches of EVERY answer on file, never only the one pair a pass happens to hold", async () => {
+    const SHARED = "saffron every answer ran this"; // the working set is whatever today's plan is mid-flight: on this account ONE pair, while the store held every answer these searches actually came out of
+    const twelve = ["p1", "p2", "p3"].flatMap((promptId, p) => ENG.map((engine, e) => { const n = p * 4 + e;
+      return ask({ observationId: `obs_${promptId}_${engine}`, promptId, promptText: `saffron question ${p}`, engine, reportingDay: n % 2 ? DAY_B : DAY_A, fanOutQueries: [`saffron search ${n}`, `saffron aside ${n}`, `saffron extra ${n % 5}`, SHARED] }); }));
+    const s = seeded(); s.prompts.pairs = [{ promptId: "px", promptText: "saffron pair only", engine: "chatgpt", mode: "consumer_search", cacheKey: null, status: "done", observedAt: jAt, fanOutQueries: ["saffron transient only"] }];
+    const store = memStore(s); await run(store, twelve); const rows = rowsOf(store);
+    expect([[...rows.values()].filter((k) => k.discoveredVia === "fanout").length, rows.has("saffron transient only"), rows.has("saffron pair only")]).toEqual([30, false, false]); // all thirty searches the twelve answers ran; the pass's own working pair contributes nothing
+    expect(rows.get("saffron search 5")!.origins).toEqual([{ route: "fanout", promptId: "p2", promptVersion: 2, engine: "gemini", reportingDay: DAY_B, observationId: "obs_p2_gemini", parentQuery: "saffron question 1" }]); // the exact answer, its engine, its day, and the question it fanned out from
+    expect([rows.get(SHARED)!.origins!.length, rows.get(SHARED)!.moreOrigins]).toEqual([6, 6]); }); // twelve answers ran one search: six named, six counted, never one
+  it("bounds EVERY route at its ceiling, names what each one set aside, and ADDS each day's slice to what it already holds", async () => {
+    const said: string[] = []; const spy = vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => void said.push(String(a[0])));
+    const three = (day: string, ids = ["q0", "q1", "q2"]) => ids.map((id) => ask({ observationId: `obs_${id}`, promptId: id, promptText: `saffron question ${id}`, reportingDay: day,
+      fanOutQueries: Array.from({ length: 200 }, (_, j) => `saffron f${id}n${j}`), analysis: { topicEntities: Array.from({ length: 200 }, (_, j) => `saffron e${id}n${j}`) } }));
+    const store = memStore(seeded()); await run(store, three(DAY_A)); spy.mockRestore();
+    const kept = (via: string) => [...rowsOf(store).values()].filter((k) => k.discoveredVia === via).map((k) => k.keyword);
+    expect([kept("fanout").length, kept("answer_entity").length]).toEqual([300, 300]); // each route at its ceiling exactly, never 301 and never a quiet 299
+    expect(said.some((l) => l.includes("I reached my limit of 300 candidates and set 600 more aside this pass (answer_entity 300, fanout 300).") && l.includes("get their turn on a later day"))).toBe(true); // a cap reported for the follow-ups alone hid three hundred entities losing their slot
+    await run(store, three(DAY_B)); // a later day starts from a different answer, so the tail gets its turn
+    expect([kept("answer_entity").length, kept("answer_entity").includes("saffron eq0n0"), kept("answer_entity").includes("saffron eq2n0")]).toEqual([500, true, true]); // yesterday's 300 were NOT re-harvested and are still here; today's slice joined them
+    await run(store, three(DAY_B, ["q1", "q2"])); // the account stopped asking the first question
+    expect([kept("answer_entity").includes("saffron eq0n0"), kept("answer_entity").includes("saffron eq2n0"), rowsOf(store).has("how much does saffron cost per gram")]).toEqual([false, true, true]); }); // a retired question takes its own keywords with it; a results page question is nobody's prompt and stays
+  it("keeps everything it already found when the answers cannot be read, and never calls that a clean pass", async () => {
+    // The old source was the pass's own memory and could not fail. This one is a table read that times out, and a failed read used to wipe every keyword it could not re-derive.
+    const said: string[] = []; const spy = vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => void said.push(String(a[0])));
+    const store = memStore(seeded()); await run(store); const before = [...rowsOf(store).entries()].map(([k, v]) => [k, v.origins]);
+    const blind = await run(store, null); spy.mockRestore(); // this time the read itself throws
+    expect([...rowsOf(store).entries()].map(([k, v]) => [k, v.origins])).toEqual(before); // not one keyword, journey or case join lost to a database blip
+    expect(said.some((l) => l.includes("I could not read your stored answers this pass, so I added nothing new from them."))).toBe(true);
+    expect(blind.detail).toContain("Everything I already found is still here"); }); // a blind lane is never reported as a silent clean pass
   it("carries a journey across passes: a rediscovered keyword keeps last pass's arrivals and adds this pass's", async () => {
-    const first = memStore(seeded([pair()])); await run(first);
-    expect(rowsOf(first).get(FAN)!.origins!.map((o) => o.promptId)).toEqual(["p1"]);
-    const held = first.peek("tj", BASIS)!; held.prompts.pairs = [pair({ promptId: "p2", promptText: "cheapest saffron", day: DAY_B })]; // the same follow-up, out of a different answer this time
-    const second = memStore(held); await run(second);
+    const first = memStore(seeded()); await run(first); expect(rowsOf(first).get(FAN)!.origins!.map((o) => o.promptId)).toEqual(["p1"]);
+    const second = memStore(first.peek("tj", BASIS)!); // the same follow-up out of a different answer, while the first answer is still asked and no longer offers it
+    await run(second, [canon({ observationId: "obs_1" }), ask({ observationId: "obs_2", promptId: "p2", promptText: "cheapest saffron", reportingDay: DAY_B })]);
     expect(rowsOf(second).get(FAN)!.origins!.map((o) => o.promptId)).toEqual(["p1", "p2"]); }); // what the last pass learned is not re-learned and not lost
+  it("a fresh arrival still lands when the ceiling is already full of priced rows, because no row is immortal", async () => {
+    const s = seeded(); s.discovery.retained = Array.from({ length: 1400 }, (_, i) => ({ keyword: `saffron priced ${i}`, searchVolume: 10 + i, competition: null, difficulty: null, intent: null, discoveredVia: "ideas" as const, origins: [{ route: "ideas" as const }] })); const store = memStore(s); await run(store);
+    expect([rowsOf(store).size, rowsOf(store).has("saffron shelf life")]).toEqual([1400, true]); }); // a paid row is protected by its group's share of the ceiling, never by locking fresh evidence out of the account forever
   it("counts the arrivals it dropped ONCE, however many passes read the same eight", async () => {
-    // The count used to be the largest carried count PLUS this pass's own overflow, so an arrival dropped by
-    // one pass and recovered by the next was counted twice: eight real arrivals read as ten, then twelve.
-    const eight = Array.from({ length: 8 }, (_, i) => pair({ promptId: `q${i}`, promptText: `question ${i}` }));
-    const first = memStore(seeded(eight)); await run(first);
-    const after = (store: ReturnType<typeof memStore>) => { const r = rowsOf(store).get(FAN)!; return [r.origins!.length, r.moreOrigins]; };
-    expect(after(first)).toEqual([6, 2]);
-    const held = first.peek("tj", BASIS)!; held.prompts.pairs = eight;   // the same eight answers, read again
-    const second = memStore(held); await run(second);
-    expect(after(second)).toEqual([6, 2]);                                // recomputing from the same inputs changes nothing
-    const again = memStore(second.peek("tj", BASIS)!); await run(again);
-    expect(after(again)).toEqual([6, 2]);
-  });
-  it("keeps the remainder in the count when a stored list is clamped, and never names an answer that was not recorded", async () => {
-    // A row stored with more arrivals than the bound is cut to the bound, and what was cut is ADDED to the
-    // count rather than deleted with it.
+    // The count used to be the largest carried count PLUS this pass's own overflow, so an arrival dropped by one pass and recovered by the next was counted twice: eight real arrivals read as ten, then twelve.
+    const eight = Array.from({ length: 8 }, (_, i) => ask({ observationId: `obs_${i}`, promptId: `q${i}`, promptText: `question ${i}` })); const after = (store: ReturnType<typeof memStore>) => { const r = rowsOf(store).get(FAN)!; return [r.origins!.length, r.moreOrigins]; };
+    const first = memStore(seeded()); await run(first, eight); expect(after(first)).toEqual([6, 2]);
+    const second = memStore(first.peek("tj", BASIS)!); await run(second, eight); expect(after(second)).toEqual([6, 2]); // the same eight answers read again: recomputing from the same inputs changes nothing
+    const again = memStore(second.peek("tj", BASIS)!); await run(again, eight); expect(after(again)).toEqual([6, 2]); });
+  it("keeps the remainder in the count when a stored list is clamped", async () => {
+    // A row stored with more arrivals than the bound is cut to the bound, and what was cut is ADDED to the count rather than deleted with it.
     const origins = Array.from({ length: 9 }, (_, i) => ({ route: "fanout" as const, promptId: `x${i}` }));
     const stored = { schemaVersion: 3, tenantId: "tj", basisTag: BASIS, discovery: { seeds: [], rejected: [], counts: { raw: 1, normalized: 1, retained: 1, rejected: 0 }, caseCompetitors: [],
       retained: [{ keyword: "saffron price", searchVolume: 500, competition: null, difficulty: null, intent: null, discoveredVia: "fanout", origins, moreOrigins: 1 }] } } as unknown as FunnelState;
     const table = { select: () => table, eq: () => table, maybeSingle: async () => ({ data: { schema_version: 3, state: stored, row_version: 1 }, error: null }) };
     const loaded = await loadFunnelState("tj", BASIS, { configured: () => true, admin: () => ({ from: () => table }) });
-    const k = loaded.state.discovery.retained[0]!;
-    expect([k.origins!.length, k.moreOrigins]).toEqual([6, 4]); // 9 held plus 1 already counted: six kept, four counted
-    // AND AN ANSWER THAT WAS NEVER ASKED FOR HAS NO ROW TO POINT AT. A pair still waiting to be asked has a
-    // complete identity and no observation behind it, so naming one minted a reference to nothing.
-    const waiting = memStore(seeded([pair({ status: "pending", observedAt: undefined })])); await run(waiting);
-    const arrival = rowsOf(waiting).get(FAN)!.origins![0]!;
-    expect(arrival.observationId).toBeUndefined();
-    expect([arrival.promptId, arrival.reportingDay]).toEqual(["p1", DAY_A]); // the identity it really holds is still recorded
-  });
+    const k = loaded.state.discovery.retained[0]!; expect([k.origins!.length, k.moreOrigins]).toEqual([6, 4]); }); // 9 held plus 1 already counted: six kept, four counted
   it("decodes a row stored before the journey was kept as one that recorded no journey, never as one from nowhere", async () => {
     const stored = { schemaVersion: 3, tenantId: "tj", basisTag: BASIS, discovery: { seeds: [], rejected: [], counts: { raw: 1, normalized: 1, retained: 1, rejected: 0 }, caseCompetitors: [],
       retained: [{ keyword: "saffron price", searchVolume: 500, competition: null, difficulty: null, intent: null, discoveredVia: "site", rankedUrl: "https://own.com/s", rankedRank: 4 }] } } as unknown as FunnelState;
@@ -481,19 +481,19 @@ describe("research funnel - the journey behind a keyword", () => {
 });
 describe("evidence - the per-case research receipt", () => {
   const CASE = "inv_canon", ABSORBED = "inv_old", at = new Date(NOW).toISOString();
+  /** The account's answers as the canonical store holds them, which is where the receipt reads them from now. */ const ANSWERS = [canon({ observationId: "obs_r1", promptId: "p1", promptText: "saffron price", engine: "gemini", observationMode: "standardized_response", observedAt: at }),
+    canon({ observationId: "obs_r2", promptId: "p2", promptText: "how to store saffron at home", engine: "gemini", observationMode: "standardized_response", observedAt: at, fanOutQueries: ["how to store saffron at home"] })]; // the self-echo may not vouch for membership
   const seeded = (): FunnelState => { const s = emptyFunnelState("tr2", BASIS);
     s.cases = [{ id: CASE, anchors: [canonicalQueryKey("saffron price")] }, { id: ABSORBED, anchors: [], aliasOf: CASE }];
     s.discovery.retained = [{ keyword: "saffron price", searchVolume: 500, competition: null, difficulty: 12, intent: "commercial", discoveredVia: "paa", caseId: CASE, ownedRankingUrl: "https://own.com/s", ownedPosition: 4, supports: "existing_page" },
       { keyword: "saffron grades", searchVolume: null, competition: null, difficulty: null, intent: null, discoveredVia: "related_search", caseId: null }];
     s.discovery.counts.retained = 2;
     s.serps.queries = [{ query: "saffron price", cacheKey: "ck-serp", status: "done", observedAt: at, organic: [] }];
-    s.prompts.pairs = [{ promptId: "p1", promptText: "saffron price", engine: "gemini", mode: "standardized_response", cacheKey: null, status: "done", observedAt: at, citationsObserved: false, citations: null },
-      { promptId: "p2", promptText: "how to store saffron at home", engine: "gemini", mode: "standardized_response", cacheKey: null, status: "done", observedAt: at, citationsObserved: false, citations: null, fanOutQueries: ["how to store saffron at home"] }]; // the self-echo may not vouch for membership
     s.pageComparisons = [{ topicKey: ABSORBED, askKey: "ak", pages: ["https://a.com/x", "https://b.com/y"], excludePages: [], observedAt: at, receipt: "ck-pi", comparison: null, unavailable: "capped" }];
     s.discovery.caseCompetitors = [{ caseId: CASE, keywordsAsked: 2, domains: [{ domain: "rival.com", avgPosition: 4, rating: 91, keywordsCount: 12 }], observedAt: at, receipt: "ck-comp", served: "cache" }];
     s.cycle = { runId: "run-r", cycleKey: null, spentUsd: 0.05, cacheHits: 1 }; return s; };
   it("answers for an absorbed id, names every source, tells cache from paid honestly, and says why it bought no more", async () => {
-    const snapshot = await loadEvidenceSnapshot("tr2", { resolveBasis: async () => BASIS, loadState: async () => ({ state: seeded(), rowVersion: 1 }), now: new Date(NOW) });
+    const snapshot = await loadEvidenceSnapshot("tr2", { resolveBasis: async () => BASIS, loadState: async () => ({ state: seeded(), rowVersion: 1 }), loadObservations: async () => ANSWERS, now: new Date(NOW) });
     const r = caseResearchReceipt(snapshot, ABSORBED)!;
     expect([r.caseId, r.aliasKeys]).toEqual([CASE, [ABSORBED]]); // asked under the id a merge absorbed, answered by the case that answers for it now
     expect(r.keywords).toEqual([{ query: "saffron price", discoveredVia: "paa", metricsHeld: true, searchVolume: 500, difficulty: 12, intent: "commercial", ownedRankingUrl: "https://own.com/s", ownedPosition: 4, supports: "existing_page", origins: null, moreOrigins: null }]); // only this case's keywords, each with how I found it, its recorded journey, and what acting on it would mean
@@ -507,7 +507,7 @@ describe("evidence - the per-case research receipt", () => {
     s.cases = [...s.cases!, { id: DEEP, anchors: [], aliasOf: ABSORBED }];
     s.discovery.retained = [...s.discovery.retained, { keyword: "saffron threads", searchVolume: null, competition: null, difficulty: null, intent: null, discoveredVia: "gsc", caseId: DEEP }];
     s.pageComparisons = [...s.pageComparisons!, { topicKey: DEEP, askKey: "ak2", pages: ["https://a.com/x", "https://c.com/z"], excludePages: [], observedAt: at, receipt: "ck-deep", comparison: null, unavailable: null }];
-    const snapshot = await loadEvidenceSnapshot("tr2", { resolveBasis: async () => BASIS, loadState: async () => ({ state: s, rowVersion: 1 }), now: new Date(NOW) });
+    const snapshot = await loadEvidenceSnapshot("tr2", { resolveBasis: async () => BASIS, loadState: async () => ({ state: s, rowVersion: 1 }), loadObservations: async () => ANSWERS, now: new Date(NOW) });
     const r = caseResearchReceipt(snapshot, DEEP)!;
     expect([r.caseId, r.aliasKeys]).toEqual([CASE, [ABSORBED, DEEP]]); // asked under the deepest id, answered by the case that answers for all three
     expect(r.keywords.map((k) => k.query).sort()).toEqual(["saffron price", "saffron threads"]); // the keyword filed two hops down is still this case's keyword
@@ -515,15 +515,15 @@ describe("evidence - the per-case research receipt", () => {
 });
 describe("research funnel - canonical snapshot carries the research bundle", () => {
   it("surfaces the current set, its provenance, and THIS run's receipt", async () => { const s = emptyFunnelState("tg", BASIS); s.discovery.retained = [{ keyword: "saffron price", searchVolume: 500, competition: 0.4, difficulty: null, intent: "commercial", discoveredVia: "site" }];
-    s.discovery.counts = { raw: 30, normalized: 20, retained: 1, rejected: 2 };
-    s.prompts.intendedPairs = 2; // CANONICAL coverage: the consumer look + gemini
-    s.prompts.pairs = [{ promptId: "pr", promptText: "where to buy saffron", engine: "chatgpt", mode: "consumer_search", cacheKey: null, status: "done", observedAt: "2026-07-24T00:00:00.000Z", modelServed: "gpt-4o", citationsObserved: true, citations: [{ url: "https://b.com/y", domain: "b.com", title: null }] },
-      { promptId: "pr", promptText: "where to buy saffron", engine: "chatgpt", mode: "standardized_response", cacheKey: null, status: "done", observedAt: "2026-07-24T00:00:00.000Z", citationsObserved: false, citations: null }, { promptId: "pr", engine: "gemini", mode: "standardized_response", cacheKey: null, status: "pending" }];
+    s.discovery.counts = { raw: 30, normalized: 20, retained: 1, rejected: 2 }; s.prompts.intendedPairs = 2; // CANONICAL coverage: the consumer look + gemini
+    s.prompts.pairs = [{ promptId: "pr", promptText: "where to buy saffron", engine: "chatgpt", mode: "consumer_search", cacheKey: null, status: "done", observedAt: "2026-07-24T00:00:00.000Z" }, { promptId: "pr", promptText: "where to buy saffron", engine: "chatgpt", mode: "standardized_response", cacheKey: null, status: "done", observedAt: "2026-07-24T00:00:00.000Z" }, { promptId: "pr", engine: "gemini", mode: "standardized_response", cacheKey: null, status: "pending" }]; // two readings landed, one is still owed
     s.serps.queries = [{ query: "saffron price", cacheKey: null, status: "done", observedAt: "2026-07-24T00:00:00.000Z", organic: [{ rank: 1, url: "https://a.com/x", domain: "a.com", title: "A" }], aiOverview: [{ url: "https://b.com/y", domain: "b.com", title: null }] }, { query: "unavailable", cacheKey: null, status: "failed" }];
     s.serps.analyzed = 1; s.winningPages = [{ url: "https://b.com/y", domain: "b.com", engines: ["chatgpt"], examplePrompts: ["where to buy saffron"], appearances: [], extract: null }];
     s.ledger = { spentUsd: 99, cacheHits: 99 }; // lifetime totals are NOT the receipt
-    s.cycle = { runId: "run-9", cycleKey: "cycle-9", spentUsd: 0.5, cacheHits: 3 }; const snapshot = await loadEvidenceSnapshot("tg", { resolveBasis: async () => BASIS, loadState: async () => ({ state: s, rowVersion: 1 }), now: new Date("2026-07-24T00:00:00.000Z") });
-    expect(snapshot.research.retainedKeywords[0]!.intent).toBe("commercial"); expect(snapshot.research.aiObservations.map((o) => o.promptText)).toEqual(["where to buy saffron", "where to buy saffron"]); // only resolved evidence projects
+    s.cycle = { runId: "run-9", cycleKey: "cycle-9", spentUsd: 0.5, cacheHits: 3 }; const AT = "2026-07-24T00:00:00.000Z";
+    const answers = [canon({ observationId: "obs_g1", promptId: "pr", modelServed: "gpt-4o", citations: [{ url: "https://b.com/y", domain: "b.com", title: null }], observedAt: AT }), canon({ observationId: "obs_g2", promptId: "pr", observationMode: "standardized_response", observedAt: AT })];
+    const snapshot = await loadEvidenceSnapshot("tg", { resolveBasis: async () => BASIS, loadState: async () => ({ state: s, rowVersion: 1 }), loadObservations: async () => answers, now: new Date(AT) });
+    expect(snapshot.research.retainedKeywords[0]!.intent).toBe("commercial"); expect(snapshot.research.aiObservations.map((o) => o.promptText)).toEqual(["where to buy saffron", "where to buy saffron"]); // the answers come from the canonical store, which holds only settled ones
     expect(snapshot.research.aiObservations.map((o) => o.observationMode)).toEqual(["consumer_search", "standardized_response"]); // both looks project with their own provenance, never blended
     expect(snapshot.research.serpEvidence.map((e) => e.query)).toEqual(["saffron price"]); expect(snapshot.research.serpEvidence[0]!.aiOverview[0]!.domain).toBe("b.com");
     expect(snapshot.research.winningPages[0]!.examplePrompts).toEqual(["where to buy saffron"]);

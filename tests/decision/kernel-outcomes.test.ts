@@ -29,7 +29,7 @@ import { compileCandidates, snapshotToEvidenceInputs } from "@/domains/decision/
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
 import { chooseInvestigation, comparisonForFocus, focusReads } from "@/domains/runtime/ops/investigation-queries";
 import { reconcileResearchCases } from "@/domains/evidence/topic-investigation";
-const queued = async (tenantId: string, at = 0) => focusReads(await chooseInvestigation(tenantId, null), at, null).queries;
+const queued = async (tenantId: string, at = 0) => focusReads(await chooseInvestigation(tenantId, null), at, null).queries; const canon = <T extends object>(o: T) => ({ observationId: "obs_fx", promptVersion: 1, reportingDay: "2026-07-01", answerHash: "hx", retrievedResults: null, brandMentions: null, analysis: null, ...o });
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { ownedCandidatesFor } from "@/domains/decision/owned-coverage"; import { askIdentity } from "@/domains/evidence/page-intersection";
 import { buildTopicInvestigations } from "@/domains/evidence/topic-investigation";
 import { readCoverage, rankInvestigations } from "@/domains/decision/coverage-pass"; import { loadProposalQueue, pagesUnderMeasurement } from "@/domains/decision/load-proposals";
@@ -209,7 +209,7 @@ describe("the pass says what it is investigating without turning any of it into 
     expect(first.investigations.length).toBeGreaterThan(0); expect(first.coverage).toEqual(again.coverage); // the packet reaches the pass, and the same evidence reaches the same answer every time
     expect([first.outcome, first.proposals.length, called, env.saved.length]).toEqual(["no_actionable_candidate", 0, 0, 0]); }); // no candidate, no draft, no row
   it("queues one search per topic and only what buying can actually close", async () => {
-    const asked = { promptId: "p1", promptText: "where do I see nowruz fire jumping", engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [], fanOutQueries: ["nowruz fire jumping"], observedAt: LOOKED_AT };
+    const asked = canon({ promptId: "p1", promptText: "where do I see nowruz fire jumping", engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [], fanOutQueries: ["nowruz fire jumping"], observedAt: LOOKED_AT });
     reset(snap([GAP, WEAK], { ...GUIDED, aiObservations: [asked] }, DEMAND)); // one topic settled but unread, one never looked at, and two page gaps that are no topic at all
     expect(await queued("fixture-tenant")).toEqual([HAFT, "nowruz fire jumping"]); // read that one's winners, buy the other one's missing look
     reset(snap([GAP], looked([[HAFT, GAP_URL]], LOOKED_AT))); expect(await queued("fixture-tenant")).toEqual([]); }); // a dated look answering two meanings of the phrase: no purchase settles that, so it queues nothing
@@ -224,7 +224,7 @@ describe("the pass says what it is investigating without turning any of it into 
     const quiet = await readCoverage(snap([GAP], READY({ topicKey: "inv_nobody" }), DEMAND), "fixture-tenant", { basis: "basis_today" }); // asked for no research: none is queued, comparison included
     expect(quiet.needs).toEqual([]); });
   it("keeps ONE identity for a case when a fresh look lands, so a plan frozen mid-run can still reconfirm its own topic", () => {
-    const aiObservations = [{ promptId: "p9", promptText: HAFT, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [], fanOutQueries: [], observedAt: LOOKED_AT }];
+    const aiObservations = [canon({ promptId: "p9", promptText: HAFT, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [], fanOutQueries: [], observedAt: LOOKED_AT })];
     const at = (r: FunnelResearchEvidence) => buildTopicInvestigations(snap([GAP], { ...r, aiObservations }, DEMAND))[0]!; // the case before I looked at Google at all, then after I bought the very look it was owed
     const one = at(emptyResearchEvidence()), two = at(GUIDED); // before the look, and after it
     expect([two.key, two.queries[0] === one.queries[0]]).toEqual([one.key, true]); }); // the case is never renamed when the look it asked for lands
@@ -297,7 +297,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     expect([again.kinds, res.reused, res.proposals.filter((p) => p.kind === "new_page").map((p) => p.id)]).toEqual([[], 1, [under.id]]); }); // zero brief calls, and ONE page for one subject
   it("builds exactly ONE new page from the earned verdict, carrying the WHOLE page, and holds it for the look it owes", async () => {
     // A question I track on this subject and NOT ONE search an engine ran itself: the branch where calling the example a fan-out would be a lie.
-    const asked = [{ promptId: "p9", promptText: HAFT, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [], fanOutQueries: [], observedAt: LOOKED_AT }];
+    const asked = [canon({ promptId: "p9", promptText: HAFT, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [], fanOutQueries: [], observedAt: LOOKED_AT })];
     reset(snap([GAP], { ...READY({ topicKey: keyOf(READY()) }), aiObservations: asked }, DEMAND)); const seam = briefSeam();
     const res = await produceProposalsForTenant("fixture-tenant", { complete: seam.complete, now: NOW });
     expect(seam.kinds).toEqual(["new_page_brief", "section_draft", "section_draft", "section_draft"]); // the brief, then the copy for every planned section
@@ -405,8 +405,8 @@ describe("what the winning pages share reaches the operator, and never one of th
 /** A page the click door can NEVER select: about 27 clicks short of the 50 a change owes, and its displayed line already carries the searcher's words. */
 const WHOLE = ownedPage(GAP_URL, `${HAFT} guide for Nowruz`, { impressions: 900, clicks: 45 }, [{ query: HAFT, impressions: 900, clicks: 45, position: 4.1 }], ["Persian New Year Customs", "what each piece means"]);
 const SPLIT_URL = "fixture-outdoors.example/haft-seen-table";
-const ASKED = { promptId: "p8", promptText: `what goes on a ${HAFT}`, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null,
-  modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url: RIVAL(1), domain: "r1.example", title: "g" }], fanOutQueries: [HAFT], observedAt: LOOKED_AT };
+const ASKED = canon({ promptId: "p8", promptText: `what goes on a ${HAFT}`, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null,
+  modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url: RIVAL(1), domain: "r1.example", title: "g" }], fanOutQueries: [HAFT], observedAt: LOOKED_AT });
 const doorWorld = (over: Partial<FunnelResearchEvidence> = {}, pages: OwnedPageEvidence[] = [WHOLE], can: EvidenceSnapshot["cannibalization"] = []): EvidenceSnapshot => {
   const r = READABLE({ comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) });
   const research = { ...r, serpEvidence: [{ ...r.serpEvidence[0]!, organic: [...GUIDED.serpEvidence[0]!.organic, { rank: 4, domain: "fixture-outdoors.example", url: GAP_URL, title: `${HAFT} guide` }] }], ...over };
@@ -479,9 +479,9 @@ const PATTERN_HELD = { archetype: "informational_guide" as const, commonHeadings
 /** The five causes nothing in this generation can test, which must therefore never be guessed at. */
 const NEVER_HELD = ["demand_decline", "ranking_loss", "technical_indexability", "measuring_change"]; // retrieved_not_cited went live when the projection began carrying the retrieval list
 /** An engine answering this page's own search and naming everybody except this page. */
-const CITED_ELSEWHERE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [{ promptId: "p1", promptText: "nowruz traditions explained", engine: "chatgpt",
-  observationMode: "consumer_search", modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true,
-  citations: [{ url: "https://rival.example/a", domain: "rival.example", title: null }], fanOutQueries: ["nowruz traditions"], observedAt: LOOKED_AT }] });
+const CITED_ELSEWHERE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [canon({ promptId: "p1", promptText: "nowruz traditions explained", engine: "chatgpt",
+  observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true,
+  citations: [{ url: "https://rival.example/a", domain: "rival.example", title: null }], fanOutQueries: ["nowruz traditions"], observedAt: LOOKED_AT })] });
 const ACTORS_SEEN = () => snap([ACTORS], actorsSerp("Persian Screen | Iranopedia"));
 describe("why this page loses the click, one named cause at a time", () => { it("blames the wording only where the results page accuses it, and says what it beat and what would kill it", () => {
     const c = compileCandidates(ACTORS_SEEN())[0]!;

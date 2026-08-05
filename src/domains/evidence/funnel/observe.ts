@@ -394,7 +394,11 @@ const competitionLevel = (c: number | null): "low" | "medium" | "high" | null =>
 /** Read-only: normalize the persisted funnel state into the canonical research evidence bundle plus an explicit receipt. The state is already pruned to the CURRENT set, so nothing obsolete can be projected. The receipt's money and cache numbers are THIS RUN's, not a lifetime total. PURE. */
 export function projectFunnelEvidence(state: FunnelState, now: number): FunnelResearchEvidence {
   const donePairs = state.prompts.pairs.filter((p) => p.status === "done");
-  const observedTimes = donePairs.map((p) => p.observedAt).filter((t): t is string => !!t).sort(), isStale = (at: string | undefined) => !isCurrent("serp_cold", at, now);
+  // The freshest look THIS STATE holds, over both lanes. The snapshot takes the newer of this and the canonical
+  // answers it loads, so freshness is never dated by a working set that no longer carries the answers at all.
+  const observedTimes = [...donePairs.map((p) => p.observedAt), ...state.serps.queries.map((s) => s.observedAt)]
+    .filter((t): t is string => !!t).sort();
+  const isStale = (at: string | undefined) => !isCurrent("serp_cold", at, now);
   // Receipt denominators are derived from the pairs themselves, so a persisted intendedPairs written by an older selector can never overstate missing.
   const stale = donePairs.filter((p) => isStale(p.observedAt)).length
     + state.serps.queries.filter((s) => s.status === "done" && isStale(s.observedAt)).length;
@@ -404,13 +408,9 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
   return {
     // LINEAGE rides along: how each keyword was found, the confirmed theme it was found from, the case it joined, the page of my own that already ranks for it, and what acting on it would mean. Every one is a recorded fact, so nothing downstream has to guess them. THE WHOLE JOURNEY rides along too (`origins`), so a fan-out can be traced back to the question, the engine, the day and the stored answer that produced it; a row stored before it was kept projects without it rather than with an invented one.
     retainedKeywords: state.discovery.retained.map((k) => ({ query: k.keyword, searchVolume: k.searchVolume, competition: k.competition, competitionLevel: k.competitionLevel ?? competitionLevel(k.competition), difficulty: k.difficulty ?? null, intent: k.intent, discoveredVia: k.discoveredVia, seed: k.seed ?? null, ownedRankingUrl: k.ownedRankingUrl ?? null, ownedPosition: k.ownedPosition ?? null, parentCaseId: k.caseId ?? null, supports: k.supports ?? null, ...(k.origins ? { origins: k.origins } : {}), ...(k.moreOrigins ? { moreOrigins: k.moreOrigins } : {}) })),
-    aiObservations: donePairs.map((p) => ({
-      promptId: p.promptId, promptText: p.promptText ?? "", engine: p.engine, observationMode: modeOf(p),
-      modelRequested: p.modelRequested ?? null, modelServed: p.modelServed ?? null,
-      webSearchReported: p.webSearchReported ?? null, citationsObserved: p.citationsObserved ?? (p.citations != null),
-      citations: p.citations ?? null, fanOutQueries: p.fanOutQueries ?? null, observedAt: p.observedAt ?? "",
-      retrievedResults: p.retrievedResults ?? null, brandMentions: p.brandMentions ?? null,
-    })),
+    // AI ANSWERS ARE NOT PROJECTED FROM HERE. This state is a working window of at most 20 pairs, so projecting it
+    // told Decision an account with 140 answers a day held one. The loader fills the slot from ai_observations.
+    aiObservations: [],
     serpEvidence: doneSerps.map((s) => ({
       query: s.query,
       observedAt: s.observedAt ?? null,

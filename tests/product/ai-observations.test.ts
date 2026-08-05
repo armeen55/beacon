@@ -25,27 +25,23 @@ function fakeTable(table: string) {
     }
     return 0; // a tie the query never broke: Postgres is free to return these two either way round
   });
+  const where: Record<string, unknown> = {}; // every eq the caller built is APPLIED, so a dropped scope clause is caught here
   const q: Record<string, unknown> = {
     select: (cols?: string) => { db.selected.push(cols ?? ""); return q; },
-    eq: (c: string, v: unknown) => { db.filters[c] = v; return q; },
+    eq: (c: string, v: unknown) => { db.filters[c] = v; where[c] = v; return q; },
     order: (col: string, o?: { ascending?: boolean }) => { orders.push({ col, asc: o?.ascending !== false }); return q; },
     limit: (n: number) => { max = n; return q; },
-    or: (expr: string) => {
-      const m = /requested_at\.lt\."([^"]*)".*id\.lt\."([^"]*)"/.exec(expr);
-      if (m) after = { at: m[1]!, id: m[2]! };
-      return q;
-    },
+    or: (expr: string) => { const m = /requested_at\.lt\."([^"]*)".*id\.lt\."([^"]*)"/.exec(expr); if (m) after = { at: m[1]!, id: m[2]! }; return q; },
     gte: (c: string, v: unknown) => { db.filters[`${c}_gte`] = v; return q; },
     lte: (c: string, v: unknown) => { db.filters[`${c}_lte`] = v; return q; },
     update: (patch: Record<string, unknown>) => { db.updated = patch; return q; },
     upsert: (chunk: Record<string, unknown>[]) => { for (const row of chunk) db.written.push({ table, row }); return { select: async () => ({ data: chunk.map((r) => ({ id: r.id })), error: db.error }) }; },
     then: (res: (v: { data: unknown; error: unknown }) => void) => {
       if (db.updated) return res({ data: db.matched, error: db.error });
-      const ordered = sorted(db.read);
+      const mine = (table === "ai_observations" ? db.read : []).filter((r) => Object.entries(where).every(([c, v]) => r[c] === v)); // one table's rows are never another's
+      const ordered = sorted(mine);
       const cursor = after;
-      const past = cursor
-        ? ordered.filter((r) => { const at = String(r.requested_at ?? ""); return at < cursor.at || (at === cursor.at && String(r.id) < cursor.id); })
-        : ordered;
+      const past = cursor ? ordered.filter((r) => { const at = String(r.requested_at ?? ""); return at < cursor.at || (at === cursor.at && String(r.id) < cursor.id); }) : ordered;
       const page = max == null ? past : past.slice(0, max);
       db.pages.push(`${cursor ? `${cursor.at}|${cursor.id}` : "start"}+${page.length}`);
       db.onPage?.(db.pages.length);
@@ -61,10 +57,14 @@ vi.mock("@/domains/evidence/readers/gsc-page-signals", () => ({
   loadGscPageSignalsForTenant: async () => gsc.pages,
   loadGscDecaySignalsForTenant: async () => gsc.decay,
 }));
+/** THE one owner of the approved question set, faked so what a canonical read is SCOPED to is the thing under test. */
+const promptSet = vi.hoisted(() => ({ active: null as { id: string; version: number }[] | null }));
+vi.mock("@/domains/runtime/prompt-set", async (orig) => ({ ...((await orig()) as object), readActiveTrackedPrompts: async () => promptSet.active }));
 import type { Account } from "@/domains/account";
 import { aiObservationId, persistAnswerAnalysis, readAiObservations, readAiObservationViews, recordAiObservation, settleFailedObservation, type AiObservationRecord, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
-import { loadFunnelState, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
+import { emptyFunnelState, loadFunnelState, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
+import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type { CachedCallResult, CapabilityKey } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { promptObservationUnit } from "@/domains/evidence/funnel/observe";
@@ -274,15 +274,9 @@ describe("re-analysis reads what was already bought", () => {
   });
   it("reads the addresses an answer credited off the stored journey, and keeps null a different claim from none", async () => {
     const at = (url: string, domain: string) => ({ url, domain, title: null });
-    db.read = [
-      { id: "o1", tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed", requested_at: `${DAY}T09:00:04.000Z`,
-        journey: { cited_sources: [at("https://rival.example/a", "rival.example"), at("", "acme.com")] } },
-      { id: "o2", tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed", requested_at: `${DAY}T09:00:03.000Z`,
-        journey: { cited_sources: [] } },
-      { id: "o3", tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed", requested_at: `${DAY}T09:00:02.000Z`,
-        journey: { cited_sources: null } },
-      { id: "o4", tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed", requested_at: `${DAY}T09:00:01.000Z` },
-    ];
+    const row = (id: string, second: number, journey?: Record<string, unknown>) => ({ id, tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed", requested_at: `${DAY}T09:00:0${second}.000Z`, ...(journey ? { journey } : {}) });
+    db.read = [row("o1", 4, { cited_sources: [at("https://rival.example/a", "rival.example"), at("", "acme.com")] }),
+      row("o2", 3, { cited_sources: [] }), row("o3", 2, { cited_sources: null }), row("o4", 1)];
     const views = await readAiObservationViews(TENANT, { day: DAY });
     // The address when there is one, the bare site when the engine named only a site, in the order credited.
     expect(views.find((v) => v.id === "o1")!.citationUrls).toEqual(["https://rival.example/a", "acme.com"]);
@@ -296,16 +290,14 @@ describe("re-analysis reads what was already bought", () => {
     await settleFailedObservation(TENANT, "obs_1", "unavailable");
     expect(db.updated).toEqual({ status: "unavailable" });
     expect(db.filters).toEqual({ tenant_id: TENANT, id: "obs_1", status: "failed" });
-    db.updated = null; db.filters = {};
-    await settleFailedObservation(TENANT, "obs_2", "unsupported");
-    expect(db.updated).toEqual({ status: "unsupported" }); // an engine I cannot ask is a different claim
-    expect(db.filters).toEqual({ tenant_id: TENANT, id: "obs_2", status: "failed" });
+    db.updated = null; db.filters = {}; await settleFailedObservation(TENANT, "obs_2", "unsupported");
+    expect([db.updated, db.filters]).toEqual([{ status: "unsupported" }, { tenant_id: TENANT, id: "obs_2", status: "failed" }]); // an engine I cannot ask is a different claim
     db.updated = null; db.error = { message: "connection lost" };
     await expect(settleFailedObservation(TENANT, "obs_3", "unavailable")).rejects.toThrow(/settle failed/);
   });
   it("reads a NAMED DAY whole, and an insert mid-read never doubles a row or drops one", async () => {
-    // The planner asks for the single day it is planning. That is a named range, so the reader walks it to
-    // the end: it used to default to 500 rows and call the newest page of a 600 row day the whole day.
+    // The planner asks for the single day it is planning. That is a named range, so the reader walks it to the end:
+    // it used to default to 500 rows and call the newest page of a 600 row day the whole day.
     db.read = stored(600);
     expect((await readAiObservations(TENANT, { day: DAY })).length).toBe(600);
     // AND THE PAGES DO NOT SHIFT UNDER AN INSERT. The collect step writes rows while a read is walking;
@@ -317,26 +309,9 @@ describe("re-analysis reads what was already bought", () => {
     expect(walked.filter((r) => Number(String(r.id).slice(4)) < 2500).length).toBe(2500); // and nothing already stored was skipped
   });
 });
-/** The two readers the research funnel falls back on when a caller injects nothing. Both were built to carry
- *  PROVENANCE, and provenance is invisible from the outside: a keyword harvested downstream can name the
- *  answer or the page it came from only because these fields ride along. Run for real over the fakes. */
-describe("the funnel's own default readers carry provenance, not just payload", () => {
-  it("keeps every answer's identity on the analysis it is about", async () => {
-    const analysis = { ownedBrandMention: { mentioned: true, position: 1, context: null } };
-    db.read = [
-      { id: "obs_a", tenant_id: TENANT, prompt_id: "q7", prompt_version: 3, engine: "claude", reporting_day: DAY,
-        sample_slot: 0, status: "observed", requested_at: `${DAY}T09:00:02.000Z`, completed_at: null,
-        prompt_text: QUESTIONS[0]!.text, answer_text: "an answer", answer_hash: "h", analysis, analysis_hash: "ah" },
-      // Never analyzed: there is no verdict to carry, so it is not a candidate at all.
-      { id: "obs_b", tenant_id: TENANT, prompt_id: "q8", prompt_version: 1, engine: "chatgpt", reporting_day: DAY,
-        sample_slot: 0, status: "observed", requested_at: `${DAY}T09:00:01.000Z`, prompt_text: "x", analysis: null },
-    ];
-    const rows = await resolveDeps({}).loadAnswerAnalyses(TENANT);
-    // Without these six the analysis arrives anonymous, and a keyword taken out of it can never name the
-    // question, the engine, the day or the stored answer it came from.
-    expect(rows).toEqual([{ analysis, observationId: "obs_a", promptId: "q7", promptVersion: 3,
-      promptText: QUESTIONS[0]!.text, engine: "claude", reportingDay: DAY }]);
-  });
+describe("the funnel's own default reader carries provenance, not just payload", () => {
+  /** Provenance is invisible from the outside: a keyword harvested downstream names the page it came from only
+   *  because these fields ride along. Run for real over the fakes. */
   it("names the page of mine whose Search Console row carried each query, and orders the slipping ones first", async () => {
     gsc.pages = new Map([
       ["https://mine.example/guide", { page: "https://mine.example/guide", clicks90d: 10, impressions90d: 900, ctr90d: 0.01,
@@ -387,5 +362,65 @@ describe("retrieved is not the same claim as not cited", () => {
     const once = retrievedNotCitedLinks(loaded.state.prompts.pairs[0]!.retrievedResults, pair.citations);
     expect(once.map((r) => r.url)).toEqual(["https://rival.example/a"]);
     expect(retrievedNotCitedLinks(once, pair.citations)).toEqual(once); // deriving again takes nothing more away
+  });
+});
+/** THE SNAPSHOT'S AI EVIDENCE IS THE WHOLE CANONICAL RECORD. The funnel's working state carries ONE 20 pair window, so projecting it told every decision that an
+ *  account holding 35 questions across 4 engines had a single answer, and the legacy projection read beside it carried no fan-outs and no readings at all. Everything
+ *  below runs the REAL loader and the REAL pure assembler over the faked Postgres above; no provider is reachable from any of it. */
+describe("the snapshot reads the canonical answer set, never the working window", () => {
+  const PROMPTS = Array.from({ length: 35 }, (_, i) => ({ id: `p${i}`, version: 2 })), DAY2 = "2026-07-22";
+  const stored = (promptId: string, engine: string, over: Record<string, unknown> = {}) => ({
+    id: `obs_${promptId}_${engine}`, tenant_id: TENANT, prompt_id: promptId, prompt_version: 2, prompt_text: `question ${promptId}`, engine, model_requested: null, model_served: null,
+    observation_mode: engine === "chatgpt" ? "consumer_search" : "standardized_response", reporting_day: DAY, sample_slot: 0, requested_at: `${DAY}T09:00:00.000Z`,
+    completed_at: `${DAY}T09:05:00.000Z`, status: "observed", answer_hash: "h1", analysis: null, analysis_hash: null,
+    journey: { fan_outs: [`${promptId} fan`], cited_sources: null, retrieved_results: null, brand_mentions: null, web_search_reported: true }, ...over });
+  /** One whole day (35 questions x 4 engines) landed across the several 20 pair windows a day's run walks, beside all
+   *  the funnel state keeps by the end of it: the last pair of the last window. */
+  const wholeDay = () => PROMPTS.flatMap((p, i) => ENGINES.map((e) => stored(p.id, e, { requested_at: `${DAY}T0${Math.floor(i / 12)}:00:00.000Z` })));
+  const lastWindow = (): FunnelState => { const s = emptyFunnelState(TENANT, BASIS); s.prompts.pairs = [{ promptId: "p34", promptText: "question p34",
+    engine: "perplexity", mode: "standardized_response", cacheKey: null, status: "done", observedAt: `${DAY}T09:05:00.000Z` } as FunnelPair]; return s; };
+  const snapshotOf = () => loadEvidenceSnapshot(TENANT, { site: SITE, now: new Date(NOW), resolveBasis: async () => BASIS, loadState: async () => ({ state: lastWindow(), rowVersion: 1 }) });
+  beforeEach(() => { promptSet.active = PROMPTS; });
+  it("holds the day's whole 140 answers while the working set is down to one pair, and buys nothing to do it", async () => {
+    db.read = wholeDay(); db.written = []; const net = vi.fn(async () => { throw new Error("the snapshot must never reach a provider"); }); vi.stubGlobal("fetch", net);
+    const snap = await snapshotOf(); vi.unstubAllGlobals();
+    const ai = snap.sources.find((s) => s.source === "native_ai")!; // 140 stored answers that credited nobody: the count and the sentence must agree
+    expect([snap.research.aiObservations.length, ai.status, ai.rowsSeen, ai.note]).toEqual([140, "empty", 140, "I have 140 stored AI answers and not one of them has named a page yet, so I have nothing to compare pages on."]);
+    expect([new Set(snap.research.aiObservations.map((o) => o.engine)).size, snap.aiCitations.rowsScanned, net.mock.calls.length, db.written.length, db.updated]).toEqual([4, 140, 0, 0, null]); // and zero provider calls, zero writes
+    const first = snap.research.aiObservations.find((o) => o.observationId === "obs_p0_chatgpt")!; // the FIRST window's answer, long overwritten in state
+    expect([first.fanOutQueries, first.promptVersion, first.reportingDay, first.observationMode]).toEqual([["p0 fan"], 2, DAY, "consumer_search"]);
+  });
+  it("carries a settled reading whole and refuses every reading that is not one", async () => {
+    const read = { questionsAnswered: ["does a kite need wind"] }; // settled, then never settled, then settled against a DIFFERENT answer, then a refusal
+    db.read = [stored("p0", "chatgpt", { analysis: read, analysis_hash: "h1" }), stored("p1", "chatgpt", { analysis: read, analysis_hash: null }), stored("p2", "chatgpt", { analysis: read, analysis_hash: "other" }),
+      stored("p3", "chatgpt", { analysis_hash: "h1", analysis: { rejected: true, outcome: "refused", readOutcome: "schema_invalid", verdictRules: 2 } }), stored("p4", "chatgpt", { analysis: "not an object", analysis_hash: "h1" })];
+    const by = new Map((await snapshotOf()).research.aiObservations.map((o) => [o.promptId, o.analysis]));
+    expect([by.get("p0"), by.get("p1"), by.get("p2"), by.get("p3"), by.get("p4")]).toEqual([read, null, null, null, null]); // a refusal is never sold as a reading, and text is not a reading at all
+  });
+  it("reads only the questions I watch now at the version I watch them at, and keeps the newest reading of a pair once", async () => {
+    db.read = [stored("p0", "chatgpt"), stored("p1", "chatgpt", { prompt_version: 1 }), stored("dropped", "chatgpt"), stored("p0", "chatgpt", { id: "obs_new", reporting_day: DAY2, completed_at: `${DAY2}T09:05:00.000Z` }),
+      stored("p2", "chatgpt", { id: "obs_slot1", sample_slot: 1 }), // a DELIBERATE second sample of a pair is a different reading, never today's answer
+      stored("p3", "chatgpt", { id: "obs_failed", status: "failed" }), stored("p4", "chatgpt", { id: "obs_nohash", answer_hash: null })]; // and nothing without an answer in hand
+    expect((await snapshotOf()).research.aiObservations.map((o) => [o.observationId, o.reportingDay])).toEqual([["obs_new", DAY2]]); // a retired question, a superseded version and yesterday's copy all stay out
+  });
+  it("says a read that failed failed, and keeps that a different claim from an account with nothing stored", async () => {
+    db.read = wholeDay(); db.error = { message: "connection lost" }; // 140 answers on file and Postgres unreachable
+    const unread = (await snapshotOf()).sources.find((s) => s.source === "native_ai")!; expect([unread.status, unread.note]).toEqual(["failed", "I could not read your stored AI answers this run, so I am deciding without them."]);
+    db.error = null; promptSet.active = null; // the QUESTION SET could not be read either: still a read I did not get, never an empty account
+    expect((await snapshotOf()).sources.find((s) => s.source === "native_ai")!.status).toBe("failed"); promptSet.active = PROMPTS; db.read = [];
+    const none = (await snapshotOf()).sources.find((s) => s.source === "native_ai")!;
+    expect([none.status, none.note]).toEqual(["dormant", "I have not stored an AI answer for your questions yet, so I am working without that evidence for now."]);
+  });
+  it("derives the pages AI keeps crediting and the questions it answered from those same answers", async () => {
+    const MINE = `https://${SITE}/kite-guide`, RIVAL = "https://rival.example/kites", asked = { questionsAnswered: ["when do kite festivals start", "too short"] };
+    const cite = (url: string) => ({ url, domain: url.replace(/^https:\/\//, "").split("/")[0]!, title: null });
+    db.read = [stored("p0", "chatgpt", { journey: { cited_sources: [cite(MINE), cite(RIVAL)] }, analysis: asked, analysis_hash: "h1" }),
+      stored("p1", "chatgpt", { journey: { cited_sources: [cite(MINE), cite(RIVAL)] }, analysis: asked, analysis_hash: "h1" }),
+      stored("p2", "gemini", { journey: { cited_sources: [cite(MINE), { url: "about:blank", domain: "", title: null }, ...Array.from({ length: 40 }, (_, i) => cite(`https://r${i}.example/x`))] } }), // an address with no host is nobody's page
+      stored("p3", "chatgpt", { analysis_hash: "h1", analysis: { questionsAnswered: Array.from({ length: 40 }, (_, i) => `what does a kite festival do about weather ${i}`) } })]; // and 40 questions are cut to the bound
+    const snap = await snapshotOf(), cited = snap.ownedPages.find((p) => p.url === `${SITE}/kite-guide`)!.aiCitations;
+    expect([cited.count, cited.distinctPrompts, cited.engines]).toEqual([3, 3, ["chatgpt", "gemini"]]);
+    expect([snap.competitors.length, snap.competitors[0]!.domain, snap.sources.find((s) => s.source === "native_ai")!.status, snap.questionDemand.length]).toEqual([15, "rival.example", "fresh", 30]); // 41 credited addresses and 40 questions both come back bounded, most cited first, and a fragment too short to be a question never enters
+    expect(snap.questionDemand[0]).toEqual({ question: "when do kite festivals start", weight: 2, sourcePrompts: ["question p0", "question p1"], source: "native_ai", coverageStatus: "unanswered" });
   });
 });

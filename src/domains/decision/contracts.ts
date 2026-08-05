@@ -11,8 +11,7 @@
 
 import { z } from "zod";
 import type { AuthoritativeFact } from "@/domains/decision/drafts/factual-entailment";
-// TYPE ONLY (erased at compile, no runtime edge). The cause ladder owns the cause
-// vocabulary; this contract carries it rather than keeping a second copy that could drift.
+// TYPE ONLY (erased at compile, no runtime edge). The cause ladder owns the cause vocabulary; this contract carries it rather than keeping a second copy that could drift.
 import type { CauseFinding } from "./diagnosis";
 
 // ── EvidenceInput: the ONE normalized input the kernel consumes ───────────────
@@ -278,6 +277,7 @@ export type BundleEvidenceItem = {
   kind: "gsc_demand" | "keyword" | "serp" | "ai_observation" | "winning_page" | "page_extract" | "competitor" | "internal_link" | "diagnosis";
   fact: string;
   observedAt: string | null;
+  observationId?: string; // the exact stored observation an ai_observation item was read from, so the chain back to the answer is a lookup
 };
 
 export type ChangeBundle = {
@@ -400,7 +400,7 @@ const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
   plan: z.object({ keeps: z.array(z.string()), removes: NAMED_SCHEMA,
     entries: z.array(z.object({ kind: KIND_SCHEMA, label: z.string().min(1), disposition: z.enum(["change", "add"]) })) }).optional(),
   receipt: z.object({
-    items: z.array(z.object({ key: z.string().min(1), fact: z.string().min(1), observedAt: z.string().nullable(),
+    items: z.array(z.object({ key: z.string().min(1), fact: z.string().min(1), observedAt: z.string().nullable(), observationId: z.string().optional(),
       kind: z.enum(["gsc_demand", "keyword", "serp", "ai_observation", "winning_page", "page_extract", "competitor", "internal_link", "diagnosis"]) })),
     missing: z.array(z.string()),
     freshestObservedAt: z.string().nullable(),

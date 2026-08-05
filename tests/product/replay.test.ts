@@ -14,7 +14,7 @@ vi.mock("@/domains/decision/proposal-store", async () => ({ ...(await vi.importA
 vi.mock("@/domains/decision/produce-bundle", () => ({ produceBundleForSnapshot: async () => ({ status: "none", reason: "the deep bundle has its own suite" }) }));
 vi.mock("@/domains/account", async (orig) => ({ ...(await orig() as object), loadBusinessProfile: async () => null, getTenant: async () => ({ id: "replay-tenant", domain: "atlaspedia.example", growth_goal: null }), basisTag: () => "basis_replay" }));
 import type { Account } from "@/domains/account";
-import type { AiObservationRecord, DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
+import { canonicalPairOf, type AiObservationRecord, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import { parseCapability, type CachedCallResult, type CapabilityKey, type ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { parsePageIntersection } from "@/domains/evidence/page-intersection";
 import { dominantPageType, freshnessAt, pageTypeVotesOf, type SerpRow } from "@/domains/evidence/serp-shape";
@@ -126,7 +126,8 @@ async function replayFunnel(): Promise<{ evidence: FunnelResearchEvidence; statu
   const state = store.peek()!;
   // The winners are the SAME fixture bodies, read through the SAME parser: one readable, one the publisher refused.
   state.winningPages = [fx.winningPage(RIVAL_A, GAP_QUERY, parsed("onpage_content_parsing", fx.competitorPageBody())), fx.blockedWinner("https://rival-b.example/blog/spring-kites", GAP_QUERY)];
-  return { evidence: projectFunnelEvidence(state, NOW_MS), statuses, observed };
+  // The snapshot's AI evidence is the canonical record the executors just wrote, mapped by the same pure shape production reads, never the working window.
+  return { evidence: { ...projectFunnelEvidence(state, NOW_MS), aiObservations: observed.filter((o) => o.status === "observed" && o.answer_hash != null).map(canonicalPairOf) }, statuses, observed };
 }
 
 describe("the replay drives the REAL funnel executors, not a mock of them", () => {

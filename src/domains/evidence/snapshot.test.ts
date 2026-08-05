@@ -1,58 +1,49 @@
-/**
- * Outcome tests for the EvidenceSnapshot kernel. These pin the CONTRACT downstream Decisions consume, not the
- * implementation. They prove: all six mandatory sources normalize in with an honest freshness slot; owned-page
- * and competitor evidence are both present; the assembler is deterministic; native AI can fail soft; and the
- * evidenceHash tracks MATERIAL evidence (including the research funnel's keywords / AI observations / SERP /
- * winning pages) while ignoring every timestamp and spend/cache counter.
- */
+/** Outcome tests for the EvidenceSnapshot kernel: the CONTRACT downstream Decisions consume, never the implementation. All six mandatory sources
+ *  normalize in with an honest freshness slot, owned-page and competitor evidence are both present, the AI lane is DERIVED from the canonical answers
+ *  riding on the research payload (no second AI input is left to disagree with it), and the evidenceHash tracks MATERIAL evidence only. */
 import { describe, it, expect } from "vitest";
 import { buildEvidenceSnapshot, MANDATORY_SOURCES, type EvidenceSnapshotInput, type EvidenceSourceKind } from "./snapshot";
 import { buildTopicInvestigations, reconcileResearchCases } from "./topic-investigation";
 import { foldCases } from "./case-identity";
-import { emptyResearchEvidence, type FunnelResearchEvidence } from "./funnel/research-evidence";
-const RESEARCH_SOURCE = { status: "dormant" as const, lastSyncedAt: null, payload: emptyResearchEvidence() };
+import { emptyResearchEvidence, type CanonicalPairObservation, type FunnelResearchEvidence } from "./funnel/research-evidence";
 const SCOPE = { tenantId: "t_iran", site: "fixture-content.example", builtAt: "2026-07-22T00:00:00.000Z" };
-/** A fully-populated six-source fixture (existing owned page + a cited competitor). */
-function fullInput(): EvidenceSnapshotInput {
-  return {
-    scope: SCOPE,
-    gsc: { status: "fresh", lastSyncedAt: "2026-07-21T00:00:00.000Z", payload: [
-      { url: "https://fixture-content.example/flag", clicks90d: 40, impressions90d: 4000, ctr90d: 0.01, position90d: 8.2,
-        topQueries: [{ query: "iran flag meaning", impressions: 3000, clicks: 30, position: 8 }, { query: "iran flag colors", impressions: 1000, clicks: 10, position: 9 }] },
-      { url: "https://fixture-content.example/flag-history", clicks90d: 5, impressions90d: 900, ctr90d: 0.005, position90d: 14,
-        topQueries: [{ query: "iran flag meaning", impressions: 900, clicks: 5, position: 14 }] }] },
-    ga4: { status: "fresh", lastSyncedAt: "2026-07-21T00:00:00.000Z", payload: [
-      { url: "https://fixture-content.example/flag", sessions28d: 800, engaged28d: 500, conversions28d: 12, revenueUsd: 340 }] },
-    wix: { status: "fresh", lastSyncedAt: "2026-07-20T00:00:00.000Z", payload: [
-      { url: "https://fixture-content.example/flag", title: "The Iran Flag: Meaning and Colors", metaDescription: "What the Iran flag means.", h1: "The Iran Flag", h2: ["Colors", "Emblem"], outline: ["Colors", "Emblem", "History"], schemaTypes: ["Article"], hasFaq: false, faqCount: 0, wordCount: 600, internalLinks: [], fetchedAt: "2026-07-20T00:00:00.000Z" },
-      { url: "https://fixture-content.example/flag-history", title: "Iran Flag History Through the Ages", metaDescription: null, h1: "Iran Flag History", h2: ["Timeline"], outline: ["Timeline"], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 300, internalLinks: [], fetchedAt: "2026-07-20T00:00:00.000Z" }] },
-    clarity: { status: "fresh", lastSyncedAt: "2026-07-21T00:00:00.000Z", payload: [
-      { url: "https://fixture-content.example/flag", sessions: 800, rageClicks: 20, deadClicks: 10, quickbacks: 5, scriptErrors: 3, frictionScore: 36 }] },
-    dataforseo: { status: "fresh", lastSyncedAt: "2026-07-19T00:00:00.000Z", payload: [{ query: "iran flag meaning", searchVolume: 5400, competition: 0.2, competitionLevel: "low" },
-      { query: "buy iran flag", searchVolume: 880, competition: 0.8, competitionLevel: "high" }] },
-    research: RESEARCH_SOURCE,
-    nativeAi: { status: "fresh", lastSyncedAt: "2026-07-21T00:00:00.000Z", payload: { rowsScanned: 120, enginesSeen: ["chatgpt", "perplexity"],
-      citedPages: [
-        { url: "https://fixture-content.example/flag", isOwned: true, citationCount: 4, distinctPrompts: 3, engines: ["chatgpt"], examplePrompts: ["what does the iran flag mean"] },
-        { url: "https://persianfood.example/kebab", isOwned: false, citationCount: 9, distinctPrompts: 6, engines: ["chatgpt", "perplexity"], examplePrompts: ["best persian kebab recipes", "how to make koobideh kebab"] }],
-      questions: [{ text: "what does the emblem on the iran flag mean", weight: 5, sourcePrompts: ["p1", "p2"] }, { text: "iran flag colors meaning", weight: 3, sourcePrompts: ["p3"] }] } },
-  };
-}
+const OWNED = "https://fixture-content.example/flag", KEBAB = "https://persianfood.example/kebab", EMBLEM = "what does the emblem on the iran flag mean";
+const cite = (url: string) => ({ url, domain: new URL(url).hostname, title: null });
+const at = <T,>(payload: T) => ({ status: "fresh" as const, lastSyncedAt: "2026-07-21T00:00:00.000Z", payload });
+/** ONE canonical answer exactly as the loader hands it over: the identity, the journey, and a reading ONLY where one
+ *  settled against that answer. Everything the snapshot says about AI is derived from these rows and nothing else. */
+const answer = (promptId: string, engine: string, over: Partial<CanonicalPairObservation> = {}): CanonicalPairObservation => ({
+  observationId: `obs_${promptId}_${engine}`, promptId, promptVersion: 2, promptText: `ask ${promptId}`, engine, modelRequested: "gpt-4o", modelServed: "gpt-4o-2026",
+  observationMode: "consumer_search", reportingDay: "2026-07-21", observedAt: "2026-07-22T00:00:00.000Z", answerHash: "h", webSearchReported: true, citationsObserved: true,
+  fanOutQueries: ["koobideh", "kebab koobideh"], citations: [cite(OWNED), cite(KEBAB)], retrievedResults: null, brandMentions: null, analysis: { questionsAnswered: [EMBLEM] }, ...over });
+const aiEvidence = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [answer("p1", "chatgpt", { analysis: { questionsAnswered: [EMBLEM, "iran flag colors meaning"] } }),
+  answer("p2", "chatgpt"), answer("p3", "perplexity"), answer("p3", "chatgpt", { citations: [cite(OWNED)], analysis: null })] });
+const HISTORY = "https://fixture-content.example/flag-history";
+/** A fully-populated six-source fixture (existing owned page + a competitor the answers keep crediting). */
+const fullInput = (): EvidenceSnapshotInput => ({
+  scope: SCOPE,
+  gsc: at([{ url: OWNED, clicks90d: 40, impressions90d: 4000, ctr90d: 0.01, position90d: 8.2, topQueries: [{ query: "iran flag meaning", impressions: 3000, clicks: 30, position: 8 }, { query: "iran flag colors", impressions: 1000, clicks: 10, position: 9 }] },
+    { url: HISTORY, clicks90d: 5, impressions90d: 900, ctr90d: 0.005, position90d: 14, topQueries: [{ query: "iran flag meaning", impressions: 900, clicks: 5, position: 14 }] }]),
+  ga4: at([{ url: OWNED, sessions28d: 800, engaged28d: 500, conversions28d: 12, revenueUsd: 340 }]),
+  wix: at([{ url: OWNED, title: "The Iran Flag: Meaning and Colors", metaDescription: "What the Iran flag means.", h1: "The Iran Flag", h2: ["Colors", "Emblem"], outline: ["Colors", "Emblem", "History"], schemaTypes: ["Article"], hasFaq: false, faqCount: 0, wordCount: 600, internalLinks: [], fetchedAt: "2026-07-20T00:00:00.000Z" },
+    { url: HISTORY, title: "Iran Flag History Through the Ages", metaDescription: null, h1: "Iran Flag History", h2: ["Timeline"], outline: ["Timeline"], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 300, internalLinks: [], fetchedAt: "2026-07-20T00:00:00.000Z" }]),
+  clarity: at([{ url: OWNED, sessions: 800, rageClicks: 20, deadClicks: 10, quickbacks: 5, scriptErrors: 3, frictionScore: 36 }]),
+  dataforseo: at([{ query: "iran flag meaning", searchVolume: 5400, competition: 0.2, competitionLevel: "low" }, { query: "buy iran flag", searchVolume: 880, competition: 0.8, competitionLevel: "high" }]),
+  research: at(aiEvidence()), aiAnswersUnread: false });
 describe("buildEvidenceSnapshot - six-source normalization", () => {
   it("normalizes all six sources and joins owned evidence by canonical URL", () => {
     const snap = buildEvidenceSnapshot(fullInput());
     expect(snap.sources.map((s) => s.source).sort()).toEqual([...MANDATORY_SOURCES].sort()); expect(snap.sources.every((s) => s.status === "fresh")).toBe(true);
     const flag = snap.ownedPages.find((p) => p.url === "fixture-content.example/flag")!;
-    expect(flag.search?.clicks90d).toBe(40); expect(flag.engagement?.revenueUsd).toBe(340); // GSC, then GA4 revenue
-    expect(flag.content?.title).toBe("The Iran Flag: Meaning and Colors"); expect(flag.friction?.frictionScore).toBe(36); expect(flag.aiCitations.count).toBe(4); // Wix, Clarity, native AI
-    const meaning = snap.keywordDemand.find((k) => k.query === "iran flag meaning")!;
-    expect(meaning.searchVolume).toBe(5400); expect(meaning.source).toBe("mixed"); // DataForSEO volume, and both sources agreed
-    expect(meaning.gscImpressions).toBe(3900); // 3000 + 900 across both owned pages
-    expect(snap.questionDemand.find((x) => x.question.includes("emblem"))!.source).toBe("native_ai");
+    expect([flag.search?.clicks90d, flag.engagement?.revenueUsd, flag.content?.title, flag.friction?.frictionScore]).toEqual([40, 340, "The Iran Flag: Meaning and Colors", 36]); // GSC, GA4 revenue, Wix, Clarity
+    expect([flag.aiCitations.count, flag.aiCitations.distinctPrompts, snap.aiCitations.rowsScanned]).toEqual([4, 3, 4]); // four credits of my own page across three questions, off the four answers themselves
+    const meaning = snap.keywordDemand.find((k) => k.query === "iran flag meaning")!; // DataForSEO volume, both sources agreed, and 3000 + 900 impressions across both owned pages
+    expect([meaning.searchVolume, meaning.source, meaning.gscImpressions]).toEqual([5400, "mixed", 3900]);
+    expect(snap.questionDemand.find((x) => x.question.includes("emblem"))!).toMatchObject({ source: "native_ai", weight: 3, sourcePrompts: ["ask p1", "ask p2", "ask p3"] }); // the questions the ANSWERS answered, weighted by recurrence
   });
   it("surfaces competitor, cannibalization, and intent evidence", () => {
     const snap = buildEvidenceSnapshot(fullInput());
-    expect(snap.competitors.some((c) => c.domain === "persianfood.example")).toBe(true);
+    expect(snap.competitors.map((c) => [c.domain, c.citationCount, c.distinctPrompts])).toEqual([["persianfood.example", 3, 3]]);
     expect(snap.contentGaps.every((g) => g.kind === "unanswered_question")).toBe(true); // a cited competitor stays evidence and never becomes a page topic of its own
     const cannib = snap.cannibalization.find((c) => c.query === "iran flag meaning")!;
     expect(cannib.competingUrls).toEqual(["fixture-content.example/flag", "fixture-content.example/flag-history"]);
@@ -61,50 +52,34 @@ describe("buildEvidenceSnapshot - six-source normalization", () => {
   it("is deterministic and hashes on material evidence, not the clock", () => {
     const base = fullInput(); const a = buildEvidenceSnapshot(base);
     expect(buildEvidenceSnapshot(fullInput())).toEqual(a);
-    const laterClock: EvidenceSnapshotInput = { ...base, gsc: { ...base.gsc, lastSyncedAt: "2099-01-01T00:00:00.000Z" } };
-    expect(buildEvidenceSnapshot(laterClock).evidenceHash).toBe(a.evidenceHash);
-    const changed: EvidenceSnapshotInput = { ...base, gsc: { ...base.gsc, payload: base.gsc.payload.map((p, i) => (i === 0 ? { ...p, clicks90d: 9999 } : p)) } };
+    expect(buildEvidenceSnapshot({ ...base, gsc: { ...base.gsc, lastSyncedAt: "2099-01-01T00:00:00.000Z" } }).evidenceHash).toBe(a.evidenceHash);
+    const changed = { ...base, gsc: { ...base.gsc, payload: base.gsc.payload.map((p, i) => (i === 0 ? { ...p, clicks90d: 9999 } : p)) } };
     expect(buildEvidenceSnapshot(changed).evidenceHash).not.toBe(a.evidenceHash);
   });
 });
 describe("buildEvidenceSnapshot - honest source states", () => {
-  function emptyInput(): EvidenceSnapshotInput {
-    const empty = <T>(payload: T) => ({ status: "empty" as const, lastSyncedAt: null, payload });
-    return { scope: SCOPE, gsc: empty([]), ga4: empty([]), wix: empty([]), clarity: empty([]), dataforseo: empty([]), research: RESEARCH_SOURCE,
-      nativeAi: { status: "dormant", lastSyncedAt: null, payload: { citedPages: [], questions: [], rowsScanned: 0, enginesSeen: [] } } };
-  }
-  it("keeps all six slots even when every source is empty/dormant", () => {
-    const snap = buildEvidenceSnapshot(emptyInput());
-    expect(snap.sources).toHaveLength(6); expect(snap.ownedPages).toHaveLength(0);
+  const empty = <T,>(payload: T) => ({ status: "empty" as const, lastSyncedAt: null, payload });
+  it("keeps all six slots when every source is empty, and tells a FAILED source apart from an empty one", () => {
+    const snap = buildEvidenceSnapshot({ scope: SCOPE, gsc: empty([]), wix: empty([]), clarity: empty([]), dataforseo: empty([]),
+      research: empty(emptyResearchEvidence()), aiAnswersUnread: false, ga4: { status: "failed", lastSyncedAt: null, note: "GA4 read errored this run.", payload: [] } });
     const byKind = new Map<EvidenceSourceKind, string>(snap.sources.map((s) => [s.source, s.status]));
-    expect(byKind.get("native_ai")).toBe("dormant"); expect(byKind.get("gsc")).toBe("empty");
+    expect([snap.sources.length, snap.ownedPages.length, byKind.get("gsc"), byKind.get("native_ai")]).toEqual([6, 0, "empty", "dormant"]); // no answer on file is DORMANT, a different claim from a clean empty read
+    const ga4 = snap.sources.find((s) => s.source === "ga4")!; expect([ga4.status, ga4.note]).toEqual(["failed", "GA4 read errored this run."]);
   });
-  it("distinguishes a FAILED source from an EMPTY one, and lets native AI fail soft", () => {
-    const input = emptyInput();
-    input.ga4 = { status: "failed", lastSyncedAt: null, note: "GA4 read errored this run.", payload: [] };
-    const ga4 = buildEvidenceSnapshot(input).sources.find((s) => s.source === "ga4")!;
-    expect(ga4.status).toBe("failed"); expect(ga4.note).toBe("GA4 read errored this run.");
-    const dormant = fullInput();
-    dormant.nativeAi = { status: "dormant", lastSyncedAt: null, payload: { citedPages: [], questions: [], rowsScanned: 0, enginesSeen: [] } };
-    const snap = buildEvidenceSnapshot(dormant);
-    expect(snap.ownedPages.length).toBe(2); expect(snap.competitors.length).toBe(0); // owned evidence still assembles, and no AI citations means no competitors
-  });
+  it("assembles owned evidence with no AI answer at all, and claims no competitor and no question without one", () => {
+    const snap = buildEvidenceSnapshot({ ...fullInput(), research: { status: "dormant", lastSyncedAt: null, payload: emptyResearchEvidence() } });
+    expect([snap.ownedPages.length, snap.competitors.length, snap.questionDemand.length, snap.aiCitations.ownedCited]).toEqual([2, 0, 0, 0]); });
 });
 describe("evidenceHash - research material truth, not the clock", () => {
-  function researchFixture(): FunnelResearchEvidence {
-    return {
+  const researchFixture = (): FunnelResearchEvidence => ({ ...aiEvidence(),
       retainedKeywords: [{ query: "koobideh recipe", searchVolume: 1200, competition: 0.3, competitionLevel: "low", difficulty: null, intent: "informational" }],
-      aiObservations: [{ promptId: "p1", promptText: "best koobideh recipe", engine: "chatgpt", observationMode: "consumer_search", modelRequested: "gpt-4o", modelServed: "gpt-4o-2026", webSearchReported: true, citationsObserved: true, citations: [{ url: "https://persianfood.example/kebab", domain: "persianfood.example", title: "Kebab" }], fanOutQueries: ["koobideh", "kebab koobideh"], observedAt: "2026-07-22T00:00:00.000Z" }],
-      serpEvidence: [{ observedAt: null, query: "koobideh recipe", organic: [{ rank: 1, domain: "persianfood.example", url: "https://persianfood.example/kebab", title: "Kebab" }], aiOverview: [{ url: "https://ao.example/x", domain: "ao.example", title: null }], aiMode: [], paa: [{ question: "what is koobideh", answeringDomain: "persianfood.example" }], related: ["kebab"] }],
-      winningPages: [{ url: "https://persianfood.example/kebab", domain: "persianfood.example", engines: ["chatgpt"], examplePrompts: ["best koobideh recipe"], appearances: [], extract: { title: "Kebab", h1: "Koobideh Kebab", wordCount: 800, headings: ["Ingredients"], faqCount: 2 } }],
-      receipt: { researched: 5, retained: 1, stale: 0, missing: 0, cached: 3, spentUsd: 0.02, freshestObservationAt: "2026-07-22T00:00:00.000Z" },
-    };
-  }
-  const hashOf = (r: FunnelResearchEvidence) => buildEvidenceSnapshot({ ...fullInput(), research: { status: "fresh", lastSyncedAt: "2026-07-22T00:00:00.000Z", payload: r } }).evidenceHash;
+      serpEvidence: [{ observedAt: null, query: "koobideh recipe", organic: [{ rank: 1, domain: "persianfood.example", url: KEBAB, title: "Kebab" }], aiOverview: [{ url: "https://ao.example/x", domain: "ao.example", title: null }], aiMode: [], paa: [{ question: "what is koobideh", answeringDomain: "persianfood.example" }], related: ["kebab"] }],
+      winningPages: [{ url: KEBAB, domain: "persianfood.example", engines: ["chatgpt"], examplePrompts: ["best koobideh recipe"], appearances: [], extract: { title: "Kebab", h1: "Koobideh Kebab", wordCount: 800, headings: ["Ingredients"], faqCount: 2 } }],
+      receipt: { researched: 5, retained: 1, stale: 0, missing: 0, cached: 3, spentUsd: 0.02, freshestObservationAt: "2026-07-22T00:00:00.000Z" } });
+  const hashOf = (r: FunnelResearchEvidence) => buildEvidenceSnapshot({ ...fullInput(), research: at(r) }).evidenceHash;
   it("is stable when only clocks and spend/cache counters change", () => {
-    const base = hashOf(researchFixture()); const clockOnly = researchFixture();
-    clockOnly.aiObservations[0].observedAt = "2099-01-01T00:00:00.000Z";
-    clockOnly.winningPages[0].appearances = [{ kind: "ai_answer", query: null, promptId: "p1", promptText: "x", engine: "chatgpt", rank: null, citedUrl: "https://persianfood.example/kebab", observedAt: "2099-01-01T00:00:00.000Z", modelServed: "gpt-4o-2026" }];
+    const base = hashOf(researchFixture()); const clockOnly = researchFixture(); clockOnly.aiObservations[0].observedAt = "2099-01-01T00:00:00.000Z";
+    clockOnly.winningPages[0].appearances = [{ kind: "ai_answer", query: null, promptId: "p1", promptText: "x", engine: "chatgpt", rank: null, citedUrl: KEBAB, observedAt: "2099-01-01T00:00:00.000Z", modelServed: "gpt-4o-2026" }];
     clockOnly.receipt = { researched: 999, retained: 999, stale: 9, missing: 9, cached: 999, spentUsd: 9.99, freshestObservationAt: "2099-01-01T00:00:00.000Z" };
     expect(hashOf(clockOnly)).toBe(base);
   });
@@ -123,11 +98,11 @@ describe("buildTopicInvestigations - the research packet", () => {
   const NOW = "2026-07-27T00:00:00.000Z"; const OLD = "2026-01-01T00:00:00.000Z"; const src = <T,>(payload: T) => ({ status: "fresh" as const, lastSyncedAt: null, payload });
   const kwRow = (query: string) => ({ query, searchVolume: null, competition: null, competitionLevel: null, difficulty: null, intent: null, discoveredVia: "ranked" as const, seed: null }); const CORPUS = ["harbor tide chart", "harbor whale tour", "harbor ferry time", "harbor parking rate", "harbor seafood market", "harbor fishing permit", "harbor bike hire", "harbor dog beach", "harbor live music", "harbor farmer market", "harbor kayak paddle", "harbor tote bag"].map(kwRow);
   const serp = (query: string, rows: [string, string][], observedAt: string | null = NOW) => ({ query, observedAt, organic: rows.map(([url, title], i) => ({ rank: i + 1, url, domain: new URL(url).hostname, title })), aiOverview: [], aiMode: [], paa: [], related: [] });
-  const obs = (promptId: string, promptText: string, fanOutQueries: string[]) => ({ promptId, promptText, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: "gpt-5", webSearchReported: null, citationsObserved: true, citations: [], fanOutQueries, observedAt: NOW });
+  const obs = (promptId: string, promptText: string, fanOutQueries: string[]) => answer(promptId, "chatgpt", { promptText, fanOutQueries, citations: [], observedAt: NOW, analysis: null });
   const body = (fetchedAt: string | null, wordCount = 900) => ({ title: "T", h1: "T", wordCount, headings: ["A", "B"], faqCount: 0, fetchedAt }); type App = FunnelResearchEvidence["winningPages"][number]["appearances"][number];
   const win = (url: string, query: string, extract: FunnelResearchEvidence["winningPages"][number]["extract"], extra: App[] = []) => ({ url, domain: new URL(url).hostname, engines: [], examplePrompts: [], extract, appearances: [{ kind: "serp_organic" as const, query, promptId: null, promptText: null, engine: null, rank: 1, citedUrl: url, observedAt: NOW, modelServed: null }, ...extra] });
   const world = (over: Partial<FunnelResearchEvidence> = {}) => buildEvidenceSnapshot({
-    scope: { tenantId: "t", site: "own.example", builtAt: NOW }, ga4: src([]), wix: src([]), clarity: src([]), dataforseo: src([]), nativeAi: src({ citedPages: [], questions: [], rowsScanned: 0, enginesSeen: [] }),
+    scope: { tenantId: "t", site: "own.example", builtAt: NOW }, ga4: src([]), wix: src([]), clarity: src([]), dataforseo: src([]), aiAnswersUnread: false,
     gsc: src([{ url: "https://own.example/kayaks", clicks90d: 3, impressions90d: 400, ctr90d: 0.01, position90d: 18, topQueries: [{ query: "harbor kayak paddle", impressions: 400, clicks: 3, position: 18 }] }]),
     research: src({ ...emptyResearchEvidence(), retainedKeywords: CORPUS,
       serpEvidence: [serp("harbor kayak paddle", [["https://a.example/g", "How to paddle a kayak"], ["https://b.example/g", "Kayak paddling guide"], ["https://c.example/g", "Paddle a kayak explained"], ["https://d.example/g", "Kayak paddle tutorial"], ["https://e.example/g", "kayak paddle : r/kayak"]]),

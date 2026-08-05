@@ -79,7 +79,6 @@ export type { PageRevenueValue, RevenueConfidence } from "./readers/ga4-revenue"
 export { normalizePageRevenue, revenueScoreMultiplier, revenueStateLabel } from "./readers/ga4-revenue";
 export type { ClarityPageSignal } from "./readers/clarity-page-signals";
 export { loadClarityPageSignalsForTenant } from "./readers/clarity-page-signals";
-export { loadNativeIntelForTenant } from "./readers/native-intel-loader";
 
 // Canonical DataForSEO boundary: env/config state lives in dataforseo/client;
 // every provider call flows through the cached money-safe boundary

@@ -19,7 +19,7 @@ import { loadCrawlFrontier, type CrawlFrontierState } from "@/domains/evidence/s
 import { syncPageSnapshots, syncPromptAnswerObservations } from "@/lib/persistence/dual-write";
 import type { PageSnapshot } from "@/domains/evidence/pages/types";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
-import { readAiObservations, readAiObservationViews, recordAiObservation, type AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations";
+import { readAiObservations, recordAiObservation, type AiObservationRecord, type CanonicalPairObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import type {
   CachedCallResult,
   CapabilityInputByKey,
@@ -42,20 +42,6 @@ import { loadFunnelState, saveFunnelState, type FunnelPair, type FunnelState, ty
  *  UNDER the funnel boundary this file imports, so keeping the table here forced them to carry a second copy
  *  of the numbers, which is exactly how two of them drifted. Import freshnessMsFor / isCurrent from there. */
 
-/** ONE stored analysis WITH the identity of the answer it was written about. The analysis alone was all
- *  that ever reached discovery, so a keyword harvested out of it could not say which answer named it; the
- *  identity below is exactly the one ai_observations files that answer under, so the trip back is a lookup.
- *  Every identity field is optional: a caller that genuinely holds only the analysis omits them. */
-export type AnswerAnalysisRecord = {
-  analysis: Record<string, unknown>;
-  observationId?: string;
-  promptId?: string;
-  promptVersion?: number;
-  promptText?: string;
-  engine?: string;
-  reportingDay?: string;
-};
-
 export type FunnelDeps = {
   callProvider?: <K extends CapabilityKey>(capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string }) => Promise<CachedCallResult>;
   collectTask?: (cacheKey: string) => Promise<CachedCallResult>;
@@ -67,10 +53,11 @@ export type FunnelDeps = {
   /** Top queries of the account's own strongest pages: portfolio 1 of the SERP agenda.
    *  null = the READ FAILED; [] = the account genuinely has none yet. */
   loadPageQueries?: (tenantId: string) => Promise<SerpAgendaPageQuery[] | null>;
-  /** The analyses ALREADY stored beside the answers this account bought: what each answer was about and
-   *  what it actually answered, EACH STILL ATTACHED TO THE ANSWER IT IS ABOUT. Read-only and bounded;
-   *  nothing here is ever re-purchased or re-analyzed. */
-  loadAnswerAnalyses?: (tenantId: string) => Promise<AnswerAnalysisRecord[]>;
+  /** THE WHOLE ANSWER SET THIS ACCOUNT HOLDS, not the handful of pairs one pass happens to be working: one
+   *  settled row per current question and engine, each carrying the searches the engine itself ran and a
+   *  reading that is non-null ONLY where it was validly settled against that exact answer. Read-only and
+   *  bounded; nothing here is ever re-purchased or re-analyzed. */
+  loadCanonicalObservations?: (tenantId: string) => Promise<CanonicalPairObservation[]>;
   /** Test seam for winning-page citation-target resolution (defaults to the real
    *  redirect-only resolver in competitor-intel/polite-fetch). */
   resolveCitations?: (appearances: ResearchWinningAppearance[], fetchImpl?: typeof fetch, deadlineMs?: number) => Promise<ResearchWinningAppearance[]>;
@@ -108,7 +95,7 @@ export function resolveDeps(deps: FunnelDeps) {
     loadProfile: deps.loadProfile ?? loadBusinessProfile,
     loadCrawl: deps.loadCrawl ?? loadCrawlFrontier,
     loadPageQueries: deps.loadPageQueries ?? defaultPageQueries,
-    loadAnswerAnalyses: deps.loadAnswerAnalyses ?? defaultAnswerAnalyses,
+    loadCanonicalObservations: deps.loadCanonicalObservations ?? (async (t: string) => (await import("@/domains/evidence/ai-visibility/ai-observations")).readCanonicalPairObservations(t)),
     getAccount: deps.getAccount ?? getTenant,
     syncHistory: deps.syncHistory ?? syncPromptAnswerObservations,
     recordObservation: deps.recordObservation ?? recordAiObservation,
@@ -144,20 +131,6 @@ async function defaultPageQueries(tenantId: string): Promise<SerpAgendaPageQuery
   } catch {
     return null;
   }
-}
-
-/** The analyses already stored beside answers this account paid for, newest first and deliberately FEW: a
- *  full-row read of this table is megabytes and a bounded handful is plenty of candidate language. Each one
- *  keeps the identity of the answer it is about, so a keyword taken out of it can name the question, the
- *  engine, the day and the stored answer that produced it instead of arriving anonymous. An unreadable
- *  table costs the pass that one free source, and never claims the account has none. */
-async function defaultAnswerAnalyses(tenantId: string): Promise<AnswerAnalysisRecord[]> {
-  const rows = await readAiObservationViews(tenantId, { limit: 25 });
-  return rows.filter((r) => !!r.analysis).map((r) => ({
-    analysis: r.analysis as Record<string, unknown>,
-    observationId: r.id, promptId: r.promptId, promptVersion: r.version,
-    promptText: r.promptText, engine: r.engine, reportingDay: r.day,
-  }));
 }
 
 /** Mode is stamped by normalization; the legacy scraper flag is decode input ONLY (nothing else reads it).

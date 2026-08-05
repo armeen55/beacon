@@ -70,7 +70,8 @@ type FanOutRef = {
   parentPromptText: string;
   engine: string;
   observationMode: string;
-  observedAt: string;
+  /** null = the answer this came out of never recorded when it landed; a date is never invented for it. */
+  observedAt: string | null;
 };
 
 export type TopicInvestigation = {

@@ -97,7 +97,6 @@ export function replaySnapshot(over: WorldOver = {}): EvidenceSnapshot {
   return buildEvidenceSnapshot({
     scope: { tenantId: TENANT, site: SITE, builtAt: "2026-07-21T00:00:00.000Z" },
     gsc: src(over.gsc ?? [gscCtrGap()]), ga4: src([]), wix: src(over.wix ?? [ownedBody(GAP_URL, "Kite Festival")]),
-    clarity: src([]), dataforseo: src(over.keywordDemand ?? []), research: src(over.research ?? emptyResearchEvidence()),
-    nativeAi: src({ citedPages: [], questions: [], rowsScanned: 0, enginesSeen: [] }),
+    clarity: src([]), dataforseo: src(over.keywordDemand ?? []), research: src(over.research ?? emptyResearchEvidence()), aiAnswersUnread: false,
   });
 }
