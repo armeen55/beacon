@@ -6,7 +6,7 @@
 ## Current foundation
 
 - Branch `main`; MVP rebuild started at `4669fbb5`. Stack: Next.js App Router, strict TypeScript, Supabase, Vercel.
-- Production TypeScript is 72,379 lines under a 73,249 ceiling; tests 11,501 under 11,505; combined 83,880.
+- Production TypeScript is 72,434 lines under a 73,249 ceiling; tests 11,505 at the 11,505 ceiling; combined 83,939.
 - The foundation guard caps production, tests, combined LOC, domains, routes, exports, files, dependencies, and
   Markdown. `npm run gate` runs the guard, typecheck, tests, and build.
 - Five kernels exist (Account, Evidence, Decision, Measurement, Runtime); five surfaces (Today, Visibility,
@@ -58,10 +58,10 @@
   idempotent, requires the setup window server side (approval holds 20..50, floor bending to a thin candidate pool; activation re-checks 10..50 on the set that survived it) plus website, confirmed profile, goal, and terms,
   starting exactly one durable Research Run. Verified end to end rendered, desktop and mobile, with real crawl,
   real model calls, mid-flow website/goal changes. One inert synthetic pending account remains for review.
-- Durable Research Runs exist (Slice 4, 2026-07-24), triggered today by an authenticated visit. That trigger is
-  the CURRENT MECHANISM ONLY, not the product's design: Product Truth requires daily tracking without a visit,
-  and the Dream V1 program replaces the trigger with a Supabase-scheduled dispatcher driving this same runtime,
-  leaving visits as recovery. Everything below describes the runtime as built. Every authenticated visit renders the saved
+- Durable Research Runs exist (Slice 4, 2026-07-24), triggered by the Supabase-scheduled dispatcher every 30
+  minutes (Dream V1, live since 2026-08-03), with an authenticated visit as the recovery trigger only. Recovery
+  passes carry a scoped unit plan; answer re-reads reach the last 26 weeks exactly; the credit breaker allows
+  bounded concurrent probes, one per process. Everything below describes the runtime as built. A visit renders the saved
   surfaces first, then claims or resumes the account's Research Run through an atomic database-time lease RPC. At
   most one unfinished run per account across all dates (partial unique index): the claim resumes it whatever day
   it started (same row, phase, cursor, progress; a live foreign lease blocks, an expired one reclaims), a
