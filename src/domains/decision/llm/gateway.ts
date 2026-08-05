@@ -203,7 +203,42 @@ type StructuredCallOutcome =
   | { kind: "http_error"; status: number; code?: string; retryAfterMs?: number }
   // The account is held for credit. No network, no cost, and every caller inherits the stop without its own logic.
   | { kind: "blocked_credit"; reason: string }
-  | { kind: "error"; reason: string };
+  // `timedOut` separates a call I ABANDONED at my own deadline (the model may have been writing, and OpenAI bills
+  // that) from a connection that never delivered a body at all. Nobody may tell those apart from the message text.
+  | { kind: "error"; reason: string; timedOut: boolean };
+
+/**
+ * WHOSE FAILURE IT WAS, AS A TYPE. THE one name for a call that produced no usable value, decided HERE at the transport
+ * boundary and carried by every caller, because reading it back out of an error string is how an ordinary throttle
+ * became a permanent verdict on somebody's answer. Each name answers two questions: was anything BILLED (so is it
+ * honest to settle on it), and does the pass go on. `budget` is my own allowance saying no, before any call.
+ * `credit_exhausted` is the PROVIDER saying this account's balance is empty. `transient` is a call that came back with
+ * nothing and was billed nothing (a busy minute, a server fault, a dead socket, a request the provider would not take),
+ * so the work stays owed rather than being settled on a failure of mine. `client_timeout` is me giving up at my own
+ * deadline while the model was writing, which is billed, so settling on it is honest. `provider_refused` is the reader
+ * refusing the content, `incomplete` is an answer cut off or left out, and `schema_invalid` is a body I could not use.
+ */
+export type LlmFailure =
+  | "budget" | "credit_exhausted" | "transient" | "client_timeout" | "provider_refused" | "incomplete" | "schema_invalid";
+
+/** PURE. The one classification of a gateway outcome, so no caller ever has to read a name out of a sentence. `ok`
+ *  never reaches here. An `invalid_response` is a returned body I could not use; its two BEFORE-network reasons
+ *  (an unsupported schema, a missing account) cannot occur on a registered kind, because every registered schema is
+ *  proven convertible by test and no lane calls without an account. */
+export function llmFailureOf(outcome: StructuredCallOutcome): LlmFailure {
+  switch (outcome.kind) {
+    case "blocked_budget": return "budget";
+    case "blocked_credit": return "credit_exhausted";
+    case "refusal": return "provider_refused";
+    case "incomplete": return "incomplete";
+    case "invalid_response": return "schema_invalid";
+    // A 402 and OpenAI's own insufficient_quota are an empty balance; every other status returned no usable body and no
+    // receipt, so it is transient however permanent its cause: nothing settles on a call that bought nothing.
+    case "http_error": return outcome.code === CREDIT_EXHAUSTED || outcome.status === 402 ? "credit_exhausted" : "transient";
+    case "error": return outcome.timedOut ? "client_timeout" : "transient";
+    default: return "schema_invalid";
+  }
+}
 
 function underVitest(): boolean {
   return process.env.VITEST === "true";
@@ -389,8 +424,11 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     });
   } catch (e) {
     const reason = e instanceof Error ? e.message.slice(0, 80) : "fetch_failed";
-    await reportGatewayFailure(id, "network_or_timeout", reason);
-    return { kind: "error", reason: reason || "fetch_failed" };
+    // MY OWN DEADLINE IS NOT A DEAD CONNECTION. AbortSignal.timeout throws a TimeoutError; the provider had already
+    // started writing and bills it, so the caller must be told that here rather than guess it from the wording later.
+    const timedOut = e instanceof Error && (e.name === "TimeoutError" || /\babort/i.test(e.message));
+    await reportGatewayFailure(id, timedOut ? "client_timeout" : "network_failed", reason);
+    return { kind: "error", reason: reason || "fetch_failed", timedOut };
   }
 
   if (!response.ok) {

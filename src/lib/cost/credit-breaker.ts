@@ -14,10 +14,21 @@ import "server-only";
  * codebase is either month-scoped (`date_utc >= this month`) or sums `spent_usd`, so a 1970 row with zero in it is
  * invisible to every cap while still being durable across lambdas.
  *
- * THE RECOVERY RULE, stated once: a trip holds every OpenAI-dependent call for 15 minutes; after that ONE probe
- * call is allowed through (its attempt is stamped BEFORE it is made, so a process that cannot write the stamp holds
- * rather than storms); a call that goes through clears the stop outright. There is no timed self-heal: only a real
- * answer from the provider ends the hold.
+ * THE RECOVERY RULE, stated once: a trip holds every OpenAI-dependent call for 15 minutes; after that a probe call is
+ * allowed through (its attempt is stamped BEFORE it is made, so a process that cannot write the stamp holds rather
+ * than storms); a call that goes through clears the stop outright. There is no timed self-heal: only a real answer
+ * from the provider ends the hold.
+ *
+ * WHAT THIS IS NOT, SAID PLAINLY RATHER THAN IMPLIED. (1) The probe is a read then a write, and those two steps are
+ * not one atomic act across lambdas: there is no conditional-claim function for this row (the ledger has an atomic
+ * `reserve_provider_spend`, but it reserves money, it does not claim a probe), and adding one is a migration this is
+ * not worth. So the honest bound is roughly ONE probe per process that saw the same cooldown expire, not exactly one
+ * globally: a handful of extra calls every 15 minutes against an account already known to be empty, which is the
+ * storm this stops shrunk by three orders of magnitude, not a race left unmentioned. (2) The stop is keyed by TENANT
+ * while the credential it protects is Beacon's own OpenAI account, so one account's empty balance holds only that
+ * account's calls. That is exactly right today, when one Beacon account pays for one tenant. THE DEBT: the day a
+ * second tenant shares this credential, the first tenant's trip must hold the second one's calls too, or the second
+ * will keep storming the same dead balance. Whoever adds that tenant owns widening this key.
  */
 
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
@@ -90,10 +101,10 @@ const defaultDeps: CreditBreakerDeps = { read: readState, write: writeState, now
 const stopOnFile = new Set<string>();
 
 /**
- * IS THIS ACCOUNT HELD FOR CREDIT. Called before every OpenAI-dependent call. When the cooldown has elapsed it
- * stamps the probe attempt first and lets one call through per process that saw the cooldown expire (two racing
- * processes can each probe once, which is bounded and harmless); a stamp that could not be written keeps the
- * hold, because an unrecordable probe is an unbounded retry loop wearing a probe's clothes.
+ * IS THIS ACCOUNT HELD FOR CREDIT. Called before every OpenAI-dependent call. When the cooldown has elapsed it stamps
+ * the probe attempt BEFORE letting the call through. The read and the stamp are not one atomic act, so the bound is
+ * one probe per process that saw that cooldown expire, not one globally (see the module note); a stamp that could not
+ * be written keeps the hold, because an unrecordable probe is an unbounded retry loop wearing a probe's clothes.
  */
 export async function creditBreakerActive(tenantId: string, deps: Partial<CreditBreakerDeps> = {}): Promise<boolean> {
   const d = { ...defaultDeps, ...deps };

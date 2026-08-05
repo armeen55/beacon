@@ -13,8 +13,8 @@ import "server-only";
  * WHOSE FAILURE WAS IT DECIDES EVERYTHING, AND BILLED IS BILLED (see ReadFailure below, which names all seven). Only a call that never returned a body leaves
  * nothing stored and the answers due, and the pass STOPS there rather than fanning one throttled batch into fifteen more calls; anything that RETURNED settles
  * every answer it covered, permanently, for that hash, after dropping to ONE CALL PER PIECE first so the readings themselves still land. EVERYTHING PURCHASED IS
- * OWED A READING: a pass reads the OLDEST day that still owes one across a ROTATING lookback, not the run's own day and not a fixed recent week, because today's
- * fresh debt kept that week busy and permanently abandoned everything behind it. THE DETERMINISTIC VERDICT IS NEVER THE MODEL'S TO REFUSE: every answer this pass
+ * OWED A READING: a pass reads the OLDEST day that still owes one across a ROTATING lookback of THE LAST 26 WEEKS (182 days), not the run's own day, not a fixed
+ * recent week, and not any age at all, because today's fresh debt kept that week busy and permanently abandoned everything behind it. THE DETERMINISTIC VERDICT IS NEVER THE MODEL'S TO REFUSE: every answer this pass
  * settles carries mentioned true OR false, off the answer's own words and the addresses it credited, and `matchedBy` says which found it, so Visibility divides by
  * every answer read rather than by the ones the matcher happened to match. Runtime orchestrates, and Evidence never imports Decision.
  */
@@ -22,9 +22,10 @@ import "server-only";
 import { loadBrandIdentity, type BrandIdentity } from "@/domains/account/brand-identity";
 import { buildGroundedNumbers, findUngroundedNumbers } from "@/domains/decision/llm/numeric-fidelity";
 import { creditBreakerActive } from "@/domains/decision/llm/gateway";
-import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
+import type { LlmFailure } from "@/domains/decision/llm/gateway";
+import { callStructuredLLM, type CompleteFn, type StructuredDraftResult } from "@/domains/decision/llm/structured-drafter";
 import { draftProseStringValues, type AnswerAnalysis, type AnswerAnalysisBatch } from "@/domains/decision/llm/schemas";
-import { isAnalysisSettled, type AiObservationView } from "@/domains/evidence/ai-visibility/ai-observations";
+import { isAnalysisSettled, TYPED_FAILURE_RULES, type AiObservationView } from "@/domains/evidence/ai-visibility/ai-observations";
 import { log } from "@/lib/logger";
 import { readActiveTrackedPrompts, type TrackedQuestion } from "../prompt-set";
 
@@ -61,8 +62,8 @@ const BATCH_ANSWER_CHARS = 5_000, BATCH_ANALYSIS_COST_USD = 0.05, ANSWER_ANALYSI
 /** WHICH DAY A PASS READS, and the honest bound on how far back it can see. Seven days ending today was a PERMANENT ABANDONMENT: today keeps producing fresh debt, so
  *  that window was never quiet and an answer bought eight days ago could never be reached again however many passes ran. A pass now reads at most TWO lean windows,
  *  the seven days the clock has ROTATED to and the recent seven, and takes the OLDEST day either still owes. The rotation moves every hour and wraps at
- *  LOOKBACK_WINDOWS, so every one of the last 26 weeks is reached within about a day of passes and the per-pass cost stays two lean projections and one day of rows.
- *  Older than 26 weeks is the bound I state rather than hide. `dayMinus` is `day` less n days as a label, taken at noon so no daylight-saving edge can move it. */
+ *  LOOKBACK_WINDOWS, so every one of THE LAST 26 WEEKS (182 days) is reached within about a day of passes and the per-pass cost stays two lean projections and one
+ *  day of rows. An answer older than 182 days is never read back: that is the bound I state rather than hide, and no surface may call it "any age". `dayMinus` is `day` less n days as a label, taken at noon so no daylight-saving edge can move it. */
 const READBACK_WINDOW_DAYS = 7, LOOKBACK_WINDOWS = 26, WINDOW_ROTATION_MS = 3_600_000;
 const dayMinus = (day: string, n: number): string => new Date(Date.parse(`${day}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
 
@@ -185,25 +186,25 @@ function numberNotInOwnAnswer(analysis: AnswerAnalysis, ownText: string): string
   return findUngroundedNumbers(draftProseStringValues(analysis).join("\n"), ledger)[0] ?? null;
 }
 
-/** WHY A READING DID NOT LAND, BY NAME. One word, `refused`, used to cover a reader saying no, an output whose shape I could not parse, an answer cut off half way
- *  and a call I abandoned at my own timeout, so nobody could tell a provider's failure from a bug of mine and every one of them was made permanent on the same
- *  evidence. Each name decides two things: does the answer settle for good, and does the pass go on. RETURNED AND BILLED, so PERMANENT for this answer at this
- *  hash: `provider_refused` (the reader refused the content), `schema_invalid` (a shape I could not use, or a number its own answer never says; ledgered) and
- *  `incomplete` (it returned and left this answer out, or cut it off). NEVER RETURNED, NEVER BILLED, so nothing is stored and the answer stays owed: `transient`
- *  (a throttle, a server fault, a dead connection), `credit_exhausted` (the ACCOUNT'S own provider balance) and `budget` (Beacon's own cap: no call was made).
- *  The last two also STOP the pass. TRANSPORT stays anchored to the exact shapes that mean "no response at all": loose word matching swept in a call abandoned at
- *  MY OWN timeout after the model had been writing, which OpenAI bills, so 638 calls and $0.80 changed zero rows. Billed is billed. */
-type ReadFailure = "provider_refused" | "schema_invalid" | "incomplete" | "transient" | "credit_exhausted" | "budget";
+/** WHY A READING DID NOT LAND, BY NAME, AND THE NAME IS THE TRANSPORT'S OWN TYPE (gateway.ts's LlmFailure, threaded through the drafter). One word, `refused`,
+ *  used to cover a reader saying no, an output whose shape I could not parse, an answer cut off half way and a call I abandoned at my own timeout, so nobody could
+ *  tell a provider's failure from a bug of mine and every one of them was made permanent on the same evidence. Each name decides two things: does the answer settle
+ *  for good, and does the pass go on. RETURNED AND BILLED, so PERMANENT for this answer at this hash: `provider_refused` (the reader refused the content),
+ *  `schema_invalid` (a shape I could not use, or a number its own answer never says; ledgered), `incomplete` (it returned and left this answer out, or cut it off)
+ *  and `client_timeout` (I gave up at my own deadline while the model was writing, which OpenAI bills; billed is billed, so 638 calls and $0.80 settle rather than
+ *  buy the same nothing twice). NEVER RETURNED, NEVER BILLED, so nothing is stored and the answer stays owed: `transient` (a throttle, a server fault, a dead
+ *  connection, a request the provider would not take), `credit_exhausted` (the ACCOUNT'S own provider balance) and `budget` (Beacon's own cap: no call was made).
+ *  The last two also STOP the pass. NOTHING IS MATCHED OUT OF AN ERROR SENTENCE ANY MORE: anchoring on the exact string `llm_openai_429` meant the same throttle
+ *  wearing the code OpenAI actually sends (`openai_429_rate_limit_exceeded`) fell through to schema_invalid, and 50 answers on 3 August were settled as refused,
+ *  stamped with their own answer hash, for calls that returned nothing and cost nothing. */
+type ReadFailure = LlmFailure;
 /** The names a PERMANENT non-reading is stored under. `attempts_exhausted` is the bounded ladder itself running out: one batch, then one call for this piece
  *  alone, neither usable and both billed, so a third ask only buys the same nothing. */
-type ReadOutcome = "provider_refused" | "schema_invalid" | "incomplete" | "attempts_exhausted";
-const TRANSPORT = /^llm_openai_(429|5\d\d)$|^llm_(fetch_failed|ECONNREFUSED|ECONNRESET|ENOTFOUND)$/i;
-/** The account's own credit, not a throttle and not Beacon's cap. Loose on purpose: the gateway's typed `credit_balance_exhausted` code arrives with its own work,
- *  and this must be right both before and after that lands. */
-const CREDIT_SPENT = /credit_balance_exhausted|insufficient_quota|billing_hard_limit|^llm_openai_402$/i;
+type ReadOutcome = "provider_refused" | "schema_invalid" | "incomplete" | "client_timeout" | "attempts_exhausted";
 /** What each named non-reading says on the record, in the operator's own words. */
 const WHY_SAID: Record<ReadOutcome, string> = { provider_refused: "the reader refused to read it", schema_invalid: "the reading came back in a shape I could not use",
-  incomplete: "it was left out of the reading that came back", attempts_exhausted: "I asked for it in a batch and then on its own, and neither came back usable" };
+  incomplete: "it was left out of the reading that came back", client_timeout: "I gave up waiting for it after three minutes, and the reader had already started writing",
+  attempts_exhausted: "I asked for it in a batch and then on its own, and neither came back usable" };
 
 type AnalysisDeps = {
   readObservations?: (tenantId: string, opts: { day?: string }) => Promise<readonly AnalyzableObservation[]>;
@@ -248,16 +249,10 @@ function findBrand(identity: BrandIdentity, answerText: string, citationUrls: re
   return null;
 }
 
-/** PURE. WHICH named failure a non-drafted gateway result was, in the order that decides who owes what: my own allowance first (no call was made), then the
- *  account's spent credit, then a transport that never returned a body, then what the reader said. Anything else RETURNED and was billed: a shape, not a shrug. */
-function failureOf(out: { status: string; errors?: readonly string[] }): ReadFailure {
-  if (out.status === "blocked_budget" || out.status === "off") return "budget";
-  const errors = out.errors ?? [];
-  if (errors.some((e) => CREDIT_SPENT.test(e))) return "credit_exhausted";
-  if (errors.some((e) => TRANSPORT.test(e))) return "transient";
-  if (errors.some((e) => /^llm_refusal$/i.test(e))) return "provider_refused";
-  if (errors.some((e) => /^llm_incomplete$/i.test(e))) return "incomplete";
-  return "schema_invalid";
+/** PURE. WHICH named failure a non-drafted result was, read off the TYPE the transport put on it rather than out of its own error text. A status that never
+ *  reached the transport at all (no allowance, no key) is my own side saying no: no call was made, so nothing is owed to anybody but the answer itself. */
+function failureOf(out: StructuredDraftResult<unknown>): ReadFailure {
+  return out.status === "validation_failed" ? out.failure : "budget";
 }
 
 /** THE REJECTION LEDGER, wired. llm_rejections was created for exactly this and has been empty since: a call that RETURNED and could not be used is money already
@@ -371,7 +366,9 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     // when the name was found is what left every negative with no verdict, so the mention rate divided by its own matches and read 100 percent on a day nothing
     // was read. `outcome` is the PERMANENCE token Evidence's settle test reads; `readOutcome` is WHICH named failure it was, so four facts stay four facts.
     if (analysis == null) {
-      const rejection = { rejected: true, outcome: "refused", readOutcome: why, reason, ...extra,
+      // `verdictRules` says WHICH rules decided this, and it is what brings the buried rows back with no migration and no row rewritten: a schema_invalid settled
+      // under rules 1 could be an ordinary throttle wearing a coded name, so Evidence reads it as owed again, while everything settled under these rules stands.
+      const rejection = { rejected: true, outcome: "refused", readOutcome: why, verdictRules: TYPED_FAILURE_RULES, reason, ...extra,
         ownedBrandMention: { mentioned: found != null, position: null, context: null }, matchedBy: found };
       // A REFUSAL IS WRITTEN WITH THE SAME DISCIPLINE AS A READING: one retry, and a loss said out loud.
       const kept = await persist(tenantId, row.id, rejection, hash).then(() => true)

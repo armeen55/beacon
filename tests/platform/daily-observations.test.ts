@@ -307,25 +307,27 @@ describe("reading the answers back", () => {
     // And the rest are still due, exactly as they were: nothing was consumed to produce nothing.
     expect(selectAnalysisTargets(rows.filter((r) => !saved.has(r.id))).length).toBeGreaterThan(0);
   });
-  /** ONE WORD, `refused`, USED TO COVER EVERYTHING: a reader saying no, a shape I could not parse, an answer cut off half way, a call abandoned at my own
-   *  timeout and a spent provider balance. Nobody could tell a provider's no from a bug of mine, and every one of them was made permanent on the same evidence. */
-  it("names WHY a reading did not land, and each name decides whether the answer settles for good or stays owed", async () => {
-    const settle = async (id: string, out: { error: string; retryable: boolean }) => {
-      const saved: Array<[Record<string, unknown>, string]> = [];
-      await runAnswerAnalyses(T, DAY, { readObservations: async () => [row(id, `h-${id}`, null, false)], readPrompts: async () => null, identity: BRAND,
-        complete: async () => out, persist: async (_t, _i, a, h) => void saved.push([a, h]) });
+  /** ONE WORD, `refused`, USED TO COVER EVERYTHING: a reader saying no, a shape I could not parse, an answer cut off half way, a call abandoned at my own timeout and a spent provider balance.
+   *  THE WHOLE COMPOSITION IS UNDER TEST, never a hand-typed error string: the real gateway reads a real provider reply, the drafter names WHOSE failure it was, and the readback settles on that
+   *  NAME. Matching transport on the bare string read OpenAI's own coded throttle (`openai_429_rate_limit_exceeded`) as a shape I could not use, stamped and never read again: the 3 August 50. */
+  it("names WHY a reading did not land, off the real transport's own answer, and each name decides whether the answer settles for good or stays owed", async () => {
+    process.env.OPENAI_API_KEY = "sk-test";
+    const envelope = (over: Record<string, unknown> = {}) => ({ id: "resp_1", model: "gpt-5-mini", status: "completed", created_at: 1, usage: { input_tokens: 10, output_tokens: 5 }, output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "not json" }] }], output_text: "not json", ...over });
+    const settle = async (id: string, r: { status?: number; body?: unknown; throwErr?: Error }) => {
+      globalThis.fetch = (async () => { if (r.throwErr) throw r.throwErr; return { ok: (r.status ?? 200) < 400, status: r.status ?? 200, headers: { get: () => null }, json: async () => r.body ?? envelope() } as unknown as Response; }) as typeof fetch;
+      said.warnings.length = 0; const saved: Array<[Record<string, unknown>, string]> = [];
+      await runAnswerAnalyses(T, DAY, { readObservations: async () => [row(id, `h-${id}`, null, false)], readPrompts: async () => null, identity: BRAND, persist: async (_t, _i, a, h) => void saved.push([a, h]) });
       return saved[0] == null ? "nothing stored, still owed" : [saved[0][0].readOutcome, saved[0][0].outcome, saved[0][1] === `h-${id}`]; };
-    // RETURNED AND BILLED, so permanent for this exact answer, each under its own name and all stamped with the answer's own hash.
-    expect(await settle("r", { error: "refusal", retryable: false })).toEqual(["provider_refused", "refused", true]);
-    expect(await settle("i", { error: "incomplete", retryable: false })).toEqual(["incomplete", "refused", true]);
-    expect(await settle("s", { error: "response body was not JSON", retryable: false })).toEqual(["schema_invalid", "refused", true]);
-    // NEVER RETURNED, NEVER BILLED: nothing is stored and the answer is still owed a reading, whether it was a throttle or the account's own credit running out.
-    expect(await settle("t", { error: "openai_429", retryable: true })).toBe("nothing stored, still owed");
-    expect(await settle("c", { error: "openai_402", retryable: false })).toBe("nothing stored, still owed");
+    // RETURNED AND BILLED, so permanent for this exact answer, each under its own name and all stamped with the answer's own hash. A call I abandoned at my own deadline was billed too, so it settles, but never as a shape I could not use.
+    expect([await settle("r", { body: envelope({ output: [{ type: "message", role: "assistant", content: [{ type: "refusal", refusal: "I will not." }] }] }) }), await settle("i", { body: envelope({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" } }) }), await settle("s", {}), await settle("w", { throwErr: Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }) })])
+      .toEqual([["provider_refused", "refused", true], ["incomplete", "refused", true], ["schema_invalid", "refused", true], ["client_timeout", "refused", true]]);
+    // NEVER RETURNED, NEVER BILLED: nothing is stored and the answer stays owed, whether the minute was busy (with the code OpenAI actually sends), a server faulted, or the socket died.
+    for (const r of [{ status: 429, body: { error: { code: "rate_limit_exceeded", type: "rate_limit_error" } } }, { status: 503, body: { error: { code: "server_error" } } }, { throwErr: new Error("read ECONNRESET") }]) expect(await settle("t", r)).toBe("nothing stored, still owed");
+    // AND AN EMPTY BALANCE STOPS ITSELF: the provider's own insufficient_quota trips the account level hold, stores nothing, and leaves every answer owed for the pass that runs once there is credit.
+    expect([await settle("c", { status: 429, body: { error: { code: "insufficient_quota" } } }), said.warnings.some((w) => w.includes("balance for this account is empty"))]).toEqual(["nothing stored, still owed", true]);
     // AND THE LADDER IS BOUNDED: one batch, then one call for this answer alone, neither usable and both billed, settles under its own name rather than forever.
     const spent = row("x", "h-x", null, false), saved: Array<[string, Record<string, unknown>, string]> = [];
-    const written = await runAnswerAnalyses(T, DAY, { readObservations: async () => [spent], readPrompts: async () => null, identity: BRAND,
-      analyzeBatch: async () => null, analyze: async () => null, persist: async (_t, id, a, hash) => void saved.push([id, a, hash]) });
+    const written = await runAnswerAnalyses(T, DAY, { readObservations: async () => [spent], readPrompts: async () => null, identity: BRAND, analyzeBatch: async () => null, analyze: async () => null, persist: async (_t, id, a, hash) => void saved.push([id, a, hash]) });
     expect([written, saved.length]).toEqual([0, 1]); // a non-reading is not an analysis, but it IS recorded
     expect(saved[0]).toEqual(["x", expect.objectContaining({ rejected: true, readOutcome: "attempts_exhausted" }), "h-x"]);
     // Which is exactly what the next pass reads: the row is settled, and only a NEW answer re-qualifies it.
@@ -341,16 +343,18 @@ describe("reading the answers back", () => {
     expect(saved.map((s) => [s[0], s[2], s[1].outcome, (s[1].ownedBrandMention as { mentioned: boolean }).mentioned])).toEqual([["n", "h-n", "refused", false], ["y", "h-y", "refused", true]]);
     const stamped = { ...rows[0]!, analysis: { rejected: true, reason: "the batch came back missing" }, analysisHash: "ht0" }; // AND THE HISTORY REQUEUES ITSELF
     expect([isAnalysisSettled(stamped), selectAnalysisTargets([stamped]).map((r) => r.id), isAnalysisSettled({ ...stamped, analysis: { rejected: true, outcome: "refused" } })]).toEqual([false, ["t0"], true]);
+    // AND THE 3 AUGUST 50 COME BACK THE SAME WAY, off the row exactly as production wrote it: a schema_invalid refusal settled BEFORE the transport typed its own failures could be an ordinary throttle, so it is owed again, while the identical verdict reached under these rules stands and is never re-bought.
+    const dead = { rejected: true, outcome: "refused", readOutcome: "schema_invalid", reason: "I asked for a reading of this answer and the reading came back in a shape I could not use. I recorded that rather than paying to be told nothing twice." }, buried = { ...rows[1]!, analysisHash: "ht1", analysis: dead };
+    expect([isAnalysisSettled(buried), selectAnalysisTargets([buried]).map((r) => r.id), isAnalysisSettled({ ...buried, analysis: { ...dead, verdictRules: 2 } })]).toEqual([false, ["t1"], true]);
   }); // a throttle discovered in the FALLBACK ends the pass too, which the sustained-throttle test below pins directly
   it("never pays twice to be told nothing: a call that RETURNED settles every answer it covered, and only a call that never returned stays due", async () => {
     // 638 OpenAI calls and $0.80 bought ZERO analysis rows: a batch abandoned at MY OWN timeout after the model had been writing was classed transport-transient, so nothing was persisted and the next pass re-bought the identical batch. Billed is billed, and only a throttle, a server fault or a connection that never opened is due again.
-    const rows = Array.from({ length: 3 }, (_, i) => row(`z${i}`, `hz${i}`, null, false)), abandoned = { error: "The operation was aborted due to timeout", retryable: true };
+    const rows = Array.from({ length: 3 }, (_, i) => row(`z${i}`, `hz${i}`, null, false)), abandoned = { error: "The operation was aborted due to timeout", retryable: true, failure: "client_timeout" as const };
     const saved: Array<[string, Record<string, unknown>]> = []; pg.inserted.length = 0; const pass = async (complete: CompleteFn) => { saved.length = 0; return runAnswerAnalyses(T, DAY, { readObservations: async () => rows, readPrompts: async () => null, identity: BRAND, complete, persist: async (_t, id, a) => void saved.push([id, a]) }); };
     expect([await pass(async () => abandoned), saved.length, saved.every(([, a]) => a.outcome === "refused"), selectAnalysisTargets(rows.map((r, i) => ({ ...r, analysis: saved[i]?.[1] ?? null, analysisHash: `hz${i}` })))]).toEqual([0, 3, true, []]); // every answer that call covered is settled once for this hash, and never bought again
     expect(pg.inserted.map((r) => [r.table, r.rec_id, r.evidence_hash])).toEqual(rows.map((r) => ["llm_rejections", r.id, r.answerHash])); // the ledger that exists for exactly this is wired
-    // AND THE READINGS STILL LAND: an abandoned batch drops to ONE CALL PER ANSWER, the path that read 274 answers a day in July. A transport 429 is the opposite: nothing came back, nothing was billed, nothing is stored, every answer stays due.
+    // AND THE READINGS STILL LAND: an abandoned batch drops to ONE CALL PER ANSWER, the path that read 274 answers a day in July. The throttle that never returned is pinned on the real transport in the naming test above.
     expect([await pass(async ({ kind }) => (kind === "answer_analysis_batch" ? abandoned : { value: analysis })), saved.every(([, a]) => a.rejected !== true)]).toEqual([3, true]);
-    expect([await pass(async () => ({ error: "openai_429", retryable: true })), saved, selectAnalysisTargets(rows).length]).toEqual([0, [], 3]);
   });
   it("keeps reading through a sustained throttle: a batch too big for the minute drops to single reads on the SAME pass", async () => {
     // PROVEN LIVE: the 15 answer batch was ~75,000 input tokens on its own, tripped the org's per-minute ceiling, took openai_http_429 twice every pass, and stopped the pass having tried nothing at all. A single read is ~1,500 tokens, which trickled through the same limits all July at 274 calls a day.

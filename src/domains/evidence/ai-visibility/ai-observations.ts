@@ -298,11 +298,18 @@ export async function settleFailedObservation(
  * AND A REJECTION IS FINISHED ONLY WHEN IT NAMES A PERMANENT REASON: on 3 and 4 August every one of 278 answers was rejected on a rate limit and
  * stamped with its own answer hash, so the hash alone said "read, forever" about answers nothing had read at all. A rejection naming no `outcome` of
  * `refused` was the provider's failure, not the answer's, so it is due again, and the whole 278 come back through this test with no migration at all.
+ * AND THE SAME READING BRINGS THE 3 AUGUST 50 BACK. Until the transport named its own failures by TYPE, a reader had to recognise a throttle by matching
+ * `llm_openai_429` exactly, so the very same throttle carrying the code OpenAI actually sends fell through to `schema_invalid` and settled 50 answers nothing
+ * had read, for calls that returned nothing and cost nothing. A `schema_invalid` refusal decided under those rules (no `verdictRules`) is owed again here; a
+ * refusal settled under the typed rules stands, so a genuine unusable shape is never re-bought. No row is rewritten and no migration is run for either.
  */
+export const TYPED_FAILURE_RULES = 2;
 export function isAnalysisSettled(r: { analysis: unknown; analysisHash: string | null; answerHash: string | null }): boolean {
-  const a = r.analysis as { rejected?: unknown; outcome?: unknown } | null;
+  const a = r.analysis as { rejected?: unknown; outcome?: unknown; readOutcome?: unknown; verdictRules?: unknown } | null;
   if (a == null || r.analysisHash == null || r.analysisHash !== r.answerHash) return false;
-  return a.rejected !== true || a.outcome === "refused";
+  if (a.rejected !== true) return true;
+  if (a.outcome !== "refused") return false;
+  return a.readOutcome !== "schema_invalid" || a.verdictRules === TYPED_FAILURE_RULES;
 }
 
 /**
