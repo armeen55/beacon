@@ -6,7 +6,7 @@
 ## Current foundation
 
 - Branch `main`; MVP rebuild started at `4669fbb5`. Stack: Next.js App Router, strict TypeScript, Supabase, Vercel.
-- Production TypeScript is 71,835 lines under a 73,249 ceiling; tests 11,505 at the 11,505 ceiling; combined 83,340.
+- Production TypeScript is 72,119 lines under a 73,249 ceiling; tests 11,505 at the 11,505 ceiling; combined 83,624.
 - The foundation guard caps production, tests, combined LOC, domains, routes, exports, files, dependencies, and
   Markdown. `npm run gate` runs the guard, typecheck, tests, and build.
 - Five kernels exist (Account, Evidence, Decision, Measurement, Runtime); five surfaces (Today, Visibility,
@@ -58,15 +58,18 @@
   starting exactly one durable Research Run. Verified end to end rendered, desktop and mobile, with real crawl,
   real model calls, mid-flow website/goal changes. One inert synthetic pending account remains for review.
 - Durable Research Runs exist (Slice 4, 2026-07-24), triggered by the Supabase-scheduled dispatcher every 30
-  minutes (Dream V1, live since 2026-08-03; deployed and verified at `5f4cf1a9`), with an authenticated visit as
+  minutes (Dream V1, live since 2026-08-03; deployed and verified at `c14e7d96`), with an authenticated visit as
   the recovery trigger only. Recovery passes carry a scoped unit plan; answer re-reads reach the last 26 weeks
   exactly; the credit breaker allows bounded concurrent probes, one per process; a call abandoned at the client's
   own deadline carries no usage receipt and never settles an answer, which stays owed until a real reading lands.
   The EvidenceSnapshot and keyword discovery read the canonical ai_observations record (latest useful row per
-  active question and engine, with fan-outs, citations, retrieved pages and settled readings; live-verified at
-  140 pairs for the live account), never the funnel's transient window and never the deleted legacy projection;
-  harvested keywords accumulate across passes, a failed read keeps history and says so, and four read states
-  carry four distinct claims. Everything below describes the runtime as built. A visit renders the saved
+  active question and engine, paged until every active pair is found or the shortfall is said; live-verified at
+  140 pairs), never the funnel's transient window and never the deleted legacy projection; a cited address gets
+  one vote per answer and rivals rank by distinct questions; every settled reading flows into case receipts
+  dated and traceable to its exact observation, creates its own bounded consume pass through a fingerprint and
+  watermark that read the same rows by construction, and moves evidence identity; harvested keywords accumulate
+  across passes, a failed read keeps history and says so, and the tracked-question truth lives in the Account
+  kernel. Everything below describes the runtime as built. A visit renders the saved
   surfaces first, then claims or resumes the account's Research Run through an atomic database-time lease RPC. At
   most one unfinished run per account across all dates (partial unique index): the claim resumes it whatever day
   it started (same row, phase, cursor, progress; a live foreign lease blocks, an expired one reclaims), a
@@ -93,17 +96,14 @@
   reconcile; persistence fails closed. One paid-response policy: temporary codes release, everything else
   refunds into a durable blocked hold; an uncertain outcome is quarantined, recovered only via free
   tasks_ready; a BLOCKED response pauses the run visibly. Completion counts only current canonical pairs.
-  Every observation carries a frozen MODE: consumer_search is THE canonical ChatGPT signal;
-  standardized_response is canonical for the other engines plus a bounded auxiliary chatgpt sample.
+  Every observation carries a frozen MODE: consumer_search is THE canonical ChatGPT signal; standardized_response is canonical for the other engines plus a bounded auxiliary chatgpt sample.
   Gemini wrappers resolve to the real source before ranking. Funnel state is Supabase-only, basis-scoped.
   The canonical EvidenceSnapshot is the ONE public evidence input; the hash fingerprints material content
-  only. Proof is hermetic AND live-validated (2026-07-25, $0.07 across all engines, cent-exact ledger).
-  Production research is ENABLED (2026-07-25). Full mechanics: git history of this section.
+  only. Proof is hermetic AND live-validated (2026-07-25, $0.07 across all engines, cent-exact ledger). Production research is ENABLED (2026-07-25). Full mechanics: git history of this section.
 - OpenAI generation flows through one strict Responses API gateway (Slice 3, 2026-07-23): json_schema
   strict:true, every call site converted, the Completions transport deleted. Account-scoped end to end
   (2026-07-24): tenant-scoped cache, budget, transport, provenance, and error ledger; the per-account LLM
-  budget rides a tenant-scoped file backstop with the durable Supabase ledger authoritative; one account's
-  spend never throttles another. The OpenAI key enables this path directly, no secondary flag.
+  budget rides a tenant-scoped file backstop with the durable Supabase ledger authoritative; one account's spend never throttles another. The OpenAI key enables this path directly, no secondary flag.
 - DOING NOTHING IS THE DEFAULT AND AN EXACT RESULTS PAGE MUST EXPLAIN THE ACTION (2026-07-27): each page is
   diagnosed against its OWN exact query rows and the shipped click curve BEFORE any draft; an action needs
   impressions to trust, a real gap at that position, and enough recoverable clicks to be worth a morning. A row I
