@@ -58,7 +58,7 @@
   starting exactly one durable Research Run. Verified end to end rendered, desktop and mobile, with real crawl,
   real model calls, mid-flow website/goal changes. One inert synthetic pending account remains for review.
 - Durable Research Runs exist (Slice 4, 2026-07-24), triggered by the Supabase-scheduled dispatcher every 30
-  minutes (Dream V1, live since 2026-08-03; deployed and verified at `c14e7d96`), with an authenticated visit as
+  minutes (Dream V1, live since 2026-08-03; deployed and verified at `62ad8db8`), with an authenticated visit as
   the recovery trigger only. Recovery passes carry a scoped unit plan; answer re-reads reach the last 26 weeks
   exactly; the credit breaker allows bounded concurrent probes, one per process; a call abandoned at the client's
   own deadline carries no usage receipt and never settles an answer, which stays owed until a real reading lands.
@@ -66,12 +66,12 @@
   active question and engine, paged until every active pair is found or the shortfall is said; live-verified at
   140 pairs), never the funnel's transient window and never the deleted legacy projection; a cited address gets
   one vote per answer and rivals rank by distinct questions; every settled reading flows into case receipts
-  dated and traceable to its exact observation, creates its own bounded consume pass through a fingerprint and
-  watermark that read the same rows by construction, and moves evidence identity; harvested keywords accumulate
-  across passes, a failed read keeps history and says so, and the tracked-question truth lives in the Account
-  kernel. Everything below describes the runtime as built. A visit renders the saved
-  surfaces first, then claims or resumes the account's Research Run through an atomic database-time lease RPC. At
-  most one unfinished run per account across all dates (partial unique index): the claim resumes it whatever day
+  dated and naming every observation behind it (a withheld time-sensitive line is disclosed, never hidden),
+  creates its own bounded consume pass through a fingerprint and watermark that read the same rows by construction, and moves evidence identity; harvested keywords accumulate across passes, a failed read
+  keeps history and says so, and the tracked-question truth lives in the Account kernel. Everything below
+  describes the runtime as built. A visit renders the saved surfaces first, then
+  claims or resumes the account's Research Run through an atomic database-time lease RPC. At most one
+  unfinished run per account across all dates (partial unique index): the claim resumes it whatever day
   it started (same row, phase, cursor, progress; a live foreign lease blocks, an expired one reclaims), a
   same-day completion (the operator's Pacific day, computed in the claim RPC) blocks a redundant pass; a new daily cycle starts only when none is
   open. A partially failed refresh durably persists the providers that synced before pausing. Seven phases mirror
