@@ -26,6 +26,9 @@ export type AnswerSignal = { text: string; prompts: number; observationIds: stri
 export type AnswerIntel = {
   /** Settled readings that joined this case. Zero = nothing below was derived from anything. */
   answers: number;
+  /** WHICH readings those were, sorted. A claim about what NOBODY said is read off every one of them at once,
+   *  so the only honest support for it is all of them, and the count alone cannot be looked back up. */
+  observationIds: string[];
   /** When the newest of those readings landed, which is the only honest date on a fact about what NOBODY said. */
   latestObservedAt: string | null;
   competitors: AnswerSignal[];
@@ -80,7 +83,7 @@ export function answerIntelOf(observations: readonly ObsRow[]): AnswerIntel {
     .filter((r) => r.m?.mentioned === true);
   const positions = brandRows.map((r) => (typeof r.m!.position === "number" ? r.m!.position : null)).filter((p): p is number => p != null);
   return {
-    answers: read.length, latestObservedAt: read.map(landedAt).sort().at(-1) ?? null,
+    answers: read.length, observationIds: read.map((o) => o.observationId).sort(), latestObservedAt: read.map(landedAt).sort().at(-1) ?? null,
     competitors: of((a) => list(a.competitors).map((c) => text((c as { name?: unknown })?.name))),
     contentTypes: of((a) => list(a.contentTypesRecommended).map(text)),
     omissions: of((a) => list(a.materialOmissions).map(text)),
@@ -96,13 +99,26 @@ export function answerIntelOf(observations: readonly ObsRow[]): AnswerIntel {
   };
 }
 
-/** ONE receipt line per signal, in the operator's own language, each carrying the answer it QUOTES. A line
+/** ONE receipt line per signal, in the operator's own language, each carrying EVERY answer it stands on. A line
  *  that speaks for several answers SAYS how many stand behind it, and a signal only one answer produced says
  *  exactly that rather than passing for agreement. CLAIMS AND CAVEATS ARE DELIBERATELY ABSENT: they are an
  *  engine's assertions, and every fact here is handed to the drafters as grounding, so putting them in this
  *  list would make somebody else's claim source material for copy of yours. */
-export function answerIntelFacts(intel: AnswerIntel): { key: string; fact: string; observationId?: string; observedAt: string | null }[] {
-  const out: { key: string; fact: string; observationId?: string; observedAt: string | null }[] = [];
+type AnswerFact = { key: string; fact: string; observationId?: string; observationIds?: string[]; observedAt: string | null };
+
+/** THE EXCLUSIVITY RULE, in the one place a fact is built. One answer wears the singular id it always wore, so
+ *  every row already on file hashes to what it always hashed to. SEVERAL wear all of theirs, deduplicated and
+ *  SORTED here, so the same support gathered in a different order is the same support. Never both fields. */
+const identity = (ids: readonly string[]): Pick<AnswerFact, "observationId" | "observationIds"> => {
+  const held = [...new Set(ids)].sort();
+  return held.length === 1 ? { observationId: held[0]! } : held.length > 1 ? { observationIds: held } : {};
+};
+
+/** The facts, and the ONE honest sentence about what was left off them. The sentence is built here rather than
+ *  handed out as a number because both producers would otherwise word the same disclosure two different ways. */
+export function answerIntelFacts(intel: AnswerIntel): { facts: AnswerFact[]; withheld: string | null } {
+  const out: AnswerFact[] = [];
+  let withheld = 0;
   // THE NUMBER IS WHAT THE NUMBER COUNTS. `prompts` is DISTINCT QUESTIONS I TRACK, so calling it a count of
   // answers said something I never measured: four engines answering one question is four answers, not four questions.
   const many = (s: AnswerSignal, plural: string, one: string): string =>
@@ -112,22 +128,27 @@ export function answerIntelFacts(intel: AnswerIntel): { key: string; fact: strin
   // behind on any day but the day it landed: the one validator refuses the WHOLE change for it, permanently
   // and with a date message nobody can see in the sentence. So a signal that claims the present is not put on
   // the receipt at all. It stays on the packet for a surface that shows context without grounding a word.
+  // IT IS ALSO COUNTED: a receipt that silently drops evidence reads exactly like a receipt that never had any.
   const push = (key: string, fact: string, s: AnswerSignal): void => {
-    if (!CURRENT_CLAIM.test(s.text)) out.push({ key, fact, observationId: s.observationIds[0]!, observedAt: s.observedAt }); };
+    if (CURRENT_CLAIM.test(s.text)) { withheld += 1; return; }
+    out.push({ key, fact, ...identity(s.observationIds), observedAt: s.observedAt }); };
   intel.competitors.slice(0, 2).forEach((s, i) => push(`named${i + 1}`, `${many(s, "name", "names")} ${s.text} as an option for this.`, s));
   intel.contentTypes.slice(0, 2).forEach((s, i) => push(`format${i + 1}`, `${many(s, "ask for", "asks for")} ${s.text}.`, s));
   intel.omissions.slice(0, 2).forEach((s, i) => push(`missing${i + 1}`, `${many(s, "leave", "leaves")} this unanswered: ${s.text}`, s));
   // A SHAPE IS A PATTERN OR IT IS NOTHING: one answer's own headings are that answer's, never what answers agree on.
   intel.sections.filter((s) => s.prompts > 1).slice(0, 1).forEach((s) => push("covered1", `The answers to ${s.prompts} of the questions I track cover "${s.text}".`, s));
-  // AN ABSENCE IS NOBODY'S ANSWER. "Not one of them names you" is read off every answer at once, so it quotes
-  // none of them and carries NO observation id, exactly as the tracked-question line next door refuses to borrow
-  // one. It still carries the date of the newest answer behind it, because a date is not an identity.
+  // AN ABSENCE IS EVERY ANSWER'S. "Not one of them names you" is read off the whole inspected set at once, so
+  // the honest support for it is that whole set and not the empty list it used to carry: the claim is about
+  // every one of those answers, and a receipt that names none of them cannot be checked against any of them.
+  // The naming line is the mirror image and carries every answer that DID name the account.
   if (intel.answers > 0) {
-    out.push({ key: "brandnamed", ...(intel.brand.observationIds[0] ? { observationId: intel.brand.observationIds[0] } : {}),
+    const named = intel.brand.mentioned > 0;
+    out.push({ key: "brandnamed", ...identity(named ? intel.brand.observationIds : intel.observationIds),
       observedAt: intel.brand.observedAt ?? intel.latestObservedAt,
-      fact: intel.brand.mentioned > 0
+      fact: named
         ? `Your own site is named in ${intel.brand.mentioned} of the ${intel.answers} answers I hold here${intel.brand.position != null ? `, ${intel.brand.position === 1 ? "first" : `in ${intel.brand.position} place`} in the answer` : ""}.`
         : `Not one of the ${intel.answers} answers I hold here names your own site.` });
   }
-  return out;
+  return { facts: out, withheld: withheld === 0 ? null
+    : `I withheld ${withheld} time-sensitive statement${withheld === 1 ? "" : "s"} from these answers because I cannot confirm ${withheld === 1 ? "it is" : "they are"} still current.` };
 }

@@ -97,10 +97,10 @@ function identityOf(p: ChangeProposal): Identity {
 /** THE READINGS THEMSELVES, in the order the receipt carries them. ORDER IS KEPT HERE on purpose: this feeds
  *  `proposalFingerprint`, whose whole job is "did anything at all about this row change", and loosening it
  *  would rewrite every stored row once for no gain. The refusal below sorts its own copy instead. */
-/** WHICH STORED ANSWER a reading came out of is MATERIAL: the same sentence read off a different answer is different evidence, and leaving the id out let it change
- *  underneath a live proposal for free. Appended CONDITIONALLY, so a row whose items carry no id computes byte for byte what it always did and is never churned. */
-const evidenceMaterial = (p: ChangeProposal): unknown[] =>
-  (p.bundle?.receipt.items ?? []).map((i) => [i.key, i.kind, i.fact, i.observedAt, ...(i.observationId ? [i.observationId] : [])]);
+/** WHICH STORED ANSWERS a reading came out of is MATERIAL: the same sentence read off a different answer is different evidence, and leaving the id out let it change underneath a live proposal for free. A line SEVERAL
+ *  answers stand behind is material in ALL of them, so swapping one member moves this and the whole proposal with it, while the sort here means merely reordering the same support moves neither. Both appends are
+ *  CONDITIONAL and the plural is fixed first purely so the order never wobbles: a row carrying no id, or the singular id alone, computes byte for byte what it always did and is never churned. */
+const evidenceMaterial = (p: ChangeProposal): unknown[] => (p.bundle?.receipt.items ?? []).map((i) => [i.key, i.kind, i.fact, i.observedAt, ...(i.observationIds?.length ? [[...i.observationIds].sort()] : []), ...(i.observationId ? [i.observationId] : [])]);
 
 /** PURE: what this change STANDS ON, and nothing about how it reads. Two drafts off the same readings share it;
  *  one reading taken again, added or dropped moves it. SORTED, so a producer that merely reorders its receipt

@@ -76,8 +76,9 @@ function receiptOf(inv: TopicInvestigation, owned: readonly OwnedCandidate[], d:
 { items: BundleEvidenceItem[]; missing: string[] } {
   const items: BundleEvidenceItem[] = [];
   const missing: string[] = [];
-  const add = (key: string, kind: BundleEvidenceItem["kind"], fact: string, observedAt: string | null, observationId?: string): void => {
-    items.push({ key, kind, fact, observedAt, ...(observationId ? { observationId } : {}) }); };
+  // WHICH STORED ANSWERS: one line off one answer keeps the singular id; a line several answers stand behind carries all of theirs, and neither is ever flattened into the other.
+  const add = (key: string, kind: BundleEvidenceItem["kind"], fact: string, observedAt: string | null, from?: Pick<BundleEvidenceItem, "observationId" | "observationIds">): void => {
+    items.push({ key, kind, fact, observedAt, ...(from?.observationId ? { observationId: from.observationId } : {}), ...(from?.observationIds?.length ? { observationIds: from.observationIds } : {}) }); };
 
   const dem = inv.demand;
   const demand = [dem.monthlySearchVolume != null ? `about ${num(dem.monthlySearchVolume)} searches a month` : null,
@@ -119,12 +120,15 @@ function receiptOf(inv: TopicInvestigation, owned: readonly OwnedCandidate[], d:
   // The quoted example carries ITS OWN answer's date, and an example wearing a present-tense word yields to one that
   // does not: this line quotes raw engine text, and an undated present-tense line is what the validator refuses whole.
   const quote = fans.find((f) => !CURRENT_CLAIM.test(f.query)) ?? fans[0];
-  if (quote != null) add("asked", "ai_observation", `To answer this, an AI engine went and searched ${num(fans.length)} ${fans.length === 1 ? "thing" : "things"} of its own, like "${quote.query.trim()}".`, quote.observedAt, quote.observationId);
+  if (quote != null) add("asked", "ai_observation", `To answer this, an AI engine went and searched ${num(fans.length)} ${fans.length === 1 ? "thing" : "things"} of its own, like "${quote.query.trim()}".`, quote.observedAt, { observationId: quote.observationId });
   else if (asked.length > 0) add("asked", "ai_observation", `No AI engine has shown me a search of its own here. What I hold is a question people ask, like "${asked[0]}".`, null);
   // WHAT THOSE ANSWERS SAID, case scoped and attributed, in the same words the repair path uses. Claims and caveats
   // stay out on purpose: every fact here is grounding for the brief, and an engine's assertion is not a source of mine.
-  for (const f of answerIntelFacts(inv.answerIntel)) add(f.key, "ai_observation", f.fact, f.observedAt, f.observationId);
+  const said = answerIntelFacts(inv.answerIntel);
+  for (const f of said.facts) add(f.key, "ai_observation", f.fact, f.observedAt, f);
   if (inv.trackedPrompts.length === 0) missing.push("No AI engine I track has been asked about this, so I cannot tell you how assistants answer it today.");
+  // A DROPPED SIGNAL IS STILL EVIDENCE I HAD: withholding it silently reads exactly like never having gathered it, so the count is owned here and the unsafe wording still never appears.
+  if (said.withheld) missing.push(said.withheld);
   return { items, missing };
 }
 

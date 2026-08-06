@@ -270,14 +270,14 @@ export function dangerousComponents(components: readonly BundleComponent[]): Bun
     || (c.kind === "factual_correction" && HIGH_STAKES_CLAIM.test(`${c.before ?? ""} ${c.after}`)));
 }
 
-/** One piece of canonical evidence the bundle used, in plain English. `key` is stable within the bundle and
- *  cited by BundleComponent.evidenceKeys; `fact` carries no raw id; `observedAt` null = undated aggregate. */
+/** One piece of canonical evidence the bundle used, in plain English. `key` is stable within the bundle and cited by BundleComponent.evidenceKeys; `fact` carries no raw id; `observedAt` null = undated aggregate. */
 export type BundleEvidenceItem = {
   key: string;
   kind: "gsc_demand" | "keyword" | "serp" | "ai_observation" | "winning_page" | "page_extract" | "competitor" | "internal_link" | "diagnosis";
   fact: string;
   observedAt: string | null;
-  observationId?: string; // the exact stored observation an ai_observation item was read from, so the chain back to the answer is a lookup
+  observationId?: string; // EXCLUSIVE with `observationIds`: the ONE stored observation a single-answer item was read from, so the chain back to the answer is a lookup
+  observationIds?: string[]; // a fact SEVERAL answers stand behind names EVERY one of them, deduplicated and sorted where it is built, so no arbitrary member ever stands in for the set. Never both fields, so no reader picks which is true
 };
 
 export type ChangeBundle = {
@@ -400,8 +400,8 @@ const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
   plan: z.object({ keeps: z.array(z.string()), removes: NAMED_SCHEMA,
     entries: z.array(z.object({ kind: KIND_SCHEMA, label: z.string().min(1), disposition: z.enum(["change", "add"]) })) }).optional(),
   receipt: z.object({
-    items: z.array(z.object({ key: z.string().min(1), fact: z.string().min(1), observedAt: z.string().nullable(), observationId: z.string().optional(),
-      kind: z.enum(["gsc_demand", "keyword", "serp", "ai_observation", "winning_page", "page_extract", "competitor", "internal_link", "diagnosis"]) })),
+    items: z.array(z.object({ key: z.string().min(1), fact: z.string().min(1), observedAt: z.string().nullable(), observationId: z.string().optional(), observationIds: z.array(z.string().min(1)).min(1).optional(), // the WHOLE support survives the round trip, or persistence quietly turns an aggregate back into one answer's word
+      kind: z.enum(["gsc_demand", "keyword", "serp", "ai_observation", "winning_page", "page_extract", "competitor", "internal_link", "diagnosis"]) }).refine((i) => !(i.observationId && i.observationIds), { message: "one_answer_or_several_never_both" })),
     missing: z.array(z.string()),
     freshestObservedAt: z.string().nullable(),
   }),

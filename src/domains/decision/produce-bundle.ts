@@ -107,7 +107,8 @@ function winnerPattern(read: Research["winningPages"], c: NonNullable<OwnedPageE
 
 function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queries: OwnedQuerySignal[], primary: string, weak: ReadonlySet<string>, body: OwnedBody | null, mine: DecidedTopic | null, technical: readonly TechnicalFinding[], bodies: ReadonlyMap<string, OwnedPageBody>): Receipt {
   const items: BundleEvidenceItem[] = []; const contextOnly: string[] = []; const missing: string[] = []; const prompts: string[] = [];
-  const add = (key: string, kind: BundleEvidenceItem["kind"], fact: string, observedAt: string | null): void => { items.push({ key, kind, fact, observedAt }); };
+  // WHICH STORED ANSWERS: a line off ONE answer keeps the singular id it always wore; a line SEVERAL answers stand behind carries all of theirs, and neither is ever flattened into the other.
+  const add = (key: string, kind: BundleEvidenceItem["kind"], fact: string, observedAt: string | null, from?: Pick<BundleEvidenceItem, "observationId" | "observationIds">): void => { items.push({ key, kind, fact, observedAt, ...(from?.observationId ? { observationId: from.observationId } : {}), ...(from?.observationIds?.length ? { observationIds: from.observationIds } : {}) }); };
   const research = snapshot.research;
   const isPrimary = (q: string): boolean => norm(q) === norm(primary) || canonicalQueryKey(q) === canonicalQueryKey(primary);
   const s = page.search!; const c = page.content!;
@@ -149,20 +150,19 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   const ofCase = { queries: [primary], provenance: (research?.retainedKeywords ?? []).filter((k) => isPrimary(k.query)).flatMap((k) => k.origins ?? []) };
   const observations = [...(research?.aiObservations ?? [])].filter((o) => observationJoinsCase(o, ofCase)).sort(
     (a, b) => byText(a.observationMode, b.observationMode) || byText(a.promptText, b.promptText) || byText(a.engine, b.engine));
-  const consumer = observations.filter((o) => o.observationMode === "consumer_search");
-  const plain = observations.filter((o) => o.observationMode !== "consumer_search");
+  const consumer = observations.filter((o) => o.observationMode === "consumer_search"); const plain = observations.filter((o) => o.observationMode !== "consumer_search");
   if (observations.length === 0) missing.push(`I have not gathered an AI answer about "${primary}" yet.`);
   else if (consumer.length === 0) missing.push(`I have not yet watched what a customer sees when they ask an assistant about "${primary}".`);
   // THE FIRST ANSWER CARRIES THE ID THE CAUSE LADDER CITES (RECEIPT.ai), or a change made off it cites nothing.
   [...consumer.slice(0, 2), ...plain.slice(0, 1)].forEach((o, i) => {
-    const key = i === 0 ? RECEIPT.ai : `ai${i + 1}`; add(key, "ai_observation", observationFact(o), o.observedAt); items[items.length - 1]!.observationId = o.observationId;
+    const key = i === 0 ? RECEIPT.ai : `ai${i + 1}`; add(key, "ai_observation", observationFact(o), o.observedAt, { observationId: o.observationId });
     if (o.citations == null) contextOnly.push(key); // context, never component support
     prompts.push(o.promptText); });
-  // WHAT THOSE ANSWERS ACTUALLY SAID, not merely that they were given: who they name, what shape they ask for, what they leave unanswered and whether they name this account at all, each
-  // line carrying the exact stored answer it quotes. The engines' own CLAIMS never come through here: every fact below is handed to the drafters as grounding, and somebody else's assertion
-  // is not a source of mine. A GAP THE ANSWERS KEEP LEAVING is then an argument for covering it, so the RECURRING ones (never one answer's) stand behind whichever coverage component the ladder produces.
-  const intel = answerIntelOf(observations);
-  for (const f of answerIntelFacts(intel)) { add(f.key, "ai_observation", f.fact, f.observedAt); if (f.observationId) items[items.length - 1]!.observationId = f.observationId; }
+  // WHAT THOSE ANSWERS ACTUALLY SAID, not merely that they were given: who they name, what shape they ask for, what they leave unanswered and whether they name this account at all, each line carrying EVERY stored
+  // answer it stands on. The engines' own CLAIMS never come through here: every fact below is handed to the drafters as grounding, and somebody else's assertion is not a source of mine. A GAP THE ANSWERS KEEP LEAVING
+  // is then an argument for covering it, so the RECURRING ones (never one answer's) stand behind whichever coverage component the ladder produces.
+  const intel = answerIntelOf(observations); const said = answerIntelFacts(intel); for (const f of said.facts) add(f.key, "ai_observation", f.fact, f.observedAt, f);
+  if (said.withheld) missing.push(said.withheld); // a dropped signal is still evidence I had, and withholding it in silence reads exactly like never having gathered it
   const supportKeys = intel.omissions.slice(0, 2).flatMap((s, i) => (s.prompts > 1 ? [`missing${i + 1}`] : []));
 
   // A winner belongs to THIS search only: on that results page, or in an answer that joined this case above. A fan-out that never carried this search carries no winner either.

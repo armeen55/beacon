@@ -297,13 +297,11 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     const page = pages[0]!; expect(page.recommendedChange).toEqual({ kind: "new_page", proposedTitle: BRIEF.proposedTitle, metaDescription: BRIEF.metaDescription,
       openingAnswer: BRIEF.openingAnswer, outline: BRIEF.sections.map((s) => s.heading), faqQuestions: [], schemaTypes: [] }); // no markup is guessed for a page that does not exist yet
     expect([page.status, page.pagePath, page.publish, validateProposal(page).verdict]).toEqual(["needs_review", null, "manual", "ready"]);
-    expect(page.bundle!.plan).toBeUndefined(); // a page that does not exist yet has nothing to keep, change or remove
-    expect(page.bundle!.receipt.items.some((i) => i.key === "verdict")).toBe(true);
+    expect(page.bundle!.plan).toBeUndefined(); expect(page.bundle!.receipt.items.some((i) => i.key === "verdict")).toBe(true); // a page that does not exist yet has nothing to keep, change or remove, and the verdict itself is on the receipt
     // WHOSE SEARCH IS WHOSE: with no fan-out on file the example is named for what it actually is, a question people ask.
     expect([page.bundle!.receipt.items.find((i) => i.key === "asked")!.fact, page.bundle!.receipt.items.find((i) => i.key === "asked")!.observationId]).toEqual(['No AI engine has shown me a search of its own here. What I hold is a question people ask, like "haft seen table".', undefined]); // derived from a question I track, not from any stored answer, so it borrows no answer's identity expect(page.bundle!.components.map((c) => c.kind)).toEqual(["title", "meta", "opening_answer", "section", "source_pack", "internal_links"]);
     // THE OPERATOR PASTES COPY, NOT A PLAN: every planned section in the planned order, written out.
-    const written = page.bundle!.components.find((c) => c.kind === "section")!.after;
-    for (const s of BRIEF.sections) expect(written).toContain(`${s.heading}: a haft seen table is the spread`);
+    const written = page.bundle!.components.find((c) => c.kind === "section")!.after; for (const s of BRIEF.sections) expect(written).toContain(`${s.heading}: a haft seen table is the spread`);
     expect(written).not.toContain("Answer this plainly"); // the brief's own instruction never ships as the page
     // A SOURCE I HOLD IS NAMED WHOLE: the page, its publisher, what it stands behind, and the day I read it. But a requirement of the model's own is never a source, so
     // it keeps the caveat and the page is held for review.
@@ -314,9 +312,11 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     const queue = await loadProposalQueue("fixture-tenant", { currentBasis: page.basis! }); expect(queue.toDo.map((p) => p.id)).toContain(page.id); // held for a look, never shown ready
     const again = await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW }); expect(again.reused).toBe(1); // a refresh re-pays nothing
     // AND THE OTHER BRANCH: where an engine DID run a search of its own, the line quotes ONE answer's search, so it names that one answer and no other.
-    reset(snap([GAP], { ...READY({ topicKey: keyOf(READY()) }), aiObservations: [{ ...asked[0]!, fanOutQueries: [`what goes on a ${HAFT}`] }] }, DEMAND));
-    const fan = (await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW })).proposals.find((p) => p.kind === "new_page")!.bundle!.receipt.items.find((i) => i.key === "asked")!;
-    expect([fan.fact, fan.observationId]).toEqual([`To answer this, an AI engine went and searched 1 thing of its own, like "what goes on a ${HAFT}".`, "obs_fx"]); });
+    const said = { competitors: [{ name: "waterwise", position: 1 }], materialOmissions: ["what it costs currently"] }; // TWO answers say the same thing, and one statement claims the present, which may never be shown on a line I did not read today
+    reset(snap([GAP], { ...READY({ topicKey: keyOf(READY()) }), aiObservations: [{ ...asked[0]!, fanOutQueries: [`what goes on a ${HAFT}`], analysis: said }, { ...asked[0]!, observationId: "obs_fx2", promptId: "p10", engine: "gemini", analysis: said }] }, DEMAND));
+    const built = (await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW })).proposals.find((p) => p.kind === "new_page")!; const at = (k: string) => built.bundle!.receipt.items.find((i) => i.key === k)!;
+    expect([at("asked").fact, at("asked").observationId]).toEqual([`To answer this, an AI engine went and searched 1 thing of its own, like "what goes on a ${HAFT}".`, "obs_fx"]); expect([at("named1").observationIds, at("named1").observationId]).toEqual([["obs_fx", "obs_fx2"], undefined]);
+    expect(built.bundle!.receipt.missing).toContain("I withheld 1 time-sensitive statement from these answers because I cannot confirm it is still current."); }); // the page producer obeys the same contract as the repair producer: whole support named, withholding disclosed
   it("proposes NOTHING when a planned section will not write, and holds a page it has no source of its own for", async () => {
     reset(snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND)); // one section short is no page at all
     const partial = await produceProposalsForTenant("fixture-tenant", { complete: pageSeam(BRIEF, false), now: NOW });
