@@ -125,6 +125,11 @@ export type CanonicalPairObservation = {
   /** Brand names the engine itself surfaced; null = not observable, [] never fabricated. */
   brandMentions: string[] | null;
   analysis: Record<string, unknown> | null;
+  /** The stored reading's own stamp, carried RAW off the row so a settled reading is MATERIAL evidence: two
+   *  runs over the same citations but a different reading state are no longer one evidence identity. null =
+   *  nothing has been read out of this answer yet. Optional only so a row a test built by hand still reads;
+   *  the loader always fills it. */
+  analysisHash?: string | null;
 };
 
 type ResearchSerpEvidence = {

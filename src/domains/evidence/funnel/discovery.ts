@@ -28,7 +28,7 @@ import type { CapabilityInputByKey, FunnelCounters, FunnelUnitFn, ParsedByCapabi
 import { log } from "@/lib/logger";
 import { applyFilters, dedupeKeywords, filterContextFrom, keywordsFromParsed, mergeOrigins, normalizeKeyword, retainDiverse, type SerpAgendaPageQuery } from "./normalize";
 import type { KeywordOrigin } from "./research-evidence";
-import { type FunnelKeyword, type FunnelState, MAX_REJECTED, MAX_RETAINED } from "./state";
+import { analysisWatermark, type FunnelKeyword, type FunnelState, MAX_REJECTED, MAX_RETAINED } from "./state";
 import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, StateConflictError, track, type FunnelDeps } from "./shared";
 
 /** ONE case of the run's FROZEN plan, as plain data: Evidence never reads Runtime or Decision. */
@@ -314,6 +314,11 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
         const observations = await d.loadCanonicalObservations(tenantId).catch(() => null);
         if (!observations) { log.warn(`[research-funnel] ${AI_READ_FAILED}`, { tenantId }); softDetail = AI_READ_FAILED; }
         raw.push(...observedCandidates(tenantId, state, gscQueries, observations ?? []));
+        // THE WATERMARK IS WHAT I ACTUALLY HARVESTED, stamped only on a pass that truly read the canonical set, so
+        // an interrupted pass recomputes the same debt and a completed one clears it. A reading that settled as a
+        // refusal carries a hash like any other, so it moves this and can open ONE consuming pass that harvests
+        // nothing new: bounded, self-clearing, and better than never noticing a reading that DID say something.
+        if (observations) state.discovery.consumedAnalyses = analysisWatermark(observations.map((o) => ({ id: o.observationId, hash: o.analysisHash ?? null })));
         // THE HARVEST ACCUMULATES, IT DOES NOT REPLACE. A wholesale rewrite from this pass's raw deleted every
         // keyword the pass did not happen to see again, journey, case join and bought volume with it, and the
         // rotation above guarantees a pass does NOT see the same slice twice. So what is retained is carried

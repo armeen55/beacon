@@ -24,6 +24,7 @@ import type { WinningPattern } from "./winning-pattern";
 import { CORE_PRODUCERS } from "./producers/core"; import { produceFullRewriteRecommendation } from "./producers/extended"; import { effortMinutesFor, fieldForComponent, type ProducerCtx, type ProducerDraft } from "./producers/contract";
 import type { ProposeOptions } from "./propose"; import { receiptIntegrityFailures, validateProposal } from "./validate-proposal";
 import { anchoredTopicMatch, canonicalQueryKey, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { answerIntelFacts, answerIntelOf } from "@/domains/evidence/answer-intel";
 import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store";
 
 type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string };
@@ -33,8 +34,7 @@ type Observation = Research["aiObservations"][number];
 type SerpEvidence = Research["serpEvidence"][number];
 type Keyword = Research["retainedKeywords"][number];
 
-const norm = (s: string): string => s.trim().toLowerCase();
-const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+const norm = (s: string): string => s.trim().toLowerCase(); const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 /** The page's OWN WORDS, whole, read by the caller through the targeted Evidence reader. Absent means absent. */
 export type OwnedBody = { openingSample: string | null; fetchedAt: string | null;
   cardTexts?: string[]; entityNames?: string[]; internalLinks?: { href: string; anchorText: string }[]; metaDescription?: string | null;
@@ -48,15 +48,12 @@ const gapsOf = (p: OwnedPageEvidence): Gap[] => (p.search?.topQueries ?? []).fla
   const deficit = defaultExpectedCtrAt(q.position) - q.clicks / q.impressions;
   return deficit < MIN_CTR_DEFICIT ? [] : [{ query: q.query, impressions: q.impressions, clicks: q.clicks, position: q.position, recoverable: deficit * q.impressions }];
 }).sort((a, b) => b.recoverable - a.recoverable || byText(a.query, b.query));
-const totalRecoverable = (gaps: Gap[]): number => gaps.reduce((a, g) => a + g.recoverable, 0);
-const hasCurrentCopy = (p: OwnedPageEvidence): boolean => !!p.content && !!(p.content.title || p.content.h1 || p.content.outline.length > 0);
+const totalRecoverable = (gaps: Gap[]): number => gaps.reduce((a, g) => a + g.recoverable, 0); const hasCurrentCopy = (p: OwnedPageEvidence): boolean => !!p.content && !!(p.content.title || p.content.h1 || p.content.outline.length > 0);
 
 function parseUrl(url: string): URL | null { try { return new URL(url.startsWith("http") ? url : `https://${url}`); } catch { return null; } }
-const pathOf = (url: string): string => parseUrl(url)?.pathname || (url.startsWith("/") ? url : `/${url}`);
+const pathOf = (url: string): string => parseUrl(url)?.pathname || (url.startsWith("/") ? url : `/${url}`); const MIN_ANCHOR_CORPUS = 10, MAX_INVENTORY = 200;
 
 /** WEAK ANCHORS: the words this account puts on everything fit anything, so alone they attach no evidence. Under MIN_ANCHOR_CORPUS phrases the set is empty. */
-const MIN_ANCHOR_CORPUS = 10;
-const MAX_INVENTORY = 200;
 function weakAnchorsOf(snapshot: EvidenceSnapshot): Set<string> {
   const r = snapshot.research; const phrases = [...new Set([...(r?.retainedKeywords ?? []).map((k) => k.query), ...(r?.aiObservations ?? []).map((o) => o.promptText),
     ...snapshot.ownedPages.map((p) => p.content?.title || p.content?.h1 || pathOf(p.url))].map((s) => (s ?? "").trim()).filter(Boolean))];
@@ -71,13 +68,10 @@ const winnerBelongs = (w: Research["winningPages"][number], queries: ReadonlySet
   urls.has(canonicalUrlKey(w.url)) || w.appearances.some((a) =>
     (!!a.query && queries.has(canonicalQueryKey(a.query))) || (!!a.promptText && prompts.has(norm(a.promptText))));
 
-const WANTS: Record<string, string> = { informational: "want an explanation", commercial: "are comparing options",
-  transactional: "are ready to act", navigational: "are looking for one specific site" };
+const WANTS: Record<string, string> = { informational: "want an explanation", commercial: "are comparing options", transactional: "are ready to act", navigational: "are looking for one specific site" };
 
-const keywordFact = (k: Keyword, w = k.intent ? WANTS[norm(k.intent)] : undefined): string =>
-  `"${k.query}" gets about ${k.searchVolume!.toLocaleString()} searches a month${w ? `, and the people searching it ${w}` : ""}.`;
-const serpFact = (e: SerpEvidence, led = [...e.organic].sort((a, b) => a.rank - b.rank).slice(0, 3).map((o) => o.domain)): string =>
-  `For "${e.query}" the results page is led by ${led.join(", ") || "pages I could not name"}, and the answer box at the top cites ${e.aiOverview.length} ${e.aiOverview.length === 1 ? "source" : "sources"}.`;
+const keywordFact = (k: Keyword, w = k.intent ? WANTS[norm(k.intent)] : undefined): string => `"${k.query}" gets about ${k.searchVolume!.toLocaleString()} searches a month${w ? `, and the people searching it ${w}` : ""}.`;
+const serpFact = (e: SerpEvidence, led = [...e.organic].sort((a, b) => a.rank - b.rank).slice(0, 3).map((o) => o.domain)): string => `For "${e.query}" the results page is led by ${led.join(", ") || "pages I could not name"}, and the answer box at the top cites ${e.aiOverview.length} ${e.aiOverview.length === 1 ? "source" : "sources"}.`;
 const observationFact = (o: Observation): string => {
   const domains = [...new Set((o.citations ?? []).map((cit) => cit.domain))].sort(byText).slice(0, 3);
   const seen = o.observationMode === "consumer_search" ? `When a customer searches "${o.promptText}" inside an assistant, `
@@ -97,10 +91,9 @@ const CLASS_OF: Record<BundleEvidenceItem["kind"], string> = {
 const classSentence = (r: Receipt, c = [...new Set(r.items.map((it) => CLASS_OF[it.kind]))]): string =>
   `I built this from ${c.length > 1 ? `${c.slice(0, -1).join(", ")}, and ${c[c.length - 1]}` : c[0] ?? "nothing I can show you"}, and I can show you every piece.`;
 
-const queriesOf = (page: OwnedPageEvidence): OwnedQuerySignal[] => [...(page.search?.topQueries ?? [])]
-  .sort((a, b) => b.impressions - a.impressions || b.clicks - a.clicks || byText(a.query, b.query)).slice(0, 5);
+const queriesOf = (page: OwnedPageEvidence): OwnedQuerySignal[] => [...(page.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions || b.clicks - a.clicks || byText(a.query, b.query)).slice(0, 5);
 
-type Receipt = ChangeBundle["receipt"] & { prompts: string[]; hasResearch: boolean; contextOnlyKeys: string[]; links: { anchor: string; to: string }[]; readiness: EvidenceReadiness; diagnosis: ActionDiagnosis; bodyText?: string | null };
+type Receipt = ChangeBundle["receipt"] & { prompts: string[]; hasResearch: boolean; contextOnlyKeys: string[]; supportKeys: string[]; links: { anchor: string; to: string }[]; readiness: EvidenceReadiness; diagnosis: ActionDiagnosis; bodyText?: string | null };
 
 /** A pattern is claimable only across MULTIPLE pages that come up for this exact search, as a count I can show. */
 function winnerPattern(read: Research["winningPages"], c: NonNullable<OwnedPageEvidence["content"]>, primary: string): string | null {
@@ -165,6 +158,12 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
     const key = i === 0 ? RECEIPT.ai : `ai${i + 1}`; add(key, "ai_observation", observationFact(o), o.observedAt); items[items.length - 1]!.observationId = o.observationId;
     if (o.citations == null) contextOnly.push(key); // context, never component support
     prompts.push(o.promptText); });
+  // WHAT THOSE ANSWERS ACTUALLY SAID, not merely that they were given: who they name, what shape they ask for, what they leave unanswered and whether they name this account at all, each
+  // line carrying the exact stored answer it quotes. The engines' own CLAIMS never come through here: every fact below is handed to the drafters as grounding, and somebody else's assertion
+  // is not a source of mine. A GAP THE ANSWERS KEEP LEAVING is then an argument for covering it, so the RECURRING ones (never one answer's) stand behind whichever coverage component the ladder produces.
+  const intel = answerIntelOf(observations);
+  for (const f of answerIntelFacts(intel)) { add(f.key, "ai_observation", f.fact, f.observedAt); if (f.observationId) items[items.length - 1]!.observationId = f.observationId; }
+  const supportKeys = intel.omissions.slice(0, 2).flatMap((s, i) => (s.prompts > 1 ? [`missing${i + 1}`] : []));
 
   // A winner belongs to THIS search only: on that results page, or in an answer that joined this case above. A fan-out that never carried this search carries no winner either.
   const memberPrompts = new Set(observations.map((o) => norm(o.promptText))), memberQueries = new Set(ofCase.queries.map(canonicalQueryKey));
@@ -203,7 +202,7 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   const dates = items.map((it) => it.observedAt).filter((d): d is string => !!d).sort(byText);
   return { items, missing, readiness, diagnosis, bodyText, freshestObservedAt: dates.length ? dates[dates.length - 1]! : null, prompts: [...new Set(prompts)].sort(byText),
     hasResearch: items.some((it) => it.kind === "keyword" || it.kind === "serp" || it.kind === "ai_observation" || it.kind === "winning_page"),
-    contextOnlyKeys: contextOnly, links: links.map((l) => ({ anchor: l.anchor, to: pathOf(l.toUrl) })) };
+    contextOnlyKeys: contextOnly, supportKeys, links: links.map((l) => ({ anchor: l.anchor, to: pathOf(l.toUrl) })) };
 }
 
 const gateShape = (tenantId: string, query: string, change: RecommendedChange): ChangeProposal => ({
@@ -267,6 +266,7 @@ const OPPORTUNITY_OF: Partial<Record<CauseFinding["cause"], string>> = {
   technical_indexability: "Fix what is stopping this page being found",
   internal_link_weakness: "Give the reader somewhere to go next" };
 
+/** The component kinds that put MORE on the page: an omission the answers keep leaving is evidence for exactly these and for nothing else. */ const COVERS_A_GAP = new Set<BundleComponent["kind"]>(["section", "section_add", "section_rewrite", "restructure", "full_rewrite", "opening_answer", "table_or_list_add", "entity_expansion"]);
 /** The smallest bundle carrying ONE component AND the receipt lines it cites: the gate refuses a claim that resolves to nothing, so it is handed the same lines the operator would read. Never persisted. */
 const oneComponent = (c: BundleComponent, items: readonly BundleEvidenceItem[]): ChangeBundle => ({
   objective: "gate", metric: "gate", scope: { queries: [], prompts: [] }, components: [c],
@@ -371,9 +371,10 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
 
   const keep = (c: BundleComponent, change: RecommendedChange): void => {
     // EVERY CLAIM TRACES TO SOMETHING ON SCREEN: a component citing nothing is dropped whole, and an answer whose sources I could not see is CONTEXT, never support.
-    const evidenceKeys = c.evidenceKeys.filter((k) => receiptKeys.has(k) && !receipt.contextOnlyKeys.includes(k));
-    const drop = (reason: string): void => { alternatives.push({ option: c.label, reason }); };
-    if (evidenceKeys.length === 0) return drop("I could not show you the evidence behind that one, so I left it out rather than ask you to take my word for it.");
+    const own = c.evidenceKeys.filter((k) => receiptKeys.has(k) && !receipt.contextOnlyKeys.includes(k)); const drop = (reason: string): void => { alternatives.push({ option: c.label, reason }); };
+    if (own.length === 0) return drop("I could not show you the evidence behind that one, so I left it out rather than ask you to take my word for it.");
+    // A component that ADDS COVERAGE also stands on what the answers keep leaving unanswered, said in the engines' own terms. It ADDS to a piece that already stands on its own evidence and NEVER rescues one standing on none: a rebuild justified solely by an omission somewhere in the case is not a proven change.
+    const evidenceKeys = [...new Set([...own, ...(COVERS_A_GAP.has(c.kind) ? receipt.supportKeys.filter((k) => receiptKeys.has(k)) : [])])];
     // THE COMPONENT GATE: every kind outside the grandfathered seven owes where, what, why and what I measure.
     const shaped = { ...gateShape(tenantId, primary, change), ...(c.risk === "dangerous" ? { riskLevel: "high" as const } : {}) };
     const verdict = validateProposal(wording ? shaped : { ...shaped, bundle: oneComponent({ ...c, evidenceKeys }, receipt.items) },

@@ -22,9 +22,11 @@ import "server-only";
  */
 
 import { log } from "@/lib/logger";
+import { CURRENT_CLAIM } from "@/lib/constants";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { publisherHost } from "@/domains/evidence/serp-shape";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
+import { answerIntelFacts } from "@/domains/evidence/answer-intel";
 import type { TopicInvestigation } from "@/domains/evidence/topic-investigation";
 import type { PageCoverageReading } from "@/domains/evidence/page-intersection";
 import { AUTOPUBLISH_RE, CODE_SUFFIX, HOST_RE, SPELLED_PROPORTION_RE } from "./copy-sanitize";
@@ -74,7 +76,8 @@ function receiptOf(inv: TopicInvestigation, owned: readonly OwnedCandidate[], d:
 { items: BundleEvidenceItem[]; missing: string[] } {
   const items: BundleEvidenceItem[] = [];
   const missing: string[] = [];
-  const add = (key: string, kind: BundleEvidenceItem["kind"], fact: string, observedAt: string | null): void => { items.push({ key, kind, fact, observedAt }); };
+  const add = (key: string, kind: BundleEvidenceItem["kind"], fact: string, observedAt: string | null, observationId?: string): void => {
+    items.push({ key, kind, fact, observedAt, ...(observationId ? { observationId } : {}) }); };
 
   const dem = inv.demand;
   const demand = [dem.monthlySearchVolume != null ? `about ${num(dem.monthlySearchVolume)} searches a month` : null,
@@ -108,10 +111,19 @@ function receiptOf(inv: TopicInvestigation, owned: readonly OwnedCandidate[], d:
   for (const e of d.evidence ?? []) if (PATTERN_KEY.test(e.id) && !items.some((i) => i.key === e.id)) add(e.id, "winning_page", e.fact, null);
   // WHOSE SEARCH IS WHOSE. A search an ENGINE ran itself and a question I put to it are two different observations, and naming one as the other claims
   // evidence nobody gathered, so an example is only ever drawn from the list it actually belongs to.
-  const fans = inv.fanOuts.map((f) => f.query.trim()).filter(Boolean);
+  const fans = inv.fanOuts.filter((f) => !!f.query.trim());
   const asked = inv.trackedPrompts.map((p) => p.promptText.trim()).filter(Boolean);
-  if (fans.length > 0) add("asked", "ai_observation", `To answer this, an AI engine went and searched ${num(fans.length)} things of its own, like "${fans[0]}".`, null);
+  // THE EXACT ANSWER THIS QUOTES: one line quotes ONE engine's own search, so it names the one stored answer that
+  // search came out of. The fallback below is derived from a QUESTION I track, not from any stored answer, so it
+  // carries no observation id at all rather than borrowing somebody else's.
+  // The quoted example carries ITS OWN answer's date, and an example wearing a present-tense word yields to one that
+  // does not: this line quotes raw engine text, and an undated present-tense line is what the validator refuses whole.
+  const quote = fans.find((f) => !CURRENT_CLAIM.test(f.query)) ?? fans[0];
+  if (quote != null) add("asked", "ai_observation", `To answer this, an AI engine went and searched ${num(fans.length)} ${fans.length === 1 ? "thing" : "things"} of its own, like "${quote.query.trim()}".`, quote.observedAt, quote.observationId);
   else if (asked.length > 0) add("asked", "ai_observation", `No AI engine has shown me a search of its own here. What I hold is a question people ask, like "${asked[0]}".`, null);
+  // WHAT THOSE ANSWERS SAID, case scoped and attributed, in the same words the repair path uses. Claims and caveats
+  // stay out on purpose: every fact here is grounding for the brief, and an engine's assertion is not a source of mine.
+  for (const f of answerIntelFacts(inv.answerIntel)) add(f.key, "ai_observation", f.fact, f.observedAt, f.observationId);
   if (inv.trackedPrompts.length === 0) missing.push("No AI engine I track has been asked about this, so I cannot tell you how assistants answer it today.");
   return { items, missing };
 }

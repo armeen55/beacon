@@ -28,6 +28,7 @@
  * Unity that cannot be established leaves the two sides SEPARATE. Honest
  * fragmentation beats a false mega-topic. */
 
+import { answerIntelOf, type AnswerIntel } from "./answer-intel";
 import { caseRows, foldCases, type CaseFold } from "./case-identity";
 import type { FunnelResearchEvidence, KeywordOrigin, ResearchCase, ResearchWinningAppearance } from "./funnel/research-evidence";
 import { canonicalQueryKey, topicTokens } from "./relevance-gate";
@@ -68,6 +69,8 @@ type FanOutRef = {
   query: string;
   parentPromptId: string;
   parentPromptText: string;
+  /** The stored answer this search was read out of, so a receipt quoting it names the exact reading. */
+  observationId: string;
   engine: string;
   observationMode: string;
   /** null = the answer this came out of never recorded when it landed; a date is never invented for it. */
@@ -100,6 +103,9 @@ export type TopicInvestigation = {
   };
   trackedPrompts: TrackedPromptRef[];
   fanOuts: FanOutRef[];
+  /** What the settled readings of this case's own answers actually said. Empty everywhere when no answer
+   *  that joined this case carries a reading, which is honest absence and never a claim of agreement. */
+  answerIntel: AnswerIntel;
   exactSerps: SerpRef[];
   serpFreshness: Freshness;
   distinctResultDomains: number;
@@ -144,6 +150,8 @@ const QUESTION_STEM = /^(what|which|who|where|when|why|how)\s+(are|is|was|do|doe
  *  "s" left behind where a provider stripped an apostrophe out of a possessive. */
 const labelOf = (text: string): string =>
   norm(text).replace(QUESTION_STEM, "").replace(/[?.!]+$/, "").replace(/(\w) s\b/g, "$1").trim();
+
+// ── what the answers said, read off the settled analyses that joined this case ─
 
 // ── anchors + grouping ───────────────────────────────────────────────────────
 
@@ -318,7 +326,7 @@ function assemble(idx: number[], g: Grouped, snapshot: EvidenceSnapshot, key: st
       const dedupe = `${o.promptId}|${o.engine}|${key}`;
       if (seenFan.has(dedupe)) continue;
       seenFan.add(dedupe);
-      fanOuts.push({ query: q, parentPromptId: o.promptId, parentPromptText: o.promptText, engine: o.engine, observationMode: o.observationMode, observedAt: o.observedAt });
+      fanOuts.push({ query: q, parentPromptId: o.promptId, parentPromptText: o.promptText, observationId: o.observationId, engine: o.engine, observationMode: o.observationMode, observedAt: o.observedAt });
     }
   }
   fanOuts.sort((a, b) => a.query.localeCompare(b.query) || a.engine.localeCompare(b.engine));
@@ -454,6 +462,7 @@ function assemble(idx: number[], g: Grouped, snapshot: EvidenceSnapshot, key: st
     },
     trackedPrompts: trackedPrompts.slice(0, MAX_LIST),
     fanOuts: fanOuts.slice(0, MAX_FANOUTS),
+    answerIntel: answerIntelOf(obs),
     exactSerps,
     serpFreshness,
     distinctResultDomains: resultDomains.length,

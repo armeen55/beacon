@@ -61,19 +61,15 @@ function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal { retu
 } /** The exact-edit rewrite under test, with one field swapped. */
 const edited = (field: "title" | "meta", before: string | null, after: string): ChangeProposal => baseProposal({ recommendedChange: { kind: "existing_edit", field, before, after } });
 describe("existing-page cold proposal", () => { it("generates, validates, persists (serialize), and re-loads (deserialize)", async () => {
-    const out = await proposeExistingPageChange(EXISTING_INPUT, { complete: fakeComplete([{ value: VALID_ATOMIC_EDIT }]), now: new Date("2026-07-22T00:00:00Z") });
-    expect(out.status).toBe("ready"); if (out.status !== "ready") return;
-    const p = out.proposal; if (p.recommendedChange.kind === "existing_edit") { expect(p.recommendedChange.before).toBe("Nowruz"); expect(p.recommendedChange.after).toContain("Nowruz Traditions"); } else throw new Error("expected an exact edit");
-    expect(p.whyItMatters).toMatch(/customs/i); expect(p.primaryQuery).toBe("nowruz traditions"); expect(p.opportunityType).toBe("Capture clicks");
-    expect(p.evidence.evidenceRefCount).toBe(5); expect(out.validation.verdict).toBe("ready"); expect(p.status).toBe("ready"); // the receipt keys the diagnosis cites, and a safe draft is ready, never withdrawn
+    const out = await proposeExistingPageChange(EXISTING_INPUT, { complete: fakeComplete([{ value: VALID_ATOMIC_EDIT }]), now: new Date("2026-07-22T00:00:00Z") }); expect(out.status).toBe("ready"); if (out.status !== "ready") return;
+    const p = out.proposal; if (p.recommendedChange.kind === "existing_edit") { expect(p.recommendedChange.before).toBe("Nowruz"); expect(p.recommendedChange.after).toContain("Nowruz Traditions"); } else throw new Error("expected an exact edit"); expect(p.whyItMatters).toMatch(/customs/i); expect(p.primaryQuery).toBe("nowruz traditions"); expect(p.opportunityType).toBe("Capture clicks"); expect(p.evidence.evidenceRefCount).toBe(5); expect(out.validation.verdict).toBe("ready"); expect(p.status).toBe("ready"); // the receipt keys the diagnosis cites, and a safe draft is ready, never withdrawn
     expect(deserializeChangeProposal(serializeChangeProposal(p))).toEqual(p); // persisted + loadable: round-trips + re-validates
     expect(deserializeChangeProposal(JSON.stringify({ v: 1, proposal: { ...p, recommendedChange: { kind: "existing_edit", field: "title", before: null, after: "" } } }))).toBeNull(); // a tampered row is never served as trusted
     const brief = { kind: "new_page" as const, proposedTitle: "T", metaDescription: "M", openingAnswer: "A", outline: ["One"], faqQuestions: [], schemaTypes: [] }; // recorded before this kernel stopped writing them
     expect(deserializeChangeProposal(serializeChangeProposal({ ...p, id: "hist", kind: "new_page", pagePath: null, recommendedChange: brief }))?.recommendedChange).toEqual(brief); }); // history still decodes
   it("returns no_draft (fail-closed) when no key or completion transport exists", async () => { expect((await proposeExistingPageChange(EXISTING_INPUT)).status).toBe("no_draft"); });
   it("never calls the drafter for a candidate the results page has not accused", async () => { let called = 0; // no completion call, no copy, no row
-    const out = await proposeExistingPageChange({ ...EXISTING_INPUT, evidence: { ...EXISTING_INPUT.evidence, diagnosis: undefined } }, { complete: async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; } });
-    expect([out.status, called, out.status === "no_draft" && out.reason]).toEqual(["no_draft", 0, "I checked the results page, but it does not yet show that the title is the problem."]); });
+    const out = await proposeExistingPageChange({ ...EXISTING_INPUT, evidence: { ...EXISTING_INPUT.evidence, diagnosis: undefined } }, { complete: async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; } }); expect([out.status, called, out.status === "no_draft" && out.reason]).toEqual(["no_draft", 0, "I checked the results page, but it does not yet show that the title is the problem."]); });
 }); describe("safety gates reject unsafe drafts", () => { const LONG_META = "Nowruz is the Persian New Year celebrated with the Haft-Seen table, customs, and foods across Iran and the diaspora.";
   it.each([ // one gate per row: the flag it must raise
     ["a placeholder stub", edited("title", "Nowruz", "Nowruz [insert customs here]"), /placeholder|stub/i],
@@ -122,22 +118,18 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
   it("opens an INVESTIGATION on a gap it has never looked at, and sizes it without ever promising the clicks back", () => {
     const blind = compileCandidates(snap([GAP]))[0]!; // the SAME 300-click gap, with no live results page on file
     expect([blind.action, blind.recoverableClicks]).toEqual(["research_needed", 300]); // a gap opens an investigation, never a change
-    expect(blind.reason).toContain("This search earns about 300 fewer clicks than pages at a similar position usually get");
-    expect(blind.reason).toContain("I can see the gap but I have not looked at the live results page for that search yet, so I cannot tell you what to change."); // names exactly what is missing
+    expect(blind.reason).toContain("This search earns about 300 fewer clicks than pages at a similar position usually get"); expect(blind.reason).toContain("I can see the gap but I have not looked at the live results page for that search yet, so I cannot tell you what to change."); // names exactly what is missing
     expect(snapshotToEvidenceInputs(snap([GAP]))).toEqual([]); // never drafted, so it can never render Ready
     const seen = compileCandidates(SEEN())[0]!; // confidence follows EVIDENCE, never the draft
     expect(seen.readiness).toEqual({ gsc: true, ownedCopy: true, serp: true, winners: 0, body: false }); // no body store exists, so body is false everywhere
     expect(`${blind.reason} ${seen.reason}`).not.toMatch(/worth about|win back|fastest win|more clicks a month/i); });
   it("refuses the title rewrite Google already performs for you, however badly the stored one reads", () => {
     const c = compileCandidates(snap([ACTORS], actorsSerp(DISPLAYED)))[0]!; // the stored title misses "Iranian"; the line a searcher actually reads does not
-    expect([c.action, c.recoverableClicks, c.diagnosis!.cause, c.diagnosis!.action]).toEqual(["research_needed", 108, "google_rewrite_already_matches", null]);
-    expect(c.reason).toContain(`Google already shows this page as "${DISPLAYED}", which carries the words people are searching for, so rewriting the title would not change what a searcher reads.`);
-    expect(snapshotToEvidenceInputs(snap([ACTORS], actorsSerp(DISPLAYED)))).toEqual([]); }); // never drafted, so it can never render Ready
+    expect([c.action, c.recoverableClicks, c.diagnosis!.cause, c.diagnosis!.action]).toEqual(["research_needed", 108, "google_rewrite_already_matches", null]); expect(c.reason).toContain(`Google already shows this page as "${DISPLAYED}", which carries the words people are searching for, so rewriting the title would not change what a searcher reads.`); expect(snapshotToEvidenceInputs(snap([ACTORS], actorsSerp(DISPLAYED)))).toEqual([]); }); // never drafted, so it can never render Ready
   it("reads one rival as an anecdote and two that agree as the pattern that earns a title", () => {
     const full = actorsSerp("Persian Screen | Iranopedia"); const lone = { ...full, serpEvidence: [{ ...full.serpEvidence[0]!, organic: full.serpEvidence[0]!.organic.slice(2) }] };
     const anecdote = compileCandidates(snap([ACTORS], lone))[0]!; // one competing page's wording is that page's style, never a rule
-    expect([anecdote.action, anecdote.diagnosis!.cause]).toEqual(["research_needed", "ambiguous_search_intent"]);
-    expect(anecdote.reason).toContain("they share no wording this page is missing, so the title is not the problem I can prove");
+    expect([anecdote.action, anecdote.diagnosis!.cause]).toEqual(["research_needed", "ambiguous_search_intent"]); expect(anecdote.reason).toContain("they share no wording this page is missing, so the title is not the problem I can prove");
     const d = compileCandidates(snap([ACTORS], full))[0]!.diagnosis!; // three of them say it, and this page's own line does not
     expect([d.status, d.cause, d.action, d.evidenceKeys]).toEqual(["diagnosed", "snippet_intent_mismatch", "title", KEYS]);
     expect(d.alternativesRuledOut.map((a) => a.alternative)).toEqual(["Google is already showing the words people search for", "A different page of yours is the one ranking"]);
@@ -308,7 +300,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     expect(page.bundle!.plan).toBeUndefined(); // a page that does not exist yet has nothing to keep, change or remove
     expect(page.bundle!.receipt.items.some((i) => i.key === "verdict")).toBe(true);
     // WHOSE SEARCH IS WHOSE: with no fan-out on file the example is named for what it actually is, a question people ask.
-    expect(page.bundle!.receipt.items.find((i) => i.key === "asked")!.fact).toBe('No AI engine has shown me a search of its own here. What I hold is a question people ask, like "haft seen table".'); expect(page.bundle!.components.map((c) => c.kind)).toEqual(["title", "meta", "opening_answer", "section", "source_pack", "internal_links"]);
+    expect([page.bundle!.receipt.items.find((i) => i.key === "asked")!.fact, page.bundle!.receipt.items.find((i) => i.key === "asked")!.observationId]).toEqual(['No AI engine has shown me a search of its own here. What I hold is a question people ask, like "haft seen table".', undefined]); // derived from a question I track, not from any stored answer, so it borrows no answer's identity expect(page.bundle!.components.map((c) => c.kind)).toEqual(["title", "meta", "opening_answer", "section", "source_pack", "internal_links"]);
     // THE OPERATOR PASTES COPY, NOT A PLAN: every planned section in the planned order, written out.
     const written = page.bundle!.components.find((c) => c.kind === "section")!.after;
     for (const s of BRIEF.sections) expect(written).toContain(`${s.heading}: a haft seen table is the spread`);
@@ -320,7 +312,11 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     expect(pack).toContain("Cite a cultural reference for what each item stands for. You pick the exact source for this one");
     expect(page.limitations).toContain("Some of what this page claims still rests on the kind of source it needs rather than a source I hold, so you pick those before it goes out.");
     const queue = await loadProposalQueue("fixture-tenant", { currentBasis: page.basis! }); expect(queue.toDo.map((p) => p.id)).toContain(page.id); // held for a look, never shown ready
-    const again = await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW }); expect(again.reused).toBe(1); }); // a refresh re-pays nothing
+    const again = await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW }); expect(again.reused).toBe(1); // a refresh re-pays nothing
+    // AND THE OTHER BRANCH: where an engine DID run a search of its own, the line quotes ONE answer's search, so it names that one answer and no other.
+    reset(snap([GAP], { ...READY({ topicKey: keyOf(READY()) }), aiObservations: [{ ...asked[0]!, fanOutQueries: [`what goes on a ${HAFT}`] }] }, DEMAND));
+    const fan = (await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW })).proposals.find((p) => p.kind === "new_page")!.bundle!.receipt.items.find((i) => i.key === "asked")!;
+    expect([fan.fact, fan.observationId]).toEqual([`To answer this, an AI engine went and searched 1 thing of its own, like "what goes on a ${HAFT}".`, "obs_fx"]); });
   it("proposes NOTHING when a planned section will not write, and holds a page it has no source of its own for", async () => {
     reset(snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND)); // one section short is no page at all
     const partial = await produceProposalsForTenant("fixture-tenant", { complete: pageSeam(BRIEF, false), now: NOW });

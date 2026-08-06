@@ -78,3 +78,8 @@ export type MetricType =
   | "organic_clicks"
   | "ai_referrals"
   | "form_submissions";
+
+/** Words that claim THE PRESENT. One owner on purpose: the receipt validator refuses an undated line that says
+ *  them, and the answer-intel projection keeps an engine's present-tense wording off receipts entirely; two
+ *  drifting copies of this pattern would quietly re-open whole-proposal refusals for whichever word one side gained. */
+export const CURRENT_CLAIM = /\b(?:today|right now|currently|as it stands)\b/i;

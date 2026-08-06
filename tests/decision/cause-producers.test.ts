@@ -3,7 +3,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
-import type { TopicInvestigation } from "@/domains/evidence/topic-investigation";
+import { answerIntelOf } from "@/domains/evidence/answer-intel"; import type { TopicInvestigation } from "@/domains/evidence/topic-investigation";
 import type { OwnedCandidate } from "@/domains/decision/owned-coverage";
 import type { DecidedTopic } from "@/domains/decision/coverage-pass";
 import type { WinningPattern } from "@/domains/decision/winning-pattern";
@@ -55,7 +55,7 @@ const candidate = (): OwnedCandidate => ({ url: URL, path: "/rain-barrels", titl
   outlineLength: 2, openingSample: OPENING, entities: [], fetchedAt: null, bodyHeld: true, strongSignals: 1,
   signals: [{ kind: "gsc_exact_query", strength: "strong", basis: "rain barrel sizing", detail: "Google already shows this page for that search." }] });
 const investigation = (): TopicInvestigation => ({ key: "inv_rain", aliasKeys: [], label: "rain barrel sizing", demandBasis: "search", groupedBy: [],
-  queries: ["rain barrel sizing"], keywords: [], trackedPrompts: [], fanOuts: [], exactSerps: [], serpFreshness: "current",
+  queries: ["rain barrel sizing"], keywords: [], trackedPrompts: [], fanOuts: [], answerIntel: answerIntelOf([]), exactSerps: [], serpFreshness: "current",
   demand: { monthlySearchVolume: 4400, queriesWithVolume: 1, gscImpressions: 6000, difficulty: null, intent: "informational", trackedPrompts: 0, fanOuts: 0, engines: [] },
   distinctResultDomains: 8, resultDomains: [], pageType: "informational_guide", pageTypeVotes: [], serpCoherence: "coherent",
   winners: [], distinctWinners: 3, currentReadableWinners: 3, missingEvidence: [], nextAcquisition: null, diminishing: false });

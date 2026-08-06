@@ -64,6 +64,10 @@ const PHASES_FOR: Record<DuePhase, readonly ResearchPhase[]> = {
   daily_observations: ["prompt_observations"],
   // The reading of answers already bought rides the observation phase, and buys nothing: see the analyze-only branch below.
   analyze_answers: ["prompt_observations"],
+  // A SETTLED READING IS SPENT BY HARVESTING IT AND DECIDING AGAIN, and by nothing else: keyword discovery reads
+  // what those answers named, and the surface publishes what that changed. No results page, no winner read, no
+  // crawl, no refresh, no measurement, and above all no second answer bought to read an answer already in hand.
+  consume_analyses: ["keyword_discovery", "publish_surface"],
   plan_cases: ["keyword_discovery", "serp_analysis"],
   acquire_case_evidence: ["serp_analysis", "winning_pages"],
   decide_and_prepare: ["publish_surface"],

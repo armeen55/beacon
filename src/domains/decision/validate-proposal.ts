@@ -23,6 +23,7 @@
  * `rejected` earns none at all, so that draft is withdrawn rather than staged. PURE, no I/O.
  */
 
+import { CURRENT_CLAIM } from "@/lib/constants";
 import {
   evaluateTitleMetaQuality,
   type DraftQualityResult,
@@ -55,7 +56,6 @@ const DASH_RE = /[–—]/; // en-dash, em-dash
  *  next, and a reading I took weeks ago is not what the page says while the operator is looking at it. */
 const HOLDS_PAGE = /\bI (?:read|hold) this page's (?:stored words|own words|full body text)\b/i;
 const MISSING_PAGE = /\bI do not hold this page's (?:full body text|own words|own opening words|own sections)\b/i;
-const CURRENT_CLAIM = /\b(?:today|right now|currently|as it stands)\b/i;
 
 /**
  * THE ROW'S OWN INTEGRITY, in ONE place, so the gate judging a fresh draft and the pass re-judging a stored one

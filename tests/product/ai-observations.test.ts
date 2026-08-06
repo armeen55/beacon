@@ -14,15 +14,11 @@ const db = vi.hoisted(() => ({ written: [] as { table: string; row: Record<strin
  *  it, and so is one that pages a table without a unique tiebreaker in its own ORDER BY. */
 vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...((await orig()) as object), getSupabaseAdmin: () => ({ from: (table: string) => fakeTable(table) }) }));
 function fakeTable(table: string) {
-  let max: number | null = null;
-  let after: { at: string; id: string } | null = null;
+  let max: number | null = null, after: { at: string; id: string } | null = null;
   /** Exactly the ORDER BY the caller built, in the order it built it. Nothing is assumed. */
   const orders: { col: string; asc: boolean }[] = [];
   const sorted = (rows: Record<string, unknown>[]) => [...rows].sort((a, b) => {
-    for (const { col, asc } of orders) {
-      const c = String(a[col] ?? "").localeCompare(String(b[col] ?? ""));
-      if (c !== 0) return asc ? c : -c;
-    }
+    for (const { col, asc } of orders) { const c = String(a[col] ?? "").localeCompare(String(b[col] ?? "")); if (c !== 0) return asc ? c : -c; }
     return 0; // a tie the query never broke: Postgres is free to return these two either way round
   });
   const where: Record<string, unknown> = {}; // every eq the caller built is APPLIED, so a dropped scope clause is caught here
@@ -43,8 +39,7 @@ function fakeTable(table: string) {
       const cursor = after;
       const past = cursor ? ordered.filter((r) => { const at = String(r.requested_at ?? ""); return at < cursor.at || (at === cursor.at && String(r.id) < cursor.id); }) : ordered;
       const page = max == null ? past : past.slice(0, max);
-      db.pages.push(`${cursor ? `${cursor.at}|${cursor.id}` : "start"}+${page.length}`);
-      db.onPage?.(db.pages.length);
+      if (table === "ai_observations") { db.pages.push(`${cursor ? `${cursor.at}|${cursor.id}` : "start"}+${page.length}`); db.onPage?.(db.pages.length); } // only this table's own reads are counted, so a page count means what it says
       return res({ data: page, error: db.error });
     },
   };
@@ -53,15 +48,12 @@ function fakeTable(table: string) {
 /** The two first-party Search Console reads the funnel's own page-query default sits on. Faked here so the
  *  default itself is the thing under test; nothing else in this file reaches them. */
 const gsc = vi.hoisted(() => ({ pages: new Map<string, unknown>(), decay: new Map<string, unknown>() }));
-vi.mock("@/domains/evidence/readers/gsc-page-signals", () => ({
-  loadGscPageSignalsForTenant: async () => gsc.pages,
-  loadGscDecaySignalsForTenant: async () => gsc.decay,
-}));
+vi.mock("@/domains/evidence/readers/gsc-page-signals", () => ({ loadGscPageSignalsForTenant: async () => gsc.pages, loadGscDecaySignalsForTenant: async () => gsc.decay }));
 /** THE one owner of the approved question set, faked so what a canonical read is SCOPED to is the thing under test. */
 const promptSet = vi.hoisted(() => ({ active: null as { id: string; version: number }[] | null }));
-vi.mock("@/domains/runtime/prompt-set", async (orig) => ({ ...((await orig()) as object), readActiveTrackedPrompts: async () => promptSet.active }));
+vi.mock("@/domains/account/tracked-questions", async (orig) => ({ ...((await orig()) as object), readActiveTrackedPrompts: async () => promptSet.active }));
 import type { Account } from "@/domains/account";
-import { aiObservationId, persistAnswerAnalysis, readAiObservations, readAiObservationViews, recordAiObservation, settleFailedObservation, type AiObservationRecord, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
+import { aiObservationId, persistAnswerAnalysis, readAiObservations, readAiObservationViews, readCanonicalAnalysisStamps, recordAiObservation, settleFailedObservation, type AiObservationRecord, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { emptyFunnelState, loadFunnelState, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
@@ -107,8 +99,7 @@ const run = (deps: FunnelDeps, due: DueObservation[] | null, tenantId = TENANT) 
 beforeEach(() => { db.written = []; db.read = []; db.updated = null; db.matched = []; db.error = null; db.filters = {}; db.selected = []; db.pages = []; db.onPage = null; });
 describe("one canonical identity per observation", () => {
   it("stores exactly the pairs that came due, each on the identity a retry can only ever reuse", async () => {
-    const w = world();
-    await run(w.deps, duePlan());
+    const w = world(); await run(w.deps, duePlan());
     const rows = observations().filter((r) => r.status === "observed");
     expect(rows.length).toBe(12); // 3 questions x 4 engines, nothing implied and nothing dropped
     expect(new Set(rows.map((r) => r.id)).size).toBe(12);
@@ -118,14 +109,12 @@ describe("one canonical identity per observation", () => {
   });
   it("reuses the SAME row when a failed check is retried, and never buys the same day twice", async () => {
     const broken = world({}, { state: "error", cacheKey: null, disposition: "none", detail: "the provider could not finish it" });
-    await run(broken.deps, duePlan());
-    const failed = observations();
+    await run(broken.deps, duePlan()); const failed = observations();
     expect([failed.length, new Set(failed.map((r) => r.status)).size, failed[0]!.failure_reason]).toEqual([12, 1, "the provider could not finish it"]);
     expect(failed.every((r) => r.status === "failed" && r.cost_usd === 0)).toBe(true); // a refusal is named, not hidden, and nothing was charged for it
     db.written = [];
     const healthy = world({ loadState: broken.store.deps.loadState, saveState: broken.store.deps.saveState });
-    await run(healthy.deps, duePlan());
-    const landed = observations().filter((r) => r.status === "observed");
+    await run(healthy.deps, duePlan()); const landed = observations().filter((r) => r.status === "observed");
     expect(landed.map((r) => r.id).sort()).toEqual(failed.map((r) => r.id).sort()); // the retry overwrote ITSELF; it did not mint a second history
     db.written = [];
     await run(healthy.deps, duePlan()); // the SAME day, planned again: I ask, and the day's identity makes it free
@@ -133,14 +122,11 @@ describe("one canonical identity per observation", () => {
     expect(observations().map((r) => r.id).sort()).toEqual(failed.map((r) => r.id).sort()); // still ONE row per identity: a same-day retry overwrites itself
   });
   it("asks day two's plan IN FULL: a reading that landed yesterday can never satisfy today", async () => {
-    const DAY2 = "2026-07-22";
-    const w = world();
-    await run(w.deps, duePlan());
-    const first = observations().filter((r) => r.status === "observed");
+    const DAY2 = "2026-07-22", w = world();
+    await run(w.deps, duePlan()); const first = observations().filter((r) => r.status === "observed");
     expect([first.length, w.paid()]).toEqual([12, 12]);
     db.written = [];
-    await run(w.deps, duePlan(0, 1, DAY2));
-    const second = observations().filter((r) => r.status === "observed");
+    await run(w.deps, duePlan(0, 1, DAY2)); const second = observations().filter((r) => r.status === "observed");
     expect([second.length, w.paid()]).toEqual([12, 24]); // TWELVE MORE readings and twelve more paid asks, never a silent zero
     expect(second.every((r) => r.reporting_day === DAY2)).toBe(true);
     expect(first.some((r) => second.some((s) => s.id === r.id))).toBe(false); // a new day is a new identity, so nothing is overwritten
@@ -148,15 +134,13 @@ describe("one canonical identity per observation", () => {
   it("stores the day the PLAN named, so a run resumed past midnight lands where the analysis pass looks", async () => {
     const pastMidnight = Date.parse("2026-07-22T00:30:00.000Z");
     await run(world({ now: () => pastMidnight }).deps, duePlan()); // the plan still says the 21st
-    const rows = observations().filter((r) => r.status === "observed");
-    expect(rows.length).toBe(12);
+    const rows = observations().filter((r) => r.status === "observed"); expect(rows.length).toBe(12);
     expect(new Set(rows.map((r) => r.reporting_day))).toEqual(new Set([DAY])); // ONE reporting day, whatever the clock said
     expect(rows.every((r) => r.requested_at === new Date(pastMidnight).toISOString())).toBe(true); // when it happened is still recorded honestly
     for (const r of rows) expect(r.id).toBe(aiObservationId({ tenantId: TENANT, promptId: r.prompt_id, promptVersion: 1, engine: r.engine, day: DAY, slot: 0 }));
   });
   it("does nothing at all when the planner could not read what is due, and never falls back on asking everything", async () => {
-    const blind = world();
-    const out = await run(blind.deps, null);
+    const blind = world(), out = await run(blind.deps, null);
     expect([out.status, blind.paid(), db.written.length]).toEqual(["failed", 0, 0]);
     expect(out.detail).toContain("I could not read which of your questions are due");
     const settled = world();
@@ -164,13 +148,9 @@ describe("one canonical identity per observation", () => {
     expect([nothing.status, settled.paid(), db.written.length]).toEqual(["done", 0, 0]);
   });
   it("treats a second deliberate reading of the same pair as a NEW observation, never an overwrite", async () => {
-    const w = world();
-    await run(w.deps, duePlan(0));
-    const first = observations().map((r) => r.id);
-    db.written = [];
-    await run(w.deps, duePlan(1));
-    const second = observations();
-    expect(second.length).toBe(12);
+    const w = world(); await run(w.deps, duePlan(0));
+    const first = observations().map((r) => r.id); db.written = [];
+    await run(w.deps, duePlan(1)); const second = observations(); expect(second.length).toBe(12);
     expect(second.every((r) => r.sample_slot === 1 && r.reporting_day === DAY)).toBe(true);
     expect(first.some((id) => second.some((r) => r.id === id))).toBe(false); // same question, same engine, same day, DIFFERENT reading
     expect(w.paid()).toBe(24); // and a DIFFERENT question to the provider: a second sample that replayed the first for $0 would not be a second opinion
@@ -179,8 +159,7 @@ describe("one canonical identity per observation", () => {
 describe("the answer is kept whole", () => {
   it("keeps the full text and the whole journey, with retrieved pages held apart from cited sources", async () => {
     await run(world().deps, duePlan());
-    const rows = observations();
-    const consumer = rows.find((r) => r.engine === "chatgpt")!;
+    const rows = observations(), consumer = rows.find((r) => r.engine === "chatgpt")!;
     expect([consumer.observation_mode, consumer.capability_version, consumer.model_served]).toEqual(["consumer_search", "llm_scraper_chatgpt@v3", "gpt-4o-search"]);
     expect(consumer.answer_text).toContain("Families fly kites at dawn"); // the answer itself, not a hash of it
     expect([consumer.answer_hash!.length, consumer.answer_text!.length > 100]).toEqual([16, true]);
@@ -205,8 +184,7 @@ describe("the answer is kept whole", () => {
 describe("tenant isolation and the derived history row", () => {
   it("never lets one account's answers carry another account's identity", async () => {
     await run(world().deps, duePlan(), TENANT);
-    const mine = observations();
-    db.written = [];
+    const mine = observations(); db.written = [];
     await run(world({ getAccount: async () => ({ domain: "rival.example" } as Account) }).deps, duePlan(), OTHER);
     const theirs = observations();
     expect(theirs.every((r) => r.tenant_id === OTHER && r.site === "rival.example")).toBe(true);
@@ -314,18 +292,13 @@ describe("the funnel's own default reader carries provenance, not just payload",
    *  because these fields ride along. Run for real over the fakes. */
   it("names the page of mine whose Search Console row carried each query, and orders the slipping ones first", async () => {
     gsc.pages = new Map([
-      ["https://mine.example/guide", { page: "https://mine.example/guide", clicks90d: 10, impressions90d: 900, ctr90d: 0.01,
-        position90d: 8, topQueries: [{ query: "kite festival dates", impressions: 400 }] }],
-      ["https://mine.example/food", { page: "https://mine.example/food", clicks90d: 20, impressions90d: 500, ctr90d: 0.04,
-        position90d: 5, topQueries: [{ query: "kite festival food", impressions: 300 }] }],
-    ]);
+      ["https://mine.example/guide", { page: "https://mine.example/guide", clicks90d: 10, impressions90d: 900, ctr90d: 0.01, position90d: 8, topQueries: [{ query: "kite festival dates", impressions: 400 }] }],
+      ["https://mine.example/food", { page: "https://mine.example/food", clicks90d: 20, impressions90d: 500, ctr90d: 0.04, position90d: 5, topQueries: [{ query: "kite festival food", impressions: 300 }] }]]);
     // The guide's last 28 days fell against the 28 before them, so its queries are the slipping ones.
     gsc.decay = new Map([["https://mine.example/guide", { page: "https://mine.example/guide", clicksNow: 3, clicksPrior: 9 }]]);
-    const queries = await resolveDeps({}).loadPageQueries(TENANT);
-    expect(queries).toEqual([
+    expect(await resolveDeps({}).loadPageQueries(TENANT)).toEqual([
       { query: "kite festival dates", impressions: 400, declining: true, page: "https://mine.example/guide" },
-      { query: "kite festival food", impressions: 300, declining: false, page: "https://mine.example/food" },
-    ]);
+      { query: "kite festival food", impressions: 300, declining: false, page: "https://mine.example/food" }]);
   });
 });
 describe("retrieved is not the same claim as not cited", () => {
@@ -422,5 +395,26 @@ describe("the snapshot reads the canonical answer set, never the working window"
     expect([cited.count, cited.distinctPrompts, cited.engines]).toEqual([3, 3, ["chatgpt", "gemini"]]);
     expect([snap.competitors.length, snap.competitors[0]!.domain, snap.sources.find((s) => s.source === "native_ai")!.status, snap.questionDemand.length]).toEqual([15, "rival.example", "fresh", 30]); // 41 credited addresses and 40 questions both come back bounded, most cited first, and a fragment too short to be a question never enters
     expect(snap.questionDemand[0]).toEqual({ question: "when do kite festivals start", weight: 2, sourcePrompts: ["question p0", "question p1"], source: "native_ai", coverageStatus: "unanswered" });
+  });
+  /** ONE PAGE IS NOT A HISTORY. 1,000 rows is under three days at 140 readings a day, so a pair whose newest useful
+   *  answer is any older sat past the edge of that one page and left every decision silently, as if it never existed. */
+  const older = (n: number, promptId = "p0") => Array.from({ length: n }, (_, i) => stored(promptId, "chatgpt", { id: `obs_f${String(i).padStart(4, "0")}`, requested_at: new Date(Date.parse(`${DAY}T01:00:00.000Z`) + (i + 1) * 1000).toISOString() }));
+  it("pages past the newest 1,000 rows to reach a pair whose latest answer is older, and stops the moment every pair is resolved", async () => {
+    db.read = [...older(1000), stored("p1", "chatgpt", { id: "obs_deep", requested_at: `${DAY}T00:00:00.000Z` })]; // p1's only answer sits on page two
+    expect((await snapshotOf()).research.aiObservations.map((o) => o.observationId).sort()).toEqual(["obs_deep", "obs_f0999"]);
+    expect(db.pages.length).toBe(2);
+    // AND THE FINGERPRINT RUNS THAT SAME WALK. A hand-rolled one-page read beside an eight-page loader gave two
+    // windows that could never agree, so the debt between them was owed on every call and each one opened a PAID phase.
+    db.pages = []; db.selected = [];
+    expect((await readCanonicalAnalysisStamps(TENANT)).map((s) => s.id).sort()).toEqual(["obs_deep", "obs_f0999"]);
+    expect([db.pages.length, [...new Set(db.selected)]]).toEqual([2, ["id,prompt_id,prompt_version,engine,reporting_day,requested_at,status,answer_hash,analysis_hash"]]); // same pages, and never the answer, the journey or the reading itself
+    db.pages = []; db.read = wholeDay(); // and all 140 pairs land on page one, so I read exactly ONE page and never eight
+    expect([(await snapshotOf()).research.aiObservations.length, db.pages.length]).toEqual([140, 1]);
+  });
+  it("says how many pairs its history window could not reach, and still hands back the ones it resolved", async () => {
+    db.read = older(8000); const said: string[] = []; const log = vi.spyOn(console, "warn").mockImplementation((m) => { said.push(String(m)); });
+    const snap = await snapshotOf(); log.mockRestore();
+    expect([snap.research.aiObservations.length, db.pages.length]).toEqual([1, 8]); // the one pair I could resolve comes back; the window stops at its stated ceiling
+    expect(said.join(" ")).toContain("139 of your 140");
   });
 });

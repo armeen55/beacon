@@ -1,5 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { readActiveTrackedPrompts } from "@/domains/account/tracked-questions";
+import { ALL_ENGINES } from "@/domains/evidence/readers/engine-types";
 import { dualWriteUpsertScoped } from "@/lib/persistence/dual-write";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import type { CanonicalPairObservation, ObservationMode, ResearchEngine } from "@/domains/evidence/funnel/research-evidence";
@@ -150,6 +152,11 @@ const OUTCOME_COLUMNS = "id,tenant_id,prompt_id,prompt_version,engine,reporting_
  *  `answer_text` is read only by the drill-down below, which asks for one row by id. */
 const LIST_COLUMNS = "id,tenant_id,site,prompt_id,prompt_version,prompt_text,engine,model_requested,model_served,observation_mode,reporting_day,sample_slot,requested_at,completed_at,cache_key,cost_usd,status,failure_reason,answer_hash,journey,analysis,analysis_hash";
 
+/** THE LEANEST PROJECTION, for asking WHETHER the readings have moved rather than what they say: the identity,
+ *  the day, whether an answer is in hand, and the two settlement stamps. Never the answer text, never the
+ *  journey, and never the analysis body, so fingerprinting a whole account costs a few bytes a row. */
+const STAMP_COLUMNS = "id,prompt_id,prompt_version,engine,reporting_day,requested_at,status,answer_hash,analysis_hash";
+
 /**
  * Read stored observations back for RE-ANALYSIS. Everything a later pass needs is already on the row, so
  * re-reading an answer costs nothing and no provider is called. A failed read throws (an empty list would
@@ -171,7 +178,7 @@ const LIST_COLUMNS = "id,tenant_id,site,prompt_id,prompt_version,prompt_text,eng
 export async function readAiObservations(
   tenantId: string,
   opts: { day?: string; fromDay?: string; toDay?: string; promptId?: string; id?: string; limit?: number;
-    slot?: number; after?: { at: string; id: string } | null; projection?: "full" | "outcome" | "list" } = {},
+    slot?: number; after?: { at: string; id: string } | null; projection?: "full" | "outcome" | "list" | "stamp" } = {},
 ): Promise<AiObservationRecord[]> {
   const whole = opts.day !== undefined || opts.fromDay !== undefined || opts.toDay !== undefined;
   const want = Math.min(Math.max(1, Math.floor(opts.limit ?? (whole ? MAX_ROWS : 500))), MAX_ROWS);
@@ -181,7 +188,7 @@ export async function readAiObservations(
   while (!exhausted && rows.length < want) {
     const size = Math.min(PAGE_ROWS, want - rows.length);
     let q = getSupabaseAdmin().from(AI_OBSERVATIONS_TABLE)
-      .select(opts.projection === "outcome" ? OUTCOME_COLUMNS : opts.projection === "list" ? LIST_COLUMNS : "*")
+      .select(opts.projection === "outcome" ? OUTCOME_COLUMNS : opts.projection === "list" ? LIST_COLUMNS : opts.projection === "stamp" ? STAMP_COLUMNS : "*")
       .eq("tenant_id", tenantId);
     if (opts.id) q = q.eq("id", opts.id);
     if (opts.day) q = q.eq("reporting_day", opts.day);
@@ -216,10 +223,12 @@ export async function readAiObservations(
 
 export type { CanonicalPairObservation };
 
-/** THE CEILING ON THE SNAPSHOT'S OWN READ, newest first: 1,000 rows. At 140 readings a day that reaches about a week,
- *  and every active pair is re-observed daily, so the latest useful row of each pair sits well inside it. A pair whose
- *  newest reading is older than that is honestly ABSENT here rather than quietly presented as current. */
-const CANONICAL_ROWS = 1000;
+/** THE CEILING ON THE SNAPSHOT'S OWN READ, newest first: 1,000 rows a page, at most 8 pages. One page was under
+ *  three days of history at 140 readings a day, so a pair that missed a couple of days had its newest useful row
+ *  sitting just past the edge and vanished from every decision without a word. 8,000 rows is about 57 days at 140
+ *  readings a day and about 20 days at 400 pairs, and the walk STOPS the moment every active pair is resolved, so
+ *  the healthy account still pays for exactly one page. Whatever the ceiling cannot reach is SAID OUT LOUD below. */
+const CANONICAL_PAGE = 1000, CANONICAL_MAX_PAGES = 8;
 
 /** A READ THAT DID NOT HAPPEN, said out loud. An empty list here would claim the account has no AI answers, and on a
  *  418 answer account a Supabase blip did exactly that. Every caller either handles this or lets it travel. */
@@ -238,26 +247,62 @@ export class CanonicalReadFailure extends Error {}
 export async function readCanonicalPairObservations(
   tenantId: string, opts: { prompts?: readonly { id: string; version: number }[] } = {},
 ): Promise<CanonicalPairObservation[]> {
+  return (await walkCanonicalPairs(tenantId, opts, "list")).map(canonicalPairOf);
+}
+
+/**
+ * THE SAME SET, WEIGHED INSTEAD OF READ: one id and one reading stamp per active pair, for a caller asking only
+ * whether the readings have MOVED. It runs the walk above, so the scope, the latest-per-pair rule, the page
+ * size, the page cap and the early stop are not merely matched, they are the same code and cannot drift apart.
+ * A separate hand-rolled read of ONE page next to a loader that walks eight produced two windows that could
+ * never agree, so a debt computed from the difference was owed on every single call, forever, and each one
+ * opened a PAID research phase. The shape is exactly what `analysisWatermark` folds, so no caller re-maps it.
+ * Zero provider calls, zero writes, and never the answer text, the journey or the analysis body.
+ */
+export async function readCanonicalAnalysisStamps(
+  tenantId: string, opts: { prompts?: readonly { id: string; version: number }[] } = {},
+): Promise<{ id: string; hash: string | null }[]> {
+  return (await walkCanonicalPairs(tenantId, opts, "stamp")).map((r) => ({ id: r.id, hash: r.analysis_hash ?? null }));
+}
+
+/** THE ONE WALK both readers above run: newest first, one page at a time, stopped the moment every active pair
+ *  has its newest useful row. Everything that decides WHICH rows are the account's evidence lives here and
+ *  nowhere else, so no second implementation can ever read a different window of the same account. */
+async function walkCanonicalPairs(
+  tenantId: string, opts: { prompts?: readonly { id: string; version: number }[] }, projection: "list" | "stamp",
+): Promise<AiObservationRecord[]> {
   try {
-    // LAZY ON PURPOSE: Evidence owns no value import of Runtime. prompt-set is THE owner of the tracked set and it
-    // imports Evidence's engine vocabulary, so a static import here would be the one Evidence to Runtime edge and a
-    // cycle the day prompt-set reaches the Evidence facade. `opts.prompts` stays the injectable override.
-    const active = opts.prompts ?? (await (await import("@/domains/runtime/prompt-set")).readActiveTrackedPrompts(tenantId));
+    // Account owns the tracked set and Account is a lower kernel, so this is a plain static import in the legal
+    // direction; it used to be a lazy dynamic import of Runtime to dodge a cycle. `opts.prompts` is the override.
+    const active = opts.prompts ?? (await readActiveTrackedPrompts(tenantId));
     // null = the question set itself could not be read, which is NOT an account with no questions.
     if (active == null) throw new CanonicalReadFailure("[ai_observations] I could not read which questions are tracked");
     if (active.length === 0) return [];
     const current = new Map(active.map((p) => [p.id, p.version]));
-    const rows = await readAiObservations(tenantId, { slot: 0, limit: CANONICAL_ROWS, projection: "list" });
     // ONE ROW PER PAIR: the newest reporting day, ties broken by the newest ask. A day is fixed width, so the two
-    // stamps compare as one string without inventing a clock here.
+    // stamps compare as one string without inventing a clock here. Every active question is asked on every engine,
+    // so that product is how many pairs a complete read owes and therefore when the walk may stop.
+    const wanted = active.length * ALL_ENGINES.length;
     const latest = new Map<string, AiObservationRecord>();
-    for (const r of rows) {
-      if (r.status !== "observed" || !r.answer_hash || current.get(r.prompt_id) !== r.prompt_version) continue;
-      const key = `${r.prompt_id}|${r.engine}`, held = latest.get(key);
-      if (!held || `${r.reporting_day}|${r.requested_at}` > `${held.reporting_day}|${held.requested_at}`) latest.set(key, r);
+    let after: { at: string; id: string } | null = null, pages = 0, exhausted = false;
+    while (pages < CANONICAL_MAX_PAGES && latest.size < wanted && !exhausted) {
+      const rows = await readAiObservations(tenantId, { slot: 0, limit: CANONICAL_PAGE, projection, after });
+      pages += 1;
+      for (const r of rows) {
+        if (r.status !== "observed" || !r.answer_hash || current.get(r.prompt_id) !== r.prompt_version) continue;
+        const key = `${r.prompt_id}|${r.engine}`, held = latest.get(key);
+        if (!held || `${r.reporting_day}|${r.requested_at}` > `${held.reporting_day}|${held.requested_at}`) latest.set(key, r);
+      }
+      // THE NEWEST ROW THIS PAGE CAN ACTUALLY BE RESUMED FROM. A row with no ask stamp fails the reader's own
+      // cursor guard, and taking it would have thrown the WHOLE walk away over one malformed row; rows are
+      // read newest first, so resuming a little earlier can only ever re-read, never skip.
+      const last = [...rows].reverse().find((r) => /^\d{4}/.test(String(r.requested_at ?? "")));
+      exhausted = rows.length < CANONICAL_PAGE || !last; // a short page is the end of this account's history, not a ceiling I hit
+      if (last) after = { at: String(last.requested_at), id: String(last.id) };
     }
-    return [...latest.values()].map(canonicalPairOf)
-      .sort((a, b) => a.promptId.localeCompare(b.promptId) || a.engine.localeCompare(b.engine));
+    // NEVER A SILENT CUT. Running out of history is honest; running out of PAGES is a gap I name.
+    if (!exhausted && latest.size < wanted) console.warn(`[ai_observations] I read ${pages * CANONICAL_PAGE} stored answers and still could not find a current one for ${wanted - latest.size} of your ${wanted} question and engine pairs, so I am deciding without them; ask me to check those questions again to bring them back.`);
+    return [...latest.values()].sort((a, b) => a.prompt_id.localeCompare(b.prompt_id) || a.engine.localeCompare(b.engine));
   } catch (e) {
     throw e instanceof CanonicalReadFailure ? e : new CanonicalReadFailure(`[ai_observations] canonical read failed: ${e instanceof Error ? e.message.slice(0, 200) : String(e)}`);
   }
@@ -280,7 +325,7 @@ export function canonicalPairOf(r: AiObservationRecord): CanonicalPairObservatio
     answerHash: r.answer_hash ?? "", webSearchReported: r.journey?.web_search_reported ?? null,
     citationsObserved: cited !== null, citations: cited, fanOutQueries: r.journey?.fan_outs ?? null,
     retrievedResults: r.journey?.retrieved_results ?? null, brandMentions: r.journey?.brand_mentions ?? null,
-    analysis: real ? (r.analysis as Record<string, unknown>) : null,
+    analysis: real ? (r.analysis as Record<string, unknown>) : null, analysisHash: r.analysis_hash ?? null,
   };
 }
 

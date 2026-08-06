@@ -8,6 +8,8 @@ import "server-only";
  * decoded; every list is bounded so a persisted blob cannot grow without limit.
  */
 
+import { createHash } from "node:crypto";
+
 import { loadResearchState, saveResearchState, type StateRepoDeps } from "./state-repo";
 import type { FunnelResearchEvidence, KeywordDiscoveryRoute, KeywordOrigin, ObservationMode, OwnedPageReadOutcome, ResearchCase, ResearchPageComparison, ResearchPageExtract, ResearchWinningAppearance, WinnerReadOutcome } from "./research-evidence";
 
@@ -160,6 +162,11 @@ export type FunnelState = {
     counts: { raw: number; normalized: number; retained: number; rejected: number };
     /** ONE bought answer per case set: the domains that keep winning across that case's whole keyword set. */
     caseCompetitors: FunnelCaseCompetitors[];
+    /** THE READINGS THIS ACCOUNT HAS ALREADY HARVESTED, as one fingerprint of the canonical answer set (see
+     *  `analysisWatermark`). Written by the discovery stage when it genuinely read that set, so it always names
+     *  what was CONSUMED: an interrupted pass leaves it where it was and recomputes the same debt, a completed
+     *  one clears it. Absent = nothing has been harvested under this basis yet, which is a real debt, not zero. */
+    consumedAnalyses?: string;
   };
   /** The CURRENT working set only: pairs whose prompt or engine left the intended
    *  set are pruned. True history lives in prompt_answer_observations. */
@@ -181,6 +188,15 @@ export type FunnelState = {
 };
 
 export type LoadedFunnelState = { state: FunnelState; rowVersion: number };
+
+/** THE SETTLED-ANALYSIS FINGERPRINT of the canonical answer set: one token per answer, its own identity plus
+ *  the hash of the reading stamped on it. A verdict that lands on an answer ALREADY on file moves this, which
+ *  is precisely the debt nothing else could see; a day that settles no new reading leaves it exactly where it
+ *  was. PURE and order free, and it carries no answer text and no journey: an id and a hash, nothing else.
+ *  Both sides read it here so the fingerprint that opens the work and the one that clears it are one string. */
+export function analysisWatermark(rows: readonly { id: string; hash: string | null }[]): string {
+  return createHash("sha256").update(rows.map((r) => `${r.id}:${r.hash ?? ""}`).sort().join("|")).digest("hex").slice(0, 16);
+}
 
 export function emptyFunnelState(tenantId: string, basisTag = "", now = ""): FunnelState {
   return {

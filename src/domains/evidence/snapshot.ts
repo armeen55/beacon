@@ -129,7 +129,7 @@ export type OwnedPageEvidence = {
   search: OwnedPageSearch | null;
   engagement: OwnedPageEngagement | null;
   friction: OwnedPageFriction | null;
-  /** AI citations of THIS owned page (native-AI presence). */
+  /** AI citations of THIS owned page. `count` is DISTINCT ANSWERS that credited it, never repeats inside one. */
   aiCitations: { count: number; distinctPrompts: number; engines: string[] };
 };
 
@@ -138,7 +138,9 @@ export type OwnedPageEvidence = {
 export type CompetitorEvidence = {
   url: string;
   domain: string;
+  /** DISTINCT ANSWERS that credited this address. One answer gets one vote however often it repeats itself. */
   citationCount: number;
+  /** Distinct tracked questions that credited it: THE authority on recurrence, and how rivals are ranked. */
   distinctPrompts: number;
   engines: string[];
   examplePrompts: string[];
@@ -385,43 +387,32 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
   for (const r of input.ga4.payload) {
     const row = ensure(r.url);
     if (row)
-      row.engagement = {
-        sessions28d: r.sessions28d,
-        engaged28d: r.engaged28d,
-        conversions28d: r.conversions28d,
-        revenueUsd: r.revenueUsd,
-      };
+      row.engagement = { sessions28d: r.sessions28d, engaged28d: r.engaged28d, conversions28d: r.conversions28d, revenueUsd: r.revenueUsd };
   }
   for (const r of input.wix.payload) {
     const row = ensure(r.url);
-    if (row) {
-      const { url: _url, ...content } = r;
-      void _url;
-      row.content = content;
-    }
+    if (row) { const { url: _url, ...content } = r; void _url; row.content = content; }
   }
   for (const r of input.clarity.payload) {
     const row = ensure(r.url);
-    if (row) {
-      const { url: _url, ...friction } = r;
-      void _url;
-      row.friction = friction;
-    }
+    if (row) { const { url: _url, ...friction } = r; void _url; row.friction = friction; }
   }
 
   // ── the AI answers on file: which addresses they keep crediting, split into this account's and everybody else's ──
   // RECURRENCE ACROSS ANSWERS, never inside one: an address is evidence because it comes back on question after
-  // question. An address the account owns attaches to that page; every other one is a competitor citation.
+  // question. ONE ANSWER IS ONE VOTE, whatever its citation list repeats: an answer that named the same address
+  // eleven times used to outrank one that three separate questions credited. An address the account owns
+  // attaches to that page; every other one is a competitor citation.
   const observations = input.research.payload.aiObservations;
   const citedByUrl = new Map<string, { url: string; count: number; prompts: Map<string, string>; engines: Set<string> }>();
-  for (const o of observations) for (const c of o.citations ?? []) {
+  for (const o of observations) { const voted = new Set<string>(); for (const c of o.citations ?? []) {
     // A HOST OR IT IS NOT AN ADDRESS: a citation with no parseable host (`about:blank` and its kind) used to land as a competitor with an empty domain and inflate the count.
     const key = canonicalUrlKey(c.url), host = domainOf(c.url);
-    if (!key || !host.includes(".") || CITATION_WRAPPERS.has(host)) continue;
+    if (!key || !host.includes(".") || CITATION_WRAPPERS.has(host) || voted.has(key)) continue;
     let agg = citedByUrl.get(key);
     if (!agg) { agg = { url: c.url, count: 0, prompts: new Map(), engines: new Set() }; citedByUrl.set(key, agg); }
-    agg.count += 1; agg.engines.add(o.engine); agg.prompts.set(o.promptId, o.promptText);
-  }
+    voted.add(key); agg.count += 1; agg.engines.add(o.engine); agg.prompts.set(o.promptId, o.promptText);
+  } }
   const competitorByUrl = new Map<string, CompetitorEvidence>();
   for (const [key, agg] of citedByUrl) {
     const counts = { citationCount: agg.count, distinctPrompts: agg.prompts.size, engines: [...agg.engines].sort() };
@@ -434,8 +425,10 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
   }
 
   const ownedPages = [...ownedByUrl.values()].sort((a, b) => a.url.localeCompare(b.url));
+  // HOW MANY QUESTIONS CREDIT IT FIRST, how many answers second: recurrence across questions is the claim, and
+  // the answer count only breaks a tie between rivals that recur equally often.
   const competitors = [...competitorByUrl.values()]
-    .sort((a, b) => b.citationCount - a.citationCount || a.url.localeCompare(b.url)).slice(0, MAX_CITED_PAGES);
+    .sort((a, b) => b.distinctPrompts - a.distinctPrompts || b.citationCount - a.citationCount || a.url.localeCompare(b.url)).slice(0, MAX_CITED_PAGES);
 
   // ── keyword demand: GSC served queries ∪ DataForSEO volume ──
   const kwByQuery = new Map<string, KeywordDemandSignal>();
@@ -660,10 +653,11 @@ export function hashSnapshot(snapshot: Omit<EvidenceSnapshot, "evidenceHash">): 
     // evidence, and the winning pages with their extract structure. Every timestamp
     // and every spend/cache counter is excluded, so the same evidence at a later
     // clock hashes identically while a changed citation, mode, served model,
-    // fan-out, volume/intent, or extract structure changes the hash.
+    // fan-out, settled reading, volume/intent, or extract structure changes it.
     res: {
       kw: snapshot.research.retainedKeywords.map((k) => [k.query, k.searchVolume, k.competition, k.intent]),
-      ai: snapshot.research.aiObservations.map((o) => [o.promptId, o.engine, o.observationMode, o.modelServed, o.modelRequested, o.webSearchReported, o.citationsObserved, (o.citations ?? []).map((c) => [c.url, c.domain]), o.fanOutQueries]),
+      // The SETTLED READING is material too: same citations, same fan-outs, a reading now on file is different evidence.
+      ai: snapshot.research.aiObservations.map((o) => [o.promptId, o.engine, o.observationMode, o.modelServed, o.modelRequested, o.webSearchReported, o.citationsObserved, (o.citations ?? []).map((c) => [c.url, c.domain]), o.fanOutQueries, o.analysisHash ?? null]),
       serp: snapshot.research.serpEvidence.map((s) => [s.query, s.organic.map((o) => [o.rank, o.url]), s.aiOverview.map((c) => c.url), s.aiMode.map((c) => c.url), s.paa.map((p) => p.question), s.related]),
       win: snapshot.research.winningPages.map((w) => [w.url, w.engines, w.examplePrompts, w.extract ? [w.extract.title, w.extract.h1, w.extract.wordCount, w.extract.headings, w.extract.faqCount] : null]),
     },

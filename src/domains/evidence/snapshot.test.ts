@@ -15,7 +15,7 @@ const at = <T,>(payload: T) => ({ status: "fresh" as const, lastSyncedAt: "2026-
 const answer = (promptId: string, engine: string, over: Partial<CanonicalPairObservation> = {}): CanonicalPairObservation => ({
   observationId: `obs_${promptId}_${engine}`, promptId, promptVersion: 2, promptText: `ask ${promptId}`, engine, modelRequested: "gpt-4o", modelServed: "gpt-4o-2026",
   observationMode: "consumer_search", reportingDay: "2026-07-21", observedAt: "2026-07-22T00:00:00.000Z", answerHash: "h", webSearchReported: true, citationsObserved: true,
-  fanOutQueries: ["koobideh", "kebab koobideh"], citations: [cite(OWNED), cite(KEBAB)], retrievedResults: null, brandMentions: null, analysis: { questionsAnswered: [EMBLEM] }, ...over });
+  fanOutQueries: ["koobideh", "kebab koobideh"], citations: [cite(OWNED), cite(KEBAB)], retrievedResults: null, brandMentions: null, analysisHash: null, analysis: { questionsAnswered: [EMBLEM] }, ...over });
 const aiEvidence = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [answer("p1", "chatgpt", { analysis: { questionsAnswered: [EMBLEM, "iran flag colors meaning"] } }),
   answer("p2", "chatgpt"), answer("p3", "perplexity"), answer("p3", "chatgpt", { citations: [cite(OWNED)], analysis: null })] });
 const HISTORY = "https://fixture-content.example/flag-history";
@@ -49,9 +49,18 @@ describe("buildEvidenceSnapshot - six-source normalization", () => {
     expect(cannib.competingUrls).toEqual(["fixture-content.example/flag", "fixture-content.example/flag-history"]);
     expect(snap.intentClusters.find((c) => c.queries.some((qq) => qq.includes("buy")))?.intent).toBe("commercial");
   });
+  it("gives one answer one vote, and ranks rivals by how many QUESTIONS credit them rather than how many answers do", () => {
+    const LOUD = "https://loud.example/x", STEADY = "https://steady.example/x", PAIRED = "https://paired.example/x", many = Array.from({ length: 11 }, () => cite(LOUD));
+    const rows = [answer("p1", "chatgpt", { citations: [...many, cite(STEADY), cite(OWNED), cite(OWNED)] }), answer("p1", "gemini", { citations: [cite(LOUD)] }), answer("p1", "claude", { citations: [cite(LOUD)] }),
+      answer("p2", "chatgpt", { citations: [cite(STEADY), cite(PAIRED)] }), answer("p3", "perplexity", { citations: [cite(STEADY), cite(PAIRED)] })];
+    const snap = buildEvidenceSnapshot({ ...fullInput(), research: at({ ...emptyResearchEvidence(), aiObservations: rows }) });
+    // Eleven repeats inside one answer are one answer's opinion. And ONE question answered three times (loud) must
+    // rank BELOW two questions answered once each (paired), which only ranking on distinct questions can do.
+    expect([snap.ownedPages.find((p) => p.url === "fixture-content.example/flag")!.aiCitations.count, snap.competitors.map((c) => [c.domain, c.citationCount, c.distinctPrompts])])
+      .toEqual([1, [["steady.example", 3, 3], ["paired.example", 2, 2], ["loud.example", 3, 1]]]);
+  });
   it("is deterministic and hashes on material evidence, not the clock", () => {
-    const base = fullInput(); const a = buildEvidenceSnapshot(base);
-    expect(buildEvidenceSnapshot(fullInput())).toEqual(a);
+    const base = fullInput(); const a = buildEvidenceSnapshot(base); expect(buildEvidenceSnapshot(fullInput())).toEqual(a);
     expect(buildEvidenceSnapshot({ ...base, gsc: { ...base.gsc, lastSyncedAt: "2099-01-01T00:00:00.000Z" } }).evidenceHash).toBe(a.evidenceHash);
     const changed = { ...base, gsc: { ...base.gsc, payload: base.gsc.payload.map((p, i) => (i === 0 ? { ...p, clicks90d: 9999 } : p)) } };
     expect(buildEvidenceSnapshot(changed).evidenceHash).not.toBe(a.evidenceHash);
@@ -83,13 +92,14 @@ describe("evidenceHash - research material truth, not the clock", () => {
     clockOnly.receipt = { researched: 999, retained: 999, stale: 9, missing: 9, cached: 999, spentUsd: 9.99, freshestObservationAt: "2099-01-01T00:00:00.000Z" };
     expect(hashOf(clockOnly)).toBe(base);
   });
-  it("changes for a citation URL, observation mode, served model, fan-out list, keyword volume/intent, or extract structure", () => {
+  it("changes for a settled reading, a citation URL, observation mode, served model, fan-out list, keyword volume/intent, or extract structure", () => {
     const base = hashOf(researchFixture());
     const mut = (f: (r: FunnelResearchEvidence) => void) => { const r = researchFixture(); f(r); return hashOf(r); };
     expect(mut((r) => (r.aiObservations[0].citations![0].url = "https://other.example/x"))).not.toBe(base); expect(mut((r) => (r.aiObservations[0].modelServed = "gpt-5"))).not.toBe(base);
     expect(mut((r) => (r.aiObservations[0].observationMode = "standardized_response"))).not.toBe(base); // the consumer look and the standardized answer are never the same evidence
     expect(mut((r) => (r.aiObservations[0].fanOutQueries = ["totally", "different"]))).not.toBe(base); expect(mut((r) => (r.winningPages[0].extract!.wordCount = 12345))).not.toBe(base);
     expect(mut((r) => (r.retainedKeywords[0].searchVolume = 99999))).not.toBe(base); expect(mut((r) => (r.retainedKeywords[0].intent = "commercial"))).not.toBe(base);
+    expect(mut((r) => (r.aiObservations[0].analysisHash = "settled"))).not.toBe(base); // a reading that landed is new evidence even when the answer credited the very same pages
   });
 });
 /** TopicInvestigation: the NON-ACTIONABLE research packet - what it may claim and what it must refuse to claim. CORPUS gives
@@ -139,17 +149,13 @@ describe("buildTopicInvestigations - the research packet", () => {
   });
   it("never welds unrelated subjects: one owner per anchor, so a stale row and a shared-anchor chain both stay bounded", () => {
     // A dormant row claiming one anchor from each of two live cases used to union them into ONE case in a single pass.
-    const weld = foldCases([["flag", "flag meaning"], ["visa", "visa rules"]], [
-      { id: "inv_flag", anchors: ["flag", "flag meaning"] },
-      { id: "inv_visa", anchors: ["visa", "visa rules"] },
-      { id: "inv_old", anchors: ["flag", "visa"] }]);
+    const weld = foldCases([["flag", "flag meaning"], ["visa", "visa rules"]], [{ id: "inv_flag", anchors: ["flag", "flag meaning"] }, { id: "inv_visa", anchors: ["visa", "visa rules"] }, { id: "inv_old", anchors: ["flag", "visa"] }]);
     const liveIds = weld.filter((f) => f.anchors.length > 0).map((f) => f.id).sort();
     expect([liveIds, weld.flatMap((f) => f.aliases).includes("inv_old")]).toEqual([["inv_flag", "inv_visa"], true]);
     // And a chain of subjects each sharing ONE anchor with the next resolves ownership pairwise; it never cascades into one case.
     const chain = [["c1", ["x1", "x2"]], ["c2", ["x2", "x3"]], ["c3", ["x3", "x4"]], ["c4", ["x4", "x5"]], ["c5", ["x5", "x6"]]] as const;
     const out = foldCases([["x1"], ["x2"], ["x3"], ["x4"], ["x5"], ["x6"]], chain.map(([id, anchors]) => ({ id: `inv_${id}`, anchors: [...anchors] })));
-    const alive = out.filter((f) => f.anchors.length > 0);
-    const owned = alive.flatMap((f) => f.anchors);
+    const alive = out.filter((f) => f.anchors.length > 0), owned = alive.flatMap((f) => f.anchors);
     // Pairwise resolution absorbs a neighbor that loses its every contested anchor; it never accumulates:
     // ownership stays disjoint, no case grows past its own two anchors, and the ten never land in one case.
     expect([new Set(owned).size === owned.length, Math.max(...alive.map((f) => f.anchors.length)) <= 2, alive.length >= 3]).toEqual([true, true, true]); });

@@ -35,6 +35,7 @@ export type DuePhase =
   | "crawl_pages"
   | "daily_observations"
   | "analyze_answers"
+  | "consume_analyses"
   | "plan_cases"
   | "acquire_case_evidence"
   | "decide_and_prepare"
@@ -136,6 +137,29 @@ async function answersAwaitAnalysis(tenantId: string, fromDay: string, toDay: st
     && r.answer_hash != null && !isAnalysisSettled({ analysis: r.analysis, analysisHash: r.analysis_hash ?? null, answerHash: r.answer_hash ?? null }));
 }
 
+/** THE CANONICAL SETTLED-ANALYSIS FINGERPRINT RIGHT NOW, computed over EXACTLY the rows the harvest consumes:
+ *  the stamps come from the same paged walk the canonical loader itself runs (same scope, same latest-per-pair
+ *  rule, same page ceiling and early stop), so the fingerprint and the harvest's watermark are incapable of
+ *  reading different windows; a one-page copy of that walk lived here once and disagreed forever the moment a
+ *  pair's newest answer sat past the first page, which re-opened paid discovery on every probe. null = this
+ *  account has no canonical answer at all, which is nothing to consume and therefore never a debt. A read that
+ *  FAILED throws, so this leg goes unreadable rather than inventing quiet. */
+async function analysisFingerprint(tenantId: string): Promise<string | null> {
+  const [{ readCanonicalAnalysisStamps }, { analysisWatermark }] = await Promise.all([
+    import("@/domains/evidence/ai-visibility/ai-observations"), import("@/domains/evidence/funnel/state")]);
+  const stamps = await readCanonicalAnalysisStamps(tenantId);
+  return stamps.length === 0 ? null : analysisWatermark(stamps);
+}
+
+/** WHAT THE HARVEST HAS ALREADY CONSUMED, read WITHOUT the research document itself: one small string off a json
+ *  path, never the notes. Null = no basis row yet or nothing harvested under it, which is an honest debt. */
+async function consumedAnalyses(tenantId: string, basis: string): Promise<string | null> {
+  const { data, error } = await getSupabaseAdmin().from("research_state")
+    .select("wm:state->discovery->>consumedAnalyses").eq("tenant_id", tenantId).eq("basis_tag", basis).maybeSingle();
+  if (error != null) throw new Error(error.message ?? String(error));
+  return data == null ? null : ((data as { wm: string | null }).wm ?? null);
+}
+
 /** The unread probe over BOTH windows the readback reads: the recent seven days, and the hourly-rotating
  *  older seven wrapping at 26 weeks (answer-readback's own formula), so old debt on an otherwise quiet
  *  account still opens the pass that reaches it. Two lean reads, short-circuiting on the first hit. */
@@ -212,6 +236,8 @@ type DueWorkDeps = {
   debt?: (tenantId: string, now: Date) => Promise<{ measurable: number; unverified: number }>;
   pagesToCrawl?: (tenantId: string, now: Date) => Promise<boolean>;
   answersToAnalyze?: (tenantId: string, fromDay: string, toDay: string) => Promise<boolean>;
+  analysisFingerprint?: (tenantId: string) => Promise<string | null>;
+  consumedAnalyses?: (tenantId: string, basis: string) => Promise<string | null>;
 };
 
 const settled = async <T,>(p: Promise<T>, fallback: T): Promise<{ value: T; ok: boolean }> =>
@@ -239,13 +265,16 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     settled((deps.basis ?? accountBasis)(tenantId), null as string | null),
   ]);
 
-  const [version, surface, debt, pages, unread] = await Promise.all([
+  const [version, surface, debt, pages, unread, analyses, consumed] = await Promise.all([
     // No basis is not a failed read: nothing was asked, so nothing failed, and the basis read above is what says whether it resolved at all.
     basis.value ? settled((deps.evidenceVersion ?? evidenceRowVersion)(tenantId, basis.value), null as number | null) : Promise.resolve({ value: null, ok: true }),
     settled((deps.surfaceStale ?? surfaceIsStale)(tenantId, nowMs), false),
     settled((deps.debt ?? measurementDebt)(tenantId, now), { measurable: 0, unverified: 0 }),
     settled((deps.pagesToCrawl ?? pagesAwaitCrawl)(tenantId, now), false),
     settled(probeUnread(deps.answersToAnalyze ?? answersAwaitAnalysis, tenantId, nowMs, day), false),
+    settled((deps.analysisFingerprint ?? analysisFingerprint)(tenantId), null as string | null),
+    // The watermark is basis-scoped like every other derived row, so with no basis there is nothing to compare against and nothing was asked.
+    basis.value ? settled((deps.consumedAnalyses ?? consumedAnalyses)(tenantId, basis.value), null as string | null) : Promise.resolve({ value: null, ok: true }),
   ]);
 
   const progress = run.value?.progress ?? {};
@@ -280,6 +309,11 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   if ((checks.value?.due ?? 0) > 0) due.push("daily_observations");
   // AN ANSWER BOUGHT AND NEVER READ IS OWED WORK. It rides the observation phase, so naming it here OPENS a pass for a day that collected everything and read none.
   if (unread.value) due.push("analyze_answers");
+  // A READING THAT SETTLED IS EVIDENCE NOBODY HAS SPENT YET. Storing a verdict on an answer moved no keyword, no case
+  // and no decision, so an account could read 140 answers a day and decide off none of them. The fingerprint of the
+  // canonical set past what the harvest has consumed is that debt, said in one string, and consuming it clears it.
+  const analysesMoved = analyses.value != null && analyses.value !== consumed.value;
+  if (analysesMoved) due.push("consume_analyses");
   // A plan is owed when the notes moved (what is stuck may have changed) or when a run is still OPEN and has no plan bound to this basis: that run genuinely
   // owes one. An idle account with no plan owes nothing, because re-planning unchanged notes reaches the identical answer at the same price.
   if (notesMoved || (openRun && !bound)) due.push("plan_cases");
@@ -295,7 +329,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   // question, so it is not returned at all. It used to lean on two of the nine, so a crawl debt, a measurement ledger, a surface, a source, a basis or
   // an unread-answer probe that THREW was swallowed into "nothing is due" and the scheduler reported a healthy idle over a day it could not judge. An
   // individually EMPTY signal is untouched by this: zero stale sources is an honest zero, not an outage.
-  const readable = run.ok && checks.value != null && sources.ok && basis.ok && version.ok && surface.ok && debt.ok && pages.ok && unread.ok;
+  const readable = run.ok && checks.value != null && sources.ok && basis.ok && version.ok && surface.ok && debt.ok && pages.ok && unread.ok && analyses.ok && consumed.ok;
   if (!readable) log.debug("[due-work] durable state unreadable; the caller decides which way that falls", { tenantId });
   return {
     due: readable ? due : [], readable,
