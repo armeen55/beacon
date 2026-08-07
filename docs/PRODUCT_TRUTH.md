@@ -8,18 +8,15 @@
 ## One-sentence promise
 
 Beacon lets a business run SEO and AEO on autopilot by continuously researching its market, deciding the
-highest-impact changes, preparing exact implementation-ready work, verifying what the operator implemented,
-and learning from the result.
+highest-impact changes, preparing exact implementation-ready work, verifying what the operator implemented, and learning from the result.
 
-Beacon should feel like installing an excellent SEO/AEO operator inside a business, not like buying another
-analytics dashboard or recommendation generator.
+Beacon should feel like installing an excellent SEO/AEO operator inside a business, not like buying another analytics dashboard or recommendation generator.
 
 ## What V1 replaces
 
 V1 replaces on-page SEO, content SEO, AEO research, content planning, and actionable technical SEO. Offsite
 links, digital PR, and local SEO are not V1. A new account reaches its first useful result in roughly 3 to 5
-minutes from cached evidence, and deeper research continues durably for up to roughly an hour with the stage
-it is in named honestly.
+minutes from cached evidence, and deeper research continues durably for up to roughly an hour with the stage it is in named honestly.
 
 ## Product outcome
 
@@ -125,8 +122,11 @@ explains where the business stands, and every action lives in Changes.
 
 ### Changes
 
-Changes is the complete ranked execution queue. It is unlimited in size but every row is earned by evidence,
-it stays ranked rather than becoming an idea dump, and it is paginated so length never breaks the page.
+Changes is the complete ranked opportunity system, not only the finished queue. Beacon never fabricates a
+Ready change, but opportunity discovery is continuous: evidence controls an opportunity's state, confidence
+and readiness, and missing evidence changes its state and names the next research step rather than making the
+opportunity disappear. The feed spans Ready, needs review, researching, watching, measuring and results, every
+row earned by real signals, ranked, and paginated so length never breaks the page.
 
 Canonical lifecycle:
 
