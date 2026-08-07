@@ -35,6 +35,9 @@ export type TodayView = {
   /** THE SIZE OF THE READY QUEUE, uncapped, beside the capped `nextOpportunities` preview. ONE queue, ONE number: the command used to count
    *  the preview and say "4 more" under a header that said 12. */
   readyTotal?: number;
+  /** THE NEEDS REVIEW LANE'S OWN TOTAL, counted in the database. Today has to carry it or the command cannot tell a genuinely quiet day from a
+   *  day with twenty ideas waiting on the operator, and it said "nothing needs a decision" over both. */
+  toDoTotal?: number;
   /** The canonical measuring count THIS release was built with, the same number Changes carries, so one navigation cannot show two answers
    *  to one question. ABSENT when the ledger could not be read. */
   measuringCount?: number;
@@ -84,6 +87,9 @@ function proposalToOpportunity(p: ChangeProposal): TodayOpportunity {
     upside: p.upsidePerMonth,
     evidenceStrength: CONFIDENCE_TO_STRENGTH[p.confidence],
     ...(p.whyRankedAboveNext ? { whyRankedAboveNext: p.whyRankedAboveNext } : {}),
+    // THE PROBLEM, carried onto the move. Today used to hand over three directives with no
+    // statement of what any of them was for, which is a chore list, not a recommendation.
+    ...(p.whyItMatters ? { problem: p.whyItMatters } : {}),
   };
 }
 
@@ -93,7 +99,7 @@ const TODAY_PREVIEW_LIMIT = 3;
 
 /** What THIS release's production pass actually concluded, so an empty queue can say which empty it is. Optional: a release built without
  *  it says nothing new. */
-export type TodayProducerSignal = {
+type TodayProducerSignal = {
   outcome?: ProducerOutcome;
   /** How many proven gaps this pass is still investigating (research_needed). */
   investigating?: number;
@@ -148,6 +154,7 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     ...(held > 0 ? { heldForMeasurement: held } : {}),
     ...(producer.outcome ? { producerOutcome: producer.outcome } : {}),
     readyTotal,
+    toDoTotal: view.summary?.todo ?? view.toDo.length,
     ...(unread ? { countsUnavailable: true } : { measuringCount: measuring }),
   };
   let headerSentence: string;
@@ -184,9 +191,12 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     // ONE sentence, owned by Changes: two copies of the same claim drift apart, and the operator reads both on the same visit.
     headerSentence = `${setAsideClause(view.demotedStaleBasis)}${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
   } else if (measuring > 0) {
-    headerSentence = `Nothing needs a decision today. ${measuring} change${measuring === 1 ? " is" : "s are"} measuring.`;
+    // NOT "nothing needs a decision today". That is a claim about the whole account, and it was
+    // printed over open topics, declining pages and a backlog. The true and much smaller claim is
+    // that no change has cleared Ready, so that is the one I make.
+    headerSentence = `No change is ready for you to make today. ${measuring} change${measuring === 1 ? " is" : "s are"} measuring, and I say below what I am working on.`;
   } else {
-    headerSentence = "Nothing needs a decision today. I am still gathering evidence, and I will rank your next moves as it lands.";
+    headerSentence = "No change is ready for you to make today. I say below what I am researching and what I am watching, and I rank your next move here the moment one earns it.";
   }
   return { headerSentence, nextOpportunities: ready, readyFixes, ...rest };
 }

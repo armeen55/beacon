@@ -93,6 +93,10 @@ export type ResearchRunProgress = {
     rawKeywords?: number; normalizedKeywords?: number; retainedKeywords?: number;
     rejectedKeywords?: number; promptsChecked?: number; enginePairsDone?: number;
     enginePairsIntended?: number; serpsAnalyzed?: number; pageReadsAttempted?: number; answersAnalyzed?: number;
+    /** WHAT THE READING PASSES ACTUALLY DID, beside how many landed: how many stored answers they took on and how many came back as a
+     *  non-reading. A bare zero cannot tell a quiet day from a pass that took forty answers on and could store none of them, and that is
+     *  precisely the shape a run sitting in one phase for ten hours wears, so both numbers go on the row rather than into a log line. */
+    answersAttempted?: number; answersRefused?: number;
     cacheHits?: number; spendUsd?: number;
   };
 };

@@ -93,7 +93,8 @@ export { winningPagesUnit, type FunnelIntersectionAsk } from "./funnel/winning-p
 
 // GSC scoreboard + weekly + fresh-tail + ingestion-gap surfaces
 export { loadScoreboardBrandLens } from "./gsc/load-brand-split";
-export { loadGscWeeklyLens } from "./gsc/load-weekly-dimensions";
+export { loadGscWeeklyLens, loadGscWeeklyRows } from "./gsc/load-weekly-dimensions";
+export type { GscWeeklyDimensionsSnapshot } from "./gsc/weekly-dimensions";
 export { readGscFreshTailCached, refreshGscFreshTail } from "./gsc/load-fresh-tail";
 export { FRESH_TAIL_NOTE, type FreshTailPoint } from "./gsc/fresh-tail";
 export { loadGscIngestionGapReport } from "./gsc/load-ingestion-gaps";
@@ -126,7 +127,10 @@ export type {
   AiObservationView,
   DueObservation,
 } from "./ai-visibility/ai-observations";
-export { isAnalysisSettled, observationReceiptCost, persistAnswerAnalysis, readAiObservations, readAiObservationViews } from "./ai-visibility/ai-observations";
+export { canonicalPairOf, isAnalysisSettled, observationReceiptCost, persistAnswerAnalysis, readAiObservations, readAiObservationViews } from "./ai-visibility/ai-observations";
+// What the engines' OWN answers said, projected off readings already settled (pure, no I/O).
+export type { AnswerIntel, AnswerSignal } from "./answer-intel";
+export { answerIntelOf } from "./answer-intel";
 
 // AI engines the tenant prompt library is tracked across (canonical union)
 export { ALL_ENGINES, type EngineId } from "./readers/engine-types";

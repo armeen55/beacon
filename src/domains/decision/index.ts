@@ -93,6 +93,7 @@ export {
 export {
   computeLifecycleCounts,
   countLedgerLifecycle,
+  splitLedgerLifecycle,
   type LifecycleCounts,
 } from "./changes/lifecycle-counts";
 

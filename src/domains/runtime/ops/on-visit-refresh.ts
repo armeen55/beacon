@@ -48,25 +48,31 @@ import {
 
 /** ONE cycle's wall-clock budget, for both doors. 210s leaves enough of the 300-second function lifetime to finish the surface build; the scheduler spends its own total budget in units of this. */
 export const RESEARCH_CYCLE_DEADLINE_MS = 210_000;
+/** The least time left on a turn that is worth starting a bounded reading slice on. Under a minute and a half there is no room for one wave of readings and the writes behind it, so the turn goes straight to its
+ *  phase and the reading is owed to the next one: a slice started with no time is a slice that spends money and stores nothing. */
+const ANALYSIS_SLICE_MIN_MS = 90_000;
+/** THE PHASES THAT CAN HOLD A RUN FOR HOURS, and the reason a turn may not simply walk back into one. The daily dispatch resumes this account's ONE unfinished
+ *  run every half hour, so a run parked in the results-page or winning-pages phase was handed the whole turn again, and again: on 7 August one held the day for ten and a half hours while the 140 answers bought
+ *  that morning went unread, because the only door that opens a reading pass is the one the claim never reaches while a run is open. A turn that RESUMES into one of these now reads a bounded slice of the answers
+ *  already paid for FIRST, then carries on with the phase on what is left of the deadline. Once per drive, only when a reading is genuinely owed, and it buys nothing: it reads answers already on file. */
+const LONG_PHASES = new Set<ResearchPhase>(["serp_analysis", "winning_pages"]);
 /** A day I cannot count is never a day I finished. */
 const DAY_UNREADABLE = "I could not read where today's AI checks stand, so I stopped rather than call the day finished. I will pick this up on the next pass.";
 
 /** The four Slice 6 evidence phases, each backed by one funnel unit executor. */
 const FUNNEL_PHASES = new Set<ResearchPhase>(["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]);
 
-/** WHAT EACH OWED UNIT ACTUALLY COSTS IN PHASES. Due-work decides WHETHER another pass runs; this is what turns its answer into WHAT that pass may do. Once a run
- *  opened, the executor traversed the complete cycle whatever the debt was, so recovery for one stored-answer reading re-ran keyword discovery, results pages,
- *  winner reads, a crawl and a publication: four live passes spent about 69 cents on research nobody had asked for. A recovery pass now runs the phases its own
- *  debt names and skips the rest in ONE advance. A fresh daily cycle carries no plan at all and still walks everything, in order. */
+/** WHAT EACH OWED UNIT ACTUALLY COSTS IN PHASES. Due-work decides WHETHER another pass runs; this is what turns its answer into WHAT that pass may do. Once a run opened, the executor traversed the complete cycle
+ *  whatever the debt was, so recovery for one stored-answer reading re-ran keyword discovery, results pages, winner reads, a crawl and a publication: four live passes spent about 69 cents on research nobody had
+ *  asked for. A recovery pass now runs the phases its own debt names and skips the rest in ONE advance. A fresh daily cycle carries no plan at all and still walks everything, in order. */
 const PHASES_FOR: Record<DuePhase, readonly ResearchPhase[]> = {
   refresh_sources: ["refresh_sources", "gsc_backfill_chunk"],
   crawl_pages: ["crawl_pages"],
   daily_observations: ["prompt_observations"],
   // The reading of answers already bought rides the observation phase, and buys nothing: see the analyze-only branch below.
   analyze_answers: ["prompt_observations"],
-  // A SETTLED READING IS SPENT BY HARVESTING IT AND DECIDING AGAIN, and by nothing else: keyword discovery reads
-  // what those answers named, and the surface publishes what that changed. No results page, no winner read, no
-  // crawl, no refresh, no measurement, and above all no second answer bought to read an answer already in hand.
+  // A SETTLED READING IS SPENT BY HARVESTING IT AND DECIDING AGAIN, and by nothing else: keyword discovery reads what those answers named, and the surface publishes what that
+  // changed. No results page, no winner read, no crawl, no refresh, no measurement, and above all no second answer bought to read an answer already in hand.
   consume_analyses: ["keyword_discovery", "publish_surface"],
   plan_cases: ["keyword_discovery", "serp_analysis"],
   acquire_case_evidence: ["serp_analysis", "winning_pages"],
@@ -156,12 +162,22 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   /** This pass owes a READING of answers already bought, and owes nobody a new one: the observation phase reads and buys nothing. */
   const planUnits = run.progress?.plan?.units ?? [];
   const readingOnly = planUnits.includes("analyze_answers") && !planUnits.includes("daily_observations");
+  /** ONE bounded reading of answers already bought, folded into the run's OWN receipt. Fail-soft by contract: the expensive part is already persisted, so a reading I could not produce is absent and never a pause.
+   *  The three numbers go down together, because a bare "0 analyzed" cannot tell a quiet pass from one that took forty answers on and could store none of them. */
+  const readAnswersBack = async (): Promise<void> => {
+    const pass = await steps.analyzeAnswers(tenantId, run.cycle_key.slice(-10)).catch(() => null);
+    if (pass == null || pass.attempted === 0) return;
+    const f = progress.funnel ?? {};
+    progress = { ...progress, funnel: { ...f, answersAnalyzed: (f.answersAnalyzed ?? 0) + pass.read,
+      answersAttempted: (f.answersAttempted ?? 0) + pass.attempted, answersRefused: (f.answersRefused ?? 0) + pass.refused } };
+  };
+  /** Does THIS turn owe the reading before the phase it resumed into? Only a turn that arrived already inside a long phase, and only when a reading is due. */
+  let readBeforePhase = LONG_PHASES.has(run.current_phase) && work.due.includes("analyze_answers");
   /** The phase whose attempt already spent its ONE state-conflict retry (never global). */
   let conflictRetried: ResearchPhase | null = null;
 
-  /** How many observation WINDOWS one drive may chain. Seven cover 35 questions on four engines at twenty a pass; the rest is slack, and past it I pause rather than
-   *  let a planner and an executor that disagree turn this into a hot loop on the database until the deadline kills it. MAX_CRAWL_ROUNDS is the same idea for the
-   *  website: four fifteen-page batches is sixty pages a pass, inside the cycle deadline with room to spare, and the rest is owed to the next pass. */
+  /** How many observation WINDOWS one drive may chain. Seven cover 35 questions on four engines at twenty a pass; the rest is slack, and past it I pause rather than let a planner and an executor that disagree turn
+   *  this into a hot loop on the database until the deadline kills it. MAX_CRAWL_ROUNDS is the same idea for the website: four fifteen-page batches is sixty pages a pass, and the rest is owed to the next pass. */
   const MAX_DAY_WINDOWS = 12, MAX_CRAWL_ROUNDS = 4; let windows = 0, crawlRounds = 0;
   while (phase !== "done") {
     if (nowFn().getTime() >= deadline) return pause(); // out of time before this phase; leave durable progress and resume next visit
@@ -196,12 +212,20 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     if (!held) return "lost_lease"; // lease lost/expired → abort BEFORE any side effect
     cursor = attemptCursor;
 
+    // FAIRNESS FIRST: a long phase never starves the reading of answers already paid for (see LONG_PHASES above). It runs HERE, in front of the phase, because a reading spends money and this is the first moment
+    // after a real lease renewal, and its counters are persisted at once so the row says what this turn did even if the phase behind it runs out of time. What it could not reach is still owed, as on any pass.
+    if (readBeforePhase && LONG_PHASES.has(phase) && deadline - nowFn().getTime() >= ANALYSIS_SLICE_MIN_MS) {
+      readBeforePhase = false;
+      await readAnswersBack();
+      log.info("[research-run] I read your stored answers before carrying on with the slower step, so a long step cannot hold them up", { tenantId, phase, read: progress.funnel?.answersAnalyzed ?? 0 });
+      if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease";
+    }
+
     // A DEBT OF READING IS NOT A DEBT OF BUYING. A pass opened because answers already paid for have never been read closely reads THEM and asks no engine
     // anything: no plan, no observation unit, no re-read of the day's standing, and no basis to resolve first. It runs here under the lease just renewed,
     // because a reading spends money, and it is fail-soft like every other derived step.
     if (phase === "prompt_observations" && allowed != null && readingOnly) {
-      const analysed = await steps.analyzeAnswers(tenantId, run.cycle_key.slice(-10)).catch(() => 0);
-      if (analysed > 0) progress = { ...progress, funnel: { ...progress.funnel, answersAnalyzed: (progress.funnel?.answersAnalyzed ?? 0) + analysed } };
+      await readAnswersBack();
       const next = nextPlanned(nextPhase(phase), allowed);
       if (!await advancePhase(tenantId, run.id, ownerToken, { phase: next, progress, cursor: null })) return "lost_lease";
       phase = next; cursor = null; continue;
@@ -251,8 +275,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       // money. Bounded per pass, $0 when no answer changed, and fail-soft: the expensive part is already persisted, so an analysis I could not produce is absent.
       if (phase === "prompt_observations" && !conflicted) {
         if (!await renewLease(tenantId, run.id, ownerToken, attemptCursor)) return "lost_lease";
-        const analysed = await steps.analyzeAnswers(tenantId, run.cycle_key.slice(-10)).catch(() => 0);
-        if (analysed > 0) progress = { ...progress, funnel: { ...progress.funnel, answersAnalyzed: (progress.funnel?.answersAnalyzed ?? 0) + analysed } };
+        await readAnswersBack();
       }
       const unitCursor = unit.cursor ? { ...attemptCursor, unit: unit.cursor } : { phase, attemptKey, seed: run.cycle_key };
       if (unit.status !== "done") {

@@ -35,8 +35,8 @@ import { TodayCommandCard } from "@/components/today/today-command-card";
 import { TodayProofStrip } from "@/components/today/today-proof-strip";
 import { verdictSchedule } from "@/domains/measurement";
 import { buildScoreboard } from "@/domains/measurement";
-import { buildTodaySmokeAlarm } from "@/components/today/today-smoke-alarm";
-import { loadGscDecaySignalsForTenant } from "@/domains/evidence";
+import { buildTodaySmokeAlarm, normalizedFixKey } from "@/components/today/today-smoke-alarm";
+import { buildTopicInvestigations, loadEvidenceSnapshot, loadGscDecaySignalsForTenant, type TopicInvestigation } from "@/domains/evidence";
 
 /**
  * Today `/` - the focused daily slice of the ONE canonical model (2026-07-01, Move 5).
@@ -197,6 +197,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     leadStoryDays,
     decaySignals,
     research,
+    investigations,
   ] = await Promise.all([
     valueWithDeadline(countConnectedDataSources(tenantId).catch(() => 0), 0),
     valueWithDeadline(
@@ -211,6 +212,13 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     // The durable Research Run status line (Slice 4). Bounded tight + fail-soft to
     // "none" so it NEVER delays the saved Today snapshot; renders nothing on none.
     valueWithDeadline(researchRunStatus(tenantId).catch(() => RESEARCH_NONE), RESEARCH_NONE, 1500),
+    // THE TOPICS I AM ACTUALLY WORKING, off the same $0 cached snapshot the producers read. No
+    // provider call, no new store; a slow or failed read costs the strip its lines and nothing else.
+    valueWithDeadline(
+      loadEvidenceSnapshot(tenantId).then(buildTopicInvestigations).catch(() => [] as TopicInvestigation[]),
+      [] as TopicInvestigation[],
+      TODAY_HERO_DEADLINE_MS,
+    ),
   ]);
   perfStage("today-parallel-context", tLedger, { rows: ledgerRows.length });
 
@@ -252,6 +260,40 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     // "last 4 weeks".
     windowEnd: decayRows[0]?.windowNowEnd ?? null,
   });
+
+  // WHAT IS OPEN, RANKED, AND NEVER INVISIBLE. An account holding topics under research and
+  // pages losing clicks must never read as an account with nothing happening, whatever state the
+  // command lands in. Weight is the one defensible number behind a topic (the largest priced
+  // search, or the impressions Google already gave it), never a sum of overlapping volumes.
+  const topicWeight = (inv: TopicInvestigation): number =>
+    Math.max(inv.demand.monthlySearchVolume ?? 0, (inv.demand.gscImpressions ?? 0) / 4, inv.demand.trackedPrompts * 50);
+  const openTopics = [...investigations].sort((a, b) => topicWeight(b) - topicWeight(a)).slice(0, 2).map((inv) => ({
+    label: inv.label,
+    signal: inv.demand.monthlySearchVolume != null
+      ? `About ${inv.demand.monthlySearchVolume.toLocaleString()} searches a month, and I hold ${inv.exactSerps.length} results ${inv.exactSerps.length === 1 ? "page" : "pages"} and ${inv.answerIntel.answers} AI ${inv.answerIntel.answers === 1 ? "answer" : "answers"} on it.`
+      : `I hold ${inv.exactSerps.length} results ${inv.exactSerps.length === 1 ? "page" : "pages"} and ${inv.answerIntel.answers} AI ${inv.answerIntel.answers === 1 ? "answer" : "answers"} on this, and I am still pricing the demand.`,
+    nextStep: inv.nextAcquisition?.why
+      ?? "I have bought everything here that would change the answer, so I am holding it until your own numbers move.",
+    href: "/changes#researching",
+  }));
+  // THE SAME PAGE TWICE IS NOT TWO PROBLEMS. The alarm blames a NORMALIZED key and the decay
+  // rows carry full URLs, so comparing the two raw never matched and the worst decliner was
+  // named once by the alarm and again as open work on the very same card.
+  const worstDecline = decayRows
+    .map((d) => ({ page: d.page, lost: d.clicksPrior - d.clicksNow }))
+    .filter((d) => d.lost >= 3 && normalizedFixKey(d.page) !== smokeAlarm?.pageKey)
+    .sort((a, b) => b.lost - a.lost)[0];
+  const inResearch = [
+    ...openTopics,
+    ...(worstDecline
+      ? [{
+        label: worstDecline.page.replace(/^https?:\/\/[^/]+/, "") || "/",
+        signal: `It lost ${Math.round(worstDecline.lost).toLocaleString()} ${worstDecline.lost === 1 ? "click" : "clicks"} against the 28 days before.`,
+        nextStep: "I am reading its results pages before I ask you to change a word on it.",
+        href: "/changes#watching",
+      }]
+      : []),
+  ];
 
   // Wave 3B - THE ONE COMMAND. Every input reuses a number another surface owns, and the
   // priority (material loss > top move > observe) picks exactly one directive so two
@@ -313,7 +355,28 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     },
     investigating: today.investigating ?? 0,
     heldForMeasurement: today.heldForMeasurement ?? 0,
+    // The Needs review lane's own total, from the SAME release Changes pages: a quiet-day
+    // sentence may never be said over ideas that are sitting there waiting on the operator.
+    toDo: today.toDoTotal ?? 0,
+    inResearch,
   });
+
+  // THE RESEARCH STRIP: what today's round actually collected and what is still owed, in the
+  // run's OWN persisted counters. Every line self hides when the number behind it does not
+  // exist, so this never prints a bare zero and never claims a figure I cannot reach.
+  const c = research.counters;
+  const owed = typeof c.aiChecksIntended === "number" && typeof c.aiChecksDone === "number"
+    ? Math.max(0, c.aiChecksIntended - c.aiChecksDone) : null;
+  const researchStrip = [
+    typeof c.aiChecksDone === "number" && typeof c.aiChecksIntended === "number" && c.aiChecksIntended > 0
+      ? `${c.aiChecksDone.toLocaleString()} of ${c.aiChecksIntended.toLocaleString()} AI checks collected today` : null,
+    typeof c.aiChecksAnswered === "number" && c.aiChecksAnswered > 0 ? `${c.aiChecksAnswered.toLocaleString()} came back with an answer I analyzed` : null,
+    owed != null && owed > 0 ? `${owed.toLocaleString()} still owed today` : null,
+    investigations.length > 0 ? `${investigations.length} ${investigations.length === 1 ? "topic" : "topics"} under research` : null,
+    research.cases?.active ? `${research.cases.active} ${research.cases.active === 1 ? "topic" : "topics"} on the frozen plan` : null,
+    (today.readyTotal ?? 0) > 0 ? `${today.readyTotal!.toLocaleString()} ${today.readyTotal === 1 ? "change" : "changes"} prepared for you` : null,
+    measuringCount > 0 ? `${measuringCount.toLocaleString()} measuring` : null,
+  ].filter((s): s is string => !!s);
 
   // The greeting's streak clause must never celebrate ("you are on a roll") on a screen that
   // also names a blocker or a page losing clicks. commandAllowsCelebration (today-command.ts)
@@ -350,6 +413,15 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           CTA above the fold. Subsumes and KILLS the old smoke-alarm card, lead-headline card,
           and the lead of the "What to do next" list, so two "do this" cards never shout at once. */}
       <TodayCommandCard command={command} />
+      {/* What today's round collected, what it still owes, and how much is open. Self hiding:
+          a number I do not hold prints nothing at all. */}
+      {researchStrip.length > 0 ? (
+        <p className="flex flex-wrap gap-1.5 text-[12px] tabular-nums text-muted-foreground" data-research-strip="true">
+          {researchStrip.map((s) => (
+            <span key={s} className="rounded-md border border-border px-2 py-0.5">{s}</span>
+          ))}
+        </p>
+      ) : null}
 
       {/* ── SLOT 3: measuring / results status ─────────────────────────────────────────────
           The scoreboard chart (the ONE place a clicks delta is stated, in its own

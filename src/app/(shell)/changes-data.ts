@@ -76,7 +76,7 @@ export function setAsideHint(n: number, toDo = 0): string {
   // "Nothing needs your time today" is FALSE with review work waiting, and it was printed above a To do tab.
   return `${setAsideClause(n)} ${toDo > 0
     ? `The ${toDo} ${toDo === 1 ? "idea" : "ideas"} still on your To do list are the ones I can back today.`
-    : "Nothing needs your time today: I am still checking your pages and I will rank your next change here as soon as one earns it."}`;
+    : "No change has cleared Ready yet. The research below is what I am doing about that, and the next one that earns it lands here."}`;
 }
 
 /** A STORED release is a photograph, and the bar may have moved since it was taken. Every row is put through the SAME one verdict the

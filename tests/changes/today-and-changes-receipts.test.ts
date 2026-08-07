@@ -56,7 +56,8 @@ describe("Today is in exactly one of four primary states", () => {
   it("researching names the retry DATE rather than claiming to check, and carries the run's own persisted numbers", () => {
     const waiting = buildTodayCommand({ ...base, waitingUntil: "2026-08-04T18:00:00.000Z", measuringCount: 2 });
     expect([waiting.headline.includes("waiting until August 4 to try them again"), /checking/i.test(waiting.headline), waiting.cta]).toEqual([true, false, null]);
-    expect(waiting.exactAction).toContain("There is nothing for you to do here today");
+    // NO CHANGE IS READY is the true claim; "there is nothing for you to do" is a claim about the whole account and it is false while work is open.
+    expect(waiting.exactAction).toContain("No change is ready for you to make yet");
     const c = buildTodayCommand({ ...base, measuringCount: 3, heldForMeasurement: 2,
       research: { running: true, phaseLabel: "reading the results pages for your strongest topics", checksDone: 7, checksTotal: 12, casesActive: 5 } });
     expect(c.headline).toBe("I am researching right now: reading the results pages for your strongest topics.");
@@ -66,6 +67,17 @@ describe("Today is in exactly one of four primary states", () => {
     const running = buildTodayCommand({ ...base, measuringCount: 4, investigating: 2, firstReadOn: "2026-08-12",
       research: { running: true, phaseLabel: "reading the results pages for your strongest topics" } });
     expect(running.why).toEqual(expect.arrayContaining(["4 of your changes are still measuring.", "The first read on those lands around August 12."])); });
+  // THE REVERSAL: a quiet sentence is a claim about the WHOLE account, so it may never be said over open topics, declining pages, or ideas waiting on the operator.
+  it("never concludes there is nothing to do while work is open, names the review backlog, and hands over three ranked moves when three exist", () => {
+    const open = [{ label: "iranian saffron", signal: "About 2,400 searches a month.", nextStep: "I am buying that one results page next.", href: "/changes#researching" }];
+    for (const c of [buildTodayCommand({ ...base, inResearch: open }), buildTodayCommand({ ...base, measuringCount: 6, research: { running: false }, inResearch: open }), buildTodayCommand({ ...base, waitingUntil: "2026-08-04T18:00:00.000Z", inResearch: open })]) {
+      expect(`${c.headline} ${c.exactAction} ${c.why.join(" ")}`, c.state).not.toMatch(/nothing for you to do|Nothing needs a decision|has moved enough to need a decision/i);
+      expect(c.inResearch.map((r) => r.label), c.state).toEqual(["iranian saffron"]); }
+    const backlog = buildTodayCommand({ ...base, measuringCount: 6, research: { running: false }, toDo: 20 }); // nothing researching, nothing declining, 20 ideas still waiting on them
+    expect([backlog.why[0], backlog.exactAction.includes("Start at the top of that list"), backlog.cta, /has moved enough to need a decision/.test(backlog.why.join(" ")), buildTodayCommand({ ...base, toDo: 1 }).why[0]])
+      .toEqual(["20 ideas are waiting for your review on Changes.", true, { label: "Review those ideas", href: "/changes" }, false, "1 idea is waiting for your review on Changes."]);
+    const three = buildTodayCommand({ ...base, readyTotal: 9, inResearch: open, readyChanges: [OPP, SECOND, { ...SECOND, changeId: "c3" }] });
+    expect([three.ranked.map((r) => r.changeId), three.inResearch.length]).toEqual([["c1", "c2", "c3"], 1]); });
   it("monitoring says every number it owes, and a cold account is never a bare zero", () => {
     // A proven loss nobody is working and an idea held back are facts, not present-tense work.
     const c = buildTodayCommand({ ...base, measuringCount: 6, heldForMeasurement: 2, firstReadOn: "2026-08-12", research: { running: false } });
@@ -76,6 +88,24 @@ describe("Today is in exactly one of four primary states", () => {
     const cold = buildTodayCommand(base); // nothing measuring, ready or running: still something true
     expect(cold.headline).toBe("I am still gathering evidence, and I will rank your next move here as soon as one earns it.");
     expect(cold.headline).not.toMatch(/\b0\b/); }); });
+
+// ── evidence controls an opportunity's STATE, never its existence. Fixtures carry only what the feed reads. ──
+const TOPIC = { key: "k1", label: "iranian saffron", demand: { monthlySearchVolume: 2400, gscImpressions: 900, trackedPrompts: 2, fanOuts: 5 }, keywords: [{}, {}], exactSerps: [], serpFreshness: "missing", pageType: "unknown", distinctWinners: 0, currentReadableWinners: 0, answerIntel: { answers: 12, latestObservedAt: null }, missingEvidence: ["I have not looked at Google's results for this yet."], diminishing: false, nextAcquisition: { kind: "buy_serp", subject: "saffron", why: "I have never looked at Google's results for this, so buying that one results page is what changes the answer." } };
+const DECAY = { page: "https://site.example/comedians", clicksNow: 12, clicksPrior: 175, impressionsNow: 900, impressionsPrior: 1200, positionNow: 14.2, positionPrior: 8.1, windowNowEnd: "2026-07-09" };
+const SHIPPED = { id: "s1", page: "https://site.example/saffron", path: "/saffron", actionType: "edit_title", shippedAt: "2026-07-01T00:00:00.000Z", implementedAt: "2026-07-01T00:00:00.000Z", verdict: "won" }, renderFeed = async (over: Record<string, unknown> = {}): Promise<string> => renderToStaticMarkup(createElement((await import("@/app/(shell)/changes/changes-feed")).ChangesFeed,
+  { view: viewOf([]), queue: null, investigations: [], decay: [], declineNotes: [], measuring: [], results: [], ...over } as never));
+describe("Changes shows every opportunity, and evidence decides only which lane it sits in", () => {
+  it("renders the open topic, every losing page, the ideas I set aside and the ledger, each with its own next step and its own honest count", async () => { // M3: a count computed apart from its own list is a contradiction waiting to ship
+    const html = await renderFeed({ investigations: [TOPIC], view: { ...viewOf([]), demotedStaleBasis: 21 }, results: [{ ...SHIPPED, id: "r1" }],
+      decay: [DECAY, ...Array.from({ length: 21 }, (_, i) => ({ ...DECAY, page: `https://site.example/p${i}`, clicksPrior: 30 + i }))],
+      measuring: Array.from({ length: 9 }, (_, i) => ({ ...SHIPPED, id: `m${i}`, verdict: "measuring" })) });
+    for (const s of ["Researching", "iranian saffron", "about 2,400 searches a month", "12 AI answers analyzed", "I have not looked at Google&#x27;s results for this yet.", "My next step:", "buying that one results page", "/comedians", "It lost 163 clicks against the 28 days before", "data through Jul 9", "reading its results pages next", "I set aside 21 earlier ideas", "I changed the title", "Jul 1", "still measuring", "it worked"]) expect(html, s).toContain(s);
+    const n = (re: RegExp) => Number((re.exec(html)?.[1] ?? "0").replace(/,/g, "")), rows = (a: string) => html.split(a).length - 1;
+    // Watching: 22 declining pages plus the set-aside row = 23, of which 6 + 1 render and 16 are named as more. Measuring 9 and Results 1 = 7 rendered and 3 named.
+    expect([n(/Watching ([\d,]+)</), rows('data-watching-row="true"'), n(/">([\d,]+) more pages? (?:is|are) down/), n(/Researching ([\d,]+)</), rows('data-researching-card="true"'), n(/Measuring ([\d,]+)</), n(/Results ([\d,]+)</), rows("data-ledger-row="), n(/See the other ([\d,]+) on Results/), /No changes yet|nothing for you to do/i.test(html)]).toEqual([23, 7, 16, 1, 1, 9, 1, 7, 3, false]); });
+  it("never dresses a one click wobble as a decline, and tells a failed ledger read apart from an account with nothing measuring", async () => {
+    const quiet = await renderFeed({ decay: [{ ...DECAY, clicksNow: 174 }] }), blind = await renderFeed({ ledgerRead: false });
+    expect([/It lost 1 click/.test(quiet), quiet.includes("Nothing is measuring yet."), blind.includes("I could not read what is measuring just now"), /Make the top ready change/.test(blind), /Measuring \d/.test(blind)]).toEqual([false, true, true, false, false]); }); });
 
 describe("a screen with losses on it never reads as all clear", () => {
   const quiet = { ...base, measuringCount: 6, research: { running: false } };
@@ -162,13 +192,6 @@ describe("a ranked card explains itself without being opened", () => {
       "Strong evidence", "it wins back more of what you are losing", "Put this aside"]) expect(html, s).toContain(s);
     expect(await renderList(viewOf([atomic()]))).toContain("One edit"); // one component is one edit, never a bundle
   });
-  // PIN (B, F6): "Implemented 0 · Measuring 0 · Results 0" told a quiet account nothing and asked nothing.
-  it("tells a quiet account what is not moving yet, and shows only the counts that exist", async () => {
-    const quiet = await renderList(viewOf([proposal()])); const view = viewOf([proposal()]);
-    expect(quiet).toContain("Nothing implemented yet. Ship your first ready change and I start measuring it.");
-    expect(quiet).not.toMatch(/Implemented 0|Measuring 0|Results 0/);
-    const moving = await renderList({ ...view, summary: { ...view.summary, measuring: 2 } });
-    expect([moving.includes("Measuring 2"), /Implemented 0|Results 0/.test(moving)]).toEqual([true, false]); });
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {
     const html = await renderList(viewOf([proposal()]));
     for (const s of ["Canonical tag", "changes where the page lives or whether people can find it",

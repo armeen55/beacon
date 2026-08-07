@@ -6,12 +6,17 @@ import { redirect } from "next/navigation";
 import { requireReadyAccount } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import { PageHeader } from "@/components/data/page-header";
-import { loadChangesView, setAsideHint } from "../changes-data";
+import { loadChangesView, setAsideHint, type ChangesView } from "../changes-data";
 import { ChangesListClient } from "../changes-list-client";
-import { loadWithDeadline } from "@/lib/load-with-deadline";
+import { ChangesFeed } from "./changes-feed";
+import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { checkedAgoLabel } from "@/components/data/receipt-line";
 import { HonestDelay } from "@/components/honest-delay";
 import { serverNowMs } from "@/lib/server-clock";
+import { buildTopicInvestigations, loadEvidenceSnapshot, loadGscDecaySignalsForTenant, type TopicInvestigation } from "@/domains/evidence";
+import { loadProofLedgerCached } from "@/domains/measurement";
+import { splitLedgerLifecycle } from "@/domains/decision";
+import { readCustomerSurface } from "../surface-release";
 
 /** /changes -> the canonical CHANGES list. One object, a CHANGE, across one lifecycle (suggested -> ready ->
  *  apply -> verify -> measuring -> result), shown as one compact list with two lanes. The queue is unlimited
@@ -21,20 +26,12 @@ import { serverNowMs } from "@/lib/server-clock";
 // never strand a Suspense fallback or hold the HTTP stream open. Rebuilding never turns navigation into a wait.
 const MAIN_LIST_DEADLINE_MS = 5_000;
 
-// Exported for the render pin in changes-empty-vs-building.test.tsx (both empty-state
-// copies must stay distinct); the router only consumes the default export below.
-export async function ChangesSection() {
-  const raced = await loadWithDeadline(loadChangesView(), MAIN_LIST_DEADLINE_MS).catch(() => null);
-  if (raced == null) {
-    return <HonestDelay message="Couldn’t load your saved changes just now. Beacon is retrying automatically." />;
-  }
-  if (raced.timedOut) return <HonestDelay />;
-  const view = raced.data;
+/** THE RANKED QUEUE SLOT: the Ready and Needs review lanes, or the honest reason there is
+ *  nothing in them. This is the ONLY part of the screen an empty queue may empty; everything
+ *  under it (researching, watching, measuring, results) renders regardless, because a queue with
+ *  no Ready change in it is never the same thing as an account with nothing happening. */
+function QueueSlot({ view }: { view: ChangesView }) {
   if (view.proposals.length === 0) {
-    // A RELEASE I COULD NOT READ IS NOT AN EMPTY QUEUE AND NOT A FIRST-EVER LOAD.
-    if (view.releaseUnreadable) {
-      return <HonestDelay message="I could not read your saved changes just now, so I am not showing you an empty list. Beacon is checking again automatically." />;
-    }
     // W2-B - distinguish a COLD first-ever render (the SWR snapshot is building in
     // the background) from a genuinely empty list. Never claim "no changes" while
     // the rebuild is still running.
@@ -59,8 +56,8 @@ export async function ChangesSection() {
       );
     }
     return (
-      <p className="rounded-2xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
-        No changes yet. I am still researching your site, and your ranked changes land here as I finish.{" "}
+      <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-6 text-[13px] leading-relaxed text-muted-foreground">
+        No change has cleared Ready yet, and the work below is what I am doing about that.{" "}
         <Link href="/settings/connectors" className="underline underline-offset-2">Connecting Google Search Console</Link>{" "}
         gets me there faster.
       </p>
@@ -76,11 +73,72 @@ export async function ChangesSection() {
           I ranked these {rankedAgo}. I refresh them in the background.
         </p>
       ) : null}
-      {/* W2-B PAYLOAD - the client board gets SLIM move summaries only (the full
-          dossiers stay server-side in the SWR snapshot; a row's detail loads its
-          full TodayMove on demand via loadMoveDetailAction). */}
       <ChangesListClient view={view} />
     </div>
+  );
+}
+
+/** EVERY LANE'S OWN EVIDENCE, loaded once, $0, deadline bounded and fail soft. The research
+ *  packets come off the same cached snapshot the producers read (no provider call), the
+ *  declining pages off the same decay read Today uses, and the measuring and results rows off
+ *  the SAME ledger split the counts come from, so a lane can never disagree with its own count. */
+async function loadLanes(tenantId: string) {
+  const [investigations, decayMap, ledger, release] = await Promise.all([
+    valueWithDeadline(
+      loadEvidenceSnapshot(tenantId).then(buildTopicInvestigations).catch(() => [] as TopicInvestigation[]),
+      [] as TopicInvestigation[],
+      MAIN_LIST_DEADLINE_MS,
+    ),
+    valueWithDeadline(loadGscDecaySignalsForTenant(tenantId, new Date()).catch(() => new Map()), new Map(), MAIN_LIST_DEADLINE_MS),
+    // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER, and a deadline that lost is not a read
+    // that landed. The verdict travels with the rows so the lanes below can tell the operator
+    // which of the two happened instead of instructing an account with 25 results to ship its first change.
+    valueWithDeadline(
+      loadProofLedgerCached(tenantId).then((rows) => ({ rows, read: true })).catch(() => ({ rows: [] as Awaited<ReturnType<typeof loadProofLedgerCached>>, read: false })),
+      { rows: [] as Awaited<ReturnType<typeof loadProofLedgerCached>>, read: false }, MAIN_LIST_DEADLINE_MS,
+    ),
+    valueWithDeadline(readCustomerSurface(tenantId).catch(() => null), null, MAIN_LIST_DEADLINE_MS),
+  ]);
+  const bands = splitLedgerLifecycle(ledger.rows, new Date());
+  const today = release?.today?.today;
+  return {
+    ledgerRead: ledger.read,
+    investigations,
+    decay: Array.from((decayMap as Map<string, Parameters<typeof ChangesFeed>[0]["decay"][number]>).values()),
+    declineNotes: today?.declineNotes ?? [],
+    heldForMeasurement: today?.heldForMeasurement ?? 0,
+    // A pre 28 day improvement is still in flight, exactly as countLedgerLifecycle counts it.
+    measuring: [...bands.measuring, ...bands.promising],
+    results: [...bands.won, ...bands.learned],
+  };
+}
+
+// Exported for the render pins in tests/changes (the empty-state copies must stay distinct);
+// the router only consumes the default export below.
+export async function ChangesSection() {
+  const raced = await loadWithDeadline(loadChangesView(), MAIN_LIST_DEADLINE_MS).catch(() => null);
+  if (raced == null) {
+    return <HonestDelay message="Couldn’t load your saved changes just now. Beacon is retrying automatically." />;
+  }
+  if (raced.timedOut) return <HonestDelay />;
+  const view = raced.data;
+  // A RELEASE I COULD NOT READ IS NOT AN EMPTY QUEUE AND NOT A FIRST-EVER LOAD.
+  if (view.proposals.length === 0 && view.releaseUnreadable) {
+    return <HonestDelay message="I could not read your saved changes just now, so I am not showing you an empty list. Beacon is checking again automatically." />;
+  }
+  const lanes = await loadLanes(await currentTenantId()).catch(() => null);
+  return (
+    <ChangesFeed
+      view={view}
+      queue={<QueueSlot view={view} />}
+      investigations={lanes?.investigations ?? []}
+      decay={lanes?.decay ?? []}
+      declineNotes={lanes?.declineNotes ?? []}
+      measuring={lanes?.measuring ?? []}
+      results={lanes?.results ?? []}
+      heldForMeasurement={lanes?.heldForMeasurement ?? 0}
+      ledgerRead={lanes?.ledgerRead ?? false}
+    />
   );
 }
 
@@ -102,7 +160,7 @@ export default async function WorklistPage() {
     <div className="max-w-5xl space-y-6">
       <PageHeader
         title="Changes"
-        description="Your ranked execution queue. An idea moves to Ready only after its exact edit passes evidence and safety checks."
+        description="Everything I am doing for you, in one ranked list: what is ready, what needs your review, what I am researching, what I am watching, and what I am measuring. An idea reaches Ready only after its exact edit passes evidence and safety checks."
       />
       <Suspense fallback={<ChangesListFallback />}>
         <ChangesSection />

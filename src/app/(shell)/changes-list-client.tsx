@@ -23,12 +23,6 @@ const RISK_LABEL: Record<ChangeProposal["riskLevel"], string> = { low: "Low risk
 /** How much comparison evidence stands behind the change, in the same words Today uses for the field. */
 const EVIDENCE_LABEL: Record<ChangeProposal["confidence"], string> = { high: "Strong evidence", medium: "Early evidence", low: "Still building evidence" };
 
-/** WHAT IS ALREADY MOVING, never a row of bare zeros: "Implemented 0 · Measuring 0 · Results 0" told a quiet account nothing, so an account with nothing in flight gets one sentence and the next step, and one with something in flight sees only the parts with a number behind them. */
-const flowLine = (v: ChangesView, s = v.summary): string => v.countsUnavailable
-  ? "I could not read what is measuring just now, so I am not showing you a count I cannot stand behind. I am retrying automatically."
-  : ([["Implemented", s.implemented], ["Measuring", s.measuring], ["Results", s.results]] as const)
-    .filter(([, n]) => n > 0).map(([what, n]) => `${what} ${n}`).join(" · ") || "Nothing implemented yet. Ship your first ready change and I start measuring it.";
-
 /** THE TWO-STEP HOLD, in the operator's words, off the ONE canonical rule: the grade, the kind, or a correction to a high-stakes fact. A
  *  copy of it here read the grade alone and missed the other two. */
 const dangerousParts = (bundle: ChangeBundle | undefined): string[] =>
@@ -79,11 +73,8 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
           Ready {countOf("ready")}
         </TabButton>
         <TabButton active={tab === "todo"} onClick={() => setTab("todo")}>
-          To do {countOf("todo")}
+          Needs review {countOf("todo")}
         </TabButton>
-        <Link href="/results" className="ml-auto rounded-md border border-border px-3 py-1.5 text-muted-foreground hover:text-foreground">
-          {flowLine(view)}
-        </Link>
       </div>
 
       {tab === "ready" && view.ready.length === 0 && view.readyZeroHint ? (

@@ -57,6 +57,18 @@ export const loadGscWeeklyLens = cache(
   },
 );
 
+/** THE ROWS THEMSELVES, newest week and the week before it, for the surface that shows the table rather
+ *  than the sentence. Same store and same snapshots the lens above reads, so a table and a line about the
+ *  same week can never quote different numbers. Null = no week stored yet, which the surface says out loud. */
+export const loadGscWeeklyRows = cache(
+  async (
+    tenantId: string,
+  ): Promise<{ now: GscWeeklyDimensionsSnapshot; prior: GscWeeklyDimensionsSnapshot | null } | null> => {
+    const rows = await loadSnapshots(tenantId);
+    return rows[0] ? { now: rows[0], prior: rows[1] ?? null } : null;
+  },
+);
+
 /** The device click-gap trigger's pure input. Null = predicate abstains. */
 export const loadGscDeviceCtrGapSignal = cache(
   async (tenantId: string): Promise<DeviceCtrGapSignal | null> => {

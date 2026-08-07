@@ -33,7 +33,10 @@ import {
 import { log } from "@/lib/logger";
 
 const STORE_NAME = "llm-budget";
-const DEFAULT_CAP_USD = 10;
+// 30, not 10: at the repaired readback throughput (up to 40 pieces a pass) the account's whole month of
+// reading, drafting and synthesis runs $10 to $15, and a cap the normal month exhausts fails closed as a
+// silent blocked_budget. The ledger stays the authority and every call still reserves before it spends.
+const DEFAULT_CAP_USD = 30;
 
 /** Platform tag for pre-activation onboarding spend in the durable ledger. */
 const ONBOARDING_PLATFORM = "onboarding-openai" as const;

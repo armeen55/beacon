@@ -151,7 +151,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
   beforeEach(() => vi.clearAllMocks());
   it("says how many ideas I set aside, why, and what happens next", async () => {
     const html = await renderChanges(emptyView(21));
-    for (const said of ["I set aside 21 earlier ideas that no longer clear it", "I am still checking your pages", "I will rank your next change here as soon as one earns it"]) expect(html).toContain(said);
+    for (const said of ["I set aside 21 earlier ideas that no longer clear it", "No change has cleared Ready yet", "the next one that earns it lands here"]) expect(html).toContain(said);
     expect(html).not.toMatch(/No changes yet|error|sorry|oops/i);
     // A bar I could not READ is not a bar I raised, so that case may not claim one.
     expect(await renderChanges({ ...emptyView(21), basisUnreadable: true })).not.toContain("I set aside 21"); });

@@ -34,7 +34,7 @@ vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...(await orig<Record<s
     return q; } }) }));
 
 describe("Today renders, and tells the truth about its own queue", () => {
-  it.each([["@/app/(shell)/page", ["max-w-3xl", 'aria-label="Loading today"']], ["@/app/(shell)/changes/page", ["Changes", "ranked execution queue"]],
+  it.each([["@/app/(shell)/page", ["max-w-3xl", 'aria-label="Loading today"']], ["@/app/(shell)/changes/page", ["Changes", "in one ranked list"]],
     ["@/app/(shell)/results/page", ["Results", "7, 14, and 28 days"]]] as const)("renders the %s frame without throwing", async (mod, claims) => {
     const { default: Page } = await import(mod) as { default: (a?: unknown) => Promise<ReactElement> };
     const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
@@ -85,7 +85,8 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
     const empty = { ready: [], toDo: [], measuringCountCanonical: 0, proposals: [] } as unknown as import("@/app/(shell)/changes-data").ChangesView;
     expect(buildTodayViewFromChanges(empty, { outcome: "actionable_but_no_trusted_draft" }).headerSentence).toBe(STILL_CHECKING);
-    expect(buildTodayViewFromChanges(empty).headerSentence).toContain("Nothing needs a decision today."); }); // a genuinely quiet day still reads quiet
+    // A QUIET QUEUE IS NOT A QUIET ACCOUNT: the only claim a day with no Ready change may make is that no change is Ready.
+    expect(buildTodayViewFromChanges(empty).headerSentence).toBe("No change is ready for you to make today. I say below what I am researching and what I am watching, and I rank your next move here the moment one earns it."); });
   it("points a bleeding page at its own ready fix, and never at a route that does not exist", async () => {
     const { buildTodaySmokeAlarm } = await import("@/components/today/today-smoke-alarm");
     const decay = [{ page: "https://site.example/nowruz", clicksNow: 10, clicksPrior: 60 }];

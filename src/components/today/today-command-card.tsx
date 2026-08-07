@@ -17,7 +17,7 @@ import Link from "next/link";
 
 import { Card } from "@/components/ui/card";
 import { Pill, type PillIntent } from "@/components/ui/pill";
-import type { TodayCommand, TodayPrimaryState } from "@/domains/measurement/today/today-command";
+import type { TodayCommand, TodayOpportunity, TodayPrimaryState } from "@/domains/measurement/today/today-command";
 
 /** Card surface per state: a blocker rides the danger surface, a ready change rides the
  *  default card, and the two waiting states ride the calm quiet surface. */
@@ -35,6 +35,14 @@ const STATE_PILL: Record<TodayPrimaryState, { intent: PillIntent; label: string 
   act_now: { intent: "neutral", label: "Act now" },
   researching: { intent: "measuring", label: "Researching" },
   monitoring: { intent: "measuring", label: "Monitoring" },
+};
+
+/** How much comparison evidence stands behind one ranked move, in the plainest words the
+ *  product uses for the field anywhere. */
+const EVIDENCE_WORD: Record<TodayOpportunity["evidenceStrength"], string> = {
+  strong: "strong evidence",
+  directional: "early evidence",
+  tracking: "still building evidence",
 };
 
 export function TodayCommandCard({ command }: { command: TodayCommand }) {
@@ -76,19 +84,57 @@ export function TodayCommandCard({ command }: { command: TodayCommand }) {
             {command.losingNote}
           </p>
         ) : null}
-        {/* The ranked queue behind the headline: the next two changes, each with the ranker's
-            own sentence for why it sits below the one above it. */}
-        {command.ranked.length > 1 ? (
-          <ol className="space-y-2 border-t border-border/60 pt-3" data-command-ranked="true">
+        {/* THE THREE SMARTEST MOVES, best first. Each one states the page, the problem it
+            solves, the size of it, how much evidence stands behind it, what it costs in
+            minutes, and opens its own row on Changes. A move nobody can size and nobody can
+            open is a chore, not a recommendation. */}
+        {command.ranked.length > 0 ? (
+          <ol className="space-y-3 border-t border-border/60 pt-3" data-command-ranked="true">
             {command.ranked.map((r, i) => (
-              <li key={r.changeId} className="space-y-0.5">
-                <p className="break-words text-body text-foreground">
+              <li key={r.changeId} className="space-y-1">
+                <p className="break-words text-body font-semibold text-foreground">
                   <span className="tabular-nums text-muted-foreground">{i + 1}. </span>
                   {r.recommendation}
                 </p>
+                <p className="break-words text-meta text-muted-foreground">
+                  {r.pageLabel} · ready to make · about {r.estimatedEffortMinutes} minute
+                  {r.estimatedEffortMinutes === 1 ? "" : "s"} · {EVIDENCE_WORD[r.evidenceStrength]}
+                  {r.upside != null && Number.isFinite(r.upside) && r.upside > 0
+                    ? ` · about ${Math.round(r.upside).toLocaleString()} clicks a month behind pages at a similar position`
+                    : ""}
+                </p>
+                {r.problem ? <p className="break-words text-meta text-muted-foreground">{r.problem}</p> : null}
                 {r.whyRankedAboveNext ? (
                   <p className="break-words text-meta text-muted-foreground">{r.whyRankedAboveNext}</p>
                 ) : null}
+                <Link
+                  href={`/changes/${encodeURIComponent(r.changeId)}`}
+                  className="inline-flex text-meta font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+                >
+                  Open this change &rarr;
+                </Link>
+              </li>
+            ))}
+          </ol>
+        ) : null}
+        {/* WHAT IS REAL BUT NOT YOURS TO DO YET. This is the difference between an account that
+            looks idle and an account that can see itself being worked. */}
+        {command.inResearch.length > 0 ? (
+          <ol className="space-y-2 border-t border-border/60 pt-3" data-command-research="true">
+            {command.inResearch.map((r) => (
+              <li key={r.label} className="space-y-0.5">
+                <p className="break-words text-body text-foreground">
+                  <span className="text-muted-foreground">In research: </span>
+                  {r.label}
+                </p>
+                <p className="break-words text-meta text-muted-foreground">{r.signal}</p>
+                <p className="break-words text-meta text-muted-foreground">My next step: {r.nextStep}</p>
+                <Link
+                  href={r.href}
+                  className="inline-flex text-meta font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+                >
+                  See it on Changes &rarr;
+                </Link>
               </li>
             ))}
           </ol>

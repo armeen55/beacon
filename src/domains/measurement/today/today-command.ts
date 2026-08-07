@@ -42,6 +42,9 @@ export type TodayOpportunity = {
   /** WHY THIS SITS WHERE IT SITS, stamped by the ONE ranker (rank-proposals) and rendered
    *  rather than recomputed. Absent on the last ranked row, which has nothing below it. */
   whyRankedAboveNext?: string;
+  /** THE PROBLEM THIS SOLVES, in the proposal's own sentence. A move with no problem on it is a
+   *  chore; the operator deserves to read what it is for before doing it. */
+  problem?: string;
 };
 
 /** The four states Today may be in. There is no fifth, and no two at once. */
@@ -59,6 +62,11 @@ export type TodayCommand = {
   cta: { label: string; href: string } | null;
   /** The top three ranked changes. Only `act_now` ever carries any. */
   ranked: TodayOpportunity[];
+  /** THE WORK THAT IS REAL BUT NOT YET A CHANGE: the topics I am buying evidence on and the
+   *  pages I am watching, best first. It renders in EVERY state except a blocker, because an
+   *  account holding open topics and declining pages must never read as an account with nothing
+   *  happening. Empty only when there genuinely is nothing open. */
+  inResearch: { label: string; signal: string; nextStep: string; href: string }[];
   /** A page or a whole site losing clicks, in one sentence, whatever the state.
    *  Null only when nothing is actually losing. */
   losingNote: string | null;
@@ -117,6 +125,13 @@ export type TodayCommandInput = {
   heldForMeasurement?: number;
   /** Proven losses whose cause I am still identifying. */
   investigating?: number;
+  /** THE BACKLOG WAITING ON A HUMAN LOOK (the Needs review lane's own total). A quiet-day
+   *  sentence is a claim about the WHOLE account, so it may not be said over ideas that are
+   *  sitting there waiting for the operator; every state that could go quiet names this first. */
+  toDo?: number;
+  /** The ranked open work that is not a change yet (topics being researched, pages being
+   *  watched), already ordered and capped by the caller. */
+  inResearch?: readonly { label: string; signal: string; nextStep: string; href: string }[];
 };
 
 /**
@@ -188,6 +203,15 @@ function losingNoteOf(input: TodayCommandInput): string | null {
 
 // ── the four states ───────────────────────────────────────────────────────────
 
+/** The open work, best first, capped at three. Rendered in every state but a blocker. */
+const openWork = (input: TodayCommandInput): TodayCommand["inResearch"] => (input.inResearch ?? []).slice(0, 3).map((r) => ({ ...r }));
+
+/** The backlog sentence, or null when the Needs review lane really is empty. */
+function reviewLine(input: TodayCommandInput): string | null {
+  const n = input.toDo ?? 0;
+  return n > 0 ? `${n} ${plural(n, "idea is", "ideas are")} waiting for your review on Changes.` : null;
+}
+
 /** 1. Something blocks me, so the numbers on this screen are not trustworthy yet. */
 function needsAttention(input: TodayCommandInput): TodayCommand {
   return {
@@ -197,6 +221,7 @@ function needsAttention(input: TodayCommandInput): TodayCommand {
     exactAction: "Fix the one flagged above, then refresh so I can trust the numbers again.",
     cta: { label: "Fix this now", href: input.blockerHref ?? "/settings/connectors" },
     ranked: [],
+    inResearch: [],
     losingNote: losingNoteOf(input),
   };
 }
@@ -230,6 +255,7 @@ function actNow(input: TodayCommandInput): TodayCommand {
     exactAction: `Open ${top.pageLabel} on Changes to make this change.`,
     cta: { label: "See the change", href: CHANGES_HREF },
     ranked,
+    inResearch: openWork(input),
     losingNote: losingNoteOf(input),
   };
 }
@@ -274,19 +300,32 @@ function researching(input: TodayCommandInput): TodayCommand {
     const read = usableDay(input.firstReadOn);
     if (read) why.push(`The first read on those lands around ${dayLabel(read)}.`);
   }
+  const open = openWork(input);
+  const review = reviewLine(input);
+  if (review) why.unshift(review);
+  if (open.length > 0) {
+    why.push(`${open.length === 1 ? "1 topic is" : `${open.length} topics are`} open below, with what I hold and what I am buying next on each.`);
+  }
   if (why.length === 0) why.push("My next daily round picks this back up, and nothing here needs you first.");
 
+  // NOT "there is nothing for you to do". That sentence is false on an account holding open
+  // topics, declining pages and a backlog, and it is the one line that makes a working system
+  // read as a broken one. NO CHANGE BEING READY is a true and much smaller claim, so it is the
+  // one I make, and the work in flight is named right under it.
   return {
     state: "researching",
     headline,
     why: why.slice(0, 5),
-    // NOT "give me one more research pass". That asked the operator for something they cannot
-    // give and hid whether I would ever return to it.
-    exactAction: waiting
-      ? `There is nothing for you to do here today. I retry those pages myself from ${dayLabel(waiting)} and rank whatever they earn on Changes.`
-      : "There is nothing for you to do here today. I carry this forward and rank whatever it earns on Changes.",
-    cta: null,
+    exactAction: review
+      ? `No change is ready to apply yet. ${review} Start at the top of that list: I ranked it.`
+      : waiting
+        ? `No change is ready for you to make yet. I retry those pages myself from ${dayLabel(waiting)} and rank whatever they earn on Changes.`
+        : "No change is ready for you to make yet. Here is what I am working on, and it lands on Changes the moment it earns a change.",
+    cta: review || open.length > 0
+      ? { label: review ? "Review those ideas" : "See what I am working on", href: CHANGES_HREF }
+      : null,
     ranked: [],
+    inResearch: open,
     losingNote: losingNoteOf(input),
   };
 }
@@ -312,15 +351,31 @@ function monitoring(input: TodayCommandInput): TodayCommand {
   if (held > 0) {
     why.push(`I am holding ${held} new ${plural(held, "idea", "ideas")} back because ${plural(held, "that page", "those pages")} already ${plural(held, "carries", "carry")} a change I am measuring.`);
   }
-  why.push("Nothing I am tracking has moved enough to need a decision from you.");
-  why.push("I will tell you the moment one of them needs one.");
+  const open = openWork(input);
+  const review = reviewLine(input);
+  // AN ALL CLEAR IS A CLAIM, AND IT NEEDS AN EMPTY BOARD BEHIND IT. Saying nothing has moved
+  // enough to need a decision, over topics I am actively buying evidence on OR over ideas
+  // sitting in the review lane, told the operator their account was idle while I was working
+  // it and while work of their own was waiting. The dead end sentence needs BOTH to be empty.
+  if (review) why.unshift(review);
+  if (open.length > 0) {
+    why.push(`${open.length === 1 ? "1 topic is" : `${open.length} topics are`} open below, and I rank whatever they earn on Changes.`);
+  } else if (!review) {
+    why.push("Nothing I am tracking has moved enough to need a decision from you.");
+    why.push("I will tell you the moment one of them needs one.");
+  }
   return {
     state: "monitoring",
     headline: `${n} ${plural(n, "change is", "changes are")} live and measuring.`,
     why: why.slice(0, 5),
-    exactAction: "Check back tomorrow, or look at what is measuring.",
-    cta: { label: "See what's measuring", href: "/results" },
+    exactAction: review
+      ? `${review} Start at the top of that list: I ranked it.`
+      : open.length > 0
+        ? "No change is ready for you to make today. The research listed here is mine to finish, not yours."
+        : "Check back tomorrow, or look at what is measuring.",
+    cta: review ? { label: "Review those ideas", href: CHANGES_HREF } : { label: "See what's measuring", href: "/results" },
     ranked: [],
+    inResearch: open,
     losingNote: losingNoteOf(input),
   };
 }
