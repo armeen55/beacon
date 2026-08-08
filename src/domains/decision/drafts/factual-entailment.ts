@@ -1,58 +1,14 @@
 /**
- * factual-entailment (BEACON 500 item N8, 2026-07-02, Quality Constitution law 3:
- * "nothing ships unless it ... passes factual entailment against the page's own
- * sources"). A PURE, deterministic gate that answers one question about a draft:
- * is every factual claim in this text actually backed by something Beacon can
- * point to, the page's own stored body, the evidence packet, the query, or a
- * dated authoritative source, OR is it simply invented from nothing?
+ * factual-entailment: a PURE, deterministic check that every checkable assertion in a draft is GROUNDED in
+ * something this pass actually holds: the target page's own stored body, the evidence text handed to the
+ * drafter, or the query itself. Numbers and dates, named entities and superlatives are the three things a
+ * model invents most readily and a reader can least easily catch.
  *
- * OPERATOR CORRECTION (2026-07-02): the page itself can be stale or wrong, and
- * fixing that is Beacon's job, not something this gate should block. So the
- * page's own body is NOT the final word, it is one grounding source among
- * several, and a claim that CONTRADICTS the page is only a problem when
- * NOTHING backs it up. The rule:
- *   - A claim found nowhere (not on the page, not in the evidence packet, not
- *     in a dated source, not in the query) is an UNSUPPORTED INVENTION - a
- *     "violation". Blocks auto-publish.
- *   - A claim that contradicts the page's own text but IS backed by a dated,
- *     sourced fact (an `AuthoritativeFact` with a `source` and a `date`) is an
- *     ALLOWED CORRECTION, not a violation. It is reported separately, with the
- *     exact source + date, so the caller can render "This draft updates 'X' to
- *     'Y' based on <source>, <date>. Your page currently says 'X'." Corrections
- *     may auto-publish; inventions never do.
- *   - The same principle covers superlatives: a sourced, dated superlative is
- *     a correction (or simply grounded), never a violation.
- *
- * This EXTENDS the existing numeric-fidelity firewall (grep "invented_numbers" -
- * `structured-drafter.ts`'s `runContentFirewalls`, `llm-answer-block.ts`) rather
- * than duplicating it: same grounded-number extraction approach (strip thousands
- * separators, allow year-adjacent numbers, allow the 7/14/28 proof-window
- * constants), but widened to accept FOUR grounding sources - page body, evidence
- * text, query, and dated authoritative facts - instead of just the LLM's own
- * prompt input. Those firewalls run at LLM-draft time against the prompt; this
- * one runs again, later, against the page's REAL stored content (page_snapshots
- * body_paragraph_sample, N19) plus any dated facts the caller supplies, so a
- * number that was "grounded" against a hallucinated brief but never actually
- * appears anywhere real still gets caught before publish, while a genuine,
- * sourced correction to stale page content is never blocked.
- *
- * Three checks, each producing either a "correction" or a "violation" finding:
- *   1. Numbers/dates - every multi-digit number in the draft must appear
- *      (allowing thousands-separator/year/proof-window normalization) in the
- *      page body, the evidence text, the query, or a dated authoritative fact.
- *   2. Named entities - every capitalized multi-word span (proper-noun-shaped)
- *      in the draft must appear in the page body, the query, the evidence, or
- *      a dated authoritative fact.
- *   3. Superlatives ("the largest", "the first", "the only") require a source
- *      sentence: the same superlative phrase must be findable in the page
- *      body, the evidence, or a dated authoritative fact.
- *
- * No I/O, no LLM, no randomness, same input always produces the same output.
- * Callers own loading the page body / evidence text / authoritative facts (see
- * factual-entailment-store.ts for the one I/O helper, which mirrors
- * answer-alignment-store.ts's already-proven page_snapshots read).
+ * TWO OUTCOMES, AND ONLY ONE OF THEM BLOCKS. A VIOLATION is an assertion with no grounding anywhere: the draft
+ * is unverified and its copy is withheld. A CORRECTION is a dated, sourced statement that contradicts what the
+ * page says today, which is the whole point of some changes, so it is surfaced WITH the draft rather than used
+ * to reject it. No LLM, no I/O, no clock beyond the date the caller supplies.
  */
-
 /** A dated, sourced fact Beacon already has on file (a connector row, a stored
  *  source, an evidence-packet entry with real provenance) - NOT the page's own
  *  text, which is handled separately via `pageBodyText`. Any claim backed by

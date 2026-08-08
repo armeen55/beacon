@@ -221,7 +221,7 @@ function ResearchingCard({ inv, rankReason }: { inv: TopicInvestigation; rankRea
  * component, which owns paging, set aside and mark implemented); everything under it is the
  * work that is real but not yet a change you can make.
  */
-export function ChangesFeed({ view, queue, investigations, decay, declineNotes, measuring, results, heldForMeasurement = 0, ledgerRead = true }: {
+export function ChangesFeed({ view, queue, investigations, decay, declineNotes, measuring, results, heldForMeasurement = 0, ledgerRead = true, evidenceRead = true }: {
   view: ChangesView;
   queue: ReactNode;
   investigations: readonly TopicInvestigation[];
@@ -235,6 +235,9 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
    *  measuring: printing "make your first change" to an operator holding 25 results is the
    *  worst lie this screen can tell, and the counts it cannot stand behind stay off the strip. */
   ledgerRead?: boolean;
+  /** FALSE when the evidence behind Researching and Watching could not be read. Absence of a source is not an
+   *  account with nothing open: the two lanes say which of the two happened and their counts stay off the strip. */
+  evidenceRead?: boolean;
 }) {
   // RANKED, AND THE ORDER SAYS WHY. Weight is the one defensible number behind the topic, so
   // the sentence under each card compares it with the card below rather than asserting a rank.
@@ -264,6 +267,10 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
   // A COUNT I COULD NOT READ IS NOT A ZERO AND NOT A NUMBER: it is withheld, and the lane says why.
   const ledgerCounts: [string, number][] = ledgerRead && !view.countsUnavailable
     ? [["Measuring", measuring.length], ["Results", results.length]] : [];
+  const openCounts: [string, number][] = evidenceRead === false ? [] : [["Researching", ranked.length], ["Watching", watchingCount]];
+  const couldNotRead = evidenceRead === false
+    ? <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-4 text-[13px] leading-relaxed text-muted-foreground">I could not read your Google search data just now, so I am not showing you an empty list. Nothing here has been dropped and I am checking again automatically.</p>
+    : null;
 
   return (
     <div className="space-y-8" data-changes-feed="true">
@@ -271,8 +278,7 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
         counts={[
           ["Ready", view.summary.ready],
           ["Needs review", view.summary.todo],
-          ["Researching", ranked.length],
-          ["Watching", watchingCount],
+          ...openCounts,
           ...ledgerCounts,
         ]}
       />
@@ -282,7 +288,7 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
       </Lane>
 
       <Lane title="Researching" blurb="Topics I am actively buying evidence on. None of these is a change yet, and I say exactly what I am still missing on each one.">
-        {shownResearch.length === 0 ? (
+        {couldNotRead ?? (shownResearch.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-4 text-[13px] leading-relaxed text-muted-foreground">
             I have no topic open right now. My next daily round opens the strongest one it finds and it lands here.
           </p>
@@ -296,7 +302,7 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
               return <ResearchingCard key={inv.key} inv={inv} rankReason={reason} />;
             })}
           </ol>
-        )}
+        ))}
         {ranked.length > shownResearch.length ? (
           <p className="text-[12px] tabular-nums text-muted-foreground">
             {ranked.length - shownResearch.length} more {plural(ranked.length - shownResearch.length, "topic is", "topics are")} open under these, and I work them in this order.
@@ -305,6 +311,7 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
       </Lane>
 
       <Lane title="Watching" blurb="Pages and ideas I am holding rather than acting on, each with the reason I am holding it. Nothing here is deleted and nothing here is forgotten.">
+        {couldNotRead}
         <ul className="space-y-2">
           {shownWatch.map((d) => {
             const note = judged.get(prettyPage(d.page)) ?? judged.get(d.page) ?? null;

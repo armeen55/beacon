@@ -23,6 +23,8 @@ import { synthesizeCases } from "@/domains/decision/case-synthesis";
 import { buildTopicInvestigations, reconcileResearchCases } from "@/domains/evidence/topic-investigation";
 import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
 import { continueColdStartCrawlIfStarted, startColdStartCrawl } from "@/domains/evidence/scanning/crawl-frontier";
+import { nextCrawlCandidates } from "@/domains/evidence/scanning/owned-pages-store";
+import { loadGscDecaySignalsForTenant } from "@/domains/evidence/readers/gsc-page-signals";
 import { getTenant } from "@/domains/account";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { shipmentBustedAt, verifyDueShipments } from "@/domains/measurement/verify-shipment";
@@ -145,6 +147,17 @@ async function refineCases(tenantId: string, basis: string, snapshot: EvidenceSn
   await saveFunnelState(tenantId, basis, { ...state, cases: applied.cases }, rowVersion);
 }
 
+/** WHICH OF MY OWN PAGES GETS READ FIRST. The body store feeds every draft and the draft step refuses a page it has not read whole, so the pages the operator is actually waiting on are the ones losing clicks: a page under investigation whose body I never read produces nothing, however many results pages I buy for it. This does NOT change who is a candidate (the inventory still answers that in its own order, uncrawled then stale then blocked) and it can never add a page the inventory withheld; it only moves the DECLINING ones to the front of the batch that pass will read. One lean Search Console read, $0, and fail-soft: no readable decay is simply the inventory's own order, exactly as before. */
+const crawlKey = (u: string) => u.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/+$/, "").toLowerCase();
+async function decliningPagesFirst(tenantId: string): Promise<typeof nextCrawlCandidates> {
+  const decay = await loadGscDecaySignalsForTenant(tenantId).catch(() => null);
+  const losing = new Set([...(decay?.values() ?? [])].filter((d) => d.clicksNow < d.clicksPrior).map((d) => crawlKey(d.page)));
+  if (losing.size === 0) return nextCrawlCandidates;
+  // BOUND TO THE ACCOUNT THE DECLINE WAS READ FOR: a caller that ever hands this wrapper a different tenant gets the inventory's own order back, never another account's pages ranked over its own. Closing over the outer id alone left that a silent cross-tenant shape.
+  return async (t: string, limit: number, now?: Date) => { const urls = await nextCrawlCandidates(t, limit, now);
+    return t !== tenantId ? urls : [...urls.filter((u) => losing.has(crawlKey(u))), ...urls.filter((u) => !losing.has(crawlKey(u)))]; };
+}
+
 export const defaultSteps: ResearchCycleSteps = {
   async refreshSources(tenantId, now) {
     // autoRefreshStaleConnectorsForTenant is fail-soft PER SOURCE and returns one { ok } result per ATTEMPTED stale source, which is what the refresh_sources
@@ -174,12 +187,13 @@ export const defaultSteps: ResearchCycleSteps = {
   // an instance that got there first is loaded and continued rather than reset; unreachable is persisted truth
   // and stops here. Fail-soft throughout, and a site already read whole is still a no-op that advances.
   async crawlPages(tenantId) {
-    const first = await continueColdStartCrawlIfStarted(tenantId);
+    const deps = { pickCandidates: await decliningPagesFirst(tenantId) };
+    const first = await continueColdStartCrawlIfStarted(tenantId, deps);
     if (first.status !== "no_crawl" || first.detail !== "no_frontier_state") return first.crawled;
     const domain = (await getTenant(tenantId).catch(() => null))?.domain?.trim();
     if (!domain) return 0;
-    if ((await startColdStartCrawl({ tenantId, domain })).status === "unreachable") return 0;
-    return (await continueColdStartCrawlIfStarted(tenantId)).crawled; },
+    if ((await startColdStartCrawl({ tenantId, domain, deps })).status === "unreachable") return 0;
+    return (await continueColdStartCrawlIfStarted(tenantId, deps)).crawled; },
   async dayStanding(tenantId, day) { const c = await dailyChecks(tenantId, day);
     return c == null ? null : { done: c.done, total: c.total, answers: c.answers, unavailable: c.unavailable, unsupported: c.unsupported }; },
   // THE DAY THE FLEET CLAIM CANNOT SEE. claim_due_research_work excludes an account the moment ANY run completed today, so a pass that settled its batch and left

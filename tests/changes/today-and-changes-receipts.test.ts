@@ -2,7 +2,7 @@
  *  read as all clear; the ranked queue explains its own order; and a change detail hands over the whole investigation, the pieces picker and the override. Every test
  *  name states the promise it pins. Fixtures only. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderToStaticMarkup } from "react-dom/server"; import { createElement, type ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server"; import { createElement, type ReactElement } from "react"; import { readFileSync } from "node:fs";
 import { buildTodayCommand, commandAllowsCelebration, type TodayCommandInput, type TodayOpportunity } from "@/domains/measurement/today/today-command";
 import type { CauseFinding, ChangeProposal, RankedProposalQueue } from "@/domains/decision";
 import type { ChangesView } from "@/app/(shell)/changes-data";
@@ -27,34 +27,22 @@ const SECOND: TodayOpportunity = { ...OPP, changeId: "c2", pageLabel: "/haft-see
 const LOSING = { page: "/famous-iranian-comedians", pageKey: "/famous-iranian-comedians", clicksLost: 163,
   windowLabel: "the previous 4 weeks (data through Jul 9)", sentence: "", href: "/changes", actionLabel: "Open Changes", hasReadyFix: false };
 const base: TodayCommandInput = { blockers: [], smokeAlarm: null, scoreboardDeltaPct: null, readyChanges: [], firstReadOn: null, measuringCount: 0 };
-
-describe("Today is in exactly one of four primary states", () => {
+ describe("Today is in exactly one of four primary states", () => {
   // ONE state per day, whatever the signals, and never a fifth. The states themselves are settled here; each test below only adds the SENTENCES and NUMBERS that state
   // owes on top.
-  it("every combination of signals lands on exactly one of the four, and never a fifth", () => {
-    const cases: TodayCommandInput[] = [base, { ...base, readyChanges: [OPP] }, { ...base, investigating: 3 },
-      { ...base, measuringCount: 5, research: { running: false } }, { ...base, blockers: ["Search Console stopped answering me."] },
-      { ...base, measuringCount: 5, research: { running: false }, smokeAlarm: LOSING },
-      { ...base, waitingUntil: "2026-08-04T18:00:00.000Z" }, { ...base, measuringCount: 4, investigating: 2, research: { running: true, phaseLabel: "reading" } }];
-    expect(cases.map((c) => buildTodayCommand(c).state)).toEqual(["researching", "act_now", "researching", "monitoring",
-      "needs_attention", "monitoring", "researching", "researching"]); });
-  it("a genuine blocker takes the whole day, hands you no work, and points at the one fix", () => {
-    const c = buildTodayCommand({ ...base, blockers: ["I am not tracking any questions for you yet, so my research cannot start."],
-      blockerHref: "/settings/config#tracked-ai-prompts", readyChanges: [OPP], measuringCount: 4 });
-    expect([c.why[0]!.includes("I am not tracking any questions for you yet"), c.ranked]).toEqual([true, []]);
-    expect(c.cta).toEqual({ label: "Fix this now", href: "/settings/config#tracked-ai-prompts" }); });
-  it("act now names the change, the effort, the ranker's own reason, and ONE queue ONE number", () => {
-    const c = buildTodayCommand({ ...base, readyChanges: [OPP, SECOND], measuringCount: 9 });
-    expect(c.headline).toBe("Do this next: Answer the exact question people search.");
-    expect([c.ranked.map((r) => r.changeId), c.ranked[0]!.whyRankedAboveNext!.includes("I put this ahead of")]).toEqual([["c1", "c2"], true]);
-    expect(c.why).toContain("About 4 minutes of work.");
-    expect(c.why.some((l) => l.includes("1 more change is ranked under it"))).toBe(true);
+  it("every combination of signals lands on exactly one of the four, and never a fifth", () => { const cases: TodayCommandInput[] = [base, { ...base, readyChanges: [OPP] }, { ...base, investigating: 3 },
+      { ...base, measuringCount: 5, research: { running: false } }, { ...base, blockers: ["Search Console stopped answering me."] }, { ...base, measuringCount: 5, research: { running: false }, smokeAlarm: LOSING },
+      { ...base, waitingUntil: "2026-08-04T18:00:00.000Z" }, { ...base, measuringCount: 4, investigating: 2, research: { running: true, phaseLabel: "reading" } }]; expect(cases.map((c) => buildTodayCommand(c).state)).toEqual(["researching", "act_now", "researching", "monitoring",
+      "needs_attention", "monitoring", "researching", "researching"]); }); it("a genuine blocker takes the whole day, hands you no work, and points at the one fix", () => {
+    const c = buildTodayCommand({ ...base, blockers: ["I am not tracking any questions for you yet, so my research cannot start."], blockerHref: "/settings/config#tracked-ai-prompts", readyChanges: [OPP], measuringCount: 4 });
+    expect([c.why[0]!.includes("I am not tracking any questions for you yet"), c.ranked]).toEqual([true, []]); expect(c.cta).toEqual({ label: "Fix this now", href: "/settings/config#tracked-ai-prompts" }); });
+  it("act now names the change, the effort, the ranker's own reason, and ONE queue ONE number", () => { const c = buildTodayCommand({ ...base, readyChanges: [OPP, SECOND], measuringCount: 9 });
+    expect(c.headline).toBe("Do this next: Answer the exact question people search."); expect([c.ranked.map((r) => r.changeId), c.ranked[0]!.whyRankedAboveNext!.includes("I put this ahead of")]).toEqual([["c1", "c2"], true]);
+    expect(c.why).toContain("About 4 minutes of work."); expect(c.why.some((l) => l.includes("1 more change is ranked under it"))).toBe(true);
     // The card counts what is RANKED, never the preview it was cut from.
     const many = buildTodayCommand({ ...base, readyTotal: 12, readyChanges: [OPP, SECOND, ...[3, 4, 5].map((n) => ({ ...SECOND, changeId: `c${n}` }))] });
-    expect([many.why.some((l) => l.includes("11 more changes are ranked under it")), many.why.some((l) => l.includes("4 more")), many.ranked.length]).toEqual([true, false, 3]);
-  });
-  it("researching names the retry DATE rather than claiming to check, and carries the run's own persisted numbers", () => {
-    const waiting = buildTodayCommand({ ...base, waitingUntil: "2026-08-04T18:00:00.000Z", measuringCount: 2 });
+    expect([many.why.some((l) => l.includes("11 more changes are ranked under it")), many.why.some((l) => l.includes("4 more")), many.ranked.length]).toEqual([true, false, 3]); });
+  it("researching names the retry DATE rather than claiming to check, and carries the run's own persisted numbers", () => { const waiting = buildTodayCommand({ ...base, waitingUntil: "2026-08-04T18:00:00.000Z", measuringCount: 2 });
     expect([waiting.headline.includes("waiting until August 4 to try them again"), /checking/i.test(waiting.headline), waiting.cta]).toEqual([true, false, null]);
     // NO CHANGE IS READY is the true claim; "there is nothing for you to do" is a claim about the whole account and it is false while work is open.
     expect(waiting.exactAction).toContain("No change is ready for you to make yet");
@@ -103,9 +91,28 @@ describe("Changes shows every opportunity, and evidence decides only which lane 
     const n = (re: RegExp) => Number((re.exec(html)?.[1] ?? "0").replace(/,/g, "")), rows = (a: string) => html.split(a).length - 1;
     // Watching: 22 declining pages plus the set-aside row = 23, of which 6 + 1 render and 16 are named as more. Measuring 9 and Results 1 = 7 rendered and 3 named.
     expect([n(/Watching ([\d,]+)</), rows('data-watching-row="true"'), n(/">([\d,]+) more pages? (?:is|are) down/), n(/Researching ([\d,]+)</), rows('data-researching-card="true"'), n(/Measuring ([\d,]+)</), n(/Results ([\d,]+)</), rows("data-ledger-row="), n(/See the other ([\d,]+) on Results/), /No changes yet|nothing for you to do/i.test(html)]).toEqual([23, 7, 16, 1, 1, 9, 1, 7, 3, false]); });
-  it("never dresses a one click wobble as a decline, and tells a failed ledger read apart from an account with nothing measuring", async () => {
+  it("never dresses a one click wobble as a decline, and tells a failed read apart from an account with nothing open or measuring", async () => {
     const quiet = await renderFeed({ decay: [{ ...DECAY, clicksNow: 174 }] }), blind = await renderFeed({ ledgerRead: false });
-    expect([/It lost 1 click/.test(quiet), quiet.includes("Nothing is measuring yet."), blind.includes("I could not read what is measuring just now"), /Make the top ready change/.test(blind), /Measuring \d/.test(blind)]).toEqual([false, true, true, false, false]); }); });
+    expect([/It lost 1 click/.test(quiet), quiet.includes("Nothing is measuring yet."), blind.includes("I could not read what is measuring just now"), /Make the top ready change/.test(blind), /Measuring \d/.test(blind)]).toEqual([false, true, true, false, false]);
+    // AND THE SAME DISTINCTION ON THE TWO OPEN LANES: a search read that did not answer emptied both in one render and the empty state said I have nothing open.
+    const dark = await renderFeed({ evidenceRead: false, investigations: [TOPIC], decay: [DECAY] }), open = await renderFeed({ investigations: [TOPIC], decay: [DECAY] });
+    expect([dark.includes("I could not read your Google search data just now"), dark.includes("I have no topic open right now"), /Researching \d/.test(dark), /Watching \d/.test(dark),
+      open.includes("I could not read your Google search data just now"), /Researching 1</.test(open), /Watching 1</.test(open)]).toEqual([true, false, false, false, false, true, true]); }); });
+
+/** Zero measuring is not zero evidence. The proof strip told an account holding twenty five settled readings to ship its first change, printed straight over the top of them. */
+describe("Today's proof strip never calls a finished account a cold start", () => {
+  const strip = async (over: Record<string, unknown>): Promise<string> => renderToStaticMarkup(createElement((await import("@/components/today/today-proof-strip")).TodayProofStrip,
+    { measuringCount: 0, firstReadOn: null, gscThrough: "2026-07-09", nowMs: Date.parse("2026-07-12T00:00:00Z"), ...over } as never));
+  /** THE RENDER SITE ITSELF, not the projection under it. Today builds this chip inline behind Suspense, so no static render reaches it; the file is therefore what gets read. Mutating the chip to `c.answersReadClosely ?? 0` fails here, which is the whole point: a day whose readback receipt I do not hold must print no reading number at all, never "0 read closely". */
+  it("never coerces a reading count it does not hold into a zero on the Today checks strip", () => {
+    const chip = readFileSync("src/app/(shell)/page.tsx", "utf8").split("\n").filter((l) => l.includes("answersReadClosely")).join(" ");
+    expect([/typeof c\.answersReadClosely === "number"/.test(chip), /answersReadClosely\s*(\?\?|\|\|)/.test(chip)]).toEqual([true, false]); // guarded by presence, never defaulted
+    expect([chip.includes("aiChecksAnswered"), chip.includes("answers collected today"), chip.includes("read closely so far")]).toEqual([true, true, true]); }); // both numbers, on one chip, named apart
+  it("says what is on Results when nothing is mid-measurement but readings are settled, and keeps the cold-start instruction for the genuine cold start", async () => {
+    const settled = await strip({ decidedCount: 25 }), cold = await strip({ decidedCount: 0 }), flight = await strip({ measuringCount: 3, decidedCount: 25 });
+    expect([settled.includes("Nothing is mid-measurement right now."), /25<\/span> finished readings are on Results/.test(settled), settled.includes("/results"), settled.includes("Ship a change")]).toEqual([true, true, true, false]);
+    expect([cold.includes("Nothing is measuring yet."), cold.includes("Ship a change and I will start tracking it here.")]).toEqual([true, true]); // the one state where that instruction is true
+    expect([/3<\/span> changes are measuring/.test(flight), flight.includes("mid-measurement")]).toEqual([true, false]); }); }); // work in flight still leads with the work in flight
 
 describe("a screen with losses on it never reads as all clear", () => {
   const quiet = { ...base, measuringCount: 6, research: { running: false } };

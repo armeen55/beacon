@@ -122,7 +122,10 @@ async function defaultPageQueries(tenantId: string): Promise<SerpAgendaPageQuery
     // Decay only ORDERS the portfolio, so its own failure is soft: nothing is lost.
     const decay = await loadGscDecaySignalsForTenant(tenantId).catch(() => new Map<string, GscDecaySignal>());
     const out: SerpAgendaPageQuery[] = [];
-    for (const p of [...signals.values()].sort((a, b) => b.impressions90d - a.impressions90d).slice(0, 25)) {
+    // A SLIPPING PAGE IS NEVER CUT FROM THE LIST BEFORE THE AGENDA EVEN SEES IT. Impressions alone decided who got here, so a page thirtieth by impressions and bleeding clicks was dropped on this line and the agenda's own "slipping first" rule never got to rank it. Decline leads the order now, over forty pages rather than twenty five, because the agenda reading this is wider than the one that number was chosen for.
+    const slipping = (u: string) => { const d = decay.get(u); return Number(d != null && d.clicksNow < d.clicksPrior); };
+    for (const p of [...signals.values()]
+      .sort((a, b) => slipping(b.page) - slipping(a.page) || b.impressions90d - a.impressions90d).slice(0, 40)) {
       const d = decay.get(p.page);
       const declining = !!d && d.clicksNow < d.clicksPrior;
       for (const q of p.topQueries ?? []) out.push({ query: q.query, impressions: q.impressions, declining, page: p.page });

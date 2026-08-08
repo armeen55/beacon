@@ -264,6 +264,12 @@ function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string): void {
 
 const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.serps.analyzed, cacheHits: s.cycle.cacheHits, spendUsd: round(s.cycle.spentUsd) });
 
+/** HOW MANY RESULTS PAGES ONE CYCLE MAY READ, with the cost math stated once so it is checkable against the files that hold each number. It was 40 agenda slots and 40 posts a pass, so an account with twenty two pages losing clicks waited a week before I had even LOOKED at the searches those pages live on.
+ *  THE REAL CEILING IS 104, NOT 120. SERP_AGENDA_CAP is the cap the portfolios fill INTO, and the last one stops short of it on purpose: normalize.ts fills researched keywords to 80% of the cap (96 at 120) and then allows exploration a flat +8, so a full portfolio can name at most 104 searches. 120 is headroom, never a number this unit reaches.
+ *  RESERVED COST AT THAT CEILING (reservations sit ABOVE the charge; reconcile drops every one to actual): 104 organic results pages x $0.0021 = $0.2184, plus 5 AI Mode looks x $0.0100 = $0.0500, so one cycle's whole exact-SERP allowance reserves $0.2684, against $0.1340 for the old 40 slots. Both per-call prices are serp_organic / serp_ai_mode estCostUsd in dataforseo/capabilities.ts.
+ *  THE TWO CEILINGS THAT ACTUALLY REFUSE A CALL are elsewhere and neither moved: the per-account, per-platform MONTHLY cap (DEFAULT_MONTHLY_CAP_USD = $250 in dataforseo/client.ts, checked by reserve_provider_spend before every call, answering `capped`), and the PROVIDER's own daily cost limit (error 40203, arriving as the `daily_limit` disposition that stops the batch below). This constant is a work bound, not a money bound. CACHE DISCIPLINE IS UNCHANGED and is what makes the raise nearly free in practice: a query still inside its freshness window is never re-posted (serp_hot daily for a search the frozen plan is stuck on, serp_cold weekly for the rest), so a settled agenda replays at $0 and only genuinely due queries reach a provider. Every per-call reservation, disposition and repost rule below is untouched: this raises a bound, it removes none. */
+const SERP_AGENDA_CAP = 120, SERP_POSTS_PER_PASS = 120, SERP_ROWS_KEPT = 160;
+
 /** `priorityQueries`: plain strings from the caller (Evidence never reads Decision), the exact searches an open investigation cannot close without. Empty is honest and leaves the agenda exactly as it was. */
 export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[] = []): FunnelUnitFn {
   const d = resolveDeps(deps);
@@ -285,7 +291,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     // FAIL BEFORE SPEND: no readable business basics, no readable page queries and no tracked questions means I have
     // NO trusted starting point, so I buy nothing this pass and leave the research already saved exactly as it is.
     if (profile === null && pageQueries === null && prompts.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "I could not read any of your trusted starting points this pass, so I spent nothing. I will try again on your next visit." };
-    const agenda = selectSerpAgenda({ retained, themes, prompts, pageQueries: pageQueries ?? [], priorityQueries }, 40);
+    const agenda = selectSerpAgenda({ retained, themes, prompts, pageQueries: pageQueries ?? [], priorityQueries }, SERP_AGENDA_CAP);
     const chosen = agenda.queries; // an empty researched set no longer blocks the phase: my own page queries are checked verbatim, researched or not
     if (chosen.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "I have no researched keywords to check in search yet." };
     // Internal progress truth only: what I could not defend and what the provider would refuse. Never customer copy.
@@ -293,7 +299,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     const byQ = new Map(state.serps.queries.map((s) => [s.query, s])), top5 = new Set(chosen.slice(0, 5));
     const serps: FunnelSerp[] = chosen.map((q) => byQ.get(q) ?? { query: q, cacheKey: null, status: "pending" });
     const nowIso = () => new Date(d.now()).toISOString(), parseSerp = (payload: unknown) => d.parse("serp_organic", payload as never) as ParsedSerp | null;
-    let failedDetail: string | null = null, blockedDetail: string | null = null;
+    // A DAILY-LIMIT REFUSAL STOPS THE BATCH, exactly as it does on the AI-answer loops above: the provider answers 40203 the same way to every call it will take today, so carrying on asked it up to a hundred and four more times for a hundred and four identical refusals. A stopped row is still `pending`, which IS the owed state, so nothing is lost and nothing is re-bought: tomorrow's pass takes the same searches with a fresh limit.
+    let failedDetail: string | null = null, blockedDetail: string | null = null, limitDetail: string | null = null;
     // HOT VERSUS COLD, and the plan is what tells them apart: a search a frozen case is stuck on is checked DAILY, because the whole run is waiting on it,
     // and every other search keeps the weekly window. One constant for both meant a case diagnosed this morning sat on yesterday's look for six more days.
     const hot = new Set((priorityQueries ?? []).map((q) => canonicalQueryKey(normalizeKeyword(q))).filter(Boolean));
@@ -308,25 +315,27 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     try {
       // 1) collect posted organic + AI Mode tasks (never repost a live key)
       for (const s of serps) {
-        if (blockedDetail || d.now() > deadline) break;
+        if (blockedDetail || limitDetail || d.now() > deadline) break;
         if (s.status === "posted" && s.cacheKey) {
           const r = interp(await d.collectTask(s.cacheKey)); track(state, r);
           if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso()); }
           else if (r.kind === "failed") {
-            // blocked leaves the row posted and STOPS the batch; everything else stays posted, free.
-            if (r.disposition === "blocked") blockedDetail = blockedNote(r);
+            // daily_limit and blocked both STOP the batch (the row stays posted, so its collect is still free tomorrow); everything else stays posted, free.
+            if (r.disposition === "daily_limit") limitDetail = r.detail ?? null;
+            else if (r.disposition === "blocked") blockedDetail = blockedNote(r);
             else if (r.disposition === "quarantined") { s.status = "failed"; s.observedAt = nowIso(); failedDetail = r.detail ?? failedDetail; }
             else if (r.disposition !== "repost_once") failedDetail = r.detail ?? pauseDetail(r.disposition, "A search did not finish. I will retry it on the next pass.");
             else if ((s.reposts ?? 0) >= 1) { s.status = "failed"; s.observedAt = nowIso(); failedDetail = "A search could not be completed after a second try. I will try it fresh next week."; }
             else { s.status = "pending"; s.cacheKey = null; s.reposts = 1; }
           }
         }
-        if (!blockedDetail && top5.has(s.query) && s.aiModeCacheKey && !s.aiMode && !s.aiModeFailed) {
+        if (!blockedDetail && !limitDetail && top5.has(s.query) && s.aiModeCacheKey && !s.aiMode && !s.aiModeFailed) {
           const r = interp(await d.collectTask(s.aiModeCacheKey)); track(state, r);
           if (r.kind === "evidence") { s.aiMode = refs(d.parse("serp_ai_mode", r.payload as never) as ParsedSerp | null); s.aiModeReposted = undefined; }
           else if (r.kind === "failed") {
-            // blocked STOPS the batch; quarantined names the gap; repost_once gets ONE clean repost. Never silent.
-            if (r.disposition === "blocked") blockedDetail = blockedNote(r);
+            // daily_limit and blocked STOP the batch; quarantined names the gap; repost_once gets ONE clean repost. Never silent.
+            if (r.disposition === "daily_limit") limitDetail = r.detail ?? null;
+            else if (r.disposition === "blocked") blockedDetail = blockedNote(r);
             else if (r.disposition === "quarantined") s.aiModeFailed = true;
             else if (r.disposition !== "repost_once") failedDetail = r.detail ?? pauseDetail(r.disposition, "An AI Mode look did not finish. I will retry it on the next pass.");
             else if (s.aiModeReposted) s.aiModeFailed = true;
@@ -338,26 +347,28 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
       // 2) post pending organic (and AI Mode for the strongest few)
       let processed = 0;
       for (const s of serps) {
-        if (blockedDetail || d.now() > deadline || processed >= 40) break;
+        if (blockedDetail || limitDetail || d.now() > deadline || processed >= SERP_POSTS_PER_PASS) break;
         if (s.status === "pending") {
           const r = interp(await d.callProvider("serp_organic", { keyword: s.query }, ids)); track(state, r);
           if (r.kind === "waiting") { s.status = "posted"; s.cacheKey = r.cacheKey; }
           else if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso()); }
           else if (r.kind === "failed") {
-            // blocked is the ONE stop; quarantined = explicit unavailable coverage; the rest continue.
-            if (r.disposition === "blocked") blockedDetail = blockedNote(r);
+            // daily_limit and blocked are the stops; quarantined = explicit unavailable coverage; the rest continue.
+            if (r.disposition === "daily_limit") limitDetail = r.detail ?? null;
+            else if (r.disposition === "blocked") blockedDetail = blockedNote(r);
             else if (r.disposition === "quarantined") { s.status = "failed"; s.observedAt = nowIso(); }
             else failedDetail = pauseDetail(r.disposition, r.detail ?? "A search did not run. I will retry it on the next pass.");
           }
           processed += 1;
         }
-        if (!blockedDetail && top5.has(s.query) && s.aiModeCacheKey == null && !s.aiModeFailed && s.status !== "failed") {
+        if (!blockedDetail && !limitDetail && top5.has(s.query) && s.aiModeCacheKey == null && !s.aiModeFailed && s.status !== "failed") {
           const r = interp(await d.callProvider("serp_ai_mode", { keyword: s.query }, ids)); track(state, r);
           if (r.kind === "waiting") s.aiModeCacheKey = r.cacheKey;
           else if (r.kind === "evidence") { s.aiModeCacheKey = r.cacheKey; s.aiMode = refs(d.parse("serp_ai_mode", r.payload as never) as ParsedSerp | null); }
           else if (r.kind === "failed") {
             // As the collect twin, except repost_once and none spend the ONE AI Mode retry before the gap is named.
-            if (r.disposition === "blocked") blockedDetail = blockedNote(r);
+            if (r.disposition === "daily_limit") limitDetail = r.detail ?? null;
+            else if (r.disposition === "blocked") blockedDetail = blockedNote(r);
             else if (r.disposition === "quarantined") s.aiModeFailed = true;
             else if (r.disposition === "repost_once" || r.disposition === "none") { if (s.aiModeReposted) s.aiModeFailed = true; else s.aiModeReposted = true; }
             else failedDetail = pauseDetail(r.disposition, "I could not start an AI Mode look this pass. I will try again on the next pass.");
@@ -365,9 +376,10 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
         }
       }
 
-      state.serps.queries = serps.slice(0, 60); state.serps.analyzed = serps.filter((s) => s.status === "done").length;
+      state.serps.queries = serps.slice(0, SERP_ROWS_KEPT); state.serps.analyzed = serps.filter((s) => s.status === "done").length;
       await save(d, tenantId, basis, state, ctx);
       if (blockedDetail) return { status: "failed", cursor, progress: serpProgress(state), detail: blockedDetail }; // a held refusal OUTRANKS the done arithmetic and every unavailable count
+      if (limitDetail) return { status: "failed", cursor, progress: serpProgress(state), detail: limitDetail }; // today's ceiling: everything already collected is saved, the rest stays owed and costs nothing to resume
       // AI Mode truth is judged for the CURRENT top five ONLY: a dropped row can neither pause nor pollute this phase.
       const topRows = serps.filter((s) => top5.has(s.query)), aiModeMissing = topRows.filter((s) => s.aiModeFailed).length;
       const aiModeInFlight = topRows.some((s) => s.aiModeCacheKey && !s.aiMode && !s.aiModeFailed), unavailable = serps.filter((s) => s.status === "failed").length;

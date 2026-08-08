@@ -88,9 +88,13 @@ export async function loadEvidenceSnapshot(
 ): Promise<EvidenceSnapshot> {
   const now = options.now ?? new Date();
 
-  const [gscMap, ga4Map, revenueMap, clarityMap, loaded, answers, snapshots] =
+  const [gsc, ga4Map, revenueMap, clarityMap, loaded, answers, snapshots] =
     await Promise.all([
-      loadGscPageSignalsForTenant(tenantId, now).catch(() => new Map<string, GscPageSignal>()),
+      // A GSC READ THAT THREW IS NOT AN ACCOUNT WITH NO SEARCH DATA. This file's own header has always promised
+      // that a throw becomes `status: "failed"`, and the GSC leg alone quietly turned one into `empty`, so a
+      // timeout looked exactly like an account that has never ranked for anything and every page judged clean.
+      loadGscPageSignalsForTenant(tenantId, now).then((map) => ({ map, failed: false }))
+        .catch(() => ({ map: new Map<string, GscPageSignal>(), failed: true })),
       loadGa4PageValuesForTenant(tenantId, now).catch(() => new Map<string, Ga4PageValue>()),
       loadGa4PageRevenueForTenant(tenantId, now).catch(() => new Map<string, PageRevenueValue>()),
       loadClarityPageSignalsForTenant(tenantId, now).catch(() => new Map<string, ClarityPageSignal>()),
@@ -111,7 +115,7 @@ export async function loadEvidenceSnapshot(
     receipt: { ...loaded.evidence.receipt, freshestObservationAt: freshestAt } } };
 
   // ── GSC ──
-  const gscPayload = [...gscMap.values()].map((s) => ({
+  const gscPayload = [...gsc.map.values()].map((s) => ({
     url: s.page,
     clicks90d: s.clicks90d,
     impressions90d: s.impressions90d,
@@ -215,7 +219,7 @@ export async function loadEvidenceSnapshot(
     null;
   const input: EvidenceSnapshotInput = {
     scope: { tenantId, site, builtAt: now.toISOString() },
-    gsc: { status: statusFor(gscPayload.length), lastSyncedAt: null, payload: gscPayload },
+    gsc: { status: gsc.failed ? "failed" : statusFor(gscPayload.length), lastSyncedAt: null, payload: gscPayload },
     ga4: { status: statusFor(ga4Payload.length), lastSyncedAt: null, payload: ga4Payload },
     wix: { status: statusFor(wixByUrl.size), lastSyncedAt: null, payload: [...wixByUrl.values()] },
     clarity: { status: statusFor(clarityPayload.length), lastSyncedAt: null, payload: clarityPayload },

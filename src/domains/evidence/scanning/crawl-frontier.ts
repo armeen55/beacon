@@ -41,8 +41,8 @@ const STORE = "crawl-frontier";
 
 /** Pages ONE PASS reads before rolling over: a working bound, never a lifetime one. It keeps the mirrored visited set small and spends wall clock over passes, never in one long call. */
 const CRAWL_PAGE_CAP = 600;
-/** One batch = one serverless invocation. Both bounds are hard. */
-const BATCH_MAX_PAGES = 15;
+/** One batch = one serverless invocation. Both bounds are hard. Fifteen pages spent about nineteen seconds of a forty five second budget, so the PAGE COUNT was the binding bound and never the clock: twenty five fits the same budget (about thirty two seconds at a second a page plus the politeness delay) and the runner's four rounds a pass go from sixty pages to a hundred, which is what stops the draft step starving for bodies. */
+const BATCH_MAX_PAGES = 25;
 const BATCH_BUDGET_MS = 45_000;
 const PER_REQUEST_MS = 8_000;
 /** Politeness delay between sequential pulls. */

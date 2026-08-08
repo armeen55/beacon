@@ -1,16 +1,14 @@
 /**
  * decision/produce-proposals: the ONE server path that turns a tenant's cached evidence into persisted
- * ChangeProposals - loadEvidenceSnapshot ($0, six cached sources) -> compileCandidates (the honest diagnosis:
- * act / watch / do nothing) -> candidatesToEvidenceInputs (only what EARNED an action) ->
- * proposeExistingPageChange (cold, gated, budgeted drafter plus the ONE validator) -> saveChangeProposal
- * (durable, fail-soft). BOUNDED: at most the strongest DEFAULT_MAX_DRAFTS pages by recoverable clicks. AT
- * WORST three deep bundles, each drafting up to seven sections, is about $0.45 at the drafter's documented
- * per-call estimates, and that is the number the spend cap is read against.
+ * ChangeProposals - loadEvidenceSnapshot ($0) -> compileCandidates (the honest diagnosis: act / watch / do
+ * nothing) -> candidatesToEvidenceInputs (only what EARNED an action) -> proposeExistingPageChange (cold,
+ * gated, budgeted drafter plus the ONE validator) -> saveChangeProposal (durable, fail-soft). PAID DRAFTING IS
+ * BOUNDED: at most the strongest DEFAULT_MAX_DRAFTS pages by recoverable clicks, at worst about $0.45 a pass.
  *
- * THE DEEP READ HAS FIVE DOORS, NOT ONE (see deep-candidates.ts), and each page carries the door it came
- * through so the producer proves THAT door's case. Selection widened; drafting did not: the SAME producer
- * runs per selected page, still bounded to DEFAULT_MAX_DRAFTS, still refusing on thin evidence. Every
- * honest ending is named on `ProducerOutcome`, so an empty queue never reads as an outage.
+ * THE DEEP READ HAS FIVE DOORS, NOT ONE (deep-candidates.ts), and each page carries the door it came through so
+ * the producer proves THAT door's case. TWO HALVES REACH THE OPERATOR: the strict half above, and every
+ * concrete edit the held evidence already supports (suggested-edits.ts), which costs nothing, lands at
+ * needs_review and is what keeps the queue full on a day nothing clears the Ready bar.
  *
  * ONE EVIDENCE BASIS, ONE ROW: a candidate whose current-generation proposal already exists is never
  * redrafted, and a proposal whose fingerprint is unchanged is never re-inserted, so a refresh re-pays nothing.
@@ -42,6 +40,7 @@ import { readCoverage, type DecidedTopic } from "./coverage-pass";
 import { readInventory } from "@/domains/evidence/scanning/owned-pages-store";
 import { readTechnicalFindings } from "./technical-findings";
 import { buildNewPageProposal } from "./new-page";
+import { suggestedEdits } from "./suggested-edits";
 
 export type ProduceProposalsOptions = ProposeOptions & {
   /** A TEST SEAM ONLY: production reads the stored comparison out of the canonical evidence, nothing live passes this, and passing it skips that read. */
@@ -54,9 +53,9 @@ export type ProduceProposalsOptions = ProposeOptions & {
   persist?: boolean;
 };
 
-/** How this pass ended. Only `persistence_failed` is a failure. `investigating` is the honest middle: proven
- *  gaps exist and what to change is not known yet, so they must be VISIBLE rather than read as a quiet day. */
+/** How this pass ended. Only `persistence_failed` is a failure; `investigating` is the honest middle: proven gaps exist and what to change is not known yet, so they must be VISIBLE rather than read as a quiet day. */
 export type ProducerOutcome =
+  | "evidence_unreadable"
   | "no_actionable_candidate"
   | "investigating"
   | "actionable_but_no_trusted_draft"
@@ -92,8 +91,7 @@ export type ProduceProposalsResult = {
   waitingUntil: string | null;
 };
 
-/** Bounded drafting: the strongest few, never a queue. */
-export const DEFAULT_MAX_DRAFTS = 3;
+/** Bounded drafting: the strongest few, never a queue. */ export const DEFAULT_MAX_DRAFTS = 3;
 const MAX_INVENTORY = 200; // one bounded page of this account's own inventory, never the whole site
 
 /** THE ONE PAGE OF MINE A VERDICT DECIDED TO IMPROVE, as facts, out of words this pass ALREADY holds. Null for `create_new`, and null when I do not hold its own words. */
@@ -115,8 +113,8 @@ const pageKeys = (pageUrl: string | null | undefined): string[] => {
   try { return [url, new URL(url.startsWith("http") ? url : `https://${url}`).pathname || "/"]; } catch { return [url]; }
 };
 
-/** The pages still being measured: what the caller passed, else the Shipment STAMPS (Decision -> Measurement is the
- *  allowed direction and that store owns the answer), else the drafted dates of the applied rows in hand. Fail-soft. */
+/** The pages still being measured: what the caller passed, else the Shipment STAMPS (Decision -> Measurement is
+ *  the allowed direction), else the drafted dates of the applied rows in hand. Fail-soft. */
 async function measuringPaths(tenantId: string, existing: Map<string, ChangeProposal>, opts: ProduceProposalsOptions): Promise<string[]> {
   if (opts.measuringPagePaths) return [...opts.measuringPagePaths];
   const shipped = await import("@/domains/measurement/proof-gsc/shipped-change-store")
@@ -137,6 +135,17 @@ export async function produceProposalsForTenant(
   const persist = opts.persist ?? true;
 
   const snapshot = await loadEvidenceSnapshot(tenantId, { now: opts.now });
+  // A SOURCE THAT DID NOT ANSWER IS NOT AN ACCOUNT WITH NOTHING IN IT. Every page here is judged against its
+  // Google search rows, so a GSC read that threw makes all of them read clean: one live pass judged 224 pages,
+  // found nothing to watch or research, took back every change it could no longer prove and published that
+  // over a release holding 63 topics and 20 declining pages. Absence of a source may never become deletion of
+  // the queue, so the pass ENDS HERE, before a row is retired or written, and the caller keeps its release. An
+  // account that genuinely holds no search data reads `empty`, not `failed`, and still publishes.
+  if (snapshot.sources.some((s) => s.source === "gsc" && s.status === "failed")) {
+    log.warn("[produce-proposals] the search data did not answer, so this pass changes nothing", { tenantId });
+    return { proposals: [], candidates: [], outcome: "evidence_unreadable", actionable: 0, investigating: 0,
+      noDraft: 0, persisted: 0, reused: 0, heldForMeasurement: 0, investigations: [], coverage: null, waitingUntil: null };
+  }
   // The account-curated trusted-source domains are BusinessProfile DATA
   // (the account's own row), never code. Unset = only the universal
   // source-authority set applies.
@@ -158,24 +167,18 @@ export async function produceProposalsForTenant(
   /** The drafts I already took back under this basis: history, so not in the map above, and without this read the next pass would pay to redraft every safety failure. */
   const withdrawn = persist ? await withdrawnProposalIds(tenantId, basis) : new Set<string>();
   /** THE measurement context, derived once and shared by the diagnosis and both rankings. THE STAMP IS WHAT
-   *  RANKS: a Shipment holds the moment the change was implemented, which the 28-day window is read from,
-   *  while `createdAt` is only the day it was drafted and can be weeks off. */
+   *  RANKS: a Shipment holds the moment the change was implemented, which the 28-day window is read from. */
   const measuring = { measuringPagePaths: await measuringPaths(tenantId, existing, opts) };
 
   // THE RESEARCH PACKETS, over the same evidence this pass judges. Non-actionable by construction: they only
   // say what I know about a topic and what is still missing. Fail-soft to none.
   let investigations: TopicInvestigation[] = [];
-  try {
-    investigations = buildTopicInvestigations(snapshot);
-  } catch (e) {
+  try { investigations = buildTopicInvestigations(snapshot); } catch (e) {
     log.warn("[produce-proposals] investigations failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
   }
-  // THE ONE CANONICAL COVERAGE PASS, the same one Runtime buys evidence off, so the topic this pass acts on
-  // is the topic the run paid for. It ranks every investigation once, gives each the comparison IT owns, and
-  // hands back the highest-ranked topic that reached a real verdict. Every call inside is $0 and
-  // deterministic. Fail-soft to null: a judgment I cannot make must never break the operator's actual work.
-  // WHAT IS WRONG WITH HOW THESE PAGES ARE SERVED, read ONCE off the inventory and capture already held.
-  // Fail-soft to nothing: an unreadable inventory means I never looked, never a clean bill.
+  // THE ONE CANONICAL COVERAGE PASS, the same one Runtime buys evidence off, so the topic this pass acts on is
+  // the topic the run paid for. Every call inside is $0 and deterministic; fail-soft to null. And WHAT IS WRONG
+  // WITH HOW THESE PAGES ARE SERVED, read ONCE off the inventory already held: unreadable means I never looked.
   const technical = readTechnicalFindings({
     inventory: await readInventory(tenantId, { limit: MAX_INVENTORY }).catch(() => []),
     pages: snapshot.ownedPages.filter((p) => !!p.content).map((p) => ({ url: p.url, title: p.content!.title,
@@ -217,29 +220,26 @@ export async function produceProposalsForTenant(
   }
   const research = { investigations, coverage, waitingUntil };
 
-  // THE DIAGNOSIS FIRST. Doing nothing is the default; only a proven gap is work. The decided topic rides in so the ladder can ask the page it NAMES what the winning pages do that it does not.
+  // THE DIAGNOSIS FIRST: doing nothing is the default and only a proven gap is work. The decided topic rides in so the ladder can ask the page it NAMES what the winning pages do that it does not.
   const candidates = compileCandidates(snapshot, { coverage, ...measuring });
   const acted = candidates.filter((c) => c.action === "act_existing_page");
   const recoverableByKey = new Map<string, number>();
   const readinessByKey = new Map<string, EvidenceReadiness>();
   const diagnosisByKey = new Map<string, ActionDiagnosis>();
-  /** THE CAUSE LADDER'S WHOLE FINDING, indexed by page so the proposal built for that page can
-   *  carry it to the operator. Keyed by page alone, not by query: one page gets one reading. */
+  /** THE CAUSE LADDER'S WHOLE FINDING, indexed by page alone, not by query: one page gets one reading. */
   const causeByKey = new Map<string, CauseFinding>();
   for (const c of acted) {
     for (const k of pageKeys(c.pageUrl)) {
       recoverableByKey.set(k, c.recoverableClicks);
       causeByKey.set(k, c.cause);
-      // Readiness is a fact about ONE page and ONE EXACT SEARCH. Keyed by page alone, a page
-      // whose strongest gap had a results page handed its confidence to a draft written for a
-      // DIFFERENT search on it, so a card read "high" above a receipt saying I never looked.
+      // Readiness is a fact about ONE page and ONE EXACT SEARCH: keyed by page alone, a card read "high"
+      // above a receipt saying I never looked at the search the draft was actually written for.
       if (c.readiness && c.query) readinessByKey.set(`${k}::${canonicalQueryKey(c.query)}`, c.readiness);
       if (c.diagnosis && c.query) diagnosisByKey.set(`${k}::${canonicalQueryKey(c.query)}`, c.diagnosis);
     }
   }
   /** Stamp the basis, the ONE ranking scalar (recoverable clicks), the cause the ladder named, and CONFIDENCE
-   *  BY EVIDENCE COMPLETENESS onto a proposal, whichever producer built it: a drafter used to hand itself
-   *  "high" on a change whose receipt was empty. Never invents a figure. */
+   *  BY EVIDENCE COMPLETENESS, whichever producer built it. Never invents a figure. */
   const stamp = (p: ChangeProposal): ChangeProposal => {
     const key = (p.pageUrl ?? "").trim().toLowerCase();
     const pathKey = (p.pagePath ?? "").trim().toLowerCase();
@@ -252,15 +252,12 @@ export async function produceProposalsForTenant(
     return {
       ...p,
       ...(basis ? { basis } : {}),
-      // The ladder's own reasoning, carried rather than re-derived, and ONLY onto a proposal that brought
-      // none. This ladder reads the opportunities query; a bundle's reads the exact search it drafted for.
-      // They disagree, and overwriting made /changes name a cause that produced no component on the page.
+      // The ladder's own reasoning, carried rather than re-derived, and ONLY onto a proposal that brought none:
+      // this ladder reads the opportunities query and a bundle's reads the exact search it drafted for.
       ...(finding && p.diagnosisCause == null ? { causeFinding: finding, diagnosisCause: finding.cause } : {}),
       impactScore: recoverable ?? p.impactScore,
-      // A BUNDLE KEEPS ITS OWN CONFIDENCE. It read the page's body and built its own
-      // receipt, so the candidate's coarser readiness must not overwrite it (that
-      // capped every deep change at medium forever). The shallow path has no receipt
-      // of its own, so the diagnosis-aware value stands there.
+      // A BUNDLE KEEPS ITS OWN CONFIDENCE: it read the page's body and built its own receipt, so the
+      // candidate's coarser readiness must not overwrite it. The shallow path has none, so its value stands.
       confidence: p.bundle ? p.confidence : readiness ? confidenceFor(readiness, diagnosisByKey.get(`${key}::${qk}`) ?? null) : p.confidence,
     };
   };
@@ -275,8 +272,7 @@ export async function produceProposalsForTenant(
   const currentBundleFor = (match: (p: ChangeProposal) => boolean): ChangeProposal | null =>
     live.find((p) => !!p.bundle && current(p) && match(p)) ?? null;
 
-  // A CHANGE THAT CANNOT SHOW ITS WORK, OR WHOSE READINGS WENT COLD, IS TAKEN BACK, on the SAME verdict every
-  // door asks: left on file it kept its slot, and an identical redraft answered "unchanged" forever.
+  // A CHANGE THAT CANNOT SHOW ITS WORK, OR WHOSE READINGS WENT COLD, IS TAKEN BACK, on the SAME verdict every door asks.
   const retired = new Set<string>();
   /** THE ONE WAY A CHANGE LEAVES: a change nothing supports is not a change to look at more carefully. */
   const retire = async (p: ChangeProposal): Promise<void> => { if (persist) await withdrawChangeProposal(p); existing.delete(p.id); retired.add(p.id); };
@@ -285,13 +281,11 @@ export async function produceProposalsForTenant(
     await retire(p);
   }
   const live = held.filter((p) => !retired.has(p.id));
-  // A HOLD HAPPENS WHERE THE DECISION IS MADE, NOT WHERE THE ROW IS WRITTEN: the ladder's
-  // `measuring_change` and the skipped applied row are both held ideas, counted here beside the store's.
+  // A HOLD HAPPENS WHERE THE DECISION IS MADE, NOT WHERE THE ROW IS WRITTEN: the ladder's `measuring_change` and the skipped applied row are both held ideas, counted here beside the store's.
   const heldByDiagnosis = candidates.filter((c) => c.cause.cause === "measuring_change").length;
   let persisted = 0, writeFailures = 0, reused = 0, heldForMeasurement = heldByDiagnosis;
-  /** Persist ONE material row, or nothing when the stored row already says exactly this: an unchanged proposal
-   *  must not get a new timestamp. THE STORE decides that against the canonical row it holds, and this pass
-   *  records the four answers it can get back. */
+  /** Persist ONE material row, or nothing when the stored row already says exactly this. THE STORE decides
+   *  that against the canonical row it holds, and this pass records the four answers it can get back. */
   const persistIfChanged = async (p: ChangeProposal): Promise<void> => {
     if (!persist) return;
     const result = await saveChangeProposal(p);
@@ -302,12 +296,23 @@ export async function produceProposalsForTenant(
   };
 
   const proposals: ChangeProposal[] = [];
-  // A SUBJECT THIS ACCOUNT HAS NO PAGE FOR, and the ONLY road to one: an EARNED create_new
-  // verdict, which the coverage ladder reaches only once the page by page comparison has
-  // proved the winning pages share searches no page of yours comes up for. A keyword, a
-  // tracked question, a rival's page and an engine's fan-out reach none of this. One reuse
-  // rule, the same as every other change: a current-basis row for this topic is carried
-  // forward untouched, so a refresh re-pays nothing.
+  /** THE GENEROUS HALF OF THE QUEUE, appended to whatever the strict path earned: every concrete edit the held
+   *  evidence already supports, at needs_review, persisted the same way as everything else. Ready is untouched. A
+   *  pass that could draft nothing still hands the operator work they can test by hand, which is what an empty
+   *  queue was hiding. Nothing here re-drafts a page the strict path already covered. */
+  const withSuggestions = async (strict: ChangeProposal[]): Promise<ChangeProposal[]> => {
+    const skip = new Set([...strict.flatMap((p) => [p.id, (p.pagePath ?? "").trim().toLowerCase()]), ...withdrawn]);
+    for (const s of suggestedEdits(snapshot, candidates, { now: opts.now ?? new Date(), basis, skip })) {
+      if (existing.get(s.id)?.status === "implemented_pending_verification") { heldForMeasurement += 1; continue; }
+      strict.push(s);
+      await persistIfChanged(s);
+    }
+    return strict;
+  };
+  // A SUBJECT THIS ACCOUNT HAS NO PAGE FOR, and the ONLY road to one: an EARNED create_new verdict, which the
+  // coverage ladder reaches only once the page by page comparison proved the winning pages share searches no
+  // page of yours comes up for. One reuse rule, the same as every other change: a current-basis row for this
+  // topic is carried forward untouched, so a refresh re-pays nothing.
   const decided = coverage;
   if (decided && earnedNewPage(decided.decision)) {
     // An id this case ABSORBED still names this case's page. Matching the current key alone built a
@@ -338,6 +343,7 @@ export async function produceProposalsForTenant(
       watching: candidates.filter((c) => c.action === "watch").length + consolidating, researching: investigating });
     // A proven gap I cannot yet explain is NOT a quiet day, and neither is one I CAN explain and cannot
     // draft. Saying so here keeps "Nothing needs a decision today" off a screen with real losses behind it.
+    await withSuggestions(proposals);
     return { proposals: rankProposals(proposals, measuring), candidates,
       outcome: proposals.length > 0 ? "proposals_persisted"
         : investigating > 0 ? "investigating"
@@ -357,12 +363,10 @@ export async function produceProposalsForTenant(
   }
   const enteredBy = new Map<string, string>(); // which door each page that got a deep change came through
 
-  // A CHANGE MAY NOT OUTLIVE ITS OWN EXPLANATION. This used to DEMOTE such a row to needs_review, which left it fully actionable:
-  // needs_review means "look at this first", not "this is unproven", so an unsupported change kept its place on the operator's list
-  // under a quieter name and could still be applied. A page this pass no longer proves anything about is TAKEN BACK; one that still
-  // earns an action is untouched, whatever its status.
-  // AND ONLY ABOUT A PAGE THIS PASS ACTUALLY READ. The snapshot is FAIL-SOFT BY DESIGN: every loader leg catches to empty, so a database blip is indistinguishable from
-  // an account with fewer pages, and a pass that reached half the site would have taken back every change on the half it never saw. Silence is not a verdict.
+  // A CHANGE MAY NOT OUTLIVE ITS OWN EXPLANATION. Demoting such a row to needs_review left it fully actionable
+  // under a quieter name, so a page this pass no longer proves anything about is TAKEN BACK instead; one that
+  // still earns an action is untouched. AND ONLY ABOUT A PAGE THIS PASS ACTUALLY READ: the snapshot is fail-soft
+  // by design, so a pass that reached half the site would otherwise retire every change on the half it never saw.
   const readNow = new Set(snapshot.ownedPages.flatMap((o) => pageKeys(o.url)));
   const provenNow = new Set([...acted.flatMap((c) => pageKeys(c.pageUrl)), ...selectedKeys]);
   for (const p of live) {
@@ -370,8 +374,7 @@ export async function produceProposalsForTenant(
     if (!p.bundle || p.kind !== "existing_edit" || !current(p) || retired.has(p.id) || !readNow.has(key) || provenNow.has(key)) continue;
     await retire(p);
   }
-  // AND THE PAGE NOBODY EARNED. A new page rests on ONE coverage verdict; when that verdict stopped earning it nothing touched the row, so it sat current and invisible
-  // until its receipt aged out weeks later. Only a pass that actually REACHED a verdict may retire one, so a research gap never destroys real work.
+  // AND THE PAGE NOBODY EARNED. A new page rests on ONE coverage verdict, and only a pass that actually REACHED a verdict may retire one, so a research gap never destroys real work.
   if (decided) for (const p of live) {
     if (p.kind !== "new_page" || !current(p) || retired.has(p.id)) continue;
     if (earnedNewPage(decided.decision) && [decided.investigation.key, ...decided.investigation.aliasKeys].some((k) => p.id.includes(`::${k}::`))) continue;
@@ -380,10 +383,9 @@ export async function produceProposalsForTenant(
 
   let noDraft = 0;
   for (const input of inputs) {
-    // A refresh re-pays nothing: a current-generation row already covering this candidate is carried forward
-    // as-is, with no drafter call, no write and no new timestamp.
-    // SETTLED WORK IS NOT REDRAFTED: redrafting an IMPLEMENTED change would overwrite the record of something
-    // already shipped, and a WITHDRAWN row would fail the same way until the basis moves.
+    // A refresh re-pays nothing: a current-generation row already covering this candidate is carried forward as
+    // is. SETTLED WORK IS NOT REDRAFTED: an IMPLEMENTED change is a record, and a WITHDRAWN row fails the same
+    // way until the basis moves.
     const settled = existing.get(proposalId(input));
     // An IMPLEMENTED row is a change I am reading, so the fresh idea for that page is HELD, not
     // dropped, and it is counted here rather than left to a store call this loop never makes.
@@ -474,12 +476,11 @@ export async function produceProposalsForTenant(
     enteredBy.set(d.pageUrl, d.entry);
   }
 
-  // The honest ending. A write that failed on EVERY attempt is a failure, not a
-  // quiet day: the caller must keep the previous release rather than stamp a fresh
-  // timestamp on work nobody can load back.
-  // A pass that reached here through a door OTHER than a proven click gap can still have nothing in
-  // `acted`, and calling that "no trusted draft" would name work nobody proved, so it falls back to
-  // the same three honest endings the empty-diagnosis path reports.
+  await withSuggestions(proposals);
+  // The honest ending. A write that failed on EVERY attempt is a failure, not a quiet day: the caller keeps the
+  // previous release rather than stamping a fresh timestamp on work nobody can load back. A pass that reached
+  // here through a door OTHER than a proven click gap can still have nothing in `acted`, and calling that "no
+  // trusted draft" would name work nobody proved, so it falls back to the same honest endings above.
   const outcome: ProducerOutcome =
     writeFailures > 0 && persisted === 0 ? "persistence_failed"
       : proposals.length > 0 ? "proposals_persisted"

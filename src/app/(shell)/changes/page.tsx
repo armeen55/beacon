@@ -84,12 +84,14 @@ function QueueSlot({ view }: { view: ChangesView }) {
  *  the SAME ledger split the counts come from, so a lane can never disagree with its own count. */
 async function loadLanes(tenantId: string) {
   const [investigations, decayMap, ledger, release] = await Promise.all([
+    // AND THE SAME VERDICT ON THE TWO OPEN LANES. An empty list I could not fill is not an account with nothing
+    // open: a live outage emptied Researching and Watching in one render, so the read either LANDED or it did not.
     valueWithDeadline(
-      loadEvidenceSnapshot(tenantId).then(buildTopicInvestigations).catch(() => [] as TopicInvestigation[]),
-      [] as TopicInvestigation[],
-      MAIN_LIST_DEADLINE_MS,
+      loadEvidenceSnapshot(tenantId).then((s) => ({ rows: buildTopicInvestigations(s), read: true })).catch(() => ({ rows: [] as TopicInvestigation[], read: false })),
+      { rows: [] as TopicInvestigation[], read: false }, MAIN_LIST_DEADLINE_MS,
     ),
-    valueWithDeadline(loadGscDecaySignalsForTenant(tenantId, new Date()).catch(() => new Map()), new Map(), MAIN_LIST_DEADLINE_MS),
+    valueWithDeadline(loadGscDecaySignalsForTenant(tenantId, new Date()).then((m) => ({ m, read: true }))
+      .catch(() => ({ m: new Map(), read: false })), { m: new Map(), read: false }, MAIN_LIST_DEADLINE_MS),
     // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER, and a deadline that lost is not a read
     // that landed. The verdict travels with the rows so the lanes below can tell the operator
     // which of the two happened instead of instructing an account with 25 results to ship its first change.
@@ -103,8 +105,9 @@ async function loadLanes(tenantId: string) {
   const today = release?.today?.today;
   return {
     ledgerRead: ledger.read,
-    investigations,
-    decay: Array.from((decayMap as Map<string, Parameters<typeof ChangesFeed>[0]["decay"][number]>).values()),
+    evidenceRead: investigations.read && decayMap.read,
+    investigations: investigations.rows,
+    decay: Array.from((decayMap.m as Map<string, Parameters<typeof ChangesFeed>[0]["decay"][number]>).values()),
     declineNotes: today?.declineNotes ?? [],
     heldForMeasurement: today?.heldForMeasurement ?? 0,
     // A pre 28 day improvement is still in flight, exactly as countLedgerLifecycle counts it.
@@ -137,6 +140,7 @@ export async function ChangesSection() {
       measuring={lanes?.measuring ?? []}
       results={lanes?.results ?? []}
       heldForMeasurement={lanes?.heldForMeasurement ?? 0}
+      evidenceRead={lanes?.evidenceRead ?? false}
       ledgerRead={lanes?.ledgerRead ?? false}
     />
   );

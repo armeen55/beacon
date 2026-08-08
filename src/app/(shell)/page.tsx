@@ -26,7 +26,7 @@ import { shippedInLastDays } from "@/domains/measurement";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
-import { loadDailyTotalsForTenant } from "@/domains/decision";
+import { countLedgerLifecycle, loadDailyTotalsForTenant } from "@/domains/decision";
 // Wave 3B (2026-07-10) - Today is MISSION CONTROL: ONE command answers "what is the single
 // best thing I should do now?". The command model is a pure selector (domains/today); its card +
 // the consolidated proof strip are token-only (src/components/today, outside the (shell) ratchet).
@@ -240,6 +240,8 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const hour = Number(nowPacific.toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "America/Los_Angeles" }));
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const nowMs = Date.now();
+  // FINISHED READINGS, off the SAME ledger rows already in hand and the SAME classifier Results bands with: no extra read, no second rule. Zero measuring is not zero evidence, and an account holding 25 settled readings was told to ship its first change.
+  const decidedCount = countsUnread ? 0 : countLedgerLifecycle(ledgerRows, new Date(nowMs)).decided;
 
   // P14 item 2 (v1 324) - the smoke alarm with page blame: ONE honest line naming the exact
   // page bleeding clicks and the number, from the SAME per-page GSC decay signal the GSC
@@ -370,7 +372,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const researchStrip = [
     typeof c.aiChecksDone === "number" && typeof c.aiChecksIntended === "number" && c.aiChecksIntended > 0
       ? `${c.aiChecksDone.toLocaleString()} of ${c.aiChecksIntended.toLocaleString()} AI checks collected today` : null,
-    typeof c.aiChecksAnswered === "number" && c.aiChecksAnswered > 0 ? `${c.aiChecksAnswered.toLocaleString()} came back with an answer I analyzed` : null,
+    // COLLECTED AND READ CLOSELY ARE TWO NUMBERS. This chip printed the COLLECTED count under the words "an answer I analyzed", so a day that bought 140 answers and had read 12 of them closely claimed 140 readings. Collected is the day planner's arithmetic, read closely is the run's own readback receipt, and they are named separately here or not at all: a reading count I cannot reach prints nothing rather than a zero.
+    typeof c.aiChecksAnswered === "number" && c.aiChecksAnswered > 0
+      ? `${c.aiChecksAnswered.toLocaleString()} answers collected today${typeof c.answersReadClosely === "number" ? `, ${c.answersReadClosely.toLocaleString()} read closely so far` : ""}` : null,
     owed != null && owed > 0 ? `${owed.toLocaleString()} still owed today` : null,
     investigations.length > 0 ? `${investigations.length} ${investigations.length === 1 ? "topic" : "topics"} under research` : null,
     research.cases?.active ? `${research.cases.active} ${research.cases.active === 1 ? "topic" : "topics"} on the frozen plan` : null,
@@ -437,6 +441,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           measuringCount={measuringCount}
           firstReadOn={firstReadOn}
           firstSettledReadOn={schedule.finalVerdictOn}
+          decidedCount={decidedCount}
           gscThrough={leadStoryDays[leadStoryDays.length - 1]?.date ?? null}
           nowMs={nowMs}
         />

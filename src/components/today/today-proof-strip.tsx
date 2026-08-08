@@ -34,10 +34,12 @@ export type TodayProofStripProps = {
   firstSettledReadOn?: string | null;
   /** The Search Console data-through date (YYYY-MM-DD), for the freshness receipt. */
   gscThrough: string | null;
+  /** FINISHED READINGS ON FILE (countLedgerLifecycle.decided): changes whose measurement is over. Nothing mid-measurement with twenty five settled readings is a NORMAL state, and this strip called it a cold start and told the operator to ship their first change over the top of twenty five of them. Zero here AND zero measuring is the genuine cold start, and only then is that instruction true. */
+  decidedCount?: number;
   nowMs: number;
 };
 
-export function TodayProofStrip({ measuringCount, firstReadOn, firstSettledReadOn = null, gscThrough, nowMs }: TodayProofStripProps) {
+export function TodayProofStrip({ measuringCount, firstReadOn, firstSettledReadOn = null, gscThrough, decidedCount = 0, nowMs }: TodayProofStripProps) {
   const nextRead = monthDayLabel(firstReadOn);
   // P2-1 - only named when it is a real, later date than the checkpoint (no redundant repeat).
   const settledRead =
@@ -49,29 +51,32 @@ export function TodayProofStrip({ measuringCount, firstReadOn, firstSettledReadO
     note: "Google reports a few days behind.",
   });
 
-  if (measuringCount <= 0) {
-    return (
-      <EmptyState
-        headline="Nothing is measuring yet."
-        nextStep="Ship a change and I will start tracking it here."
-      />
-    );
-  }
-
+  // The genuine cold start, and ONLY it: nothing in flight AND nothing ever settled.
+  if (measuringCount <= 0 && decidedCount <= 0) return <EmptyState headline="Nothing is measuring yet." nextStep="Ship a change and I will start tracking it here." />;
+  // ZERO IN FLIGHT IS NOT ZERO EVIDENCE. Nothing measuring with readings already settled is a healthy state, so it gets its own sentence and its own way into Results, never the cold-start instruction printed over finished work.
+  const inFlight = measuringCount > 0;
   return (
     <Card variant="quiet" padding="md" aria-label="What is measuring">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <p className="min-w-0 break-words text-body text-foreground tabular-nums">
-          <span className="font-semibold">{measuringCount.toLocaleString()}</span>{" "}
-          change{measuringCount === 1 ? " is" : "s are"} measuring.
-          {nextRead ? <span className="text-muted-foreground"> The next results land around {nextRead}.</span> : null}
-          {settledRead ? <span className="text-muted-foreground"> The first settled read lands around {settledRead}.</span> : null}
+          {inFlight ? (
+            <>
+              <span className="font-semibold">{measuringCount.toLocaleString()}</span>{" "}
+              change{measuringCount === 1 ? " is" : "s are"} measuring.
+              {nextRead ? <span className="text-muted-foreground"> The next results land around {nextRead}.</span> : null}
+              {settledRead ? <span className="text-muted-foreground"> The first settled read lands around {settledRead}.</span> : null}
+            </>
+          ) : (
+            <>
+              Nothing is mid-measurement right now. <span className="font-semibold">{decidedCount.toLocaleString()}</span>
+              {decidedCount === 1 ? " finished reading is" : " finished readings are"} on Results.
+            </>)}
         </p>
         <Link
           href="/results"
           className="shrink-0 text-meta font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
-          See what's measuring &rarr;
+          {inFlight ? "See what's measuring" : "See what I learned"} &rarr;
         </Link>
       </div>
       <ReceiptLine className="mt-1" line={receipt} />

@@ -7,15 +7,13 @@ import { answerIntelOf } from "@/domains/evidence/answer-intel"; import type { T
 import type { OwnedCandidate } from "@/domains/decision/owned-coverage";
 import type { DecidedTopic } from "@/domains/decision/coverage-pass";
 import type { WinningPattern } from "@/domains/decision/winning-pattern";
-import { validateProposal } from "@/domains/decision/validate-proposal";
+import { validateProposal } from "@/domains/decision/validate-proposal"; import { provenSurvivor } from "@/domains/decision/split";
 import { deserializeChangeProposal, serializeChangeProposal } from "@/domains/decision/contracts";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) }));
 import { produceBundleForSnapshot, type OwnedBody } from "@/domains/decision/produce-bundle";
-const TENANT = "fixture-tenant";
-const NOW = new Date("2026-08-01T00:00:00.000Z");
-const URL = "fixture-content.example/rain-barrels";
+const TENANT = "fixture-tenant"; const NOW = new Date("2026-08-01T00:00:00.000Z"); const URL = "fixture-content.example/rain-barrels";
 const OPENING = "Collecting water at home starts with knowing what one storm actually brings you.";
 // ── the drafted answers the seam hands back, each grounded in words the evidence already carries ──
 const SECTION = { heading: "Rain barrel overflow",
@@ -71,13 +69,10 @@ afterEach(() => { delete process.env.OPENAI_API_KEY; });
 describe("a named cause produces the change that fixes it", () => {
   it("writes the opening the page never had, and it survives the real validator", async () => {
     const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, complete: seam(), coverage: decided(pattern()) });
-    expect(out.status).toBe("bundled");
-    if (out.status !== "bundled") return;
-    const p = out.proposal; const b = p.bundle!;
+    expect(out.status).toBe("bundled"); if (out.status !== "bundled") return; const p = out.proposal; const b = p.bundle!;
     expect(p.diagnosisCause).toBe("weak_opening"); // the REAL fired cause, never the hardcoded wording one
     expect(b.components.map((c) => c.kind)).toEqual(["opening_answer"]);
-    expect(b.components[0]!.before).toBe(OPENING);
-    expect(b.components[0]!.after).toBe(ANSWER);
+    expect(b.components[0]!.before).toBe(OPENING);     expect(b.components[0]!.after).toBe(ANSWER);
     expect(p.recommendedChange).toEqual({ kind: "existing_edit", field: "answer_block", before: OPENING, after: ANSWER });
     expect(p.opportunityType).toBe("Answer the search in the page's first lines");
     // every cited key is a receipt line the operator can actually read
@@ -161,8 +156,10 @@ describe("a named cause produces the change that fixes it", () => {
   it("writes no merge while the survivor is unproven, then hands over the proven one and holds it for review", async () => {
     const RIVAL = "fixture-content.example/rain-barrel-guide";
     const world = (rival: OwnedPageEvidence[]) => snapshot({ ownedPages: [page(), ...rival], cannibalization: [{ query: "rain barrel sizing", note: "two of your own pages", competingUrls: [URL, RIVAL] }] });
-    // The rival comes up for the same search and I hold no figures of its own: a reason to look, never a merge.
-    const unproven = await produceBundleForSnapshot(world([]), { ...OPTS, complete: seam(), coverage: decided(pattern()) });
+    // THE EARNINGS ARE ALREADY ON FILE, so the survivor is decided from them and never deferred: the page I hold figures for is kept, an equal pair is settled by position, and a page I hold nothing for settles nothing.
+    const split = (a: [number | null, number | null], b: [number | null, number | null]) => provenSurvivor([{ url: URL, clicks: a[0], impressions: 900, position: a[1] }, { url: RIVAL, clicks: b[0], impressions: 400, position: b[1] }]);
+    expect([split([12, 4], [3, 2]), split([0, 4], [0, 9]), split([12, 4], [null, null]), split([4, 3], [4, 3]), split([null, null], [null, null])]).toEqual([URL, URL, null, null, null]);
+    const unproven = await produceBundleForSnapshot(world([]), { ...OPTS, complete: seam(), coverage: decided(pattern()) }); // ONE-SIDED KNOWLEDGE SETTLES NOTHING: a page I hold no row for is unmeasured, not behind, and sending it away for good on my ignorance is the one mistake here I could not undo
     expect([unproven.status, unproven.status === "none" && unproven.reason.includes("not proof that either one is taking the other's clicks")]).toEqual(["none", true]);
     // PROVEN: both pages' own figures for that exact search, and both pages' current words on file.
     const rival = page({ url: RIVAL, content: { ...page().content!, title: "Rain barrel guide", h1: "Rain barrel guide", outline: ["Barrel sizes", "Winter care"] },

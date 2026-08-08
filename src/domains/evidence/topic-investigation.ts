@@ -1,14 +1,8 @@
 /**
- * TopicInvestigation (research packet, 2026-07-27) - the canonical NON-ACTIONABLE
- * research projection over the EvidenceSnapshot. It answers ONE question for a
- * later slice: "what have I actually investigated about this topic, and is it
- * enough to compare?" It is a pure derived view: no persistence, no lifecycle, no
- * status vocabulary, no LLM.
- *
- * It deliberately does NOT carry: a candidate action, a proposal, drafted copy, a
- * proposed URL, an existing-page-versus-new-page decision, an owned-page mapping,
- * an opportunity value, or any prose that was not observed. Those belong to the
- * slice that reasons over this packet, never to the packet itself.
+ * TopicInvestigation - the canonical NON-ACTIONABLE research projection over the EvidenceSnapshot. It answers
+ * ONE question for a later slice: "what have I actually investigated about this topic, and is it enough to
+ * compare?" A pure derived view: no persistence, no lifecycle, no status vocabulary, no LLM. It deliberately
+ * carries no candidate action, no proposal, no drafted copy, no owned-page mapping and no opportunity value.
  *
  * GROUPING, in strict priority order (the first rule that fires is the recorded
  * reason). Lineage before semantic guesses:

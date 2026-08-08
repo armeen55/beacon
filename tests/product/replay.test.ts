@@ -184,10 +184,10 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     const { evidence } = await replayFunnel();
     const snapshot = fx.replaySnapshot({ gsc: [fx.gscCtrGap(), fx.gscStableWinner()], research: evidence, wix: [fx.ownedBody(GAP_URL, "Kite Festival")] });
     const read = await readCoverage(snapshot, TENANT, { basis: BASIS, maxQueries: 3, now: NOW });
-    expect([read.needs, read.decided!.decision.verdict, read.waitingUntil]).toEqual([[], "do_nothing", null]); // every cheaper check is already in the replay, so it reaches a final answer and buys nothing more
+    expect([read.needs.map((n) => [n.query, n.requirement]), read.decided!.decision.verdict, read.waitingUntil]).toEqual([[["lantern festival guide", "exact_serp"]], "do_nothing", null]); // the researched subject reaches a final answer and buys nothing more, and the one search a page of theirs is still losing clicks on becomes a subject of its own
     const unlooked = fx.replaySnapshot({ gsc: [fx.gscCtrGap()], research: { ...evidence, serpEvidence: [] }, wix: [fx.ownedBody(GAP_URL, "Kite Festival")] });
     const blind = await readCoverage(unlooked, TENANT, { basis: BASIS, maxQueries: 3, now: NOW });
-    expect([blind.decided, blind.needs.map((n) => n.requirement)]).toEqual([null, ["exact_serp"]]); // strip the looks and the same pass names the searches that would move it, instead of guessing
+    expect([blind.decided, blind.needs.map((n) => n.requirement)]).toEqual([null, ["exact_serp", "exact_serp"]]); // strip the looks and the same pass names the searches that would move it, instead of guessing
     env.snap = snapshot; env.saved = []; env.store = new Map();
     const seam = drafter(); const res = await produceProposalsForTenant(TENANT, { complete: seam.complete, now: NOW, bypassCache: true });
     const gap = res.candidates.find((c) => c.pageUrl === `https://${GAP_URL}`)!;

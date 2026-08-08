@@ -113,6 +113,12 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
     if (produced?.outcome === "persistence_failed") {
       throw new Error("I produced changes this pass but could not save a single one, so I kept your last release instead of stamping a new time on work I cannot load back.");
     }
+    // AND A PASS THAT RAN BLIND PUBLISHES NOTHING. The kernel ends early when a core evidence read did not
+    // answer, because judging every page against search data I could not fetch empties the queue rather than
+    // updating it. The previous release stays exactly as it was and the phase fails where a human can see it.
+    if (produced?.outcome === "evidence_unreadable") {
+      throw new Error("I could not read your Google Search Console data just now, so I kept your last release instead of publishing a list built without it.");
+    }
     // ONE RELEASE IDENTITY, minted once and threaded through the ranking stamp, the Changes view and Today.
     // Two ids were minted here and inside the build, so a "show more" could page one ranking while the screen
     // above it named another, and the queue stamp could fail while the publish carried on regardless.

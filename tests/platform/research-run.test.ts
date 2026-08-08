@@ -24,11 +24,16 @@ vi.mock("@/lib/persistence/supabase", async (actual) => ({ ...(await actual<Reco
         return { data: [{ id }], error: null }; } }) }),
     }; } }) }));
 /** The crawl seam: ONE in-memory frontier, so what is pinned is the ENTRY POINT rather than the fetcher. `state` is what the durable blob holds, and `racer` lets a concurrent instance initialize between the load and the start. */
-const CRAWL = vi.hoisted(() => ({ state: null as null | "in_progress" | "complete" | "unreachable", starts: 0, forced: false, batches: 0, racer: null as null | (() => void) }));
+const CRAWL = vi.hoisted(() => ({ state: null as null | "in_progress" | "complete" | "unreachable", starts: 0, forced: false, batches: 0, racer: null as null | (() => void),
+  /** The ORDER the batch was handed, captured so what is pinned is which pages jump the queue and not the fetcher. */
+  pick: null as null | ((t: string, limit: number, now?: Date) => Promise<string[]>), inventory: [] as string[], decay: [] as { page: string; clicksNow: number; clicksPrior: number }[] }));
+vi.mock("@/domains/evidence/scanning/owned-pages-store", async (actual) => ({ ...(await actual<Record<string, unknown>>()), nextCrawlCandidates: async () => CRAWL.inventory }));
+vi.mock("@/domains/evidence/readers/gsc-page-signals", async (actual) => ({ ...(await actual<Record<string, unknown>>()),
+  loadGscDecaySignalsForTenant: async () => new Map(CRAWL.decay.map((d) => [d.page, d])) }));
 vi.mock("@/domains/evidence/scanning/crawl-frontier", async (actual) => ({ ...(await actual<Record<string, unknown>>()),
   startColdStartCrawl: async (a: { force?: boolean }) => { CRAWL.starts += 1; CRAWL.forced = CRAWL.forced || a.force === true; CRAWL.racer?.();
     CRAWL.state = CRAWL.state ?? "in_progress"; return { status: CRAWL.state, discovered: 3 }; },
-  continueColdStartCrawlIfStarted: async () => (CRAWL.state == null || CRAWL.state === "unreachable"
+  continueColdStartCrawlIfStarted: async (_t: string, deps?: { pickCandidates?: (t: string, l: number, n?: Date) => Promise<string[]> }) => (CRAWL.pick = deps?.pickCandidates ?? null, CRAWL.state == null || CRAWL.state === "unreachable"
     ? { ran: false, status: CRAWL.state ?? "no_crawl", crawled: 0, failed: 0, totalCrawled: 0, remaining: 0, complete: false, detail: CRAWL.state ?? "no_frontier_state" }
     : (CRAWL.batches += 1, { ran: true, status: CRAWL.state, crawled: 3, failed: 0, totalCrawled: 3 * CRAWL.batches, remaining: 0, complete: false })) }));
 /** The route's own dispatch, stubbed so its gate and receipt are pinned without a second drive of the real cycle (every dispatch test below drives it). */
@@ -52,31 +57,23 @@ const PAUSED = DB.paused;
 function installAccountRepo(): void {
   const byId = async (id: string) => ({ id, slug: id, provisional_name: "", domain: "example.com", status: statusOf(id), signup_date: "", tos_accepted_at: null, daily_budget_usd: 0, growth_goal: null, created_at: "", updated_at: "" });
   setAccountRepositoryForTests({ getAccountById: byId, getAccountBySlug: byId } satisfies AccountRepository); }
-let NOW = 1_700_000_000_000;
-const iso = (ms = NOW) => new Date(ms).toISOString();
+let NOW = 1_700_000_000_000; const iso = (ms = NOW) => new Date(ms).toISOString();
 const DAY = 24 * 3600 * 1000, T = "acct-a", U = "acct-b", LEASE = RR.RESEARCH_RUN_LEASE_SECONDS * 1000, FLEET = [T, U];
 const ckey = (t: string, ms = NOW) => `${t}:${new Date(ms).toISOString().slice(0, 10)}`; // the daily key the DATABASE computes
-const mk = (o: Partial<RR.ResearchRun>): RR.ResearchRun => ({ id: "seed", tenant_id: T, cycle_key: ckey(T, NOW), status: "paused",
-  current_phase: "refresh_sources", phase_cursor: null, progress: {}, spend_usd: 0, last_error: null,
+const mk = (o: Partial<RR.ResearchRun>): RR.ResearchRun => ({ id: "seed", tenant_id: T, cycle_key: ckey(T, NOW), status: "paused", current_phase: "refresh_sources", phase_cursor: null, progress: {}, spend_usd: 0, last_error: null,
   lease_owner: null, lease_expires_at: null, started_at: iso(), updated_at: iso(), completed_at: null, ...o });
 /** In-memory repo modeling the RPC guards: claim resumes the single unfinished run (any date) before a new daily cycle, a foreign LIVE lease returns null, a same-day completed run blocks a fresh pass, the daily key is computed at database time; advance/renew need a live lease + 'running', finish an open one. */
-function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } {
-  const rows: RR.ResearchRun[] = [];
-  const find = (id: string, t: string) => rows.find((x) => x.id === id && x.tenant_id === t);
-  const live = (r: RR.ResearchRun, o: string) => r.lease_owner === o && r.lease_expires_at != null && Date.parse(r.lease_expires_at) >= NOW;
+function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } { const rows: RR.ResearchRun[] = [];
+  const find = (id: string, t: string) => rows.find((x) => x.id === id && x.tenant_id === t); const live = (r: RR.ResearchRun, o: string) => r.lease_owner === o && r.lease_expires_at != null && Date.parse(r.lease_expires_at) >= NOW;
   /** started_at desc, insertion order breaking a tie: "the latest row" is what day-scoped state and the hop count both ask. */
-  const newestFirst = (t: string) => rows.map((r, i) => [r, i] as const).filter(([r]) => r.tenant_id === t)
-    .sort((a, b) => b[0].started_at.localeCompare(a[0].started_at) || b[1] - a[1]).map(([r]) => r);
+  const newestFirst = (t: string) => rows.map((r, i) => [r, i] as const).filter(([r]) => r.tenant_id === t) .sort((a, b) => b[0].started_at.localeCompare(a[0].started_at) || b[1] - a[1]).map(([r]) => r);
   const openRun = (t: string) => newestFirst(t).find((x) => x.status === "running" || x.status === "paused");
   /** patch_research_run_progress in one atomic step: top-level merge, plus a {day, count} computed FROM THE ROW when an increment key is given. Null = no row. */
-  const patchProgress = (t: string, id: string, patch: RR.ResearchRunProgress, key?: string, day?: string): RR.ResearchRunProgress | null => {
-    const r = find(id, t); if (!r) return null; const before = r.progress ?? {}, held = key ? (before as Record<string, { day?: string; count?: number } | undefined>)[key] ?? null : null;
-    r.progress = { ...before, ...patch, ...(key ? { [key]: { day, count: held != null && held.day === day ? (held.count ?? 0) + 1 : 1 } } : {}) }; return r.progress; };
-  const repo: RR.ResearchRunRepo = {
+  const patchProgress = (t: string, id: string, patch: RR.ResearchRunProgress, key?: string, day?: string): RR.ResearchRunProgress | null => { const r = find(id, t); if (!r) return null; const before = r.progress ?? {}, held = key ? (before as Record<string, { day?: string; count?: number } | undefined>)[key] ?? null : null;
+    r.progress = { ...before, ...patch, ...(key ? { [key]: { day, count: held != null && held.day === day ? (held.count ?? 0) + 1 : 1 } } : {}) }; return r.progress; }; const repo: RR.ResearchRunRepo = {
     async claim({ tenantId, owner, leaseSeconds }) {
       if (statusOf(tenantId) !== "active") return null;  // Mirror the RPC's new leading guard: no claim unless the account is active.
-      const exp = iso(NOW + leaseSeconds * 1000), open = openRun(tenantId);
-      if (open) {
+      const exp = iso(NOW + leaseSeconds * 1000), open = openRun(tenantId); if (open) {
         if (open.lease_owner != null && open.lease_owner !== owner && Date.parse(open.lease_expires_at!) >= NOW) return null; // a foreign LIVE lease
         Object.assign(open, { lease_owner: owner, lease_expires_at: exp, status: open.status === "paused" ? "running" : open.status, updated_at: iso() });
         return { ...open }; } // id / cycle_key / phase / cursor / progress / last_error preserved
@@ -86,39 +83,29 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } {
     async claimDue({ owner, limit, leaseSeconds }) {  // claim_due_research_work: enumerate ACTIVE, not-paused accounts whose current reporting day still owes work, then claim each THROUGH the claim above, so the lease stays the only mechanism.
       const out: RR.ResearchRun[] = [], today = new Date(NOW).toISOString().slice(0, 10);
       const lastMoved = (t: string) => rows.filter((x) => x.tenant_id === t)  // Fairness order: greatest(max(started_at), max(updated_at)) asc, then id; a resume touches ONLY updated_at.
-        .map((x) => (x.updated_at > x.started_at ? x.updated_at : x.started_at)).sort().pop() ?? "";
-      const queue = [...FLEET].sort((a, b) => lastMoved(a).localeCompare(lastMoved(b)) || a.localeCompare(b));
-      for (const t of queue) {
-        if (out.length >= limit) break; if (statusOf(t) !== "active" || PAUSED.has(t)) continue; const done = rows.some((x) => x.tenant_id === t && x.status === "completed" && (x.completed_at ?? "").slice(0, 10) === today), open = openRun(t);
+        .map((x) => (x.updated_at > x.started_at ? x.updated_at : x.started_at)).sort().pop() ?? ""; const queue = [...FLEET].sort((a, b) => lastMoved(a).localeCompare(lastMoved(b)) || a.localeCompare(b));
+      for (const t of queue) { if (out.length >= limit) break; if (statusOf(t) !== "active" || PAUSED.has(t)) continue; const done = rows.some((x) => x.tenant_id === t && x.status === "completed" && (x.completed_at ?? "").slice(0, 10) === today), open = openRun(t);
         if (done && !(!!open && (open.status === "paused" || open.lease_owner == null || Date.parse(open.lease_expires_at ?? "") < NOW))) continue; // done, and nothing recoverable left open
-        const claimed = await repo.claim({ tenantId: t, owner, leaseSeconds });
-        if (claimed) out.push(claimed); }
+        const claimed = await repo.claim({ tenantId: t, owner, leaseSeconds }); if (claimed) out.push(claimed); }
       return out; },
     async startPass({ tenantId, owner, leaseSeconds, day, progress }) {  // The same-day EXTRA pass: the partial unique index refuses any insert while a run is unfinished, and (tenant, cycle_key) stays unique because the pass ordinal rides in the middle, the day on the tail. The row is BORN carrying why it was opened, exactly as the insert does.
       if (statusOf(tenantId) !== "active" || openRun(tenantId)) return null; const key = `${tenantId}:p${rows.filter((x) => x.tenant_id === tenantId && x.cycle_key.endsWith(day)).length + 1}:${day}`;
       if (rows.some((x) => x.tenant_id === tenantId && x.cycle_key === key)) return null;
       rows.push(mk({ id: `r${rows.length}`, tenant_id: tenantId, cycle_key: key, status: "running", lease_owner: owner, lease_expires_at: iso(NOW + leaseSeconds * 1000), ...(progress ? { progress } : {}) }));
-      return { ...rows[rows.length - 1]! }; },
-    async advance({ tenantId, id, owner, leaseSeconds, patch }) {
+      return { ...rows[rows.length - 1]! }; }, async advance({ tenantId, id, owner, leaseSeconds, patch }) {
       const r = find(id, tenantId); if (!r || !live(r, owner) || r.status !== "running") return false;
       Object.assign(r, { current_phase: patch.phase, progress: patch.progress ?? r.progress, phase_cursor: patch.cursor ?? null, lease_expires_at: iso(NOW + leaseSeconds * 1000) });  // Like the SQL: phase_cursor is ALWAYS set to the patch value (null clears).
-      return true; },
-    async renew({ tenantId, id, owner, leaseSeconds, cursor }) {
-      const r = find(id, tenantId); if (!r || !live(r, owner) || r.status !== "running") return false;
-      Object.assign(r, { phase_cursor: cursor ?? null, lease_expires_at: iso(NOW + leaseSeconds * 1000) }); return true; },
-    async finish({ tenantId, id, owner, outcome, errorInfo }) {
-      const r = find(id, tenantId), done = outcome === "completed"; if (!r || !live(r, owner) || !(r.status === "running" || r.status === "paused")) return false;
-      Object.assign(r, { status: outcome, lease_owner: null, lease_expires_at: null, last_error: done ? null : errorInfo ?? null, ...(done ? { current_phase: "done", completed_at: iso() } : {}) });
-      return true; },
+      return true; }, async renew({ tenantId, id, owner, leaseSeconds, cursor }) {
+      const r = find(id, tenantId); if (!r || !live(r, owner) || r.status !== "running") return false; Object.assign(r, { phase_cursor: cursor ?? null, lease_expires_at: iso(NOW + leaseSeconds * 1000) }); return true; },
+    async finish({ tenantId, id, owner, outcome, errorInfo }) { const r = find(id, tenantId), done = outcome === "completed"; if (!r || !live(r, owner) || !(r.status === "running" || r.status === "paused")) return false;
+      Object.assign(r, { status: outcome, lease_owner: null, lease_expires_at: null, last_error: done ? null : errorInfo ?? null, ...(done ? { current_phase: "done", completed_at: iso() } : {}) }); return true; },
     async latest(t) { const m = newestFirst(t)[0]; return m ? { ...m } : null; },
     async sameDay({ tenantId, day, limit }) {  // The reporting day rides on the tail of BOTH cycle-key shapes, which is how the day's rows are found.
       return newestFirst(tenantId).filter((x) => x.cycle_key.endsWith(day)).slice(0, limit).map((x) => ({ id: x.id, progress: x.progress ?? {} })); },
     async countContinuation({ tenantId, day }) {  // THE COUNT IS COMPUTED WHERE IT IS STORED, so the fake sits at the SAME seam the SQL does. A read-modify-write here would pin the very bug the RPC kills: two tabs both reading 0, both writing 1.
       const row = newestFirst(tenantId)[0]; if (!row) return null; await Promise.resolve(); // the round trip: both callers can be in flight before either patch lands
-      const held = patchProgress(tenantId, row.id, {}, "continuations", day)?.continuations;
-      return held?.day === day && Number.isFinite(held.count) ? held.count : null; },
-  };
-  return { repo, rows }; }
+      const held = patchProgress(tenantId, row.id, {}, "continuations", day)?.continuations; return held?.day === day && Number.isFinite(held.count) ? held.count : null; },
+  }; return { repo, rows }; }
 function freshRepo(): RR.ResearchRun[] { const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests(repo); return rows; }
 /** A seeded paused (unleased) today-row a fresh claim can reclaim, plus its rows. */
 function withRun(o: Partial<RR.ResearchRun> = {}): RR.ResearchRun[] { const rows = freshRepo(); rows.push(mk(o)); return rows; }
@@ -140,17 +127,13 @@ const BENIGN: ResearchCycleSteps = {
 };
 /** Healthy logging stub: each step logs its name so phase ordering is observable. */
 const healthySteps = (log: string[]): Partial<ResearchCycleSteps> => ({
-  refreshSources: async () => (log.push("refresh"), { attempted: 2, succeeded: ["google_gsc", "google_ga4"], failures: [] }),
-  backfillChunk: async () => (log.push("backfill"), { kind: "advanced", daysPulled: 30 }),
+  refreshSources: async () => (log.push("refresh"), { attempted: 2, succeeded: ["google_gsc", "google_ga4"], failures: [] }), backfillChunk: async () => (log.push("backfill"), { kind: "advanced", daysPulled: 30 }),
   // A batch that reads nothing is the site already read whole: one round, then the phase advances.
-  crawlPages: async () => (log.push("crawl"), 0), publishSurface: async () => void log.push("publish"), surfaceStale: async () => false });
-const run = (steps: Partial<ResearchCycleSteps>, deadlineMs?: number) =>
+  crawlPages: async () => (log.push("crawl"), 0), publishSurface: async () => void log.push("publish"), surfaceStale: async () => false }); const run = (steps: Partial<ResearchCycleSteps>, deadlineMs?: number) =>
   runResearchCycle(T, { now: () => new Date(NOW), steps: { ...BENIGN, ...steps }, ...(deadlineMs === undefined ? {} : { deadlineMs }) });
 beforeEach(() => { NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null); ACCOUNT_STATUS.clear(); PAUSED.clear(); DB.missing.clear(); DB.fleet = []; DB.served = []; DB.fleetError = null; installAccountRepo(); });  // ACCOUNT_STATUS is cleared so every tenant defaults to active.
-describe("research-run claim: one open run per account across all dates", () => {
-  it("resumes the account's one unfinished run first: yesterday's paused run is reclaimed by the same id with phase and cursor untouched, a later-day visit reuses it, and no second row is ever created", async () => {
-    const rows = freshRepo(); const cursor = { phase: "gsc_backfill_chunk", attemptKey: "k" };
-    rows.push(mk({ id: "seed", status: "paused", current_phase: "gsc_backfill_chunk", phase_cursor: cursor, cycle_key: ckey(T, NOW - DAY), started_at: iso(NOW - DAY) }));
+describe("research-run claim: one open run per account across all dates", () => { it("resumes the account's one unfinished run first: yesterday's paused run is reclaimed by the same id with phase and cursor untouched, a later-day visit reuses it, and no second row is ever created", async () => {
+    const rows = freshRepo(); const cursor = { phase: "gsc_backfill_chunk", attemptKey: "k" }; rows.push(mk({ id: "seed", status: "paused", current_phase: "gsc_backfill_chunk", phase_cursor: cursor, cycle_key: ckey(T, NOW - DAY), started_at: iso(NOW - DAY) }));
     const first = await RR.claimRun(T, "o1"); // resumed, not a new run: phase and cursor untouched, paused flips to running
     expect([first?.id, first?.current_phase, first?.phase_cursor, first?.status]).toEqual(["seed", "gsc_backfill_chunk", cursor, "running"]); NOW += 2 * DAY; // two UTC days later, o1's lease long dead
     expect([(await RR.claimRun(T, "o2"))?.id, rows.length]).toEqual(["seed", 1]); }); // reuses the one open run; no current-day row was ever created
@@ -164,35 +147,27 @@ describe("research-run claim: one open run per account across all dates", () => 
     expect(await RR.claimRun(T, "o3")).toBeNull(); // no redundant same-UTC-day pass
     NOW += DAY; const next = await RR.claimRun(T, "o4"); // a later eligible day
     expect([next == null, next!.id === a!.id]).toEqual([false, false]); }); // a genuinely new run once none is open
-});
-describe("research-run pre-activation gate (Slice 5)", () => {
+}); describe("research-run pre-activation gate (Slice 5)", () => {
   it("a pending account runs no research at the runtime level: the seeded run is never claimed, no lease is taken, and no new run is created", async () => {
     const rows = withRun(); setAccountStatus(T, "pending_onboarding"); await run(BENIGN); // a claimable paused today-row for T
     expect([rows[0]!.status, rows[0]!.lease_owner, rows.length]).toEqual(["paused", null, 1]); }); // untouched, unleased, and no second run opened
   it("the claim model returns null for a non-active tenant, mirroring the database tenant-active guard", async () => {
     freshRepo(); setAccountStatus(T, "pending_onboarding"); expect(await RR.claimRun(T, "o1")).toBeNull(); }); // nothing claimed or created before activation
-});
-describe("research-run database-time lease guards", () => {
+}); describe("research-run database-time lease guards", () => {
   it("guards every mutation at database time: foreign and expired owners cannot advance / renew / finish, a live owner can, and a completed row rejects mutation", async () => {
     const rows = withRun({ status: "running", lease_owner: "o1", lease_expires_at: iso(NOW + LEASE) }); const id = rows[0]!.id; expect([await RR.advancePhase(T, id, "intruder", { phase: "done" }), await RR.renewLease(T, id, "intruder", { phase: "refresh_sources" }), await RR.finishRun(T, id, "intruder", "completed")]).toEqual([false, false, false]); expect(await RR.renewLease(T, id, "o1", { phase: "refresh_sources", attemptKey: "k" })).toBe(true); expect([rows[0]!.lease_owner, rows[0]!.phase_cursor]).toEqual(["o1", { phase: "refresh_sources", attemptKey: "k" }]);
     NOW += LEASE + 1; // the owner's lease is now dead
     expect([await RR.advancePhase(T, id, "o1", { phase: "done" }), await RR.finishRun(T, id, "o1", "completed")]).toEqual([false, false]); NOW -= LEASE + 1; await RR.finishRun(T, id, "o1", "completed"); // a completed row rejects every mutation
-    expect([await RR.advancePhase(T, id, "o1", { phase: "refresh_sources" }), await RR.finishRun(T, id, "o1", "paused")]).toEqual([false, false]); });
-});
-describe("research-run phase truth", () => {
-  it("counts only synced sources as refreshed, and any connector failure pauses at refresh_sources without advancing to publish", async () => {
+    expect([await RR.advancePhase(T, id, "o1", { phase: "refresh_sources" }), await RR.finishRun(T, id, "o1", "paused")]).toEqual([false, false]); }); });
+describe("research-run phase truth", () => { it("counts only synced sources as refreshed, and any connector failure pauses at refresh_sources without advancing to publish", async () => {
     const rows = withRun(); await run({ ...BENIGN, refreshSources: async () => ({ attempted: 3, succeeded: ["google_gsc", "clarity"], failures: [{ provider: "google_ga4", detail: "429 quota" }] }) }); expect([rows[0]!.status, rows[0]!.current_phase, rows[0]!.last_error?.phase]).toEqual(["paused", "refresh_sources", "refresh_sources"]); // stuck in place → never published off a failed refresh
-    expect([rows[0]!.last_error?.failures, rows[0]!.progress.surfacePublished]).toEqual([[{ provider: "google_ga4", detail: "429 quota" }], undefined]); });
-  it("treats zero stale sources as a healthy no-op and completes when every phase succeeds or no-ops", async () => {
+    expect([rows[0]!.last_error?.failures, rows[0]!.progress.surfacePublished]).toEqual([[{ provider: "google_ga4", detail: "429 quota" }], undefined]); }); it("treats zero stale sources as a healthy no-op and completes when every phase succeeds or no-ops", async () => {
     const rows = withRun(); await run({ ...BENIGN, surfaceStale: async () => true }); // nothing refreshed, but the saved surface is stale
-    expect([rows[0]!.status, rows[0]!.current_phase, rows[0]!.last_error, rows[0]!.progress.surfacePublished]).toEqual(["completed", "done", null, true]); });
-  it("pauses at the phase that throws, never marks it published, and never completes (backfill chunk, then publish build)", async () => {
+    expect([rows[0]!.status, rows[0]!.current_phase, rows[0]!.last_error, rows[0]!.progress.surfacePublished]).toEqual(["completed", "done", null, true]); }); it("pauses at the phase that throws, never marks it published, and never completes (backfill chunk, then publish build)", async () => {
     const backfill = withRun({ current_phase: "gsc_backfill_chunk" }); await run({ ...BENIGN, backfillChunk: async () => { throw new Error("gsc backfill chunk did not advance: 429"); } }); expect([backfill[0]!.status, backfill[0]!.current_phase, backfill[0]!.last_error?.phase, backfill[0]!.progress.surfacePublished]).toEqual(["paused", "gsc_backfill_chunk", "gsc_backfill_chunk", undefined]); // same window retries next visit, and publish was never reached
     const publish = withRun({ current_phase: "publish_surface" }); // fresh repo + seed
-    await run({ ...BENIGN, surfaceStale: async () => true, publishSurface: async () => { throw new Error("surface build failed"); } }); expect([publish[0]!.status, publish[0]!.current_phase, publish[0]!.progress.surfacePublished === true, publish[0]!.completed_at]).toEqual(["paused", "publish_surface", false, null]); });
-});
-describe("research-run partial-success durability + deduped refreshed providers", () => {
-  it("persists the providers that DID sync before pausing, never counts a failed one, and counts a later success exactly once across the retry", async () => {
+    await run({ ...BENIGN, surfaceStale: async () => true, publishSurface: async () => { throw new Error("surface build failed"); } }); expect([publish[0]!.status, publish[0]!.current_phase, publish[0]!.progress.surfacePublished === true, publish[0]!.completed_at]).toEqual(["paused", "publish_surface", false, null]); }); });
+describe("research-run partial-success durability + deduped refreshed providers", () => { it("persists the providers that DID sync before pausing, never counts a failed one, and counts a later success exactly once across the retry", async () => {
     const rows = withRun(); let firstAttempt = true;
     const steps: Partial<ResearchCycleSteps> = { ...BENIGN, refreshSources: async () => (firstAttempt
       ? (firstAttempt = false, { attempted: 2, succeeded: ["google_gsc"], failures: [{ provider: "google_ga4", detail: "429" }] })
@@ -372,6 +347,12 @@ describe("research-run Today copy", () => {
     expect(done({ aiChecksDone: 140, aiChecksIntended: 140, aiChecksAnswered: 139, aiChecksUnavailable: 1 })) .toContain("1 check came back empty."); // one is one check, never one engine
     expect(done({ aiChecksDone: 140, aiChecksIntended: 140, aiChecksAnswered: 140, aiChecksUnavailable: 0, aiChecksUnsupported: 0 })) .toBe("Latest research pass finished today at 12:00 PM."); // every check answered: nothing to own, so nothing said
     expect(done({ aiChecksDone: 96, aiChecksIntended: 140, aiChecksAnswered: 94 })) .toBe("Latest research pass finished today at 12:00 PM."); }); // the day is still open, so the running count carries it
+  /** Today printed the COLLECTED count under the words "an answer I analyzed", so a day that bought 140 answers and had read 12 of them closely claimed 140 readings. */
+  it("reports answers collected and answers read closely as two separate numbers, and withholds the reading count it does not hold", () => {
+    const row = { state: { checksDone: 140, checksTotal: 140, checksAnswers: 140 }, funnel: { answersAnalyzed: 12 } };
+    const c = RR.projectStatusView(mk({ status: "running", current_phase: "serp_analysis", progress: row }), NOW).counters;
+    expect([c.aiChecksAnswered, c.answersReadClosely]).toEqual([140, 12]); // the readback receipt is valid in every phase, and it is never the collected number
+    expect(RR.projectStatusView(mk({ status: "running", progress: { state: row.state } }), NOW).counters.answersReadClosely).toBeUndefined(); }); // absent, never a zero I would print as a claim
   it("gives an open error-free run ONE in-progress sentence with the persisted AI-check counts, identical whether the lease is live or released", () => {
     const progress = { funnel: { promptsChecked: 35, enginePairsDone: 40, enginePairsIntended: 140 } };
     const leased = mk({ status: "running", current_phase: "prompt_observations", progress, lease_owner: "o", lease_expires_at: iso(NOW + LEASE) });
@@ -504,7 +485,14 @@ describe("a day of AI checks ends when the day ends, never when a batch does", (
 /** THE CRAWL HAS TO BEGIN SOMEWHERE. Cold start only ever fired from onboarding, so an account that predates it kept an empty owned-page inventory forever: every scheduled pass asked to CONTINUE a crawl that had never started, was told "no crawl", and recorded a healthy no-op. */
 describe("reading a pre-existing account's own website", () => {
   const crawl = () => defaultSteps.crawlPages(T, new Date(NOW));
-  beforeEach(() => { CRAWL.state = null; CRAWL.starts = 0; CRAWL.batches = 0; CRAWL.forced = false; CRAWL.racer = null; });
+  beforeEach(() => { CRAWL.state = null; CRAWL.starts = 0; CRAWL.batches = 0; CRAWL.forced = false; CRAWL.racer = null; CRAWL.pick = null; CRAWL.inventory = []; CRAWL.decay = []; });
+  /** THE DRAFT STEP REFUSES A PAGE IT HAS NOT READ WHOLE, so the pages the operator is waiting on are the ones losing clicks. The frontier handed them out in inventory order, so a page under investigation sat behind two hundred it had never heard of. */
+  it("puts a page losing clicks at the FRONT of the batch, without ever adding a page the inventory withheld", async () => {
+    CRAWL.inventory = ["https://site.example/steady", "https://www.site.example/losing/", "https://site.example/other"];
+    CRAWL.decay = [{ page: "https://site.example/losing", clicksNow: 4, clicksPrior: 90 }, { page: "https://site.example/steady", clicksNow: 90, clicksPrior: 90 }];
+    await crawl(); expect(await CRAWL.pick!(T, 200)).toEqual(["https://www.site.example/losing/", "https://site.example/steady", "https://site.example/other"]); // the slipping page first, www and trailing slash and all, and nothing invented
+    expect(await CRAWL.pick!(U, 200)).toEqual(CRAWL.inventory); // ANOTHER account asked through the same wrapper gets the inventory's own order, never this account's declining pages ranked over its own
+    CRAWL.decay = []; CRAWL.pick = null; await crawl(); expect(await CRAWL.pick!(T, 200)).toEqual(CRAWL.inventory); }); // no readable decline is the inventory's own order, exactly as before
   it("starts the frontier once for an active account that never had one, reads one bounded batch, and only continues it from then on", async () => {
     expect([await crawl(), CRAWL.starts, CRAWL.batches, CRAWL.forced]).toEqual([3, 1, 1, false]); // one init, one batch, never forced, never onboarding
     expect([await crawl(), CRAWL.starts, CRAWL.batches]).toEqual([3, 1, 2]); }); // an existing frontier is continued, never started again

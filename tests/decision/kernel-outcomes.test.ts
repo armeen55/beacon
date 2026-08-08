@@ -93,12 +93,10 @@ function ownedPage(url: string, title: string, totals: { impressions: number; cl
 const looked = (pairs: [string, string][], observedAt: string | null = null): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), serpEvidence: pairs.map(([query, url]) => ({ query, observedAt, aiOverview: [], aiMode: [], paa: [], related: [],
   organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/a", title: "Nowruz Traditions Explained" },
     { rank: 2, domain: "other.example", url: "https://other.example/b", title: "Persian New Year Traditions and Food" }, { rank: 3, domain: "fixture-outdoors.example", url, title: "Nowruz" }] })) });
-/** A big winner: its main searches BEAT the clicks their positions earn, and even counting its one soft search it is ahead. */
-const WINNER = ownedPage("fixture-outdoors.example/trail-shoes", "Trail Shoes", { impressions: 75646, clicks: 3246 }, [
+/** A big winner: its main searches BEAT the clicks their positions earn, and even counting its one soft search it is ahead. */ const WINNER = ownedPage("fixture-outdoors.example/trail-shoes", "Trail Shoes", { impressions: 75646, clicks: 3246 }, [
   { query: "trail running shoes", impressions: 25000, clicks: 2365, position: 3.96 }, { query: "womens trail shoes", impressions: 12000, clicks: 1012, position: 3.74 },
   { query: "trail shoes for women", impressions: 2110, clicks: 209, position: 2.66 }, { query: "trail shoe reviews", impressions: 1331, clicks: 40, position: 3.7 }]);
-/** A far smaller page with a REAL gap: 3.0 percent against the 8.0 percent that position usually earns. */
-const GAP_URL = "fixture-outdoors.example/nowruz-guide"; const GAP = ownedPage(GAP_URL, "Nowruz", { impressions: 6400, clicks: 190 }, [{ query: "nowruz traditions", impressions: 6000, clicks: 180, position: 4.1 }], ["Persian New Year Customs", "Haft-Seen"]);
+/** A far smaller page with a REAL gap: 3.0 percent against the 8.0 percent that position usually earns. */ const GAP_URL = "fixture-outdoors.example/nowruz-guide"; const GAP = ownedPage(GAP_URL, "Nowruz", { impressions: 6400, clicks: 190 }, [{ query: "nowruz traditions", impressions: 6000, clicks: 180, position: 4.1 }], ["Persian New Year Customs", "Haft-Seen"]);
 const SEEN = () => snap([GAP], looked([["nowruz traditions", GAP_URL]]));
 /** THE LIVE PRODUCTION CASE, verified 2026-07-27: 2,451 views and 15 clicks at position 6.1 on one search, a stored title missing the searcher's own word, and a results
  *  page where Google already displays that word back to them. */
@@ -142,10 +140,18 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
   it("treats nothing worth doing as a SUCCESS with no proposals, and never calls the drafter", async () => {
     reset(snap([WINNER])); let called = 0; const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async () => { called += 1; return { error: "the drafter must never run when nothing earned an action", retryable: false }; } }); // nothing earns an action, so nothing is drafted
     expect([res.outcome, res.actionable, res.proposals.length, res.candidates.length]).toEqual(["no_actionable_candidate", 0, 0, 1]); expect(called).toBe(0); expect(env.saved).toEqual([]); }); // no paid call, no persisted row
+  // ABSENCE OF A SOURCE MAY NEVER BECOME DELETION OF THE QUEUE: a live pass whose search read timed out judged every page clean and published that over a release holding real work.
+  it("changes nothing at all when the search data did not answer, and still publishes when the account genuinely holds none", async () => {
+    const stored = baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::title-family", pagePath: "/nowruz-guide", pageUrl: GAP_URL, basis: "basis_today" });
+    const gsc = (status: "failed" | "empty") => ({ ...snap([{ ...GAP, search: null }]), sources: [{ source: "gsc" as const, status, lastSyncedAt: null, rowsSeen: 0, note: "" }] });
+    const pass = async (status: "failed" | "empty") => { reset(gsc(status)); env.store = new Map([[stored.id, stored]]); return produceProposalsForTenant("fixture-tenant", { now: NOW }); };
+    const dark = await pass("failed"); // nothing judged, nothing taken back, nothing written: the caller keeps the release it already had
+    expect([dark.outcome, dark.candidates.length, env.withdrawn, env.saved]).toEqual(["evidence_unreadable", 0, [], []]);
+    const genuinely = await pass("empty"); // an account that really holds no search data reads empty, not failed, and publishes exactly as before
+    expect([genuinely.outcome, genuinely.candidates.length, env.withdrawn]).toEqual(["no_actionable_candidate", 1, []]); });
 }); // ── one evidence basis, one decision generation, ONE material row ─────────────
 const NOW = new Date("2026-07-26T00:00:00.000Z");
-/** A REAL but smaller gap (169 clicks) that is listed FIRST, ahead of GAP's 300. */
-const WEAK = ownedPage("fixture-outdoors.example/nowruz-food", "Nowruz Food", { impressions: 3000, clicks: 60 }, [{ query: "nowruz food traditions", impressions: 2800, clicks: 55, position: 4.1 }], ["Persian New Year Customs", "Haft-Seen"]);
+/** A REAL but smaller gap (169 clicks) that is listed FIRST, ahead of GAP's 300. */ const WEAK = ownedPage("fixture-outdoors.example/nowruz-food", "Nowruz Food", { impressions: 3000, clicks: 60 }, [{ query: "nowruz food traditions", impressions: 2800, clicks: 55, position: 4.1 }], ["Persian New Year Customs", "Haft-Seen"]);
 const BOTH = () => snap([WEAK, GAP], looked([["nowruz food traditions", "fixture-outdoors.example/nowruz-food"], ["nowruz traditions", GAP_URL]]));
 const reset = (s: EvidenceSnapshot): void => { env.snap = s; env.saved = []; env.store = new Map(); env.withdrawn = []; env.failWrites = false; env.bundleTarget = null; env.bundle = null; env.realBundle = false; env.door = null; };
 /** Count every drafter call a pass made, answering with one valid edit. */
@@ -166,18 +172,15 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
   it("keeps the cause that actually produced the change, and still names one for a change that brought none", async () => {
     // THE LADDER IS ASKED TWICE with different inputs: once over the opportunities query, once inside the bundle over the exact search it drafted for. They can disagree,
     // and the bundle's answer stands. A proposal with NO cause takes this pass's.
-    reset(SEEN());
-    const plain = await run(counting().complete);
+    reset(SEEN()); const plain = await run(counting().complete);
     const here = plain.candidates.find((c) => c.action === "act_existing_page")!.cause.cause;
-    expect(plain.proposals[0]!.diagnosisCause).toBe(here);
-    expect(here).not.toBe("weak_opening"); // the ladder here reaches a DIFFERENT cause: the whole fixture
+    expect(plain.proposals[0]!.diagnosisCause).toBe(here);     expect(here).not.toBe("weak_opening"); // the ladder here reaches a DIFFERENT cause: the whole fixture
     reset(SEEN());
     const own = { cause: "weak_opening" as const, action: null, evidenceKeys: ["demand-exact"], competingExplanations: [], notConsidered: [],
       falsifier: "If the page already answers the search in its first lines, this is not it.", explanation: "The page takes too long to answer the search." };
     env.bundle = { status: "bundled", proposal: baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::bundle",
       pagePath: "/nowruz-guide", pageUrl: "https://fixture-outdoors.example/nowruz-guide", diagnosisCause: "weak_opening", causeFinding: own }) };
-    const res = await run(counting().complete);
-    const bundled = res.proposals.find((p) => p.id.endsWith("::bundle"))!;
+    const res = await run(counting().complete); const bundled = res.proposals.find((p) => p.id.endsWith("::bundle"))!;
     expect([bundled.diagnosisCause, bundled.causeFinding!.cause]).toEqual(["weak_opening", "weak_opening"]); });
   it("calls a pass that saved nothing a FAILURE, and a real gap with no trusted draft exactly that", async () => {
     reset(SEEN()); env.failWrites = true; const failed = await run(counting().complete);
@@ -187,10 +190,9 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
 const HAFT = "haft seen table"; const LOOKED_AT = "2026-07-25T00:00:00.000Z"; const RIVAL = (n: number) => `https://r${n}.example/a`; const DEMAND: EvidenceSnapshot["keywordDemand"] = [{ query: HAFT, searchVolume: 900, source: "dataforseo", competition: null, competitionLevel: null, gscImpressions: null }]; const COMPARED = [`https://${GAP_URL}`, RIVAL(1), RIVAL(2), RIVAL(3)].sort();
 /** A dated look whose results agree on one meaning and one shape, with an intent on file: everything settled except the pages themselves. */ const GUIDED: FunnelResearchEvidence = { ...emptyResearchEvidence(), retainedKeywords: [{ query: HAFT, searchVolume: 900, competition: null, competitionLevel: null, difficulty: null, intent: "informational", discoveredVia: "gsc", seed: null }],
   serpEvidence: [{ query: HAFT, observedAt: LOOKED_AT, aiOverview: [], aiMode: [], paa: [], related: [], organic: [1, 2, 3].map((rank) => ({ rank, domain: `r${rank}.example`, url: RIVAL(rank), title: `${HAFT} guide` })) }] };
-/** Every cheaper check behind me: three publishers I read, my own page on those results, and the answer to exactly the comparison this pass would buy. */ const READY = (over: Partial<ResearchPageComparison> = {}): FunnelResearchEvidence => ({ ...GUIDED, serpEvidence: [{ ...GUIDED.serpEvidence[0]!, organic: [...GUIDED.serpEvidence[0]!.organic, { rank: 4, domain: "fixture-outdoors.example", url: GAP_URL, title: "Nowruz" }] }], winningPages: [1, 2, 3].map((n) => ({ url: RIVAL(n), domain: `r${n}.example`, engines: [], examplePrompts: [], appearances: [{ kind: "serp_organic" as const, query: HAFT, promptId: null, promptText: null, engine: null, rank: n, citedUrl: RIVAL(n), observedAt: LOOKED_AT, modelServed: null }], extract: { title: "g", h1: "g", wordCount: 900, headings: [], faqCount: 0, fetchedAt: LOOKED_AT } })), pageComparisons: [{ topicKey: "", askKey: askIdentity({ pages: COMPARED, intersection_mode: "union" }), pages: COMPARED, excludePages: [], observedAt: LOOKED_AT, receipt: null, unavailable: null, comparison: { intersectionMode: "union", excludePages: [], pages: COMPARED.map((url, i) => ({ page: i + 1, url })), keywords: ["haft seen table on wikipedia.org", "b", "c"].map((keyword, i) => ({ keyword, searchVolume: 500, competition: null, competitionLevel: null, difficulty: null, mainIntent: "informational", ranks: (i === 2 ? [3, 4] : [2, 3]).map((page) => ({ page, url: COMPARED[page - 1]!, title: null, rank: page })) })) }, ...over }] });
+/** Every cheaper check behind me: three publishers, my own page on those results, and the answer to exactly the comparison this pass would buy. */ const READY = (over: Partial<ResearchPageComparison> = {}): FunnelResearchEvidence => ({ ...GUIDED, serpEvidence: [{ ...GUIDED.serpEvidence[0]!, organic: [...GUIDED.serpEvidence[0]!.organic, { rank: 4, domain: "fixture-outdoors.example", url: GAP_URL, title: "Nowruz" }] }], winningPages: [1, 2, 3].map((n) => ({ url: RIVAL(n), domain: `r${n}.example`, engines: [], examplePrompts: [], appearances: [{ kind: "serp_organic" as const, query: HAFT, promptId: null, promptText: null, engine: null, rank: n, citedUrl: RIVAL(n), observedAt: LOOKED_AT, modelServed: null }], extract: { title: "g", h1: "g", wordCount: 900, headings: [], faqCount: 0, fetchedAt: LOOKED_AT } })), pageComparisons: [{ topicKey: "", askKey: askIdentity({ pages: COMPARED, intersection_mode: "union" }), pages: COMPARED, excludePages: [], observedAt: LOOKED_AT, receipt: null, unavailable: null, comparison: { intersectionMode: "union", excludePages: [], pages: COMPARED.map((url, i) => ({ page: i + 1, url })), keywords: ["haft seen table on wikipedia.org", "b", "c"].map((keyword, i) => ({ keyword, searchVolume: 500, competition: null, competitionLevel: null, difficulty: null, mainIntent: "informational", ranks: (i === 2 ? [3, 4] : [2, 3]).map((page) => ({ page, url: COMPARED[page - 1]!, title: null, rank: page })) })) }, ...over }] });
 const keyOf = (research: FunnelResearchEvidence): string => buildTopicInvestigations(snap([GAP], research, DEMAND)).find((i) => i.label === HAFT)!.key;
-/** One bought comparison, written as which requested page ranks for which search (page 1 is my own). */
-const comparisonOf = (rows: Array<[string, number[]]>) => ({ intersectionMode: "union" as const, excludePages: [], pages: COMPARED.map((url, i) => ({ page: i + 1, url })),
+/** One bought comparison, written as which requested page ranks for which search (page 1 is my own). */ const comparisonOf = (rows: Array<[string, number[]]>) => ({ intersectionMode: "union" as const, excludePages: [], pages: COMPARED.map((url, i) => ({ page: i + 1, url })),
   keywords: rows.map(([keyword, ranks]) => ({ keyword, searchVolume: 500, competition: null, competitionLevel: null, difficulty: null, mainIntent: "informational",
     ranks: ranks.map((page) => ({ page, url: COMPARED[page - 1]!, title: null, rank: page })) })) });
 describe("the pass says what it is investigating without turning any of it into work", () => {
@@ -202,9 +204,9 @@ describe("the pass says what it is investigating without turning any of it into 
     expect([first.outcome, first.proposals.length, called, env.saved.length]).toEqual(["no_actionable_candidate", 0, 0, 0]); }); // no candidate, no draft, no row
   it("queues one search per topic and only what buying can actually close", async () => {
     const asked = canon({ promptId: "p1", promptText: "where do I see nowruz fire jumping", engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [], fanOutQueries: ["nowruz fire jumping"], observedAt: LOOKED_AT });
-    reset(snap([GAP, WEAK], { ...GUIDED, aiObservations: [asked] }, DEMAND)); // one topic settled but unread, one never looked at, and two page gaps that are no topic at all
-    expect(await queued("fixture-tenant")).toEqual([HAFT, "nowruz fire jumping"]); // read that one's winners, buy the other one's missing look
-    reset(snap([GAP], looked([[HAFT, GAP_URL]], LOOKED_AT))); expect(await queued("fixture-tenant")).toEqual([]); }); // a dated look answering two meanings of the phrase: no purchase settles that, so it queues nothing
+    reset(snap([GAP, WEAK], { ...GUIDED, aiObservations: [asked] }, DEMAND)); // one topic never looked at, one whose winners I have not read, and two searches my own pages are losing that are no topic at all
+    expect(await queued("fixture-tenant")).toEqual(["nowruz traditions", "nowruz food traditions", "haft seen table"]); // MY OWN FALLING SEARCHES FIRST, biggest shortfall first, and A SEARCH IS SOMETHING LEFT TO BUY: the researched topic is diminishing on its winner window and still keeps its slot, which is the day 8 to 30 shape a look going stale creates
+    reset(snap([GAP], looked([[HAFT, GAP_URL]], LOOKED_AT))); expect(await queued("fixture-tenant")).toEqual(["nowruz traditions"]); }); // the mixed-meaning look settles nothing and releases its slot, so the plan buys the results page my own losing search never had
   it("reaches a final verdict from the comparison it already bought, and refuses one bought for a different topic, a different ask or a basis it cannot read", async () => {
     const key = keyOf(READY()); reset(snap([GAP], READY({ topicKey: key }), DEMAND)); const held = await produceProposalsForTenant("fixture-tenant", { now: NOW });
     expect([held.coverage!.investigation.key, held.coverage!.decision.verdict, held.coverage!.decision.missing]).toEqual([key, "create_new", []]); // nothing injected, and nothing bought twice
@@ -264,7 +266,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     const DARK_URL = "fixture-outdoors.example/nowruz-unreadable"; const HOLD = "2026-07-27T00:00:00.000Z";
     const dark: OwnedPageEvidence = { ...ownedPage(DARK_URL, "T", { impressions: 400, clicks: 4 }, [{ query: PARKED, impressions: 400, clicks: 4, position: 6 }]), content: null };
     const world = (ownedReads: FunnelResearchEvidence["ownedReads"] = []) => snap([GAP, UNREAD, dark], { ...withParked(READY({ topicKey: keyOf(READY()) })), ownedReads }, [...DEMAND, ...PARKED_DEMAND]);
-    const read = (w: EvidenceSnapshot) => readCoverage(w, "fixture-tenant", { basis: "basis_today", maxQueries: 3, now: NOW });
+    const read = (w: EvidenceSnapshot) => readCoverage(w, "fixture-tenant", { basis: "basis_today", maxQueries: 6, now: NOW });
     const owed = (r: Awaited<ReturnType<typeof readCoverage>>) => r.needs.find((n) => n.requirement === "owned_content");
     const net: string[] = []; const realFetch = globalThis.fetch; // ANY website read, by any module, through the one socket a render could use
     globalThis.fetch = (async (u: RequestInfo | URL) => { net.push(String(u)); throw new Error("a render may never reach a website"); }) as typeof fetch;

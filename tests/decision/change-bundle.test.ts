@@ -11,7 +11,7 @@ vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: asy
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals"; import { loadProposalQueue } from "@/domains/decision/load-proposals"; import { confidenceFor, serializeChangeProposal, deserializeChangeProposal } from "@/domains/decision/contracts";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter"; import { adjudicateCoverage, earnedNewPage, intersectionComparison } from "@/domains/decision/coverage-adjudication"; import type { OwnedCandidate } from "@/domains/decision/owned-coverage"; import type { ParsedPageIntersection } from "@/domains/evidence/page-intersection";
 import { answerIntelOf } from "@/domains/evidence/answer-intel"; import type { TopicInvestigation } from "@/domains/evidence/topic-investigation"; import type { LlmCallCacheEntry } from "@/domains/decision/llm/call-cache"; import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
-import { readTechnicalFindings, technicalComponents, type TechnicalFinding } from "@/domains/decision/technical-findings";
+import { readTechnicalFindings, technicalComponents, type TechnicalFinding } from "@/domains/decision/technical-findings"; import { suggestedEdits } from "@/domains/decision/suggested-edits"; import { compileCandidates } from "@/domains/decision/opportunities";
 import { CORE_PRODUCERS } from "@/domains/decision/producers/core";
 import type { Producer, ProducerCtx } from "@/domains/decision/producers/contract"; import { fieldForComponent } from "@/domains/decision/producers/contract";
 import { emptyResearchEvidence, type CanonicalPairObservation, type ResearchPageExtract, type ResearchWinningAppearance } from "@/domains/evidence/funnel/research-evidence"; const TENANT = "fixture-tenant"; const NOW = new Date("2026-07-25T00:00:00.000Z");
@@ -170,7 +170,24 @@ describe("what a receipt will and will not accept", () => { it("takes the result
   it("hands over nothing at all rather than a change it can show you nothing for", async () => {
     const blind: CompleteFn = async () => ({ value: {} as never }); const out = await produceBundleForSnapshot(snapshot(), { complete: blind, ...OPTS }); expect(out.status).toBe("none"); if (out.status !== "none") return; expect(out.reason).toContain("handing you nothing rather than filler"); });
 }); describe("one pass, one row per change", () => { it("bundles the proven page once, and carries no vertical assumption into a single prompt", async () => {
-    env.snap = topicSnapshot(); const res = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); expect(res.proposals.map((p) => p.id)).toEqual([`${TENANT}::/rain-barrels::existing_edit::title-family`]); expect(res.coverage).toBeNull(); const queue = await loadProposalQueue(TENANT); expect(queue.ranked.every((p) => p.kind === "existing_edit")).toBe(true); // research this thin decides nothing, so no topic becomes a page
+    env.snap = topicSnapshot(); const res = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); expect(res.coverage).toBeNull(); const queue = await loadProposalQueue(TENANT); expect(queue.ranked.every((p) => p.kind === "existing_edit")).toBe(true); // research this thin decides nothing, so no topic becomes a page
+    expect(res.proposals.map((p) => [p.id, p.status])).toEqual([[`${TENANT}::/rain-barrels::existing_edit::title-family`, "ready"], [`${TENANT}::/compost::existing_edit::title`, "needs_review"]]);
+    // FOUR GUARDS ON ONE PASS: host and path key the page (two hosts share /compost and the weak row must carry ITS OWN title),
+    // an em dash in a brand tail is never pasted, a page the strict path covered takes no second weaker row, and a page beating
+    // its own curve on its ONE measured search is refused even through the AEO clause that waives the click test.
+    const twin = { ...topicSnapshot().ownedPages[1]!, url: "https://other.example/compost", content: { ...topicSnapshot().ownedPages[1]!.content!, title: "Twin Compost Page", h1: "Twin Compost Page" } };
+    const dashed = { ...topicSnapshot().ownedPages[1]!, content: { ...topicSnapshot().ownedPages[1]!.content!, title: "Compost | Green \u2014 Co", h1: null } }; // the title is the only line there is, so the dash decides
+    const only = (s: EvidenceSnapshot) => suggestedEdits(s, compileCandidates(s), { now: OPTS.now!, basis: "b" });
+    const two = { ...topicSnapshot(), ownedPages: [topicSnapshot().ownedPages[1]!, twin] }; // the twin is LAST, so keying on the path alone would hand this page the twin's words
+    expect(only(two).map((p) => [p.pagePath, (p.recommendedChange as { before: string }).before])).toEqual([["/compost", "Rain Barrels"]]); // the twin host's title never leaks onto this page
+    expect(only({ ...topicSnapshot(), ownedPages: [dashed] })).toEqual([]); // the dash in the brand tail refuses the paste outright
+    expect(suggestedEdits(topicSnapshot(), compileCandidates(topicSnapshot()), { now: OPTS.now!, basis: "b", skip: new Set(["/compost"]) })).toEqual([]); // the strict path already owns that page
+    const winner = { ...topicSnapshot().ownedPages[1]!, search: { clicks90d: 240, impressions90d: 1200, ctr90d: 0.2, position90d: 4, topQueries: [{ query: "compost bin sizing", impressions: 1200, clicks: 240, position: 4 }] } };
+    const asked = { ...TOPIC_RESEARCH, aiObservations: [canonObs({ promptId: "pc", promptText: "compost bin sizing", citations: [{ url: "https://compostpro.example/a", domain: "compostpro.example", title: "C" }], observedAt: "2026-07-22T00:00:00.000Z" })] };
+    const aeo = { ...topicSnapshot(), ownedPages: [winner], research: asked };
+    expect([compileCandidates(aeo)[0]!.cause.cause, only(aeo)]).toEqual(["ai_citation_gap", []]); // an assistant naming everybody else waives my CLICK test, never the fact that this page beats its own curve on the one search it has
+    const held = res.proposals[1]!; expect([held.recommendedChange, held.confidence]).toEqual([{ kind: "existing_edit", field: "title", before: "Rain Barrels", after: "Compost Bin Sizing" }, "low"]); // directional, because I never looked at that results page, and the note says so
+    expect(held.limitations).toEqual(["I wrote this from the exact words people search for on this page and the name already at the end of its own title, so read it before you use it.", 'I have not looked at Google\'s results page for "compost bin sizing" yet, so I cannot tell you what the pages beating this one put in front of a searcher.']);
     // B6: generic product code carries no vertical assumption, whatever this account happens to sell.
     expect(sent.join(" ")).not.toMatch(/encyclopedia|wikipedia|culture|dynast|cuisine|province/i); });
   /** ONE TRACKED QUESTION IS ASKED OF SEVERAL ENGINES, so its id names several different answers. Matching lineage on the question id alone handed one engine's fan-out to
@@ -215,6 +232,7 @@ const release = async (produce: () => Promise<unknown>) => { vi.resetModules(); 
 describe("a release publishes only on a real production result", () => { it("lets a production failure through instead of stamping stale work with a fresh timestamp", async () => {
     const { refreshCustomerSurface, published } = await release(async () => { throw new Error("evidence read failed"); });
     await expect(refreshCustomerSurface(TENANT)).rejects.toThrow("evidence read failed"); expect(published).toEqual([]); }); // the previous release is untouched, and the phase fails where a human can see it
+  it("a pass that ran BLIND never publishes over a richer release", async () => { const { refreshCustomerSurface, published } = await release(async () => ({ proposals: [], opportunities: 0, noDraft: 0, outcome: "evidence_unreadable" })); await expect(refreshCustomerSurface(TENANT)).rejects.toThrow("kept your last release"); expect(published).toEqual([]); }); // absence of a source is never deletion of the queue
   it("publishes cleanly when a healthy run finds nothing worth doing", async () => { const { refreshCustomerSurface, published } = await release(async () => ({ proposals: [], opportunities: 0, noDraft: 0 }));
     const surface = await refreshCustomerSurface(TENANT); expect(surface.tenantId).toBe(TENANT); expect(published).toHaveLength(1); }); // nothing to do is an answer, not an outage
   it("keeps the last loadable release when every write of the pass failed", async () => {
@@ -313,18 +331,15 @@ describe("what is wrong with how a page is served", () => { it("names every faul
     expect(found.map((f) => f.kind)).toEqual(["non_200", "redirect_chain", "orphaned_page", "sitemap_omission",
       "broken_internal_link", "canonical_conflict", "duplicate_title", "robots_noindex", "canonical_missing", "duplicate_title", "missing_h1"]);
     expect(found.every((f) => f.url.startsWith(AT) && f.exactFix.length > 20 && f.evidence.length > 20)).toBe(true);
-    // PIN (B, F2): a dead address with no replacement page ASKS for one; a forward carries its destination as an address, so the live check reads where it was told to
-    // land instead of the address being moved.
+    // PIN (B, F2): a dead address with no replacement ASKS for one; a forward carries its destination as an address, so the live check reads where it was told to land.
     expect(found[0]!.exactFix).toBe("Tell me the address that replaced /gone and I will write you the forward. Until then I keep it out of your queue.");
-    expect(found[0]!.redirectTo).toBeUndefined();
-    expect(found[1]!.evidence).toBe("/old sends people to /mid, and /mid sends them on again to /rain-barrels.");
+    expect(found[0]!.redirectTo).toBeUndefined(); expect(found[1]!.evidence).toBe("/old sends people to /mid, and /mid sends them on again to /rain-barrels.");
     expect(found[1]!.redirectTo).toBe(`${AT}/rain-barrels`);
     // PIN (D, packet 19): a Ready technical change carries the EXACT edit, not a description of one.
     expect(found.find((f) => f.kind === "missing_h1")!.exact).toBe("Rain Barrel Sizing Guide");
     // PIN (D, packet 19): the orphan names a real source page, a real spot on it, and the words to type.
     const orphan = found.find((f) => f.kind === "orphaned_page")!;
-    expect(orphan.exact).toBe("Rain Barrel Sizing");
-    expect(orphan.exactFix).toContain("/rain-barrels");
+    expect(orphan.exact).toBe("Rain Barrel Sizing"); expect(orphan.exactFix).toContain("/rain-barrels");
     expect(orphan.exactFix).toContain('reading "Rain Barrel Sizing"');
     // PIN (B, F8): the spot on the source page is named the way a person names it, never a bag of tokens.
     expect(orphan.exactFix).toContain('in the part of it about "Rain Barrel Sizing Guide"');

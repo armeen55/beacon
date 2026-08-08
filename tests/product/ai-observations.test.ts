@@ -48,7 +48,7 @@ function fakeTable(table: string) {
 /** The two first-party Search Console reads the funnel's own page-query default sits on. Faked here so the
  *  default itself is the thing under test; nothing else in this file reaches them. */
 const gsc = vi.hoisted(() => ({ pages: new Map<string, unknown>(), decay: new Map<string, unknown>() }));
-vi.mock("@/domains/evidence/readers/gsc-page-signals", () => ({ loadGscPageSignalsForTenant: async () => gsc.pages, loadGscDecaySignalsForTenant: async () => gsc.decay }));
+vi.mock("@/domains/evidence/readers/gsc-page-signals", () => ({ loadGscPageSignalsForTenant: async () => { if (gsc.pages instanceof Error) throw gsc.pages; return gsc.pages; }, loadGscDecaySignalsForTenant: async () => gsc.decay }));
 /** THE one owner of the approved question set, faked so what a canonical read is SCOPED to is the thing under test. */
 const promptSet = vi.hoisted(() => ({ active: null as { id: string; version: number }[] | null }));
 vi.mock("@/domains/account/tracked-questions", async (orig) => ({ ...((await orig()) as object), readActiveTrackedPrompts: async () => promptSet.active }));
@@ -354,6 +354,7 @@ describe("the snapshot reads the canonical answer set, never the working window"
     engine: "perplexity", mode: "standardized_response", cacheKey: null, status: "done", observedAt: `${DAY}T09:05:00.000Z` } as FunnelPair]; return s; };
   const snapshotOf = () => loadEvidenceSnapshot(TENANT, { site: SITE, now: new Date(NOW), resolveBasis: async () => BASIS, loadState: async () => ({ state: lastWindow(), rowVersion: 1 }) });
   beforeEach(() => { promptSet.active = PROMPTS; });
+  it("a Search Console read that THREW is a failed source, never an empty account", async () => { gsc.pages = new Error("statement timeout") as never; const s = await snapshotOf(); gsc.pages = new Map() as never; expect(s.sources.find((x) => x.source === "gsc")!.status).toBe("failed"); }); // reverting the loader's failed ternary makes every downstream blind-pass guard unreachable
   it("holds the day's whole 140 answers while the working set is down to one pair, and buys nothing to do it", async () => {
     db.read = wholeDay(); db.written = []; const net = vi.fn(async () => { throw new Error("the snapshot must never reach a provider"); }); vi.stubGlobal("fetch", net);
     const snap = await snapshotOf(); vi.unstubAllGlobals();

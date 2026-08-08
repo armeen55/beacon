@@ -36,7 +36,9 @@ export type ResearchRunStatusView = {
   stepsTotal: 8;
   counters: { sourcesRefreshed?: number; backfillDaysPulled?: number; aiChecksDone?: number; aiChecksIntended?: number;
     /** How the settled checks landed: an answer, an engine that had nothing to give, an engine I cannot ask. */
-    aiChecksAnswered?: number; aiChecksUnavailable?: number; aiChecksUnsupported?: number };
+    aiChecksAnswered?: number; aiChecksUnavailable?: number; aiChecksUnsupported?: number;
+    /** ANSWERS I ACTUALLY READ CLOSELY, which is NEVER the same number as answers collected: `aiChecksAnswered` counts checks that came back with something, this is the run's own receipt of answers a structured reading was settled against. Today printed the collected number under the words "an answer I analyzed", so 140 collected read as 140 understood. Two fields, two numbers, and no surface may spend one as the other. */
+    answersReadClosely?: number };
   updatedAt: string | null;
   completedAt: string | null;
   /** The paused phase's Beacon-voice reason: some pauses need the operator and never resume alone. */
@@ -112,6 +114,8 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
     counters.aiChecksDone = aiDone;
     counters.aiChecksIntended = aiWanted;
   }
+  // The readback's own receipt, valid in EVERY phase (the run adds to it wherever a reading lands), never the collected count.
+  const read = run.progress?.funnel?.answersAnalyzed; if (typeof read === "number" && Number.isFinite(read)) counters.answersReadClosely = read;
 
   return {
     state,

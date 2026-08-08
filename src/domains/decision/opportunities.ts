@@ -1,45 +1,19 @@
 /**
- * decision/opportunities (decision truth replacement, 2026-07-27): the ONE
- * diagnosis. It answers "what does the evidence actually justify for this page"
- * BEFORE a single word is drafted, and DOING NOTHING IS THE DEFAULT ANSWER.
+ * decision/opportunities: the ONE diagnosis. It answers "what does the evidence actually justify for this page"
+ * BEFORE a single word is drafted, and DOING NOTHING IS THE DEFAULT ANSWER. A page is not a problem because it
+ * is big: only its EXACT query rows are measured against the one click curve this repo owns, and a page earns
+ * `act_existing_page` only when its best query clears all three floors in contracts.ts. Everything else is
+ * `watch` (a real but sub-floor gap) or `do_nothing` (it already beats the curve), carried with the exact
+ * numbers. `recoverableClicks` is the only value scalar that leaves this module.
  *
- * What it replaced: a loop that manufactured a title AND a description proposal
- * for every owned page over 20 impressions, ranked by gross traffic, so the pages
- * that already win got the most "work". A page is not a problem because it is big.
+ * A GAP IS NOT AN ACTION. A click gap proves something is wrong and never WHAT TO CHANGE, so every page that
+ * clears the floors is also asked what evidence I HOLD for it (EvidenceReadiness): the exact query rows, this
+ * page's current copy, and a results page observed for THAT EXACT search. AND HOLDING A RESULTS PAGE IS NOT
+ * READING IT: every complete candidate goes through decision/diagnose, and only a named cause with a competing
+ * explanation ruled out becomes work.
  *
- * How a page earns an action now: only its EXACT query rows (query, impressions,
- * clicks, position) are measured against the ONE click curve this repo already
- * owns (evidence/forecast/tenant-ctr-curve). A page earns `act_existing_page` only
- * when its best query clears ALL THREE floors in contracts.ts: enough impressions
- * to trust, a real click gap against that position, and enough recoverable clicks
- * to be worth an operator's morning. Everything else is `watch` (a real but
- * sub-floor gap) or `do_nothing` (it already beats the curve), carried with the
- * exact numbers so the receipt can show its work. Page totals are never measured
- * and never quoted as query numbers. `recoverableClicks` is the only value scalar
- * that leaves this module: a small page with a real gap outranks a huge page with
- * none.
- *
- * A GAP IS NOT AN ACTION (evidence-qualified changes, 2026-07-27). A click gap
- * proves something is wrong; it never proves WHAT TO CHANGE. So every page that
- * clears the floors is also asked what evidence I actually HOLD for it
- * (EvidenceReadiness in contracts.ts): the exact query rows, this page's own
- * current copy, and a live results page observed for THAT EXACT search. Without
- * all three the outcome is `research_needed`, whose reason names exactly what is
- * missing, so nothing is ever drafted for a search I have never looked at.
- *
- * AND HOLDING A RESULTS PAGE IS NOT READING IT. Completeness is a precondition, so
- * every complete candidate then goes through decision/diagnose, which reads what that
- * page actually SAYS: where this page is displayed on it, worded how, and what recurs
- * across the results beating it. Only a named cause with a competing explanation
- * ruled out becomes work, and the cause names the field, so the old token-containment
- * pick ("the search words are not in the title, so rewrite the title") is gone.
- *
- * MODELED OPPORTUNITY, NEVER PROMISED LIFT. `recoverableClicks` is the distance to
- * a generalized curve, so the copy says "this search earns about N fewer clicks
- * than pages at a similar position usually get", never "a sharper title is worth N
- * clicks". Only a diagnosed action may name the edit as the strongest explanation.
- *
- * PURE + deterministic. No I/O, no LLM.
+ * MODELED OPPORTUNITY, NEVER PROMISED LIFT: `recoverableClicks` is the distance to a generalized curve, so the
+ * copy never says "a sharper title is worth N clicks". PURE + deterministic. No I/O, no LLM.
  */
 
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot";

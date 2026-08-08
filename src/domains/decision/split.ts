@@ -30,10 +30,21 @@ export function splitComparison(snapshot: EvidenceSnapshot, query: string): Spli
   });
 }
 
-/** PURE: the page the evidence PROVES should survive, or null. Null is the common answer and a real one. */
+/**
+ * PURE: the page the account's OWN figures say should survive, or null. This used to demand that one page beat
+ * every other on clicks AND position, so the strongest live case in the account (two pages on one search, 832
+ * clicks a month behind it) sat for ever on "let me read what each page earns" while those exact earnings were
+ * already on file. THREE HONEST ANSWERS, and only the third is a deferral: where every competing page is
+ * measured, the one ahead on clicks wins; where they earn the SAME (usually nothing at all), the page Google
+ * already ranks higher wins, because that is the one decision the operator can act on without me inventing a
+ * number; and ONE-SIDED KNOWLEDGE SETTLES NOTHING. A page I hold no row for is unmeasured, not behind, and a
+ * survivor "ahead" of a page nobody weighed would send that page away for good on my ignorance. An exact tie on
+ * both settles nothing either: there is no honest way to pick, so I do not pretend there is.
+ */
 export function provenSurvivor(rows: readonly SplitRow[]): string | null {
   if (rows.length < 2 || rows.some((r) => r.clicks == null || r.position == null)) return null;
   const best = [...rows].sort((a, b) => b.clicks! - a.clicks! || a.position! - b.position!)[0]!;
-  const ahead = rows.every((r) => r.url === best.url || (best.clicks! > r.clicks! && best.position! < r.position!));
+  const ahead = rows.every((r) => r.url === best.url || best.clicks! > r.clicks!
+    || (best.clicks! === r.clicks! && best.position! < r.position!));
   return ahead ? best.url : null;
 }

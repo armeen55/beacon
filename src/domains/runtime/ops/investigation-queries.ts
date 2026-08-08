@@ -6,10 +6,10 @@ import "server-only";
  * answer comes from the SAME free verdict that decides whether this account already owns the right page.
  *
  * WHAT THE PLAN DOES AND DOES NOT BIND. It JUMPS THE QUEUE for searches and winner reads: the frozen queries go to
- * `selectSerpAgenda` and `rankWinningPages` as priorities beside the account's own page queries, tracked questions and retained
- * keywords, and the agenda still runs to 40. A live run paid for two searches outside its plan, at $0.0006 each, exactly as
- * designed. An earlier version of this header claimed every search a run pays for belongs to a frozen topic; it does not, and only
- * the COMPARISON is bound that way, so saying otherwise made a queue-jump read as a spend cap.
+ * `selectSerpAgenda` and `rankWinningPages` as PRIORITIES, first and verbatim, beside the account's own page queries, tracked
+ * questions and retained keywords. The plan is NOT a spend cap and never was: the agenda runs to whatever cap the caller passes
+ * (SERP_AGENDA_CAP in evidence/funnel/observe), so a run legitimately pays for searches outside its own three topics, and only the
+ * COMPARISON is bound to the plan. Read the provider's own receipt for what a pass cost; no price is asserted here.
  *
  * ONE SELECTOR, AND IT IS A PLAN, NOT A SINGLE TOPIC. A pass freezes up to three topics in priority order (see
  * MAX_PRIORITY_QUERIES) and never re-picks them; it only recomputes the next requirement for THOSE topics as evidence lands. The

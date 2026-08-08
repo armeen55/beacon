@@ -17,8 +17,7 @@ function profileOf(id: string, offerings: string[], topics: string[], exclude: s
 const parsedKw = (kws: { keyword: string; volume?: number }[]): ParsedKeywordItem[] => kws.map((k) => ({ keyword: k.keyword, searchVolume: k.volume ?? 100, cpcUsd: null, competition: 0.4, competitionLevel: null, difficulty: null, intent: "informational", rankedUrl: null, rankedRank: null, monthlySearches: null }));
 const aiAnswer = (over: Partial<ParsedAiAnswer> = {}): ParsedAiAnswer => ({ answerText: "hi", modelServed: null, webSearchReported: null, citations: null, fanOutQueries: null, retrievedResults: null, brandMentions: null, ...over });
 const serp = (organic: ParsedSerp["organic"]): ParsedSerp => ({ organic, aiOverview: null, paaQuestions: [], relatedSearches: [] });
-const ok = (parsed: unknown, cacheKey = "ck", modelServed: string | null = null): CachedCallResult => ({ state: "ok", envelope: parsed as never, costUsd: 0.01, cacheKey, modelServed });
-const waiting = (cacheKey: string): CachedCallResult => ({ state: "waiting", cacheKey, providerTaskId: "t", costUsd: 0, detail: "posted" });
+const ok = (parsed: unknown, cacheKey = "ck", modelServed: string | null = null): CachedCallResult => ({ state: "ok", envelope: parsed as never, costUsd: 0.01, cacheKey, modelServed }); const waiting = (cacheKey: string): CachedCallResult => ({ state: "waiting", cacheKey, providerTaskId: "t", costUsd: 0, detail: "posted" });
 const err = (disposition: FailureDisposition, cacheKey: string | null = "ck-old"): CachedCallResult => ({ state: "error", cacheKey, disposition, detail: "the provider could not finish it" }); function memStore(seed?: FunnelState) {
   const rows = new Map<string, { state: FunnelState; rowVersion: number }>(); if (seed) rows.set(`${seed.tenantId}|${seed.basisTag}`, { state: seed, rowVersion: 1 }); const clone = (s: FunnelState): FunnelState => structuredClone(s); // the real repo decodes a fresh object per load
   const deps = { loadState: async (t: string, b: string) => { const row = rows.get(`${t}|${b}`); return row ? { state: clone(row.state), rowVersion: row.rowVersion } : { state: emptyFunnelState(t, b), rowVersion: 0 }; },
@@ -39,16 +38,14 @@ describe("research funnel - basis-scoped discovery + isolation", () => {
     const blind = await keywordDiscoveryUnit({ ...base(profile), ...memStore().deps, callProvider })("t1", cur(null), 60_000); expect([blind.status, !!blind.detail]).toEqual(["failed", true]); }); // fail closed with no basis
   it("reports a moved row as a STRUCTURED state conflict and corrupts nothing (Runtime never parses the copy)", async () => { const seed = emptyFunnelState("t1", BASIS); // a concurrent writer moved the row: every save now conflicts
     seed.discovery.retained = [{ keyword: "keep me", searchVolume: 9, competition: 0.2, difficulty: null, intent: null, discoveredVia: "site" }]; const store = memStore(seed); const out = await keywordDiscoveryUnit({ ...base(profile), ...store.deps, saveState: async () => null, callProvider })("t1", cur(), 60_000); expect([out.status, out.code, out.detail]).toEqual(["failed", "state_conflict", CONFLICT_DETAIL]); expect(store.peek("t1", BASIS)!.discovery.retained[0]!.keyword).toBe("keep me"); }); // persisted row untouched
-});
-describe("research funnel - prompt observation honesty + history identity", () => {
+}); describe("research funnel - prompt observation honesty + history identity", () => {
   const prompts = [{ id: "p1", text: "best persian restaurant" }, { id: "p2", text: "where to buy saffron" }]; function deps(store: ReturnType<typeof memStore>, rows: PromptAnswerObservation[], claudeModel: string): FunnelDeps {
     return { ...store.deps, loadProfile: async () => profileOf("tp", ["persian food"], ["saffron"]), parse, syncHistory: async (r) => { rows.push(...r); }, recordObservation: async () => {}, getAccount: async () => ({ domain: "iranopedia.com" } as Account), now: () => 5_000_000,
       collectTask: async () => ok(aiAnswer({ modelServed: "gpt-4o", citations: [{ url: "https://a.com/1", domain: "a.com", title: null }] }), "ck-chat"),
       callProvider: async (cap: CapabilityKey) => { if (cap === "llm_perplexity") return ok(aiAnswer({ modelServed: "sonar", webSearchReported: true, citations: [] }));
         if (cap === "llm_scraper_chatgpt") return ok(aiAnswer({ modelServed: "gpt-4o", citations: [{ url: "https://c.com/2", domain: "c.com", title: null }], fanOutQueries: ["persian food near me"] }));
         if (cap === "llm_chatgpt") return waiting("ck-chat"); if (cap === "llm_gemini") return ok(aiAnswer({ citations: null })); return ok(aiAnswer({ modelServed: claudeModel, citations: [{ url: "https://d.com/3", domain: "d.com", title: null }] })); } };
-  }
-  it("keeps webSearchReported distinct from citations and preserves the null-vs-[] citation tri-state", async () => { const rows: PromptAnswerObservation[] = []; const store = memStore(); const out = await promptObservationUnit(deps(store, rows, "claude-3-5-sonnet"), plan(prompts))("tp", cur(), 60_000);
+  } it("keeps webSearchReported distinct from citations and preserves the null-vs-[] citation tri-state", async () => { const rows: PromptAnswerObservation[] = []; const store = memStore(); const out = await promptObservationUnit(deps(store, rows, "claude-3-5-sonnet"), plan(prompts))("tp", cur(), 60_000);
     expect(out.progress.enginePairsIntended).toBe(8); expect(out.status).toBe("done"); // exactly the 8 readings the planner asked for, all in
     const st = store.peek("tp", BASIS)!; const perp = st.prompts.pairs.find((p) => p.engine === "perplexity" && p.status === "done")!; expect(perp.webSearchReported).toBe(true); expect(perp.citations).toEqual([]); expect(perp.citationsObserved).toBe(true);
     const gem = st.prompts.pairs.find((p) => p.engine === "gemini" && p.status === "done")!; expect(gem.citations).toBeNull(); expect(gem.citationsObserved).toBe(false); const perpRow = rows.find((r) => r.platform === "perplexity")!, gemRow = rows.find((r) => r.platform === "gemini")!; expect(perpRow.citation_urls).toEqual([]); expect(perpRow.metadata.citationsObserved).toBe(true); expect(perpRow.metadata.observationMode).toBe("standardized_response"); expect(gemRow.citation_urls).toBeNull(); expect(gemRow.metadata.citationsObserved).toBe(false); expect(rows.some((r) => (r.search_queries ?? []).length > 0)).toBe(true); });
@@ -64,54 +61,43 @@ describe("research funnel - prompt observation honesty + history identity", () =
     const c1 = store.peek("tp", BASIS)!; expect(c1.cycle).toMatchObject({ runId: "run-1", cycleKey: "cycle-1" }); expect(c1.cycle.spentUsd).toBeCloseTo(0.08, 5); // 8 pairs at one cent
     const r2 = await promptObservationUnit(d, plan(prompts, DAY_B))("tp", { basis: BASIS, runId: "run-2", cycle: "cycle-2" }, 60_000); const c2 = store.peek("tp", BASIS)!; expect(r2.status).toBe("done");
     expect(c2.cycle).toMatchObject({ runId: "run-2", cacheHits: 0 }); expect(c2.cycle.spentUsd).toBeCloseTo(0.08, 5); expect(c2.ledger.spentUsd).toBeCloseTo(0.16, 5); }); // a new run gets a FRESH receipt; the lifetime total is still true
-});
-describe("research funnel - current-set truth + the disposition ladder", () => {
-  const prompts = [{ id: "p1", text: "best persian restaurant" }]; const donePair = (promptId: string, engine: FunnelPair["engine"], observedAt: string): FunnelPair => ({ promptId, engine, cacheKey: null, status: "done", observedAt, day: DAY_A, citationsObserved: true, citations: [] });
-  const postedPair = (): FunnelPair => ({ promptId: "p1", engine: "chatgpt", mode: "consumer_search", day: DAY_A, cacheKey: "ck-old", status: "posted" });
+}); describe("research funnel - current-set truth + the disposition ladder", () => {
+  const prompts = [{ id: "p1", text: "best persian restaurant" }]; const donePair = (promptId: string, engine: FunnelPair["engine"], observedAt: string): FunnelPair => ({ promptId, engine, cacheKey: null, status: "done", observedAt, day: DAY_A, citationsObserved: true, citations: [] }); const postedPair = (): FunnelPair => ({ promptId: "p1", engine: "chatgpt", mode: "consumer_search", day: DAY_A, cacheKey: "ck-old", status: "posted" });
   const seedWith = (pairs: FunnelPair[]) => { const s = emptyFunnelState("tp", BASIS); s.prompts = { pairs, intendedPairs: pairs.length }; return memStore(s); };
   const mk = (store: ReturnType<typeof memStore>, over: Partial<FunnelDeps> = {}): FunnelDeps => ({ ...store.deps, loadProfile: async () => profileOf("tp", ["persian food"], ["saffron"]), parse, syncHistory: async () => {}, recordObservation: async () => {}, getAccount: async () => ({ domain: "iranopedia.com" } as Account), now: () => NOW, ...over });
-  const one = () => plan(prompts); const unit = (d: FunnelDeps, due = one()) => promptObservationUnit(d, due)("tp", cur(), 60_000);
-  it("keeps ONLY the readings this plan asked for, so a completion from another question or another day can never satisfy it", async () => { const store = seedWith([...ENG.map((e) => donePair("p_gone", e, new Date(NOW).toISOString())), ...ENG.map((e) => ({ ...donePair("p1", e, new Date(NOW).toISOString()), day: "2026-07-20" }))]);
+  const one = () => plan(prompts); const unit = (d: FunnelDeps, due = one()) => promptObservationUnit(d, due)("tp", cur(), 60_000); it("keeps ONLY the readings this plan asked for, so a completion from another question or another day can never satisfy it", async () => { const store = seedWith([...ENG.map((e) => donePair("p_gone", e, new Date(NOW).toISOString())), ...ENG.map((e) => ({ ...donePair("p1", e, new Date(NOW).toISOString()), day: "2026-07-20" }))]);
     const out = await unit(mk(store, { callProvider: async () => waiting("ck") }));
     expect(out.status).toBe("waiting"); expect(out.progress.enginePairsIntended).toBe(4); // every reading the planner asked for is outstanding
     const kept = store.peek("tp", BASIS)!.prompts.pairs; expect(kept.length).toBe(4); expect(kept.every((p) => p.promptId === "p1" && p.day === DAY_A)).toBe(true); }); // obsolete rows dropped; the history lives in ai_observations
   it("keeps working when the budget runs out mid-plan instead of reporting done", async () => { const store = memStore(); let landed = false; // the budget runs out right after the FIRST reading lands
     const out = await unit(mk(store, { now: () => (landed ? NOW + 9_000_000 : NOW), syncHistory: async () => { landed = true; }, callProvider: async () => ok(aiAnswer({ citations: [] })) }));
     expect(out.status).toBe("advanced"); expect(store.peek("tp", BASIS)!.prompts.pairs.filter((p) => p.status === "pending").length).toBe(3); }); // NOT done: three readings are still owed
-  it("keeps a retry_free task posted on the SAME key; a blocked collect keeps it too and stops the paid batch dead", async () => { for (const disposition of ["retry_free", "blocked"] as const) {
-      const store = seedWith([postedPair()]); let posts = 0; const d = mk(store, { collectTask: async () => err(disposition), callProvider: async () => { posts += 1; return waiting("ck-new"); } });
+  it("keeps a retry_free task posted on the SAME key; a blocked collect keeps it too and stops the paid batch dead", async () => { for (const disposition of ["retry_free", "blocked"] as const) { const store = seedWith([postedPair()]); let posts = 0; const d = mk(store, { collectTask: async () => err(disposition), callProvider: async () => { posts += 1; return waiting("ck-new"); } });
       const r1 = await unit(d), r2 = await unit(d); // a second terminal never escalates
       const p = store.peek("tp", BASIS)!.prompts.pairs.find((x) => x.engine === "chatgpt")!; expect(p).toMatchObject({ status: "posted", cacheKey: "ck-old" }); expect(p.reposts).toBeUndefined(); // same identity, one-repost budget untouched
       expect([r1.status, r2.status]).toEqual(["failed", "failed"]); expect(r2.detail).toBeTruthy(); // an honest bounded pause
       expect(posts).toBe(disposition === "blocked" ? 0 : 3); // blocked stops every remaining provider call; retry_free lets the rest of the set run
-    } });
-  it("an expired task reposts the pair clean exactly ONCE, then explicit unsupported coverage, never a stuck run", async () => { const store = seedWith([postedPair()]); let posts = 0;
+    } }); it("an expired task reposts the pair clean exactly ONCE, then explicit unsupported coverage, never a stuck run", async () => { const store = seedWith([postedPair()]); let posts = 0;
     const d = mk(store, { collectTask: async () => err("repost_once"), callProvider: async () => { posts += 1; return waiting("ck-new"); } }); const chat = () => store.peek("tp", BASIS)!.prompts.pairs.find((p) => p.engine === "chatgpt")!;
     const r1 = await unit(d); expect(r1.status).toBe("waiting"); expect(chat()).toMatchObject({ status: "posted", cacheKey: "ck-new", reposts: 1 }); expect(chat().requestedAt).toBeTruthy(); // ONE clean repost, stamped with ITS OWN moment
     const r2 = await unit(d); expect(chat()).toMatchObject({ status: "unsupported", requestedAt: undefined }); expect(r2.status).toBe("waiting"); // unavailable coverage named; the run is not stuck
     expect(posts).toBe(7); // 4 first-pass posts + the OTHER three pairs' single recovery; the dead key never reposts again
     const r3 = await unit(d); expect(posts).toBe(7); expect([r3.status, r3.detail]).toEqual(["done", "I could not get an answer to any of today's 4 prompt checks; the provider had nothing to give on every one. Tomorrow's round asks them again."]); }); // every repost spent, zero further spend, and a day proven unavailable CLOSES instead of repeating forever
   it("pauses honestly when a pass processes nothing or coverage is unavailable, never a fake done", async () => { const store = memStore(); let t = 0; // the deadline passes immediately after it is set: zero pairs run
-    const stalled = await promptObservationUnit(mk(store, { now: () => (t += 100_000), callProvider: async () => waiting("ck") }), one())("tp", cur(), 1_000);
-    const unavailable = await unit(mk(store, { callProvider: async () => ({ state: "not_configured", cacheKey: null, detail: "not configured" }) })); expect([stalled.status, unavailable.status, !!stalled.detail, !!unavailable.detail]).toEqual(["failed", "failed", true, true]); });
-  it("a blocked POST stops the batch on the FIRST refusal, leaves every row exactly as it was, and pauses the run for review", async () => { const store = memStore(); let calls = 0; const pairs = () => store.peek("tp", BASIS)!.prompts.pairs;
-    const d = mk(store, { callProvider: async () => { calls += 1; return err("blocked", "ck-blocked"); } });
+    const stalled = await promptObservationUnit(mk(store, { now: () => (t += 100_000), callProvider: async () => waiting("ck") }), one())("tp", cur(), 1_000); const unavailable = await unit(mk(store, { callProvider: async () => ({ state: "not_configured", cacheKey: null, detail: "not configured" }) })); expect([stalled.status, unavailable.status, !!stalled.detail, !!unavailable.detail]).toEqual(["failed", "failed", true, true]); });
+  it("a blocked POST stops the batch on the FIRST refusal, leaves every row exactly as it was, and pauses the run for review", async () => { const store = memStore(); let calls = 0; const pairs = () => store.peek("tp", BASIS)!.prompts.pairs; const d = mk(store, { callProvider: async () => { calls += 1; return err("blocked", "ck-blocked"); } });
     const r1 = await unit(d); expect([r1.status, r1.detail, calls]).toEqual(["failed", "the provider could not finish it", 1]); // the boundary's own truth, never a canned line, and not one more paid request
     expect(pairs().every((p) => p.status === "pending" && p.cacheKey == null)).toBe(true); // a held refusal is NEVER ordinary unsupported coverage
     const r2 = await unit(d); // a revisit re-enters and gets the same held answer for free
     expect([r2.status, r2.detail, calls]).toEqual(["failed", "the provider could not finish it", 2]); // still paused, zero post-block calls
     let ecalls = 0; // a refusal carrying an EMPTY detail must still arm the block and the batch stop
-    const empty = await unit(mk(memStore(), { callProvider: async () => { ecalls += 1; return { state: "error", cacheKey: null, disposition: "blocked", detail: "" } as CachedCallResult; } })); expect([empty.status, !!empty.detail, ecalls]).toEqual(["failed", true, 1]); });
-  it("reconciles a pair settled in state whose STORED row is still due, with no provider call, so a day cannot deadlock behind its own bookkeeping", async () => {
+    const empty = await unit(mk(memStore(), { callProvider: async () => { ecalls += 1; return { state: "error", cacheKey: null, disposition: "blocked", detail: "" } as CachedCallResult; } })); expect([empty.status, !!empty.detail, ecalls]).toEqual(["failed", true, 1]); }); it("reconciles a pair settled in state whose STORED row is still due, with no provider call, so a day cannot deadlock behind its own bookkeeping", async () => {
     // Aug 4: two quarantined pairs were terminal in the funnel state and still `failed` on the canonical row. Terminalizing happens where the disposition LANDS, and a pair already set aside never crosses that code again (not posted, so the collect skips it; not pending, so the post skips it), so the whole-day gate read 138 of 140 on every window, for four fires.
-    const store = seedWith([{ promptId: "p1", engine: "chatgpt", mode: "consumer_search", day: DAY_A, cacheKey: "ck-q", status: "unsupported", observedAt: new Date(NOW).toISOString() }]);
-    const rows: AiObservationRecord[] = []; let touched = 0; const boom = async () => { touched += 1; return err("blocked"); };
-    const d = mk(store, { recordObservation: async (r: AiObservationRecord) => void rows.push(r), collectTask: boom, callProvider: boom });
-    const out = await unit(d, [{ promptId: "p1", version: 1, text: "best persian restaurant", engine: "chatgpt", slot: 0, day: DAY_A }]);
+    const store = seedWith([{ promptId: "p1", engine: "chatgpt", mode: "consumer_search", day: DAY_A, cacheKey: "ck-q", status: "unsupported", observedAt: new Date(NOW).toISOString() }]); const rows: AiObservationRecord[] = []; let touched = 0; const boom = async () => { touched += 1; return err("blocked"); };
+    const d = mk(store, { recordObservation: async (r: AiObservationRecord) => void rows.push(r), collectTask: boom, callProvider: boom }); const out = await unit(d, [{ promptId: "p1", version: 1, text: "best persian restaurant", engine: "chatgpt", slot: 0, day: DAY_A }]);
     expect([out.status, touched, rows.map((r) => [r.prompt_id, r.status, r.completed_at != null, !!r.failure_reason])]).toEqual(["done", 0, [["p1", "unavailable", true, true]]]);
     // AND ONLY WHILE THE PLANNER STILL SAYS IT IS OWED: an identity whose stored row is already terminal never reaches this plan, so nothing is rewritten and nothing is bought.
-    rows.length = 0; await unit(d, [{ promptId: "p2", version: 1, text: "where to buy saffron", engine: "gemini", slot: 0, day: DAY_A }]);
-    expect(rows.some((r) => r.prompt_id === "p1")).toBe(false);
+    rows.length = 0; await unit(d, [{ promptId: "p2", version: 1, text: "where to buy saffron", engine: "gemini", slot: 0, day: DAY_A }]); expect(rows.some((r) => r.prompt_id === "p1")).toBe(false);
   });
   it("a quarantined POST is plain unavailable coverage: the CANONICAL row goes terminal too, and the day completes on it", async () => { const store = memStore(); let calls = 0; const rows: AiObservationRecord[] = [];
     const out = await unit(mk(store, { recordObservation: async (r: AiObservationRecord) => void rows.push(r), callProvider: async () => { calls += 1; return err("quarantined", "ck-q"); } })); // Aug 4: two quarantined pairs went `unsupported` in memory and `failed` on the stored row, so the planner saw them owed on every window and 138 of 140 repeated for nine hours
@@ -137,6 +123,18 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     expect(kept.analyzed).toBe(1); // an old completion can never satisfy a due query
     const r2 = await serpAnalysisUnit(deps)("ts", cur(), 60_000); expect(posts).toBe(1); expect(collects).toBeGreaterThanOrEqual(1); expect(r2.status).toBe("done"); // resumed for free, never reposted
   });
+  it("buys every search the wide agenda names and the whole exact-SERP allowance still sits inside the funnel's $3.00 day", async () => {
+    const store = memStore(retainedState([])); let posts = 0, aiMode = 0; const priced = (c: number): CachedCallResult => ({ state: "ok", envelope: serp([]) as never, costUsd: c, cacheKey: "ck", modelServed: null });
+    const many = Array.from({ length: 200 }, (_, i) => ({ query: `owned search ${String(i).padStart(3, "0")}`, impressions: 500 - i, declining: true }));
+    const out = await serpAnalysisUnit({ ...store.deps, ...serpBase, loadPageQueries: async () => many, callProvider: async (cap: CapabilityKey) => (cap === "serp_organic" ? (posts += 1, priced(0.0021)) : (aiMode += 1, priced(0.01))) })("ts", cur(), 60_000);
+    const spent = store.peek("ts", BASIS)!.cycle.spentUsd, ceiling = 120 * 0.0021 + 5 * 0.01; // the widest cycle this unit can buy, in reserved dollars
+    expect([posts, aiMode, out.status]).toEqual([36, 5, "done"]); // thirty six first-party searches in one pass, where the flat stop bought twelve
+    expect([spent <= ceiling, ceiling <= 3.0]).toEqual([true, true]); }); // the whole allowance is a tenth of the funnel's day, so the raise is never what stops a cycle
+  it("stops the whole batch the moment the provider says today's limit is reached, and leaves the rest genuinely owed", async () => {
+    const store = memStore(retainedState([])); let calls = 0; const many = Array.from({ length: 60 }, (_, i) => ({ query: `owned search ${String(i).padStart(2, "0")}`, impressions: 500 - i }));
+    const out = await serpAnalysisUnit({ ...store.deps, ...serpBase, loadPageQueries: async () => many, callProvider: async () => { calls += 1; return { state: "error", cacheKey: null, disposition: "daily_limit", detail: "I reached today's research spending limit." } as CachedCallResult; } })("ts", cur(), 60_000);
+    expect([calls, out.status, out.detail]).toEqual([1, "failed", "I reached today's research spending limit."]); // ONE refusal, not thirty six identical ones
+    expect(store.peek("ts", BASIS)!.serps.queries.every((s) => s.status === "pending")).toBe(true); }); // owed, so tomorrow's pass buys them with a fresh limit
   it("spends NOTHING when every trusted starting point is unreadable, and keeps the research already saved", async () => { const store = memStore(retainedState(["a query"])); let calls = 0;
     const out = await serpAnalysisUnit({ ...store.deps, ...serpBase, loadProfile: async () => { throw new Error("records down"); }, loadPageQueries: async () => null, callProvider: async () => { calls += 1; return waiting("ck"); } })("ts", cur(), 60_000);
     expect([out.status, calls, out.detail]).toEqual(["failed", 0, "I could not read any of your trusted starting points this pass, so I spent nothing. I will try again on your next visit."]); // a failed read is never "you have nothing"
@@ -202,8 +200,7 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
   const cmpDeps = (st: ReturnType<typeof memStore>, callProvider: FunnelDeps["callProvider"], over: Partial<FunnelDeps> = {}): FunnelDeps => ({ ...st.deps, loadProfile: async () => emptyBusinessProfile("tx"), getAccount: async () => ({ domain: "own.com" } as Account), now: () => NOW, parse, readPageExtract: async () => null, fetchPage: (async () => ({ ok: false, reason: "robots_blocked" })) as unknown as FunnelDeps["fetchPage"], callProvider, ...over });
   const CMP = { ...cur(), stage: "compare" }; // stage TWO: the winners are already saved and the caller renewed the RUN lease in between
   it("buys ONE comparison for the WHOLE page set, never buys a landed one twice, and a resumed crash costs nothing", async () => { const asks: unknown[] = [];
-    const call = (async (cap: CapabilityKey, input: unknown) => { if (cap !== "labs_page_intersection") return ok(serp([])); asks.push(input); return asks.length > 1 ? { state: "hit", envelope: answer, costUsd: 0, cacheKey: "ck-pi", modelServed: null } as CachedCallResult : ok(answer, "ck-pi"); }) as FunnelDeps["callProvider"];
-    const st = memStore(cmpSeed()); const winners = await winningPagesUnit(cmpDeps(st, call), [], ASK)("tx", cur(), 60_000);
+    const call = (async (cap: CapabilityKey, input: unknown) => { if (cap !== "labs_page_intersection") return ok(serp([])); asks.push(input); return asks.length > 1 ? { state: "hit", envelope: answer, costUsd: 0, cacheKey: "ck-pi", modelServed: null } as CachedCallResult : ok(answer, "ck-pi"); }) as FunnelDeps["callProvider"]; const st = memStore(cmpSeed()); const winners = await winningPagesUnit(cmpDeps(st, call), [], ASK)("tx", cur(), 60_000);
     expect([winners.status, winners.cursor, asks.length]).toEqual(["advanced", { stage: "compare" }, 0]); // stage one banks the winners and spends NOTHING; the purchase waits for a renewed lease
     const r1 = await winningPagesUnit(cmpDeps(st, call), [], ASK)("tx", { ...cur(), ...winners.cursor }, 60_000); const held = st.peek("tx", BASIS)!.pageComparisons;
     expect([r1.status, asks.length, asks[0]]).toEqual(["done", 1, { pages: [W1, W2], exclude_pages: [OWN], intersection_mode: "union", limit: 100 }]); // ONE request carries every page, normalized: a call per page or per keyword is a defect
@@ -216,44 +213,34 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     const crashed = memStore(cmpSeed()); const spent = await winningPagesUnit(cmpDeps(crashed, call), [], ASK)("tx", CMP, 60_000); // the crash lost the row, so the phase asks again
     expect([spent.progress.spendUsd, crashed.peek("tx", BASIS)!.cycle.cacheHits]).toEqual([0, 1]); }); // the money core serves the SAME identity warm: zero network, zero new spend
   it("persists a refusal, a ceiling, a wait and an unreadable answer as honest gaps, spends nothing on a lost lease, and refuses a set of one", async () => {
-    const cases: [CachedCallResult, string][] = [[err("blocked"), "blocked"], [err("daily_limit"), "capped"], [{ state: "capped", cacheKey: null, detail: "ceiling" }, "capped"], [waiting("ck-pi"), "waiting"], [err("quarantined"), "quarantined"], [err("retry_free"), "ambiguous"], [err("none"), "failed"], [{ state: "not_configured", cacheKey: null, detail: "off" }, "failed"]];
-    for (const [result, unavailable] of cases) { const st = memStore(cmpSeed());
+    const cases: [CachedCallResult, string][] = [[err("blocked"), "blocked"], [err("daily_limit"), "capped"], [{ state: "capped", cacheKey: null, detail: "ceiling" }, "capped"], [waiting("ck-pi"), "waiting"], [err("quarantined"), "quarantined"], [err("retry_free"), "ambiguous"], [err("none"), "failed"], [{ state: "not_configured", cacheKey: null, detail: "off" }, "failed"]]; for (const [result, unavailable] of cases) { const st = memStore(cmpSeed());
       const out = await winningPagesUnit(cmpDeps(st, (async (cap: CapabilityKey) => (cap === "labs_page_intersection" ? result : ok(serp([])))) as FunnelDeps["callProvider"]), [], ASK)("tx", CMP, 60_000);
       const row = st.peek("tx", BASIS)!.pageComparisons[0]!; expect([out.status, row.comparison, row.unavailable, row.pages]).toEqual(["done", null, unavailable, [W1, W2]]); } // the winners are still in; the comparison names its own gap and never reads as a finding
     const unread = memStore(cmpSeed()); await winningPagesUnit(cmpDeps(unread, (async (cap: CapabilityKey) => (cap === "labs_page_intersection" ? ok(null, "ck-pi") : ok(serp([])))) as FunnelDeps["callProvider"]), [], ASK)("tx", CMP, 60_000);
     expect(unread.peek("tx", BASIS)!.pageComparisons[0]!.unavailable).toBe("ambiguous"); // an answer I cannot read is not zero shared searches
-    let calls = 0; const count = (async (cap: CapabilityKey) => { if (cap === "labs_page_intersection") calls += 1; return ok(serp([])); }) as FunnelDeps["callProvider"];
-    const lost = await winningPagesUnit(cmpDeps(memStore(cmpSeed()), count, { saveState: async () => null }), [], ASK)("tx", cur(), 60_000);
+    let calls = 0; const count = (async (cap: CapabilityKey) => { if (cap === "labs_page_intersection") calls += 1; return ok(serp([])); }) as FunnelDeps["callProvider"]; const lost = await winningPagesUnit(cmpDeps(memStore(cmpSeed()), count, { saveState: async () => null }), [], ASK)("tx", cur(), 60_000);
     expect([lost.status, lost.code, calls]).toEqual(["failed", "state_conflict", 0]); // a concurrent writer moved the research row: the winners never land, so the comparison stage is never reached
     const one = memStore(cmpSeed()); await winningPagesUnit(cmpDeps(one, count), [], { topicKey: "t1", ask: { pages: [W1] } })("tx", CMP, 60_000);
     expect([calls, one.peek("tx", BASIS)!.pageComparisons]).toEqual([0, []]); }); // one page is not a comparison: refused before the money, and nothing stored
-});
-describe("research funnel - the ONE page of the account's OWN a run may read", () => {
+}); describe("research funnel - the ONE page of the account's OWN a run may read", () => {
   const U = "own.com/nowruz", ABS = `https://${U}`, DAY = 86_400_000, at = (ms: number) => new Date(ms).toISOString();
-  const page = { ok: true, html: "<html><body><h1>Nowruz</h1><p>How a nowruz table is set out.</p></body></html>", status: 200 };
-  const seeded = (ownedReads: FunnelState["ownedReads"]) => { const s = emptyFunnelState("to", BASIS); s.ownedReads = ownedReads; return memStore(s); };
+  const page = { ok: true, html: "<html><body><h1>Nowruz</h1><p>How a nowruz table is set out.</p></body></html>", status: 200 }; const seeded = (ownedReads: FunnelState["ownedReads"]) => { const s = emptyFunnelState("to", BASIS); s.ownedReads = ownedReads; return memStore(s); };
   const hold = (url: string, state: "robots_blocked" | "temporarily_unavailable", ms: number) => ({ url, state, attemptedAt: at(NOW), retryAfter: at(NOW + ms) });
   /** ONE stage-one pass with no winners at all, so the only page work it can do is the owned read under test. `bodies` IS the canonical page_snapshots row: the
    *  snapshot write lands in it and the read-before-fetch reads it back, so a body I persisted a moment ago is a body I hold, not a page I have to fetch again. */
-  const run = async (store: ReturnType<typeof memStore>, now: number, answer: unknown, ownedUrl: string | null = U, tenant = "to", over: Partial<FunnelDeps> = {}, bodies = new Map<string, { fetchedAt: string }>()) => {
-    const tried: string[] = [], saved: string[][] = [], paid: string[] = [];
-    const out = await winningPagesUnit({ ...store.deps, loadProfile: async () => emptyBusinessProfile(tenant), getAccount: async () => ({ domain: "own.com" } as Account), now: () => now, parse, readPageExtract: async () => null,
-      callProvider: (async (cap: CapabilityKey) => { paid.push(cap); return ok(serp([])); }) as FunnelDeps["callProvider"],
-      fetchPage: (async (url: string) => { tried.push(url); return answer; }) as unknown as FunnelDeps["fetchPage"], readOwnedBodies: (async () => bodies) as unknown as FunnelDeps["readOwnedBodies"],
-      writeOwnedPage: async (snap, t) => { saved.push([snap.id, snap.url, t]); bodies.set(canonicalUrlKey(snap.url), { fetchedAt: at(now) }); }, ...over }, [], null, ownedUrl)(tenant, cur(), 60_000);
-    return { out, tried, saved, paid, held: store.peek(tenant, BASIS)!.ownedReads }; };
-  it("reads the named page ONCE, persists the page snapshot itself, never pays a provider for it, and clears what stopped me last time", async () => {
+  const run = async (store: ReturnType<typeof memStore>, now: number, answer: unknown, ownedUrl: string | null = U, tenant = "to", over: Partial<FunnelDeps> = {}, bodies = new Map<string, { fetchedAt: string }>()) => { const tried: string[] = [], saved: string[][] = [], paid: string[] = [];
+    const out = await winningPagesUnit({ ...store.deps, loadProfile: async () => emptyBusinessProfile(tenant), getAccount: async () => ({ domain: "own.com" } as Account), now: () => now, parse, readPageExtract: async () => null, callProvider: (async (cap: CapabilityKey) => { paid.push(cap); return ok(serp([])); }) as FunnelDeps["callProvider"],
+      fetchPage: (async (url: string) => { tried.push(url); return answer; }) as unknown as FunnelDeps["fetchPage"], readOwnedBodies: (async () => bodies) as unknown as FunnelDeps["readOwnedBodies"], writeOwnedPage: async (snap, t) => { saved.push([snap.id, snap.url, t]); bodies.set(canonicalUrlKey(snap.url), { fetchedAt: at(now) }); }, ...over }, [], null, ownedUrl)(tenant, cur(), 60_000);
+    return { out, tried, saved, paid, held: store.peek(tenant, BASIS)!.ownedReads }; }; it("reads the named page ONCE, persists the page snapshot itself, never pays a provider for it, and clears what stopped me last time", async () => {
     const store = seeded([{ url: U, state: "temporarily_unavailable", attemptedAt: at(NOW - 2 * DAY), retryAfter: at(NOW - DAY) }]); const r = await run(store, NOW, page);
     expect([r.tried, r.saved.map((s) => s.slice(1)), r.held, r.paid]).toEqual([[ABS], [[ABS, "to"]], [], []]); // one read, the canonical snapshot under my own tenant, the memory cleared, and the customer's own page never sent to a provider
     expect((await run(store, NOW, page, null)).tried).toEqual([]); }); // no page named, no page read
-  it("counts a page I just saved as read: a conflict on the research row sends the retry to the body I persisted, never back out to the website", async () => {
-    const store = seeded([]), bodies = new Map<string, { fetchedAt: string }>();
+  it("counts a page I just saved as read: a conflict on the research row sends the retry to the body I persisted, never back out to the website", async () => { const store = seeded([]), bodies = new Map<string, { fetchedAt: string }>();
     const first = await run(store, NOW, page, U, "to", { saveState: async () => null }, bodies); // the snapshot landed; the funnel row moved underneath the save
     expect([first.out.status, first.out.code, first.tried, [...bodies.keys()]]).toEqual(["failed", "state_conflict", [ABS], [U]]);
     const second = await run(store, NOW + 1000, page, U, "to", {}, bodies); // Runtime re-invokes the SAME phase
     expect([second.out.status, second.tried, second.held]).toEqual(["advanced", [], []]); }); // ONE website fetch across both passes, and no failure hold for a page I can read
-  it("a page I could not SAVE is not a page I read: the phase pauses in my own words and that URL still earns a date, so a broken write cannot refetch it every visit", async () => {
-    const prior = { url: U, state: "temporarily_unavailable" as const, attemptedAt: at(NOW - 2 * DAY), retryAfter: at(NOW - DAY) };
+  it("a page I could not SAVE is not a page I read: the phase pauses in my own words and that URL still earns a date, so a broken write cannot refetch it every visit", async () => { const prior = { url: U, state: "temporarily_unavailable" as const, attemptedAt: at(NOW - 2 * DAY), retryAfter: at(NOW - DAY) };
     const r = await run(seeded([prior]), NOW, page, U, "to", { writeOwnedPage: async () => { throw new Error("the row was rejected"); } });
     expect([r.out.status, r.out.cursor, r.tried, r.held.map((o) => [o.url, o.state, o.retryAfter])]).toEqual(["failed", null, [ABS], [[U, "temporarily_unavailable", at(NOW + DAY)]]]); // never a robots denial, never "your page did not answer", and never a clean slate
     expect(r.out.detail).toBe("I read your page but I could not save what it says, so I am not counting it as read yet. I will read it again on your next visit.");
@@ -261,8 +248,7 @@ describe("research funnel - the ONE page of the account's OWN a run may read", (
     const one = await run(amb, NOW, page, U, "to", { writeOwnedPage: async (snap) => { bodies.set(canonicalUrlKey(snap.url), { fetchedAt: at(NOW) }); throw new Error("timed out"); } }, bodies);
     const two = await run(amb, NOW + DAY + 1000, page, U, "to", {}, bodies); // a day later, past the hold, so it is READ-BEFORE-FETCH doing the work and not the date
     expect([one.out.status, one.tried.length, two.out.status, two.tried, two.held]).toEqual(["failed", 1, "advanced", [], []]); }); // the body I persisted IS the read: still exactly ONE fetch
-  it("honors my own site's robots rules for a month, never lets newer failures crowd that promise out, and never holds another account or basis to it", async () => {
-    const store = memStore(); const shut = await run(store, NOW, { ok: false, reason: "robots_blocked" });
+  it("honors my own site's robots rules for a month, never lets newer failures crowd that promise out, and never holds another account or basis to it", async () => { const store = memStore(); const shut = await run(store, NOW, { ok: false, reason: "robots_blocked" });
     expect(shut.held.map((o) => [o.state, o.retryAfter])).toEqual([["robots_blocked", at(NOW + 30 * DAY)]]);
     expect((await run(store, NOW + 29 * DAY, page)).tried).toEqual([]); expect((await run(store, NOW + 31 * DAY, page)).tried).toEqual([ABS]); // one month held, then exactly one new attempt
     const day = Array.from({ length: 9 }, (_, i) => hold(`own.com/x${i}`, "temporarily_unavailable", DAY)), month = hold(U, "robots_blocked", 30 * DAY);
@@ -272,22 +258,18 @@ describe("research funnel - the ONE page of the account's OWN a run may read", (
     const room = await run(seeded([...day, month]), NOW + DAY + 1, page, "own.com/n1"); // a day later the nine day-holds are memory of nothing
     expect([room.tried, room.held]).toEqual([["https://own.com/n1"], [month]]); // expired rows pruned, room made, and the month-long hold survived
     expect((await run(memStore(), NOW, { ok: false, reason: "fetch_failed" }, U, "tb")).tried).toEqual([ABS]); }); // another account is never held by my refusal
-  it("remembers a page that did not answer for a day, spends nothing inside it, keeps the SAME date, and allows exactly ONE more attempt when it expires", async () => {
-    const store = memStore(emptyFunnelState("to", BASIS)); const first = await run(store, NOW, { ok: false, reason: "fetch_failed" });
+  it("remembers a page that did not answer for a day, spends nothing inside it, keeps the SAME date, and allows exactly ONE more attempt when it expires", async () => { const store = memStore(emptyFunnelState("to", BASIS)); const first = await run(store, NOW, { ok: false, reason: "fetch_failed" });
     expect([first.tried.length, first.held.map((o) => [o.state, o.retryAfter])]).toEqual([1, [["temporarily_unavailable", at(NOW + DAY)]]]);
     const inside = await run(store, NOW + DAY - 1, page); expect([inside.tried, inside.held[0]!.retryAfter]).toEqual([[], at(NOW + DAY)]); // no fetch, and the date I promised did not slide
     const due = await run(store, NOW + DAY + 1, { ok: false, reason: "fetch_failed" }); expect([due.tried.length, due.held[0]!.retryAfter]).toEqual([1, at(NOW + 2 * DAY + 1)]); // one new attempt, one new honest date
     expect([store.peek("tb", BASIS), store.peek("to", "basis_other")]).toEqual([undefined, undefined]); }); // never another account's row, never another basis
-});
-describe("research funnel - the SERP agenda buys my own words, never a lookalike", () => {
+}); describe("research funnel - the SERP agenda buys my own words, never a lookalike", () => {
   // A GENERIC reference site: no vertical token is privileged anywhere in the gate.
   const THEMES = ["baby names", "flag history", "national holidays", "given name origins"];
   const BIG = ["celebrity gossip today", "movie trailer news", "sports scores live", "weather forecast tomorrow", "stock market today"]; // huge volume, no theme of mine
   const THEMED: [string, number][] = [["female baby names", 900], ["baby names 2026", 800], ["flag history timeline", 700], ["national holidays calendar", 600], ["given name origins guide", 500], ["political revolution 1979", 400], ["national flag history", 300]];
-  const kw = (keyword: string, searchVolume: number, over: Partial<FunnelKeyword> = {}): FunnelKeyword => ({ keyword, searchVolume, competition: null, difficulty: null, intent: null, discoveredVia: "site", ...over });
-  const retained = [...BIG.map((k, i) => kw(k, 400_000 - i * 10_000)), ...THEMED.map(([k, v]) => kw(k, v))]; type Agenda = Parameters<typeof selectSerpAgenda>[0];
-  const agenda = (over: Partial<Agenda>, cap: number) => selectSerpAgenda({ retained, themes: THEMES, prompts: [], pageQueries: [], ...over }, cap);
-  it("buys my own page's query EXACTLY, even when I never researched it, and never swaps in a lookalike", () => { const out = agenda({ pageQueries: [{ query: "boys baby names", impressions: 900 }, { query: "national flag 1979", impressions: 800 }] }, 2);
+  const kw = (keyword: string, searchVolume: number, over: Partial<FunnelKeyword> = {}): FunnelKeyword => ({ keyword, searchVolume, competition: null, difficulty: null, intent: null, discoveredVia: "site", ...over }); const retained = [...BIG.map((k, i) => kw(k, 400_000 - i * 10_000)), ...THEMED.map(([k, v]) => kw(k, v))]; type Agenda = Parameters<typeof selectSerpAgenda>[0];
+  const agenda = (over: Partial<Agenda>, cap: number) => selectSerpAgenda({ retained, themes: THEMES, prompts: [], pageQueries: [], ...over }, cap); it("buys my own page's query EXACTLY, even when I never researched it, and never swaps in a lookalike", () => { const out = agenda({ pageQueries: [{ query: "boys baby names", impressions: 900 }, { query: "national flag 1979", impressions: 800 }] }, 2);
     expect(out.queries).toEqual(["boys baby names", "national flag 1979"]); // a first-party query needs no researched twin: the search call takes any keyword string
     expect(retained.some((r) => out.queries.includes(r.keyword))).toBe(false); }); // "female baby names" and "political revolution 1979" sat right there and were NOT substituted in
   it("checks a tracked question through its observed fan-out, else through its own approved words, and says which is which", () => {
@@ -307,6 +289,14 @@ describe("research funnel - the SERP agenda buys my own words, never a lookalike
     expect(out.queries.slice(0, 3)).toEqual(["national flag 1979", "boys baby names", "given name origins"]); // the caller's own ranking, ahead of a 9,000-view first-party query
     expect(out.queries).not.toContain("septic tank inspection"); expect(out.queries[3]).toBe("female baby names"); // a fourth is not a priority, and nothing trusted was displaced
     expect(JSON.stringify(agenda({ priorityQueries: ["boys baby names", "boys names baby"] }, 8).queries.slice(0, 2))).toBe(JSON.stringify(["boys baby names", "female baby names"])); }); // one subject, ONE paid slot
+  it("keeps every slipping page's own search ahead of generic discovery, and a full portfolio fills the wide agenda past eighty searches", () => {
+    const slip = Array.from({ length: 20 }, (_, i) => ({ query: `slipping query ${String(i).padStart(2, "0")}`, impressions: 50, declining: true }));
+    const out = agenda({ pageQueries: slip }, 120); // 30% of a 120 cap is 36 first-party slots, where the flat stop gave twelve however wide the pipe got
+    expect([out.queries.filter((q) => q.startsWith("slipping query")).length, out.queries.indexOf("celebrity gossip today") > 19]).toEqual([20, true]); // all twenty, every one ahead of the huge-volume keyword no page of mine ranks for
+    const full = agenda({ pageQueries: slip, retained: [...retained, ...Array.from({ length: 40 }, (_, i) => kw(`female baby names ${i}`, 100))],
+      prompts: Array.from({ length: 60 }, (_, i) => ({ text: `tracked question ${String(i).padStart(2, "0")}` })) }, 120);
+    const ceiling = agenda({ pageQueries: slip, retained: Array.from({ length: 400 }, (_, i) => kw(`female baby names ${i}`, 100)), prompts: Array.from({ length: 200 }, (_, i) => ({ text: `tracked question ${String(i).padStart(3, "0")}` })) }, 120);
+    expect([full.queries.length >= 80, ceiling.queries.length]).toEqual([true, 104]); }); // 104 is the REAL ceiling a 120 cap can reach (80% of it for researched keywords, then a flat +8), and it is what the cost math is computed on
   it("produces the same agenda from the same inputs in any array order", () => { const full: Agenda = { retained, themes: THEMES, prompts: [{ text: "what are popular baby names", fanOutQueries: ["most popular baby names 2026", "baby names by decade"] }], pageQueries: [{ query: "boys baby names", impressions: 100, declining: true }, { query: "national flag 1979", impressions: 900 }] };
     const rev: Agenda = { retained: [...retained].reverse(), themes: [...THEMES].reverse(), prompts: [...full.prompts].reverse(), pageQueries: [...full.pageQueries].reverse() };
     expect(JSON.stringify(selectSerpAgenda(rev, 10))).toBe(JSON.stringify(selectSerpAgenda(full, 10))); });

@@ -1,24 +1,17 @@
 import "server-only";
 
 /**
- * decision/coverage-pass (N4, 2026-07-28): ONE ranked walk over everything this account has
- * investigated, and the ONLY reading of it any step gets. coverage-adjudication answers
- * "does this account already have the right page?" for ONE topic; this file decides WHICH
- * topics get asked, in what order, with which evidence, and hands back both halves of the
- * answer at once: the highest-ranked topic that reached a real verdict, and what the rest of
- * the research is still stuck on.
+ * decision/coverage-pass: ONE ranked walk over every subject this account has a stake in, and the ONLY reading
+ * of it any step gets. coverage-adjudication answers "does this account already have the right page?" for ONE
+ * topic; this file decides WHICH topics get asked, in what order, with which evidence, and hands back both
+ * halves of the answer: the highest-ranked topic that reached a real verdict, and what the rest is stuck on.
  *
- * ONE INTERPRETATION, TWO CONSUMERS. Runtime buys evidence off this pass and proposal
- * production acts off the same pass, so a run can never pay for one topic's comparison while
- * a different topic is being judged. A comparison is matched to the topic that OWNS it and to
- * the exact ask that bought it, under the account's current basis, so drifted evidence is
- * refused rather than read as an answer to a question nobody asked.
+ * ONE INTERPRETATION, TWO CONSUMERS. Runtime buys evidence off this pass and proposal production acts off the
+ * same pass, so a run can never pay for one topic's comparison while a different topic is judged. A comparison
+ * is matched to the topic that OWNS it and to the exact ask that bought it, under the account's current basis.
  *
- * $0 AND $0 OF THE WEB: no model runs, no provider is paid and NO WEBSITE IS FETCHED. This pass used to read
- * the customer's own page live, from an ordinary render, outside any lease, and because nothing was persisted
- * the same dead URL was refetched on every visit and no honest retry date could be given. Acquisition and
- * persistence belong to Evidence under Runtime's lease: here the owed page is NAMED as plain data, and its
- * stored body, or the stored reason it is unread, is READ. Nothing else. */
+ * $0 AND $0 OF THE WEB: no model runs, no provider is paid and NO WEBSITE IS FETCHED. The owed page is NAMED as
+ * plain data, and its stored body, or the stored reason it is unread, is READ. Nothing else. */
 
 import type { BusinessProfile } from "@/domains/account";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
@@ -31,14 +24,80 @@ import { adjudicateCoverage, intersectionComparison, readComparison,
   type CoverageDecision, type CoverageVerdict, type IntersectionEvidence, type MissingRequirement } from "./coverage-adjudication";
 import type { OwnedPageReadOutcome } from "@/domains/evidence/funnel/research-evidence";
 import { isCurrent } from "@/domains/evidence/freshness";
+import { answerIntelOf } from "@/domains/evidence/answer-intel";
+import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
+import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 
-/** THE order every step reads: fewest missing pieces first, then the largest demand behind it, then
- *  the stable key, so the same evidence always advances the SAME topic whether it is being bought
- *  for, compared or judged. It ranks research, never work. */
-export function rankInvestigations(investigations: readonly TopicInvestigation[]): TopicInvestigation[] {
-  return [...investigations].sort((a, b) => a.missingEvidence.length - b.missingEvidence.length
+/** A subject whose winning pages I have ALREADY READ is not research any more: it is a decision waiting on its
+ *  last purchase, and the comparison is the only thing that closes it, so it is never queued behind work that
+ *  has barely started. Three publishers is the same bar every claim of agreement in this product rests on. */
+const settled = (i: TopicInvestigation): number => (i.currentReadableWinners >= 3 ? 1 : 0);
+
+/** THE order every step reads. A subject one purchase from a verdict comes first, and then WHAT A PAGE OF
+ *  YOURS STANDS TO WIN BACK: a search one of your own pages is already losing clicks on outranks a phrase with
+ *  300,000 searches you own no page for, whatever the volume says, because volume nobody of yours competes for
+ *  is somebody else's business. Then fewest missing pieces, then demand, then the stable key, so the same
+ *  evidence always advances the SAME topic whether it is being bought for, compared or judged. Research, never
+ *  work. */
+export function rankInvestigations(investigations: readonly TopicInvestigation[],
+  worth: (inv: TopicInvestigation) => number = () => 0): TopicInvestigation[] {
+  return [...investigations].sort((a, b) => settled(b) - settled(a) || worth(b) - worth(a)
+    || a.missingEvidence.length - b.missingEvidence.length
     || (b.demand.monthlySearchVolume ?? 0) - (a.demand.monthlySearchVolume ?? 0)
     || (b.demand.gscImpressions ?? 0) - (a.demand.gscImpressions ?? 0) || a.key.localeCompare(b.key));
+}
+
+/** What ONE exact query row of the account's own is losing against the click curve, in clicks. 0 = nothing. */
+function shortfall(q: { impressions: number; clicks: number; position: number | null }): number {
+  const pos = q.position;
+  if (!(q.impressions > 0) || pos == null || !(pos > 0)) return 0;
+  return Math.max(0, (defaultExpectedCtrAt(pos) - Math.min(1, q.clicks / q.impressions)) * q.impressions);
+}
+
+/** WHAT PAGES OF THIS ACCOUNT'S OWN STAND TO WIN BACK on one topic's searches, off the exact query rows
+ *  already held. Nothing is bought and nothing is invented to compute it. */
+function ownedOpportunity(snapshot: EvidenceSnapshot, inv: TopicInvestigation): number {
+  const keys = new Set(inv.queries.map((q) => canonicalQueryKey(q)).filter(Boolean));
+  let clicks = 0;
+  for (const p of snapshot.ownedPages) for (const q of p.search?.topQueries ?? []) {
+    if (keys.has(canonicalQueryKey(q.query))) clicks += shortfall(q);
+  }
+  return Math.round(clicks);
+}
+
+/** How many pages of the account's own may open a subject of their own in one pass. */
+const MAX_OWNED_TOPICS = 25;
+/** The empty packet a page-anchored subject starts from: everything I do not hold, held honestly at nothing. */
+const BARE = { aliasKeys: [], demandBasis: "search" as const, groupedBy: [], keywords: [], trackedPrompts: [], fanOuts: [],
+  answerIntel: answerIntelOf([]),
+  exactSerps: [], serpFreshness: "missing" as const, distinctResultDomains: 0, resultDomains: [], pageType: "unknown" as const,
+  pageTypeVotes: [], serpCoherence: "unknown" as const, winners: [], distinctWinners: 0, currentReadableWinners: 0, diminishing: false,
+  demand: { monthlySearchVolume: null, queriesWithVolume: 0, gscImpressions: null, difficulty: null, intent: null, trackedPrompts: 0, fanOuts: 0, engines: [] } };
+
+/** EVERY SUBJECT THIS PASS MAY WALK: what the evidence proves I investigated, PLUS one subject per page of the
+ *  account's own that is measurably losing clicks on a search no case covers yet. A page of yours falling IS a
+ *  subject, whether or not I have ever bought a results page for it, and without this it could never enter a
+ *  plan at all: that is how 22 declining pages sat in Watching for ever while unowned volume held every slot.
+ *  Nothing is invented. The query, the views and the position are the account's own rows, and every piece I do
+ *  not hold is named as missing rather than filled in. */
+function topicsFor(snapshot: EvidenceSnapshot): TopicInvestigation[] {
+  const built = buildTopicInvestigations(snapshot);
+  const covered = new Set(built.flatMap((i) => i.queries.map((q) => canonicalQueryKey(q))));
+  const owned = snapshot.ownedPages
+    .map((p) => [...(p.search?.topQueries ?? [])].sort((a, b) => shortfall(b) - shortfall(a))[0])
+    .filter((q) => !!q && shortfall(q) > 0).sort((a, b) => shortfall(b!) - shortfall(a!));
+  const extra: TopicInvestigation[] = [];
+  for (const q of owned) {
+    const key = canonicalQueryKey(q!.query);
+    if (!key || covered.has(key) || extra.length >= MAX_OWNED_TOPICS) continue;
+    covered.add(key);
+    extra.push({ ...BARE, key: `owned::${key}`, label: q!.query, queries: [q!.query],
+      demand: { ...BARE.demand, gscImpressions: q!.impressions },
+      missingEvidence: ["I have not looked at Google's results for this yet."],
+      nextAcquisition: { kind: "buy_serp", subject: q!.query,
+        why: "A page of yours already comes up for this and I have never looked at its results, so buying that one results page is what changes the answer." } });
+  }
+  return [...built, ...extra];
 }
 
 /** The whole pass may read at most this many of my own pages' STORED words, once each. */
@@ -86,31 +145,18 @@ type ReadCoverageOptions = {
   now?: Date;
 };
 
-/**
- * The CURRENT stored comparison for ONE topic, or the honest reason Evidence could not get
- * one, or null when neither is in hand. A comparison bought for a DIFFERENT topic or about a
- * DIFFERENT set of pages answers a question I am no longer asking, so it is REFUSED rather
- * than reused: `ask` is the exact comparison this pass would buy today and only an answer to
- * that one counts. BASIS: the stored rows are projected from the funnel state scoped to the
- * account's current basis, so an older bar's answers are not in this snapshot at all; a
- * basis I cannot read is refused outright rather than assumed current.
- */
+/** The CURRENT stored comparison for ONE topic, the honest reason Evidence could not get one, or null. A
+ *  comparison bought for a DIFFERENT topic or about a DIFFERENT set of pages answers a question I am no longer
+ *  asking, so it is REFUSED rather than reused: `ask` is the exact comparison this pass would buy today. The
+ *  stored rows are scoped to the account's current basis, and a basis I cannot read is refused outright. */
 function storedComparisonFor(snapshot: EvidenceSnapshot, inv: TopicInvestigation, basis: string | null, ask: PageIntersectionAsk): IntersectionEvidence | null {
   if (!basis) return null;
-  // THE COMPLETE NORMALIZED ASK, not just the page list. The stored row carries an askKey
-  // that folds in the intersection mode and the limit as well as the pages; matching on
-  // pages alone would reuse an answer bought under a DIFFERENT question about the same
-  // pages, which is the quiet way a comparison stops meaning what the verdict thinks.
+  // BOTH the complete normalized ask identity AND the row's own page set. The key folds in the mode and the
+  // limit that the page list cannot express; the page list catches a row whose stored key no longer describes
+  // what it holds. Either check alone lets an answer to a different question be read as the answer to this one.
+  // AN ALIAS IS STILL THIS CASE: reading only `key` made a comparison bought under an absorbed id invisible.
   const want = askIdentity(ask);
   const norm = normalizePageIntersection(ask);
-  // BOTH: the complete ask identity AND the row's own page set. The key alone folds in the
-  // mode and the limit that the page list cannot express; the page list alone catches a row
-  // whose stored key no longer describes what it holds. Either check on its own lets an
-  // answer to a different question be read as the answer to this one.
-  // NO BACKWARD READ. A prior-key fallback was carried for rows bought under the old packet hash,
-  // and this account holds zero stored comparisons, so it was compatibility for nobody.
-  // AN ALIAS IS STILL THIS CASE: reading only `key` made a comparison bought under an absorbed id
-  // invisible, and bought it a second time for real money.
   const mine = new Set([inv.key, ...inv.aliasKeys]);
   const held = (snapshot.research.pageComparisons ?? []).find((c) => mine.has(c.topicKey) && c.askKey === want
     && JSON.stringify(c.pages) === JSON.stringify(norm.pages)
@@ -119,19 +165,11 @@ function storedComparisonFor(snapshot: EvidenceSnapshot, inv: TopicInvestigation
 }
 
 /**
- * ONE RANKED PASS over everything this account has investigated, and the ONLY reading of it
- * any step gets. It adjudicates every topic in the same order, gives each one the comparison
- * IT owns, and returns both halves of the answer: the highest-ranked topic that reached a
- * real verdict, and what the rest is still stuck on.
- *
- * TWO topics are never confused again. The step that buys evidence deliberately skips a
- * topic parked on shape or meaning and buys for a lower-ranked one that can actually move,
- * so reading the verdict of whichever topic merely RANKS first stared forever at a parked
- * topic while the comparison it paid for went unread. Here the topic that OWNS a comparison
- * is the topic judged with it, a comparison whose basis, topic or exact ask has drifted is
- * refused rather than read as evidence for a question nobody asked, and every caller sees
- * the same answer. $0: no model runs and no provider is paid, so a walk over every topic costs
- * arithmetic plus at most one bounded read of page text this account already stored.
+ * ONE RANKED PASS over every subject this account has a stake in, and the ONLY reading of it any step gets. It
+ * adjudicates every topic in the same order, gives each one the comparison IT owns, and returns both halves of
+ * the answer: the highest-ranked topic that reached a real verdict, and what the rest is still stuck on. The
+ * topic that OWNS a comparison is the topic judged with it, and a comparison whose basis, topic or exact ask
+ * has drifted is refused. $0: no model runs and no provider is paid.
  */
 /** The verdicts that can still become work an operator does. `do_nothing` is a finished
  *  answer, not one of them. */
@@ -153,7 +191,7 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
   let waitingUntil: string | null = null;
   // WHY A PAGE OF MINE IS UNREAD, off the research row Evidence persisted it to. Not a fetch, and not a guess.
   const ownedReads = new Map((snapshot.research.ownedReads ?? []).map((o) => [o.url, o]));
-  for (const inv of rankInvestigations(buildTopicInvestigations(snapshot))) {
+  for (const inv of rankInvestigations(topicsFor(snapshot), (i) => ownedOpportunity(snapshot, i))) {
     // STOPPING ON A PARK IS HOW THE RULE BELOW BECAME DEAD CODE: production reads this pass with
     // no research budget, so the walk ended the moment ANY verdict landed, and a park ranks first.
     if (decided && ACTS.has(decided.decision.verdict) && queries >= max && (max <= 0 || needs.some((n) => n.comparison))) break;
@@ -163,28 +201,21 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
       ...(opts.patternFor && opts.patternFor.topicKey === inv.key ? { pattern: opts.patternFor.pattern } : {}) };
     let decision: CoverageDecision;
     try { decision = await adjudicateCoverage(inv, candidates, tenantId, judge); } catch { continue; }
-    // A PAGE OF MINE WHOSE WORDS ARE ALREADY STORED IS NOT AN UNREAD PAGE. This pass asked for
-    // candidates with no bodies at all, so a page ranking third for the exact search, cited by
-    // two engines and sitting in the body store still read "I have never read this" and parked
-    // its topic forever. Read the strong ones now and decide again in the SAME pass, because a
-    // requirement I can close in this breath is not a reason to send the operator away.
+    // A PAGE OF MINE WHOSE WORDS ARE ALREADY STORED IS NOT AN UNREAD PAGE: the strong ones are read now and
+    // judged again in the SAME pass, because a requirement I can close in this breath is not a reason to send
+    // the operator away.
     let ownedRead: OwnedPageReadOutcome | null = null;
     let ownedUrl: string | null = null;
     if (decision.missing[0] === "owned_content") {
       const want = candidates.filter((c) => c.strongSignals > 0 && !c.bodyHeld && !asked.has(c.url)).slice(0, MAX_BODY_READS - asked.size).map((c) => c.url);
       for (const u of want) asked.add(u);
       const read = want.length > 0 ? await loadOwnedPageBodies(tenantId, want).catch(() => null) : null;
-      // ONE FRESHNESS MATRIX, BOTH SIDES OF THE FENCE. Evidence's page phase refuses to re-read a page of the
-      // account's own inside the owned_page window and goes back out to the site the moment it lapses. Judging
-      // a body of any age as held here meant the two sides disagreed about the word "current": a body from
-      // months ago answered this gate while Evidence had already decided the same body was due.
+      // ONE FRESHNESS MATRIX, BOTH SIDES OF THE FENCE: judging a body of any age as held here made this gate
+      // and Evidence's own page phase disagree about the word "current".
       for (const [key, body] of read ?? []) if (isCurrent("owned_page", body.fetchedAt, nowMs)) bodies.set(key, body);
-      // AN EMPTY BODY STORE IS UNKNOWN COVERAGE, NEVER PROOF A PAGE HAS NO WORDS, and the two are not even
-      // the same problem: a store that failed to answer is retryable, an absent body is a page I have never
-      // read. Both used to `continue` here, so the case was neither queued nor parked and vanished off every
-      // surface. A page my own results already name earns ONE live read of its own, once per whole pass.
-      // A page my own results already name, whose words are not on file, is NAMED for the run's page phase to
-      // go and read under its lease. Naming it here is free and safe; fetching it here was the whole defect.
+      // AN EMPTY BODY STORE IS UNKNOWN COVERAGE, NEVER PROOF A PAGE HAS NO WORDS. A page my own results name,
+      // whose words are not on file, is NAMED for the run's page phase to read under its lease; naming it here
+      // is free and safe, and fetching it here was the whole defect.
       const owed = want.find((u) => !bodies.has(u));
       if (owed) { ownedUrl = owed; ownedRead = ownedReads.get(owed) ?? null; }
       // DECIDE AGAIN IN THE SAME PASS: a body already stored is judged in this breath, and a read that failed
@@ -204,29 +235,27 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
       reading = readComparison(held, candidates);
       ask = intersectionComparison(decision, inv, candidates);
     }
-    // A PARK MAY NEVER OUTRANK A DECISION. Mixed shape is terminal now rather than an
-    // impossible purchase, and it ranks FIRST because it is missing the fewest pieces. Taking
-    // the first verdict that merely is not research_needed therefore handed `decided` to a
-    // topic that can never produce a Change, and `decided` is the ONLY door to the new-page
-    // builder, so one parked topic would starve every topic that could actually earn work.
-    // An actionable verdict always wins; a park is the answer only when nothing else is.
+    // A PARK MAY NEVER OUTRANK A DECISION: `decided` is the ONLY door to the new-page builder, so one parked
+    // topic taking it would starve every topic that could actually earn work. An actionable verdict always
+    // wins; a park is the answer only when nothing else is.
     if (decision.verdict !== "research_needed" && (!decided || (ACTS.has(decision.verdict) && !ACTS.has(decided.decision.verdict)))) {
       decided = { investigation: inv, candidates, decision, reading };
     }
     const query = (nextResearchQuery(decision, inv) ?? "").trim();
     const comparison = max <= 0 || query || needs.some((n) => n.comparison) ? null : ask;
-    // A CASE THAT CAN ONLY WAIT IS STILL A CASE. A winner read due tomorrow and a page of my own that did
-    // not answer both buy nothing today, and dropping them here is exactly how a topic stopped being visible
-    // anywhere at all. `owned_content` is always listed; everything else waiting carries its own date. The
-    // EARLIEST of those dates is the whole account's waiting truth, counted over every topic walked rather
-    // than only the ones that fit the research budget, because Today reads it whatever the budget was.
+    // A CASE THAT CAN ONLY WAIT IS STILL A CASE, and the EARLIEST of those dates is the whole account's
+    // waiting truth, counted over every topic walked rather than only the ones inside the research budget.
     const retryAfter = decision.hold ?? null;
     if (retryAfter && (waitingUntil == null || retryAfter < waitingUntil)) waitingUntil = retryAfter;
     const owedBody = decision.missing[0] === "owned_content";
-    // EVERY QUEUED NEED COUNTS AGAINST THE SAME CEILING. A body I owe and a page I am waiting on cost
-    // no search, but they still enter the run's frozen plan, and leaving them uncounted let EVERY topic
-    // into it: the plan header promises three, the drift guard that gates the one paid comparison is
-    // only as narrow as that plan, and the run's durable progress grew without bound.
+    // EVERY QUEUED NEED COUNTS AGAINST THE SAME CEILING: a body I owe and a page I am waiting on cost no
+    // search, but they still enter the run's frozen plan, which is what the paid comparison's drift guard reads.
+    // NOTHING LEFT TO BUY RELEASES THE SLOT, and A SEARCH IS SOMETHING LEFT TO BUY. `diminishing` is computed
+    // against the WINNER window, so between days 8 and 30 after a look a fully researched topic asks for a fresh
+    // results page and still reads as diminishing; releasing it there dropped the exact class that ranks first.
+    // The release is for a topic NO purchase can move: no search, no comparison, no page of my own owed, no date
+    // I promised. That is the mixed-meaning shape it was written for and nothing else.
+    if (inv.diminishing && !query && !comparison && !owedBody && !retryAfter) continue;
     if (query ? queries >= max || seen.has(query.toLowerCase()) : (!comparison && !retryAfter && !owedBody) || queries >= max) continue;
     seen.add(query.toLowerCase()); queries += 1;
     needs.push({ topicKey: inv.key, requirement: decision.missing[0]!, query: query || null, comparison, ownedUrl: owedBody ? ownedUrl : null, retryAfter });
@@ -234,27 +263,20 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
   return { decided, needs, waitingUntil };
 }
 
-/** The exact search that closes what the verdict named, or null when no search can. An
- *  unsettled meaning is already decided by the results page ON FILE, so queueing it sent runs
- *  to fetch competitor pages for topics they would refuse anyway (26 of 53 live topics); a
- *  shape that will not settle is CLOSED upstream and never arrives here at all; an unread page
- *  of mine is read inside this pass; and the comparison is bought by its own ask. FRESHNESS:
- *  taking the first row asked for the page I already hold whenever a group carried a current
- *  look beside a stale one, so the stale one stayed stale forever. A `winners` topic re-lists its
- *  CURRENT search so the winner reads bank that topic's own top pages, and the look itself is held
- *  already, so it is not a buy. A topic merely WAITING on a page-body retry lists nothing: re-listing
- *  its search would buy another results page just to sit out somebody else's timeout. */
+/** The exact search that closes what the verdict named, or null when no search can. An unsettled meaning is
+ *  already decided by the results page ON FILE; a shape that will not settle is CLOSED upstream; an unread page
+ *  of mine is read inside this pass; and the comparison is bought by its own ask. A `winners` topic re-lists its
+ *  CURRENT search so the winner reads bank that topic's own top pages, which is not a buy. A topic merely
+ *  WAITING on a page-body retry lists nothing. */
 function nextResearchQuery(d: CoverageDecision, inv: TopicInvestigation): string | null {
   const need = d.topicKey === inv.key && !d.hold ? d.missing[0] : null;
   if (need === "exact_serp" || need === "fresh_serp") return inv.exactSerps.find((s) => s.freshness !== "current")?.query ?? inv.queries[0] ?? null;
   return need === "winners" ? inv.exactSerps.find((s) => s.freshness === "current")?.query ?? null : null;
 }
 
-/** WHAT THIS ACCOUNT'S RESEARCH IS STUCK ON: at most `max` searches plus at most ONE
- *  comparison, read off the SAME canonical pass that decides whether a page is owed, so a
- *  run can never pay for one topic's comparison while a different topic is being judged. A
- *  topic no purchase can move is skipped rather than queued, two topics stuck on one search
- *  spend one slot, and an unreadable packet never stalls the agenda. */
+/** WHAT THIS ACCOUNT'S RESEARCH IS STUCK ON: at most `max` searches plus at most ONE comparison, read off the
+ *  SAME canonical pass that decides whether a page is owed. A topic no purchase can move is skipped rather than
+ *  queued, two topics stuck on one search spend one slot, and an unreadable packet never stalls the agenda. */
 export async function researchNeeds(snapshot: EvidenceSnapshot, tenantId: string, profile: BusinessProfile | null, max: number): Promise<ResearchNeed[]> {
   return (await readCoverage(snapshot, tenantId, { maxQueries: max, profile, basis: await resolveCurrentBasis(tenantId, profile) })).needs;
 }

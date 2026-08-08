@@ -1,73 +1,28 @@
 /**
- * draft-quality (2026-06-28 — Prepared Output Quality Gate) — a PURE, deterministic
- * trust gate over prepared output. It answers one question per draft: "is this good
- * enough to copy/paste, does it need a human review first, or is it junk we should
- * not call ready?" No LLM at runtime, no I/O — just the parsed draft fields.
+ * draft-quality: a PURE, deterministic trust gate over prepared output. It answers one question per draft: "is
+ * this good enough to copy and paste, does it need a human review first, or is it junk we should not call
+ * ready?" No LLM at runtime, no I/O, just the parsed draft fields.
  *
- * Design (grounded in a real Iranopedia draft audit + an adversarial false-rejection
- * pass — see scripts/wf-draft-quality.js):
- *  - REJECT (hide copy) is NARROW + high-confidence: generic dictionary openings,
- *    punt/meta non-answers, off-topic, no-draft, too-thin, malformed, strong
- *    marketing superlatives. These are unambiguously bad.
- *  - "useful_but_needs_review" is BROAD: real factual/historical claims (dates,
- *    counts, "official", dynasties) stay COPYABLE but flagged for a human check —
- *    the adversarial pass proved auto-rejecting these kills good output.
- *  - The generic-opening rule fires ONLY when the FIRST sentence is a dictionary
- *    frame ("A/An/The X is/are…", "X refers to…") AND that first sentence carries
- *    no content-context token. That precisely separates "A gift is a voluntarily
- *    transferred item…" (REJECT) from "An Iranian wedding comprises…" (PASS).
+ * REJECT (hide the copy) is NARROW and high confidence: generic dictionary openings, punt or meta non-answers,
+ * off topic, no draft, too thin, malformed, strong marketing superlatives. `useful_but_needs_review` is BROAD:
+ * real factual claims stay COPYABLE and flagged for a human check, because auto-rejecting them killed good
+ * output. The generic-opening rule fires ONLY when the FIRST sentence is a dictionary frame AND carries no
+ * content-context token, which separates "A gift is a voluntarily transferred item" from "An Iranian wedding
+ * comprises".
  *
- *  - BEACON 500 item 78 (2026-07-02) added a QUOTABILITY check to
- *    `evaluateDraftQuality`: an answer block that fails its own passage-level
- *    answerability rules (src/domains/evidence/pages/passage-answerability.ts - the
- *    same self-contained/entity-first/concrete-fact/on-topic rubric used to
- *    score page passages) is rejected the same way a generic or thin draft
- *    is, with a plain-English fix instead of a lint label. Additive: it only
- *    fires on drafts that already pass every earlier check, so no existing
- *    "ready" verdict flips without a real quotability problem (pinned by test).
- *
- *  - N8 (2026-07-02, Quality Constitution law 3) added a FACTUAL ENTAILMENT
- *    check to `evaluateDraftQuality`: numbers/dates, named entities, and
- *    superlatives in the draft must be backed by the target page's own stored
- *    body (page_snapshots body_paragraph_sample), the evidence text, or the
- *    query (src/domains/decision/drafts/factual-entailment.ts). Strictly additive and
- *    opt-in: it only runs when a caller supplies `pageBodyText` and/or
- *    `evidenceText`, so every existing pinned fixture (none of which pass
- *    those fields) keeps its exact prior verdict. When it does run and finds
- *    a violation, the draft downgrades to "unverified_claim" (copy blocked)
- *    with the plain-English violation as the reason - the same shape every
- *    other rejection in this file already uses.
- *
- *  - W5 (2026-07-09, J-69/J-70/J-71) added THREE checks:
- *    1. A word-count BAND for answer blocks: 80-150 words ("40-60 is too
- *       thin" per the operator's own words). Below 80 is `too_thin`
- *       (unchanged status, new threshold); above 150 is `not_quotable` (it no
- *       longer reads as one liftable answer). This REPLACES the old <25-word
- *       hard floor and drops this file's reliance on checkPassageRules'
- *       30-70 "self-contained" band for answer-block length (that band still
- *       serves page PASSAGES unchanged, passage-answerability.ts is
- *       untouched); the `pronoun_opener` rule from the same quotability check
- *       is kept as-is.
- *    2. `missing_source` (J-69, "EVERY factual draft requires 1-2
- *       authoritative sources before it is paste-ready. No exceptions."): a
- *       FACTUAL draft (see `isFactualClaim`) with zero authoritative sources
- *       whose claim overlaps the draft's own claim tokens is held, copy
- *       blocked, AND not regeneratable (redrafting cannot invent authority;
- *       the honest fix is "add a source", not "try again"). This SUPERSEDES
- *       the old "specific fact + zero evidenceRefs → useful_but_needs_review"
- *       rule above: a generic evidence-COUNT was always a weaker proxy for a
- *       real, checkable citation, so some previously-"needs review" fixtures
- *       now correctly surface as "needs a source" instead, that retroactive
- *       flip is the point, not a bug. Formatting/technical kinds (a
- *       title/meta/h1 rewrite that only rephrases, internal_link,
- *       schema fixes, a claim-free answer block) are NEVER source-gated.
- *       `isFactualClaim` returning false means there is nothing to source.
- *    3. A soft first-mention check (J-70), see `checkFirstMention`, only
- *       when the tenant has configured `firstMention`; a miss never blocks,
- *       it just downgrades an otherwise-ready draft to
- *       `useful_but_needs_review` with a plain reason.
+ * The other four rules this file composes:
+ *  - QUOTABILITY: an answer block that fails the shared passage-answerability rubric is rejected like a generic
+ *    or thin draft, with a plain-English fix instead of a lint label.
+ *  - FACTUAL ENTAILMENT: numbers, dates, named entities and superlatives must be backed by the page's own
+ *    stored body, the evidence text, or the query. Opt-in on the fields the caller supplies; a violation
+ *    downgrades to `unverified_claim` and blocks the copy.
+ *  - AN ANSWER-BLOCK WORD BAND of 80 to 150 words: under is `too_thin`, over is `not_quotable`, because it no
+ *    longer reads as one liftable answer.
+ *  - `missing_source`: a FACTUAL draft with zero authoritative sources overlapping its own claim tokens is
+ *    held, copy blocked, and NOT regeneratable, because redrafting cannot invent authority and the honest fix
+ *    is "add a source". Formatting and technical kinds are never source-gated. A soft first-mention check runs
+ *    only where the account configured one, and a miss downgrades rather than blocks.
  */
-
 import { checkPassageRules } from "@/domains/evidence/pages/passage-answerability";
 import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/decision/drafts/factual-entailment";
 import {

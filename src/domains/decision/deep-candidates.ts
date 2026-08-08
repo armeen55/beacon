@@ -1,16 +1,10 @@
 /**
- * decision/deep-candidates: WHICH PAGES EARN THE DEEP READ, through FIVE doors rather than one.
- *
- * The biggest proven click gap, a page an engine read or answered around, the page a coverage verdict
- * NAMES, the strongest page of a group splitting one search, and a page whose searches have fallen.
- * Each door contributes AT MOST its single strongest page, and a page arriving through two doors is kept
- * once, under the stronger door's label. Order is the honest value each door ITSELF proves, never one
- * door's number worn by another: recoverable clicks first, then the questions an engine hands to somebody
- * else, then the winning pages I read.
- *
- * EVERY DOOR CARRIES ITS OWN EVIDENCE IDENTITY, so the producer downstream can prove THAT door's case
- * rather than falling back on the click door's. A door whose own evidence is not on file refuses in its
- * own words. THIS FILE SELECTS AND NOTHING ELSE: no draft, no purchase, no model, no clock, no I/O.
+ * decision/deep-candidates: WHICH PAGES EARN THE DEEP READ, through FIVE doors rather than one: the biggest
+ * proven click gap, a page an engine read or answered around, the page a coverage verdict NAMES, the strongest
+ * page of a group splitting one search, and a page whose searches have fallen. Each door contributes AT MOST
+ * its single strongest page, order is the honest value each door ITSELF proves, and every door carries its own
+ * evidence identity so the producer proves THAT door's case rather than the click door's. THIS FILE SELECTS
+ * AND NOTHING ELSE: no draft, no purchase, no model, no clock, no I/O.
  */
 
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";

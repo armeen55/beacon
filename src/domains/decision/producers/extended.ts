@@ -358,7 +358,8 @@ export const produceConsolidation: Producer = async (ctx) => {
   // clicks are divided and never which page should live: the comparison decides that, or this stays research.
   const keep = group.survivor ? short(group.survivor) : null;
   const earns = new Map(group.comparison.map((r) => [short(r.url), r]));
-  if (!keep || !named.includes(keep) || named.some((p) => (earns.get(p)?.clicks ?? null) == null)) return refuse(UNPROVEN);
+  // THE PAGE I AM KEEPING MUST HAVE FIGURES OF ITS OWN; one I hold none for is named as one I cannot measure.
+  if (!keep || !named.includes(keep) || (earns.get(keep)?.clicks ?? null) == null) return refuse(UNPROVEN);
   const losers = named.filter((p) => p !== keep);
   // THE WORDS EACH PAGE CARRIES TODAY, or nothing may be said about what moves: a merge that cannot name what it preserves is research, not a change.
   const bodies = ctx.heldBodies ?? new Map();
@@ -375,7 +376,7 @@ export const produceConsolidation: Producer = async (ctx) => {
   const moves = [...new Set(losers.flatMap((p) => (bodyFor(p)?.headings ?? []).map((h) => h.trim())
     .filter((h) => h.length > 0 && !survivorHas.has(h.toLowerCase()))))].slice(0, MAX_MOVED);
   const win = earns.get(keep)!;
-  const rest = losers.map((p) => `${count(earns.get(p)!.clicks!)} on ${p}`).join(" and ");
+  const rest = losers.map((p) => { const c = earns.get(p)?.clicks ?? null; return c == null ? `nothing I can measure on ${p}` : `${count(c)} on ${p}`; }).join(" and ");
   // EVERY SENTENCE OPENS IN BEACON'S OWN VOICE: the firewall reads a capitalized word it cannot place as an
   // invention, so an instruction opening "Pick the one you want" was refused and never reached anyone.
   const after = plain(`${count(named.length)} of your own pages come up for "${ctx.primary}": ${named.join(", ")}. ${keep} earns ${count(win.clicks!)} clicks from that search against ${rest}${win.position == null ? "" : `, at about position ${count(win.position)}`}, so keep ${keep} as the one page for it. ${moves.length > 0 ? `I would move ${moves.map((m) => `"${m}"`).join(", ")} from ${losers.join(" and ")} into ${keep}, then send ${losers.join(" and ")} on to ${keep} for good.` : `I hold nothing on ${losers.join(" or ")} that ${keep} does not already say, so send ${losers.join(" and ")} on to ${keep} for good.`}`);

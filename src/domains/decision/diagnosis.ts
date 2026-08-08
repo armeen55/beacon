@@ -1,16 +1,13 @@
 /**
- * decision/diagnosis (V1 Truth Convergence Phase 4, 2026-07-31): THE CAUSE LADDER. One page loses clicks for
- * exactly one reason I can name. Every cause is asked in one fixed order and answers for itself: (1) does it
- * HOLD what the cause is decided from? No, and it is NOT CONSIDERED, by name, with the exact thing missing,
- * never softened into a maybe. (2) does the evidence FIRE it? Yes, and it carries the receipt ids it was read
- * off; no, and the deterministic reason it lost rides on the winner as a competing explanation (up to three
- * ship WITH it). Order is evidence strength: two of your own pages on one search beats a wording read beats a
+ * decision/diagnosis: THE CAUSE LADDER. One page loses clicks for exactly one reason I can name. Every cause is
+ * asked in one fixed order and answers for itself: (1) does it HOLD what the cause is decided from? No, and it
+ * is NOT CONSIDERED, by name, with the exact thing missing. (2) does the evidence FIRE it? Yes, and it carries
+ * the receipt ids it was read off; no, and the deterministic reason it lost rides on the winner as a competing
+ * explanation. Order is evidence strength: two of your own pages on one search beats a wording read beats a
  * shared subject beats a shape beats an engine that never cites you beats how the page is served.
  *
- * EVERY DIAGNOSIS NAMES WHAT WOULD KILL IT (`falsifier`), so it is a claim that can lose. NOTHING DRAFTS
- * WITHOUT A NAMED CAUSE, and `action` stays null for every cause whose fix is not an edit this kernel can
- * write. PURE + deterministic: no I/O, no LLM, no clock; the same evidence produces a byte-identical
- * finding, reading only what the pass already paid for. */
+ * EVERY DIAGNOSIS NAMES WHAT WOULD KILL IT (`falsifier`). NOTHING DRAFTS WITHOUT A NAMED CAUSE, and `action`
+ * stays null for every cause whose fix is not an edit this kernel can write. PURE + deterministic. */
 
 import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
@@ -31,9 +28,8 @@ type CandidateCause =
   | "demand_decline" | "ranking_loss" | "retrieved_not_cited" | "technical_indexability"
   | "measuring_change" | "no_problem";
 
-/** WHAT THE CAUSE WAS READ OFF, KEPT. Every rule computed the structure naming the fix and then folded it
- *  into prose, which is why nine causes could explain a loss and produce nothing. This carries the SAME
- *  values the explanation is written from. Absent = no structure worth keeping, never "the reading failed". */
+/** WHAT THE CAUSE WAS READ OFF, KEPT: the SAME values the explanation is written from, so a cause that can
+ *  explain a loss can also produce work. Absent = no structure worth keeping, never "the reading failed". */
 export type CausePayload =
   | { cause: "weak_opening"; want: string[] }
   | { cause: "incomplete_coverage"; absentHeadings: string[]; absentEntities: string[] }
@@ -46,8 +42,8 @@ export type CausePayload =
   | { cause: "cannibalization"; competingPaths: string[]; comparison: SplitRow[]; survivor: string | null }
   | { cause: "technical_indexability"; findings: TechnicalFinding[] };
 
-/** ONE cause, everything it was read off, and everything it beat. Carried INSIDE the candidate (no new
- *  record, no new table, no new route), so a receipt renders the whole reasoning step or none of it. */
+/** ONE cause, everything it was read off, and everything it beat. Carried INSIDE the candidate, so a receipt
+ *  renders the whole reasoning step or none of it. */
 export type CauseFinding = {
   cause: CandidateCause;
   /** The reading itself, in the shape the rule computed it. See CausePayload. */
@@ -57,10 +53,8 @@ export type CauseFinding = {
   action: DiagnosedAction | null;
   /** Receipt item ids behind the cause. Empty = nothing may be claimed from it. */
   evidenceKeys: string[];
-  /** Other causes considered and why each lost, strongest first. Bounded to three. `fired` marks the ones
-   *  whose OWN evidence fired and that lost only to a stronger explanation; everything else here was weighed
-   *  and did NOT fire, which is the opposite claim. Absent = it did not fire, so a finding stored before
-   *  this decodes as the honest "no". */
+  /** Other causes considered and why each lost, strongest first, bounded to three. `fired` marks the ones whose
+   *  OWN evidence fired and lost only to a stronger explanation; everything else was weighed and did NOT fire. */
   competingExplanations: Array<{ cause: CandidateCause; reason: string; fired?: boolean }>;
   /** The one observation that would prove this diagnosis wrong. */
   falsifier: string;
@@ -145,8 +139,7 @@ function serpLoss(d: ActionDiagnosis): string {
 
 const RULES: Rule[] = [
   {
-    // A CHANGE OF YOURS ALREADY UNDER MEASUREMENT outranks every other reading on this page: a second edit here
-    // makes the first unreadable. Asked first for that reason, and only when I was told which pages are measuring.
+    // A CHANGE ALREADY UNDER MEASUREMENT outranks every other reading: a second edit makes the first unreadable.
     cause: "measuring_change",
     held: (c) => (c.measuringPagePaths ? null : NOT_TOLD_MEASURING.missing),
     read: (c) => ((c.measuringPagePaths ?? []).some((p) => namesPage(p, c.urlKey))
@@ -158,8 +151,7 @@ const RULES: Rule[] = [
   },
   {
     // TWO OF YOUR OWN PAGES ON ONE SEARCH is the one cause no wording change can touch, so it is asked before
-    // every wording question, read off the account's own rankings and SCOPED TO THIS SEARCH: an unrelated pair
-    // splitting a different query says nothing about this one.
+    // every wording question and SCOPED TO THIS SEARCH.
     cause: "cannibalization",
     held: (c) => (c.snapshot.cannibalization.some((g) => canonicalQueryKey(g.query) === c.queryKey)
       || c.snapshot.research.retainedKeywords.some((k) => canonicalQueryKey(k.query) === c.queryKey && k.supports != null)
@@ -181,7 +173,7 @@ const RULES: Rule[] = [
     rulesOut: { cause: "ctr_snippet", reason: "a sharper line cannot fix two of your own pages competing for the same search" },
   },
   {
-    // THE LINE A SEARCHER ACTUALLY READS, off the exact results page. decision/diagnose owns that read and is the only place allowed to conclude it; here it is one rung like any other.
+    // THE LINE A SEARCHER ACTUALLY READS: decision/diagnose owns that read; here it is one rung like any other.
     cause: "ctr_snippet",
     held: () => null,
     read: (c) => (c.serpRead.status === "diagnosed" && c.serpRead.action === "title"

@@ -226,16 +226,18 @@ function stableTopics(phrases: string[]): string[] {
 const MAX_SERP_KEYWORD_CHARS = 700;
 /** A priority list answers "what is this run stuck on", never a second agenda. */
 const MAX_PRIORITY_QUERIES = 3;
+/** THE PORTFOLIO STOPS SCALE WITH THE CAP. They were the flat numbers 12 / 22 / 32, tuned when the cap was 40, so raising the cap handed every new slot to plain volume exploration: an account with twenty two pages losing clicks got twelve first-party slots however wide the agenda grew, and the rest went to keywords none of its pages rank for. Each stop is now the same SHARE of the cap it was at forty (30% / 55% / 80%), floored at the old number so nothing narrows and every existing small-cap agenda is unchanged. Exploration stays a flat +8: widening the pipe must widen my OWN words. */
+const stopAt = (cap: number, floor: number, share: number) => Math.min(cap, Math.max(floor, Math.round(cap * share)));
 
 /**
  * THE agenda of keywords worth a paid search look, in the customer's OWN words. Volume alone once bought all 40 slots on national-news queries while the
  * money themes sat unchecked; the fix that followed then substituted a merely similar RETAINED keyword for a trusted first-party query, so "boy names" was
  * bought as "last names". Both are gone: a trusted query is bought VERBATIM and never needs to exist in the retained set, and only portfolio 3 may propose
  * a researched keyword, on a strong anchored match alone. Five bounded portfolios fill the cap in priority order:
- *   P0 (<=3)  the exact searches an open investigation cannot close without: bought FIRST, always
- *   P1 (<=12) the EXACT queries my own strongest pages already rank for, slipping first
- *   P2 (<=22) my tracked questions: observed fan-out queries first, then the question text
- *   P3 (<=32) researched keywords, one per confirmed theme, round-robin, no theme faked
+ *   P0 (<=3)      the exact searches an open investigation cannot close without: bought FIRST, always
+ *   P1 (30% of cap, min 12) the EXACT queries my own strongest pages already rank for, slipping first
+ *   P2 (55% of cap, min 22) my tracked questions: observed fan-out queries first, then the question text
+ *   P3 (80% of cap, min 32) researched keywords, one per confirmed theme, round-robin, no theme faked
  *   P4 (<=8 more) plain volume exploration, so genuinely huge demand still gets a look
  * If the trusted portfolios cannot fill the cap the agenda is SHORTER than the cap: buying less is the honest outcome, never padding the bill with noise.
  * Two queries are the same subject only under canonicalQueryKey, so word order never buys twice and a changed modifier is never collapsed away. Same inputs
@@ -297,7 +299,7 @@ export function selectSerpAgenda(
 
   // P1: my own strongest pages' queries, VERBATIM. First-party Search Console data is the most trusted starting point I have, and the search call accepts
   // any keyword string, so a query never has to appear in the researched set to be checked. Slipping before steady.
-  const stop1 = Math.min(cap, 12);
+  const stop1 = stopAt(cap, 12, 0.3);
   for (const q of [...(input.pageQueries ?? [])]
     .map((q) => ({ query: normalizeKeyword(q.query), impressions: q.impressions ?? 0, declining: q.declining === true }))
     .filter((q) => q.query)
@@ -307,7 +309,7 @@ export function selectSerpAgenda(
 
   // P2: the questions I track. A search the engine ran itself is already search-shaped, so it goes first; a question no usable one covers is checked as
   // its own approved text. Never a researched substitute for either.
-  const stop2 = Math.min(cap, 22);
+  const stop2 = stopAt(cap, 22, 0.55);
   const byText = new Map<string, string[]>();
   for (const p of input.prompts ?? []) {
     const text = normalizeKeyword(p?.text ?? "");
@@ -344,7 +346,7 @@ export function selectSerpAgenda(
     }).map((r) => r.keyword);
   });
   const uncoveredThemes = themes.filter((_, i) => candidates[i]!.length === 0);
-  roundRobin(candidates, Math.min(cap, 32), "keyword");
+  roundRobin(candidates, stopAt(cap, 32, 0.8), "keyword");
 
   // P4: bounded exploration, so real demand I have no theme for is still seen once.
   const stop4 = Math.min(cap, queries.length + 8);
