@@ -222,11 +222,8 @@ describe("reading the answers back", () => {
     contentTypesRecommended: [], questionsAnswered: [], materialOmissions: [], caveats: [],
   } as unknown as AnswerAnalysis;
   const row = (id: string, answerHash: string, analysisHash: string | null, analysed: boolean): AiObservationView => ({
-    id, promptId: `p-${id}`, version: 1, engine: "chatgpt", slot: 0, day: DAY, status: "observed", observedAt: null,
-    requestedAt: `${DAY}T08:00:00.000Z`, failureReason: null,
-    promptText: "who is open on sunday", answerText: "Acme is open on Sundays.", answerHash, citationUrls: null,
-    analysis: analysed ? { ok: true } : null, analysisHash,
-  });
+    id, promptId: `p-${id}`, version: 1, engine: "chatgpt", slot: 0, day: DAY, status: "observed", observedAt: null, requestedAt: `${DAY}T08:00:00.000Z`, failureReason: null,
+    promptText: "who is open on sunday", answerText: "Acme is open on Sundays.", answerHash, citationUrls: null, analysis: analysed ? { ok: true } : null, analysisHash });
   /** A batch reading that answers every observation it was handed. */
   const readsAll = async ({ targets }: { targets: readonly { row: { id: string } }[] }) =>
     new Map(targets.map((t) => [t.row.id, analysis]));
@@ -470,6 +467,9 @@ describe("reading the answers back", () => {
     while (selectAnalysisTargets([stored]).length > 0) await pass();    // and it finishes, over as many passes as its length takes
     const bought = sent.length; expect(new Set(sent.flat()).size).toBe(sent.flat().length); // every piece bought exactly once
     expect([stored.analysisHash, isAnalysisSettled(stored), selectAnalysisTargets([stored])]).toEqual(["h-X", true, []]); // only NOW analysed
+    // AN UN-BURIED ANSWER'S DROPS ARE OWED AGAIN. A row settled-with-all-dropped whose verdict is reopened (unversioned schema_invalid) must yield its pieces, or the oldest-owed day pins every pass at zero targets; the SETTLED row one line above keeps its shield.
+    const unburied = { ...row("Z", "h-Z", "h-Z", true), analysis: { rejected: true, outcome: "refused", readOutcome: "schema_invalid", coverage: { hash: "h-Z", parts: 2, read: [], dropped: [1, 2] } }, answerText: longAnswer("Two piece answer.", 9_000) };
+    expect([isAnalysisSettled(unburied), selectAnalysisTargets([unburied]).map((r) => r.id)]).toEqual([false, ["Z"]]);
     expect((stored.analysis as { topicEntities: string[] }).topicEntities).toContain(`entity ${"i".repeat(parts)}`); // the tail survived
     await pass(); expect(sent.length).toBe(bought);                     // a finished answer is never bought again
     // A CHANGED PROVIDER ANSWER RESETS THE COVERAGE against the new hash and is read from part one.

@@ -74,14 +74,14 @@ function coverageOf(row: AnalyzableObservation): Coverage | null {
   return c != null && c.hash === row.answerHash && Array.isArray(c.read) && Array.isArray(c.dropped) ? c : null;
 }
 
-/** PURE. The pieces of this answer nobody has settled yet, in the order the answer said them. */
+/** PURE. The pieces nobody has settled yet, in answer order. A DROPPED piece stays settled only while the ROW is settled: an un-buried answer's drops were part of the reopened verdict and are owed again, or all-dropped rows pin the oldest-owed day and every funded pass selects nothing. */
 function missingParts(row: AnalyzableObservation): number[] {
   const parts = splitAnswer(String(row.answerText ?? "")).length, c = coverageOf(row);
-  const settled = new Set([...(c?.read ?? []), ...(c?.dropped ?? [])]);
+  const settled = new Set([...(c?.read ?? []), ...(isAnalysisSettled({ analysis: row.analysis, analysisHash: row.analysisHash, answerHash: row.answerHash }) ? c?.dropped ?? [] : [])]);
   return Array.from({ length: parts }, (_, i) => i + 1).filter((p) => !settled.has(p));
 }
 
-/** PURE. The reading already merged for this answer, without the bookkeeping, so a later pass merges its new pieces on top instead of starting over. */
+/** PURE. The merged reading without bookkeeping, so a later pass merges new pieces on top, never starting over. */
 function priorReading(row: AnalyzableObservation): AnswerAnalysis | null {
   if (coverageOf(row) == null || row.analysis == null) return null;
   const { coverage: _c, readParts: _p, answerReadInPart: _a, reason: _r, matchedBy: _m, rejected: _j, outcome: _o, ...rest } =
@@ -89,7 +89,7 @@ function priorReading(row: AnalyzableObservation): AnswerAnalysis | null {
   return rest as unknown as AnswerAnalysis;
 }
 
-/** PURE. The hash a PART READ answer is stamped with: derived from the answer hash and deliberately NOT equal to it, so the settled test says "not yet". */
+/** PURE. The PART READ stamp: derived from the answer hash and deliberately NOT equal to it, so settled says "not yet". */
 const partialHash = (c: Coverage): string => `${c.hash}~${c.read.length + c.dropped.length}of${c.parts}`;
 
 /** PURE. Which stored observations still owe a reading: an answer that landed whose reading is missing, was taken against a DIFFERENT answer, covers
