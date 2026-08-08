@@ -371,19 +371,18 @@ describe("reading the answers back", () => {
     // AND THE READINGS STILL LAND: singles that answer settle normally, each stamped with its own answer hash, on the very same pass the batch failed.
     expect([(await pass(async () => ({ value: analysis }))).read, saved.every(([, a]) => a.rejected !== true), rows.every((r, i) => isAnalysisSettled({ analysis: saved[i]?.[1] ?? null, analysisHash: `hz${i}`, answerHash: r.answerHash }))]).toEqual([3, true, true]);
   });
-  it("reads the OLDEST answer nobody has read first, and reaches days the seven day window abandoned forever", async () => {
+  it("reads TODAY before older debt in the same window, and still reaches days the seven day window abandoned forever", async () => {
     // Seven days ending today is never quiet, because today keeps producing fresh debt, so an answer bought eight days ago could never be reached again however many passes ran and everything older than a week was abandoned permanently. The window ROTATES now, an hour at a time, so the old days come round.
     const back = (n: number) => new Date(Date.parse(`${DAY}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
-    const unread = new Set([DAY, back(8), back(30)]); const asked: string[][] = []; let read = "", passes = 0, widest = 0;
+    const unread = new Set([DAY, back(2), back(8), back(30)]); const asked: string[][] = []; const days: string[] = []; let read = "", passes = 0, widest = 0;
     const pass = async (now: number) => { const before = asked.length; passes += 1;
       await runAnswerAnalyses(T, DAY, { readPrompts: async () => null, identity: BRAND, analyzeBatch: readsAll, now,
         unreadDays: async (_t, from, to) => { asked.push([from, to]); return [...unread].filter((d) => d >= from && d <= to).sort(); },
-        readObservations: async (_t, o) => { read = String(o.day); return [{ ...row("o", `h-${read}`, null, false), day: read }]; },
+        readObservations: async (_t, o) => { read = String(o.day); days.push(read); return [{ ...row("o", `h-${read}`, null, false), day: read }]; },
         persist: async () => { unread.delete(read); } });
       widest = Math.max(widest, asked.length - before); };
     for (let tick = 0; tick < 30 && unread.size > 0; tick += 1) await pass(tick * 3_600_000);
-    expect([...unread]).toEqual([]);          // nothing bought is abandoned: the 8 day old and the 30 day old answer are both read
-    expect([widest, passes < 30]).toEqual([2, true]); // and the per-pass bound holds: at most two lean window reads, never a scan of the whole store
+    expect([[...unread], days[0], widest, passes < 30]).toEqual([[], DAY, 2, true]); // nothing bought is abandoned, TODAY is read before the older debt in the same window, and the per-pass bound holds: two lean window reads, never a store scan
   });
   it("gives a LOST refusal write the same retry and the same loud failure as a lost reading", async () => {
     // A silently swallowed rejection left the row at the top of the worklist, re-buying the same refusal.

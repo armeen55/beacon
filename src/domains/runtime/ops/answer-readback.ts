@@ -58,9 +58,7 @@ const ANSWERS_PER_BATCH = 5, BATCH_CONCURRENCY = 3, BATCH_CALLS_PER_PASS = 8, MA
 const BATCH_ANSWER_CHARS = 5_000, BATCH_ANALYSIS_COST_USD = 0.05, ANSWER_ANALYSIS_COST_USD = 0.01, BATCH_TIMEOUT_MS = 180_000;
 /** WHICH DAY A PASS READS, and the honest bound on how far back it can see. Seven days ending today was a PERMANENT ABANDONMENT: today keeps producing fresh debt, so that window was never quiet and an answer bought
  *  eight days ago could never be reached again however many passes ran. A pass now reads at most TWO lean windows, the seven days the clock has ROTATED to and the recent seven, and takes the OLDEST day either still
- *  owes. The rotation moves every hour and wraps at LOOKBACK_WINDOWS, so every one of THE LAST 26 WEEKS (182 days) is reached within about a day of passes and the per-pass cost stays two lean projections and one day
- *  of rows. An answer older than 182 days is never read back: that is the bound I state rather than hide. `dayMinus` is `day` less n days as a label, taken at noon so no daylight-saving edge can move it. */
-const READBACK_WINDOW_DAYS = 7, LOOKBACK_WINDOWS = 26, WINDOW_ROTATION_MS = 3_600_000;
+ *  owes. The rotation moves every hour and wraps at LOOKBACK_WINDOWS, so every one of THE LAST 26 WEEKS (182 days) is reached within about a day of passes and the per-pass cost stays two lean projections and one day of rows. An answer older than 182 days is never read back: that is the bound I state rather than hide. `dayMinus` is `day` less n days as a label, taken at noon so no daylight-saving edge can move it. */ const READBACK_WINDOW_DAYS = 7, LOOKBACK_WINDOWS = 26, WINDOW_ROTATION_MS = 3_600_000;
 const dayMinus = (day: string, n: number): string => new Date(Date.parse(`${day}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
 
 /** THE RESUME CHECKPOINT, stored beside the reading. `read` are the pieces merged into it, `dropped` those
@@ -316,11 +314,13 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
   // seven) and the oldest day either owes is what this pass reads. BOTH reads failing falls back to the run's own day, which is what it always did when blind.
   const back = (READBACK_WINDOW_DAYS * (Math.floor((deps.now ?? Date.now()) / WINDOW_ROTATION_MS) % LOOKBACK_WINDOWS));
   const owed: string[] = []; let looked = false;
+  let recent: string[] = [];
   for (const n of back === 0 ? [0] : [back, 0]) {
     const to = dayMinus(day, n);
     const seen = await unreadDays(tenantId, dayMinus(to, READBACK_WINDOW_DAYS - 1), to).catch(() => null);
-    if (seen != null) { looked = true; owed.push(...seen); } }
-  const reading = (looked ? owed.sort()[0] : null) ?? day, // the day this pass actually reads, which every line below names rather than the run's own
+    if (seen != null) { looked = true; owed.push(...seen); if (n === 0) recent = [...seen]; } }
+  // TODAY OUTRANKS HISTORY: the newest owed day in the recent week reads first (current answers are what Visibility and decisions stand on; capacity runs far past intake, so history drains in spare passes and the rotating window still reaches every old day).
+  const reading = (looked ? recent.sort().at(-1) ?? owed.sort()[0] : null) ?? day, // the day this pass actually reads, which every line below names rather than the run's own
     rows = await readObservations(tenantId, { day: reading }).catch(() => null);
   if (rows == null || rows.length === 0) return READ_NOTHING;
   const budget = deps.max ?? MAX_ANALYSES_PER_PASS, targets = selectAnalysisTargets(rows, budget);
