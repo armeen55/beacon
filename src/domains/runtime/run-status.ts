@@ -99,9 +99,7 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
   const counters: ResearchRunStatusView["counters"] = {};
   if (typeof run.progress?.sourcesRefreshed === "number") counters.sourcesRefreshed = run.progress.sourcesRefreshed;
   if (typeof run.progress?.backfill?.daysPulled === "number") counters.backfillDaysPulled = run.progress.backfill.daysPulled;
-  // AI checks: the persisted daily standing first (the planner's own arithmetic, true whatever
-  // phase the run is on), and only then the older funnel counters, which are cumulative and so
-  // may only be read while the AI-check phase is the current one.
+  // AI checks: the persisted daily standing first (the planner's own arithmetic, true whatever phase the run is on), and only then the older funnel counters, cumulative and so only readable while the AI-check phase is current.
   const { enginePairsDone: aiDone, enginePairsIntended: aiWanted } =
     run.current_phase === "prompt_observations" ? (run.progress?.funnel ?? {}) : {};
   if (typeof persisted.checksDone === "number" && typeof persisted.checksTotal === "number" && persisted.checksTotal > 0) {
@@ -114,7 +112,6 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
     counters.aiChecksDone = aiDone;
     counters.aiChecksIntended = aiWanted;
   }
-  // The readback's own receipt, valid in EVERY phase (the run adds to it wherever a reading lands), never the collected count.
   const read = run.progress?.funnel?.answersAnalyzed; if (typeof read === "number" && Number.isFinite(read)) counters.answersReadClosely = read;
 
   return {

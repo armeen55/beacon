@@ -1,10 +1,8 @@
 /**
  * decision/suggested-edits: THE GENEROUS HALF OF THE QUEUE. Ready stays strict and is untouched by this file;
- * everything here lands at `needs_review`, which means exactly what it says: I have something concrete for you
- * to try and I want you to read it first.
+ * everything here lands at `needs_review`: something concrete to try that I want you to read first.
  *
- * ONE RULE MAKES GENEROSITY HONEST: a suggestion is assembled from words this account ALREADY HOLDS and nothing
- * else. The head is the exact search this page's own Google data says it is losing clicks on; the tail is the
+ * ONE RULE MAKES GENEROSITY HONEST: a suggestion is assembled from words this account ALREADY HOLDS and nothing else. The head is the exact search this page's own Google data says it is losing clicks on; the tail is the
  * name already sitting at the end of the page's own title. No number is invented, no source is named, no claim
  * is made about a page I have not read. Where the results page for that search is not on file, the limitation
  * says so and the confidence is directional. A page whose evidence supports no concrete edit yields NOTHING,
@@ -89,6 +87,8 @@ function eligible(c: QualifiedCandidate): boolean {
  * `skip` carries the ids AND the page paths the strict path already produced, so a page that earned a real
  * drafted change is never handed a second, weaker version of the same one. PURE and deterministic.
  */
+// A below-floor reason ends in the WATCH lane's own sentence, and a card asking for a minute of work may not claim it is not asking: the numbers stay, the tail becomes the suggestion's honest frame.
+const why = (r: string): string => r.replace(/,? and that is too little search to act on yet \(I want [^)]+\)\. I am watching it instead of making you work\.$/, ". That is under my bar for a proven change, so this is a quick test, and I will measure what it does.");
 export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly QualifiedCandidate[],
   opts: { now: Date; basis: string | null; skip?: ReadonlySet<string>; limit?: number }): ChangeProposal[] {
   const tenantId = snapshot.scope.tenantId;
@@ -121,9 +121,9 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
         id, tenantId, kind: "existing_edit", pagePath: path, pageUrl: c.pageUrl ?? null, pageLabel: content.h1 ?? content.title ?? path,
         primaryQuery: query, opportunityType: s.label, changeFamily: s.field, status: "needs_review",
         recommendedChange: { kind: "existing_edit", field: s.field, before: s.before, after: s.after },
-        whyItMatters: `${c.reason} This line says the search in the words people actually run it in.`,
+        whyItMatters: `${why(c.reason)} This line says the search in the words people actually run it in.`,
         estimatedEffortMinutes: effortForFamily(s.field), riskLevel: "low", confidence: serp ? "medium" : "low",
-        limitations, evidence: { query, hints: [c.reason], evidenceRefCount: c.cause.evidenceKeys.length },
+        limitations, evidence: { query, hints: [why(c.reason)], evidenceRefCount: c.cause.evidenceKeys.length },
         impactScore: c.recoverableClicks, upsidePerMonth: null,
         ...(opts.basis ? { basis: opts.basis } : {}), causeFinding: c.cause, diagnosisCause: c.cause.cause,
         publish: "manual", createdAt: opts.now.toISOString(),

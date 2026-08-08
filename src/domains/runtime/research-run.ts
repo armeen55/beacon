@@ -467,13 +467,17 @@ export async function countContinuationHop(tenantId: string, day: string): Promi
   }
 }
 
-/** The compact Today projection: latest run for the tenant, projected to the status view. Bounded and
- *  fail-soft, so any error (unavailable persistence) ⇒ "none" and the status line renders nothing. */
+/** The compact Today projection: latest run, fail-soft to "none". The reading tally is the DAY'S, summed
+ *  across every pass: the newest row alone hid every reading the earlier passes bought. */
 export async function researchRunStatus(tenantId: string, now: Date = new Date()): Promise<ResearchRunStatusView> {
   try {
     requireTenant(tenantId);
     const run = await repo.latest(tenantId);
-    return projectStatusView(run, now.getTime());
+    const view = projectStatusView(run, now.getTime());
+    const day = run?.cycle_key?.slice(-10);
+    if (day) view.counters.answersReadClosely = (await repo.sameDay({ tenantId, day, limit: 50 }))
+      .reduce((n, r) => n + (Number(r.progress?.funnel?.answersAnalyzed) || 0), 0) || view.counters.answersReadClosely;
+    return view;
   } catch (error) {
     log.warn("[research-run] status read failed; rendering none", { tenantId, error: error instanceof Error ? error.message : String(error) });
     return projectStatusView(null, now.getTime());
