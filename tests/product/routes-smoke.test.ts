@@ -59,7 +59,7 @@ describe("Today renders, and tells the truth about its own queue", () => {
   it("counts EVERY ready change and says the three it previews are a preview", async () => {
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
     const view = buildTodayViewFromChanges(readyView(12, 3));
-    expect(view.headerSentence).toBe("You have 12 changes ready; here are the three strongest. 3 more are still measuring.");
+    expect(view.headerSentence).toBe("You have 12 changes ready to apply; here are the three strongest. 3 more are still measuring.");
     const { buildScoreboard } = await import("@/domains/measurement"); // ONE COUNT RULE: the header owns "N measuring", the chart never repeats it
     expect(buildScoreboard([{ date: "2026-07-01", clicks: 10, impressions: 0 }, { date: "2026-07-20", clicks: 20, impressions: 0 }], [], new Date("2026-07-21T00:00:00Z"))?.verdictLine ?? "").not.toMatch(/measuring/i);
     expect(view.nextOpportunities).toHaveLength(3);

@@ -57,6 +57,7 @@ export type {
   ProducerOutcome,
 } from "./produce-proposals";
 export { produceProposalsForTenant, DEFAULT_MAX_DRAFTS } from "./produce-proposals";
+export { receiptComposition } from "./contracts";
 // What the research is stuck on, from the ONE canonical coverage pass, so Runtime buys only
 // what an open investigation cannot close without and acts on the SAME topic it paid for.
 export { researchNeeds, type ResearchNeed } from "./coverage-pass";
@@ -93,6 +94,7 @@ export {
 export {
   computeLifecycleCounts,
   countLedgerLifecycle,
+  ledgerProofLine,
   splitLedgerLifecycle,
   type LifecycleCounts,
 } from "./changes/lifecycle-counts";

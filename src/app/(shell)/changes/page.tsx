@@ -19,22 +19,19 @@ import { splitLedgerLifecycle } from "@/domains/decision";
 import { readCustomerSurface } from "../surface-release";
 
 /** /changes -> the canonical CHANGES list. One object, a CHANGE, across one lifecycle (suggested -> ready ->
- *  apply -> verify -> measuring -> result), shown as one compact list with two lanes. The queue is unlimited
- *  and this screen opens with one page of it; the rest pages in from the database on demand. */
-
-// FP1 always-paint floor: every async section body is deadline-bounded, so a wedged Supabase read can
-// never strand a Suspense fallback or hold the HTTP stream open. Rebuilding never turns navigation into a wait.
+ *  apply -> verify -> measuring -> result), shown as one compact list with two lanes. The queue is unlimited and
+ *  this screen opens with one page of it; the rest pages in from the database on demand.
+ *  FP1 always-paint floor: every async section body is deadline-bounded, so a wedged Supabase read can never
+ *  strand a Suspense fallback or hold the HTTP stream open. */
 const MAIN_LIST_DEADLINE_MS = 5_000;
 
-/** THE RANKED QUEUE SLOT: the Ready and Needs review lanes, or the honest reason there is
- *  nothing in them. This is the ONLY part of the screen an empty queue may empty; everything
- *  under it (researching, watching, measuring, results) renders regardless, because a queue with
- *  no Ready change in it is never the same thing as an account with nothing happening. */
+/** THE RANKED QUEUE SLOT: the Ready and Needs review lanes, or the honest reason there is nothing in them.
+ *  This is the ONLY part of the screen an empty queue may empty; everything under it renders regardless,
+ *  because a queue with no Ready change is never an account with nothing happening. */
 function QueueSlot({ view }: { view: ChangesView }) {
   if (view.proposals.length === 0) {
-    // W2-B - distinguish a COLD first-ever render (the SWR snapshot is building in
-    // the background) from a genuinely empty list. Never claim "no changes" while
-    // the rebuild is still running.
+    // W2-B - a COLD first-ever render (the SWR snapshot is building in the background) is not a genuinely
+    // empty list, and "no changes" may never be claimed while the rebuild is still running.
     if (view.surfaceBuilding) {
       return (
         <div className="space-y-2 rounded-2xl border border-border bg-surface-raised p-6">
@@ -44,14 +41,13 @@ function QueueSlot({ view }: { view: ChangesView }) {
         </div>
       );
     }
-    // A queue I emptied MYSELF is a decision, not an empty screen: name the count. A bar
-    // I could not READ is not a bar I raised, so that case says what actually happened.
+    // A bar I could not READ is not a bar I raised, so that case says what actually happened.
     if (view.demotedStaleBasis > 0) {
       return view.basisUnreadable ? (
         <HonestDelay message="I could not confirm which of your saved ideas still hold just now. Beacon is checking again automatically." />
       ) : (
         <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-6 text-[13px] leading-relaxed text-muted-foreground">
-          {setAsideHint(view.demotedStaleBasis)}
+          {setAsideHint()}
         </p>
       );
     }
@@ -63,8 +59,7 @@ function QueueSlot({ view }: { view: ChangesView }) {
       </p>
     );
   }
-  // W2-B - honest staleness from the SWR snapshot's real build time (not a frozen
-  // "just now" baked into the snapshot). Self-hides on a synchronous/unknown build.
+  // W2-B - honest staleness from the SWR snapshot's real build time. Self-hides on an unknown build.
   const rankedAgo = view.surfaceComputedAt ? checkedAgoLabel(view.surfaceComputedAt, serverNowMs()) : null;
   return (
     <div className="space-y-4">
@@ -78,36 +73,35 @@ function QueueSlot({ view }: { view: ChangesView }) {
   );
 }
 
-/** EVERY LANE'S OWN EVIDENCE, loaded once, $0, deadline bounded and fail soft. The research
- *  packets come off the same cached snapshot the producers read (no provider call), the
- *  declining pages off the same decay read Today uses, and the measuring and results rows off
- *  the SAME ledger split the counts come from, so a lane can never disagree with its own count. */
+/** ONE READ, ONE RETRY, THEN THE HONEST STATE. A first cold attempt at a GSC-backed read loses often enough
+ *  that "I could not read your Google search data" was being printed over a source that answered fine one
+ *  second later; the second attempt is warm and usually wins. A read either LANDED or it did not, and the
+ *  verdict travels with the rows so a lane can say which of the two happened. */
+function twice<T>(read: () => Promise<T>, empty: T) {
+  const attempt = () => read().then((v) => ({ v, read: true }));
+  return valueWithDeadline(
+    attempt().catch(() => new Promise((r) => setTimeout(r, 1_000)).then(attempt).catch(() => ({ v: empty, read: false }))),
+    { v: empty, read: false }, MAIN_LIST_DEADLINE_MS,
+  );
+}
+
+/** EVERY LANE'S OWN EVIDENCE, loaded once, $0, deadline bounded and fail soft. The research packets come off the
+ *  same cached snapshot the producers read, the declining pages off the same decay read Today uses, and the
+ *  measuring and results rows off the SAME ledger split the counts come from. */
 async function loadLanes(tenantId: string) {
   const [investigations, decayMap, ledger, release] = await Promise.all([
-    // AND THE SAME VERDICT ON THE TWO OPEN LANES. An empty list I could not fill is not an account with nothing
-    // open: a live outage emptied Researching and Watching in one render, so the read either LANDED or it did not.
-    valueWithDeadline(
-      loadEvidenceSnapshot(tenantId).then((s) => ({ rows: buildTopicInvestigations(s), read: true })).catch(() => ({ rows: [] as TopicInvestigation[], read: false })),
-      { rows: [] as TopicInvestigation[], read: false }, MAIN_LIST_DEADLINE_MS,
-    ),
-    valueWithDeadline(loadGscDecaySignalsForTenant(tenantId, new Date()).then((m) => ({ m, read: true }))
-      .catch(() => ({ m: new Map(), read: false })), { m: new Map(), read: false }, MAIN_LIST_DEADLINE_MS),
-    // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER, and a deadline that lost is not a read
-    // that landed. The verdict travels with the rows so the lanes below can tell the operator
-    // which of the two happened instead of instructing an account with 25 results to ship its first change.
-    valueWithDeadline(
-      loadProofLedgerCached(tenantId).then((rows) => ({ rows, read: true })).catch(() => ({ rows: [] as Awaited<ReturnType<typeof loadProofLedgerCached>>, read: false })),
-      { rows: [] as Awaited<ReturnType<typeof loadProofLedgerCached>>, read: false }, MAIN_LIST_DEADLINE_MS,
-    ),
+    twice(() => loadEvidenceSnapshot(tenantId).then(buildTopicInvestigations), [] as TopicInvestigation[]),
+    twice(() => loadGscDecaySignalsForTenant(tenantId, new Date()), new Map()),
+    twice(() => loadProofLedgerCached(tenantId), [] as Awaited<ReturnType<typeof loadProofLedgerCached>>),
     valueWithDeadline(readCustomerSurface(tenantId).catch(() => null), null, MAIN_LIST_DEADLINE_MS),
   ]);
-  const bands = splitLedgerLifecycle(ledger.rows, new Date());
+  const bands = splitLedgerLifecycle(ledger.v, new Date());
   const today = release?.today?.today;
   return {
     ledgerRead: ledger.read,
     evidenceRead: investigations.read && decayMap.read,
-    investigations: investigations.rows,
-    decay: Array.from((decayMap.m as Map<string, Parameters<typeof ChangesFeed>[0]["decay"][number]>).values()),
+    investigations: investigations.v,
+    decay: Array.from((decayMap.v as Map<string, Parameters<typeof ChangesFeed>[0]["decay"][number]>).values()),
     declineNotes: today?.declineNotes ?? [],
     heldForMeasurement: today?.heldForMeasurement ?? 0,
     // A pre 28 day improvement is still in flight, exactly as countLedgerLifecycle counts it.
@@ -146,8 +140,7 @@ export async function ChangesSection() {
   );
 }
 
-/** Content-shaped fallback for the main list: honest copy + row-shaped placeholders instead of one mute
- *  pulse box. Paired with the 5s deadline above, so it can never strand. */
+/** Content-shaped fallback for the main list, paired with the 5s deadline above so it can never strand. */
 function ChangesListFallback() {
   return (
     <div className="space-y-2 rounded-2xl border border-gray-100 bg-white p-4">

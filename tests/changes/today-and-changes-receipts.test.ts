@@ -195,7 +195,7 @@ describe("a ranked card explains itself without being opened", () => {
   beforeEach(() => vi.clearAllMocks());
   it("shows the shape of the change, the exact action, effort, risk, evidence, and why it outranks the next one", async () => {
     const html = await renderList(viewOf([proposal()]));
-    for (const s of ["Bundled change", "Settle which page owns that search", "about 6 min", "High risk",
+    for (const s of ["2 edits together", "Settle which page owns that search", "about 6 min", "High risk",
       "Strong evidence", "it wins back more of what you are losing", "Put this aside"]) expect(html, s).toContain(s);
     expect(await renderList(viewOf([atomic()]))).toContain("One edit"); // one component is one edit, never a bundle
   });

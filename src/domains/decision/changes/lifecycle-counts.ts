@@ -164,6 +164,15 @@ export function splitLedgerLifecycle<T extends LedgerLifecycleRow>(
   return out;
 }
 
+/** THE ONE PROOF NUMBER A LEDGER ROW CAN PRINT. "It worked" beside a page name is a verdict with nothing behind it,
+ *  and the row already carries the read: the newest window that actually ran, against the comparison pages nobody
+ *  changed. Null while a change is still collecting, which is the honest answer. PURE; the STORED lift, never re-derived. */
+export function ledgerProofLine(row: Pick<LedgerLifecycleRow, "windows">): string | null {
+  const read = [...row.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null).sort((a, b) => b.day - a.day)[0];
+  const lift = read ? Math.round(read.adjustedLift!) : null;
+  return lift == null ? null : lift === 0 ? "clicks level with similar pages I did not change" : `clicks ${lift > 0 ? `+${lift}` : lift} against similar pages I did not change`;
+}
+
 /** The three ledger-derived counts, from the same split Results renders. */
 export function countLedgerLifecycle(
   rows: ReadonlyArray<LedgerLifecycleRow>,
@@ -190,3 +199,4 @@ export function computeLifecycleCounts(input: {
     ...countLedgerLifecycle(input.ledger, input.now ?? new Date()),
   };
 }
+

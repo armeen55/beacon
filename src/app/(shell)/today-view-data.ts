@@ -161,7 +161,7 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   if (readyTotal > 0) {
     const lead =
       readyTotal > ready.length
-        ? `You have ${readyTotal} changes ready; here are the three strongest.`
+        ? `You have ${readyTotal} changes ready to apply; here are the three strongest.`
         : `You have ${readyTotal} change${readyTotal === 1 ? "" : "s"} ready to apply.`;
     headerSentence =
       measuring > 0

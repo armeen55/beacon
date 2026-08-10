@@ -1,23 +1,17 @@
 /**
- * changes-feed - ONE ranked feed for everything I am doing about this account, in one order:
- * Ready, Needs review, Researching, Watching, Measuring, Results.
- *
- * THE REVERSAL THIS FILE EXISTS FOR: evidence controls an opportunity's STATE, never its
- * existence. A change is only ever Ready when its exact copy passed every check, and that
- * strictness is untouched here. What changed is that everything short of Ready is now SHOWN
- * instead of swallowed: a topic I am still buying evidence on, a page losing clicks I have no
- * change for, an idea I set aside, a change I am measuring. An account holding declining pages,
- * open topics and hundreds of answers can never again render as "no changes yet".
- *
- * PURE PRESENTATION. Every number arrives loaded; nothing here reads a store, and nothing here
- * recomputes a count another surface owns (the lifecycle counts and the ranked queue both come
- * in as they were computed once). Beacon voice: first person, a number where one exists, always
- * a next step, no em or en dashes.
+ * changes-feed - ONE ranked feed for everything I am doing about this account, in one order: Ready, Needs
+ * review, Researching, Watching, Measuring, Results. THE REVERSAL THIS FILE EXISTS FOR: evidence controls an
+ * opportunity's STATE, never its existence. A change is only ever Ready when its exact copy passed every check,
+ * and that strictness is untouched; everything short of Ready is SHOWN instead of swallowed, so an account
+ * holding declining pages, open topics and hundreds of answers can never render as "no changes yet".
+ * PURE PRESENTATION: every number arrives loaded, nothing here reads a store, and nothing recomputes a count
+ * another surface owns. Beacon voice: first person, a number where one exists, always a next step.
  */
 
 import type { ReactNode } from "react";
 import Link from "next/link";
 
+import { ledgerProofLine } from "@/domains/decision";
 import type { TopicInvestigation } from "@/domains/evidence";
 import { setAsideClause, type ChangesView } from "../changes-data";
 
@@ -43,24 +37,24 @@ type LedgerRow = {
   implementedAt?: string | null;
   verdict: string;
   bundleHypothesis?: string | null;
+  windows?: { day: number; ran: boolean; controlsUsed?: number | null; adjustedLift?: number }[];
 };
 
-/** A DECLINE WORTH A ROW. The smoke alarm's floor (10 clicks) is the one that earns the whole
- *  screen's attention; this is the floor that earns a LINE, because a page quietly shedding a
- *  handful of clicks is exactly what the operator never gets told. A page that had almost no
- *  clicks to begin with is noise, not a decline, so it needs a real prior week behind it. */
+/** A DECLINE WORTH A ROW. The smoke alarm's floor (10 clicks) earns the whole screen's attention; this is the
+ *  floor that earns a LINE, because a page quietly shedding a handful of clicks is exactly what the operator
+ *  never gets told. A page with almost no clicks to begin with is noise, so it needs a real prior week. */
 const WATCH_MIN_CLICKS_LOST = 3;
 const WATCH_MIN_PRIOR_CLICKS = 5;
-/** How many rows a lane shows before it says how many more it holds. A feed nobody can read is
- *  the same silence as an empty one. */
+/** How many rows a lane shows before it says how many more it holds. A feed nobody can read is the same
+ *  silence as an empty one. */
 const LANE_LIMIT = 6;
 const RESEARCH_LIMIT = 5;
 
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
 
-/** A day in the operator's words. A bare YYYY-MM-DD is a finalized day and is read in UTC, so
- *  the day I name is the day the data actually ends on. */
+/** A day in the operator's words. A bare YYYY-MM-DD is a finalized day read in UTC, so the day I name is the
+ *  day the data actually ends on. */
 function dayLabel(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const t = Date.parse(iso.length === 10 ? `${iso}T00:00:00Z` : iso);
@@ -74,8 +68,7 @@ const prettyPage = (url: string): string => {
   return path.length > 48 ? `${path.slice(0, 45)}...` : path;
 };
 
-/** The stored slug in the operator's words. Anything unmapped falls back to its own plain words,
- *  so a new action type reads as English rather than as a slug. */
+/** The stored slug in the operator's words. Anything unmapped falls back to its own plain words. */
 const PART_WORD: Record<string, string> = { meta: "description", faq: "FAQ", h1: "main heading", h2: "section",
   h3: "section", schema: "schema markup", gbp: "Google Business profile", alt: "image descriptions" };
 const plainPart = (t: string): string => t.split(" ").map((w) => PART_WORD[w] ?? w).join(" ");
@@ -93,8 +86,10 @@ function changeLabel(row: LedgerRow): string {
 
 // ── the strip ────────────────────────────────────────────────────────────────
 
-/** THE PERSISTENT COUNT STRIP. A lane with nothing in it prints no number at all: a row of
- *  zeros told a quiet account nothing and asked nothing of it. */
+/** THE PERSISTENT COUNT STRIP, for the lanes that have no tab row of their own. Ready and Needs
+ *  review are NOT on it: the queue's own tabs carry those two counts three lines below, and one
+ *  screen printing one number twice is how two copies of it drift apart. A lane with nothing in it
+ *  prints no number at all: a row of zeros told a quiet account nothing and asked nothing of it. */
 function SummaryStrip({ counts }: { counts: [string, number][] }) {
   const live = counts.filter(([, n]) => n > 0);
   return (
@@ -138,9 +133,8 @@ function Chips({ items }: { items: string[] }) {
 
 // ── Researching ──────────────────────────────────────────────────────────────
 
-/** HOW MUCH THIS TOPIC IS WORTH LOOKING AT, in one number I can defend: the largest priced
- *  search behind it, or the impressions Google already gave it. Never a sum of overlapping
- *  volumes, which is the same rule the packet itself follows. */
+/** HOW MUCH THIS TOPIC IS WORTH LOOKING AT, in one number I can defend: the largest priced search behind it,
+ *  or the impressions Google already gave it. Never a sum of overlapping volumes. */
 const weightOf = (inv: TopicInvestigation): number =>
   Math.max(inv.demand.monthlySearchVolume ?? 0, (inv.demand.gscImpressions ?? 0) / 4, inv.demand.trackedPrompts * 50);
 
@@ -159,11 +153,13 @@ function signalOf(inv: TopicInvestigation): string {
 /** Why it is worth my money and your time, said only from what I hold. */
 function stakesOf(inv: TopicInvestigation): string {
   const winners = inv.distinctWinners;
-  if (winners > 0 && inv.pageType !== "unknown") {
-    return `${winners} ${plural(winners, "site wins", "sites win")} this today and the pages that win it are the same shape, so I can tell you exactly what yours would have to answer.`;
+  if (winners > 0 && inv.pageType !== "unknown" && inv.pageType !== "mixed") {
+    return `${winners} ${plural(winners, "site wins", "sites win")} this today and the pages that win it agree on one shape, so I can tell you exactly what yours would have to answer.`;
   }
   if (winners > 0) return `${winners} ${plural(winners, "site is", "sites are")} winning this instead of you.`;
-  return "I cannot name who wins this yet, which is exactly what I am buying next.";
+  return inv.nextAcquisition
+    ? "I cannot name who wins this yet, which is exactly what I am buying next."
+    : "I cannot name who wins this yet.";
 }
 
 /** How much of this I can stand behind. Plain words, never a score. */
@@ -204,7 +200,7 @@ function ResearchingCard({ inv, rankReason }: { inv: TopicInvestigation; rankRea
         </div>
       ) : null}
       <p className="text-[13px] leading-relaxed text-foreground" data-next-step="true">
-        My next step: {next ? next.why : "I have bought everything here that would change the answer, so I am holding this until your own numbers move."}
+        My next step: {next ? next.why : "I hold this until your own numbers move, because buying more of the same evidence stopped changing the answer."}
       </p>
       <p className="text-[12px] tabular-nums text-muted-foreground">
         {confidenceOf(inv)} · {lastLookOf(inv)}
@@ -216,11 +212,8 @@ function ResearchingCard({ inv, rankReason }: { inv: TopicInvestigation; rankRea
 
 // ── the feed ─────────────────────────────────────────────────────────────────
 
-/**
- * THE one Changes screen. `queue` is the ranked Ready / Needs review list (its own client
- * component, which owns paging, set aside and mark implemented); everything under it is the
- * work that is real but not yet a change you can make.
- */
+/** THE one Changes screen. `queue` is the ranked Ready / Needs review list (its own client component, which
+ *  owns paging, set aside and mark implemented); everything under it is real work that is not yet a change. */
 export function ChangesFeed({ view, queue, investigations, decay, declineNotes, measuring, results, heldForMeasurement = 0, ledgerRead = true, evidenceRead = true }: {
   view: ChangesView;
   queue: ReactNode;
@@ -230,18 +223,19 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
   measuring: readonly LedgerRow[];
   results: readonly LedgerRow[];
   heldForMeasurement?: number;
-  /** FALSE when the ledger behind the two lanes below could not be read (a failed read or a
-   *  deadline that lost). An empty list I could not fill is NOT an account with nothing
-   *  measuring: printing "make your first change" to an operator holding 25 results is the
-   *  worst lie this screen can tell, and the counts it cannot stand behind stay off the strip. */
+  /** FALSE when the ledger behind the two lanes below could not be read. An empty list I could not fill is NOT
+   *  an account with nothing measuring: printing "make your first change" to an operator holding 25 results is
+   *  the worst lie this screen can tell, and the counts it cannot stand behind stay off the strip. */
   ledgerRead?: boolean;
   /** FALSE when the evidence behind Researching and Watching could not be read. Absence of a source is not an
    *  account with nothing open: the two lanes say which of the two happened and their counts stay off the strip. */
   evidenceRead?: boolean;
 }) {
-  // RANKED, AND THE ORDER SAYS WHY. Weight is the one defensible number behind the topic, so
-  // the sentence under each card compares it with the card below rather than asserting a rank.
-  const ranked = [...investigations].sort((a, b) => weightOf(b) - weightOf(a));
+  // RANKED, AND THE ORDER SAYS WHY: the sentence under each card compares its weight with the card below.
+  // One row per topic label: two investigation records for the same words is my bookkeeping, not two topics.
+  const seenLabels = new Set<string>();
+  const ranked = [...investigations].sort((a, b) => weightOf(b) - weightOf(a))
+    .filter((inv) => (seenLabels.has(inv.label) ? false : (seenLabels.add(inv.label), true)));
   const shownResearch = ranked.slice(0, RESEARCH_LIMIT);
 
   // Pages the decision already judged and resolved to watch keep the kernel's own verdict.
@@ -251,13 +245,11 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
     .filter((d) => d.lost >= WATCH_MIN_CLICKS_LOST && d.clicksPrior >= WATCH_MIN_PRIOR_CLICKS)
     .sort((a, b) => b.lost - a.lost);
   const through = dayLabel(decay[0]?.windowNowEnd ?? null);
-  // A BAR I COULD NOT READ IS NOT A BAR I RAISED, so a release I cannot check claims no
-  // set aside count at all rather than blaming the operator's ideas for an outage.
+  // A BAR I COULD NOT READ IS NOT A BAR I RAISED: a release I cannot check claims no set-aside count at all.
   const setAside = view.basisUnreadable ? 0 : view.demotedStaleBasis ?? 0;
-  // ONE ARITHMETIC PER LANE, and the strip reads the SAME variables the rows below are drawn
-  // from. A count computed separately from its own list is a contradiction waiting to ship
-  // (the strip said 12 measuring over a lane that said nothing was), so every lane's total is
-  // its shown rows plus the remainder it states out loud, and nothing else.
+  // ONE ARITHMETIC PER LANE, off the SAME variables the rows below are drawn from. A count computed separately
+  // from its own list is a contradiction waiting to ship (the strip said 12 measuring over a lane that said
+  // nothing was), so every lane's total is its shown rows plus the remainder it states out loud.
   const shownWatch = declining.slice(0, LANE_LIMIT);
   const extraWatchRows = (setAside > 0 ? 1 : 0) + (heldForMeasurement > 0 ? 1 : 0);
   const watchingCount = declining.length + extraWatchRows;
@@ -274,16 +266,12 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
 
   return (
     <div className="space-y-8" data-changes-feed="true">
-      <SummaryStrip
-        counts={[
-          ["Ready", view.summary.ready],
-          ["Needs review", view.summary.todo],
-          ...openCounts,
-          ...ledgerCounts,
-        ]}
-      />
+      <SummaryStrip counts={[...openCounts, ...ledgerCounts]} />
 
       <Lane title="Ready and needs review" blurb="A change reaches Ready only when its exact copy passed every evidence and safety check. Everything else in this list is honest work in progress, not a change I am asking you to make.">
+        {/* THE WATERMARK, ONCE. Every Google number on this screen ends on the same finalized day, so it is
+            said here rather than in brackets on every row that happens to quote one. */}
+        {through ? <p className="-mt-1 text-[12px] tabular-nums text-muted-foreground" data-watermark="true">Google data through {through}.</p> : null}
         {queue}
       </Lane>
 
@@ -319,11 +307,10 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
               <li key={d.page} className="space-y-1 rounded-xl border border-border bg-surface-raised px-4 py-3" data-watching-row="true">
                 <p className="text-[13px] font-semibold text-foreground">{prettyPage(d.page)}</p>
                 <p className="text-[13px] leading-relaxed text-muted-foreground tabular-nums">
-                  It lost {num(d.lost)} {plural(d.lost, "click", "clicks")} against the 28 days before
-                  {through ? ` (data through ${through})` : ""}, and it now sits at position {d.positionNow.toFixed(1)} against {d.positionPrior.toFixed(1)}.
+                  It lost {num(d.lost)} {plural(d.lost, "click", "clicks")} against the 28 days before, and it now sits at position {d.positionNow.toFixed(1)} against {d.positionPrior.toFixed(1)}.
                 </p>
                 <p className="text-[13px] leading-relaxed text-foreground">
-                  {note ?? "I have no change on it my evidence supports yet, so I am reading its results pages next rather than sending you to rewrite a page that may be winning."}
+                  {note ?? "I have no change on it my evidence supports yet, so I am reading its results pages next on my next daily pass rather than sending you to rewrite a page that may be winning."}
                 </p>
               </li>
             );
@@ -374,6 +361,7 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
                       : r.verdict === "won"
                         ? "it worked"
                         : "what I learned"}
+                    {r.windows ? ((p) => (p ? <> · {p}</> : null))(ledgerProofLine({ windows: r.windows })) : null}
                   </span>
                 </li>
               ))}

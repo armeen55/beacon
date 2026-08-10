@@ -25,7 +25,7 @@ vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, get
 import { proposeExistingPageChange } from "@/domains/decision/propose";
 import { validateProposal } from "@/domains/decision/validate-proposal";
 import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals";
-import { compileCandidates, snapshotToEvidenceInputs } from "@/domains/decision/opportunities";
+import { compileCandidates, snapshotToEvidenceInputs } from "@/domains/decision/opportunities"; import { suggestedEdits } from "@/domains/decision/suggested-edits";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
 import { chooseInvestigation, comparisonForFocus, focusReads } from "@/domains/runtime/ops/investigation-queries";
 import { reconcileResearchCases } from "@/domains/evidence/topic-investigation";
@@ -123,11 +123,11 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     expect(`${blind.reason} ${seen.reason}`).not.toMatch(/worth about|win back|fastest win|more clicks a month/i); });
   it("refuses the title rewrite Google already performs for you, however badly the stored one reads", () => {
     const c = compileCandidates(snap([ACTORS], actorsSerp(DISPLAYED)))[0]!; // the stored title misses "Iranian"; the line a searcher actually reads does not
-    expect([c.action, c.recoverableClicks, c.diagnosis!.cause, c.diagnosis!.action]).toEqual(["research_needed", 108, "google_rewrite_already_matches", null]); expect(c.reason).toContain(`Google already shows this page as "${DISPLAYED}", which carries the words people are searching for, so rewriting the title would not change what a searcher reads.`); expect(snapshotToEvidenceInputs(snap([ACTORS], actorsSerp(DISPLAYED)))).toEqual([]); }); // never drafted, so it can never render Ready
+    expect([c.action, c.recoverableClicks, c.diagnosis!.cause, c.diagnosis!.action]).toEqual(["research_needed", 108, "google_rewrite_already_matches", null]); expect(c.reason).toContain(`Google already shows this page as "${DISPLAYED}", which carries the words people are searching for, so rewriting the title would not change what a searcher reads.`); expect(snapshotToEvidenceInputs(snap([ACTORS], actorsSerp(DISPLAYED)))).toEqual([]); expect(suggestedEdits(snap([ACTORS], actorsSerp(DISPLAYED)), [c], { now: NOW, basis: null })).toEqual([]); }); // never drafted, and never suggested either: the results page itself cleared the wording
   it("reads one rival as an anecdote and two that agree as the pattern that earns a title", () => {
     const full = actorsSerp("Persian Screen | Iranopedia"); const lone = { ...full, serpEvidence: [{ ...full.serpEvidence[0]!, organic: full.serpEvidence[0]!.organic.slice(2) }] };
     const anecdote = compileCandidates(snap([ACTORS], lone))[0]!; // one competing page's wording is that page's style, never a rule
-    expect([anecdote.action, anecdote.diagnosis!.cause]).toEqual(["research_needed", "ambiguous_search_intent"]); expect(anecdote.reason).toContain("they share no wording this page is missing, so the title is not the problem I can prove");
+    expect([anecdote.action, anecdote.diagnosis!.cause]).toEqual(["research_needed", "ambiguous_search_intent"]); expect(anecdote.reason).toContain("they share no wording this page is missing, so the title is not the problem I can prove"); expect(suggestedEdits(snap([ACTORS], lone), [anecdote], { now: NOW, basis: null })).toEqual([]); // a suggestion here would re-propose the thing I just disproved
     const d = compileCandidates(snap([ACTORS], full))[0]!.diagnosis!; // three of them say it, and this page's own line does not
     expect([d.status, d.cause, d.action, d.evidenceKeys]).toEqual(["diagnosed", "snippet_intent_mismatch", "title", KEYS]);
     expect(d.alternativesRuledOut.map((a) => a.alternative)).toEqual(["Google is already showing the words people search for", "A different page of yours is the one ranking"]);

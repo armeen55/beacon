@@ -13,7 +13,7 @@ import { findProofForChange, proofResultHref } from "@/domains/measurement";
 import { actionableProposalFailures, causeLabel, componentIdOf, dangerousComponents, loadChangeProposal, resolveCurrentBasis, validateProposal } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
-import { MarkImplemented, SetAsideChange } from "../../changes-list-client";
+import { MarkImplemented, SetAsideChange } from "../change-card";
 
 // Force dynamic render so every request runs the fresh-repo-read pattern below. Matches /changes.
 export const dynamic = "force-dynamic";

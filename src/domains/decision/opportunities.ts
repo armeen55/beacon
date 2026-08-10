@@ -72,15 +72,10 @@ type QueryGap = {
 /** Measure ONE exact query row against the curve. Null when the row cannot be
  *  measured honestly (no position, no impressions). */
 function measureQuery(q: OwnedQuerySignal, expectedCtrAt: (position: number) => number): QueryGap | null {
-  const impressions = Number(q.impressions);
-  const clicks = Number(q.clicks);
-  const position = q.position;
-  if (!Number.isFinite(impressions) || impressions <= 0) return null;
+  const impressions = Number(q.impressions), clicks = Number(q.clicks), position = q.position;
+  if (!Number.isFinite(impressions) || impressions <= 0 || !Number.isFinite(clicks) || clicks < 0) return null;
   if (position == null || !Number.isFinite(position) || position <= 0) return null;
-  if (!Number.isFinite(clicks) || clicks < 0) return null;
-  const expectedCtr = expectedCtrAt(position);
-  const actualCtr = Math.min(1, clicks / impressions);
-  const deficit = expectedCtr - actualCtr;
+  const expectedCtr = expectedCtrAt(position), actualCtr = Math.min(1, clicks / impressions), deficit = expectedCtr - actualCtr;
   return { query: q.query, impressions, clicks, position, expectedCtr, actualCtr, deficit, recoverableClicks: Math.round(deficit * impressions) };
 }
 
@@ -246,11 +241,10 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
     reason: quiet.cause === "no_problem" ? reason : `${reason} ${quiet.explanation}` });
 
   if (best.deficit > 0) {
-    const missed = best.impressions < MIN_QUERY_IMPRESSIONS
-      ? `that is too little search to act on yet (I want ${num(MIN_QUERY_IMPRESSIONS)} impressions on one query)`
-      : best.deficit < MIN_CTR_DEFICIT
-        ? `that gap is ${pct(best.deficit)}, under the ${pct(MIN_CTR_DEFICIT)} I act on`
-        : `that is only about ${num(Math.max(0, best.recoverableClicks))} clicks, under the ${MIN_RECOVERABLE_CLICKS} I act on`;
+    // ONE SHAPE FOR EVERY BELOW-BAR SEARCH. Three clauses in three different units (impressions, click-rate
+    // points, clicks) read as three different rules on one screen. The bar IS all three floors at once, so the
+    // sentence says what this search is worth in the one unit an operator plans in and names what I need.
+    const missed = `that search is worth about ${num(Math.max(0, best.recoverableClicks))} clicks, under the ${MIN_RECOVERABLE_CLICKS} clicks on ${num(MIN_QUERY_IMPRESSIONS)} searches I act on`;
     return watched(noProblemFinding("The gap on that search is real and smaller than the size I act on, so I am not naming a cause for it yet.",
       "the gap is under the size where changing this page's wording would be worth your morning"),
     `${scope}. ${rates}, and ${missed}. I am watching it instead of making you work.`);
@@ -311,46 +305,20 @@ function existingEditInput(
 
   return {
     tenantId: snapshot.scope.tenantId,
-    page: {
-      path: pathOf(page.url),
-      url: absoluteUrl(page.url),
-      label: content.h1 ?? content.title ?? page.url,
-    },
-    opportunity: {
-      query,
-      kind: "existing_edit",
-      // A modeled gap, never a promised recovery: the label names the lever only.
-      opportunityType: "Sharpen the title",
-      field: "title",
-      currentValue: content.title,
-      intent: intentOf(query),
-    },
-    evidence: {
-      hints: hintsFor(page, candidate),
-      pageBodyText: null,
-      outline: content.outline ?? [],
-      diagnosis,
-    },
-    sizing: {
-      // The ONE value scalar: the modeled click shortfall, never gross traffic.
-      impactScore: candidate.recoverableClicks,
-      upsidePerMonth: null,
-    },
+    page: { path: pathOf(page.url), url: absoluteUrl(page.url), label: content.h1 ?? content.title ?? page.url },
+    // A modeled gap, never a promised recovery: the label names the lever only.
+    opportunity: { query, kind: "existing_edit", opportunityType: "Sharpen the title", field: "title",
+      currentValue: content.title, intent: intentOf(query) },
+    evidence: { hints: hintsFor(page, candidate), pageBodyText: null, outline: content.outline ?? [], diagnosis },
+    // The ONE value scalar: the modeled click shortfall, never gross traffic.
+    sizing: { impactScore: candidate.recoverableClicks, upsidePerMonth: null },
   };
 }
 
 function pathOf(url: string): string | null {
-  try {
-    return new URL(url.startsWith("http") ? url : `https://${url}`).pathname || "/";
-  } catch {
-    return url.startsWith("/") ? url : null;
-  }
+  try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname || "/"; } catch { return url.startsWith("/") ? url : null; }
 }
-
-function absoluteUrl(url: string): string | null {
-  if (!url) return null;
-  return url.startsWith("http") ? url : `https://${url}`;
-}
+const absoluteUrl = (url: string): string | null => (!url ? null : url.startsWith("http") ? url : `https://${url}`);
 
 /**
  * Map the candidates that EARNED an action onto the kernel's one input shape.

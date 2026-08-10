@@ -120,7 +120,7 @@ export type CostBreakerImpl = {
 };
 
 /** The durable account-level credit stop as a seam. Production wires the ledger-backed breaker; tests inject. */
-export type CreditBreakerImpl = {
+type CreditBreakerImpl = {
   active: (tenantId: string) => Promise<boolean>;
   trip: (tenantId: string) => Promise<void>;
   clear: (tenantId: string) => Promise<void>;

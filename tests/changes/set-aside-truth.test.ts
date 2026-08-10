@@ -191,7 +191,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
       summary: { todo: 0, ready: 1, measuring: 0, results: 0 } } as ChangesView;
     const stale = withCurrentBasisOnly(uniformlyStale, { tenantId: "t", currentBasis: NOW }); // ONE bar, and it is not mine: consistency is not currency
     expect([stale.proposals.length, stale.ready.length, stale.summary.ready]).toEqual([0, 0, 0]);
-    expect(stale.readyZeroHint).toBe(setAsideHint(1));
+    expect(stale.readyZeroHint).toBe(setAsideHint());
     const current = { ...emptyView(0), proposals: [bundled(NOW)], ready: [bundled(NOW)] } as ChangesView;
     expect(withCurrentBasisOnly(current, { tenantId: "t", currentBasis: NOW }).proposals).toHaveLength(1); // my own bar, untouched
     expect(withCurrentBasisOnly(current, { tenantId: "t", currentBasis: null }).proposals).toHaveLength(0); }); // a bar I cannot read shows nothing

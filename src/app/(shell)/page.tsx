@@ -1,11 +1,5 @@
 export const dynamic = "force-dynamic";
-// No page-level maxDuration override: this route INHERITS the (shell) layout's
-// 300s ceiling. A 60s page cap used to kill the lambda before the layout's
-// post-response autonomous cycle (AUTONOMOUS_RUN_DEADLINE_MS = 210s) could write
-// its terminal receipt, leaving the status UI stuck on "working" forever. The
-// 300s ceiling also covers this route's long "Update data" Server Action
-// (refreshAllConnectedDataNow), which pulls every connected source and warms the
-// shared surfaces - it has more headroom now, not less.
+// No page-level maxDuration override: this route INHERITS the (shell) layout's 300s ceiling. A 60s page cap used to kill the lambda before the layout's post-response autonomous cycle (AUTONOMOUS_RUN_DEADLINE_MS = 210s) could write its terminal receipt, leaving the status UI stuck on "working" forever. The 300s ceiling also covers this route's long "Update data" Server Action (refreshAllConnectedDataNow), which pulls every connected source and warms the shared surfaces: it has more headroom now, not less.
 
 import { Suspense } from "react";
 import Link from "next/link";
@@ -27,9 +21,7 @@ import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
 import { countLedgerLifecycle, loadDailyTotalsForTenant } from "@/domains/decision";
-// Wave 3B (2026-07-10) - Today is MISSION CONTROL: ONE command answers "what is the single
-// best thing I should do now?". The command model is a pure selector (domains/today); its card +
-// the consolidated proof strip are token-only (src/components/today, outside the (shell) ratchet).
+// Wave 3B (2026-07-10) - Today is MISSION CONTROL: ONE command answers "what is the single best thing I should do now?". The command model is a pure selector (domains/today); its card + the consolidated proof strip are token-only (src/components/today, outside the (shell) ratchet).
 import { buildTodayCommand, commandAllowsCelebration } from "@/domains/measurement";
 import { TodayCommandCard } from "@/components/today/today-command-card";
 import { TodayProofStrip } from "@/components/today/today-proof-strip";
@@ -38,16 +30,7 @@ import { buildScoreboard } from "@/domains/measurement";
 import { buildTodaySmokeAlarm, normalizedFixKey } from "@/components/today/today-smoke-alarm";
 import { buildTopicInvestigations, loadEvidenceSnapshot, loadGscDecaySignalsForTenant, type TopicInvestigation } from "@/domains/evidence";
 
-/**
- * Today `/` - the focused daily slice of the ONE canonical model (2026-07-01, Move 5).
- *
- * Phase 4D (2026-07-21) - Today is stripped to its load-bearing spine: a self-hiding
- * alert lane (circuit breaker + the one investigation conclusion), the greeting and the
- * one refresh control, THE ONE COMMAND, ONE performance view (the scoreboard), and ONE
- * measurement pointer (the proof strip). The war-room bands, the "More on today" drawer,
- * the north-star line, the ops banner, and the research-status line are gone; their
- * producers survive as ranking inputs for the command and for Changes/Results.
- */
+/** Today `/` - the focused daily slice of the ONE canonical model (2026-07-01, Move 5). Phase 4D (2026-07-21) stripped it to its load-bearing spine: a self-hiding alert lane (circuit breaker + the one investigation conclusion), the greeting and the one refresh control, THE ONE COMMAND, ONE performance view (the scoreboard), and ONE measurement pointer (the proof strip). The war-room bands, the "More on today" drawer, the north-star line, the ops banner and the research-status line are gone; their producers survive as ranking inputs for the command and for Changes/Results. */
 export default async function TodayPage({
   searchParams,
 }: {
@@ -121,10 +104,7 @@ function CockpitSkeleton() {
 }
 
 async function Cockpit() {
-  // Perf trace (disabled by default via BEACON_PERF_TRACE) - the trace lives in
-  // this nested async component, not the top-level page export, so the Suspense
-  // shell still streams instantly. Times the two real loaders + flushes on every
-  // exit path (demo / first-reading / error / success) via finally.
+  // Perf trace (disabled by default via BEACON_PERF_TRACE) lives in this nested async component, not the top-level page export, so the Suspense shell still streams instantly. Times the two real loaders + flushes on every exit path (demo / first-reading / error / success) via finally.
   const trace = createPerfTrace("loader:/", {
     traceId: await readPerfTraceIdFromHeaders(),
     route: "/",
@@ -136,15 +116,11 @@ async function Cockpit() {
   }
 }
 
-/** FP1 - the two hero loaders get a little more room than a section band (a
- *  timeout here replaces the whole page with the honest one-liner, so it should
- *  only fire when things are genuinely wedged, not on a cold lambda). */
+/** FP1 - the two hero loaders get a little more room than a section band: a timeout here replaces the whole page with the honest one-liner, so it should only fire when things are genuinely wedged, not on a cold lambda. */
 const TODAY_HERO_DEADLINE_MS = 8000;
 
 async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
-  // FP1 (2026-07-02) - the gate read is deadline-bounded so the CockpitSkeleton
-  // pulse can never strand. Past the deadline, say so honestly; the abandoned
-  // loader keeps running and warms the cache for the next visit.
+  // FP1 (2026-07-02) - the gate read is deadline-bounded so the CockpitSkeleton pulse can never strand. Past the deadline, say so honestly; the abandoned loader keeps running and warms the cache for the next visit.
   const gateRaced = await trace.time("loadTodayV2GateData", () =>
     loadWithDeadline(loadTodayV2GateData(), TODAY_HERO_DEADLINE_MS),
   );
@@ -166,9 +142,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   }
   let composite: Awaited<ReturnType<typeof loadTodayView>>;
   try {
-    // FP1 - loadTodayView serves the SWR snapshot instantly when one exists; the
-    // deadline only bites on the cold no-snapshot compute, which keeps running in
-    // the background and persists its snapshot, so the next visit is instant.
+    // FP1 - loadTodayView serves the SWR snapshot instantly when one exists; the deadline only bites on the cold no-snapshot compute, which keeps running in the background and persists its snapshot, so the next visit is instant.
     const viewRaced = await trace.time("loadTodayView", () =>
       loadWithDeadline(loadTodayView(), TODAY_HERO_DEADLINE_MS),
     );
@@ -177,19 +151,14 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   } catch {
     return <HonestDelay message="Couldn’t load Today just now. Your data is safe, and Beacon is retrying automatically." />;
   }
-  // WAITING FOR A FIRST READING IS ONLY TRUE WHILE THERE IS NOTHING TO SHOW. An account whose research has
-  // already ranked changes was told to sit and wait beside work it could have done, because the waiting
-  // screen was decided before the release was ever read.
+  // WAITING FOR A FIRST READING IS ONLY TRUE WHILE THERE IS NOTHING TO SHOW. An account whose research had already ranked changes was told to sit and wait beside work it could have done, because the waiting screen was decided before the release was ever read.
   if (gate.firstReading.isFirstReading && !composite.hasChanges) {
     return <FirstReadingWaiting context={gate.firstReading.context} />;
   }
   const { today } = composite;
   const tenantId = await currentTenantId();
   const nowPacific = new Date();
-  // Today context parallelization (2026-07-12): these reads are mutually
-  // independent once tenant + cached composite are known. Start each exactly
-  // once and wait for the slowest, never the sum. Every one feeds either the
-  // one command, the scoreboard, or the proof strip.
+  // Today context parallelization (2026-07-12): these reads are mutually independent once tenant + cached composite are known. Start each exactly once and wait for the slowest, never the sum. Every one feeds either the one command, the scoreboard, or the proof strip.
   const tLedger = perfMark();
   const [
     connectedSourceCount,
@@ -223,15 +192,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   perfStage("today-parallel-context", tLedger, { rows: ledgerRows.length });
 
   const streak = shippedInLastDays(ledgerRows, Date.now());
-  // FP3 (2026-07-02, supersedes A2's verdict-field count) - THE ONE-COUNT RULE: every
-  // lifecycle count on this page (the measuring strip) comes from the shared lifecycle
-  // loader, which classifies the SAME request-cached ledger rows with the SAME rule
-  // Results uses for its bands. So "16 measuring" here lands on exactly 16 "In flight"
-  // rows on Results - never contradicting answers. Fail-soft to zeros, never blocks.
-  // ONE QUESTION, ONE SOURCE. The release Today and Changes share carries the measuring count it was
-  // built with, so both surfaces answer with one number. A count the release does not carry (a pre-field
-  // blob) or could not read is WITHHELD: a ledger I could not read is not an empty one, and the swallowed
-  // lifecycle fallback that let "Nothing is measuring yet" print over an outage is gone.
+  // THE ONE-COUNT RULE (FP3, 2026-07-02): every lifecycle count on this page comes from the shared lifecycle loader, which classifies the SAME request-cached ledger rows with the SAME rule Results bands with, so "16 measuring" here lands on exactly 16 "In flight" rows there. ONE QUESTION, ONE SOURCE: the release Today and Changes share carries the measuring count it was built with. A count the release does not carry (a pre-field blob) or could not read is WITHHELD, because a ledger I could not read is not an empty one.
   const countsUnread = today.countsUnavailable === true || today.measuringCount == null;
   const measuringCount = countsUnread ? 0 : today.measuringCount ?? 0;
 
@@ -243,13 +204,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // FINISHED READINGS, off the SAME ledger rows already in hand and the SAME classifier Results bands with: no extra read, no second rule. Zero measuring is not zero evidence, and an account holding 25 settled readings was told to ship its first change.
   const decidedCount = countsUnread ? 0 : countLedgerLifecycle(ledgerRows, new Date(nowMs)).decided;
 
-  // P14 item 2 (v1 324) - the smoke alarm with page blame: ONE honest line naming the exact
-  // page bleeding clicks and the number, from the SAME per-page GSC decay signal the GSC
-  // scoreboard card reads. readyFixes comes from the SAME customer release the rest of Today
-  // and all of Changes read, so "I have a fix ready" is said only when that release really
-  // holds a ready change for that page, and the CTA opens that exact change. It used to be an
-  // empty set, so the claim could never be true and the CTA pointed at a dead route. $0-ish
-  // read, fail-soft to null (no alarm). It feeds the command; it is not its own card.
+  // The smoke alarm with page blame: ONE honest line naming the exact page bleeding clicks and the number, from the SAME per-page GSC decay signal the scoreboard card reads. readyFixes comes from the SAME customer release the rest of Today and all of Changes read, so "I have a fix ready" is said only when that release really holds a ready change for that page and the CTA opens that exact change. $0-ish read, fail-soft to null. It feeds the command; it is not its own card.
   const readyFixes = new Map((today.readyFixes ?? []).map((f) => [f.page, f.proposalId] as const));
   const decayRows = Array.from(
     (decaySignals as Map<string, { page: string; clicksNow: number; clicksPrior: number; windowNowEnd?: string }>).values(),
@@ -263,10 +218,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     windowEnd: decayRows[0]?.windowNowEnd ?? null,
   });
 
-  // WHAT IS OPEN, RANKED, AND NEVER INVISIBLE. An account holding topics under research and
-  // pages losing clicks must never read as an account with nothing happening, whatever state the
-  // command lands in. Weight is the one defensible number behind a topic (the largest priced
-  // search, or the impressions Google already gave it), never a sum of overlapping volumes.
+  // WHAT IS OPEN, RANKED, AND NEVER INVISIBLE. An account holding topics under research and pages losing clicks must never read as an account with nothing happening, whatever state the command lands in. Weight is the one defensible number behind a topic (the largest priced search, or the impressions Google already gave it), never a sum of overlapping volumes.
   const topicWeight = (inv: TopicInvestigation): number =>
     Math.max(inv.demand.monthlySearchVolume ?? 0, (inv.demand.gscImpressions ?? 0) / 4, inv.demand.trackedPrompts * 50);
   const openTopics = [...investigations].sort((a, b) => topicWeight(b) - topicWeight(a)).slice(0, 2).map((inv) => ({
@@ -278,9 +230,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       ?? "I have bought everything here that would change the answer, so I am holding it until your own numbers move.",
     href: "/changes#researching",
   }));
-  // THE SAME PAGE TWICE IS NOT TWO PROBLEMS. The alarm blames a NORMALIZED key and the decay
-  // rows carry full URLs, so comparing the two raw never matched and the worst decliner was
-  // named once by the alarm and again as open work on the very same card.
+  // THE SAME PAGE TWICE IS NOT TWO PROBLEMS. The alarm blames a NORMALIZED key and the decay rows carry full URLs, so comparing the two raw never matched and the worst decliner was named once by the alarm and again as open work on the very same card.
   const worstDecline = decayRows
     .map((d) => ({ page: d.page, lost: d.clicksPrior - d.clicksNow }))
     .filter((d) => d.lost >= 3 && normalizedFixKey(d.page) !== smokeAlarm?.pageKey)
@@ -297,32 +247,21 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       : []),
   ];
 
-  // Wave 3B - THE ONE COMMAND. Every input reuses a number another surface owns, and the
-  // priority (material loss > top move > observe) picks exactly one directive so two
-  // "do this" cards can never shout at once. The week-over-week delta comes from the SAME
-  // buildScoreboard the hero chart reads (react.cache-shared), and the next-read date comes from
-  // the ONE verdictSchedule the proof strip + Results share.
+  // Wave 3B - THE ONE COMMAND. Every input reuses a number another surface owns, and the priority (material loss > top move > observe) picks exactly one directive so two "do this" cards can never shout at once. The week-over-week delta comes from the SAME buildScoreboard the hero chart reads (react.cache-shared), and the next-read date from the ONE verdictSchedule the proof strip + Results share.
   const scoreboardDeltaPct =
     buildScoreboard(
       leadStoryDays.map((d) => ({ date: d.date, clicks: d.clicks, impressions: 0 })),
       ledgerRows,
       new Date(nowMs),
     )?.deltaPct ?? null;
-  // P2-1 (2026-07-10, visual audit) - the ONE schedule read, reused for both the checkpoint
-  // (Today's own proof strip) and the settled-read date, so the two surfaces never show
-  // unrelated dates for what is really one schedule.
+  // P2-1 (2026-07-10, visual audit) - the ONE schedule read, reused for both the checkpoint (Today's own proof strip) and the settled-read date, so the two surfaces never show unrelated dates for what is really one schedule.
   const schedule = verdictSchedule(ledgerRows, new Date(nowMs));
   const firstReadOn = schedule.firstReadOn;
-  // The decision's OWN verdict for the blamed page, when this release judged it and
-  // declined to change it. Quoting it beats a generic "still checking": the operator
-  // reads why that page is not work today, in the same words Changes would use.
+  // The decision's OWN verdict for the blamed page, when this release judged it and declined to change it. Quoting it beats a generic "still checking": the operator reads why that page is not work today, in the same words Changes would use.
   const declineVerdict = smokeAlarm
     ? (today.declineNotes ?? []).find((n) => n.page === smokeAlarm.pageKey)?.note ?? null
     : null;
-  // THE GENUINE BLOCKERS, and nothing else. A blocker is a thing that must be fixed before the
-  // numbers on this screen can be trusted; a stale-but-connected source is not one, and neither is
-  // a research pass that simply has not finished. Tracked questions at zero is the one state that
-  // stops my research outright, and a run that paused with a reason it recorded is the other.
+  // THE GENUINE BLOCKERS, and nothing else. A blocker must be fixed before the numbers on this screen can be trusted; a stale-but-connected source is not one, and neither is a research pass that simply has not finished. Tracked questions at zero is the one state that stops my research outright, and a run that paused with a reason it recorded is the other.
   const blockers = [
     ...(composite.needsTrackedQuestions
       ? ["I am not tracking any questions for you yet, so my research cannot start."]
@@ -363,28 +302,26 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     inResearch,
   });
 
-  // THE RESEARCH STRIP: what today's round actually collected and what is still owed, in the
-  // run's OWN persisted counters. Every line self hides when the number behind it does not
-  // exist, so this never prints a bare zero and never claims a figure I cannot reach.
+  // THE RESEARCH STRIP: what today's round actually collected and what is still owed, in the run's OWN persisted counters. Every line self hides when the number behind it does not exist, so this never prints a bare zero and never claims a figure I cannot reach.
   const c = research.counters;
   const owed = typeof c.aiChecksIntended === "number" && typeof c.aiChecksDone === "number"
     ? Math.max(0, c.aiChecksIntended - c.aiChecksDone) : null;
+  // COLLECTED AND READ CLOSELY ARE TWO NUMBERS ON ONE CHIP. This strip printed the COLLECTED count twice, once as "AI checks collected" and again as "answers collected", so one day's work read as two separate hauls; and it printed the collected count under the words "an answer I analyzed", so a day that bought 140 answers and had read 12 closely claimed 140 readings. Collected is the day planner's arithmetic, read closely is the run's own readback receipt, they ride ONE chip, and a reading count I cannot reach prints nothing rather than a zero.
+  const collected = typeof c.aiChecksAnswered === "number" && c.aiChecksAnswered > 0
+    ? `${c.aiChecksAnswered.toLocaleString()} answers collected today${typeof c.answersReadClosely === "number" ? `, ${c.answersReadClosely.toLocaleString()} read closely so far` : ""}`
+    : typeof c.aiChecksDone === "number" && typeof c.aiChecksIntended === "number" && c.aiChecksIntended > 0
+      ? `${c.aiChecksDone.toLocaleString()} of ${c.aiChecksIntended.toLocaleString()} AI checks collected today` : null;
   const researchStrip = [
-    typeof c.aiChecksDone === "number" && typeof c.aiChecksIntended === "number" && c.aiChecksIntended > 0
-      ? `${c.aiChecksDone.toLocaleString()} of ${c.aiChecksIntended.toLocaleString()} AI checks collected today` : null,
-    // COLLECTED AND READ CLOSELY ARE TWO NUMBERS. This chip printed the COLLECTED count under the words "an answer I analyzed", so a day that bought 140 answers and had read 12 of them closely claimed 140 readings. Collected is the day planner's arithmetic, read closely is the run's own readback receipt, and they are named separately here or not at all: a reading count I cannot reach prints nothing rather than a zero.
-    typeof c.aiChecksAnswered === "number" && c.aiChecksAnswered > 0
-      ? `${c.aiChecksAnswered.toLocaleString()} answers collected today${typeof c.answersReadClosely === "number" ? `, ${c.answersReadClosely.toLocaleString()} read closely so far` : ""}` : null,
+    collected,
     owed != null && owed > 0 ? `${owed.toLocaleString()} still owed today` : null,
     investigations.length > 0 ? `${investigations.length} ${investigations.length === 1 ? "topic" : "topics"} under research` : null,
     research.cases?.active ? `${research.cases.active} ${research.cases.active === 1 ? "topic" : "topics"} on the frozen plan` : null,
-    (today.readyTotal ?? 0) > 0 ? `${today.readyTotal!.toLocaleString()} ${today.readyTotal === 1 ? "change" : "changes"} prepared for you` : null,
+    // ONE PHRASE FOR ONE FACT: the greeting says "ready to apply", so this chip may not call the same queue "prepared for you".
+    (today.readyTotal ?? 0) > 0 ? `${today.readyTotal!.toLocaleString()} ${today.readyTotal === 1 ? "change" : "changes"} ready to apply` : null,
     measuringCount > 0 ? `${measuringCount.toLocaleString()} measuring` : null,
   ].filter((s): s is string => !!s);
 
-  // The greeting's streak clause must never celebrate ("you are on a roll") on a screen that
-  // also names a blocker or a page losing clicks. commandAllowsCelebration (today-command.ts)
-  // suppresses the clause in both cases; the streak COUNT still renders, because it is true.
+  // The greeting's streak clause must never celebrate ("you are on a roll") on a screen that also names a blocker or a page losing clicks. commandAllowsCelebration (today-command.ts) suppresses the clause in both cases; the streak COUNT still renders, because it is true.
   const streakLine =
     streak > 0
       ? ` ${streak} change${streak === 1 ? "" : "s"} shipped in the last 14 days${
@@ -397,28 +334,18 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
 
   return (
     <div className="space-y-6">
-      {/* ── SLOT 1: critical truth warnings, self-hiding ──────────────────────────────────
-          A fresh background investigation is the only thing that outranks the one command.
-          It self-hides when there is nothing to say, so a normal day starts clean. */}
       {/* The greeting + the one refresh control (page chrome, not a command). */}
       <PageHeader title={greeting} description={brief}>
         <RefreshMyDataButton connectedCount={connectedSourceCount} />
       </PageHeader>
-      {/* The durable Research Run status, one honest line under the greeting. Self-hiding:
-          nothing to show, nothing rendered. SUPPRESSED WHENEVER A BLOCKER EXISTS, because the
-          command below now owns that sentence and its one control, and printing it twice on one
-          screen is how two copies of the same claim drift apart. */}
+      {/* The durable Research Run status, one honest line under the greeting. Self-hiding, and SUPPRESSED WHENEVER A BLOCKER EXISTS, because the command below owns that sentence and its one control. */}
       {researchLine && blockers.length === 0 ? (
         <p className="-mt-2 text-[13px] text-muted-foreground">{researchLine}</p>
       ) : null}
 
-      {/* ── SLOT 2: THE ONE COMMAND ────────────────────────────────────────────────────────
-          The single best thing to do now, its evidence, one exact action, and the ONE accent
-          CTA above the fold. Subsumes and KILLS the old smoke-alarm card, lead-headline card,
-          and the lead of the "What to do next" list, so two "do this" cards never shout at once. */}
+      {/* THE ONE COMMAND: the single best thing to do now, its evidence, one exact action, and the ONE accent CTA above the fold. It subsumes the old smoke-alarm card, lead-headline card and "What to do next" lead, so two "do this" cards never shout at once. */}
       <TodayCommandCard command={command} />
-      {/* What today's round collected, what it still owes, and how much is open. Self hiding:
-          a number I do not hold prints nothing at all. */}
+      {/* What today's round collected, what it still owes, and how much is open. Self hiding: a number I do not hold prints nothing at all. */}
       {researchStrip.length > 0 ? (
         <p className="flex flex-wrap gap-1.5 text-[12px] tabular-nums text-muted-foreground" data-research-strip="true">
           {researchStrip.map((s) => (
@@ -427,10 +354,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         </p>
       ) : null}
 
-      {/* ── SLOT 3: measuring / results status ─────────────────────────────────────────────
-          The scoreboard chart (the ONE place a clicks delta is stated, in its own
-          week-over-week window) and the ONE consolidated proof strip (canonical measuring
-          count + next-read date + Search Console freshness). */}
+      {/* The scoreboard chart (the ONE place a clicks delta is stated, in its own week-over-week window) and the ONE consolidated proof strip (canonical measuring count + next-read date + Search Console freshness). */}
       <Suspense fallback={<div className="h-56 animate-pulse rounded-2xl border border-border bg-surface-inset" />}>
         <ScoreboardSection tenantId={tenantId} />
       </Suspense>

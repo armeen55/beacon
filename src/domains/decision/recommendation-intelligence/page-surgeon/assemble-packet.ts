@@ -25,7 +25,7 @@ import { expectedCtrForPosition as expectedCtr } from "./expected-ctr";
  * reporting a fabricated 0. (The rest of the retired page-surgeon contract, a
  * candidate/score/evaluator taxonomy nothing generated any more, is deleted.)
  */
-export type EvidencePacket = {
+type EvidencePacket = {
   current: {
     tenantId: string;
     pageUrl: string;

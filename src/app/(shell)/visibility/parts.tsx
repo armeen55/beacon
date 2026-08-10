@@ -95,8 +95,11 @@ function TrendChart({ chart, height = H }: { chart: Chart; height?: number }) {
         {prior ? <path d={pathOf(prior, max)} fill="none" stroke="currentColor" strokeOpacity="0.3" strokeWidth="1.6" strokeDasharray="4 4" strokeLinecap="round" /> : null}
         {area.length > 1 ? <path d={`M${xAt(firstReal, n).toFixed(1)},${yAt(0, max).toFixed(1)} L${area.join(" L")} L${xAt(lastReal, n).toFixed(1)},${yAt(0, max).toFixed(1)} Z`} fill="url(#vis-fill)" /> : null}
         <path d={pathOf(values, max)} fill="none" stroke="var(--color-chart-1)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-        {values.map((v, i) => v == null || n > 40 ? null : (
-          <circle key={chart.points[i]!.day} cx={xAt(i, n)} cy={yAt(v, max)} r="2.6" fill="var(--background)" stroke="var(--color-chart-1)" strokeWidth="1.4">
+        {/* EVERY DAY ANSWERS FOR ITSELF ON HOVER, however long the stretch: a dense line drew no dots at all,
+            so a reader could see the shape and never the date or the number behind any point of it. */}
+        {values.map((v, i) => v == null ? null : (
+          <circle key={chart.points[i]!.day} cx={xAt(i, n)} cy={yAt(v, max)} r={n > 40 ? 4 : 2.6} fill="var(--background)"
+            fillOpacity={n > 40 ? 0 : 1} stroke="var(--color-chart-1)" strokeWidth={n > 40 ? 0 : 1.4}>
             <title>{`${chart.points[i]!.label}: ${fmt(v)}`}</title>
           </circle>
         ))}

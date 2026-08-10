@@ -18,7 +18,7 @@ import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
 import { CHANGES_PAGE_SIZE } from "./changes/types";
 
-export type ChangesSummary = { todo: number; ready: number; implemented: number; measuring: number; results: number };
+type ChangesSummary = { todo: number; ready: number; implemented: number; measuring: number; results: number };
 
 export type ChangesView = {
   /** The ranked pre-ship queue, cut to ONE page. `summary` carries the true totals, counted in the database. */
@@ -72,11 +72,13 @@ export function sanitizeSurfaceComputedAt(iso: string | null | undefined): strin
 export function setAsideClause(n: number): string {
   return `I raised the bar for what counts as worth your time, so I set aside ${n} earlier ${n === 1 ? "idea" : "ideas"} that no longer clear it.`;
 }
-export function setAsideHint(n: number, toDo = 0): string {
-  // "Nothing needs your time today" is FALSE with review work waiting, and it was printed above a To do tab.
-  return `${setAsideClause(n)} ${toDo > 0
+/** THE READY LANE'S OWN EMPTY COPY, and only that. The set-aside sentence above belongs to Watching, which is
+ *  where those ideas actually sit; saying it in both places printed one fact on one screen twice.
+ *  "Nothing needs your time today" is FALSE with review work waiting, and it was printed above a To do tab. */
+export function setAsideHint(toDo = 0): string {
+  return toDo > 0
     ? `The ${toDo} ${toDo === 1 ? "idea" : "ideas"} still on your To do list are the ones I can back today.`
-    : "No change has cleared Ready yet. The research below is what I am doing about that, and the next one that earns it lands here."}`;
+    : "No change has cleared Ready yet. The research below is what I am doing about that, and the next one that earns it lands here.";
 }
 
 /** A STORED release is a photograph, and the bar may have moved since it was taken. Every row is put through the SAME one verdict the
@@ -95,7 +97,7 @@ export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string;
   return { ...view, proposals: keep, ready, toDo,
     summary: { ...view.summary, ready: ready.length, todo: toDo.length },
     demotedStaleBasis: setAside, basisUnreadable: currentBasis == null,
-    readyZeroHint: ready.length === 0 && setAside > 0 ? setAsideHint(setAside, toDo.length) : view.readyZeroHint };
+    readyZeroHint: ready.length === 0 && setAside > 0 ? setAsideHint(toDo.length) : view.readyZeroHint };
 }
 
 const EMPTY_CHANGES_VIEW: ChangesView = {
@@ -109,8 +111,7 @@ const EMPTY_CHANGES_VIEW: ChangesView = {
 export const loadChangesView = cache(async (): Promise<ChangesView> => loadChangesViewWithSwr(await currentTenantId()));
 
 /** What one press of "Show more" gets back. `total` is a COUNT in the database, never a loaded length; `cursor` is where the NEXT press
- *  resumes; `refreshed` is set ONLY when the ranking they were paging is gone, and they get the fresh FIRST page with the sentence saying
- *  why. */
+ *  resumes; `refreshed` is set ONLY when the ranking they were paging is gone, and they get the fresh FIRST page and the sentence why. */
 export type ChangesPage = {
   rows: ChangeProposal[]; total: number; cursor: number; releaseId: string | null; refreshed: string | null;
   /** Whether the database read a FULL raw page: the only honest basis for offering another press. */ more: boolean;
@@ -118,10 +119,9 @@ export type ChangesPage = {
    *  lowers the number the operator reads instead of inflating it. */ dropped: number;
 };
 
-/** ONE PAGE OF ONE LANE, CUT IN THE DATABASE. Nothing here loads the queue or the release: rows come back keyed off the position stamped
- *  when the ranking was built, filtered at the query for this account, the bar it holds now, still waiting on the operator, and the lane,
- *  so page nineteen costs what page one costs. A CURSOR IS A POSITION IN A RANKING: once the rebuild replaces that ranking, position 25 of
- *  the new order is a different change, so a stale cursor is caught here and answered with the fresh first page. */
+/** ONE PAGE OF ONE LANE, CUT IN THE DATABASE. Rows come back keyed off the position stamped when the ranking was built, filtered at the
+ *  query for this account, the bar it holds now, still waiting on the operator, and the lane, so page nineteen costs what page one costs.
+ *  A CURSOR IS A POSITION IN A RANKING: a stale cursor is caught here and answered with the fresh first page. */
 export async function readChangesPage(
   tenantId: string, lane: "ready" | "todo", cursor: number, releaseId?: string | null,
 ): Promise<ChangesPage> {
@@ -212,7 +212,7 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
   let readyZeroHint: string | null = null;
   if (summary.ready === 0) {
     if (queue.demotedStaleBasis > 0) {
-      readyZeroHint = setAsideHint(queue.demotedStaleBasis, summary.todo);
+      readyZeroHint = setAsideHint(summary.todo);
     } else if (summary.todo > 0) {
       readyZeroHint =
         "None has cleared Ready yet. These ideas still need a human look before I hand you exact copy. Open one to review it.";
@@ -224,11 +224,9 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
     }
   }
 
-  // THE RANKING IS PERSISTED, THE RELEASE IS NOT THE QUEUE. Every row of the queue gets its position in THIS ranking written down, so the
-  // list pages it in the database; the release below then carries one page, not an unlimited blob of changes nobody on that screen can
-  // read. AND THE RANKING IS STAMPED WITH THE ID THIS RELEASE PUBLISHES UNDER, so Today, the Changes screen and every "show more" name one
-  // release. A stamp that does not land ABORTS THE PUBLISH: the previous complete release keeps serving, which is honest, where publishing
-  // a release the list cannot page is not.
+  // THE RANKING IS PERSISTED, THE RELEASE IS NOT THE QUEUE. Every row gets its position in THIS ranking written down, so the list pages it
+  // in the database and the release carries one page. The stamp names the ID this release publishes under, so Today, Changes and every
+  // "show more" name one release; a stamp that does not land ABORTS THE PUBLISH and the previous complete release keeps serving.
   const nowMs = Date.now();
   if (!(await stampQueueRanking(tenantId, releaseId,
     queue.ready.map((p) => p.id), queue.toDo.map((p) => p.id)).catch(() => false))) {

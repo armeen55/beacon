@@ -20,7 +20,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ReceiptLine, buildReceiptLine, monthDayLabel } from "@/components/data/receipt-line";
 
-export type TodayProofStripProps = {
+type TodayProofStripProps = {
   /** Canonical count of changes still measuring (countLedgerLifecycle). */
   measuringCount: number;
   /** verdictSchedule.firstReadOn (YYYY-MM-DD, UTC), or null when nothing has a future read. */

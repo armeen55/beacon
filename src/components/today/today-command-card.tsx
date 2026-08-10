@@ -48,6 +48,11 @@ const EVIDENCE_WORD: Record<TodayOpportunity["evidenceStrength"], string> = {
 export function TodayCommandCard({ command }: { command: TodayCommand }) {
   const pill = STATE_PILL[command.state];
   const isAlert = command.state === "needs_attention";
+  // THE SAME CHANGE, ONCE. The headline IS the top ranked move, so printing it again as row one, again as the
+  // closing sentence and again as a second link made one recommendation read as four pieces of work. The row is
+  // dropped and the ONE accent button below inherits its deep link, so the operator still lands on that change.
+  const rest = command.ranked.filter((r) => !command.headline.includes(r.recommendation.replace(/\.$/, "")));
+  const ctaHref = rest.length < command.ranked.length ? `/changes/${encodeURIComponent(command.ranked[0]!.changeId)}` : command.cta?.href;
   return (
     <Card
       variant={STATE_VARIANT[command.state]}
@@ -88,19 +93,19 @@ export function TodayCommandCard({ command }: { command: TodayCommand }) {
             solves, the size of it, how much evidence stands behind it, what it costs in
             minutes, and opens its own row on Changes. A move nobody can size and nobody can
             open is a chore, not a recommendation. */}
-        {command.ranked.length > 0 ? (
-          <ol className="space-y-3 border-t border-border/60 pt-3" data-command-ranked="true">
-            {command.ranked.map((r, i) => (
+        {rest.length > 0 ? (
+          <ol className="list-none space-y-3 border-t border-border/60 pt-3" data-command-ranked="true">
+            {rest.map((r, i) => (
               <li key={r.changeId} className="space-y-1">
                 <p className="break-words text-body font-semibold text-foreground">
                   <span className="tabular-nums text-muted-foreground">{i + 1}. </span>
-                  {r.recommendation}
+                  {r.recommendation.replace(/^\s*\d+[.)]\s*/, "")}
                 </p>
                 <p className="break-words text-meta text-muted-foreground">
-                  {r.pageLabel} · ready to make · about {r.estimatedEffortMinutes} minute
+                  {r.pageLabel} · ready to apply · about {r.estimatedEffortMinutes} minute
                   {r.estimatedEffortMinutes === 1 ? "" : "s"} · {EVIDENCE_WORD[r.evidenceStrength]}
                   {r.upside != null && Number.isFinite(r.upside) && r.upside > 0
-                    ? ` · about ${Math.round(r.upside).toLocaleString()} clicks a month behind pages at a similar position`
+                    ? <span title="from the click curve across your own pages at each position">{` · about ${Math.round(r.upside).toLocaleString()} clicks a month behind pages at a similar position`}</span>
                     : ""}
                 </p>
                 {r.problem ? <p className="break-words text-meta text-muted-foreground">{r.problem}</p> : null}
@@ -120,7 +125,7 @@ export function TodayCommandCard({ command }: { command: TodayCommand }) {
         {/* WHAT IS REAL BUT NOT YOURS TO DO YET. This is the difference between an account that
             looks idle and an account that can see itself being worked. */}
         {command.inResearch.length > 0 ? (
-          <ol className="space-y-2 border-t border-border/60 pt-3" data-command-research="true">
+          <ol className="list-none space-y-2 border-t border-border/60 pt-3" data-command-research="true">
             {command.inResearch.map((r) => (
               <li key={r.label} className="space-y-0.5">
                 <p className="break-words text-body text-foreground">
@@ -143,9 +148,9 @@ export function TodayCommandCard({ command }: { command: TodayCommand }) {
             only accent element above the fold), never an underlined text link. */}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pt-1">
           <p className="min-w-0 break-words text-body text-foreground">{command.exactAction}</p>
-          {command.cta ? (
+          {command.cta && ctaHref ? (
             <Link
-              href={command.cta.href}
+              href={ctaHref}
               data-command-cta="true"
               className="inline-flex min-h-[34px] shrink-0 items-center justify-center rounded-md bg-accent-primary px-3.5 py-1.5 text-body font-semibold text-background hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >

@@ -1,10 +1,7 @@
-/**
- * decision/contracts (CORE 100K decision kernel): the ONE input and the ONE output of the
+/** decision/contracts (CORE 100K decision kernel): the ONE input and the ONE output of the
  * recommendation-intelligence collapse. The kernel turns exactly one normalized `EvidenceInput` (a small
- * structural interface this module OWNS) into a ranked, exact, safe `ChangeProposal`: the page, the
- * opportunity, the frozen evidence that grounds it, the exact change, why it matters,
- * effort/risk/confidence/limitations, the ranking receipt, and the proposal status.
- * PUBLISHING AUTHORITY IS MANUAL. Nothing here writes to a live page; `publish: "manual"` is a structural
+ * structural interface this module OWNS) into a ranked, exact, safe `ChangeProposal`: the page, the opportunity, the frozen evidence that grounds it, the exact change, why it matters,
+ * effort/risk/confidence/limitations, the ranking receipt, and the proposal status. PUBLISHING AUTHORITY IS MANUAL. Nothing here writes to a live page; `publish: "manual"` is a structural
  * reminder carried on every proposal. PURE: types + Zod schema + pure derivations + (de)serialization only,
  * no I/O. Proposal PATHS (propose.ts) and PERSISTENCE (proposal-store.ts) are siblings.
  */
@@ -16,8 +13,7 @@ import type { CauseFinding } from "./diagnosis";
 
 // ── EvidenceInput: the ONE normalized input the kernel consumes ───────────────
 
-/** The demand + page context for one opportunity. Structural on purpose: the
- *  evidence assembler owns HOW these are computed, the kernel only consumes them. */
+/** The demand + page context for one opportunity. Structural on purpose: the  evidence assembler owns HOW these are computed, the kernel only consumes them. */
 export interface EvidenceInput {
   tenantId: string;
   /** The page the change lands on. `path` null = a brand-new page opportunity. */
@@ -35,8 +31,7 @@ export interface EvidenceInput {
     /** The searcher's dominant intent (when/cost/how/where/who/list/compare). */
     intent?: string;
   };
-  /** Everything that grounds a safe draft. All optional: the drafter and the
-   *  validator degrade honestly when a field is absent. */
+  /** Everything that grounds a safe draft. All optional: the drafter and the  validator degrade honestly when a field is absent. */
   evidence: {
     /** Plain-English facts the team established (GSC demand, a tracked AI prompt). */
     hints?: string[];
@@ -60,8 +55,7 @@ export interface EvidenceInput {
 
 /** What the evidence actually justifies for one page or topic, decided BEFORE any draft is written. Doing
  *  nothing is the default: a page is not a problem because it is big. Only the two `act_` outcomes may become
- *  a ChangeProposal; the rest are the honest answer and live in the run receipt, never manufactured work.
- *  Internal to Decision: NOT persisted as its own record and never a public type. */
+ *  a ChangeProposal; the rest are the honest answer and live in the run receipt, never manufactured work.  Internal to Decision: NOT persisted as its own record and never a public type. */
 type CandidateAction =
   // No `act_new_page`: a page this account does not own is decided by the coverage ladder
   // over researched TOPICS, never by this per-page diagnosis over pages it already has.
@@ -78,8 +72,7 @@ export type DecisionCandidate = {
   pageUrl?: string | null;
   /** The EXACT query the gap was measured on (never a page total). */
   query?: string | null;
-  /** Clicks a fix could plausibly recover, from exact query metrics. Ranks
-   *  opportunity: a huge page with no deficit ranks below a small real gap. */
+  /** Clicks a fix could plausibly recover, from exact query metrics. Ranks  opportunity: a huge page with no deficit ranks below a small real gap. */
   recoverableClicks: number;
   /** Plain-English why, carrying the exact numbers the receipt will show. */
   reason: string;
@@ -93,8 +86,7 @@ export const MIN_RECOVERABLE_CLICKS = 50;
 
 /** EVIDENCE READINESS (evidence-qualified changes, 2026-07-27). A click gap proves something is WRONG. It
  *  never proves WHAT TO CHANGE: the same gap is explained by a weak title, a search feature eating the click,
- *  the wrong page ranking, an ambiguous query, or nothing at all. So a gap opens an INVESTIGATION, and only
- *  the exact evidence below can close it into an action. */
+ *  the wrong page ranking, an ambiguous query, or nothing at all. So a gap opens an INVESTIGATION, and only  the exact evidence below can close it into an action. */
 export type EvidenceReadiness = {
   /** Exact GSC rows for this query on this page. */
   gsc: boolean;
@@ -104,8 +96,7 @@ export type EvidenceReadiness = {
   serp: boolean;
   /** Inspectable extracts of pages that actually rank or are cited FOR that query. */
   winners: number;
-  /** The page's own WORDS beyond its title, so a claim about it can be checked. No body
-   *  store exists yet, so this is false everywhere today and High confidence on an edit
+  /** The page's own WORDS beyond its title, so a claim about it can be checked. No body  store exists yet, so this is false everywhere today and High confidence on an edit
    *  is currently unreachable. That is the truth, not a gap to paper over. */
   body: boolean;
 };
@@ -115,8 +106,7 @@ export type EvidenceReadiness = {
  *  already displayed this page's title with the searcher's exact words). ActionDiagnosis decides Ready. */
 export function evidenceComplete(r: EvidenceReadiness): boolean { return r.gsc && r.ownedCopy && r.serp; }
 
-/** WHY this page underperforms, in the vocabulary a diagnosis may conclude in. One cause
- *  per candidate, chosen by reading the evidence, never by token containment. */
+/** WHY this page underperforms, in the vocabulary a diagnosis may conclude in. One cause  per candidate, chosen by reading the evidence, never by token containment. */
 type DiagnosisCause =
   | "snippet_intent_mismatch" | "weak_value_promise" | "result_format_mismatch"
   | "wrong_page_ranking" | "cannibalization" | "content_coverage_gap" | "stale_or_inaccurate_copy"
@@ -129,8 +119,7 @@ export type DiagnosedAction =
 
 /** THE reasoning step between "this page underperforms" and "change this", held inside the existing candidate
  *  and receipt path. `diagnosed` means the evidence NAMES a cause, the action follows from it, a competing
- *  explanation is ruled out with its own evidence, and every claim cites receipt keys. Anything else is
- *  `inconclusive`: still under investigation, no draft spend. */
+ *  explanation is ruled out with its own evidence, and every claim cites receipt keys. Anything else is  `inconclusive`: still under investigation, no draft spend. */
 export type ActionDiagnosis = {
   status: "diagnosed" | "inconclusive";
   cause: DiagnosisCause;
@@ -148,8 +137,7 @@ export function readyForAction(d: ActionDiagnosis | null | undefined): boolean {
     && d.evidenceKeys.length > 0 && d.alternativesRuledOut.length > 0;
 }
 
-/** Confidence follows EVIDENCE COMPLETENESS, never how the draft reads: a proposal that admits it never saw
- *  the results page cannot be high confidence. */
+/** Confidence follows EVIDENCE COMPLETENESS, never how the draft reads: a proposal that admits it never saw  the results page cannot be high confidence. */
 export function confidenceFor(r: EvidenceReadiness, d?: ActionDiagnosis | null): ChangeProposal["confidence"] {
   if (!evidenceComplete(r) || (d !== undefined && !readyForAction(d))) return "low";
   return r.winners >= 2 && r.body ? "high" : "medium";
@@ -195,8 +183,7 @@ export type BundleComponentKind =
   | "internal_link_add" | "internal_link_remove" | "anchor_text" | "schema" | "canonical"
   | "redirect" | "noindex" | "consolidation" | "navigation" | "new_page";
 
-/** The kinds that change where a page LIVES or whether it is findable at all. A mistake here costs traffic a
- *  title rewrite never could, so each is `dangerous` and rides the hold below. */
+/** The kinds that change where a page LIVES or whether it is findable at all. A mistake here costs traffic a  title rewrite never could, so each is `dangerous` and rides the hold below. */
 export const DANGEROUS_COMPONENT_KINDS: ReadonlySet<BundleComponentKind> =
   new Set<BundleComponentKind>(["canonical", "redirect", "noindex", "consolidation"]);
 
@@ -207,8 +194,7 @@ const HIGH_STAKES_CLAIM = /\b(law|legal|lawyer|attorney|court|statute|regulation
 const FACTUAL_KINDS: ReadonlySet<BundleComponentKind> = new Set<BundleComponentKind>(
   ["factual_correction", "paragraph_correction", "source_update", "entity_expansion", "table_or_list_add"]);
 
-/**
- * One exact, copy-ready component. Every component cites the receipt items that justify it; a component
+/** One exact, copy-ready component. Every component cites the receipt items that justify it; a component
  * without evidence is never emitted. `before` is THE CURRENT STATE exactly as it stands, and null means I did
  * not capture it, never a value invented to fill the field. `after` is THE PROPOSAL: exact copy, or the exact
  * structural instruction when the change is not a sentence. The fields after `risk` are optional in the TYPE
@@ -323,6 +309,9 @@ export type ChangeProposal = {
   recommendedChange: RecommendedChange;
   /** One plain-English sentence: why this matters. */
   whyItMatters: string;
+  /** WHERE THIS HAPPENS AND WHAT TO DO, in order, so a copy-ready line is not a puzzle. Absent on a row nobody
+   *  wrote steps for, which reads exactly as it always did: no steps is not an empty list of steps. */
+  operatorSteps?: string[];
   estimatedEffortMinutes: number;
   riskLevel: ProposalRisk;
   confidence: ProposalConfidence;
@@ -430,6 +419,7 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   status: z.enum(["needs_review", "ready", "implemented_pending_verification"]),
   recommendedChange: RecommendedChangeSchema,
   whyItMatters: z.string(),
+  operatorSteps: z.array(z.string().min(1)).optional(),
   estimatedEffortMinutes: z.number(),
   riskLevel: z.enum(["low", "medium", "high"]),
   confidence: z.enum(["high", "medium", "low"]),
@@ -465,12 +455,10 @@ export function serializeChangeProposal(proposal: ChangeProposal): string { retu
 /** Parse + RE-VALIDATE a persisted proposal: a hand-edited row that no longer satisfies the contract can
  *  never be served as a trusted proposal. Fail-soft to null. */
 export function deserializeChangeProposal(content: string | null | undefined): ChangeProposal | null {
-  if (!content) return null;
   try {
-    const obj = JSON.parse(content) as { v?: number; proposal?: unknown };
-    if (!obj || obj.v !== PERSIST_VERSION) return null;
-    const res = ChangeProposalSchema.safeParse(obj.proposal);
-    return res.success ? res.data : null;
+    const obj = content ? JSON.parse(content) as { v?: number; proposal?: unknown } : null;
+    const res = obj && obj.v === PERSIST_VERSION ? ChangeProposalSchema.safeParse(obj.proposal) : null;
+    return res?.success ? res.data : null;
   } catch { return null; }
 }
 
@@ -485,11 +473,9 @@ export function proposalFamily(input: EvidenceInput): string {
 
 /** Stable proposal id from the evidence input. */
 export function proposalId(input: EvidenceInput): string {
-  const pageKey = input.opportunity.kind === "new_page"
-    ? `new::${input.opportunity.query.toLowerCase().trim()}`
-    : (input.page.path ?? input.page.url ?? input.page.label).toLowerCase().trim();
-  const suffix = input.opportunity.kind === "new_page" ? "new_page" : (input.opportunity.field ?? "edit");
-  return `${input.tenantId}::${pageKey}::${input.opportunity.kind}::${suffix}`;
+  const isNew = input.opportunity.kind === "new_page";
+  const pageKey = isNew ? `new::${input.opportunity.query.toLowerCase().trim()}` : (input.page.path ?? input.page.url ?? input.page.label).toLowerCase().trim();
+  return `${input.tenantId}::${pageKey}::${input.opportunity.kind}::${isNew ? "new_page" : (input.opportunity.field ?? "edit")}`;
 }
 
 /** Coarse effort minutes by family (a real per-move figure overrides this). */
@@ -497,3 +483,16 @@ export function effortForFamily(family: string): number {
   if (family === "title" || family === "meta" || family === "h1") return 1;
   return family === "answer" ? 3 : family === "new_page" ? 60 : 5;
 }
+/** WHAT A CHANGE WAS CHECKED AGAINST, in one countable line, readable before anybody opens the receipt. PURE;
+ *  lives here rather than the bundle producer so a client card may import it without dragging server modules. */
+const CLASS_OF: Record<string, string> = {
+  gsc_demand: "your search data", page_extract: "the page as I last read it", keyword: "monthly search counts",
+  serp: "the live results page", ai_observation: "AI answers I watched", winning_page: "winning pages I read",
+  competitor: "the sites AI hands this to instead of you", internal_link: "links from your own pages",
+  diagnosis: "what the results page told me about the cause" };
+export const receiptComposition = (items: readonly { kind: string }[]): string => {
+  const by = new Map<string, number>();
+  for (const it of items) { const c = CLASS_OF[it.kind] ?? it.kind; by.set(c, (by.get(c) ?? 0) + 1); }
+  const parts = [...by.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([c, n]) => (n > 1 ? `${c} (${n})` : c));
+  return items.length === 0 ? "nothing I can show you" : `${items.length} ${items.length === 1 ? "check" : "checks"}: ${parts.join(", ")}`;
+};

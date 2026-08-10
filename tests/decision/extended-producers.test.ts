@@ -199,7 +199,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     // the operator reads their own pages as paths, the comparison that proves it is in the copy, and so is what moves
     expect(c.after).toContain('2 of your own pages come up for "rain barrel sizing": /rain-barrels, /barrel-sizes');
     expect(c.after).toContain("/rain-barrels earns 90 clicks from that search against 20 on /barrel-sizes");
-    expect([c.after.includes("Gallons per storm"), c.after.includes("https://")]).toEqual([true, false]);
+    expect([c.after.includes("Gallons per storm"), c.after.includes("https://"), c.after.endsWith("That is about 90 minutes of work: merge the two pages and set one redirect. I mark it high risk because a web address changes.")]).toEqual([true, false, true]); // the effort and the risk on the row, explained in the copy
     expect(c.after).not.toMatch(/I am not choosing for you|you pick|stronger position/i);
     // The change the row would carry IS this component: a merge filed as a section change, never a title rewrite.
     expect(envelope(c)).toEqual({ kind: "existing_edit", field: "section", before: null, after: c.after });

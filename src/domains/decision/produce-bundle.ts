@@ -15,7 +15,7 @@ import "server-only";
 
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot"; import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { draftAtomicEditStructured, draftInternalLinkStructured, draftSectionStructured } from "@/domains/decision/llm/structured-drafter"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
-import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { confidenceFor, MIN_CTR_DEFICIT, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction } from "./contracts";
+import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { confidenceFor, MIN_CTR_DEFICIT, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction, receiptComposition } from "./contracts";
 import { technicalKey, type TechnicalFinding } from "./technical-findings";
 import { diagnoseCandidate, ownedResultOf, recurringPattern, RECEIPT, type DiagnosisInput } from "./diagnose";
 import { causeLabel, diagnoseCauses, type CauseFinding } from "./diagnosis";
@@ -83,13 +83,7 @@ const observationFact = (o: Observation): string => {
   return `${seen}${cited}${fan.length ? ` To answer it the assistant went and searched ${fan.map((q) => `"${q}"`).join(", ")}.` : ""}`;
 };
 
-const CLASS_OF: Record<BundleEvidenceItem["kind"], string> = {
-  gsc_demand: "your own search data", page_extract: "the page as I last read it", keyword: "monthly search counts",
-  serp: "a live results check", ai_observation: "an AI answer I watched", winning_page: "a winning page comparison",
-  competitor: "the sites AI hands this to instead of you", internal_link: "links from your own pages",
-  diagnosis: "what the results page told me about the cause" };
-const classSentence = (r: Receipt, c = [...new Set(r.items.map((it) => CLASS_OF[it.kind]))]): string =>
-  `I built this from ${c.length > 1 ? `${c.slice(0, -1).join(", ")}, and ${c[c.length - 1]}` : c[0] ?? "nothing I can show you"}, and I can show you every piece.`;
+const classSentence = (r: Receipt): string => `I built this from ${receiptComposition(r.items)}, and I can show you every piece.`;
 
 const queriesOf = (page: OwnedPageEvidence): OwnedQuerySignal[] => [...(page.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions || b.clicks - a.clicks || byText(a.query, b.query)).slice(0, 5);
 
@@ -139,8 +133,7 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   if (bodyText) add(RECEIPT.body, "page_extract", `In its own words the page opens: "${bodyText.slice(0, 240)}".`, body?.fetchedAt ?? null);
   const owned = ownedResultOf(dx); const pattern = recurringPattern(dx, owned); const diagnosis = diagnoseCandidate(dx);
   if (diagnosis.status === "diagnosed") { // the conclusion is inspectable evidence too, beside the observations it cites
-    add("diagnosis", "diagnosis", diagnosis.explanation, null);
-    diagnosis.alternativesRuledOut.forEach((a, i) => add(`ruledout${i + 1}`, "diagnosis", `${a.alternative}: ${a.reason}`, null)); }
+    add("diagnosis", "diagnosis", diagnosis.explanation, null); diagnosis.alternativesRuledOut.forEach((a, i) => add(`ruledout${i + 1}`, "diagnosis", `${a.alternative}: ${a.reason}`, null)); }
   if (owned) add(RECEIPT.ownedResult, "serp", `On that results page Google shows this page worded "${(owned.title ?? "").trim()}".`, null);
   else if (serps.length > 0) missing.push(`I could not find this page on the results page for "${primary}", so I cannot see what a searcher reads for it.`);
   if (pattern.length > 0) add(RECEIPT.pattern, "serp", `Across the other pages that come up for "${primary}", ${pattern.slice(0, 4).map((t) => `"${t}"`).join(", ")} recur in the wording Google shows.`, null);
@@ -188,8 +181,7 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
       const opening = (p.openingPattern ?? "").trim(); if (opening) add(RECEIPT.winnersOpening, "winning_page", `They all open the same way: ${opening}`, null);
     }
     if (inv.pageType !== "mixed" && inv.pageType !== "unknown") add(RECEIPT.shape, "serp", `The pages that come up for "${primary}" have settled on one kind of page, and I counted it off ${inv.distinctResultDomains} different sites.`, null);
-    const want = inv.demand.intent ? WANTS[norm(inv.demand.intent)] : undefined;
-    if (want) add(RECEIPT.intent, "keyword", `The people searching "${primary}" ${want}.`, null);
+    const want = inv.demand.intent ? WANTS[norm(inv.demand.intent)] : undefined; if (want) add(RECEIPT.intent, "keyword", `The people searching "${primary}" ${want}.`, null);
   }
   if (c.internalLinks.length > 0) add(RECEIPT.links, "internal_link", `From here this page points readers on to ${c.internalLinks.length} other ${c.internalLinks.length === 1 ? "page" : "pages"} of your own.`, c.fetchedAt);
   // HOW THIS PAGE IS SERVED, under the ids the technical cause cites, so a plumbing change is read off a line the operator can see. Nothing is added when nothing was found.
@@ -445,20 +437,15 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     receipt: { items: receipt.items, missing: receipt.missing, freshestObservedAt: receipt.freshestObservedAt },
     alternatives,
     risks: [
-      wording
-        ? "Changing a title moves where the page ranks while search engines re-read it, so give this the full 28 days before you judge it."
-        : "Changing what a page says moves where it ranks while search engines re-read it, so give this the full 28 days before you judge it.",
-      receipt.bodyText
-        ? "I read this page's stored words, not today's live page, so read each line once against the page before you paste it."
+      `Changing ${wording ? "a title moves where the page ranks" : "what a page says moves where it ranks"} while search engines re-read it, so give this the full 28 days before you judge it.`,
+      receipt.bodyText ? "I read this page's stored words, not today's live page, so read each line once against the page before you paste it."
         : "I do not hold this page's full body text, so read each line once before you paste it.",
     ],
     confidenceReasons: [
-      lead
-        ? `That one search "${primary}" brings this page ${lead.impressions.toLocaleString()} views over 90 days and turns ${lead.clicks.toLocaleString()} of them into clicks, about ${Math.round(lead.recoverable).toLocaleString()} short of what position ${Math.round(lead.position)} usually earns.`
+      lead ? `That one search "${primary}" brings this page ${lead.impressions.toLocaleString()} views over 90 days and turns ${lead.clicks.toLocaleString()} of them into clicks, about ${Math.round(lead.recoverable).toLocaleString()} short of what position ${Math.round(lead.position)} usually earns.`
         : door!.entry,
       classSentence(receipt),
-      receipt.freshestObservedAt
-        ? `The newest evidence I used was observed on ${receipt.freshestObservedAt.slice(0, 10)}.`
+      receipt.freshestObservedAt ? `The newest evidence I used was observed on ${receipt.freshestObservedAt.slice(0, 10)}.`
         : "Every figure here is a 90 day total, so none of it carries a single observation date.",
       wording ? diagnosis.explanation : finding.explanation,
     ],

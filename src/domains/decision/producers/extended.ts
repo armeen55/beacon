@@ -19,7 +19,7 @@ import { topicTokens } from "@/domains/evidence/relevance-gate";
 import { classifyResult } from "@/domains/evidence/serp-shape"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { BundleComponent } from "../contracts";
 import type { CauseFinding } from "../diagnosis";
-import type { Produced, Producer, ProducerCtx } from "./contract";
+import { effortMinutesFor } from "./contract"; import type { Produced, Producer, ProducerCtx } from "./contract";
 
 /** Two links is the whole budget: a stranded reader needs a way through, not a directory. A rebuild is the biggest swing there is, so it is earned by causes agreeing, never by one loud one. */
 const MAX_LINKS = 2;
@@ -379,7 +379,7 @@ export const produceConsolidation: Producer = async (ctx) => {
   const rest = losers.map((p) => { const c = earns.get(p)?.clicks ?? null; return c == null ? `nothing I can measure on ${p}` : `${count(c)} on ${p}`; }).join(" and ");
   // EVERY SENTENCE OPENS IN BEACON'S OWN VOICE: the firewall reads a capitalized word it cannot place as an
   // invention, so an instruction opening "Pick the one you want" was refused and never reached anyone.
-  const after = plain(`${count(named.length)} of your own pages come up for "${ctx.primary}": ${named.join(", ")}. ${keep} earns ${count(win.clicks!)} clicks from that search against ${rest}${win.position == null ? "" : `, at about position ${count(win.position)}`}, so keep ${keep} as the one page for it. ${moves.length > 0 ? `I would move ${moves.map((m) => `"${m}"`).join(", ")} from ${losers.join(" and ")} into ${keep}, then send ${losers.join(" and ")} on to ${keep} for good.` : `I hold nothing on ${losers.join(" or ")} that ${keep} does not already say, so send ${losers.join(" and ")} on to ${keep} for good.`}`);
+  const after = plain(`${count(named.length)} of your own pages come up for "${ctx.primary}": ${named.join(", ")}. ${keep} earns ${count(win.clicks!)} clicks from that search against ${rest}${win.position == null ? "" : `, at about position ${count(win.position)}`}, so keep ${keep} as the one page for it. ${moves.length > 0 ? `I would move ${moves.map((m) => `"${m}"`).join(", ")} from ${losers.join(" and ")} into ${keep}, then send ${losers.join(" and ")} on to ${keep} for good.` : `I hold nothing on ${losers.join(" or ")} that ${keep} does not already say, so send ${losers.join(" and ")} on to ${keep} for good.`} That is about ${effortMinutesFor("consolidation")} minutes of work: merge the two pages and set one redirect. I mark it high risk because a web address changes.`);
   return {
     components: [{
       kind: "consolidation",
