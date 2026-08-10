@@ -6,11 +6,9 @@
 ## Current foundation
 
 - Branch `main`; MVP rebuild started at `4669fbb5`. Stack: Next.js App Router, strict TypeScript, Supabase, Vercel.
-- Production TypeScript is 73,248 lines under a 73,249 ceiling; tests 11,505 at the 11,505 ceiling; combined 84,753.
-- The foundation guard caps production, tests, combined LOC, domains, routes, exports, files, dependencies, and
-  Markdown. `npm run gate` runs the guard, typecheck, tests, and build.
-- Five kernels exist (Account, Evidence, Decision, Measurement, Runtime); five surfaces (Today, Visibility,
-  Changes, Results, Connections). Wix is removed; publishing is manual for every account.
+- Production TypeScript is 73,207 lines under a 73,249 ceiling; tests 11,505 at the 11,505 ceiling.
+- The foundation guard caps production, tests, combined LOC, domains, routes, exports, files, dependencies, and Markdown. `npm run gate` runs the guard, typecheck, tests, and build.
+- Five kernels exist (Account, Evidence, Decision, Measurement, Runtime); five surfaces (Today, Visibility, Changes, Results, Connections). Wix is removed; publishing is manual for every account.
 - Supabase authentication provisions one membership and one tenant per new user.
 - One login resolves exactly one account, fail-closed (2026-07-23; loop-proofed 2026-07-26): on product paths the
   middleware injects the single membership's account; zero, multiple, erroring, or timed-out lookups redirect to
@@ -68,8 +66,7 @@
   one vote per answer and rivals rank by distinct questions; every settled reading flows into case receipts
   dated and naming every observation behind it (a withheld time-sensitive line is disclosed, never hidden),
   creates its own bounded consume pass through a fingerprint and watermark that read the same rows by construction, and moves evidence identity; harvested keywords accumulate across passes, a failed read
-  keeps history and says so, and the tracked-question truth lives in the Account kernel. Everything below
-  describes the runtime as built. A visit renders the saved surfaces first, then
+  keeps history and says so, and the tracked-question truth lives in the Account kernel. Everything below describes the runtime as built. A visit renders the saved surfaces first, then
   claims or resumes the account's Research Run through an atomic database-time lease RPC. At most one
   unfinished run per account across all dates (partial unique index): the claim resumes it whatever day
   it started (same row, phase, cursor, progress; a live foreign lease blocks, an expired one reclaims), a
@@ -124,8 +121,7 @@
   duplicates of pages the account already owned. The ONLY door to a new page is an EARNED create_new, proved by
   a bought page comparison; no other trigger creates, drafts or resurrects one. Live replay 2026-07-27 (SHA
   e92bdbd1): 0 actionable, 23 investigations, 164 watch, 31 do nothing, 0 Ready; the next pass buys the three
-  searches with no results page yet. ONE canonical path produces the ranked queue AND at most one deep
-  existing-page Change per pass: receipt-first, citable research REQUIRED, thin evidence = refusal.
+  searches with no results page yet. ONE canonical path produces the ranked queue AND at most one deep existing-page Change per pass: receipt-first, citable research REQUIRED, thin evidence = refusal.
   Parts bundle ONLY when they are one repair; a bundle REPLACES its shallow rows. Evidence tells the truth about itself: query identity on the receipt, winners attaching ONLY on
   exact URL or exact member query or prompt, a page that arrived by rank never called an AI citation, internal links
   withheld while no body backs them, metric sentences naming their scope, and a producer failure never publishing a
@@ -146,8 +142,7 @@
 Verified variable-name presence without reading or printing values:
 - Local and Vercel production have Supabase and OpenAI credentials.
 - Vercel production has Google OAuth client credentials and a GSC site configuration.
-- DataForSEO credentials are live-validated locally AND set on Vercel production; missing credentials fail
-  closed. Never place credentials in chat, documentation, commits, or command output.
+- DataForSEO credentials are live-validated locally AND set on Vercel production; missing credentials fail closed. Never place credentials in chat, documentation, commits, or command output.
 
 ## Current routes
 
@@ -186,6 +181,10 @@ coverage, a partial stays due and resumes at the first unread piece, and every c
 counts only settled readings. A full rewrite or new page is Ready only when every planned section and the
 opening drafted and validated; source packs name the source whole or say the operator picks it and hold for
 review, and the component card renders where, why, and the sources. Dream V1 is live at 27e6e8bf: a pg_cron dispatcher (every 30 minutes, Vault bearer, honest receipts, 503 on an unreadable fleet, rotation past account 20) drives the same canonical cycle a visit drives, and one due-work truth opens recovery passes for missing observations, unread answers, crawl debt and unpublished releases; the first autonomous day completed 2026-08-03 for Iranopedia (35 prompts x 4 engines, 140 of 140 terminal observations, zero duplicates, $1.43 provider spend) and the crawl advances autonomously (58 of 217 pages read whole at this writing); one canonical actionable verdict guards every door to a Change including mutation time, one release identity spans Today and Changes, destructive consolidations need a proven survivor and server-side confirmation, a stale run closes honestly at Pacific midnight from any phase, Visibility actions re-resolve the session before any read, ledger outages say so instead of rendering zeros, and the one unsafe consolidation withdrew through the canonical sweep leaving an honest empty queue. The operator's signed-in walk of the surfaces remains theirs to take.
+
+## Working queue surface (2026-08-10, deployed 6fab7cfd)
+
+Changes is a working surface: each card renders the exact before and after copy with one Copy button, apply steps, named evidence classes with counts (receiptComposition in the Decision contracts), rank reasons, filters, sorts, set-aside with a 10 second undo, and a mark-implemented with reason; measuring and results rows carry the ledger proof clause (clicks +N against similar pages I did not change). Researching rows never contradict their own missing-evidence bullets, one topic label renders once, and the frozen release "ranked just now" defers to the live clock. Readback runs today-first and the acceptance state reached 100 percent checked (977 of 977 answers over 7 days) with AI tiles live. `gsc_page_signals_v1` and `gsc_decay_v1` carry function-scoped work_mem 64MB (211ms warm, formerly 5s with a temp spill under the 20s cap).
 
 ## Verification
 
