@@ -469,12 +469,12 @@ describe("setup and settings surfaces (Phase 8)", () => {
       mode: "onboarding" as const, submitLabel: "Approve my selection", onSubmit: () => {},
     }));
     const thin = editor(16);
-    expect(thin).toContain("I found 16 strong questions for your business. I do my best work with 20 to 50, and I will propose more as I learn your market.");
+    expect(thin).toContain("16 strong questions found for your business. 20 to 50 is the range that works best, and more arrive as Beacon learns your market.");
     expect(thin).toContain("Approve my selection");
     expect(thin).not.toContain('disabled=""'); // the one primary action on the step is live, not a dead end
     // The 20 to 50 framing is what an account WITH the questions still reads, and the button still works.
     const full = editor(24);
-    expect(full).toContain("I track between 20 and 50 questions, and this is the range where I do my best work.");
+    expect(full).toContain("Between 20 and 50 questions stay tracked, and this is the range that works best.");
     expect(full).not.toContain("I found 24 strong questions");
   });
   it("offers the customer's own three sources on Connections, and nothing Beacon runs on its own account", () => {
@@ -485,9 +485,9 @@ describe("setup and settings surfaces (Phase 8)", () => {
   });
   it("tells an operator where each tracked question's trend starts, so a rewording never looks like a drop", () => {
     expect(historyNote({ version: 1, createdAt: "2026-05-10T00:00:00Z" }))
-      .toBe("I have asked this exact question since May 10, and its trend runs from there.");
+      .toBe("This exact question has been asked since May 10, and its trend runs from there.");
     expect(historyNote({ version: 3, createdAt: "2026-05-10T00:00:00Z" }))
-      .toBe("This is version 3 of this question. I changed it 2 times, and each change restarts its trend, so I only compare it against readings of the wording it has now.");
+      .toBe("This is version 3 of this question. It changed 2 times, and each change restarts its trend, so it is only compared against readings of the wording it has now.");
     for (const note of [historyNote({ version: 1, createdAt: "2026-05-10T00:00:00Z" }), historyNote({ version: 2, createdAt: "2026-05-10T00:00:00Z" })]) {
       expect(note!).not.toMatch(/[–—]/);
       expect(note!).not.toMatch(/\d{4}-\d{2}-\d{2}/);

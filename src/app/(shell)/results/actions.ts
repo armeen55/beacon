@@ -115,12 +115,12 @@ export async function recordShippedChangeAction(args: {
     // IS NOT A SMALL SITE, and it gets its own sentence rather than a fix the operator already did.
     const controlPages = await selectControlPages(tenantId, meta.canonPage).catch(() => null);
     if (controlPages == null) {
-      return { success: false, error: "I could not read your other pages just now, so I have not recorded this yet. Try it again in a moment." };
+      return { success: false, error: "Your other pages could not be read just now, so this is not recorded yet. Try it again in a moment." };
     }
     if (controlPages.length < MIN_CONTROLS) {
       return {
         success: false,
-        error: `I found only ${controlPages.length} page${controlPages.length === 1 ? "" : "s"} on your site I could fairly compare this against, and I need ${MIN_CONTROLS}. Connect Search Console, or give me a few more days of search data, then try it again.`,
+        error: `Only ${controlPages.length} page${controlPages.length === 1 ? "" : "s"} on your site can be fairly compared against this one, and ${MIN_CONTROLS} are needed. Connect Search Console, or wait a few more days of search data, then try it again.`,
       };
     }
 
@@ -172,7 +172,7 @@ export async function recordShippedChangeAction(args: {
   } catch (err) {
     // THE RAW MESSAGE GOES TO THE LOG AND NOWHERE ELSE: a Supabase relation name is not an answer.
     log.error("recordShippedChange: failed", { pageUrl, error: err instanceof Error ? err.message : String(err) });
-    return { success: false, error: "I could not record that change just now. Try it again in a moment." };
+    return { success: false, error: "That change could not be recorded just now. Try it again in a moment." };
   }
 }
 
@@ -198,6 +198,6 @@ export async function recomputeProofLedgerAction(): Promise<ProofLedgerActionRes
     return { success: true };
   } catch (err) {
     log.error("recomputeProofLedger: failed", { error: err instanceof Error ? err.message : String(err) });
-    return { success: false, error: "I could not read your results again just now. Try it again in a moment." };
+    return { success: false, error: "Your results could not be read again just now. Try it again in a moment." };
   }
 }

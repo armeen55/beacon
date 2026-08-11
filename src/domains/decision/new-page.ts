@@ -3,17 +3,14 @@ import "server-only";
 /**
  * decision/new-page: the ONE builder of a researched new page, and the only thing on the far side of an EARNED
  * create_new verdict. It writes nothing off a keyword, a tracked question, a competitor's page, an engine's
- * fan-out or a search volume: the ONLY door in is `earnedNewPage(decision)`, which the coverage ladder opens
- * once it has proved this account reaches this subject on no page of its own.
+ * fan-out or a search volume: the ONLY door in is `earnedNewPage(decision)`, which the coverage ladder opens once it has proved this account reaches this subject on no page of its own.
  *
- * ONE bundle through the EXISTING pipeline: a ChangeProposal carrying a ChangeBundle, the same record,
- * validator, ranker, persistence and Changes surfaces an existing-page repair uses.
+ * ONE bundle through the EXISTING pipeline: a ChangeProposal carrying a ChangeBundle, the same record, validator, ranker, persistence and Changes surfaces an existing-page repair uses.
  *
  * ONE strict brief call, AFTER the verdict. No field in its schema carries a verdict, a shape or an intent, so
  * it can neither decide the page should exist nor change what wins. Every claim is checked back against what
  * was supplied, and the WHOLE draft is refused when the model invents a number, an address, a publisher or a
- * question, turns one tracked question into the page, writes an outline that would fit any topic, skips why the
- * account's own pages lost, or promises to put anything live.
+ * question, turns one tracked question into the page, writes an outline that would fit any topic, skips why the account's own pages lost, or promises to put anything live.
  *
  * THEN THE PAGE ITSELF. A plan is not a page, so every planned section is drafted through the SAME section
  * drafter, firewall, budget, cache and gates an existing-page change uses, and a proposal reaches the operator
@@ -44,7 +41,7 @@ import type { ProposeOptions } from "./propose";
 type NewPageOutcome = { status: "built"; proposal: ChangeProposal } | { status: "none"; reason: string };
 
 const num = (n: number): string => n.toLocaleString("en-US");
-const day = (iso: string | null): string => (iso ? iso.slice(0, 10) : "a day I did not record");
+const day = (iso: string | null): string => (iso ? iso.slice(0, 10) : "a day nobody recorded");
 const norm = (s: string): string => s.trim().replace(/\s+/g, " ").toLowerCase();
 /** What the pages that win here ARE, in words an operator reads. */
 const SHAPE: Record<string, string> = { informational_guide: "a guide that explains the subject", list: "a list", definition: "a short definition",
@@ -86,30 +83,33 @@ function receiptOf(inv: TopicInvestigation, owned: readonly OwnedCandidate[], d:
     dem.difficulty != null ? `the hardest of these searches scores ${num(dem.difficulty)} out of 100 to compete for` : null,
   ].filter((s): s is string => !!s);
   if (demand.length > 0) add("demand", "keyword", `People look for "${inv.label}": ${demand.join(", ")}.`, null);
-  if (dem.monthlySearchVolume == null) missing.push(`I do not have a monthly search count for "${inv.label}", so I cannot tell you the size of this in searches.`);
-  if (dem.difficulty == null) missing.push("I do not have a difficulty score for these searches, so I cannot tell you how hard they are to compete for.");
+  if (dem.monthlySearchVolume == null) missing.push(`No monthly search count is on file for "${inv.label}", so the size of this in searches is unknown.`);
+  if (dem.difficulty == null) missing.push("No difficulty score is on file for these searches, so how hard they are to compete for is unknown.");
 
-  inv.exactSerps.forEach((s, i) => add(`look${i + 1}`, "serp",
-    `I looked at Google for "${s.query}" on ${day(s.observedAt)}: ${s.organicResults} results from ${s.distinctDomains} sites.`, s.observedAt));
+  // ONE CHECK PER SOURCE, NEVER PER ROW. Every results page read on this subject is ONE read of Google, so the
+  // reads are counted once and named once: twenty rows of the same look read as twenty separate checks.
+  const serps = [...inv.exactSerps].sort((a, b) => (b.observedAt ?? "").localeCompare(a.observedAt ?? ""));
+  if (serps.length > 0) add("look", "serp", `Google's results were read for ${num(serps.length)} ${serps.length === 1 ? "search" : "searches"} on this subject, the newest "${serps[0]!.query}" on ${day(serps[0]!.observedAt)}: ${serps[0]!.organicResults} results from ${serps[0]!.distinctDomains} sites.`, serps[0]!.observedAt);
   add("shape", "serp", `What wins for "${inv.label}" is ${SHAPE[inv.pageType] ?? "one settled shape"}, and ${inv.distinctResultDomains} sites come up for it.`, null);
   inv.winners.filter((w) => w.extractState === "current").slice(0, 4).forEach((w, i) => add(`win${i + 1}`, "winning_page",
-    `${w.domain} wins here, and I read its page on ${day(w.fetchedAt)}${w.wordCount != null ? `, ${num(w.wordCount)} words` : ""}, ${w.headings} sections.`, w.fetchedAt));
+    `${w.domain} wins here, and its page was read on ${day(w.fetchedAt)}${w.wordCount != null ? `, ${num(w.wordCount)} words` : ""}, ${w.headings} sections.`, w.fetchedAt));
   if (r) {
     const top = r.shared.slice(0, 6).map((s) => `"${s.keyword}"`).join(", ");
-    add("shared", "keyword", `I put the pages that win here side by side search by search: ${num(r.shared.length)} searches come up on pages from at least two of ${r.winnerPublishers.length} sites, including ${top}.`, null);
+    add("shared", "keyword", `The pages that win here were put side by side search by search: ${num(r.shared.length)} searches come up on pages from at least two of ${r.winnerPublishers.length} sites, including ${top}.`, null);
     if (r.largestSearchVolume != null) add("size", "keyword", `The biggest single search in that set gets about ${num(r.largestSearchVolume)} searches a month, and ${r.keywordsWithVolume} of them carry a count at all.`, null);
-    else missing.push("None of the searches those winning pages share carries a monthly count I can show you.");
-  } else missing.push(`I have not put the winning pages side by side search by search for "${inv.label}", so I am going on what those pages cover rather than on a counted list of the searches they share.`);
+    else missing.push("None of the searches those winning pages share carries a monthly count.");
+  } else missing.push(`The winning pages for "${inv.label}" have not been put side by side search by search, so this rests on what those pages cover rather than on a counted list of the searches they share.`);
   owned.slice(0, 4).forEach((c, i) => {
-    add(`owned${i + 1}`, "page_extract", `I checked your page ${c.url}${c.title ? ` ("${c.title}")` : ""}${c.wordCount != null ? `, ${num(c.wordCount)} words across ${c.outlineLength} sections` : ""}, and it is not the answer to this.`, c.fetchedAt);
-    if (!c.bodyHeld) missing.push(`I do not hold the words of your page ${c.url}, so I judged it on its address and its title only.`);
+    add(`owned${i + 1}`, "page_extract", `Your page ${c.url}${c.title ? ` ("${c.title}")` : ""} was checked${c.wordCount != null ? `, ${num(c.wordCount)} words across ${c.outlineLength} sections` : ""}, and it is not the answer to this.`, c.fetchedAt);
+    if (!c.bodyHeld) missing.push(`The words of your page ${c.url} are not on file, so it was judged on its address and its title only.`);
   });
-  if (owned.length === 0) missing.push("You own no page my evidence connects to this at all, so there was nothing of yours to strengthen instead.");
+  if (owned.length === 0) missing.push("You own no page the evidence connects to this at all, so there was nothing of yours to strengthen instead.");
   add("verdict", "diagnosis", d.explanation, null);
   d.alternativesRuledOut.slice(0, 4).forEach((a, i) => add(`ruledout${i + 1}`, "diagnosis", `${a.alternative}: ${a.reason}`, null));
-  // WHAT THE WINNING PAGES SHARE, IN THE VERDICT'S OWN WORDS, copied verbatim rather than rebuilt, so the
-  // diagnosis and the page read the SAME sentences instead of two paraphrases of one reading.
-  for (const e of d.evidence ?? []) if (PATTERN_KEY.test(e.id) && !items.some((i) => i.key === e.id)) add(e.id, "winning_page", e.fact, null);
+  // WHAT THE WINNING PAGES SHARE, IN THE VERDICT'S OWN WORDS, copied verbatim rather than rebuilt. It is ONE
+  // reading of those pages side by side, so it is ONE check however many sentences that reading produced.
+  const shared = (d.evidence ?? []).filter((e) => PATTERN_KEY.test(e.id)).map((e) => e.fact.trim()).filter(Boolean);
+  if (shared.length > 0) add("pattern", "winning_page", shared.join(" "), null);
   // WHOSE SEARCH IS WHOSE. A search an ENGINE ran and a question I put to it are two different observations.
   const fans = inv.fanOuts.filter((f) => !!f.query.trim());
   const asked = inv.trackedPrompts.map((p) => p.promptText.trim()).filter(Boolean);
@@ -118,12 +118,11 @@ function receiptOf(inv: TopicInvestigation, owned: readonly OwnedCandidate[], d:
   // observation id rather than borrowing somebody else's. A present-tense example yields to one that is dated.
   const quote = fans.find((f) => !CURRENT_CLAIM.test(f.query)) ?? fans[0];
   if (quote != null) add("asked", "ai_observation", `To answer this, an AI engine went and searched ${num(fans.length)} ${fans.length === 1 ? "thing" : "things"} of its own, like "${quote.query.trim()}".`, quote.observedAt, { observationId: quote.observationId });
-  else if (asked.length > 0) add("asked", "ai_observation", `No AI engine has shown me a search of its own here. What I hold is a question people ask, like "${asked[0]}".`, null);
-  // WHAT THOSE ANSWERS SAID, case scoped and attributed. Claims and caveats stay out: an engine's assertion is
-  // grounding for the brief, never a source of mine.
+  else if (asked.length > 0) add("asked", "ai_observation", `No AI engine has shown a search of its own here. What is on file is a question people ask, like "${asked[0]}".`, null);
+  // WHAT THOSE ANSWERS SAID, case scoped and attributed. Claims and caveats stay out: an engine's assertion is grounding for the brief, never a source of mine.
   const said = answerIntelFacts(inv.answerIntel);
   for (const f of said.facts) add(f.key, "ai_observation", f.fact, f.observedAt, f);
-  if (inv.trackedPrompts.length === 0) missing.push("No AI engine I track has been asked about this, so I cannot tell you how assistants answer it today.");
+  if (inv.trackedPrompts.length === 0) missing.push("No tracked AI engine has been asked about this, so how assistants answer it today is unknown.");
   // A DROPPED SIGNAL IS STILL EVIDENCE I HAD, so the count is owned here and the unsafe wording never appears.
   if (said.withheld) missing.push(said.withheld);
   return { items, missing };
@@ -132,12 +131,10 @@ function receiptOf(inv: TopicInvestigation, owned: readonly OwnedCandidate[], d:
 /** Build ONE researched new page from an EARNED verdict, or hand back the honest reason nothing was built. `none` is a real answer and costs nothing. */
 export async function buildNewPageProposal(decided: DecidedTopic, tenantId: string, opts: ProposeOptions = {}): Promise<NewPageOutcome> {
   const { investigation: inv, candidates: owned, decision, reading } = decided;
-  // THE ONLY DOOR. A verdict short of this is an investigation, and an investigation is
-  // never a page: no receipt is built, no prompt is assembled and no call is made.
-  // A COMPARISON IS EVIDENCE, NOT THE DOOR: the ladder buys it only where a page of this account's own could
-  // already be the answer, so requiring the reading here quietly re-closed the door the ladder opened.
+  // THE ONLY DOOR. A verdict short of this is an investigation, and an investigation is never a page: no receipt is built, no prompt is assembled and no call is made.
+  // A COMPARISON IS EVIDENCE, NOT THE DOOR: the ladder buys it only where a page of this account's own could already be the answer, so requiring the reading here quietly re-closed the door the ladder opened.
   if (!earnedNewPage(decision) || decision.topicKey !== inv.key) {
-    return { status: "none", reason: "I have not proved you are missing a page here, so I am building nothing." };
+    return { status: "none", reason: "Nothing here proves you are missing a page, so nothing is being built." };
   }
   // The read-winner floor lives in the coverage ladder, one gate above the only door into this file.
   const now = opts.now ?? new Date();
@@ -146,8 +143,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   const facts = items.map((i) => i.fact);
   // The exact lists the brief may echo, and nothing else.
   const ownedByKey = new Map(owned.map((c) => [canonicalUrlKey(c.url), c]));
-  // A QUESTION AND A SEARCH PHRASE ARE NOT THE SAME THING. Both sets back the matching below (host allowlist,
-  // FAQ check, grounding text), but only real questions are shown as questions it may turn into an FAQ.
+  // A QUESTION AND A SEARCH PHRASE ARE NOT THE SAME THING. Both sets back the matching below (host allowlist, FAQ check, grounding text), but only real questions are shown as questions it may turn into an FAQ.
   const askedQuestions = new Map<string, string>();
   for (const q of [...inv.fanOuts.map((f) => f.query), ...inv.trackedPrompts.map((p) => p.promptText)]) if (q.trim()) askedQuestions.set(norm(q), q.trim());
   const questions = new Map(askedQuestions);
@@ -180,16 +176,14 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   });
   if (call.status !== "drafted") {
     log.warn("[new-page] no usable brief", { tenantId, topicKey: inv.key, status: call.status });
-    return { status: "none", reason: "I could not write this page to a standard I would hand you, so I am handing you nothing rather than filler." };
+    return { status: "none", reason: "This page did not reach a standard worth handing over, so nothing is handed over rather than filler." };
   }
   const v = call.value as NewPageBrief;
 
-  // EVERY FIGURE BACK TO THE EVIDENCE: the final validator never sees whyExistingPagesLose, the section briefs
-  // or the requirements, so they would otherwise be ungoverned.
+  // EVERY FIGURE BACK TO THE EVIDENCE: the final validator never sees whyExistingPagesLose, the section briefs or the requirements, so they would otherwise be ungoverned.
   const fig = (t: string): string[] => (t.match(FIGURE_RE) ?? []).map((f) => f.replace(/[.,]+$/, ""));
   const figures = new Set(fig(facts.join(" ")));
-  // THE ONE COUNT A TITLE MAY CARRY IS THE PAGE'S OWN SECTION COUNT. A drafted "the 5 hardest" over 7
-  // sections is repaired to 7 rather than refused; an ungrounded leading count can only ever BE that
+  // THE ONE COUNT A TITLE MAY CARRY IS THE PAGE'S OWN SECTION COUNT. A drafted "the 5 hardest" over 7 sections is repaired to 7 rather than refused; an ungrounded leading count can only ever BE that
   // invented list length, so its echoes in the description and opening are the same claim and move with it.
   const own = String(v.sections.length);
   // Numbered headings ("1. Mandarin") are the list's own order, not figures: the order is the outline's.
@@ -207,8 +201,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     ...v.sections.flatMap((s) => [s.heading, s.covers]), ...v.sourceRequirements, ...v.factRequirements,
     ...v.internalLinks.map((l) => l.anchor), ...v.faqQuestions].join(" ");
   const strayHost = (prose.match(HOST_RE) ?? []).map(norm).filter((h) => !CODE_SUFFIX.test(h)).find((h) => !hosts.has(h) && !hosts.has(publisherHost(h)));
-  // Body prose never carries a bare count; the title, description and opening may carry ONLY the page's own
-  // section count, and the final validator holds exactly that line, so they are dropped from this sweep.
+  // Body prose never carries a bare count; the title, description and opening may carry ONLY the page's own section count, and the final validator holds exactly that line, so they are dropped from this sweep.
   const proseBody = [v.whyExistingPagesLose, ...v.sections.flatMap((s) => [s.heading, s.covers]),
     ...v.sourceRequirements, ...v.factRequirements, ...v.internalLinks.map((l) => l.anchor), ...v.faqQuestions].join(" ");
   const structural = fig([v.proposedTitle, v.metaDescription, v.openingAnswer].join(" ")).find((f) => !figures.has(f) && f !== own);
@@ -228,22 +221,22 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   const metaTitle = /\b(lists?|pages?|sections?|outlines?|guides?)\b[^,]*\b(must|should|needs?)\b|\bthings? (?:a|an|every|the)\b[^,]*\b(lists?|pages?)\b/i.test(v.proposedTitle);
   const refusal =
     metaTitle ? "wrote a title about the page itself rather than the topic"
-      : cite(v.headKeys).length === 0 || v.sections.some((s) => cite(s.evidenceKeys).length === 0) ? "wrote a section it could not point at one piece of my evidence for"
-      : strayHost ? "named a website I never showed it"
-        : strayFigure ? `quoted ${strayFigure}, which is a figure I never gave it`
-        : badLink ? "linked to a page of yours I never gave it"
+      : cite(v.headKeys).length === 0 || v.sections.some((s) => cite(s.evidenceKeys).length === 0) ? "wrote a section it could not point at one piece of the evidence for"
+      : strayHost ? "named a website it was never shown"
+        : strayFigure ? `quoted ${strayFigure}, which is a figure it was never given`
+        : badLink ? "linked to a page of yours it was never given"
           : badQuestion ? "answered a question nobody has actually asked"
-            : promptAsPage ? "turned one question I track into the whole page"
+            : promptAsPage ? "turned one tracked question into the whole page"
               : offTopic ? "wrote an outline that would fit any subject"
                 : new Set(headings).size !== headings.length ? "repeated the same section twice"
                   : owned.length > 0 && !owned.some((c) => v.whyExistingPagesLose.toLowerCase().includes(c.url.toLowerCase()) || (c.path.length > 1 && v.whyExistingPagesLose.toLowerCase().includes(c.path.toLowerCase())))
                     ? "did not say why the pages you already have cannot carry this"
-                    : SPELLED_PROPORTION_RE.test(prose) ? "wrote out a proportion I never measured"
+                    : SPELLED_PROPORTION_RE.test(prose) ? "wrote out a proportion nothing measured"
                       : AUTOPUBLISH_RE.test(prose) ? "wrote as though something here goes live by itself"
                       : null;
   if (refusal) {
     log.warn("[new-page] brief disagrees with the evidence", { tenantId, topicKey: inv.key, refusal });
-    return { status: "none", reason: `The page I drafted for "${inv.label}" ${refusal}, so I threw it away rather than hand it to you.` };
+    return { status: "none", reason: `The page drafted for "${inv.label}" ${refusal}, so it was thrown away rather than handed over.` };
   }
 
   // A LIST OF HEADINGS IS NOT A PAGE. Every planned section is bought through the one section drafter, in the
@@ -260,22 +253,20 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   if (written.length < outline.length) {
     const owed = outline.slice(written.length);
     log.warn("[new-page] partial draft, nothing proposed", { tenantId, topicKey: inv.key, owed: owed.length });
-    return { status: "none", reason: `I wrote ${num(written.length)} of the ${num(outline.length)} sections this page needs and ${num(owed.length)} ${owed.length === 1 ? "is" : "are"} still owed: ${owed.join(", ")}. I am not handing you part of a page. Ask me again and I will pick up where I stopped: what I already wrote costs nothing to ask for a second time.` };
+    return { status: "none", reason: `${num(written.length)} of the ${num(outline.length)} sections this page needs are written and ${num(owed.length)} ${owed.length === 1 ? "is" : "are"} still owed: ${owed.join(", ")}. Part of a page is not worth handing over. Ask again and it picks up where it stopped: what is already written costs nothing a second time.` };
   }
 
   // ── one bundle: the pieces to paste, and everything they rest on ──
   const schemaTypes: string[] = []; // NO SCHEMA IS DERIVED (see above): none, not a guess.
-  // THE MODEL'S OWN CITATIONS for the three pieces a reader sees first, validated against the
-  // supplied ids like every other key. A generic set assigned afterwards proved nothing.
+  // THE MODEL'S OWN CITATIONS for the three pieces a reader sees first, validated against the supplied ids like every other key. A generic set assigned afterwards proved nothing.
   const core = cite(v.headKeys);
   const sectionKeys = [...new Set(v.sections.flatMap((s) => cite(s.evidenceKeys)))];
   // A SOURCE I HOLD IS NAMED WHOLE: the page, its publisher, the claim, the day I read it. Holding NONE leaves
   // "this kind of source is needed", so the copy says the operator picks it and the page is held for review.
   const cited = inv.winners.filter((w) => w.extractState === "current" && w.fetchedAt).slice(0, 3)
     .map((w) => `${w.url}, published by ${w.domain}, read on ${day(w.fetchedAt)}: it is one of the pages that win "${inv.label}", and it is a source for what a page on this subject has to cover.`);
-  // A CITED WINNER IS A REAL SOURCE for the section it evidences. The model's OWN requirement sentences never
-  // are: they carry the caveat either way, and a pack leaning on one holds the page for review.
-  const caveat = (s: string): string => `${s} You pick the exact source for this one: I hold the kind of source it needs and not the source itself.`;
+  // A CITED WINNER IS A REAL SOURCE for the section it evidences. The model's OWN requirement sentences never are: they carry the caveat either way, and a pack leaning on one holds the page for review.
+  const caveat = (s: string): string => `${s} You pick the exact source for this one: what is on file is the kind of source it needs and not the source itself.`;
   const sourcing = [...cited, ...v.sourceRequirements.map(caveat)];
   const unbacked = cited.length === 0 || v.sourceRequirements.length > 0;
   const components: BundleComponent[] = [
@@ -296,11 +287,10 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   const shared = reading?.shared.length ?? 0;
   const dates = items.map((i) => i.observedAt).filter((d): d is string => !!d).sort();
   const bundle: ChangeBundle = {
-    // THREE BRANCHES EARN THIS PAGE. One is "your pages reach some of this, but too little to build on":
-    // claiming "none of your own pages comes up for" there put a statement and its flat contradiction on
+    // THREE BRANCHES EARN THIS PAGE. One is "your pages reach some of this, but too little to build on": claiming "none of your own pages comes up for" there put a statement and its flat contradiction on
     // one screen. The third bought no comparison at all, because no page of yours touches the subject.
     objective: !reading
-      ? `Give yourself a page for "${inv.label}": you own no page that comes up for it, and the ${num(inv.currentReadableWinners)} winning pages I read agree on what one has to cover.`
+      ? `Give yourself a page for "${inv.label}": you own no page that comes up for it, and the ${num(inv.currentReadableWinners)} winning pages read agree on what one has to cover.`
       : reading.ownedCoveredKeywords === 0
         ? `Give yourself a page for "${inv.label}", which ${num(shared)} searches the winning pages share and none of your own pages comes up for.`
         : `Give yourself a page for "${inv.label}": the winning pages share ${num(shared)} searches, and pages of yours reach only ${num(reading.ownedCoveredKeywords)} of them.`,
@@ -311,12 +301,12 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     alternatives: decision.alternativesRuledOut.map((a) => ({ option: a.alternative, reason: a.reason })),
     risks: [
       "A page that does not exist yet has no history, so give it the full 28 days before you judge it.",
-      "Read every line once and add your own sources before it goes out. You write and publish this page, I only draft it.",
+      "Read every line once and add your own sources before it goes out. You write and publish this page; Beacon only drafts it.",
       ...missing.slice(0, 2),
     ],
     confidenceReasons: [decision.explanation, v.whyExistingPagesLose,
-      dates.at(-1) ? `The newest evidence I used was observed on ${day(dates.at(-1)!)}.` : "None of the evidence behind this carries a single observation date."],
-    measurementPlan: "Once the page is live, record it on Results with its address and I will read clicks, views, and average position for these searches at 7, 14, and 28 days, compared against pages you did not touch.",
+      dates.at(-1) ? `The newest evidence behind this was observed on ${day(dates.at(-1)!)}.` : "None of the evidence behind this carries a single observation date."],
+    measurementPlan: "Once the page is live, record it on Results with its address, and clicks, views and average position for these searches get read at 7, 14 and 28 days, compared against pages you did not touch.",
   };
 
   const proposal: ChangeProposal = {
@@ -327,16 +317,15 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     status: "needs_review",
     recommendedChange: { kind: "new_page", proposedTitle: v.proposedTitle, metaDescription: v.metaDescription,
       openingAnswer: v.openingAnswer, outline, faqQuestions: v.faqQuestions, schemaTypes },
-    whyItMatters: `${decision.explanation} You write and publish it yourself; I will measure it once you tell me it is live.`,
+    whyItMatters: `${decision.explanation} You write and publish it yourself; measurement starts once you say it is live.`,
     estimatedEffortMinutes: effortForFamily("new_page"),
     // WHERE THIS HAPPENS AND IN WHAT ORDER: a brief with no first move is a document, and these four are the job.
     operatorSteps: ["Create a new page in your site editor and give it the title above",
       "Paste the opening answer, then each section in the order it is written, under its own heading",
       "Add your own sources to anything the source pack flags before you publish",
-      "Publish it, then come back here with its address and mark it done, and I start measuring"],
+      "Publish it, then come back here with its address and mark it done, and measurement starts"],
     riskLevel: "low",
-    // A page nobody has read yet is never high confidence, however well the comparison
-    // settled it: the writing is still ahead of us.
+    // A page nobody has read yet is never high confidence, however well the comparison settled it: the writing is still ahead of us.
     confidence: "medium",
     limitations: [...new Set(missing)],
     // THE QUESTIONS TRAVEL WITH THE DRAFT: the last gate grounds every address in the copy against this text.
@@ -350,11 +339,11 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
       title: v.proposedTitle, sections: v.sections.length,
       where: [proposal.whyItMatters, ...bundle.components.map((c) => `${c.kind}: ${c.after}`), ...bundle.risks]
         .filter((t) => /\b5\b/.test(t)).map((t) => t.slice(0, 220)).slice(0, 3) });
-    return { status: "none", reason: `The page I drafted for "${inv.label}" did not pass my own safety checks, so I am handing you nothing rather than risk it.` };
+    return { status: "none", reason: `The page drafted for "${inv.label}" did not pass its own safety checks, so nothing is handed over rather than risk it.` };
   }
   // A PAGE RESTING ON "SOME SOURCE OF THIS KIND" IS NEVER READY: the honest place for it is review.
   return { status: "built", proposal: { ...proposal, status: unbacked || verdict.verdict !== "ready" ? "needs_review" : "ready",
     limitations: [...new Set([...proposal.limitations, ...verdict.reasons, ...(!unbacked ? [] : [cited.length > 0
-      ? "Some of what this page claims still rests on the kind of source it needs rather than a source I hold, so you pick those before it goes out."
-      : "I hold no source of my own behind the claims on this page, so you pick every one of them before it goes out."])])] } };
+      ? "Some of what this page claims still rests on the kind of source it needs rather than a source on file, so you pick those before it goes out."
+      : "No source of Beacon's own stands behind the claims on this page, so you pick every one of them before it goes out."])])] } };
 }

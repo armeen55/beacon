@@ -105,12 +105,12 @@ export function AiWorkspace({ view, range, engine, sub, reading }: {
 
       {view.intel ? (
         <Panel title="What the answers themselves keep saying"
-          note={`Read off the ${view.intel.answers} answers I have finished checking. This is the assistants' own reading, not mine, and it is where the next change to make comes from.`}
+          note={`Read off the ${view.intel.answers} answers finished checking. This is the assistants' own reading, and it is where the next change to make comes from.`}
           actions={<Link href="/changes" className="text-[12px] font-semibold text-accent-primary underline underline-offset-2">Take this to Changes</Link>}>
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-            <Ranked title="Names they keep putting in front of customers" items={view.intel.competitors} empty="No name comes up often enough for me to call it a pattern." />
+            <Ranked title="Names they keep putting in front of customers" items={view.intel.competitors} empty="No name comes up often enough to call it a pattern." />
             <Ranked title="Shapes of page they keep asking for" items={view.intel.formats} empty="The answers have not asked for a particular kind of page." />
-            <Ranked title="Questions they leave unanswered" items={view.intel.omissions} empty="The answers are not leaving an obvious hole I can name." />
+            <Ranked title="Questions they leave unanswered" items={view.intel.omissions} empty="The answers are not leaving an obvious hole to name." />
           </div>
         </Panel>
       ) : null}

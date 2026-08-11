@@ -36,7 +36,7 @@ export default async function VisibilityPage({ searchParams }: { searchParams?: 
   const side = one(params, "view") === "ai" ? "ai" : "google";
   return (
     <div className="space-y-4">
-      <PageHeader title="Visibility" description="Where you stand in Google and in AI answers, read back from what I have already collected. Every number names the days it was counted over, and anything I have not read stays visibly missing." />
+      <PageHeader title="Visibility" description="Where you stand in Google and in AI answers, read back from what has already been collected. Every number names the days it was counted over, and anything unread stays visibly missing." />
       <div className="inline-flex items-center rounded-full bg-surface-inset/60 p-0.5 ring-1 ring-border/40">
         {[{ key: "google", label: "Google" }, { key: "ai", label: "AI answers" }].map((t) => (
           <Link key={t.key} href={`?view=${t.key}`} aria-current={side === t.key ? "true" : undefined}
@@ -171,7 +171,7 @@ async function AiBody({ tenantId, params }: { tenantId: string; params: Params }
   const cost = row == null ? null : Number(row.cost_usd) > 0 ? Number(row.cost_usd)
     : row.cache_key ? await observationReceiptCost(row.cache_key).catch(() => null) : null;
   const reading = openId == null ? null
-    : row == null ? ["I could not read that run back just now. Close this and open it again in a moment."]
+    : row == null ? ["That run could not be read back just now. Close this and open it again in a moment."]
       : answerDetail(answerRow(row), new Map((landscape ?? []).map((k) => [k.domain, k.kind])), cost);
   return <AiWorkspace view={view} range={range} engine={engine} sub={sub} reading={reading} />;
 }

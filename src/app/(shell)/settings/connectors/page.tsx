@@ -234,7 +234,7 @@ async function loadConnectorsPageData() {
 // this description stays a single plain sentence instead of repeating each
 // source's story here too.
 const CONNECTORS_DESCRIPTION =
-  "The tools your business already uses, so I can see what's happening and tell you what to do next.";
+  "The tools your business already uses, so what is happening is visible and the next step is clear.";
 
 export default async function ConnectorsPage() {
   const raced = await loadWithDeadline(loadConnectorsPageData(), CONNECTORS_DEADLINE_MS);

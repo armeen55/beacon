@@ -1,9 +1,6 @@
-/** decision/contracts (CORE 100K decision kernel): the ONE input and the ONE output of the
- * recommendation-intelligence collapse. The kernel turns exactly one normalized `EvidenceInput` (a small
- * structural interface this module OWNS) into a ranked, exact, safe `ChangeProposal`: the page, the opportunity, the frozen evidence that grounds it, the exact change, why it matters,
- * effort/risk/confidence/limitations, the ranking receipt, and the proposal status. PUBLISHING AUTHORITY IS MANUAL. Nothing here writes to a live page; `publish: "manual"` is a structural
- * reminder carried on every proposal. PURE: types + Zod schema + pure derivations + (de)serialization only,
- * no I/O. Proposal PATHS (propose.ts) and PERSISTENCE (proposal-store.ts) are siblings.
+/** decision/contracts: the ONE input and the ONE output of the decision kernel. It turns exactly one
+ * normalized `EvidenceInput` into a ranked, exact, safe `ChangeProposal`: the page, the opportunity, the
+ * frozen evidence, the exact change, why it matters, effort/risk/confidence/limitations, the ranking receipt and the status. PUBLISHING AUTHORITY IS MANUAL. PURE: types, Zod schema, derivations, no I/O.
  */
 
 import { z } from "zod";
@@ -57,8 +54,7 @@ export interface EvidenceInput {
  *  nothing is the default: a page is not a problem because it is big. Only the two `act_` outcomes may become
  *  a ChangeProposal; the rest are the honest answer and live in the run receipt, never manufactured work.  Internal to Decision: NOT persisted as its own record and never a public type. */
 type CandidateAction =
-  // No `act_new_page`: a page this account does not own is decided by the coverage ladder
-  // over researched TOPICS, never by this per-page diagnosis over pages it already has.
+  // No `act_new_page`: a page this account does not own is decided by the coverage ladder over researched TOPICS, never by this per-page diagnosis over pages it already has.
   | "act_existing_page" | "consolidate"
   | "watch" | "research_needed" | "do_nothing";
 
@@ -148,11 +144,10 @@ export function confidenceFor(r: EvidenceReadiness, d?: ActionDiagnosis | null):
 /** `new_page` is earned: only the page by page comparison proves this account reaches none of what the winners share. */
 export type ProposalKind = "existing_edit" | "new_page";
 
-/** THE STORED LIFECYCLE, in the operator's own words. `needs_review` = I want a human look first, and it is
- *  also THE two-step hold a dangerous component routes through. `ready` = validated safe, exact copy, act
- *  now. `implemented_pending_verification` = they say they made the change and I have not read their page
- *  yet. `measuring` and `result` are DERIVED from the shipment ledger, never stored twice. A draft a safety
- *  gate refused never enters this lifecycle: it is withdrawn. A proposal is NEVER an auto-write. */
+/** THE STORED LIFECYCLE. `needs_review` = a human look is owed first, and it is also THE two-step hold a
+ *  dangerous component routes through. `ready` = validated safe, exact copy, act now.
+ *  `implemented_pending_verification` = the operator says it shipped and the page has not been read back yet.
+ *  `measuring` and `result` are DERIVED from the shipment ledger. A refused draft is withdrawn, never stored. */
 export type ProposalStatus = "needs_review" | "ready" | "implemented_pending_verification";
 
 export type ProposalRisk = "low" | "medium" | "high";
@@ -169,10 +164,8 @@ export type RecommendedChange =
  *  see why Beacon recommends it and for the validator to re-run on load. `evidenceRefCount` is the draft's. */
 export type ProposalEvidence = { query: string; hints: string[]; evidenceRefCount: number };
 
-// ── ChangeBundle: the atomic components implemented together on one page ──────
-// A bundle rides ON a ChangeProposal: the proposal stays the one persisted, ranked,
-// validated record and the bundle is its deep, copy-ready form. Never a second
-// pipeline, never a second status vocabulary.
+// ── ChangeBundle: the atomic components implemented together on one page ────── A bundle rides ON a ChangeProposal: the proposal stays the one persisted, ranked,
+// validated record and the bundle is its deep, copy-ready form. Never a second pipeline, never a second status vocabulary.
 
 /** THE COMPLETE CHANGE UNIVERSE (Phase 4): every lever Beacon may recommend on one page, named once. ADDITIVE
  *  ONLY, so every stored bundle still decodes, and never CMS-specific: WHAT to change and WHERE, not which editor. */
@@ -194,11 +187,9 @@ const HIGH_STAKES_CLAIM = /\b(law|legal|lawyer|attorney|court|statute|regulation
 const FACTUAL_KINDS: ReadonlySet<BundleComponentKind> = new Set<BundleComponentKind>(
   ["factual_correction", "paragraph_correction", "source_update", "entity_expansion", "table_or_list_add"]);
 
-/** One exact, copy-ready component. Every component cites the receipt items that justify it; a component
- * without evidence is never emitted. `before` is THE CURRENT STATE exactly as it stands, and null means I did
- * not capture it, never a value invented to fill the field. `after` is THE PROPOSAL: exact copy, or the exact
- * structural instruction when the change is not a sentence. The fields after `risk` are optional in the TYPE
- * so every persisted row still decodes, and REQUIRED by validate-proposal for every kind Phase 4 added.
+/** One exact, copy-ready component citing the receipt items that justify it. `before` is THE CURRENT STATE as
+ * it stands and null means it was never captured. `after` is THE PROPOSAL. The fields after `risk` are
+ * optional in the TYPE so every persisted row decodes, and REQUIRED by validate-proposal for the newer kinds.
  */
 export type BundleComponent = {
   kind: BundleComponentKind;
@@ -346,6 +337,10 @@ export type ChangeProposal = {
   /** One plain sentence comparing this proposal to the one ranked directly below it,
    *  naming the factor that actually separated them. Absent on the last row. */
   whyRankedAboveNext?: string;
+  /** WHERE THE SHAPE OF THIS COPY CAME FROM, when it came from somewhere better than a guess: the stored
+   *  results page for this exact search, whose top titles agreed on the shape this one is written in. Absent
+   *  means nothing was imitated, which is the normal answer, and a surface must not chip what is absent. */
+  modeledOn?: string;
   /** STRUCTURAL: this is a proposal. The kernel never writes a live page. */
   publish: "manual";
   createdAt: string;
@@ -431,11 +426,9 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   basis: z.string().optional(),
   diagnosisCause: z.string().min(1).optional(),
   causeFinding: z.object({ cause: z.string().min(1), action: z.string().nullable(), evidenceKeys: z.array(z.string()),
-    // The reading the cause was decided from, kept whole. Carried opaquely here because the ladder OWNS the
-    // per-cause shape; a second copy of that union in this schema is a second thing to keep in step.
+    // The reading the cause was decided from, kept whole. Carried opaquely here because the ladder OWNS the per-cause shape; a second copy of that union in this schema is a second thing to keep in step.
     payload: z.unknown().optional(),
-    // `fired` separates a second real accusation from a cause checked and ruled out; dropping it on the
-    // way to the store turned every stored second accusation into a rejected one on reload.
+    // `fired` separates a second real accusation from a cause checked and ruled out; dropping it on the way to the store turned every stored second accusation into a rejected one on reload.
     competingExplanations: z.array(z.object({ cause: z.string().min(1), reason: z.string().min(1), fired: z.boolean().optional() })),
     falsifier: z.string().min(1), explanation: z.string().min(1),
     notConsidered: z.array(z.object({ cause: z.string().min(1), missing: z.string().min(1) })) })
@@ -443,6 +436,7 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   rankingReceipt: z.object({ score: z.number(), directional: z.boolean(), basis: z.string().min(1),
     factors: z.array(z.object({ name: z.string().min(1), input: z.string().min(1), contribution: z.number(), max: z.number() })) }).optional(),
   whyRankedAboveNext: z.string().min(1).optional(),
+  modeledOn: z.string().min(1).optional(),
   publish: z.literal("manual"),
   createdAt: z.string(),
 }) as z.ZodType<ChangeProposal>;
@@ -486,13 +480,13 @@ export function effortForFamily(family: string): number {
 /** WHAT A CHANGE WAS CHECKED AGAINST, in one countable line, readable before anybody opens the receipt. PURE;
  *  lives here rather than the bundle producer so a client card may import it without dragging server modules. */
 const CLASS_OF: Record<string, string> = {
-  gsc_demand: "your search data", page_extract: "the page as I last read it", keyword: "monthly search counts",
-  serp: "the live results page", ai_observation: "AI answers I watched", winning_page: "winning pages I read",
+  gsc_demand: "your search data", page_extract: "the page as last read", keyword: "monthly search counts",
+  serp: "the live results page", ai_observation: "AI answers watched", winning_page: "winning pages read",
   competitor: "the sites AI hands this to instead of you", internal_link: "links from your own pages",
-  diagnosis: "what the results page told me about the cause" };
+  diagnosis: "what the results page shows about the cause" };
 export const receiptComposition = (items: readonly { kind: string }[]): string => {
   const by = new Map<string, number>();
   for (const it of items) { const c = CLASS_OF[it.kind] ?? it.kind; by.set(c, (by.get(c) ?? 0) + 1); }
   const parts = [...by.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([c, n]) => (n > 1 ? `${c} (${n})` : c));
-  return items.length === 0 ? "nothing I can show you" : `${items.length} ${items.length === 1 ? "check" : "checks"}: ${parts.join(", ")}`;
+  return items.length === 0 ? "nothing to show" : `${items.length} ${items.length === 1 ? "check" : "checks"}: ${parts.join(", ")}`;
 };

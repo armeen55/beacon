@@ -30,7 +30,7 @@ export async function SpendLine() {
   if (spentUsd === null) return null;
   return (
     <p className="mt-4 text-[12px] leading-relaxed text-muted-foreground">
-      I spent {usd(spentUsd)} this month on AI and data calls. Every call is capped and
+      {usd(spentUsd)} spent this month on AI and data calls. Every call is capped and
       logged before it runs.
     </p>
   );

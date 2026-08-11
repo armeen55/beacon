@@ -1,23 +1,19 @@
 /**
- * /changes v2 — customer-facing title + description projection.
+ * /changes v2, customer-facing title + description projection.
  *
- * Polish bundle (2026-05-11) — hosted visual review found the v2
- * timeline + brief were still rendering raw `change_description`
- * verbatim, which leaked operator vocabulary into the customer UI:
+ * Polish bundle (2026-05-11), hosted visual review found the v2 timeline + brief were still rendering raw `change_description` verbatim, which leaked operator vocabulary into the customer UI:
  *
  *   • Prompt UUIDs like `prompt 319557d1` (Beacon's internal
  *     short-id form for `tracked_prompts.id`).
  *   • Internal "packet" vocabulary ("the packet's cited source
- *     pages", "the packet shows", etc.) — `packet` is an internal
+ *     pages", "the packet shows", etc.), `packet` is an internal
  *     name for the per-recommendation evidence bundle.
  *   • Long parenthetical example lists ("examples:
  *     hdrremodeling.com, baysidebuildersgroup.com") that made
  *     titles unreadable.
  *
- * This module is a PROJECTION layer. The stored
- * `change_description` is never mutated; v2 surfaces consume the
- * projected forms while the legacy table continues to render the
- * raw text verbatim. Pure module — no I/O, no DOM, no React.
+ * This module is a PROJECTION layer. The stored `change_description` is never mutated; v2 surfaces consume the projected forms while the legacy table continues to render the
+ * raw text verbatim. Pure module, no I/O, no DOM, no React.
  *
  * Customer-vocabulary contract:
  *   • `prompt <8+ hex>` is stripped or replaced with "a tracked AI
@@ -47,8 +43,7 @@ type ProjectedChangeTitle = {
 /**
  * Project a raw `change_description` into a customer-safe pair.
  *
- * Pure — given the same input, returns the same output. Safe to
- * call on every render.
+ * Pure, given the same input, returns the same output. Safe to call on every render.
  */
 export function projectChangeTitle(
   raw: string | null | undefined,
@@ -59,19 +54,15 @@ export function projectChangeTitle(
   }
 
   // Many accepted-rec rows follow the shape:
-  //   "<HEADLINE> — <FULL EXPLANATION>"
-  // The em-dash (U+2014) separator is stable in stored data
-  // because the generator builds it server-side. Detect either an
-  // em-dash or a double-hyphen as a defensive fallback for older
-  // imports.
+  //   "<HEADLINE>, <FULL EXPLANATION>"
+  // The em-dash (U+2014) separator is stable in stored data because the generator builds it server-side. Detect either an em-dash or a double-hyphen as a defensive fallback for older imports.
   const dashRegex = /\s+(?:—|--)\s+/;
   const match = cleaned.match(dashRegex);
 
   if (match && match.index !== undefined) {
     const head = cleaned.slice(0, match.index).trim();
     const tail = cleaned.slice(match.index + match[0].length).trim();
-    // Keep the head as the short title; tail becomes the full
-    // description ONLY when it adds information beyond the head.
+    // Keep the head as the short title; tail becomes the full description ONLY when it adds information beyond the head.
     if (head && tail && head !== tail) {
       return {
         shortTitle: head,
@@ -83,8 +74,7 @@ export function projectChangeTitle(
     }
   }
 
-  // No separator → the whole thing is the title. Don't render the
-  // same text again as the full description.
+  // No separator → the whole thing is the title. Don't render the same text again as the full description.
   return {
     shortTitle: cleaned,
     fullDescription: null,
@@ -96,9 +86,7 @@ export function projectChangeTitle(
 // ─────────────────────────────────────────────────────────────────────
 
 /**
- * Replace internal prompt-id mentions, packet vocabulary, and
- * leftover parenthetical example lists. Always returns trimmed,
- * normalized whitespace.
+ * Replace internal prompt-id mentions, packet vocabulary, and leftover parenthetical example lists. Always returns trimmed, normalized whitespace.
  */
 function scrub(input: string): string {
   let out = input;
@@ -113,7 +101,7 @@ function scrub(input: string): string {
     "a tracked AI prompt",
   );
 
-  // 2. Internal "packet" vocabulary. Order matters — match
+  // 2. Internal "packet" vocabulary. Order matters, match
   //    multi-word phrases before the bare "packet" so we don't
   //    leave dangling fragments.
   out = out.replace(
@@ -136,7 +124,7 @@ function scrub(input: string): string {
   // 3. Drop long inline example lists. Two shapes:
   //    "(examples: a.com, b.com, c.com)"
   //    "(e.g., a.com, b.com)"
-  //    Keep tight — only drop the parenthetical, not the
+  //    Keep tight, only drop the parenthetical, not the
   //    surrounding sentence.
   out = out.replace(/\s*\(\s*(?:examples?|e\.g\.)\s*[:,][^()]*\)/gi, "");
 
@@ -151,16 +139,13 @@ function scrub(input: string): string {
 }
 
 /**
- * Maximum visible length for a v2 short title. The card layout
- * caps to two lines via CSS, but truncating at this length keeps
- * the title readable even when the source description is
+ * Maximum visible length for a v2 short title. The card layout caps to two lines via CSS, but truncating at this length keeps the title readable even when the source description is
  * pathologically long. Callers can override.
  */
 const DEFAULT_SHORT_TITLE_MAX = 140;
 
 /**
- * Clamp a short title to a visual length, adding an ellipsis when
- * truncation occurs. Pure — safe in render paths.
+ * Clamp a short title to a visual length, adding an ellipsis when truncation occurs. Pure, safe in render paths.
  */
 export function clampShortTitle(
   title: string,

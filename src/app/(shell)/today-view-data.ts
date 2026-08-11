@@ -163,8 +163,8 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   const headerSentence = openTotal > 0
     ? `You have ${openTotal} ${openTotal === 1 ? "edit" : "edits"} ready, best first.`
     : waiting
-      ? `I could not read some of your pages, so I try them again on ${retryDay(waiting)}. Nothing is waiting on you today.`
-      : "You have no edits waiting. I rank your next one here the moment it earns its place.";
+      ? `Some of your pages could not be read, so they get another try on ${retryDay(waiting)}. Nothing is waiting on you today.`
+      : "You have no edits waiting. The next one is ranked here the moment it earns its place.";
   return { headerSentence, nextOpportunities: ready, readyFixes, ...rest };
 }
 
@@ -193,7 +193,7 @@ async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
   ]);
   // WHAT I SAY WHEN I COULD NOT LOOK. "Nothing needs a decision today" is the one sentence an outage must never produce: it is a claim
   // about their business they cannot tell apart from the truth.
-  const unreadable = "I could not read your changes just now, so I am not telling you the day is clear. Beacon is checking again automatically.";
+  const unreadable = "Your changes could not be read just now, so the day is not being called clear. Beacon is checking again automatically.";
   const paused = trackedCount === 0
     ? { needsTrackedQuestions: true, trackedQuestionsHref: "/settings/config#tracked-ai-prompts" }
     : {};

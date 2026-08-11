@@ -6,22 +6,24 @@
  *  fully rendered, carrying its own chip saying how proven it is. This file owns the LIST (the filter and sort
  *  the operator drives, the database paging, and the one place a put-aside can be taken back); one card owns
  *  everything said about one change. Publishing is MANUAL: the only mutating controls anywhere in here are
- *  "I made this change" and "Put this aside". */
+ *  "Mark done" and "Skip". */
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import type { ChangesView } from "./changes-data";
 import type { ChangeProposal } from "@/domains/decision";
-import { ChangeCard, TITLE_FOOTNOTE } from "./changes/change-card";
+import { ChangeCard, evidenceTier } from "./changes/change-card";
 import { dismissProposalAction, loadMoreChangesAction } from "./changes/actions";
 import { CHANGES_PAGE_SIZE } from "./changes/types";
 
 type Lane = "ready" | "todo";
-type Filter = "all" | "ready" | "building";
+type Filter = "all" | "proven" | "early" | "guess";
 type Sort = "rank" | "gap" | "quick";
 
-const FILTERS: [Filter, string][] = [["all", "All"], ["ready", "Ready to make"], ["building", "Still building evidence"]];
+/** The three tiers the CARDS already print, in the same order, so a filter and a chip can never disagree. */
+const FILTERS: [Filter, string][] = [["all", "All"], ["proven", "Proven"], ["early", "Early evidence"], ["guess", "Best guesses"]];
+const TIER_OF: Record<Filter, number> = { all: -1, proven: 0, early: 1, guess: 2 };
 const SORTS: [Sort, string][] = [["rank", "Rank"], ["gap", "Biggest gap"], ["quick", "Quickest"]];
-/** How long a put-aside stays takeable-back before I actually tell the store. Nothing is written until it ends. */
+/** How long a skip stays takeable-back before the store is told. Nothing is written until it ends. */
 const UNDO_MS = 10_000;
 
 export function ChangesListClient({ view }: { view: ChangesView }) {
@@ -41,6 +43,8 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   const [moved, setMoved] = useState<{ lane: Lane; note: string; total: number } | null>(null);
   const [lost, setLost] = useState<Record<Lane, number>>({ ready: 0, todo: 0 }); // refusals a deeper page found
   const [hidden, setHidden] = useState<string[]>([]);
+  // Marked done in this session. The row stays on screen saying so; the open count drops on the press.
+  const [finished, setFinished] = useState<string[]>([]);
   const [toast, setToast] = useState<{ text: string; undo: (() => void) | null } | null>(null);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [loadingMore, startLoadMore] = useTransition();
@@ -51,21 +55,32 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // PROVEN FIRST, THEN THE REST. One list, one order, and the chip on each card says which kind it is.
   const raw = useMemo(() => [...laneRows("ready"), ...laneRows("todo")], [laneRows]);
   const readyIds = useMemo(() => new Set(laneRows("ready").map((p) => p.id)), [laneRows]);
+  const tierOf = useMemo(() => (p: ChangeProposal) => evidenceTier(p, readyIds.has(p.id)), [readyIds]);
   const rows = useMemo(() => {
-    const kept = raw.filter((p) => !hidden.includes(p.id)
-      && (filter === "all" || (filter === "building") === (p.confidence === "low")));
-    if (sort === "quick") return [...kept].sort((a, b) => a.estimatedEffortMinutes - b.estimatedEffortMinutes);
+    const kept = raw.filter((p) => !hidden.includes(p.id) && (filter === "all" || tierOf(p) === TIER_OF[filter]));
+    // QUICKEST TIES BREAK ON EVIDENCE: two one-minute edits are not equal work, and the proven one is the one
+    // to do first.
+    if (sort === "quick") return [...kept].sort((a, b) => a.estimatedEffortMinutes - b.estimatedEffortMinutes || tierOf(a) - tierOf(b));
     if (sort === "gap") return [...kept].sort((a, b) => (b.upsidePerMonth ?? b.impactScore ?? 0) - (a.upsidePerMonth ?? a.impactScore ?? 0));
     return kept;
-  }, [raw, hidden, filter, sort]);
+  }, [raw, hidden, filter, sort, tierOf]);
   // THE COUNT ON THE SCREEN IS THE COUNT OF THE LIST UNDER IT: a replaced ranking restarts its lane (the old
   // total said 35 above a list holding 12), `lost` takes off what a DEEPER page refused, and a change the
   // operator just put aside comes off it too, so it only ever falls.
-  const gone = raw.filter((p) => hidden.includes(p.id)).length;
+  const closed = new Set([...hidden, ...finished]);
+  const gone = raw.filter((p) => closed.has(p.id)).length;
   const countOf = (l: Lane) => (moved?.lane === l ? moved.total : l === "ready" ? view.summary.ready : view.summary.todo) - lost[l];
   const openTotal = Math.max(0, countOf("ready") + countOf("todo") - gone);
   const leftIn = (l: Lane) => Math.max(0, countOf(l) - laneRows(l).length);
   const remaining = leftIn("ready") + leftIn("todo");
+  // EVERY CHIP'S OWN COUNT, and only where it is a fact. Proven is counted in the database, so it is exact even
+  // with pages unloaded; the two guess tiers can only be told apart on rows in hand, so they say nothing at all
+  // until the whole queue is loaded rather than printing a number that is short by whatever is still behind it.
+  const doneIn = (tier: number) => raw.filter((p) => closed.has(p.id) && tierOf(p) === tier).length;
+  const chipCount = (f: Filter): number | null =>
+    f === "all" ? openTotal
+      : f === "proven" ? Math.max(0, countOf("ready") - doneIn(0))
+        : remaining > 0 ? null : raw.filter((p) => !closed.has(p.id) && tierOf(p) === TIER_OF[f]).length;
   // ONE BUTTON, TWO LANES BEHIND IT: finish the proven ones, then keep going into the rest.
   const nextLane: Lane = canMore.ready && leftIn("ready") > 0 ? "ready" : "todo";
 
@@ -76,7 +91,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
     const timer = setTimeout(() => { timers.current.delete(id); void dismissProposalAction({ proposalId: id }); }, UNDO_MS);
     timers.current.set(id, timer);
     setToast({
-      text: "Put aside. I will not suggest this again unless the evidence changes.",
+      text: "Skipped. It will not come back unless its evidence changes.",
       undo: () => { const t = timers.current.get(id); if (t) clearTimeout(t); timers.current.delete(id);
         setHidden((prev) => prev.filter((x) => x !== id)); setToast(null); },
     });
@@ -96,34 +111,33 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         {openTotal.toLocaleString()} {openTotal === 1 ? "edit" : "edits"} open
       </p>
       <div className="flex flex-wrap items-center gap-2 text-[12px]">
-        {FILTERS.map(([k, l]) => <TabButton key={k} active={filter === k} onClick={() => setFilter(k)}>{l}</TabButton>)}
+        {FILTERS.map(([k, l]) => {
+          const n = chipCount(k);
+          return <TabButton key={k} active={filter === k} onClick={() => setFilter(k)}>{n == null ? l : `${l} ${n.toLocaleString()}`}</TabButton>;
+        })}
         <span className="text-muted-foreground">Sorted by</span>
         {SORTS.map(([k, l]) => <TabButton key={k} active={sort === k} onClick={() => setSort(k)}>{l}</TabButton>)}
       </div>
-      {/* SAID ONCE, UNDER THE LIST, INSTEAD OF ON ALL 37 CARDS. It is true of every title line here, so it is a
-          footnote about the list rather than a reason for any one change. */}
-      {raw.some((p) => p.whyItMatters.includes(TITLE_FOOTNOTE)) ? (
-        <p className="text-[12px] text-muted-foreground" data-title-footnote="true">{TITLE_FOOTNOTE}</p>
-      ) : null}
 
       {rows.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-6 text-[13px] leading-relaxed text-muted-foreground">
-          {view.readyZeroHint ?? "Nothing is waiting on you right now. I rank your next edit here the moment it earns its place."}
+          {view.readyZeroHint ?? "Nothing is waiting on you right now. Your next edit is ranked here the moment it earns its place."}
         </p>
       ) : null}
 
-      <ol className="space-y-3">
+      <ul className="list-none space-y-3">
         {rows.map((p, i) => (
-          <ChangeCard key={p.id} proposal={p} rank={i + 1} proven={readyIds.has(p.id)} onAside={putAside} onToast={say} />
+          <ChangeCard key={p.id} proposal={p} rank={i + 1} proven={readyIds.has(p.id)} onAside={putAside}
+            onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
         ))}
-      </ol>
+      </ul>
 
       {canMore[nextLane] && remaining > 0 ? (
         <button type="button" disabled={loadingMore} data-show-more="true"
           onClick={() => startLoadMore(async () => {
             const lane = nextLane;
             const res = await loadMoreChangesAction({ lane, cursor: at[lane], releaseId: release });
-            // A LIST THAT MOVED IS NOT PAGED ON. The ranking I was reading is gone, so the server sent the
+            // A LIST THAT MOVED IS NOT PAGED ON. The ranking being read is gone, so the server sent the
             // fresh first page and the sentence saying why, and this lane starts again from it.
             setRelease(res.releaseId);
             setAt((prev) => ({ ...prev, [lane]: res.cursor }));
@@ -136,7 +150,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
           })}
           className="w-full rounded-xl border border-border px-3 py-2 text-[13px] font-semibold text-muted-foreground tabular-nums hover:text-foreground disabled:opacity-60"
         >
-          {loadingMore ? "Loading…" : remaining <= CHANGES_PAGE_SIZE ? `Show the other ${remaining}` : `Show ${CHANGES_PAGE_SIZE} more of ${remaining}`}
+          {loadingMore ? "Loading…" : remaining <= CHANGES_PAGE_SIZE ? `Show ${remaining} more` : `Show ${CHANGES_PAGE_SIZE} more of ${remaining}`}
         </button>
       ) : null}
 

@@ -1,9 +1,6 @@
 /**
- * decision/validate-proposal (CORE 100K decision kernel): the ONE
- * validator every ChangeProposal passes through before it can be shown as
- * actionable. It composes the existing, battle-tested safety gates into a
- * single verdict, so there is exactly one place that decides "is this draft
- * safe to put in front of a paying operator":
+ * decision/validate-proposal (CORE 100K decision kernel): the ONE validator every ChangeProposal passes through before it can be shown as
+ * actionable. It composes the existing, battle-tested safety gates into a single verdict, so there is exactly one place that decides "is this draft safe to put in front of a paying operator":
  *
  *   - draft-quality.ts (evaluateTitleMetaQuality)
  *     covers generic/thin/off-topic/relevance/missing-source/source-authority.
@@ -19,8 +16,7 @@
  *   - destructive-change guard: an "edit" that guts the current value (empties
  *     it or truncates it to a fraction) is never presented as a safe rewrite.
  *
- * The verdict is the ONE answer: `ready` and `needs_review` are the stages a draft may earn, and
- * `rejected` earns none at all, so that draft is withdrawn rather than staged. PURE, no I/O.
+ * The verdict is the ONE answer: `ready` and `needs_review` are the stages a draft may earn, and `rejected` earns none at all, so that draft is withdrawn rather than staged. PURE, no I/O.
  */
 
 import { CURRENT_CLAIM } from "@/lib/constants";
@@ -60,22 +56,19 @@ const MISSING_PAGE = /\bI do not hold this page's (?:full body text|own words|ow
 /**
  * THE ROW'S OWN INTEGRITY, in ONE place, so the gate judging a fresh draft and the pass re-judging a stored one
  * ask exactly the same questions. Every one of these shipped to a paying operator on one live change: a cause
- * citing a comparison the receipt never carried, a page both held and not held in the same card, a dangerous
- * merge filed as a medium risk, and a June reading described as what the page says today. PURE.
+ * citing a comparison the receipt never carried, a page both held and not held in the same card, a dangerous merge filed as a medium risk, and a June reading described as what the page says today. PURE.
  */
 export function receiptIntegrityFailures(proposal: ChangeProposal, now: Date = new Date()): string[] {
   const bundle = proposal.bundle;
   if (!bundle) return [];
   const out: string[] = [];
-  // A DOOR MAY REFUSE A CHANGE; IT MAY NEVER CRASH ON ONE: this runs on every read path, so a row missing an
-  // array a fresh draft always carries is judged, never thrown on top of the operator as a 500.
+  // A DOOR MAY REFUSE A CHANGE; IT MAY NEVER CRASH ON ONE: this runs on every read path, so a row missing an array a fresh draft always carries is judged, never thrown on top of the operator as a 500.
   const some = <T,>(x: readonly T[] | undefined): readonly T[] => x ?? [];
   const items = some(bundle.receipt?.items), components = some(bundle.components);
   const keys = new Set(items.map((i) => i.key));
   const cited = [...components.flatMap((c) => some(c.evidenceKeys)), ...some(proposal.causeFinding?.evidenceKeys)];
   if (cited.some((k) => !keys.has(k))) out.push("Part of this change points at evidence I cannot show you, so I am not putting it in front of you.");
-  // EVERYTHING THE OPERATOR READS ON THIS CHANGE, the copy itself included: a contradiction in the sentence
-  // being pasted is the one they act on, so it may not hide from a check the notes around it pass.
+  // EVERYTHING THE OPERATOR READS ON THIS CHANGE, the copy itself included: a contradiction in the sentence being pasted is the one they act on, so it may not hide from a check the notes around it pass.
   const says = [...some(proposal.limitations), ...some(bundle.risks), ...some(bundle.confidenceReasons), ...some(bundle.receipt?.missing),
     ...items.map((i) => i.fact), ...components.map((c) => `${c.after} ${c.objective ?? ""} ${c.mechanism ?? ""}`),
     ...(proposal.causeFinding ? [proposal.causeFinding.explanation, ...some(proposal.causeFinding.notConsidered).map((n) => n.missing)] : [])].join(" ");
@@ -102,13 +95,10 @@ export function receiptIntegrityFailures(proposal: ChangeProposal, now: Date = n
 const EVIDENCE_VALID_DAYS = 30;
 
 /**
- * THE ONE ANSWER EVERY DOOR ASKS about a stored change, so a direct link can never render what the ranked
- * list refuses and no mutation can land on a change the screen would not show. It composes the row's own
- * integrity above with the four things only the account can answer: whose change this is, whether it was
- * drafted under the bar I hold right now, whether anyone is still being asked, and whether the readings
+ * THE ONE ANSWER EVERY DOOR ASKS about a stored change, so a direct link can never render what the ranked list refuses and no mutation can land on a change the screen would not show. It composes the row's own
+ * integrity above with the four things only the account can answer: whose change this is, whether it was drafted under the bar I hold right now, whether anyone is still being asked, and whether the readings
  * behind it still stand. PURE. Empty means this change is work. The new-page BRIEF bar (`validateProposal`)
- * stays out on purpose: it decides which briefs may become work and be SHOWN as work, so it rides the queue
- * and the detail page, where a page the operator has already BUILT is not up for reconsideration.
+ * stays out on purpose: it decides which briefs may become work and be SHOWN as work, so it rides the queue and the detail page, where a page the operator has already BUILT is not up for reconsideration.
  */
 export function actionableProposalFailures(
   p: ChangeProposal, ctx: { tenantId: string; currentBasis: string | null; now?: Date },
@@ -134,22 +124,18 @@ const newestReading = (items: readonly { observedAt: string | null }[]): number 
 
 /**
  * IS THIS CHANGE STANDING ON COLD READINGS? PER COMPONENT, because a receipt is mixed by design and the whole
- * receipt's freshest date is not any one component's evidence: ONE AI answer taken this morning kept a body
- * rewrite alive on a page nobody had read in two months and a results page nobody had checked since. A
- * component is fresh only if the items ITS OWN evidenceKeys cite are inside the window, and the change is
- * only as fresh as its coldest component, because the operator applies all of them together.
+ * receipt's freshest date is not any one component's evidence: ONE AI answer taken this morning kept a body rewrite alive on a page nobody had read in two months and a results page nobody had checked since. A
+ * component is fresh only if the items ITS OWN evidenceKeys cite are inside the window, and the change is only as fresh as its coldest component, because the operator applies all of them together.
  *
  * A proposal with NO BUNDLE has no receipt to read, so it ages on ITS OWN CLOCK: it was drafted from evidence
- * that day and nothing has re-derived it since. It used to be seeded with `now` and could never expire at
- * all, which left an atomic change Ready forever on a profile nobody had edited.
+ * that day and nothing has re-derived it since. It used to be seeded with `now` and could never expire at all, which left an atomic change Ready forever on a profile nobody had edited.
  */
 function staleReadings(p: ChangeProposal, now: Date): boolean {
   const floor = now.getTime() - EVIDENCE_VALID_DAYS * 86_400_000;
   const receipt = p.bundle?.receipt;
   if (!receipt) { const drafted = Date.parse(p.createdAt ?? ""); return !Number.isFinite(drafted) || drafted < floor; }
   const components = p.bundle?.components ?? [];
-  // A row carrying no component to ask (a legacy shape) still answers on the receipt as a whole rather than
-  // silently passing, and an empty receipt falls back to the one date the producer wrote beside it.
+  // A row carrying no component to ask (a legacy shape) still answers on the receipt as a whole rather than silently passing, and an empty receipt falls back to the one date the producer wrote beside it.
   if (components.length === 0) return (newestReading(receipt.items.length ? receipt.items : [{ observedAt: receipt.freshestObservedAt }]) ?? -Infinity) < floor;
   const byKey = new Map(receipt.items.map((i) => [i.key, i]));
   const dates = components.map((c) => newestReading(c.evidenceKeys.map((k) => byKey.get(k)).filter((i) => !!i)));
@@ -190,14 +176,10 @@ const MANUAL_RE = /\byou\b[^.]{0,80}\bpublish/i;
 const digits = (s: string): string => s.replace(/,/g, "").replace(/\.$/, "");
 
 /**
- * THE new-page gate (N4, 2026-07-28). A page brief is not quality-checked like a title
- * rewrite: there is no current value to compare it against and no page body to entail it
- * from. What CAN be checked is that it is a researched page rather than an idea somebody
- * had, so this asks exactly that and rejects everything that cannot show it: the earned
- * verdict it was built from, copy that is about this topic, an outline that is real and not
- * repeated, every component tracing to a receipt item, and no number, address or promise the
- * evidence does not carry. HISTORY FAILS HERE BY CONSTRUCTION: a brief drafted before this
- * contract carries no bundle, so it can never be shown as work. PURE.
+ * THE new-page gate (N4, 2026-07-28). A page brief is not quality-checked like a title rewrite: there is no current value to compare it against and no page body to entail it
+ * from. What CAN be checked is that it is a researched page rather than an idea somebody had, so this asks exactly that and rejects everything that cannot show it: the earned
+ * verdict it was built from, copy that is about this topic, an outline that is real and not repeated, every component tracing to a receipt item, and no number, address or promise the
+ * evidence does not carry. HISTORY FAILS HERE BY CONSTRUCTION: a brief drafted before this contract carries no bundle, so it can never be shown as work. PURE.
  */
 function evaluateNewPageBrief(
   proposal: ChangeProposal,
@@ -231,10 +213,8 @@ function evaluateNewPageBrief(
     return bad("This page does not say plainly that you are the one who publishes it, so I am not putting it in front of you.");
   }
   const grounded = new Set((grounding.match(NUMBER_RE) ?? []).map(digits));
-  // The one bare count a new page may carry: its own list length. "The 5 hardest languages" over exactly
-  // 5 sections is structure the draft holds, not a statistic; every other figure must come from evidence.
-  // The source pack is excluded from the sweep: its URLs and read dates are code-built from evidence, and a
-  // digit inside a winning page's own address is not a claim this draft made.
+  // The one bare count a new page may carry: its own list length. "The 5 hardest languages" over exactly 5 sections is structure the draft holds, not a statistic; every other figure must come from evidence.
+  // The source pack is excluded from the sweep: its URLs and read dates are code-built from evidence, and a digit inside a winning page's own address is not a claim this draft made.
   grounded.add(String(change.outline.length));
   const copyProse = [...operatorFacingText(proposal), ...bundle.components.filter((c) => c.kind !== "source_pack").map((c) => c.after)].join(" ");
   const stray = (copyProse.match(NUMBER_RE) ?? []).map(digits).find((n) => !grounded.has(n));
@@ -242,14 +222,12 @@ function evaluateNewPageBrief(
   const strayHost = (copyProse.match(HOST_RE) ?? []).map((h) => h.toLowerCase()).filter((h) => !CODE_SUFFIX.test(h))
     .find((h) => !grounding.includes(h) && !grounding.includes(h.replace(/^www\./, "")));
   if (strayHost) return bad(`This page names ${strayHost}, which is not a site I actually looked at, so I am not putting it in front of you.`);
-  // Everything this gate can check is checked. The caution a brand new page deserves rides
-  // on the bundle's own risks, where the operator reads it, not as a held status.
+  // Everything this gate can check is checked. The caution a brand new page deserves rides on the bundle's own risks, where the operator reads it, not as a held status.
   return { status: "ready", reasons: [], copyAllowed: true, canRegenerate: true, confidence: "medium" };
 }
 
 /**
- * THE COMPONENT GATE (Phase 4). The seven original kinds are grandfathered exactly as
- * they stand, so every persisted bundle still validates. Every kind the complete change
+ * THE COMPONENT GATE (Phase 4). The seven original kinds are grandfathered exactly as they stand, so every persisted bundle still validates. Every kind the complete change
  * universe added has to answer for itself before it can be shown as work:
  *   - it cites at least one receipt item (a component with no evidence is never emitted);
  *   - it says WHERE on the page it lands, WHAT it achieves, WHY that lever moves the
@@ -263,12 +241,9 @@ const LEGACY_KINDS: ReadonlySet<BundleComponentKind> =
   new Set<BundleComponentKind>(["title", "meta", "h1", "opening_answer", "section", "internal_links", "source_pack"]);
 
 /**
- * THE PROSE NET. The gate above decides danger by KIND, and a kind is a label somebody typed: a legacy
- * `section` component whose copy said "301 redirect this to the guide and noindex the old one" was a
- * redirect, a de-indexing and a merge, and it validated as a paste-ready section rewrite. So the proposed
- * copy itself is read: an instruction to move, hide, canonicalize, delete or merge a page, filed as
- * anything other than the kind that names that change, is a MISLABELLED change and is rejected. Bounded,
- * case insensitive, and matched on the proposal only, never on the current value it replaces.
+ * THE PROSE NET. The gate above decides danger by KIND, and a kind is a label somebody typed: a legacy `section` component whose copy said "301 redirect this to the guide and noindex the old one" was a
+ * redirect, a de-indexing and a merge, and it validated as a paste-ready section rewrite. So the proposed copy itself is read: an instruction to move, hide, canonicalize, delete or merge a page, filed as
+ * anything other than the kind that names that change, is a MISLABELLED change and is rejected. Bounded, case insensitive, and matched on the proposal only, never on the current value it replaces.
  */
 const MISLABELLED: ReadonlyArray<{ kind: BundleComponentKind; re: RegExp; what: string }> = [
   { kind: "redirect", re: /\b30[12]\s*(?:permanent\s*)?redirect|\bredirect(?:s|ed|ing)?\s+(?:this|that|the|it|to)\b/i,
@@ -289,8 +264,7 @@ function componentFailures(components: readonly BundleComponent[], heldHeadings:
   for (const c of components) {
     const what = c.label.trim().toLowerCase() || c.kind.replace(/_/g, " ");
     if (c.evidenceKeys.length === 0) { out.push(`I cannot show you anything behind the ${what}, so I am not putting it in front of you.`); continue; }
-    // A REBUILD MAY NOT DROP A SECTION IN SILENCE. A page being replaced is the one change that can quietly
-    // delete something ranking, so every section I hold has to survive into the draft OR be named as a loss
+    // A REBUILD MAY NOT DROP A SECTION IN SILENCE. A page being replaced is the one change that can quietly delete something ranking, so every section I hold has to survive into the draft OR be named as a loss
     // with its own reason. Unnamed is refused: nobody loses a section they were never told about.
     if (c.kind === "full_rewrite") {
       const draft = flatten(c.after);
@@ -313,8 +287,7 @@ function componentFailures(components: readonly BundleComponent[], heldHeadings:
       if (owed.length > 0) out.push(`I cannot tell you ${owed.join(", ")} for the ${what}, so I am not putting it in front of you.`);
     }
   }
-  // A dangerous lever that was not marked dangerous is a mislabelled change, and a
-  // mislabelled change is exactly the one that gets pasted without a second look.
+  // A dangerous lever that was not marked dangerous is a mislabelled change, and a mislabelled change is exactly the one that gets pasted without a second look.
   for (const c of dangerousComponents(components)) {
     if (!marked.has(c)) out.push(`The ${c.label.trim().toLowerCase() || c.kind.replace(/_/g, " ")} changes where this page lives or whether people can find it, and it is not marked as one that needs your confirmation, so I am not putting it in front of you.`);
   }
@@ -328,8 +301,7 @@ function isDestructiveEdit(before: string | null, after: string): boolean {
   const a = after.trim();
   if (!a) return true; // nothing left
   if (!b) return false; // no prior value to destroy
-  // Truncating a substantial field to under a third of its length is a gut,
-  // not a rewrite (title/meta rewrites stay in the same ballpark of length).
+  // Truncating a substantial field to under a third of its length is a gut, not a rewrite (title/meta rewrites stay in the same ballpark of length).
   if (b.length >= 30 && a.length < b.length * 0.34) return true;
   return false;
 }
@@ -354,8 +326,7 @@ export type ValidateProposalOptions = {
 };
 
 /**
- * Validate one ChangeProposal. Returns the verdict + the mapped lifecycle
- * status. A hard-safety trip or a factual violation ALWAYS rejects; a clean
+ * Validate one ChangeProposal. Returns the verdict + the mapped lifecycle status. A hard-safety trip or a factual violation ALWAYS rejects; a clean
  * quality "ready" draft is `proposed`; anything in between is `needs_review`.
  */
 export function validateProposal(
@@ -377,14 +348,10 @@ export function validateProposal(
     safetyFlags.push("Rewrite deletes or guts the current value (destructive edit).");
   }
 
-  // ── factual entailment (an invented number or entity is a violation) ────────
-  // Only the EXISTING-page edit path runs entity-level entailment: it has a real
-  // page body / current value to check a new claim against, so an invented
-  // number or entity is a genuine violation (or a dated, sourced correction). A
-  // brand-NEW page inherently introduces entities that are not yet on any page,
-  // so entity-entailment there is pure noise; its ungrounded-NUMBER protection
-  // is already enforced upstream by the drafter's numeric-fidelity firewall at
-  // generation, so a persisted brief cannot carry an invented number.
+  // ── factual entailment (an invented number or entity is a violation) ──────── Only the EXISTING-page edit path runs entity-level entailment: it has a real
+  // page body / current value to check a new claim against, so an invented number or entity is a genuine violation (or a dated, sourced correction). A
+  // brand-NEW page inherently introduces entities that are not yet on any page, so entity-entailment there is pure noise; its ungrounded-NUMBER protection
+  // is already enforced upstream by the drafter's numeric-fidelity firewall at generation, so a persisted brief cannot carry an invented number.
   const entail = change.kind === "existing_edit"
     ? checkFactualEntailment({
         draftText: change.after,
@@ -419,13 +386,11 @@ export function validateProposal(
   const components = proposal.bundle?.components ?? [];
   const componentFails = [...componentFailures(components, opts.heldHeadings ?? []),
     ...receiptIntegrityFailures(proposal, opts.now ?? new Date())];
-  // THE TWO-STEP CONFIRMATION, in the one vocabulary this product already has: a
-  // dangerous component can never read as ready, it is held for the operator to look at
+  // THE TWO-STEP CONFIRMATION, in the one vocabulary this product already has: a dangerous component can never read as ready, it is held for the operator to look at
   // and then act. There is no second flag and no second lifecycle.
   const dangerous = dangerousComponents(components);
 
-  // ── compose the single verdict ──────────────────────────────────────────────
-  // The two-step note is carried WHATEVER else the verdict turns out to be: the operator
+  // ── compose the single verdict ────────────────────────────────────────────── The two-step note is carried WHATEVER else the verdict turns out to be: the operator
   // has to read it before acting, and burying it behind another hold is how it gets missed.
   const reasons: string[] = [...quality.reasons, ...dangerous.map((c) =>
     `${c.label.trim() || c.kind.replace(/_/g, " ")}: this one changes where the page lives or whether people can find it, so read it once and confirm it before you make the change.`)];

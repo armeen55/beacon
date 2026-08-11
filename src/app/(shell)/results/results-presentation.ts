@@ -41,7 +41,7 @@ const WORK_LABEL: Record<string, string> = {
   title: "the page title", meta: "the search description", h1: "the page headline",
   opening_answer: "the answer at the top of the page", answer_block: "the answer at the top of the page",
   intro_answer_block: "the answer at the top of the page",
-  section: "a section of the page", section_add: "a new section", section_remove: "a section I removed",
+  section: "a section of the page", section_add: "a new section", section_remove: "a section that was removed",
   section_rewrite: "a rewritten section", restructure: "the order of the page",
   full_rewrite: "a full rewrite of the page", factual_correction: "a factual correction",
   paragraph_correction: "a corrected paragraph", source_pack: "the sources on the page",
@@ -108,24 +108,24 @@ const VERDICT_BADGE: Record<KernelRead["verdict"], string> = {
 /** How sure I am, as a sentence rather than a grade. "High confidence" is a label from a lab
  *  notebook; this is what it actually means to the person reading it. */
 const CONFIDENCE_PHRASE: Record<KernelRead["confidence"], string> = {
-  high: "I am confident in this read",
-  medium: "I am fairly sure of this read",
-  low: "I am not sure of this read yet",
+  high: "This read is a confident one",
+  medium: "This read is a fairly sure one",
+  low: "This read is not a sure one yet",
 };
 
 // ── 1. did it actually land on the live page ────────────────────────────────
 
 /** The headline sentence for the live check. A null verification is a real state: I have not looked. */
 function verificationHeadline(v: ShipmentVerification | null): string {
-  if (!v) return "I have not read your live page for this one yet. I look on your next visit.";
+  if (!v) return "Your live page has not been read for this one yet. It gets read on your next visit.";
   switch (v.status) {
-    case "verified": return "I checked your live page and found everything we agreed.";
-    case "partially_verified": return "I checked your live page: part of this is live and part of it is not.";
-    case "not_found": return "I checked your live page and none of this change is on it yet.";
-    case "differs": return "I checked your live page and what is there is not what we agreed.";
-    case "blocked": return "Your site did not answer when I went to look, so this is still your word rather than my own check. I try once more on a later day.";
+    case "verified": return "Your live page was checked, and everything agreed on is there.";
+    case "partially_verified": return "Your live page was checked: part of this is live and part of it is not.";
+    case "not_found": return "Your live page was checked, and none of this change is on it yet.";
+    case "differs": return "Your live page was checked, and what is there is not what was agreed.";
+    case "blocked": return "Your site did not answer when it was checked, so this is still your word rather than a live check. It gets one more try on a later day.";
     // LEGACY, never written again: this row was recorded back when a click could stand in for a reading.
-    case "operator_confirmed": return "This one was recorded as done on your word alone, before I checked live pages for myself. I read the page on your next visit and replace this with what I actually find.";
+    case "operator_confirmed": return "This one was recorded as done on your word alone, before live pages were checked here. The page is read on your next visit and this is replaced with what is found.";
   }
 }
 
@@ -138,7 +138,7 @@ function componentLines(v: ShipmentVerification | null): string[] {
       case "verified": return `${cap(label)} is exactly what we agreed.`;
       case "not_verified": return `${cap(label)} is not there yet.`;
       case "changed_differently": return `${cap(label)} is on the page, but not in the words we agreed.`;
-      case "unverifiable": return `I cannot see ${label} from outside the page, so I am not calling it either way.`;
+      case "unverifiable": return `${cap(label)} cannot be seen from outside the page, so it is not called either way.`;
     }
   });
 }
@@ -151,9 +151,9 @@ function baselineLine(p: ShipmentPresentation): string | null {
   const when = day ? `When you marked this done on ${day}` : "When you marked this done";
   const { clicks, impressions, windowDays } = p.baseline;
   if (impressions <= 0) {
-    return `${when}, this page had no Google traffic on file over the ${windowDays} days before it. I hold that starting point exactly as it was, and it never moves.`;
+    return `${when}, this page had no Google traffic on file over the ${windowDays} days before it. That starting point is held exactly as it was, and it never moves.`;
   }
-  return `${when}, this page had ${num(clicks)} ${clicks === 1 ? "click" : "clicks"} and ${num(impressions)} appearances in Google over the ${windowDays} days before it. I hold that starting point exactly as it was, and it never moves.`;
+  return `${when}, this page had ${num(clicks)} ${clicks === 1 ? "click" : "clicks"} and ${num(impressions)} appearances in Google over the ${windowDays} days before it. That starting point is held exactly as it was, and it never moves.`;
 }
 
 // ── 3. the timeline and the window chips ────────────────────────────────────
@@ -174,12 +174,12 @@ function timelineSteps(p: ShipmentPresentation): Array<{ label: string; state: S
     // not done this yet" on the one change the operator knows they did. The date is what is
     // missing, so the date is what says so.
     {
-      label: p.implementedAt ? "You marked it done" : "You marked it done, before I kept exact dates",
+      label: p.implementedAt ? "You marked it done" : "You marked it done, before exact dates were kept",
       state: "done" as StepState,
       when: monthDayLabel(p.implementedAt),
     },
     {
-      label: p.verification ? "I checked your live page" : "I check your live page",
+      label: p.verification ? "Your live page was checked" : "Your live page gets checked",
       state: (p.verification ? "done" : "waiting") as StepState,
       when: monthDayLabel(p.verification?.checkedAt ?? null),
     },
@@ -192,10 +192,10 @@ function overlapNote(read: KernelRead): string | null {
   const shared = read.windows.some((w) => w.confounded != null);
   if (!shared && read.overlappingIds.length === 0) return null;
   const day = monthDayLabel(read.cleanUntil);
-  if (day) return `I changed this page again on ${day}. The windows that closed after that day belong to both changes, so I do not count them as this one's.`;
+  if (day) return `This page changed again on ${day}. The windows that closed after that day belong to both changes, so they do not count as this one's.`;
   const n = read.overlappingIds.length;
   if (n === 0) return null;
-  return `I made ${n} other ${n === 1 ? "change" : "changes"} on this page in the same window, so the movement here belongs to more than one change and I will not hand it to this one.`;
+  return `${n} other ${n === 1 ? "change" : "changes"} landed on this page in the same window, so the movement here belongs to more than one change and is not handed to this one.`;
 }
 
 // ── 4. the two results and what I learned ───────────────────────────────────
@@ -207,11 +207,11 @@ function aiResult(ai: ShipmentAiOutcome | null): { heading: string; coverage: st
     ai.direction === "improved" ? "AI assistants name you more often than they did before this went live."
       : ai.direction === "worsened" ? "AI assistants name you less often than they did before this went live."
         : ai.direction === "flat" ? "AI assistants name you about as often as they did before."
-          : "I cannot call the AI side of this one yet.";
+          : "The AI side of this one cannot be called yet.";
   const { daysObserved, daysElapsed } = ai.coverage;
   const coverage = daysObserved === 0
-    ? `I have not managed to read an AI answer on any of the ${daysElapsed} days since you marked this done.`
-    : `I read on ${daysObserved} of the ${daysElapsed} days since then. A day I missed stays missed, and I never fill one in.`;
+    ? `No AI answer has been readable on any of the ${daysElapsed} days since you marked this done.`
+    : `Readings landed on ${daysObserved} of the ${daysElapsed} days since then. A missed day stays missed, and one is never filled in.`;
   return { heading, coverage, line: ai.line };
 }
 
@@ -226,18 +226,18 @@ function learningLine(read: KernelRead): string {
         : l.outcomeDirection === "flat" ? "the page did not clearly move"
           : "it is too early to say which way this went";
   const parts: string[] = [];
-  if (cause) parts.push(`I read this page as ${cause}`);
-  if (family) parts.push(`I answered it with ${family}`);
+  if (cause) parts.push(`this page read as ${cause}`);
+  if (family) parts.push(`it was answered with ${family}`);
   parts.push(moved);
   const receipts = typeof l.evidenceCompleteness === "number" && l.evidenceCompleteness > 0
-    ? ` I had ${l.evidenceCompleteness} pieces of evidence behind that call.`
+    ? ` ${l.evidenceCompleteness} pieces of evidence stood behind that call.`
     : "";
   // NOTHING IS CARRIED FORWARD FROM A READ THAT HAS NOT LANDED. With no direction yet there is no
   // lesson, so the sentence that promises one is dropped rather than printed over an empty result.
   const carried = l.outcomeDirection && l.outcomeDirection !== "unclear"
-    ? " I carry that into what I recommend next on pages like this one."
-    : " I carry nothing forward from this one until it settles.";
-  return `What I learned: ${parts.join(", ")}.${receipts}${carried}`;
+    ? " That carries into what gets recommended next on pages like this one."
+    : " Nothing carries forward from this one until it settles.";
+  return `What this taught: ${parts.join(", ")}.${receipts}${carried}`;
 }
 
 /**
@@ -280,8 +280,8 @@ export function aiTrend(segments: AiOutcomeReport["segments"]) {
     const engine = first ? ENGINE_LABEL[(first.engine || "").toLowerCase()] ?? "An AI assistant" : "";
     const breakLabel = first == null || day == null ? null
       : first.fromMode !== first.toMode
-        ? `${engine} started answering me a different way on ${day}, so I start a new line here rather than joining two different readings.`
-        : `${engine} changed the version behind its answers on ${day}, so I start a new line here rather than joining two different readings.`;
+        ? `${engine} started answering a different way on ${day}, so a new line starts here rather than joining two different readings.`
+        : `${engine} changed the version behind its answers on ${day}, so a new line starts here rather than joining two different readings.`;
     return {
       breakLabel,
       points: s.days.map((d) => ({
@@ -297,7 +297,7 @@ export function aiTrend(segments: AiOutcomeReport["segments"]) {
   const latest = read[read.length - 1];
   const summary = latest == null ? null
     : breaks === 0
-      ? `On ${latest.label} you were named in ${Math.round((latest.rate ?? 0) * 100)} out of every 100 answers I read closely.`
-      : `On ${latest.label} you were named in ${Math.round((latest.rate ?? 0) * 100)} out of every 100 answers I read closely. The line breaks ${breaks === 1 ? "once" : `${breaks} times`} because an assistant changed how it answers, and I never draw across a break.`;
+      ? `On ${latest.label} you were named in ${Math.round((latest.rate ?? 0) * 100)} out of every 100 answers read closely.`
+      : `On ${latest.label} you were named in ${Math.round((latest.rate ?? 0) * 100)} out of every 100 answers read closely. The line breaks ${breaks === 1 ? "once" : `${breaks} times`} because an assistant changed how it answers, and a line is never drawn across a break.`;
   return { runs, summary };
 }

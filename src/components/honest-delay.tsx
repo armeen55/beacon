@@ -14,7 +14,7 @@ export const HONEST_DELAY_MAX_VISIBLE_RETRIES = 4;
 /** The escalated copy shown once a path has burned through the visible retry
  *  budget. Kept as a constant so the render and the test agree on it. */
 export const HONEST_DELAY_ESCALATED_MESSAGE =
-  "This section could not load. The problem is on my side, not yours. I will keep trying in the background, and your data is safe.";
+  "This section could not load. The problem is on Beacon's side, not yours. Retrying runs in the background, and your data is safe.";
 
 export function shouldScheduleHonestDelayRetry(args: {
   lastRetryAtMs: number | null;

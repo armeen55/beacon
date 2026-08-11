@@ -43,16 +43,16 @@ function shippedVersionOf(p: ChangeProposal, appliedIds: readonly string[]): str
  *  keep reading: on their own site, secure, and one plain page address with no query, because a tracking link is not the page. */
 function liveUrlFor(raw: string, domain: string): { url: string } | { error: string } {
   const site = domain.trim().toLowerCase().replace(/^www\./, "");
-  const owed = `Tell me the address the new page is live at, on ${site}, so I can go and read it.`;
+  const owed = `Add the address the new page is live at, on ${site}, so it can be read.`;
   const text = raw.trim();
   if (!text) return { error: owed };
   let parsed: URL;
   try { parsed = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`); } catch { return { error: owed }; }
-  if (parsed.protocol !== "https:") return { error: `That address is not secure. Give me the https address on ${site}.` };
+  if (parsed.protocol !== "https:") return { error: `That address is not secure. Use the https address on ${site}.` };
   if (parsed.hostname.toLowerCase().replace(/^www\./, "") !== site) {
-    return { error: `That address is on ${parsed.hostname}, not on ${site}. I only record and read pages on your own site.` };
+    return { error: `That address is on ${parsed.hostname}, not on ${site}. Only pages on your own site are recorded and read.` };
   }
-  if (parsed.search || parsed.hash) return { error: "Give me the plain page address, with nothing after a ? or a #, so I read the page itself." };
+  if (parsed.search || parsed.hash) return { error: "Use the plain page address, with nothing after a ? or a #, so the page itself is read." };
   return { url: `${parsed.origin}${parsed.pathname}` };
 }
 
@@ -83,7 +83,7 @@ async function recordShipment(tenantId: string, proposal: ChangeProposal,
     const version = shippedVersionOf(proposal, fresh);
     const held = ledger.find((r) => r.proposalId === proposal.id && r.proposalVersion === version);
     if (held) {
-      log.info("markProposalImplemented: this exact change is already recorded, so I left its record alone", { proposalId: proposal.id, shipment: held.id });
+      log.info("markProposalImplemented: this exact change is already recorded, so its record was left alone", { proposalId: proposal.id, shipment: held.id });
       return state(fresh.length);
     }
     // Every component unless the operator named the ones they applied; an atomic change has no bundle, so the change itself is its one
@@ -111,9 +111,9 @@ async function recordShipment(tenantId: string, proposal: ChangeProposal,
     // empty set was going to settle "not enough evidence" whatever it did. Chosen and frozen HERE, before anything is written. A READ THAT
     // FAILED IS NOT A SMALL SITE: telling a connected operator to connect Search Console asks for what they already did.
     const controlPages = await selectControlPages(tenantId, opts.liveUrl ?? meta?.canonPage ?? proposal.pageUrl ?? "").catch(() => null);
-    if (controlPages == null) return { ok: false, error: "I could not read your other pages just now, so I have not recorded this yet. Press it again in a moment." };
+    if (controlPages == null) return { ok: false, error: "Your other pages could not be read just now, so this is not recorded yet. Press it again in a moment." };
     if (controlPages.length < MIN_CONTROLS) {
-      return { ok: false, error: `I found only ${controlPages.length} page${controlPages.length === 1 ? "" : "s"} on your site I could fairly compare this against, and I need ${MIN_CONTROLS}, so I have not recorded it yet. Connect Search Console, or give me a few more days of search data, then press it again.` };
+      return { ok: false, error: `Only ${controlPages.length} page${controlPages.length === 1 ? "" : "s"} on your site can be fairly compared against this one, and ${MIN_CONTROLS} are needed, so it is not recorded yet. Connect Search Console, or wait a few more days of search data, then press it again.` };
     }
 
     const record = await recordShippedChange({
@@ -151,7 +151,7 @@ async function recordShipment(tenantId: string, proposal: ChangeProposal,
     log.error("markProposalImplemented: the shipment did not land, so nothing was flipped", {
       proposalId: proposal.id, error: err instanceof Error ? err.message : String(err),
     });
-    return { ok: false, error: "I couldn't start measuring this change, so I haven't recorded it as done. Press it again in a moment." };
+    return { ok: false, error: "Measuring this change could not start, so it is not recorded as done. Press it again in a moment." };
   }
 }
 
@@ -190,14 +190,14 @@ export async function markProposalImplementedAction(args: {
     const basis = await resolveCurrentBasis(tenantId).catch(() => null);
     const stored = await loadChangeProposal(tenantId, args.proposalId).catch(() => null);
     if (stored == null) {
-      return { success: false, error: "I couldn't find that change to mark it implemented." };
+      return { success: false, error: "That change could not be found, so it was not marked implemented." };
     }
     // THE VERDICT IS ASKED AT THE MOMENT OF THE MUTATION, not only where the screen was drawn. The button lives on a page that could have
     // been open since before the bar moved or before this change's own receipt stopped resolving, and recording it would push a change I no
     // longer stand behind into the proof ledger, where it would be measured and counted for weeks. No shipment lands unless this passes.
     if (stored.status !== "implemented_pending_verification"
       && actionableProposalFailures(stored, { tenantId, currentBasis: basis }).length > 0) {
-      return { success: false, error: "I set this change aside, so I am not recording it. Open Changes for the work I stand behind now." };
+      return { success: false, error: "This change was skipped, so it is not being recorded. Open Changes for the work that stands today." };
     }
     // WHAT THEY SAY THEY APPLIED IS CHECKED AGAINST WHAT I HOLD. The server used to take the caller's word for a list of KINDS, so a
     // hand-built list nobody could have ticked selected nothing, walked past the confirmation below and closed the whole change. Ids are
@@ -209,21 +209,21 @@ export async function markProposalImplementedAction(args: {
       const wanted = new Set(args.componentIds);
       applied = components.filter((_, i) => wanted.has(ids[i]!));
       if (applied.length === 0 || applied.length !== wanted.size) {
-        return { success: false, error: "I do not recognize the pieces you ticked, so I have not recorded anything. Open the change again and tick what you applied." };
+        return { success: false, error: "The pieces you ticked are not recognized, so nothing was recorded. Open the change again and tick what you applied." };
       }
     }
     // A CHANGE THAT MOVES OR HIDES A PAGE OWES A DELIBERATE YES, and so does one graded dangerous on its own terms. The canonical rule is
     // the grade OR the kind OR a correction to a high-stakes fact; the four hardcoded kinds this used to check let every one of the others
     // through without a tick.
     if (dangerousComponents(applied).length > 0 && args.destructiveConfirmed !== true) {
-      return { success: false, error: "This one moves or hides a page, so I need you to confirm you meant that before I record it. Open the change, tick the confirmation, and press it again." };
+      return { success: false, error: "This one moves or hides a page, so it needs your confirmation before it is recorded. Open the change, tick the confirmation, and press it again." };
     }
     // THE ADDRESS GATE RUNS BEFORE ANYTHING IS WRITTEN, because the shipment is written first and a shipment pointing at a page label is a
     // reading I can never take.
     let liveUrl: string | undefined;
     if (stored.kind === "new_page") {
       const domain = (await getTenant(tenantId).catch(() => null))?.domain?.trim();
-      if (!domain) return { success: false, error: "I could not read your website address just now, so I am not recording this yet. Press it again in a moment." };
+      if (!domain) return { success: false, error: "Your website address could not be read just now, so this is not recorded yet. Press it again in a moment." };
       const checked = liveUrlFor(args.liveUrl ?? "", domain);
       if ("error" in checked) return { success: false, error: checked.error };
       liveUrl = checked.url;
@@ -240,13 +240,13 @@ export async function markProposalImplementedAction(args: {
       await invalidateCoreSurfaces().catch(() => {});
       revalidatePath("/changes");
       const landed = n > 0
-        ? `I recorded the ${n} piece${n === 1 ? "" : "s"} you applied and I am measuring ${n === 1 ? "it" : "them"}.`
-        : "I already had those pieces on file and I am measuring them.";
+        ? `Recorded the ${n} piece${n === 1 ? "" : "s"} you applied. ${n === 1 ? "It is" : "They are"} being measured.`
+        : "Those pieces were already on file and are being measured.";
       return { success: true, note: `${landed} The other ${left} ${one("is", "are")} still on your list: tick ${one("it", "them")} here when you apply ${one("it", "them")}.` };
     }
     const ok = await markProposalImplemented(tenantId, args.proposalId, liveUrl);
     if (!ok) {
-      return { success: false, error: "I couldn't find that change to mark it implemented." };
+      return { success: false, error: "That change could not be found, so it was not marked implemented." };
     }
     await invalidateCoreSurfaces().catch(() => {});
     revalidatePath("/changes");
@@ -254,12 +254,12 @@ export async function markProposalImplementedAction(args: {
     log.info("Action completed", { action, durationMs: Date.now() - t0, params: { proposalId: args.proposalId } });
     // A PRESS WITH NOTHING NEW IN IT IS NOT A SILENT SUCCESS: say plainly that it is already being measured.
     return n === 0 && ids.length > 0
-      ? { success: true, note: "I already have every piece of this change on file and I am measuring it. There is nothing left for you to record here." }
+      ? { success: true, note: "Every piece of this change is already on file and being measured. There is nothing left for you to record here." }
       : { success: true };
   } catch (err) {
     // THE RAW MESSAGE GOES TO THE LOG AND NOWHERE ELSE: a table name is not an answer to a customer.
     log.error("markProposalImplemented: failed", { proposalId: args.proposalId, error: err instanceof Error ? err.message : String(err) });
-    return { success: false, error: "I could not record that just now. Press it again in a moment." };
+    return { success: false, error: "That could not be recorded just now. Press it again in a moment." };
   }
 }
 
@@ -286,12 +286,12 @@ export async function dismissProposalAction(args: {
   const tenantId = await currentTenantId();
   try {
     const stored = await loadChangeProposal(tenantId, args.proposalId).catch(() => null);
-    if (stored == null) return { success: false, error: "I couldn't find that change to put it aside." };
+    if (stored == null) return { success: false, error: "That change could not be found, so it was not skipped." };
     if (stored.status === "implemented_pending_verification") {
-      return { success: false, error: "You already marked this one done, so I am measuring it. I am not putting it away while a reading is running." };
+      return { success: false, error: "You already marked this one done, so it is being measured. It cannot be skipped while a reading is running." };
     }
     if (!(await dismissChangeProposal(tenantId, args.proposalId))) {
-      return { success: false, error: "I couldn't put that one aside just now. Press it again in a moment." };
+      return { success: false, error: "That one could not be skipped just now. Press it again in a moment." };
     }
     await invalidateCoreSurfaces().catch(() => {});
     revalidatePath("/changes");
@@ -300,7 +300,7 @@ export async function dismissProposalAction(args: {
     return { success: true };
   } catch (err) {
     log.error("dismissProposal: failed", { proposalId: args.proposalId, error: err instanceof Error ? err.message : String(err) });
-    return { success: false, error: "I couldn't put that one aside just now. Press it again in a moment." };
+    return { success: false, error: "That one could not be skipped just now. Press it again in a moment." };
   }
 }
 
@@ -360,7 +360,7 @@ export async function markChangelogEditShipped(args: {
       changelogId: args.changelogId,
       error: err instanceof Error ? err.message : String(err),
     });
-    return { success: false, error: "I could not read this change's history just now. Try it again in a moment." };
+    return { success: false, error: "This change's history could not be read just now. Try it again in a moment." };
   }
 
   const entry = changelogEntries.find((e) => e.id === args.changelogId);
@@ -401,6 +401,6 @@ export async function markChangelogEditShipped(args: {
       changelogId: args.changelogId,
       error: err instanceof Error ? err.message : String(err),
     });
-    return { success: false, error: "I could not mark that live just now. Try it again in a moment." };
+    return { success: false, error: "That could not be marked live just now. Try it again in a moment." };
   }
 }

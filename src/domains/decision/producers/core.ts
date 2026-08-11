@@ -1,20 +1,16 @@
 /**
  * decision/producers/core (V1 Closure, launch blocker 9): WHAT TO ACTUALLY DO ABOUT THE CAUSE.
  *
- * The cause ladder has been able to name fifteen reasons a page loses a click since Phase 4, and this
- * product could write copy for exactly one of them. Every other page came back with a true sentence and
+ * The cause ladder has been able to name fifteen reasons a page loses a click since Phase 4, and this product could write copy for exactly one of them. Every other page came back with a true sentence and
  * nothing to paste, which is the difference between a diagnosis and a doctor. This file closes that gap for
- * the causes whose fix IS copy: a missing opening, subjects the winners all cover, a thing the winners do
- * that this page does not, and a page built in the wrong shape for what people are asking.
+ * the causes whose fix IS copy: a missing opening, subjects the winners all cover, a thing the winners do that this page does not, and a page built in the wrong shape for what people are asking.
  *
  * THE REGISTRY IS TOTAL, and that is the point. Every cause the ladder can name has an entry: a producer, or
- * a plain sentence saying why nothing is produced for it. A cause cannot be added to the ladder without
- * somebody deciding here what it hands the operator, so "we forgot" is not a state this file can be in.
+ * a plain sentence saying why nothing is produced for it. A cause cannot be added to the ladder without somebody deciding here what it hands the operator, so "we forgot" is not a state this file can be in.
  *
  * NOTHING IS INVENTED HERE. Every producer works from the structure the ladder ALREADY read (CausePayload),
  * cites the receipt keys the ladder cited, and buys its copy through the caller's drafter, which carries the
- * injection firewall, the budget, the cache and the numeric net. A drafter that refuses is a refusal, never
- * an empty component: a component with nothing in it is worse than no component at all.
+ * injection firewall, the budget, the cache and the numeric net. A drafter that refuses is a refusal, never an empty component: a component with nothing in it is worse than no component at all.
  */
 
 import type { BundleComponent } from "../contracts";
@@ -53,8 +49,8 @@ const hintsOf = (ctx: ProducerCtx): string[] => [
 const weakOpening: Producer = async (ctx) => {
   const payload = ctx.finding.payload;
   const want = payload?.cause === "weak_opening" ? payload.want : [];
-  if (want.length === 0) return refuse("I can see that this page's opening never answers the search, but I could not read which words it is missing, so I am not writing you one.");
-  if (!ctx.draft.openingAnswer) return refuse("I can see that this page's opening never answers the search, and I cannot write you a replacement in this pass.");
+  if (want.length === 0) return refuse("This page's opening never answers the search, and which words it is missing could not be read, so no opening is written.");
+  if (!ctx.draft.openingAnswer) return refuse("This page's opening never answers the search, and no replacement can be written in this pass.");
   const after = await ctx.draft.openingAnswer({
     query: ctx.primary,
     pageLabel: ctx.page.h1 ?? ctx.page.title ?? ctx.page.url,
@@ -62,7 +58,7 @@ const weakOpening: Producer = async (ctx) => {
     outline: ctx.page.outline,
     evidenceHints: hintsOf(ctx),
   });
-  if (!after) return refuse("I could not write an opening for this page that passes my own checks, so I am handing you nothing rather than filler.");
+  if (!after) return refuse("No opening for this page passed its own checks, so nothing is handed over rather than filler.");
   return {
     components: [{
       kind: "opening_answer", label: "Opening answer", before: ctx.body?.openingSample ?? null, after,
@@ -79,16 +75,14 @@ const weakOpening: Producer = async (ctx) => {
 
 const incompleteCoverage: Producer = async (ctx) => {
   const payload = ctx.finding.payload;
-  // A missing HEADING and a missing ENTITY are both subjects the winners agree on: either one names a
-  // section worth writing, and the finding fires on both, so the producer must serve both or it refuses
+  // A missing HEADING and a missing ENTITY are both subjects the winners agree on: either one names a section worth writing, and the finding fires on both, so the producer must serve both or it refuses
   // on its own evidence. A subject the held page PROVABLY already carries is dropped before drafting.
   const named = payload?.cause === "incomplete_coverage" ? [...payload.absentHeadings, ...payload.absentEntities] : [];
   const absent = named.filter((s) => pageContains(ctx.body, s) !== "yes");
-  // A REFUSAL SAYS WHICH TRUTH IT IS. When the held page turned out to carry every named subject, the honest
-  // answer is presence, not a restated absence the page itself just disproved.
+  // A REFUSAL SAYS WHICH TRUTH IT IS. When the held page turned out to carry every named subject, the honest answer is presence, not a restated absence the page itself just disproved.
   if (absent.length === 0) return refuse(named.length > 0
-    ? "I checked the page itself and it already carries what the winning pages cover, so there is nothing to add here."
-    : "The pages that win this search agree on subjects this one leaves out, and none of them is a section I can write for you yet.");
+    ? "The page itself already carries what the winning pages cover, so there is nothing to add here."
+    : "The pages that win this search agree on subjects this one leaves out, and none of them is a section that can be written yet.");
   const components: BundleComponent[] = [];
   for (const heading of absent.slice(0, MAX_SECTIONS)) {
     const drafted = await ctx.draft.section({
@@ -110,7 +104,7 @@ const incompleteCoverage: Producer = async (ctx) => {
     });
   }
   return components.length === 0
-    ? refuse("I could not write a section for what this page is missing that passes my own checks, so I am handing you nothing rather than filler.")
+    ? refuse("No section for what this page is missing passed its own checks, so nothing is handed over rather than filler.")
     : { components, refusal: null };
 };
 
@@ -119,9 +113,8 @@ const incompleteCoverage: Producer = async (ctx) => {
 const competitorContentGap: Producer = async (ctx) => {
   const payload = ctx.finding.payload;
   const gaps = payload?.cause === "competitor_content_gap" ? payload.gaps : [];
-  if (gaps.length === 0) return refuse("The pages that win this search do something this one does not, and I could not read it closely enough to write it for you.");
-  // STRONGEST FIRST, and the same order every time: the gap the most winners share, then the plain text,
-  // so the same reading always produces the same two sections. A gap the held page PROVABLY already
+  if (gaps.length === 0) return refuse("The pages that win this search do something this one does not, and it could not be read closely enough to write.");
+  // STRONGEST FIRST, and the same order every time: the gap the most winners share, then the plain text, so the same reading always produces the same two sections. A gap the held page PROVABLY already
   // carries is dropped before drafting: the accusation was written against a sample.
   const ranked = [...gaps].filter((g) => pageContains(ctx.body, g.gap) !== "yes")
     .sort((a, b) => b.seenOn.length - a.seenOn.length || (a.gap < b.gap ? -1 : a.gap > b.gap ? 1 : 0));
@@ -147,12 +140,11 @@ const competitorContentGap: Producer = async (ctx) => {
     });
   }
   return components.length === 0
-    ? refuse("I could not write the section that would close the gap on the winning pages, so I am handing you nothing rather than filler.")
+    ? refuse("No section that would close the gap on the winning pages passed its own checks, so nothing is handed over rather than filler.")
     : { components, refusal: null };
 };
 
-// ── serp_shape_shift and intent_shift: the page is built for a different job ──
-// Neither is a paste. A page of the wrong KIND is not fixed by one section, so what ships is a REWRITE of
+// ── serp_shape_shift and intent_shift: the page is built for a different job ── Neither is a paste. A page of the wrong KIND is not fixed by one section, so what ships is a REWRITE of
 // the section that carries the mismatch, marked for the operator to read before they act on it.
 
 function shapeMismatch(objective: string, mechanism: string): Producer {
@@ -166,7 +158,7 @@ function shapeMismatch(objective: string, mechanism: string): Producer {
       outline: ctx.page.outline,
       evidenceHints: hintsOf(ctx),
     });
-    if (!drafted) return refuse("I could not write a replacement for this page's leading section that passes my own checks, so I am handing you nothing rather than filler.");
+    if (!drafted) return refuse("No replacement for this page's leading section passed its own checks, so nothing is handed over rather than filler.");
     return {
       components: [{
         kind: "section_rewrite", label: `Rewrite the leading section: ${drafted.heading}`,
@@ -180,27 +172,23 @@ function shapeMismatch(objective: string, mechanism: string): Producer {
   };
 }
 
-// ── technical_indexability: what is wrong with how the page is SERVED ──
-// NOT COPY, AND NOT A GUESS. Every component here is one fault on one address with the exact fix, read off
+// ── technical_indexability: what is wrong with how the page is SERVED ── NOT COPY, AND NOT A GUESS. Every component here is one fault on one address with the exact fix, read off
 // the inventory and the capture by decision/technical-findings and carried on the finding itself, so this
 // producer invents nothing: it hands over what the reading already proved, in the same component vocabulary.
 
 const technical: Producer = async (ctx) => {
   const payload = ctx.finding.payload;
   const findings = payload?.cause === "technical_indexability" ? payload.findings : [];
-  if (findings.length === 0) return refuse("I have not read how this page is served, so I cannot tell you what is stopping it being found.");
-  // A CHANGE TO THE WORDS ON A PAGE IS THE WORDS. Where the fault is in the copy itself (two pages wearing
-  // one title, a page with no heading), the fix is only a change once I can hand over the exact wording; a
-  // finding without it is a description of a problem, and a description has no business in Ready. Those
-  // findings are dropped here and the page goes back to research, said plainly.
+  if (findings.length === 0) return refuse("How this page is served has not been read, so what is stopping it being found is unknown.");
+  // A CHANGE TO THE WORDS ON A PAGE IS THE WORDS. Where the fault is in the copy itself (two pages wearing one title, a page with no heading), the fix is only a change once I can hand over the exact wording; a
+  // finding without it is a description of a problem, and a description has no business in Ready. Those findings are dropped here and the page goes back to research, said plainly.
   const keep = findings.filter((f) => !HELD_UNTIL_EXACT.has(f.kind) || !!f.exact || !!f.redirectTo);
   const held = findings.length - keep.length;
   if (keep.length === 0) {
-    // A DEAD ADDRESS WITH NOWHERE TO GO IS A QUESTION, NOT A CHANGE, and it is asked as one: what I read,
-    // and the one thing I need from the operator before this can ever be work.
+    // A DEAD ADDRESS WITH NOWHERE TO GO IS A QUESTION, NOT A CHANGE, and it is asked as one: what I read, and the one thing I need from the operator before this can ever be work.
     const address = findings.find((f) => f.kind === "non_200");
-    if (address) return refuse(`${address.evidence} Tell me the address that replaced it and I will write you the forward. Until then I keep it out of your queue.`);
-    return refuse(`I can see the problem on this page and I have not written the replacement wording yet, so I am not handing you an instruction and calling it a change. I am working out the exact ${held === 1 ? "line" : "lines"} and it lands here the moment it passes my own checks.`);
+    if (address) return refuse(`${address.evidence} Name the address that replaced it and the forward gets written. Until then it stays out of the queue.`);
+    return refuse(`The problem on this page is named and the replacement wording is not written yet, so an instruction is not handed over dressed as a change. The exact ${held === 1 ? "line" : "lines"} lands here the moment it passes its own checks.`);
   }
   return { components: technicalComponents(keep, ctx.primary), refusal: null };
 };
@@ -210,8 +198,7 @@ const technical: Producer = async (ctx) => {
 const HELD_UNTIL_EXACT: ReadonlySet<string> = new Set(["duplicate_title", "duplicate_h1", "missing_h1", "orphaned_page", "non_200", "broken_internal_link"]);
 
 /**
- * THE REGISTRY. Total over every cause the ladder can name: a producer, or the honest reason there is
- * nothing to produce. A reason here is not an apology, it is the fact that this cause's fix is not copy.
+ * THE REGISTRY. Total over every cause the ladder can name: a producer, or the honest reason there is nothing to produce. A reason here is not an apology, it is the fact that this cause's fix is not copy.
  */
 export const CORE_PRODUCERS: Record<CauseKey, Producer | { reason: string }> = {
   weak_opening: weakOpening,
@@ -226,22 +213,19 @@ export const CORE_PRODUCERS: Record<CauseKey, Producer | { reason: string }> = {
   // The wording of the line Google displays is the ONE cause this kernel has always been able to write, and
   // it keeps its own path in produce-bundle unchanged: routing it through here would be a second title path.
   ctr_snippet: { reason: "The title path owns this cause and writes it directly." },
-  // Settling which of two pages owns a search is a merge, a redirect and a de-index, not a paste. It is
-  // built beside this file rather than inside it, and wired in at integration.
+  // Settling which of two pages owns a search is a merge, a redirect and a de-index, not a paste. It is built beside this file rather than inside it, and wired in at integration.
   cannibalization: produceConsolidation,
   // WHERE A READER GOES NEXT is a real change and a real drafter (internal_link) is now wired for it, but a
   // link needs a DESTINATION this page should honestly point at, and picking that page is its own reading.
   internal_link_weakness: produceInternalLinks,
-  // Both AI causes are about what an engine did with a page it already read. Nothing on the page is proven
-  // wrong by either, so a rewrite here would be a guess dressed as a fix.
+  // Both AI causes are about what an engine did with a page it already read. Nothing on the page is proven wrong by either, so a rewrite here would be a guess dressed as a fix.
   retrieved_not_cited: produceSourceExpansion,
   ai_citation_gap: produceSourceExpansion,
   // A change of yours is still being measured: the whole point is to add nothing on top of it.
   measuring_change: { reason: "A change here is still being measured, and stacking another one on top would make the first unreadable." },
-  // The two the ladder itself says it cannot test yet. Their evidence does not exist in this product, so
-  // there is nothing to produce from and saying so is the honest answer.
-  demand_decline: { reason: "I hold one 90 day total for that search and nothing earlier, so there is nothing here to act on." },
-  ranking_loss: { reason: "I hold one average position for that search and nothing earlier, so there is nothing here to act on." },
+  // The two the ladder itself says it cannot test yet. Their evidence does not exist in this product, so there is nothing to produce from and saying so is the honest answer.
+  demand_decline: { reason: "One 90 day total for that search is on file and nothing earlier, so there is nothing here to act on." },
+  ranking_loss: { reason: "One average position for that search is on file and nothing earlier, so there is nothing here to act on." },
   // The inventory and the capture answer this one now: one fault, one address, one exact fix.
   technical_indexability: technical,
   no_problem: { reason: "Nothing accuses this page, so there is nothing to change on it." },

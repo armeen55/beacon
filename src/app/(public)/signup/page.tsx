@@ -17,9 +17,9 @@ export const dynamic = "force-dynamic";
 function RecoveryCard() {
   return (
     <div className="space-y-3 rounded-md border border-foreground/15 p-4">
-      <h1 className="text-base font-semibold">I could not finish setting up your account.</h1>
+      <h1 className="text-base font-semibold">Your account could not be set up.</h1>
       <p className="text-[12px] text-muted-foreground">
-        Your sign in worked, but I hit a problem creating your workspace. Try
+        Your sign in worked, but creating your workspace hit a problem. Try
         again below; if it keeps failing, sign out and use a fresh sign in link.
       </p>
       <div className="flex items-center gap-3">
@@ -73,10 +73,10 @@ export default async function SignupPage({
           <h1 className="text-xl font-semibold">Create your Beacon account</h1>
           <p className="text-[12px] text-muted-foreground">
             Beacon shows you the exact website changes that get you recommended
-            by AI assistants and found on Google. I write the exact copy; you
-            paste it into your site and mark it done, then I measure what it
-            did. Instead of a password, I email you a secure one time sign in
-            link.
+            by AI assistants and found on Google. Beacon writes the exact copy;
+            you paste it into your site and mark it done, then the page is
+            measured. Instead of a password, a secure one time sign in link
+            arrives by email.
           </p>
         </div>
         <SignupForm sent={params.sent === "1"} error={params.error} />

@@ -1,14 +1,12 @@
 /**
  * draft-quality: a PURE, deterministic trust gate over prepared output. It answers one question per draft: "is
- * this good enough to copy and paste, does it need a human review first, or is it junk we should not call
- * ready?" No LLM at runtime, no I/O, just the parsed draft fields.
+ * this good enough to copy and paste, does it need a human review first, or is it junk we should not call ready?" No LLM at runtime, no I/O, just the parsed draft fields.
  *
  * REJECT (hide the copy) is NARROW and high confidence: generic dictionary openings, punt or meta non-answers,
  * off topic, no draft, too thin, malformed, strong marketing superlatives. `useful_but_needs_review` is BROAD:
  * real factual claims stay COPYABLE and flagged for a human check, because auto-rejecting them killed good
  * output. The generic-opening rule fires ONLY when the FIRST sentence is a dictionary frame AND carries no
- * content-context token, which separates "A gift is a voluntarily transferred item" from "An Iranian wedding
- * comprises".
+ * content-context token, which separates "A gift is a voluntarily transferred item" from "An Iranian wedding comprises".
  *
  * The other four rules this file composes:
  *  - QUOTABILITY: an answer block that fails the shared passage-answerability rubric is rejected like a generic
@@ -106,7 +104,7 @@ function shortClaim(text: string, max = 120): string {
   return t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}…`;
 }
 
-/** "A/An/The <noun> is/are …" or "<X> refers to …" — a context-free dictionary frame. */
+/** "A/An/The <noun> is/are …" or "<X> refers to …", a context-free dictionary frame. */
 const DICTIONARY_FRAME = /^\s*(?:a|an|the)\s+[a-z][\w-]*\s+(?:is|are)\b|\brefers?\s+to\b/i;
 
 /** A draft that talks ABOUT the page/source instead of answering (meta non-answer). */
@@ -117,7 +115,7 @@ const META_NONANSWER =
 const PUNT_NONANSWER =
   /\b(?:varies|vary over time|changes over time|check the individual|consult up-to-date|for an accurate answer,? (?:check|see)|refer to (?:official|the) (?:site|sources)|look it up)\b/i;
 
-/** STRONG marketing superlatives (narrow on purpose — descriptive "official flag" is
+/** STRONG marketing superlatives (narrow on purpose, descriptive "official flag" is
  *  NOT flagged; only unsupported promotional claims). */
 const STRONG_SUPERLATIVE =
   /\b(?:the best|the only|#1|number one|world'?s (?:best|largest|oldest|first|leading)|the (?:greatest|finest) \w+ (?:ever|of all time))\b/i;
@@ -126,7 +124,7 @@ const STRONG_SUPERLATIVE =
 const TITLE_BOILERPLATE =
   /\(\s*20\d{2}\s+guide\s*\)|\b(?:complete|ultimate|definitive|essential)\s+guide\b|\beverything you need to know\b/i;
 
-/** A specific count introduced in a title ("150+", "Top 50") — flag for verification. */
+/** A specific count introduced in a title ("150+", "Top 50"), flag for verification. */
 const COUNT_CLAIM = /\b\d{2,}\s*\+|\btop\s+\d+\b/i;
 
 /** A concrete date/count/"official"/"national X" claim, the narrow factual
@@ -135,12 +133,9 @@ const COUNT_CLAIM = /\b\d{2,}\s*\+|\btop\s+\d+\b/i;
  *  own, as the narrow "did this rewrite introduce a NEW specific fact"
  *  trigger for atomic title/meta edits (see evaluateTitleMetaQuality), a
  *  rewrite that only rephrases the SAME fact is never source-gated. */
-// W5 P2 (2026-07-09): the count clause counts Persian (U+06F0-U+06F9) and
-// Arabic-Indic (U+0660-U+0669) digits too, so a claim written in a non-Latin
-// numeral system ("۳۰۰۰ years") is still recognized as a specific fact and
-// source-gated the same as "3000 years" (the leading \b is dropped only on
-// that clause because a word boundary is ill-defined next to a non-ASCII
-// digit; the year and phrase clauses keep theirs).
+// W5 P2 (2026-07-09): the count clause counts Persian (U+06F0-U+06F9) and Arabic-Indic (U+0660-U+0669) digits too, so a claim written in a non-Latin
+// numeral system ("۳۰۰۰ years") is still recognized as a specific fact and source-gated the same as "3000 years" (the leading \b is dropped only on
+// that clause because a word boundary is ill-defined next to a non-ASCII digit; the year and phrase clauses keep theirs).
 const SPECIFIC_FACT =
   /\b(?:18|19|20)\d{2}\b|[\d٠-٩۰-۹]+\s*(?:times|years|km|km2|species|provinces|dynasties)\b|\bofficial\b|\bnational (?:animal|flag|symbol|language|bird)\b/i;
 
@@ -162,14 +157,10 @@ const NAMED_ENTITY_SPAN = /\b[A-Z][a-zA-Z'-]*(?:\s+[A-Z][a-zA-Z'-]*)+\b/;
 const DEFINITIONAL_ASSERTION = /\b(?:is|was|are|were)\s+(?:a|an|the)\b/i;
 
 /**
- * W5 (J-69/J-71) FACTUAL classifier: true when `text` asserts something
- * checkable, a specific fact, any number, a proper-noun-shaped span, or a
- * definitional claim. A draft with NONE of these makes no claim to verify:
- * it is claim-free and is NEVER source-gated (a purely navigational
- * sentence, an instruction, a question). Deliberately broad, per J-69
- * ("no exceptions"), most real encyclopedic prose asserts SOMETHING, and
- * that is the intended effect: a "ready" verdict now means "grounded and
- * sourced," not merely "reads fine."
+ * W5 (J-69/J-71) FACTUAL classifier: true when `text` asserts something checkable, a specific fact, any number, a proper-noun-shaped span, or a
+ * definitional claim. A draft with NONE of these makes no claim to verify: it is claim-free and is NEVER source-gated (a purely navigational
+ * sentence, an instruction, a question). Deliberately broad, per J-69 ("no exceptions"), most real encyclopedic prose asserts SOMETHING, and
+ * that is the intended effect: a "ready" verdict now means "grounded and sourced," not merely "reads fine."
  */
 export function isFactualClaim(text: string): boolean {
   const t = (text ?? "").trim();
@@ -183,19 +174,14 @@ export function isFactualClaim(text: string): boolean {
 }
 
 /**
- * Drafter last-mile G5 (2026-07-10): when a FACTUAL draft's claims are not
- * covered by a qualifying (authoritative + verified) source, decide HOW to hold
- * it. If one of the cited sources is from an authority-strong domain that Beacon
- * could not READ (a 403/robots block, marked `fetchBlocked` at generation time),
- * this is NOT "no source" - it is "I could not check this citation." Hold it as
- * `needs_source_check` (copy blocked, one-click-from-ready, NEVER silently ready)
+ * Drafter last-mile G5 (2026-07-10): when a FACTUAL draft's claims are not covered by a qualifying (authoritative + verified) source, decide HOW to hold
+ * it. If one of the cited sources is from an authority-strong domain that Beacon could not READ (a 403/robots block, marked `fetchBlocked` at generation time),
+ * this is NOT "no source" - it is "I could not check this citation." Hold it as `needs_source_check` (copy blocked, one-click-from-ready, NEVER silently ready)
  * with copy that names the domain, instead of the harsher `missing_source`.
  *
- * The distinction is honest and never weakens the floor: paste-ready still
- * REQUIRES verified coverage (this branch is only reached when coverage FAILED),
+ * The distinction is honest and never weakens the floor: paste-ready still REQUIRES verified coverage (this branch is only reached when coverage FAILED),
  * so a blocked authoritative source can never masquerade as verified. Authority
- * is re-derived here (never the LLM's guess), consistent with the rest of the
- * source gate. Returns the exact operator-facing hold verdict.
+ * is re-derived here (never the LLM's guess), consistent with the rest of the source gate. Returns the exact operator-facing hold verdict.
  */
 function resolveSourceHold(
   coverage: { uncovered: string[] },
@@ -235,13 +221,10 @@ function resolveSourceHold(
 }
 
 /**
- * Drafter last-mile G6 (2026-07-10): when a draft is ALREADY fully covered by a
- * verified authoritative source but ALSO cites an authority-strong source Beacon
- * could not read (a 403/robots block), return a one-line note naming it. The
- * draft is paste-ready on its verified backing - the blocked citation never holds
+ * Drafter last-mile G6 (2026-07-10): when a draft is ALREADY fully covered by a verified authoritative source but ALSO cites an authority-strong source Beacon
+ * could not read (a 403/robots block), return a one-line note naming it. The draft is paste-ready on its verified backing - the blocked citation never holds
  * it hostage - but the operator is told plainly so they can drop or check that one
- * citation. Returns undefined when there is no such blocked authoritative source.
- * Authority is re-derived here, never the LLM's guess.
+ * citation. Returns undefined when there is no such blocked authoritative source. Authority is re-derived here, never the LLM's guess.
  */
 function blockedAuthoritativeNote(
   sources: readonly ClassifiableSource[] | undefined,
@@ -431,16 +414,13 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
   if (isFactualClaim(answer)) {
     const coverage = draftFactsCoveredBySources(answer, input.sources, input.authoritativeSourceDomains);
     if (!coverage.covered) {
-      // G5: hold as `needs_source_check` (not `missing_source`) when a cited
-      // authority-strong source could not be READ (403/robots block). Never
+      // G5: hold as `needs_source_check` (not `missing_source`) when a cited authority-strong source could not be READ (403/robots block). Never
       // silently ready - copy stays blocked until the operator checks it.
       return resolveSourceHold(coverage, input.sources, input.authoritativeSourceDomains);
     }
-    // G6 (2026-07-10) multi-source combination: the draft IS fully covered by a
-    // verified authoritative source. An ADDITIONAL citation that Beacon could not
+    // G6 (2026-07-10) multi-source combination: the draft IS fully covered by a verified authoritative source. An ADDITIONAL citation that Beacon could not
     // read (403/robots block) must NOT hold the draft hostage - classify by the
-    // covered status - but it is noted so the operator knows one citation was
-    // unreadable while the draft still stands on its verified backing.
+    // covered status - but it is noted so the operator knows one citation was unreadable while the draft still stands on its verified backing.
     blockedSourceNote = blockedAuthoritativeNote(input.sources, input.authoritativeSourceDomains);
   }
 
@@ -538,10 +518,8 @@ export function evaluateTitleMetaQuality(input: EvaluateTitleInput): DraftQualit
     };
   }
 
-  // Factual entailment (N8, law 3; operator correction 2026-07-02) - same
-  // opt-in contract as evaluateDraftQuality: a claim contradicting the page
-  // but backed by a dated authoritative fact is an allowed correction, never
-  // a violation - see the module docstring on evaluateDraftQuality.
+  // Factual entailment (N8, law 3; operator correction 2026-07-02) - same opt-in contract as evaluateDraftQuality: a claim contradicting the page
+  // but backed by a dated authoritative fact is an allowed correction, never a violation - see the module docstring on evaluateDraftQuality.
   let entailmentCorrections: string[] | undefined;
   if (input.pageBodyText || input.evidenceText || input.authoritativeFacts?.length) {
     const entailment = checkFactualEntailment({
@@ -563,14 +541,10 @@ export function evaluateTitleMetaQuality(input: EvaluateTitleInput): DraftQualit
     if (entailment.corrections.length > 0) entailmentCorrections = entailment.corrections;
   }
 
-  // J-69 (no exceptions): a rewrite that introduces a NEW specific fact (a
-  // date/count/"official"/"national X" that `before` did NOT already carry)
-  // needs an authoritative source before it is paste-ready. A pure rephrase,
-  // the same facts as before, just reworded, asserts nothing new and is
-  // never held up on this; that mirrors the COUNT_CLAIM check above, using
-  // the same narrow SPECIFIC_FACT signal rather than the broader classifier
-  // evaluateDraftQuality uses (a title/meta field is a formatting edit, not
-  // a fresh answer-block claim, see the module docstring).
+  // J-69 (no exceptions): a rewrite that introduces a NEW specific fact (a date/count/"official"/"national X" that `before` did NOT already carry)
+  // needs an authoritative source before it is paste-ready. A pure rephrase, the same facts as before, just reworded, asserts nothing new and is
+  // never held up on this; that mirrors the COUNT_CLAIM check above, using the same narrow SPECIFIC_FACT signal rather than the broader classifier
+  // evaluateDraftQuality uses (a title/meta field is a formatting edit, not a fresh answer-block claim, see the module docstring).
   if (SPECIFIC_FACT.test(after) && !SPECIFIC_FACT.test(before) && !hasQualifyingAuthoritativeSource(after, input.sources, input.authoritativeSourceDomains)) {
     return {
       status: "missing_source",

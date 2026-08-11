@@ -86,7 +86,7 @@ export function originFromDomain(domain: string): { origin: string; host: string
 }
 
 /** Path with trailing slashes stripped (root stays "/"). */
-export function normPath(u: URL): string {
+function normPath(u: URL): string {
   return u.pathname.replace(/\/+$/, "") || "/";
 }
 

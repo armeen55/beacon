@@ -1,20 +1,13 @@
 /**
- * first-mention-check (W5, 2026-07-09, J-70), "First mention: Persian
- * spelling where available + transliteration + English context." Generalized
- * so this is never Persian-specific: the tenant's own `BusinessProfile.
- * firstMention` config supplies the native SCRIPT (a Unicode character-range
- * source string, the same idea `draft-quality.ts`'s `PERSIAN_SCRIPT` uses,
- * just tenant-configured instead of hardcoded) plus which extra checks to
- * require alongside it.
+ * first-mention-check (W5, 2026-07-09, J-70), "First mention: Persian spelling where available + transliteration + English context." Generalized
+ * so this is never Persian-specific: the tenant's own `BusinessProfile. firstMention` config supplies the native SCRIPT (a Unicode character-range
+ * source string, the same idea `draft-quality.ts`'s `PERSIAN_SCRIPT` uses, just tenant-configured instead of hardcoded) plus which extra checks to require alongside it.
  *
- * This is a SOFT check. A miss never blocks copy, it downgrades a "ready"
- * verdict to a plain "worth a look" reason, because a missing gloss is a
- * polish issue, not a trust issue (unlike a missing source, which is a hard
- * hold under J-69). Null/absent config = the rule contributes nothing; every
+ * This is a SOFT check. A miss never blocks copy, it downgrades a "ready" verdict to a plain "worth a look" reason, because a missing gloss is a
+ * polish issue, not a trust issue (unlike a missing source, which is a hard hold under J-69). Null/absent config = the rule contributes nothing; every
  * tenant without a `firstMention` config gets byte-identical evaluation.
  *
- * PURE, no I/O, no LLM, no randomness. Tenant-agnostic: callers thread in
- * the tenant's own config.
+ * PURE, no I/O, no LLM, no randomness. Tenant-agnostic: callers thread in the tenant's own config.
  */
 
 export type FirstMentionConfig = {
@@ -47,11 +40,8 @@ function hasEnglishGloss(sentence: string): boolean {
 }
 
 /**
- * Check whether `text`'s first sentence honors the tenant's first-mention
- * rule. `config` absent/null = no rule configured, always `{ ok: true }`,
- * byte-identical to a tenant that never adopts J-70. A malformed `native`
- * range (bad regex) also degrades to `{ ok: true }`, a config mistake must
- * never crash or hard-block a draft.
+ * Check whether `text`'s first sentence honors the tenant's first-mention rule. `config` absent/null = no rule configured, always `{ ok: true }`,
+ * byte-identical to a tenant that never adopts J-70. A malformed `native` range (bad regex) also degrades to `{ ok: true }`, a config mistake must never crash or hard-block a draft.
  */
 export function checkFirstMention(
   text: string,
@@ -77,9 +67,7 @@ export function checkFirstMention(
   }
 
   if (config.transliteration) {
-    // Transliteration/gloss convention: it follows immediately after the
-    // native-script span (a parenthetical or a bare Latin rendering), so
-    // only the text right after the match counts, a Latin word elsewhere
+    // Transliteration/gloss convention: it follows immediately after the native-script span (a parenthetical or a bare Latin rendering), so only the text right after the match counts, a Latin word elsewhere
     // in the sentence (ordinary surrounding English prose) never qualifies.
     const after = sentence.slice(nativeMatch.index + nativeMatch[0].length, nativeMatch.index + nativeMatch[0].length + 60);
     if (!/[A-Za-z]{3,}/.test(after)) {

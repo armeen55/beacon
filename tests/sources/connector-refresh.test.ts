@@ -65,6 +65,6 @@ describe("fetchClarityUrlMetrics", () => {
 describe("what Connections says when something goes wrong", () => {
   it("hands back plain language instead of the raw error", async () => {
     const { getGoogleAuthUrl } = await import("@/app/(shell)/settings/connectors/actions");
-    expect(await getGoogleAuthUrl("gsc")).toEqual({ url: null, error: "I could not start the Google sign in just now. Try again in a moment." });
+    expect(await getGoogleAuthUrl("gsc")).toEqual({ url: null, error: "The Google sign in could not start just now. Try again in a moment." });
   });
 });

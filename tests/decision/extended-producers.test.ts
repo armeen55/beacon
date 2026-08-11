@@ -88,7 +88,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
   it("says the page already carries them when the held page disproved every absence", async () => {
     const out = await (CORE_PRODUCERS.incomplete_coverage as (c: ProducerCtx) => Promise<{ refusal: string | null }>)(
       ctxOf({ finding: finding("incomplete_coverage", { cause: "incomplete_coverage", absentHeadings: ["Roof area"], absentEntities: [] }) }));
-    expect(out.refusal).toBe("I checked the page itself and it already carries what the winning pages cover, so there is nothing to add here."); });
+    expect(out.refusal).toBe("The page itself already carries what the winning pages cover, so there is nothing to add here."); });
   // MY FIGURES GROUND THE DIAGNOSIS, THEY ARE NEVER PAGE COPY: the link drafter's sentence is published on the operator's page, so a click count was one model call away
   // from being live copy. The hints are the page's own words.
   it("never feeds one of my own numbers to the drafter that writes page copy", async () => {
@@ -123,7 +123,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect(out.components[0]!.mechanism).toContain("about 12 of their own pages and this one points to 3");
     // THE COPY ITSELF SURVIVES, not only the gate: it names this page's search and opens on no word the firewall cannot place.
     const c = out.components[0]!;
-    expect(c.after).toBe('I would add this line to the section headed "How much rain a roof collects": if you are working out Rain collection basics, that page walks through it. The words "Rain collection basics guide" then point at /rain-collection, so a reader who came for "rain barrel sizing" has somewhere to go next.');
+    expect(c.after).toBe('This line goes in the section headed "How much rain a roof collects": if you are working out Rain collection basics, that page walks through it. The words "Rain collection basics guide" then point at /rain-collection, so a reader who came for "rain barrel sizing" has somewhere to go next.');
     expect([componentRefusals(validate(out.components)), validate(out.components).verdict]).toEqual([[], "ready"]);
     // and the gate is live: the instruction tail this used to carry is still refused, twice over
     const old = validate([{ ...c, after: 'If you are working out Roof area, that page walks through it. Point the words "Roof area guide" at /roof-area-calculator.' }]);
@@ -133,13 +133,13 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     // No inventory on file at all: nothing to send a reader to, and nothing is invented.
     const nowhere = await produceInternalLinks(ctxOf({ ownedPages: [] }));
     expect(nowhere.components).toHaveLength(0);
-    expect(nowhere.refusal).toContain("I am not inventing one");
+    expect(nowhere.refusal).toContain("so none is invented");
     // An inventory whose pages share no word with this page's subject is the same honest answer.
     const offTopic = await produceInternalLinks(ctxOf({ ownedPages: [{ url: "https://fixture-content.example/careers", title: "Careers", h1: "Careers" }] }));
-    expect([offTopic.components.length, offTopic.refusal ?? ""]).toEqual([0, expect.stringContaining("I am not inventing one")]);
+    expect([offTopic.components.length, offTopic.refusal ?? ""]).toEqual([0, expect.stringContaining("so none is invented")]);
     // No body means I cannot see what this page already links to, so a link is a coin flip: none.
     const blind = await produceInternalLinks(ctxOf({ body: null }));
-    expect([blind.components.length, blind.refusal!.includes("Tell me the page it should lead to")]).toEqual([0, true]); });
+    expect([blind.components.length, blind.refusal!.includes("Name the page it should lead to")]).toEqual([0, true]); });
   it("assembles a source pack out of claims that belong on the page, never my own numbers", async () => {
     const section = async (i: { heading: string | null }) => ({
       heading: i.heading ?? "Where these claims come from",
@@ -156,7 +156,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     // THE INVERSION THIS REPAIR EXISTS FOR: fact requirements are claims that belong ON the page, and my own numbers never do.
     expect(c.sourcePack!.factRequirements).toEqual(["Downspout diverter."]);
     // THE KIND OF SOURCE IS ALL I HOLD HERE: the copy hands the choice over, and the component stays held for review.
-    expect(c.sourcePack!.sourceRequirements).toEqual(['Downspout diverter needs a source a reader can check, of the kind the pages being cited for "rain barrel sizing" point at: a.example, b.example, c.example. You pick the exact page: I hold the kind of source this needs and not the source itself.']);
+    expect(c.sourcePack!.sourceRequirements).toEqual(['Downspout diverter needs a source a reader can check, of the kind the pages being cited for "rain barrel sizing" point at: a.example, b.example, c.example. You pick the exact page: what is on file is the kind of source this needs and not the source itself.']);
     for (const beaconFact of FACTS) expect(JSON.stringify(c)).not.toContain(beaconFact);
     expect(JSON.stringify(c)).not.toContain("6,000");
     expect(JSON.stringify(c)).not.toContain(INVENTED);
@@ -173,33 +173,33 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     for (const beaconFact of FACTS) expect(JSON.stringify(read.components[0])).not.toContain(beaconFact);
     // a refused draft is a refusal, never filler
     const dry = await produceSourceExpansion(ctxOf({ finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }) }));
-    expect([dry.components.length, dry.refusal ?? ""]).toEqual([0, expect.stringContaining("nothing rather than filler")]);
+    expect([dry.components.length, dry.refusal ?? ""]).toEqual([0, expect.stringContaining("nothing is handed over rather than filler")]);
     expect(validate(read.components).verdict).toBe("ready");
     // no reading of the cited pages = no way to say what kind of source stands up: a refusal, never invention
     const unread = await produceSourceExpansion(ctxOf({ pattern: null,
       finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }) }));
-    expect([unread.components.length, unread.refusal!.includes("I have not read the pages being cited")]).toEqual([0, true]);
+    expect([unread.components.length, unread.refusal!.includes("The pages being cited for this search have not been read")]).toEqual([0, true]);
     // and no page words plus no missing subject = nothing a source could back
     const empty = await produceSourceExpansion(ctxOf({ body: null,
       pattern: { ...PATTERN, commonEntities: [] },
       finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }) }));
-    expect([empty.components.length, empty.refusal!.includes("I hold nothing this page could say")]).toEqual([0, true]); });
+    expect([empty.components.length, empty.refusal!.includes("Nothing on file is a claim this page could make")]).toEqual([0, true]); });
   /** TWO PAGES ON ONE SEARCH IS A SIGNAL TO INVESTIGATE, never proof the clicks are splitting, and never a decision handed back to the operator: the survivor is proven
    *  off inspectable evidence or nothing ships. */
   it("settles a split only when the survivor is proven, and then hands over the exact merge", async () => {
     const split = (over: Record<string, unknown> = {}) => finding("cannibalization", { cause: "cannibalization", competingPaths: [PAGE_URL, OTHER_URL], comparison: [], survivor: null, ...over });
     const merge = (over: Record<string, unknown> = {}, bodies?: typeof BODIES) => produceConsolidation(ctxOf({ finding: split(over), ...(bodies ? { heldBodies: bodies } : {}) }));
     const unproven = await merge(); // no comparison and no survivor: an investigation, not a change, and never a question handed back
-    expect([unproven.components.length, unproven.refusal!.includes("I am not telling you to combine anything")]).toEqual([0, true]);
+    expect([unproven.components.length, unproven.refusal!.includes("nothing here says combine anything")]).toEqual([0, true]);
     expect(unproven.refusal).not.toMatch(/you pick|choosing for you|stronger position/i);
     expect((await merge({ comparison: CMP })).components).toHaveLength(0); // both pages' numbers, still no proven survivor
     expect((await merge({ comparison: CMP, survivor: PAGE_URL })).components).toHaveLength(0); // a survivor whose losing page I never read claims nothing about what moves
-    const c = (await merge({ comparison: CMP, survivor: PAGE_URL }, BODIES)).components[0]!; // PROVEN: both pages' numbers, both pages' words, one ahead on both
+    const proven = await merge({ comparison: CMP, survivor: PAGE_URL }, BODIES); const c = proven.components[0]!; const steps = proven.operatorSteps ?? []; // PROVEN: both pages' numbers, both pages' words, one ahead on both
     expect([c.kind, c.risk, c.before, c.redirectTo, answered(c)]).toEqual(["consolidation", "dangerous", null, "/rain-barrels", true]);
     // the operator reads their own pages as paths, the comparison that proves it is in the copy, and so is what moves
     expect(c.after).toContain('2 of your own pages come up for "rain barrel sizing": /rain-barrels, /barrel-sizes');
     expect(c.after).toContain("/rain-barrels earns 90 clicks from that search against 20 on /barrel-sizes");
-    expect([c.after.includes("Gallons per storm"), c.after.includes("https://"), c.after.endsWith("That is about 90 minutes of work: merge the two pages and set one redirect. I mark it high risk because a web address changes.")]).toEqual([true, false, true]); // the effort and the risk on the row, explained in the copy
+    expect([steps.join(" ").includes("Gallons per storm"), c.after.includes("https://"), c.after.endsWith("The risk is high, because a web address changes.")]).toEqual([true, false, true]); // instructions live in the steps, the risk on the row
     expect(c.after).not.toMatch(/I am not choosing for you|you pick|stronger position/i);
     // The change the row would carry IS this component: a merge filed as a section change, never a title rewrite.
     expect(envelope(c)).toEqual({ kind: "existing_edit", field: "section", before: null, after: c.after });
@@ -233,7 +233,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
   /** READY MEANS WHOLE: a rebuild shipping planning sentences under half its copy promised what it did not hold. */
   it("rebuilds a page only when the causes agree, and only when the WHOLE page is written", async () => {
     const one = await produceFullRewriteRecommendation(ctxOf(), ["weak_opening"]);
-    expect([one.components.length, one.refusal!.includes("bigger swing than my evidence pays for")]).toEqual([0, true]);
+    expect([one.components.length, one.refusal!.includes("bigger swing than the evidence pays for")]).toEqual([0, true]);
     const causes = ["weak_opening", "incomplete_coverage", "weak_opening"] as const;
     const many = await produceFullRewriteRecommendation(ctxOf({ draft: whole() }), causes);
     const c = many.components[0]!;
@@ -255,7 +255,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     // ONE SECTION SHORT IS NO REBUILD: nothing is emitted, the refusal counts what is owed, and resuming costs nothing.
     const four = { pattern: { ...PATTERN, commonHeadings: FOUR.map((heading, i) => ({ heading, seenOn: [i] })) } };
     const partial = await produceFullRewriteRecommendation(ctxOf({ ...four, draft: whole(2) }), causes);
-    expect([partial.components.length, partial.refusal]).toEqual([0, "I could write 3 of the 4 sections this rebuild needs and 1 is still owed, so I am not handing you half a page. Ask me again and I will pick up where I stopped: the sections I already wrote cost nothing to ask for a second time."]);
+    expect([partial.components.length, partial.refusal]).toEqual([0, "3 of the 4 sections this rebuild needs are written and 1 is still owed, so half a page is not handed over. Ask again and it picks up where it stopped: the sections already written cost nothing a second time."]);
     // and a page whose sections all landed with no opening to lead them is still not a page
     const mute = await produceFullRewriteRecommendation(ctxOf({ draft: { ...whole(), openingAnswer: async () => null } }), causes);
     expect([mute.components.length, mute.refusal!.includes("no way in")]).toEqual([0, true]);
@@ -274,7 +274,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     }
     // a finding with nothing on file behind it never becomes a component, whatever the payload says
     const unbacked = await produceConsolidation(ctxOf({ finding: { ...finding("cannibalization", { cause: "cannibalization", competingPaths: ["/a", "/b"] }), evidenceKeys: [] } }));
-    expect([unbacked.components.length, unbacked.refusal!.includes("cannot show you anything behind this")]).toEqual([0, true]); }); });
+    expect([unbacked.components.length, unbacked.refusal!.includes("Nothing on file stands behind this")]).toEqual([0, true]); }); });
 describe("what a change actually costs the operator", () => {
   // ONE map for the field a kind writes into, ONE for what it costs: the envelope a test builds is the one production persists, and a merge and a whole rebuild are not
   // one price.

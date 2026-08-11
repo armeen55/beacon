@@ -1,18 +1,14 @@
 /**
- * decision/technical-findings (Phase 5): WHAT IS WRONG WITH HOW A PAGE IS SERVED, read off what this
- * account ALREADY holds and nothing else. Beacon has been able to say "something is stopping this page
- * being indexed" since the cause ladder existed, and could never once say WHICH page or WHAT to do, so
- * the cause sat permanently unheld while the two stores that answer it were being written every day.
+ * decision/technical-findings (Phase 5): WHAT IS WRONG WITH HOW A PAGE IS SERVED, read off what this account ALREADY holds and nothing else. Beacon has been able to say "something is stopping this page
+ * being indexed" since the cause ladder existed, and could never once say WHICH page or WHAT to do, so the cause sat permanently unheld while the two stores that answer it were being written every day.
  *
  * NO GENERIC AUDIT LIVES HERE. A finding exists only with a concrete address and an exact fix an operator
  * can carry out this morning; a rule with nothing behind it produces nothing rather than a caution. Every
  * kind below is decided from the page inventory (how a URL became known, what the last read of it answered,
- * where it sends people) or from the page capture (its title, its heading, its canonical, its robots tag,
- * the links it carries). Nothing is fetched, nothing is inferred, and an absent field is UNKNOWN rather
+ * where it sends people) or from the page capture (its title, its heading, its canonical, its robots tag, the links it carries). Nothing is fetched, nothing is inferred, and an absent field is UNKNOWN rather
  * than a fault: `canonical_url` and `h1` accuse a page only when the capture genuinely holds them.
  *
- * PURE and deterministic: same rows in, byte-identical findings out, in address order. server-only is
- * deliberately absent so the reader is testable on fixtures built from the stores' own shapes.
+ * PURE and deterministic: same rows in, byte-identical findings out, in address order. server-only is deliberately absent so the reader is testable on fixtures built from the stores' own shapes.
  */
 
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
@@ -60,8 +56,7 @@ const at = (u: string): string => {
 };
 
 /**
- * Every fault this account's own rows prove, in address order. Deterministic, free, and empty whenever
- * nothing is held: an account with no inventory and no capture gets no findings rather than a clean bill.
+ * Every fault this account's own rows prove, in address order. Deterministic, free, and empty whenever nothing is held: an account with no inventory and no capture gets no findings rather than a clean bill.
  */
 export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
   const rows = (held.inventory ?? []).filter((r) => !!r?.url?.trim());
@@ -70,10 +65,8 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
   const add = (url: string, kind: TechnicalKind, exactFix: string, evidence: string, exact: string | null = null, redirectTo?: string): void => { out.push({ url, kind, exactFix, evidence, exact, ...(redirectTo ? { redirectTo } : {}) }); };
   const byKey = new Map(rows.map((r) => [canonicalUrlKey(r.url), r]));
   const day = (s?: string | null): string => (s ?? "").slice(0, 10);
-  // THE SUPPORT IS GONE, AND THAT IS THE ONLY THING THAT COUNTS AS GONE. 404 and 410 are the site saying
-  // there is no page here. 401, 403, 429 and a robots refusal are ACCESS states: they say I was not let in,
-  // which is a fact about me, not about the page, and telling an operator their live page is dead because
-  // their firewall rate-limited my crawler is the worst kind of confident wrong. A 5xx is a bad minute
+  // THE SUPPORT IS GONE, AND THAT IS THE ONLY THING THAT COUNTS AS GONE. 404 and 410 are the site saying there is no page here. 401, 403, 429 and a robots refusal are ACCESS states: they say I was not let in,
+  // which is a fact about me, not about the page, and telling an operator their live page is dead because their firewall rate-limited my crawler is the worst kind of confident wrong. A 5xx is a bad minute
   // until a SECOND read on a LATER day says the same thing; one is unknown and stays unknown.
   const dead = (r?: InventoryRow): boolean => {
     if (!r) return false;
@@ -91,8 +84,7 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
   for (const r of rows) {
     const to = (r.redirects_to ?? "").trim();
     const onward = (to ? byKey.get(canonicalUrlKey(to))?.redirects_to ?? "" : "").trim();
-    // A DEAD ADDRESS IS A CHANGE ONLY WHEN I KNOW WHERE IT LIVES NOW. "Put it back, or forward it" names no
-    // destination, so both correct answers read as failures afterwards. With a replacement this account's
+    // A DEAD ADDRESS IS A CHANGE ONLY WHEN I KNOW WHERE IT LIVES NOW. "Put it back, or forward it" names no destination, so both correct answers read as failures afterwards. With a replacement this account's
     // own rows name it is one imperative forward; without one it is an investigation, held out of Ready.
     if (dead(r)) add(r.url, "non_200",
       to ? `I would send ${at(r.url)} on to ${at(to)}, so everyone arriving at the old address lands on the page that replaced it.`
@@ -122,16 +114,14 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
     if (/\b(noindex|none)\b/i.test(p.robots_meta ?? "")) add(p.url, "robots_noindex",
       `I would take "noindex" out of the robots tag on ${here} so it can come back into search.`,
       `${here} carries a robots tag reading "${(p.robots_meta ?? "").trim()}", so search engines are told to leave it out.`);
-    // A HEADING I CAN ACTUALLY WRITE. The page's own title is the exact wording, taken off the page itself
-    // rather than invented, so this arrives as text to paste. A page with no title either gives me nothing
+    // A HEADING I CAN ACTUALLY WRITE. The page's own title is the exact wording, taken off the page itself rather than invented, so this arrives as text to paste. A page with no title either gives me nothing
     // to write from, so there is no finding at all rather than an instruction to go and think of something.
     const ownTitle = (p.title ?? "").trim();
     if ("h1" in p && !(p.h1 ?? "").trim() && ownTitle) add(p.url, "missing_h1",
       `I would put this heading at the top of ${here}: "${ownTitle}".`,
       `${here} has no main heading at all, so the first thing a reader sees never says what the page is.`, ownTitle);
   }
-  // TWO PAGES WEARING ONE NAME. Both addresses are named. I do NOT invent the replacement wording here:
-  // nothing this account holds says what only that page answers, so the finding carries no exact text and
+  // TWO PAGES WEARING ONE NAME. Both addresses are named. I do NOT invent the replacement wording here: nothing this account holds says what only that page answers, so the finding carries no exact text and
   // the producer keeps it out of Ready rather than handing over an instruction dressed as a change.
   const duplicates = (of: "title" | "h1", kind: TechnicalKind, what: string): void => {
     const groups = new Map<string, CapturedPage[]>();
@@ -146,8 +136,7 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
   duplicates("title", "duplicate_title", "title");
   duplicates("h1", "duplicate_h1", "heading");
 
-  // THE LINK GRAPH, ONLY AS FAR AS I HOLD IT. Both rules below read the same held links, so a link I never
-  // captured is never evidence that a page is unreachable or that a link is broken.
+  // THE LINK GRAPH, ONLY AS FAR AS I HOLD IT. Both rules below read the same held links, so a link I never captured is never evidence that a page is unreachable or that a link is broken.
   const graph = pages.filter((p) => Array.isArray(p.internal_links));
   const linked = new Set(graph.flatMap((p) => p.internal_links!.map(canonicalUrlKey)));
   for (const p of graph) for (const href of new Set(p.internal_links!.map(canonicalUrlKey))) {
@@ -162,8 +151,7 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
   // part of it that covers the same subject" is an instruction, not a change: it names no real page, no real
   // spot, and nothing to type. So the source page is CHOSEN from the link graph (the on-topic page the rest
   // of the site already points at most, and the home page only when nothing on the site shares the subject),
-  // the anchor is the orphan's own title or heading as captured, and a finding that cannot name all three
-  // is not written at all: that page goes to research instead of arriving as work.
+  // the anchor is the orphan's own title or heading as captured, and a finding that cannot name all three is not written at all: that page goes to research instead of arriving as work.
   const inbound = new Map<string, number>();
   for (const p of graph) for (const href of new Set(p.internal_links!.map(canonicalUrlKey))) inbound.set(href, (inbound.get(href) ?? 0) + 1);
   const captured = new Map(pages.map((p) => [canonicalUrlKey(p.url), p]));
@@ -184,8 +172,7 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
     const best = ranked[0];
     const source = best && best.shared > 0 ? best.p : graph.find((p) => at(p.url) === "/") ?? null;
     if (!source) continue;
-    // THE SOURCE PAGE IS NAMED THE WAY A PERSON NAMES IT. A bag of matched tokens read as "the section of
-    // it that already covers blog persian restaurants", which is not a place anyone can find on a page.
+    // THE SOURCE PAGE IS NAMED THE WAY A PERSON NAMES IT. A bag of matched tokens read as "the section of it that already covers blog persian restaurants", which is not a place anyone can find on a page.
     const src = captured.get(canonicalUrlKey(source.url));
     const named = ((src?.title ?? "").trim() || (src?.h1 ?? "").trim()) || at(source.url);
     const where = best && best.shared > 0 && source === best.p
@@ -226,13 +213,11 @@ export const technicalKey = (i: number): string => `tech${i + 1}`;
 export function technicalComponents(findings: readonly TechnicalFinding[], query: string): BundleComponent[] {
   return findings.map((f, i) => {
     const lever = LEVER[f.kind];
-    // A FIELD CHANGE CARRIES THE FIELD'S OWN NEW VALUE, never a sentence about it: that value is what the
-    // operator pastes and it is what the live check reads back off the page afterwards. Everything else is
+    // A FIELD CHANGE CARRIES THE FIELD'S OWN NEW VALUE, never a sentence about it: that value is what the operator pastes and it is what the live check reads back off the page afterwards. Everything else is
     // a structural instruction, where the sentence IS the change.
     const after = (lever.kind === "title" || lever.kind === "h1" || lever.kind === "meta") && f.exact ? f.exact : f.exactFix;
     return { kind: lever.kind, label: lever.label, before: null, after, evidenceKeys: [technicalKey(i)],
-      // THE DESTINATION TRAVELS AS AN ADDRESS, never inside a sentence: the first url-shaped word in the
-      // instruction is the address being MOVED, and the live check graded a correct forward against it.
+      // THE DESTINATION TRAVELS AS AN ADDRESS, never inside a sentence: the first url-shaped word in the instruction is the address being MOVED, and the live check graded a correct forward against it.
       ...(f.redirectTo ? { redirectTo: f.redirectTo } : {}),
       risk: lever.risk, where: `${at(f.url)}, and how it is served rather than the words on it`,
       objective: lever.objective, mechanism: f.evidence,

@@ -34,7 +34,7 @@ vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...(await orig<Record<s
     return q; } }) }));
 
 describe("Today renders, and tells the truth about its own queue", () => {
-  it.each([["@/app/(shell)/page", ["max-w-3xl", 'aria-label="Loading today"']], ["@/app/(shell)/changes/page", ["Changes", "in one ranked list"]],
+  it.each([["@/app/(shell)/page", ["max-w-3xl", 'aria-label="Loading today"']], ["@/app/(shell)/changes/page", ["Changes", "ranked by payoff"]],
     ["@/app/(shell)/results/page", ["Results", "7, 14, and 28 days"]]] as const)("renders the %s frame without throwing", async (mod, claims) => {
     const { default: Page } = await import(mod) as { default: (a?: unknown) => Promise<ReactElement> };
     const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
@@ -45,7 +45,7 @@ describe("Today renders, and tells the truth about its own queue", () => {
     // The failure enters where it really enters: Supabase hands the ledger table back an error, three layers under the page.
     DB.ledgerError = { code: "PGRST301", message: "JWT expired" };
     const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
-    expect(html).toContain("I could not read your measured changes just now, so I am not telling you there are none.");
+    expect(html).toContain("Your measured changes could not be read just now, so none is not the answer.");
     expect(html).not.toContain("No changes are being measured yet");
     // AND THE MISSING-TABLE CASE IS STILL A VALID EMPTY: the file fallback is how a pre-migration deploy reads, not an outage.
     DB.ledgerError = { code: "PGRST205", message: "Could not find the table in the schema cache" };
@@ -66,7 +66,7 @@ describe("Today renders, and tells the truth about its own queue", () => {
     expect(view.readyFixes).toHaveLength(12); // every ready page is linkable, not just the previewed three
     expect(buildTodayViewFromChanges(readyView(1, 0)).headerSentence).toBe("You have 1 edit ready, best first.");
   });
-  const NO_WORK = "You have no edits waiting. I rank your next one here the moment it earns its place.";
+  const NO_WORK = "You have no edits waiting. The next one is ranked here the moment it earns its place.";
   const alarm = (actionLabel: string, href: string) => ({ page: "/famous-iranian-comedians", pageKey: "/famous-iranian-comedians", clicksLost: 163,
     windowLabel: "the previous 4 weeks", sentence: "", href, actionLabel, hasReadyFix: actionLabel === "See the fix" });
   const command = (over: Record<string, unknown>) => ({ blockers: [], smokeAlarm: null, scoreboardDeltaPct: -12, readyChanges: [], firstReadOn: null, measuringCount: 0, ...over });
@@ -93,7 +93,7 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const fixed = buildTodaySmokeAlarm({ decay, readyFixes: new Map([["/nowruz", "t::/nowruz::existing_edit::title"]]) })!;
     const bare = buildTodaySmokeAlarm({ decay, readyFixes: new Map() })!;
     expect(fixed.href).toBe(`/changes/${encodeURIComponent("t::/nowruz::existing_edit::title")}`);
-    expect(fixed.actionLabel).toBe("See the fix"); expect(fixed.sentence).toContain("I have a fix ready.");
+    expect(fixed.actionLabel).toBe("See the fix"); expect(fixed.sentence).toContain("A fix is ready.");
     expect(bare.href).toBe("/changes"); expect(bare.actionLabel).toBe("Open Changes"); expect(bare.sentence).not.toContain("fix ready");
     for (const href of [fixed.href, bare.href]) expect(href.startsWith("/page/")).toBe(false); // never a route that does not exist
     const long = "/" + "a".repeat(60); // the DISPLAY label truncates; the key any lookup matches on must not
@@ -106,7 +106,7 @@ describe("Connectors settings route smoke", () => {
     const { default: ConnectorsPage } = await import("@/app/(shell)/settings/connectors/page");
     const html = renderToStaticMarkup((await ConnectorsPage()) as ReactElement);
     for (const claim of ["Connect your tools", "Connect Google Search Console", 'data-connector-card="google-ga4"',
-      'data-connector-card="clarity"', 'data-connectors-summary-strip="true"', "I never touch your live site"]) expect(html).toContain(claim);
+      'data-connector-card="clarity"', 'data-connectors-summary-strip="true"', "Your live site is never touched"]) expect(html).toContain(claim);
     expect(html).not.toContain("Enter Yelp API Key"); expect(html).not.toContain("Wix"); // Wix left the customer product
   });
   it("computes 'N of M connected' from provider reads and surfaces the on-use receipt", async () => {

@@ -1,22 +1,16 @@
 /**
- * decision/propose (CORE 100K decision kernel, 2026-07-22) — the ONE proposal
- * path. It turns one `EvidenceInput` into a validated `ChangeProposal` by
- * calling the EXISTING, trustworthy drafting harness (llm/structured-drafter)
- * — the kernel does NOT re-implement drafting or safety:
+ * decision/propose (CORE 100K decision kernel, 2026-07-22), the ONE proposal path. It turns one `EvidenceInput` into a validated `ChangeProposal` by
+ * calling the EXISTING, trustworthy drafting harness (llm/structured-drafter), the kernel does NOT re-implement drafting or safety:
  *
  *   proposeExistingPageChange → draftAtomicEditStructured → AtomicEditDraft
  *
- * The drafter is gated + budgeted + schema-validated + fired through the
- * content firewalls; it FAILS CLOSED. Its `complete` fn is injectable, so the
- * whole path runs cold with zero paid calls in tests. After a draft lands, the
- * kernel runs the ONE validator (validate-proposal) and stamps the lifecycle
- * stage. A refused draft comes back as a `withdrawn` outcome, never dropped
- * silently and never presented as ready.
+ * The drafter is gated + budgeted + schema-validated + fired through the content firewalls; it FAILS CLOSED. Its `complete` fn is injectable, so the
+ * whole path runs cold with zero paid calls in tests. After a draft lands, the kernel runs the ONE validator (validate-proposal) and stamps the lifecycle
+ * stage. A refused draft comes back as a `withdrawn` outcome, never dropped silently and never presented as ready.
  *
  * PUBLISHING IS MANUAL: this returns a proposal. It NEVER writes a live page.
  *
- * server-only (imports the LLM harness). Deterministic under an injected
- * `complete`.
+ * server-only (imports the LLM harness). Deterministic under an injected `complete`.
  */
 
 import "server-only";
@@ -111,16 +105,14 @@ function assemble(args: {
 
 /**
  * COLD-GENERATE an exact existing-page edit (title/meta rewrite) and validate
- * it into a ChangeProposal. Returns `no_draft` when the harness is off / budget-
- * blocked / could not produce a schema-valid draft (fail-closed).
+ * it into a ChangeProposal. Returns `no_draft` when the harness is off / budget- blocked / could not produce a schema-valid draft (fail-closed).
  */
 export async function proposeExistingPageChange(
   input: EvidenceInput,
   opts: ProposeOptions = {},
 ): Promise<ProposalOutcome> {
   const now = opts.now ?? new Date();
-  // NO DRAFT SPEND BEFORE A DIAGNOSIS. A gap proves something is wrong and never what
-  // to change, so a candidate whose results page does not accuse a specific field
+  // NO DRAFT SPEND BEFORE A DIAGNOSIS. A gap proves something is wrong and never what to change, so a candidate whose results page does not accuse a specific field
   // costs nothing here: no completion call, no copy, no persisted proposal.
   const diagnosis = input.evidence.diagnosis;
   if (!readyForAction(diagnosis)) {
@@ -159,24 +151,19 @@ export async function proposeExistingPageChange(
     after: value.after,
   };
 
-  // Validate FIRST against a placeholder status, then re-stamp — validation
-  // decides the status, so we assemble twice-free by computing validation on a
-  // provisional proposal shape.
+  // Validate FIRST against a placeholder status, then re-stamp, validation decides the status, so we assemble twice-free by computing validation on a provisional proposal shape.
   const provisional = assemble({
     input,
     change,
     whyItMatters: value.rationale,
     confidence: value.confidence,
     draftRisks: value.risks ?? [],
-    // The COUNT IS THE EVIDENCE, never the drafter's own claim about it: a drafter
-    // that said "evidenceRefs: 1" used to set this while its receipt held nothing.
+    // The COUNT IS THE EVIDENCE, never the drafter's own claim about it: a drafter that said "evidenceRefs: 1" used to set this while its receipt held nothing.
     evidenceRefCount: diagnosis!.evidenceKeys.length,
     now,
     validation: NEUTRAL_VALIDATION,
   });
-  // The gate judges "did the rewrite keep what this page is about" against the
-  // candidate's OWN words. Without them it once fell back to one tenant's
-  // vocabulary and rejected every draft for everyone else.
+  // The gate judges "did the rewrite keep what this page is about" against the candidate's OWN words. Without them it once fell back to one tenant's vocabulary and rejected every draft for everyone else.
   const contextTokens = [...new Set(
     `${input.opportunity.query} ${input.page.label ?? ""} ${input.opportunity.currentValue ?? ""}`
       .toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2),
@@ -184,9 +171,7 @@ export async function proposeExistingPageChange(
   const validation = validateProposal(provisional, {
     contextTokens,
     pageBodyText: input.evidence.pageBodyText,
-    // Ground the validator on the SAME blob the drafter grounded on (outline +
-    // current value + hints), so anything the drafter was allowed to draw on is
-    // grounding the entailment gate also accepts.
+    // Ground the validator on the SAME blob the drafter grounded on (outline + current value + hints), so anything the drafter was allowed to draw on is grounding the entailment gate also accepts.
     evidenceText: [
       ...(input.evidence.outline ?? []),
       input.opportunity.currentValue ?? "",

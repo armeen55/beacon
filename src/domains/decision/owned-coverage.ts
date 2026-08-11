@@ -1,8 +1,6 @@
 /**
- * owned-coverage (2026-07-28) - the DETERMINISTIC half of ONE question: does this business
- * ALREADY have the page that answers what I just investigated? It builds the bounded set of
- * OWNED pages that could plausibly be that page, each carrying the EVIDENCE that put it
- * there. It never calls a model and never returns a verdict: the adjudicator reasons over
+ * owned-coverage (2026-07-28) - the DETERMINISTIC half of ONE question: does this business ALREADY have the page that answers what I just investigated? It builds the bounded set of
+ * OWNED pages that could plausibly be that page, each carrying the EVIDENCE that put it there. It never calls a model and never returns a verdict: the adjudicator reasons over
  * these candidates. Every signal is labelled by STRENGTH so a hint can never read as proof:
  *   STRONG  the page takes Search Console impressions for one of the exact queries; its own
  *           URL sits in the exact results I looked at; an engine cites it for a prompt here;
@@ -12,10 +10,8 @@
  *           page. It may never establish coverage.
  *   UNKNOWN I do not hold this page's words. That is NOT absence of coverage, and the
  *           difference decides whether Beacon builds a duplicate of a page I have.
- * A word this account puts on nearly everything (weakAnchorsOf, from its OWN corpus) can
- * never map a page on its own. One canonical URL identity and one publisher rollup
- * throughout, so a page is never two pages and a subdomain is never a second publisher.
- * Pure and deterministic: same evidence in, same ordered candidates out.
+ * A word this account puts on nearly everything (weakAnchorsOf, from its OWN corpus) can never map a page on its own. One canonical URL identity and one publisher rollup
+ * throughout, so a page is never two pages and a subdomain is never a second publisher. Pure and deterministic: same evidence in, same ordered candidates out.
  */
 
 import type { BusinessProfile } from "@/domains/account";
@@ -63,16 +59,13 @@ const pathOf = (key: string): string => { try { return new URL(`https://${key}`)
 
 export function ownedCandidatesFor(snapshot: EvidenceSnapshot, investigation: TopicInvestigation,
   held: ReadonlyMap<string, HeldBody> = new Map()): OwnedCandidate[] {
-  // WHO I AM, rolled up once: a page on my own subdomain is my page, and a rival's
-  // domain can never reach this set, so a competitor never becomes a candidate. When a
-  // failed read leaves the scope without my site, the host most of my own pages sit on
-  // IS my site; without that fallback the identity repair below silently stops working.
+  // WHO I AM, rolled up once: a page on my own subdomain is my page, and a rival's domain can never reach this set, so a competitor never becomes a candidate. When a
+  // failed read leaves the scope without my site, the host most of my own pages sit on IS my site; without that fallback the identity repair below silently stops working.
   const hosts = new Map<string, number>();
   for (const p of snapshot.ownedPages) { const h = publisherHost(p.url); if (h.includes(".")) hosts.set(h, (hosts.get(h) ?? 0) + 1); }
   const site = publisherHost(snapshot.scope.site ?? "") || [...hosts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] || "";
   const publishers = new Set([...hosts.keys(), site].filter((h) => h.includes(".")));
-  // ONE identity per page. Some owned rows are stored as a bare path, and read
-  // literally that made "/iran-flags/x" a second page beside "site.com/iran-flags/x":
+  // ONE identity per page. Some owned rows are stored as a bare path, and read literally that made "/iran-flags/x" a second page beside "site.com/iran-flags/x":
   // the same page twice, which is exactly how a duplicate gets built.
   const keyOf = (raw: string): string => {
     const key = canonicalUrlKey(raw);
@@ -147,8 +140,7 @@ export function ownedCandidatesFor(snapshot: EvidenceSnapshot, investigation: To
     }
   }
 
-  // 4. My keyword research records me ranking for one of these queries. KNOWN LIMIT:
-  // the ranked-keyword rows on file carry no ranking URL, so this corroborates the
+  // 4. My keyword research records me ranking for one of these queries. KNOWN LIMIT: the ranked-keyword rows on file carry no ranking URL, so this corroborates the
   // page the evidence above already located and never names a page on its own.
   for (const k of snapshot.research.retainedKeywords) {
     if (k.discoveredVia !== "ranked") continue;
@@ -156,11 +148,9 @@ export function ownedCandidatesFor(snapshot: EvidenceSnapshot, investigation: To
       basis: k.query, detail: `My keyword research already records this site ranking for "${k.query}".` });
   }
 
-  // 5. The page's OWN words plus the shape that wins here. EVERY distinguishing word
-  // of the topic has to be present, never one of them: on one shared word this called
+  // 5. The page's OWN words plus the shape that wins here. EVERY distinguishing word of the topic has to be present, never one of them: on one shared word this called
   // a city guide, a shop category and the homepage coverage of a leadership topic none
-  // of them mentions. A topic whose only words are ones this account puts on
-  // everything has no distinguishing word left, so it maps NO page at all.
+  // of them mentions. A topic whose only words are ones this account puts on everything has no distinguishing word left, so it maps NO page at all.
   const subject = topicTokens(investigation.label).filter((t) => !weak.has(t));
   const covers = (text: string): boolean => { const owns = new Set(topicTokens(text)); return subject.length > 0 && subject.every((t) => owns.has(t)); };
   for (const [key, page] of ownedPages) {
@@ -204,8 +194,7 @@ function finish(d: Draft, body: HeldBody | undefined, x: Extract | undefined): O
 
 /**
  * The account's own Business Profile topics this investigation collides with. A
- * FACT the adjudicator must see, never a silent drop: a topic the operator ruled
- * out is a reason to stop, and it deserves to be said out loud.
+ * FACT the adjudicator must see, never a silent drop: a topic the operator ruled out is a reason to stop, and it deserves to be said out loud.
  */
 export function topicOutOfScope(snapshot: EvidenceSnapshot, investigation: TopicInvestigation, profile: BusinessProfile | null | undefined): string[] {
   const weak = weakAnchorsOf(snapshot.ownedPages, snapshot.research);

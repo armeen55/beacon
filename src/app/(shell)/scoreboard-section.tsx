@@ -228,7 +228,7 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
             {s.markers.some((m) => m.tone === "won") ? (
               <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> a change that won more clicks</span>
             ) : null}
-            <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-400" /> a change I have not judged yet</span>
+            <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-400" /> a change not judged yet</span>
           </div>
         </div>
         <ScoreboardChartTabs

@@ -1,8 +1,6 @@
 /**
- * Page Surgeon — assemble a real EvidencePacket for a page from the ACTUAL
- * signal loaders (GSC, Clarity, GA4) + the page snapshot crawl. Pure I/O
- * orchestration; never fabricates a metric (absent source → omitted, and
- * recorded under sourcesConnectedButEmpty). Server-only.
+ * Page Surgeon, assemble a real EvidencePacket for a page from the ACTUAL signal loaders (GSC, Clarity, GA4) + the page snapshot crawl. Pure I/O
+ * orchestration; never fabricates a metric (absent source → omitted, and recorded under sourcesConnectedButEmpty). Server-only.
  */
 
 import "server-only";
@@ -19,10 +17,8 @@ import type { PageSnapshot } from "@/domains/evidence/pages/types";
 import { expectedCtrForPosition as expectedCtr } from "./expected-ctr";
 
 /**
- * The evidence packet for ONE page, owned here because this is the only place
- * that builds one. Every source is optional and absence is never zero: a page
- * with no Clarity rows says so under sourcesConnectedButEmpty instead of
- * reporting a fabricated 0. (The rest of the retired page-surgeon contract, a
+ * The evidence packet for ONE page, owned here because this is the only place that builds one. Every source is optional and absence is never zero: a page
+ * with no Clarity rows says so under sourcesConnectedButEmpty instead of reporting a fabricated 0. (The rest of the retired page-surgeon contract, a
  * candidate/score/evaluator taxonomy nothing generated any more, is deleted.)
  */
 type EvidencePacket = {
@@ -133,10 +129,8 @@ function deriveBoilerplate(snapshots: PageSnapshot[]): string[] {
   return out;
 }
 
-// The full context (every snapshot + every per-tenant signal map) is the heavy
-// read in the surgeon path — re-pulling it on each review interaction is the
-// egress class the /today timeout taught us to respect. With crons off the data
-// only moves on an explicit refresh, so a short in-process TTL is safe and large.
+// The full context (every snapshot + every per-tenant signal map) is the heavy read in the surgeon path, re-pulling it on each review interaction is the
+// egress class the /today timeout taught us to respect. With crons off the data only moves on an explicit refresh, so a short in-process TTL is safe and large.
 const CONTEXT_TTL_MS = 60_000;
 const LARGE_SNAPSHOT_READ = 2000;
 const contextCache = new Map<string, { ctx: PageSurgeonContext; expiresAt: number }>();
@@ -174,8 +168,7 @@ async function loadPageSurgeonContextUncached(
     if (!snapshotByCanon.has(c)) snapshotByCanon.set(c, s);
   }
 
-  // Competitor domains (market rivals): DataForSEO SERP winners are the market
-  // layer (wired separately). Empty here until that layer feeds this context.
+  // Competitor domains (market rivals): DataForSEO SERP winners are the market layer (wired separately). Empty here until that layer feeds this context.
   const competitorDomains: string[] = [];
 
   // Meter the read so a large egress pull is visible, not silent.
@@ -195,9 +188,7 @@ async function loadPageSurgeonContextUncached(
     tenantId,
     brand: inferBrandSuffix(snapshots.values()),
     boilerplateTerms: deriveBoilerplate(snapshots),
-    // Publishing is manual in the MVP (Product Truth: autonomy and approval).
-    // The legacy per-tenant publish_target channel is retired; every pack is
-    // prepared for manual implementation.
+    // Publishing is manual in the MVP (Product Truth: autonomy and approval). The legacy per-tenant publish_target channel is retired; every pack is prepared for manual implementation.
     publishChannel: "none",
     snapshotByCanon,
     gscByUrl,
@@ -228,8 +219,7 @@ export function assemblePacketForUrl(
   const clarity = ctx.clarityByUrl.get(canonUrl);
   const ga4 = ctx.ga4ByUrl.get(canonUrl);
 
-  // GA4 "present" must mean real traffic, not just a zero-metric row so a
-  // 0-session page is honestly "connected but empty".
+  // GA4 "present" must mean real traffic, not just a zero-metric row so a 0-session page is honestly "connected but empty".
   const hasGa4 = !!ga4 && ga4.sessions28d > 0;
 
   const present: string[] = [];
@@ -305,8 +295,7 @@ export function assemblePacketForUrl(
       metaDescription: snap.meta_description ?? null,
       h2List: snap.h2_list ?? [],
       h3List: snap.h3_list ?? [],
-      // Serialize crawl FAQs as readable "question: answer" text, not a raw JSON
-      // blob (keys + source enum) — the judge reads this as its ground truth, so a
+      // Serialize crawl FAQs as readable "question: answer" text, not a raw JSON blob (keys + source enum), the judge reads this as its ground truth, so a
       // blob both wastes tokens and reads as noise instead of the actual Q&A.
       faqs: (snap.faqs ?? []).map((f) => {
         if (typeof f === "string") return f;

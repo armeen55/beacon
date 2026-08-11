@@ -1,23 +1,17 @@
 /**
- * brand-heuristics (2026-07-21) - the two pure site-brand helpers the Page
- * Surgeon Ready path still needs after the trigger->promotion producer
- * pipeline was retired. Relocated verbatim from the deleted
- * recommendation-intelligence/draft-enrichment.ts:
- * consumed by assemble-packet's title context (the packet owner).
+ * brand-heuristics (2026-07-21) - the two pure site-brand helpers the Page Surgeon Ready path still needs after the trigger->promotion producer pipeline was retired. Relocated verbatim from the deleted
+ * recommendation-intelligence/draft-enrichment.ts: consumed by assemble-packet's title context (the packet owner).
  *   - inferBrandSuffix: infer the site's title-suffix brand from its own
  *     pages (assemble-packet).
  */
 
 import type { PageSnapshot } from "@/domains/evidence/pages/types";
 
-// The em-dash and en-dash separators are matched DATA (real site titles use
-// them), written as unicode escapes so no literal dash appears in source.
+// The em-dash and en-dash separators are matched DATA (real site titles use them), written as unicode escapes so no literal dash appears in source.
 const TITLE_SUFFIX_SEPARATORS = [" | ", " \u2014 ", " \u2013 ", " :: "];
 
 /**
- * Universal CMS placeholder strings (Wix/WordPress/Squarespace template
- * defaults). A heading/title equal to one of these is template residue,
- * not content - never use it as a draft base, never treat it as a
+ * Universal CMS placeholder strings (Wix/WordPress/Squarespace template defaults). A heading/title equal to one of these is template residue, not content - never use it as a draft base, never treat it as a
  * brand. Platform hygiene, not vertical vocabulary.
  */
 const CMS_PLACEHOLDER_TEXTS: ReadonlySet<string> = new Set([
@@ -41,15 +35,11 @@ function firstPathSegment(url: string): string {
 }
 
 /**
- * Infer the site's brand/title suffix from its own pages. A tail only
- * counts as the BRAND when it behaves like one:
+ * Infer the site's brand/title suffix from its own pages. A tail only counts as the BRAND when it behaves like one:
  *   - appears on >=3 titled pages, AND
  *   - spans >=2 distinct first path segments.
- * A collection/category tail (e.g. every "/iran-animals/..." dynamic page
- * ending "| Iran Animals & Wildlife") fails the diversity test - caught
- * live on Wix dynamic pages, where the most COMMON tail is usually a
- * collection name, not the site. Returns null when nothing qualifies;
- * drafts simply go suffix-less.
+ * A collection/category tail (e.g. every "/iran-animals/..." dynamic page ending "| Iran Animals & Wildlife") fails the diversity test - caught
+ * live on Wix dynamic pages, where the most COMMON tail is usually a collection name, not the site. Returns null when nothing qualifies; drafts simply go suffix-less.
  */
 export function inferBrandSuffix(
   snapshots: Iterable<PageSnapshot>,

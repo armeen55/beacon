@@ -92,11 +92,11 @@ export async function getGoogleGa4ConnectorStatus(): Promise<ConnectorInfo> {
  * for whoever can use it; the screen gets a sentence that says what happened and what to do next.
  */
 const TROUBLE = {
-  auth: "I could not start the Google sign in just now. Try again in a moment.",
-  save: "I could not save that just now. Try again in a moment.",
-  disconnect: "I could not disconnect that just now. Try again in a moment.",
-  list: "I could not read your Analytics properties just now. Try again in a moment.",
-  sync: "I could not refresh this source just now. Try again in a moment.",
+  auth: "The Google sign in could not start just now. Try again in a moment.",
+  save: "That could not be saved just now. Try again in a moment.",
+  disconnect: "That could not be disconnected just now. Try again in a moment.",
+  list: "Your Analytics properties could not be read just now. Try again in a moment.",
+  sync: "This source could not be refreshed just now. Try again in a moment.",
 } as const;
 
 /** ONE place the real error reaches the log, and it never reaches the screen. */
@@ -463,7 +463,7 @@ const FAILED_REASON_COPY: Record<string, string> = {
     "Beacon pulled your data but couldn't save it, please try again in a moment.",
   // The key is missing OR the API rejected the request.
   no_key_or_api_error:
-    "I could not reach this data source. Check the connection details on this card and try again.",
+    "This data source could not be reached. Check the connection details on this card and try again.",
   // No competitor configured yet to pull citations against.
   no_known_competitor:
     "Add at least one competitor in Settings → Config, then sync again.",
@@ -860,9 +860,9 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
     // what I gather myself".
     const extra = await requestExtraSample(tenantId, reportingDay(Date.now())).catch(() => null);
     if (extra) log.info("Action extra AI reading", { action, granted: extra.granted, due: extra.due.length, reason: extra.reason });
-    if (connected.length === 0) results.push({ provider: "beacon_research", label: "My own research.", ok: true,
-      detail: `${extra == null ? "I could not tell whether a fresh AI reading is due just now, so I am not promising one."
-        : extra.granted ? `I am taking ${extra.due.length} fresh AI ${extra.due.length === 1 ? "reading" : "readings"} now.`
+    if (connected.length === 0) results.push({ provider: "beacon_research", label: "Beacon's own research.", ok: true,
+      detail: `${extra == null ? "Whether a fresh AI reading is due could not be told just now, so none is promised."
+        : extra.granted ? `Taking ${extra.due.length} fresh AI ${extra.due.length === 1 ? "reading" : "readings"} now.`
           : extra.reason} Connect Google to refresh your search data too.` });
 
     revalidatePath("/");

@@ -10,13 +10,13 @@ import { requestMagicLink } from "./actions";
  */
 const LOGIN_ERROR_MESSAGES: Record<string, string> = {
   no_account:
-    "I could not find a workspace for this sign in. Create one from the signup page to get started.",
+    "No workspace matches this sign in. Create one from the signup page to get started.",
   multiple_accounts_unsupported:
-    "This email is attached to more than one workspace, which I cannot open yet. Reply to your welcome email and I will sort it out.",
-  account_unavailable: "I could not open your account just now. Try again in a minute.",
+    "This email is attached to more than one workspace, which Beacon cannot open yet. Reply to your welcome email to get it sorted.",
+  account_unavailable: "Your account could not be opened just now. Try again in a minute.",
 };
 const LOGIN_ERROR_FALLBACK =
-  "I could not finish signing you in just now. Request a fresh link below and try again.";
+  "Signing you in could not finish just now. Request a fresh link below and try again.";
 
 export function LoginForm({
   next,
@@ -93,7 +93,7 @@ export function LoginForm({
         disabled={pending || !email}
         className="w-full rounded-md bg-foreground px-4 py-2 text-[13px] font-semibold text-background disabled:opacity-50"
       >
-        {pending ? "Sending…" : "Email me a sign-in link"}
+        {pending ? "Sending…" : "Email a sign-in link"}
       </button>
     </form>
   );

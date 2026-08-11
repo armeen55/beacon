@@ -52,7 +52,7 @@ export function TodayProofStrip({ measuringCount, firstReadOn, firstSettledReadO
   });
 
   // The genuine cold start, and ONLY it: nothing in flight AND nothing ever settled.
-  if (measuringCount <= 0 && decidedCount <= 0) return <EmptyState headline="Nothing is measuring yet." nextStep="Ship a change and I will start tracking it here." />;
+  if (measuringCount <= 0 && decidedCount <= 0) return <EmptyState headline="Nothing is measuring yet." nextStep="Make a change and tracking for it starts here." />;
   // ZERO IN FLIGHT IS NOT ZERO EVIDENCE. Nothing measuring with readings already settled is a healthy state, so it gets its own sentence and its own way into Results, never the cold-start instruction printed over finished work.
   const inFlight = measuringCount > 0;
   return (
@@ -76,7 +76,7 @@ export function TodayProofStrip({ measuringCount, firstReadOn, firstSettledReadO
           href="/results"
           className="shrink-0 text-meta font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
-          {inFlight ? "See what's measuring" : "See what I learned"} &rarr;
+          {inFlight ? "See what's measuring" : "See what was learned"} &rarr;
         </Link>
       </div>
       <ReceiptLine className="mt-1" line={receipt} />

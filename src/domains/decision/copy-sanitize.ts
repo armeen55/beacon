@@ -1,14 +1,10 @@
 /**
- * decision/copy-sanitize: the shared nets every piece of drafted copy is held to, in ONE
- * place. Does this string leak a raw id, name a website, or promise that something goes
- * live by itself? The drafter and the final validator used to keep private copies of the
- * last two: the validator knew thirteen public suffixes and the drafter thirty-three, so
+ * decision/copy-sanitize: the shared nets every piece of drafted copy is held to, in ONE place. Does this string leak a raw id, name a website, or promise that something goes
+ * live by itself? The drafter and the final validator used to keep private copies of the last two: the validator knew thirteen public suffixes and the drafter thirty-three, so
  * an invented .wiki address passed both and reached the operator as a source to check.
  *
- * That is all that is left, and all that was ever used. The rest of this file was a
- * render-time scrubber for a recommendation queue, a cluster-label cleaner and a
- * write-time token blocklist, every one of them built for layers that no longer exist
- * and every one of them called by nothing. A guard nobody runs guards nothing.
+ * That is all that is left, and all that was ever used. The rest of this file was a render-time scrubber for a recommendation queue, a cluster-label cleaner and a
+ * write-time token blocklist, every one of them built for layers that no longer exist and every one of them called by nothing. A guard nobody runs guards nothing.
  *
  * PURE and deterministic.
  */

@@ -141,7 +141,7 @@ export function buildTodaySmokeAlarm(input: {
   // instead of a /changes/<id> route that would 404.
   const mapped = input.readyFixes.get(fixKey);
   const readyProposalId = mapped ? mapped : null;
-  const closing = mapped !== undefined ? "I have a fix ready." : "Worth a look before it slides further.";
+  const closing = mapped !== undefined ? "A fix is ready." : "Worth a look before it slides further.";
   // `lost` is clicksPrior - clicksNow across two consecutive 28-day windows: the
   // page got `lost` FEWER clicks in the most recent 4 weeks than in the 4 weeks
   // before. "in the last 4 weeks" read as an absolute single-window count and was

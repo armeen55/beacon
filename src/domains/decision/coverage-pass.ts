@@ -10,8 +10,7 @@ import "server-only";
  * same pass, so a run can never pay for one topic's comparison while a different topic is judged. A comparison
  * is matched to the topic that OWNS it and to the exact ask that bought it, under the account's current basis.
  *
- * $0 AND $0 OF THE WEB: no model runs, no provider is paid and NO WEBSITE IS FETCHED. The owed page is NAMED as
- * plain data, and its stored body, or the stored reason it is unread, is READ. Nothing else. */
+ * $0 AND $0 OF THE WEB: no model runs, no provider is paid and NO WEBSITE IS FETCHED. The owed page is NAMED as plain data, and its stored body, or the stored reason it is unread, is READ. Nothing else. */
 
 import type { BusinessProfile } from "@/domains/account";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
@@ -167,21 +166,18 @@ function storedComparisonFor(snapshot: EvidenceSnapshot, inv: TopicInvestigation
  * ONE RANKED PASS over every subject this account has a stake in, and the ONLY reading of it any step gets. It
  * adjudicates every topic in the same order, gives each one the comparison IT owns, and returns both halves of
  * the answer: the highest-ranked topic that reached a real verdict, and what the rest is still stuck on. The
- * topic that OWNS a comparison is the topic judged with it, and a comparison whose basis, topic or exact ask
- * has drifted is refused. $0: no model runs and no provider is paid.
+ * topic that OWNS a comparison is the topic judged with it, and a comparison whose basis, topic or exact ask has drifted is refused. $0: no model runs and no provider is paid.
  */
 /** The verdicts that can still become work an operator does. `do_nothing` is a finished
  *  answer, not one of them. */
 const ACTS = new Set<CoverageVerdict>(["create_new", "improve_existing", "consolidate_or_choose"]);
 
 export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string, opts: ReadCoverageOptions = {}): Promise<CoverageRead> {
-  // EXPLICIT: 0 means "decide only, buy nothing". It caught me in a live probe reporting no
-  // needs at all, so the default states its intent rather than looking like an oversight.
+  // EXPLICIT: 0 means "decide only, buy nothing". It caught me in a live probe reporting no needs at all, so the default states its intent rather than looking like an oversight.
   const max = opts.maxQueries ?? 0;
   const needs: ResearchNeed[] = [];
   const seen = new Set<string>();
-  // ONE body cache for the whole pass, and one bounded read: at most three of my own pages,
-  // asked for once each, never the site. Every candidate rebuild reads out of this map.
+  // ONE body cache for the whole pass, and one bounded read: at most three of my own pages, asked for once each, never the site. Every candidate rebuild reads out of this map.
   const bodies = new Map<string, OwnedPageBody>();
   const asked = new Set<string>();
   let queries = 0;
@@ -191,8 +187,7 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
   // WHY A PAGE OF MINE IS UNREAD, off the research row Evidence persisted it to. Not a fetch, and not a guess.
   const ownedReads = new Map((snapshot.research.ownedReads ?? []).map((o) => [o.url, o]));
   for (const inv of rankInvestigations(topicsFor(snapshot), (i) => ownedOpportunity(snapshot, i))) {
-    // STOPPING ON A PARK IS HOW THE RULE BELOW BECAME DEAD CODE: production reads this pass with
-    // no research budget, so the walk ended the moment ANY verdict landed, and a park ranks first.
+    // STOPPING ON A PARK IS HOW THE RULE BELOW BECAME DEAD CODE: production reads this pass with no research budget, so the walk ended the moment ANY verdict landed, and a park ranks first.
     if (decided && ACTS.has(decided.decision.verdict) && queries >= max && (max <= 0 || needs.some((n) => n.comparison))) break;
     let candidates = ownedCandidatesFor(snapshot, inv, bodies);
     const judge = { outOfScopeTopics: topicOutOfScope(snapshot, inv, opts.profile ?? null), now: opts.now, site: snapshot.scope?.site ?? null,
@@ -201,24 +196,20 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
     let decision: CoverageDecision;
     try { decision = await adjudicateCoverage(inv, candidates, tenantId, judge); } catch { continue; }
     // A PAGE OF MINE WHOSE WORDS ARE ALREADY STORED IS NOT AN UNREAD PAGE: the strong ones are read now and
-    // judged again in the SAME pass, because a requirement I can close in this breath is not a reason to send
-    // the operator away.
+    // judged again in the SAME pass, because a requirement I can close in this breath is not a reason to send the operator away.
     let ownedRead: OwnedPageReadOutcome | null = null;
     let ownedUrl: string | null = null;
     if (decision.missing[0] === "owned_content") {
       const want = candidates.filter((c) => c.strongSignals > 0 && !c.bodyHeld && !asked.has(c.url)).slice(0, MAX_BODY_READS - asked.size).map((c) => c.url);
       for (const u of want) asked.add(u);
       const read = want.length > 0 ? await loadOwnedPageBodies(tenantId, want).catch(() => null) : null;
-      // ONE FRESHNESS MATRIX, BOTH SIDES OF THE FENCE: judging a body of any age as held here made this gate
-      // and Evidence's own page phase disagree about the word "current".
+      // ONE FRESHNESS MATRIX, BOTH SIDES OF THE FENCE: judging a body of any age as held here made this gate and Evidence's own page phase disagree about the word "current".
       for (const [key, body] of read ?? []) if (isCurrent("owned_page", body.fetchedAt, nowMs)) bodies.set(key, body);
       // AN EMPTY BODY STORE IS UNKNOWN COVERAGE, NEVER PROOF A PAGE HAS NO WORDS. A page my own results name,
-      // whose words are not on file, is NAMED for the run's page phase to read under its lease; naming it here
-      // is free and safe, and fetching it here was the whole defect.
+      // whose words are not on file, is NAMED for the run's page phase to read under its lease; naming it here is free and safe, and fetching it here was the whole defect.
       const owed = want.find((u) => !bodies.has(u));
       if (owed) { ownedUrl = owed; ownedRead = ownedReads.get(owed) ?? null; }
-      // DECIDE AGAIN IN THE SAME PASS: a body already stored is judged in this breath, and a read that failed
-      // hands the verdict its persisted reason so the verdict says which failure this was and on what date.
+      // DECIDE AGAIN IN THE SAME PASS: a body already stored is judged in this breath, and a read that failed hands the verdict its persisted reason so the verdict says which failure this was and on what date.
       if (ownedRead || want.some((u) => bodies.has(u))) {
         candidates = ownedCandidatesFor(snapshot, inv, bodies);
         try { decision = await adjudicateCoverage(inv, candidates, tenantId, { ...judge, ownedRead }); } catch { continue; }
@@ -226,24 +217,21 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
     }
     let ask = intersectionComparison(decision, inv, candidates);
     let reading: PageCoverageReading | null = null;
-    // THE ANSWER THIS TOPIC ALREADY BOUGHT, matched on its own key AND the exact ask, so a
-    // comparison bought for another topic can never be read as evidence about this one.
+    // THE ANSWER THIS TOPIC ALREADY BOUGHT, matched on its own key AND the exact ask, so a comparison bought for another topic can never be read as evidence about this one.
     const held = ask ? opts.intersection ?? storedComparisonFor(snapshot, inv, opts.basis ?? null, ask) : null;
     if (held) {
       try { decision = await adjudicateCoverage(inv, candidates, tenantId, { ...judge, intersection: held }); } catch { continue; }
       reading = readComparison(held, candidates);
       ask = intersectionComparison(decision, inv, candidates);
     }
-    // A PARK MAY NEVER OUTRANK A DECISION: `decided` is the ONLY door to the new-page builder, so one parked
-    // topic taking it would starve every topic that could actually earn work. An actionable verdict always
+    // A PARK MAY NEVER OUTRANK A DECISION: `decided` is the ONLY door to the new-page builder, so one parked topic taking it would starve every topic that could actually earn work. An actionable verdict always
     // wins; a park is the answer only when nothing else is.
     if (decision.verdict !== "research_needed" && (!decided || (ACTS.has(decision.verdict) && !ACTS.has(decided.decision.verdict)))) {
       decided = { investigation: inv, candidates, decision, reading };
     }
     const query = (nextResearchQuery(decision, inv) ?? "").trim();
     const comparison = max <= 0 || query || needs.some((n) => n.comparison) ? null : ask;
-    // A CASE THAT CAN ONLY WAIT IS STILL A CASE, and the EARLIEST of those dates is the whole account's
-    // waiting truth, counted over every topic walked rather than only the ones inside the research budget.
+    // A CASE THAT CAN ONLY WAIT IS STILL A CASE, and the EARLIEST of those dates is the whole account's waiting truth, counted over every topic walked rather than only the ones inside the research budget.
     const retryAfter = decision.hold ?? null;
     if (retryAfter && (waitingUntil == null || retryAfter < waitingUntil)) waitingUntil = retryAfter;
     const owedBody = decision.missing[0] === "owned_content";
@@ -252,8 +240,7 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
     // NOTHING LEFT TO BUY RELEASES THE SLOT, and A SEARCH IS SOMETHING LEFT TO BUY. `diminishing` is computed
     // against the WINNER window, so between days 8 and 30 after a look a fully researched topic asks for a fresh
     // results page and still reads as diminishing; releasing it there dropped the exact class that ranks first.
-    // The release is for a topic NO purchase can move: no search, no comparison, no page of my own owed, no date
-    // I promised. That is the mixed-meaning shape it was written for and nothing else.
+    // The release is for a topic NO purchase can move: no search, no comparison, no page of my own owed, no date I promised. That is the mixed-meaning shape it was written for and nothing else.
     if (inv.diminishing && !query && !comparison && !owedBody && !retryAfter) continue;
     if (query ? queries >= max || seen.has(query.toLowerCase()) : (!comparison && !retryAfter && !owedBody) || queries >= max) continue;
     seen.add(query.toLowerCase()); queries += 1;

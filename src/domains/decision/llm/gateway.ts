@@ -1,15 +1,11 @@
 import "server-only";
 
 /**
- * llm/gateway (Slice 3, 2026-07-23) - THE single OpenAI egress, now a STRICT
- * Structured-Outputs transport over the canonical Responses API.
+ * llm/gateway (Slice 3, 2026-07-23) - THE single OpenAI egress, now a STRICT Structured-Outputs transport over the canonical Responses API.
  *
- * `openAIStructuredResponse` is the one door every internal-reasoning call uses.
- * It converts the caller's Zod schema to a strict JSON Schema, POSTs to
- * `POST /v1/responses` with `text.format.{type:"json_schema", strict:true}`, and
- * returns a typed outcome (ok / blocked_budget / blocked_credit / refusal /
- * incomplete / invalid_response / http_error / error). The caller still Zod-validates the
- * returned `value` against its ORIGINAL schema - the gateway only guarantees the
+ * `openAIStructuredResponse` is the one door every internal-reasoning call uses. It converts the caller's Zod schema to a strict JSON Schema, POSTs to
+ * `POST /v1/responses` with `text.format.{type:"json_schema", strict:true}`, and returns a typed outcome (ok / blocked_budget / blocked_credit / refusal /
+ * incomplete / invalid_response / http_error / error). The caller still Zod-validates the returned `value` against its ORIGINAL schema - the gateway only guarantees the
  * value parsed as JSON and had its provider-nulls normalized away.
  *
  * ONE policy in one place, in this ORDER (unchanged intent from R16):
@@ -32,13 +28,10 @@ import "server-only";
  *   8. LOUD FALLBACK - every non-ok outcome logs an unmissable warn line and
  *      (outside tests) lands in the error ledger via `recordAppError`.
  *
- * VITEST HERMETICS: under vitest, budget/breaker checks default to "allowed" and
- * spend/error-ledger writes no-op UNLESS an impl is injected. Tests inject
- * `fetchImpl` (zero network), and pin the cap by injecting `budgetImpl` /
- * `costBreakerImpl`; nothing touches the operator's real `.data/` ledgers.
+ * VITEST HERMETICS: under vitest, budget/breaker checks default to "allowed" and spend/error-ledger writes no-op UNLESS an impl is injected. Tests inject
+ * `fetchImpl` (zero network), and pin the cap by injecting `budgetImpl` / `costBreakerImpl`; nothing touches the operator's real `.data/` ledgers.
  *
- * Pinned by tests/decision/gateway.test.ts (this file is the ONLY file that
- * may reference api.openai.com).
+ * Pinned by tests/decision/gateway.test.ts (this file is the ONLY file that may reference api.openai.com).
  */
 
 import { log } from "@/lib/logger";
@@ -69,8 +62,7 @@ const OPENAI_RESPONSES_API = "https://api.openai.com/v1/responses";
 const REASONING_TIMEOUT_FLOOR_MS = 90_000;
 
 /**
- * gpt-5 / o-series are REASONING models: they spend `reasoning` tokens before
- * emitting output, so at low effort a small completion can still take 40-90s.
+ * gpt-5 / o-series are REASONING models: they spend `reasoning` tokens before emitting output, so at low effort a small completion can still take 40-90s.
  * They accept the `reasoning.effort` request param; older models reject it.
  */
 export function isReasoningModel(model: string): boolean {
@@ -111,8 +103,7 @@ type BudgetImpl = {
 };
 
 /**
- * The GLOBAL cost breaker consulted BEFORE the per-platform budget check.
- * Returns tripped=true to block. Tests inject this; production defaults to the
+ * The GLOBAL cost breaker consulted BEFORE the per-platform budget check. Returns tripped=true to block. Tests inject this; production defaults to the
  * real cross-lane breaker (hermetically no-op under vitest unless injected).
  */
 export type CostBreakerImpl = {
@@ -251,10 +242,8 @@ export function effectiveTimeoutMs(model: string, requestedMs: number): number {
 }
 
 /**
- * GLOBAL cost breaker (OUTER guard). Consulted BEFORE the per-platform budget
- * check on every call regardless of posture, because real money is spent in
- * both cases. It never LOOSENS the per-platform cap; a trip refuses outright.
- * Hermetic under vitest unless a costBreakerImpl is injected.
+ * GLOBAL cost breaker (OUTER guard). Consulted BEFORE the per-platform budget check on every call regardless of posture, because real money is spent in
+ * both cases. It never LOOSENS the per-platform cap; a trip refuses outright. Hermetic under vitest unless a costBreakerImpl is injected.
  */
 async function checkGatewayCostBreaker(
   posture: LlmBudgetPosture,
@@ -288,8 +277,7 @@ async function checkGatewayBudget(
       .catch(() => ({ allowed: false as const, reason: "budget check unavailable, failing closed" }));
     return r.allowed ? { allowed: true } : { allowed: false, reason: r.reason ?? "cap reached" };
   }
-  // Hermetic under vitest: never read the operator's real ledger from a test
-  // run; tests that pin the cap inject budgetImpl.
+  // Hermetic under vitest: never read the operator's real ledger from a test run; tests that pin the cap inject budgetImpl.
   if (underVitest()) return { allowed: true };
   try {
     const b = await checkBudget({ tenantId, projectedCostUsd: posture.projectedCostUsd, now: posture.now });
@@ -307,8 +295,7 @@ function creditBreaker(impl: CreditBreakerImpl | undefined): CreditBreakerImpl {
 /**
  * THE PROVIDER'S OWN MACHINE CODE, AND NOTHING ELSE. The error body may carry a whole billing sentence, an org id,
  * or a sales address; only `error.code` / `error.type` are read, and only when they are shaped like a code, so no
- * provider prose can reach a log line, an exception message, or an operator surface. An empty balance
- * (`insufficient_quota`) is named apart from ordinary throttling, because retrying one buys nothing.
+ * provider prose can reach a log line, an exception message, or an operator surface. An empty balance (`insufficient_quota`) is named apart from ordinary throttling, because retrying one buys nothing.
  */
 async function providerErrorCode(response: Response): Promise<string | undefined> {
   let body: unknown;
@@ -348,13 +335,10 @@ async function reportGatewayFailure(id: GatewayIdentity, reason: string, detail?
 }
 
 /**
- * THE OpenAI structured-generation transport over the Responses API. Enforces
- * the guard order in the module doc, converts the Zod schema to a strict JSON
- * Schema, and returns a typed outcome. Never throws.
+ * THE OpenAI structured-generation transport over the Responses API. Enforces the guard order in the module doc, converts the Zod schema to a strict JSON Schema, and returns a typed outcome. Never throws.
  */
 export async function openAIStructuredResponse(args: StructuredCallArgs): Promise<StructuredCallOutcome> {
-  // Account identity is required BEFORE any check: no spend, provenance, or ledger
-  // row may be unattributable. A caller that cannot name its account is a bug, not
+  // Account identity is required BEFORE any check: no spend, provenance, or ledger row may be unattributable. A caller that cannot name its account is a bug, not
   // a license for a global call - fail closed with no cost, no network.
   const tenantId = (args.tenantId ?? "").trim();
   if (!tenantId) return { kind: "invalid_response", reason: "missing_tenant" };
@@ -431,8 +415,7 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
 
   if (!response.ok) {
     // A FAILED CALL IS NOT A PURCHASE AND IT IS NOT A MYSTERY EITHER: the status alone made an empty balance and a
-    // busy minute the same event to every caller, so the drafter retried the one that can never succeed. No usage
-    // came back, so no cost is claimed anywhere on this path.
+    // busy minute the same event to every caller, so the drafter retried the one that can never succeed. No usage came back, so no cost is claimed anywhere on this path.
     const code = await providerErrorCode(response);
     const retryMs = retryAfterMs(response.headers?.get?.("retry-after"));
     await reportGatewayFailure(id, `openai_http_${response.status}`, code);
@@ -477,8 +460,7 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     return { kind: "incomplete", reason: classified.reason, provenance };
   }
   if (classified.kind === "invalid") {
-    // POST-network: the envelope supplied real usage, so its cost is genuine spend.
-    // Return the provenance so the ledger counts it (it was under-counting before).
+    // POST-network: the envelope supplied real usage, so its cost is genuine spend. Return the provenance so the ledger counts it (it was under-counting before).
     await reportGatewayFailure(id, `invalid_response_${classified.reason}`);
     return { kind: "invalid_response", reason: classified.reason, provenance };
   }

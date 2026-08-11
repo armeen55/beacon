@@ -1,12 +1,9 @@
 /**
- * llm/onboarding-schemas (Slice 5, 2026-07-24) - the three strict kinds the
- * onboarding flow uses. Kept in their own file so the frozen schemas.ts stays
+ * llm/onboarding-schemas (Slice 5, 2026-07-24) - the three strict kinds the onboarding flow uses. Kept in their own file so the frozen schemas.ts stays
  * within its size ceiling; SCHEMA_BY_KIND imports them for dispatch.
  *
- * All three go through callStructuredLLM (validate -> fail closed) with
- * budgetPlatform 'onboarding-openai' (the $2 pre-activation lifetime cap). The
- * MODEL can never touch identity, provenance, domain, status, cost, or
- * authorization: those fields are not representable here, and the onboarding
+ * All three go through callStructuredLLM (validate -> fail closed) with budgetPlatform 'onboarding-openai' (the $2 pre-activation lifetime cap). The
+ * MODEL can never touch identity, provenance, domain, status, cost, or authorization: those fields are not representable here, and the onboarding
  * facade also server-checks the allowed set. PURE - validators only, no I/O.
  */
 

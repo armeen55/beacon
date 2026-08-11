@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { navigationGroups, operatorNavGroup } from "@/lib/navigation";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -127,14 +128,17 @@ function SidebarContent({ isOperator = false }: { isOperator?: boolean }) {
       {/* Account footer (audit Phase 6): a casual user needs an always-visible
           way to sign out. Plain <form> POST to the existing /auth/signout route
           so it works without JS; no-op + redirect to /login if auth is off. */}
-      <div className="border-t border-sidebar-border px-3 py-2.5 space-y-0.5">
+      {/* Same row treatment as a nav link (icon, gap, padding, type scale) so Sign out reads as the last row of
+          the navigation rather than a control floating loose under it. */}
+      <div className="border-t border-sidebar-border px-3 py-2">
         <form method="post" action="/auth/signout">
           <button
             type="submit"
-            className="w-full rounded-md px-2 py-1.5 text-left text-[12px] font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
+            className="group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-[13px] font-medium text-sidebar-foreground transition-colors duration-100 hover:bg-sidebar-accent hover:text-foreground"
             data-sidebar-action="sign-out"
           >
-            Sign out
+            <LogOut className="h-4 w-4 shrink-0 text-sidebar-foreground/70" />
+            <span className="flex-1">Sign out</span>
           </button>
         </form>
       </div>

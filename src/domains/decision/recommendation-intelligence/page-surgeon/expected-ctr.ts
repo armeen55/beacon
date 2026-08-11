@@ -1,13 +1,10 @@
 /**
  * Page Surgeon - organic CTR-by-position (deterministic).
  *
- * Single source shared by packet assembly (page-level ctrGap) and the decision
- * gate (per-query snippet-deficit detection) so the two never drift.
+ * Single source shared by packet assembly (page-level ctrGap) and the decision gate (per-query snippet-deficit detection) so the two never drift.
  *
- * R9 (2026-07-03): this file used to carry its OWN slightly-different curve
- * table (pos 4 at 7% vs 8%, a flat 2% tail, etc). It now delegates to the ONE
- * canonical curve module (tenant-ctr-curve.ts) - same default everywhere a
- * forecast or gap is computed, with an optional tenant-fitted curve a caller
+ * R9 (2026-07-03): this file used to carry its OWN slightly-different curve table (pos 4 at 7% vs 8%, a flat 2% tail, etc). It now delegates to the ONE
+ * canonical curve module (tenant-ctr-curve.ts) - same default everywhere a forecast or gap is computed, with an optional tenant-fitted curve a caller
  * with tenant context can thread in (load-tenant-ctr-curve.ts). Pure. No I/O.
  */
 

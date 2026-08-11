@@ -71,7 +71,7 @@ export function ResultCard({ shipment }: { shipment: ShipmentPresentation }) {
           </ul>
         ) : null}
         {story.verification.checkedOn ? (
-          <p className="mt-0.5 text-[10px] text-muted-foreground/80">I looked on {story.verification.checkedOn}.</p>
+          <p className="mt-0.5 text-[10px] text-muted-foreground/80">Checked on {story.verification.checkedOn}.</p>
         ) : null}
       </div>
 
@@ -83,7 +83,7 @@ export function ResultCard({ shipment }: { shipment: ShipmentPresentation }) {
       ) : null}
 
       <div className={SECTION}>
-        <p className={HEAD}>What I have read</p>
+        <p className={HEAD}>What has been read</p>
         <ol className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
           {story.timeline.map((s, i) => (
             <li key={`${s.label}-${i}`} className="flex items-center gap-2">
@@ -95,7 +95,7 @@ export function ResultCard({ shipment }: { shipment: ShipmentPresentation }) {
             </li>
           ))}
         </ol>
-        <div className="mt-2 flex flex-wrap gap-1.5" aria-label="What I have read so far">
+        <div className="mt-2 flex flex-wrap gap-1.5" aria-label="What has been read so far">
           {story.chips.map((c) => (
             <span key={c.day} className={`rounded-full border px-2 py-0.5 text-[10px] font-medium tabular-nums ${CHIP[c.state]}`}>
               {c.text}

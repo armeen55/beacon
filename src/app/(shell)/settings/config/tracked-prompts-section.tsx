@@ -28,10 +28,10 @@ const MIN_RECOMMENDED_BATCH = 10;
 export function historyNote(q: { version: number; createdAt: string }): string | null {
   const day = monthDayLabel(q.createdAt);
   if (q.version <= 1) {
-    return day ? `I have asked this exact question since ${day}, and its trend runs from there.` : null;
+    return day ? `This exact question has been asked since ${day}, and its trend runs from there.` : null;
   }
   const priors = q.version - 1;
-  return `This is version ${q.version} of this question. I changed it ${priors === 1 ? "once" : `${priors} times`}, and each change restarts its trend, so I only compare it against readings of the wording it has now.`;
+  return `This is version ${q.version} of this question. It changed ${priors === 1 ? "once" : `${priors} times`}, and each change restarts its trend, so it is only compared against readings of the wording it has now.`;
 }
 
 export function TrackedPromptsSection({
@@ -60,18 +60,18 @@ export function TrackedPromptsSection({
   if (unknown) {
     return (
       <section id="tracked-ai-prompts" className="mt-10 scroll-mt-24 space-y-3">
-        <h2 className="text-[15px] font-semibold text-foreground">Questions I track across AI assistants</h2>
-        <p className="text-[13px] text-muted-foreground">I could not check your tracked questions just now. Refresh this page in a moment and they will be here.</p>
+        <h2 className="text-[15px] font-semibold text-foreground">Questions tracked across AI assistants</h2>
+        <p className="text-[13px] text-muted-foreground">Your tracked questions could not be checked just now. Refresh this page in a moment and they will be here.</p>
       </section>
     );
   }
   return (
     <section id="tracked-ai-prompts" className="mt-10 scroll-mt-24 space-y-3">
-      <h2 className="text-[15px] font-semibold text-foreground">Questions I track across AI assistants</h2>
+      <h2 className="text-[15px] font-semibold text-foreground">Questions tracked across AI assistants</h2>
       <p className="text-[13px] text-muted-foreground">
         {count > 0
-          ? `I am tracking ${count} question${count === 1 ? "" : "s"}. I check them once a day on my own.`
-          : "I am not tracking any questions yet, so I have nothing to check for you. Add at least 10 below and my next daily round picks them up."}
+          ? `Tracking ${count} question${count === 1 ? "" : "s"}, checked once a day automatically.`
+          : "No questions are tracked yet, so there is nothing to check. Add at least 10 below and the next daily round picks them up."}
       </p>
       <p className="text-[12px] text-muted-foreground">
         Reword a question and its trend starts again from that day. Add one and its trend starts the day you
@@ -82,7 +82,7 @@ export function TrackedPromptsSection({
       {count === 0 && recommended.length >= MIN_RECOMMENDED_BATCH ? (
         <button type="button" disabled={pending} className={GHOST}
           onClick={() => save({ keepIds: [], edits: [], additions: recommended })}>
-          {pending ? "Saving your questions" : `Use the ${recommended.length} I recommended`}
+          {pending ? "Saving your questions" : `Use the ${recommended.length} recommended`}
         </button>
       ) : null}
       <PromptsEditor
@@ -95,7 +95,7 @@ export function TrackedPromptsSection({
         mode="settings"
         busy={pending}
         error={error}
-        submitLabel="Save my questions"
+        submitLabel="Save these questions"
         onSubmit={(s) => save({ keepIds: s.keepIds, edits: s.edits, additions: s.additions.map((a) => a.text) })}
       />
     </section>

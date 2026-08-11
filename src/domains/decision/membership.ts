@@ -15,11 +15,9 @@
  *      answers with different fan-outs. Matching on the question id alone handed one engine's fan-out to
  *      another engine's answer, so the lineage must name the question AND the engine it was answered by,
  *      and a lineage row that recorded only the question names no single answer and opens no route.
- * A TRACKED PROMPT IS NEVER ITS OWN FAN-OUT: a fan-out entry equal to the question asked is discarded, so an
- * echo of my own prompt can never pose as a search the assistant went and ran.
+ * A TRACKED PROMPT IS NEVER ITS OWN FAN-OUT: a fan-out entry equal to the question asked is discarded, so an echo of my own prompt can never pose as a search the assistant went and ran.
  *
- * Deliberately NOT a route: the case grouping over topics, which may merge two subjects on one shared strong
- * token. That is the very join this predicate exists to refuse.
+ * Deliberately NOT a route: the case grouping over topics, which may merge two subjects on one shared strong token. That is the very join this predicate exists to refuse.
  *
  * PURE: no store, no clock, no model call.
  */

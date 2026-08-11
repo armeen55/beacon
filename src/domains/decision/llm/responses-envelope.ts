@@ -1,19 +1,11 @@
 /**
- * llm/responses-envelope (Slice 3, 2026-07-23) - the PURE half of the canonical
- * OpenAI Responses gateway: strict JSON Schema conversion, provider-value
- * normalization, and typed envelope classification. No I/O, no network, no
- * server-only - the transport (gateway.ts) owns budget, breaker, and fetch and
- * imports these helpers.
+ * llm/responses-envelope (Slice 3, 2026-07-23) - the PURE half of the canonical OpenAI Responses gateway: strict JSON Schema conversion, provider-value
+ * normalization, and typed envelope classification. No I/O, no network, no server-only - the transport (gateway.ts) owns budget, breaker, and fetch and imports these helpers.
  *
- * STRICT SUBSET (OpenAI Structured Outputs, verified 2026-07-23): every object
- * carries `additionalProperties: false` and lists EVERY property in `required`;
- * an OPTIONAL Zod property (no default, not nullable) becomes required + nullable
- * in the PROVIDER schema, and `normalizeStructuredValue` strips the emitted
- * `null` back out so the caller's Zod safeParse of the ORIGINAL schema still
- * succeeds. Genuinely nullable fields keep their nulls. A construct the strict
- * subset cannot express returns `{ unsupported }` so the transport fails closed
- * BEFORE any network call - strictness is never weakened to force a schema
- * through.
+ * STRICT SUBSET (OpenAI Structured Outputs, verified 2026-07-23): every object carries `additionalProperties: false` and lists EVERY property in `required`;
+ * an OPTIONAL Zod property (no default, not nullable) becomes required + nullable in the PROVIDER schema, and `normalizeStructuredValue` strips the emitted
+ * `null` back out so the caller's Zod safeParse of the ORIGINAL schema still succeeds. Genuinely nullable fields keep their nulls. A construct the strict
+ * subset cannot express returns `{ unsupported }` so the transport fails closed BEFORE any network call - strictness is never weakened to force a schema through.
  */
 
 import { z } from "zod";
@@ -52,11 +44,8 @@ function makeNullable(node: JsonNode): JsonNode {
 }
 
 /**
- * Rebuild a raw JSON-Schema node as a clean strict-subset node, keeping only the
- * keywords the strict subset guarantees (type/properties/required/
- * additionalProperties/items/anyOf/enum/const). Throws UnsupportedSchemaError on
- * any construct outside the subset. `required` on the PARENT decides whether a
- * child property is made nullable.
+ * Rebuild a raw JSON-Schema node as a clean strict-subset node, keeping only the keywords the strict subset guarantees (type/properties/required/
+ * additionalProperties/items/anyOf/enum/const). Throws UnsupportedSchemaError on any construct outside the subset. `required` on the PARENT decides whether a child property is made nullable.
  */
 function buildStrict(node: unknown): JsonNode {
   if (!node || typeof node !== "object" || Array.isArray(node)) {
@@ -87,8 +76,7 @@ function buildStrict(node: unknown): JsonNode {
 
   if (t === "object") {
     const props = (n.properties && typeof n.properties === "object" ? n.properties : {}) as JsonNode;
-    // A record-style object (additionalProperties as a schema, no properties)
-    // cannot be expressed strictly.
+    // A record-style object (additionalProperties as a schema, no properties) cannot be expressed strictly.
     if (Object.keys(props).length === 0 && n.additionalProperties && typeof n.additionalProperties === "object") {
       throw new UnsupportedSchemaError("open record object");
     }
@@ -114,8 +102,7 @@ function buildStrict(node: unknown): JsonNode {
 }
 
 /**
- * Convert a Zod schema into a strict OpenAI Structured-Outputs JSON Schema, or
- * report the exact construct that cannot be expressed. Deterministic and pure.
+ * Convert a Zod schema into a strict OpenAI Structured-Outputs JSON Schema, or report the exact construct that cannot be expressed. Deterministic and pure.
  */
 export function strictJsonSchemaFor(
   schema: z.ZodTypeAny,
@@ -123,8 +110,7 @@ export function strictJsonSchemaFor(
 ): { name: string; schema: Record<string, unknown> } | { unsupported: string } {
   let raw: unknown;
   try {
-    // Output mode: `.default()` fields land in `required` with their real type;
-    // only truly-optional fields are excluded (and then made nullable below).
+    // Output mode: `.default()` fields land in `required` with their real type; only truly-optional fields are excluded (and then made nullable below).
     raw = z.toJSONSchema(schema);
   } catch (e) {
     return { unsupported: e instanceof Error ? e.message.slice(0, 120) : "toJSONSchema failed" };
@@ -175,11 +161,8 @@ function unwrap(schema: z.ZodTypeAny): { core: z.ZodTypeAny; optional: boolean; 
 }
 
 /**
- * Invert the strict-schema transform for the caller: deep-delete object
- * properties whose value is `null` WHEN the corresponding Zod field is optional
- * and NOT nullable (so the caller's Zod safeParse of the ORIGINAL schema
- * succeeds). Genuinely nullable fields keep their nulls. Pure - returns new
- * containers, never mutates the input.
+ * Invert the strict-schema transform for the caller: deep-delete object properties whose value is `null` WHEN the corresponding Zod field is optional
+ * and NOT nullable (so the caller's Zod safeParse of the ORIGINAL schema succeeds). Genuinely nullable fields keep their nulls. Pure - returns new containers, never mutates the input.
  */
 export function normalizeStructuredValue(value: unknown, schema: z.ZodTypeAny): unknown {
   const { core } = unwrap(schema);

@@ -16,26 +16,37 @@ import { receiptComposition } from "@/domains/decision/contracts";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision";
 import { dismissProposalAction, markProposalImplementedAction } from "./actions";
 
-/** The producer's own boilerplate. It said the same sentence on all 37 title cards, so it is a footnote under
- *  the list, never a line on a card. */
-export const TITLE_FOOTNOTE = "This line says the search in the words people actually run it in.";
-/** The one caveat that has to stand on its own line: it says my reading may not be your visitors' reading. */
+/** The producer's own boilerplate. It said the same sentence on all 37 title cards, so it is dropped outright
+ *  rather than reprinted anywhere: a sentence true of every row is a fact about the producer, not a reason. */
+const TITLE_FOOTNOTE = "This line says the search in the words people actually run it in.";
+/** The one caveat that has to stand on its own line: this reading may not be your visitors' reading. */
 const CAVEAT_MARK = "different slice of Google";
 
 const RISK: Record<ChangeProposal["riskLevel"], { intent: PillIntent; label: string }> = {
   low: { intent: "neutral", label: "Low risk" }, medium: { intent: "waiting", label: "Medium risk" },
   high: { intent: "attention", label: "High risk" },
 };
-/** HOW PROVEN THIS EDIT IS, in three words, on every card. `proven` means the exact copy cleared every evidence and safety check;
- *  short of that, a change whose receipt cites a live results page or a page that beats you is early evidence, and one with neither
- *  is my best guess. The operator can act on all three, and this says which risk he is taking. */
-function provenChip(p: ChangeProposal, proven: boolean): { intent: PillIntent; label: string } {
-  if (proven) return { intent: "live", label: "Proven" };
-  const looked = (p.bundle?.receipt.items ?? []).some((i) => i.kind === "serp" || i.kind === "winning_page");
-  return looked ? { intent: "measuring", label: "Early evidence" } : { intent: "waiting", label: "My best guess" };
-}
+/** HOW PROVEN THIS EDIT IS, as one ordered tier: 0 cleared every evidence and safety check, 1 has a receipt
+ *  citing a live results page or a page that beats you, 2 has neither. The list sorts and filters on the SAME
+ *  number the chip renders, so a filter and a chip can never disagree. */
+export const evidenceTier = (p: ChangeProposal, proven: boolean): 0 | 1 | 2 =>
+  proven ? 0 : (p.bundle?.receipt.items ?? []).some((i) => i.kind === "serp" || i.kind === "winning_page") ? 1 : 2;
+const TIER_CHIP: { intent: PillIntent; label: string }[] = [{ intent: "live", label: "Proven" },
+  { intent: "measuring", label: "Early evidence" }, { intent: "waiting", label: "Best guess" }];
 
+/** Today, in the operator's words, for the sentence a just-finished card prints. */
+const DAY_NOW = (): string => new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
 const fieldWord = (f: string): string => (f === "meta" ? "description" : f.replace(/_/g, " "));
+
+/** Effort in the operator's own units: sixty minutes is an hour, and "about 60 min" read like a rounding error. */
+const effortLabel = (m: number): string =>
+  m < 60 ? `${m} min` : ((h) => `${h} ${h === 1 ? "hour" : "hours"}`)(Math.round((m / 60) * 10) / 10);
+
+/** A CONSOLIDATION IS NOT A PASTEABLE LINE: it merges or retires live pages, so it carries ordered steps and a
+ *  confirmation instead of a copy box. A search naming a year dies every January, so it is worth redoing then. */
+const isConsolidation = (p: ChangeProposal): boolean => String(p.kind) === "consolidation" || p.changeFamily === "consolidation";
+const YEAR_QUERY = /\b20\d{2}\s*$/;
+const YEAR_NOTE = "Year searches reset every January; this edit is worth redoing each year.";
 
 /** The exact primary action in one line: a bundle's objective, or the field an atomic edit rewrites. */
 function primaryAction(p: ChangeProposal): string {
@@ -70,10 +81,12 @@ function statsOf(p: ChangeProposal): { value: string; label: string }[] {
   const short = p.upsidePerMonth != null && p.upsidePerMonth > 0
     ? Math.round(p.upsidePerMonth).toLocaleString("en-US")
     : grab(/about ([\d,]+) fewer clicks/);
+  const one = (v: string | null, plural: string, singular: string): [string | null, string] =>
+    [v, v === "1" ? singular : plural];
   return [
-    [grab(/showed up in Google ([\d,]+) times/), "times it showed up"],
-    [grab(/got ([\d,]+) clicks?/), "clicks it earned"],
-    [short, "clicks a month short"],
+    one(grab(/showed up in Google ([\d,]+) times/), "times it showed up", "time it showed up"),
+    one(grab(/got ([\d,]+) clicks?/), "clicks it earned", "click it earned"),
+    one(short, "clicks a month short", "click a month short"),
   ].filter((r): r is [string, string] => r[0] != null).map(([value, label]) => ({ value, label }));
 }
 
@@ -96,12 +109,15 @@ const piecesOf = (b: ChangeBundle | undefined) => (b?.components ?? []).map((c, 
   ...(dangerousComponents([c]).length > 0 ? { moves: true } : {}),
 }));
 
-export function ChangeCard({ proposal, rank, proven, onAside, onToast }: {
+export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }: {
   proposal: ChangeProposal; rank: number; proven: boolean;
-  onAside: (id: string) => void; onToast: (text: string) => void;
+  onAside: (id: string) => void; onDone: (id: string) => void; onToast: (text: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [checksOpen, setChecksOpen] = useState(false);
+  // MARKED DONE FLIPS THE CARD WHERE IT SITS: the row stays put, says what happens next, and comes off the open
+  // count on the spot. It leaves the list on the next load, which is the release's job, never this render's.
+  const [done, setDone] = useState(false);
   const bundle = proposal.bundle;
   const isNew = proposal.kind === "new_page";
   const parts = bundle?.components.length ?? 1;
@@ -114,9 +130,29 @@ export function ChangeCard({ proposal, rank, proven, onAside, onToast }: {
   const reason = (bundle?.confidenceReasons[0] ?? bundle?.receipt.items[0]?.fact ?? "").trim();
   const strongest = reason && reason !== body.trim() && reason !== primaryAction(proposal).trim() ? reason : null;
   const checks = bundle?.receipt.items.map((it) => it.fact) ?? (proposal.evidence?.hints ?? []);
-  const steps = (proposal as ChangeProposal & { operatorSteps?: string[] }).operatorSteps ?? [];
+  const steps = proposal.operatorSteps ?? [];
   const pageTitle = proposal.pagePath ?? proposal.pageLabel;
   const secondary = proposal.pageLabel !== pageTitle ? proposal.pageLabel : null;
+  const tier = evidenceTier(proposal, proven);
+  const chip = TIER_CHIP[tier]!;
+  // A MERGE IS READ, NEVER PASTED: no copy box, no copy button, and the ordered steps become the whole fix. The
+  // caution a best-guess card carries, when the row wrote one, is what the line there now already earns.
+  // An instruction is read the same way: a Copy button on "Write a description that..." would paste the
+  // instruction onto the site, so an after that starts with a do-this verb renders as steps, never as copy.
+  // "Position held..." is the GA4 divergence diagnosis: a finding to read, never a line to paste.
+  const instruction = !isConsolidation(proposal) && steps.length > 0
+    && /^(Add|Write|Rewrite|Open|Move|Redirect|Paste|Link|Position held)\b/.test(after ?? "");
+  const merge = isConsolidation(proposal) || instruction;
+  const shownSteps = instruction && after ? [after, ...steps] : steps;
+  const caution = tier === 2 ? proposal.limitations[0] ?? null : null;
+  const recordDone = () => { setDone(true); onDone(proposal.id); };
+
+  if (done) return (
+    <li className="rounded-2xl border border-accent-primary/50 bg-surface-raised p-4" data-change-card="done">
+      <p className="text-[14px] font-semibold text-foreground">{pageTitle}</p>
+      <p className="mt-1 text-[13px] text-muted-foreground" data-card-done="true">Done. Measuring from {DAY_NOW()}.</p>
+    </li>
+  );
 
   return (
     <li className={`rounded-2xl border bg-surface-raised ${proven ? "border-accent-primary/50" : "border-border"}`}
@@ -135,7 +171,7 @@ export function ChangeCard({ proposal, rank, proven, onAside, onToast }: {
           {secondary ? <span className="block truncate text-[12px] text-muted-foreground">{secondary}</span> : null}
           <span className="block text-[14px] font-semibold leading-relaxed text-foreground">{primaryAction(proposal)}</span>
         </span>
-        <span aria-hidden className="mt-1 text-[12px] text-muted-foreground">{open ? "Close" : "Open"}</span>
+        <span aria-hidden className="mt-1 text-[12px] text-muted-foreground">{open ? "Hide" : "Details"}</span>
       </button>
 
       <div className="space-y-3 px-4 pb-4">
@@ -150,33 +186,47 @@ export function ChangeCard({ proposal, rank, proven, onAside, onToast }: {
         ) : null}
 
         {/* THE FIX ITSELF, on the card. The line to put there is the loud one; the line that is there now is
-            the quiet one, because nobody is being asked to write the old one again. */}
-        <div className="space-y-1" data-before-after="true">
-          {before ? (
-            <p className="text-[12px] leading-relaxed text-muted-foreground">
-              Now: <span className="line-through">{before}</span>
-            </p>
-          ) : (
-            <p className="text-[12px] italic text-muted-foreground">There is no {field} on the page today.</p>
-          )}
-          <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
-            <p className="min-w-0 flex-1 text-[14px] font-semibold leading-relaxed text-foreground">
-              <span className="font-normal text-muted-foreground">Change to: </span>{after}
-            </p>
-            <CopyButton text={after} label={`Copy new ${field}`} onToast={onToast} />
+            the quiet one, because nobody is being asked to write the old one again. A merge has no line to
+            paste at all, so it shows its ordered steps instead and never offers a copy button. */}
+        {merge ? (
+          <div className="space-y-1" data-merge-steps="true">
+            <p className="text-[12px] font-semibold text-foreground">Read this twice, then:</p>
+            <ol className="list-none space-y-0.5 text-[13px] leading-relaxed text-muted-foreground">
+              {shownSteps.map((s, i) => <li key={i}><span className="tabular-nums font-semibold">{i + 1}. </span>{s}</li>)}
+            </ol>
           </div>
-        </div>
+        ) : (
+          <div className="space-y-1" data-before-after="true">
+            {before ? (
+              <p className="text-[12px] leading-relaxed text-muted-foreground">
+                Now: <span className="line-through">{before}</span>
+              </p>
+            ) : isNew ? null : (
+              <p className="text-[12px] italic text-muted-foreground">There is no {field} on the page today.</p>
+            )}
+            <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
+              <p className="min-w-0 flex-1 text-[14px] font-semibold leading-relaxed text-foreground">
+                <span className="font-normal text-muted-foreground">{isNew ? `Page ${field}: ` : "Change to: "}</span>{after}
+              </p>
+              <CopyButton text={after} onToast={onToast}
+                label={`Copy ${isNew ? "" : "new "}${field} · ${effortLabel(proposal.estimatedEffortMinutes)}`} />
+            </div>
+          </div>
+        )}
 
         <p className="flex flex-wrap items-center gap-1.5" data-change-facts="true">
-          <Pill>about {proposal.estimatedEffortMinutes} min</Pill>
+          {merge ? <Pill>about {effortLabel(proposal.estimatedEffortMinutes)}</Pill> : null}
           <Pill intent={RISK[proposal.riskLevel].intent}>{RISK[proposal.riskLevel].label}</Pill>
-          <Pill intent={provenChip(proposal, proven).intent}>{provenChip(proposal, proven).label}</Pill>
+          <Pill intent={chip.intent}>{chip.label}</Pill>
           {checks.length > 0 ? (
             <button type="button" onClick={() => setChecksOpen((v) => !v)} aria-expanded={checksOpen}>
-              <Pill intent="measuring">{bundle ? `backed by ${receiptComposition(bundle.receipt.items)}` : `backed by ${checks.length} check${checks.length === 1 ? "" : "s"}`}</Pill>
+              <Pill intent="measuring">{bundle ? `Backed by ${receiptComposition(bundle.receipt.items)}` : `Backed by ${checks.length} check${checks.length === 1 ? "" : "s"}`}</Pill>
             </button>
           ) : null}
         </p>
+        {caution ? (
+          <p className="text-[12px] leading-relaxed text-muted-foreground" data-guess-caution="true">{caution}</p>
+        ) : null}
         {checksOpen && checks.length > 0 ? (
           <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground" data-checks-list="true">
             {checks.map((c, i) => <li key={i}>{c}</li>)}
@@ -185,8 +235,8 @@ export function ChangeCard({ proposal, rank, proven, onAside, onToast }: {
 
         {held.length > 0 ? (
           <p data-dangerous-hold="true" className="rounded-md border border-status-warning/40 bg-status-warning/5 px-3 py-2 text-[12px] leading-relaxed text-foreground">
-            {held.join(" and ")}: this changes where the page lives or whether people can find it, so I am
-            holding it for you to read once and confirm before you make the change.
+            {held.join(" and ")}: this changes where the page lives or whether people can find it, so it is
+            held for you to read once and confirm before you make the change.
           </p>
         ) : null}
 
@@ -204,7 +254,10 @@ export function ChangeCard({ proposal, rank, proven, onAside, onToast }: {
               <p className="text-[12px] leading-relaxed text-muted-foreground" data-change-caveat="true">&#9432; {caveat}</p>
             ) : null}
             {strongest ? <p className="text-[13px] leading-relaxed text-muted-foreground">Strongest reason: {strongest}</p> : null}
-            {steps.length > 0 ? (
+            {YEAR_QUERY.test(proposal.primaryQuery) ? (
+              <p className="text-[12px] leading-relaxed text-muted-foreground" data-year-note="true">{YEAR_NOTE}</p>
+            ) : null}
+            {!merge && steps.length > 0 ? (
               <div className="space-y-1" data-operator-steps="true">
                 <p className="text-[12px] font-semibold text-foreground">How to make this change</p>
                 <ol className="list-none space-y-0.5 text-[12px] leading-relaxed text-muted-foreground">
@@ -212,11 +265,11 @@ export function ChangeCard({ proposal, rank, proven, onAside, onToast }: {
                 </ol>
               </div>
             ) : null}
-            {proposal.limitations.length > 0 ? (
+            {proposal.limitations.length > (caution ? 1 : 0) ? (
               <div className="space-y-1">
                 <p className="text-[12px] font-semibold text-foreground">What to keep in mind</p>
                 <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground">
-                  {proposal.limitations.map((l, i) => <li key={i}>{l}</li>)}
+                  {proposal.limitations.slice(caution ? 1 : 0).map((l, i) => <li key={i}>{l}</li>)}
                 </ul>
               </div>
             ) : null}
@@ -224,8 +277,9 @@ export function ChangeCard({ proposal, rank, proven, onAside, onToast }: {
               <p className="text-[12px] leading-relaxed text-muted-foreground" data-why-ranked="true">{proposal.whyRankedAboveNext}</p>
             ) : null}
             {/* EVERY CARD IS AN EDIT HE CAN MAKE, so every card can record that he made it. Hiding this control on the
-                unproven half promised measurement on work I then refused to measure. */}
-            <MarkImplemented proposalId={proposal.id} label="I made this change" newPage={isNew} components={piecesOf(bundle)} />
+                unproven half promised measurement on work that was then refused. */}
+            <MarkImplemented proposalId={proposal.id} label="Mark done" newPage={isNew}
+              components={piecesOf(bundle)} onRecorded={recordDone} />
           </div>
         ) : null}
 
@@ -234,9 +288,12 @@ export function ChangeCard({ proposal, rank, proven, onAside, onToast }: {
             className="inline-flex rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white">
             See the change
           </Link>
+          {/* THE ONE-PRESS RECORD, on the collapsed card. A new page owes its live address and a merge owes a
+              confirmation, so those two keep the full form above rather than being refused after the press. */}
+          {!isNew && held.length === 0 ? <MarkDoneNow proposalId={proposal.id} onRecorded={recordDone} onToast={onToast} /> : null}
           <button type="button" data-set-aside="true" onClick={() => onAside(proposal.id)}
             className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
-            Put this aside
+            Skip
           </button>
         </div>
       </div>
@@ -244,18 +301,38 @@ export function ChangeCard({ proposal, rank, proven, onAside, onToast }: {
   );
 }
 
-/** The exact words, on the clipboard, in one press. Nothing is written to the operator's site here. */
+/** The exact words, on the clipboard, in one press. The button itself says it worked for two seconds, because a
+ *  toast at the foot of a long list is no answer to a press at the top of it. Nothing is written to the site. */
 function CopyButton({ text, label, onToast }: { text: string; label: string; onToast: (t: string) => void }) {
+  const [copied, setCopied] = useState(false);
   return (
     <button type="button" data-copy-after="true"
-      onClick={() => { navigator.clipboard?.writeText(text).then(() => onToast("Copied"), () => onToast("I could not reach your clipboard, so please copy it by hand.")); }}
+      onClick={() => { navigator.clipboard?.writeText(text).then(
+        () => { setCopied(true); setTimeout(() => setCopied(false), 2000); onToast("Copied"); },
+        () => onToast("Your clipboard could not be reached, so please copy it by hand.")); }}
       className="shrink-0 rounded-md border border-border px-2 py-1 text-[12px] font-semibold text-muted-foreground hover:text-foreground">
-      {label}
+      {copied ? "Copied" : label}
     </button>
   );
 }
 
-/** "Put this aside" is the operator's own dismissal, with the consequence stated before they press it. The
+/** ONE PRESS, ON THE COLLAPSED CARD: the edit is applied, so the record lands without opening anything. The
+ *  server owns every refusal, and a refusal is said out loud here rather than swallowed. */
+function MarkDoneNow({ proposalId, onRecorded, onToast }: { proposalId: string; onRecorded: () => void; onToast: (t: string) => void }) {
+  const [pending, startTransition] = useTransition();
+  return (
+    <button type="button" data-mark-done-now="true" disabled={pending}
+      onClick={() => startTransition(async () => {
+        const res = await markProposalImplementedAction({ proposalId });
+        if (res.success) onRecorded(); else onToast(res.error ?? "That could not be recorded just now.");
+      })}
+      className="rounded-md border border-border px-3 py-1.5 text-[13px] font-semibold text-foreground disabled:opacity-60">
+      {pending ? "Saving…" : "Mark done"}
+    </button>
+  );
+}
+
+/** "Skip" is the operator's own dismissal, with the consequence stated before they press it. The
  *  store then refuses to re-draft the same change until the evidence itself moves. The LIST owns the
  *  optimistic version of this control; this two-step one is what the detail page asks. */
 export function SetAsideChange({ proposalId }: { proposalId: string }) {
@@ -265,7 +342,7 @@ export function SetAsideChange({ proposalId }: { proposalId: string }) {
   if (state.done) {
     return (
       <p className="text-[12px] text-muted-foreground" data-set-aside-done="true">
-        Put aside. I will not suggest this again unless the evidence changes.
+        Skipped. It will not come back unless its evidence changes.
       </p>
     );
   }
@@ -273,14 +350,14 @@ export function SetAsideChange({ proposalId }: { proposalId: string }) {
     return (
       <button type="button" data-set-aside="true" onClick={() => setState((s) => ({ ...s, asked: true }))}
         className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
-        Put this aside
+        Skip
       </button>
     );
   }
   return (
     <div className="flex flex-wrap items-center gap-3">
       <span className="text-[12px] text-muted-foreground">
-        I will not suggest this again unless the evidence changes. Put it aside?
+        Skipping this hides it unless its evidence changes. Skip it?
       </span>
       <button type="button" disabled={pending}
         onClick={() => startTransition(async () => {
@@ -289,7 +366,7 @@ export function SetAsideChange({ proposalId }: { proposalId: string }) {
           else setState({ done: false, asked: true, error: res.error ?? "Something went wrong." });
         })}
         className="rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-foreground disabled:opacity-60">
-        {pending ? "Saving…" : "Yes, put it aside"}
+        {pending ? "Saving…" : "Yes, skip it"}
       </button>
       <button type="button" onClick={() => setState({ done: false, asked: false, error: null })}
         className="text-[12px] text-muted-foreground underline underline-offset-2">
@@ -300,31 +377,33 @@ export function SetAsideChange({ proposalId }: { proposalId: string }) {
   );
 }
 
-/** "Mark implemented" records that the OPERATOR applied the change. THE PARTIAL-BUNDLE PICKER: three of five
- *  pieces applied must not record five, and the two they skipped stay theirs to do. THE NOTE carries their own
- *  words beside my reading. THE ADDRESS, for a new page only. THE CONFIRMATION, for a piece that moves or hides
- *  a page, which the server asks for again and refuses without. */
-export function MarkImplemented({ proposalId, label: idle = "Mark implemented", components, newPage = false }: {
+/** "Mark done" records that the OPERATOR applied the change. THE PARTIAL-BUNDLE PICKER: three of five pieces
+ *  applied must not record five, and the two they skipped stay theirs to do. THE NOTE carries their own words
+ *  beside the reading. THE ADDRESS, for a new page only. THE CONFIRMATION, for a piece that moves or hides a
+ *  page, which the server asks for again and refuses without. */
+export function MarkImplemented({ proposalId, label: idle = "Mark done", components, newPage = false, onRecorded }: {
   proposalId: string;
   label?: string;
+  /** Fired once the server accepted the record, so the card that hosts this can flip itself in place. */
+  onRecorded?: () => void;
   /** The bundle's pieces (several = a picker), each with the STABLE id it carries inside the stored bundle so
    *  two pieces of one kind are ticked apart. `moves` marks one that changes where the page lives;
    *  `recorded` marks one already on file. */
   components?: { id: string; kind: string; label: string; moves?: boolean; recorded?: boolean }[];
-  /** A page that did not exist has no address until they publish it, so I have to be told where it is. */
+  /** A page that did not exist has no address until they publish it, so the address has to be given here. */
   newPage?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [state, setState] = useState<{ done: boolean; error: string | null; note: string | null }>({ done: false, error: null, note: null });
   const pickable = components && components.length > 1 ? components : null;
   // OPEN ON WHAT IS GENUINELY STILL THEIRS TO DO: pre-ticking a piece already on file offered to record a
-  // component I am already measuring, and the server refuses to write it twice anyway.
+  // component already under measurement, and the server refuses to write it twice anyway.
   const [applied, setApplied] = useState<Set<string>>(() => {
     const all = pickable ?? components ?? [], open = all.filter((c) => !c.recorded);
     return new Set((open.length > 0 ? open : all).map((c) => c.id));
   });
   const [note, setNote] = useState(""), [liveUrl, setLiveUrl] = useState(""), [confirmed, setConfirmed] = useState(false);
-  const label = useMemo(() => (state.done ? "Marked implemented" : idle), [state.done, idle]);
+  const label = useMemo(() => (state.done ? "Marked done" : idle), [state.done, idle]);
   const nothingPicked = pickable != null && applied.size === 0, addressOwed = newPage && liveUrl.trim().length === 0;
   // THE DELIBERATE YES, asked only about the pieces they say they applied. The server asks again and refuses
   // without it, so this box is the operator's act and never the gate.
@@ -339,7 +418,7 @@ export function MarkImplemented({ proposalId, label: idle = "Mark implemented", 
         ...(note.trim() ? { operatorNote: note.trim() } : {}),
         ...(movesPage ? { destructiveConfirmed: confirmed } : {}),
       });
-      if (res.success) setState({ done: true, error: null, note: res.note ?? null });
+      if (res.success) { setState({ done: true, error: null, note: res.note ?? null }); onRecorded?.(); }
       else setState({ done: false, error: res.error ?? "Something went wrong.", note: null });
     });
   }
@@ -362,7 +441,7 @@ export function MarkImplemented({ proposalId, label: idle = "Mark implemented", 
             </label>
           ))}
           <p className="text-[12px] text-muted-foreground">
-            I only measure the pieces you tick, so leave the ones you skipped unticked.
+            Only the pieces you tick get measured, so leave the ones you skipped unticked.
           </p>
         </div>
       ) : null}
@@ -375,18 +454,18 @@ export function MarkImplemented({ proposalId, label: idle = "Mark implemented", 
           <input id={`live-url-${proposalId}`} type="text" value={liveUrl} onChange={(e) => setLiveUrl(e.target.value)}
             placeholder="https://yoursite.com/the-new-page"
             className="w-full rounded-md border border-border bg-surface-inset px-3 py-1.5 text-[12px] text-foreground" />
-          <p className="text-[12px] text-muted-foreground">I go and read that page myself, so I need the exact address on your own site.</p>
+          <p className="text-[12px] text-muted-foreground">That page gets read directly, so the exact address on your own site is required.</p>
         </div>
       ) : null}
 
       {movesPage ? (
         <label data-destructive-confirm="true" className="flex items-start gap-2 rounded-md border border-status-warning/40 bg-status-warning/5 px-3 py-2 text-[12px] leading-relaxed text-foreground">
           <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-          I understand this moves or hides a page, and I have read what it does to my site above.
+          Confirmed: this moves or hides a page, and what it does to the site above has been read.
         </label>) : null}
       <div className="space-y-1.5" data-operator-note="true">
         <label className="block text-[12px] text-muted-foreground" htmlFor={`note-${proposalId}`}>
-          Wrote it your own way? Tell me what you put there and I will keep your words beside my reading.
+          Wrote it your own way? Add what you put there and your words are kept beside the reading.
         </label>
         <input id={`note-${proposalId}`} type="text" value={note} onChange={(e) => setNote(e.target.value)}
           placeholder="Optional: what you actually put on the page"
@@ -399,10 +478,10 @@ export function MarkImplemented({ proposalId, label: idle = "Mark implemented", 
           {pending ? "Saving…" : label}
         </button>
         <span className="text-[12px] text-muted-foreground">
-          {addressOwed ? "Give me the address it is live at and I will go and read it."
-            : nothingPicked ? "Tick at least one piece and I will start measuring it."
-              : movesPage && !confirmed ? "Confirm you meant to move or hide the page and I will record it."
-                : "You apply the change on your site; I read the page myself and tell you what I found."}
+          {addressOwed ? "Add the address it is live at and the page gets read."
+            : nothingPicked ? "Tick at least one piece to start measuring it."
+              : movesPage && !confirmed ? "Confirm you meant to move or hide the page to record it."
+                : "You apply the change on your site; the page is read back and what it found is reported."}
         </span>
         {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}
       </div>

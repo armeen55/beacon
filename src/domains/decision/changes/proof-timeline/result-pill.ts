@@ -1,21 +1,14 @@
 /**
  * /changes proof timeline - result-pill resolver.
  *
- * Bundle (2026-05-10) - second pass at /changes per the maximum-depth
- * UI audit: collapse the legacy table's three competing pills into ONE
- * customer-facing "result" pill per row. The v2 timeline card calls
+ * Bundle (2026-05-10) - second pass at /changes per the maximum-depth UI audit: collapse the legacy table's three competing pills into ONE customer-facing "result" pill per row. The v2 timeline card calls
  * this resolver once per row.
  *
- * Verdict-engine consolidation (2026-07-21, CORE 100K Lane F): the pill
- * used to read the parallel URL Z-score verdict engine. It now reads the
- * SAME proof-gsc measurement presentation Results renders (shipped-change
- * ledger -> buildMeasurementPresentation), so one change can never carry
- * two competing verdicts on one page. A row with no shipped-change proof
- * coverage gets an honest "not measured" line, never an invented verdict.
+ * Verdict-engine consolidation (2026-07-21, CORE 100K Lane F): the pill used to read the parallel URL Z-score verdict engine. It now reads the
+ * SAME proof-gsc measurement presentation Results renders (shipped-change ledger -> buildMeasurementPresentation), so one change can never carry
+ * two competing verdicts on one page. A row with no shipped-change proof coverage gets an honest "not measured" line, never an invented verdict.
  *
- * Pure module - no I/O, no DOM, no React. Lives next to the rest of
- * the proof-timeline helpers so it's testable in Node and reusable
- * from any future surface (timeline rail, share view, etc.).
+ * Pure module - no I/O, no DOM, no React. Lives next to the rest of the proof-timeline helpers so it's testable in Node and reusable from any future surface (timeline rail, share view, etc.).
  *
  * Customer-vocabulary contract (forbidden-vocabulary guardrail):
  *   - Labels are plain English ("Helping", "Hurting", "Too early",
@@ -115,10 +108,8 @@ export type ProofPill = {
 };
 
 /**
- * The minimal slice of the proof-gsc MeasurementPresentation the pill
- * needs. Built by the caller from buildMeasurementPresentation over the
- * row's shipped-change ledger record (calibration-quarantined verdict in,
- * so an uncalibrated won/lost already reads as inconclusive here).
+ * The minimal slice of the proof-gsc MeasurementPresentation the pill needs. Built by the caller from buildMeasurementPresentation over the
+ * row's shipped-change ledger record (calibration-quarantined verdict in, so an uncalibrated won/lost already reads as inconclusive here).
  */
 export type ProofMeasurementSummary = {
   maturity: MeasurementMaturity;

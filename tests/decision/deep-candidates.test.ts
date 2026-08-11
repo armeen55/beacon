@@ -28,7 +28,7 @@ describe("the five doors into the deep read", () => {
       coverage: null, limit: 3,
     });
     expect(picked.map((p) => [p.door, p.pageUrl])).toEqual([["ai_absence", AI_PAGE]]);
-    expect(picked[0]!.entry).toContain('ChatGPT answered "where to buy saffron" for your customers and never named this page, and I watch 1 question like it about "saffron price", worth about 900 searches a month.');
+    expect(picked[0]!.entry).toContain('ChatGPT answered "where to buy saffron" for your customers and never named this page, and 1 question is watched like it about "saffron price", worth about 900 searches a month.');
   });
   it("keeps one slot per page: a page arriving by the click door and the AI door drafts once, clicks first", () => {
     const both = cand({ pageUrl: AI_PAGE, query: "saffron price", action: "act_existing_page", recoverableClicks: 120,
@@ -67,7 +67,7 @@ describe("the five doors into the deep read", () => {
       candidates: [cand({ pageUrl: "https://own.example/iran-flag", query: "iran flag",
         cause: cause("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what does the iran flag mean" }) })],
       coverage: null, limit: 3 });
-    expect([picked[0]!.entry.includes("I watch 1 question like it"), /I watch [2-9]/.test(picked[0]!.entry), picked[0]!.strength]).toEqual([true, false, 1]); });
+    expect([picked[0]!.entry.includes("1 question is watched like it"), /[2-9] questions are watched/.test(picked[0]!.entry), picked[0]!.strength]).toEqual([true, false, 1]); });
   it("never opens the AI door on an accusation nothing rides on: no watched question, no demand, no slot", () => {
     const picked = selectDeepCandidates({
       snapshot: snapshot([]),

@@ -133,12 +133,12 @@ function ledgerCheckedAgoLine(computedAtIso: string | null, nowMs: number): stri
   const t = Date.parse(computedAtIso);
   if (!Number.isFinite(t)) return null;
   const minutes = Math.floor(Math.max(0, nowMs - t) / 60_000);
-  if (minutes < 1) return "I re-checked these numbers against your Google data just now.";
+  if (minutes < 1) return "These numbers were re-checked against your Google data just now.";
   const unit =
     minutes < 60
       ? `${minutes} minute${minutes === 1 ? "" : "s"}`
       : minutes < 48 * 60
         ? `${Math.floor(minutes / 60)} hour${Math.floor(minutes / 60) === 1 ? "" : "s"}`
         : `${Math.floor(minutes / 1440)} days`;
-  return `I last re-checked these numbers against your Google data ${unit} ago. I refresh them in the background.`;
+  return `These numbers were last re-checked against your Google data ${unit} ago. They refresh in the background.`;
 }

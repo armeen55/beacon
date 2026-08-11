@@ -2,22 +2,18 @@ import "server-only";
 
 /**
  * decision/winning-pattern (V1 Truth Convergence Phase 3, 2026-07-31) - WHAT THE PAGES THAT WIN A SEARCH
- * HAVE IN COMMON, learned without copying one of them. The page by page comparison one gate earlier proves
- * a page is OWED; it says nothing about what that page must actually DO to compete, and every answer to
+ * HAVE IN COMMON, learned without copying one of them. The page by page comparison one gate earlier proves a page is OWED; it says nothing about what that page must actually DO to compete, and every answer to
  * that question so far was taste dressed up as a plan.
  *
- * DETERMINISTIC FIRST, ALWAYS. `extractPageFacts` reads the extracts the funnel already paid for and
- * nothing else: a heading list is a heading list, a word count is a word count, and a field that read never
+ * DETERMINISTIC FIRST, ALWAYS. `extractPageFacts` reads the extracts the funnel already paid for and nothing else: a heading list is a heading list, a word count is a word count, and a field that read never
  * captured comes back null rather than filled in. Null means "I do not hold this", never "this page has
- * none". No model runs there, so the facts are free, repeatable and checkable, and the one reading below
- * can only ever be taken ON them.
+ * none". No model runs there, so the facts are free, repeatable and checkable, and the one reading below can only ever be taken ON them.
  *
  * ONE strict reading per case, bounded and cached: the same facts write a byte-identical prompt, so the
  * gateway's own per-account cache serves it at $0 and a case whose winners did not move never buys a second
  * one. Under three publishers I can actually learn from there is no pattern to find, so it costs nothing.
  *
- * IT IS A PATTERN, NOT A COPY, AND EVERY FIELD ANSWERS FOR ITSELF. The reading names no website and quotes
- * no page: the model sees pages numbered from 0 upward, may cite only those numbers, and writes every
+ * IT IS A PATTERN, NOT A COPY, AND EVERY FIELD ANSWERS FOR ITSELF. The reading names no website and quotes no page: the model sees pages numbered from 0 upward, may cite only those numbers, and writes every
  * commonality in its own plain words. FIVE things throw the WHOLE reading away rather than shipping the half
  * of it that checks out: a run of eight words off ANY line I showed it, in ANY prose field; a heading longer
  * than a section name handed back word for word; a section or a named thing that is not actually ON every
@@ -102,8 +98,7 @@ const say = (v: boolean | null): string => (v == null ? "not captured" : v ? "ye
 
 /**
  * The DETERMINISTIC half, and the only half that is ever load-bearing. Pure: same extracts in, same facts
- * out, no model, no clock, no I/O. Nothing is derived that the read did not carry, so a page whose body I
- * never got produces a full row of honest nulls rather than a row of zeros that reads like a finding.
+ * out, no model, no clock, no I/O. Nothing is derived that the read did not carry, so a page whose body I never got produces a full row of honest nulls rather than a row of zeros that reads like a finding.
  */
 export function extractPageFacts(pages: readonly ReadPage[]): PageFacts[] {
   return pages.map((p) => {
@@ -118,8 +113,7 @@ export function extractPageFacts(pages: readonly ReadPage[]): PageFacts[] {
       entities: (x?.entityNames ?? []).map((e) => e.trim()).filter(Boolean).slice(0, MAX_ENTITIES),
       wordCount: typeof x?.wordCount === "number" ? x.wordCount : null,
       faqCount: typeof x?.faqCount === "number" ? x.faqCount : null,
-      // A LIST IS A LIST WHEREVER THE READ SAW ONE: the flag when it was captured, the cards it actually
-      // banked when it was not, and null when neither was ever recorded.
+      // A LIST IS A LIST WHEREVER THE READ SAW ONE: the flag when it was captured, the cards it actually banked when it was not, and null when neither was ever recorded.
       hasList: x?.hasList ?? (cards ? cards.length > 0 : null),
       hasTable: x?.hasTable ?? null,
       hasSchema: x?.entityNames == null ? null : x.entityNames.length > 0,
@@ -188,8 +182,7 @@ function quotes(text: string, runs: ReadonlySet<string>): boolean {
  *  "three of the four cover X" about an X nobody wrote. Content tokens, so wording may still be its own. */
 function holdsOnEvery(text: string, seenOn: readonly number[], on: readonly ReadonlySet<string>[], label: ReadonlySet<string>): boolean {
   const t = topicTokens(text);
-  // THE TOPIC NOUN PROVES NOTHING. Every cited page wins the same search, so the case's own label
-  // tokens sit on all of them and carried any invention through. A claim with tokens of its OWN must
+  // THE TOPIC NOUN PROVES NOTHING. Every cited page wins the same search, so the case's own label tokens sit on all of them and carried any invention through. A claim with tokens of its OWN must
   // ground THOSE on every page it cites; a claim that is nothing but the topic grounds as the topic.
   const distinct = t.filter((x) => !label.has(x));
   const need = distinct.length > 0 ? distinct : t;
@@ -198,8 +191,7 @@ function holdsOnEvery(text: string, seenOn: readonly number[], on: readonly Read
 
 /**
  * ONE strict reading of what the winning pages share, or null. Null is a complete answer: it means I hold
- * no pattern for this case, which is exactly what ships whenever this call is off, over budget, blocked,
- * unusable, or names a page nobody gave it.
+ * no pattern for this case, which is exactly what ships whenever this call is off, over budget, blocked, unusable, or names a page nobody gave it.
  */
 export async function readWinningPattern(
   winners: readonly PageFacts[],
@@ -210,8 +202,7 @@ export async function readWinningPattern(
    *  model AND enforced on the answer: the model repeats a settled shape, it never re-votes one. */
   & { pageType?: SerpPageType | null } = {},
 ): Promise<WinningPattern | null> {
-  // ONLY PAGES I ACTUALLY READ, and only one vote per publisher: three pages from one site are one site's
-  // house style, and nothing downstream of this file may ever call that a pattern.
+  // ONLY PAGES I ACTUALLY READ, and only one vote per publisher: three pages from one site are one site's house style, and nothing downstream of this file may ever call that a pattern.
   const pages: PageFacts[] = [];
   const seen = new Set<string>();
   for (const f of winners) {
@@ -221,8 +212,7 @@ export async function readWinningPattern(
   }
   if (pages.length < MIN_PATTERN_PUBLISHERS) return null; // no agreement is buyable here: no call, no cent
 
-  // A SETTLED SHAPE IS PART OF THE ASK, so it rides the fingerprint too: the same pages under a shape that
-  // has since changed are a different question and must not be answered out of the old reading's cache.
+  // A SETTLED SHAPE IS PART OF THE ASK, so it rides the fingerprint too: the same pages under a shape that has since changed are a different question and must not be answered out of the old reading's cache.
   const settled = opts.pageType && opts.pageType !== "mixed" && opts.pageType !== "unknown" ? opts.pageType : null;
   const lines = [...factLines(pages, owned), ...(settled ? [`THE KIND OF PAGE THAT ALREADY WINS HERE, SETTLED: ${settled}`] : [])];
   const fingerprint = createHash("sha256").update(lines.join("\n")).digest("hex").slice(0, 16);
@@ -248,15 +238,13 @@ export async function readWinningPattern(
   const cited = [...v.commonHeadings, ...v.commonEntities, ...v.ownedGaps, ...v.uniqueNotCommon].flatMap((r) => r.seenOn);
   const stray = cited.find((i) => !Number.isInteger(i) || i < 0 || i >= pages.length);
   // EVERY PROSE FIELD, AGAINST EVERY LINE I SHOWED IT. The run check used to read openingPattern alone and
-  // the copy check used to read commonHeadings alone, so a winner's own sentence reached the operator through
-  // a disagreement, a gap, an answered question or a unique detail without one gate looking at it.
+  // the copy check used to read commonHeadings alone, so a winner's own sentence reached the operator through a disagreement, a gap, an answered question or a unique detail without one gate looking at it.
   const said = [...v.commonHeadings.map((h) => h.heading), ...v.ownedGaps.map((g) => g.gap), ...v.uniqueNotCommon.map((u) => u.detail),
     ...v.disagreements, ...v.questionsAnswered, v.openingPattern].filter((s) => !!s);
   const shown = [...pages, ...(owned ? [owned] : [])];
   const runs = runsOf(shown.flatMap((f) => [...f.headings, f.titleTokens.join(" "), f.opening ?? ""]));
   const quoted = said.find((t) => quotes(t, runs));
-  // A PATTERN IS AN ABSTRACTION. A heading handed back word for word is one page's wording, and putting a
-  // competitor's own line into an operator-facing receipt is the one thing this whole file exists to avoid.
+  // A PATTERN IS AN ABSTRACTION. A heading handed back word for word is one page's wording, and putting a competitor's own line into an operator-facing receipt is the one thing this whole file exists to avoid.
   // Five words is a shared section NAME; anything longer is a quotation whatever it measures in characters.
   const supplied = new Set(shown.flatMap((f) => f.headings).map(norm));
   const copied = v.commonHeadings.map((h) => h.heading).find((h) => supplied.has(norm(h)) && words(h).length > VERBATIM_HEADING_WORDS);
@@ -268,20 +256,16 @@ export async function readWinningPattern(
   const invented = stray !== undefined ? undefined
     : v.commonHeadings.find((h) => !holdsOnEvery(h.heading, h.seenOn, sections, labelTokens))?.heading
       ?? v.commonEntities.find((e) => !holdsOnEvery(e.entity, e.seenOn, names, labelTokens))?.entity;
-  // A GAP IS MEASURED AGAINST A PAGE, NOT IMAGINED FOR ONE. With no page of my own supplied the model was
-  // still ordered to produce ownedGaps, so it invented what my page does not do and that invention rendered
-  // to the operator as a claim about a page it had never seen.
-  // AN INTERNAL SLUG IS NOT A WORD AN OPERATOR READS. The settled shape rides the prompt so the model
-  // repeats it in `archetype`, which is mapped before display; any prose field carrying a raw slug is
-  // a reading that leaked machinery, and it is thrown away whole.
+  // A GAP IS MEASURED AGAINST A PAGE, NOT IMAGINED FOR ONE. With no page of my own supplied the model was still ordered to produce ownedGaps, so it invented what my page does not do and that invention rendered
+  // to the operator as a claim about a page it had never seen. AN INTERNAL SLUG IS NOT A WORD AN OPERATOR READS. The settled shape rides the prompt so the model
+  // repeats it in `archetype`, which is mapped before display; any prose field carrying a raw slug is a reading that leaked machinery, and it is thrown away whole.
   const SLUG_RE = /\b(informational_guide|new_page|do_nothing|serp_[a-z_]+|[a-z]+_(?:guide|page|search|result))\b/;
   const slugged = said.find((t) => SLUG_RE.test(t));
   const blindGaps = owned == null && v.ownedGaps.length > 0;
   // THE SHAPE WAS SETTLED IN CODE ONE GATE EARLIER, and the deterministic count wins every time.
   const wrongShape = settled != null && v.archetype !== settled;
   if (stray !== undefined || copied || quoted || invented || blindGaps || wrongShape || slugged) {
-    // ONE of these throws the WHOLE reading away. Keeping the half that checks out would file a real case
-    // under a pattern half of which was invented or copied, and no diagnosis is worth that.
+    // ONE of these throws the WHOLE reading away. Keeping the half that checks out would file a real case under a pattern half of which was invented or copied, and no diagnosis is worth that.
     log.warn("[winning-pattern] the reading copied a page, named something no page carries, or overruled a settled shape, so I kept none of it",
       { tenantId, stray, copied: copied?.slice(0, 80), quoted: quoted?.slice(0, 80), invented: invented?.slice(0, 80), blindGaps, wrongShape, slugged: slugged?.slice(0, 80) });
     return null;

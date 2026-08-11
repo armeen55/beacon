@@ -137,7 +137,7 @@ export function PromptsEditor({
     setAdditions([...additions, ...fresh]);
     setPasteDraft("");
     const skipped = [dupes > 0 ? `${dupes} you already track` : "", blanks > 0 ? `${blanks} blank line${blanks === 1 ? "" : "s"}` : ""].filter(Boolean);
-    setPasteNote(`I added ${fresh.length}.` + (skipped.length > 0 ? ` I skipped ${skipped.join(" and ")}.` : ""));
+    setPasteNote(`Added ${fresh.length}.` + (skipped.length > 0 ? ` Skipped ${skipped.join(" and ")}.` : ""));
   }
   function submit() {
     const keepIds: string[] = [];
@@ -195,7 +195,7 @@ export function PromptsEditor({
                         </div>
                         {changed ? (
                           <p className="pl-6 text-[11px] text-amber-700">
-                            Saving this rewording starts its trend again from today. I will not compare the new
+                            Saving this rewording starts its trend again from today. Nothing compares the new
                             wording against readings of the old one.
                           </p>
                         ) : p.note ? (
@@ -223,7 +223,7 @@ export function PromptsEditor({
                     {pasteOpen ? (
                       <div className="pt-1 space-y-1">
                         <textarea value={pasteDraft} onChange={(e) => setPasteDraft(e.target.value)} rows={4}
-                          placeholder="One question per line. I ignore blank lines and anything I already track."
+                          placeholder="One question per line. Blank lines and questions already tracked are ignored."
                           className="w-full rounded border border-border/60 bg-background px-2 py-1 text-[13px] outline-none focus:border-foreground/40" />
                         <button type="button" className={MINI} onClick={() => applyPaste(g.slug)} disabled={!pasteDraft.trim()}>
                           Add these questions
@@ -242,14 +242,14 @@ export function PromptsEditor({
       <p className="text-[12px] tabular-nums text-muted-foreground">
         {thin ? (
           <>
-            {count} picked. I found {available} strong {available === 1 ? "question" : "questions"} for your
-            business. I do my best work with {bounds.min} to {bounds.max}, and I will propose more as I learn
+            {count} picked. {available} strong {available === 1 ? "question" : "questions"} found for your
+            business. {bounds.min} to {bounds.max} is the range that works best, and more arrive as Beacon learns
             your market.
           </>
         ) : (
           <>
-            {count} picked. I track between {bounds.min} and {bounds.max} questions
-            {mode === "onboarding" ? ", and this is the range where I do my best work." : "."}
+            {count} picked. Between {bounds.min} and {bounds.max} questions stay tracked
+            {mode === "onboarding" ? ", and this is the range that works best." : "."}
           </>
         )}
       </p>

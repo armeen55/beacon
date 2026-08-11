@@ -40,24 +40,24 @@ const shipment = (over: Partial<ShipmentPresentation> = {}): ShipmentPresentatio
 describe("one shipped change tells its whole story", () => {
   it("says component by component what it found on the live page, and never calls an unseeable one missing", () => {
     const story = shipmentStory(shipment());
-    expect(story.verification.headline).toBe("I checked your live page: part of this is live and part of it is not.");
+    expect(story.verification.headline).toBe("Your live page was checked: part of this is live and part of it is not.");
     expect(story.verification.components).toEqual([
       "The page title is exactly what we agreed.",
       "A new section is not there yet.",
-      "I cannot see the structured data from outside the page, so I am not calling it either way.",
+      "The structured data cannot be seen from outside the page, so it is not called either way.",
     ]);
     expect(story.verification.checkedOn).toBe("May 3");
   });
   it("says plainly when it has not looked yet, instead of implying a pass, and holds the starting point untouched", () => {
     const unchecked = shipmentStory(shipment({ verification: null }));
-    expect(unchecked.verification.headline).toContain("I have not read your live page for this one yet");
+    expect(unchecked.verification.headline).toContain("Your live page has not been read for this one yet");
     expect(unchecked.verification.components).toEqual([]);
     expect(shipmentStory(shipment()).baseline)
-      .toBe("When you marked this done on May 1, this page had 412 clicks and 9,100 appearances in Google over the 28 days before it. I hold that starting point exactly as it was, and it never moves.");
+      .toBe("When you marked this done on May 1, this page had 412 clicks and 9,100 appearances in Google over the 28 days before it. That starting point is held exactly as it was, and it never moves.");
   });
   it("walks the timeline from marked done through the live check to every checkpoint, and adds the 56 day follow up only when one ran", () => {
     const story = shipmentStory(shipment());
-    expect(story.timeline.map((s) => s.label)).toEqual(["You marked it done", "I checked your live page", "7 day read", "14 day read", "28 day read"]);
+    expect(story.timeline.map((s) => s.label)).toEqual(["You marked it done", "Your live page was checked", "7 day read", "14 day read", "28 day read"]);
     expect(story.timeline[0]).toMatchObject({ state: "done", when: "May 1" });
     expect(story.timeline[1]).toMatchObject({ state: "done", when: "May 3" });
     const followUp = shipment({ read: evaluateChange(input({ windows: [win(7), win(14), win(28), { ...win(28), day: 56 as 28 }] }), evaluateWindows(SHIPPED, new Date("2026-07-15T00:00:00Z"), "2026-07-15", true), []) });
@@ -69,12 +69,12 @@ describe("one shipped change tells its whole story", () => {
     expect(story.search.headline.toLowerCase()).not.toContain("caused");
     expect(story.ai).not.toBeNull();
     expect(story.ai!.heading).toBe("AI assistants name you more often than they did before this went live.");
-    expect(story.ai!.coverage).toBe("I read on 21 of the 28 days since then. A day I missed stays missed, and I never fill one in.");
+    expect(story.ai!.coverage).toBe("Readings landed on 21 of the 28 days since then. A missed day stays missed, and one is never filled in.");
     expect(story.ai!.line).toBe(AI.line);
   });
   it("never prints a zero where nothing was read: no AI day read says so in words", () => {
     const none = shipment({ ai: { ...AI, direction: "unclear", coverage: { daysObserved: 0, daysElapsed: 12 } } });
-    expect(shipmentStory(none).ai!.coverage).toBe("I have not managed to read an AI answer on any of the 12 days since you marked this done.");
+    expect(shipmentStory(none).ai!.coverage).toBe("No AI answer has been readable on any of the 12 days since you marked this done.");
     expect(shipmentStory(shipment({ ai: null })).ai).toBeNull();
   });
   it("stops painting a window green once a later change on the page shares it, and names what it shares with", () => {
@@ -85,19 +85,19 @@ describe("one shipped change tells its whole story", () => {
       { day: 14, text: "14 days: shared with a later change", state: "shared" },
       { day: 28, text: "28 days: shared with a later change", state: "shared" },
     ]);
-    expect(story.overlap).toBe("I changed this page again on May 10. The windows that closed after that day belong to both changes, so I do not count them as this one's.");
+    expect(story.overlap).toBe("This page changed again on May 10. The windows that closed after that day belong to both changes, so they do not count as this one's.");
     // A clean read paints no shared chip and needs no overlap sentence at all.
     expect(shipmentStory(shipment()).chips.every((c) => c.state !== "shared")).toBe(true);
     expect(shipmentStory(shipment()).overlap).toBeNull();
   });
   it("says what it learned in the operator's words, with no slug from the diagnosis or the action family", () => {
     const learned = shipmentStory(shipment()).learning;
-    for (const s of ["I read this page as the line searchers saw not matching what they typed", "I answered it with a content change", "the page moved up after it", "6 pieces of evidence", "I carry that into what I recommend next"]) expect(learned, s).toContain(s);
+    for (const s of ["this page read as the line searchers saw not matching what they typed", "it was answered with a content change", "the page moved up after it", "6 pieces of evidence", "That carries into what gets recommended next"]) expect(learned, s).toContain(s);
     // NOTHING IS CARRIED FORWARD FROM A READ THAT HAS NOT LANDED: no direction, no lesson.
     const early = shipmentStory(shipment({ read: evaluateChange(input({ windows: [] }), evaluateWindows(SHIPPED, new Date("2026-05-03T00:00:00Z"), "2026-05-03"), []) }));
     expect(early.learning).toContain("it is too early to say which way this went");
     expect(early.learning).not.toContain("I carry that into");
-    expect(early.learning).toContain("I carry nothing forward from this one until it settles.");
+    expect(early.learning).toContain("Nothing carries forward from this one until it settles.");
   });
   it("says the verdict and how sure I am in the operator's words, never in the kernel's", () => {
     const confounded = evaluateChange(input({ windows: [win(28)] }), WINDOWS, ["c2"]);
@@ -106,12 +106,12 @@ describe("one shipped change tells its whole story", () => {
     expect(overlapped.badge).toBe("Shared with a later change"); // the loudest word on the card is not a lab word
     expect(overlapped.badge.toLowerCase()).not.toContain("confounded");
     expect(shipmentStory(shipment()).badge).toBe("A stronger improvement");
-    expect(shipmentStory(shipment()).confidence).toMatch(/^I am /);
+    expect(shipmentStory(shipment()).confidence).toMatch(/^This read is /);
     expect(shipmentStory(shipment()).confidence.toLowerCase()).not.toContain("confidence");
   });
   it("renders a change marked done before I kept exact dates as done, and says the date is what is missing", () => {
     const legacy = shipmentStory(shipment({ implementedAt: null, baseline: null }));
-    expect(legacy.timeline[0]).toEqual({ label: "You marked it done, before I kept exact dates", state: "done", when: null });
+    expect(legacy.timeline[0]).toEqual({ label: "You marked it done, before exact dates were kept", state: "done", when: null });
     expect(legacy.baseline).toBeNull(); // and "Where it started" stays absent rather than inventing a starting point
   });
 });

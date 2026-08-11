@@ -7,8 +7,7 @@
  * against a page's own positions. Every other door selects the page IT named, answers for ITS OWN evidence, and
  * concludes only what it measured: a door that never read the line a searcher reads never concludes its wording.
  *
- * No evidence means no change, and every input list is re-sorted before it is read, so the same evidence in any
- * order produces a byte-identical result. server-only.
+ * No evidence means no change, and every input list is re-sorted before it is read, so the same evidence in any order produces a byte-identical result. server-only.
  */
 
 import "server-only";
@@ -71,19 +70,19 @@ const winnerBelongs = (w: Research["winningPages"][number], queries: ReadonlySet
 const WANTS: Record<string, string> = { informational: "want an explanation", commercial: "are comparing options", transactional: "are ready to act", navigational: "are looking for one specific site" };
 
 const keywordFact = (k: Keyword, w = k.intent ? WANTS[norm(k.intent)] : undefined): string => `"${k.query}" gets about ${k.searchVolume!.toLocaleString()} searches a month${w ? `, and the people searching it ${w}` : ""}.`;
-const serpFact = (e: SerpEvidence, led = [...e.organic].sort((a, b) => a.rank - b.rank).slice(0, 3).map((o) => o.domain)): string => `For "${e.query}" the results page is led by ${led.join(", ") || "pages I could not name"}, and the answer box at the top cites ${e.aiOverview.length} ${e.aiOverview.length === 1 ? "source" : "sources"}.`;
+const serpFact = (e: SerpEvidence, led = [...e.organic].sort((a, b) => a.rank - b.rank).slice(0, 3).map((o) => o.domain)): string => `For "${e.query}" the results page is led by ${led.join(", ") || "pages that could not be named"}, and the answer box at the top cites ${e.aiOverview.length} ${e.aiOverview.length === 1 ? "source" : "sources"}.`;
 const observationFact = (o: Observation): string => {
   const domains = [...new Set((o.citations ?? []).map((cit) => cit.domain))].sort(byText).slice(0, 3);
   const seen = o.observationMode === "consumer_search" ? `When a customer searches "${o.promptText}" inside an assistant, `
     : `In a plain assistant answer to "${o.promptText}" (background reading, not what a searching customer sees), `;
-  const cited = o.citations == null ? "I could not see which pages it leaned on."
+  const cited = o.citations == null ? "Which pages it leaned on is not readable."
     : domains.length === 0 ? "it answers without pointing at anyone." : `it points people at ${domains.join(", ")}.`;
   // Fan-out lineage: the searches the ASSISTANT itself ran, never the question I track, which is mine.
   const mine = canonicalQueryKey(o.promptText), fan = (o.fanOutQueries ?? []).filter((q) => canonicalQueryKey(q) !== mine).slice(0, 3);
   return `${seen}${cited}${fan.length ? ` To answer it the assistant went and searched ${fan.map((q) => `"${q}"`).join(", ")}.` : ""}`;
 };
 
-const classSentence = (r: Receipt): string => `I built this from ${receiptComposition(r.items)}, and I can show you every piece.`;
+const classSentence = (r: Receipt): string => `Built from ${receiptComposition(r.items)}, and every piece is on the receipt.`;
 
 const queriesOf = (page: OwnedPageEvidence): OwnedQuerySignal[] => [...(page.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions || b.clicks - a.clicks || byText(a.query, b.query)).slice(0, 5);
 
@@ -96,7 +95,7 @@ function winnerPattern(read: Research["winningPages"], c: NonNullable<OwnedPageE
   const faq = read.filter((w) => w.extract!.faqCount > 0).length; const bits: string[] = [];
   if (faq >= 2) bits.push(`${faq} of them answer it in a question and answer block${c.hasFaq ? " and so does this page" : ", and this page has none"}`);
   if (median >= Math.round(c.wordCount * 1.5)) bits.push(`the middle one runs ${median.toLocaleString()} words against this page's ${c.wordCount.toLocaleString()}`);
-  return bits.length === 0 ? null : `Of the ${read.length} pages I read that come up for "${primary}", ${bits.join(", and ")}.`;
+  return bits.length === 0 ? null : `Of the ${read.length} pages read that come up for "${primary}", ${bits.join(", and ")}.`;
 }
 
 function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queries: OwnedQuerySignal[], primary: string, weak: ReadonlySet<string>, body: OwnedBody | null, mine: DecidedTopic | null, technical: readonly TechnicalFinding[], bodies: ReadonlyMap<string, OwnedPageBody>): Receipt {
@@ -114,19 +113,19 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   const exact = (s.topQueries ?? []).find((q) => isPrimary(q.query));
   if (exact) add(RECEIPT.gsc, "gsc_demand", queryFact(exact), null); // the EXACT search the gap was measured on, never a neighbour
   queries.slice(0, 3).filter((q) => !isPrimary(q.query)).forEach((q, i) => add(`demand-q${i + 1}`, "gsc_demand", queryFact(q), null));
-  add(RECEIPT.copy, "page_extract", `${c.fetchedAt ? `When I read this page on ${c.fetchedAt.slice(0, 10)} it` : "The page I hold"} ${c.title ? `was titled "${c.title}"` : "had no title set"} and ran ${c.wordCount.toLocaleString()} words across ${c.outline.length} sections.`, c.fetchedAt);
+  add(RECEIPT.copy, "page_extract", `${c.fetchedAt ? `Read on ${c.fetchedAt.slice(0, 10)}, this page` : "The page I hold"} ${c.title ? `was titled "${c.title}"` : "had no title set"} and ran ${c.wordCount.toLocaleString()} words across ${c.outline.length} sections.`, c.fetchedAt);
   const split = splitComparison(snapshot, primary);
   const sectionsOf = (url: string): string[] => (bodies.get(canonicalUrlKey(url))?.headings
     ?? snapshot.ownedPages.find((p) => canonicalUrlKey(p.url) === canonicalUrlKey(url))?.content?.outline ?? []).slice(0, 6);
   if (split.length > 0) add(RECEIPT.competing, "gsc_demand", `Over the last 90 days ${split.length} of your own pages came up for "${primary}": ${split.map((r) => `${r.clicks == null
-    ? `${pathOf(r.url)} comes up for it and I hold no figures of its own`
+    ? `${pathOf(r.url)} comes up for it and carries no figures of its own`
     : `${pathOf(r.url)} takes ${r.clicks.toLocaleString()} clicks from ${(r.impressions ?? 0).toLocaleString()} views${r.position == null ? "" : ` at about position ${Math.round(r.position)}`}`}${sectionsOf(r.url).length > 0 ? ` and covers ${sectionsOf(r.url).map((h) => `"${h}"`).join(", ")}` : ""}`).join("; ")}.`, snapshot.scope.builtAt);
   const keywords = [...(research?.retainedKeywords ?? [])].filter((k) => isPrimary(k.query) && k.searchVolume != null)
     .sort((a, b) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0) || byText(norm(a.query), norm(b.query)));
-  if (keywords.length === 0) missing.push(`I do not have a monthly search count for "${primary}" yet.`);
+  if (keywords.length === 0) missing.push(`No monthly search count for "${primary}" is on file yet.`);
   keywords.slice(0, 3).forEach((k, i) => add(`kw${i + 1}`, "keyword", keywordFact(k), null));
   const serps = [...(research?.serpEvidence ?? [])].filter((e) => isPrimary(e.query)).sort((a, b) => byText(norm(a.query), norm(b.query)));
-  if (serps.length === 0) missing.push(`I have not looked at the live results page for "${primary}" yet, so I cannot yet name what is taking the clicks.`);
+  if (serps.length === 0) missing.push(`The live results page for "${primary}" has not been read yet, so what is taking the clicks cannot be named.`);
   serps.slice(0, 2).forEach((e, i) => add(`serp${i + 1}`, "serp", serpFact(e), null));
 
   const bodyText = (body?.openingSample ?? "").trim() || null; const dx: DiagnosisInput = { query: primary, ownedUrl: page.url, organic: serps[0]?.organic ?? null, body: !!bodyText, gscPosition: exact?.position ?? null };
@@ -135,17 +134,17 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   if (diagnosis.status === "diagnosed") { // the conclusion is inspectable evidence too, beside the observations it cites
     add("diagnosis", "diagnosis", diagnosis.explanation, null); diagnosis.alternativesRuledOut.forEach((a, i) => add(`ruledout${i + 1}`, "diagnosis", `${a.alternative}: ${a.reason}`, null)); }
   if (owned) add(RECEIPT.ownedResult, "serp", `On that results page Google shows this page worded "${(owned.title ?? "").trim()}".`, null);
-  else if (serps.length > 0) missing.push(`I could not find this page on the results page for "${primary}", so I cannot see what a searcher reads for it.`);
+  else if (serps.length > 0) missing.push(`This page is not on the results page for "${primary}", so what a searcher reads for it is not visible.`);
   if (pattern.length > 0) add(RECEIPT.pattern, "serp", `Across the other pages that come up for "${primary}", ${pattern.slice(0, 4).map((t) => `"${t}"`).join(", ")} recur in the wording Google shows.`, null);
-  else if (serps.length > 0) missing.push(`The pages that come up for "${primary}" share no recurring wording I can point at.`);
+  else if (serps.length > 0) missing.push(`The pages that come up for "${primary}" share no recurring wording worth pointing at.`);
 
   // ABOUT THIS SEARCH OR IT IS SOMEBODY ELSE'S EVIDENCE: ONE membership predicate decides every join below.
   const ofCase = { queries: [primary], provenance: (research?.retainedKeywords ?? []).filter((k) => isPrimary(k.query)).flatMap((k) => k.origins ?? []) };
   const observations = [...(research?.aiObservations ?? [])].filter((o) => observationJoinsCase(o, ofCase)).sort(
     (a, b) => byText(a.observationMode, b.observationMode) || byText(a.promptText, b.promptText) || byText(a.engine, b.engine));
   const consumer = observations.filter((o) => o.observationMode === "consumer_search"); const plain = observations.filter((o) => o.observationMode !== "consumer_search");
-  if (observations.length === 0) missing.push(`I have not gathered an AI answer about "${primary}" yet.`);
-  else if (consumer.length === 0) missing.push(`I have not yet watched what a customer sees when they ask an assistant about "${primary}".`);
+  if (observations.length === 0) missing.push(`No AI answer about "${primary}" has been gathered yet.`);
+  else if (consumer.length === 0) missing.push(`What a customer sees when they ask an assistant about "${primary}" has not been watched yet.`);
   // THE FIRST ANSWER CARRIES THE ID THE CAUSE LADDER CITES (RECEIPT.ai), or a change made off it cites nothing.
   [...consumer.slice(0, 2), ...plain.slice(0, 1)].forEach((o, i) => {
     const key = i === 0 ? RECEIPT.ai : `ai${i + 1}`; add(key, "ai_observation", observationFact(o), o.observedAt, { observationId: o.observationId });
@@ -164,7 +163,7 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
     ...serps.flatMap((e) => [...e.organic.map((x) => x.url), ...e.aiOverview.map((cit) => cit.url), ...e.aiMode.map((cit) => cit.url)])].map(canonicalUrlKey));
   const belongs = [...(research?.winningPages ?? [])].filter((w) => winnerBelongs(w, memberQueries, memberPrompts, memberUrls)).sort((a, b) => byText(a.url, b.url));
   const read = belongs.filter((w) => !!w.extract), winners = belongs.slice(0, 2);
-  if (winners.length === 0) missing.push(`I have not read the pages that come up for "${primary}" yet.`);
+  if (winners.length === 0) missing.push(`The pages that come up for "${primary}" have not been read yet.`);
   winners.forEach((w, i) => add(`win${i + 1}`, "winning_page",
     `${w.domain} ${w.appearances.some((a) => a.kind !== "serp_organic") ? "is one of the pages AI keeps citing here" : `comes up on the results page for "${primary}"`}${w.extract ? `, and it runs ${w.extract.wordCount.toLocaleString()} words under ${w.extract.headings.length} headings` : ""}.`,
     [...w.appearances].sort((a, b) => byText(b.observedAt, a.observedAt))[0]?.observedAt ?? null));
@@ -175,19 +174,19 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   if (mine) {
     const inv = mine.investigation; const p = mine.decision.pattern ?? null;
     if (p) {
-      add(RECEIPT.winners, "winning_page", `I read the ${p.winners} pages that win "${primary}" side by side, and they agree on ${p.commonHeadings.length} ${p.commonHeadings.length === 1 ? "section" : "sections"} to cover and ${p.commonEntities.length} ${p.commonEntities.length === 1 ? "thing" : "things"} to name.`, null);
+      add(RECEIPT.winners, "winning_page", `The ${p.winners} pages that win "${primary}" side by side, and they agree on ${p.commonHeadings.length} ${p.commonHeadings.length === 1 ? "section" : "sections"} to cover and ${p.commonEntities.length} ${p.commonEntities.length === 1 ? "thing" : "things"} to name.`, null);
       const head = p.commonHeadings[0]; if (head) add(RECEIPT.winnersHeading, "winning_page", `Every one of those pages covers ${head.heading}.`, null);
       const gap = p.ownedGaps[0]; if (gap) add(RECEIPT.winnersGap, "winning_page", `${gap.seenOn.length} of them do something this page does not: ${gap.gap}`, null);
       const opening = (p.openingPattern ?? "").trim(); if (opening) add(RECEIPT.winnersOpening, "winning_page", `They all open the same way: ${opening}`, null);
     }
-    if (inv.pageType !== "mixed" && inv.pageType !== "unknown") add(RECEIPT.shape, "serp", `The pages that come up for "${primary}" have settled on one kind of page, and I counted it off ${inv.distinctResultDomains} different sites.`, null);
+    if (inv.pageType !== "mixed" && inv.pageType !== "unknown") add(RECEIPT.shape, "serp", `The pages that come up for "${primary}" have settled on one kind of page, counted off ${inv.distinctResultDomains} different sites.`, null);
     const want = inv.demand.intent ? WANTS[norm(inv.demand.intent)] : undefined; if (want) add(RECEIPT.intent, "keyword", `The people searching "${primary}" ${want}.`, null);
   }
   if (c.internalLinks.length > 0) add(RECEIPT.links, "internal_link", `From here this page points readers on to ${c.internalLinks.length} other ${c.internalLinks.length === 1 ? "page" : "pages"} of your own.`, c.fetchedAt);
   // HOW THIS PAGE IS SERVED, under the ids the technical cause cites, so a plumbing change is read off a line the operator can see. Nothing is added when nothing was found.
   technical.forEach((f, i) => add(technicalKey(i), "page_extract", f.evidence, null));
 
-  if (!bodyText) missing.push("I do not hold this page's full body text, so I checked every draft against its title and section headings only.");
+  if (!bodyText) missing.push("This page's full body text is not on file, so every draft was checked against its title and section headings only.");
 
   const readiness: EvidenceReadiness = { gsc: (s.topQueries ?? []).some((q) => isPrimary(q.query)), ownedCopy: !!(c.title || c.metaDescription),
     serp: serps.length > 0, winners: read.length, body: !!bodyText };
@@ -221,23 +220,23 @@ type DoorContext = { door: "ctr_gap" | "ai_absence" | "coverage_verdict" | "cann
 /** THE GOAL when the door is not a click gap: a shortfall I cannot show is no objective. */
 const doorGoal = (d: DoorContext["door"], q: string): string =>
   d === "ai_absence" ? `Give the assistants answering "${q}" a reason to name this page instead of somebody else.`
-    : d === "coverage_verdict" ? `Make this the page of yours that answers "${q}", off the pages winning it that I read side by side.`
+    : d === "coverage_verdict" ? `Make this the page of yours that answers "${q}", off the pages winning it, read side by side.`
       : d === "cannibalization" ? `Put one page of yours in front of "${q}" instead of several, so the clicks stop splitting.`
         : `Win back what this page has lost on "${q}".`;
 
 /** THIS DOOR'S OWN CASE, checked before a word is written. Null = on file. */
 function doorEvidenceMissing(d: DoorContext, snapshot: EvidenceSnapshot): string | null {
   const e = d.evidence;
-  if (!(e.query ?? "").trim()) return "I picked this page off evidence that no longer names the search it was about, so I am not writing a change for it. Let me research this page again and I will come back with what I found.";
+  if (!(e.query ?? "").trim()) return "This page was picked off evidence that no longer names the search it was about, so no change is written for it. Research this page again and the finding comes back here.";
   if (d.door === "ai_absence") return !!e.engine && !!e.promptText && snapshot.research.aiObservations.some((o) =>
     norm(o.promptText) === norm(e.promptText!) && norm(o.engine) === norm(e.engine!)) ? null
-    : `I picked this page because an assistant answered a question I watch without naming it, and I no longer hold that answer, so I will not write a change off it. Let me watch "${e.query}" again and I will come back with what the assistant said.`;
+    : `This page was picked because an assistant answered a tracked question without naming it, and that answer is no longer on file, so no change is written off it. Watch "${e.query}" again and what the assistant said comes back here.`;
   // The verdict that named this page rides in on `coverage` and is checked against this exact page below.
   if (d.door === "coverage_verdict") return null;
   if (d.door === "cannibalization") return e.competingUrls.length >= 2 ? null
-    : `I picked this page because two of your own pages come up for "${e.query}", and I have not settled which pages those are, so I am not telling you to combine anything. Let me check which of your pages Google serves for that search and I will come back.`;
+    : `This page was picked because two of your own pages come up for "${e.query}", and which pages those are is not settled, so nothing here says combine anything. Which pages Google serves for that search gets checked first.`;
   return e.window ? null
-    : `I picked this page because its searches have fallen, and I hold one 90 day total for "${e.query}" and nothing earlier, so I cannot show you the fall. I will be able to read it the day I hold a second window of your own search data.`;
+    : `This page was picked because its searches have fallen, and one 90 day total for "${e.query}" is on file with nothing earlier, so the fall cannot be shown. It becomes readable the day a second window of your own search data lands.`;
 }
 
 /** WHAT EACH DOOR ACTUALLY MEASURED, in the operator's words, so the wording branch refuses in its own terms. */
@@ -337,7 +336,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     ...(technical ? { technical } : {}), ...(opts.measuringPagePaths ? { measuringPagePaths: opts.measuringPagePaths } : {}) });
   // A SPLIT IS SETTLED OR IT IS NOT TOUCHED: rewording one of two competing pages leaves them competing.
   if (door?.door === "cannibalization" && finding.cause !== "cannibalization")
-    return { status: "none", reason: `Two of your own pages come up for "${primary}" and I cannot yet see which of them should own it, so I am not rewording either one while they are still competing. Let me check which of your pages Google serves for that search and I will come back with which to keep.` };
+    return { status: "none", reason: `Two of your own pages come up for "${primary}" and which of them should own it is not readable yet, so neither is reworded while they are still competing. Which pages Google serves for that search gets checked first.` };
   const facts = receipt.items.map((it) => it.fact);
   const evidenceText = [...facts, ...content.outline, content.title ?? ""].filter(Boolean).join(" ");
   // The relevance gate asks "does the rewrite still name this page's topic". Ground it in THIS page's own words (query + title + h1), never a vertical vocabulary.
@@ -357,6 +356,9 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     ? diagnosis.alternativesRuledOut.map((a) => ({ option: a.alternative, reason: a.reason }))
     : finding.competingExplanations.map((a) => ({ option: causeLabel(a.cause), reason: a.reason }));
   const components: BundleComponent[] = []; let heldForReview = false;
+  /** WHAT TO DO WHEN THE CHANGE IS A JOB: a producer whose work cannot be pasted hands its instructions over
+   *  here instead of writing them into the copy an operator clicks Copy on. Null means the copy IS the work. */
+  let steps: string[] | null = null;
   const receiptKeys = new Set(receipt.items.map((i) => i.key));
   // THE SECTIONS THIS PAGE CARRIES, held once: the plan keeps them and the validator holds a rebuild to them.
   const heldHeadings = (held?.headings ?? content.outline).map((h) => h.trim()).filter((h) => h.length > 0);
@@ -364,14 +366,14 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   const keep = (c: BundleComponent, change: RecommendedChange): void => {
     // EVERY CLAIM TRACES TO SOMETHING ON SCREEN: a component citing nothing is dropped whole, and an answer whose sources I could not see is CONTEXT, never support.
     const own = c.evidenceKeys.filter((k) => receiptKeys.has(k) && !receipt.contextOnlyKeys.includes(k)); const drop = (reason: string): void => { alternatives.push({ option: c.label, reason }); };
-    if (own.length === 0) return drop("I could not show you the evidence behind that one, so I left it out rather than ask you to take my word for it.");
+    if (own.length === 0) return drop("There was nothing to show behind that one, so it was left out rather than asked to be taken on trust.");
     // A component that ADDS COVERAGE also stands on what the answers keep leaving unanswered, said in the engines' own terms. It ADDS to a piece that already stands on its own evidence and NEVER rescues one standing on none: a rebuild justified solely by an omission somewhere in the case is not a proven change.
     const evidenceKeys = [...new Set([...own, ...(COVERS_A_GAP.has(c.kind) ? receipt.supportKeys.filter((k) => receiptKeys.has(k)) : [])])];
     // THE COMPONENT GATE: every kind outside the grandfathered seven owes where, what, why and what I measure.
     const shaped = { ...gateShape(tenantId, primary, change), ...(c.risk === "dangerous" ? { riskLevel: "high" as const } : {}) };
     const verdict = validateProposal(wording ? shaped : { ...shaped, bundle: oneComponent({ ...c, evidenceKeys }, receipt.items) },
       { pageBodyText: receipt.bodyText ?? null, evidenceText: producerEvidenceText, contextTokens, now, heldHeadings });
-    if (verdict.verdict === "rejected") return drop("The rewrite I drafted failed one of my safety checks, so I left it out rather than risk it.");
+    if (verdict.verdict === "rejected") return drop("The drafted rewrite failed one of the safety checks, so it was left out rather than risked.");
     // DANGEROUS SURVIVES THE GATE: downgrading it to "review" took the two-step hold off the one change that needs it, and the stored row then failed its own re-validation as mislabelled.
     const risk = c.risk === "dangerous" ? "dangerous"
       : verdict.verdict === "ready" && c.risk !== "review" ? "safe" : "review";
@@ -390,7 +392,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     );
     if (draft.status === "drafted") keep({ kind: "title", label: "Page title", before: before ?? null, after: draft.value.after, evidenceKeys: diagnosis.evidenceKeys, risk: "safe" },
       { kind: "existing_edit", field: "title", before: before ?? null, after: draft.value.after });
-    if (components.length === 0) return { status: "none", reason: "I could not write a title for this page that passes my own checks, so I am handing you nothing rather than filler." };
+    if (components.length === 0) return { status: "none", reason: "No title for this page passed its own checks, so nothing is handed over rather than filler." };
   } else {
       const slot = CORE_PRODUCERS[finding.cause];
     if (typeof slot !== "function") return { status: "none", reason: finding.cause === "no_problem" ? diagnosis.explanation : finding.explanation };
@@ -399,6 +401,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       page: { url: page.url, title: content.title, h1: content.h1, outline: content.outline, internalLinkCount: content.internalLinks.length },
       body: held, ownedPages: inventory, pattern, receiptFacts: facts, readiness: receipt.readiness, draft: drafters, heldBodies };
     const produced = await slot(ctx);
+    steps = produced.operatorSteps ?? null;
     for (const c of produced.components) {
       const field = fieldForComponent(c.kind);
       keep(c, { kind: "existing_edit", field, before: c.before, after: c.after });
@@ -413,7 +416,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   }
 
   if (receipt.links.length > 0) alternatives.push({ option: "Links out to your own pages",
-    reason: `I can see ${receipt.links.length} of your own ${receipt.links.length === 1 ? "page" : "pages"} worth linking to from here, but I do not hold this page's body text, so I cannot tell you where the link honestly belongs. Send me the page copy and I will place it.` });
+    reason: `${receipt.links.length} of your own ${receipt.links.length === 1 ? "page" : "pages"} ${receipt.links.length === 1 ? "is" : "are"} worth linking to from here, and this page's body text is not on file, so where the link honestly belongs cannot be named. Supply the page copy and it gets placed.` });
 
   const runnerUp = scored[1];
   if (runnerUp) alternatives.push({ option: `Start with ${pathOf(runnerUp.page.url)} instead`,
@@ -438,24 +441,23 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     alternatives,
     risks: [
       `Changing ${wording ? "a title moves where the page ranks" : "what a page says moves where it ranks"} while search engines re-read it, so give this the full 28 days before you judge it.`,
-      receipt.bodyText ? "I read this page's stored words, not today's live page, so read each line once against the page before you paste it."
-        : "I do not hold this page's full body text, so read each line once before you paste it.",
+      receipt.bodyText ? "These are this page's stored words, not today's live page, so read each line once against the page before you paste it."
+        : "This page's full body text is not on file, so read each line once before you paste it.",
     ],
     confidenceReasons: [
       lead ? `That one search "${primary}" brings this page ${lead.impressions.toLocaleString()} views over 90 days and turns ${lead.clicks.toLocaleString()} of them into clicks, about ${Math.round(lead.recoverable).toLocaleString()} short of what position ${Math.round(lead.position)} usually earns.`
         : door!.entry,
       classSentence(receipt),
-      receipt.freshestObservedAt ? `The newest evidence I used was observed on ${receipt.freshestObservedAt.slice(0, 10)}.`
+      receipt.freshestObservedAt ? `The newest evidence behind this was observed on ${receipt.freshestObservedAt.slice(0, 10)}.`
         : "Every figure here is a 90 day total, so none of it carries a single observation date.",
       wording ? diagnosis.explanation : finding.explanation,
     ],
-    measurementPlan: "Once you make the change, record it on Results with the page address and I will read clicks, views, and average position for these searches at 7, 14, and 28 days, compared against pages you did not change.",
+    measurementPlan: "Once you make the change, record it on Results with the page address, and clicks, views and average position for these searches get read at 7, 14 and 28 days, compared against pages you did not change.",
   };
 
   const primaryComponent = components[0]!;
   // THE FAMILY THIS CHANGE BELONGS TO, worn by the id AND the stamp. The id ended in the literal word "bundle" and the family
-  // read "single", so a snippet rewrite and a body rebuild on one page fought over one id and every shipped bundle reached the
-  // proof ledger unclassifiable. Both read the store's own derivation now.
+  // read "single", so a snippet rewrite and a body rebuild on one page fought over one id and every shipped bundle reached the proof ledger unclassifiable. Both read the store's own derivation now.
   const recommendedChange: RecommendedChange = { kind: "existing_edit", field: fieldForComponent(primaryComponent.kind), before: primaryComponent.before, after: primaryComponent.after };
   const family = actionFamilyOf({ kind: "existing_edit", bundle, recommendedChange });
   const proposal: ChangeProposal = {
@@ -470,6 +472,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
         ? `Searching "${primary}" brings this page ${lead.impressions.toLocaleString()} views and only ${lead.clicks.toLocaleString()} clicks over 90 days, about ${Math.round(lead.recoverable).toLocaleString()} clicks short of what position ${Math.round(lead.position)} usually earns, and that gap is big enough to look into.`
         : door!.entry,
       // WHAT THIS COSTS AND WHAT IT RISKS, by the kind of change it is: a merge and a rebuild are not one price, and a lever that moves or hides a page carries the highest risk on the row.
+      ...(steps ? { operatorSteps: steps } : {}),
       estimatedEffortMinutes: effortMinutesFor(primaryComponent.kind), confidence, limitations: receipt.missing,
       riskLevel: components.some((c) => c.risk === "dangerous") ? "high" : !wording && heldForReview ? "medium" : "low",
       // THE CAUSE THAT PRODUCED THESE COMPONENTS, and the whole reading behind it, so the ranker can ask whether this lever addresses the loss.
@@ -481,6 +484,6 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   // THE WHOLE ROW, GATED: the per-component gate reads a synthetic proposal carrying no cause and no notes, so
   // a claim that resolves to nothing reached the operator through the gap between a piece and the whole change.
   const failed = receiptIntegrityFailures(proposal, now);
-  if (failed.length > 0) return { status: "none", reason: `I could not show you everything this change claims, so I am not putting it in front of you. Let me research this page again and I will come back with what I found.` };
+  if (failed.length > 0) return { status: "none", reason: `Not everything this change claims can be shown, so it is held back. Research this page again and the finding comes back here.` };
   return { status: "bundled", proposal };
 }

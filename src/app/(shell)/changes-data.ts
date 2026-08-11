@@ -73,15 +73,15 @@ export function sanitizeSurfaceComputedAt(iso: string | null | undefined): strin
 
 /** THE one sentence Changes tells when earlier ideas no longer clear my evidence bar. */
 export function setAsideClause(n: number): string {
-  return `I raised the bar for what counts as worth your time, so I set aside ${n} earlier ${n === 1 ? "idea" : "ideas"} that no longer clear it.`;
+  return `The bar for what counts as worth your time went up, so ${n} earlier ${n === 1 ? "idea" : "ideas"} that no longer clear it went aside.`;
 }
 /** THE READY LANE'S OWN EMPTY COPY, and only that. The set-aside sentence above belongs to Watching, which is
  *  where those ideas actually sit; saying it in both places printed one fact on one screen twice.
  *  "Nothing needs your time today" is FALSE with review work waiting, and it was printed above a To do tab. */
 export function setAsideHint(toDo = 0): string {
   return toDo > 0
-    ? `The ${toDo} ${toDo === 1 ? "idea" : "ideas"} still on your To do list are the ones I can back today.`
-    : "No change has cleared Ready yet. The research below is what I am doing about that, and the next one that earns it lands here.";
+    ? `The ${toDo} ${toDo === 1 ? "idea" : "ideas"} still on your To do list are the ones backed by evidence today.`
+    : "No change has cleared Ready yet. The research below is what is being done about that, and the next one that earns it lands here.";
 }
 
 /** A STORED release is a photograph, and the bar may have moved since it was taken. Every row is put through the SAME one verdict the
@@ -218,12 +218,12 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
       readyZeroHint = setAsideHint(summary.todo);
     } else if (summary.todo > 0) {
       readyZeroHint =
-        "None has cleared Ready yet. These ideas still need a human look before I hand you exact copy. Open one to review it.";
+        "None has cleared Ready yet. These ideas still need a human look before exact copy is handed over. Open one to review it.";
     } else if (summary.measuring > 0) {
-      readyZeroHint = `0 ready right now because everything I prepared is already live and measuring (${summary.measuring} in progress). I'll rank new ideas here as fresh demand data comes in.`;
+      readyZeroHint = `0 ready right now because everything prepared is already live and measuring (${summary.measuring} in progress). New ideas get ranked here as fresh demand data comes in.`;
     } else {
       readyZeroHint =
-        "0 ready right now because I don't have a prepared idea for you yet. Once your Google and AI demand data syncs, I'll draft and rank real changes here.";
+        "0 ready right now because no prepared idea has earned its place yet. Once your Google and AI demand data syncs, real changes get drafted and ranked here.";
     }
   }
 
@@ -233,7 +233,7 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
   const nowMs = Date.now();
   if (!(await stampQueueRanking(tenantId, releaseId,
     queue.ready.map((p) => p.id), queue.toDo.map((p) => p.id)).catch(() => false))) {
-    throw new Error("I could not write down the order of your changes, so I kept the list you already had rather than publishing one I cannot page.");
+    throw new Error("The order of your changes could not be written down, so your previous list was kept rather than publishing one that cannot be paged.");
   }
   const receiptLine = buildReceiptLine({
     source: "your Search Console and AI demand data",

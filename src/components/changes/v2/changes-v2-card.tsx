@@ -212,7 +212,7 @@ export function ChangesV2Card({
               title="Tells us this change is live on your site, so we start checking whether it helped right away."
               data-changes-card-mark-shipped="true"
             >
-              {markShipped.pending ? "Saving…" : "I made this change"}
+              {markShipped.pending ? "Saving…" : "Mark done"}
             </button>
             <p
               aria-live="polite"

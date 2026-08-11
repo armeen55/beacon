@@ -87,19 +87,19 @@ describe("Changes shows every opportunity, and evidence decides only which lane 
     const html = await renderFeed({ investigations: [TOPIC], view: { ...viewOf([]), demotedStaleBasis: 21 }, results: [{ ...SHIPPED, id: "r1" }],
       decay: [DECAY, ...Array.from({ length: 21 }, (_, i) => ({ ...DECAY, page: `https://site.example/p${i}`, clicksPrior: 30 + i }))],
       measuring: Array.from({ length: 9 }, (_, i) => ({ ...SHIPPED, id: `m${i}`, verdict: "measuring" })) });
-    for (const s of ["What I am working on behind the scenes", "iranian saffron", "2,400 searches a month", "reading Google&#x27;s results page", "/comedians", "lost 163 clicks in 4 weeks", "data through Jul 9", "I read its results page next", "I set aside 21 earlier ideas", "I changed the title", "Jul 1", "still measuring", "it worked"]) expect(html, s).toContain(s);
+    for (const s of ["Work happening behind the scenes", "iranian saffron", "2,400 searches a month", "reading Google&#x27;s results page", "/comedians", "lost 163 clicks in 4 weeks", "data through Jul 9", "its results page is read next", "21 earlier ideas that no longer clear it went aside", "Changed the title", "Jul 1", "still measuring", "it worked"]) expect(html, s).toContain(s);
     const n = (re: RegExp) => Number((re.exec(html)?.[1] ?? "0").replace(/,/g, "")), rows = (a: string) => html.split(a).length - 1;
     // The drawer counts what it lists: 1 topic, and 22 declining pages plus the set-aside row = 23, of which 6 + 1 render and 16 are named as more. Measuring 9 and Results 1 = 7 rendered and 3 named.
     expect([n(/\(([\d,]+) topics?,/), n(/, ([\d,]+) pages?\)/), rows('data-watching-row="true"'), n(/">([\d,]+) more pages? (?:is|are) down/), rows('data-researching-card="true"'), rows("data-ledger-row="), n(/See the other ([\d,]+) on Results/), /No changes yet|nothing for you to do/i.test(html)]).toEqual([1, 23, 7, 16, 1, 7, 3, false]); });
   it("never dresses a one click wobble as a decline, and tells a failed read apart from an account with nothing open or measuring", async () => {
     const quiet = await renderFeed({ decay: [{ ...DECAY, clicksNow: 174 }] }), blind = await renderFeed({ ledgerRead: false });
-    expect([/lost 1 click /.test(quiet), quiet.includes("Nothing is measuring yet."), blind.includes("I could not read what is measuring just now"), /Make the top edit/.test(blind), /data-ledger-row/.test(blind)]).toEqual([false, true, true, false, false]);
+    expect([/lost 1 click /.test(quiet), quiet.includes("Nothing is measuring yet."), blind.includes("What is measuring could not be read just now"), /Make the top edit/.test(blind), /data-ledger-row/.test(blind)]).toEqual([false, true, true, false, false]);
     // AND THE SAME DISTINCTION IN THE DRAWER: a search read that did not answer emptied both lists in one render and the empty state said I have nothing open.
     const dark = await renderFeed({ evidenceRead: false, investigations: [TOPIC], decay: [DECAY] }), open = await renderFeed({ investigations: [TOPIC], decay: [DECAY] });
     const fixed = await renderFeed({ investigations: [TOPIC], decay: [DECAY], view: { ...viewOf([]), queuedPages: ["/comedians"] } }); // a page whose fix is in the list above names its rank, never "I have no change for it"
-    expect([dark.includes("I could not read your Google search data just now"), dark.includes("I have no topic open right now"), /\([\d,]+ topics?,/.test(dark), /data-watching-row/.test(dark),
-      open.includes("I could not read your Google search data just now"), /\(1 topic, 1 page\)/.test(open), open.includes("I read its results page next"),
-      fixed.includes("its fix is #1 in the list above"), fixed.includes("I read its results page next")]).toEqual([true, false, false, false, false, true, true, true, false]); }); });
+    expect([dark.includes("Your Google search data could not be read just now"), dark.includes("No topic is open right now"), /\([\d,]+ topics?,/.test(dark), /data-watching-row/.test(dark),
+      open.includes("Your Google search data could not be read just now"), /\(1 topic, 1 page\)/.test(open), open.includes("its results page is read next"),
+      fixed.includes("its fix is #1 in the list above"), fixed.includes("its results page is read next")]).toEqual([true, false, false, false, false, true, true, true, false]); }); });
 
 /** Zero measuring is not zero evidence. The proof strip told an account holding twenty five settled readings to ship its first change, printed straight over the top of them. */
 describe("Today's proof strip never calls a finished account a cold start", () => {
@@ -111,7 +111,7 @@ describe("Today's proof strip never calls a finished account a cold start", () =
   it("says what is on Results when nothing is mid-measurement but readings are settled, and keeps the cold-start instruction for the genuine cold start", async () => {
     const settled = await strip({ decidedCount: 25 }), cold = await strip({ decidedCount: 0 }), flight = await strip({ measuringCount: 3, decidedCount: 25 });
     expect([settled.includes("Nothing is mid-measurement right now."), /25<\/span> finished readings are on Results/.test(settled), settled.includes("/results"), settled.includes("Ship a change")]).toEqual([true, true, true, false]);
-    expect([cold.includes("Nothing is measuring yet."), cold.includes("Ship a change and I will start tracking it here.")]).toEqual([true, true]); // the one state where that instruction is true
+    expect([cold.includes("Nothing is measuring yet."), cold.includes("Make a change and tracking for it starts here.")]).toEqual([true, true]); // the one state where that instruction is true
     expect([/3<\/span> changes are measuring/.test(flight), flight.includes("mid-measurement")]).toEqual([true, false]); }); }); // work in flight still leads with the work in flight
 
 describe("a screen with losses on it never reads as all clear", () => {
@@ -156,7 +156,7 @@ const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   causeFinding: FINDING, diagnosisCause: "cannibalization",
   rankingReceipt: { score: 512, directional: false, basis: "I ranked this on about 163 clicks I can show are recoverable, 2 pieces of evidence, and what it takes you to do.",
     factors: [{ name: "actionability", input: "this draft passed every safety check", contribution: 500, max: 500 },
-      { name: "overlap", input: "this page already has a change I am measuring", contribution: -30, max: 30 },
+      { name: "overlap", input: "this page already has a change under measurement", contribution: -30, max: 30 },
       { name: "strategic", input: "0 questions your customers actually ask are in scope", contribution: 0, max: 10 }] },
   bundle: { objective: "Settle which page owns that search before changing a word on either of them.",
     metric: "clicks from that search", measurementPlan: "I compare the next 28 days with the last 28.",
@@ -195,8 +195,8 @@ describe("a ranked card explains itself without being opened", () => {
   beforeEach(() => vi.clearAllMocks());
   it("shows the shape of the change, the exact action, effort, risk, evidence, and why it outranks the next one", async () => {
     const html = await renderList(viewOf([proposal()]));
-    for (const s of ["2 edits together", "Settle which page owns that search", "about 6 min", "High risk",
-      "Proven", "it wins back more of what you are losing", "Put this aside"]) expect(html, s).toContain(s);
+    for (const s of ["2 edits together", "Settle which page owns that search", "Copy new title · 6 min", "High risk",
+      "Proven", "it wins back more of what you are losing", "Skip"]) expect(html, s).toContain(s);
     expect(await renderList(viewOf([atomic()]))).toContain("One edit"); // one component is one edit, never a bundle
   });
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {
@@ -211,9 +211,9 @@ describe("a change detail hands over the whole investigation and the controls to
   it("the investigation carries the cause, what it beat, what would kill it, and what could not be tested", async () => {
     const html = await renderDetail(proposal());
     for (const s of ["Show me how you worked this out", "two of your own pages competing for one search",
-      "so Google is choosing between them every time somebody searches it", "What else I considered and why it lost",
-      "a sharper line cannot fix two of your own pages", "What would change my mind", "this is not the explanation",
-      "What I could not test, and why", "I do not hold this page&#x27;s indexing or canonical state."]) expect(html, s).toContain(s);
+      "so Google is choosing between them every time somebody searches it", "What else was considered and why it lost",
+      "a sharper line cannot fix two of your own pages", "What would overturn this", "this is not the explanation",
+      "What could not be tested, and why", "I do not hold this page&#x27;s indexing or canonical state."]) expect(html, s).toContain(s);
     // Not one raw slug reaches the screen.
     for (const slug of ["cannibalization", "ctr_snippet", "technical_indexability"]) expect(html, slug).not.toContain(slug); });
   it("the piece to paste says where it goes, why it works, and which sources are still owed", async () => {
@@ -224,13 +224,13 @@ describe("a change detail hands over the whole investigation and the controls to
     const html = await renderDetail(proposal());
     // A factor that changed nothing says so; it never prints a bare zero.
     for (const s of ["Why this one ranks where it does", "this draft passed every safety check (moved it up 500 of a possible 500)",
-      "this page already has a change I am measuring (moved it down 30 of a possible 30)", "did not move this one either way",
+      "this page already has a change under measurement (moved it down 30 of a possible 30)", "did not move this one either way",
       "I ranked this on about 163 clicks I can show are recoverable"]) expect(html, s).toContain(s); });
   it("the operator can say which pieces they applied, what they actually wrote, or put the change away", async () => {
     const html = await renderDetail(proposal());
     // PIN (B): the control asks what they wrote; it never offers to skip the check.
-    for (const s of ["Which pieces did you apply?", "Page title", "Canonical tag", "I only measure the pieces you tick",
-      "Wrote it your own way? Tell me what you put there", "Put this aside"]) expect(html, s).toContain(s);
+    for (const s of ["Which pieces did you apply?", "Page title", "Canonical tag", "Only the pieces you tick get measured",
+      "Wrote it your own way? Add what you put there", "Skip"]) expect(html, s).toContain(s);
     expect(html).not.toContain("do not check the page");
     // Every piece starts ticked: applying all of them is the normal case.
     expect(html.match(/type="checkbox" checked=""/g)?.length).toBe(2);
@@ -254,7 +254,7 @@ describe("a change detail hands over the whole investigation and the controls to
       "To undo it"]) expect(html, s).toContain(s);
     // A piece that RETIRES a page is not a page that happens to have nothing today.
     expect(html).not.toContain("This page has none today.");
-    expect(html).toContain("I understand this moves or hides a page"); });
+    expect(html).toContain("Confirmed: this moves or hides a page"); });
   it("opens the investigation only when it holds one, never onto a line the card above already said", async () => {
     expect(await renderDetail(proposal({ causeFinding: undefined, rankingReceipt: undefined }))).not.toContain("Show me how you worked this out");
     expect(await renderDetail(proposal({ causeFinding: undefined }))).toContain("Show me how you worked this out"); // a ranking receipt is reasoning too

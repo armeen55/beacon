@@ -67,10 +67,10 @@ describe("a direct link renders only what the ranked list would, and always land
   }
   it("hands over the exact edits for current work, and no copy at all for a change I set aside", async () => {
     const live = await link(bundled(NOW)); // the row IS the current bar's work
-    expect([live.includes(EXACT), live.includes("I made this change"), live.includes("I set this idea aside")]).toEqual([true, true, false]);
+    expect([live.includes(EXACT), live.includes("Mark done"), live.includes("This idea was set aside")]).toEqual([true, true, false]);
     const stale = await link(bundled("basis_old::d2")); // no exact copy, no before/after, no way to record it
-    expect([stale.includes("I set this idea aside"), stale.includes("See what I am working on now")]).toEqual([true, true]);
-    expect(stale).not.toMatch(new RegExp(`${EXACT}|Comedians</p>|I made this change`)); });
+    expect([stale.includes("This idea was set aside"), stale.includes("See the work that stands now")]).toEqual([true, true]);
+    expect(stale).not.toMatch(new RegExp(`${EXACT}|Comedians</p>|Mark done`)); });
   // THE DOOR IS THE SAME DOOR. A direct link is not a side entrance: everything the ranked list refuses is refused here too, on the row's own evidence rather than on its
   // basis stamp alone.
   it("refuses at the link what the list refuses: a receipt that does not resolve, a merge filed as ready, evidence gone cold", async () => {
@@ -81,7 +81,7 @@ describe("a direct link renders only what the ranked list would, and always land
       { ...b, receipt: { items: [{ ...b.receipt.items[0]!, observedAt: cold }], missing: [], freshestObservedAt: cold } },
     ]) {
       const html = await link({ ...bundled(NOW), bundle } as ChangeProposal);
-      expect([html.includes(EXACT), html.includes("I made this change")], JSON.stringify(bundle.components[0])).toEqual([false, false]);
+      expect([html.includes(EXACT), html.includes("Mark done")], JSON.stringify(bundle.components[0])).toEqual([false, false]);
     }
   });
   /** P1-2. The picker pre-ticked EVERY piece with no memory of what is already recorded, so the obvious next press offered to record a component I am already measuring.
@@ -109,7 +109,7 @@ describe("a direct link renders only what the ranked list would, and always land
   it("sends live work with nothing to unpack home to the list, and gives a put-aside change the put-aside screen", async () => {
     const { bundle: _b, ...flat } = bundled(NOW); // live, actionable, but nothing to unpack: its home is the list
     await expect(link(flat as ChangeProposal)).rejects.toThrow("NEXT_REDIRECT:/changes");
-    expect(await link(null, bundled(NOW))).toContain("I set this idea aside"); // history, not a page that never was
+    expect(await link(null, bundled(NOW))).toContain("This idea was set aside"); // history, not a page that never was
   });
   // AND NOTHING LANDS IN THE LEDGER THAT THIS SCREEN WOULD NOT SHOW: the same verdict runs at the moment of the press, and a stale screen or a hand-made request cannot
   // merge a page on its own say-so.
@@ -151,14 +151,14 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
   beforeEach(() => vi.clearAllMocks());
   it("says how many ideas I set aside, why, and what happens next", async () => {
     const html = await renderChanges(emptyView(21));
-    for (const said of ["I set aside 21 earlier ideas that no longer clear it", "No change has cleared Ready yet", "the next one that earns it lands here"]) expect(html).toContain(said);
+    for (const said of ["21 earlier ideas that no longer clear it went aside", "No change has cleared Ready yet", "the next one that earns it lands here"]) expect(html).toContain(said);
     expect(html).not.toMatch(/No changes yet|error|sorry|oops/i);
     // A bar I could not READ is not a bar I raised, so that case may not claim one.
-    expect(await renderChanges({ ...emptyView(21), basisUnreadable: true })).not.toContain("I set aside 21"); });
+    expect(await renderChanges({ ...emptyView(21), basisUnreadable: true })).not.toContain("21 earlier ideas"); });
   it("Changes and Today tell the same story when the decision has zero actionable candidates", async () => {
     const view = emptyView(21); const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
-    const today = buildTodayViewFromChanges(view); const said = "I set aside 21 earlier ideas that no longer clear it";
-    expect([today.headerSentence, today.nextOpportunities.length, (await renderChanges(view)).includes(said)]).toEqual(["You have no edits waiting. I rank your next one here the moment it earns its place.", 0, true]); }); // Today says the one thing he acts on; Changes owns the housekeeping sentence, said once
+    const today = buildTodayViewFromChanges(view); const said = "21 earlier ideas that no longer clear it went aside";
+    expect([today.headerSentence, today.nextOpportunities.length, (await renderChanges(view)).includes(said)]).toEqual(["You have no edits waiting. The next one is ranked here the moment it earns its place.", 0, true]); }); // Today says the one thing he acts on; Changes owns the housekeeping sentence, said once
   it("keeps everything this release actually knows when the bar moves under it", async () => {
     // The gated rebuild used to be handed NOTHING, so a basis shift silently erased the retry date, the pages under investigation, the ideas held back and the kernel's
     // own verdicts.

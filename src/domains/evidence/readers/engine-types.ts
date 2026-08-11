@@ -22,7 +22,7 @@ export type EngineId = "chatgpt" | "perplexity" | "gemini" | "claude";
 export const ALL_ENGINES: readonly EngineId[] = ["chatgpt", "perplexity", "gemini", "claude"];
 
 /** Operator-facing engine names (plain business language). */
-export const ENGINE_PLAIN_NAME: Record<EngineId, string> = {
+const ENGINE_PLAIN_NAME: Record<EngineId, string> = {
   chatgpt: "ChatGPT",
   perplexity: "Perplexity",
   gemini: "Gemini",

@@ -3,8 +3,7 @@
  * proven click gap, a page an engine read or answered around, the page a coverage verdict NAMES, the strongest
  * page of a group splitting one search, and a page whose searches have fallen. Each door contributes AT MOST
  * its single strongest page, order is the honest value each door ITSELF proves, and every door carries its own
- * evidence identity so the producer proves THAT door's case rather than the click door's. THIS FILE SELECTS
- * AND NOTHING ELSE: no draft, no purchase, no model, no clock, no I/O.
+ * evidence identity so the producer proves THAT door's case rather than the click door's. THIS FILE SELECTS AND NOTHING ELSE: no draft, no purchase, no model, no clock, no I/O.
  */
 
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
@@ -46,7 +45,7 @@ const DOOR_RANK: Record<Door, number> = { ctr_gap: 0, ai_absence: 1, coverage_ve
 
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const clicksOf = (c: QualifiedCandidate): number => Math.max(0, c.recoverableClicks);
-const LEAD = "I gave this page my deepest read because";
+const LEAD = "This page earned the deepest read because";
 
 /** Most proven clicks, then page address. The SAME order the single-door pass has always used, so a
  *  snapshot where only the click door qualifies picks byte for byte the page it picked before. */
@@ -70,8 +69,7 @@ function aiDemand(snapshot: EvidenceSnapshot, query: string): { prompts: number;
 }
 
 /**
- * The pages that earn a deep read this pass, strongest first, at most `limit` of them and at most one
- * per page. Every entry names the door it came through in the operator's own words. PURE.
+ * The pages that earn a deep read this pass, strongest first, at most `limit` of them and at most one per page. Every entry names the door it came through in the operator's own words. PURE.
  */
 export function selectDeepCandidates(input: {
   snapshot: EvidenceSnapshot;
@@ -83,14 +81,12 @@ export function selectDeepCandidates(input: {
   if (limit <= 0) return [];
   const doors: DeepCandidate[] = [];
 
-  // DOOR 1: THE BIGGEST PROVEN CLICK GAP. Unchanged, and still the strongest kind of proof there is,
-  // because it is the only one carrying a number of clicks I can show you.
+  // DOOR 1: THE BIGGEST PROVEN CLICK GAP. Unchanged, and still the strongest kind of proof there is, because it is the only one carrying a number of clicks I can show you.
   const ctr = strongest(candidates.filter((c) => c.action === "act_existing_page" && !!c.pageUrl));
   if (ctr?.pageUrl) doors.push({ pageUrl: ctr.pageUrl, door: "ctr_gap", unit: "clicks", strength: clicksOf(ctr), volume: 0, evidence: NO_IDENTITY,
-    entry: `${LEAD} it is the biggest proven gap I hold: about ${num(clicksOf(ctr))} clicks short of what its own positions usually earn.` });
+    entry: `${LEAD} it is the biggest proven gap on file: about ${num(clicksOf(ctr))} clicks short of what its own positions usually earn.` });
 
-  // DOOR 2: AN ENGINE THAT READ THIS PAGE, OR ANSWERED AROUND IT. This asks only that the question is one
-  // I watch and that real demand sits behind it, so an accusation with nothing riding on it takes no slot.
+  // DOOR 2: AN ENGINE THAT READ THIS PAGE, OR ANSWERED AROUND IT. This asks only that the question is one I watch and that real demand sits behind it, so an accusation with nothing riding on it takes no slot.
   const ai = candidates
     .filter((c) => !!c.pageUrl && !!c.query && (c.cause.cause === "ai_citation_gap" || c.cause.cause === "retrieved_not_cited"))
     .map((c) => ({ c, ...aiDemand(snapshot, c.query!) }))
@@ -106,13 +102,11 @@ export function selectDeepCandidates(input: {
     doors.push({ pageUrl: ai.c.pageUrl, door: "ai_absence", volume: ai.volume,
       evidence: { ...NO_IDENTITY, query: ai.c.query!, engine: payload.engine, promptText: payload.promptText },
       unit: clicks > 0 ? "clicks" : "questions", strength: clicks > 0 ? clicks : ai.prompts,
-      entry: `${LEAD} ${read}, and I watch ${num(ai.prompts)} ${ai.prompts === 1 ? "question" : "questions"} like it about "${ai.c.query}"${ai.volume > 0 ? `, worth about ${num(ai.volume)} searches a month` : ""}.` });
+      entry: `${LEAD} ${read}, and ${num(ai.prompts)} ${ai.prompts === 1 ? "question is watched" : "questions are watched"} like it about "${ai.c.query}"${ai.volume > 0 ? `, worth about ${num(ai.volume)} searches a month` : ""}.` });
   }
 
-  // DOOR 3: THE PAGE A VERDICT NAMES. My comparison of a whole subject already concluded that the answer
-  // is the page you have rather than a page you do not, and that conclusion never reached the deep producer.
-  // A page the comparison decided to improve AND a page whose only earned work is technical both enter by
-  // this door: either way the coverage pass itself named the page, so the deep read owes it a look.
+  // DOOR 3: THE PAGE A VERDICT NAMES. My comparison of a whole subject already concluded that the answer is the page you have rather than a page you do not, and that conclusion never reached the deep producer.
+  // A page the comparison decided to improve AND a page whose only earned work is technical both enter by this door: either way the coverage pass itself named the page, so the deep read owes it a look.
   const named = coverage && (coverage.decision.verdict === "improve_existing" || coverage.decision.verdict === "technical_only")
     ? coverage.decision.ownedUrls[0] ?? null : null;
   const owner = named ? candidates.find((c) => !!c.pageUrl && canonicalUrlKey(c.pageUrl) === canonicalUrlKey(named)) ?? null : null;
@@ -122,11 +116,10 @@ export function selectDeepCandidates(input: {
     doors.push({ pageUrl: owner.pageUrl, door: "coverage_verdict", volume: 0,
       evidence: { ...NO_IDENTITY, query: coverage.investigation.label },
       unit: clicks > 0 ? "clicks" : "winners", strength: clicks > 0 ? clicks : winners,
-      entry: `${LEAD} my comparison of "${coverage.investigation.label}" says this is the page of yours to improve, off the ${num(winners)} winning ${winners === 1 ? "page" : "pages"} I read.` });
+      entry: `${LEAD} the comparison of "${coverage.investigation.label}" names this as the page of yours to improve, off the ${num(winners)} winning ${winners === 1 ? "page" : "pages"} read.` });
   }
 
-  // DOOR 4: TWO OF YOUR OWN PAGES SPLITTING ONE SEARCH, at its strongest page. The ladder proves the split
-  // and no wording change touches it, so the group's best page is where a deep read is worth buying.
+  // DOOR 4: TWO OF YOUR OWN PAGES SPLITTING ONE SEARCH, at its strongest page. The ladder proves the split and no wording change touches it, so the group's best page is where a deep read is worth buying.
   const split = strongest(candidates.filter((c) => !!c.pageUrl && !!c.query && c.cause.cause === "cannibalization"));
   const splitPayload = split?.cause.payload;
   if (split?.pageUrl) {
@@ -136,15 +129,13 @@ export function selectDeepCandidates(input: {
       entry: `${LEAD} ${num(competing.length || 2)} of your own pages come up for "${split.query}" and this one is the strongest of them, about ${num(clicksOf(split))} clicks short.` });
   }
 
-  // DOOR 5: A PAGE THAT HAS FALLEN, read off the candidate's own recorded gap, so the day a producer can
-  // prove a fall this door opens on its own. The door is wired to the evidence, not to a hope.
+  // DOOR 5: A PAGE THAT HAS FALLEN, read off the candidate's own recorded gap, so the day a producer can prove a fall this door opens on its own. The door is wired to the evidence, not to a hope.
   const falling = strongest(candidates.filter((c) => !!c.pageUrl && c.gap === "recent_decline"));
   if (falling?.pageUrl) doors.push({ pageUrl: falling.pageUrl, door: "recent_decline", unit: "clicks", strength: clicksOf(falling), volume: 0,
     evidence: { ...NO_IDENTITY, query: falling.query ?? null },
-    entry: `${LEAD} it has fallen the furthest of the pages I hold, about ${num(clicksOf(falling))} clicks under what its positions usually earn.` });
+    entry: `${LEAD} it has fallen the furthest of the pages on file, about ${num(clicksOf(falling))} clicks under what its positions usually earn.` });
 
-  // ONE PAGE, ONE SLOT, STRONGEST FIRST. A page that arrived through two doors keeps the stronger one's
-  // label, which is simply the first it reaches in this order.
+  // ONE PAGE, ONE SLOT, STRONGEST FIRST. A page that arrived through two doors keeps the stronger one's label, which is simply the first it reaches in this order.
   const picked: DeepCandidate[] = [];
   const seen = new Set<string>();
   for (const d of [...doors].sort((a, b) => UNIT_RANK[a.unit] - UNIT_RANK[b.unit] || b.strength - a.strength

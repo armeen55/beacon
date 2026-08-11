@@ -38,11 +38,11 @@ export default async function TodayPage({
       <div className="max-w-3xl rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5">
         <p className="text-[13px] font-semibold text-foreground">
           {access.reason === "paused"
-            ? "Your account is paused, so I am not researching or drafting changes right now."
-            : "This account is closed, so I am not researching or drafting changes."}
+            ? "Your account is paused, so no research or drafting is running right now."
+            : "This account is closed, so no research or drafting is running."}
         </p>
         <p className="mt-2 text-[13px] text-muted-foreground">
-          Reply to your welcome email and I will {access.reason === "paused" ? "turn it back on" : "help from there"}.
+          Reply to your welcome email to {access.reason === "paused" ? "turn it back on" : "get help from there"}.
         </p>
       </div>
     );
@@ -107,14 +107,31 @@ function reasonLine(text: string | undefined): string | null {
 
 /** THE LAST CHANGE THAT PROVABLY WON, in the lift the ledger already stored: the newest settled win, its page, and how far it beat the
  *  pages nobody touched. Null while nothing has settled, which is the honest answer. */
+type LedgerRow = Awaited<ReturnType<typeof loadProofLedgerCached>>[number];
+/** The newest settled window that actually ran against real control pages. Null when none did. */
+const provenLift = (r: LedgerRow): number | null =>
+  [...r.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null)
+    .sort((a, b) => b.day - a.day)[0]?.adjustedLift ?? null;
 function lastWinLine(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, nowMs: number): string | null {
   const won = splitLedgerLifecycle(rows, new Date(nowMs)).won;
   const newest = [...won].sort((a, b) => (b.implementedAt ?? b.shippedAt).localeCompare(a.implementedAt ?? a.shippedAt))[0];
-  const read = newest ? [...newest.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null).sort((a, b) => b.day - a.day)[0] : null;
-  const lift = read?.adjustedLift != null ? Math.round(read.adjustedLift) : null;
+  const lift = newest ? Math.round(provenLift(newest) ?? 0) : null;
   if (!newest || lift == null || lift <= 0) return null;
   const page = (newest.page || newest.path).replace(/^https?:\/\/[^/]+/, "") || "/";
-  return `My last change to ${page} earned ${lift.toLocaleString()} more ${lift === 1 ? "click" : "clicks"} than the pages I did not change.`;
+  return `Your last change to ${page} earned ${lift.toLocaleString()} more ${lift === 1 ? "click" : "clicks"} than the pages that were not changed.`;
+}
+
+/** THE WEEK IN ONE LINE, off the SAME ledger Today already holds: what was made, what is being read, and what
+ *  the settled ones earned. Null when nothing landed in seven days, and the clicks clause self hides when no
+ *  settled read carries a proven lift, so this never prints a number it cannot show. */
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+function weekDigest(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, nowMs: number): string | null {
+  const made = rows.filter((r) => Date.parse(r.implementedAt ?? r.shippedAt) >= nowMs - WEEK_MS).length;
+  if (made === 0) return null;
+  const b = splitLedgerLifecycle(rows, new Date(nowMs));
+  const lift = b.won.reduce((sum, r) => sum + Math.max(0, Math.round(provenLift(r) ?? 0)), 0);
+  const head = `This week: ${made} ${made === 1 ? "edit" : "edits"} made, ${b.measuring.length + b.promising.length} measuring`;
+  return lift > 0 ? `${head}, the finished ones added +${lift.toLocaleString()} clicks.` : `${head}.`;
 }
 
 async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
@@ -129,9 +146,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   if (gate.isDemoMode) {
     return (
       <div className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5">
-        <h2 className="text-[13px] font-semibold tracking-tight text-foreground">I am reading your site, and your first edits land here on their own</h2>
+        <h2 className="text-[13px] font-semibold tracking-tight text-foreground">Your site is being read, and your first edits land here on their own</h2>
         <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-          There is nothing to press. Connecting Google Search Console is optional: it lets me name the exact searches you already earn
+          There is nothing to press. Connecting Google Search Console is optional: it names the exact searches you already earn
           clicks on instead of estimating them.
         </p>
         <Link href="/settings/connectors" className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">Connect Search Console →</Link>
@@ -173,6 +190,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const top = today.nextOpportunities[0] ?? null;
   const openTotal = (today.readyTotal ?? 0) + (today.toDoTotal ?? 0);
   const winLine = lastWinLine(ledgerRows, nowMs);
+  const digest = weekDigest(ledgerRows, nowMs);
 
   return (
     <div className="space-y-6">
@@ -203,7 +221,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         </div>
       ) : (
         <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-5 text-[13px] leading-relaxed text-muted-foreground">
-          I have no edit ready for you right now. <Link href="/changes" className="underline underline-offset-2">Open Changes</Link> to see what I am working on for your pages.
+          No edit is ready for you right now. <Link href="/changes" className="underline underline-offset-2">Open Changes</Link> to see what is in progress for your pages.
         </p>
       )}
 
@@ -211,6 +229,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       <Suspense fallback={<div className="h-56 animate-pulse rounded-2xl border border-border bg-surface-inset" />}>
         <ScoreboardSection tenantId={tenantId} />
       </Suspense>
+
+      {digest ? (
+        <p className="text-[13px] leading-relaxed tabular-nums text-muted-foreground" data-week-digest="true">{digest}</p>
+      ) : null}
 
       {/* THE PROOF, in one line: the last change of yours I measured and what it beat. */}
       {winLine ? (

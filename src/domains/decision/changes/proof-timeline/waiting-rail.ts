@@ -1,19 +1,13 @@
 /**
- * /changes proof timeline — "Waiting for signal" right-rail builder.
+ * /changes proof timeline, "Waiting for signal" right-rail builder.
  *
- * Bundle (2026-05-10) — second pass at /changes per the maximum-depth
- * UI audit. The right rail surfaces the rows the operator is actively
- * waiting on, plus a plain-English line naming when the next Google
+ * Bundle (2026-05-10), second pass at /changes per the maximum-depth UI audit. The right rail surfaces the rows the operator is actively waiting on, plus a plain-English line naming when the next Google
  * reading lands (from the proof ledger's own checkpoint schedule).
  *
- * Verdict-engine consolidation (2026-07-21, CORE 100K Lane F): the
- * timing line used to come from the retired pattern-brain "ready on"
- * guess. It now reads the row's proof-gsc `nextCheckpoint` date, the
- * same schedule Results renders, so the rail never promises a date the
- * measurement engine did not set.
+ * Verdict-engine consolidation (2026-07-21, CORE 100K Lane F): the timing line used to come from the retired pattern-brain "ready on" guess. It now reads the row's proof-gsc `nextCheckpoint` date, the
+ * same schedule Results renders, so the rail never promises a date the measurement engine did not set.
  *
- * Pure module. Consumes a minimal projection of EnrichedChangeRow so
- * tests can pin behavior with plain JSON fixtures.
+ * Pure module. Consumes a minimal projection of EnrichedChangeRow so tests can pin behavior with plain JSON fixtures.
  *
  * Customer-vocabulary contract:
  *   • Narratives use plain English ("I will take the next Google
@@ -53,9 +47,7 @@ export type WaitingRailItem = {
 };
 
 /**
- * Filter + project the rows that belong in the right-rail. Sorted
- * newest-first because the operator cares most about the most-recent
- * waiting bet. Caps at `limit` items so the rail stays calm.
+ * Filter + project the rows that belong in the right-rail. Sorted newest-first because the operator cares most about the most-recent waiting bet. Caps at `limit` items so the rail stays calm.
  */
 export function buildWaitingRail(
   rows: ReadonlyArray<WaitingRailInput>,
@@ -89,9 +81,7 @@ export function buildWaitingRail(
 }
 
 /**
- * Convert the row's pill kind + next-checkpoint date into a single
- * sentence the operator reads under the title. Always plain English,
- * never a promise the measurement engine did not schedule.
+ * Convert the row's pill kind + next-checkpoint date into a single sentence the operator reads under the title. Always plain English, never a promise the measurement engine did not schedule.
  */
 function narrativeFor(row: WaitingRailInput): string {
   const formatted = row.nextCheckpoint

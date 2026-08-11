@@ -41,7 +41,7 @@ const change = (now: number, prior: number): Cell => ({ sort: now - prior, tone:
 const table = (over: Partial<Table> & Pick<Table, "columns" | "empty">): Table => ({ rows: [], note: null, ...over });
 /** A READ THAT DID NOT LAND IS NOT AN EMPTY ACCOUNT. Falling back to a bare empty list told an account with
  *  seven hundred stored answers that I had never read one, which is the worst lie this surface could tell. */
-const UNREAD = "I could not read that back in time just now. Nothing is lost: it lands on your next visit, and my daily round keeps collecting either way.";
+const UNREAD = "That could not be read back in time just now. Nothing is lost: it lands on your next visit, and the daily round keeps collecting either way.";
 
 const ENGINE_LABEL: Record<string, string> = { chatgpt: "ChatGPT", perplexity: "Perplexity", gemini: "Gemini", claude: "Claude" };
 const engineName = (raw: string): string => ENGINE_LABEL[(raw || "").toLowerCase()] ?? "An AI assistant";
@@ -77,7 +77,7 @@ const METRIC_LABEL: Record<GoogleInput["metric"], string> = { clicks: "Clicks", 
  *  has never reported a day for this account: the view then says what it cannot show and where to fix it. */
 export function googleView(input: GoogleInput) {
   if (input.days.length === 0) {
-    return { limitation: "I do not have any Search Console numbers for this account, so I cannot show you clicks, appearances, or rankings here. Connect Google Search Console on Connections and I will fill this in on my next daily round.", tiles: [] as Tile[],
+    return { limitation: "No Search Console numbers are on file for this account, so clicks, appearances, and rankings cannot be shown here. Connect Google Search Console on Connections and this fills in on the next daily round.", tiles: [] as Tile[],
       chart: null, pages: null, queries: null, dimensions: [] as Array<{ title: string; table: Table }>, watermark: "", coverage: "" };
   }
   const span = Math.min(input.rangeDays, input.days.length);
@@ -100,7 +100,7 @@ export function googleView(input: GoogleInput) {
     { label: "Appearances", value: num(i), basis: `times a page of yours was shown, ${prior.length === span ? `against ${num(pi)} the ${num(span)} days before` : "no full window before this one"}`, ...delta(i, pi) },
     { label: "Click rate", value: i > 0 ? pct(c / i) : "not yet", basis: i > 0 ? `${num(c)} clicks out of ${num(i)} appearances` : "no appearances reported in this window", ...points(i > 0 ? c / i : null, pi > 0 ? pc / pi : null) },
     { label: "Average position", value: posNow == null ? "not yet" : posNow.toFixed(1),
-      basis: posNow == null ? (noPages ? UNREAD : "no page of yours was shown in the last 28 days") : `weighted by appearances across ${num(seen.length)} pages over the 28 days${windowEnd ? ` ending ${windowEnd}` : ""}, which is the only window Google gives me per page`,
+      basis: posNow == null ? (noPages ? UNREAD : "no page of yours was shown in the last 28 days") : `weighted by appearances across ${num(seen.length)} pages over the 28 days${windowEnd ? ` ending ${windowEnd}` : ""}, which is the only window Google reports per page`,
       delta: posNow != null && posPrior != null ? `${posNow < posPrior ? "" : "+"}${(posNow - posPrior).toFixed(1)}` : null,
       tone: posNow != null && posPrior != null ? (posNow < posPrior - 0.1 ? "up" : posNow > posPrior + 0.1 ? "down" : "flat") : "flat" },
   ];
@@ -117,7 +117,7 @@ export function googleView(input: GoogleInput) {
     columns: [{ key: "page", label: "Page", wide: true }, { key: "clicks", label: "Clicks", numeric: true }, { key: "clicksChange", label: "Change", numeric: true },
       { key: "impressions", label: "Appearances", numeric: true }, { key: "impressionsChange", label: "Change", numeric: true },
       { key: "ctr", label: "Click rate", numeric: true }, { key: "position", label: "Position", numeric: true }, { key: "query", label: "Strongest search, 90 days", wide: true }],
-    empty: noPages ? UNREAD : "Google has not reported a page for this account yet. My next daily round picks them up.",
+    empty: noPages ? UNREAD : "Google has not reported a page for this account yet. The next daily round picks them up.",
     note: moved.length === 0 ? null : `Each page compares the 28 days${windowEnd ? ` ending ${windowEnd}` : ""} with the 28 days before them. ${losing > 0 ? `${num(losing)} ${losing === 1 ? "page is" : "pages are"} losing clicks, marked in the change column. The fix for one of them lives in Changes.` : "Not one page is losing clicks in this window."}`,
     rows: [...moved].sort((a, b) => b.clicksNow - a.clicksNow).map((r) => {
       const sig = input.pages.get(r.page), top = sig?.topQueries[0] ?? null;
@@ -141,8 +141,8 @@ export function googleView(input: GoogleInput) {
     columns: [{ key: "query", label: "Search", wide: true }, { key: "page", label: "Page it lands on", wide: true },
       { key: "clicks", label: "Clicks", numeric: true }, { key: "impressions", label: "Appearances", numeric: true },
       { key: "ctr", label: "Click rate", numeric: true }, { key: "position", label: "Position", numeric: true }],
-    empty: noQueries ? UNREAD : "Google has not named a single search for this account yet. It hides the rarest ones, and my next daily round picks up the rest.",
-    note: seenQueries.length === 0 ? null : `These are the searches Google named over the last 90 reported days, strongest first${seenQueries.length > QUERY_CAP ? `. I am showing the top ${num(QUERY_CAP)} of ${num(seenQueries.length)}` : ""}. Google hides its rarest searches, so this is what it will tell me and not every search you ever won.`,
+    empty: noQueries ? UNREAD : "Google has not named a single search for this account yet. It hides the rarest ones, and the next daily round picks up the rest.",
+    note: seenQueries.length === 0 ? null : `These are the searches Google named over the last 90 reported days, strongest first${seenQueries.length > QUERY_CAP ? `. Showing the top ${num(QUERY_CAP)} of ${num(seenQueries.length)}` : ""}. Google hides its rarest searches, so this is what it reports and not every search you ever won.`,
     rows: [...seenQueries].sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions).slice(0, QUERY_CAP).map((q, n) => ({
       id: `${q.page}|${q.query}|${n}`, cells: [
         { text: q.query }, { text: shortUrl(q.page) }, { text: num(q.clicks), sort: q.clicks }, { text: num(q.impressions), sort: q.impressions },
@@ -159,20 +159,20 @@ export function googleView(input: GoogleInput) {
       columns: [{ key: "name", label, wide: true }, { key: "clicks", label: "Clicks", numeric: true }, { key: "impressions", label: "Appearances", numeric: true },
         { key: "share", label: "Share of appearances", numeric: true }, { key: "ctr", label: "Click rate", numeric: true },
         ...(rows.some((r) => r.position != null) ? [{ key: "position", label: "Position", numeric: true }] : [])],
-      empty, note: rows.length === 0 || !weekLabel ? null : `I check this once a week. This is the week ending ${weekLabel}.`,
+      empty, note: rows.length === 0 || !weekLabel ? null : `Checked once a week. This is the week ending ${weekLabel}.`,
       rows: [...rows].sort((a, b) => b.impressions - a.impressions).map((r) => ({ id: r.key, cells: [
         { text: r.name }, { text: num(r.clicks), sort: r.clicks }, { text: num(r.impressions), sort: r.impressions }, share(rows, r),
         { text: r.impressions > 0 ? pct(r.clicks / r.impressions) : "not yet", sort: r.impressions > 0 ? r.clicks / r.impressions : -1 },
         ...(rows.some((x) => x.position != null) ? [{ text: r.position != null && r.position > 0 ? r.position.toFixed(1) : "not ranked", sort: r.position ?? 999 }] : []),
       ] })) }) });
-  const NO_WEEK = "I read this once a week and I have not stored a week for this account yet. It fills in on my next weekly pass.";
+  const NO_WEEK = "This is read once a week, and no week is stored for this account yet. It fills in on the next weekly pass.";
   const dimensions = [
     dimension("Phones, computers and tablets", "Device", (w?.now.devices ?? []).map((d) => ({ key: d.device, name: ({ MOBILE: "Phones", DESKTOP: "Computers", TABLET: "Tablets" } as Record<string, string>)[d.device.toUpperCase()] ?? "Another device", clicks: d.clicks, impressions: d.impressions, position: d.position })), NO_WEEK),
     dimension("Where your visitors are", "Country", (w?.now.countries ?? []).filter((r) => COUNTRY[r.code.toLowerCase()]).map((r) => ({ key: r.code, name: COUNTRY[r.code.toLowerCase()]!, clicks: r.clicks, impressions: r.impressions })), NO_WEEK),
     dimension("How your results look on the page", "Result styling", (w?.now.appearance ?? []).map((r) => ({ key: r.kind, name: APPEARANCE[r.kind.toUpperCase()] ?? "special result styling", clicks: r.clicks, impressions: r.impressions })), NO_WEEK),
   ];
   return { limitation: null, tiles, chart, pages, queries, dimensions,
-    coverage: `${num(input.days.length)} reported days on file, and I am showing the last ${num(span)}.`,
+    coverage: `${num(input.days.length)} reported days on file, showing the last ${num(span)}.`,
     watermark: `Search Console, through ${through ?? "a day it has not named"}. Google reports a few days behind, so the newest days are still settling.` };
 }
 
@@ -222,7 +222,7 @@ const fanOutsExcluding = (fanOuts: readonly string[], asked: readonly string[]):
 export function aiView(input: AiInput) {
   const days = (input.segments ?? []).flatMap((s) => s.days);
   const dayRows = input.dayRows ?? [], windowRows = input.window ?? [];
-  if (days.length === 0) return { empty: input.segments == null ? UNREAD : "I have not read a single AI answer for this account yet. My daily round reads them for you, and this fills in from the first one it stores.",
+  if (days.length === 0) return { empty: input.segments == null ? UNREAD : "Not one AI answer has been read for this account yet. The daily round reads them, and this fills in from the first one it stores.",
     tiles: [] as Tile[], chart: null, coverage: "", watermark: "", prompts: null, citations: null, searches: null, intel: null,
     detail: null, engines: [] as Array<{ id: string; label: string }>, boundaries: [] as string[] };
   const span = Math.min(input.rangeDays, days.length);
@@ -247,19 +247,19 @@ export function aiView(input: AiInput) {
 
   const tiles: Tile[] = [
     { label: "Answers that name you", value: mentionRate == null ? "not checked yet" : pct(mentionRate),
-      basis: mentionRate == null ? `${num(observed)} answers are on file and none of them are checked yet` : `${num(mentioning)} of the ${num(analyzed)} answers I finished checking over ${num(span)} days`,
+      basis: mentionRate == null ? `${num(observed)} answers are on file and none of them are checked yet` : `${num(mentioning)} of the ${num(analyzed)} answers finished checking over ${num(span)} days`,
       ...points(mentionRate, priorMention) },
     { label: "Answers crediting a page of yours", value: citeRate == null ? "not reported" : pct(citeRate),
-      basis: citeRate == null ? "not one answer in this window told me which pages it used" : `${num(ownedCiting)} of the ${num(citeSample)} answers that told me what they used`,
+      basis: citeRate == null ? "not one answer in this window reported which pages it used" : `${num(ownedCiting)} of the ${num(citeSample)} answers that reported what they used`,
       ...points(citeRate, priorCite) },
     { label: "Your share of everything credited", value: allVotes > 0 ? pct(myVotes / allVotes) : "not reported",
-      basis: allVotes > 0 ? `${num(myVotes)} of the ${num(allVotes)} times an answer credited any site${dayLabel ? ` on ${dayLabel}` : ""}, counting one vote per answer` : "no answer named the pages it used on the day I read last",
+      basis: allVotes > 0 ? `${num(myVotes)} of the ${num(allVotes)} times an answer credited any site${dayLabel ? ` on ${dayLabel}` : ""}, counting one vote per answer` : "no answer named the pages it used on the last day read",
       delta: null, tone: "flat" },
     { label: "Where you land in the answer", value: placed.length > 0 ? `${(placed.reduce((a, p) => a + p, 0) / placed.length).toFixed(1)}` : "not reported",
-      basis: placed.length > 0 ? `average place across the ${num(placed.length)} answers over ${num(span)} days that told me where you sat, best was ${num(Math.min(...placed))}` : `no answer in the last ${num(span)} days told me where in it you sat`,
+      basis: placed.length > 0 ? `average place across the ${num(placed.length)} answers over ${num(span)} days that reported where you sat, best was ${num(Math.min(...placed))}` : `no answer in the last ${num(span)} days reported where in it you sat`,
       delta: null, tone: "flat" },
-    { label: "Answers I have checked", value: observed > 0 ? pct(analyzed / observed) : "nothing yet",
-      basis: observed > 0 ? `${num(analyzed)} of the ${num(observed)} answers collected over ${num(span)} days. Every rate above divides by what I checked, never by what I collected` : "nothing came back in this window",
+    { label: "Answers checked", value: observed > 0 ? pct(analyzed / observed) : "nothing yet",
+      basis: observed > 0 ? `${num(analyzed)} of the ${num(observed)} answers collected over ${num(span)} days. Every rate above divides by what was checked, never by what was collected` : "nothing came back in this window",
       delta: null, tone: analyzed >= observed && observed > 0 ? "up" : "flat" },
   ];
 
@@ -273,7 +273,7 @@ export function aiView(input: AiInput) {
     prior: prior.length === span ? prior.map((d) => { const { top, bottom } = forEngine(d); return bottom > 0 ? top / bottom : null; }) : null,
     priorLabel: prior.length === span ? `the ${num(span)} days before` : null };
   const boundaries = (input.segments ?? []).flatMap((s) => s.boundary ?? []).map((b) =>
-    `${engineName(b.engine)} ${b.fromMode !== b.toMode ? "started answering me a different way" : "changed the version behind its answers"} on ${monthDayLabel(b.day) ?? b.day}, so the line before and after it was read on different instruments.`);
+    `${engineName(b.engine)} ${b.fromMode !== b.toMode ? "started answering a different way" : "changed the version behind its answers"} on ${monthDayLabel(b.day) ?? b.day}, so the line before and after it was read on different instruments.`);
 
   // ── the question table: one row per tracked question, counted over ITS OWN readings ──
   const byPrompt = new Map<string, { text: string; engines: Set<string>; answered: number; analyzed: number; mentioning: number;
@@ -300,13 +300,13 @@ export function aiView(input: AiInput) {
       top: [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null };
   };
   const prompts = table({
-    columns: [{ key: "question", label: "Question I ask for you", wide: true }, { key: "engines", label: "Assistants", numeric: true },
+    columns: [{ key: "question", label: "Question asked for you", wide: true }, { key: "engines", label: "Assistants", numeric: true },
       { key: "named", label: "Named you", numeric: true }, { key: "changed", label: "Change", numeric: true },
-      { key: "credited", label: `Credited a page of yours, ${dayLabel ?? "the day I read last"}`, numeric: true }, { key: "place", label: "Place in answer", numeric: true },
-      { key: "rival", label: "Strongest rival named", wide: true }, { key: "searches", label: `Searches it ran, ${dayLabel ?? "the day I read last"}`, numeric: true },
+      { key: "credited", label: `Credited a page of yours, ${dayLabel ?? "the last day read"}`, numeric: true }, { key: "place", label: "Place in answer", numeric: true },
+      { key: "rival", label: "Strongest rival named", wide: true }, { key: "searches", label: `Searches it ran, ${dayLabel ?? "the last day read"}`, numeric: true },
       { key: "last", label: "Last read", numeric: true }],
-    empty: input.window == null ? UNREAD : "I have not stored a reading for a tracked question in this window yet.",
-    note: byPrompt.size === 0 ? null : `One row is one question I put to every assistant, counted over the last ${num(span)} days, except the two columns that name ${dayLabel ?? "the day I read last"}: what an assistant credited and what it searched for are read off that one day. Open a row for every reading behind it, and a question I have not finished checking says so rather than reporting a zero.`,
+    empty: input.window == null ? UNREAD : "No reading for a tracked question is stored in this window yet.",
+    note: byPrompt.size === 0 ? null : `One row is one question put to every assistant, counted over the last ${num(span)} days, except the two columns that name ${dayLabel ?? "the last day read"}: what an assistant credited and what it searched for are read off that one day. Open a row for every reading behind it, and a question not finished checking says so rather than reporting a zero.`,
     rows: [...byPrompt.entries()].sort((a, b) => (rate(b[1].mentioning, b[1].analyzed) ?? -1) - (rate(a[1].mentioning, a[1].analyzed) ?? -1)).map(([id, p]) => {
       const r0 = rate(p.mentioning, p.analyzed), rPrior = rate(p.priorMentioning, p.priorAnalyzed);
       const rival = [...p.competitors.entries()].sort((a, b) => b[1] - a[1])[0] ?? null;
@@ -333,7 +333,7 @@ export function aiView(input: AiInput) {
       { key: "answers", label: "Answers crediting it", numeric: true }, { key: "questions", label: "Questions", numeric: true },
       { key: "share", label: "Share of everything credited", numeric: true }, { key: "engines", label: "Assistants", numeric: true },
       { key: "page", label: "Page it credited most", wide: true }],
-    empty: input.dayRows == null ? UNREAD : "Not one answer on the day I read last told me which pages it used, so I am not claiming it credited nobody.",
+    empty: input.dayRows == null ? UNREAD : "Not one answer on the last day read reported which pages it used, so there is no claim that it credited nobody.",
     note: votes.size === 0 ? null : `Every site the assistants credited${dayLabel ? ` on ${dayLabel}` : ""}, counting one vote per answer so a chatty answer cannot outvote the rest. ${num(allVotes)} votes across ${num(votes.size)} sites.`,
     rows: [...votes.entries()].sort((a, b) => b[1].answers - a[1].answers).map(([domain, v]) => {
       const kind = input.landscape?.find((l) => l.domain === domain)?.kind ?? null;
@@ -359,9 +359,9 @@ export function aiView(input: AiInput) {
   const searches = table({
     columns: [{ key: "query", label: "What the assistant searched for", wide: true }, { key: "times", label: "Answers that ran it", numeric: true },
       { key: "share", label: "Share of answers", numeric: true }, { key: "engines", label: "Assistants", numeric: true },
-      { key: "prompts", label: "Questions of mine behind it", wide: true }],
-    empty: input.dayRows == null ? UNREAD : "None of the assistants told me what they searched for on the day I read last, so I cannot say whether they searched at all.",
-    note: runs.size === 0 ? null : `Before answering, an assistant runs its own searches. These are the ones it ran${dayLabel ? ` on ${dayLabel}` : ""}, in its own words rather than mine, across the ${num(reported)} readings that reported them. A question I asked is never listed here as a search it thought of.`,
+      { key: "prompts", label: "Tracked questions behind it", wide: true }],
+    empty: input.dayRows == null ? UNREAD : "None of the assistants reported what they searched for on the last day read, so whether they searched at all is unknown.",
+    note: runs.size === 0 ? null : `Before answering, an assistant runs its own searches. These are the ones it ran${dayLabel ? ` on ${dayLabel}` : ""}, in its own words, across the ${num(reported)} readings that reported them. A tracked question is never listed here as a search the assistant thought of.`,
     rows: [...runs.entries()].sort((a, b) => b[1].answers - a[1].answers).map(([q, v]) => ({ id: q, cells: [
       { text: q }, { text: num(v.answers), sort: v.answers },
       { text: reported > 0 ? pct(v.answers / reported) : "not yet", sort: v.answers },
@@ -371,7 +371,7 @@ export function aiView(input: AiInput) {
   });
 
   const parts = [...(typeof input.checks.answered === "number" ? [`${num(input.checks.answered)} came back with an answer`] : []),
-    ...(input.checks.unavailable ? [`${num(input.checks.unavailable)} found nothing to give me`] : []), ...(input.checks.unsupported ? [`${num(input.checks.unsupported)} I cannot ask at all today`] : [])];
+    ...(input.checks.unavailable ? [`${num(input.checks.unavailable)} came back with nothing`] : []), ...(input.checks.unsupported ? [`${num(input.checks.unsupported)} cannot be asked at all today`] : [])];
   const read = days.filter((d) => d.observed > 0);
   const gaps = days.filter((d) => d.observed === 0 && read[0] && d.day >= read[0].day).map((d) => monthDayLabel(d.day) ?? d.day);
   return {
@@ -379,14 +379,14 @@ export function aiView(input: AiInput) {
     engines: enginesSeen.map((e) => ({ id: e, label: engineName(e) })),
     intel: input.intel && input.intel.answers > 0 ? {
       answers: input.intel.answers,
-      competitors: input.intel.competitors.map((s) => ({ text: s.text, basis: `${num(s.prompts)} of the questions I track` })),
-      formats: input.intel.contentTypes.map((s) => ({ text: s.text, basis: `${num(s.prompts)} of the questions I track` })),
-      omissions: input.intel.omissions.map((s) => ({ text: s.text, basis: `${num(s.prompts)} of the questions I track` })),
+      competitors: input.intel.competitors.map((s) => ({ text: s.text, basis: `${num(s.prompts)} of the tracked questions` })),
+      formats: input.intel.contentTypes.map((s) => ({ text: s.text, basis: `${num(s.prompts)} of the tracked questions` })),
+      omissions: input.intel.omissions.map((s) => ({ text: s.text, basis: `${num(s.prompts)} of the tracked questions` })),
     } : null,
     coverage: `${typeof input.checks.done === "number" && typeof input.checks.total === "number" && input.checks.total > 0
-      ? `I have settled ${num(input.checks.done)} of the ${num(input.checks.total)} answer checks I planned for today${parts.length > 0 ? `: ${parts.join(", ")}. ` : ". "}` : ""}`
-      + `I read answers on ${num(read.length)} of the last ${num(days.length)} days.${gaps.length > 0 ? ` ${gaps.slice(0, 3).join(", ")}${gaps.length > 3 ? ` and ${num(gaps.length - 3)} more` : ""} came back with nothing, and I never fill a missed day in.` : ""}`,
-    watermark: `Stored AI answers, through ${dayLabel ?? "a day I have not read yet"}. Nothing on this page asks an assistant anything: every number is read back off answers already bought.`,
+      ? `${num(input.checks.done)} of the ${num(input.checks.total)} answer checks planned for today are settled${parts.length > 0 ? `: ${parts.join(", ")}. ` : ". "}` : ""}`
+      + `Answers were read on ${num(read.length)} of the last ${num(days.length)} days.${gaps.length > 0 ? ` ${gaps.slice(0, 3).join(", ")}${gaps.length > 3 ? ` and ${num(gaps.length - 3)} more` : ""} came back with nothing, and a missed day is never filled in.` : ""}`,
+    watermark: `Stored AI answers, through ${dayLabel ?? "a day not yet read"}. Nothing on this page asks an assistant anything: every number is read back off answers already bought.`,
   };
 }
 
@@ -408,7 +408,7 @@ function detailOf(input: AiInput) {
   const platforms = table({
     columns: [{ key: "engine", label: "Assistant", wide: true }, { key: "answers", label: "Answers", numeric: true }, { key: "named", label: "Named you", numeric: true },
       { key: "credited", label: "Credited a page of yours", numeric: true }, { key: "place", label: "Place in answer", numeric: true }, { key: "last", label: "Last read", numeric: true }],
-    empty: "I hold no reading of this question yet.",
+    empty: "No reading of this question is on file yet.",
     rows: [...byEngine.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([engine, list]) => {
       const checked = list.filter((r) => r.mentioned != null), hit = checked.filter((r) => r.mentioned);
       const places = list.filter((r) => r.position != null).map((r) => r.position!);
@@ -426,8 +426,8 @@ function detailOf(input: AiInput) {
   return {
     promptId: input.focus.promptId, question: first?.promptText ?? "This question",
     headline: analyzed.length === 0
-      ? `I hold ${num(rows.filter((r) => r.answered).length)} answers to this question and none of them are checked yet, so I am not reporting a mention rate for it.`
-      : `You are named in ${num(named.length)} of the ${num(analyzed.length)} answers I finished checking on this question, across ${num(byEngine.size)} ${byEngine.size === 1 ? "assistant" : "assistants"}.`,
+      ? `${num(rows.filter((r) => r.answered).length)} answers to this question are on file and none of them are checked yet, so no mention rate is reported for it.`
+      : `You are named in ${num(named.length)} of the ${num(analyzed.length)} answers finished checking on this question, across ${num(byEngine.size)} ${byEngine.size === 1 ? "assistant" : "assistants"}.`,
     platforms, rivals: top(rivals, 6), sites: top(sites, 8).map((s) => ({ text: shortUrl(s.text), count: s.count })), searches: top(ran, 8),
     // EVERY RUN, one row each, with the whole of any one of them one click further in. No wall of a hundred
     // and forty identical sentences: a status you can scan, and the evidence on demand.
@@ -436,8 +436,8 @@ function detailOf(input: AiInput) {
         { key: "status", label: "What happened", wide: true }, { key: "named", label: "Named you" },
         { key: "credited", label: "Credited a page of yours" }, { key: "searches", label: "Searches it ran", numeric: true },
         { key: "cites", label: "Pages it credited", numeric: true }],
-      empty: "I hold no reading of this question yet.",
-      note: `Every run I hold for this question, newest first. Open one for the whole answer, every search behind it and every page it credited.${rows.some((r) => r.slot > 0) ? " A run marked as a repeat is the same question asked again the same day, which is how I measure how much these answers move on their own." : ""}`,
+      empty: "No reading of this question is on file yet.",
+      note: `Every run on file for this question, newest first. Open one for the whole answer, every search behind it and every page it credited.${rows.some((r) => r.slot > 0) ? " A run marked as a repeat is the same question asked again the same day, which is how much these answers move on their own gets measured." : ""}`,
       rows: [...rows].sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : a.engine.localeCompare(b.engine))).map((r) => {
         const searched = fanOutsExcluding(r.fanOuts ?? [], [r.promptText]).length;
         return { id: r.id, href: `?view=ai&prompt=${encodeURIComponent(r.promptId)}&reading=${encodeURIComponent(r.id)}`, cells: [
@@ -468,31 +468,31 @@ export function answerDetail(
     `${c.url} (${c.owned ? "your page" : `${c.domain}, ${(KIND_LABEL[kindOf.get(c.domain) ?? "irrelevant_unknown"]).toLowerCase()}`})`
     + (c.passage?.trim() ? ` It quoted this part: "${c.passage.trim()}"` : "");
   return [
-    `I asked ${engine}, word for word: "${r.promptText}"`,
-    !r.answered ? `${engine} gave me nothing back on this one.${r.failureReason ? ` It said: ${r.failureReason}` : ""}`
-      : r.mentioned == null ? "The answer is on file, but nobody has read it closely enough yet for me to say whether you were named."
+    `${engine} was asked, word for word: "${r.promptText}"`,
+    !r.answered ? `${engine} gave nothing back on this one.${r.failureReason ? ` It said: ${r.failureReason}` : ""}`
+      : r.mentioned == null ? "The answer is on file, but nobody has read it closely enough yet to say whether you were named."
         : `${r.mentioned ? "You were named" : "You were not named"}${r.position != null ? `, in place ${num(r.position)} of the answer` : ""}. ${r.cited === true ? "A page of yours was credited." : r.cited === false ? "No page of yours was credited." : "This answer did not say which pages it used."}`,
     ...(r.competitors.length > 0 ? [`It named these instead of or beside you: ${r.competitors.join(", ")}.`] : []),
-    ...(r.answerText?.trim() ? [`What it answered, all of it: ${r.answerText.trim()}`] : ["I hold no answer text for this one, so there is nothing to quote."]),
-    ...(r.fanOuts == null ? [`${engine} does not report the searches it ran on this path, so I cannot say whether it ran any.`]
+    ...(r.answerText?.trim() ? [`What it answered, all of it: ${r.answerText.trim()}`] : ["No answer text is on file for this one, so there is nothing to quote."]),
+    ...(r.fanOuts == null ? [`${engine} does not report the searches it ran on this path, so whether it ran any is unknown.`]
       : own.length === 0 ? ["It ran no searches of its own before answering."]
         : [`Before answering it searched for: ${own.map((q) => `"${q}"`).join(", ")}.`]),
-    ...(r.citations == null ? [`${engine} does not report which pages it used on this path, so I am not claiming it credited nobody.`]
+    ...(r.citations == null ? [`${engine} does not report which pages it used on this path, so there is no claim that it credited nobody.`]
       : r.citations.length === 0 ? ["It credited no pages at all."]
         : [`It credited ${num(r.citations.length)} ${r.citations.length === 1 ? "page" : "pages"}, ${mine > 0 ? `${num(mine)} of them yours` : "none of them yours"}:`, ...r.citations.map(cited)]),
     ...(r.retrievedNotCited == null ? [`${engine} does not report the pages it read but did not credit on this path.`]
       : r.retrievedNotCited.length === 0 ? ["Every page it read, it credited."]
         : [`It also read these and credited none of them: ${r.retrievedNotCited.join(", ")}.`]),
-    `${engine} answered as ${r.modelServed ?? "a model it did not name"}${r.modelRequested ? `, and ${r.modelRequested} is what I asked for` : ""}${r.mode ? `, in ${r.mode} mode` : ""}.`,
+    `${engine} answered as ${r.modelServed ?? "a model it did not name"}${r.modelRequested ? `, and ${r.modelRequested} is what was requested` : ""}${r.mode ? `, in ${r.mode} mode` : ""}.`,
     `This reading counts for ${monthDayLabel(r.day) ?? r.day}.` + (r.askedAt ? ` Asked ${r.askedAt}${r.answeredAt ? `, answered ${r.answeredAt}` : ", and it never came back"}.` : ""),
-    r.reading === "read" ? "I have read every word of this answer closely."
-      : r.reading === "part" ? "I have read part of this answer closely and the rest is still waiting its turn."
-        : r.reading === "checked" ? "I checked this answer for your name and your website address, and nobody has read the rest of it closely."
-          : "Nobody has read this answer closely yet, so I make no claim here about who it named.",
+    r.reading === "read" ? "Every word of this answer has been read closely."
+      : r.reading === "part" ? "Part of this answer has been read closely and the rest is still waiting its turn."
+        : r.reading === "checked" ? "This answer was checked for your name and your website address, and nobody has read the rest of it closely."
+          : "Nobody has read this answer closely yet, so no claim is made here about who it named.",
     // A ROW WHOSE RECEIPT WAS NEVER PRESERVED IS UNKNOWN, NEVER FREE, and a real charge smaller than a cent says its own size.
     ...(r.receipt ? [`The stored answer this all comes off is filed as ${r.receipt}${costUsd != null && costUsd > 0
       ? `, and it cost ${costUsd < 0.01 ? "under a cent" : `${costUsd.toFixed(2)} dollars`} to buy once.`
-      : ", and I hold no receipt proving what it cost, so I am not putting a number on it."}`]
-      : ["I did not keep an identity for the stored answer behind this one."]),
+      : ", and no receipt proves what it cost, so no number is put on it."}`]
+      : ["No identity was kept for the stored answer behind this one."]),
   ];
 }

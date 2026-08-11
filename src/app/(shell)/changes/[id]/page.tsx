@@ -95,14 +95,14 @@ function SetAsideDetail({ unreadable }: { unreadable: boolean }) {
   return (
     <div className="max-w-3xl">
       <section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5">
-        <h1 className="text-[14px] font-semibold text-foreground">{unreadable ? "I cannot show you this one right now" : "I set this idea aside"}</h1>
+        <h1 className="text-[14px] font-semibold text-foreground">{unreadable ? "This one cannot be shown right now" : "This idea was set aside"}</h1>
         <p className="text-[13px] leading-relaxed text-muted-foreground">
           {unreadable
-            ? "I could not confirm which of your saved ideas still hold just now, so I am not handing you copy I cannot back. I am checking again automatically, and every change I stand behind is ranked on Changes."
-            : "I raised the bar for what counts as worth your time, and this idea no longer clears it, so I am not handing you copy I cannot back with evidence. I am still checking your pages, and every change that earns its place is ranked on Changes."}
+            ? "Which of your saved ideas still hold could not be confirmed just now, so no unbacked copy is handed over. Beacon is checking again automatically, and every change that stands is ranked on Changes."
+            : "The bar for what counts as worth your time went up, and this idea no longer clears it, so no copy without evidence behind it is handed over. Your pages are still being checked, and every change that earns its place is ranked on Changes."}
         </p>
         <Link href="/changes" className="inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2">
-          See what I am working on now
+          See the work that stands now
         </Link>
       </section>
     </div>
@@ -113,7 +113,7 @@ const EVIDENCE_GROUP: Record<BundleEvidenceItem["kind"], string> = {
   gsc_demand: "What people search on Google",
   keyword: "How much demand there is",
   serp: "What Google shows today",
-  diagnosis: "Why I think this is the problem",
+  diagnosis: "Why this looks like the problem",
   ai_observation: "What AI assistants answer",
   winning_page: "Pages winning this today",
   page_extract: "What your page says now",
@@ -156,7 +156,7 @@ function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeProposal
       </Link>
 
       <section className="space-y-2 rounded-2xl border border-accent-primary/40 bg-surface-raised p-5">
-        <h1 className="text-[14px] font-semibold text-foreground">What I recommend</h1>
+        <h1 className="text-[14px] font-semibold text-foreground">The recommendation</h1>
         <p className="text-[15px] font-semibold leading-relaxed text-foreground">{bundle.objective}</p>
         <p className="text-[13px] text-muted-foreground">
           {isNew ? "A new page for" : "On this page"}: {proposal.pageLabel}
@@ -189,7 +189,7 @@ function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeProposal
       </section>
 
       <section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
-        <Heading>What I checked</Heading>
+        <Heading>What was checked</Heading>
         {EVIDENCE_ORDER.map((kind) => {
           const items = bundle.receipt.items.filter((i) => i.kind === kind);
           if (items.length === 0) return null;
@@ -202,7 +202,7 @@ function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeProposal
         })}
         {bundle.receipt.missing.length > 0 ? (
           <div className="space-y-1 border-t border-border pt-3">
-            <p className="text-[12px] font-semibold text-foreground">What I could not check yet</p>
+            <p className="text-[12px] font-semibold text-foreground">What could not be checked yet</p>
             <Bullets items={bundle.receipt.missing} />
           </div>
         ) : null}
@@ -210,7 +210,7 @@ function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeProposal
 
       {bundle.alternatives.length > 0 ? (
         <section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5">
-          <Heading>What else I considered</Heading>
+          <Heading>What else was considered</Heading>
           <Bullets items={bundle.alternatives.map((a) => `${a.option}: ${a.reason}`)} />
         </section>
       ) : null}
@@ -225,21 +225,21 @@ function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeProposal
       ) : null}
 
       <section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5">
-        <Heading>How I will measure it</Heading>
+        <Heading>How it gets measured</Heading>
         <p className="text-[13px] leading-relaxed text-muted-foreground">{bundle.measurementPlan}</p>
-        <p className="text-[13px] text-muted-foreground">I will watch: {bundle.metric}</p>
+        <p className="text-[13px] text-muted-foreground">Watching: {bundle.metric}</p>
       </section>
 
       <section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
         <MarkImplemented
           proposalId={proposal.id}
-          label={isNew ? "I built this page" : "I made this change"}
+          label={isNew ? "Mark done" : "Mark done"}
           newPage={isNew}
           components={bundle.components.map((c, i) => ({ id: componentIdOf(c, i), kind: c.kind, label: c.label,
             moves: dangerousComponents([c]).length > 0, recorded: recorded.has(componentIdOf(c, i)) }))}
         />
         <p className="text-[12px] text-muted-foreground">
-          After you make it, I check the page myself and the measurement starts from what I find.
+          After you make it, the page is checked and the measurement starts from what is found.
         </p>
         <SetAsideChange proposalId={proposal.id} />
       </section>
@@ -289,24 +289,24 @@ function Investigation({ proposal }: { proposal: ChangeProposal }) {
         {finding ? (
           <>
             <div className="space-y-1">
-              <p className="text-[12px] font-semibold text-foreground">What I think is wrong</p>
+              <p className="text-[12px] font-semibold text-foreground">What looks wrong</p>
               <p className="text-[13px] leading-relaxed text-muted-foreground">
                 {causeLabel(finding.cause)}. {finding.explanation}
               </p>
             </div>
             {finding.competingExplanations.length > 0 ? (
               <div className="space-y-1">
-                <p className="text-[12px] font-semibold text-foreground">What else I considered and why it lost</p>
+                <p className="text-[12px] font-semibold text-foreground">What else was considered and why it lost</p>
                 <Bullets items={finding.competingExplanations.map((c) => `${causeLabel(c.cause)}: ${c.reason}.`)} />
               </div>
             ) : null}
             <div className="space-y-1">
-              <p className="text-[12px] font-semibold text-foreground">What would change my mind</p>
+              <p className="text-[12px] font-semibold text-foreground">What would overturn this</p>
               <p className="text-[13px] leading-relaxed text-muted-foreground">{finding.falsifier}</p>
             </div>
             {finding.notConsidered.length > 0 ? (
               <div className="space-y-1">
-                <p className="text-[12px] font-semibold text-foreground">What I could not test, and why</p>
+                <p className="text-[12px] font-semibold text-foreground">What could not be tested, and why</p>
                 <Bullets items={finding.notConsidered.map((n) => `${causeLabel(n.cause)}: ${n.missing}`)} />
               </div>
             ) : null}
@@ -315,7 +315,7 @@ function Investigation({ proposal }: { proposal: ChangeProposal }) {
 
         {hints.length > 0 ? (
           <div className="space-y-1">
-            <p className="text-[12px] font-semibold text-foreground">What I read to get here</p>
+            <p className="text-[12px] font-semibold text-foreground">What was read to get here</p>
             <Bullets items={hints} />
           </div>
         ) : null}
@@ -363,7 +363,7 @@ function ComponentCard({
     ...(component.preserves?.keeps.length ? [`What survives the change: ${component.preserves.keeps.join(", ")}.`] : []),
     ...(component.preserves?.losses ?? []).map((l) => `Dropped: ${l.what}, because ${l.why}.`),
     to ? `To undo it: take the forward to ${to} off and publish this page at its own address again.`
-      : "To undo it: put the page back the way it was, then tell me here, and I read it again before I say anything.",
+      : "To undo it: put the page back the way it was, then say so here, and it is read again before anything is claimed.",
   ] : [];
   return (
     <div className="space-y-2 rounded-2xl border border-border bg-surface-raised p-4">
@@ -464,7 +464,7 @@ function ChangeDetailReadError({ error }: { error: unknown }) {
         <h2 id="change-read-error" className="text-[13px] font-semibold tracking-tight text-foreground">Couldn&apos;t load this change</h2>
         <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">{error instanceof Error ? error.message : "Unknown error reading changelog entry"}</p>
         <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-          I could not reach the database just now. Refresh to retry: I never show you cached truth by accident.
+          The database could not be reached just now. Refresh to retry: cached truth is never shown by accident.
         </p>
         <Link href="/changes" className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
           Back to Changes

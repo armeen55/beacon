@@ -1,22 +1,16 @@
 /**
  * decision/load-proposals (CORE 100K cutover, 2026-07-22): the ONE read path
- * the live surfaces (Changes + Today) consume. It loads the persisted, re-
- * validated ChangeProposals for a tenant, ranks them by honest value, and
- * partitions them into the operator-facing lifecycle:
+ * the live surfaces (Changes + Today) consume. It loads the persisted, re- validated ChangeProposals for a tenant, ranks them by honest value, and partitions them into the operator-facing lifecycle:
  *
  *   ready     validated safe, owes no source: act now.
  *   toDo      still live under the same basis: held for review or waiting on a source.
  *   (a withdrawn draft is history and never surfaces; an implemented one has moved to the ledger.)
  *
- * Every lane above holds CURRENT-BASIS work only. A proposal drafted under an
- * older basis, one carrying no basis, and every proposal at all when the current
- * basis cannot be read are withheld from the queue and counted, never shown as
- * work to do.
+ * Every lane above holds CURRENT-BASIS work only. A proposal drafted under an older basis, one carrying no basis, and every proposal at all when the current
+ * basis cannot be read are withheld from the queue and counted, never shown as work to do.
  *
- * The "measuring / decided" side of the lifecycle lives in the proof-gsc ledger
- * (a shipped change under measurement), NOT here: a proposal the operator
- * applied is recorded as a shipped change and measured there. This module owns
- * only the pre-ship queue. PURE partition over a fail-soft load.
+ * The "measuring / decided" side of the lifecycle lives in the proof-gsc ledger (a shipped change under measurement), NOT here: a proposal the operator
+ * applied is recorded as a shipped change and measured there. This module owns only the pre-ship queue. PURE partition over a fail-soft load.
  *
  * server-only (reads the proposal store).
  */
@@ -30,11 +24,9 @@ import { actionableProposalFailures, validateProposal } from "./validate-proposa
 import type { ChangeProposal } from "./contracts";
 
 /**
- * The DECISION generation this kernel proposes under. It rides on the basis
- * stamp, so every proposal manufactured under an earlier generation's rules is
+ * The DECISION generation this kernel proposes under. It rides on the basis stamp, so every proposal manufactured under an earlier generation's rules is
  * unsupported history the moment those rules change: it can never render Ready,
- * it is demoted in presentation only, and no row is rewritten or deleted.
- * Bump ONLY when the rules that decide WHAT earns a proposal change.
+ * it is demoted in presentation only, and no row is rewritten or deleted. Bump ONLY when the rules that decide WHAT earns a proposal change.
  *   1 = every owned page over 20 impressions got a title and a description.
  *   2 = a proposal exists only where exact query rows proved a recoverable gap.
  *   3 = a proven gap is an INVESTIGATION until the live results page for that exact
@@ -52,10 +44,8 @@ import type { ChangeProposal } from "./contracts";
 const DECISION_GENERATION = 6;
 
 /**
- * The account's CURRENT research basis, or null when it cannot be read. Composes
- * exactly what Runtime and the Evidence funnel compose, so one basis serves every
- * kernel, plus the decision generation above. Null on purpose when the account
- * cannot be read: I cannot prove a single stored proposal is current, and the
+ * The account's CURRENT research basis, or null when it cannot be read. Composes exactly what Runtime and the Evidence funnel compose, so one basis serves every
+ * kernel, plus the decision generation above. Null on purpose when the account cannot be read: I cannot prove a single stored proposal is current, and the
  * queue below treats that as nothing to show rather than everything to show.
  */
 export async function resolveCurrentBasis(
@@ -74,11 +64,9 @@ export async function resolveCurrentBasis(
 }
 
 /**
- * A limitation that still ASKS for a source or a fact check is an UNRESOLVED
- * requirement: whatever the stored status says, the copy is not paste-ready, so
+ * A limitation that still ASKS for a source or a fact check is an UNRESOLVED requirement: whatever the stored status says, the copy is not paste-ready, so
  * it presents as to-do instead of ready. Deliberately narrow (the phrasings the
- * quality gate and the validator actually emit) so an honest "what I could not
- * check yet" receipt line never demotes a finished change.
+ * quality gate and the validator actually emit) so an honest "what I could not check yet" receipt line never demotes a finished change.
  */
 const UNRESOLVED_SOURCE =
   /paste-ready|cited authoritative source|carries no source|add (?:a |an |one |1-2 )?(?:cited |authoritative )?sources?|verify (?:this|the) (?:claim|fact)/i;
@@ -94,11 +82,9 @@ function holdsForUnresolvedSource(p: ChangeProposal): boolean {
 const MEASUREMENT_WINDOW_DAYS = 28;
 
 /**
- * THE PAGES STILL UNDER MEASUREMENT, out of rows the caller already holds (no read, no kernel crossed).
- * A page counts only while its implemented change is inside the window above: a row of ANY age used
+ * THE PAGES STILL UNDER MEASUREMENT, out of rows the caller already holds (no read, no kernel crossed). A page counts only while its implemented change is inside the window above: a row of ANY age used
  * to discount its page forever, so a change shipped six months ago quietly buried every later change to
- * the same page. A proposal carries no implemented-at stamp of its own, so its `createdAt` is the only date
- * on file and it is read as the earliest the measurement can have started; a row with no readable date
+ * the same page. A proposal carries no implemented-at stamp of its own, so its `createdAt` is the only date on file and it is read as the earliest the measurement can have started; a row with no readable date
  * counts as nothing, because "I cannot tell when" is never proof that something is being read now. PURE.
  */
 export function pagesUnderMeasurement(
@@ -140,43 +126,31 @@ export async function loadProposalQueue(
     deps.currentBasis !== undefined ? deps.currentBasis : await resolveCurrentBasis(tenantId);
   const byId = await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>());
   const live = [...byId.values()].filter((p) => p.status !== "implemented_pending_verification");
-  // A bundle REPLACES its own shallow rows, historical included: an existing-page
-  // bundle covers that PAGE, a new-page bundle covers that TOPIC.
+  // A bundle REPLACES its own shallow rows, historical included: an existing-page bundle covers that PAGE, a new-page bundle covers that TOPIC.
   const bundledPages = new Set(live.filter((p) => p.bundle && p.kind === "existing_edit").map((p) => p.pagePath));
   const topicOf = (p: ChangeProposal): string => p.primaryQuery.trim().toLowerCase();
   const bundledTopics = new Set(live.filter((p) => p.bundle && p.kind === "new_page").map(topicOf));
   const all = live.filter((p) => p.bundle
     || (p.kind === "existing_edit" ? !bundledPages.has(p.pagePath) : !bundledTopics.has(topicOf(p))));
-  // Your queue is CURRENT WORK ONLY. A proposal enters it only when I can show it was
-  // drafted under the basis this account holds right now. An older basis, no basis at
-  // all, and a current basis I could not read all SET THE ROW ASIDE. Unreadable fails
-  // closed: being unable to read the basis is not proof anything is current, it is
-  // proof I cannot tell, so I show you nothing rather than guess. A set-aside row keeps
-  // its words, its status and its history: no stored row is rewritten or deleted, it
-  // just stops presenting as work waiting on you, and it is counted below so I can say so.
-  // A NEW PAGE PASSES THE SAME BAR TWICE. Under generation 6 a page brief may be work
-  // again, but only one built to today's evidence contract: the earned verdict it came
-  // from, an outline, and every piece tracing to a receipt item. A brief carrying none of
+  // Your queue is CURRENT WORK ONLY. A proposal enters it only when I can show it was drafted under the basis this account holds right now. An older basis, no basis at
+  // all, and a current basis I could not read all SET THE ROW ASIDE. Unreadable fails closed: being unable to read the basis is not proof anything is current, it is
+  // proof I cannot tell, so I show you nothing rather than guess. A set-aside row keeps its words, its status and its history: no stored row is rewritten or deleted, it
+  // just stops presenting as work waiting on you, and it is counted below so I can say so. A NEW PAGE PASSES THE SAME BAR TWICE. Under generation 6 a page brief may be work
+  // again, but only one built to today's evidence contract: the earned verdict it came from, an outline, and every piece tracing to a receipt item. A brief carrying none of
   // that is an older idea however current its basis looks, and reviving the ones that
-  // turned a rival's example question into an article is the worst thing this queue could
-  // do, so it is refused here and still COUNTED below.
+  // turned a rival's example question into an article is the worst thing this queue could do, so it is refused here and still COUNTED below.
   // AND EVERY DEEP CHANGE PASSES ITS OWN RECEIPT AT READ TIME. A stored bundle whose claims stopped resolving
-  // kept rendering exactly as written until something re-selected its page, so the screen is the safety net:
-  // a row that cannot show its work is withheld here whatever the producer pass has had a chance to do.
+  // kept rendering exactly as written until something re-selected its page, so the screen is the safety net: a row that cannot show its work is withheld here whatever the producer pass has had a chance to do.
   const current = all.filter((p) => actionableProposalFailures(p, { tenantId, currentBasis }).length === 0
     && (p.kind !== "new_page" || validateProposal(p).verdict !== "rejected"));
   const demotedStaleBasis = all.length - current.length;
   // WHY the queue is empty decides what I may say. "I raised the bar" is true of an
-  // older or missing basis and a lie when I simply could not read the account, so the
-  // surfaces get the reason, not just the number.
+  // older or missing basis and a lie when I simply could not read the account, so the surfaces get the reason, not just the number.
   const basisUnreadable = currentBasis == null;
-  // A page whose change the operator already applied IS a page under measurement, for as long as the
-  // measurement runs. Ranking a second change onto it would make the first one unreadable, so the ranker
-  // discounts it hard and says so on the card. The applied rows are already in hand here, so this costs
-  // no read and reaches past no kernel boundary.
+  // A page whose change the operator already applied IS a page under measurement, for as long as the measurement runs. Ranking a second change onto it would make the first one unreadable, so the ranker
+  // discounts it hard and says so on the card. The applied rows are already in hand here, so this costs no read and reaches past no kernel boundary.
   const ranked = rankProposals(current, { measuringPagePaths: pagesUnderMeasurement(byId.values()) });
-  // READY has to mean ready: the validator passed it (status "ready") and it owes
-  // nobody a source. Every other current-basis row is a to-do.
+  // READY has to mean ready: the validator passed it (status "ready") and it owes nobody a source. Every other current-basis row is a to-do.
   const ready: ChangeProposal[] = [];
   const toDo: ChangeProposal[] = [];
   for (const p of ranked) {

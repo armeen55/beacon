@@ -40,8 +40,8 @@ export function FirstReadingWaiting({
             Beacon is preparing your first reading.
           </h1>
           <p className="text-[14px] text-muted-foreground">
-            I am reading your site and checking how AI assistants answer your
-            questions. This runs once a day on its own, so you can close this
+            Your site is being read, and AI assistants are being checked on how
+            they answer your questions. This runs once a day on its own, so you can close this
             and come back. Connecting Google Search Console is optional and
             makes the reading sharper.
           </p>
@@ -64,7 +64,7 @@ export function FirstReadingWaiting({
                 <dd className="font-mono">{context.domain}</dd>
               </>
             ) : null}
-            <dt className="text-muted-foreground">Questions I track</dt>
+            <dt className="text-muted-foreground">Questions tracked</dt>
             <dd>
               {context.promptCount}{" "}
               <span className="text-muted-foreground">
@@ -127,10 +127,10 @@ export function FirstReadingWaiting({
           <p className="font-medium">What happens next</p>
           <ol className="list-decimal pl-5 text-muted-foreground space-y-1">
             <li>
-              I do the research: once a day I read your pages, check how AI
-              assistants answer your questions, and fill this dashboard with
-              your search demand and who you get compared to. Nothing here waits
-              on you being signed in.
+              The research runs itself: once a day your pages are read, AI
+              assistants are checked on your questions, and this dashboard fills
+              with your search demand and who you get compared to. Nothing here
+              waits on you being signed in.
             </li>
             <li>
               <Link
@@ -139,8 +139,8 @@ export function FirstReadingWaiting({
               >
                 Connect Search Console
               </Link>{" "}
-              when you want to: optional, and it lets me name the exact searches
-              you already earn clicks on instead of estimating them.
+              when you want to: optional, and it names the exact searches you
+              already earn clicks on instead of estimating them.
             </li>
             <li>
               Review your recommendations: once your first reading comes in,

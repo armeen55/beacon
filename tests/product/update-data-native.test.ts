@@ -52,7 +52,7 @@ describe("Update data with no third-party connection", () => {
     const granted = (await refreshAllConnectedDataNow()).results[0]!;
     expect(granted.ok).toBe(true);
     expect(`${granted.label} ${granted.detail}`).toBe(
-      "My own research. I am taking 3 fresh AI readings now. Connect Google to refresh your search data too.",
+      "Beacon's own research. Taking 3 fresh AI readings now. Connect Google to refresh your search data too.",
     );
     // REFUSED: the planner's OWN sentence, which used to be dropped into a log line while the operator
     // read that Beacon had refreshed its own research.
@@ -67,7 +67,7 @@ describe("Update data with no third-party connection", () => {
     // The action now always answers with at least its own research line, so an empty list can only mean the
     // press failed. "Nothing connected to refresh yet." was a claim about the account, not about the press.
     const failed = renderToStaticMarkup(createElement(RefreshResultList, { results: [] }));
-    expect(failed).toContain("I could not refresh anything just now; try again in a minute.");
+    expect(failed).toContain("Nothing could be refreshed just now; try again in a minute.");
     expect(failed).not.toContain("Nothing connected");
     const line = (await refreshAllConnectedDataNow()).results[0]!;
     expect(renderToStaticMarkup(createElement(RefreshResultList, { results: [line] }))).toContain(line.detail);

@@ -1,13 +1,9 @@
 /**
- * llm/de-templating (2026-07-03, BEACON 500 R16 / P6) - the "reads like a
- * repeat" guard on generated customer-facing text.
+ * llm/de-templating (2026-07-03, BEACON 500 R16 / P6) - the "reads like a repeat" guard on generated customer-facing text.
  *
- * A drafter that keeps producing the same skeleton ("X is a traditional
- * Persian ... The page covers ...") across pages is templating, not writing.
- * This pure check compares a new draft's word 3-grams against the last
- * outputs cached for the same lever family; above REPEAT_THRESHOLD overlap
- * the gateway retries once with a variation instruction, and if the retry is
- * still a near-copy the draft ships FLAGGED ("reads like a repeat") so the
+ * A drafter that keeps producing the same skeleton ("X is a traditional Persian ... The page covers ...") across pages is templating, not writing.
+ * This pure check compares a new draft's word 3-grams against the last outputs cached for the same lever family; above REPEAT_THRESHOLD overlap
+ * the gateway retries once with a variation instruction, and if the retry is still a near-copy the draft ships FLAGGED ("reads like a repeat") so the
  * draft-quality gate can demote it instead of calling it ready.
  *
  * Deterministic, PURE - no I/O. Pinned by de-templating.test.ts.
@@ -41,8 +37,7 @@ function ngramSet(text: string, n = 3): Set<string> {
 }
 
 /**
- * Containment overlap: what share of the NEW text's n-grams already appear in
- * the prior text. 0 when either side is empty.
+ * Containment overlap: what share of the NEW text's n-grams already appear in the prior text. 0 when either side is empty.
  */
 function ngramOverlap(next: string, prior: string, n = 3): number {
   const a = ngramSet(next, n);

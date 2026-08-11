@@ -147,7 +147,7 @@ describe("recordShippedChangeAction, account-owner gating", () => {
   });
   it("never hands a customer a backend error", async () => { // P1-13
     mocks.captureChangeMeta.mockRejectedValue(new Error("relation shipped_change_proof does not exist"));
-    expect(await recordShippedChangeAction({ pageUrl: "/cities" })).toEqual({ success: false, error: "I could not record that change just now. Try it again in a moment." });
+    expect(await recordShippedChangeAction({ pageUrl: "/cities" })).toEqual({ success: false, error: "That change could not be recorded just now. Try it again in a moment." });
   });
 });
 
@@ -179,7 +179,7 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
   it("a shipment that does not land leaves the change unflipped, and never leaks the reason", async () => {
     mocks.upsertShippedChange.mockRejectedValue(new Error("relation shipped_change_proof does not exist"));
     const res = await markProposalImplementedAction({ ...PRESS });
-    expect([res.success, /couldn't start measuring/i.test(res.error ?? ""), /shipped_change_proof/.test(res.error ?? ""), mocks.markProposalImplemented.mock.calls.length]).toEqual([false, true, false, 0]);
+    expect([res.success, /could not start/i.test(res.error ?? ""), /shipped_change_proof/.test(res.error ?? ""), mocks.markProposalImplemented.mock.calls.length]).toEqual([false, true, false, 0]);
   });
   it("a second press on the same change does NOTHING: the record I already hold stands", async () => {
     await markProposalImplementedAction({ ...PRESS });
@@ -229,7 +229,7 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     mocks.recordShippedChange.mockClear(); mocks.markProposalImplemented.mockClear();
     mocks.topPagesByDemand.mockReturnValue(["https://x.test/a"]); // one comparable page is not a measurement
     expect(await markProposalImplementedAction({ ...PRESS })).toEqual({ success: false,
-      error: "I found only 1 page on your site I could fairly compare this against, and I need 2, so I have not recorded it yet. Connect Search Console, or give me a few more days of search data, then press it again." });
+      error: "Only 1 page on your site can be fairly compared against this one, and 2 are needed, so it is not recorded yet. Connect Search Console, or wait a few more days of search data, then press it again." });
     expect([mocks.recordShippedChange.mock.calls.length, mocks.markProposalImplemented.mock.calls.length]).toEqual([0, 0]);
   });
   /** P1-1 + P1-2. The remainder came off THIS press, so press two of three said "the other 2" with one left; and the picker pre-ticks everything with no memory of what
@@ -251,7 +251,7 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     expect(mocks.recordShippedChange.mock.calls[0][0].shipment.componentsApplied.map((c: { id: string }) => c.id)).toEqual(["2:opening_answer"]);
     expect(mocks.markProposalImplemented).toHaveBeenCalledOnce();
     const again = await press();
-    expect([again.success, again.note]).toEqual([true, "I already have every piece of this change on file and I am measuring it. There is nothing left for you to record here."]);
+    expect([again.success, again.note]).toEqual([true, "Every piece of this change is already on file and being measured. There is nothing left for you to record here."]);
     expect(mocks.recordShippedChange).not.toHaveBeenCalled();
     // P2: the same piece twice in one press is one piece, so a repeated pick can never mint a second version of one record.
     held.length = 0;
@@ -265,13 +265,13 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
   // fix it asks for is one they already did.
   it("tells a failed comparison read apart from a site that genuinely has too few pages", async () => {
     mocks.topPagesByDemand.mockReturnValue(null);
-    const owed = "I could not read your other pages just now, so I have not recorded this yet.";
+    const owed = "Your other pages could not be read just now, so this is not recorded yet.";
     expect([await markProposalImplementedAction({ ...PRESS }), await recordShippedChangeAction({ pageUrl: "/cities" }), mocks.recordShippedChange.mock.calls.length])
       .toEqual([{ success: false, error: `${owed} Press it again in a moment.` }, { success: false, error: `${owed} Try it again in a moment.` }, 0]);
   });
   it("never hands a customer a backend error", async () => { // P1-13: a Supabase relation name is not an answer
     mocks.markProposalImplemented.mockRejectedValue(new Error("relation change_proposals does not exist"));
-    expect(await markProposalImplementedAction({ ...PRESS })).toEqual({ success: false, error: "I could not record that just now. Press it again in a moment." });
+    expect(await markProposalImplementedAction({ ...PRESS })).toEqual({ success: false, error: "That could not be recorded just now. Press it again in a moment." });
   });
   // PIN (B): THE BYPASS IS GONE. A press that still carries the retired override flag records a note and a Shipment with NO verification on it, so the live check is owed
   // exactly as it is for every other press.
@@ -300,8 +300,8 @@ describe("a new page owes me the address it is live at", () => {
   it("refuses with no address and with someone else's site, then records and verifies the one I can read", async () => {
     mocks.loadChangeProposal.mockResolvedValue(newPage()); const none = await markProposalImplementedAction({ ...PRESS });
     const away = await markProposalImplementedAction({ ...PRESS, liveUrl: "https://elsewhere.example/kite" });
-    expect([none.success, none.error, away.success, away.error]).toEqual([false, "Tell me the address the new page is live at, on x.test, so I can go and read it.",
-      false, "That address is on elsewhere.example, not on x.test. I only record and read pages on your own site."]);
+    expect([none.success, none.error, away.success, away.error]).toEqual([false, "Add the address the new page is live at, on x.test, so it can be read.",
+      false, "That address is on elsewhere.example, not on x.test. Only pages on your own site are recorded and read."]);
     expect(mocks.recordShippedChange).not.toHaveBeenCalled(); // nothing is written until I hold an address I can check
     expect((await markProposalImplementedAction({ ...PRESS, liveUrl: "https://www.x.test/kite-festival-guide" })).success).toBe(true);
     expect(mocks.recordShippedChange.mock.calls[0]![0]).toMatchObject({ page: "https://www.x.test/kite-festival-guide", path: "/kite-festival-guide" }); // verification reads THAT page

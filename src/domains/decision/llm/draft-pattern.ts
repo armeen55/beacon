@@ -1,6 +1,5 @@
 /**
- * draft-pattern (BEACON_500 item 74) - deterministic structural fingerprinting for a
- * drafted/shipped block of copy, PLUS a pure aggregation of proof-ledger outcomes by
+ * draft-pattern (BEACON_500 item 74) - deterministic structural fingerprinting for a drafted/shipped block of copy, PLUS a pure aggregation of proof-ledger outcomes by
  * (pattern, page family) so the drafter can eventually say "stat-first blocks win here".
  *
  * Two responsibilities, both PURE (no I/O, no LLM):
@@ -12,8 +11,7 @@
  *      exactly the discipline the planner's proof-history voice already uses for (pageFamily,
  *      actionFamily) tallies.
  *
- * Tenant-agnostic: pattern ids and page families are derived from content/URLs, never a
- * hardcoded topic list (English-first, no tenant-specific vocabulary anywhere in here).
+ * Tenant-agnostic: pattern ids and page families are derived from content/URLs, never a hardcoded topic list (English-first, no tenant-specific vocabulary anywhere in here).
  */
 
 export type DraftPatternId =
@@ -56,11 +54,9 @@ function countLines(text: string, re: RegExp): number {
 }
 
 /**
- * Classify one draft/answer-block's content into a single structural pattern id.
- * Deterministic, order-of-checks matters (most distinctive shape wins first):
+ * Classify one draft/answer-block's content into a single structural pattern id. Deterministic, order-of-checks matters (most distinctive shape wins first):
  *   table > step_list > qa_pair > stat_first > definition_first > prose_other.
- * A table or a >=2-row step list is a stronger structural signal than a numeric lead,
- * so those checks run first - text can accidentally start with a digit (a date, a
+ * A table or a >=2-row step list is a stronger structural signal than a numeric lead, so those checks run first - text can accidentally start with a digit (a date, a
  * count) without being "a list" or "a table".
  */
 export function classifyDraftPattern(raw: string): DraftPatternId {
@@ -75,16 +71,14 @@ export function classifyDraftPattern(raw: string): DraftPatternId {
   const listLines = countLines(text, STEP_LIST_LINE);
   if (listLines >= 2) return "step_list";
 
-  // Q&A pair: a question-form heading/line followed by more content, or the text is
-  // itself framed as a direct question-answer exchange.
+  // Q&A pair: a question-form heading/line followed by more content, or the text is itself framed as a direct question-answer exchange.
   const firstLine = (text.split(/\n/)[0] ?? "").trim();
   if ((HEADING_QUESTION.test(firstLine) || WH_QUESTION_OPEN.test(firstLine)) && text.split(/\n/).length > 1) {
     return "qa_pair";
   }
   if (/\?/.test(firstLine) && firstLine.length <= 140) return "qa_pair";
 
-  // Stat-first: the opening ~12 words carry a concrete number (not just a dictionary
-  // opener that happens to mention a count later).
+  // Stat-first: the opening ~12 words carry a concrete number (not just a dictionary opener that happens to mention a count later).
   const lead = firstWords(text, 12);
   if (NUMBER_LEAD.test(lead) || /^\s*\d/.test(text)) return "stat_first";
 
@@ -133,18 +127,15 @@ function foldVerdict(row: PatternOutcomeRow): "won" | "lost" | "flat" | "pending
   if (row.verdict === "measuring") return "pending";
   if (row.verdict === "won") return "won";
   if (row.verdict === "lost") return "lost";
-  // inconclusive / insufficient_data: a GSC "flat" read can still be a citation win.
-  // An answer block that never moved CTR but started getting quoted by AI is a real win.
+  // inconclusive / insufficient_data: a GSC "flat" read can still be a citation win. An answer block that never moved CTR but started getting quoted by AI is a real win.
   if (row.citationVerdict === "gained") return "won";
   if (row.citationVerdict === "lost") return "lost";
   return "flat";
 }
 
 /**
- * Pure tally of decided outcomes by (pattern, pageFamily). Cells below
- * MIN_DECIDED_FOR_CONFIDENCE stay `confident: false` - callers must never quote a
- * winRate from an unconfident cell. Deterministic order (insertion order of first
- * occurrence), so output is stable for snapshot-style tests.
+ * Pure tally of decided outcomes by (pattern, pageFamily). Cells below MIN_DECIDED_FOR_CONFIDENCE stay `confident: false` - callers must never quote a
+ * winRate from an unconfident cell. Deterministic order (insertion order of first occurrence), so output is stable for snapshot-style tests.
  */
 export function aggregateWinsByPattern(rows: PatternOutcomeRow[]): PatternCellTally[] {
   const order: string[] = [];
@@ -180,8 +171,7 @@ export function aggregateWinsByPattern(rows: PatternOutcomeRow[]): PatternCellTa
 }
 
 /**
- * The single best CONFIDENT pattern for a page family, or null when no cell has
- * cleared the sample floor yet (an honest, expected state for a young ledger). Ties
+ * The single best CONFIDENT pattern for a page family, or null when no cell has cleared the sample floor yet (an honest, expected state for a young ledger). Ties
  * break on higher decided-sample count, then alphabetically on pattern id (stable).
  */
 export function bestConfidentPattern(cells: PatternCellTally[], pageFamily: string): PatternCellTally | null {

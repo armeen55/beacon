@@ -1,10 +1,7 @@
 /**
- * llm/numeric-fidelity (2026-07-03, BEACON 500 R16 / P6) - the no-invented-
- * numbers firewall, upgraded from digit-run matching to TOKENIZED number
- * extraction with formatting tolerance.
+ * llm/numeric-fidelity (2026-07-03, BEACON 500 R16 / P6) - the no-invented- numbers firewall, upgraded from digit-run matching to TOKENIZED number extraction with formatting tolerance.
  *
- * The rule is unchanged: a generated text may only cite numbers that appear in
- * the evidence packet. What changed is HOW "appears" is decided:
+ * The rule is unchanged: a generated text may only cite numbers that appear in the evidence packet. What changed is HOW "appears" is decided:
  *
  *   - "5,400" and "5400" are the SAME number (thousands separators stripped
  *     on both sides before comparison).
@@ -13,12 +10,9 @@
  *     "44.6%" (both round to 45). Formatting a grounded share differently is
  *     not an invented stat.
  *
- * STRICTLY MORE PERMISSIVE than the legacy digit-run check: any token the old
- * firewall accepted is still accepted (each >= 2-digit run being grounded keeps
- * a token grounded), so no pinned suite can start rejecting good drafts. The
- * tolerance paths only rescue formatting variants that used to be false
- * rejections. Genuinely ungrounded numbers still fail, and the drafter's
- * repair retry injects the CORRECT grounded numbers before failing closed.
+ * STRICTLY MORE PERMISSIVE than the legacy digit-run check: any token the old firewall accepted is still accepted (each >= 2-digit run being grounded keeps
+ * a token grounded), so no pinned suite can start rejecting good drafts. The tolerance paths only rescue formatting variants that used to be false
+ * rejections. Genuinely ungrounded numbers still fail, and the drafter's repair retry injects the CORRECT grounded numbers before failing closed.
  *
  * PURE - no I/O. Pinned by numeric-fidelity.test.ts.
  */
@@ -109,9 +103,7 @@ function tokenIsGrounded(t: NumericToken, g: GroundedNumbers): boolean {
 }
 
 /**
- * Every ungrounded numeric token in `text` (deduped, order preserved). Tokens
- * whose digit content is a single digit are ignored (never a "stat"), matching
- * the legacy firewall's floor.
+ * Every ungrounded numeric token in `text` (deduped, order preserved). Tokens whose digit content is a single digit are ignored (never a "stat"), matching the legacy firewall's floor.
  */
 export function findUngroundedNumbers(text: string, grounded: GroundedNumbers): string[] {
   const seen = new Set<string>();
@@ -128,8 +120,7 @@ export function findUngroundedNumbers(text: string, grounded: GroundedNumbers): 
 }
 
 /**
- * The grounded numbers to INJECT into a repair retry ("cite only these").
- * Capped so a huge evidence packet cannot bloat the prompt.
+ * The grounded numbers to INJECT into a repair retry ("cite only these"). Capped so a huge evidence packet cannot bloat the prompt.
  */
 export function groundedNumberList(grounded: GroundedNumbers, max = 30): string[] {
   return [...grounded.tokens].slice(0, max);

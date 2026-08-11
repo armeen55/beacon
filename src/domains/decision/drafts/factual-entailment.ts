@@ -1,13 +1,11 @@
 /**
  * factual-entailment: a PURE, deterministic check that every checkable assertion in a draft is GROUNDED in
- * something this pass actually holds: the target page's own stored body, the evidence text handed to the
- * drafter, or the query itself. Numbers and dates, named entities and superlatives are the three things a
+ * something this pass actually holds: the target page's own stored body, the evidence text handed to the drafter, or the query itself. Numbers and dates, named entities and superlatives are the three things a
  * model invents most readily and a reader can least easily catch.
  *
  * TWO OUTCOMES, AND ONLY ONE OF THEM BLOCKS. A VIOLATION is an assertion with no grounding anywhere: the draft
  * is unverified and its copy is withheld. A CORRECTION is a dated, sourced statement that contradicts what the
- * page says today, which is the whole point of some changes, so it is surfaced WITH the draft rather than used
- * to reject it. No LLM, no I/O, no clock beyond the date the caller supplies.
+ * page says today, which is the whole point of some changes, so it is surfaced WITH the draft rather than used to reject it. No LLM, no I/O, no clock beyond the date the caller supplies.
  */
 /** A dated, sourced fact Beacon already has on file (a connector row, a stored
  *  source, an evidence-packet entry with real provenance) - NOT the page's own
@@ -90,8 +88,7 @@ const stripThousands = (s: string) => s.replace(/(?<=\d),(?=\d)/g, "");
 export function groundedNumberSet(grounded: string, nowYear: number): Set<string> {
   const set = new Set(stripThousands(grounded).match(/\d+/g) ?? []);
   for (const y of [nowYear - 1, nowYear, nowYear + 1]) set.add(String(y));
-  // Proof-window methodology constants (7/14/28-day measurement) are structural
-  // language, not factual claims about the page's subject.
+  // Proof-window methodology constants (7/14/28-day measurement) are structural language, not factual claims about the page's subject.
   for (const w of [7, 14, 28]) set.add(String(w));
   return set;
 }
@@ -116,10 +113,8 @@ const GENERIC_CAPITALIZED = new Set([
   "most", "each", "every", "today", "here", "there", "what", "who", "when",
   "where", "why", "how", "faq", "q", "a.", "we", "you", "your", "our", "i",
   "they", "he", "she", "new", "old", "top", "best", "guide", "complete",
-  // Generic marketing / section-header vocabulary common in titles and metas
-  // ("Top Picks", "Travel Guide", "Practical Info", "Fun Facts") - these are
-  // boilerplate structure words, not proper-noun claims, no matter how many
-  // of them appear adjacent to each other in a title.
+  // Generic marketing / section-header vocabulary common in titles and metas ("Top Picks", "Travel Guide", "Practical Info", "Fun Facts") - these are
+  // boilerplate structure words, not proper-noun claims, no matter how many of them appear adjacent to each other in a title.
   "picks", "info", "information", "guide", "guides", "tips", "facts", "fact",
   "fun", "travel", "practical", "overview", "basics", "essentials", "faqs",
   "shop", "shopping", "exclusive", "sale", "deal", "deals", "collection",
@@ -180,8 +175,7 @@ export function extractCapitalizedSpans(text: string): string[] {
     if (titleCased && words.length === 1) continue;
     // Single-word spans that are common generic/function words never count.
     if (words.length === 1 && GENERIC_CAPITALIZED.has(span.toLowerCase())) continue;
-    // A multi-word span made ENTIRELY of generic marketing/section words
-    // ("Top Picks", "Travel Guide") is boilerplate structure, not a proper
+    // A multi-word span made ENTIRELY of generic marketing/section words ("Top Picks", "Travel Guide") is boilerplate structure, not a proper
     // noun - only a span with at least one non-generic word can be a claim.
     if (words.length > 1 && words.every((w) => GENERIC_CAPITALIZED.has(w.toLowerCase()))) continue;
     const key = span.toLowerCase();
@@ -263,12 +257,9 @@ function findAuthoritativeMatch(
 }
 
 /**
- * Verify every factual claim in `draftText` is entailed - either grounded (the
- * page body, evidence, query, or a dated fact already contains it), a sourced
- * CORRECTION (contradicts the page but a dated authoritative fact backs the
- * draft's version), or an unsupported INVENTION (found nowhere - a violation).
- * Pure. Returns findings in plain, operator-facing English, never a code or a
- * lint label.
+ * Verify every factual claim in `draftText` is entailed - either grounded (the page body, evidence, query, or a dated fact already contains it), a sourced
+ * CORRECTION (contradicts the page but a dated authoritative fact backs the draft's version), or an unsupported INVENTION (found nowhere - a violation).
+ * Pure. Returns findings in plain, operator-facing English, never a code or a lint label.
  */
 export function checkFactualEntailment(input: FactualEntailmentInput): FactualEntailmentResult {
   const draft = (input.draftText ?? "").trim();
@@ -282,21 +273,15 @@ export function checkFactualEntailment(input: FactualEntailmentInput): FactualEn
   const query = (input.query ?? "").trim();
   const facts = input.authoritativeFacts ?? [];
   const factsText = facts.map((f) => f.detail).join(" ");
-  // "grounded" is page body + evidence + query ONLY - a dated authoritative
-  // fact is checked SEPARATELY (see findAuthoritativeMatch below) so a claim
-  // backed ONLY by a fact is reported as a "correction", not silently merged
-  // into ordinary grounding. Without this separation a claim contradicting a
-  // stale page could never be told apart from one that simply already agrees
-  // with the page.
+  // "grounded" is page body + evidence + query ONLY - a dated authoritative fact is checked SEPARATELY (see findAuthoritativeMatch below) so a claim
+  // backed ONLY by a fact is reported as a "correction", not silently merged into ordinary grounding. Without this separation a claim contradicting a
+  // stale page could never be told apart from one that simply already agrees with the page.
   const grounded = [query, pageBody, evidence].filter(Boolean).join(" ");
   const groundedLower = grounded.toLowerCase();
   const groundedOrFactsBlob = [grounded, factsText].filter(Boolean).join(" ");
 
-  // With NO grounding text and NO dated facts at all, this gate has nothing to
-  // check claims against - that is an evidence-floor problem (every structured
-  // draft already requires evidenceRefs.min(1) upstream), not a per-claim
-  // entailment failure, so it abstains rather than flagging every
-  // number/entity/superlative as invented.
+  // With NO grounding text and NO dated facts at all, this gate has nothing to check claims against - that is an evidence-floor problem (every structured
+  // draft already requires evidenceRefs.min(1) upstream), not a per-claim entailment failure, so it abstains rather than flagging every number/entity/superlative as invented.
   if (!groundedOrFactsBlob) {
     return { entailed: true, violations: [], corrections: [], findings: [] };
   }
@@ -371,8 +356,7 @@ export function checkFactualEntailment(input: FactualEntailmentInput): FactualEn
     }
   }
 
-  // Cap each bucket at a readable number - the FIRST few are always the most
-  // actionable; a wall of 20 lines would bury the operator, not help them.
+  // Cap each bucket at a readable number - the FIRST few are always the most actionable; a wall of 20 lines would bury the operator, not help them.
   const violations = findings.filter((f) => f.kind === "violation").map((f) => f.message).slice(0, 5);
   const corrections = findings.filter((f) => f.kind === "correction").map((f) => f.message).slice(0, 5);
   return { entailed: violations.length === 0, violations, corrections, findings };

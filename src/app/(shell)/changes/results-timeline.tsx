@@ -111,7 +111,7 @@ export async function ResultsTimeline() {
           </h2>
           <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
             Every change you make shows up here, newest first. Open Changes, make
-            the top one on your site, then mark it done and I will start measuring.
+            the top one on your site, then mark it done and measuring starts.
           </p>
           <Link
             href="/changes"
@@ -214,7 +214,7 @@ export function ResultsTimelineReadError() {
         id="results-timeline-read-error-heading"
         className="text-[13px] font-semibold text-foreground tracking-tight"
       >
-        I could not read your change history just now.
+        Your change history could not be read just now.
       </h2>
       <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
         Try again in a minute.

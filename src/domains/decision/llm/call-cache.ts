@@ -1,31 +1,20 @@
 import "server-only";
 
 /**
- * llm/call-cache (2026-07-03 R16; Slice 3 2026-07-23 account isolation) -
- * PER-ACCOUNT content-hash cache for structured LLM calls: prompt + inputs hash
- * -> the VALIDATED output, scoped to ONE account.
+ * llm/call-cache (2026-07-03 R16; Slice 3 2026-07-23 account isolation) - PER-ACCOUNT content-hash cache for structured LLM calls: prompt + inputs hash -> the VALIDATED output, scoped to ONE account.
  *
- * An identical request never pays twice WITHIN an account: re-opening a Move or
- * a nightly re-prepare of the same evidence finds the prior validated output at
- * $0. The explicit "Regenerate" passes `bypassCache: true` and always pays for a
- * fresh take (which REPLACES the cached entry).
+ * An identical request never pays twice WITHIN an account: re-opening a Move or a nightly re-prepare of the same evidence finds the prior validated output at
+ * $0. The explicit "Regenerate" passes `bypassCache: true` and always pays for a fresh take (which REPLACES the cached entry).
  *
- * ISOLATION (Slice 3): every read/write/recentTexts takes an EXPLICIT `tenantId`
- * and routes storage per-account (the "llm-call-cache" json-store is now
- * TENANT_SCOPED: `.data/tenants/{slug}/llm-call-cache.json`, Supabase-mirrored per
- * scope key). The account is folded INTO the content hash AND recorded on each
- * entry, so a byte-identical prompt from account B is a MISS against account A's
- * cache and B pays for its own generation. A missing/empty tenantId THROWS before
- * any storage access - no global fallback, no cross-account reuse. The prior
- * GLOBAL blob (`llm-call-cache::global`) is left inert: its rows' ownership is
- * unprovable, so they are never migrated or read. Fresh per-account caches start
- * empty (a one-time $0-cache refill per account; accepted and honest).
+ * ISOLATION (Slice 3): every read/write/recentTexts takes an EXPLICIT `tenantId` and routes storage per-account (the "llm-call-cache" json-store is now
+ * TENANT_SCOPED: `.data/tenants/{slug}/llm-call-cache.json`, Supabase-mirrored per scope key). The account is folded INTO the content hash AND recorded on each
+ * entry, so a byte-identical prompt from account B is a MISS against account A's cache and B pays for its own generation. A missing/empty tenantId THROWS before
+ * any storage access - no global fallback, no cross-account reuse. The prior GLOBAL blob (`llm-call-cache::global`) is left inert: its rows' ownership is
+ * unprovable, so they are never migrated or read. Fresh per-account caches start empty (a one-time $0-cache refill per account; accepted and honest).
  *
- * The cache rows double as the de-templating history: the last outputs for a
- * lever family (SAME account only) are what a new draft is compared against.
+ * The cache rows double as the de-templating history: the last outputs for a lever family (SAME account only) are what a new draft is compared against.
  *
- * VITEST: the drafter consults the cache outside tests only unless a CacheImpl is
- * injected - pinned suites stay byte-identical and no test touches the real cache.
+ * VITEST: the drafter consults the cache outside tests only unless a CacheImpl is injected - pinned suites stay byte-identical and no test touches the real cache.
  */
 
 import { createHash } from "node:crypto";
@@ -157,9 +146,7 @@ export const storeCacheImpl: CacheImpl = {
 };
 
 /**
- * The cache the drafter should use: the store-backed impl in production, the
- * injected impl in tests, and NOTHING under vitest without injection (keeps
- * every pinned suite hermetic).
+ * The cache the drafter should use: the store-backed impl in production, the injected impl in tests, and NOTHING under vitest without injection (keeps every pinned suite hermetic).
  */
 export function resolveCacheImpl(injected?: CacheImpl): CacheImpl | null {
   if (injected) return injected;

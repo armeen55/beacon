@@ -30,7 +30,7 @@ export default async function SettingsPage() {
     <div className="max-w-2xl">
       <PageHeader
         title="Settings"
-        description="Your business info, the questions I track, and your connections."
+        description="Your business info, the questions tracked for you, and your connections."
       />
       <ul className="space-y-2">
         {SETTINGS_SECTIONS.map((item) => (

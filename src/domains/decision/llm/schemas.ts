@@ -1,15 +1,12 @@
 /**
- * llm/schemas (2026-06-25, P4 — structured drafts) — Zod schemas for every
- * product-critical LLM artifact. No loose blob text is ever the final product
+ * llm/schemas (2026-06-25, P4, structured drafts), Zod schemas for every product-critical LLM artifact. No loose blob text is ever the final product
  * artifact: a draft is only trusted once it parses against one of these schemas.
  *
- * Every draft carries `evidenceRefs` (≥1 — what grounds it), `confidence`,
- * `risks`, and `operatorSteps`; content drafts also carry a `proofPlan` so the
- * Move ships with its measurement attached. These schemas are the validation
- * contract for `structured-drafter.ts` (validate → retry-once → fail-closed) and
+ * Every draft carries `evidenceRefs` (≥1, what grounds it), `confidence`, `risks`, and `operatorSteps`; content drafts also carry a `proofPlan` so the
+ * Move ships with its measurement attached. These schemas are the validation contract for `structured-drafter.ts` (validate → retry-once → fail-closed) and
  * the typed shape the PreparedMovePack (P3) carries forward.
  *
- * PURE — types + validators only, no I/O. Tenant-agnostic.
+ * PURE, types + validators only, no I/O. Tenant-agnostic.
  */
 
 import { z } from "zod";
@@ -17,7 +14,7 @@ import { BusinessProfileInferenceSchema, BusinessProfilePatchSchema, PromptCandi
 
 // ── shared building blocks ──────────────────────────────────────────────────
 
-/** Where a claim is grounded — points at a real signal/source the team read.
+/** Where a claim is grounded, points at a real signal/source the team read.
  *  `source` mirrors the EvidenceRef sources used by the specialist layer. */
 const EvidenceRefSchema = z.object({
   source: z.enum(["gsc", "ga4", "clarity", "dataforseo", "competitor_teardown", "owned_snapshot", "fanout"]),
@@ -35,10 +32,8 @@ export const UNGROUNDED_EVIDENCE_ERROR = "evidenceRefs: analytics alone is not e
 const ConfidenceSchema = z.enum(["high", "medium", "low"]);
 
 /**
- * W5 (2026-07-09, J-69/J-71), one citation attached to a factual draft. The LLM may PROPOSE a
- * source (url/title/domain/claim) but never decides `authority`: source-authority.ts's
- * deterministic classifier stamps it (.gov/.edu, the named encyclopedic and major-press set, or
- * the tenant's allowlist earn "authoritative"; a real URL with a claim is "weak"; a bare URL is
+ * W5 (2026-07-09, J-69/J-71), one citation attached to a factual draft. The LLM may PROPOSE a source (url/title/domain/claim) but never decides `authority`: source-authority.ts's
+ * deterministic classifier stamps it (.gov/.edu, the named encyclopedic and major-press set, or the tenant's allowlist earn "authoritative"; a real URL with a claim is "weak"; a bare URL is
  * "unverified" and counts as no source). `claim` is the fact the source is checked to cover. */
 export const SourceRefSchema = z.object({
   url: z.string().min(1).max(500),
@@ -80,14 +75,14 @@ export type SourceRef = z.infer<typeof SourceRefSchema>;
 /** One concrete, operator-facing step to execute the Move. */
 const OperatorStepSchema = z.string().min(3).max(280);
 
-/** Proof plan attached to a content Move — metrics + windows + control basis. */
+/** Proof plan attached to a content Move, metrics + windows + control basis. */
 const ProofPlanSchema = z.object({
   metrics: z.array(z.string().min(1)).min(1).max(8),
   windowsDays: z.array(z.number().int().positive()).min(1).default([7, 14, 28]),
   controls: z.string().min(1).max(300),
 });
 
-/** Fields EVERY structured draft must carry — the trust floor. evidenceRefs is
+/** Fields EVERY structured draft must carry, the trust floor. evidenceRefs is
  *  REQUIRED and non-empty: a draft with no grounding is rejected by validation. */
 const base = {
   evidenceRefs: z.array(EvidenceRefSchema).min(1),
@@ -120,7 +115,7 @@ const AnswerBlockDraftSchema = z.object({
 });
 export type AnswerBlockDraft = z.infer<typeof AnswerBlockDraftSchema>;
 
-/** 2. AtomicEditDraft — one precise field change on an existing page. */
+/** 2. AtomicEditDraft, one precise field change on an existing page. */
 const AtomicEditDraftSchema = z.object({
   field: z.enum(["title", "meta", "h1", "answer_block", "section"]),
   before: z.string().max(2000).nullable().default(null),
@@ -135,7 +130,7 @@ const AtomicEditDraftSchema = z.object({
 });
 export type AtomicEditDraft = z.infer<typeof AtomicEditDraftSchema>;
 
-/** 4. ToolAssetSpec — spec for an interactive tool/calculator. */
+/** 4. ToolAssetSpec, spec for an interactive tool/calculator. */
 const ToolAssetSpecSchema = z.object({
   toolName: z.string().min(2).max(80),
   summary: z.string().min(1).max(400),
@@ -153,7 +148,7 @@ const ToolAssetSpecSchema = z.object({
   ...base,
 });
 
-/** 5. CommerceAssetSpec — what a commerce opportunity should BECOME + the brief.
+/** 5. CommerceAssetSpec, what a commerce opportunity should BECOME + the brief.
  *  Schema-only here (Sprint 2 doesn't generate these en masse; P8 does). */
 const CommerceAssetSpecSchema = z.object({
   assetType: z.enum([
@@ -175,7 +170,7 @@ const CommerceAssetSpecSchema = z.object({
   ...base,
 });
 
-/** 7. ExperimentPlan — a falsifiable experiment for a Move. */
+/** 7. ExperimentPlan, a falsifiable experiment for a Move. */
 const ExperimentPlanSchema = z.object({
   hypothesis: z.string().min(1).max(300),
   primaryMetric: z.string().min(1).max(80),
@@ -185,7 +180,7 @@ const ExperimentPlanSchema = z.object({
   ...base,
 });
 
-/** 9. InternalLinkDraft — a contextual internal link from a source page to a target
+/** 9. InternalLinkDraft, a contextual internal link from a source page to a target
  *  page. NOT a bare URL pair: the exact anchor + the sentence to drop the link into +
  *  why it helps. Self-links and misleading anchors are rejected by the quality gate. */
 const InternalLinkDraftSchema = z.object({
@@ -207,8 +202,7 @@ export type InternalLinkDraft = z.infer<typeof InternalLinkDraftSchema>;
 // ── batch adjudication (BEACON 500 item 12 - the final review) ──────────────── The nightly FINAL REVIEW over the
 // whole plan preview: one bounded call sanity-checks EVERY pick against its own evidence ("does the proposed text
 // match what the top search actually asks for?"). Output is per-pick verdicts ONLY - the review can flag a pick with
-// a one-line caution, it can never drop or reorder picks. The concern line is operator copy: plain language, <= 140
-// chars, and it passes the same numeric-fidelity firewall as every draft.
+// a one-line caution, it can never drop or reorder picks. The concern line is operator copy: plain language, <= 140 chars, and it passes the same numeric-fidelity firewall as every draft.
 
 const BatchAdjudicationSchema = z.object({
   picks: z
@@ -229,8 +223,7 @@ const BatchAdjudicationSchema = z.object({
 // week's settled dossier proposes a lever mix (relative weight per actionFamily) and up to 3 page-family focus
 // targets for the COMING week, plus a short signed memo explaining the change. The LLM PROPOSES; the caller
 // (apply-mix.ts / run-strategy-review.ts) deterministically CLAMPS every weight to [0.5, 2.0], drops any family it
-// does not recognize, and strips dashes. A failure here means no change this week (fail-open to the previous mix) -
-// this schema only bounds the SHAPE, never the trust decision.
+// does not recognize, and strips dashes. A failure here means no change this week (fail-open to the previous mix) - this schema only bounds the SHAPE, never the trust decision.
 
 const StrategyLeverWeightSchema = z.object({
   family: z.string().min(1).max(40),
@@ -264,7 +257,7 @@ const SectionSourceSchema = z.object({
 const SectionDraftSchema = z.object({
   heading: z.string().min(2).max(160),
   body: z.string().min(40).max(1200),
-  /** At least one source — a section with zero grounding is rejected by validation. */
+  /** At least one source, a section with zero grounding is rejected by validation. */
   sources: z.array(SectionSourceSchema).min(1).max(6),
   containsNumber: z.boolean(),
 });
@@ -272,8 +265,7 @@ export type SectionDraft = z.infer<typeof SectionDraftSchema>;
 
 // ── outreach pitch (BEACON_500 item 57 - get-cited/link-reclaim pitches) ───── A cold-outreach email pitch for ONE
 // lead. NOT part of the shared `base` set: an outreach pitch is a short email, not a Move draft, so it skips
-// proofPlan and operatorSteps but keeps evidenceRefs (the personalization must be real) and confidence. subject/body
-// length caps keep it a real, sendable email.
+// proofPlan and operatorSteps but keeps evidenceRefs (the personalization must be real) and confidence. subject/body length caps keep it a real, sendable email.
 
 const OutreachPitchSchema = z.object({
   subject: z.string().min(4).max(80),
@@ -287,8 +279,7 @@ const OutreachPitchSchema = z.object({
 // ALREADY has the right page for a topic it researched. The model COMPARES the owned pages the caller supplied and
 // picks a verdict; it may not invent a page, a metric, a keyword or a competitor, and it may not write copy: no field
 // here can carry a title, a description, an outline or a proposed address, so a drafted page is not representable.
-// `ownedUrls` and `evidenceKeys` are re-checked against the caller's allowlist AFTER validation, so one unknown id
-// refuses the whole call rather than shipping half of it.
+// `ownedUrls` and `evidenceKeys` are re-checked against the caller's allowlist AFTER validation, so one unknown id refuses the whole call rather than shipping half of it.
 
 const CoverageAdjudicationSchema = z.object({
   verdict: z.enum(["improve_existing", "create_new", "consolidate_or_choose", "do_nothing", "research_needed"]),
@@ -306,8 +297,7 @@ const CoverageAdjudicationSchema = z.object({
 
 // ── new page brief (N4, 2026-07-28) ───────────────────────────────────────── The ONE call a verdict of create_new
 // may make, AFTER the comparison earned it. The model writes the page's words and its section plan; it may not decide
-// THAT the page should exist, and no field here can carry a shape or an intent. Every address, question and evidence
-// id is echoed from the caller's lists and re-checked after.
+// THAT the page should exist, and no field here can carry a shape or an intent. Every address, question and evidence id is echoed from the caller's lists and re-checked after.
 
 const NewPageBriefSchema = z.object({
   proposedTitle: z.string().min(10).max(120),
@@ -338,8 +328,7 @@ export type NewPageBrief = z.infer<typeof NewPageBriefSchema>;
 // ── answer analysis (V1 Truth Convergence Phase 1, 2026-07-31) ────────────── What one AI engine's answer to one
 // tracked question ACTUALLY said. The model here is a READER, never an author: every claim carries the answer's own
 // wording, every entity and competitor is one the answer named, and no URL, number, ranking or fact may appear that
-// the answer text does not contain. Nothing in this shape is ever published; it is the evidence a later decision
-// reads. `position` is an ORDINAL within the answer (1 = named first), never a search rank.
+// the answer text does not contain. Nothing in this shape is ever published; it is the evidence a later decision reads. `position` is an ORDINAL within the answer (1 = named first), never a search rank.
 const AnswerAnalysisSchema = z.object({
   sections: z.array(z.object({ heading: z.string().min(1).max(200), covers: z.string().min(1).max(600) })).max(12),
   /** Each claim restated in the ANSWER'S OWN WORDING, plus what it is about. */
@@ -461,8 +450,7 @@ export function draftProseStringValues(value: unknown): string[] {
   // the model wrote. Scanning them meant a real customer address containing the word "best" tripped the superlative
   // firewall and killed the verdict on every pass, forever, at two paid calls a time. A page address cannot make a
   // claim. A case synthesis carries ids, addresses and the operator's own search phrases, all echoed from a supplied
-  // list: a page whose address says "best" makes no claim, so it can never kill the reading. Its `reason` stays
-  // scanned.
+  // list: a page whose address says "best" makes no claim, so it can never kill the reading. Its `reason` stays scanned.
   const NON_PROSE_KEYS = new Set(["sources", "proofPlan", "operatorSteps", "risks", "ownedUrls", "evidenceKeys", "keepId", "absorbIds", "fromId", "caseId", "url", "parentId", "childId", "moveQueries", "observationId"]);
   const out: string[] = [];
   const walk = (v: unknown): void => {

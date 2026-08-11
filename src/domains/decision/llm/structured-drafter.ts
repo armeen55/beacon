@@ -41,23 +41,17 @@ import {
 } from "./schemas";
 
 /**
- * llm/structured-drafter (2026-06-25, P4) — the trustworthy drafting layer. It
- * turns a grounded request into a SCHEMA-VALIDATED structured draft, or nothing:
+ * llm/structured-drafter (2026-06-25, P4), the trustworthy drafting layer. It turns a grounded request into a SCHEMA-VALIDATED structured draft, or nothing:
  *   key/injected transport → cache ($0 on an identical repeat)
  *   → budget (fail-closed cap) → strict structured call → Zod validate →
  *   content firewalls (numeric-fidelity, placeholder, em-dash, superlative) →
  *   de-templating guard → RETRY ONCE on failure → FAIL CLOSED.
  *
- * It NEVER returns loose/unvalidated text as a product artifact. Slice 3 (2026-
- * 07-23): the transport is the strict Responses gateway (openAIStructuredResponse)
- * returning a PARSED, schema-shaped VALUE; the drafter still runs its own Zod
- * safeParse as the second gate. A refusal/incomplete/non-retryable transport error
- * FAILS CLOSED; only a schema-invalid value or a retryable error consumes the
- * single retry. Spend is recorded per attempt. The completion fn is injectable so
- * the flow runs with zero paid calls. Every call carries a registered promptId +
- * version and is scoped to an EXPLICIT account (Slice 3): the cache key + storage,
- * the budget check/record, and the gateway spend are all keyed by tenantId - a
- * missing account fails closed before cache/budget/network, never a global call.
+ * It NEVER returns loose/unvalidated text as a product artifact. Slice 3 (2026- 07-23): the transport is the strict Responses gateway (openAIStructuredResponse)
+ * returning a PARSED, schema-shaped VALUE; the drafter still runs its own Zod safeParse as the second gate. A refusal/incomplete/non-retryable transport error
+ * FAILS CLOSED; only a schema-invalid value or a retryable error consumes the single retry. Spend is recorded per attempt. The completion fn is injectable so
+ * the flow runs with zero paid calls. Every call carries a registered promptId + version and is scoped to an EXPLICIT account (Slice 3): the cache key + storage,
+ * the budget check/record, and the gateway spend are all keyed by tenantId - a missing account fails closed before cache/budget/network, never a global call.
  */
 
 const MODEL = "gpt-5-mini";
@@ -174,7 +168,7 @@ const COMBINED_THIN_AND_SUPERLATIVE_RETRY_INSTRUCTION =
   "that exact superlative. " +
   NO_NEW_NUMBERS_RETRY_REMINDER;
 
-/** Em/en-dashes are a STYLE issue, not a trust issue — normalize them to hyphens
+/** Em/en-dashes are a STYLE issue, not a trust issue, normalize them to hyphens
  *  in every string field before validation, so a good draft isn't rejected for
  *  punctuation (gpt-5-mini strongly favors em-dashes). Trust firewalls (invented
  *  numbers, placeholders, superlatives) stay HARD rejects. */
@@ -221,11 +215,9 @@ function primaryCustomerText(kind: StructuredDraftKind, value: unknown): string 
 }
 
 /**
- * W5 (2026-07-09, J-69), re-stamp any `sources` array on a validated draft
- * with the DETERMINISTIC authority classification, discarding whatever the
+ * W5 (2026-07-09, J-69), re-stamp any `sources` array on a validated draft with the DETERMINISTIC authority classification, discarding whatever the
  * LLM proposed. "ONLY this module [source-authority.ts] stamps authority",  * this is the one place that rule is enforced for every LLM-drafted kind
- * that carries a `sources` field (answer_block, atomic_edit). A draft with no
- * `sources` array is returned unchanged.
+ * that carries a `sources` field (answer_block, atomic_edit). A draft with no `sources` array is returned unchanged.
  */
 function stampAnySources(value: unknown, tenantAllowlist?: readonly string[]): unknown {
   if (!value || typeof value !== "object") return value;
@@ -262,16 +254,11 @@ const SOURCE_VERIFY_CONCURRENCY = 2;
 const WHOLE_DRAFT_VERIFY_DEADLINE_MS = 20_000;
 
 /**
- * W5 P0-1 (2026-07-09): fetch a cited source URL and return its visible text.
- * Injected in tests (hermetic); the default routes through the SSRF-safe
- * source fetcher (lib/net/safe-source-fetch.ts) - NOT the competitor crawler's
- * follow-redirect fetch, because a source URL is untrusted model-generated
- * text. Fail-soft: any failure resolves to `{ ok: false, text: "" }` so
- * verification downgrades the source rather than throwing. `finalUrl` (W5
- * stop-ship F2) is the post-redirect URL the fetch actually landed on, so the
- * verifier can recompute authority from the REAL final host. `opts.deadlineMs`
- * (P2) is the REMAINING whole-draft budget for this particular fetch, so a
- * source that starts late gets a shorter leash than one that starts first.
+ * W5 P0-1 (2026-07-09): fetch a cited source URL and return its visible text. Injected in tests (hermetic); the default routes through the SSRF-safe
+ * source fetcher (lib/net/safe-source-fetch.ts) - NOT the competitor crawler's follow-redirect fetch, because a source URL is untrusted model-generated
+ * text. Fail-soft: any failure resolves to `{ ok: false, text: "" }` so verification downgrades the source rather than throwing. `finalUrl` (W5
+ * stop-ship F2) is the post-redirect URL the fetch actually landed on, so the verifier can recompute authority from the REAL final host. `opts.deadlineMs`
+ * (P2) is the REMAINING whole-draft budget for this particular fetch, so a source that starts late gets a shorter leash than one that starts first.
  */
 type SourceTextFetcher = (
   url: string,
@@ -295,8 +282,7 @@ function defaultSourceFetcher(timeoutMs: number): SourceTextFetcher {
   return async (url: string, opts?: { deadlineMs?: number }) => {
     try {
       const res = await safeFetchSourceText(url, {}, { timeoutMs, deadlineMs: opts?.deadlineMs });
-      // G5 (2026-07-10): surface a robots/anti-bot block (403 class) distinctly
-      // from an unreachable/broken URL so an authority-strong-but-unreadable
+      // G5 (2026-07-10): surface a robots/anti-bot block (403 class) distinctly from an unreachable/broken URL so an authority-strong-but-unreadable
       // source is held as "check this citation", not "no source". Never evade it.
       if (!res.ok) return { ok: false, text: "", blocked: res.reason === "access_blocked" };
       return { ok: true, text: htmlToVisibleText(res.text), finalUrl: res.finalUrl };
@@ -326,21 +312,16 @@ function resetSourceVerification(s: Record<string, unknown>): void {
   delete s.supportingExcerpt;
   delete s.finalUrl;
   delete s.contentHash;
-  // G5 (2026-07-10): an LLM-supplied `fetchBlocked` must never survive either -
-  // only a real 403-class fetch below is allowed to set it.
+  // G5 (2026-07-10): an LLM-supplied `fetchBlocked` must never survive either - only a real 403-class fetch below is allowed to set it.
   delete s.fetchBlocked;
-  // G6 (2026-07-10): the transient full-page text is set ONLY by a real fetch
-  // below (never the model); wipe any inbound value so it cannot be spoofed.
+  // G6 (2026-07-10): the transient full-page text is set ONLY by a real fetch below (never the model); wipe any inbound value so it cannot be spoofed.
   delete s.fetchedText;
 }
 
 /**
- * W5 stop-ship F2 (2026-07-09): pure strip of every source-verification field
- * when NO verifier is configured (vitest without injection, or a runtime with
- * source-fetch disabled). Without this, an LLM that emitted `verified: true`
- * would have that value survive unchallenged. Forces verified=false and drops
- * verifiedAt/supportingExcerpt/finalUrl/contentHash on every source. A draft
- * with no sources array is returned unchanged.
+ * W5 stop-ship F2 (2026-07-09): pure strip of every source-verification field when NO verifier is configured (vitest without injection, or a runtime with
+ * source-fetch disabled). Without this, an LLM that emitted `verified: true` would have that value survive unchallenged. Forces verified=false and drops
+ * verifiedAt/supportingExcerpt/finalUrl/contentHash on every source. A draft with no sources array is returned unchanged.
  */
 function stripSourceVerificationFields(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
@@ -355,23 +336,15 @@ function stripSourceVerificationFields(value: unknown): unknown {
 }
 
 /**
- * W5 stop-ship F2 (2026-07-09): the GENERATION-TIME source-verification trust
- * boundary. For each of the first MAX_SOURCES_TO_VERIFY sources it (1) RESETS
- * every verification field first (never trusts the LLM's own verified/excerpt/
- * hash), (2) fetches the URL through the injected SSRF-safe fetcher, and (3) on a
- * reachable page runs findSupportingSpan(claim, text) and recomputes authority
- * from the FINAL (post-redirect) host. `verified: true` is set ONLY when a
- * qualifying span is found AND the final host is authoritative; the final URL,
- * supporting excerpt, and content hash are persisted for the receipt. An
- * unreachable URL, a redirect to an untrusted host, a weak match, or a missing
- * url/claim all downgrade `authority` to "weak" with `verified: false`, so a
- * hallucinated .gov/.edu URL never passes on domain class alone. NEVER throws;
- * a draft with no sources array is returned unchanged; generation-time only.
+ * W5 stop-ship F2 (2026-07-09): the GENERATION-TIME source-verification trust boundary. For each of the first MAX_SOURCES_TO_VERIFY sources it (1) RESETS
+ * every verification field first (never trusts the LLM's own verified/excerpt/ hash), (2) fetches the URL through the injected SSRF-safe fetcher, and (3) on a
+ * reachable page runs findSupportingSpan(claim, text) and recomputes authority from the FINAL (post-redirect) host. `verified: true` is set ONLY when a
+ * qualifying span is found AND the final host is authoritative; the final URL, supporting excerpt, and content hash are persisted for the receipt. An
+ * unreachable URL, a redirect to an untrusted host, a weak match, or a missing url/claim all downgrade `authority` to "weak" with `verified: false`, so a
+ * hallucinated .gov/.edu URL never passes on domain class alone. NEVER throws; a draft with no sources array is returned unchanged; generation-time only.
  *
- * P2 (2026-07-09): eligible sources verify through a bounded worker pool (at most
- * SOURCE_VERIFY_CONCURRENCY in flight) sharing ONE WHOLE_DRAFT_VERIFY_DEADLINE_MS
- * budget captured before the first fetch. Each worker checks the remaining budget
- * before its OWN next fetch; once spent, every source not yet started stays
+ * P2 (2026-07-09): eligible sources verify through a bounded worker pool (at most SOURCE_VERIFY_CONCURRENCY in flight) sharing ONE WHOLE_DRAFT_VERIFY_DEADLINE_MS
+ * budget captured before the first fetch. Each worker checks the remaining budget before its OWN next fetch; once spent, every source not yet started stays
  * verified:false / weak (FAIL CLOSED). Results reassemble in original order.
  */
 async function verifyStampedSources(
@@ -381,10 +354,8 @@ async function verifyStampedSources(
   nowIso: string,
   nowYear: number,
   tenantAllowlist: readonly string[] | undefined,
-  // G6 (2026-07-10): the draft's own customer-facing prose (answer/openingAnswer/
-  // after/...). Threaded so a fetchable authoritative page whose META-claim did
-  // not span-match can STILL verify when its full page text entails the draft's
-  // sentences - the roundup case, where one list page backs many named entities.
+  // G6 (2026-07-10): the draft's own customer-facing prose (answer/openingAnswer/ after/...). Threaded so a fetchable authoritative page whose META-claim did
+  // not span-match can STILL verify when its full page text entails the draft's sentences - the roundup case, where one list page backs many named entities.
   draftText: string | null,
 ): Promise<unknown> {
   if (!value || typeof value !== "object") return value;
@@ -398,8 +369,7 @@ async function verifyStampedSources(
     return s;
   });
 
-  // Sources eligible for a real fetch, IN ORIGINAL ORDER; anything past the
-  // MAX_SOURCES_TO_VERIFY cap or missing url/claim short-circuits to weak
+  // Sources eligible for a real fetch, IN ORIGINAL ORDER; anything past the MAX_SOURCES_TO_VERIFY cap or missing url/claim short-circuits to weak
   // without ever touching the fetcher or the whole-draft deadline budget.
   const eligible: number[] = [];
   for (let i = 0; i < prepared.length; i += 1) {
@@ -418,12 +388,9 @@ async function verifyStampedSources(
     const s = prepared[i]!;
     const url = String(s.url ?? "").trim();
     const claim = String(s.claim ?? "").trim();
-    // (2) fetch through the injected SSRF-safe fetcher (per-request URL cache,
-    // deduping the same source cited on either generation attempt OR by two
-    // different sources in the same draft). The cache stores the IN-FLIGHT
-    // PROMISE, not the resolved value - `get` + `set` happen synchronously
-    // (no await between them), so two pool workers racing on the same URL
-    // both see the SAME shared fetch rather than each starting their own.
+    // (2) fetch through the injected SSRF-safe fetcher (per-request URL cache, deduping the same source cited on either generation attempt OR by two
+    // different sources in the same draft). The cache stores the IN-FLIGHT PROMISE, not the resolved value - `get` + `set` happen synchronously
+    // (no await between them), so two pool workers racing on the same URL both see the SAME shared fetch rather than each starting their own.
     let pending = cache.get(url);
     if (!pending) {
       pending = fetcher(url, { deadlineMs: remainingMs }).catch(() => ({ ok: false, text: "" }));
@@ -431,12 +398,8 @@ async function verifyStampedSources(
     }
     const fetched = await pending;
     if (!fetched.ok) {
-      // G5 (2026-07-10): a robots/anti-bot BLOCK (403 class) on an
-      // authority-strong domain is honest middle ground - we could not read the
-      // page, so we cannot mark it verified, but the domain IS trusted. Keep
-      // authority "authoritative" + verified:false + fetchBlocked:true so the
-      // gate holds the draft as `needs_source_check` ("check this citation"),
-      // NOT `missing_source`. A block on a non-trusted domain, or any
+      // G5 (2026-07-10): a robots/anti-bot BLOCK (403 class) on an authority-strong domain is honest middle ground - we could not read the page, so we cannot mark it verified, but the domain IS trusted. Keep
+      // authority "authoritative" + verified:false + fetchBlocked:true so the gate holds the draft as `needs_source_check` ("check this citation"), NOT `missing_source`. A block on a non-trusted domain, or any
       // dns/timeout/broken fetch, stays "weak" exactly as before.
       if (fetched.blocked === true) {
         const blockedHost = extractDomain({ url, domain: String(s.domain ?? "") });
@@ -471,17 +434,13 @@ async function verifyStampedSources(
       s.verifiedAt = nowIso;
       if (sup.excerpt != null) s.supportingExcerpt = sup.excerpt;
       if (sup.contentHash != null) s.contentHash = sup.contentHash;
-      // G6 (2026-07-10): thread the FULL fetched page text (transient, never
-      // persisted - stripped at the store boundary) so per-claim coverage can back
+      // G6 (2026-07-10): thread the FULL fetched page text (transient, never persisted - stripped at the store boundary) so per-claim coverage can back
       // the OTHER roundup sentences this one page covers, not just this claim's span.
       s.fetchedText = fetched.text;
     } else if (finalAuthority === "authoritative") {
-      // G6 roundup path: the model's meta-claim ("Summarizes X as ...") did not
-      // span-match, but this is a REAL authoritative page we just READ. If its full
-      // text entails the draft's own sentences (a list page backing many names),
-      // verify it and thread the full text through to per-claim coverage. This
-      // reuses the SAME per-sentence + negation-parity discipline as the coverage
-      // gate (never a looser bar), so a page that entails nothing stays weak.
+      // G6 roundup path: the model's meta-claim ("Summarizes X as ...") did not span-match, but this is a REAL authoritative page we just READ. If its full
+      // text entails the draft's own sentences (a list page backing many names), verify it and thread the full text through to per-claim coverage. This
+      // reuses the SAME per-sentence + negation-parity discipline as the coverage gate (never a looser bar), so a page that entails nothing stays weak.
       const entail = draftText ? pageEntailsDraftClaims(draftText, fetched.text, nowYear) : { entails: false, excerpt: null, contentHash: null };
       if (entail.entails) {
         s.url = finalUrl;
@@ -490,8 +449,7 @@ async function verifyStampedSources(
         s.authority = "authoritative";
         s.verified = true;
         s.verifiedAt = nowIso;
-        // A representative covering span so the persisted (fetchedText-stripped)
-        // render path still shows a real ~400-char receipt for this source.
+        // A representative covering span so the persisted (fetchedText-stripped) render path still shows a real ~400-char receipt for this source.
         if (entail.excerpt != null) s.supportingExcerpt = entail.excerpt;
         if (entail.contentHash != null && entail.contentHash !== "") s.contentHash = entail.contentHash;
         s.fetchedText = fetched.text;
@@ -543,12 +501,9 @@ async function verifyStampedSources(
 function runContentFirewalls(
   strings: string[],
   ledger: GroundedNumbers,
-  // G4 (2026-07-10): when true, the flat marketing-superlative reject is SKIPPED
-  // here and handled instead by the verification-aware superlative post-check
-  // after source verification (a superlative IS allowed when a qualifying
-  // verified source asserts it; an ungrounded one triggers ONE rephrase retry,
-  // then fails closed). The drafter defers it for `answer_block` and for
-  // every `answer_analysis` kind, which RESTATES somebody else's answer and may quote a
+  // G4 (2026-07-10): when true, the flat marketing-superlative reject is SKIPPED here and handled instead by the verification-aware superlative post-check
+  // after source verification (a superlative IS allowed when a qualifying verified source asserts it; an ungrounded one triggers ONE rephrase retry,
+  // then fails closed). The drafter defers it for `answer_block` and for every `answer_analysis` kind, which RESTATES somebody else's answer and may quote a
   // superlative that answer used; every other kind keeps the hard reject below.
   opts?: { deferSuperlativeCheck?: boolean },
 ): { ok: true } | { ok: false; reason: string } {
@@ -580,8 +535,7 @@ function attemptCostUsd(costUsd: number | null | undefined): number {
 
 function defaultComplete(apiKey: string, promptId: PromptId): CompleteFn {
   return async ({ system, user, maxTokens, timeoutMs, kind, tenantId }) => {
-    // The strict Responses gateway owns transport (fallbacks, error ledger,
-    // reasoning timeout floor, json_schema). Budget stays HERE in caller mode.
+    // The strict Responses gateway owns transport (fallbacks, error ledger, reasoning timeout floor, json_schema). Budget stays HERE in caller mode.
     const outcome = await openAIStructuredResponse({
       promptId,
       promptVersion: PROMPT_REGISTRY[promptId],
@@ -621,9 +575,9 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
    *  budget, or the call), and threaded into the cache key, cache storage, the
    *  budget check/record, and the completion fn. No global fallback. */
   tenantId: string;
-  /** System prompt — describe the JSON shape + the grounding/safety rules. */
+  /** System prompt, describe the JSON shape + the grounding/safety rules. */
   system: string;
-  /** User prompt — the grounded inputs. */
+  /** User prompt, the grounded inputs. */
   user: string;
   /** Concatenated grounded text for the numeric-fidelity firewall. */
   grounded: string;
@@ -664,21 +618,17 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
 };
 
 /**
- * The engine: cache ($0 repeats) → validate → retry-once → fail-closed. Returns
- * a typed, schema-valid draft or a non-"drafted" status. Never throws.
+ * The engine: cache ($0 repeats) → validate → retry-once → fail-closed. Returns a typed, schema-valid draft or a non-"drafted" status. Never throws.
  */
 export async function callStructuredLLM<K extends StructuredDraftKind>(
   req: StructuredDraftRequest<K>,
 ): Promise<StructuredDraftResult<z.infer<(typeof SCHEMA_BY_KIND)[K]>>> {
-  // Slice 3 account isolation: fail closed on a missing account BEFORE touching
-  // the cache, the budget, or the network - a draft with no owner is a bug, never
-  // a global call or a shared-cache read.
+  // Slice 3 account isolation: fail closed on a missing account BEFORE touching the cache, the budget, or the network - a draft with no owner is a bug, never a global call or a shared-cache read.
   const tenantId = (req.tenantId ?? "").trim();
   // No call was made and nothing was billed, so a missing account is named transient: a bug of mine never settles somebody's work.
   if (!tenantId) return { status: "validation_failed", reason: "missing_tenant", errors: ["missing_tenant"], failure: "transient", costUsd: 0, retried: false };
   const apiKey = process.env.OPENAI_API_KEY;
-  // R16: every structured call carries a registered prompt identity (all kinds
-  // are registered as draft.<kind>; the registry test enforces coverage).
+  // R16: every structured call carries a registered prompt identity (all kinds are registered as draft.<kind>; the registry test enforces coverage).
   const promptId = `draft.${req.kind}` as PromptId;
   const promptVersion = PROMPT_REGISTRY[promptId];
   const complete = req.complete ?? (apiKey ? defaultComplete(apiKey, promptId) : null);
@@ -690,19 +640,15 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     ? llmCallCacheKey({ tenantId, promptId, promptVersion, kind: req.kind, system: req.system, user: req.user })
     : null;
 
-  // R16 call cache: an identical request (same prompt version + prompts) returns
-  // the prior VALIDATED output at $0 - before the budget gate, because a hit
+  // R16 call cache: an identical request (same prompt version + prompts) returns the prior VALIDATED output at $0 - before the budget gate, because a hit
   // spends nothing. `bypassCache` (the explicit Regenerate) forces a paid take.
   if (cache && cacheKey && req.bypassCache !== true) {
     const hit = await cache.read(tenantId, cacheKey).catch(() => null);
     if (hit) {
       const revalidated = schemaForCache.safeParse(hit.value);
       if (revalidated.success) {
-        // A cache hit is now ALWAYS same-account (the key + storage are scoped to
-        // tenantId), so a hit can never serve another account. Re-stamp authority
-        // against this request's allowlist anyway - source-authority.ts is the one
-        // place `authority` is decided (stampSourceAuthority only overwrites it;
-        // `verified` and every other field survive).
+        // A cache hit is now ALWAYS same-account (the key + storage are scoped to tenantId), so a hit can never serve another account. Re-stamp authority
+        // against this request's allowlist anyway - source-authority.ts is the one place `authority` is decided (stampSourceAuthority only overwrites it; `verified` and every other field survive).
         return {
           status: "drafted",
           kind: req.kind,
@@ -729,14 +675,11 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   const maxTokens = req.maxTokens ?? 6000;
   const timeoutMs = req.timeoutMs ?? 60_000;
   const ledger = buildRequestLedger(req.grounded, nowYear);
-  // R16 de-templating history: the last cached same-family outputs (or the
-  // injected list). Empty history keeps the guard dormant.
+  // R16 de-templating history: the last cached same-family outputs (or the injected list). Empty history keeps the guard dormant.
   const recentTexts =
     req.recentOutputs ?? (cache ? await cache.recentTexts(tenantId, req.kind, REPEAT_HISTORY_SIZE).catch(() => []) : []);
 
-  // W5 P0-1: the generation-time source verifier (null under vitest unless a
-  // hermetic fetcher is injected) + a per-request URL cache so the same source
-  // cited on both attempts is fetched once.
+  // W5 P0-1: the generation-time source verifier (null under vitest unless a hermetic fetcher is injected) + a per-request URL cache so the same source cited on both attempts is fetched once.
   const sourceFetch = resolveSourceFetch(req.sourceFetch, timeoutMs);
   const sourceTextCache = new Map<string, Promise<{ ok: boolean; text: string; finalUrl?: string; blocked?: boolean }>>();
   const verifyNowIso = (req.now ?? new Date()).toISOString();
@@ -755,10 +698,8 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     let system = req.system;
     if (retried) {
       if (lastFailureWasSuperlative && lastFailureWasThin) {
-        // Pilot loop 5 (2026-07-11): attempt 1 failed BOTH the word-count floor
-        // and the superlative check at once - one combined instruction, not
-        // whichever single-issue instruction would otherwise win below (this
-        // branch must be checked BEFORE the plain superlative/thin branches).
+        // Pilot loop 5 (2026-07-11): attempt 1 failed BOTH the word-count floor and the superlative check at once - one combined instruction, not
+        // whichever single-issue instruction would otherwise win below (this branch must be checked BEFORE the plain superlative/thin branches).
         system = `${req.system}\n\n${COMBINED_THIN_AND_SUPERLATIVE_RETRY_INSTRUCTION}`;
       } else if (lastFailureWasSuperlative) {
         // G4: ungrounded superlative - retry with the REPHRASE instruction.
@@ -767,23 +708,16 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
         // R16 de-templating: read like a repeat - retry with variation.
         system = `${req.system}\n\n${VARIATION_INSTRUCTION}`;
       } else if (lastFailureWasThin) {
-        // W5 (J-71): the first answer was under the 80-word floor - retry asking
-        // for the full band rather than an "invalid output" correction.
-        // Pilot loop 4 (2026-07-10): a live re-run showed the model can lengthen a
-        // too-thin answer by adding a FRESH ungrounded superlative ("a leading
-        // classical vocalist") instead of more grounded facts - the same loophole
-        // SUPERLATIVE_REPHRASE_INSTRUCTION already closes for a superlative-
-        // triggered retry, but this retry reason never carried that reminder. State
-        // it here too, so lengthening never trades away groundedness.
-        // Pilot loop 6 (2026-07-11): also closes with NO_NEW_NUMBERS_RETRY_REMINDER
-        // so lengthening never trades away groundedness for an invented number
+        // W5 (J-71): the first answer was under the 80-word floor - retry asking for the full band rather than an "invalid output" correction.
+        // Pilot loop 4 (2026-07-10): a live re-run showed the model can lengthen a too-thin answer by adding a FRESH ungrounded superlative ("a leading
+        // classical vocalist") instead of more grounded facts - the same loophole SUPERLATIVE_REPHRASE_INSTRUCTION already closes for a superlative-
+        // triggered retry, but this retry reason never carried that reminder. State it here too, so lengthening never trades away groundedness.
+        // Pilot loop 6 (2026-07-11): also closes with NO_NEW_NUMBERS_RETRY_REMINDER so lengthening never trades away groundedness for an invented number
         // either - the same reminder every other rephrase-class retry carries.
         system = `${req.system}\n\nYour previous answer was too short. Write a complete answer of 80 to 150 words, grounded ONLY in the evidence provided. Add the missing length with MORE grounded facts (names, dates, honors, works) - do NOT introduce a new superlative or ranking claim while lengthening it. ${NO_NEW_NUMBERS_RETRY_REMINDER}`;
       } else {
         system = `${req.system}\n\nYour previous output was rejected: ${errors.slice(-3).join(" | ")}. Fix exactly those problems and include at least one non-empty evidenceRefs entry.`;
-        // R16 numeric repair: when the failure was an ungrounded number, inject
-        // the CORRECT grounded numbers so the retry can fix the figure instead
-        // of guessing again. One repair retry, then fail closed.
+        // R16 numeric repair: when the failure was an ungrounded number, inject the CORRECT grounded numbers so the retry can fix the figure instead of guessing again. One repair retry, then fail closed.
         if (errors.some((e) => e.startsWith("firewall:invented_numbers"))) {
           const nums = groundedNumberList(ledger);
           system +=
@@ -820,16 +754,14 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       failure = out.failure ?? "schema_invalid";
       lastFailureWasTemplated = false;
       lastFailureWasThin = false;
-      // Non-retryable (refusal/incomplete/budget/4xx) FAILS CLOSED; a retryable
-      // error re-enters the SAME 2-attempt ceiling.
+      // Non-retryable (refusal/incomplete/budget/4xx) FAILS CLOSED; a retryable error re-enters the SAME 2-attempt ceiling.
       if (!out.retryable) break;
       continue;
     }
     lastProvenance = out.provenance ? { ...out.provenance, retryCount: attempt } : undefined;
     failure = "schema_invalid"; // it answered, so nothing below is the transport's fault any more
 
-    // The drafter runs its OWN Zod safeParse (second validation) after normalizing
-    // em/en dashes in every string field of the gateway's schema-shaped value.
+    // The drafter runs its OWN Zod safeParse (second validation) after normalizing em/en dashes in every string field of the gateway's schema-shaped value.
     const parsed = schema.safeParse(sanitizeDashesDeep(out.value));
     if (!parsed.success) {
       errors.push(...parsed.error.issues.slice(0, 4).map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`));
@@ -841,14 +773,10 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     // has nothing behind the search it is meant to win. Refused with the reason, which the retry then carries.
     const refs = (parsed.data as { evidenceRefs?: { source?: string }[] }).evidenceRefs;
     if (Array.isArray(refs) && !evidenceIsGrounded(refs)) { errors.push(UNGROUNDED_EVIDENCE_ERROR); lastFailureWasTemplated = false; lastFailureWasThin = false; continue; }
-    // W5 (J-69): the LLM may PROPOSE sources, but only source-authority.ts
-    // decides `authority`, re-stamp before any firewall/cache/return step.
+    // W5 (J-69): the LLM may PROPOSE sources, but only source-authority.ts decides `authority`, re-stamp before any firewall/cache/return step.
     const result = { ...parsed, data: stampAnySources(parsed.data, req.authoritativeSourceDomains) as typeof parsed.data };
-    // answer_analysis is a RESTATEMENT of somebody else's AI answer, never copy this
-    // product publishes, so the flat marketing-superlative reject does not apply to
-    // it: a verbatim "the best sushi in town" is the observed fact being recorded.
-    // The numeric firewall still applies, grounded on the answer text itself, so an
-    // invented figure is still caught.
+    // answer_analysis is a RESTATEMENT of somebody else's AI answer, never copy this product publishes, so the flat marketing-superlative reject does not apply to
+    // it: a verbatim "the best sushi in town" is the observed fact being recorded. The numeric firewall still applies, grounded on the answer text itself, so an invented figure is still caught.
     const fw = runContentFirewalls(draftProseStringValues(result.data), ledger, {
       deferSuperlativeCheck: req.kind === "answer_block" || req.kind.startsWith("answer_analysis"),
     });
@@ -859,10 +787,8 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       continue;
     }
 
-    // R16 de-templating guard: a validated draft whose customer-facing text is a
-    // near-copy (>70 percent 3-gram overlap) of a recent same-family output gets
-    // ONE variation retry; a second near-copy ships FLAGGED ("reads like a
-    // repeat") for the draft-quality gate to demote - style never fails closed.
+    // R16 de-templating guard: a validated draft whose customer-facing text is a near-copy (>70 percent 3-gram overlap) of a recent same-family output gets
+    // ONE variation retry; a second near-copy ships FLAGGED ("reads like a repeat") for the draft-quality gate to demote - style never fails closed.
     const primary = primaryCustomerText(req.kind, result.data);
     const templated = primary != null && looksTemplated(primary, recentTexts);
     if (templated && !retried) {
@@ -872,21 +798,14 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       continue;
     }
 
-    // W5 P2 (J-71): an answer block under the 80-word floor is flagged here.
-    // Pilot loop 5 (2026-07-11): verification (needed for the superlative check
-    // right below) now runs BEFORE this decision is acted on, so a draft that is
-    // BOTH too thin AND carrying an ungrounded superlative gets BOTH problems
-    // diagnosed on the SAME attempt - previously this check's own `continue`
-    // skipped verification entirely, silently hiding a co-occurring superlative
-    // problem from the retry (the retry only ever named ONE of the two issues,
-    // whichever check happened to run first, and the run could die on attempt 2
-    // still carrying the other).
+    // W5 P2 (J-71): an answer block under the 80-word floor is flagged here. Pilot loop 5 (2026-07-11): verification (needed for the superlative check
+    // right below) now runs BEFORE this decision is acted on, so a draft that is BOTH too thin AND carrying an ungrounded superlative gets BOTH problems
+    // diagnosed on the SAME attempt - previously this check's own `continue` skipped verification entirely, silently hiding a co-occurring superlative
+    // problem from the retry (the retry only ever named ONE of the two issues, whichever check happened to run first, and the run could die on attempt 2 still carrying the other).
     const thinAnswer = req.kind === "answer_block" && primary != null && countWords(primary) < ANSWER_MIN_WORDS;
 
-    // W5 stop-ship F2: verify each cited source AT GENERATION TIME (SSRF-safe
-    // fetch + span-level entailment + final-host authority) AFTER the firewalls,
-    // so the added verification metadata never enters the numeric firewall. When
-    // no verifier is configured (vitest without injection), STRIP every
+    // W5 stop-ship F2: verify each cited source AT GENERATION TIME (SSRF-safe fetch + span-level entailment + final-host authority) AFTER the firewalls,
+    // so the added verification metadata never enters the numeric firewall. When no verifier is configured (vitest without injection), STRIP every
     // verification field so an LLM-supplied `verified: true` can never survive.
     const verifiedData = sourceFetch
       ? ((await verifyStampedSources(
@@ -900,11 +819,8 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
         )) as z.infer<(typeof SCHEMA_BY_KIND)[K]>)
       : (stripSourceVerificationFields(result.data) as z.infer<(typeof SCHEMA_BY_KIND)[K]>);
 
-    // G4 (2026-07-10): SUPERLATIVE post-check, verification-aware (runs on
-    // `answer_block` only; every other kind's marketing-superlative reject stays
-    // in runContentFirewalls above). A superlative is allowed ONLY when a
-    // QUALIFYING verified source asserts it (superlative-parity); an ungrounded
-    // one is not shipped.
+    // G4 (2026-07-10): SUPERLATIVE post-check, verification-aware (runs on `answer_block` only; every other kind's marketing-superlative reject stays
+    // in runContentFirewalls above). A superlative is allowed ONLY when a QUALIFYING verified source asserts it (superlative-parity); an ungrounded one is not shipped.
     const ungroundedSuperlative =
       req.kind === "answer_block" && primary != null
         ? ungroundedSuperlatives(primary, (verifiedData as { sources?: ClassifiableSource[] }).sources, req.authoritativeSourceDomains, nowYear)
@@ -914,12 +830,9 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     if (thinAnswer) errors.push("too_thin_answer");
     if (hasUngroundedSuperlative) errors.push(`superlative_ungrounded:${ungroundedSuperlative.slice(0, 3).join(",")}`);
 
-    // A superlative is the highest-risk claim, so it ALWAYS forces a continue
-    // (one rephrase retry, then fail closed) on either attempt - never shipped
-    // ungrounded, unchanged from before. Pilot loop 5: when the SAME draft is
-    // ALSO too thin, flag both reasons together so the retry-instruction
-    // builder above merges them into ONE combined instruction instead of only
-    // addressing the superlative.
+    // A superlative is the highest-risk claim, so it ALWAYS forces a continue (one rephrase retry, then fail closed) on either attempt - never shipped
+    // ungrounded, unchanged from before. Pilot loop 5: when the SAME draft is ALSO too thin, flag both reasons together so the retry-instruction
+    // builder above merges them into ONE combined instruction instead of only addressing the superlative.
     if (hasUngroundedSuperlative) {
       if (!retried) {
         lastFailureWasSuperlative = true;
@@ -929,12 +842,8 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       continue; // second attempt still ungrounded -> fall through to fail-closed
     }
 
-    // W5 P2 (J-71): a too-thin-only draft (no superlative problem) gets ONE
-    // word-count retry so the drafter never caches a too-thin answer the
-    // quality gate would only reject later. A style-class retry, never a
-    // fail-closed: if the second attempt is still short it ships as-is for the
-    // gate to hold as too_thin (redrafting endlessly would just burn budget) -
-    // unchanged single-error behavior.
+    // W5 P2 (J-71): a too-thin-only draft (no superlative problem) gets ONE word-count retry so the drafter never caches a too-thin answer the quality gate would only reject later. A style-class retry, never a
+    // fail-closed: if the second attempt is still short it ships as-is for the gate to hold as too_thin (redrafting endlessly would just burn budget) - unchanged single-error behavior.
     if (thinAnswer && !retried) {
       lastFailureWasThin = true;
       continue;
@@ -973,10 +882,8 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   return { status: "validation_failed", reason: errors[0] ?? "unknown", errors, failure, costUsd: totalCost, retried: true };
 }
 
-// ── intent-aware drafting (C) ─────────────────────────────────────────────────
-// The searcher's dominant intent decides the ANSWER TYPE. A "when" query must be answered with a
-// date, not a definition (the chaharshanbe failure). This directive is injected into the prompt so
-// the LLM writes the right kind of answer. Intent strings mirror answer-intent.ts (kept as a loose
+// ── intent-aware drafting (C) ───────────────────────────────────────────────── The searcher's dominant intent decides the ANSWER TYPE. A "when" query must be answered with a
+// date, not a definition (the chaharshanbe failure). This directive is injected into the prompt so the LLM writes the right kind of answer. Intent strings mirror answer-intent.ts (kept as a loose
 // string to avoid an llm -> experiments domain import). Empty string when unknown = no constraint.
 function intentDirective(intent?: string): string {
   switch (intent) {
@@ -1002,7 +909,7 @@ export type AnswerBlockStructuredInput = {
   faqs: string[];
   /** Plain-language evidence the team already established (for the LLM to cite). */
   evidenceHints?: string[];
-  /** The searcher's dominant intent (when/cost/how/where/who/list/compare/what) — decides answer type. */
+  /** The searcher's dominant intent (when/cost/how/where/who/list/compare/what), decides answer type. */
   intent?: string;
   /** The owning account (Slice 3: REQUIRED, threaded to the drafter for cache +
    *  budget scoping). Also looks up this account's own measured winners for the
@@ -1027,10 +934,8 @@ export type AnswerBlockStructuredInput = {
 
 const ANSWER_BLOCK_SYSTEM =
   "You write structured AEO answer blocks for the page and business described in the grounding below. Return ONLY a JSON object with keys: " +
-  // W5 (2026-07-09, J-71): 80-150 words WITH sources - "40-60 is too thin" per the
-  // operator's own spec. Bumped from the old 40-60 word target (prompt-registry.ts
-  // version bumped alongside this so the content-hash call cache never serves a
-  // stale 40-60-word response for the new contract).
+  // W5 (2026-07-09, J-71): 80-150 words WITH sources - "40-60 is too thin" per the operator's own spec. Bumped from the old 40-60 word target (prompt-registry.ts
+  // version bumped alongside this so the content-hash call cache never serves a stale 40-60-word response for the new contract).
   '"answer" (one direct factual answer of 80-150 words an AI assistant could quote verbatim), ' +
   '"citationHook" (a short quotable phrase, or null), ' +
   '"sources" (array of {"url","title","domain","retrievedAt","claim","authority"}: cite 1-2 AUTHORITATIVE sources for the answer\'s claims, each with a real URL, its domain, the date you are citing it, and the specific claim it backs; leave "authority" as "unverified", the caller decides it), ' +
@@ -1038,32 +943,21 @@ const ANSWER_BLOCK_SYSTEM =
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Ground everything ONLY in the brief/outline/questions provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. Cite 1-2 authoritative sources for any factual claim (a date, a count, a named fact). Never state one with no source. " +
-  // G4 (2026-07-10): superlative-intent topics ("most famous X") must still be
-  // answerable WITHOUT an unprovable superlative. Instruct grounding-by-facts up
-  // front, so the drafter usually clears the verification-aware post-check on the
-  // first attempt (the rephrase retry is the safety net, not the norm).
+  // G4 (2026-07-10): superlative-intent topics ("most famous X") must still be answerable WITHOUT an unprovable superlative. Instruct grounding-by-facts up
+  // front, so the drafter usually clears the verification-aware post-check on the first attempt (the rephrase retry is the safety net, not the norm).
   "If the topic is inherently superlative (a \"most famous\" or \"best\" roundup), do NOT assert a superlative you cannot cite; instead ground it in the specific honors, dates, works, and roles in the evidence (for example \"holds the certification the page names, and has done the work since the date in the evidence\" rather than \"the most trusted provider\"). Only use a superlative if a cited source explicitly states that exact superlative. " +
-  // Pilot loop 4 (2026-07-10): the model was choosing correctly-authoritative
-  // domains but the WRONG PAGE on that domain (a shared list/index page) to back
-  // a specific person's fact. When the user message below includes a "Sources
-  // you may cite" list or this tenant's allowlisted domains, use them as a
-  // starting point ONLY when the exact page actually supports the claim - never
-  // cite a page just because it is on an allowlisted domain or was suggested.
+  // Pilot loop 4 (2026-07-10): the model was choosing correctly-authoritative domains but the WRONG PAGE on that domain (a shared list/index page) to back
+  // a specific person's fact. When the user message below includes a "Sources you may cite" list or this tenant's allowlisted domains, use them as a
+  // starting point ONLY when the exact page actually supports the claim - never cite a page just because it is on an allowlisted domain or was suggested.
   "When the evidence below includes a \"Sources you may cite\" list or a tenant's allowlisted domains, prefer a citation from among them, but ONLY when that exact page genuinely supports the specific claim you are citing it for; never fabricate a URL and never cite a page that does not actually discuss the claim. " +
   "The FIRST sentence must be specific to THIS exact page/topic — name the concrete subject, not a generic category. Do NOT open with a context-free dictionary definition (e.g. \"A gift is a voluntarily transferred item…\"); a reader must immediately know which specific topic this answers. Never defer or punt (\"varies\", \"check elsewhere\", \"consult other sources\") — answer directly. Do not claim something is \"official\" unless the grounding states it.";
 
 /**
- * Pilot loop 4 (2026-07-10): appended to ANSWER_BLOCK_SYSTEM ONLY for an
- * entity-rich topic (isEntityRichTopic - a roundup naming 3+ distinct named
- * entities). Proven gap from the pilot re-run: the model correctly cited an
- * authoritative, on-topic page, but that page was a bare INDEX - it names each
- * entity without discussing any of them, so it cannot entail a per-entity
- * claim, while that SAME entity's own dedicated page covered 3 of 6 sentences
- * in a live replay. This instructs the model to reach for the
- * entity's own page in the first place, so per-claim coverage (source-
- * authority.ts's draftFactsCoveredBySources) has something that actually
- * entails the sentence instead of holding the whole roundup at
- * needs_source_check for a structural, avoidable reason. */
+ * Pilot loop 4 (2026-07-10): appended to ANSWER_BLOCK_SYSTEM ONLY for an entity-rich topic (isEntityRichTopic - a roundup naming 3+ distinct named
+ * entities). Proven gap from the pilot re-run: the model correctly cited an authoritative, on-topic page, but that page was a bare INDEX - it names each
+ * entity without discussing any of them, so it cannot entail a per-entity claim, while that SAME entity's own dedicated page covered 3 of 6 sentences
+ * in a live replay. This instructs the model to reach for the entity's own page in the first place, so per-claim coverage (source- authority.ts's draftFactsCoveredBySources) has something that actually
+ * entails the sentence instead of holding the whole roundup at needs_source_check for a structural, avoidable reason. */
 const ENTITY_REFERENCE_INSTRUCTION =
   " This topic names several different people, places, or things (a roundup). For EACH named " +
   "entity's own factual claim (an honor, a song, a role, a date, a work), cite that ENTITY'S OWN " +
@@ -1074,18 +968,12 @@ const ENTITY_REFERENCE_INSTRUCTION =
   "when that exact page's own text genuinely discusses those claims, not merely lists the name.";
 
 /**
- * Pilot loop 5 (2026-07-11): appended alongside ENTITY_REFERENCE_INSTRUCTION for
- * the same entity-rich roundup topics. Proven gap from loop 4's live re-run: the
- * model correctly cited each entity's own reference page, but still wrote
- * COMPOUND sentences that bundle a coverable fact (an honor a fetched source
- * confirms) with an uncoverable one (a song title that source never mentions) -
- * e.g. "Shajarian is known for the song 'Morgh-e Sahar' and a UNESCO Mozart
- * Medal." The per-sentence coverage gate (source-authority.ts's
- * draftFactsCoveredBySources) correctly fails the WHOLE sentence when only HALF
- * of it is grounded, so a single stray fact drags down an otherwise-covered
- * claim. This instructs the model to never bundle in the first place - one
- * fact per sentence, so every sentence stands or falls on its OWN citation
- * rather than being held hostage by its neighbor's uncovered claim. */
+ * Pilot loop 5 (2026-07-11): appended alongside ENTITY_REFERENCE_INSTRUCTION for the same entity-rich roundup topics. Proven gap from loop 4's live re-run: the
+ * model correctly cited each entity's own reference page, but still wrote COMPOUND sentences that bundle a coverable fact (an honor a fetched source
+ * confirms) with an uncoverable one (a song title that source never mentions) - e.g. "Shajarian is known for the song 'Morgh-e Sahar' and a UNESCO Mozart
+ * Medal." The per-sentence coverage gate (source-authority.ts's draftFactsCoveredBySources) correctly fails the WHOLE sentence when only HALF
+ * of it is grounded, so a single stray fact drags down an otherwise-covered claim. This instructs the model to never bundle in the first place - one
+ * fact per sentence, so every sentence stands or falls on its OWN citation rather than being held hostage by its neighbor's uncovered claim. */
 const ONE_FACT_PER_SENTENCE_INSTRUCTION =
   " For this roundup, state each distinct factual claim about a named entity in its OWN short " +
   "sentence - one honor, one work, one role, or one date per sentence - because each sentence must " +
@@ -1113,8 +1001,7 @@ export async function draftAnswerBlockStructured(
     sourceFetch?: SourceTextFetcher;
   } = {},
 ): Promise<StructuredDraftResult<AnswerBlockDraft>> {
-  // R16 injection firewall: crawled briefs/outlines, PAA questions, and evidence
-  // hints are untrusted text - strip instruction-shaped lines before they enter
+  // R16 injection firewall: crawled briefs/outlines, PAA questions, and evidence hints are untrusted text - strip instruction-shaped lines before they enter
   // the prompt or the grounding ledger. Benign input passes through unchanged.
   const brief = sanitizeNullableEvidence(input.brief);
   const outline = sanitizeEvidenceTexts(input.outline);
@@ -1129,12 +1016,9 @@ export async function draftAnswerBlockStructured(
   ].join(" ");
   const dir = intentDirective(input.intent);
 
-  // Pilot loop 4: known reference URLs for the entities this topic names -
-  // deterministic, no new fetch. A bare list/index URL (the exact proven gap:
-  // the model citing a whole-set list page for one entity's own facts) is
-  // filtered out here BEFORE it ever reaches the prompt, so the hint can only
-  // ever point at a page that could plausibly entail a per-entity claim.
-  // Deduped + capped; empty (or fully filtered) input renders no hint line at
+  // Pilot loop 4: known reference URLs for the entities this topic names - deterministic, no new fetch. A bare list/index URL (the exact proven gap:
+  // the model citing a whole-set list page for one entity's own facts) is filtered out here BEFORE it ever reaches the prompt, so the hint can only
+  // ever point at a page that could plausibly entail a per-entity claim. Deduped + capped; empty (or fully filtered) input renders no hint line at
   // all - the ANSWER_BLOCK_SYSTEM guidance above still applies on its own.
   const referenceCandidates = [
     ...new Set(sanitizeEvidenceTexts(input.referenceCandidates ?? []).filter((u) => !looksLikeListOrIndexUrl(u))),
@@ -1160,12 +1044,9 @@ export async function draftAnswerBlockStructured(
     .filter(Boolean)
     .join("\n");
 
-  // BEACON_500 item 30/74: additive-only. When a pageFamily is known, use the pattern-
-  // aware builder (item 74) so a CONFIDENT winning structural pattern for this family
-  // gets named alongside the existing before/after examples; otherwise fall back to the
-  // item-30 builder unchanged. Both return '' (or the unchanged fragment) when the
-  // tenant has no measured "answer" winners yet - the system prompt stays byte-identical
-  // to today whenever there is nothing confident to say.
+  // BEACON_500 item 30/74: additive-only. When a pageFamily is known, use the pattern- aware builder (item 74) so a CONFIDENT winning structural pattern for this family
+  // gets named alongside the existing before/after examples; otherwise fall back to the item-30 builder unchanged. Both return '' (or the unchanged fragment) when the
+  // tenant has no measured "answer" winners yet - the system prompt stays byte-identical to today whenever there is nothing confident to say.
   let fewShots = "";
   let fewShotProvenance: FewShotProvenance | undefined;
   if (input.tenantId && input.pageFamily) {
@@ -1176,12 +1057,9 @@ export async function draftAnswerBlockStructured(
     fewShots = await buildWinnerFewShots(input.tenantId, "answer").catch(() => "");
   }
 
-  // Pilot loop 4: the per-entity citation guidance is scoped to a genuine
-  // roundup (isEntityRichTopic - 3+ distinct named entities across the query/
-  // brief/outline/faqs/evidence hints), so a single-fact topic's prompt stays
-  // byte-identical to before this change. Each field is passed SEPARATELY
-  // (never pre-joined into `grounded`) so one entity's name can never merge
-  // with the next into a single false span - see isEntityRichTopic.
+  // Pilot loop 4: the per-entity citation guidance is scoped to a genuine roundup (isEntityRichTopic - 3+ distinct named entities across the query/
+  // brief/outline/faqs/evidence hints), so a single-fact topic's prompt stays byte-identical to before this change. Each field is passed SEPARATELY
+  // (never pre-joined into `grounded`) so one entity's name can never merge with the next into a single false span - see isEntityRichTopic.
   const entityRich = isEntityRichTopic([input.query, brief ?? "", ...outline, ...faqs, ...evidenceHints]);
 
   return callStructuredLLM({
@@ -1212,7 +1090,7 @@ export type AtomicEditStructuredInput = {
   currentValue: string | null;
   outline: string[];
   evidenceHints?: string[];
-  /** The searcher's dominant intent (when/cost/how/where/who/list/compare/what) — shapes the copy. */
+  /** The searcher's dominant intent (when/cost/how/where/who/list/compare/what), shapes the copy. */
   intent?: string;
   /** The owning account (Slice 3: REQUIRED, threaded to the drafter for cache +
    *  budget scoping). Also looks up this account's own measured winners (same
@@ -1277,10 +1155,8 @@ export async function draftAtomicEditStructured(
     .filter(Boolean)
     .join("\n");
 
-  // BEACON_500 item 30/74: additive-only, same posture as draftAnswerBlockStructured
-  // above - the pattern-aware builder only fires when a pageFamily is known, and both
-  // paths return '' (or the unchanged fragment) when the tenant has no measured winners
-  // yet for this exact field, leaving the prompt byte-identical to today.
+  // BEACON_500 item 30/74: additive-only, same posture as draftAnswerBlockStructured above - the pattern-aware builder only fires when a pageFamily is known, and both
+  // paths return '' (or the unchanged fragment) when the tenant has no measured winners yet for this exact field, leaving the prompt byte-identical to today.
   const lever = input.field === "title" ? "title" : input.field === "answer_block" ? "answer" : "meta";
   let fewShots = "";
   let fewShotProvenance: FewShotProvenance | undefined;
@@ -1307,26 +1183,20 @@ export async function draftAtomicEditStructured(
     sourceFetch: opts.sourceFetch,
   });
 
-  // BEACON_500 item 74: the atomic-edit rationale is the ONE free-text channel that
-  // already flows end-to-end into the daily card's "Beacon wrote this: <rationale>"
-  // line (build-today-preview.ts reads value.rationale into llmRationale). When a
-  // confident pattern backed this draft, prepend our exact controlled sentence so the
-  // card surfaces it without any change to that unrelated wiring - the model's own
-  // rationale sentence is kept right after it, never replaced.
+  // BEACON_500 item 74: the atomic-edit rationale is the ONE free-text channel that already flows end-to-end into the daily card's "Beacon wrote this: <rationale>"
+  // line (build-today-preview.ts reads value.rationale into llmRationale). When a confident pattern backed this draft, prepend our exact controlled sentence so the
+  // card surfaces it without any change to that unrelated wiring - the model's own rationale sentence is kept right after it, never replaced.
   if (result.status === "drafted" && result.fewShot) {
-    // Re-apply the schema's own 400-char rationale cap so this stays a VALID
-    // AtomicEditDraft.
+    // Re-apply the schema's own 400-char rationale cap so this stays a VALID AtomicEditDraft.
     const merged = `${result.fewShot.sentence} ${result.value.rationale}`.trim().slice(0, 400);
     return { ...result, value: { ...result.value, rationale: merged } };
   }
   return result;
 }
 
-// ── concrete drafter: SectionDraft (a section the winning pages all carry and mine does not) ──
-// The cause ladder can prove a page is missing a subject its rivals agree on, and until this existed the
+// ── concrete drafter: SectionDraft (a section the winning pages all carry and mine does not) ── The cause ladder can prove a page is missing a subject its rivals agree on, and until this existed the
 // only answer was a sentence saying so. GROUNDING IS THE WHOLE CONTRACT here: a section is long-form copy,
-// so the prompt forbids everything the evidence does not carry and the caller's own gates (draft-quality,
-// factual entailment, the numeric firewall above) read it again before it can reach an operator.
+// so the prompt forbids everything the evidence does not carry and the caller's own gates (draft-quality, factual entailment, the numeric firewall above) read it again before it can reach an operator.
 
 export type SectionStructuredInput = {
   query: string;

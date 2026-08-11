@@ -1,12 +1,9 @@
 /**
- * Fusion slice (2026-06-12) — per-page GA4 value signals. Aggregates
- * the tenant's synced `ga4_url_traffic` rows over the trailing 28-day
- * window into one value object per page — the PIE "Importance" axis
- * from the fusion-math research (page business value weights the
+ * Fusion slice (2026-06-12), per-page GA4 value signals. Aggregates the tenant's synced `ga4_url_traffic` rows over the trailing 28-day
+ * window into one value object per page, the PIE "Importance" axis from the fusion-math research (page business value weights the
  * priority of work on that page).
  *
- * Fail-soft: missing table / no rows / stale connector (no recent
- * rows) → empty Map → every page weighs neutral (1.0). The weight
+ * Fail-soft: missing table / no rows / stale connector (no recent rows) → empty Map → every page weighs neutral (1.0). The weight
  * activates automatically once GA4 syncs fresh rows.
  */
 
@@ -23,7 +20,7 @@ import {
 } from "@/domains/evidence/readers/ga4-revenue";
 
 // Request-memoized: the cockpit now reads GA4 page value from several sections
-// (hero post-pass + the money-leak scan) on one render — cache() dedupes the
+// (hero post-pass + the money-leak scan) on one render, cache() dedupes the
 // full-tenant read to a single query per request. Degrades to a no-op outside a
 // React request scope (cron/scripts call it uncached, exactly as before).
 export const loadGa4PageValuesForTenant = cache(loadGa4PageValuesForTenantUncached);
@@ -36,10 +33,8 @@ export type Ga4PageValue = {
 };
 
 const WINDOW_DAYS = 28;
-// audit-wave #5 (2026-06-23): 25k url×day rows truncated high-traffic tenants
-// (~890 pages × 28d) and dropped the most-recent days, understating the
-// business-value weight. Raised to match the sibling per-URL reader
-// (gsc-page-signals MAX_ROWS = 80k ≈ 2850 pages × 28d). Follow-up: a server-side
+// audit-wave #5 (2026-06-23): 25k url×day rows truncated high-traffic tenants (~890 pages × 28d) and dropped the most-recent days, understating the
+// business-value weight. Raised to match the sibling per-URL reader (gsc-page-signals MAX_ROWS = 80k ≈ 2850 pages × 28d). Follow-up: a server-side
 // GROUP BY RPC (one row per page) would remove the cap entirely.
 const MAX_ROWS = 80_000;
 
@@ -58,12 +53,9 @@ async function loadGa4PageValuesForTenantUncached(
   try {
     const since = reportingDay(now.getTime() - WINDOW_DAYS * 86_400_000);
     const sb = getSupabaseAdmin();
-    // audit wave-2 #5 (2026-06-14): PostgREST caps a response at ~1000 rows
-    // regardless of .limit(), so the old `.limit(25000)` read silently
-    // truncated to an arbitrary 1000 url×day rows — then the per-page SUM
-    // below understated sessions/conversions, skewing the GA4 priority
-    // weight (a high-value page could weigh neutral because its rows fell
-    // past the cut). Page through in 1000-row chunks, stably ordered.
+    // audit wave-2 #5 (2026-06-14): PostgREST caps a response at ~1000 rows regardless of .limit(), so the old `.limit(25000)` read silently
+    // truncated to an arbitrary 1000 url×day rows, then the per-page SUM below understated sessions/conversions, skewing the GA4 priority
+    // weight (a high-value page could weigh neutral because its rows fell past the cut). Page through in 1000-row chunks, stably ordered.
     const PAGE = 1000;
     for (let from = 0; from < MAX_ROWS; from += PAGE) {
       const { data, error } = await sb
@@ -105,14 +97,50 @@ async function loadGa4PageValuesForTenantUncached(
 }
 
 /**
- * Bounded page-value multiplier (1.0–1.5), log-damped per the fusion
- * research (PIE Importance + the log-damping convention so one
+ * VISITS IN TWO CONSECUTIVE 28-DAY WINDOWS, per page, so a fall in visits can be read against a ranking that
+ * held. The same rows the value read above uses, split on the day 28 days back, and fail-soft to an empty map:
+ * a page with no prior window says nothing rather than reading as a page that lost everything.
+ */
+export async function loadGa4SessionSplitForTenant(
+  tenantId: string,
+  now: Date = new Date(),
+): Promise<Map<string, { now: number; prior: number }>> {
+  const out = new Map<string, { now: number; prior: number }>();
+  const split = reportingDay(now.getTime() - WINDOW_DAYS * 86_400_000);
+  const since = reportingDay(now.getTime() - 2 * WINDOW_DAYS * 86_400_000);
+  try {
+    const sb = getSupabaseAdmin();
+    const PAGE = 1000;
+    for (let from = 0; from < MAX_ROWS; from += PAGE) {
+      const { data, error } = await sb
+        .from("ga4_url_traffic")
+        .select("url, sessions, date")
+        .eq("tenant_id", tenantId)
+        .gte("date", since)
+        .order("date")
+        .order("url")
+        .range(from, from + PAGE - 1);
+      if (error) { log.warn("[ga4-page-values] session split read failed", { tenantId, error: error.message }); break; }
+      const batch = (data ?? []) as unknown as { url: string; sessions: number; date: string }[];
+      for (const r of batch) {
+        const page = canonicalizeCitationUrl(r.url) ?? r.url;
+        const cur = out.get(page) ?? { now: 0, prior: 0 };
+        if (r.date >= split) cur.now += r.sessions ?? 0; else cur.prior += r.sessions ?? 0;
+        out.set(page, cur);
+      }
+      if (batch.length < PAGE) break;
+    }
+  } catch { return out; }
+  return out;
+}
+
+/**
+ * Bounded page-value multiplier (1.0, 1.5), log-damped per the fusion research (PIE Importance + the log-damping convention so one
  * converting page doesn't monopolize the queue):
  *
  *   weight = min(1.5, 1 + 0.25 · log10(1 + conversions + 0.1·engaged))
  *
- * Conversions dominate (they are the business value); engaged
- * sessions contribute at a 10:1 discount. Neutral (1.0) when the
+ * Conversions dominate (they are the business value); engaged sessions contribute at a 10:1 discount. Neutral (1.0) when the
  * page has no GA4 value data.
  */
 export function ga4ValueWeight(v: Ga4PageValue | undefined): number {
@@ -123,8 +151,7 @@ export function ga4ValueWeight(v: Ga4PageValue | undefined): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// 2026-06-26 — GA4 REVENUE page values (revenue migration). SEPARATE,
-// ISOLATED read so a pre-migration "column does not exist" error fails ONLY
+// 2026-06-26, GA4 REVENUE page values (revenue migration). SEPARATE, ISOLATED read so a pre-migration "column does not exist" error fails ONLY
 // revenue (→ empty map → conversion fallback downstream) and NEVER breaks the
 // existing traffic read above. Returns normalized PageRevenueValue per page.
 // ─────────────────────────────────────────────────────────────────────
@@ -176,8 +203,7 @@ async function loadGa4PageRevenueForTenantUncached(
         .range(from, from + PAGE - 1);
       if (error) {
         // Pre-migration the revenue columns don't exist (PostgREST 42703) → this
-        // read fails entirely. That's FINE: revenue stays unknown everywhere and
-        // the scorer falls back to conversions. The existing traffic read
+        // read fails entirely. That's FINE: revenue stays unknown everywhere and the scorer falls back to conversions. The existing traffic read
         // (loadGa4PageValuesForTenant) is a SEPARATE query and keeps working.
         log.warn("[ga4-page-revenue] read failed (revenue unknown; conversion fallback)", {
           tenantId,

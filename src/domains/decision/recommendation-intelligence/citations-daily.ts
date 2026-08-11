@@ -1,10 +1,8 @@
 import "server-only";
 
 /**
- * citations-daily (FINAL PREMIUM PLAN item 9) - your OWN domain's AI citations per day from
- * profound_citation_rows, for the AI-visibility mini-scoreboard next to the Google chart.
- * One bounded tenant-scoped read filtered to the own domain in SQL (ilike), aggregated to
- * date -> citations. Fail-soft -> empty (the band self-hides).
+ * citations-daily (FINAL PREMIUM PLAN item 9) - your OWN domain's AI citations per day from profound_citation_rows, for the AI-visibility mini-scoreboard next to the Google chart.
+ * One bounded tenant-scoped read filtered to the own domain in SQL (ilike), aggregated to date -> citations. Fail-soft -> empty (the band self-hides).
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";

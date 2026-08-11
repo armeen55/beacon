@@ -1,26 +1,19 @@
 import "server-only";
 
 /**
- * decision/case-synthesis (V1 Truth Convergence Phase 2, 2026-07-31) - the ONE semantic read over a
- * grouping that is already decided. Evidence groups research deterministically, on lineage the provider
+ * decision/case-synthesis (V1 Truth Convergence Phase 2, 2026-07-31) - the ONE semantic read over a grouping that is already decided. Evidence groups research deterministically, on lineage the provider
  * recorded, the owned page Google serves, an engine's own fan-out, the account's specific tokens and pages
  * two exact looks share. Token overlap may CREATE a candidate; it may not be the last word on whether two
- * searches are one subject. "persian male names" and "iranian names" are one case that no token rule joins;
- * "iran leader" and this week's news about Iran share every token and are not one case at all.
+ * searches are one subject. "persian male names" and "iranian names" are one case that no token rule joins; "iran leader" and this week's news about Iran share every token and are not one case at all.
  *
- * SO THIS LAYER IS ADVISORY, DELIBERATELY. It refines the registry and is never load-bearing: a gateway
- * that is off, over budget, slow, refused or lying leaves the deterministic answer exactly as it was, and
- * every money path (which comparison is bought, which proposal belongs to which case) keeps reading the
- * registry the same way it did before this file existed.
+ * SO THIS LAYER IS ADVISORY, DELIBERATELY. It refines the registry and is never load-bearing: a gateway that is off, over budget, slow, refused or lying leaves the deterministic answer exactly as it was, and
+ * every money path (which comparison is bought, which proposal belongs to which case) keeps reading the registry the same way it did before this file existed.
  *
  * ONE call per reconcile pass, bounded and cached: the same candidate set produces a byte-identical prompt,
- * so the gateway's own per-account call cache serves it at $0 and no second reading is ever bought for a
- * registry that did not move. Fewer than two cases is not a question worth asking, so it costs nothing.
+ * so the gateway's own per-account call cache serves it at $0 and no second reading is ever bought for a registry that did not move. Fewer than two cases is not a question worth asking, so it costs nothing.
  *
- * FAIL-CLOSED ON INVENTION: every id, address and search that comes back is checked against exactly what
- * was supplied, and ONE stranger throws the WHOLE reading away rather than applying the half of it that
- * happens to check out. The deterministic refusals (a merge of two strangers, a split that empties a case)
- * live in evidence/case-identity beside the identity rules they protect.
+ * FAIL-CLOSED ON INVENTION: every id, address and search that comes back is checked against exactly what was supplied, and ONE stranger throws the WHOLE reading away rather than applying the half of it that
+ * happens to check out. The deterministic refusals (a merge of two strangers, a split that empties a case) live in evidence/case-identity beside the identity rules they protect.
  */
 
 import { createHash } from "node:crypto";
@@ -83,18 +76,15 @@ function candidateFacts(candidates: readonly SynthesisCandidate[]): string[] {
 
 /**
  * ONE strict reading of this account's own case registry, or null. Null is a complete answer: it means the
- * deterministic grouping stands, which is what ships whenever this call is off, blocked, unusable, or names
- * anything nobody gave it.
+ * deterministic grouping stands, which is what ships whenever this call is off, blocked, unusable, or names anything nobody gave it.
  */
 export async function synthesizeCases(
   candidates: readonly SynthesisCandidate[],
   tenantId: string,
   opts: Pick<StructuredDraftRequest<"case_synthesis">, "complete" | "cacheImpl" | "now"> = {},
 ): Promise<CaseSynthesis | null> {
-  // WHICH FOURTEEN, ON PURPOSE. Sorting by id and slicing selected on a hash: the cases worth regrouping
-  // were reviewed only if their minted id happened to sort early. The run's own frozen plan comes first,
-  // then the largest demand on file, and the id decides nothing but a genuine tie, so the same registry
-  // still asks a byte-identical question however the caller listed it.
+  // WHICH FOURTEEN, ON PURPOSE. Sorting by id and slicing selected on a hash: the cases worth regrouping were reviewed only if their minted id happened to sort early. The run's own frozen plan comes first,
+  // then the largest demand on file, and the id decides nothing but a genuine tie, so the same registry still asks a byte-identical question however the caller listed it.
   const ordered = [...candidates].filter((c) => !!c.id)
     .sort((a, b) => Number(!!b.inPlan) - Number(!!a.inPlan) || (b.demand ?? -1) - (a.demand ?? -1) || a.id.localeCompare(b.id))
     .slice(0, MAX_CANDIDATES);
@@ -135,8 +125,7 @@ export async function synthesizeCases(
     .find((x) => !queriesOf.get(x.id)?.has(norm(x.q)))?.q;
   const stray = strayId ?? strayUrl ?? strayQuery;
   if (stray) {
-    // ONE stranger throws away the whole reading. Applying the part that checks out would file real cases
-    // under an answer half of which was invented, and nothing here is worth that.
+    // ONE stranger throws away the whole reading. Applying the part that checks out would file real cases under an answer half of which was invented, and nothing here is worth that.
     log.warn("[case-synthesis] the reading named something I never gave it, so I kept my own grouping", { tenantId, stray: stray.slice(0, 120) });
     return null;
   }

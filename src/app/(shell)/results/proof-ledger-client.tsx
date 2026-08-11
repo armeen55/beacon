@@ -17,7 +17,7 @@ import {
 
 /** Change-type options for the manual record form (value ⇒ label). */
 const CHANGE_TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "Auto (name it for me)" },
+  { value: "", label: "Auto (name it automatically)" },
   { value: "new_page", label: "New page" },
   { value: "edit_title", label: "Title" },
   { value: "edit_meta", label: "Meta description" },
@@ -127,7 +127,7 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
           onClick={submit}
           className={`rounded-md border border-foreground bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90 disabled:opacity-50 ${FOCUS}`}
         >
-          {pending ? "Saving…" : "I made this change"}
+          {pending ? "Saving…" : "Mark done"}
         </button>
       </div>
 
@@ -255,7 +255,7 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
                 className={`mt-0.5 rounded-sm ${FOCUS}`}
               />
               <span>
-                I confirmed this change is live on the site.
+                This change was confirmed live on the site.
                 <span className="block text-[10px] text-muted-foreground">
                   Check this once you can see the new copy on the live page.
                 </span>

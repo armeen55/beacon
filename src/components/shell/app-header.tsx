@@ -52,16 +52,14 @@ export function AppHeader({ rightSlot }: { rightSlot?: React.ReactNode }) {
       {/* Night-shift #119 (2026-06-11): server-rendered tenant switcher
           composed in via RSC props (this component stays client). */}
       {rightSlot ? <div className="ml-auto">{rightSlot}</div> : null}
-      <div className={`${rightSlot ? "ml-3" : "ml-auto"} hidden md:flex items-center gap-1.5 text-[10px] text-muted-foreground`}>
-        <kbd className="border border-border rounded px-1.5 py-0.5 font-mono">
-          ⌘K
-        </kbd>
-        <span>search</span>
-        <span className="mx-1">·</span>
-        <kbd className="border border-border rounded px-1.5 py-0.5 font-mono">
-          ?
-        </kbd>
-        <span>shortcuts</span>
+      {/* The hint strip never shrinks or wraps: at a narrow desktop width the flex gaps collapsed and the two
+          hints ran together as one unreadable token. shrink-0 + nowrap keeps the words apart at every width. */}
+      <div className={`${rightSlot ? "ml-3" : "ml-auto"} hidden shrink-0 md:flex items-center gap-1.5 whitespace-nowrap text-[10px] text-muted-foreground`}>
+        <kbd className="shrink-0 border border-border rounded px-1.5 py-0.5 font-mono">⌘K</kbd>
+        <span className="shrink-0">search</span>
+        <span aria-hidden className="shrink-0 px-1">·</span>
+        <kbd className="shrink-0 border border-border rounded px-1.5 py-0.5 font-mono">?</kbd>
+        <span className="shrink-0">shortcuts</span>
       </div>
     </header>
   );

@@ -72,15 +72,15 @@ const plainPart = (t: string): string => t.split(" ").map((w) => PART_WORD[w] ??
 
 function changeLabel(row: LedgerRow): string {
   if (row.bundleHypothesis?.trim()) return row.bundleHypothesis.trim();
-  if (row.actionType === "create_page") return "I published a new page";
+  if (row.actionType === "create_page") return "A new page was published";
   const mapped = changeSentence(row.actionType);
   if (mapped) return mapped;
   const t = plainPart(row.actionType.replace(/^(edit|change|improve|update|add|fix|rewrite)_/, "").replace(/_/g, " ").trim());
-  if (!t) return "I changed this page";
-  if (row.actionType.startsWith("add_")) return `I added the ${t}`;
-  if (row.actionType.startsWith("fix_")) return `I fixed the ${t}`;
-  if (row.actionType.startsWith("rewrite_")) return `I rewrote the ${t}`;
-  return `I changed the ${t}`;
+  if (!t) return "This page was changed";
+  if (row.actionType.startsWith("add_")) return `Added the ${t}`;
+  if (row.actionType.startsWith("fix_")) return `Fixed the ${t}`;
+  if (row.actionType.startsWith("rewrite_")) return `Rewrote the ${t}`;
+  return `Changed the ${t}`;
 }
 
 function Lane({ title, blurb, children }: { title: string; blurb: string; children: ReactNode }) {
@@ -108,8 +108,8 @@ function signalOf(inv: TopicInvestigation): string {
   if (inv.demand.monthlySearchVolume != null) return `${num(inv.demand.monthlySearchVolume)} searches a month`;
   const seen = inv.demand.gscImpressions ?? 0;
   if (seen > 0) return `you came up ${seen === 1 ? "once" : `${num(seen)} times`} for it`;
-  if (inv.demand.trackedPrompts > 0) return `${inv.demand.trackedPrompts} of the AI questions I track land here`;
-  return "I am pricing the demand now";
+  if (inv.demand.trackedPrompts > 0) return `${inv.demand.trackedPrompts} of the tracked AI questions land here`;
+  return "Pricing the demand now";
 }
 
 /** What I do next on this topic, from the acquisition's KIND rather than its sentence, so no stored date and no
@@ -180,21 +180,21 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
 
   return (
     <div className="space-y-8" data-changes-feed="true">
-      <Lane title="Your edits" blurb="Every card here is an edit you can make right now, ranked by payoff. The chip on each one tells you how proven it is, and I measure every one after you make it.">
+      <Lane title="Your edits" blurb="Every card here is an edit you can make right now, ranked by payoff. The chip on each one tells you how proven it is. Every edit is measured after you make it.">
         {/* THE WATERMARK, ONCE. Every Google number on this screen ends on the same finalized day, so it is
             said here rather than in brackets on every row that happens to quote one. */}
         {through ? <p className="-mt-1 text-[12px] tabular-nums text-muted-foreground" data-watermark="true">Google data through {through}.</p> : null}
         {queue}
       </Lane>
 
-      <Lane title="Measuring and results" blurb="Changes you have already made. I read each page against how it did before and against similar pages you did not change.">
+      <Lane title="Measuring and results" blurb="Changes you have already made. Each page is read against how it did before and against similar pages that were not changed.">
         {view.countsUnavailable || !ledgerRead ? (
           <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-4 text-[13px] leading-relaxed text-muted-foreground">
-            I could not read what is measuring just now, so I am not showing you a count I cannot stand behind. I am retrying automatically.
+            What is measuring could not be read just now, so no count is shown that cannot be stood behind. Retrying automatically.
           </p>
         ) : measuring.length === 0 && results.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-4 text-[13px] leading-relaxed text-muted-foreground">
-            Nothing is measuring yet. Make the top edit above on your site, mark it done, and I start reading that page for you.
+            Nothing is measuring yet. Make the top edit above on your site, mark it done, and that page starts being read.
           </p>
         ) : (
           <ul className="space-y-2">
@@ -209,7 +209,7 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
                       ? "still measuring"
                       : r.verdict === "won"
                         ? "it worked"
-                        : "what I learned"}
+                        : "what it taught"}
                     {r.windows ? ((p) => (p ? <> · {p}</> : null))(ledgerProofLine({ windows: r.windows })) : null}
                   </span>
                 </li>
@@ -227,8 +227,8 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
           no per-row repetition of a sentence that is the same on every one of them. */}
       <details id="researching" className="rounded-2xl border border-border bg-surface-inset/40 px-4 py-3" data-backstage="true">
         <summary className="cursor-pointer text-[13px] font-semibold text-foreground">
-          What I am working on behind the scenes
-          {backstage ? ` (${num(backstage.topics)} ${plural(backstage.topics, "topic", "topics")}, ${num(backstage.pages)} ${plural(backstage.pages, "page", "pages")}${backstage.ago ? `, counted ${backstage.ago}` : ""})` : ""}
+          Work happening behind the scenes
+          {backstage ? ` (${num(backstage.topics)} ${plural(backstage.topics, "topic", "topics")}, ${num(backstage.pages)} ${plural(backstage.pages, "page", "pages")})` : ""}
         </summary>
         <div className="mt-3 space-y-4">
           {/* A SOURCE THAT DID NOT ANSWER IS NOT AN ACCOUNT WITH NOTHING OPEN. The two lists below come off that
@@ -236,12 +236,12 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
               are still said. */}
           {evidenceRead === false ? (
             <p className="text-[13px] leading-relaxed text-muted-foreground">
-              I could not read your Google search data just now, so I am not showing you an empty list. Nothing here has been dropped and I am checking again automatically.
+              Your Google search data could not be read just now, so no empty list is shown. Nothing here has been dropped, and Beacon is checking again automatically.
             </p>
           ) : (
               <div className="space-y-1" data-backstage-topics="true">
                 {shownResearch.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground">I have no topic open right now. My next daily round opens the strongest one it finds and it lands here.</p>
+                  <p className="text-[13px] text-muted-foreground">No topic is open right now. The next daily round opens the strongest one it finds and it lands here.</p>
                 ) : (
                   <>
                     {oneNext ? <p className="text-[12px] text-muted-foreground" data-lane-note="true">Next on every one of these: {oneNext}.</p> : null}
@@ -255,7 +255,7 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
                     </ul>
                     {ranked.length > shownResearch.length ? (
                       <p className="text-[12px] tabular-nums text-muted-foreground">
-                        {num(ranked.length - shownResearch.length)} more {plural(ranked.length - shownResearch.length, "topic is", "topics are")} open under these, and I work them in this order.
+                        {num(ranked.length - shownResearch.length)} more {plural(ranked.length - shownResearch.length, "topic is", "topics are")} open under these, and they are worked in this order.
                       </p>
                     ) : null}
                   </>
@@ -269,7 +269,7 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
                   const rank = queued.get(path) ?? null;
                   const note = rank != null
                     ? `its fix is #${rank} in the list above`
-                    : judged.get(prettyPage(d.page)) ?? judged.get(d.page) ?? "I read its results page next";
+                    : judged.get(prettyPage(d.page)) ?? judged.get(d.page) ?? "its results page is read next";
                   return (
                     <li key={d.page} className="text-[13px] leading-relaxed text-muted-foreground tabular-nums" data-watching-row="true">
                       <span className="font-semibold text-foreground">{prettyPage(d.page)}</span> · lost {num(d.lost)} {plural(d.lost, "click", "clicks")} in 4 weeks · {note}
@@ -278,7 +278,7 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
                 })}
                 {heldForMeasurement > 0 ? (
                   <li className="text-[13px] leading-relaxed text-muted-foreground" data-watching-row="true">
-                    {num(heldForMeasurement)} new {plural(heldForMeasurement, "idea waits", "ideas wait")} on {plural(heldForMeasurement, "a page", "pages")} that already {plural(heldForMeasurement, "carries", "carry")} a change I am measuring.
+                    {num(heldForMeasurement)} new {plural(heldForMeasurement, "idea waits", "ideas wait")} on {plural(heldForMeasurement, "a page", "pages")} that already {plural(heldForMeasurement, "carries", "carry")} a change under measurement.
                   </li>
                 ) : null}
                 {setAside > 0 ? (
@@ -289,7 +289,7 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
                 ) : null}
                 {evidenceRead !== false && watchMore > 0 ? (
                   <li className="text-[12px] tabular-nums text-muted-foreground" data-lane-more="watching">
-                    {num(watchMore)} more {plural(watchMore, "page is", "pages are")} down by less than these, and I watch every one.
+                    {num(watchMore)} more {plural(watchMore, "page is", "pages are")} down by less than these, and every one is watched.
                   </li>
                 ) : null}
           </ul>

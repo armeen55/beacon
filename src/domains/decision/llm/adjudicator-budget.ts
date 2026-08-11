@@ -3,11 +3,8 @@ import "server-only";
 /**
  * Per-account LLM budget guardrail.
  *
- * Tracks each account's monthly LLM spend and hard-caps calls when spend hits
- * the configured limit for the current month. Callers check before calling
- * the provider and record after. Every read and write takes the EXPLICIT
- * account: no ambient tenant resolution exists anywhere in this path
- * (isolation closures 2026-07-23/24).
+ * Tracks each account's monthly LLM spend and hard-caps calls when spend hits the configured limit for the current month. Callers check before calling
+ * the provider and record after. Every read and write takes the EXPLICIT account: no ambient tenant resolution exists anywhere in this path (isolation closures 2026-07-23/24).
  *
  * Two layers, same account identity on both:
  *   - Durable Supabase ledger (`llm_budget_ledger`, platform
@@ -18,9 +15,7 @@ import "server-only";
  *     protection when Supabase is unreachable. Routed per account via the
  *     explicit tenantId; the pre-closure shared global blob is inert and
  *     never read.
- * `checkBudget` blocks on max(file, durable) FOR THE SAME ACCOUNT;
- * `recordSpend` writes both. Fail-soft: a durable read error falls back to
- * the account's file spend.
+ * `checkBudget` blocks on max(file, durable) FOR THE SAME ACCOUNT; `recordSpend` writes both. Fail-soft: a durable read error falls back to the account's file spend.
  */
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
@@ -33,8 +28,7 @@ import {
 import { log } from "@/lib/logger";
 
 const STORE_NAME = "llm-budget";
-// 30, not 10: at the repaired readback throughput (up to 40 pieces a pass) the account's whole month of
-// reading, drafting and synthesis runs $10 to $15, and a cap the normal month exhausts fails closed as a
+// 30, not 10: at the repaired readback throughput (up to 40 pieces a pass) the account's whole month of reading, drafting and synthesis runs $10 to $15, and a cap the normal month exhausts fails closed as a
 // silent blocked_budget. The ledger stays the authority and every call still reserves before it spends.
 const DEFAULT_CAP_USD = 30;
 
@@ -42,10 +36,8 @@ const DEFAULT_CAP_USD = 30;
 const ONBOARDING_PLATFORM = "onboarding-openai" as const;
 
 /**
- * Slice 5 (Product Truth $2 pre-activation cap): before onboarding completes,
- * Beacon may spend at most this much, TOTAL, for one account. It is a LIFETIME
- * cap (summed across every date), separate from the active account's recurring
- * monthly cap, and it is enforced against the durable ledger only.
+ * Slice 5 (Product Truth $2 pre-activation cap): before onboarding completes, Beacon may spend at most this much, TOTAL, for one account. It is a LIFETIME
+ * cap (summed across every date), separate from the active account's recurring monthly cap, and it is enforced against the durable ledger only.
  */
 const ONBOARDING_LIFETIME_CAP_USD = 2;
 
@@ -53,9 +45,7 @@ const ONBOARDING_LIFETIME_CAP_USD = 2;
 const ADJUDICATOR_PLATFORM = "adjudicator-openai" as const;
 
 /**
- * Durable monthly spend from Supabase for an EXPLICIT account, or null when
- * the DB is unconfigured / read errored (caller falls back to the account's
- * file ledger). Never throws.
+ * Durable monthly spend from Supabase for an EXPLICIT account, or null when the DB is unconfigured / read errored (caller falls back to the account's file ledger). Never throws.
  */
 async function durableMonthlySpentUsd(now: Date, tenantId: string): Promise<number | null> {
   if (!isSupabaseConfigured()) return null;
@@ -102,8 +92,7 @@ async function readState(now: Date, tenantId: string): Promise<AdjudicatorBudget
   const existing = rows[0];
   if (!existing) return emptyState(now);
   const month = currentMonthKey(now);
-  // THE CODE DEFAULT IS A FLOOR: a state stamped under an older, lower default (the 10 that predated 30)
-  // must not keep starving the month after the raise. A cap someone raised ABOVE the default survives.
+  // THE CODE DEFAULT IS A FLOOR: a state stamped under an older, lower default (the 10 that predated 30) must not keep starving the month after the raise. A cap someone raised ABOVE the default survives.
   const capUsd = Math.max(existing.capUsd ?? 0, DEFAULT_CAP_USD);
   if (existing.monthKey !== month) {
     // Month rolled over - reset spend but preserve the cap.
@@ -127,10 +116,8 @@ type BudgetCheckResult =
   | { allowed: false; reason: string };
 
 /**
- * Pure budget-boundary decision (wave-10, 2026-06-14). Blocks when spend is
- * ALREADY at/over the cap, OR when this call's projected cost would push the
- * total OVER it. The first clause makes the cap fail-closed AT the boundary
- * (a zero-projected call at spend == cap must not slip through); the second
+ * Pure budget-boundary decision (wave-10, 2026-06-14). Blocks when spend is ALREADY at/over the cap, OR when this call's projected cost would push the
+ * total OVER it. The first clause makes the cap fail-closed AT the boundary (a zero-projected call at spend == cap must not slip through); the second
  * still lets a KNOWN-cost call land exactly on the cap from below.
  */
 function isOverAdjudicatorBudget(
@@ -149,9 +136,7 @@ export async function checkBudget(
   const state = await readState(now, tenantId);
   const projected = opts.projectedCostUsd ?? 0;
 
-  // audit-3 #1: take the GREATER of this account's file spend and its durable
-  // Supabase monthly spend. On Vercel the file reads back 0 (writes no-op), so
-  // the durable per-account spend is the real total.
+  // audit-3 #1: take the GREATER of this account's file spend and its durable Supabase monthly spend. On Vercel the file reads back 0 (writes no-op), so the durable per-account spend is the real total.
   const durable = await durableMonthlySpentUsd(now, tenantId);
   const effectiveSpend = durable != null ? Math.max(state.spendUsd, durable) : state.spendUsd;
 
@@ -173,8 +158,7 @@ export async function recordSpend(costUsd: number, opts: { tenantId: string; now
   state.updatedAt = now.toISOString();
   await writeState(state, tenantId);
 
-  // Mirror the spend into the durable per-account Supabase ledger so the cap
-  // survives Vercel's ephemeral disk. Never throws; a durable miss only loses
+  // Mirror the spend into the durable per-account Supabase ledger so the cap survives Vercel's ephemeral disk. Never throws; a durable miss only loses
   // cross-run accounting, it never blocks the paid call that already happened.
   if (isSupabaseConfigured() && Number.isFinite(costUsd) && costUsd >= 0) {
     try {
@@ -202,14 +186,10 @@ type OnboardingReservation =
   | { allowed: false; reason: string };
 
 /**
- * The pre-activation onboarding budget guard, as a DURABLE RESERVATION against the
- * $2 lifetime cap. It WRITES first (reserves the projected cost), THEN re-reads the
- * lifetime sum: that write-before-read order is the concurrency mechanism, so a
- * later reader sees every in-flight reservation and two near-cap calls can never
- * both pass. Fail-closed: no durable ledger or an unpersistable reservation REFUSES
- * with no call; a post-reserve sum over the cap (or unreadable) refuses and rolls
- * the reservation back (a rollback miss keeps it: overcount, never undercount). On
- * allow, the caller MUST reconcileOnboardingSpend to settle. Never throws.
+ * The pre-activation onboarding budget guard, as a DURABLE RESERVATION against the $2 lifetime cap. It WRITES first (reserves the projected cost), THEN re-reads the
+ * lifetime sum: that write-before-read order is the concurrency mechanism, so a later reader sees every in-flight reservation and two near-cap calls can never
+ * both pass. Fail-closed: no durable ledger or an unpersistable reservation REFUSES with no call; a post-reserve sum over the cap (or unreadable) refuses and rolls
+ * the reservation back (a rollback miss keeps it: overcount, never undercount). On allow, the caller MUST reconcileOnboardingSpend to settle. Never throws.
  */
 export async function reserveOnboardingSpend(
   projectedCostUsd: number,
@@ -223,8 +203,7 @@ export async function reserveOnboardingSpend(
 
   const spent = await getTenantLifetimeSpendUsd(tenantId, ONBOARDING_PLATFORM).catch(() => null);
   if (spent == null || spent > ONBOARDING_LIFETIME_CAP_USD) {
-    // Over cap (or unreadable): undo this reservation. A rollback miss is fine -
-    // it only overcounts, which fails closed on the next call.
+    // Over cap (or unreadable): undo this reservation. A rollback miss is fine - it only overcounts, which fails closed on the next call.
     await recordSpendSupabase({ tenantId, platform: ONBOARDING_PLATFORM, costUsd: -projected, allowNegative: true }).catch(() => false);
     return {
       allowed: false,
@@ -237,10 +216,8 @@ export async function reserveOnboardingSpend(
 }
 
 /**
- * Settle a prior reservation to the REAL cost by writing the signed delta (actual
- * - reserved) into the durable ledger. A negative delta (cheaper than projected)
- * is a guarded refund; recordSpendSupabase clamps the row at zero. A reconcile-write
- * miss KEEPS the conservative reservation (overcount, never undercount) and logs.
+ * Settle a prior reservation to the REAL cost by writing the signed delta (actual - reserved) into the durable ledger. A negative delta (cheaper than projected)
+ * is a guarded refund; recordSpendSupabase clamps the row at zero. A reconcile-write miss KEEPS the conservative reservation (overcount, never undercount) and logs.
  * Never throws; the paid call already happened.
  */
 export async function reconcileOnboardingSpend(

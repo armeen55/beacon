@@ -107,12 +107,12 @@ export async function saveSetup(data: {
     // Research runs on what you sell and what people should find you for; a save
     // with both blank would confirm empty truth and leave research paused.
     if (splitList(data.offeringsText ?? "").length === 0 && splitList(data.topicsToOwnText ?? "").length === 0) {
-      return { success: false, error: "Tell me what your business sells, provides, or publishes, or what people should find you for. I research from those answers." };
+      return { success: false, error: "Add what your business sells, provides, or publishes, or what people should find you for. The research starts from those answers." };
     }
     // Discovery rules are instructions, so a line I cannot read stops the whole save and says why:
     // half-applying a pin and dropping an exclude would be a quieter lie than refusing.
     const rules = parseCompetitorOverrides(data.competitorRulesText ?? "");
-    if (rules.errors.length > 0) return { success: false, error: `I saved nothing yet. ${rules.errors[0]}` };
+    if (rules.errors.length > 0) return { success: false, error: `Nothing was saved yet. ${rules.errors[0]}` };
     const current = await loadBusinessProfile(tenantId);
     const bt = (data.businessType ?? "").trim() as BusinessType;
     // Rules are sentences, so they split on lines only: a comma inside a rule
@@ -149,7 +149,7 @@ export async function saveSetup(data: {
     if (BUSINESS_TYPES.has(bt)) patch.businessType = confirmed<BusinessType | null>(bt);
     const saved = await saveBusinessProfile(tenantId, patch);
     if (!saved.persisted) {
-      return { success: false, error: "I couldn't save your business details just now. Try again in a moment." };
+      return { success: false, error: "Your business details could not be saved just now. Try again in a moment." };
     }
     revalidatePath("/", "layout");
     revalidatePath("/settings/config");
@@ -160,7 +160,7 @@ export async function saveSetup(data: {
     log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
     // The operator gets the same plain sentence a failed write gets; the raw
     // exception belongs in the log, never on the screen.
-    return { success: false, error: "I couldn't save your business details just now. Try again in a moment." };
+    return { success: false, error: "Your business details could not be saved just now. Try again in a moment." };
   }
 }
 

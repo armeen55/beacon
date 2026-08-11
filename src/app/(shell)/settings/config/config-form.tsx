@@ -4,8 +4,8 @@ import { useState, useTransition } from "react";
 import { saveSetup, type SetupView } from "./actions";
 
 const BUSINESS_TYPE_OPTIONS = [
-  { value: "local_service", label: "A local business (I serve customers in specific places)" },
-  { value: "ecommerce", label: "An online store (I sell products)" },
+  { value: "local_service", label: "A local business (you serve customers in specific places)" },
+  { value: "ecommerce", label: "An online store (you sell products)" },
   { value: "saas", label: "A software product or app" },
   { value: "content_publisher", label: "A publication (articles, guides, an encyclopedia)" },
   { value: "other", label: "Something else" },
@@ -43,25 +43,25 @@ const FIELDS: Array<{ key: keyof SetupView; label: string; hint: string; rows: n
   {
     key: "competitorsText",
     label: "Competitors you already know",
-    hint: `Optional. I also discover competitors from search and AI evidence, so leave this empty if you are not sure. ${LIST_HINT}`,
+    hint: `Optional. Competitors are also discovered from search and AI evidence, so leave this empty if you are not sure. ${LIST_HINT}`,
     rows: 2,
   },
   {
     key: "competitorRulesText",
-    label: "Corrections to the competitors I find",
-    hint: 'Optional. I work out who your competitors are from your search results and AI answers. Correct me one line at a time: "pin example.com", "exclude example.com", or "example.com is a publisher".',
+    label: "Corrections to the competitors found for you",
+    hint: 'Optional. Your competitors are worked out from your search results and AI answers. Correct that one line at a time: "pin example.com", "exclude example.com", or "example.com is a publisher".',
     rows: 3,
   },
   {
     key: "editorialRulesText",
-    label: "Writing or factual rules I must follow",
+    label: "Writing or factual rules to follow",
     hint: "Optional. One rule per line.",
     rows: 3,
   },
   {
     key: "bannedTermsText",
     label: "Forbidden words or claims",
-    hint: `Optional. I reject any draft that uses these. ${LIST_HINT}`,
+    hint: `Optional. Any draft that uses these is rejected. ${LIST_HINT}`,
     rows: 2,
   },
 ];
@@ -135,7 +135,7 @@ export function ConfigForm({ initial }: { initial: SetupView }) {
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
-        <p className={hintCls}>Optional. I research your business the same way either way.</p>
+        <p className={hintCls}>Optional. Your business is researched the same way either way.</p>
       </div>
 
       <div className="flex items-center gap-3">
@@ -148,7 +148,7 @@ export function ConfigForm({ initial }: { initial: SetupView }) {
         </button>
         {status === "saved" && (
           <span className="text-[12px] text-muted-foreground">
-            Saved. This is now your confirmed truth and I research against it.
+            Saved. This is now your confirmed truth, and the research runs against it.
           </span>
         )}
         {status === "error" && <span className="text-[12px] text-red-600">{error}</span>}

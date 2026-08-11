@@ -25,7 +25,7 @@ export function PromptsBody({ prompts }: { prompts: OnboardingState["prompts"] }
     setError(null);
     start(async () => {
       const r = await generateCandidatesAction();
-      if (!("ok" in r) || !r.ok) setError("error" in r ? r.error : "I could not build your questions. Try again.");
+      if (!("ok" in r) || !r.ok) setError("error" in r ? r.error : "Your questions could not be built. Try again.");
       else router.refresh();
     });
   }
@@ -42,13 +42,13 @@ export function PromptsBody({ prompts }: { prompts: OnboardingState["prompts"] }
     return (
       <div className="space-y-5">
         <p className="text-[14px] text-muted-foreground">
-          I will build a broad set of the questions your customers ask AI assistants, then group them by topic and
+          A broad set of the questions your customers ask AI assistants gets built, then grouped by topic and
           recommend between 20 and 50 worth tracking first. You approve whole topics at once, and you can add,
           edit, or drop any question before you do. You never have to read every one.
         </p>
         {error ? <p className="text-[13px] text-rose-600" role="alert">{error}</p> : null}
         <button type="button" onClick={build} disabled={pending} className={BTN}>
-          {pending ? "Building your questions. This takes a moment." : "Build my questions"}
+          {pending ? "Building your questions. This takes a moment." : "Build your questions"}
         </button>
       </div>
     );
@@ -57,7 +57,7 @@ export function PromptsBody({ prompts }: { prompts: OnboardingState["prompts"] }
   return (
     <div className="space-y-5">
       <p className="text-[14px] text-muted-foreground">
-        I built {prompts.candidateCount} questions across {prompts.groups.length} topics and recommend{" "}
+        {prompts.candidateCount} questions built across {prompts.groups.length} topics, recommending{" "}
         {prompts.recommendedCount} to track first. Approve the whole recommendation, approve a topic at a time, or
         open a topic to pick, edit, and add your own. There is no need to read all {prompts.candidateCount}.
       </p>
@@ -69,7 +69,7 @@ export function PromptsBody({ prompts }: { prompts: OnboardingState["prompts"] }
         mode="onboarding"
         busy={pending}
         error={error}
-        submitLabel="Approve my selection"
+        submitLabel="Approve this selection"
         onSubmit={(s) => submit({
           approvedIds: s.keepIds,
           edits: s.edits.map((e) => ({ fromId: e.id, text: e.newText })),
@@ -77,7 +77,7 @@ export function PromptsBody({ prompts }: { prompts: OnboardingState["prompts"] }
         })}
         extraActions={
           <button type="button" onClick={() => submit({ useRecommendedDefault: true })} disabled={pending} className={GHOST}>
-            Approve the {prompts.recommendedCount} I recommend
+            Approve the {prompts.recommendedCount} recommended
           </button>
         }
       />

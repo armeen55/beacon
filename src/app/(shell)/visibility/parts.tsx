@@ -69,7 +69,7 @@ function TrendChart({ chart, height = H }: { chart: Chart; height?: number }) {
   const prior = chart.prior && chart.prior.length === values.length ? chart.prior : null;
   const real = [...values, ...(prior ?? [])].filter((v): v is number => v != null);
   if (real.length === 0) {
-    return <p className="px-1 py-6 text-[13px] text-muted-foreground">I have not read a single day in this stretch closely enough to draw a line. I never draw one out of nothing.</p>;
+    return <p className="px-1 py-6 text-[13px] text-muted-foreground">Not one day in this stretch has been read closely enough to draw a line. A line is never drawn out of nothing.</p>;
   }
   const max = chart.percent ? Math.max(0.1, Math.min(1, Math.max(...real) * 1.25)) : Math.max(1, ...real) * 1.1;
   const fmt = (v: number): string => chart.percent ? `${Math.round(v * 100)}%` : Math.round(v).toLocaleString("en-US");
@@ -111,7 +111,7 @@ function TrendChart({ chart, height = H }: { chart: Chart; height?: number }) {
       <figcaption className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-1.5"><span className="inline-block h-0.5 w-4 rounded" style={{ background: "var(--color-chart-1)" }} />{chart.label}</span>
         {prior && chart.priorLabel ? <span className="inline-flex items-center gap-1.5"><span className="inline-block h-0 w-4 border-t-2 border-dashed border-current opacity-40" />{chart.priorLabel}</span> : null}
-        {values.some((v) => v == null) ? <span>A day I have nothing to compute this from leaves a gap. I never fill one in.</span> : null}
+        {values.some((v) => v == null) ? <span>A day with nothing to compute this from leaves a gap. A gap is never filled in.</span> : null}
       </figcaption>
     </figure>
   );

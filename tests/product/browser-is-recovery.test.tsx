@@ -66,7 +66,7 @@ describe("Update data is one recovery press", () => {
   it("says what it does in ONE short sentence, and never that research needs this button or an open tab", async () => {
     const el = await mount(<RefreshMyDataButton connectedCount={2} />);
     const copy = el.textContent ?? "";
-    expect(copy).toContain("I pull your latest numbers now, and my daily round runs on its own either way.");
+    expect(copy).toContain("Pulls your latest numbers now, and the daily round runs on its own either way.");
     expect(copy.split(".").filter((s) => s.trim().length > 0)).toHaveLength(1); // one sentence under the button, never a paragraph
     expect(copy).not.toMatch(/[–—]/);
   });
@@ -93,14 +93,14 @@ describe("the pause switch over daily research", () => {
       await unmount();
       const copy = (await mount(<ResearchPause paused={paused} />)).textContent ?? "";
       // The one question a customer cannot answer for themselves: do I lose the days I skipped?
-      expect(copy).toContain("Days I was paused stay blank, and I pick up from today.");
+      expect(copy).toContain("Paused days stay blank, and research picks up from today.");
       expect(copy).not.toMatch(/[–—]/);
       expect(copy.toLowerCase()).not.toMatch(/experiment|control group|baseline|treatment|serp/);
     }
     // Deleting is the fear pausing raises; the paused state answers it outright.
     await unmount();
     expect((await mount(<ResearchPause paused />)).textContent)
-      .toContain("nothing I already found was deleted");
+      .toContain("nothing already found was deleted");
   });
   it("keeps the old state on screen when the save fails, and says so", async () => {
     calls.setOk = false;
@@ -108,6 +108,6 @@ describe("the pause switch over daily research", () => {
     await press(el.querySelector("button")!);
     // A switch that flips on a failed write is a lie the operator acts on for the rest of the day.
     expect(el.textContent).toContain("Daily research is on.");
-    expect(el.textContent).toContain("I could not save that just now; try again in a minute.");
+    expect(el.textContent).toContain("That could not be saved just now; try again in a minute.");
   });
 });

@@ -39,11 +39,11 @@ export function ResearchPause({ paused: initial }: { paused: boolean }) {
       <p className="text-[13px] font-semibold text-foreground">Daily research</p>
       <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
         {paused
-          ? "Daily research is paused. I am not starting anything new, and nothing I already found was deleted."
-          : "Daily research is on. I check your site once a day on my own, so you do not need to leave Beacon open."}
+          ? "Daily research is paused. Nothing new starts, and nothing already found was deleted."
+          : "Daily research is on. Your site is checked once a day automatically, so you do not need to leave Beacon open."}
       </p>
       <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
-        Days I was paused stay blank, and I pick up from today.
+        Paused days stay blank, and research picks up from today.
       </p>
       <div className="mt-3 flex items-center gap-3">
         <button
@@ -57,7 +57,7 @@ export function ResearchPause({ paused: initial }: { paused: boolean }) {
         </button>
         {failed && (
           <span className="text-[12px] text-status-danger">
-            I could not save that just now; try again in a minute.
+            That could not be saved just now; try again in a minute.
           </span>
         )}
       </div>

@@ -21,7 +21,7 @@ export const SETTINGS_SECTIONS = [
   {
     href: "/settings/config",
     label: "Business info",
-    description: "Your business details and the questions I track across AI assistants.",
+    description: "Your business details and the questions tracked across AI assistants.",
   },
 ] as const;
 

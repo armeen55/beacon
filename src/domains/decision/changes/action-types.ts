@@ -1,17 +1,13 @@
 /**
  * Action type taxonomy (CORE 100K collapse, 2026-07-22).
  *
- * The typed-edit vocabulary an edit can carry (`recommended_edits.action_type`,
- * `changelog_entries.action_type`). The old 835-line registry (per-type spec map,
- * generatorActive flags, element-domain validation, pushability metadata) is
- * retired: the Decision kernel proposes and validates `ChangeProposal`s directly,
- * so nothing consumed the spec apparatus any longer. What remains is the live
- * surface: the union itself, the indexing-directive predicate, and the
+ * The typed-edit vocabulary an edit can carry (`recommended_edits.action_type`, `changelog_entries.action_type`). The old 835-line registry (per-type spec map,
+ * generatorActive flags, element-domain validation, pushability metadata) is retired: the Decision kernel proposes and validates `ChangeProposal`s directly,
+ * so nothing consumed the spec apparatus any longer. What remains is the live surface: the union itself, the indexing-directive predicate, and the
  * operator-locked HOLD caveat. PURE TYPES + CONSTANTS. Server and client safe.
  */
 
-// The universe of valid action-type identifiers: the exact string vocabulary
-// persisted rows carry.
+// The universe of valid action-type identifiers: the exact string vocabulary persisted rows carry.
 
 export type ActionType =
   | "edit_title"
@@ -55,8 +51,7 @@ export type ActionType =
   | "submit_to_industry_directory"
   | "pursue_local_pr";
 
-// The crawl/index directives: types whose proposed value can deindex a page
-// (robots, meta noindex, canonical, redirect/status). Purely additive technical
+// The crawl/index directives: types whose proposed value can deindex a page (robots, meta noindex, canonical, redirect/status). Purely additive technical
 // edits (sitemap publish, schema, internal links, page-experience) are excluded.
 const INDEXING_DIRECTIVE_ACTION_TYPES: ReadonlySet<ActionType> = new Set<ActionType>([
   "fix_robots",
@@ -66,10 +61,8 @@ const INDEXING_DIRECTIVE_ACTION_TYPES: ReadonlySet<ActionType> = new Set<ActionT
 ]);
 
 /**
- * True when the action type's directive changes crawling/indexing. Surfaces use
- * this to render the indexing-safety caveat and suppress the one-tap Accept CTA.
- * Pure; accepts null/undefined (returns false) so callers can pass an optional
- * row field without a guard.
+ * True when the action type's directive changes crawling/indexing. Surfaces use this to render the indexing-safety caveat and suppress the one-tap Accept CTA.
+ * Pure; accepts null/undefined (returns false) so callers can pass an optional row field without a guard.
  */
 export function isIndexingDirectiveActionType(
   actionType: ActionType | null | undefined,
@@ -78,33 +71,31 @@ export function isIndexingDirectiveActionType(
 }
 
 /**
- * Plain-English HOLD framing shown next to an indexing/crawling directive.
- * Operator-locked copy (#310; destructive-action audit 2026-07-20). A HELD-FOR-
+ * Plain-English HOLD framing shown next to an indexing/crawling directive. Operator-locked copy (#310; destructive-action audit 2026-07-20). A HELD-FOR-
  * REVIEW notice, not a paste-ready caption. Beacon voice, no dashes.
  */
 export const INDEXING_DIRECTIVE_CAVEAT =
-  "This changes how search engines index this page. Double check the exact value before you touch it; a wrong value can remove this page from Google, so I hold it for review instead of making it one tap.";
+  "This changes how search engines index this page. Double check the exact value before you touch it; a wrong value can remove this page from Google, so it is held for review instead of being one tap.";
 
 /**
- * WHAT I DID TO THIS PAGE, as a sentence, from the slug the ledger actually stores. A row's action type is a
- * change-family key ("section_add"), not English, and pasting it into "I changed the ..." printed "I changed
- * the section add" on the operator's own Measuring lane. Every family that reads as broken English when it is
- * glued to an article is written out here in full; anything unmapped keeps the generic derivation the caller
- * already has, so a slug I have never seen still renders as words rather than blowing up.
+ * WHAT WAS DONE TO THIS PAGE, as a sentence, from the slug the ledger actually stores. A row's action type is a
+ * change-family key ("section_add"), not English, and gluing it to an article printed "the section add" on the
+ * operator's own Measuring lane. Every family that reads as broken English that way is written out here in
+ * full; anything unmapped keeps the caller's generic derivation, so an unknown slug still renders as words.
  */
 const CHANGE_SENTENCE: Record<string, string> = {
-  title: "I rewrote the page title", meta: "I rewrote the description", h1: "I rewrote the main heading",
-  opening_answer: "I rewrote the opening answer", answer_block: "I rewrote the opening answer",
-  section: "I rewrote a section", section_add: "I added a section", section_remove: "I removed a section",
-  section_rewrite: "I rewrote a section", paragraph_correction: "I corrected a paragraph",
-  restructure: "I reordered the page", full_rewrite: "I rewrote the whole page", new_page: "I published a new page",
-  create_page: "I published a new page", factual_correction: "I corrected a fact",
-  source_update: "I updated the sources", source_pack: "I added sources", entity_expansion: "I named what was missing",
-  table_or_list_add: "I added a table", internal_links: "I changed the internal links",
-  internal_link_add: "I added an internal link", internal_link_remove: "I removed an internal link",
-  anchor_text: "I changed the link wording", schema: "I changed the schema markup", canonical: "I changed the canonical address",
-  redirect: "I added a redirect", noindex: "I changed the indexing rule", consolidation: "I merged pages",
-  navigation: "I changed the navigation", faq: "I changed the FAQ",
+  title: "The page title was rewritten", meta: "The description was rewritten", h1: "The main heading was rewritten",
+  opening_answer: "The opening answer was rewritten", answer_block: "The opening answer was rewritten",
+  section: "A section was rewritten", section_add: "A section was added", section_remove: "A section was removed",
+  section_rewrite: "A section was rewritten", paragraph_correction: "A paragraph was corrected",
+  restructure: "The page was reordered", full_rewrite: "The whole page was rewritten", new_page: "A new page was published",
+  create_page: "A new page was published", factual_correction: "A fact was corrected",
+  source_update: "The sources were updated", source_pack: "Sources were added", entity_expansion: "What was missing got named",
+  table_or_list_add: "A table was added", internal_links: "The internal links changed",
+  internal_link_add: "An internal link was added", internal_link_remove: "An internal link was removed",
+  anchor_text: "The link wording changed", schema: "The schema markup changed", canonical: "The canonical address changed",
+  redirect: "A redirect was added", noindex: "The indexing rule changed", consolidation: "Pages were merged",
+  navigation: "The navigation changed", faq: "The FAQ changed",
 };
 
 /** The sentence for one stored action type, or null when nothing is mapped and the caller's own fallback wins. */

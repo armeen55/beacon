@@ -56,8 +56,8 @@ export default async function ProofPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Results</h1>
           <p className="mt-1 text-[14px] text-muted-foreground">
-            Every change you have made and whether it helped. I compare each page to how it did
-            before, and to similar pages you did not change. These are honest directional reads, not
+            Every change you have made and whether it helped. Each page is compared to how it did
+            before, and to similar pages that were not changed. These are honest directional reads, not
             proof of cause.
           </p>
           {reads.length > 0 && checkedAgo ? (
@@ -78,27 +78,27 @@ export default async function ProofPage({
 
       {surface.unavailable ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-6 text-[13px] text-amber-800" data-results-unavailable="true">
-          I could not read your measured changes just now, so I am not telling you there are none. Reload this
-          page and I will read them again.
+          Your measured changes could not be read just now, so none is not the answer. Reload this
+          page to read them again.
         </div>
       ) : reads.length === 0 ? (
         <div className="rounded-lg border border-border-subtle bg-surface-raised px-4 py-6 text-[13px] text-muted-foreground">
-          No changes are being measured yet. Record a change below and I will check how it does over
+          No changes are being measured yet. Record a change below to check how it does over
           the next 7, 14, and 28 days against similar pages.
         </div>
       ) : (
         <>
           {bundles.length > 0 ? <BundleCallouts bundles={bundles} /> : null}
           <Band title="Wins" tone="text-emerald-700" shipments={bands.won} blurb={winsBlurb} />
-          <Band title="Promising" tone="text-emerald-600" shipments={bands.promising} blurb="These are moving up, but their 28 day window has not closed yet. I will call them when it does." />
-          <Band title="What I learned" tone="text-foreground/70" shipments={bands.learned} blurb="These settled without a clear gain. That tells us which lever to try next on pages like these." />
+          <Band title="Promising" tone="text-emerald-600" shipments={bands.promising} blurb="These are moving up, but their 28 day window has not closed yet. Each gets called when it does." />
+          <Band title="What these taught" tone="text-foreground/70" shipments={bands.learned} blurb="These settled without a clear gain. That tells us which lever to try next on pages like these." />
           <Band title="Still measuring" tone="text-muted-foreground" shipments={bands.measuring} blurb="Still collecting data or waiting on Google. Nothing to do here until a read lands." />
         </>
       )}
 
       <details className="my-6 rounded-xl border border-border-subtle bg-surface-raised px-3 py-2.5">
         <summary className="cursor-pointer text-[13px] font-medium text-muted-foreground hover:text-foreground">
-          Record a change I did not track
+          Record a change Beacon did not track
         </summary>
         <div className="mt-3">
           <RecordAnyPageForm initialPage={initialPage} />

@@ -35,7 +35,7 @@ function QueueSlot({ view }: { view: ChangesView }) {
     if (view.surfaceBuilding) {
       return (
         <div className="space-y-2 rounded-2xl border border-border bg-surface-raised p-6">
-          <HonestDelay message={"I'm putting your ranked changes together for the first time. Beacon is checking again automatically."} />
+          <HonestDelay message={"Your ranked changes are being put together for the first time. Beacon is checking again automatically."} />
           <div className="h-9 animate-pulse rounded-lg bg-surface-inset/50" />
           <div className="h-9 animate-pulse rounded-lg bg-surface-inset/50" />
         </div>
@@ -44,7 +44,7 @@ function QueueSlot({ view }: { view: ChangesView }) {
     // A bar I could not READ is not a bar I raised, so that case says what actually happened.
     if (view.demotedStaleBasis > 0) {
       return view.basisUnreadable ? (
-        <HonestDelay message="I could not confirm which of your saved ideas still hold just now. Beacon is checking again automatically." />
+        <HonestDelay message="Which of your saved ideas still hold could not be confirmed just now. Beacon is checking again automatically." />
       ) : (
         <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-6 text-[13px] leading-relaxed text-muted-foreground">
           {setAsideHint()}
@@ -53,9 +53,9 @@ function QueueSlot({ view }: { view: ChangesView }) {
     }
     return (
       <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-6 text-[13px] leading-relaxed text-muted-foreground">
-        I have no edit ready for you yet, and the drawer at the bottom says what I am doing about that.{" "}
+        No edit is ready for you yet, and the drawer at the bottom says what is being done about that.{" "}
         <Link href="/settings/connectors" className="underline underline-offset-2">Connecting Google Search Console</Link>{" "}
-        gets me there faster.
+        gets you there faster.
       </p>
     );
   }
@@ -65,7 +65,7 @@ function QueueSlot({ view }: { view: ChangesView }) {
     <div className="space-y-4">
       {rankedAgo ? (
         <p className="text-meta text-muted-foreground tabular-nums">
-          I ranked these {rankedAgo}. I refresh them in the background.
+          Ranked {rankedAgo}. Refreshes in the background.
         </p>
       ) : null}
       <ChangesListClient view={view} />
@@ -125,7 +125,7 @@ export async function ChangesSection() {
   const view = raced.data;
   // A RELEASE I COULD NOT READ IS NOT AN EMPTY QUEUE AND NOT A FIRST-EVER LOAD.
   if (view.proposals.length === 0 && view.releaseUnreadable) {
-    return <HonestDelay message="I could not read your saved changes just now, so I am not showing you an empty list. Beacon is checking again automatically." />;
+    return <HonestDelay message="Your saved changes could not be read just now, so no empty list is shown. Beacon is checking again automatically." />;
   }
   const lanes = await loadLanes(await currentTenantId()).catch(() => null);
   return (
@@ -162,7 +162,7 @@ export default async function WorklistPage() {
     <div className="max-w-5xl space-y-6">
       <PageHeader
         title="Changes"
-        description="Every edit I have for your site, in one ranked list, biggest payoff first. Make one, mark it done, and I measure that page against the pages you did not change."
+        description="Every edit ready to make on your site, ranked by payoff. Make one, mark it done, and the page is measured against pages that were not changed."
       />
       <Suspense fallback={<ChangesListFallback />}>
         <ChangesSection />

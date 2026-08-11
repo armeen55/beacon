@@ -58,16 +58,16 @@ export function recentUpkeepSentence(row: RefreshRunRow): string | null {
   if (label === null) return null;
   const dataThrough = row.latest_data_date ? shortDateLabel(row.latest_data_date) : null;
   if (row.result === "failed") {
-    return `The ${label} pull did not work. I keep retrying.`;
+    return `The ${label} pull did not work. Retrying continues.`;
   }
   if (row.result === "partial") {
     return `The ${label} pull ran but found no new data${dataThrough ? ` since ${dataThrough}` : ""}.`;
   }
   if (row.rows_persisted != null && row.rows_persisted > 0) {
     const rows = row.rows_persisted.toLocaleString("en-US");
-    return `I pulled fresh ${label} data: ${rows} row${row.rows_persisted === 1 ? "" : "s"}${dataThrough ? ` through ${dataThrough}` : ""}.`;
+    return `Pulled fresh ${label} data: ${rows} row${row.rows_persisted === 1 ? "" : "s"}${dataThrough ? ` through ${dataThrough}` : ""}.`;
   }
-  return `I checked ${label}. Nothing new${dataThrough ? ` since ${dataThrough}` : ""}.`;
+  return `Checked ${label}. Nothing new${dataThrough ? ` since ${dataThrough}` : ""}.`;
 }
 
 export type RecentUpkeepEntry = {

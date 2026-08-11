@@ -6,9 +6,10 @@ This file holds only Claude-specific rules.
 (`foundation-budget.json`) mechanically caps LOC, routes, domains, file sizes, deps, public exports, and
 Markdown. No new top-level domain, customer route, dependency, or Markdown plan/report without operator
 approval. One customer outcome per task. See AGENTS.md for the numeric budgets and the 8-field feature rule.
-**Beacon voice** (every operator-facing string): first person ("I checked"); a concrete number when one
-exists; always a next step; never a raw lab word (experiment, control, baseline, treatment, SERP) on a
-primary surface; wins in one sentence; misses owned plainly; no hedging; **no em or en dashes ever**.
+**Beacon voice** (amended by the operator 2026-08-11): NO first person, the product is not a person.
+Subjectless verbs, plain facts ("Ranked 22 minutes ago", "Backed by 15 checks"); imperatives for operator
+instructions; a concrete number when one exists; always a next step; never a raw lab word (experiment,
+control, baseline, treatment, SERP) on a primary surface; wins in one sentence; no hedging; **no em or en dashes ever**.
 
 **Operator-journey rule (before marking ANY feature complete):** code green is not done. Walk the surface on
 the rendered app with real tenant data as a smart non-technical customer — "what is this telling me / what do
@@ -24,7 +25,6 @@ coherent step), push `origin/main`, deploy, verify the exact prod SHA. Not "done
 before** destructive ops (file/branch deletion, `rm -rf`, force-push, `git reset --hard`), Supabase data
 deletion, hosted env-var changes, schema-dropping migrations, or over-budget paid runs. Report what was
 committed / pushed (SHAs) / deployed / verified; truth-up if a step could not run here.
-
 **Supabase:** agents own all Supabase work through the MCP / management connection (ref `vlxwevsdvwxvopkjsewo`);
 never print secrets; pause for a human only when Supabase itself needs a login the agent cannot perform.
 

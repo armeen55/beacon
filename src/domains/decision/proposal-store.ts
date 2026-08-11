@@ -155,8 +155,7 @@ function decode(payload: unknown): ChangeProposal | null {
 
 const rowFor = (p: ChangeProposal, ident: Identity, version: number): Record<string, unknown> => ({
   id: p.id, tenant_id: p.tenantId, ...ident, proposal_version: version, basis: p.basis ?? null,
-  // A ROW THAT CHANGED IS NO LONGER WHERE THE LAST RANKING PUT IT, so its stamp clears here and the next
-  // release build gives it a fresh position. A paged lane can never serve a change that has moved on.
+  // A ROW THAT CHANGED IS NO LONGER WHERE THE LAST RANKING PUT IT, so its stamp clears here and the next release build gives it a fresh position. A paged lane can never serve a change that has moved on.
   status: p.status, terminal_disposition: null, superseded_by: null, queue_lane: null, queue_rank: null,
   payload: JSON.parse(serializeChangeProposal(p)) as unknown,
   decision_receipt: decisionReceipt(p), ranking_receipt: p.rankingReceipt ?? null, updated_at: new Date().toISOString(),
@@ -180,8 +179,7 @@ async function setDisposition(
  *  before. Writes nothing when the stored row already says exactly this. Never throws. */
 export async function saveChangeProposal(proposal: ChangeProposal): Promise<SaveResult> {
   if (!proposal.tenantId || !proposal.id) return "failed";
-  // Every real id is minted `${tenantId}::...` by this kernel. An id wearing another account's prefix is a
-  // crafted call an id-keyed upsert would land on that account's row, so it is refused before any read.
+  // Every real id is minted `${tenantId}::...` by this kernel. An id wearing another account's prefix is a crafted call an id-keyed upsert would land on that account's row, so it is refused before any read.
   if (!proposal.id.startsWith(`${proposal.tenantId}::`)) {
     log.error("[proposal-store] the id does not belong to this account, so nothing is saved", { tenantId: proposal.tenantId, id: proposal.id });
     return "failed";
@@ -198,36 +196,29 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<Save
       return "failed";
     }
     const rows = (data ?? []) as CanonRow[];
-    // This id may have been filed under a DIFFERENT family last time (a bundle whose
-    // components changed), so it is looked up by id as well before anything is written.
+    // This id may have been filed under a DIFFERENT family last time (a bundle whose components changed), so it is looked up by id as well before anything is written.
     const mine = rows.find((r) => r.id === proposal.id) ?? (await rowById(proposal.tenantId, proposal.id));
     const current = rows.find((r) => r.terminal_disposition == null) ?? null;
 
-    // A CHANGE PUT AWAY STAYS AWAY, and a draft I WITHDREW stays withdrawn, UNTIL THE EVIDENCE MOVES: same
-    // basis AND the same readings underneath. The basis fingerprints the ACCOUNT, so basis alone held a row
-    // shut through a whole generation while the readings under it changed completely, and the redraft the
-    // moved evidence had earned was answered "refused" forever. A retired row whose evidence no longer
-    // matches has been overtaken and no longer speaks for this one. ASK EVERY RETIRED ROW, not whichever
-    // came back first, or an older dismissal sorting first lets a dismissed page be re-drafted; a row that
+    // A CHANGE PUT AWAY STAYS AWAY, and a draft I WITHDREW stays withdrawn, UNTIL THE EVIDENCE MOVES: same basis AND the same readings underneath. The basis fingerprints the ACCOUNT, so basis alone held a row
+    // shut through a whole generation while the readings under it changed completely, and the redraft the moved evidence had earned was answered "refused" forever. A retired row whose evidence no longer
+    // matches has been overtaken and no longer speaks for this one. ASK EVERY RETIRED ROW, not whichever came back first, or an older dismissal sorting first lets a dismissed page be re-drafted; a row that
     // will not decode keeps its refusal, because an unreadable answer is not a moved one.
     if ([mine, ...rows].some((r) => { const d = r?.terminal_disposition ?? null;
       if ((d !== "dismissed" && d !== "withdrawn") || (r!.basis ?? null) !== (proposal.basis ?? null)) return false;
       const stored = decode(r!.payload);
       return !stored || evidenceFingerprint(stored) === evidenceFingerprint(proposal); })) return "refused";
 
-    // Nothing material changed: no write, no new timestamp, so a refreshed surface never
-    // reads yesterday's thinking as today's work.
+    // Nothing material changed: no write, no new timestamp, so a refreshed surface never reads yesterday's thinking as today's work.
     if (mine && mine.terminal_disposition == null) {
       const stored = decode(mine.payload);
       if (stored && proposalFingerprint(stored) === proposalFingerprint(proposal)) return "unchanged";
     }
 
     const version = (mine?.proposal_version ?? current?.proposal_version ?? 0) + 1;
-    // One identity, one current row: the predecessor steps aside BEFORE the successor
-    // lands, because the index will not hold both at once.
+    // One identity, one current row: the predecessor steps aside BEFORE the successor lands, because the index will not hold both at once.
     const handover = current && current.id !== proposal.id ? current : null;
-    // A CHANGE THE OPERATOR ALREADY MADE IS NOT MINE TO RETIRE: pushing an implemented row into history
-    // mid-measurement orphans the proof. Only a row still waiting on them may step aside.
+    // A CHANGE THE OPERATOR ALREADY MADE IS NOT MINE TO RETIRE: pushing an implemented row into history mid-measurement orphans the proof. Only a row still waiting on them may step aside.
     const holdingStatus = handover?.status ?? null;
     if (handover && holdingStatus !== "ready" && holdingStatus !== "needs_review") {
       log.info("[proposal-store] this page already carries a change I am measuring, so the new draft is not saved", {
@@ -235,8 +226,7 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<Save
       return "blocked";
     }
     if (handover) {
-      // ONE database operation: guard, step-aside and landing commit together or not at all, so a crash
-      // mid-handover never leaves this hypothesis with no current answer. The scoping proof is made first.
+      // ONE database operation: guard, step-aside and landing commit together or not at all, so a crash mid-handover never leaves this hypothesis with no current answer. The scoping proof is made first.
       log.info("[proposal-store] superseding", { id: handover.id, by: proposal.id, version });
       const row = rowFor(proposal, ident, version);
       assertRowsScopedToTenant([row as { tenant_id?: string | null }], proposal.tenantId, TABLE);
@@ -375,8 +365,7 @@ export async function readQueuePage(
     const release = ((head ?? []) as Array<{ queue_lane: string | null }>)
       .map((r) => (r.queue_lane ?? "").split("::")[0] ?? "").find((s) => s.length > 0) ?? null;
     if (release == null) return nothing;
-    // EVERY FILTER THE QUEUE OWES IS ASKED HERE: this account, the bar it holds right now, still waiting on
-    // the operator, and the lane of the ranking that is live. Nothing is filtered after the fact.
+    // EVERY FILTER THE QUEUE OWES IS ASKED HERE: this account, the bar it holds right now, still waiting on the operator, and the lane of the ranking that is live. Nothing is filtered after the fact.
     const scoped = (cols: string, count?: { count: "exact"; head: true }) => sb.from(TABLE).select(cols, count)
       .eq("tenant_id", tenantId).eq("queue_lane", `${release}::${lane}`).eq("basis", basis).is("terminal_disposition", null);
     const [counted, page] = await Promise.all([
@@ -387,8 +376,7 @@ export async function readQueuePage(
     if (page.error) throw new Error(page.error.message);
     const read = (page.data ?? []) as unknown as Array<CanonRow & { queue_rank: number }>;
     const rows: ChangeProposal[] = [];
-    // THE SAME ANSWER THE FIRST SCREEN GIVES. Position, lane and basis are stamped once and read for weeks,
-    // so a change whose own receipt stopped resolving kept paging out of a ranking taken when it still did.
+    // THE SAME ANSWER THE FIRST SCREEN GIVES. Position, lane and basis are stamped once and read for weeks, so a change whose own receipt stopped resolving kept paging out of a ranking taken when it still did.
     for (const r of read) {
       if (r.terminal_disposition != null) continue;
       const p = decode(r.payload);
@@ -396,8 +384,7 @@ export async function readQueuePage(
     }
     // `more` is what the DATABASE said, never count arithmetic: a short raw page means the lane is exhausted.
     // The count is what the lane holds LESS what this page just refused, never the raw stamp: offering to show
-    // more of a number that includes changes I will not hand over is a promise the next press cannot keep.
-    // `dropped` carries this page.s refusals on, so the caller takes DEEPER ones off the same count as it
+    // more of a number that includes changes I will not hand over is a promise the next press cannot keep. `dropped` carries this page.s refusals on, so the caller takes DEEPER ones off the same count as it
     // learns of them. No scan: I only ever subtract what I have actually read.
     return { rows, dropped: read.length - rows.length, release,
       total: Math.max(rows.length, (counted.count ?? rows.length) - (read.length - rows.length)),
@@ -423,8 +410,7 @@ export async function loadChangeProposals(tenantId: string, historyLimit = 500):
   const sb = getSupabaseAdmin();
   let canonical = false;
   try {
-    // THE QUEUE READ ASKS FOR THE QUEUE: filtering in memory let superseded versions push real work off the
-    // end. PAGES ADVANCE BY CURSOR, never offset, and the cursor rides the id ALONE because the id never
+    // THE QUEUE READ ASKS FOR THE QUEUE: filtering in memory let superseded versions push real work off the end. PAGES ADVANCE BY CURSOR, never offset, and the cursor rides the id ALONE because the id never
     // moves: a save rewrites updated_at, and a cursor on a moving column skips the row that jumped the fence.
     let after: string | null = null;
     while (out.size < QUEUE_CEILING) {
@@ -437,8 +423,7 @@ export async function loadChangeProposals(tenantId: string, historyLimit = 500):
         break; }
       canonical = true;
       const page = (data ?? []) as CanonRow[];
-      // A pre-rename `rejected` row has no stored disposition, so the database filter above still hands it
-      // over; the bridge is what knows that word meant Beacon took the draft back.
+      // A pre-rename `rejected` row has no stored disposition, so the database filter above still hands it over; the bridge is what knows that word meant Beacon took the draft back.
       for (const r of page) {
         if (r.terminal_disposition != null) continue;
         const proposal = decode(r.payload);
@@ -453,8 +438,7 @@ export async function loadChangeProposals(tenantId: string, historyLimit = 500):
     log.error("[proposal-store] canonical read threw, showing history only", {
       tenantId, error: e instanceof Error ? e.message : String(e) });
   }
-  // HISTORY IS NEVER RESURRECTED. A legacy row may only fill an id the canonical table never heard of, so a
-  // row it holds as retired cannot come back. A failed canonical read has nothing to check against.
+  // HISTORY IS NEVER RESURRECTED. A legacy row may only fill an id the canonical table never heard of, so a row it holds as retired cannot come back. A failed canonical read has nothing to check against.
   const legacy = (await readLegacy(tenantId, historyLimit)).filter((r) => !out.has(r.id));
   const retired = canonical && legacy.length > 0 ? await idsOnFile(tenantId, legacy.map((r) => r.id)) : new Set<string>();
   for (const row of legacy) {

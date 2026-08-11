@@ -119,7 +119,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   persistence_failed:
     "Authorization succeeded but Beacon could not save the connection. Please try again, or contact support if it persists.",
   env_missing:
-    "I cannot start the Google connection right now. This one is on my side. Try again in a few minutes.",
+    "The Google connection cannot start right now. This one is on Beacon's side. Try again in a few minutes.",
   // #213, the callback emits ?error=not_authorized when Google grants
   // but the signed-in user isn't a member of the connecting account.
   // Pre-fix this fell through to the raw "Connection error: not_authorized".
@@ -130,12 +130,12 @@ const ERROR_MESSAGES: Record<string, string> = {
   // nothing. The fix that always works: revoke Beacon's access on the Google
   // side, then connect again so Google issues fresh ongoing access.
   refresh_token_missing:
-    "Google did not give me ongoing access, so I kept everything unchanged. Click Connect to try again. If this happens twice, open myaccount.google.com/permissions, remove Beacon's access for this Google account, then click Connect again.",
+    "Google did not grant ongoing access, so everything was left unchanged. Click Connect to try again. If this happens twice, open myaccount.google.com/permissions, remove Beacon's access for this Google account, then click Connect again.",
   // Per-tenant OAuth replace semantics (2026-07-09): a replacement picked a
   // DIFFERENT Google account but Google gave no ongoing access for it, so the
   // existing connection stays exactly as it was.
   account_mismatch:
-    "That is a different Google account, and Google did not give me ongoing access for it, so I kept your current connection unchanged. To switch accounts, open myaccount.google.com/permissions signed in as the new account, remove Beacon's access, then click Replace Google account again.",
+    "That is a different Google account, and Google did not grant ongoing access for it, so your current connection was left unchanged. To switch accounts, open myaccount.google.com/permissions signed in as the new account, remove Beacon's access, then click Replace Google account again.",
 };
 
 // #213, friendly catch-all for any error code we don't have explicit copy
@@ -214,7 +214,7 @@ function RefreshLedgerLine({ fact }: { fact?: RefreshLedgerFact }) {
       ? ""
       : fact.result === "partial"
         ? " No new data came back that time."
-        : " That pull did not work; I will try again on my own.";
+        : " That pull did not work; it gets tried again automatically.";
   const tone =
     fact.result === "failed"
       ? "text-status-warning"
@@ -528,7 +528,7 @@ export function ConnectorsClient({
           setResult({ ok: false, text: result.error ?? "Sync failed." });
         }
       } catch {
-        setResult({ ok: false, text: "I could not finish that just now. Try again in a moment." });
+        setResult({ ok: false, text: "That could not finish just now. Try again in a moment." });
       } finally {
         setPending(false);
       }
@@ -580,9 +580,9 @@ export function ConnectorsClient({
         </p>
       ) : null}
       <p className="text-[12px] text-muted-foreground leading-relaxed">
-        Once a source is connected I read it in the background and turn what
-        I find into exact changes to make. I never touch your live site. You
-        apply each change in your CMS and mark it implemented, then I measure
+        Once a source is connected it is read in the background and turned
+        into exact changes to make. Your live site is never touched. You
+        apply each change in your CMS and mark it implemented, then the page
         the lift.
       </p>
 
@@ -680,7 +680,7 @@ export function ConnectorsClient({
               disabled={gscSyncPending || isPending}
               className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
             >
-              {gscSyncPending ? "Syncing…" : "Pull my Search Console data"}
+              {gscSyncPending ? "Syncing…" : "Pull your Search Console data"}
             </button>
             {/* Per-tenant OAuth (2026-07-09): swap the Google account behind
                 this live connection. Google shows the account chooser and
@@ -691,7 +691,7 @@ export function ConnectorsClient({
               onClick={() => handleReplaceGoogle("gsc")}
               disabled={isPending}
               className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-              title="Pick a different Google account for Search Console. I keep the current connection until the new account grants access."
+              title="Pick a different Google account for Search Console. The current connection is kept until the new account grants access."
             >
               Replace Google account
             </button>
@@ -866,7 +866,7 @@ export function ConnectorsClient({
                 disabled={ga4SyncPending || isPending}
                 className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
               >
-                {ga4SyncPending ? "Syncing…" : "Pull my data now"}
+                {ga4SyncPending ? "Syncing…" : "Pull your data now"}
               </button>
             ) : null}
             {/* Per-tenant OAuth (2026-07-09): swap the Google account behind
@@ -877,7 +877,7 @@ export function ConnectorsClient({
               onClick={() => handleReplaceGoogle("ga4")}
               disabled={isPending}
               className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-              title="Pick a different Google account for Analytics. I keep the current connection until the new account grants access."
+              title="Pick a different Google account for Analytics. The current connection is kept until the new account grants access."
             >
               Replace Google account
             </button>
@@ -1048,7 +1048,7 @@ export function ConnectorsClient({
               disabled={claritySyncPending || isPending}
               className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
             >
-              {claritySyncPending ? "Syncing…" : "Pull my data now"}
+              {claritySyncPending ? "Syncing…" : "Pull your data now"}
             </button>
             <button
               type="button"
@@ -1070,7 +1070,7 @@ export function ConnectorsClient({
             Microsoft Clarity
           </h3>
           <p className="mt-1 text-[12px] text-muted-foreground">
-            Connect a Clarity API token so I can see where visitors get
+            Connect a Clarity API token to see where visitors get
             stuck on each page (rage clicks, dead clicks, scroll depth).
             Clarity only shares the last 1 to 3 days, so pull data every
             couple of days to keep history without gaps.

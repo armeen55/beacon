@@ -23,7 +23,7 @@ export default function ShellError({
   return (
     <div className="flex min-h-[50vh] items-center justify-center p-6" role="alert">
       <div className="w-full max-w-md rounded-lg border border-border/60 bg-surface-inset/30 p-6 text-center">
-        <h1 className="text-base font-semibold text-foreground">This page hit a snag on my side.</h1>
+        <h1 className="text-base font-semibold text-foreground">This page hit a snag on Beacon's side.</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Your data is safe and nothing was published. Try again in a moment.
         </p>

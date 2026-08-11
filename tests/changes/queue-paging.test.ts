@@ -94,7 +94,7 @@ describe("Today and Changes answer one question once", () => {
     expect(today.headerSentence).not.toMatch(/measuring/i); // no clause I cannot stand behind
     const { ChangesFeed } = await import("@/app/(shell)/changes/changes-feed");
     expect(renderToStaticMarkup(createElement(ChangesFeed, { view, queue: null, investigations: [], decay: [], declineNotes: [], measuring: [], results: [] })))
-      .toContain("I could not read what is measuring just now");
+      .toContain("What is measuring could not be read just now");
     ledgerFails.value = false;
     expect((await buildChangesViewUncached(T, "rel-8")).countsUnavailable).toBeUndefined();
     await stamp("rel-1"); // back to the ranking the paging half of this promise reads
@@ -111,8 +111,8 @@ describe("Today and Changes answer one question once", () => {
     releaseFails.value = true; db.rows = [];
     const view = await loadChangesView(), { ChangesSection } = await import("@/app/(shell)/changes/page");
     expect([view.releaseUnreadable, view.surfaceBuilding, view.proposals.length,
-      renderToStaticMarkup(await ChangesSection()).includes("I could not read your saved changes just now"),
-      (await loadTodayView()).today.headerSentence.includes("I could not read your changes just now")]).toEqual([true, false, 0, true, true]);
+      renderToStaticMarkup(await ChangesSection()).includes("Your saved changes could not be read just now"),
+      (await loadTodayView()).today.headerSentence.includes("Your changes could not be read just now")]).toEqual([true, false, 0, true, true]);
     releaseFails.value = false; }); });
 
 describe("one release identity, or no release at all", () => {

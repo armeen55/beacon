@@ -26,13 +26,13 @@ const GHOST = "rounded-md border border-border/60 px-4 py-2 text-[13px] font-med
 const FIELD = "w-full rounded-md border border-border/60 bg-background px-3 py-2 text-[14px] outline-none focus:border-foreground/40";
 
 const TITLES: Record<number, { title: string; description: string }> = {
-  1: { title: "Your website", description: "Give me one address. I read your pages, then work out the rest from what I find." },
-  2: { title: "What I read on your site", description: "I read your pages and drafted a picture of your business. Check it in a second." },
-  3: { title: "Confirm your business", description: "This is what I understood. Fix anything, or tell me in plain words what to change." },
-  4: { title: "Your goal", description: "This shapes which questions I recommend. You can change it later." },
-  5: { title: "Topics and questions", description: "The questions I will track across AI assistants. Approve them a topic at a time, or pick your own." },
-  6: { title: "Connect your data", description: "Each connection sharpens my work. Search Console is the one I strongly recommend. Every one is optional, and I never publish without your say." },
-  7: { title: "Your first findings", description: "Here is what I found so far. Start Beacon and I begin the full research." },
+  1: { title: "Your website", description: "Add one address. Your pages get read, and the rest is worked out from what they say." },
+  2: { title: "What your site says", description: "Your pages were read and a picture of your business drafted. Check it in a second." },
+  3: { title: "Confirm your business", description: "This is what came back. Fix anything, or describe the change in plain words." },
+  4: { title: "Your goal", description: "This shapes which questions get recommended. You can change it later." },
+  5: { title: "Topics and questions", description: "The questions tracked across AI assistants. Approve them a topic at a time, or pick your own." },
+  6: { title: "Connect your data", description: "Each connection sharpens the work. Search Console is the strongly recommended one. Every one is optional, and nothing is ever published without your say." },
+  7: { title: "Your first findings", description: "Here is what came back so far. Start Beacon to begin the full research." },
 };
 
 export function OnboardWizard({ state, step, firstFindings, resumed = false }: { state: OnboardingState; step: number; firstFindings: FirstFindings; resumed?: boolean }) {
@@ -41,7 +41,7 @@ export function OnboardWizard({ state, step, firstFindings, resumed = false }: {
     <div className="space-y-6">
       {resumed ? (
         <p className="rounded-lg border border-border/60 bg-surface px-4 py-3 text-[13px]">
-          You stopped partway through setting up. I kept everything you had already done, so you are picking up
+          You stopped partway through setting up. Everything you had already done was kept, so you are picking up
           at step {step} of 7 rather than starting again.
         </p>
       ) : null}
@@ -87,8 +87,8 @@ function WebsiteStep({ domain }: { domain: string }) {
   return (
     <form onSubmit={(e) => { e.preventDefault(); run(() => submitWebsiteAction(url), () => router.push("/onboard?step=2")); }} className="space-y-4" noValidate>
       <input autoFocus value={url} onChange={(e) => setUrl(e.target.value)} placeholder="acme.com" inputMode="url" className={FIELD} />
-      {error ? <p className="text-[13px] text-rose-600" role="alert">{error}</p> : <p className="text-[12px] text-muted-foreground">Just the address is enough. I work out the rest from your site.</p>}
-      <button type="submit" disabled={pending} className={BTN}>{pending ? "Reading your site. This takes about half a minute." : "Read my site"}</button>
+      {error ? <p className="text-[13px] text-rose-600" role="alert">{error}</p> : <p className="text-[12px] text-muted-foreground">Just the address is enough. The rest is worked out from your site.</p>}
+      <button type="submit" disabled={pending} className={BTN}>{pending ? "Reading your site. This takes about half a minute." : "Read your site"}</button>
     </form>
   );
 }
@@ -100,17 +100,17 @@ function UnderstandStep({ state }: { state: OnboardingState }) {
   if (!state.profile.hasInference) {
     return (
       <div className="space-y-4">
-        <p className="text-[14px]">I read <strong>{pages}</strong> {pages === 1 ? "page" : "pages"} on {state.website.domain}. Let me turn that into a first picture of your business.</p>
+        <p className="text-[14px]"><strong>{pages}</strong> {pages === 1 ? "page" : "pages"} read on {state.website.domain}. Next: turn that into a first picture of your business.</p>
         {error ? <p className="text-[13px] text-rose-600" role="alert">{error}</p> : null}
-        <button type="button" disabled={pending} onClick={() => run(() => inferProfileAction().then((r) => r.status === "empty" ? { ok: false, error: "I have not read any pages yet. Go back and add your site." } : { ok: true }), () => router.refresh())} className={BTN}>
-          {pending ? "Reading your business" : "Understand my site"}
+        <button type="button" disabled={pending} onClick={() => run(() => inferProfileAction().then((r) => r.status === "empty" ? { ok: false, error: "No pages have been read yet. Go back and add your site." } : { ok: true }), () => router.refresh())} className={BTN}>
+          {pending ? "Reading your business" : "Understand your site"}
         </button>
       </div>
     );
   }
   return (
     <div className="space-y-5">
-      <p className="text-[14px] text-muted-foreground">I read <strong className="text-foreground">{pages}</strong> {pages === 1 ? "page" : "pages"} and drafted this from your site.</p>
+      <p className="text-[14px] text-muted-foreground"><strong className="text-foreground">{pages}</strong> {pages === 1 ? "page" : "pages"} read, and this was drafted from your site.</p>
       <ProfileSummary state={state} />
       <button type="button" onClick={() => router.push("/onboard?step=3")} className={BTN}>This looks right, continue</button>
     </div>
@@ -178,7 +178,7 @@ function ConfirmStep({ state }: { state: OnboardingState }) {
       <AlsoConfirming state={state} />
 
       <div className="rounded-lg border border-border/60 bg-surface-inset/30 p-4 space-y-3">
-        <p className="text-[13px] font-medium">Or tell me in plain words</p>
+        <p className="text-[13px] font-medium">Or describe it in plain words</p>
         <textarea value={instruction} onChange={(e) => setInstruction(e.target.value)} rows={2} placeholder="e.g. We also serve small law firms, and drop the plumbing mention." className={FIELD} />
         <button type="button" onClick={propose} disabled={busy || !instruction.trim()} className={GHOST}>{busy ? "Working out the change" : "Preview the change"}</button>
         {proposal ? (
@@ -216,7 +216,7 @@ function AlsoConfirming({ state }: { state: OnboardingState }) {
   if (rows.length === 0) return null;
   return (
     <div className="rounded-lg border border-border/60 bg-surface divide-y divide-border/60">
-      <p className="px-4 py-3 text-[13px] font-medium">Confirming also covers these {rows.length}, which decide what I research</p>
+      <p className="px-4 py-3 text-[13px] font-medium">Confirming also covers these {rows.length}, which decide what gets researched</p>
       {rows.map(([k, v]) => (
         <div key={k} className="px-4 py-3">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{k}</p>
@@ -261,7 +261,7 @@ function GoalStep({ goal }: { goal: OnboardingGoal | null }) {
 // ── Step 6: connections ─────────────────────────────────────────────────────
 const CONN: Record<string, { label: string; blurb: string }> = {
   google_gsc: { label: "Search Console", blurb: "Your real Google searches, clicks, impressions, and ranking movement. Strongly recommended." },
-  google_ga4: { label: "Analytics", blurb: "Visits and engagement, so I can weigh which traffic is worth the most." },
+  google_ga4: { label: "Analytics", blurb: "Visits and engagement, so which traffic is worth the most can be weighed." },
   clarity: { label: "Clarity", blurb: "Where visitors struggle on your pages, so fixes target real friction." },
 };
 function ConnectionsStep({ state }: { state: OnboardingState }) {
@@ -283,8 +283,8 @@ function ConnectionsStep({ state }: { state: OnboardingState }) {
         })}
       </div>
       <p className="text-[12px] text-muted-foreground">
-        Skip any of these, including Search Console. With none of them connected I still research your public site
-        and bring you real changes, and Today tells you plainly what I am working on while I do.
+        Skip any of these, including Search Console. With none of them connected your public site is still researched
+        and real changes still arrive, and Today says plainly what is running while that happens.
       </p>
       <button type="button" onClick={() => router.push("/onboard?step=7")} className={BTN}>Continue</button>
     </div>
@@ -297,7 +297,7 @@ function FindingsStep({ findings }: { findings: FirstFindings }) {
   const [tos, setTos] = useState(false);
   return (
     <div className="space-y-5">
-      <p className="text-[14px]">I read <strong>{findings.pagesRead}</strong> {findings.pagesRead === 1 ? "page" : "pages"} on your site so far.</p>
+      <p className="text-[14px]"><strong>{findings.pagesRead}</strong> {findings.pagesRead === 1 ? "page" : "pages"} read on your site so far.</p>
       {findings.firstWin ? (
         <div className="rounded-lg border border-foreground/25 p-4 space-y-2">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Your first win</p>
@@ -306,11 +306,11 @@ function FindingsStep({ findings }: { findings: FirstFindings }) {
           <p className="text-[13px]">{findings.firstWin.exactFix}</p>
         </div>
       ) : (
-        <p className="text-[13px] text-muted-foreground">Your pages look structurally sound so far. I will have a sharper first recommendation once I finish reading your site and start the full research.</p>
+        <p className="text-[13px] text-muted-foreground">Your pages look structurally sound so far. A sharper first recommendation lands once your site is fully read and the full research starts.</p>
       )}
       <label className="flex items-start gap-3 rounded-md border border-border/60 px-3 py-3 text-[13px] cursor-pointer">
         <input type="checkbox" checked={tos} onChange={(e) => setTos(e.target.checked)} className="mt-0.5 accent-foreground" />
-        <span>Start tracking my site. I can edit or pause anything anytime.</span>
+        <span>Start tracking this site. You can edit or pause anything anytime.</span>
       </label>
       {error ? <p className="text-[13px] text-rose-600" role="alert">{error}</p> : null}
       <button type="button" disabled={pending || !tos} onClick={() => run(() => activateAction(tos), () => {})} className={BTN}>{pending ? "Starting Beacon" : "Start Beacon"}</button>

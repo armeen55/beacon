@@ -1,13 +1,10 @@
 import "server-only";
 
 /**
- * winner-memory (BEACON_500 item 30, 2026-07-02) - feeds the drafters the house's
- * own MEASURED winners instead of letting every draft rediscover style nightly.
+ * winner-memory (BEACON_500 item 30, 2026-07-02) - feeds the drafters the house's own MEASURED winners instead of letting every draft rediscover style nightly.
  *
- * daily-experiment-planner.ts's aggregateSettled already tallies won/lost/flat per
- * (pageFamily, actionFamily) for a debate line. This module goes one step
- * further: it retains the actual winning before/after TEXT (when the ledger has
- * it) plus deterministic structural features, and turns the top examples per
+ * daily-experiment-planner.ts's aggregateSettled already tallies won/lost/flat per (pageFamily, actionFamily) for a debate line. This module goes one step
+ * further: it retains the actual winning before/after TEXT (when the ledger has it) plus deterministic structural features, and turns the top examples per
  * actionFamily into few-shot prompt fragments for structured-drafter.ts.
  *
  * Honesty notes:
@@ -23,8 +20,7 @@ import "server-only";
  *     set (newest ship first, capped at MAX_PER_FAMILY). Fail-soft everywhere;
  *     never throws into a caller.
  *
- * PURE feature extractor (extractStructuralFeatures) is unit-tested directly;
- * harvestWinners/buildWinnerFewShots do I/O and are covered by the store round-trip.
+ * PURE feature extractor (extractStructuralFeatures) is unit-tested directly; harvestWinners/buildWinnerFewShots do I/O and are covered by the store round-trip.
  */
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
@@ -86,8 +82,7 @@ function firstLine(text: string): string {
 }
 
 /**
- * Deterministic structural fingerprint of one piece of shipped copy. PURE, no I/O.
- * Used both to build the winner store and (via the same function) to describe
+ * Deterministic structural fingerprint of one piece of shipped copy. PURE, no I/O. Used both to build the winner store and (via the same function) to describe
  * the guidance line injected alongside the few-shot examples.
  */
 function extractStructuralFeatures(text: string): StructuralFeatures {
@@ -123,19 +118,14 @@ function matureCtrLift(record: ShippedChangeRecord): number | null {
 }
 
 function isMatureWon(record: ShippedChangeRecord, now: Date): boolean {
-  // Kernel gate: only a MATURE (28-day) directional improvement is a winner.
-  // An early/interim signal or a confounded / inconclusive result is never
-  // harvested as house style. With no wins, buildWinnerFewShots returns "" and
-  // the drafters run without few-shots (their existing designed fallback).
+  // Kernel gate: only a MATURE (28-day) directional improvement is a winner. An early/interim signal or a confounded / inconclusive result is never
+  // harvested as house style. With no wins, buildWinnerFewShots returns "" and the drafters run without few-shots (their existing designed fallback).
   return learningVerdictOf(readRecordsForLearning([record], now)[0]) === "won";
 }
 
 /**
- * Read every mature, cleanly-won shipped change for this tenant, extract the
- * before/after text + structural features, and persist the top MAX_PER_FAMILY
- * per actionFamily (newest ship first). Idempotent - re-running against the
- * same ledger yields the same stored rows. Fail-soft: any error is swallowed
- * and logged; callers never need a try/catch of their own.
+ * Read every mature, cleanly-won shipped change for this tenant, extract the before/after text + structural features, and persist the top MAX_PER_FAMILY
+ * per actionFamily (newest ship first). Idempotent - re-running against the same ledger yields the same stored rows. Fail-soft: any error is swallowed and logged; callers never need a try/catch of their own.
  */
 export async function harvestWinners(
   tenantId: string,
@@ -230,12 +220,9 @@ function featureLine(f: StructuralFeatures): string {
 }
 
 /**
- * Build a prompt fragment showing the top FEW_SHOT_COUNT same-lever MEASURED
- * winners (real ships that reached a mature "won" verdict), each with its
- * structural fingerprint. Returns '' when no winners exist for this tenant +
- * lever - the caller must leave the prompt byte-identical to today in that
- * case (no example section, no placeholder text). Additive only: this text is
- * appended to an existing system prompt, never substituted for it.
+ * Build a prompt fragment showing the top FEW_SHOT_COUNT same-lever MEASURED winners (real ships that reached a mature "won" verdict), each with its
+ * structural fingerprint. Returns '' when no winners exist for this tenant + lever - the caller must leave the prompt byte-identical to today in that
+ * case (no example section, no placeholder text). Additive only: this text is appended to an existing system prompt, never substituted for it.
  */
 export async function buildWinnerFewShots(
   tenantId: string,
@@ -255,18 +242,15 @@ export async function buildWinnerFewShots(
     if (w.beforeText) {
       lines.push(`- Before: "${w.beforeText}" -> After: "${w.afterText}" (${liftPct}; ${featureLine(w.features)})`);
     } else {
-      // Honest: no prior text survives in the ledger for this ship - retain the
-      // winning AFTER text + its structural fingerprint only, say so plainly.
+      // Honest: no prior text survives in the ledger for this ship - retain the winning AFTER text + its structural fingerprint only, say so plainly.
       lines.push(`- Winning text (no prior text retained): "${w.afterText}" (${liftPct}; ${featureLine(w.features)})`);
     }
   }
   return lines.join("\n");
 }
 
-// ── pattern aggregation (BEACON_500 item 74) ────────────────────────────────
-// Read-time only: classifies EVERY decided shipped artifact (win, loss, or flat -
-// not just wins) into a structural pattern and tallies outcomes by (pattern,
-// pageFamily). Never mutates shipped_change_proof or move_drafts - this is a pure
+// ── pattern aggregation (BEACON_500 item 74) ──────────────────────────────── Read-time only: classifies EVERY decided shipped artifact (win, loss, or flat -
+// not just wins) into a structural pattern and tallies outcomes by (pattern, pageFamily). Never mutates shipped_change_proof or move_drafts - this is a pure
 // projection computed fresh from loadShippedChanges() on every call.
 
 /** Map a mature kernel read to the pattern-tally vocabulary. A 28-day directional
@@ -340,14 +324,10 @@ function pageFamilyOfUrl(urlOrPath: string): string {
 }
 
 /**
- * Pattern-aware few-shot fragment (item 74): same winning examples as
- * buildWinnerFewShots, but when the pattern aggregate has a CONFIDENT cell for this
- * move's page family, appends one explicit style hint naming the winning pattern.
- * Returns the EXACT SAME string as buildWinnerFewShots (byte-identical) whenever no
- * confident cell exists for this page family - the caller's prompt is unaffected
- * until the ledger has actually earned an opinion. Examples are always framed as
- * STYLE references only; the caller's system prompt still owns the no-invented-
- * numbers rule for the model's own output.
+ * Pattern-aware few-shot fragment (item 74): same winning examples as buildWinnerFewShots, but when the pattern aggregate has a CONFIDENT cell for this
+ * move's page family, appends one explicit style hint naming the winning pattern. Returns the EXACT SAME string as buildWinnerFewShots (byte-identical) whenever no
+ * confident cell exists for this page family - the caller's prompt is unaffected until the ledger has actually earned an opinion. Examples are always framed as
+ * STYLE references only; the caller's system prompt still owns the no-invented- numbers rule for the model's own output.
  */
 export async function buildWinnerFewShotsWithPattern(
   tenantId: string,

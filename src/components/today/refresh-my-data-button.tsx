@@ -44,7 +44,7 @@ export function RefreshResultList({ results }: { results: RefreshResult[] }) {
   if (results.length === 0) {
     return (
       <p className="mt-1 text-[12px] text-muted-foreground">
-        I could not refresh anything just now; try again in a minute.
+        Nothing could be refreshed just now; try again in a minute.
       </p>
     );
   }
@@ -116,8 +116,8 @@ export function RefreshMyDataButton({
       </button>
       <p className="text-[11px] text-muted-foreground">
         {connectedCount > 0
-          ? "I pull your latest numbers now, and my daily round runs on its own either way."
-          : "I pick up anything unfinished now, and my daily round runs on its own either way."}
+          ? "Pulls your latest numbers now, and the daily round runs on its own either way."
+          : "Picks up anything unfinished now, and the daily round runs on its own either way."}
       </p>
       <div aria-live="polite" className="w-full">
         {pulling ? (
@@ -126,7 +126,7 @@ export function RefreshMyDataButton({
           </p>
         ) : researching ? (
           <p className="mt-1 text-[12px] text-muted-foreground">
-            I am picking up anything unfinished. This runs once, and my daily research carries on either way.
+            Picking up anything unfinished. This runs once, and the daily research carries on either way.
           </p>
         ) : results ? (
           <RefreshResultList results={results} />

@@ -287,7 +287,7 @@ function formatNextReading(
   if (pillKind !== "too_early" && pillKind !== "watching") return null;
   const formatted = formatCheckpointDate(proof.nextCheckpoint);
   if (!formatted) return null;
-  return `I will take the next Google reading on ${formatted}.`;
+  return `The next Google reading is taken on ${formatted}.`;
 }
 
 /** "2026-07-28" -> "July 28". Null on an unparseable date (skip the line). */

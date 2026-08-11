@@ -109,14 +109,14 @@ describe("a named cause produces the change that fixes it", () => {
     const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, complete: blind, coverage: decided(pattern()) });
     expect(out.status).toBe("none");
     if (out.status !== "none") return;
-    expect(out.reason).toBe("I could not write an opening for this page that passes my own checks, so I am handing you nothing rather than filler.");
+    expect(out.reason).toBe("No opening for this page passed its own checks, so nothing is handed over rather than filler.");
     expect(bought).toEqual(["atomic_edit", "atomic_edit"]); // it tried, and the retry is the drafter's own, not a second change
   });
   it("says why it is producing nothing for a cause no copy can fix, in the ladder's own words", async () => {
     const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, complete: seam(), coverage: decided(pattern()), measuringPagePaths: ["/rain-barrels"] });
     expect(out.status).toBe("none");
     if (out.status !== "none") return;
-    expect(out.reason).toBe("The change you applied here is still being measured, so I am not stacking another one on top of it.");
+    expect(out.reason).toBe("The change you applied here is still being measured, so nothing is stacked on top of it.");
     expect(bought).toEqual([]); // a cause with no producer costs nothing
   });
   /** A REBUILD IS EARNED BY CAUSES THAT FIRED, never by ones checked and RULED OUT: counting the whole list told the operator "2 separate things are wrong" where the
@@ -150,7 +150,7 @@ describe("a named cause produces the change that fixes it", () => {
       const out = await rebuildOf("Rain barrel sizing"); // a subject this page already covers: it does not fire
       expect(out.status).toBe("none");
       if (out.status !== "none") return;
-      expect(out.reason).toBe("I could not write the section that would close the gap on the winning pages, so I am handing you nothing rather than filler."); }); });
+      expect(out.reason).toBe("No section that would close the gap on the winning pages passed its own checks, so nothing is handed over rather than filler."); }); });
   /** A SPLIT IS AN INVESTIGATION UNTIL THE EVIDENCE NAMES THE SURVIVOR, and the merge that does ship names it, names what moves, and keeps the two-step hold: downgrading
    *  a merge's danger took that hold off the one change that needs it AND made the stored row fail re-validation as mislabelled. */
   it("writes no merge while the survivor is unproven, then hands over the proven one and holds it for review", async () => {
@@ -160,7 +160,7 @@ describe("a named cause produces the change that fixes it", () => {
     const split = (a: [number | null, number | null], b: [number | null, number | null]) => provenSurvivor([{ url: URL, clicks: a[0], impressions: 900, position: a[1] }, { url: RIVAL, clicks: b[0], impressions: 400, position: b[1] }]);
     expect([split([12, 4], [3, 2]), split([0, 4], [0, 9]), split([12, 4], [null, null]), split([4, 3], [4, 3]), split([null, null], [null, null])]).toEqual([URL, URL, null, null, null]);
     const unproven = await produceBundleForSnapshot(world([]), { ...OPTS, complete: seam(), coverage: decided(pattern()) }); // ONE-SIDED KNOWLEDGE SETTLES NOTHING: a page I hold no row for is unmeasured, not behind, and sending it away for good on my ignorance is the one mistake here I could not undo
-    expect([unproven.status, unproven.status === "none" && unproven.reason.includes("not proof that either one is taking the other's clicks")]).toEqual(["none", true]);
+    expect([unproven.status, unproven.status === "none" && unproven.reason.includes("not proof that either takes the other's clicks")]).toEqual(["none", true]);
     // PROVEN: both pages' own figures for that exact search, and both pages' current words on file.
     const rival = page({ url: RIVAL, content: { ...page().content!, title: "Rain barrel guide", h1: "Rain barrel guide", outline: ["Barrel sizes", "Winter care"] },
       search: { clicks90d: 20, impressions90d: 900, ctr90d: 0.02, position90d: 9, topQueries: [{ query: "rain barrel sizing", impressions: 900, clicks: 20, position: 9 }] } });
@@ -172,7 +172,7 @@ describe("a named cause produces the change that fixes it", () => {
     expect([p.diagnosisCause, p.status, p.riskLevel]).toEqual(["cannibalization", "needs_review", "high"]); // a question, never a paste, priced as the lever it is
     expect([c.kind, c.risk, c.redirectTo]).toEqual(["consolidation", "dangerous", "/rain-barrels"]);
     expect(c.after).toContain("/rain-barrels earns 90 clicks from that search against 20 on /rain-barrel-guide");
-    expect(c.after).toContain('I would move "Barrel sizes", "Winter care" from /rain-barrel-guide into /rain-barrels, then send /rain-barrel-guide on to /rain-barrels for good.');
+    expect(p.operatorSteps).toEqual(['Move "Barrel sizes", "Winter care" from /rain-barrel-guide into /rain-barrels', "Redirect /rain-barrel-guide to /rain-barrels for good", 'Come back here and mark it done, about 90 minutes of work in all, and clicks and average position for "rain barrel sizing" get read across all 2 addresses']);
     // the comparison that proves it is a line the operator can read, and the component cites it
     expect(b.receipt.items.find((i) => i.key === "demand-competing")!.fact).toContain("/rain-barrel-guide takes 20 clicks from 900 views at about position 9");
     expect(c.evidenceKeys).toContain("demand-competing");
@@ -185,10 +185,10 @@ describe("a named cause produces the change that fixes it", () => {
     // No body on file, so the opening this cause read came off the comparison and the receipt has no line for it.
     const { bodyByUrl: _drop, ...noBody } = OPTS; void _drop;
     const out = await produceBundleForSnapshot(snapshot(), { ...noBody, complete: seam(), coverage: decided(pattern()) });
-    expect([out.status, out.status === "none" && out.reason.includes("could not show you")]).toEqual(["none", true]); });
+    expect([out.status, out.status === "none" && out.reason.includes("Not everything this change claims can be shown")]).toEqual(["none", true]); });
   it("never reaches a drafter on evidence too thin to name a cause", async () => {
     const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, complete: seam() }); // no pattern, so no cause that needs one is even considered
-    expect([out.status, bought, out.status === "none" && out.reason.includes("I have not looked at the results page for that search yet")]).toEqual(["none", [], true]); }); });
+    expect([out.status, bought, out.status === "none" && out.reason.includes("The results page for that search has not been read yet")]).toEqual(["none", [], true]); }); });
 /** A DOOR ANSWERS FOR ITS OWN CASE: a page selected because an engine skipped it, whose answer I no longer hold, is refused in that door's words. The wrong reason is
  *  worse than no reason, and neither is drafted. */
 describe("every door answers for its own evidence", () => {
@@ -199,9 +199,9 @@ describe("every door answers for its own evidence", () => {
     return out.status === "none" ? out.reason : `expected a refusal, got ${JSON.stringify(out)}`;
   };
   it("names what THAT door is missing and never falls back to the click sentence", async () => {
-    expect(await refused({})).toContain('Let me watch "rain barrel sizing" again and I will come back with what the assistant said.');
-    expect(await refused({ door: "cannibalization" })).toContain("I have not settled which pages those are");
-    expect(await refused({ door: "recent_decline" })).toContain("I hold one 90 day total");
+    expect(await refused({})).toContain('Watch "rain barrel sizing" again and what the assistant said comes back here.');
+    expect(await refused({ door: "cannibalization" })).toContain("which pages those are is not settled");
+    expect(await refused({ door: "recent_decline" })).toContain("one 90 day total");
     expect(await refused({ door: "coverage_verdict" })).toContain("named it as the page of yours to improve");
     expect(await refused({ evidence: { ...DOOR.evidence, query: " " } })).toContain("no longer names the search it was about");
     for (const door of ["ai_absence", "cannibalization", "recent_decline", "coverage_verdict"] as const) {
@@ -225,7 +225,7 @@ describe("the wording cause keeps the path it has always had", () => {
     expect(p.opportunityType).toBe("Rewrite the page that already has the demand");
     expect([p.diagnosisCause, p.estimatedEffortMinutes, p.riskLevel, p.status]).toEqual(["ctr_snippet", 1, "low", "ready"]);
     expect(p.bundle!.risks[0]).toBe("Changing a title moves where the page ranks while search engines re-read it, so give this the full 28 days before you judge it.");
-    expect(p.bundle!.risks[1]).toBe("I do not hold this page's full body text, so read each line once before you paste it.");
+    expect(p.bundle!.risks[1]).toBe("This page's full body text is not on file, so read each line once before you paste it.");
     expect(bought).toEqual(["atomic_edit"]); });
   it("refuses a headline for a door that never measured a click, and buys nothing writing it", async () => {
     const door = { door: "coverage_verdict" as const, entry: "I gave this page my deepest read because my comparison named it.", evidence: { query: "rain barrel sizing", engine: null, promptText: null, competingUrls: [] as string[], window: null } };
