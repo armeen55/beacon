@@ -29,6 +29,10 @@ export type CustomerSurface = {
   tenantId: string;
   changes: ChangesView;
   today: TodayComposite;
+  /** The two open-lane counts as of this publish (lane-counts.ts arithmetic), so a Changes visit whose live
+   *  evidence read fails can show last-known counts with their age instead of a blank strip. Absent when the
+   *  publish-time decay read itself failed: a count nobody computed is not stamped. */
+  laneCounts?: { researching: number; watching: number };
 };
 
 export async function readCustomerSurface(tenantId: string): Promise<CustomerSurface | null> {
@@ -140,6 +144,18 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
       // A draft the store refused because that page already carries a change I am measuring. The
       // store has always answered this; carrying it here is what lets Today say so out loud.
       heldForMeasurement: produced?.heldForMeasurement, declineNotes });
+    // The open-lane counts this release can vouch for, off the SAME arithmetic the live strip uses. Fail-soft:
+    // a publish never aborts over a fallback count; a failed decay read stamps nothing, never stale-and-wrong.
+    const { isWatchedDecay, distinctTopicCount } = await import("./changes/lane-counts");
+    const { loadGscDecaySignalsForTenant } = await import("@/domains/evidence");
+    const decayRows = await loadGscDecaySignalsForTenant(tenantId, new Date())
+      .then((m) => [...m.values()]).catch(() => null);
+    const setAsideRow = (changes.basisUnreadable ? 0 : changes.demotedStaleBasis ?? 0) > 0 ? 1 : 0;
+    const heldRow = (produced?.heldForMeasurement ?? 0) > 0 ? 1 : 0;
+    const laneCounts = decayRows === null ? {} : { laneCounts: {
+      researching: distinctTopicCount((produced?.investigations ?? []).map((i) => i.label)),
+      watching: decayRows.filter(isWatchedDecay).length + setAsideRow + heldRow,
+    } };
     const surface: CustomerSurface = {
       schemaVersion: 2,
       releaseId,
@@ -147,6 +163,7 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
       tenantId,
       changes,
       today: { ...today, surfaceVersion: releaseId, surfaceComputedAt: computedAt },
+      ...laneCounts,
     };
     // Publish the one shared release consumed by Today + Changes. THE TWO WRITES END TOGETHER OR NOT AT ALL:
     // if the blob does not land, the order stamped a moment ago is rolled back onto the release still serving,

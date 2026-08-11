@@ -100,6 +100,10 @@ async function loadLanes(tenantId: string) {
   return {
     ledgerRead: ledger.read,
     evidenceRead: investigations.read && decayMap.read,
+    // Last-known open-lane counts off the release stamp, with their age, for the strip's failed-read fallback.
+    staleCounts: release?.laneCounts
+      ? { ...release.laneCounts, ago: checkedAgoLabel(release.computedAt, serverNowMs()) }
+      : null,
     investigations: investigations.v,
     decay: Array.from((decayMap.v as Map<string, Parameters<typeof ChangesFeed>[0]["decay"][number]>).values()),
     declineNotes: today?.declineNotes ?? [],
@@ -136,6 +140,7 @@ export async function ChangesSection() {
       heldForMeasurement={lanes?.heldForMeasurement ?? 0}
       evidenceRead={lanes?.evidenceRead ?? false}
       ledgerRead={lanes?.ledgerRead ?? false}
+      staleCounts={lanes?.staleCounts ?? null}
     />
   );
 }

@@ -14,6 +14,7 @@ import Link from "next/link";
 import { ledgerProofLine } from "@/domains/decision";
 import type { TopicInvestigation } from "@/domains/evidence";
 import { setAsideClause, type ChangesView } from "../changes-data";
+import { isWatchedDecay } from "./lane-counts";
 
 /** One page's two consecutive 28 day windows, as the decay read hands them over. */
 type DecayRow = {
@@ -40,11 +41,6 @@ type LedgerRow = {
   windows?: { day: number; ran: boolean; controlsUsed?: number | null; adjustedLift?: number }[];
 };
 
-/** A DECLINE WORTH A ROW. The smoke alarm's floor (10 clicks) earns the whole screen's attention; this is the
- *  floor that earns a LINE, because a page quietly shedding a handful of clicks is exactly what the operator
- *  never gets told. A page with almost no clicks to begin with is noise, so it needs a real prior week. */
-const WATCH_MIN_CLICKS_LOST = 3;
-const WATCH_MIN_PRIOR_CLICKS = 5;
 /** How many rows a lane shows before it says how many more it holds. A feed nobody can read is the same
  *  silence as an empty one. */
 const LANE_LIMIT = 6;
@@ -90,7 +86,7 @@ function changeLabel(row: LedgerRow): string {
  *  review are NOT on it: the queue's own tabs carry those two counts three lines below, and one
  *  screen printing one number twice is how two copies of it drift apart. A lane with nothing in it
  *  prints no number at all: a row of zeros told a quiet account nothing and asked nothing of it. */
-function SummaryStrip({ counts }: { counts: [string, number][] }) {
+function SummaryStrip({ counts, note = null }: { counts: [string, number][]; note?: string | null }) {
   const live = counts.filter(([, n]) => n > 0);
   return (
     <div data-changes-strip="true" className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface-inset/40 px-3 py-2 text-[12px] tabular-nums text-muted-foreground">
@@ -103,6 +99,7 @@ function SummaryStrip({ counts }: { counts: [string, number][] }) {
           </span>
         ))
       )}
+      {live.length > 0 && note ? <span>{note}</span> : null}
     </div>
   );
 }
@@ -214,7 +211,7 @@ function ResearchingCard({ inv, rankReason }: { inv: TopicInvestigation; rankRea
 
 /** THE one Changes screen. `queue` is the ranked Ready / Needs review list (its own client component, which
  *  owns paging, set aside and mark implemented); everything under it is real work that is not yet a change. */
-export function ChangesFeed({ view, queue, investigations, decay, declineNotes, measuring, results, heldForMeasurement = 0, ledgerRead = true, evidenceRead = true }: {
+export function ChangesFeed({ view, queue, investigations, decay, declineNotes, measuring, results, heldForMeasurement = 0, ledgerRead = true, evidenceRead = true, staleCounts = null }: {
   view: ChangesView;
   queue: ReactNode;
   investigations: readonly TopicInvestigation[];
@@ -230,6 +227,8 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
   /** FALSE when the evidence behind Researching and Watching could not be read. Absence of a source is not an
    *  account with nothing open: the two lanes say which of the two happened and their counts stay off the strip. */
   evidenceRead?: boolean;
+  /** Release-stamped open-lane counts (same arithmetic, lane-counts.ts), shown with their age ONLY when the live read failed. */
+  staleCounts?: { researching: number; watching: number; ago: string | null } | null;
 }) {
   // RANKED, AND THE ORDER SAYS WHY: the sentence under each card compares its weight with the card below.
   // One row per topic label: two investigation records for the same words is my bookkeeping, not two topics.
@@ -242,7 +241,7 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
   const judged = new Map(declineNotes.map((n) => [n.page, n.note] as const));
   const declining = decay
     .map((d) => ({ ...d, lost: d.clicksPrior - d.clicksNow }))
-    .filter((d) => d.lost >= WATCH_MIN_CLICKS_LOST && d.clicksPrior >= WATCH_MIN_PRIOR_CLICKS)
+    .filter(isWatchedDecay)
     .sort((a, b) => b.lost - a.lost);
   const through = dayLabel(decay[0]?.windowNowEnd ?? null);
   // A BAR I COULD NOT READ IS NOT A BAR I RAISED: a release I cannot check claims no set-aside count at all.
@@ -259,14 +258,18 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
   // A COUNT I COULD NOT READ IS NOT A ZERO AND NOT A NUMBER: it is withheld, and the lane says why.
   const ledgerCounts: [string, number][] = ledgerRead && !view.countsUnavailable
     ? [["Measuring", measuring.length], ["Results", results.length]] : [];
-  const openCounts: [string, number][] = evidenceRead === false ? [] : [["Researching", ranked.length], ["Watching", watchingCount]];
+  // A live read that failed falls back to the counts the release stamped, said with their age.
+  const stale = evidenceRead === false ? staleCounts : null;
+  const openCounts: [string, number][] = evidenceRead === false
+    ? (stale ? [["Researching", stale.researching], ["Watching", stale.watching]] : [])
+    : [["Researching", ranked.length], ["Watching", watchingCount]];
   const couldNotRead = evidenceRead === false
     ? <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-4 text-[13px] leading-relaxed text-muted-foreground">I could not read your Google search data just now, so I am not showing you an empty list. Nothing here has been dropped and I am checking again automatically.</p>
     : null;
 
   return (
     <div className="space-y-8" data-changes-feed="true">
-      <SummaryStrip counts={[...openCounts, ...ledgerCounts]} />
+      <SummaryStrip counts={[...openCounts, ...ledgerCounts]} note={stale ? `open-lane counts from my last good look${stale.ago ? `, ${stale.ago}` : ""}` : null} />
 
       <Lane title="Ready and needs review" blurb="A change reaches Ready only when its exact copy passed every evidence and safety check. Everything else in this list is honest work in progress, not a change I am asking you to make.">
         {/* THE WATERMARK, ONCE. Every Google number on this screen ends on the same finalized day, so it is
