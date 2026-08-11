@@ -63,11 +63,11 @@ describe("Update data is one recovery press", () => {
     await press(button);
     expect(calls.continues).toEqual([0, 0]);
   });
-  it("promises the three things it does, and never that research needs this button or an open tab", async () => {
+  it("says what it does in ONE short sentence, and never that research needs this button or an open tab", async () => {
     const el = await mount(<RefreshMyDataButton connectedCount={2} />);
     const copy = el.textContent ?? "";
-    expect(copy).toContain("I refresh every connected source, ask for an extra AI reading, and pick up anything unfinished.");
-    expect(copy).toContain("My daily research runs on its own.");
+    expect(copy).toContain("I pull your latest numbers now, and my daily round runs on its own either way.");
+    expect(copy.split(".").filter((s) => s.trim().length > 0)).toHaveLength(1); // one sentence under the button, never a paragraph
     expect(copy).not.toMatch(/[–—]/);
   });
 });

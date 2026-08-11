@@ -102,17 +102,20 @@ async function readState(now: Date, tenantId: string): Promise<AdjudicatorBudget
   const existing = rows[0];
   if (!existing) return emptyState(now);
   const month = currentMonthKey(now);
+  // THE CODE DEFAULT IS A FLOOR: a state stamped under an older, lower default (the 10 that predated 30)
+  // must not keep starving the month after the raise. A cap someone raised ABOVE the default survives.
+  const capUsd = Math.max(existing.capUsd ?? 0, DEFAULT_CAP_USD);
   if (existing.monthKey !== month) {
-    // Month rolled over — reset spend but preserve the cap.
+    // Month rolled over - reset spend but preserve the cap.
     return {
       monthKey: month,
       spendUsd: 0,
       calls: 0,
-      capUsd: existing.capUsd ?? DEFAULT_CAP_USD,
+      capUsd,
       updatedAt: now.toISOString(),
     };
   }
-  return existing;
+  return { ...existing, capUsd };
 }
 
 async function writeState(state: AdjudicatorBudgetState, tenantId: string): Promise<void> {

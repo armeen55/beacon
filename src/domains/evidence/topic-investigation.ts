@@ -414,10 +414,14 @@ function assemble(idx: number[], g: Grouped, snapshot: EvidenceSnapshot, key: st
   // A winner I have not read is the cheapest thing that moves this on, so it comes first; then the
   // exact results page I never bought; then the keyword ask. Anything held until a promised date is
   // NOT a next step, and saying so with the date beats offering a purchase I refuse to make.
+  // A PROMISED DAY THAT HAS ARRIVED IS NOT A HOLD, IT IS DUE. Comparing the stamp against the exact instant
+  // kept a page "held until 2026-08-11" in front of an operator standing in 2026-08-11, so the day itself is
+  // what is compared, and a day that is over releases the page to be read instead of describing a wait.
   const unread = winners.filter((w) => w.extractState !== "current");
-  const heldUntil = unread.map((w) => w.readOutcome?.retryAfter).filter((r): r is string => !!r && Date.parse(r) > builtAt).sort()[0] ?? null;
-  const readable = unread.find((w) => !w.readOutcome || Date.parse(w.readOutcome.retryAfter) <= builtAt) ?? null;
-  if (heldUntil && !readable) missingEvidence.push(`I am holding off on the winning pages here until ${heldUntil.slice(0, 10)}, which is the date I promised for them.`);
+  const dueIn = (iso: string): number => Math.ceil((Date.parse(`${iso.slice(0, 10)}T00:00:00.000Z`) - builtAt) / 86_400_000);
+  const heldUntil = unread.map((w) => w.readOutcome?.retryAfter).filter((r): r is string => !!r && dueIn(r) > 0).sort()[0] ?? null;
+  const readable = unread.find((w) => !w.readOutcome || dueIn(w.readOutcome.retryAfter) <= 0) ?? null;
+  if (heldUntil && !readable) missingEvidence.push(`${unread.length === 1 ? "A winning page here did not answer me" : `${unread.length} of the winning pages here did not answer me`}, so I try again ${dueIn(heldUntil) <= 1 ? "tomorrow" : dueIn(heldUntil) <= 6 ? "later this week" : dueIn(heldUntil) <= 13 ? "next week" : "in a couple of weeks"}. Nothing here is waiting on you.`);
   const nextAcquisition: TopicInvestigation["nextAcquisition"] =
     readable && currentReadableWinners < MIN_WINNERS
       ? { kind: "read_winner", subject: readable.url, why: `I have read ${currentReadableWinners} of the ${MIN_WINNERS} winning pages here, so reading this one is what moves this forward.` }

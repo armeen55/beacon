@@ -28,10 +28,9 @@ import { answerIntelOf } from "@/domains/evidence/answer-intel";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 
-/** A subject whose winning pages I have ALREADY READ is not research any more: it is a decision waiting on its
- *  last purchase, and the comparison is the only thing that closes it, so it is never queued behind work that
- *  has barely started. Three publishers is the same bar every claim of agreement in this product rests on. */
-const settled = (i: TopicInvestigation): number => (i.currentReadableWinners >= 3 ? 1 : 0);
+/** A subject whose winning pages I have ALREADY READ is not research any more: it is a decision, so it is never
+ *  queued behind work that has barely started. Two read pages is the bar the page brief itself is written at. */
+const settled = (i: TopicInvestigation): number => (i.currentReadableWinners >= 2 ? 1 : 0);
 
 /** THE order every step reads. A subject one purchase from a verdict comes first, and then WHAT A PAGE OF
  *  YOURS STANDS TO WIN BACK: a search one of your own pages is already losing clicks on outranks a phrase with

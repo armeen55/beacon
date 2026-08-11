@@ -116,8 +116,8 @@ export function RefreshMyDataButton({
       </button>
       <p className="text-[11px] text-muted-foreground">
         {connectedCount > 0
-          ? "I refresh every connected source, ask for an extra AI reading, and pick up anything unfinished. My daily research runs on its own."
-          : "I ask for an extra AI reading and pick up anything unfinished. My daily research runs on its own."}
+          ? "I pull your latest numbers now, and my daily round runs on its own either way."
+          : "I pick up anything unfinished now, and my daily round runs on its own either way."}
       </p>
       <div aria-live="polite" className="w-full">
         {pulling ? (

@@ -87,27 +87,27 @@ describe("Changes shows every opportunity, and evidence decides only which lane 
     const html = await renderFeed({ investigations: [TOPIC], view: { ...viewOf([]), demotedStaleBasis: 21 }, results: [{ ...SHIPPED, id: "r1" }],
       decay: [DECAY, ...Array.from({ length: 21 }, (_, i) => ({ ...DECAY, page: `https://site.example/p${i}`, clicksPrior: 30 + i }))],
       measuring: Array.from({ length: 9 }, (_, i) => ({ ...SHIPPED, id: `m${i}`, verdict: "measuring" })) });
-    for (const s of ["Researching", "iranian saffron", "about 2,400 searches a month", "12 AI answers analyzed", "I have not looked at Google&#x27;s results for this yet.", "My next step:", "buying that one results page", "/comedians", "It lost 163 clicks against the 28 days before", "data through Jul 9", "reading its results pages next", "I set aside 21 earlier ideas", "I changed the title", "Jul 1", "still measuring", "it worked"]) expect(html, s).toContain(s);
+    for (const s of ["What I am working on behind the scenes", "iranian saffron", "2,400 searches a month", "reading Google&#x27;s results page", "/comedians", "lost 163 clicks in 4 weeks", "data through Jul 9", "I read its results page next", "I set aside 21 earlier ideas", "I changed the title", "Jul 1", "still measuring", "it worked"]) expect(html, s).toContain(s);
     const n = (re: RegExp) => Number((re.exec(html)?.[1] ?? "0").replace(/,/g, "")), rows = (a: string) => html.split(a).length - 1;
-    // Watching: 22 declining pages plus the set-aside row = 23, of which 6 + 1 render and 16 are named as more. Measuring 9 and Results 1 = 7 rendered and 3 named.
-    expect([n(/Watching ([\d,]+)</), rows('data-watching-row="true"'), n(/">([\d,]+) more pages? (?:is|are) down/), n(/Researching ([\d,]+)</), rows('data-researching-card="true"'), n(/Measuring ([\d,]+)</), n(/Results ([\d,]+)</), rows("data-ledger-row="), n(/See the other ([\d,]+) on Results/), /No changes yet|nothing for you to do/i.test(html)]).toEqual([23, 7, 16, 1, 1, 9, 1, 7, 3, false]); });
+    // The drawer counts what it lists: 1 topic, and 22 declining pages plus the set-aside row = 23, of which 6 + 1 render and 16 are named as more. Measuring 9 and Results 1 = 7 rendered and 3 named.
+    expect([n(/\(([\d,]+) topics?,/), n(/, ([\d,]+) pages?\)/), rows('data-watching-row="true"'), n(/">([\d,]+) more pages? (?:is|are) down/), rows('data-researching-card="true"'), rows("data-ledger-row="), n(/See the other ([\d,]+) on Results/), /No changes yet|nothing for you to do/i.test(html)]).toEqual([1, 23, 7, 16, 1, 7, 3, false]); });
   it("never dresses a one click wobble as a decline, and tells a failed read apart from an account with nothing open or measuring", async () => {
     const quiet = await renderFeed({ decay: [{ ...DECAY, clicksNow: 174 }] }), blind = await renderFeed({ ledgerRead: false });
-    expect([/It lost 1 click/.test(quiet), quiet.includes("Nothing is measuring yet."), blind.includes("I could not read what is measuring just now"), /Make the top ready change/.test(blind), /Measuring \d/.test(blind)]).toEqual([false, true, true, false, false]);
-    // AND THE SAME DISTINCTION ON THE TWO OPEN LANES: a search read that did not answer emptied both in one render and the empty state said I have nothing open.
+    expect([/lost 1 click /.test(quiet), quiet.includes("Nothing is measuring yet."), blind.includes("I could not read what is measuring just now"), /Make the top edit/.test(blind), /data-ledger-row/.test(blind)]).toEqual([false, true, true, false, false]);
+    // AND THE SAME DISTINCTION IN THE DRAWER: a search read that did not answer emptied both lists in one render and the empty state said I have nothing open.
     const dark = await renderFeed({ evidenceRead: false, investigations: [TOPIC], decay: [DECAY] }), open = await renderFeed({ investigations: [TOPIC], decay: [DECAY] });
-    expect([dark.includes("I could not read your Google search data just now"), dark.includes("I have no topic open right now"), /Researching \d/.test(dark), /Watching \d/.test(dark),
-      open.includes("I could not read your Google search data just now"), /Researching 1</.test(open), /Watching 1</.test(open)]).toEqual([true, false, false, false, false, true, true]); }); });
+    const fixed = await renderFeed({ investigations: [TOPIC], decay: [DECAY], view: { ...viewOf([]), queuedPages: ["/comedians"] } }); // a page whose fix is in the list above names its rank, never "I have no change for it"
+    expect([dark.includes("I could not read your Google search data just now"), dark.includes("I have no topic open right now"), /\([\d,]+ topics?,/.test(dark), /data-watching-row/.test(dark),
+      open.includes("I could not read your Google search data just now"), /\(1 topic, 1 page\)/.test(open), open.includes("I read its results page next"),
+      fixed.includes("its fix is #1 in the list above"), fixed.includes("I read its results page next")]).toEqual([true, false, false, false, false, true, true, true, false]); }); });
 
 /** Zero measuring is not zero evidence. The proof strip told an account holding twenty five settled readings to ship its first change, printed straight over the top of them. */
 describe("Today's proof strip never calls a finished account a cold start", () => {
   const strip = async (over: Record<string, unknown>): Promise<string> => renderToStaticMarkup(createElement((await import("@/components/today/today-proof-strip")).TodayProofStrip,
     { measuringCount: 0, firstReadOn: null, gscThrough: "2026-07-09", nowMs: Date.parse("2026-07-12T00:00:00Z"), ...over } as never));
-  /** THE RENDER SITE ITSELF, not the projection under it. Today builds this chip inline behind Suspense, so no static render reaches it; the file is therefore what gets read. Mutating the chip to `c.answersReadClosely ?? 0` fails here, which is the whole point: a day whose readback receipt I do not hold must print no reading number at all, never "0 read closely". */
-  it("never coerces a reading count it does not hold into a zero on the Today checks strip", () => {
-    const chip = readFileSync("src/app/(shell)/page.tsx", "utf8").split("\n").filter((l) => l.includes("answersReadClosely")).join(" ");
-    expect([/typeof c\.answersReadClosely === "number"/.test(chip), /answersReadClosely\s*(\?\?|\|\|)/.test(chip)]).toEqual([true, false]); // guarded by presence, never defaulted
-    expect([chip.includes("aiChecksAnswered"), chip.includes("answers collected today"), chip.includes("read closely so far")]).toEqual([true, true, true]); }); // both numbers, on one chip, named apart
+  /** TODAY IS WORK, NOT A STATUS REPORT (2026-08-11). The collection chip, the topic counter and the research-pass line are gone from the page; nothing on it may narrate a pass again. */
+  it("never narrates its own research on Today, in any form", () => { const page = readFileSync("src/app/(shell)/page.tsx", "utf8");
+    for (const banned of ["answersReadClosely", "aiChecksAnswered", "answers collected today", "topics under research", "researchStatusLine", "In research"]) expect(page, banned).not.toContain(banned); });
   it("says what is on Results when nothing is mid-measurement but readings are settled, and keeps the cold-start instruction for the genuine cold start", async () => {
     const settled = await strip({ decidedCount: 25 }), cold = await strip({ decidedCount: 0 }), flight = await strip({ measuringCount: 3, decidedCount: 25 });
     expect([settled.includes("Nothing is mid-measurement right now."), /25<\/span> finished readings are on Results/.test(settled), settled.includes("/results"), settled.includes("Ship a change")]).toEqual([true, true, true, false]);
@@ -196,7 +196,7 @@ describe("a ranked card explains itself without being opened", () => {
   it("shows the shape of the change, the exact action, effort, risk, evidence, and why it outranks the next one", async () => {
     const html = await renderList(viewOf([proposal()]));
     for (const s of ["2 edits together", "Settle which page owns that search", "about 6 min", "High risk",
-      "Strong evidence", "it wins back more of what you are losing", "Put this aside"]) expect(html, s).toContain(s);
+      "Proven", "it wins back more of what you are losing", "Put this aside"]) expect(html, s).toContain(s);
     expect(await renderList(viewOf([atomic()]))).toContain("One edit"); // one component is one edit, never a bundle
   });
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {

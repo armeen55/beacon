@@ -170,13 +170,13 @@ describe("the one thing worth buying next", () => {
     expect(inv.exactSerps).toEqual([]);
     expect(inv.nextAcquisition).toEqual({ kind: "buy_serp", subject: QUERY, why: "I have never looked at Google's results for this, so buying that one results page is what changes the answer." });
     expect(inv.diminishing).toBe(false); });
-  it("offers nothing and gives the date when every winning page is held until one", () => {
-    const held = { ...ASKED(), serpEvidence: [{ query: QUERY, observedAt: FRESH, aiOverview: [], aiMode: [], paa: [], related: [], organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/a", title: "Best rain barrel" }] }],
-      winningPages: [page("rival.example", [won("rival.example", QUERY, 1)], { readOutcome: { state: "temporarily_unavailable", attemptedAt: FRESH, retryAfter: "2026-08-09T00:00:00.000Z" } })] };
-    const inv = buildTopicInvestigations(snap(held, { keywordDemand: DEMAND }))[0]!;
-    expect(inv.nextAcquisition).toBeNull();
-    expect(inv.missingEvidence).toContain("I am holding off on the winning pages here until 2026-08-09, which is the date I promised for them.");
-    expect(inv.diminishing).toBe(true); });
+  it("offers nothing while a winning page is held, says the wait in plain words, and treats a promised day that has arrived as due", () => {
+    const heldTo = (retryAfter: string) => ({ ...ASKED(), serpEvidence: [{ query: QUERY, observedAt: FRESH, aiOverview: [], aiMode: [], paa: [], related: [], organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/a", title: "Best rain barrel" }] }],
+      winningPages: [page("rival.example", [won("rival.example", QUERY, 1)], { readOutcome: { state: "temporarily_unavailable", attemptedAt: FRESH, retryAfter } })] });
+    const inv = buildTopicInvestigations(snap(heldTo("2026-08-09T00:00:00.000Z"), { keywordDemand: DEMAND }))[0]!;
+    expect([inv.nextAcquisition, inv.diminishing]).toEqual([null, true]);
+    expect(inv.missingEvidence).toContain("A winning page here did not answer me, so I try again in a couple of weeks. Nothing here is waiting on you.");
+    const due = buildTopicInvestigations(snap(heldTo(BUILT), { keywordDemand: DEMAND }))[0]!; expect([due.missingEvidence.some((m) => /try again/.test(m)), due.nextAcquisition?.kind]).toEqual([false, "read_winner"]); }); // a day that has arrived is due now, never a wait
   it("stops asking for money when nothing at all is missing", () => {
     const inv = buildTopicInvestigations(COMPLETE())[0]!;
     expect(inv.missingEvidence).toEqual([]); expect(inv.nextAcquisition).toBeNull(); expect(inv.diminishing).toBe(false); });

@@ -231,9 +231,16 @@ function evaluateNewPageBrief(
     return bad("This page does not say plainly that you are the one who publishes it, so I am not putting it in front of you.");
   }
   const grounded = new Set((grounding.match(NUMBER_RE) ?? []).map(digits));
-  const stray = (copy.match(NUMBER_RE) ?? []).map(digits).find((n) => !grounded.has(n));
+  // The one bare count a new page may carry: its own list length. "The 5 hardest languages" over exactly
+  // 5 sections is structure the draft holds, not a statistic; every other figure must come from evidence.
+  // The source pack is excluded from the sweep: its URLs and read dates are code-built from evidence, and a
+  // digit inside a winning page's own address is not a claim this draft made.
+  grounded.add(String(change.outline.length));
+  const copyProse = [...operatorFacingText(proposal), ...bundle.components.filter((c) => c.kind !== "source_pack").map((c) => c.after)].join(" ");
+  const stray = (copyProse.match(NUMBER_RE) ?? []).map(digits).find((n) => !grounded.has(n));
   if (stray) return bad(`This page quotes ${stray}, which is not a figure I actually hold, so I am not putting it in front of you.`);
-  const strayHost = (copy.match(HOST_RE) ?? []).map((h) => h.toLowerCase()).filter((h) => !CODE_SUFFIX.test(h)).find((h) => !grounding.includes(h));
+  const strayHost = (copyProse.match(HOST_RE) ?? []).map((h) => h.toLowerCase()).filter((h) => !CODE_SUFFIX.test(h))
+    .find((h) => !grounding.includes(h) && !grounding.includes(h.replace(/^www\./, "")));
   if (strayHost) return bad(`This page names ${strayHost}, which is not a site I actually looked at, so I am not putting it in front of you.`);
   // Everything this gate can check is checked. The caution a brand new page deserves rides
   // on the bundle's own risks, where the operator reads it, not as a held status.

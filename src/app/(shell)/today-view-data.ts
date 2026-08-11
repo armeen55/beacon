@@ -5,7 +5,7 @@ import "server-only";
  *  much is measuring. */
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadChangesView, sanitizeSurfaceComputedAt, setAsideClause, type ChangesView } from "./changes-data";
+import { loadChangesView, sanitizeSurfaceComputedAt, type ChangesView } from "./changes-data";
 import { normalizedFixKey } from "@/components/today/today-smoke-alarm";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
 import { countTrackedQuestions } from "@/domains/runtime";
@@ -93,8 +93,8 @@ function proposalToOpportunity(p: ChangeProposal): TodayOpportunity {
   };
 }
 
-/** How many ready changes Today previews. THREE is the whole ask of a visit: a fourth and fifth row turned one decision into a reading
- *  list. */
+/** How many ranked changes Today carries. Today renders the FIRST one and nothing else; the rest ride along so a caller that wants the
+ *  runners-up never has to re-rank anything. */
 const TODAY_PREVIEW_LIMIT = 3;
 
 /** What THIS release's production pass actually concluded, so an empty queue can say which empty it is. Optional: a release built without
@@ -128,14 +128,13 @@ function carriedProducerSignal(view: TodayView): TodayProducerSignal {
 const retryDay = (iso: string): string =>
   new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "America/Los_Angeles" });
 
-/** PURE: build the Today slice from a ChangesView. Today's next opportunities are the ready (validated, exact-copy) proposals, best first.
- *  The COUNT is the full ready list; the preview is the top three, so Today can never under-report the queue it is drawing from (it used to
- *  count the sliced preview). */
+/** PURE: build the Today slice from a ChangesView. ONE FLAT QUEUE, exactly as Changes now renders it: the validated exact-copy changes
+ *  first, then the ones still waiting on a review, best first. The COUNT is the whole queue counted in the database, never the page. */
 export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProducerSignal = {}): TodayView {
   // THE COUNT IS THE COUNT, NEVER THE PAGE. `view.ready` is one page of the ranking now, so counting it would under-report the queue Today
   // is drawing from; `summary` carries the total counted in the database.
   const readyTotal = view.summary?.ready ?? view.ready.length;
-  const ready = view.ready.slice(0, TODAY_PREVIEW_LIMIT).map(proposalToOpportunity);
+  const ready = [...view.ready, ...view.toDo].slice(0, TODAY_PREVIEW_LIMIT).map(proposalToOpportunity);
   const readyFixes = view.ready
     .filter((p) => p.pagePath || p.pageUrl)
     .map((p) => ({ page: normalizedFixKey(p.pagePath ?? p.pageUrl ?? ""), proposalId: p.bundle ? p.id : "" }))
@@ -157,47 +156,15 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     toDoTotal: view.summary?.todo ?? view.toDo.length,
     ...(unread ? { countsUnavailable: true } : { measuringCount: measuring }),
   };
-  let headerSentence: string;
-  if (readyTotal > 0) {
-    const lead =
-      readyTotal > ready.length
-        ? `You have ${readyTotal} changes ready to apply; here are the three strongest.`
-        : `You have ${readyTotal} change${readyTotal === 1 ? "" : "s"} ready to apply.`;
-    headerSentence =
-      measuring > 0
-        ? `${lead} ${measuring} more ${measuring === 1 ? "is" : "are"} still measuring.`
-        : lead;
-    return { headerSentence, nextOpportunities: ready, readyFixes, ...rest };
-  } else if (waiting) {
-    // A WAIT IS NOT ACTIVITY. Saying I am "checking" while the next legal read is tomorrow made a cooldown read as work in flight, and left
-    // the operator refreshing a page that could not change today. Name the date, own the pause, and ask for nothing: the retry is mine to
-    // make, not theirs.
-    headerSentence = `I could not read some of the pages I need, so I am waiting until ${retryDay(waiting)} to try them again.${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
-  } else if (producer.outcome === "investigating") {
-    // Proven losses whose CAUSE is not identified yet. This used to fall through to "Nothing needs a decision today", which is the one
-    // sentence that makes a paid tool read as broken while it is actually working. Name the number instead.
-    const n = producer.investigating ?? 0;
-    headerSentence = `${n > 0 ? `I found ${n} ${n === 1 ? "page" : "pages"} losing clicks and I am` : "I am"} checking the live results pages for ${n === 1 ? "it" : "them"} before asking you to change anything.${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
-  } else if (producer.outcome === "actionable_but_no_trusted_draft") {
-    // Real gaps, no change I can stand behind. Saying "nothing needs a decision" here would be a lie by omission, and showing yesterday's
-    // Ready work as newly generated would be worse.
-    headerSentence = `I found meaningful traffic gaps, but I am still checking the results pages and competing pages before asking you to change anything.${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
-  } else if ((view.summary?.todo ?? view.toDo.length) > 0) {
-    // WORK WAITING OUTRANKS HOUSEKEEPING. Saying I set old ideas aside while ideas sit in To do buried the only thing the operator could
-    // actually pick up.
-    const n = view.summary?.todo ?? view.toDo.length, tail = measuring > 0 ? `, and ${measuring} change${measuring === 1 ? " is" : "s are"} measuring` : "";
-    headerSentence = `I have ${n} idea${n === 1 ? "" : "s"} to review with you${tail}.`;
-  } else if ((view.demotedStaleBasis ?? 0) > 0) {
-    // ONE sentence, owned by Changes: two copies of the same claim drift apart, and the operator reads both on the same visit.
-    headerSentence = `${setAsideClause(view.demotedStaleBasis)}${measuring > 0 ? ` ${measuring} change${measuring === 1 ? " is" : "s are"} still measuring.` : ""}`;
-  } else if (measuring > 0) {
-    // NOT "nothing needs a decision today". That is a claim about the whole account, and it was
-    // printed over open topics, declining pages and a backlog. The true and much smaller claim is
-    // that no change has cleared Ready, so that is the one I make.
-    headerSentence = `No change is ready for you to make today. ${measuring} change${measuring === 1 ? " is" : "s are"} measuring, and I say below what I am working on.`;
-  } else {
-    headerSentence = "No change is ready for you to make today. I say below what I am researching and what I am watching, and I rank your next move here the moment one earns it.";
-  }
+  // ONE SENTENCE, AND IT IS ABOUT HIS WORK. Today used to open on which of six internal states the last production pass ended in, which
+  // is a status report nobody asked for. It now says how many edits are open, or names the date a blocked read gets tried again, and
+  // nothing else. The queue is the whole queue: an edit still waiting on a review is an edit he can make.
+  const openTotal = readyTotal + (view.summary?.todo ?? view.toDo.length);
+  const headerSentence = openTotal > 0
+    ? `You have ${openTotal} ${openTotal === 1 ? "edit" : "edits"} ready, best first.`
+    : waiting
+      ? `I could not read some of your pages, so I try them again on ${retryDay(waiting)}. Nothing is waiting on you today.`
+      : "You have no edits waiting. I rank your next one here the moment it earns its place.";
   return { headerSentence, nextOpportunities: ready, readyFixes, ...rest };
 }
 

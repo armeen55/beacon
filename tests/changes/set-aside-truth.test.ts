@@ -158,7 +158,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
   it("Changes and Today tell the same story when the decision has zero actionable candidates", async () => {
     const view = emptyView(21); const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
     const today = buildTodayViewFromChanges(view); const said = "I set aside 21 earlier ideas that no longer clear it";
-    expect([today.headerSentence.includes(said), today.nextOpportunities.length, (await renderChanges(view)).includes(said)]).toEqual([true, 0, true]); });
+    expect([today.headerSentence, today.nextOpportunities.length, (await renderChanges(view)).includes(said)]).toEqual(["You have no edits waiting. I rank your next one here the moment it earns its place.", 0, true]); }); // Today says the one thing he acts on; Changes owns the housekeeping sentence, said once
   it("keeps everything this release actually knows when the bar moves under it", async () => {
     // The gated rebuild used to be handed NOTHING, so a basis shift silently erased the retry date, the pages under investigation, the ideas held back and the kernel's
     // own verdicts.
@@ -176,7 +176,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
       countTrackedQuestions: async () => 30 }));
     const { loadTodayView } = await import("@/app/(shell)/today-view-data");
     const { today } = await loadTodayView(); // it really was rebuilt from what survived the bar
-    expect([today.headerSentence === "stale", today.headerSentence.includes("waiting until August 4")]).toEqual([false, true]);
+    expect([today.headerSentence === "stale", today.headerSentence.includes("August 4")]).toEqual([false, true]);
     expect([today.waitingUntil, today.investigating, today.heldForMeasurement]).toEqual(["2026-08-04T18:00:00.000Z", 2, 3]);
     expect(today.declineNotes).toEqual(stored.today.today.declineNotes);
     vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/runtime"); vi.resetModules(); });

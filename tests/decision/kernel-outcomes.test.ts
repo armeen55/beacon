@@ -116,7 +116,7 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
   it("opens an INVESTIGATION on a gap it has never looked at, and sizes it without ever promising the clicks back", () => {
     const blind = compileCandidates(snap([GAP]))[0]!; // the SAME 300-click gap, with no live results page on file
     expect([blind.action, blind.recoverableClicks]).toEqual(["research_needed", 300]); // a gap opens an investigation, never a change
-    expect(blind.reason).toContain("This search earns about 300 fewer clicks than pages at a similar position usually get"); expect(blind.reason).toContain("I can see the gap but I have not looked at the live results page for that search yet, so I cannot tell you what to change."); // names exactly what is missing
+    expect(blind.reason).toContain("This search earns about 300 fewer clicks than pages at a similar position usually get"); expect(blind.reason).toContain("I can see the gap but I have not looked at the live results page for that search yet. That search is next in line on my research pass"); // names exactly what is missing
     expect(snapshotToEvidenceInputs(snap([GAP]))).toEqual([]); // never drafted, so it can never render Ready
     const seen = compileCandidates(SEEN())[0]!; // confidence follows EVIDENCE, never the draft
     expect(seen.readiness).toEqual({ gsc: true, ownedCopy: true, serp: true, winners: 0, body: false }); // no body store exists, so body is false everywhere

@@ -59,14 +59,14 @@ describe("Today renders, and tells the truth about its own queue", () => {
   it("counts EVERY ready change and says the three it previews are a preview", async () => {
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
     const view = buildTodayViewFromChanges(readyView(12, 3));
-    expect(view.headerSentence).toBe("You have 12 changes ready to apply; here are the three strongest. 3 more are still measuring.");
+    expect(view.headerSentence).toBe("You have 12 edits ready, best first.");
     const { buildScoreboard } = await import("@/domains/measurement"); // ONE COUNT RULE: the header owns "N measuring", the chart never repeats it
     expect(buildScoreboard([{ date: "2026-07-01", clicks: 10, impressions: 0 }, { date: "2026-07-20", clicks: 20, impressions: 0 }], [], new Date("2026-07-21T00:00:00Z"))?.verdictLine ?? "").not.toMatch(/measuring/i);
     expect(view.nextOpportunities).toHaveLength(3);
     expect(view.readyFixes).toHaveLength(12); // every ready page is linkable, not just the previewed three
-    expect(buildTodayViewFromChanges(readyView(1, 0)).headerSentence).toBe("You have 1 change ready to apply.");
+    expect(buildTodayViewFromChanges(readyView(1, 0)).headerSentence).toBe("You have 1 edit ready, best first.");
   });
-  const STILL_CHECKING = "I found meaningful traffic gaps, but I am still checking the results pages and competing pages before asking you to change anything.";
+  const NO_WORK = "You have no edits waiting. I rank your next one here the moment it earns its place.";
   const alarm = (actionLabel: string, href: string) => ({ page: "/famous-iranian-comedians", pageKey: "/famous-iranian-comedians", clicksLost: 163,
     windowLabel: "the previous 4 weeks", sentence: "", href, actionLabel, hasReadyFix: actionLabel === "See the fix" });
   const command = (over: Record<string, unknown>) => ({ blockers: [], smokeAlarm: null, scoreboardDeltaPct: -12, readyChanges: [], firstReadOn: null, measuringCount: 0, ...over });
@@ -84,9 +84,9 @@ describe("Today renders, and tells the truth about its own queue", () => {
     expect(ready.losingNote).toContain("the change I have ready for it is in your queue");
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
     const empty = { ready: [], toDo: [], measuringCountCanonical: 0, proposals: [] } as unknown as import("@/app/(shell)/changes-data").ChangesView;
-    expect(buildTodayViewFromChanges(empty, { outcome: "actionable_but_no_trusted_draft" }).headerSentence).toBe(STILL_CHECKING);
-    // A QUIET QUEUE IS NOT A QUIET ACCOUNT: the only claim a day with no Ready change may make is that no change is Ready.
-    expect(buildTodayViewFromChanges(empty).headerSentence).toBe("No change is ready for you to make today. I say below what I am researching and what I am watching, and I rank your next move here the moment one earns it."); });
+    expect(buildTodayViewFromChanges(empty, { outcome: "actionable_but_no_trusted_draft" }).headerSentence).toBe(NO_WORK);
+    // A QUIET QUEUE IS NOT A QUIET ACCOUNT, and it is not a report either: the only claim an empty day makes is that no edit is waiting.
+    expect(buildTodayViewFromChanges(empty).headerSentence).toBe(NO_WORK); });
   it("points a bleeding page at its own ready fix, and never at a route that does not exist", async () => {
     const { buildTodaySmokeAlarm } = await import("@/components/today/today-smoke-alarm");
     const decay = [{ page: "https://site.example/nowruz", clicksNow: 10, clicksPrior: 60 }];

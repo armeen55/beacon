@@ -26,10 +26,14 @@ const RISK: Record<ChangeProposal["riskLevel"], { intent: PillIntent; label: str
   low: { intent: "neutral", label: "Low risk" }, medium: { intent: "waiting", label: "Medium risk" },
   high: { intent: "attention", label: "High risk" },
 };
-const EVIDENCE: Record<ChangeProposal["confidence"], { intent: PillIntent; label: string }> = {
-  high: { intent: "live", label: "Strong evidence" }, medium: { intent: "measuring", label: "Early evidence" },
-  low: { intent: "waiting", label: "Still building evidence" },
-};
+/** HOW PROVEN THIS EDIT IS, in three words, on every card. `proven` means the exact copy cleared every evidence and safety check;
+ *  short of that, a change whose receipt cites a live results page or a page that beats you is early evidence, and one with neither
+ *  is my best guess. The operator can act on all three, and this says which risk he is taking. */
+function provenChip(p: ChangeProposal, proven: boolean): { intent: PillIntent; label: string } {
+  if (proven) return { intent: "live", label: "Proven" };
+  const looked = (p.bundle?.receipt.items ?? []).some((i) => i.kind === "serp" || i.kind === "winning_page");
+  return looked ? { intent: "measuring", label: "Early evidence" } : { intent: "waiting", label: "My best guess" };
+}
 
 const fieldWord = (f: string): string => (f === "meta" ? "description" : f.replace(/_/g, " "));
 
@@ -73,14 +77,27 @@ function statsOf(p: ChangeProposal): { value: string; label: string }[] {
   ].filter((r): r is [string, string] => r[0] != null).map(([value, label]) => ({ value, label }));
 }
 
+/** WHO IS ABOVE HIM TODAY, in the receipt's own words. The winning-page, competitor and results-page facts already
+ *  open with the site's own domain, and the ones that read a page carry what it runs; this lifts the first fact that
+ *  actually names a site and says it once, loudly, instead of leaving it folded inside the checks list. Nothing is
+ *  invented: a receipt with no domain in it gets no line at all. */
+function beatenBy(b: ChangeBundle | undefined): string | null {
+  const named = (b?.receipt.items ?? [])
+    .filter((i) => i.kind === "winning_page" || i.kind === "competitor" || i.kind === "serp")
+    .map((i) => i.fact.trim())
+    .filter((f) => /\b[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)+\b/i.test(f));
+  // The fact that says who is ON TOP beats the fact that says who merely appears; either way it is the receipt's own sentence.
+  return named.find((f) => /led by|holds|wins|#1/i.test(f)) ?? named[0] ?? null;
+}
+
 /** The pieces of a bundle, named the way the server names them, so a tick here is the tick it asks for again. */
 const piecesOf = (b: ChangeBundle | undefined) => (b?.components ?? []).map((c, i) => ({
   id: componentIdOf(c, i), kind: c.kind, label: c.label,
   ...(dangerousComponents([c]).length > 0 ? { moves: true } : {}),
 }));
 
-export function ChangeCard({ proposal, rank, inReadyLane, onAside, onToast }: {
-  proposal: ChangeProposal; rank: number; inReadyLane: boolean;
+export function ChangeCard({ proposal, rank, proven, onAside, onToast }: {
+  proposal: ChangeProposal; rank: number; proven: boolean;
   onAside: (id: string) => void; onToast: (text: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -102,7 +119,7 @@ export function ChangeCard({ proposal, rank, inReadyLane, onAside, onToast }: {
   const secondary = proposal.pageLabel !== pageTitle ? proposal.pageLabel : null;
 
   return (
-    <li className={`rounded-2xl border bg-surface-raised ${inReadyLane ? "border-accent-primary/50" : "border-border"}`}
+    <li className={`rounded-2xl border bg-surface-raised ${proven ? "border-accent-primary/50" : "border-border"}`}
       data-change-card="true">
       {/* THE WHOLE COLLAPSED HEAD IS THE CONTROL, so it is reachable by tab and opens on Enter or Space. */}
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
@@ -153,7 +170,7 @@ export function ChangeCard({ proposal, rank, inReadyLane, onAside, onToast }: {
         <p className="flex flex-wrap items-center gap-1.5" data-change-facts="true">
           <Pill>about {proposal.estimatedEffortMinutes} min</Pill>
           <Pill intent={RISK[proposal.riskLevel].intent}>{RISK[proposal.riskLevel].label}</Pill>
-          <Pill intent={EVIDENCE[proposal.confidence].intent}>{EVIDENCE[proposal.confidence].label}</Pill>
+          <Pill intent={provenChip(proposal, proven).intent}>{provenChip(proposal, proven).label}</Pill>
           {checks.length > 0 ? (
             <button type="button" onClick={() => setChecksOpen((v) => !v)} aria-expanded={checksOpen}>
               <Pill intent="measuring">{bundle ? `backed by ${receiptComposition(bundle.receipt.items)}` : `backed by ${checks.length} check${checks.length === 1 ? "" : "s"}`}</Pill>
@@ -175,6 +192,13 @@ export function ChangeCard({ proposal, rank, inReadyLane, onAside, onToast }: {
 
         {open ? (
           <div className="space-y-3 border-t border-border pt-3">
+            {/* THE ONE LINE THAT ARGUES THIS CHANGE: the site sitting above him and what it runs, in the receipt's
+                own words. Self hiding, because a receipt that names nobody may not imply one. */}
+            {beatenBy(bundle) ? (
+              <p className="rounded-md border border-border bg-surface-inset px-3 py-2 text-[13px] leading-relaxed text-foreground" data-who-beats-you="true">
+                Who beats you today: {beatenBy(bundle)}
+              </p>
+            ) : null}
             {body ? <p className="text-[13px] leading-relaxed text-muted-foreground">{body}</p> : null}
             {caveat ? (
               <p className="text-[12px] leading-relaxed text-muted-foreground" data-change-caveat="true">&#9432; {caveat}</p>
@@ -199,7 +223,9 @@ export function ChangeCard({ proposal, rank, inReadyLane, onAside, onToast }: {
             {proposal.whyRankedAboveNext ? (
               <p className="text-[12px] leading-relaxed text-muted-foreground" data-why-ranked="true">{proposal.whyRankedAboveNext}</p>
             ) : null}
-            {inReadyLane ? <MarkImplemented proposalId={proposal.id} label="I made this change" newPage={isNew} components={piecesOf(bundle)} /> : null}
+            {/* EVERY CARD IS AN EDIT HE CAN MAKE, so every card can record that he made it. Hiding this control on the
+                unproven half promised measurement on work I then refused to measure. */}
+            <MarkImplemented proposalId={proposal.id} label="I made this change" newPage={isNew} components={piecesOf(bundle)} />
           </div>
         ) : null}
 

@@ -53,7 +53,7 @@ function QueueSlot({ view }: { view: ChangesView }) {
     }
     return (
       <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-6 text-[13px] leading-relaxed text-muted-foreground">
-        No change has cleared Ready yet, and the work below is what I am doing about that.{" "}
+        I have no edit ready for you yet, and the drawer at the bottom says what I am doing about that.{" "}
         <Link href="/settings/connectors" className="underline underline-offset-2">Connecting Google Search Console</Link>{" "}
         gets me there faster.
       </p>
@@ -162,7 +162,7 @@ export default async function WorklistPage() {
     <div className="max-w-5xl space-y-6">
       <PageHeader
         title="Changes"
-        description="Everything I am doing for you, in one ranked list: what is ready, what needs your review, what I am researching, what I am watching, and what I am measuring. An idea reaches Ready only after its exact edit passes evidence and safety checks."
+        description="Every edit I have for your site, in one ranked list, biggest payoff first. Make one, mark it done, and I measure that page against the pages you did not change."
       />
       <Suspense fallback={<ChangesListFallback />}>
         <ChangesSection />

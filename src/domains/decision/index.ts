@@ -119,5 +119,6 @@ export {
 export {
   isIndexingDirectiveActionType,
   INDEXING_DIRECTIVE_CAVEAT,
+  changeSentence,
   type ActionType,
 } from "./changes/action-types";

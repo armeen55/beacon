@@ -99,8 +99,9 @@ export function caseResearchReceipt(snapshot: EvidenceSnapshot, caseId: string, 
   const parked = comparisons.find((c) => c.unavailable === "waiting" || c.unavailable === "blocked" || c.unavailable === "quarantined");
   if (parked) notBought.push({ reason: "parked", detail: `I am waiting on the page by page comparison I started on ${day(parked.observedAt)}, so I did not order it again.` });
   const held = research.winningPages.filter((w) => w.appearances.some((a) => !!a.query && owns.has(canonicalQueryKey(a.query))))
-    .map((w) => w.readOutcome).filter((o) => !!o && Date.parse(o.retryAfter) > now);
-  if (held.length > 0) notBought.push({ reason: "parked", detail: `I am holding off on ${held.length} of the winning pages here until ${day(held[0]!.retryAfter)}, which is the date I promised for them.` });
+    .map((w) => w.readOutcome).filter((o) => !!o && Date.parse(`${o.retryAfter.slice(0, 10)}T00:00:00.000Z`) > now);
+  const dueIn = Math.ceil((Date.parse(`${(held[0]?.retryAfter ?? "").slice(0, 10)}T00:00:00.000Z`) - now) / 86_400_000);
+  if (held.length > 0) notBought.push({ reason: "parked", detail: `${held.length} of the winning pages here did not answer me, so I try them again ${dueIn <= 1 ? "tomorrow" : dueIn <= 6 ? "later this week" : dueIn <= 13 ? "next week" : "in a couple of weeks"}. Nothing here is waiting on you.` });
   if (serps.length > 0 && serps.every((s) => isCurrent("serp_cold", s.observedAt, now)) && competitors.every((c) => isCurrent("serp_cold", c.observedAt, now))) {
     notBought.push({ reason: "fresh", detail: `I checked all ${serps.length} of this case's searches within the last week, so I bought nothing for it again this pass.` });
   }

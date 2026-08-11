@@ -226,9 +226,9 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
                 reads the gated splitLedgerLifecycle), so the legend never promises a
                 green dot the chart cannot honestly show. */}
             {s.markers.some((m) => m.tone === "won") ? (
-              <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> change that won</span>
+              <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> a change that won more clicks</span>
             ) : null}
-            <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-400" /> measuring</span>
+            <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-400" /> a change I have not judged yet</span>
           </div>
         </div>
         <ScoreboardChartTabs

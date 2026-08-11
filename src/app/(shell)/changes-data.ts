@@ -53,6 +53,9 @@ export type ChangesView = {
   surfaceBuilding?: boolean;
   /** Atomic customer release id shared with Today. */
   surfaceVersion?: string | null;
+  /** EVERY PAGE THAT HAS A CARD IN THE QUEUE, as a path, taken from the whole ranking before it was cut to one screen. The feed reads it
+   *  so a page whose fix is sitting in the queue can never also be listed as a page I have no change for. */
+  queuedPages?: string[];
   /** Where each lane's NEXT page resumes: the last RANK on this screen, never its row count. A change put aside since the ranking was
    *  stamped leaves a hole, and counting rows through it repeats one change. */
   queueCursor?: { ready: number; todo: number };
@@ -242,6 +245,8 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
 
   return {
     proposals: queue.ranked.slice(0, CHANGES_PAGE_SIZE),
+    // BEFORE THE SLICE, because the contradiction this kills lives on page nineteen as much as page one.
+    queuedPages: [...new Set(queue.ranked.map((p) => (p.pagePath ?? p.pageUrl ?? "").replace(/^https?:\/\/[^/]+/, "")).filter((s) => s.length > 0))],
     ready: queue.ready.slice(0, CHANGES_PAGE_SIZE),
     toDo: queue.toDo.slice(0, CHANGES_PAGE_SIZE),
     summary,

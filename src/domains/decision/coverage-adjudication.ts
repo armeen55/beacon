@@ -1,17 +1,14 @@
 import "server-only";
 
 /**
- * decision/coverage-adjudication (N3b, 2026-07-28): the ONE verdict on whether this
- * account ALREADY has the right page for a topic it researched. Generation 5 deleted the
- * new-page generator because it turned a rival's example prompt into an article and
- * shipped duplicates of pages the account already owned. The missing step was never the
- * writing, it was the COMPARISON: nobody asked whether one of this account's own pages was
- * already the answer. That is the only question this file answers, once per topic, and it
- * drafts nothing, proposes nothing and persists nothing. An EARNED `create_new` here is the
- * only thing decision/new-page will build from, and nothing else can open that door.
+ * decision/coverage-adjudication: the ONE verdict on whether this account ALREADY has the right page for a
+ * topic it researched. The generation before this shipped duplicates of pages the account already owned,
+ * because nobody asked the COMPARISON question first. That is the only question this file answers, once per
+ * topic; it drafts nothing, proposes nothing and persists nothing, and an EARNED `create_new` here is the only
+ * thing decision/new-page builds from.
  *
- * EVERY VERDICT IS DECIDED IN CODE. Nothing here calls a model, so the ladder is free,
- * repeatable and checkable, and `missing` names exactly what is owed:
+ * EVERY VERDICT IS DECIDED IN CODE. Nothing here calls a model, so the ladder is free, repeatable and
+ * checkable, and `missing` names exactly what is owed:
  *   1 the account's own profile rules the topic out  -> do_nothing (a verdict, not a gap)
  *   2 no exact results page for the topic            -> exact_serp
  *   3 the results page is out of date                -> fresh_serp
@@ -21,16 +18,10 @@ import "server-only";
  *   7 under three ranked winners I can address       -> winners
  *   8 a page that could be the answer, unread        -> owned_content
  *   9 the page by page comparison is not in hand     -> page_intersection
- * Gate 9 is the LAST and the only paid one, so an investigation short of any cheaper
- * requirement can never reach it. With that comparison in hand the verdict is final and
- * deterministic, and `create_new` becomes reachable for the first time. A comparison that
- * was refused, capped, still out, set aside, unconfirmed or failed is not a finding: it
- * stays gate 9 and says why.
- *
- * EVERY REQUIREMENT MUST BE BUYABLE, OR IT IS A DECISION. Gate 5 used to name a requirement no search could
- * ever close, so the topic was silently re-refused forever; it is now a terminal park that says what would
- * reopen it. Gate 7 counts winners I can ADDRESS rather than winners I have READ, because gate 9 compares
- * addresses and the provider reads those pages itself; the readable-body floor sits in decision/new-page.
+ * EVERY REQUIREMENT MUST BE BUYABLE, OR IT IS A DECISION: gate 5 is a terminal park that says what reopens it,
+ * and gate 7 counts winners I can ADDRESS because gate 9 compares addresses. GATE 9 IS EVIDENCE, NOT THE DOOR:
+ * it exists to stop me duplicating a page of yours, so a subject no page of yours touches earns `create_new`
+ * without it once enough winners are READ, and a subject you do have a page for still waits for it.
  */
 
 import { isNoiseDomain } from "@/domains/evidence/relevance-gate";
@@ -43,12 +34,9 @@ import type { IntersectionUnavailable, OwnedPageReadOutcome } from "@/domains/ev
 import type { OwnedCandidate } from "./owned-coverage";
 import type { WinningPattern } from "./winning-pattern";
 
-// ── Coverage adjudication (N3b, 2026-07-28) ──────────────────────────────────
-
-/** THE six honest answers to "does this business already have the right page?". `create_new` is reachable
- *  ONLY with the page by page comparison in hand; until then the same evidence reads `research_needed`.
- *  `technical_only` is the answer when the page that would carry this topic is one search engines cannot
- *  serve at all: no wording earns anything there, so the plumbing is the whole of the work. */
+/** THE six honest answers to "does this business already have the right page?". `technical_only` is the answer
+ *  when the page that would carry this topic is one search engines cannot serve at all: no wording earns
+ *  anything there, so the plumbing is the whole of the work. */
 export type CoverageVerdict =
   | "improve_existing" | "create_new" | "consolidate_or_choose" | "do_nothing" | "research_needed" | "technical_only";
 
@@ -67,10 +55,8 @@ export type CoverageDecision = {
   ownedUrls: string[];
   /** Evidence ids behind it. A claim with no id behind it is never made. */
   evidenceKeys: string[];
-  /** THE SAME EVIDENCE, IN WORDS. The ids alone left every receipt line this file writes stranded inside
-   *  it, so the page built on the verdict re-derived its own receipt and the pattern's contribution never
-   *  reached the operator at all. Bounded and OPTIONAL, so a decision decoded from anywhere older simply
-   *  carries none rather than failing to read. Ids match `evidenceKeys` one for one. */
+  /** THE SAME EVIDENCE, IN WORDS, so the page built on the verdict never re-derives its own receipt. Bounded
+   *  and OPTIONAL: an older stored decision carries none rather than failing to read. Ids match `evidenceKeys`. */
   evidence?: Array<{ id: string; fact: string }>;
   missing: MissingRequirement[];
   /** When the requirement is merely WAITING on a retry, the earliest I may try again; null = nothing is
@@ -100,24 +86,24 @@ export function earnedNewPage(d: CoverageDecision | null | undefined): boolean {
  *  ADDRESS, and to write a page decision/new-page needs three I have READ. Two pages are two
  *  opinions, and nothing downstream of this file ever calls that a pattern. */
 const MIN_ADJUDICATION_WINNERS = 3;
+/** Two READ winning pages is what it takes to say what a page here has to cover. Three is the bar for calling
+ *  anything a pattern across publishers; writing a brief only needs two of them agreeing plus the shape the
+ *  whole results page already voted for, and holding out for a third left 27,100-search subjects unbuilt. */
+const MIN_WRITABLE_WINNERS = 2;
 
 /** The bought comparison itself, or the honest reason it is not in hand (Evidence owns both
  *  that reason and the publisher-counted reading; this file only picks the verdict). */
 export type IntersectionEvidence = ParsedPageIntersection | { unavailable: IntersectionUnavailable };
 
 /**
- * THE ONE request worth paying for, or null. It puts the three ranked winners, ONE per
- * publisher, side by side WITH this account's own contenders, so one answer says both what
- * the winners share and how much of it this account already reaches. Holding the account's
- * pages OUT would make "you cover none of this" something I asked for rather than something
- * I measured, and that is the shape of mistake that ships duplicates.
+ * THE ONE request worth paying for, or null. It puts the three ranked winners, ONE per publisher, side by side
+ * WITH this account's own contenders, so one answer says both what the winners share and how much of it this
+ * account already reaches. Holding the account's pages OUT would make "you cover none of this" something I
+ * asked for rather than something I measured, and that is the shape of mistake that ships duplicates.
  *
- * THE MONEY GATE, and deliberately not a second copy of the ladder: it is earned exactly
- * when the free verdict says the ONLY thing still owed is this comparison, so an
- * investigation short of a results page, a fresh look, a settled shape, a resolved meaning,
- * three ranked winners from distinct publishers, an unread page of its own or the
- * operator's own scope returns that cheaper requirement and never reaches here. Null too
- * when the verdict belongs to another topic or three publishers cannot be named.
+ * THE MONEY GATE, and deliberately not a second copy of the ladder: it is earned exactly when the free verdict
+ * says the ONLY thing still owed is this comparison. Null when the verdict belongs to another topic or three
+ * publishers cannot be named.
  */
 export function intersectionComparison(
   d: CoverageDecision | null | undefined, inv: TopicInvestigation, candidates: readonly OwnedCandidate[],
@@ -128,11 +114,9 @@ export function intersectionComparison(
   return { pages: [...winners.slice(0, MIN_ADJUDICATION_WINNERS), ...candidates.filter(contender).map((c) => absolute(c.url))], intersection_mode: "union" };
 }
 
-/** ONE ranked winning page per publisher, by address, and it is the publisher's BEST-RANKED page here:
- *  Evidence hands these over in real organic order, so taking the first is taking rank 1 rather than
- *  whichever url sorted first in the alphabet. This comparison is bought on ADDRESSES and the provider
- *  reads those pages itself, so a body I could not fetch never had any business holding it back.
- *  Rankedness comes from the winner's own appearances: a page only ever cited by an engine is never one. */
+/** ONE ranked winning page per publisher, by address, and it is the publisher's BEST-RANKED page here: Evidence
+ *  hands these over in real organic order, so taking the first is taking rank 1. Rankedness comes from the
+ *  winner's own appearances, so a page only ever cited by an engine is never one. */
 const rankedPublishers = (inv: TopicInvestigation): string[] => {
   const byPublisher = new Map<string, string>();
   for (const w of inv.winners) {
@@ -148,10 +132,8 @@ const absolute = (u: string): string => (/^https?:\/\//i.test(u) ? u : `https://
  *  filters: top ten, not a social or discussion profile, not a page of this account's own. Under three of
  *  these, no search will ever bank three winners, so asking the same question again just asks forever. */
 const eligiblePublishers = (inv: TopicInvestigation, candidates: readonly OwnedCandidate[], site: string | null): number => {
-  // COUNT WHAT THE READ PATH CAN ACTUALLY BANK, or the supply is a promise I cannot keep. It re-lists
-  // ONE search, not every look on file, and it never banks this account's own domain, so summing across
-  // looks and forgetting the account's own site reported a supply of three from two bankable pages and
-  // asked the same impossible question forever.
+  // COUNT WHAT THE READ PATH CAN ACTUALLY BANK, or the supply is a promise I cannot keep: ONE search, not
+  // every look on file, and never this account's own domain.
   const mine = new Set([...candidates.map((c) => publisherHost(absolute(c.url))), ...(site ? [publisherHost(absolute(site))] : [])]);
   return new Set(inv.exactSerps.filter((s) => s.freshness === "current").slice(0, 1).flatMap((s) => s.organicRows)
     .filter((r) => r.rank > 0 && r.rank <= TOP_TEN && !isNoiseDomain(r.url))
@@ -162,8 +144,7 @@ const TOP_TEN = 10;
 /** Under this, the compared pages merely overlap; they do not share a subject. */
 const MIN_SHARED_SEARCHES = 3;
 
-/** Why the comparison is not in hand, in the operator's own words. A provider
- *  status is never shown to anybody, and never becomes a reason to build. */
+/** Why the comparison is not in hand, in the operator's own words. A provider status is never shown. */
 const UNAVAILABLE: Record<IntersectionUnavailable, string> = {
   blocked: "the request was turned down",
   capped: "it would have taken your research spending past its ceiling",
@@ -174,38 +155,42 @@ const UNAVAILABLE: Record<IntersectionUnavailable, string> = {
 };
 
 type AdjudicateCoverageOptions = {
-  /** The account's OWN profile topics this investigation collides with
-   *  (topicOutOfScope). Non-empty means the operator already ruled it out. */
+  /** The account's OWN profile topics this collides with. Non-empty means the operator ruled it out. */
   outOfScopeTopics?: readonly string[];
-  /** The page by page comparison, once Evidence has bought it for THIS topic, or
-   *  the honest reason it is not in hand. Absent = it was never asked for. */
+  /** The comparison Evidence bought for THIS topic, or why it is not in hand. Absent = never asked for. */
   intersection?: IntersectionEvidence;
-  /** The PERSISTED reason a page of my own is unread, read back off the research row (never fetched here):
-   *  a robots refusal is the operator's own site telling me no, a page that did not answer is a wait. Both
-   *  carry the date I already promised, so repeat visits read the SAME date rather than a sliding one. */
+  /** The PERSISTED reason a page of my own is unread (never fetched here): a robots refusal is the site
+   *  telling me no, a page that did not answer is a wait. Both carry the day I already promised. */
   ownedRead?: OwnedPageReadOutcome | null;
   /** Injected so a retry hold is judged against the caller's clock, never the wall. */
   now?: Date;
   /** This account's own site, so its own pages never count toward the winner supply. */
   site?: string | null;
-  /** WHAT IS WRONG WITH HOW THIS ACCOUNT'S PAGES ARE SERVED (decision/technical-findings). Only the four
-   *  faults that stop a page being served at all are read here, and only against a page that could BE the
-   *  answer to this topic. Absent means nobody looked, which changes no verdict below. */
+  /** WHAT IS WRONG WITH HOW THIS ACCOUNT'S PAGES ARE SERVED. Only the four faults that stop a page being
+   *  served at all count, and only against a page that could BE the answer. Absent means nobody looked. */
   technical?: readonly TechnicalFinding[];
-  /** What the pages that win here have in common, read once by decision/winning-pattern off the bodies
-   *  already banked. It is EVIDENCE, never a gate: no verdict below turns on it, and its absence is
-   *  simply a shorter receipt. */
+  /** What the winners have in common (decision/winning-pattern). EVIDENCE, never a gate: no verdict below
+   *  turns on it, and its absence is simply a shorter receipt. */
   pattern?: WinningPattern | null;
 };
 
 type Ev = { id: string; fact: string };
-/** The receipt lines one verdict may carry. Enough for every look, every winner, every page of mine and the
- *  whole pattern, and never an unbounded blob riding a decision. */
+/** The receipt lines one verdict may carry: never an unbounded blob riding a decision. */
 const MAX_EVIDENCE = 24;
 const num = (n: number): string => n.toLocaleString("en-US");
 const day = (iso: string | null): string => (iso ? iso.slice(0, 10) : "a day I did not record");
-/** A page COULD be the answer only on a strong signal. Shared wording is a hint,
- *  and a hint has never been a reason to leave a page out of the comparison. */
+/** A DAY I AM PROMISING, in words, never a stamp. A raw 2026-08-11 in front of an operator standing in
+ *  2026-08-11 reads as a delay that is already over, so a date that has arrived says so and is due now. */
+const when = (iso: string, at: number): string => {
+  const days = Math.ceil((Date.parse(iso) - at) / 86_400_000);
+  return days <= 0 ? "today" : days <= 1 ? "tomorrow" : days <= 6 ? "later this week" : days <= 13 ? "next week" : "in a couple of weeks";
+};
+/** How big this subject is, in the one number I actually hold for it. Never a figure I did not observe. */
+const sized = (inv: TopicInvestigation): string => inv.demand.monthlySearchVolume != null
+  ? `"${inv.label}" gets about ${num(inv.demand.monthlySearchVolume)} searches a month`
+  : inv.demand.gscImpressions != null ? `"${inv.label}" showed up in Google ${num(inv.demand.gscImpressions)} times for you over 90 days`
+    : `I hold no monthly count for "${inv.label}"`;
+/** A page COULD be the answer only on a strong signal; shared wording alone is a hint, not a reason. */
 const contender = (c: OwnedCandidate): boolean => c.strongSignals > 0;
 
 /** The faults that stop a page being served AT ALL. A missing heading or a duplicate title is a real change
@@ -297,17 +282,17 @@ function readIntersection(
   // THE GAP IS PROVED FROM ADDRESSES; THE PAGE IS WRITTEN FROM WORDS. A create_new I cannot write
   // holds the one decided slot and blocks every topic that could be acted on, so the bodies are asked
   // for BEFORE the verdict, and when every winner has refused me there is nothing left to ask and it parks.
-  if (inv.currentReadableWinners < MIN_ADJUDICATION_WINNERS) {
+  if (inv.currentReadableWinners < MIN_WRITABLE_WINNERS) {
     // A READ DUE TOMORROW IS NOT A REFUSAL. Only the publisher's own robots answer refuses me; a timeout,
     // a provider miss, a spending ceiling and a daily limit are all WAITS, and a hold that has run out is
     // a page I may read right now. Treating any outcome at all as terminal told the operator that sites
     // which had refused nothing would not let me read them, which was simply untrue.
     const unread = inv.winners.filter((w) => w.extractState !== "current" && w.readOutcome?.state !== "robots_blocked");
     const holds = unread.map((w) => w.readOutcome?.retryAfter).filter((t): t is string => !!t && Date.parse(t) > at).sort();
-    if (unread.length > holds.length) return refuse(inv, ids, "winners", `I proved you have no page for "${inv.label}", and I have read ${inv.currentReadableWinners} of the ${MIN_ADJUDICATION_WINNERS} winning pages I need before I write one, so I am reading the rest next.`,
+    if (unread.length > holds.length) return refuse(inv, ids, "winners", `I proved you have no page for "${inv.label}", and I have read ${inv.currentReadableWinners} of the ${MIN_WRITABLE_WINNERS} winning pages I need before I write one, so I am reading the rest next.`,
       "A page written without reading what already wins is a guess, however well it is written.");
     return holds.length > 0
-      ? refuse(inv, ids, "winners", `I proved you have no page for "${inv.label}", and I have not finished reading the pages that win it, so I am picking those reads back up on ${day(holds[0]!)} rather than writing you a page I would be guessing at.`,
+      ? refuse(inv, ids, "winners", `I proved you have no page for "${inv.label}", and I have not finished reading the pages that win it, so I am picking those reads back up ${when(holds[0]!, at)} rather than writing you a page I would be guessing at.`,
           "A read that has not happened yet is not a page anybody refused me, and I will not treat it as one.", holds[0]!)
       : decide(inv, "do_nothing", { evidenceKeys: ids,
         explanation: `I proved you have no page for "${inv.label}", but the sites that win it will not let me read their pages, so I cannot show you what a page of yours would have to cover. I am leaving this alone rather than guessing at it.`,
@@ -350,8 +335,8 @@ const refuse = (
 ): CoverageDecision => {
   const buy = inv.nextAcquisition;
   if (!hold && inv.diminishing && STOPS_PAYING.has(missing)) return decide(inv, "do_nothing", { evidenceKeys: ids,
-    explanation: `${explanation} There is nothing left I could buy or look up that would change that, so I am leaving this alone rather than researching it forever.`,
-    alternativesRuledOut: [{ alternative: "Keep researching this", reason: "I have already bought everything here that would move the answer, and buying more of the same stopped paying." }] });
+    explanation: `${explanation} Nothing more I can buy moves this today. It moves again when your own numbers move.`,
+    alternativesRuledOut: [{ alternative: "Keep researching this", reason: "Nothing more I can buy moves this today. It moves again when your own numbers move." }] });
   const d = decide(inv, "research_needed", { evidenceKeys: ids, missing: [missing],
     explanation: buy ? `${explanation} What changes this: ${ACQUIRE[buy.kind](buy.subject)}.` : explanation,
     alternativesRuledOut: [{ alternative: "Write a new page for this", reason }], ...(buy ? { acquisition: buy } : {}) });
@@ -477,10 +462,10 @@ async function ladder(
     const stored = opts.ownedRead && opts.ownedRead.url === unread.url ? opts.ownedRead : null;
     const failed = stored && Date.parse(stored.retryAfter) > at ? stored : null;
     if (failed?.state === "robots_blocked") return refuse(inv, ids, "owned_content",
-      `Your site's robots rules stopped me from reading ${unread.url}, so I cannot check whether it already answers "${inv.label}". I will check again on ${day(failed.retryAfter)}.`,
+      `Your site's robots rules stopped me from reading ${unread.url}, so I cannot check whether it already answers "${inv.label}". I check again ${when(failed.retryAfter, at)}.`,
       "I will not call a page missing while a page of yours that might already answer it is one your own site tells me not to read.", failed.retryAfter);
     if (failed) return refuse(inv, ids, "owned_content",
-      `I could not read ${unread.url}, so I cannot yet say whether it already answers "${inv.label}". I will try it again on ${day(failed.retryAfter)}.`,
+      `I could not read ${unread.url}, so I cannot yet say whether it already answers "${inv.label}". I try it again ${when(failed.retryAfter, at)}.`,
       "A page that did not answer me today is not a page anybody refused me, and I will not treat it as one.", failed.retryAfter);
     return refuse(inv, ids, "owned_content", `Your page ${unread.url} could already be the answer to "${inv.label}", and I do not hold its own words yet, so I am reading it before I say anything about it.`,
       "I will not call a page missing while one of yours that might already answer it sits unread.");
@@ -489,7 +474,15 @@ async function ladder(
   // comparison. With it in hand the verdict is final and free; without it the topic
   // stays an investigation, whichever way the rest of the evidence leans.
   if (x) return readIntersection(inv, ids, x, reading, contenders, (opts.now ?? new Date()).getTime());
-  if (contenders.length === 0) return owesComparison(inv, ids);
+  // NOTHING OF YOURS IS AT RISK HERE, SO THERE IS NOTHING FOR THE COMPARISON TO PROTECT. That purchase exists
+  // to stop me shipping a copy of a page this account already owns, and no page of this account even touches
+  // this subject: no contender, no duplicate, no reason to hold real work behind a provider. With the shape
+  // settled above and enough winners READ to say what the page has to cover, the verdict is made now and the
+  // card owns the guess in its own words. A subject you DO have a page for still waits for the comparison.
+  if (contenders.length === 0) return inv.currentReadableWinners < MIN_WRITABLE_WINNERS ? owesComparison(inv, ids)
+    : decide(inv, "create_new", { evidenceKeys: ids,
+      explanation: `${sized(inv)}, the sites that win it settle on ${SHAPE[inv.pageType] ?? "one kind of page"}, and I have read ${inv.currentReadableWinners} of them, so here is the page I would build. You own no page that comes up for this at all, so there is nothing of yours a search by search comparison could protect.`,
+      alternativesRuledOut: [{ alternative: "Improve a page you already have", reason: "No page of yours comes up for this subject, so there is nothing here to strengthen." }] });
 
   // NO MODEL RUNS HERE, AND NONE IS NEEDED. Every verdict above is arithmetic over facts
   // the provider already reported, so the ladder is free, repeatable and checkable. The

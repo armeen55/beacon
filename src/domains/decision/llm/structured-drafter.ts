@@ -66,7 +66,7 @@ const MODEL = "gpt-5-mini";
  *  pattern cell backed this draft's prompt (winner-memory's pattern aggregate cleared
  *  the minimum-sample floor for this page family). Absent (not merely null) whenever
  *  the ledger has no confident opinion yet - callers must treat absence as "no claim". */
-export type FewShotProvenance = {
+type FewShotProvenance = {
   /** The structural pattern the winning few-shot examples were tagged with. */
   pattern: DraftPatternId;
   /** The sibling page whose measured win backs this pattern (best-known example). */
@@ -273,7 +273,7 @@ const WHOLE_DRAFT_VERIFY_DEADLINE_MS = 20_000;
  * (P2) is the REMAINING whole-draft budget for this particular fetch, so a
  * source that starts late gets a shorter leash than one that starts first.
  */
-export type SourceTextFetcher = (
+type SourceTextFetcher = (
   url: string,
   opts?: { deadlineMs?: number },
 ) => Promise<{ ok: boolean; text: string; finalUrl?: string; blocked?: boolean }>;

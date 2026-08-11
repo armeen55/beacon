@@ -96,11 +96,9 @@ export type QualifiedCandidate = DecisionCandidate & {
   cause: CauseFinding;
 };
 
-/** What research this snapshot holds, indexed once per pass. A live results page
- *  counts for a query only under EXACT/canonical identity: a neighbouring search
- *  never vouches for the one that is losing clicks. The results themselves are
- *  carried, not just the fact that a page was bought: holding a results page is not
- *  knowing what it says, and the diagnosis has to READ it. */
+/** What research this snapshot holds, indexed once per pass. A live results page counts for a query only under
+ *  EXACT identity: a neighbouring search never vouches for the one that is losing clicks. The results
+ *  themselves are carried, because holding a results page is not knowing what it says. */
 type ResearchIndex = { serpByQuery: Map<string, readonly DisplayedResult[]>; winnersByQuery: Map<string, number> };
 function indexResearch(snapshot: EvidenceSnapshot): ResearchIndex {
   const research = snapshot.research;
@@ -142,7 +140,7 @@ function missingSentence(r: EvidenceReadiness): string {
   if (!r.serp) missing.push("I have not looked at the live results page for that search yet");
   if (!r.ownedCopy) missing.push("I do not hold this page's current title and description");
   if (!r.gsc) missing.push("I do not hold trustworthy search numbers for that exact search");
-  return `I can see the gap but ${missing.join(", and ")}, so I cannot tell you what to change.`;
+  return `I can see the gap but ${missing.join(", and ")}. That search is next in line on my research pass, and I would rather hand you my best guess now than hand you nothing.`;
 }
 
 /** One page's honest outcome, measured on its exact queries only. */
@@ -152,18 +150,14 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
   const gaps = (page.search?.topQueries ?? [])
     .map((q) => measureQuery(q, expectedCtrAt))
     .filter((g): g is QueryGap => g != null);
-  // Counting the weak query too, does this page already earn more clicks than its own
-  // positions predict? A title or description is ONE lever shared by every search the
-  // page serves, so rewriting it to chase a single soft query bets the searches that
-  // are winning against the one that is not, and on a page already ahead of its curve
-  // that trade is not worth an operator's morning: the honest answer is watch.
+  // Counting the weak query too, does this page already earn more clicks than its positions predict? A title
+  // is ONE lever shared by every search the page serves, so chasing one soft query bets the winning ones, and
+  // on a page already ahead of its curve that trade is not worth an operator's morning: the answer is watch.
   const earned = gaps.reduce((s, g) => s + g.clicks, 0);
   const predicted = gaps.reduce((s, g) => s + g.expectedCtr * g.impressions, 0);
   const best = bestGap(gaps);
-  // ...but only while the soft search is SMALL next to what the page already earns.
-  // Enough winners can out-sum a genuinely broken search, and a gap worth a large
-  // share of the page's own clicks is never a rounding error: measured against the
-  // page's own scale, so it needs no invented number and holds at any size.
+  // ...but only while the soft search is SMALL next to what the page already earns: enough winners can out-sum
+  // a genuinely broken search. Measured against the page's own scale, so no number is invented.
   const minor = !!best && best.recoverableClicks < PARITY_MINOR_SHARE * Math.max(earned, 1);
   const pageBeatsCurve = gaps.length > 1 && earned >= predicted && minor;
   if (!best) {
@@ -202,9 +196,8 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
     // every cause of a lost click, in one fixed order, each answering for itself or not considered at all.
     const readiness = readinessOf(page, best, index);
     const modeled = `This search earns about ${num(Math.max(0, best.recoverableClicks))} fewer clicks than pages at a similar position usually get`;
-    // WHAT THE RESULTS PAGE ACTUALLY SAYS, asked even when I have never looked at one: its own honest "I
-    // have not looked yet" is a reading, and the ladder holds causes that need no results page at all.
-    // Gating this call on complete evidence hid every one of them behind "I cannot tell you what to change".
+    // WHAT THE RESULTS PAGE ACTUALLY SAYS, asked even when I have never looked at one: "I have not looked yet"
+    // is itself a reading, and the ladder holds causes that need no results page at all.
     const diagnosis = diagnoseCandidate({
       query: best.query, ownedUrl: pageUrl,
       organic: index.serpByQuery.get(canonicalQueryKey(best.query)) ?? null, body: readiness.body,
@@ -229,10 +222,9 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
       reason: `${opening}, and that gap is big enough to look into. ${evidenceComplete(readiness) ? diagnosis.explanation : missingSentence(readiness)}` };
   }
 
-  // A GAP UNDER MY CLICK FLOORS IS NOT SILENCE ABOUT THE PAGE. Those floors size a REWRITE, and an engine
-  // that answered around this page, a comparison that named it, and two of my own pages splitting its search
-  // are none of them measured in clicks. The ladder is pure and costs nothing, so it is asked here too: the
-  // page is still only WATCHED, and naming its cause is what lets the deep read open on that cause's own door.
+  // A GAP UNDER MY CLICK FLOORS IS NOT SILENCE ABOUT THE PAGE. Those floors size a REWRITE, and an engine that
+  // answered around this page or two of my own pages splitting its search are not measured in clicks. The
+  // ladder costs nothing, so it is asked here too: the page is WATCHED, and its named cause opens its own door.
   const quiet = diagnoseCauses({ snapshot, page, query: best.query, coverage: opts.coverage ?? null, measuringPagePaths: opts.measuringPagePaths,
     serpRead: diagnoseCandidate({ query: best.query, ownedUrl: pageUrl, body: false, gscPosition: best.position,
       organic: index.serpByQuery.get(canonicalQueryKey(best.query)) ?? null }) });
@@ -241,9 +233,8 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
     reason: quiet.cause === "no_problem" ? reason : `${reason} ${quiet.explanation}` });
 
   if (best.deficit > 0) {
-    // ONE SHAPE FOR EVERY BELOW-BAR SEARCH. Three clauses in three different units (impressions, click-rate
-    // points, clicks) read as three different rules on one screen. The bar IS all three floors at once, so the
-    // sentence says what this search is worth in the one unit an operator plans in and names what I need.
+    // ONE SHAPE FOR EVERY BELOW-BAR SEARCH: the bar IS all three floors at once, so the sentence says what this
+    // search is worth in the one unit an operator plans in rather than in three.
     const missed = `that search is worth about ${num(Math.max(0, best.recoverableClicks))} clicks, under the ${MIN_RECOVERABLE_CLICKS} clicks on ${num(MIN_QUERY_IMPRESSIONS)} searches I act on`;
     return watched(noProblemFinding("The gap on that search is real and smaller than the size I act on, so I am not naming a cause for it yet.",
       "the gap is under the size where changing this page's wording would be worth your morning"),
@@ -267,10 +258,8 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
 export function compileCandidates(snapshot: EvidenceSnapshot, opts: CompileOptions = {}): QualifiedCandidate[] {
   const expectedCtrAt = opts.curve?.expectedCtrAt ?? defaultExpectedCtrAt;
   const index = indexResearch(snapshot);
-  // A row I hold NOTHING about is not a page I judged. 175 of this account's 398 owned
-  // rows are bare path fragments with no copy and no search data (a crawl frontier
-  // artifact), and counting each one as "do nothing" reported 175 judgments I never
-  // made. Silence about an unknown row is honest; a tally that includes it is not.
+  // A row I hold NOTHING about is not a page I judged: a bare path fragment with no copy and no search data
+  // is a crawl artifact, and counting it as "do nothing" reports a judgment I never made.
   return snapshot.ownedPages
     .filter((p) => !!p.content || (p.search?.topQueries ?? []).length > 0 || (p.search?.impressions90d ?? 0) > 0)
     .map((page) => candidateForPage(page, expectedCtrAt, index, snapshot, opts));
