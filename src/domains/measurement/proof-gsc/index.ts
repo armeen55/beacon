@@ -54,8 +54,13 @@ export {
   loadShippedChangesForTenant,
   upsertShippedChange,
   recordVerification,
+  recordPinnedRead,
   pagesUnderMeasurementFromShipments,
 } from "./shipped-change-store";
+
+// The finished reading, held still
+export type { PinnedRead } from "./pinned-read";
+export { pinFor, applyPinnedRead } from "./pinned-read";
 
 // Weekly recap signal
 export type { RecapRow } from "./weekly-recap";

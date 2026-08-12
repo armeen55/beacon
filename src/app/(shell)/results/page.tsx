@@ -70,7 +70,7 @@ export default async function ProofPage({
               <div className={`tabular-nums font-semibold tracking-tight ${view.header.worked.isCount ? "text-4xl" : "text-xl"}`}>
                 {view.header.worked.value}
               </div>
-              <div className="mt-0.5 text-[13px] text-foreground/80">changes that worked</div>
+              <div className="mt-0.5 text-[13px] text-foreground/80">wins banked</div>
               <div className="text-[11px] text-muted-foreground">{view.header.worked.sub}</div>
             </div>
             <div>

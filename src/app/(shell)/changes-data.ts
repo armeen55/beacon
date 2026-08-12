@@ -15,8 +15,9 @@ import { loadProofLedgerCached } from "@/domains/measurement";
 import { countLedgerLifecycle } from "@/domains/decision";
 import { buildReceiptLine } from "@/components/data/receipt-line";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
-import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
+import { readCustomerSurface, isCustomerSurfaceStale, type CustomerSurface } from "./surface-release";
 import { CHANGES_PAGE_SIZE } from "./changes/types";
+import { loadWithDeadline } from "@/lib/load-with-deadline";
 
 type ChangesSummary = { todo: number; ready: number; implemented: number; measuring: number; results: number };
 
@@ -43,6 +44,9 @@ export type ChangesView = {
   /** TRUE when the customer RELEASE itself could not be read. Distinct from a cold first-ever load, which is what this used to be
    *  indistinguishable from, so an outage painted "I am building it for the first time". */
   releaseUnreadable?: boolean;
+  /** TRUE when the rows below came from the LAST GOOD release held in this process, because the stored one did not answer twice. The
+   *  screen says how old the list is instead of showing a spinner over a list it already has. */
+  releaseFromMemory?: boolean;
   /** Set only when Ready is 0, so the tab is never a bare "0" with no reason. */
   readyZeroHint: string | null;
   /** One-line receipt above the list (when + from what this was ranked). */
@@ -158,6 +162,26 @@ async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
     queueMore: { ready: ready.more, todo: toDo.more } };
 }
 
+/** THE RELEASE BLOB READ IS THE ONE THAT MUST NOT HANG. When it exceeded the section's whole 5s deadline the screen printed a retry
+ *  spinner over a list it had already served minutes earlier. It gets its own short deadline and ONE warm retry, and the last release this
+ *  process read successfully is kept per account so a second failure serves that list with its age instead of a spinner. In-process only:
+ *  every instance warms its own copy, which is exactly the scope of a fallback that must cost no read. */
+const RELEASE_READ_DEADLINE_MS = 2_500;
+const lastGoodRelease = new Map<string, CustomerSurface>();
+
+async function readReleaseTwice(tenantId: string): Promise<{ s: CustomerSurface | null; ok: boolean; fromMemory: boolean }> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const raced = await loadWithDeadline(readCustomerSurface(tenantId), RELEASE_READ_DEADLINE_MS).catch(() => null);
+    if (raced && !raced.timedOut) {
+      // A SUCCESSFUL null IS AN ANSWER (no release published yet) and must not be papered over with a remembered one.
+      if (raced.data) lastGoodRelease.set(tenantId, raced.data);
+      return { s: raced.data, ok: true, fromMemory: false };
+    }
+  }
+  const remembered = lastGoodRelease.get(tenantId);
+  return remembered ? { s: remembered, ok: true, fromMemory: true } : { s: null, ok: false, fromMemory: false };
+}
+
 /** The released Changes state for this account, basis-checked, scheduling the ONE background rebuild when the release is stale or missing.
  */
 async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
@@ -169,7 +193,7 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
       } catch (e) { await recordAppError({ route: "/changes", tenantId, action, ...errorFieldsFrom(e) }); }
     });
 
-  const read = await readCustomerSurface(tenantId).then((s) => ({ s, ok: true })).catch(() => ({ s: null, ok: false }));
+  const read = await readReleaseTwice(tenantId);
   const customer = read.s;
   // Shape guard (CORE 100K kernel cutover): a blob written by the pre-kernel changes-data has no `proposals` array. Ignore a stale-shaped
   // release and rebuild rather than crash on `view.proposals`.
@@ -182,6 +206,7 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
       surfaceComputedAt: sanitizeSurfaceComputedAt(customer.computedAt),
       surfaceBuilding: false,
       surfaceVersion: customer.releaseId,
+      ...(read.fromMemory ? { releaseFromMemory: true } : {}),
     }, { tenantId, currentBasis: await resolveCurrentBasis(tenantId).catch(() => null) });
   }
   scheduleReleaseRebuild("cold-rebuild");

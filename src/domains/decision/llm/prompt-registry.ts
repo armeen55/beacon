@@ -54,6 +54,11 @@ export const PROMPT_REGISTRY = {
   // for it, order ownedGaps empty when no page of mine is supplied, and hand the model the already-settled page shape to repeat rather than re-vote. A contract change, so a
   // stale v1 answer must never be served under it.
   "draft.winning_pattern": 2,
+  // What ONE owned page is FOR (2026-08-11, page job): its purpose in a sentence, its shape, who it is written for, its subject
+  // words, and whether it sells. Read off the page's own stored extract and nothing else, so the wording that forbids naming a
+  // subject the extract does not carry is the whole contract; any change to it must bump this version. The cache key already
+  // folds the extract text, so a re-crawled page pays again on its own and an unchanged page never pays twice.
+  "draft.page_job": 1,
   // Registered schema kinds with no bespoke production prompt yet (P8 targets); callStructuredLLM derives draft.<kind>, so they must resolve to a version.
   "draft.tool_asset": 1,
   "draft.commerce_asset": 1,

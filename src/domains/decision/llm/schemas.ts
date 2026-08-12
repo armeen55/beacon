@@ -369,6 +369,24 @@ const WinningPatternSchema = z.object({
   ownedGaps: z.array(z.object({ gap: z.string().min(1).max(300), seenOn: SeenOnSchema })).max(8), uniqueNotCommon: z.array(z.object({ detail: z.string().min(1).max(300), seenOn: SeenOnSchema })).max(5),
 });
 export type WinningPatternRead = z.infer<typeof WinningPatternSchema>;
+// ── page job (2026-08-11): what ONE owned page is FOR, in a sentence ──────── Read off that page's own stored extract:
+// its address, its title, its heading, its section headings, its length, and its opening words when they are held. The
+// model is a READER here, exactly as answer_analysis is: it names the page's purpose and its shape, it writes no copy, it
+// proposes no change, and it may not name a subject the extract does not carry. `topics` are the plain subject words the
+// page is about, lowercased, and they are what a later fit check compares a search against, so an invented topic is how a
+// section card lands on the wrong page. A missing job is never a verdict about the page: it means the job is not known yet.
+const PageJobSchema = z.object({
+  /** One plain sentence, what this page is for. Never a recommendation. */
+  job: z.string().min(10).max(200),
+  pageType: z.enum(["guide", "list", "product", "category", "city", "entity", "translation", "hub", "home", "other"]),
+  /** Who the page is written for, in the words a person would use. */
+  audience: z.string().min(3).max(120),
+  topics: z.array(z.string().min(2).max(40)).min(3).max(8),
+  /** True when the page exists to sell something, false when it exists to explain something. */
+  commercial: z.boolean(),
+});
+export type PageJob = z.infer<typeof PageJobSchema>;
+
 // ── registry: kind → schema (the structured-drafter dispatches on this) ──────
 
 export type StructuredDraftKind =
@@ -382,7 +400,7 @@ export type StructuredDraftKind =
   | "strategy_review"
   | "section_draft"
   | "outreach_pitch"
-  | "coverage_adjudication" | "new_page_brief" | "answer_analysis" | "answer_analysis_batch" | "case_synthesis" | "winning_pattern"
+  | "coverage_adjudication" | "new_page_brief" | "answer_analysis" | "answer_analysis_batch" | "case_synthesis" | "winning_pattern" | "page_job"
   | "business_profile_inference" | "business_profile_patch" | "prompt_candidates";
 
 export const SCHEMA_BY_KIND = {
@@ -399,6 +417,7 @@ export const SCHEMA_BY_KIND = {
   coverage_adjudication: CoverageAdjudicationSchema,
   new_page_brief: NewPageBriefSchema,
   answer_analysis: AnswerAnalysisSchema, answer_analysis_batch: AnswerAnalysisBatchSchema, case_synthesis: CaseSynthesisSchema, winning_pattern: WinningPatternSchema,
+  page_job: PageJobSchema,
   business_profile_inference: BusinessProfileInferenceSchema,
   business_profile_patch: BusinessProfilePatchSchema,
   prompt_candidates: PromptCandidatesSchema,

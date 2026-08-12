@@ -14,6 +14,10 @@ const LOGIN_ERROR_MESSAGES: Record<string, string> = {
   multiple_accounts_unsupported:
     "This email is attached to more than one workspace, which Beacon cannot open yet. Reply to your welcome email to get it sorted.",
   account_unavailable: "Your account could not be opened just now. Try again in a minute.",
+  // Twice in a row the account check did not answer. The session is still good, so reloading is the fix and
+  // burning a fresh sign-in link is not.
+  account_check_failed:
+    "Checking your account timed out twice. You are still signed in, so reload the page in a minute. A new link is not needed.",
 };
 const LOGIN_ERROR_FALLBACK =
   "Signing you in could not finish just now. Request a fresh link below and try again.";

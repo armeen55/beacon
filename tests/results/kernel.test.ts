@@ -6,6 +6,7 @@ import {
 import { bundleReads, learningShape, overlapClosures } from "@/domains/measurement/proof-gsc/read-honesty";
 import { day56Followup, isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import { verdictSchedule, type VerdictScheduleRow } from "@/domains/measurement/proof-gsc/verdict-schedule";
+import { applyPinnedRead, pinFor } from "@/domains/measurement/proof-gsc/pinned-read";
 import type { ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
 import type { ProofWindowDay, ProofWindowResult } from "@/domains/measurement/proof-gsc/types";
 /** Outcome-level contract tests for the measurement kernel. These pin CUSTOMER TRUTH, not implementation: every historical shipment maps to exactly one read (nothing
@@ -293,7 +294,7 @@ describe("the conditional day-56 read", () => {
     componentsApplied: [{ kind: "title", label: "Page title" }], implementedAt: STAMP,
     preChangeContentHash: null, shipmentBaseline: null,
     verification: { status: "verified", checkedAt: "2026-05-02T00:00:00.000Z", components: [] },
-    operatorNote: null, createdAt: STAMP, updatedAt: STAMP, ...over,
+    operatorNote: null, pinnedRead: null, createdAt: STAMP, updatedAt: STAMP, ...over,
   });
   // Day 56 lands 2026-06-26; Google has finalized well past it.
   const AFTER_56 = new Date("2026-07-10T00:00:00Z"), FINAL = "2026-07-05";
@@ -424,5 +425,63 @@ describe("metric selection and vocabulary", () => {
       expect(phrase.length).toBeGreaterThan(0);
       expect(phrase).not.toMatch(/[—–]/);
     }
+  });
+});
+/** A FINISHED READING NEVER MOVES AGAIN. /results re-measures the whole ledger every fifteen minutes against
+ *  fresh Google data and a fresh comparison set, so a change reported at +1,040 clicks was re-read at +1,428
+ *  the same afternoon. Once the window has closed with every day behind it finalized, the tuple is frozen. */
+describe("a settled reading is held still", () => {
+  const STAMP = "2026-04-01T00:00:00.000Z";
+  const pinWin = (day: ProofWindowDay, lift: number): ProofWindowResult => ({
+    day, checkOn: addDays(STAMP, day), ran: true, treatedDelta: lift, controlDelta: 0, adjustedLift: lift,
+    treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0, controlPosDelta: 0,
+    adjustedPosLift: 0, controlsUsed: 4, treatedPostImpressions: 9000,
+    treatedImpressionsDelta: 0, controlImpressionsDelta: 0, adjustedImpressionsLift: 0,
+  });
+  const record = (over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord => ({
+    id: "shp_pin", page: "https://site.com/x", path: "/x", actionType: "content", before: null, after: null,
+    shippedAt: STAMP, baseline: { clicks: 900, impressions: 9000, ctr: 0.1, position: 6, windowDays: 28 },
+    targetQueries: [], controlPages: [], windows: [pinWin(7, 300), pinWin(14, 700), pinWin(28, 1040)],
+    verdict: "won", confidence: "high", measuredAt: null, notes: null, verifiedLive: false,
+    liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null, proposalId: "p1",
+    proposalVersion: "v1", basis: null, caseId: null, bundleHypothesis: null,
+    componentsApplied: [{ kind: "section", label: "Section" }], implementedAt: STAMP,
+    preChangeContentHash: null, shipmentBaseline: null,
+    verification: { status: "verified", checkedAt: STAMP, components: [] },
+    operatorNote: null, pinnedRead: null, createdAt: STAMP, updatedAt: STAMP, ...over,
+  });
+  const AFTER = new Date("2026-06-01T00:00:00Z"), FINAL = "2026-05-20";
+
+  it("freezes the whole tuple once the window closed and Google finalized the days behind it", () => {
+    const r = record();
+    const read = readLedger([r], AFTER, FINAL)[0]!;
+    const pin = pinFor(r, read, FINAL, AFTER);
+    expect(pin).not.toBeNull();
+    expect([pin!.basisDay, pin!.lift, pin!.controlsUsed, pin!.verdict]).toEqual([28, 1040, 4, read.verdict]);
+  });
+
+  it("freezes nothing while the window is still open, so later checkpoints still land", () => {
+    const r = record({ windows: [pinWin(7, 300)] });
+    const read = readLedger([r], new Date("2026-04-12T00:00:00Z"), "2026-04-10")[0]!;
+    expect(pinFor(r, read, "2026-04-10", new Date("2026-04-12T00:00:00Z"))).toBeNull();
+  });
+
+  it("serves the frozen number and the sentence that matches it, whatever the re-measure now says", () => {
+    const drifted = record({ windows: [pinWin(7, 300), pinWin(14, 700), pinWin(28, 1428)] });
+    const live = readLedger([drifted], AFTER, FINAL)[0]!;
+    const pin = pinFor(record(), readLedger([record()], AFTER, FINAL)[0]!, FINAL, AFTER)!;
+    const served = applyPinnedRead(live, pin);
+    expect(served.lift).toBe(1040);
+    expect(served.headline).toContain("1040 clicks");
+    expect(served.headline).not.toContain("1428");
+  });
+
+  it("still lets a later change on the same page take shared credit, with the numbers untouched", () => {
+    const first = record(), second = record({ id: "shp_2", implementedAt: "2026-04-05T00:00:00.000Z", shippedAt: "2026-04-05T00:00:00.000Z" });
+    const live = readLedger([first, second], AFTER, FINAL)[0]!;
+    const pin = pinFor(first, readLedger([first], AFTER, FINAL)[0]!, FINAL, AFTER)!;
+    const served = applyPinnedRead(live, pin);
+    expect([live.verdict, served.verdict, served.lift, served.rankingSignal]).toEqual(["confounded", "confounded", 1040, 0]);
+    expect(served.confidenceReasons.join(" ")).toMatch(/changed again afterwards/);
   });
 });

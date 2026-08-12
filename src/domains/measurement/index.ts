@@ -16,6 +16,9 @@ export {
   loadShippedChanges,
   upsertShippedChange,
   recordVerification,
+  recordPinnedRead,
+  pinFor,
+  applyPinnedRead,
   pagesUnderMeasurementFromShipments,
   shippedInLastDays,
   verdictSchedule,
@@ -38,6 +41,7 @@ export {
   type BundleRead,
   type ShippedChangeRecord,
   type ShipmentVerification,
+  type PinnedRead,
 } from "./proof-gsc";
 
 // AI outcomes: the daily trend over stored answers, and what they did around one shipped change

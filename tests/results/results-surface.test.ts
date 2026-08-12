@@ -42,7 +42,8 @@ const declined = evaluateChange(input({ windows: [win(7, { adjustedClicksLift: -
 describe("the three numbers at the top", () => {
   it("counts only the changes that finished their 28 day read, and adds up what those won", () => {
     const view = buildResultsView([shipment(), shipment({ read: declined }), shipment({ read: measuring })]);
-    expect(view.header.worked).toEqual({ value: "1 win", sub: "out of 2 changes that finished their 28 day read", isCount: true });
+    // BANKED FRAMING: the denominator is every finished read, and the ones that did not win are named as what they taught.
+    expect(view.header.worked).toEqual({ value: "1 win", sub: "out of 2 finished; the rest taught what does not move this site", isCount: true });
     expect(view.header.appearances).toEqual({ value: "+120", positive: true });
     expect(view.header.reading.value).toBe("1");
     expect(view.header.reading.sub).toMatch(/^next result lands /);

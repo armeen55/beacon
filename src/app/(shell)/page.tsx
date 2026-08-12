@@ -126,22 +126,36 @@ function lastWinLine(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, no
   return `Your last change to ${page} earned ${lift.toLocaleString()} more ${lift === 1 ? "click" : "clicks"} than the pages that were not changed.`;
 }
 
-/** THE WEEK IN ONE LINE, off the SAME ledger Today already holds: what was made, what is being read, and what
- *  the settled ones earned. Null when nothing landed in seven days, and the clicks clause self hides when no
- *  settled read carries a proven lift, so this never prints a number it cannot show. */
+/** THE WEEK IN THREE BLOCKS, off the SAME ledger rows Today already holds and the SAME split Results counts
+ *  from (splitLedgerLifecycle), so a number here can never disagree with the Results header. COUNTS ONLY: no
+ *  clicks or impressions are summed on Today, because a sum here mixed click and rate units and printed +54
+ *  then +103 across two visits, which the operator caught both times. Null when the ledger is empty. */
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-function weekDigest(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, nowMs: number): string | null {
-  const made = rows.filter((r) => Date.parse(r.implementedAt ?? r.shippedAt) >= nowMs - WEEK_MS).length;
-  if (made === 0) return null;
+type WeekBlock = { value: string; sub: string; pages: string | undefined };
+/** The pages behind a block, for the hover. Six paths, then how many more, so the block can be checked without leaving Today. */
+function pagesHover(rows: readonly LedgerRow[]): string | undefined {
+  const paths = [...new Set(rows.map((r) => (r.page || r.path).replace(/^https?:\/\/[^/]+/, "") || "/"))];
+  if (paths.length === 0) return undefined;
+  return paths.length > 6 ? `${paths.slice(0, 6).join("\n")}\nand ${paths.length - 6} more` : paths.join("\n");
+}
+function weekStrip(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, nowMs: number): { made: WeekBlock; wins: WeekBlock } | null {
+  if (rows.length === 0) return null;
   const b = splitLedgerLifecycle(rows, new Date(nowMs));
-  // TWO CLAUSES, TWO CLOCKS, NEVER GLUED, AND ONE SOURCE OF TRUTH: the all-time clause says exactly what the
-  // Results header says (wins out of finished), because a net-clicks sum here mixed click and rate units and
-  // printed +54 then +103 across two visits, which the operator caught both times.
-  const settled = [...b.won, ...b.learned];
-  const head = `This week: ${made} ${made === 1 ? "edit" : "edits"} made, ${b.measuring.length + b.promising.length} measuring.`;
-  return settled.length > 0
-    ? `${head} All time: ${b.won.length} of ${settled.length} finished changes worked. Results has each one.`
-    : head;
+  const made = rows.filter((r) => Date.parse(r.implementedAt ?? r.shippedAt) >= nowMs - WEEK_MS);
+  const measuring = b.measuring.length + b.promising.length;
+  const settled = b.won.length + b.learned.length;
+  return {
+    made: {
+      value: made.length > 0 ? `${made.length} ${made.length === 1 ? "edit" : "edits"} this week` : "No edits this week",
+      sub: measuring > 0 ? `${measuring} measuring now` : "nothing measuring right now",
+      pages: pagesHover(made),
+    },
+    wins: {
+      value: settled === 0 ? "Nothing finished yet" : b.won.length === 0 ? "No win yet" : `${b.won.length} ${b.won.length === 1 ? "win" : "wins"} all time`,
+      sub: settled === 0 ? "each read closes at 28 days" : `out of ${settled} finished`,
+      pages: pagesHover(b.won),
+    },
+  };
 }
 
 async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
@@ -201,7 +215,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const edit = today.topEdit ?? null;
   const openTotal = (today.readyTotal ?? 0) + (today.toDoTotal ?? 0);
   const winLine = lastWinLine(ledgerRows, nowMs);
-  const digest = weekDigest(ledgerRows, nowMs);
+  const week = weekStrip(ledgerRows, nowMs);
 
   return (
     <div className="space-y-6">
@@ -261,8 +275,24 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         <ScoreboardSection tenantId={tenantId} />
       </Suspense>
 
-      {digest ? (
-        <p className="text-[13px] leading-relaxed tabular-nums text-muted-foreground" data-week-digest="true">{digest}</p>
+      {/* THE WEEK IN THREE BLOCKS. Two counts off the ledger already loaded, then the way to every one of them.
+          Hover a count to see the pages behind it. No clicks are summed here: the scoreboard above owns that number. */}
+      {week ? (
+        <div className="grid grid-cols-3 gap-2" data-week-strip="true">
+          {[week.made, week.wins].map((block) => (
+            <div key={block.value} title={block.pages} className="rounded-2xl border border-border bg-surface-raised px-4 py-3">
+              <p className="text-[15px] font-semibold leading-snug tabular-nums tracking-tight text-foreground">{block.value}</p>
+              <p className="mt-0.5 text-[12px] leading-snug tabular-nums text-muted-foreground">{block.sub}</p>
+            </div>
+          ))}
+          <Link href="/results"
+            className="group rounded-2xl border border-border bg-surface-raised px-4 py-3 transition-colors hover:border-accent-primary/50 hover:bg-accent-primary/5">
+            <p className="text-[15px] font-semibold leading-snug tracking-tight text-accent-primary">
+              Results has each one <span className="inline-block transition-transform group-hover:translate-x-0.5">&rarr;</span>
+            </p>
+            <p className="mt-0.5 text-[12px] leading-snug text-muted-foreground">What each change earned, page by page</p>
+          </Link>
+        </div>
       ) : null}
 
       {/* THE PROOF, in one line: the last change of yours I measured and what it beat. */}

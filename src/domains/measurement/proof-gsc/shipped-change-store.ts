@@ -1,21 +1,15 @@
 import "server-only";
 
 /**
- * Shipped-change ledger store (CORE 100K) - durable store for manually-shipped changes. Preserves ALL
- * historical records: the Supabase table `shipped_change_proof` is read as-is (extra legacy columns are
- * ignored, never dropped), and the file fallback keeps local dev + the pre-migration hosted window
- * working. Fail-soft: reads return [] on any error. The shape here is the SMALL persisted core the
- * measurement kernel needs; kernel.ts recomputes every directional read, so nothing statistical is stored.
+ * Shipped-change ledger store - the durable home of manually-shipped changes, and THE canonical Shipment:
+ * the operator-confirmed implementation of one ChangeProposal and its verified live state. Every historical
+ * record is preserved (extra legacy columns are read as-is, never dropped) and the file fallback keeps local
+ * dev working. Every Shipment column is nullable, so a pre-Shipment row decodes exactly as before.
  *
- * THE SHIPMENT (V1 Truth Convergence Phase 6). This record IS the canonical Shipment: the
- * operator-confirmed implementation of one ChangeProposal and its verified live state. Evolved here,
- * never duplicated into a parallel table, so there is one answer to "what did we change and what happened
- * after". Every Shipment column is nullable, so pre-Phase-6 rows decode exactly as before.
- *
- * WRITTEN ONCE: `implementedAt` (the stamp the 28-day window is read from) and `shipmentBaseline` (where
- * the page stood at mark time). A later writer arriving with different values keeps what is on file and
- * says so. `verification` is null until the live check runs, and null IS the due marker; the one exception
- * is a site that did not answer at all, which carries a day-scoped marker good for one retry.
+ * WRITTEN ONCE: `implementedAt` (the stamp the window is read from), `shipmentBaseline` (where the page stood
+ * at mark time) and `pinnedRead` (the finished reading). A later writer arriving with different values keeps
+ * what is on file and says so. `verification` is null until the live check runs, and null IS the due marker;
+ * the one exception is a site that did not answer at all, which carries a marker good for one retry.
  */
 
 import { cache } from "react";
@@ -28,19 +22,14 @@ import { log } from "@/lib/logger";
 import { getDataDir } from "@/lib/tenant";
 import { getTenant } from "@/domains/account/tenants/store";
 import type { GscProofConfidence, GscProofVerdict, ProofBaseline, ProofWindowResult } from "./types";
+import type { PinnedRead } from "./pinned-read";
 
-const TABLE = "shipped_change_proof";
-const STORE = "proof-gsc-ledger";
+const TABLE = "shipped_change_proof", STORE = "proof-gsc-ledger";
 
-/** What the live check found. FROZEN SHAPE, written only through `recordVerification`.
- *  `components` names each piece and whether it is on the page, so a partly-applied
- *  bundle reads as partly applied instead of as a pass or a failure.
- *
- *  `operator_confirmed` IS NOT IN THE VOCABULARY ANY MORE. It was an override that let a click stand in
- *  for a reading, and nothing writes it again: it survives in this union only so the rows already carrying
- *  it decode and render as the legacy label they are, and verification treats such a row as one that was
- *  never checked. Component states are the four honest ones: I saw it, I did not, the page carries a
- *  different change in that spot, or I could not read it. */
+/** What the live check found. FROZEN SHAPE, written only through `recordVerification`. `components` names
+ *  each piece and whether it is on the page, so a partly-applied bundle reads as partly applied rather than
+ *  as a pass or a failure. `operator_confirmed` is OUT of the vocabulary: it let a click stand in for a
+ *  reading, nothing writes it again, and it survives here only so the rows already carrying it decode. */
 export type ShipmentVerification = {
   status: "verified" | "partially_verified" | "not_found" | "blocked" | "differs" | "operator_confirmed";
   checkedAt: string;
@@ -54,10 +43,8 @@ export type ShipmentVerification = {
 /** The immutable numbers this page stood at when the operator marked the change done. */
 type ShipmentBaseline = {
   search: ProofBaseline;
-  /** The latest day's first AI reading per tracked question. Null = none on file. `checked` is every answer
-   *  that came back, `analyzed` the ones read closely enough to say whether this account was named, and
-   *  `analyzed` is the denominator the rate is computed over. A row written before `analyzed` existed simply
-   *  does not carry it, and is read as the legacy case it is: never rewritten, because this is write-once. */
+  /** The latest day's first AI reading per tracked question. Null = none on file. `analyzed` (the answers
+   *  read closely enough to say whether this account was named) IS the denominator the rate is computed on. */
   ai: { day: string; checked: number; analyzed?: number; mentioning: number } | null;
   capturedAt: string;
 };
@@ -97,15 +84,10 @@ export type ShippedChangeRecord = {
   caseId: string | null;
   /** What applying the bundle was meant to achieve, in one sentence. */
   bundleHypothesis: string | null;
-  /** Which components the operator says they applied, each with the EXACT copy it was handed (`after`),
-   *  because that copy is what the live check compares the page against, and the RISK the proposal
-   *  graded it at (`risk`), because a dangerous component earns the fourth checkpoint whatever its kind.
-   *  `anchorAfter` is the exact new wording for a renamed link, because that check reads the link's own
-   *  words, and `redirectTo` is the exact address a forward must land on, because reading that address back
-   *  out of the instruction found the address being MOVED. All of them ride inside the existing
-   *  components_applied JSON, exactly as `after` does, so they need no migration and a row written before
-   *  they existed decodes with the field absent (read as null), never failing to decode. A subset of the
-   *  components = a partial bundle. */
+  /** Which components the operator says they applied, each with the EXACT copy it was handed (`after`, what
+   *  the live check compares the page against), the RISK it was graded at (a dangerous component earns the
+   *  fourth checkpoint whatever its kind), the new wording of a renamed link (`anchorAfter`) and the exact
+   *  address a forward must land on (`redirectTo`). A subset of the components = a partial bundle. */
   componentsApplied: Array<{ id?: string | null; kind: string; label: string; after?: string | null; risk?: string | null; anchorAfter?: string | null; redirectTo?: string | null }> | null;
   /** THE STAMP. When the operator marked it done; the window is read from it. Write-once. */
   implementedAt: string | null;
@@ -116,11 +98,13 @@ export type ShippedChangeRecord = {
   /** Null until the live check runs, and null is the due marker. Results renders what the check found,
    *  component by component, and says plainly when I have not looked yet. */
   verification: ShipmentVerification | null;
-  /** WHAT THE OPERATOR SAYS THEY ACTUALLY DID, in their own words, when they changed the page differently
-   *  from the copy I handed them. A NOTE, never an override: it is carried beside the reading and it
-   *  changes nothing about it. Stored in the column that used to hold the override reason, so no row
-   *  moves and no migration is owed. */
+  /** WHAT THE OPERATOR SAYS THEY ACTUALLY DID, in their own words, when the page was changed differently
+   *  from the copy handed over. A NOTE beside the reading, never an override: it changes nothing about it. */
   operatorNote: string | null;
+  /** THE FINISHED READING, FROZEN. Written once the window closed and Google finalized the days behind it,
+   *  so the background re-measure every fifteen minutes can no longer move a number the operator was already
+   *  shown. Null while the reading can still legitimately change (see pinned-read.ts). */
+  pinnedRead: PinnedRead | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -152,6 +136,7 @@ type LedgerRow = {
   implemented_at?: string | null; pre_change_content_hash?: string | null;
   shipment_baseline?: ShipmentBaseline | null; verification?: ShipmentVerification | null;
   operator_override_reason?: string | null;
+  pinned_read?: PinnedRead | null;
   created_at: string;
   updated_at: string;
 };
@@ -187,7 +172,7 @@ function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     case_id: r.caseId, bundle_hypothesis: r.bundleHypothesis, components_applied: r.componentsApplied,
     implemented_at: r.implementedAt, pre_change_content_hash: r.preChangeContentHash,
     shipment_baseline: r.shipmentBaseline, verification: r.verification,
-    operator_override_reason: r.operatorNote, created_at: r.createdAt, updated_at: r.updatedAt,
+    operator_override_reason: r.operatorNote, pinned_read: r.pinnedRead, created_at: r.createdAt, updated_at: r.updatedAt,
   };
 }
 
@@ -209,7 +194,7 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     bundleHypothesis: row.bundle_hypothesis ?? null, componentsApplied: row.components_applied ?? null,
     implementedAt: row.implemented_at ?? null, preChangeContentHash: row.pre_change_content_hash ?? null,
     shipmentBaseline: row.shipment_baseline ?? null, verification: row.verification ?? null,
-    operatorNote: row.operator_override_reason ?? null,
+    operatorNote: row.operator_override_reason ?? null, pinnedRead: row.pinned_read ?? null,
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
@@ -307,10 +292,8 @@ async function invalidateResultsSurfaceSafe(): Promise<void> {
   try { await (await import("@/app/(shell)/surface-release")).invalidateCoreSurfaces(); } catch { /* best-effort */ }
 }
 
-/** PURE. The stamp and the baseline are written ONCE. Every later writer (a re-measure,
- *  a retried mark-implemented) arrives with the whole record, so without this a recompute
- *  could quietly move where the window starts and rewrite where the page began. What is on
- *  file wins, and a writer that tried to change it is named in the log. */
+/** PURE. The stamp and the baseline are written ONCE. Every later writer arrives with the whole record, so
+ *  without this a recompute could move where the window starts. What is on file wins, and the log says so. */
 type WriteOnce = { implemented_at?: string | null; shipment_baseline?: ShipmentBaseline | null };
 
 function withHeldImmutables(held: WriteOnce | null, row: LedgerRow): LedgerRow {
@@ -354,12 +337,10 @@ export async function upsertShippedChange(record: ShippedChangeRecord): Promise<
   const up = await admin.from(TABLE).upsert(row, { onConflict: "tenant_id,id" });
   if (up.error != null) {
     if (isUndefinedTableError(up.error)) {
-      // A SHIPMENT IS DURABLE OR IT DOES NOT EXIST. The table is here and the Shipment columns are not, so
-      // this write would reach only the file while every production read goes to the table and never sees
-      // it: degrading silently let a proposal flip to applied over a Shipment nobody could read back, which
-      // is the one outcome the write order exists to prevent. Fail closed and let the caller say so in the
-      // operator's own words. A pre-Shipment record (no stamp) keeps the file fallback: it carries none of
-      // the new columns and nothing downstream reads it from the table.
+      // A SHIPMENT IS DURABLE OR IT DOES NOT EXIST. The table is here and the Shipment columns are not, so this
+      // write would reach only the file while every production read goes to the table: degrading silently let a
+      // proposal flip to applied over a Shipment nobody could read back. Fail closed. A pre-Shipment record
+      // (no stamp) keeps the file fallback, because nothing downstream reads it from the table anyway.
       if (record.implementedAt != null && isMissingColumnError(up.error)) {
         throw new Error(`shipped-change-store: ${TABLE} has no Shipment columns yet, so nothing durable landed (apply the pending migration)`);
       }
@@ -426,6 +407,30 @@ export async function recordVerification(
   }
 }
 
+/** THE SECOND SEAM, same shape as the verification one: ONE column on ONE Shipment, and ONLY while that
+ *  column is still empty. A frozen reading is written once and never rewritten, because the whole point of it
+ *  is that the number stops moving. False = nothing landed (already frozen, no such row, or pre-migration). */
+export async function recordPinnedRead(tenantId: string, shipmentId: string, pinned: PinnedRead): Promise<boolean> {
+  if (!tenantId || !shipmentId) return false;
+  let admin;
+  try { admin = getSupabaseAdmin(); } catch { return false; }
+  try {
+    const { data, error } = await admin.from(TABLE)
+      .update({ pinned_read: pinned, updated_at: new Date().toISOString() })
+      .eq("tenant_id", tenantId).eq("id", shipmentId).is("pinned_read", null).select("id");
+    if (error != null) {
+      if (!isUndefinedTableError(error)) log.warn("[shipment] the finished reading could not be held still",
+        { tenant: tenantId, id: shipmentId, error: error.message });
+      return false;
+    }
+    return Array.isArray(data) && data.length > 0;
+  } catch (err) {
+    log.warn("[shipment] holding the finished reading still threw",
+      { tenant: tenantId, id: shipmentId, error: err instanceof Error ? err.message : String(err) });
+    return false;
+  }
+}
+
 /** The same ONE column on the same ONE Shipment, written to the file the upsert already mirrors into,
  *  stamp and starting numbers untouched. False = the id is not in the file either, so it stays due. */
 async function recordVerificationInFile(shipmentId: string, verification: ShipmentVerification): Promise<boolean> {
@@ -445,19 +450,14 @@ async function recordVerificationInFile(shipmentId: string, verification: Shipme
   }
 }
 
-/** The measurement window a shipped change owns, read from the stamp. */
-const MEASUREMENT_WINDOW_DAYS = 28;
+/** The measurement window a shipped change owns, read from the stamp. */ const MEASUREMENT_WINDOW_DAYS = 28;
 
 /**
- * The pages this account changed in the last 28 days and is still measuring: a fresh
- * proposal for one of them is work already in flight, not a new idea, and the ranker
- * needs to know that. Read from `implementedAt`, which is what the stamp exists for.
- * ONLY A RESOLVED ANSWER FREES THE PAGE. `not_found` is one: I read the live page and none of
- * the change is on it, so nothing shipped and the page is free. `blocked` is NOT: it means I
- * could not read the page at all, which is the moment I am LEAST sure, and it used to let a
- * second proposal onto a page that may well be carrying a change already. It holds the page
- * exactly as an in-flight verification does. Everything else counts too, including a Shipment
- * still waiting for its first check. Four columns, bounded.
+ * The pages this account changed in the last 28 days and is still measuring: a fresh proposal for one of them
+ * is work already in flight, not a new idea. Read from `implementedAt`, which is what the stamp exists for.
+ * ONLY A RESOLVED ANSWER FREES THE PAGE. `not_found` is one: the live page was read and none of the change is
+ * on it. `blocked` is NOT: the page could not be read at all, which is the least certain moment there is, so
+ * it holds the page exactly as an in-flight check does. Four columns, bounded.
  */
 export async function pagesUnderMeasurementFromShipments(
   tenantId: string, now: Date = new Date(),

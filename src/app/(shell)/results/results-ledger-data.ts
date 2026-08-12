@@ -9,7 +9,7 @@ import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { runSingleFlight } from "@/lib/single-flight";
 import { readLastFinalizedDate } from "@/domains/measurement";
 import { loadProofLedger, loadProofLedgerPersisted } from "@/domains/measurement";
-import { readLedger, type ShippedChangeRecord } from "@/domains/measurement";
+import { applyPinnedRead, pinFor, readLedger, recordPinnedRead, type ShippedChangeRecord } from "@/domains/measurement";
 import {
   isResultsSurfaceStale,
   readResultsSurface,
@@ -47,7 +47,11 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
   const latestGscDate = await readLastFinalizedDate(tenantId).catch(() => null);
   const reads = readLedger(records, new Date(), latestGscDate);
   return records.map((r, i) => {
-    const read = reads[i]!;
+    // A FINISHED READING IS SERVED AS IT WAS READ. Everything below still recomputes from live Google data,
+    // which is right while a window is open and wrong the moment it closes: a backfilled day inside a closed
+    // window, or one more shipped change joining the comparison set, moved a number the operator had already
+    // been told. Where the ledger holds a frozen tuple, that is what this hands back.
+    const read = applyPinnedRead(reads[i]!, r.pinnedRead);
     const basis = read.basisDay == null ? null : r.windows?.find((w) => w.day === read.basisDay && w.ran);
     return {
       read,
@@ -115,6 +119,31 @@ export const loadResultsLedgerSurface = cache(
 export async function rebuildResultsSurface(tenantId: string): Promise<void> {
   const computedAt = new Date().toISOString();
   const records = await loadProofLedger(tenantId);
+  // FREEZE WHAT IS FINISHED, HERE, BEFORE IT IS PRESENTED AGAIN. This is the pass that re-measures the whole
+  // ledger every fifteen minutes, so it is the one that must stop asking a settled question. A reading whose
+  // window has closed with every day behind it finalized is written down once and served from then on.
+  await pinFinishedReads(tenantId, records);
   const shipments = await presentShipments(tenantId, records);
   await writeResultsSurface(shipments, computedAt, tenantId);
+}
+
+/** Write down every reading that is finished and not yet held still, and return how many were frozen. The
+ *  records in hand are updated in place, so the presentation right behind this serves the frozen tuple on the
+ *  very first pass. Fail-soft per row: a freeze that cannot be stored is retried on the next rebuild. */
+export async function pinFinishedReads(tenantId: string, records: ShippedChangeRecord[]): Promise<number> {
+  const open = records.filter((r) => r.pinnedRead == null);
+  if (open.length === 0) return 0;
+  const now = new Date();
+  const latestGscDate = await readLastFinalizedDate(tenantId).catch(() => null);
+  const reads = readLedger(open, now, latestGscDate);
+  let pinned = 0;
+  for (let i = 0; i < open.length; i += 1) {
+    const record = open[i]!;
+    const pin = pinFor(record, reads[i]!, latestGscDate, now);
+    if (!pin) continue;
+    if (!(await recordPinnedRead(tenantId, record.id, pin).catch(() => false))) continue;
+    record.pinnedRead = pin;
+    pinned += 1;
+  }
+  return pinned;
 }

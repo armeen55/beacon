@@ -165,13 +165,23 @@ const rowFor = (p: ChangeProposal, ident: Identity, version: number): Record<str
   decision_receipt: decisionReceipt(p), ranking_receipt: p.rankingReceipt ?? null, updated_at: new Date().toISOString(),
 });
 
-/** Set (or, on a rollback, clear) one row's disposition. Fail-closed: a write that changed no row fails. */
+/** Set (or, on a rollback, clear) one row's disposition. Fail-closed: a write that changed no row fails.
+ *  WHY IT WAS RETIRED IS WRITTEN WITH IT. A withdrawal is permanent in practice (the skip set feeds off it
+ *  and a save under the same basis is refused), and every one of them looked identical afterwards, so the
+ *  night a sweep took the operator's open cards there was nothing on the rows to tell them apart from the
+ *  ones a safety gate had genuinely refused. Pre-migration the write retries without the column rather than
+ *  failing the retirement itself. */
 async function setDisposition(
   tenantId: string, id: string, disposition: TerminalDisposition | null, supersededBy: string | null,
+  reason: string | null = null,
 ): Promise<boolean> {
-  const { data, error } = await getSupabaseAdmin().from(TABLE)
-    .update({ terminal_disposition: disposition, superseded_by: supersededBy, updated_at: new Date().toISOString() })
-    .eq("tenant_id", tenantId).eq("id", id).select("id");
+  const base = { terminal_disposition: disposition, superseded_by: supersededBy, updated_at: new Date().toISOString() };
+  const write = (row: Record<string, unknown>) => getSupabaseAdmin().from(TABLE)
+    .update(row).eq("tenant_id", tenantId).eq("id", id).select("id");
+  let { data, error } = await write({ ...base, withdrawn_reason: disposition == null ? null : reason });
+  if (error && (error.code === "PGRST204" || /column/i.test(error.message ?? ""))) {
+    ({ data, error } = await write(base));
+  }
   if (!error && data && data.length > 0) return true;
   log.error("[proposal-store] disposition write did not land", { id, disposition, error: error?.message ?? "no row" });
   return false;
@@ -271,11 +281,11 @@ export async function markProposalImplemented(tenantId: string, id: string, live
 
 /** BEACON'S OWN RETRACTION. A draft a safety gate refused is not queued work and not a rejection the operator
  *  has to read: it lands as history under the disposition that says I took it back. Fail-soft. */
-export async function withdrawChangeProposal(proposal: ChangeProposal): Promise<boolean> {
+export async function withdrawChangeProposal(proposal: ChangeProposal, reason?: string): Promise<boolean> {
   const saved = await saveChangeProposal(proposal);
   if (saved === "failed") return false;
   if (saved === "refused") return true; // already withdrawn or dismissed under this basis
-  return setDisposition(proposal.tenantId, proposal.id, "withdrawn", null);
+  return setDisposition(proposal.tenantId, proposal.id, "withdrawn", null, reason ?? null);
 }
 
 /** The hypotheses I already took back under THIS basis. Bounded; empty on read trouble, which costs one

@@ -70,17 +70,45 @@ const PART_WORD: Record<string, string> = { meta: "description", faq: "FAQ", h1:
   h3: "section", schema: "schema markup", gbp: "Google Business profile", alt: "image descriptions" };
 const plainPart = (t: string): string => t.split(" ").map((w) => PART_WORD[w] ?? w).join(" ");
 
+/** THIS LIST HOLDS A TITLE, NOT AN ARGUMENT. A stored hypothesis is the whole reason the change was made (one
+ *  row printed about sixty words of it), so a hypothesis only reaches this line when nothing shorter exists,
+ *  and then it is cut at a word. */
+const LABEL_MAX = 90;
+function shortLabel(text: string): string {
+  const one = text.replace(/\s+/g, " ").trim();
+  if (one.length <= LABEL_MAX) return one;
+  const cut = one.slice(0, LABEL_MAX);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > 40 ? cut.slice(0, space) : cut).replace(/[.,;:]$/, "")}...`;
+}
+
 function changeLabel(row: LedgerRow): string {
-  if (row.bundleHypothesis?.trim()) return row.bundleHypothesis.trim();
   if (row.actionType === "create_page") return "A new page was published";
   const mapped = changeSentence(row.actionType);
   if (mapped) return mapped;
+  if (row.bundleHypothesis?.trim()) return shortLabel(row.bundleHypothesis);
   const t = plainPart(row.actionType.replace(/^(edit|change|improve|update|add|fix|rewrite)_/, "").replace(/_/g, " ").trim());
   if (!t) return "This page was changed";
   if (row.actionType.startsWith("add_")) return `Added the ${t}`;
   if (row.actionType.startsWith("fix_")) return `Fixed the ${t}`;
   if (row.actionType.startsWith("rewrite_")) return `Rewrote the ${t}`;
   return `Changed the ${t}`;
+}
+
+/** The reads every change gets, in days, when a row carries no window list of its own yet. */
+const READ_LADDER = [7, 14, 28];
+/** HOW FAR THE READING HAS GOT ON ONE CHANGE, from the windows the row already carries. "still measuring" is
+ *  not an answer to "when do I hear back", so this names the read that landed and the one it waits on, or the
+ *  day the first one lands. One clause, no lab words. */
+function readProgress(row: LedgerRow): string {
+  const windows = row.windows ?? [];
+  const days = windows.length > 0 ? [...new Set(windows.map((w) => w.day))].sort((a, b) => a - b) : READ_LADDER;
+  const done = windows.filter((w) => w.ran).map((w) => w.day).sort((a, b) => b - a)[0] ?? null;
+  const next = days.find((d) => done == null || d > done) ?? null;
+  if (done != null) return next == null ? `${done} day read done` : `${done} day read done, waiting on the ${next} day`;
+  const started = Date.parse(row.implementedAt ?? row.shippedAt);
+  const lands = Number.isFinite(started) ? dayLabel(new Date(started + (next ?? READ_LADDER[0]!) * 86_400_000).toISOString()) : null;
+  return lands ? `waiting on the first read (lands ${lands})` : "waiting on the first read";
 }
 
 function Lane({ title, blurb, children }: { title: string; blurb: string; children: ReactNode }) {
@@ -200,17 +228,19 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
           <ul className="space-y-2">
             {[...shownMeasuring.map((r) => ({ r, state: "measuring" as const })), ...shownResults.map((r) => ({ r, state: "result" as const }))]
               .map(({ r, state }) => (
+                /* ONE LINE, AND IT ANSWERS WHEN. What changed, the day it was made, and where the reading has got to.
+                   Every part truncates, so a stored paragraph can never turn one row into three. */
                 <li key={r.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-xl border border-border bg-surface-raised px-4 py-3" data-ledger-row={state}>
-                  <span className="text-[13px] font-semibold text-foreground">{prettyPage(r.page || r.path)}</span>
-                  <span className="text-[13px] text-muted-foreground">{changeLabel(r)}</span>
-                  <span className="text-[12px] tabular-nums text-muted-foreground">
+                  <span className="max-w-full shrink-0 truncate text-[13px] font-semibold text-foreground">{prettyPage(r.page || r.path)}</span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground" title={changeLabel(r)}>{changeLabel(r)}</span>
+                  <span className="shrink-0 truncate text-[12px] tabular-nums text-muted-foreground">
                     {dayLabel(r.implementedAt ?? r.shippedAt) ?? "date not recorded"} ·{" "}
                     {state === "measuring"
-                      ? "still measuring"
+                      ? readProgress(r)
                       : r.verdict === "won"
                         ? "it worked"
                         : "what it taught"}
-                    {r.windows ? ((p) => (p ? <> · {p}</> : null))(ledgerProofLine({ windows: r.windows })) : null}
+                    {state === "result" && r.windows ? ((p) => (p ? <> · {p}</> : null))(ledgerProofLine({ windows: r.windows })) : null}
                   </span>
                 </li>
               ))}

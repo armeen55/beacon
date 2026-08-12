@@ -5,8 +5,55 @@
  *  file is only what can be DONE about it. Publishing stays MANUAL: nothing here writes to the operator's site.
  *  Every surface that hands over copy or records work renders these same controls, so a press means one thing. */
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { dismissProposalAction, markProposalImplementedAction } from "./actions";
+
+/** THE PRESS SURVIVES THE CONNECTION. A "Mark done" that THREW never reached the server, and telling the
+ *  operator to press it again puts the burden of a flaky minute on the person who did the work. A plain
+ *  whole-change mark is kept on this device and sent again on the next page load. Only plain ones: a partial
+ *  bundle, a page move, a new page's address and their own note all carry words this queue does not hold, so
+ *  those still ask for a second press rather than recording something narrower than what they did. */
+const MARK_QUEUE_KEY = "beacon.mark-done.queue";
+const MARK_QUEUE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+type QueuedMark = { proposalId: string; at: number };
+
+function readMarkQueue(): QueuedMark[] {
+  try {
+    const rows: unknown = JSON.parse(window.localStorage.getItem(MARK_QUEUE_KEY) ?? "[]");
+    const cutoff = Date.now() - MARK_QUEUE_MAX_AGE_MS;
+    return Array.isArray(rows)
+      ? rows.filter((r: QueuedMark) => typeof r?.proposalId === "string" && typeof r?.at === "number" && r.at > cutoff)
+      : [];
+  } catch { return []; }
+}
+function writeMarkQueue(rows: QueuedMark[]): void {
+  try { window.localStorage.setItem(MARK_QUEUE_KEY, JSON.stringify(rows)); } catch { /* private mode: the press is simply not kept */ }
+}
+function queueMark(proposalId: string): void {
+  writeMarkQueue([...readMarkQueue().filter((r) => r.proposalId !== proposalId), { proposalId, at: Date.now() }]);
+}
+
+/** ONE flush per page load, whichever card mounts first. A server that ANSWERS settles the entry either way:
+ *  "already recorded" and "no longer eligible" are answers, not outages, and re-sending them forever would
+ *  make the device argue with the server. Only a throw, which is the connection again, keeps it queued. */
+let markQueueFlushed = false;
+function useMarkQueueFlush(): void {
+  useEffect(() => {
+    if (markQueueFlushed) return;
+    markQueueFlushed = true;
+    const pending = readMarkQueue();
+    writeMarkQueue(pending);
+    if (pending.length === 0) return;
+    void (async () => {
+      const unsent: QueuedMark[] = [];
+      for (const row of pending) {
+        try { await markProposalImplementedAction({ proposalId: row.proposalId }); }
+        catch { unsent.push(row); }
+      }
+      writeMarkQueue(unsent);
+    })();
+  }, []);
+}
 
 /** The exact words, on the clipboard, in one press. The button itself says it worked for two seconds, because a
  *  toast at the foot of a long list is no answer to a press at the top of it. Nothing is written to the site.
@@ -89,7 +136,8 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
   newPage?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
-  const [state, setState] = useState<{ done: boolean; error: string | null; note: string | null }>({ done: false, error: null, note: null });
+  const [state, setState] = useState<{ done: boolean; error: string | null; note: string | null; queued?: boolean }>({ done: false, error: null, note: null });
+  useMarkQueueFlush();
   const pickable = components && components.length > 1 ? components : null;
   // OPEN ON WHAT IS GENUINELY STILL THEIRS TO DO: pre-ticking a piece already on file offered to record a
   // component already under measurement, and the server refuses to write it twice anyway.
@@ -103,6 +151,10 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
   // THE DELIBERATE YES, asked only about the pieces they say they applied. The server asks again and refuses
   // without it, so this box is the operator's act and never the gate.
   const movesPage = (components ?? []).some((c) => c.moves && applied.has(c.id));
+
+  // A PLAIN WHOLE-CHANGE MARK is the only shape this device can re-send faithfully: nothing here narrows what
+  // was recorded, and nothing here is the operator's own words.
+  const queueable = !newPage && !movesPage && !(pickable && applied.size < pickable.length) && note.trim().length === 0;
 
   function onClick() {
     startTransition(async () => {
@@ -119,7 +171,12 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
         if (res.success) { setState({ done: true, error: null, note: res.note ?? null }); onRecorded?.(); }
         else setState({ done: false, error: res.error ?? "Something went wrong.", note: null });
       } catch {
-        setState({ done: false, error: "It did not save. Check you are signed in, then press it again.", note: null });
+        if (queueable) {
+          queueMark(proposalId);
+          setState({ done: false, error: "Saved on this device. It records itself when the connection returns.", note: null, queued: true });
+        } else {
+          setState({ done: false, error: "It did not save. Check you are signed in, then press it again.", note: null });
+        }
       }
     });
   }
@@ -184,7 +241,11 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
               : movesPage && !confirmed ? "Confirm you meant to move or hide the page to record it."
                 : "You apply the change on your site; the page is read back and what it found is reported."}
         </span>
-        {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}
+        {/* A press that is safely held is not a failure, so it is never painted as one. */}
+        {state.error ? (
+          <span data-mark-queued={state.queued ? "true" : undefined}
+            className={state.queued ? "text-[12px] text-muted-foreground" : "text-[12px] text-red-500"}>{state.error}</span>
+        ) : null}
       </div>
       {/* WHAT IS STILL THEIRS TO DO after a partial apply: the change stays open carrying the rest. */}
       {state.note ? <p className="text-[12px] leading-relaxed text-muted-foreground">{state.note}</p> : null}

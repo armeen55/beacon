@@ -1,21 +1,12 @@
 /**
- * Insight Graph slice 1 (2026-06-12) — per-page GSC Search Analytics
- * signal loader. Aggregates the tenant's synced `gsc_daily_rows`
- * (page+query grain, final days only) over the trailing 90-day window
- * into one signal object per page — the pure input the GSC-driven
- * trigger predicates consume (same pattern as the indexability batch
- * loader: this module does the I/O, predicates stay pure).
+ * Per-page Search Console signals: the account's synced page+query grain aggregated over the trailing 90 days
+ * into one signal per page, the pure input every GSC-driven predicate consumes. Single-day rates are too noisy
+ * to recommend on, and the longer window steadies CTR and position; the `*90d` field names track WINDOW_DAYS.
  *
- * 90-day window (audit #15, 2026-06-14 — was mislabeled "28d" in field
- * names while WINDOW_DAYS has been 90 since the 2026-06-13 operator
- * pref; renamed `*28d` → `*90d` for honesty): single-day CTR is too
- * noisy for recommendations — the practitioner sources behind the
- * trigger rules all aggregate before applying thresholds (cited in the
- * slice commit). The longer window also steadies CTR/position and
- * surfaces more pages. NOTE: the `*90d` suffix tracks WINDOW_DAYS — if
- * that constant changes, rename the GscPageSignal fields to match.
- *
- * Fail-soft: missing table / no rows / Supabase error → empty Map.
+ * A READ THAT FAILED IS NOT A SITE WITH NO SEARCH DATA. A total failure THROWS and a partial one is handed
+ * back marked incomplete, so the caller can say "the search data did not answer" instead of judging every
+ * page against an empty Map. Both readers here are memoized on (account, reporting day), so the several
+ * loaders that need this same 90-day aggregate during one rebuild share ONE statement.
  */
 
 import "server-only";
@@ -49,74 +40,59 @@ export type GscPageSignal = {
   position90d: number;
   /** Top queries by impressions (capped). */
   topQueries: GscQuerySignal[];
-  /** R17a (v1 492): the page's impressions summed over the VISIBLE page+query
-   *  grain only (gsc_daily_rows), BEFORE the page-totals override below. The
-   *  true page totals (impressions90d, from gsc_daily_page_totals) include the
-   *  anonymized queries GSC hides; total minus this visible sum is the
-   *  anonymized share (see domains/evidence/gsc/anonymized-share.ts). Optional so
-   *  existing fixtures/mocks keep compiling; 0 for a page seen only in totals. */
+  /** Impressions over the VISIBLE page+query grain only, before the page-totals override below. The true
+   *  totals include the queries GSC anonymizes, so total minus this is the anonymized share. */
   queryVisibleImpressions90d?: number;
 };
 
-/** 90-day rolling window (operator pref 2026-06-13: don't clip to 28 days —
- *  use the fuller history GSC holds, more pages + steadier CTR/position). The
- *  sync backfills up to ~90 days, so this captures it all as it accumulates. */
+/** The fuller history GSC holds: more pages, steadier CTR and position. */
 const WINDOW_DAYS = 90;
 const TOP_QUERIES_CAP = 8;
-/** Bounded read: per-tenant page+query rows over the 90-day window. At
- *  page+query+day grain a busy site easily exceeds 20k rows in 90 days; the old 20k cap (with
- *  no ORDER BY) truncated to an arbitrary handful of pages — starving both the
- *  GSC triggers and the card evidence. 80k covers Iranopedia's current ~44k
- *  in-window rows fully so EVERY page aggregates. (Scale follow-up: move to a
- *  Postgres GROUP BY RPC when in-window rows approach this cap.) */
+/** Bounded read. The result is one row per page, so this is a safety net, never the working size. */
 const MAX_ROWS = 80_000;
 /** PostgREST response cap — page through in chunks of this size. */
 const PAGE_SIZE = 1_000;
+/** EVERY ONE OF THESE AGGREGATES CARRIES ITS OWN DEADLINE. They are the heaviest statements this product
+ *  issues, and an abandoned request held its connection until Postgres noticed, so a slow night stacked
+ *  copies of one GROUP BY until a statement timed out. Above the ~20s a rebuild allows itself, so a read
+ *  that would still have answered in time does. */
+const RPC_DEADLINE_MS = 25_000;
+/** Noon UTC on a reporting day. Pacific runs seven to eight hours behind UTC, so noon UTC always lands on
+ *  the same reporting day: every caller that asked with its own clock derives the same window. */
+const dayInstant = (day: string): number => Date.parse(`${day}T12:00:00.000Z`) || Date.now();
+/** A function or table that is not there yet is the pre-backfill window, never an outage. */
+const isMissingObject = (code: string | null | undefined): boolean =>
+  code === "PGRST202" || code === "PGRST205" || code === "42883" || code === "42P01";
 
-async function loadGscPageSignalsForTenantUncached(
-  tenantId: string,
-  now: Date = new Date(),
-): Promise<Map<string, GscPageSignal>> {
+/** One page-signal read, and whether it is the WHOLE window. `incomplete` means an error cut the paging
+ *  short after some rows landed: the signals are real but partial, and a surface that treats partial as
+ *  complete judges every unread page clean. A read that got nothing at all throws instead. */
+export type GscPageSignalsRead = { signals: Map<string, GscPageSignal>; incomplete: boolean };
+
+async function readGscPageSignalsForDayUncached(tenantId: string, day: string): Promise<GscPageSignalsRead> {
   const out = new Map<string, GscPageSignal>();
-  // Server-side aggregation via the gsc_page_signals_v1 RPC (2026-06-13).
-  // ONE GROUP BY returns COMPLETE per-page totals + the top-10 queries per
-  // page. This replaces the prior client-side pagination of raw
-  // gsc_daily_rows, which truncated a large site's window at an 80k-row
-  // safety cap (Iranopedia: ~208k rows in 90 days) and therefore summed an
-  // arbitrary, INCOMPLETE slice — the card's "in the last 90 days" counts
-  // were wrong and depended on read order (oldest- vs recent-biased). The
-  // RPC reads everything in a single round-trip and is exact + fast. We
-  // still page the RESULT by a unique order (page) purely as a safety net
-  // for a site with >1k distinct pages.
-  type RpcRow = {
-    page: string;
-    clicks: number | string;
-    impressions: number | string;
-    pos_weighted: number | string;
-    top_queries:
-      | Array<{
-          query: string;
-          clicks: number;
-          impressions: number;
-          position: number;
-        }>
-      | null;
-  };
+  const now = new Date(dayInstant(day));
+  // ONE server-side GROUP BY returns complete per-page totals plus that page's top queries; the RESULT is
+  // paged by `page` purely as a safety net for a site with more than a thousand distinct addresses.
+  type RpcRow = { page: string; clicks: number | string; impressions: number | string; pos_weighted: number | string;
+    top_queries: Array<{ query: string; clicks: number; impressions: number; position: number }> | null };
   const rpcRows: RpcRow[] = [];
+  // THE READ'S OWN FAILURE, CARRIED RATHER THAN SWALLOWED. A PostgREST error used to `break` out of the
+  // paging and hand back whatever had landed, so a statement timeout on this one GROUP BY was served to
+  // every surface as a site with no search data at all and every page judged clean.
+  let readError: Error | null = null;
   try {
     const since = reportingDay(now.getTime() - WINDOW_DAYS * 86_400_000);
     const sb = getSupabaseAdmin();
     for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
       const { data, error } = await sb
         .rpc("gsc_page_signals_v1", { p_tenant: tenantId, p_since: since })
+        .abortSignal(AbortSignal.timeout(RPC_DEADLINE_MS))
         .order("page")
         .range(offset, offset + PAGE_SIZE - 1);
       if (error) {
-        log.warn("[gsc-page-signals] rpc read failed", {
-          tenantId,
-          offset,
-          error: error.message,
-        });
+        log.error("[gsc-page-signals] rpc read failed", { tenantId, offset, error: error.message });
+        readError = new Error(`gsc_page_signals_v1 read failed at offset ${offset}: ${error.message}`);
         break;
       }
       const batch = (data ?? []) as unknown as RpcRow[];
@@ -124,36 +100,25 @@ async function loadGscPageSignalsForTenantUncached(
       if (batch.length < PAGE_SIZE) break;
     }
   } catch (e) {
-    // LOUD, not silent: this loader feeds the demand graph + every GSC surface.
-    // A swallowed throw here blanks the whole cockpit with zero diagnostics — the
-    // exact "silent empty dashboard" class. Surface it so prod failures are seen.
-    log.warn("[gsc-page-signals] read threw — GSC surfaces will be empty", {
-      tenantId,
-      error: e instanceof Error ? e.message : String(e),
-    });
-    return out;
+    // LOUD, not silent: this loader feeds the demand graph and every GSC surface.
+    log.error("[gsc-page-signals] read threw", { tenantId, error: e instanceof Error ? e.message : String(e) });
+    readError = e instanceof Error ? e : new Error(String(e));
   }
-  if (rpcRows.length === 0) return out;
+  // NOTHING READ AND AN ERROR TO SHOW FOR IT is the same claim the decay reader has always made: throw, so
+  // the caller marks the source failed rather than reporting an account that has never ranked for anything.
+  if (readError != null && rpcRows.length === 0) throw readError;
+  if (rpcRows.length === 0) return { signals: out, incomplete: false };
 
-  // Map the RPC's per-page aggregates into GscPageSignal. `pos_weighted`
-  // is Σ(position × impressions) over the window; divide by impressions
-  // for the impressions-weighted average position. `top_queries` arrive
-  // pre-ranked (top 10 by impressions) — cap to TOP_QUERIES_CAP.
+  // `pos_weighted` is Σ(position × impressions); divide by impressions for the weighted average position.
   for (const r of rpcRows) {
     const page = canonicalizeCitationUrl(r.page) ?? r.page;
     const clicks = Number(r.clicks) || 0;
     const impressions = Number(r.impressions) || 0;
     const positionWeighted = Number(r.pos_weighted) || 0;
     const querySignals: GscQuerySignal[] = (r.top_queries ?? []).map((q) => {
-      const qImpr = Number(q.impressions) || 0;
-      const qClicks = Number(q.clicks) || 0;
-      return {
-        query: q.query,
-        clicks: qClicks,
-        impressions: qImpr,
-        ctr: qImpr > 0 ? qClicks / qImpr : 0,
-        position: Number(q.position) || 0,
-      };
+      const qImpr = Number(q.impressions) || 0, qClicks = Number(q.clicks) || 0;
+      return { query: q.query, clicks: qClicks, impressions: qImpr,
+        ctr: qImpr > 0 ? qClicks / qImpr : 0, position: Number(q.position) || 0 };
     });
     out.set(page, {
       page,
@@ -162,51 +127,40 @@ async function loadGscPageSignalsForTenantUncached(
       ctr90d: impressions > 0 ? clicks / impressions : 0,
       position90d: impressions > 0 ? positionWeighted / impressions : 0,
       topQueries: querySignals.slice(0, TOP_QUERIES_CAP),
-      // R17a (v1 492): remember the visible query-grain sum before the totals
-      // override replaces impressions90d with the true (anonymized-inclusive)
-      // page number, so the anonymized share stays computable downstream.
+      // Kept before the totals override replaces impressions90d, so the anonymized share stays computable.
       queryVisibleImpressions90d: impressions,
     });
   }
 
-  // Override per-page totals with the TRUE page-level numbers
-  // (dimensions=[page], gsc_daily_page_totals) — these INCLUDE the anonymized
-  // low-volume queries GSC hides from the page+query grain above, so CTR +
-  // impressions match the GSC UI instead of understating impressions /
-  // inflating CTR. topQueries (from page+query) are kept. Pages with totals
-  // but no visible queries get an entry with empty topQueries. Soft-fail
-  // (keep the page+query totals) when the table is empty / unread (pre-backfill).
+  // THE TRUE page-level numbers override the sums above: they include the low-volume queries GSC anonymizes,
+  // so CTR and impressions match what the operator sees in Search Console. Top queries are kept as read.
+  let totalsIncomplete = false;
   try {
     const sinceTotals = reportingDay(now.getTime() - WINDOW_DAYS * 86_400_000);
     const sbTotals = getSupabaseAdmin();
-    const totalsByPage = new Map<
-      string,
-      { clicks: number; impressions: number; positionWeighted: number }
-    >();
-    // audit #24 (2026-06-14): server-side GROUP BY via gsc_page_totals_v1
-    // (one row per page, pos_weighted = Σ position*impressions) replaces
-    // paging the raw daily page-totals client-side. Page the RESULT by
-    // `page` purely as a safety net for a site with >1k distinct pages.
+    const totalsByPage = new Map<string, { clicks: number; impressions: number; positionWeighted: number }>();
     for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
       const { data, error } = await sbTotals
         .rpc("gsc_page_totals_v1", { p_tenant: tenantId, p_since: sinceTotals })
+        .abortSignal(AbortSignal.timeout(RPC_DEADLINE_MS))
         .order("page")
         .range(offset, offset + PAGE_SIZE - 1);
-      if (error) break;
-      const batch = (data ?? []) as unknown as Array<{
-        page: string;
-        clicks: number | string;
-        impressions: number | string;
-        pos_weighted: number | string;
-      }>;
+      if (error) {
+        // The true page totals carry the queries GSC anonymizes, so losing them UNDERSTATES every page's
+        // impressions. A table that does not exist yet is the pre-backfill window and stays soft; anything
+        // else is an outage the caller is told about rather than a quietly smaller number.
+        if (!isMissingObject((error as { code?: string }).code)) {
+          log.error("[gsc-page-signals] page-totals read failed", { tenantId, offset, error: error.message });
+          totalsIncomplete = true;
+        }
+        break;
+      }
+      const batch = (data ?? []) as unknown as Array<{ page: string; clicks: number | string;
+        impressions: number | string; pos_weighted: number | string }>;
       for (const r of batch) {
         const page = canonicalizeCitationUrl(r.page) ?? r.page;
         let acc = totalsByPage.get(page);
-        if (!acc) {
-          acc = { clicks: 0, impressions: 0, positionWeighted: 0 };
-          totalsByPage.set(page, acc);
-        }
-        // pos_weighted already arrives impressions-weighted from the RPC.
+        if (!acc) { acc = { clicks: 0, impressions: 0, positionWeighted: 0 }; totalsByPage.set(page, acc); }
         acc.clicks += Number(r.clicks) || 0;
         acc.impressions += Number(r.impressions) || 0;
         acc.positionWeighted += Number(r.pos_weighted) || 0;
@@ -214,37 +168,37 @@ async function loadGscPageSignalsForTenantUncached(
       if (batch.length < PAGE_SIZE) break;
     }
     for (const [page, acc] of totalsByPage) {
-      const totals = {
-        clicks90d: acc.clicks,
-        impressions90d: acc.impressions,
+      const totals = { clicks90d: acc.clicks, impressions90d: acc.impressions,
         ctr90d: acc.impressions > 0 ? acc.clicks / acc.impressions : 0,
-        position90d:
-          acc.impressions > 0 ? acc.positionWeighted / acc.impressions : 0,
-      };
+        position90d: acc.impressions > 0 ? acc.positionWeighted / acc.impressions : 0 };
       const existing = out.get(page);
-      out.set(
-        page,
-        existing
-          ? { ...existing, ...totals }
-          : // Seen only in page totals: zero VISIBLE query impressions (all of
-            // this page's queries are below GSC's anonymity threshold).
-            { page, ...totals, topQueries: [], queryVisibleImpressions90d: 0 },
-      );
+      // Seen only in page totals: every one of this page's queries is below GSC's anonymity threshold.
+      out.set(page, existing ? { ...existing, ...totals }
+        : { page, ...totals, topQueries: [], queryVisibleImpressions90d: 0 });
     }
-  } catch {
-    /* page-totals unavailable — keep the page+query totals */
+  } catch (e) {
+    log.error("[gsc-page-signals] page-totals read threw", {
+      tenantId, error: e instanceof Error ? e.message : String(e) });
+    totalsIncomplete = true;
   }
 
-  return out;
+  return { signals: out, incomplete: readError != null || totalsIncomplete };
 }
 
-/** One exact RPC result per tenant/date argument in a request. The demand graph,
- * trigger loader, ownership registry, and preparation path can all ask for this
- * same expensive 90-day aggregate during one Changes rebuild. Without request
- * memoization they issued duplicate GROUP BY statements concurrently; on the
- * authenticated Iranopedia refresh one of those statements timed out and the
- * rebuilt ranking lost evidence. */
-export const loadGscPageSignalsForTenant = cache(loadGscPageSignalsForTenantUncached);
+/** ONE STATEMENT PER ACCOUNT PER DAY IN A REQUEST. The demand graph, the trigger loader, the ownership
+ *  registry and the preparation path all ask for this same expensive aggregate during one rebuild. The memo
+ *  was here and did nothing: every call site handed it a fresh `new Date()` or left the argument off, and
+ *  React keys a memo on the arguments it was given. The day is normalized inside the one entry every caller
+ *  uses, so there is exactly one slot to share. */
+const readGscPageSignalsForDay = cache(readGscPageSignalsForDayUncached);
+
+/** The full read: the signals AND whether they are the whole window. Throws when nothing could be read. */
+export const readGscPageSignalsForTenant = (tenantId: string, now: Date = new Date()): Promise<GscPageSignalsRead> =>
+  readGscPageSignalsForDay(tenantId, reportingDay(now));
+
+/** The signals alone, for the callers that already treat a thin read as thin evidence. */
+export const loadGscPageSignalsForTenant = async (tenantId: string, now: Date = new Date()): Promise<Map<string, GscPageSignal>> =>
+  (await readGscPageSignalsForTenant(tenantId, now)).signals;
 
 // ── Site totals slice (2026-06-15) — light per-day site-totals read ──
 
@@ -413,11 +367,12 @@ const DECAY_WINDOW_DAYS = 28;
  * THROWS on a TOTAL read failure (zero data) so the caller logs it loudly
  * rather than silently reporting "no decaying pages".
  */
-export async function loadGscDecaySignalsForTenant(
+async function loadGscDecaySignalsForDayUncached(
   tenantId: string,
-  now: Date = new Date(),
+  day: string,
 ): Promise<Map<string, GscDecaySignal>> {
   const out = new Map<string, GscDecaySignal>();
+  const now = new Date(dayInstant(day));
   // audit-wave #4 (2026-06-23): anchor the now/prior split to the last FINALIZED
   // GSC day, not wall-clock. GSC finalizes ~2-3 days behind, so a now-anchored
   // "now" window holds fewer real data-days than the equal-width "prior" window
@@ -472,6 +427,7 @@ export async function loadGscDecaySignalsForTenant(
           p_since: since,
           p_split: split,
         })
+        .abortSignal(AbortSignal.timeout(RPC_DEADLINE_MS))
         .order("page")
         .range(offset, offset + PAGE_SIZE - 1);
       if (error) {
@@ -545,4 +501,15 @@ export async function loadGscDecaySignalsForTenant(
     });
   }
   return out;
+}
+
+/** THE SAME ONE SLOT PER ACCOUNT PER DAY the page signals get. This read was never memoized at all, so the
+ *  publish path, the lanes, Visibility and the producer each paid for their own split-window GROUP BY. */
+const loadGscDecaySignalsForDay = cache(loadGscDecaySignalsForDayUncached);
+
+export function loadGscDecaySignalsForTenant(
+  tenantId: string,
+  now: Date = new Date(),
+): Promise<Map<string, GscDecaySignal>> {
+  return loadGscDecaySignalsForDay(tenantId, reportingDay(now));
 }

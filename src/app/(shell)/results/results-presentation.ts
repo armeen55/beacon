@@ -386,7 +386,13 @@ export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>)
     header: {
       worked: settled.length === 0
         ? { value: soonestDay ? `First result lands ${soonestDay}` : "First result lands once a read closes", sub: "Nothing has finished its 28 day read yet", isCount: false }
-        : { value: `${num(wins.length)} ${wins.length === 1 ? "win" : "wins"}`, sub: `out of ${settled.length} changes that finished their 28 day read`, isCount: true },
+        // BANKED, NEVER CHERRY PICKED: the wins are counted against every change that finished, and the ones that
+        // did not win are named as what they taught rather than left out of the sentence.
+        : { value: `${num(wins.length)} ${wins.length === 1 ? "win" : "wins"}`,
+            sub: settled.length > wins.length
+              ? `out of ${settled.length} finished; the rest taught what does not move this site`
+              : `out of ${settled.length} finished`,
+            isCount: true },
       clicks: clickWins.length === 0
         ? { value: rateWins > 0 ? `${rateWins} click rate ${rateWins === 1 ? "win" : "wins"}` : "Nothing read yet", positive: false }
         : { value: signed(Math.round(clicks)), positive: clicks > 0, note: rateWins > 0 ? `plus ${rateWins} click rate ${rateWins === 1 ? "win" : "wins"}` : null },

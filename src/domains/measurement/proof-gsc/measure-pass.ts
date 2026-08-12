@@ -355,6 +355,8 @@ export async function recordShippedChange(args: {
     // can press or type ends it, so this is never written at mark time.
     verification: null,
     operatorNote: ship?.operatorNote ?? null,
+    // Nothing is frozen at ship time: the first window has not even opened.
+    pinnedRead: null,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

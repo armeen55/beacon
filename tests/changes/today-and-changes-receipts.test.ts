@@ -87,10 +87,23 @@ describe("Changes shows every opportunity, and evidence decides only which lane 
     const html = await renderFeed({ investigations: [TOPIC], view: { ...viewOf([]), demotedStaleBasis: 21 }, results: [{ ...SHIPPED, id: "r1" }],
       decay: [DECAY, ...Array.from({ length: 21 }, (_, i) => ({ ...DECAY, page: `https://site.example/p${i}`, clicksPrior: 30 + i }))],
       measuring: Array.from({ length: 9 }, (_, i) => ({ ...SHIPPED, id: `m${i}`, verdict: "measuring" })) });
-    for (const s of ["Work happening behind the scenes", "iranian saffron", "2,400 searches a month", "reading Google&#x27;s results page", "/comedians", "lost 163 clicks in 4 weeks", "data through Jul 9", "its results page is read next", "21 earlier ideas that no longer clear it went aside", "Changed the title", "Jul 1", "still measuring", "it worked"]) expect(html, s).toContain(s);
+    for (const s of ["Work happening behind the scenes", "iranian saffron", "2,400 searches a month", "reading Google&#x27;s results page", "/comedians", "lost 163 clicks in 4 weeks", "data through Jul 9", "its results page is read next", "21 earlier ideas that no longer clear it went aside", "Changed the title", "Jul 1", "waiting on the first read (lands Jul 8)", "it worked"]) expect(html, s).toContain(s);
     const n = (re: RegExp) => Number((re.exec(html)?.[1] ?? "0").replace(/,/g, "")), rows = (a: string) => html.split(a).length - 1;
     // The drawer counts what it lists: 1 topic, and 22 declining pages plus the set-aside row = 23, of which 6 + 1 render and 16 are named as more. Measuring 9 and Results 1 = 7 rendered and 3 named.
     expect([n(/\(([\d,]+) topics?,/), n(/, ([\d,]+) pages?\)/), rows('data-watching-row="true"'), n(/">([\d,]+) more pages? (?:is|are) down/), rows('data-researching-card="true"'), rows("data-ledger-row="), n(/See the other ([\d,]+) on Results/), /No changes yet|nothing for you to do/i.test(html)]).toEqual([1, 23, 7, 16, 1, 7, 3, false]); });
+  // THE MEASURING LANE IS A LIST, NOT AN ESSAY: one row printed the whole stored argument for the change, and "still
+  // measuring" never answered the only question the row is asked, which is when the operator hears back.
+  it("a measuring row is a short label, a date and where the reading has got to, never the paragraph behind the change", async () => {
+    const why = "The page answers the question in the fourth paragraph while every page beating it answers in the first, and the searches behind it are worth about 2,400 a month, so the answer moves to the top and the rest of the page stays exactly as it is.";
+    const html = await renderFeed({ measuring: [
+      { ...SHIPPED, id: "m1", actionType: "restructure_page", verdict: "measuring", bundleHypothesis: why, windows: [{ day: 7, ran: true, controlsUsed: 4, adjustedLift: 9 }, { day: 14, ran: false }, { day: 28, ran: false }] },
+      { ...SHIPPED, id: "m2", actionType: "restructure_page", verdict: "measuring", bundleHypothesis: why },
+    ] });
+    expect(html).not.toContain("the rest of the page stays exactly as it is");
+    expect(html).toContain("The page answers the question in the fourth paragraph while every page beating it answers...");
+    for (const s of ["7 day read done, waiting on the 14 day", "waiting on the first read (lands Jul 8)"]) expect(html, s).toContain(s);
+    expect(html).not.toContain("still measuring");
+  });
   it("never dresses a one click wobble as a decline, and tells a failed read apart from an account with nothing open or measuring", async () => {
     const quiet = await renderFeed({ decay: [{ ...DECAY, clicksNow: 174 }] }), blind = await renderFeed({ ledgerRead: false });
     expect([/lost 1 click /.test(quiet), quiet.includes("Nothing is measuring yet."), blind.includes("What is measuring could not be read just now"), /Make the top edit/.test(blind), /data-ledger-row/.test(blind)]).toEqual([false, true, true, false, false]);

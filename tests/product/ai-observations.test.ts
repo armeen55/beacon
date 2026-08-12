@@ -48,7 +48,10 @@ function fakeTable(table: string) {
 /** The two first-party Search Console reads the funnel's own page-query default sits on. Faked here so the
  *  default itself is the thing under test; nothing else in this file reaches them. */
 const gsc = vi.hoisted(() => ({ pages: new Map<string, unknown>(), decay: new Map<string, unknown>() }));
-vi.mock("@/domains/evidence/readers/gsc-page-signals", () => ({ loadGscPageSignalsForTenant: async () => { if (gsc.pages instanceof Error) throw gsc.pages; return gsc.pages; }, loadGscDecaySignalsForTenant: async () => gsc.decay }));
+vi.mock("@/domains/evidence/readers/gsc-page-signals", () => ({ loadGscPageSignalsForTenant: async () => { if (gsc.pages instanceof Error) throw gsc.pages; return gsc.pages; },
+  // The snapshot reads the FULL result, so a failed read travels as a failed source and a partial one does too.
+  readGscPageSignalsForTenant: async () => { if (gsc.pages instanceof Error) throw gsc.pages; return { signals: gsc.pages, incomplete: false }; },
+  loadGscDecaySignalsForTenant: async () => gsc.decay }));
 /** THE one owner of the approved question set, faked so what a canonical read is SCOPED to is the thing under test. */
 const promptSet = vi.hoisted(() => ({ active: null as { id: string; version: number }[] | null }));
 vi.mock("@/domains/account/tracked-questions", async (orig) => ({ ...((await orig()) as object), readActiveTrackedPrompts: async () => promptSet.active }));

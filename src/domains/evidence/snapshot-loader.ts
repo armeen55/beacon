@@ -16,7 +16,7 @@
 import "server-only";
 
 import { basisTag, getTenant, loadBusinessProfile } from "@/domains/account";
-import { loadGscPageSignalsForTenant, type GscPageSignal } from "@/domains/evidence/readers/gsc-page-signals";
+import { readGscPageSignalsForTenant, type GscPageSignal } from "@/domains/evidence/readers/gsc-page-signals";
 import { loadGa4PageValuesForTenant, loadGa4PageRevenueForTenant, type Ga4PageValue } from "@/domains/evidence/readers/ga4-page-values";
 import type { PageRevenueValue } from "@/domains/evidence/readers/ga4-revenue";
 import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/evidence/readers/clarity-page-signals";
@@ -93,7 +93,9 @@ export async function loadEvidenceSnapshot(
       // A GSC READ THAT THREW IS NOT AN ACCOUNT WITH NO SEARCH DATA. This file's own header has always promised
       // that a throw becomes `status: "failed"`, and the GSC leg alone quietly turned one into `empty`, so a
       // timeout looked exactly like an account that has never ranked for anything and every page judged clean.
-      loadGscPageSignalsForTenant(tenantId, now).then((map) => ({ map, failed: false }))
+      // A PARTIAL READ IS A FAILED READ TOO: rows landed and then the statement died, so the pages behind the
+      // break are missing from a payload that would otherwise be served as this account's whole search truth.
+      readGscPageSignalsForTenant(tenantId, now).then((read) => ({ map: read.signals, failed: read.incomplete }))
         .catch(() => ({ map: new Map<string, GscPageSignal>(), failed: true })),
       loadGa4PageValuesForTenant(tenantId, now).catch(() => new Map<string, Ga4PageValue>()),
       loadGa4PageRevenueForTenant(tenantId, now).catch(() => new Map<string, PageRevenueValue>()),

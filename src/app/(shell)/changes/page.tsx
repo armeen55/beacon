@@ -17,6 +17,7 @@ import { buildTopicInvestigations, loadEvidenceSnapshot, loadGscDecaySignalsForT
 import { loadProofLedgerCached } from "@/domains/measurement";
 import { splitLedgerLifecycle } from "@/domains/decision";
 import { readCustomerSurface } from "../surface-release";
+import { runSingleFlight } from "@/lib/single-flight";
 
 /** /changes -> the canonical CHANGES list. One object, a CHANGE, across one lifecycle (suggested -> ready ->
  *  apply -> verify -> measuring -> result), shown as one compact list with two lanes. The queue is unlimited and
@@ -65,7 +66,10 @@ function QueueSlot({ view }: { view: ChangesView }) {
     <div className="space-y-4">
       {rankedAgo ? (
         <p className="text-meta text-muted-foreground tabular-nums">
-          Ranked {rankedAgo}. Refreshes in the background.
+          {/* A LIST ALREADY IN HAND BEATS A SPINNER, as long as it says how old it is. */}
+          {view.releaseFromMemory
+            ? `Showing the list from ${rankedAgo}. Your saved changes did not answer just now, and the fresh one lands as soon as it does.`
+            : `Ranked ${rankedAgo}. Refreshes in the background.`}
         </p>
       ) : null}
       <ChangesListClient view={view} />
@@ -73,14 +77,21 @@ function QueueSlot({ view }: { view: ChangesView }) {
   );
 }
 
-/** ONE READ, ONE RETRY, THEN THE HONEST STATE. A first cold attempt at a GSC-backed read loses often enough
- *  that "I could not read your Google search data" was being printed over a source that answered fine one
- *  second later; the second attempt is warm and usually wins. A read either LANDED or it did not, and the
- *  verdict travels with the rows so a lane can say which of the two happened. */
-function twice<T>(read: () => Promise<T>, empty: T) {
+/** ONE READ, ONE RETRY, THEN THE HONEST STATE, AND NEVER TWO AT ONCE. A first cold attempt at a GSC-backed read
+ *  loses often enough that "your Google search data could not be read" was being printed over a source that
+ *  answered fine one second later; the second attempt is warm and usually wins. Two rules keep that retry from
+ *  becoming the outage: the retry only fires once the first attempt has actually COMPLETED with a failure, and
+ *  the whole thing runs single-flight per loader per account, so a deadline that abandons one request can never
+ *  leave two copies of the same read holding two connections. Whoever is waiting joins the run already going.
+ *  A read either LANDED or it did not, and the verdict travels with the rows so a lane can say which happened. */
+function twice<T>(key: string, tenantId: string, read: () => Promise<T>, empty: T) {
   const attempt = () => read().then((v) => ({ v, read: true }));
   return valueWithDeadline(
-    attempt().catch(() => new Promise((r) => setTimeout(r, 1_000)).then(attempt).catch(() => ({ v: empty, read: false }))),
+    runSingleFlight(`changes-lane:${key}:${tenantId}`, async () => {
+      try { return await attempt(); } catch { /* completed, and it failed: now the warm second try is owed */ }
+      await new Promise((r) => setTimeout(r, 1_000));
+      return attempt().catch(() => ({ v: empty, read: false }));
+    }) as Promise<{ v: T; read: boolean }>,
     { v: empty, read: false }, MAIN_LIST_DEADLINE_MS,
   );
 }
@@ -90,10 +101,12 @@ function twice<T>(read: () => Promise<T>, empty: T) {
  *  measuring and results rows off the SAME ledger split the counts come from. */
 async function loadLanes(tenantId: string) {
   const [investigations, decayMap, ledger, release] = await Promise.all([
-    twice(() => loadEvidenceSnapshot(tenantId).then(buildTopicInvestigations), [] as TopicInvestigation[]),
-    twice(() => loadGscDecaySignalsForTenant(tenantId, new Date()), new Map()),
-    twice(() => loadProofLedgerCached(tenantId), [] as Awaited<ReturnType<typeof loadProofLedgerCached>>),
-    valueWithDeadline(readCustomerSurface(tenantId).catch(() => null), null, MAIN_LIST_DEADLINE_MS),
+    twice("evidence", tenantId, () => loadEvidenceSnapshot(tenantId).then(buildTopicInvestigations), [] as TopicInvestigation[]),
+    twice("decay", tenantId, () => loadGscDecaySignalsForTenant(tenantId, new Date()), new Map()),
+    twice("ledger", tenantId, () => loadProofLedgerCached(tenantId), [] as Awaited<ReturnType<typeof loadProofLedgerCached>>),
+    valueWithDeadline(
+      runSingleFlight(`changes-lane:release:${tenantId}`, () => readCustomerSurface(tenantId)).catch(() => null),
+      null, MAIN_LIST_DEADLINE_MS),
   ]);
   const bands = splitLedgerLifecycle(ledger.v, new Date());
   const today = release?.today?.today;

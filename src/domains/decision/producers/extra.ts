@@ -1,7 +1,12 @@
-/** decision/producers/extra: FOUR MORE WAYS THE QUEUE FILLS ITSELF, all $0, all off evidence this account
- * already paid for. Nothing here calls a model or a provider: it reads the stored AI answers, the stored page
- * snapshots and the stored link graph, and mints cards whose every number traces back to a row. The strict
- * path and suggested-edits are untouched; these land beside them at `needs_review`.
+/** decision/producers/extra: FOUR MORE WAYS THE QUEUE FILLS ITSELF, all off evidence this account already paid
+ * for. Every card is minted from stored rows: the stored AI answers, the stored page snapshots and the stored
+ * link graph, and every number on one traces back to a row. The strict path and suggested-edits are untouched;
+ * these land beside them at `needs_review`.
+ *
+ * THE ONE THING THIS PASS BUYS is a page job (producers/page-job.ts): one sentence saying what each of the busiest
+ * pages is FOR, keyed by that page's own extract through the existing call cache, so an unchanged page costs nothing
+ * after the first reading. It decides WHERE a card lands, never WHETHER one exists: a page with no job on file is
+ * treated exactly as it was before jobs existed.
  *
  * WHAT IS NOT HERE: a schema card. The stored results pages carry organic rows, AI Overview references,
  * follow-up questions and related searches, and NO rich-result flag of any kind, so "the winners show an FAQ
@@ -13,10 +18,18 @@
 import "server-only";
 
 import { getRepository } from "@/lib/persistence/repositories";
+import { log } from "@/lib/logger";
 import { canonicalQueryKey, domainOf, templateHeadings, topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import { actionFamilyOf, loadChangeProposals } from "../proposal-store";
+import { linkFit, loadPageJobs, sectionFit, type OwnedPageJob } from "./page-job";
+
+/** What this producer did, and whether it FINISHED. `complete` is the whole basis the sweep behind it acts
+ *  on: it is true only when the queue on file was actually read and every card below was minted against it.
+ *  Never inferred from how many cards came back, because "none this pass" and "I could not look" are the
+ *  same length and opposite facts. */
+export type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean };
 
 /** `headline` IS the card's action line: it names the page, the thing to do and the number behind it, so the
  *  queue reads as work without being opened. Never "update the section to sharpen it", which says nothing. */
@@ -90,13 +103,21 @@ const asWritten = (text: string, stems: readonly string[]): string[] => {
 };
 
 type Match = { page: OwnedPageEvidence; hits: string[]; missing: string[] };
+/** WHERE A REAL SEARCH BELONGS. `fits` names the page. `needs_own_page` means pages did share the words and every
+ *  one of them is FOR something else: a routing fact the coverage path acts on, never this file, because new page
+ *  identity is not this producer's to mint. `no_candidate` is the old silence, unchanged. */
+type Jobs = ReadonlyMap<string, OwnedPageJob>;
+type Fit = { match: Match | null; verdict: "fits" | "needs_own_page" | "no_candidate" };
+const jobOf = (jobs: Jobs, page: OwnedPageEvidence): OwnedPageJob | undefined => jobs.get(canonicalUrlKey(page.url));
 /** The page of this account's own that best answers a question, or null when nothing of its own comes close.
  *  Two subject words is the floor: one shared word is a coincidence, not coverage. THE HOME PAGE AND THE
- *  SHOP RAILS ARE NEVER IT, and neither is a page whose only tie to the question is site wide furniture. */
+ *  SHOP RAILS ARE NEVER IT, and neither is a page whose only tie to the question is site wide furniture.
+ *  WHERE A PAGE CARRIES A JOB, the job decides too: a page whose subjects do not include this search, or whose shape
+ *  is a rail an essay never goes on, is not the answer however many words it shares. No job, and the words decide. */
 function bestPageFor(text: string, pages: OwnedPageEvidence[], weak: ReadonlySet<string>,
-  earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>): Match | null {
+  earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, jobs: Jobs): Fit {
   const words = subjectWords(text, weak);
-  if (words.length < 2) return null;
+  if (words.length < 2) return { match: null, verdict: "no_candidate" };
   // THE HUB, NOT THE BUSIEST LEAF. Two pages tied on the same words are not equal: the one the rest of the
   // subject hangs under is where a whole-subject answer belongs, and a single animal's page is not it.
   const rankOf = (p: OwnedPageEvidence): [number, number] => [children.get(pathOf(p.url)) ?? 0, clicksOf(p)];
@@ -104,19 +125,28 @@ function bestPageFor(text: string, pages: OwnedPageEvidence[], weak: ReadonlySet
     const [ac, ak] = rankOf(a), [bc, bk] = rankOf(b);
     return ac !== bc ? ac > bc : ak > bk;
   };
-  let best: Match | null = null;
+  let best: Match | null = null, refused = 0;
   for (const page of pages) {
     const path = pathOf(page.url);
     if (path === "/" || STOREFRONT.test(path)) continue;
     const own = earned.get(page.url);
     if (!own || words.filter((w) => own.has(w)).length < MIN_EARNED_OVERLAP) continue;
     const has = pageWords(page), hits = words.filter((w) => has.has(w));
-    if (hits.length < 2 || (best && (hits.length < best.hits.length
-      || (hits.length === best.hits.length && !beats(page, best.page))))) continue;
+    if (hits.length < 2) continue;
+    // A JOB IS READ ONLY WHERE ONE EXISTS: "unknown" is the answer for every page that has none, and it passes.
+    const job = jobOf(jobs, page);
+    if (job && sectionFit(job, words) !== "fits") { refused += 1; continue; }
+    if (best && (hits.length < best.hits.length
+      || (hits.length === best.hits.length && !beats(page, best.page)))) continue;
     best = { page, hits, missing: words.filter((w) => !has.has(w)) };
   }
-  return best;
+  return { match: best, verdict: best ? "fits" : refused > 0 ? "needs_own_page" : "no_candidate" };
 }
+
+/** A search whose words this account shares but whose subject no page of it is FOR. Acted on nowhere here: the
+ *  coverage path decides whether a page should exist, so this is a line in the log and never a card. */
+const noteNeedsOwnPage = (tenantId: string, text: string): void =>
+  log.info("[extra] no page of this account is for this search", { tenantId, query: text.slice(0, 120) });
 
 /** ONE card, in the ONE shape the store files and every surface renders. */
 function mint(tenantId: string, d: Draft, now: Date): ChangeProposal {
@@ -136,7 +166,7 @@ function mint(tenantId: string, d: Draft, now: Date): ChangeProposal {
 /** 1. THE ANSWERS THAT CREDIT SOMEBODY ELSE. Every stored answer that credited a page and never credited this account, grouped by the question it
  *  answered. Recurrence across answers is the claim, so the question the most answers skipped comes first. */
 function aiAbsenceCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], weak: ReadonlySet<string>,
-  earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>): Draft[] {
+  earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, jobs: Jobs, tenantId: string): Draft[] {
   const site = (snapshot.scope.site ?? "").replace(/^www\./, "").toLowerCase();
   if (!site) return [];
   type Group = { prompt: string; answers: number; engines: Set<string>; domains: Map<string, { n: number; url: string; title: string; engine: string }> };
@@ -156,7 +186,9 @@ function aiAbsenceCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], 
   const out: Draft[] = [];
   for (const g of [...byPrompt.values()].sort((a, b) => b.answers - a.answers || b.engines.size - a.engines.size || a.prompt.localeCompare(b.prompt))) {
     if (!askable(g.prompt)) continue;
-    const match = bestPageFor(g.prompt, pages, weak, earned, children);
+    const fit = bestPageFor(g.prompt, pages, weak, earned, children, jobs);
+    if (fit.verdict === "needs_own_page") noteNeedsOwnPage(tenantId, g.prompt);
+    const match = fit.match;
     const top = [...g.domains.entries()].sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0]))[0];
     if (!match || !top) continue;
     const [domain, cite] = top;
@@ -182,7 +214,7 @@ function aiAbsenceCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], 
 /** 2. THE FOLLOW-UP SEARCHES ENGINES RUN FOR THEMSELVES. The searches an engine fired while answering a tracked question. A page that covers most of one and misses
  *  the rest is a section away from being the thing the engine reads next time. */
 function fanoutCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], weak: ReadonlySet<string>,
-  earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>): Draft[] {
+  earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, jobs: Jobs, tenantId: string): Draft[] {
   const byFanout = new Map<string, { text: string; n: number; prompt: string; engines: Set<string> }>();
   for (const o of snapshot.research.aiObservations) for (const f of o.fanOutQueries ?? []) {
     const key = canonicalQueryKey(f);
@@ -193,7 +225,9 @@ function fanoutCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], wea
   const out: Draft[] = [];
   for (const f of [...byFanout.values()].sort((a, b) => b.n - a.n || a.text.localeCompare(b.text))) {
     if (!askable(f.text) || !askable(f.prompt)) continue;
-    const match = bestPageFor(f.text, pages, weak, earned, children);
+    const fit = bestPageFor(f.text, pages, weak, earned, children, jobs);
+    if (fit.verdict === "needs_own_page") noteNeedsOwnPage(tenantId, f.text);
+    const match = fit.match;
     if (!match || match.missing.length === 0 || match.hits.length < 3) continue;
     const total = match.hits.length + match.missing.length;
     const gap = asWritten(f.text, match.missing).slice(0, 4).join(", "), covers = asWritten(f.text, match.hits).join(", ");
@@ -217,7 +251,7 @@ function fanoutCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], wea
 
 /** 3. THE LINKS THE STRONGEST PAGES NEVER PASS ON: the three pages that earn the most clicks, and the near miss pages they never link to. Reads the stored
  *  link graph, which the lean page projection leaves out on purpose, so absence of a link is a fact here. */
-async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: ReadonlySet<string>): Promise<Draft[]> {
+async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: ReadonlySet<string>, jobs: Jobs): Promise<Draft[]> {
   const graphs = await getRepository().forTenant(tenantId).getPageSnapshotLinkGraphs().catch(() => []);
   if (graphs.length === 0) return [];
   const linksByPage = new Map<string, Set<string>>();
@@ -245,9 +279,18 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
     const words = pageWords(from);
     // DOWNHILL ONLY. A link passes standing from the page that has it to the page that needs it, so the
     // source must out-earn the destination. Pointed the other way it asks the weaker page to lift the stronger one, which is the opposite of the change.
+    // WHERE BOTH PAGES CARRY A JOB, the words on the link must be what the destination is FOR, and the two pages
+    // must have something to do with each other. The regex above still throws out anything that is not anchor
+    // text at all; the job check throws out a real search pointed at a page it does not belong on. A page with no
+    // job answers "unknown", which passes, so nothing here narrows what this producer did before jobs existed.
+    const belongs = (to: OwnedPageEvidence, anchor: string): boolean => {
+      const verdict = linkFit(jobOf(jobs, to), jobOf(jobs, from), subjectWords(anchor, weak));
+      return verdict === "fits" || verdict === "unknown";
+    };
     const target = nearMiss.find((t) => t.page.url !== from.url && clicksOf(from) > clicksOf(t.page)
       && !links.has(pathOf(t.page.url).toLowerCase())
-      && subjectWords(t.query.query, weak).some((w) => words.has(w)));
+      && subjectWords(t.query.query, weak).some((w) => words.has(w))
+      && belongs(t.page, t.query.query));
     if (!target) continue;
     const to = pathOf(target.page.url), position = target.query.position!.toFixed(1);
     out.push({
@@ -377,14 +420,35 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot): D
   return out;
 }
 
+/** How many pages one pass asks about. The call cache holds a few hundred rows for a whole account, so asking for
+ *  a thousand would push every other cached reading out of it and pay for them all again. The busiest pages are the
+ *  ones cards get minted for; every page past this bound keeps the word overlap it always had. */
+const PAGE_JOBS_PER_PASS = 60;
+
+/** What each page is FOR, busiest first, through the call cache: an unchanged page costs nothing and a re-crawled
+ *  one is re-read on its own. A failure returns no jobs, which is what every producer below already handles. */
+async function pageJobs(tenantId: string, pages: OwnedPageEvidence[]): Promise<Jobs> {
+  const ranked = pages
+    .filter((p) => { const path = pathOf(p.url); return path !== "/" && !STOREFRONT.test(path); })
+    .sort((a, b) => (b.search?.impressions90d ?? 0) - (a.search?.impressions90d ?? 0) || clicksOf(b) - clicksOf(a))
+    .slice(0, PAGE_JOBS_PER_PASS);
+  return loadPageJobs(tenantId, ranked.map((p) => ({
+    url: p.url, title: p.content?.title, h1: p.content?.h1,
+    headings: p.content?.outline ?? [], wordCount: p.content?.wordCount ?? null,
+  }))).catch(() => new Map<string, OwnedPageJob>());
+}
+
 /** Every extra card this account's stored evidence already supports, at `needs_review`, deduplicated against
  * the queue it already holds. Never throws: a source that will not read narrows the answer instead of failing
- * the pass. $0 by construction, and every card is a proposal, never a live edit.
+ * the pass. Every card is a proposal, never a live edit.
  */
-export async function extraQueueCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date }): Promise<ChangeProposal[]> {
+export async function extraQueueCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date }): Promise<ExtraQueueRun> {
   const { tenantId, snapshot, now } = input;
   const pages = snapshot.ownedPages.filter((p) => !!p.content);
-  if (pages.length === 0) return [];
+  // NOTHING TO READ IS NOT A FINISHED PASS. These producers rewrite their families in full, and the sweep
+  // behind them only retires what a producer that FINISHED no longer stands behind, so a pass that never
+  // looked at a single page says so instead of being read as "these families are empty now".
+  if (pages.length === 0) return { cards: [], complete: false };
   const weak = weakAnchorsOf(snapshot.ownedPages, snapshot.research);
   // WHAT THIS SITE PRINTS ON EVERY PAGE, and what is left once it is taken out: the words each page has actually earned the right to be asked about.
   const furniture = templateHeadings(pages.map((p) => p.content?.outline ?? []));
@@ -398,12 +462,14 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   // it had ever written, so a sharper headline for the same page and the same defect never reached the store.
   // The ids it already owns are kept beside the families, and only a family held under ANOTHER id blocks.
   const store = await loadChangeProposals(tenantId).catch(() => null);
-  if (!store) return [];
+  if (!store) return { cards: [], complete: false };
   const rows = [...store.values()];
   const held = new Set(rows.map((p) => `${(p.pagePath ?? "").toLowerCase()}::${actionFamilyOf(p)}`));
   const mine = new Set(rows.map((p) => p.id));
-  const drafts = [...aiAbsenceCards(snapshot, pages, weak, earned, children), ...fanoutCards(snapshot, pages, weak, earned, children),
-    ...(await linkCards(tenantId, pages, weak)), ...technicalCards(pages, snapshot)];
+  const jobs = await pageJobs(tenantId, pages);
+  const drafts = [...aiAbsenceCards(snapshot, pages, weak, earned, children, jobs, tenantId),
+    ...fanoutCards(snapshot, pages, weak, earned, children, jobs, tenantId),
+    ...(await linkCards(tenantId, pages, weak, jobs)), ...technicalCards(pages, snapshot)];
   const out: ChangeProposal[] = [];
   // ONE QUESTION, ONE CARD. The answer an engine wrote and the follow-up search it ran to write it are the
   // same question, so two pages were being sent to answer it. The strongest reading is filed and the rest go.
@@ -418,5 +484,5 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
     for (const k of asks) answered.add(k);
     out.push(card);
   }
-  return out;
+  return { cards: out, complete: true };
 }

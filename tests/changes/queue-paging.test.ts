@@ -105,14 +105,16 @@ describe("Today and Changes answer one question once", () => {
     for (const i of [1, 2, 30]) db.rows.find((r) => r.id === ALL[i]!.id)!.payload = JSON.parse(serializeChangeProposal(expired(i)));
     const first = await readChangesPage(T, "ready", 0, "rel-1"), second = await readChangesPage(T, "ready", first.cursor, "rel-1");
     expect([first.total, first.rows.length, first.dropped, second.dropped, first.total - second.dropped]).toEqual([N - 2, CHANGES_PAGE_SIZE - 2, 2, 1, N - 3]); });
-  // A RELEASE I COULD NOT READ IS NOT A COLD START AND IS NOT A CLEAR DAY. Both loaders swallowed the read and painted "I am putting your ranked changes together for the
-  // first time" / "Nothing needs a decision today".
-  it("tells the truth when the release itself could not be read, on Changes and on Today", async () => {
+  // A RELEASE I COULD NOT READ IS NOT A COLD START AND IS NOT A CLEAR DAY, and once this process has read one it is not an outage either: the
+  // release read is retried on its own short deadline and then falls back to the last one that landed, so neither screen paints "putting your
+  // ranked changes together for the first time", "nothing needs a decision today", or an outage over a list it is holding. The genuinely
+  // memory-free case (nothing to fall back to) is pinned in tests/changes/read-resilience.
+  it("falls back to the last release that landed rather than claiming a cold start or an outage, on Changes and on Today", async () => {
     releaseFails.value = true; db.rows = [];
     const view = await loadChangesView(), { ChangesSection } = await import("@/app/(shell)/changes/page");
-    expect([view.releaseUnreadable, view.surfaceBuilding, view.proposals.length,
+    expect([view.releaseUnreadable ?? false, view.releaseFromMemory, view.surfaceBuilding, view.proposals.length,
       renderToStaticMarkup(await ChangesSection()).includes("Your saved changes could not be read just now"),
-      (await loadTodayView()).today.headerSentence.includes("Your changes could not be read just now")]).toEqual([true, false, 0, true, true]);
+      (await loadTodayView()).today.headerSentence.includes("Your changes could not be read just now")]).toEqual([false, true, false, 0, false, false]);
     releaseFails.value = false; }); });
 
 describe("one release identity, or no release at all", () => {

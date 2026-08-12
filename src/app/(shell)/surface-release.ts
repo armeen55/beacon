@@ -19,6 +19,17 @@ export const CUSTOMER_SURFACE_FRESH_MS = 15 * 60 * 1000;
 /** How many judged-but-declined pages one release carries a verdict for. */
 const DECLINE_NOTE_LIMIT = 20;
 
+/** One decaying page as the release carries it: the two 28-day windows, six numbers, nothing derived. */
+export type ReleaseDecayRow = {
+  page: string;
+  clicksNow: number;
+  clicksPrior: number;
+  impressionsNow: number;
+  impressionsPrior: number;
+  positionNow: number;
+  positionPrior: number;
+};
+
 /** One atomic customer-visible release. Engineering producers may update their
  * own caches independently, but Today and Changes only adopt a new release when
  * every core section below was assembled successfully. */
@@ -33,6 +44,12 @@ export type CustomerSurface = {
    *  evidence read fails can show last-known counts with their age instead of a blank strip. Absent when the
    *  publish-time decay read itself failed: a count nobody computed is not stamped. */
   laneCounts?: { researching: number; watching: number };
+  /** THE DECAYING PAGES THIS RELEASE WAS PUBLISHED AGAINST. The publish already computed them, counted them
+   *  and threw them away, so every lane visit paid for the same split-window aggregate again to name pages
+   *  the release already knew. Carried here CAPPED AT THE WATCHED SET (the only rows a lane serves), so the
+   *  lanes read from the release and a live read becomes a refresh rather than the price of admission.
+   *  Absent when the publish-time read itself failed: rows nobody could compute are not stamped. */
+  laneDecay?: { windowNowEnd: string; rows: ReleaseDecayRow[] };
 };
 
 export async function readCustomerSurface(tenantId: string): Promise<CustomerSurface | null> {
@@ -152,9 +169,19 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
       .then((m) => [...m.values()]).catch(() => null);
     const setAsideRow = (changes.basisUnreadable ? 0 : changes.demotedStaleBasis ?? 0) > 0 ? 1 : 0;
     const heldRow = (produced?.heldForMeasurement ?? 0) > 0 ? 1 : 0;
+    const watched = (decayRows ?? []).filter(isWatchedDecay);
     const laneCounts = decayRows === null ? {} : { laneCounts: {
       researching: distinctTopicCount((produced?.investigations ?? []).map((i) => i.label)),
-      watching: decayRows.filter(isWatchedDecay).length + setAsideRow + heldRow,
+      watching: watched.length + setAsideRow + heldRow,
+    } };
+    // The same rows the count was taken over, biggest fall first, carried instead of discarded.
+    const laneDecay = decayRows === null ? {} : { laneDecay: {
+      windowNowEnd: watched[0]?.windowNowEnd ?? "",
+      rows: [...watched]
+        .sort((a, b) => (b.clicksPrior - b.clicksNow) - (a.clicksPrior - a.clicksNow))
+        .map((d): ReleaseDecayRow => ({ page: d.page, clicksNow: d.clicksNow, clicksPrior: d.clicksPrior,
+          impressionsNow: d.impressionsNow, impressionsPrior: d.impressionsPrior,
+          positionNow: d.positionNow, positionPrior: d.positionPrior })),
     } };
     const surface: CustomerSurface = {
       schemaVersion: 2,
@@ -164,6 +191,7 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
       changes,
       today: { ...today, surfaceVersion: releaseId, surfaceComputedAt: computedAt },
       ...laneCounts,
+      ...laneDecay,
     };
     // Publish the one shared release consumed by Today + Changes. THE TWO WRITES END TOGETHER OR NOT AT ALL:
     // if the blob does not land, the order stamped a moment ago is rolled back onto the release still serving,
