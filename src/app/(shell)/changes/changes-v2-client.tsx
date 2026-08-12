@@ -44,7 +44,7 @@ import { ChangesV2WaitingRail } from "@/components/changes/v2/changes-v2-waiting
 import type { EnrichedChangeRow } from "./types";
 import { markChangelogEditShipped } from "./actions";
 
-export type ChangesV2ClientProps = {
+type ChangesV2ClientProps = {
   /** Already-enriched rows from the server page. Newest-first sort
    *  expected (the legacy page sorts before this point). */
   rows: ReadonlyArray<EnrichedChangeRow>;

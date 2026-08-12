@@ -18,6 +18,7 @@ import { splitLedgerLifecycle } from "@/domains/decision";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
+import { CopyButton } from "./changes/change-controls";
 
 /** Today `/` - WORK, NOT A STATUS REPORT (2026-08-11). The operator has made zero changes because this screen narrated what Beacon was
  *  doing instead of handing him one edit. It is now exactly five things: the greeting with how many edits are open, THE TOP EDIT ITSELF
@@ -188,6 +189,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   // THE TOP EDIT is the top of the SAME ranked queue Changes pages, so "do this first" here and "1" there are one change.
   const top = today.nextOpportunities[0] ?? null;
+  const edit = today.topEdit ?? null;
   const openTotal = (today.readyTotal ?? 0) + (today.toDoTotal ?? 0);
   const winLine = lastWinLine(ledgerRows, nowMs);
   const digest = weekDigest(ledgerRows, nowMs);
@@ -198,14 +200,32 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         <RefreshMyDataButton connectedCount={connectedSourceCount} />
       </PageHeader>
 
-      {/* THE EDIT ITSELF, above everything. The page, the exact thing to change, the number that says why, and one link that opens it. */}
+      {/* THE EDIT ITSELF, above everything, AND THE ACTION LEADS. The card used to open on the paragraph arguing the change, so the
+          first thing read was reasoning for a thing nobody had been told to do yet. Order now: what to change, what is there now,
+          what to put there with the press that takes it, then the one number that says why, then the way in. */}
       {top ? (
         <div className="rounded-2xl border border-accent-primary/50 bg-surface-raised p-5" data-top-edit="true">
           <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Do this first</p>
-          <p className="mt-1 text-[15px] font-semibold text-foreground">{top.pageLabel}</p>
-          <p className="mt-1 text-[14px] font-semibold leading-relaxed text-foreground">{top.recommendation}</p>
+          <p className="mt-1 text-[15px] font-semibold leading-relaxed text-foreground">{edit?.action ?? top.recommendation}</p>
+          {edit ? (
+            <div className="mt-2 space-y-1" data-top-edit-lines="true">
+              {edit.before ? (
+                <p className="text-[12px] leading-relaxed text-muted-foreground">
+                  Now: <span className="line-through">{edit.before}</span>
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
+                <p className="min-w-0 flex-1 text-[14px] font-semibold leading-relaxed text-foreground">
+                  <span className="font-normal text-muted-foreground">{edit.lead}</span>{edit.after}
+                </p>
+                {edit.paste ? <CopyButton text={edit.after} label="Copy" /> : null}
+              </div>
+            </div>
+          ) : (
+            <p className="mt-1 text-[13px] text-muted-foreground">{top.pageLabel}</p>
+          )}
           {reasonLine(top.problem) ? (
-            <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground" data-top-edit-reason="true">{reasonLine(top.problem)}</p>
+            <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground" data-top-edit-reason="true">{reasonLine(top.problem)}</p>
           ) : null}
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <Link href={`/changes/${encodeURIComponent(top.changeId)}`}

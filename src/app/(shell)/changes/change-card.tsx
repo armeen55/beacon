@@ -14,7 +14,8 @@ import { Pill, type PillIntent } from "@/components/ui/pill";
 import { componentIdOf, dangerousComponents } from "@/domains/decision/contracts";
 import { receiptComposition } from "@/domains/decision/contracts";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision";
-import { dismissProposalAction, markProposalImplementedAction } from "./actions";
+import { markProposalImplementedAction } from "./actions";
+import { CopyButton, MarkImplemented } from "./change-controls";
 
 /** The producer's own boilerplate. It said the same sentence on all 37 title cards, so it is dropped outright
  *  rather than reprinted anywhere: a sentence true of every row is a fact about the producer, not a reason. */
@@ -45,12 +46,16 @@ const effortLabel = (m: number): string =>
 /** A CONSOLIDATION IS NOT A PASTEABLE LINE: it merges or retires live pages, so it carries ordered steps and a
  *  confirmation instead of a copy box. A search naming a year dies every January, so it is worth redoing then. */
 const isConsolidation = (p: ChangeProposal): boolean => String(p.kind) === "consolidation" || p.changeFamily === "consolidation";
+/** One shape for comparing two written lines: spacing and case never made two sentences different. */
+const norm = (s: string): string => s.trim().toLowerCase().replace(/\s+/g, " ");
 const YEAR_QUERY = /\b20\d{2}\s*$/;
 const YEAR_NOTE = "Year searches reset every January; this edit is worth redoing each year.";
 
-/** The exact primary action in one line: a bundle's objective, or the field an atomic edit rewrites. */
+/** The exact primary action in one line: a bundle's objective, the producer's own headline when it wrote a
+ *  real one (a sentence, not a slug), or the field an atomic edit rewrites. */
 function primaryAction(p: ChangeProposal): string {
   if (p.bundle) return p.bundle.objective;
+  if (p.opportunityType.includes(" ") && p.opportunityType.length > 20) return p.opportunityType;
   const c = p.recommendedChange;
   if (c.kind === "new_page") return `Build a new page that answers "${p.primaryQuery}"`;
   return `Update the ${fieldWord(c.field)} on ${p.pageLabel} to sharpen it for "${p.primaryQuery}"`;
@@ -80,12 +85,12 @@ function statsOf(p: ChangeProposal): { value: string; label: string }[] {
   const grab = (re: RegExp): string | null => re.exec(text)?.[1] ?? null;
   const short = p.upsidePerMonth != null && p.upsidePerMonth > 0
     ? Math.round(p.upsidePerMonth).toLocaleString("en-US")
-    : grab(/about ([\d,]+) fewer clicks/);
+    : grab(/about ([\d,]+) clicks are being left/) ?? grab(/about ([\d,]+) fewer clicks/);
   const one = (v: string | null, plural: string, singular: string): [string | null, string] =>
     [v, v === "1" ? singular : plural];
   return [
-    one(grab(/showed up in Google ([\d,]+) times/), "times it showed up", "time it showed up"),
-    one(grab(/got ([\d,]+) clicks?/), "clicks it earned", "click it earned"),
+    one(grab(/: ([\d,]+) views/) ?? grab(/showed up in Google ([\d,]+) times/), "views in Google", "view in Google"),
+    one(grab(/([\d,]+) clicks?, position/) ?? grab(/got ([\d,]+) clicks?/), "clicks it earned", "click it earned"),
     one(short, "clicks a month short", "click a month short"),
   ].filter((r): r is [string, string] => r[0] != null).map(([value, label]) => ({ value, label }));
 }
@@ -130,7 +135,10 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
   const reason = (bundle?.confidenceReasons[0] ?? bundle?.receipt.items[0]?.fact ?? "").trim();
   const strongest = reason && reason !== body.trim() && reason !== primaryAction(proposal).trim() ? reason : null;
   const checks = bundle?.receipt.items.map((it) => it.fact) ?? (proposal.evidence?.hints ?? []);
-  const steps = proposal.operatorSteps ?? [];
+  // ONE NUMBER PER STEP, AND NO BLANK ROWS. Producers write steps both ways ("1. Open the editor" and "Open the
+  // editor"), so a step carrying its own number printed "1. 1. Open the editor" beside the span below, and a
+  // step that came through empty printed a bare "1." with nothing after it.
+  const steps = (proposal.operatorSteps ?? []).map((s) => (s ?? "").replace(/^\s*\d+[.)]\s*/, "").trim()).filter(Boolean);
   const pageTitle = proposal.pagePath ?? proposal.pageLabel;
   const secondary = proposal.pageLabel !== pageTitle ? proposal.pageLabel : null;
   const tier = evidenceTier(proposal, proven);
@@ -143,7 +151,17 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
   const instruction = !isConsolidation(proposal) && steps.length > 0
     && /^(Add|Write|Rewrite|Open|Move|Redirect|Paste|Link|Position held)\b/.test(after ?? "");
   const merge = isConsolidation(proposal) || instruction;
-  const shownSteps = instruction && after ? [after, ...steps] : steps;
+  // THE SAME INSTRUCTION TWICE IS NOT TWO STEPS: when the first written step already opens with the line the
+  // change carries, the line is that step and prepending it printed it back to back with itself.
+  const echoed = steps.length > 0 && after != null
+    && norm(steps[0]!).slice(0, 25) === norm(after).slice(0, 25);
+  const shownSteps = instruction && after && !echoed ? [after, ...steps] : steps;
+  // A MERGE WITH NO STEPS ON FILE STILL HAS TO SAY WHAT TO DO. "Read this twice, then:" over an empty list was
+  // the whole instruction, so the plan the change carries is read as a paragraph instead. It is never copyable:
+  // pasting a plan onto the site is exactly the mistake this card exists to prevent.
+  const mergePlan = merge && shownSteps.length === 0
+    ? (after?.trim() || (bundle?.components ?? []).map((c) => c.after?.trim()).find(Boolean) || null)
+    : null;
   const caution = tier === 2 ? proposal.limitations[0] ?? null : null;
   const recordDone = () => { setDone(true); onDone(proposal.id); };
 
@@ -189,12 +207,19 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
             the quiet one, because nobody is being asked to write the old one again. A merge has no line to
             paste at all, so it shows its ordered steps instead and never offers a copy button. */}
         {merge ? (
-          <div className="space-y-1" data-merge-steps="true">
-            <p className="text-[12px] font-semibold text-foreground">Read this twice, then:</p>
-            <ol className="list-none space-y-0.5 text-[13px] leading-relaxed text-muted-foreground">
-              {shownSteps.map((s, i) => <li key={i}><span className="tabular-nums font-semibold">{i + 1}. </span>{s}</li>)}
-            </ol>
-          </div>
+          shownSteps.length > 0 ? (
+            <div className="space-y-1" data-merge-steps="true">
+              <p className="text-[12px] font-semibold text-foreground">Read this twice, then:</p>
+              <ol className="list-none space-y-0.5 text-[13px] leading-relaxed text-muted-foreground">
+                {shownSteps.map((s, i) => <li key={i}><span className="tabular-nums font-semibold">{i + 1}. </span>{s}</li>)}
+              </ol>
+            </div>
+          ) : mergePlan ? (
+            <div className="space-y-1" data-merge-plan="true">
+              <p className="text-[12px] font-semibold text-foreground">Read this twice before you touch anything:</p>
+              <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-muted-foreground">{mergePlan}</p>
+            </div>
+          ) : null
         ) : (
           <div className="space-y-1" data-before-after="true">
             {before ? (
@@ -301,21 +326,6 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
   );
 }
 
-/** The exact words, on the clipboard, in one press. The button itself says it worked for two seconds, because a
- *  toast at the foot of a long list is no answer to a press at the top of it. Nothing is written to the site. */
-function CopyButton({ text, label, onToast }: { text: string; label: string; onToast: (t: string) => void }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button type="button" data-copy-after="true"
-      onClick={() => { navigator.clipboard?.writeText(text).then(
-        () => { setCopied(true); setTimeout(() => setCopied(false), 2000); onToast("Copied"); },
-        () => onToast("Your clipboard could not be reached, so please copy it by hand.")); }}
-      className="shrink-0 rounded-md border border-border px-2 py-1 text-[12px] font-semibold text-muted-foreground hover:text-foreground">
-      {copied ? "Copied" : label}
-    </button>
-  );
-}
-
 /** ONE PRESS, ON THE COLLAPSED CARD: the edit is applied, so the record lands without opening anything. The
  *  server owns every refusal, and a refusal is said out loud here rather than swallowed. */
 function MarkDoneNow({ proposalId, onRecorded, onToast }: { proposalId: string; onRecorded: () => void; onToast: (t: string) => void }) {
@@ -329,164 +339,5 @@ function MarkDoneNow({ proposalId, onRecorded, onToast }: { proposalId: string; 
       className="rounded-md border border-border px-3 py-1.5 text-[13px] font-semibold text-foreground disabled:opacity-60">
       {pending ? "Saving…" : "Mark done"}
     </button>
-  );
-}
-
-/** "Skip" is the operator's own dismissal, with the consequence stated before they press it. The
- *  store then refuses to re-draft the same change until the evidence itself moves. The LIST owns the
- *  optimistic version of this control; this two-step one is what the detail page asks. */
-export function SetAsideChange({ proposalId }: { proposalId: string }) {
-  const [pending, startTransition] = useTransition();
-  const [state, setState] = useState<{ done: boolean; asked: boolean; error: string | null }>({ done: false, asked: false, error: null });
-
-  if (state.done) {
-    return (
-      <p className="text-[12px] text-muted-foreground" data-set-aside-done="true">
-        Skipped. It will not come back unless its evidence changes.
-      </p>
-    );
-  }
-  if (!state.asked) {
-    return (
-      <button type="button" data-set-aside="true" onClick={() => setState((s) => ({ ...s, asked: true }))}
-        className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
-        Skip
-      </button>
-    );
-  }
-  return (
-    <div className="flex flex-wrap items-center gap-3">
-      <span className="text-[12px] text-muted-foreground">
-        Skipping this hides it unless its evidence changes. Skip it?
-      </span>
-      <button type="button" disabled={pending}
-        onClick={() => startTransition(async () => {
-          const res = await dismissProposalAction({ proposalId });
-          if (res.success) setState({ done: true, asked: true, error: null });
-          else setState({ done: false, asked: true, error: res.error ?? "Something went wrong." });
-        })}
-        className="rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-foreground disabled:opacity-60">
-        {pending ? "Saving…" : "Yes, skip it"}
-      </button>
-      <button type="button" onClick={() => setState({ done: false, asked: false, error: null })}
-        className="text-[12px] text-muted-foreground underline underline-offset-2">
-        Keep it
-      </button>
-      {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}
-    </div>
-  );
-}
-
-/** "Mark done" records that the OPERATOR applied the change. THE PARTIAL-BUNDLE PICKER: three of five pieces
- *  applied must not record five, and the two they skipped stay theirs to do. THE NOTE carries their own words
- *  beside the reading. THE ADDRESS, for a new page only. THE CONFIRMATION, for a piece that moves or hides a
- *  page, which the server asks for again and refuses without. */
-export function MarkImplemented({ proposalId, label: idle = "Mark done", components, newPage = false, onRecorded }: {
-  proposalId: string;
-  label?: string;
-  /** Fired once the server accepted the record, so the card that hosts this can flip itself in place. */
-  onRecorded?: () => void;
-  /** The bundle's pieces (several = a picker), each with the STABLE id it carries inside the stored bundle so
-   *  two pieces of one kind are ticked apart. `moves` marks one that changes where the page lives;
-   *  `recorded` marks one already on file. */
-  components?: { id: string; kind: string; label: string; moves?: boolean; recorded?: boolean }[];
-  /** A page that did not exist has no address until they publish it, so the address has to be given here. */
-  newPage?: boolean;
-}) {
-  const [pending, startTransition] = useTransition();
-  const [state, setState] = useState<{ done: boolean; error: string | null; note: string | null }>({ done: false, error: null, note: null });
-  const pickable = components && components.length > 1 ? components : null;
-  // OPEN ON WHAT IS GENUINELY STILL THEIRS TO DO: pre-ticking a piece already on file offered to record a
-  // component already under measurement, and the server refuses to write it twice anyway.
-  const [applied, setApplied] = useState<Set<string>>(() => {
-    const all = pickable ?? components ?? [], open = all.filter((c) => !c.recorded);
-    return new Set((open.length > 0 ? open : all).map((c) => c.id));
-  });
-  const [note, setNote] = useState(""), [liveUrl, setLiveUrl] = useState(""), [confirmed, setConfirmed] = useState(false);
-  const label = useMemo(() => (state.done ? "Marked done" : idle), [state.done, idle]);
-  const nothingPicked = pickable != null && applied.size === 0, addressOwed = newPage && liveUrl.trim().length === 0;
-  // THE DELIBERATE YES, asked only about the pieces they say they applied. The server asks again and refuses
-  // without it, so this box is the operator's act and never the gate.
-  const movesPage = (components ?? []).some((c) => c.moves && applied.has(c.id));
-
-  function onClick() {
-    startTransition(async () => {
-      const res = await markProposalImplementedAction({
-        proposalId,
-        ...(newPage ? { liveUrl: liveUrl.trim() } : {}),
-        ...(pickable && applied.size < pickable.length ? { componentIds: [...applied] } : {}),
-        ...(note.trim() ? { operatorNote: note.trim() } : {}),
-        ...(movesPage ? { destructiveConfirmed: confirmed } : {}),
-      });
-      if (res.success) { setState({ done: true, error: null, note: res.note ?? null }); onRecorded?.(); }
-      else setState({ done: false, error: res.error ?? "Something went wrong.", note: null });
-    });
-  }
-
-  return (
-    <div className="space-y-3">
-      {pickable ? (
-        <div className="space-y-1.5" data-component-picker="true">
-          <p className="text-[12px] font-semibold text-foreground">Which pieces did you apply?</p>
-          {/* KEYED BY THE PIECE'S OWN ID: two sections sharing one key ticked and unticked as one. */}
-          {pickable.map((c) => (
-            <label key={c.id} className="flex items-center gap-2 text-[12px] text-muted-foreground">
-              <input type="checkbox" checked={applied.has(c.id)}
-                onChange={(e) => setApplied((prev) => {
-                  const next = new Set(prev);
-                  if (e.target.checked) next.add(c.id); else next.delete(c.id);
-                  return next;
-                })} />
-              {c.label}
-            </label>
-          ))}
-          <p className="text-[12px] text-muted-foreground">
-            Only the pieces you tick get measured, so leave the ones you skipped unticked.
-          </p>
-        </div>
-      ) : null}
-
-      {newPage ? (
-        <div className="space-y-1.5" data-live-url="true">
-          <label className="block text-[12px] font-semibold text-foreground" htmlFor={`live-url-${proposalId}`}>
-            What address is the new page live at?
-          </label>
-          <input id={`live-url-${proposalId}`} type="text" value={liveUrl} onChange={(e) => setLiveUrl(e.target.value)}
-            placeholder="https://yoursite.com/the-new-page"
-            className="w-full rounded-md border border-border bg-surface-inset px-3 py-1.5 text-[12px] text-foreground" />
-          <p className="text-[12px] text-muted-foreground">That page gets read directly, so the exact address on your own site is required.</p>
-        </div>
-      ) : null}
-
-      {movesPage ? (
-        <label data-destructive-confirm="true" className="flex items-start gap-2 rounded-md border border-status-warning/40 bg-status-warning/5 px-3 py-2 text-[12px] leading-relaxed text-foreground">
-          <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-          Confirmed: this moves or hides a page, and what it does to the site above has been read.
-        </label>) : null}
-      <div className="space-y-1.5" data-operator-note="true">
-        <label className="block text-[12px] text-muted-foreground" htmlFor={`note-${proposalId}`}>
-          Wrote it your own way? Add what you put there and your words are kept beside the reading.
-        </label>
-        <input id={`note-${proposalId}`} type="text" value={note} onChange={(e) => setNote(e.target.value)}
-          placeholder="Optional: what you actually put on the page"
-          className="w-full rounded-md border border-border bg-surface-inset px-3 py-1.5 text-[12px] text-foreground" />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <button type="button" onClick={onClick} disabled={pending || state.done || nothingPicked || addressOwed || (movesPage && !confirmed)}
-          className="rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-60">
-          {pending ? "Saving…" : label}
-        </button>
-        <span className="text-[12px] text-muted-foreground">
-          {addressOwed ? "Add the address it is live at and the page gets read."
-            : nothingPicked ? "Tick at least one piece to start measuring it."
-              : movesPage && !confirmed ? "Confirm you meant to move or hide the page to record it."
-                : "You apply the change on your site; the page is read back and what it found is reported."}
-        </span>
-        {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}
-      </div>
-      {/* WHAT IS STILL THEIRS TO DO after a partial apply: the change stays open carrying the rest. */}
-      {state.note ? <p className="text-[12px] leading-relaxed text-muted-foreground">{state.note}</p> : null}
-    </div>
   );
 }

@@ -41,6 +41,9 @@ const DISPROVED = new Set(["google_rewrite_already_matches", "ambiguous_search_i
 const AEO = new Set(["ai_citation_gap", "retrieved_not_cited"]);
 /** A search asking for one countable fact about a subject. These read cleanly as "X has a POPULATION of N". */
 const FACT = /\b(population|area|elevation|altitude|height|depth|length|size|weight|distance)\b/i;
+/** A search asking what something is CALLED in another language. The answer is a word, so an English headline
+ *  merge answers nothing: "Hyena in Farsi: Meet the Striped Hyena" renames a page and still never says the word. */
+const TRANSLATION = /\bin (farsi|persian|english)\b/i;
 /** Function words a search in another language leans on. None of these is also an English word. */
 const FOREIGN = new Set(["och", "der", "die", "das", "und", "les", "des", "une", "del", "los", "las", "por",
   "para", "que", "van", "het", "een", "til", "bir", "aus", "mit", "auf", "yang", "ein", "eine", "dei", "hvad"]);
@@ -103,6 +106,15 @@ function earningWords(page: OwnedPageEvidence): Set<string> {
     for (const w of new Set(words(q.query))) clicks.set(w, (clicks.get(w) ?? 0) + Math.max(0, q.clicks));
   }
   return new Set([...clicks.entries()].filter(([, c]) => c > EARNING_CLICKS).map(([w]) => w));
+}
+
+/** WHY THIS SEARCH AND NOT THE BIGGER ONE ON THE SAME PAGE, the first thing a reader asks when a card targets the smaller of a page's searches. The rows answer it: a bigger search already earning what its own position pays is not the one leaving clicks. Null when the target IS the biggest, when no bigger search clears its own curve, or when one search is all there is. */
+export function biggerSearchesLine(page: OwnedPageEvidence, primary: string, wording: boolean): string | null {
+  const rows = (page.search?.topQueries ?? []).filter((q) => q.impressions > 0 && q.position != null && q.position > 0); const target = rows.find((q) => canonicalQueryKey(q.query) === canonicalQueryKey(primary));
+  if (!target || rows.length < 2) return null;
+  const top = rows.filter((q) => q.impressions > target.impressions && q.clicks / q.impressions >= defaultExpectedCtrAt(q.position!))
+    .sort((a, b) => b.clicks - a.clicks || a.query.localeCompare(b.query))[0];
+  return !top ? null : `The bigger searches on this page ("${top.query}": ${top.clicks.toLocaleString()} clicks) already earn what their positions usually get; "${primary}" is the one leaving clicks, and ${wording ? "the new title adds its words without dropping the ones the bigger searches match" : "this change answers it without touching what the bigger searches match"}.`;
 }
 
 type Suggestion = { field: "title" | "h1"; before: string; after: string; label: string; modeled: string | null };
@@ -250,6 +262,27 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
     const caution = earns
       ? `This page already earns ${num(page.search!.clicks90d)} clicks in 90 days; the merge keeps its current words for that reason.`
       : null;
+    // A TRANSLATION ASK IS A MISSING WORD, NOT A MISSING HEADLINE. The word itself is the answer, and inventing
+    // one is the one thing this kernel may never do, so the card is one line with the word left to be pasted.
+    const lang = query.match(TRANSLATION)?.[1];
+    if (lang) {
+      const asked = cased(query), langWord = cased(lang);
+      const subjectAsked = topicTokens(query).filter((t) => !topicTokens(lang).includes(t));
+      if (subjectAsked.length === 0 || UNSAFE.test(asked)) continue;
+      if (file({
+        id: `${tenantId}::${path.toLowerCase()}::existing_edit::answer_block`,
+        field: "answer_block", before: null, after: `${asked} is called NAME.`,
+        label: `Answer "${query}" with the word itself`,
+        why: `People searching "${query}" want the word itself, and this page never says it in a line a reader or an assistant can lift, so the answer goes near the top.${creditLine(snapshot, query)}`,
+        steps: [`Open your site editor on ${path}`,
+          `Paste the line above directly under the page heading, with the ${langWord} word in place of NAME`,
+          "Come back here and mark it done, and measurement starts"],
+        limitations: [`No ${langWord} word for this is on file here, so paste the real word in place of NAME rather than publishing NAME.`,
+          ...(caution ? [caution] : [])],
+        confidence: "low", effort: effortForFamily("answer"), impact: c.recoverableClicks, modeled: null,
+      }, page, c.pageUrl ?? "", path, query, c)) return out;
+      continue;
+    }
     const factWord = (query.match(FACT)?.[1] ?? "").toLowerCase();
     const subject = topicTokens(query).filter((t) => t !== factWord).join(" ");
     // A FACT SEARCH IS A MISSING LINE, NOT A MISSING HEADLINE: the words are largely off this page's line and
@@ -293,11 +326,13 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
     if (caution) limitations.push(caution);
     if (AEO.has(c.cause.cause)) limitations.push("An assistant answered this question without naming this page, and a sharper line is the cheapest thing to try first, not the whole answer to that.");
     const id = `${tenantId}::${path.toLowerCase()}::existing_edit::${s.field}`;
+    // THE OBJECTION ANSWERED WHERE IT IS RAISED: a card working the smaller of a page's searches owes the reason the bigger ones were left alone, in their own numbers, before it asks for a minute.
+    const bigger = biggerSearchesLine(page, query, true);
     if (file({
       id, field: s.field, before: s.before, after: s.after, label: s.label,
-      why: read || modeled
-        ? `${why(c.reason)} This line leads with the search in the words people actually run it in and keeps what the page already earns on.${creditLine(snapshot, query)}`
-        : `${noRepeat(why(c.reason))} Google's results page for "${query}" has not been read yet, so this is the best merge off held numbers: ${s.label.charAt(0).toLowerCase()}${s.label.slice(1)}.${creditLine(snapshot, query)}`,
+      why: `${read || modeled
+        ? `${why(c.reason)} This line leads with the search in the words people actually run it in and keeps what the page already earns on.`
+        : `${noRepeat(why(c.reason))} Google's results page for "${query}" has not been read yet, so this is the best merge off held numbers: ${s.label.charAt(0).toLowerCase()}${s.label.slice(1)}.`}${bigger ? ` ${bigger}` : ""}${creditLine(snapshot, query)}`,
       steps: [`Open your site editor on ${path}`, s.field === "title" ? "Replace the title with the copy above" : "Replace the page heading with the copy above",
         "Come back here and mark it done, and measurement starts"],
       limitations, confidence: modeled ? "medium" : read ? "medium" : "low",
@@ -319,8 +354,8 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
     const line = `Position held at ${held} but visits fell ${num(falling.w.sessionsPrior)} to ${num(falling.w.sessionsNow)}: the page, not Google.`;
     file({
       id: `${tenantId}::${path.toLowerCase()}::existing_edit::divergence`, field: "section", before: null, after: line,
-      label: "Find out why visits fell while the ranking held",
-      why: `${line} Google shows this page in the same place it did four weeks ago and ${num(falling.w.sessionsPrior - falling.w.sessionsNow)} fewer visits arrived, so what changed is on the page itself.`,
+      label: `${path}: rank held at ${held} but visits fell ${num(falling.w.sessionsPrior)} to ${num(falling.w.sessionsNow)}; the page, not Google`,
+      why: `Google shows this page in the same place it did four weeks ago and ${num(falling.w.sessionsPrior - falling.w.sessionsNow)} fewer visits arrived, so what changed is on the page itself.`,
       steps: [`Open ${path} on a phone and time how long it takes before it is usable`,
         "Check what changed on it: loading speed, a popup or consent box over the first screen, a layout change",
         "Come back here and say what you changed, and the next two windows get read against it"],

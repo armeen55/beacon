@@ -65,7 +65,7 @@ export type ChangesV2CardRow = {
  * is omitted (e.g. pure render-to-string tests of the timeline that don't
  * exercise the action), no button renders.
  */
-export type ChangesV2CardMarkShipped = {
+type ChangesV2CardMarkShipped = {
   /** True only when the linked edit is `accepted` (mirrors legacy gating). */
   canMarkShipped: boolean;
   /** Disable + show pending copy while the action is in flight. */

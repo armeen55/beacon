@@ -121,6 +121,10 @@ export function proposalFingerprint(p: ChangeProposal): string {
     id: p.id, status: p.status, confidence: p.confidence, basis: p.basis ?? null,
     change: p.recommendedChange, limitations: p.limitations, cause: p.causeFinding ?? null,
     components: (p.bundle?.components ?? []).map((c) => [c.kind, c.before, c.after, c.evidenceKeys, c.risk]),
+    // THE WORDS ARE WHAT THE OPERATOR ACTS ON. A pass that sharpened the headline, the reason or the steps and
+    // nothing else computed "unchanged" and wrote nothing, so every rewrite of the queue's language died inside
+    // the producer and the stored row kept serving the sentence it was meant to replace.
+    copy: [p.opportunityType, p.whyItMatters, ...(p.operatorSteps ?? []), p.bundle?.objective ?? "", ...(p.bundle?.confidenceReasons ?? [])],
     receipt: evidenceMaterial(p),
     missing: p.bundle?.receipt.missing ?? [],
   };

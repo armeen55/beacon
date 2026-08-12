@@ -10,7 +10,7 @@
  * Beacon voice: first person source phrases, no lab words, no em or en dashes.
  */
 
-export type ReceiptParts = {
+type ReceiptParts = {
   /** Plain source phrase, e.g. "your Search Console data". */
   source: string;
   /** ISO date or timestamp the data runs THROUGH (data recency). Optional. */

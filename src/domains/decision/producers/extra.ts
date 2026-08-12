@@ -19,13 +19,16 @@ import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEv
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import { actionFamilyOf, loadChangeProposals } from "../proposal-store";
 
-type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1" | "section"; type: string;
+/** `headline` IS the card's action line: it names the page, the thing to do and the number behind it, so the
+ *  queue reads as work without being opened. Never "update the section to sharpen it", which says nothing. */
+type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1" | "section"; headline: string;
   query: string; before: string | null; after: string; why: string; steps: string[]; hints: string[];
   minutes: number; confidence: ChangeProposal["confidence"]; limitation: string };
 
 /** A page worth linking to sits inside striking distance and is genuinely being seen; under THIN_WORDS a page
- *  is a stub to a reader and to Google. */
-const MAX_PER_PRODUCER = 5, NEAR_MISS_MIN = 4, NEAR_MISS_MAX = 15, MIN_IMPRESSIONS = 30, THIN_WORDS = 200;
+ *  is a stub to a reader and to Google. TOP_PAGES_PER_CLASS is how many pages one defect mints cards for in one
+ *  pass: a sweep is still done one page at a time, so it is filed one page at a time. */
+const MAX_PER_PRODUCER = 5, NEAR_MISS_MIN = 4, NEAR_MISS_MAX = 15, MIN_IMPRESSIONS = 30, THIN_WORDS = 200, TOP_PAGES_PER_CLASS = 3;
 
 const pathOf = (url: string): string => {
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; }
@@ -76,7 +79,7 @@ function mint(tenantId: string, d: Draft, now: Date): ChangeProposal {
   return {
     id: `${tenantId}::${path.toLowerCase()}::existing_edit::${d.slug}`, tenantId, kind: "existing_edit",
     pagePath: path, pageUrl: d.page.url, pageLabel: labelOf(d.page), primaryQuery: d.query,
-    opportunityType: d.type, changeFamily: d.field, status: "needs_review",
+    opportunityType: d.headline, changeFamily: d.field, status: "needs_review",
     recommendedChange: { kind: "existing_edit", field: d.field, before: d.before, after: d.after },
     whyItMatters: d.why, operatorSteps: d.steps, estimatedEffortMinutes: d.minutes, riskLevel: "low",
     confidence: d.confidence, limitations: [d.limitation],
@@ -113,7 +116,7 @@ function aiAbsenceCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], 
     const engines = [...g.engines].sort().join(", "), covers = asWritten(g.prompt, match.hits).join(", ");
     out.push({
       page: match.page, slug: "ai_answer_gap", field: "section", query: g.prompt,
-      type: "Answer the question AI hands to somebody else", before: null,
+      headline: `AI answers cite ${domain} for "${g.prompt}" and never you; answer it on ${pathOf(match.page.url)}`, before: null,
       after: `Add a short section that answers "${g.prompt}" outright: the answer in the first two sentences, then the specifics only this page has, under a heading a reader would search for.`,
       why: `AI answers for "${g.prompt}" cite ${domain} on ${count(cite.n, "answer")} and never name this site, across ${count(g.answers, "stored answer")} from ${engines}. The page they cite is ${cite.url}. ${labelOf(match.page)} at ${pathOf(match.page.url)} already covers ${covers}, so a section that answers the question outright is the cheapest way into that answer.`,
       steps: [`Open the site editor on ${pathOf(match.page.url)}`, `Add a section that answers "${g.prompt}"`,
@@ -147,7 +150,7 @@ function fanoutCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], wea
     const gap = asWritten(f.text, match.missing).slice(0, 4).join(", "), covers = asWritten(f.text, match.hits).join(", ");
     out.push({
       page: match.page, slug: "engine_followup", field: "section", query: f.text,
-      type: "Cover the follow-up search engines run themselves", before: null,
+      headline: `Add a section on "${f.text}" to ${pathOf(match.page.url)} (engines search it while answering about you)`, before: null,
       after: `Add a section that answers the search "${f.text}", naming ${gap} in its first paragraph and in its heading.`,
       why: `While answering "${f.prompt}", engines ran their own follow-up search for "${f.text}". ${labelOf(match.page)} at ${pathOf(match.page.url)} covers ${match.hits.length} of the ${total} subjects in that search and its title and headings never mention ${gap}. Add one section that says those words plainly.`,
       steps: [`Open the site editor on ${pathOf(match.page.url)}`, `Add a section that answers "${f.text}"`,
@@ -191,7 +194,7 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
     const to = pathOf(target.page.url), position = target.query.position!.toFixed(1);
     out.push({
       page: from, slug: "internal_link", field: "section", query: target.query.query,
-      type: "Pass strength to a page that is nearly there", before: null,
+      headline: `Link ${pathOf(from.url)} to ${to} with the words "${target.query.query}"`, before: null,
       after: `Add one link in the body of ${pathOf(from.url)} pointing to ${to}, with the anchor text "${target.query.query}".`,
       why: `${labelOf(from)} at ${pathOf(from.url)} earns ${count(clicksOf(from), "click")} in 90 days and carries ${count(links.size, "internal link")}, not one of them to ${to}. That page sits at position ${position} for "${target.query.query}" on ${count(target.query.impressions, "impression")} and ${count(target.query.clicks, "click")}. One link with that anchor is the cheapest push it can get.`,
       steps: [`Open the site editor on ${pathOf(from.url)}`, `Add a link to ${to} inside the body copy, not the menu`,
@@ -207,55 +210,62 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
   return out;
 }
 
-/** 4. THE THREE DEFECTS WORTH A SWEEP: one card per class, anchored on the page with the most to gain and naming the rest. */
+/** 4. THE THREE DEFECTS WORTH A SWEEP, ONE CARD PER PAGE. A card that fixes one page and then says "repeat on
+ *  nine more" is not a change: it cannot be done in one sitting, marked done, or measured, and the nine never
+ *  get their own numbers. Each of the busiest TOP_PAGES_PER_CLASS pages per defect gets its own card, its own
+ *  figures and its own headline, and the class total rides along as context instead of as an instruction. */
 function technicalCards(pages: OwnedPageEvidence[]): Draft[] {
   const impressions = (p: OwnedPageEvidence): number => p.search?.impressions90d ?? 0;
-  const rank = (list: OwnedPageEvidence[]): OwnedPageEvidence[] => [...list].sort((a, b) => impressions(b) - impressions(a));
-  const others = (list: OwnedPageEvidence[]): string => list.slice(1, 9).map((p) => pathOf(p.url)).join(", ");
+  const rank = (list: OwnedPageEvidence[]): OwnedPageEvidence[] =>
+    [...list].sort((a, b) => impressions(b) - impressions(a) || pathOf(a.url).localeCompare(pathOf(b.url)));
   const out: Draft[] = [];
   const noMeta = rank(pages.filter((p) => !p.content?.metaDescription?.trim()));
-  if (noMeta[0]) out.push({
-    page: noMeta[0], slug: "missing_description", field: "meta", query: labelOf(noMeta[0]),
-    type: "Write the description Google is writing for you", before: null,
+  for (const p of noMeta.slice(0, TOP_PAGES_PER_CLASS)) out.push({
+    page: p, slug: "missing_description", field: "meta", query: labelOf(p),
+    headline: `Write the missing description on ${pathOf(p.url)} (Google is writing its own)`, before: null,
     after: "Write a description of about 150 characters that names this page's subject and the one answer it gives, and ends with a reason to click.",
-    why: `${count(noMeta.length, "page")} on this site have no description, so Google writes the line under the title itself. ${pathOf(noMeta[0].url)} is the busiest of them at ${count(impressions(noMeta[0]), "impression")} in 90 days. Write one description per page, starting here.`,
-    steps: [`Open the site editor on ${pathOf(noMeta[0].url)}`, "Paste a description of about 150 characters",
-      ...(noMeta.length > 1 ? [`Repeat on ${others(noMeta)}`] : []), "Mark it done here and the click rate gets read again"],
-    hints: [`${count(noMeta.length, "page")} with content stored carry no description`,
-      `Pages missing one: ${rank(noMeta).slice(0, 8).map((p) => pathOf(p.url)).join(", ")}`,
-      `${pathOf(noMeta[0].url)} earns ${count(impressions(noMeta[0]), "impression")} and ${count(clicksOf(noMeta[0]), "click")} in 90 days`],
+    why: `${pathOf(p.url)} carries no description, so the line under its title in the results is Google's own writing. It earns ${count(impressions(p), "impression")} and ${count(clicksOf(p), "click")} in 90 days, so that line is read a lot.`,
+    steps: [`Open the site editor on ${pathOf(p.url)}`, "Paste a description of about 150 characters",
+      "Mark it done here and the click rate gets read again"],
+    hints: [`${pathOf(p.url)} holds no description of its own`,
+      `${pathOf(p.url)} earns ${count(impressions(p), "impression")} and ${count(clicksOf(p), "click")} in 90 days`,
+      `${count(noMeta.length, "page")} with content stored carry no description`],
     minutes: 1, confidence: "medium",
-    limitation: "Read off the last stored copy of each page, so a description added since that read is not counted here.",
+    limitation: "Read off the last stored copy of this page, so a description added since that read is not counted here.",
   });
 
   const byH1 = new Map<string, OwnedPageEvidence[]>();
   for (const p of pages) { const h = (p.content?.h1 ?? "").trim().toLowerCase(); if (h) byH1.set(h, [...(byH1.get(h) ?? []), p]); }
-  const dupes = [...byH1.values()].filter((g) => g.length > 1).sort((a, b) => b.length - a.length);
-  const worst = dupes[0] ? rank(dupes[0]) : [];
-  if (worst[0]) out.push({
-    page: worst[0], slug: "duplicate_heading", field: "h1", query: labelOf(worst[0]),
-    type: "Give each page its own heading", before: plain(worst[0].content?.h1), after: "Rewrite this heading so it names what only this page covers, then do the same on the other pages listed below.",
-    why: `${count(worst.length, "page")} share the heading "${plain(worst[0].content?.h1)}", and ${count(dupes.length, "heading")} on this site are duplicated in total. Two pages with the same heading ask Google to pick between them. ${pathOf(worst[0].url)} is the busiest of the set at ${count(impressions(worst[0]), "impression")} in 90 days.`,
-    steps: [`Open the site editor on ${pathOf(worst[0].url)}`, "Rewrite the heading so it names what only this page covers",
-      ...(worst.length > 1 ? [`Do the same on ${others(worst)}`] : []), "Mark it done here and the positions get read again"],
-    hints: [`Pages sharing the heading "${plain(worst[0].content?.h1)}": ${worst.slice(0, 8).map((p) => pathOf(p.url)).join(", ")}`,
-      `${count(dupes.length, "heading")} are duplicated across this site`,
-      `${pathOf(worst[0].url)} earns ${count(impressions(worst[0]), "impression")} in 90 days`],
-    minutes: 1, confidence: "medium",
-    limitation: "Headings are compared exactly as stored, so two headings that differ only by a stray word read as separate here.",
-  });
+  const dupes = [...byH1.values()].filter((g) => g.length > 1);
+  for (const p of rank(dupes.flat()).slice(0, TOP_PAGES_PER_CLASS)) {
+    const heading = plain(p.content?.h1), sharers = (byH1.get((p.content?.h1 ?? "").trim().toLowerCase())?.length ?? 1) - 1;
+    out.push({
+      page: p, slug: "duplicate_heading", field: "h1", query: labelOf(p),
+      headline: `Give ${pathOf(p.url)} its own heading: ${sharers} other ${sharers === 1 ? "page shares" : "pages share"} it`,
+      before: heading, after: "Rewrite this heading so it names what only this page covers.",
+      why: `"${heading}" is the heading on ${count(sharers + 1, "page")} of this site, which asks Google to pick between them. ${pathOf(p.url)} earns ${count(impressions(p), "impression")} in 90 days, so it is the one to name first.`,
+      steps: [`Open the site editor on ${pathOf(p.url)}`, "Rewrite the heading so it names what only this page covers",
+        "Mark it done here and the positions get read again"],
+      hints: [`${pathOf(p.url)} and ${count(sharers, "other page")} carry the heading "${heading}"`,
+        `${pathOf(p.url)} earns ${count(impressions(p), "impression")} in 90 days`,
+        `${count(dupes.length, "heading")} are duplicated across this site`],
+      minutes: 1, confidence: "medium",
+      limitation: "Headings are compared exactly as stored, so two headings that differ only by a stray word read as separate here.",
+    });
+  }
 
   const thin = rank(pages.filter((p) => (p.content?.wordCount ?? 0) > 0 && (p.content?.wordCount ?? 0) < THIN_WORDS && impressions(p) > 0));
-  if (thin[0]) out.push({
-    page: thin[0], slug: "thin_page", field: "section", query: labelOf(thin[0]),
-    type: "Give a stub page enough to answer with", before: null,
-    after: `Add 200 to 300 words to ${pathOf(thin[0].url)} that answer its main question, in short sections with their own headings.`,
-    why: `${pathOf(thin[0].url)} holds ${count(thin[0].content?.wordCount ?? 0, "word")} and still earns ${count(impressions(thin[0]), "impression")} in 90 days, so people are being shown a page with almost nothing on it. ${count(thin.length, "page")} that Google is already showing are under ${THIN_WORDS} words. Start with this one.`,
-    steps: [`Open the site editor on ${pathOf(thin[0].url)}`, "Add 200 to 300 words that answer the question the page title asks",
+  for (const p of thin.slice(0, TOP_PAGES_PER_CLASS)) out.push({
+    page: p, slug: "thin_page", field: "section", query: labelOf(p),
+    headline: `Fill out ${pathOf(p.url)}: ${count(p.content?.wordCount ?? 0, "word")} on a page shown ${count(impressions(p), "time")}`,
+    before: null,
+    after: `Add 200 to 300 words to ${pathOf(p.url)} that answer its main question, in short sections with their own headings.`,
+    why: `${pathOf(p.url)} holds ${count(p.content?.wordCount ?? 0, "word")} and is still shown ${count(impressions(p), "time")} in 90 days, so people are being handed a page with almost nothing on it.`,
+    steps: [`Open the site editor on ${pathOf(p.url)}`, "Add 200 to 300 words that answer the question the page title asks",
       "Break them into short sections with their own headings", "Mark it done here and the impressions get read again"],
-    hints: [`${pathOf(thin[0].url)} holds ${count(thin[0].content?.wordCount ?? 0, "word")} of copy`,
-      `${count(thin.length, "page")} of the ${pages.length} stored pages are under ${THIN_WORDS} words and are being shown in search`,
-      `Other stub pages worth the same treatment: ${others(thin)}`],
+    hints: [`${pathOf(p.url)} holds ${count(p.content?.wordCount ?? 0, "word")} of copy`,
+      `${pathOf(p.url)} is shown ${count(impressions(p), "time")} and earns ${count(clicksOf(p), "click")} in 90 days`,
+      `${count(thin.length, "page")} of the ${pages.length} stored pages are under ${THIN_WORDS} words and are being shown in search`],
     minutes: 30, confidence: "medium",
     limitation: "Word count is read off the last stored copy of the page, so copy added since that read is not counted here.",
   });
@@ -274,17 +284,21 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const weak = weakAnchorsOf(snapshot.ownedPages, snapshot.research);
   // WHAT THIS ACCOUNT ALREADY HOLDS, so a card never supersedes a change the strict path drafted for the same
   // page and the same family. An unreadable queue emits nothing rather than writing over work it cannot see.
-  const held = await loadChangeProposals(tenantId).then(
-    (map) => new Set([...map.values()].map((p) => `${(p.pagePath ?? "").toLowerCase()}::${actionFamilyOf(p)}`)),
-  ).catch(() => null);
-  if (!held) return [];
+  // A ROW THIS PRODUCER MINTED ITSELF IS NOT SOMEBODY ELSE'S WORK: blocking on the family alone froze every card
+  // it had ever written, so a sharper headline for the same page and the same defect never reached the store.
+  // The ids it already owns are kept beside the families, and only a family held under ANOTHER id blocks.
+  const store = await loadChangeProposals(tenantId).catch(() => null);
+  if (!store) return [];
+  const rows = [...store.values()];
+  const held = new Set(rows.map((p) => `${(p.pagePath ?? "").toLowerCase()}::${actionFamilyOf(p)}`));
+  const mine = new Set(rows.map((p) => p.id));
   const drafts = [...aiAbsenceCards(snapshot, pages, weak), ...fanoutCards(snapshot, pages, weak),
     ...(await linkCards(tenantId, pages, weak)), ...technicalCards(pages)];
   const out: ChangeProposal[] = [];
   for (const d of drafts) {
     const card = mint(tenantId, d, now);
     const key = `${(card.pagePath ?? "").toLowerCase()}::${actionFamilyOf(card)}`;
-    if (held.has(key)) continue;
+    if (held.has(key) && !mine.has(card.id)) continue;
     held.add(key);
     out.push(card);
   }

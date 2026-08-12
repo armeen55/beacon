@@ -10,10 +10,10 @@ import {
 } from "@/lib/perf-trace";
 import { loadProofLedgerPersisted } from "@/domains/measurement";
 import { findProofForChange, proofResultHref } from "@/domains/measurement";
-import { actionableProposalFailures, causeLabel, componentIdOf, dangerousComponents, loadChangeProposal, resolveCurrentBasis, validateProposal } from "@/domains/decision";
-import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
+import { actionableProposalFailures, loadChangeProposal, resolveCurrentBasis, validateProposal } from "@/domains/decision";
+import type { ChangeProposal } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
-import { MarkImplemented, SetAsideChange } from "../change-card";
+import { BundleDetail } from "./bundle-detail";
 
 // Force dynamic render so every request runs the fresh-repo-read pattern below. Matches /changes.
 export const dynamic = "force-dynamic";
@@ -61,9 +61,14 @@ export default async function ChangeDetailPage({
     // costs the extra bounded read, so a change put aside a moment ago reads as history, not as a 404.
     if (found) redirect("/changes");
     const stored = proposal ?? (await loadChangeProposal(tenantId, id, { retired: "include" }).catch(() => null));
-    if (stored != null && stored.status !== "implemented_pending_verification") {
-      return <SetAsideDetail unreadable={basis == null} />;
+    // A CHANGE ALREADY RECORDED IS NOT A MISSING PAGE. Pressing Mark done and reopening this address fell all
+    // the way through to the changelog lookup and rendered the framework's unstyled 404, which is the worst
+    // possible answer to "did my action work". It now says what was done, when, and when the reading lands.
+    if (stored?.status === "implemented_pending_verification") {
+      const row = (await loadProofLedgerPersisted(tenantId).catch(() => [])).find((r) => r.proposalId === stored.id);
+      return <DoneDetail proposal={stored} markedAt={row?.implementedAt ?? row?.shippedAt ?? null} />;
     }
+    if (stored != null) return <SetAsideDetail unreadable={basis == null} />;
 
     // Fresh per-request repo read: a module-level array hydrated at lambda cold start made entries
     // written by another lambda invisible here, and the page rendered notFound.
@@ -109,350 +114,40 @@ function SetAsideDetail({ unreadable }: { unreadable: boolean }) {
   );
 }
 
-const EVIDENCE_GROUP: Record<BundleEvidenceItem["kind"], string> = {
-  gsc_demand: "What people search on Google",
-  keyword: "How much demand there is",
-  serp: "What Google shows today",
-  diagnosis: "Why this looks like the problem",
-  ai_observation: "What AI assistants answer",
-  winning_page: "Pages winning this today",
-  page_extract: "What your page says now",
-  competitor: "Other sites in this answer",
-  internal_link: "Links across your own site",
-};
-const EVIDENCE_ORDER = Object.keys(EVIDENCE_GROUP) as BundleEvidenceItem["kind"][];
-
-function seenLabel(observedAt: string | null): string {
-  const day = monthDayLabel(observedAt);
-  return day ? ` (checked ${day})` : "";
-}
-
-function Heading({ children }: { children: React.ReactNode }) {
-  return <h2 className="text-[14px] font-semibold text-foreground">{children}</h2>;
-}
-
-function Bullets({ items }: { items: string[] }) {
-  return (
-    <ul className="list-disc space-y-1 pl-4 text-[13px] leading-relaxed text-muted-foreground">
-      {items.map((t, i) => (
-        <li key={i}>{t}</li>
-      ))}
-    </ul>
-  );
-}
-
-/** Slice 7: the two-layer bundle detail. Layer 1 decides, layer 2 proves.
- *  Slice 8: the same two layers render a new-page bundle. Nothing forks: the
- *  page-does-not-exist truth is stated once and every component is a pure
- *  insertion, so the before/after framing simply drops away. */
-function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeProposal; bundle: ChangeBundle; recorded: Set<string> }) {
-  const facts = new Map(bundle.receipt.items.map((i) => [i.key, i]));
-  const chips = [...bundle.scope.queries, ...bundle.scope.prompts];
-  const isNew = proposal.kind === "new_page";
+/** WHAT WAS DONE AND WHEN THE ANSWER COMES, for a change already recorded. No copy to paste, no control to press
+ *  again, and no invented outcome: the reading is the ledger's job and Results is where it lands. */
+function DoneDetail({ proposal, markedAt }: { proposal: ChangeProposal; markedAt: string | null }) {
+  const c = proposal.recommendedChange;
+  const before = c.kind === "existing_edit" ? c.before : null;
+  const after = c.kind === "new_page" ? c.proposedTitle : c.after;
+  const day = monthDayLabel(markedAt);
   return (
     <div className="max-w-3xl space-y-5">
       <Link href="/changes" className="inline-flex text-[13px] text-muted-foreground hover:text-foreground">
         Back to Changes
       </Link>
-
-      <section className="space-y-2 rounded-2xl border border-accent-primary/40 bg-surface-raised p-5">
-        <h1 className="text-[14px] font-semibold text-foreground">The recommendation</h1>
-        <p className="text-[15px] font-semibold leading-relaxed text-foreground">{bundle.objective}</p>
-        <p className="text-[13px] text-muted-foreground">
-          {isNew ? "A new page for" : "On this page"}: {proposal.pageLabel}
+      <section className="space-y-3 rounded-2xl border border-accent-primary/50 bg-surface-raised p-5" data-change-done="true">
+        <h1 className="text-[14px] font-semibold text-foreground">{proposal.pagePath ?? proposal.pageLabel}</h1>
+        <p className="text-[15px] font-semibold leading-relaxed text-foreground">{proposal.bundle?.objective ?? proposal.opportunityType}</p>
+        {before ? (
+          <p className="text-[12px] leading-relaxed text-muted-foreground">
+            Was: <span className="line-through">{before}</span>
+          </p>
+        ) : null}
+        {after ? (
+          <p className="rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2 text-[13px] leading-relaxed text-foreground">
+            <span className="text-muted-foreground">Now: </span>{after}
+          </p>
+        ) : null}
+        <p className="text-[13px] leading-relaxed text-muted-foreground">
+          {day ? `Marked done ${day}. ` : "Marked done. "}Measuring for 28 days; the first reading lands at 7 days.
         </p>
-        <p className="text-[13px] leading-relaxed text-muted-foreground">{proposal.whyItMatters}</p>
-      </section>
-
-      <section className="space-y-3">
-        <Heading>{isNew ? "The pieces to paste" : "The exact edits"}</Heading>
-        {isNew ? (
-          <p className="text-[13px] leading-relaxed text-muted-foreground">This page does not exist yet.</p>
-        ) : null}
-        {bundle.components.map((c, i) => (
-          <ComponentCard key={i} component={c} facts={facts} isNew={isNew} />
-        ))}
-      </section>
-
-      <section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5">
-        <Heading>Why this is the smartest move</Heading>
-        {bundle.confidenceReasons.length > 0 ? <Bullets items={bundle.confidenceReasons} /> : null}
-        {chips.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {chips.map((c, i) => (
-              <span key={i} className="rounded-md bg-surface-inset px-2 py-1 text-[12px] text-muted-foreground">
-                {c}
-              </span>
-            ))}
-          </div>
-        ) : null}
-      </section>
-
-      <section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
-        <Heading>What was checked</Heading>
-        {EVIDENCE_ORDER.map((kind) => {
-          const items = bundle.receipt.items.filter((i) => i.kind === kind);
-          if (items.length === 0) return null;
-          return (
-            <div key={kind} className="space-y-1">
-              <p className="text-[12px] font-semibold text-foreground">{EVIDENCE_GROUP[kind]}</p>
-              <Bullets items={items.map((i) => `${i.fact}${seenLabel(i.observedAt)}`)} />
-            </div>
-          );
-        })}
-        {bundle.receipt.missing.length > 0 ? (
-          <div className="space-y-1 border-t border-border pt-3">
-            <p className="text-[12px] font-semibold text-foreground">What could not be checked yet</p>
-            <Bullets items={bundle.receipt.missing} />
-          </div>
-        ) : null}
-      </section>
-
-      {bundle.alternatives.length > 0 ? (
-        <section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5">
-          <Heading>What else was considered</Heading>
-          <Bullets items={bundle.alternatives.map((a) => `${a.option}: ${a.reason}`)} />
-        </section>
-      ) : null}
-
-      <Investigation proposal={proposal} />
-
-      {bundle.risks.length > 0 ? (
-        <section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5">
-          <Heading>Risks</Heading>
-          <Bullets items={bundle.risks} />
-        </section>
-      ) : null}
-
-      <section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5">
-        <Heading>How it gets measured</Heading>
-        <p className="text-[13px] leading-relaxed text-muted-foreground">{bundle.measurementPlan}</p>
-        <p className="text-[13px] text-muted-foreground">Watching: {bundle.metric}</p>
-      </section>
-
-      <section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
-        <MarkImplemented
-          proposalId={proposal.id}
-          label={isNew ? "Mark done" : "Mark done"}
-          newPage={isNew}
-          components={bundle.components.map((c, i) => ({ id: componentIdOf(c, i), kind: c.kind, label: c.label,
-            moves: dangerousComponents([c]).length > 0, recorded: recorded.has(componentIdOf(c, i)) }))}
-        />
-        <p className="text-[12px] text-muted-foreground">
-          After you make it, the page is checked and the measurement starts from what is found.
-        </p>
-        <SetAsideChange proposalId={proposal.id} />
+        <Link href="/results" className="inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2">
+          See what every change earned
+        </Link>
       </section>
     </div>
   );
-}
-
-/** What one ranking factor did to the order, in words rather than a raw score. A factor is
- *  bounded by its own ceiling, so the operator can see that no single input can run away with
- *  the queue, and a factor that changed nothing says so instead of printing a zero. */
-function weightWord(contribution: number, max: number): string {
-  const n = Math.round(Math.abs(contribution) * 10) / 10;
-  const ceiling = Math.round(max * 10) / 10;
-  if (n === 0) return "did not move this one either way";
-  return contribution > 0 ? `moved it up ${n} of a possible ${ceiling}` : `moved it down ${n} of a possible ${ceiling}`;
-}
-
-/**
- * LAYER 2: THE INVESTIGATION. Everything above this decides; this proves. It is behind one
- * expander because an operator who trusts the recommendation should never have to scroll past
- * the reasoning to reach the copy, and an operator who does not trust it must be able to see
- * every step without asking anyone.
- *
- * All four parts are computed by the cause ladder (decision/diagnosis) and were carried on the
- * proposal with nothing rendering them: the named cause and its explanation, what else was on
- * the table and why each lost, what would prove the whole thing wrong, and every cause that was
- * never weighed at all because its evidence is not on file. That last one is the honest one:
- * "not considered" is a finding, never a silence, and it is never dressed up as ruled out.
- *
- * The ranking receipt sits with them, so the operator can see which inputs put this change where
- * it is, and how much each one could ever contribute.
- */
-function Investigation({ proposal }: { proposal: ChangeProposal }) {
-  const finding = proposal.causeFinding;
-  const receipt = proposal.rankingReceipt;
-  const hints = (proposal.evidence?.hints ?? []).filter((h) => h.trim().length > 0);
-  // AN EXPANDER PROMISES REASONING. With neither a cause nor a ranking receipt there is none, and
-  // the hints alone are the same evidence line the card above already carries, so opening "Show me
-  // how you worked this out" landed on one repeated sentence. No reasoning, no expander.
-  if (!finding && !receipt) return null;
-  return (
-    <details className="rounded-2xl border border-border bg-surface-raised p-5" data-investigation="true">
-      <summary className="cursor-pointer text-[14px] font-semibold text-foreground">
-        Show me how you worked this out
-      </summary>
-      <div className="mt-4 space-y-4">
-        {finding ? (
-          <>
-            <div className="space-y-1">
-              <p className="text-[12px] font-semibold text-foreground">What looks wrong</p>
-              <p className="text-[13px] leading-relaxed text-muted-foreground">
-                {causeLabel(finding.cause)}. {finding.explanation}
-              </p>
-            </div>
-            {finding.competingExplanations.length > 0 ? (
-              <div className="space-y-1">
-                <p className="text-[12px] font-semibold text-foreground">What else was considered and why it lost</p>
-                <Bullets items={finding.competingExplanations.map((c) => `${causeLabel(c.cause)}: ${c.reason}.`)} />
-              </div>
-            ) : null}
-            <div className="space-y-1">
-              <p className="text-[12px] font-semibold text-foreground">What would overturn this</p>
-              <p className="text-[13px] leading-relaxed text-muted-foreground">{finding.falsifier}</p>
-            </div>
-            {finding.notConsidered.length > 0 ? (
-              <div className="space-y-1">
-                <p className="text-[12px] font-semibold text-foreground">What could not be tested, and why</p>
-                <Bullets items={finding.notConsidered.map((n) => `${causeLabel(n.cause)}: ${n.missing}`)} />
-              </div>
-            ) : null}
-          </>
-        ) : null}
-
-        {hints.length > 0 ? (
-          <div className="space-y-1">
-            <p className="text-[12px] font-semibold text-foreground">What was read to get here</p>
-            <Bullets items={hints} />
-          </div>
-        ) : null}
-
-        {receipt ? (
-          <div className="space-y-1">
-            <p className="text-[12px] font-semibold text-foreground">Why this one ranks where it does</p>
-            <ul className="space-y-1 text-[13px] leading-relaxed text-muted-foreground">
-              {receipt.factors.map((f, i) => (
-                <li key={i} className="tabular-nums">
-                  {f.input} ({weightWord(f.contribution, f.max)})
-                </li>
-              ))}
-            </ul>
-            <p className="text-[12px] leading-relaxed text-muted-foreground">{receipt.basis}</p>
-          </div>
-        ) : null}
-      </div>
-    </details>
-  );
-}
-
-function ComponentCard({
-  component,
-  facts,
-  isNew,
-}: {
-  component: BundleComponent;
-  facts: Map<string, BundleEvidenceItem>;
-  isNew: boolean;
-}) {
-  const cited = component.evidenceKeys.map((k) => facts.get(k)).filter((i): i is BundleEvidenceItem => Boolean(i));
-  // The producer already answered where this lands, what it achieves and why it works, and named the sources
-  // still owed before it goes out. All four were carried on the row and rendered nowhere, so the operator was
-  // handed copy with no place to put it and a source pack they could not see.
-  const plan: [string, string | undefined][] = [["Where it goes", component.where], ["What it does", component.objective], ["Why it works", component.mechanism]];
-  const pack = component.sourcePack ?? null;
-  // A MERGE, A FORWARD, A CANONICAL OR A DE-INDEX IS THE ONE CHANGE A SENTENCE CANNOT TAKE BACK. Where it
-  // sends people, what survives it, what it drops and how to reverse it belong on the screen BEFORE the
-  // operator confirms it, and every line is held on the change itself, never worked out afterwards.
-  const moves = dangerousComponents([component]).length > 0;
-  const to = component.redirectTo;
-  const consequences = moves ? [
-    to ? `Anyone who opens the old address lands on ${to}.` : "This page stops answering at its own address.",
-    ...(component.preserves?.keeps.length ? [`What survives the change: ${component.preserves.keeps.join(", ")}.`] : []),
-    ...(component.preserves?.losses ?? []).map((l) => `Dropped: ${l.what}, because ${l.why}.`),
-    to ? `To undo it: take the forward to ${to} off and publish this page at its own address again.`
-      : "To undo it: put the page back the way it was, then say so here, and it is read again before anything is claimed.",
-  ] : [];
-  return (
-    <div className="space-y-2 rounded-2xl border border-border bg-surface-raised p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="text-[13px] font-semibold text-foreground">{component.label}</p>
-        {component.risk === "review" ? (
-          <span className="rounded bg-status-warning/10 px-1.5 py-0.5 text-[11px] text-status-warning">
-            Worth a quick fact check
-          </span>
-        ) : null}
-      </div>
-      {isNew ? null : component.before ? (
-        <div className="space-y-1">
-          <p className="text-[12px] text-muted-foreground">On the page now</p>
-          <p className="whitespace-pre-wrap break-words rounded-lg bg-surface-inset px-3 py-2 text-[13px] text-muted-foreground line-through">
-            {component.before}
-          </p>
-        </div>
-      ) : (
-        // A piece that RETIRES or FORWARDS a page is not a page that happens to have nothing there today.
-        <p className="text-[12px] italic text-muted-foreground">
-          {moves ? "This one does not add anything to the page. Read what it does below before you confirm it." : "This page has none today."}
-        </p>
-      )}
-      <div className="space-y-1">
-        <p className="text-[12px] text-muted-foreground">Use this</p>
-        <CopyBlock component={component} />
-      </div>
-      {consequences.length > 0 ? (
-        <div className="space-y-1 rounded-lg border border-status-warning/40 bg-status-warning/5 px-3 py-2" data-destructive-detail="true">
-          <p className="text-[12px] font-semibold text-foreground">What this does to your site</p>
-          <Bullets items={consequences} />
-        </div>
-      ) : null}
-      {plan.some(([, v]) => v) ? (
-        <div className="space-y-0.5 text-[12px] leading-relaxed text-muted-foreground">
-          {plan.map(([label, value]) => (value ? <p key={label}><span className="font-semibold text-foreground">{label}:</span> {value}</p> : null))}
-        </div>
-      ) : null}
-      {pack && (pack.sourceRequirements.length > 0 || pack.factRequirements.length > 0) ? (
-        <div className="space-y-1 rounded-lg bg-surface-inset px-3 py-2">
-          <p className="text-[12px] font-semibold text-foreground">Sources to add before this goes out</p>
-          {pack.sourceRequirements.length > 0 ? <Bullets items={pack.sourceRequirements} /> : null}
-          {pack.factRequirements.length > 0 ? (
-            <>
-              <p className="text-[12px] text-muted-foreground">Check these lines against the source you pick</p>
-              <Bullets items={pack.factRequirements} />
-            </>
-          ) : null}
-        </div>
-      ) : null}
-      {cited.length > 0 ? (
-        <div className="space-y-1">
-          <p className="text-[12px] font-semibold text-foreground">What this is based on</p>
-          <Bullets items={cited.map((i) => i.fact)} />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-/** Slice 8: the copy-ready block. A page plan reads as a list and a source pack
- *  puts each source on its own line, so a multi-line insertion stays readable
- *  instead of one wall of text. Every other component stays one exact block. */
-function CopyBlock({ component }: { component: BundleComponent }) {
-  const box =
-    "rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2 text-[13px] leading-relaxed text-foreground";
-  const lines = component.after.split("\n").map((l) => l.trim()).filter(Boolean);
-  if (lines.length > 1 && component.kind === "section") {
-    return (
-      <ul className={`${box} list-disc space-y-1 break-words pl-7`}>
-        {lines.map((l, i) => (
-          <li key={i}>{l}</li>
-        ))}
-      </ul>
-    );
-  }
-  if (lines.length > 1 && component.kind === "source_pack") {
-    return (
-      <div className={`${box} space-y-1`}>
-        {lines.map((l, i) => (
-          <p key={i} className="break-words">
-            {l}
-          </p>
-        ))}
-      </div>
-    );
-  }
-  return <p className={`${box} whitespace-pre-wrap break-words`}>{component.after}</p>;
 }
 
 /** The honest read failure. It deliberately does NOT fall back to anything cached: the whole point of the

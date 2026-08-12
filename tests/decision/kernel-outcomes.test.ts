@@ -167,7 +167,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     expect(env.saved).toEqual([]); expect(again.proposals.map((p) => p.id)).toEqual(one.proposals.map((p) => p.id)); });
   it("writes a new generation the moment the material content changes, and ignores a moved clock", () => {
     const p = baseProposal(); expect(proposalFingerprint({ ...p, createdAt: "2026-07-27T09:00:00.000Z" })).toBe(proposalFingerprint(p)); // a new timestamp is not new thinking
-    for (const changed of [{ ...p, status: "needs_review" as const }, { ...p, confidence: "low" as const }, { ...p, basis: "after the business changed" },
+    for (const changed of [{ ...p, status: "needs_review" as const }, { ...p, confidence: "low" as const }, { ...p, basis: "after the business changed" }, { ...p, whyItMatters: `${p.whyItMatters} Said again, sharper.` }, { ...p, opportunityType: "A headline that says the thing itself" },
       { ...p, recommendedChange: { kind: "existing_edit" as const, field: "title" as const, before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" } }]) expect(proposalFingerprint(changed)).not.toBe(proposalFingerprint(p)); });
   it("keeps the cause that actually produced the change, and still names one for a change that brought none", async () => {
     // THE LADDER IS ASKED TWICE with different inputs: once over the opportunities query, once inside the bundle over the exact search it drafted for. They can disagree,

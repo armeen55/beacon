@@ -166,8 +166,10 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
     };
   }
 
-  const scope = `"${best.query}" showed up in Google ${num(best.impressions)} times over the last 90 days and got ${num(best.clicks)} ${best.clicks === 1 ? "click" : "clicks"} at about position ${best.position.toFixed(1)}`;
-  const rates = `Pages at that spot usually get ${pct(best.expectedCtr)} of the clicks and this one gets ${pct(best.actualCtr)}`;
+  // THE RAW FIGURES ARE A STATEMENT, not a sentence spoken at somebody: labelled, listed, and left to the prose
+  // that follows to argue. Everything after this line stays prose, because everything after it makes a case.
+  const scope = `"${best.query}": ${num(best.impressions)} views, ${num(best.clicks)} ${best.clicks === 1 ? "click" : "clicks"}, position ${best.position.toFixed(1)} (90 days)`;
+  const rates = `Pages at that position usually earn ${pct(best.expectedCtr)} of the clicks; this page earns ${pct(best.actualCtr)}`;
   const clears =
     best.impressions >= MIN_QUERY_IMPRESSIONS
     && best.deficit >= MIN_CTR_DEFICIT

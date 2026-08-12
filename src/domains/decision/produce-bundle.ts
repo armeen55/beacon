@@ -24,7 +24,7 @@ import { CORE_PRODUCERS } from "./producers/core"; import { produceFullRewriteRe
 import type { ProposeOptions } from "./propose"; import { receiptIntegrityFailures, validateProposal } from "./validate-proposal";
 import { anchoredTopicMatch, canonicalQueryKey, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { answerIntelFacts, answerIntelOf } from "@/domains/evidence/answer-intel";
-import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store";
+import { biggerSearchesLine } from "./suggested-edits"; import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store";
 
 type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string };
 
@@ -108,8 +108,9 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   const pageTopic = [...queries.map((q) => q.query), c.title ?? "", c.h1 ?? ""].join(" ");
   const onTopic = (text: string): boolean => topicMatch(text, pageTopic, weak);
 
-  add("demand-page", "gsc_demand", `Over the last 90 days this page overall earned ${s.clicks90d.toLocaleString()} clicks from ${s.impressions90d.toLocaleString()} views in search, across every search that reaches it, at about position ${Math.round(s.position90d)}.`, null);
-  const queryFact = (q: OwnedQuerySignal): string => `That one search "${q.query}" brings this page ${q.impressions.toLocaleString()} views and ${q.clicks.toLocaleString()} clicks${q.position == null ? "" : `, at about position ${Math.round(q.position)}`}.`;
+  add("demand-page", "gsc_demand", `This page overall: ${s.clicks90d.toLocaleString()} clicks from ${s.impressions90d.toLocaleString()} views, position ${Math.round(s.position90d)} (90 days).`, null);
+  // A NUMBER IS A STATEMENT, NOT A SENTENCE SPOKEN AT SOMEBODY: raw figures are labelled and listed, and the prose is saved for the lines that argue.
+  const queryFact = (q: OwnedQuerySignal): string => `"${q.query}": ${q.impressions.toLocaleString()} views, ${q.clicks.toLocaleString()} clicks${q.position == null ? "" : `, position ${Math.round(q.position)}`} (90 days).`;
   const exact = (s.topQueries ?? []).find((q) => isPrimary(q.query));
   if (exact) add(RECEIPT.gsc, "gsc_demand", queryFact(exact), null); // the EXACT search the gap was measured on, never a neighbour
   queries.slice(0, 3).filter((q) => !isPrimary(q.query)).forEach((q, i) => add(`demand-q${i + 1}`, "gsc_demand", queryFact(q), null));
@@ -430,6 +431,15 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     removes: components.filter((c) => (c.before ?? "").trim().length > 0)
       .map((c) => ({ what: (c.before ?? "").trim(), why: c.objective ?? `${c.label} takes its place.` })) };
   const confidence = confidenceFor(receipt.readiness, diagnosis);
+  // THE ONE-PURCHASE SENTENCE, BROKEN IN TWO: what happened, then what it costs. One idea per clause, both off the same row, and the position's usual take is stated rather than left as arithmetic to do.
+  const leadStatement = lead ? `${lead.impressions.toLocaleString()} people saw this page for "${primary}" in 90 days and ${lead.clicks.toLocaleString()} clicked. A page at position ${Math.round(lead.position)} usually earns about ${Math.round(lead.clicks + lead.recoverable).toLocaleString()}, so about ${Math.round(lead.recoverable).toLocaleString()} clicks are being left.`
+    : door!.entry;
+  // ONE SECTION, ONE SENTENCE: the same fact printed as the reason, the receipt line AND the paragraph is one fact three times, so anything already said elsewhere is dropped rather than repeated back.
+  const alreadySaid = new Set([leadStatement.trim(), ...receipt.items.map((it) => it.fact.trim())]);
+  const confidenceReasons = [biggerSearchesLine(page, primary, wording), classSentence(receipt),
+    receipt.freshestObservedAt ? `The newest evidence behind this was observed on ${receipt.freshestObservedAt.slice(0, 10)}.`
+      : "Every figure here is a 90 day total, so none of it carries a single observation date.",
+    wording ? diagnosis.explanation : finding.explanation].filter((r): r is string => !!r && !alreadySaid.has(r.trim()));
   const bundle: ChangeBundle = { // objective: Today renders it verbatim, so it is the MODELED shortfall, never a promise
     objective: lead
       ? `Close the gap on the one search "${primary}", which earns this page about ${Math.round(lead.recoverable).toLocaleString()} fewer clicks than pages at position ${Math.round(lead.position)} usually get.`
@@ -444,14 +454,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       receipt.bodyText ? "These are this page's stored words, not today's live page, so read each line once against the page before you paste it."
         : "This page's full body text is not on file, so read each line once before you paste it.",
     ],
-    confidenceReasons: [
-      lead ? `That one search "${primary}" brings this page ${lead.impressions.toLocaleString()} views over 90 days and turns ${lead.clicks.toLocaleString()} of them into clicks, about ${Math.round(lead.recoverable).toLocaleString()} short of what position ${Math.round(lead.position)} usually earns.`
-        : door!.entry,
-      classSentence(receipt),
-      receipt.freshestObservedAt ? `The newest evidence behind this was observed on ${receipt.freshestObservedAt.slice(0, 10)}.`
-        : "Every figure here is a 90 day total, so none of it carries a single observation date.",
-      wording ? diagnosis.explanation : finding.explanation,
-    ],
+    confidenceReasons,
     measurementPlan: "Once you make the change, record it on Results with the page address, and clicks, views and average position for these searches get read at 7, 14 and 28 days, compared against pages you did not change.",
   };
 
@@ -468,9 +471,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       opportunityType: OPPORTUNITY_OF[finding.cause] ?? "Rewrite the page that already has the demand",
       status: heldForReview ? "needs_review" : "ready", // an investigation I cannot close never reaches here at all
       recommendedChange,
-      whyItMatters: lead
-        ? `Searching "${primary}" brings this page ${lead.impressions.toLocaleString()} views and only ${lead.clicks.toLocaleString()} clicks over 90 days, about ${Math.round(lead.recoverable).toLocaleString()} clicks short of what position ${Math.round(lead.position)} usually earns, and that gap is big enough to look into.`
-        : door!.entry,
+      whyItMatters: leadStatement,
       // WHAT THIS COSTS AND WHAT IT RISKS, by the kind of change it is: a merge and a rebuild are not one price, and a lever that moves or hides a page carries the highest risk on the row.
       ...(steps ? { operatorSteps: steps } : {}),
       estimatedEffortMinutes: effortMinutesFor(primaryComponent.kind), confidence, limitations: receipt.missing,

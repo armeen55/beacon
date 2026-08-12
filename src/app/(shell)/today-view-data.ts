@@ -18,6 +18,11 @@ import type { TodayOpportunity, EvidenceStrength } from "@/domains/measurement/t
 export type TodayView = {
   headerSentence: string;
   nextOpportunities: TodayOpportunity[];
+  /** THE EXACT EDIT AT THE TOP OF THE QUEUE. Today used to lead with the paragraph arguing the change, so the
+   *  first thing read was reasoning for a thing nobody had been told to do yet. The action comes first now, then
+   *  the words on the page and the words to put there; the reason follows. Absent when the top change carries no
+   *  line at all, and `paste` is false for a plan that is read rather than pasted. */
+  topEdit?: { action: string; lead: string; before: string | null; after: string; paste: boolean };
   /** Pages with a READY proposal in THIS release, keyed by the path the smoke alarm blames, carrying the change to open. Today says "I have
    *  a fix ready" only from here, and links straight at it. proposalId is EMPTY when the change has no bundle: the fix is real, but
    *  /changes/<id> would 404, so the CTA falls back to the queue. */
@@ -70,6 +75,8 @@ function recommendationOf(p: ChangeProposal): string {
   const c = p.recommendedChange;
   // Slice 7: a bundled change already states its objective in one plain sentence.
   if (p.bundle) return p.bundle.objective;
+  // A producer that wrote a real headline (a sentence, not a slug) owns this line.
+  if (p.opportunityType.includes(" ") && p.opportunityType.length > 20) return p.opportunityType;
   if (c.kind === "new_page") return `Build a new page that answers "${p.primaryQuery}"`;
   const field = c.field === "meta" ? "description" : c.field.replace(/_/g, " ");
   return `Update the ${field} on ${p.pageLabel} to sharpen it for "${p.primaryQuery}"`;
@@ -90,6 +97,29 @@ function proposalToOpportunity(p: ChangeProposal): TodayOpportunity {
     // THE PROBLEM, carried onto the move. Today used to hand over three directives with no
     // statement of what any of them was for, which is a chore list, not a recommendation.
     ...(p.whyItMatters ? { problem: p.whyItMatters } : {}),
+  };
+}
+
+/** An after that opens with a do-this verb is an instruction to follow, never a line to paste onto the site.
+ *  The queue card draws the same line; both refuse to put a Copy button on a sentence telling you what to do. */
+const INSTRUCTION = /^(Add|Write|Rewrite|Open|Move|Redirect|Paste|Link|Position held)\b/;
+
+/** PURE: the top ranked change said as an action plus the two lines. Null when it carries nothing to put there. */
+function topEditOf(p: ChangeProposal): TodayView["topEdit"] {
+  const c = p.recommendedChange;
+  const after = (c.kind === "new_page" ? c.proposedTitle : c.after ?? "").trim();
+  if (!after) return undefined;
+  if (c.kind === "new_page") {
+    return { action: `Build a new page that answers "${p.primaryQuery}"`, lead: "Page title: ", before: null, after, paste: true };
+  }
+  const field = c.field === "meta" ? "description" : c.field.replace(/_/g, " ");
+  const merge = String(p.kind) === "consolidation" || p.changeFamily === "consolidation";
+  return {
+    action: `Change the ${field} on ${p.pagePath ?? p.pageLabel}`,
+    lead: merge || INSTRUCTION.test(after) ? "Do this: " : "Change to: ",
+    before: (c.before ?? "").trim() || null,
+    after,
+    paste: !merge && !INSTRUCTION.test(after),
   };
 }
 
@@ -134,7 +164,9 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   // THE COUNT IS THE COUNT, NEVER THE PAGE. `view.ready` is one page of the ranking now, so counting it would under-report the queue Today
   // is drawing from; `summary` carries the total counted in the database.
   const readyTotal = view.summary?.ready ?? view.ready.length;
-  const ready = [...view.ready, ...view.toDo].slice(0, TODAY_PREVIEW_LIMIT).map(proposalToOpportunity);
+  const flat = [...view.ready, ...view.toDo];
+  const ready = flat.slice(0, TODAY_PREVIEW_LIMIT).map(proposalToOpportunity);
+  const topEdit = flat[0] ? topEditOf(flat[0]) : undefined;
   const readyFixes = view.ready
     .filter((p) => p.pagePath || p.pageUrl)
     .map((p) => ({ page: normalizedFixKey(p.pagePath ?? p.pageUrl ?? ""), proposalId: p.bundle ? p.id : "" }))
@@ -165,7 +197,7 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     : waiting
       ? `Some of your pages could not be read, so they get another try on ${retryDay(waiting)}. Nothing is waiting on you today.`
       : "You have no edits waiting. The next one is ranked here the moment it earns its place.";
-  return { headerSentence, nextOpportunities: ready, readyFixes, ...rest };
+  return { headerSentence, nextOpportunities: ready, readyFixes, ...(topEdit ? { topEdit } : {}), ...rest };
 }
 
 /** Compose Today from the exact Changes release that will ship beside it, and from what that release's own production pass concluded. */
