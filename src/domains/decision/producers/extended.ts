@@ -24,6 +24,8 @@ const MIN_STRUCTURAL_CAUSES = 2;
 const MAX_LOSSES = 8;
 /** A merge that lists more than this is not a merge, it is a rebuild of the page that survives. */
 const MAX_MOVED = 6;
+/** Pages under one prefix past which they are a SET, and a set's member is never folded into its hub. */
+const MIN_SIBLINGS = 5;
 
 const count = (n: number): string => Math.round(n).toLocaleString("en-US");
 /** The last net: no em or en dash ever reaches an operator, and the double gap one leaves is collapsed. */
@@ -344,6 +346,16 @@ export const produceConsolidation: Producer = async (ctx) => {
   // THE PAGE I AM KEEPING MUST HAVE FIGURES OF ITS OWN; one I hold none for is named as one I cannot measure.
   if (!keep || !named.includes(keep) || (earns.get(keep)?.clicks ?? null) == null) return refuse(UNPROVEN);
   const losers = named.filter((p) => p !== keep);
+  // A MEMBER OF A SET IS NOT A DUPLICATE OF THE SET. Where the page being folded away is one of many built to
+  // one shape under one prefix, the two addresses answer two different searches, and the merge would retire
+  // one of a series while every sibling stands. Structural, so it reads the same on any site: the count of
+  // pages under the same prefix. Those pages get told apart instead, and no address moves.
+  const under = (p: string): number => {
+    const at = p.lastIndexOf("/");
+    return at > 0 ? ctx.ownedPages.filter((o) => short(o.url).startsWith(p.slice(0, at + 1))).length : 0;
+  };
+  const crowded = losers.find((p) => under(p) >= MIN_SIBLINGS);
+  if (crowded) return refuse(`${crowded} is one of ${count(under(crowded))} pages of yours built to the same shape under ${crowded.slice(0, crowded.lastIndexOf("/") + 1)}, so folding it into ${keep} would retire one of a set and leave every other one standing. Give ${crowded} and ${keep} titles and opening lines that say which search each one answers, and nothing here moves an address.`);
   // THE WORDS EACH PAGE CARRIES TODAY, or nothing may be said about what moves: a merge that cannot name what it preserves is research, not a change.
   const bodies = ctx.heldBodies ?? new Map();
   const bodyFor = (p: string): OwnedPageBody | null => [...bodies.values()].find((b) => short(b.url) === p) ?? null;

@@ -114,12 +114,17 @@ function topEditOf(p: ChangeProposal): TodayView["topEdit"] {
   }
   const field = c.field === "meta" ? "description" : c.field.replace(/_/g, " ");
   const merge = String(p.kind) === "consolidation" || p.changeFamily === "consolidation";
+  if (merge || INSTRUCTION.test(after)) {
+    // A PLAN IS NOT A PASTE: a paragraph of instructions in the do-this box is how a wall of text led
+    // Today. The plan card gets its real headline and sends the reader to the steps; nothing to copy here.
+    return { action: recommendationOf(p), lead: "", before: null, after: "", paste: false };
+  }
   return {
     action: `Change the ${field} on ${p.pagePath ?? p.pageLabel}`,
-    lead: merge || INSTRUCTION.test(after) ? "Do this: " : "Change to: ",
+    lead: "Change to: ",
     before: (c.before ?? "").trim() || null,
     after,
-    paste: !merge && !INSTRUCTION.test(after),
+    paste: true,
   };
 }
 

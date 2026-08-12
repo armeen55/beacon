@@ -3,12 +3,13 @@ import "server-only";
 import { cache } from "react";
 import { after } from "next/server";
 
+import { checkedAgoLabel } from "@/components/data/receipt-line";
 import { currentTenantId } from "@/lib/tenant-context";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { runSingleFlight } from "@/lib/single-flight";
 import { readLastFinalizedDate } from "@/domains/measurement";
 import { loadProofLedger, loadProofLedgerPersisted } from "@/domains/measurement";
-import { aiOutcomesForShipments, readLedger, type ShippedChangeRecord } from "@/domains/measurement";
+import { readLedger, type ShippedChangeRecord } from "@/domains/measurement";
 import {
   isResultsSurfaceStale,
   readResultsSurface,
@@ -27,8 +28,9 @@ import type { ShipmentPresentation } from "./results-presentation";
 type ResultsLedgerSurface = {
   shipments: ShipmentPresentation[];
   computedAt: string | null;
-  /** The staleness line, clocked HERE at load time so the page render stays pure. */
-  checkedAgoLine?: string | null;
+  /** How long ago the numbers were re-checked ("11 minutes ago"), clocked HERE at load time so
+   *  the page render stays pure. */
+  checkedAgo?: string | null;
   /** TRUE WHEN THE LEDGER COULD NOT BE READ AT ALL. An empty list used to be the only answer this could give, so a database outage rendered as "no changes are
    *  being measured yet" over an account with a full ledger: the one sentence that tells an operator to stop expecting measurement. Nothing read is not nothing. */
   unavailable?: boolean;
@@ -36,38 +38,32 @@ type ResultsLedgerSurface = {
 
 /**
  * One shipment story per record: the kernel's read, the live check the Shipment store holds, the
- * immutable starting point written at mark time, and what AI answers did around it. The AI side is
- * read from answers already bought, so nothing here spends anything; a record with no stamp has no
- * moment to measure an AI outcome from and honestly carries none.
- *
- * ONE READ FOR THE WHOLE LEDGER. Each shipment used to open its own paged 56 day read of whole
- * observation rows, and all of them fired at once, so ten shipments meant eighty round trips carrying
- * every answer text and retrieval journey in the window. The union window is read once now, on the lean
- * outcome projection, and each shipment is computed off that set.
+ * immutable starting point written at mark time, and THIS PAGE'S OWN movement over the read that
+ * was used, so the surface can print a before and an after without inventing either. How often AI
+ * assistants name the account is drawn on Visibility, so nothing here reads answers.
  */
 export async function presentShipments(tenantId: string, records: ShippedChangeRecord[]): Promise<ShipmentPresentation[]> {
   if (records.length === 0) return [];
   const latestGscDate = await readLastFinalizedDate(tenantId).catch(() => null);
   const reads = readLedger(records, new Date(), latestGscDate);
-  // EACH CHANGE IS READ ON ITS OWN SEARCHES, the ones frozen onto the Shipment when it was marked done. A
-  // record that never kept them says so on the card rather than borrowing the whole account's answers.
-  const ai = await aiOutcomesForShipments(tenantId, records.map((r) => ({
-    implementedAt: r.implementedAt ?? null, shipmentBaseline: r.shipmentBaseline, scopeQueries: r.targetQueries ?? null,
-  }))).catch(() => records.map(() => null));
-  return records.map((r, i) => ({
-    read: reads[i]!,
-    implementedAt: r.implementedAt ?? null,
-    verification: r.verification ?? null,
-    baseline: r.shipmentBaseline
-      ? {
-        clicks: r.shipmentBaseline.search.clicks,
-        impressions: r.shipmentBaseline.search.impressions,
-        windowDays: r.shipmentBaseline.search.windowDays,
-        capturedAt: r.shipmentBaseline.capturedAt,
-      }
-      : null,
-    ai: ai[i] ?? null,
-  }));
+  return records.map((r, i) => {
+    const read = reads[i]!;
+    const basis = read.basisDay == null ? null : r.windows?.find((w) => w.day === read.basisDay && w.ran);
+    return {
+      read,
+      implementedAt: r.implementedAt ?? null,
+      verification: r.verification ?? null,
+      baseline: r.shipmentBaseline
+        ? {
+          clicks: r.shipmentBaseline.search.clicks,
+          impressions: r.shipmentBaseline.search.impressions,
+          windowDays: r.shipmentBaseline.search.windowDays,
+          capturedAt: r.shipmentBaseline.capturedAt,
+        }
+        : null,
+      basisMove: basis ? { clicks: basis.treatedDelta, impressions: basis.treatedImpressionsDelta ?? 0 } : null,
+    };
+  });
 }
 
 /** Build the shipment stories for a tenant from the persisted records (no re-measure). A read that FAILED
@@ -108,7 +104,7 @@ async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedgerSurface
 export const loadResultsLedgerSurface = cache(
   async (): Promise<ResultsLedgerSurface> => {
     const surface = await loadLedgerWithSwr(await currentTenantId());
-    return { ...surface, checkedAgoLine: ledgerCheckedAgoLine(surface.computedAt, Date.now()) };
+    return { ...surface, checkedAgo: checkedAgoLabel(surface.computedAt, Date.now()) };
   },
 );
 
@@ -121,24 +117,4 @@ export async function rebuildResultsSurface(tenantId: string): Promise<void> {
   const records = await loadProofLedger(tenantId);
   const shipments = await presentShipments(tenantId, records);
   await writeResultsSurface(shipments, computedAt, tenantId);
-}
-
-/**
- * The honest staleness line under the /results header. PURE. Null on a missing or
- * unparseable timestamp; a snapshot younger than a minute reads "just now". Beacon
- * voice: first person, no lab words, no dashes.
- */
-function ledgerCheckedAgoLine(computedAtIso: string | null, nowMs: number): string | null {
-  if (computedAtIso == null) return null;
-  const t = Date.parse(computedAtIso);
-  if (!Number.isFinite(t)) return null;
-  const minutes = Math.floor(Math.max(0, nowMs - t) / 60_000);
-  if (minutes < 1) return "These numbers were re-checked against your Google data just now.";
-  const unit =
-    minutes < 60
-      ? `${minutes} minute${minutes === 1 ? "" : "s"}`
-      : minutes < 48 * 60
-        ? `${Math.floor(minutes / 60)} hour${Math.floor(minutes / 60) === 1 ? "" : "s"}`
-        : `${Math.floor(minutes / 1440)} days`;
-  return `These numbers were last re-checked against your Google data ${unit} ago. They refresh in the background.`;
 }

@@ -27,6 +27,8 @@ export function extractPageSnapshot(
   tenantId: string,
   httpStatus: number = 200,
   profile?: import("@/domains/account").BusinessProfile | null,
+  /** Where the fetch landed after redirects. Defaults to the requested address. */
+  finalUrl?: string | null,
 ): PageSnapshot {
   if (!tenantId) {
     throw new Error(
@@ -324,10 +326,8 @@ export function extractPageSnapshot(
     if (rows >= 2) tableCount++; // At least header + 1 data row
   });
 
-  // ── Main content text (page CONTENT only) ──
-  // Exclude nav/header/footer/aside CHROME as well as non-text nodes, so shared
-  // menus/footers don't inflate the count and mask genuinely thin pages. Use a
-  // fresh pruned clone so the main $ (and downstream extractors) stay untouched.
+  // ── Main content text (page CONTENT only) ── Chrome and non-text nodes are pruned on a fresh clone, so
+  // shared menus never inflate the count, mask a thin page, or disturb the main $.
   const $wc = cheerioLoad($.html());
   $wc("nav, header, footer, aside, script, style, noscript, svg, iframe").remove();
   const bodyText = $wc("body").text().replace(/\s+/g, " ").trim();
@@ -365,10 +365,8 @@ export function extractPageSnapshot(
   const faqHash = hash(faqs.map((f) => f.question).join("|"));
   const schemaHash = hash(dedupedSchemaTypes.sort().join("|"));
 
-  // ── Extraction certainty ──
-  // "confirmed" when we found JSON-LD or structural content; "uncertain" when
-  // the page might rely on client-side rendering we can't verify from raw HTML.
-  // Note: hasJsonLd was captured above before script removal for word count.
+  // ── Extraction certainty ── "confirmed" on JSON-LD or real body content; "uncertain" when the page may
+  // rely on client-side rendering raw HTML cannot verify.
   const hasBodyContent = wordCount > 50;
   const extractionCertainty: import("./types").ExtractionCertainty =
     hasJsonLd || (hasBodyContent && (faqs.length > 0 || schemaTypes.length > 0))
@@ -382,6 +380,7 @@ export function extractPageSnapshot(
     page_id: pageId,
     url,
     canonical_url: canonicalUrl,
+    final_url: finalUrl ?? url,
     fetched_at: new Date().toISOString(),
     http_status: httpStatus,
     title,

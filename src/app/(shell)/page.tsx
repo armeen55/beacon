@@ -102,8 +102,12 @@ const TODAY_HERO_DEADLINE_MS = 8000;
 
 /** THE ONE SENTENCE WITH THE NUMBER IN IT. The whole reason is a paragraph on the card; Today takes the sentence carrying the figure. */
 function reasonLine(text: string | undefined): string | null {
-  const parts = (text ?? "").split(/(?<=\.)\s+/).map((s) => s.trim()).filter((s) => s.length > 1);
-  return parts.find((s) => /\d/.test(s)) ?? parts[0] ?? null;
+  // Rows persisted before the voice amendment still open in the first person; the stored copy refreshes on
+  // its next redraft, and until then the legacy opener is cut here rather than shown.
+  const cleaned = (text ?? "").replace(/^I gave this page my deepest read because\s+/i, "");
+  const parts = cleaned.split(/(?<=\.)\s+/).map((s) => s.trim()).filter((s) => s.length > 1);
+  const line = parts.find((s) => /\d/.test(s)) ?? parts[0] ?? null;
+  return line ? line.charAt(0).toUpperCase() + line.slice(1) : null;
 }
 
 /** THE LAST CHANGE THAT PROVABLY WON, in the lift the ledger already stored: the newest settled win, its page, and how far it beat the
@@ -130,9 +134,15 @@ function weekDigest(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, now
   const made = rows.filter((r) => Date.parse(r.implementedAt ?? r.shippedAt) >= nowMs - WEEK_MS).length;
   if (made === 0) return null;
   const b = splitLedgerLifecycle(rows, new Date(nowMs));
-  const lift = b.won.reduce((sum, r) => sum + Math.max(0, Math.round(provenLift(r) ?? 0)), 0);
-  const head = `This week: ${made} ${made === 1 ? "edit" : "edits"} made, ${b.measuring.length + b.promising.length} measuring`;
-  return lift > 0 ? `${head}, the finished ones added +${lift.toLocaleString()} clicks.` : `${head}.`;
+  // TWO CLAUSES, TWO CLOCKS, NEVER GLUED: what happened this week, then the all-time NET of every finished
+  // change. "This week ... the finished ones added +54" summed July's wins under a this-week banner, and the
+  // wins-only sum hid the losers, both of which the operator caught on one screen.
+  const settled = [...b.won, ...b.learned];
+  const net = settled.reduce((sum, r) => sum + Math.round(provenLift(r) ?? 0), 0);
+  const head = `This week: ${made} ${made === 1 ? "edit" : "edits"} made, ${b.measuring.length + b.promising.length} measuring.`;
+  return settled.length > 0
+    ? `${head} All ${settled.length} finished changes so far: ${net >= 0 ? "+" : ""}${net.toLocaleString()} clicks net against unchanged pages.`
+    : head;
 }
 
 async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
@@ -207,7 +217,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         <div className="rounded-2xl border border-accent-primary/50 bg-surface-raised p-5" data-top-edit="true">
           <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Do this first</p>
           <p className="mt-1 text-[15px] font-semibold leading-relaxed text-foreground">{edit?.action ?? top.recommendation}</p>
-          {edit ? (
+          {edit && edit.after ? (
             <div className="mt-2 space-y-1" data-top-edit-lines="true">
               {edit.before ? (
                 <p className="text-[12px] leading-relaxed text-muted-foreground">
@@ -221,6 +231,8 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
                 {edit.paste ? <CopyButton text={edit.after} label="Copy" /> : null}
               </div>
             </div>
+          ) : edit ? (
+            <p className="mt-1 text-[13px] text-muted-foreground">A plan, not a paste. Open it and read the steps before touching anything.</p>
           ) : (
             <p className="mt-1 text-[13px] text-muted-foreground">{top.pageLabel}</p>
           )}

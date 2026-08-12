@@ -67,6 +67,10 @@ export type PageSnapshot = {
   observation_run_id?: string;
   url: string;
   canonical_url: string | null;
+  /** The address the fetch actually landed on, after every redirect. Absent on rows written before this was
+   *  recorded, which is exactly what marks them as unable to say where the read came from. A row whose
+   *  final_url is another address is never a page carrying that address's content: the crawler drops it. */
+  final_url?: string | null;
   fetched_at: string;
   http_status: number;
   title: string | null;

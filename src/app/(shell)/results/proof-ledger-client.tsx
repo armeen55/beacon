@@ -181,7 +181,7 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
                 className={FIELD_INPUT}
               />
               <p className="mt-0.5 text-[10px] text-muted-foreground">
-                Leave blank for now. The 7 / 14 / 28-day windows count from here.
+                Leave blank for now. The 7, 14 and 28 day reads count from here.
               </p>
             </div>
           </div>
@@ -292,7 +292,7 @@ export function RecomputeLedgerButton({
   disabled = false,
   disabledReason,
 }: {
-  /** No measurement window has closed yet ⇒ nothing to recompute. */
+  /** No read has closed yet, so there is nothing to recompute. */
   disabled?: boolean;
   disabledReason?: string;
 }) {
@@ -316,7 +316,7 @@ export function RecomputeLedgerButton({
         className={`rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 ${FOCUS}`}
         title={
           disabled
-            ? disabledReason ?? "No measurement window has closed yet."
+            ? disabledReason ?? "No read has closed yet."
             : "Re-measure every recorded change against the latest Search data."
         }
       >

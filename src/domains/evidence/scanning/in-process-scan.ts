@@ -299,8 +299,12 @@ export async function runInProcessColdStartScan(args: {
       const res = await fetchPageHtml(c.url, robotsCache, { fetchImpl, timeoutMs: perRequestMs });
       crawled++;
       if (!res.ok) continue;
+      // A FORWARD IS NOT A PAGE: an address that lands somewhere else never gets a content row wearing the
+      // destination's words, or one page under three old slugs reads as three duplicates.
+      const landed = res.finalUrl ? canonicalOwnedUrl(res.finalUrl, site.host) : null;
+      if (landed && landed.key !== c.key) continue;
       const id = pageIdFor(c.key);
-      const snap = extractPageSnapshot(res.html, c.url, id, tenantId, res.status, profile);
+      const snap = extractPageSnapshot(res.html, c.url, id, tenantId, res.status, profile, res.finalUrl ?? c.url);
       snapshots.push(snap);
       pages.push({
         id,

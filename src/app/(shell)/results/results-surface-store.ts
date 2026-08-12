@@ -39,7 +39,7 @@ export async function readResultsSurface(
   if (!row || !Array.isArray(row.reads)) return null;
   const shipments = Array.isArray(row.shipments) && row.shipments.length === row.reads.length
     ? row.shipments
-    : row.reads.map((read) => ({ read, implementedAt: null, verification: null, baseline: null, ai: null }));
+    : row.reads.map((read) => ({ read, implementedAt: null, verification: null, baseline: null, basisMove: null }));
   return { computedAt: row.computedAt, shipments };
 }
 

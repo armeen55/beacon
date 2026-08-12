@@ -35,7 +35,7 @@ vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...(await orig<Record<s
 
 describe("Today renders, and tells the truth about its own queue", () => {
   it.each([["@/app/(shell)/page", ["max-w-3xl", 'aria-label="Loading today"']], ["@/app/(shell)/changes/page", ["Changes", "ranked by payoff"]],
-    ["@/app/(shell)/results/page", ["Results", "7, 14, and 28 days"]]] as const)("renders the %s frame without throwing", async (mod, claims) => {
+    ["@/app/(shell)/results/page", ["Results", "7, 14 and 28 days"]]] as const)("renders the %s frame without throwing", async (mod, claims) => {
     const { default: Page } = await import(mod) as { default: (a?: unknown) => Promise<ReactElement> };
     const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
     for (const claim of claims) expect(html).toContain(claim);
@@ -49,7 +49,7 @@ describe("Today renders, and tells the truth about its own queue", () => {
     expect(html).not.toContain("No changes are being measured yet");
     // AND THE MISSING-TABLE CASE IS STILL A VALID EMPTY: the file fallback is how a pre-migration deploy reads, not an outage.
     DB.ledgerError = { code: "PGRST205", message: "Could not find the table in the schema cache" };
-    expect(renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }))).toContain("7, 14, and 28 days");
+    expect(renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }))).toContain("7, 14 and 28 days");
     DB.ledgerError = null; }, 15_000);
   const readyView = (n: number, measuring: number) => ({
     ready: Array.from({ length: n }, (_, i) => ({ id: `t::/p${i}::existing_edit::title`, pagePath: `/p${i}`, pageUrl: null, pageLabel: `P${i}`, primaryQuery: "q",

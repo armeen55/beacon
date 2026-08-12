@@ -51,6 +51,22 @@ const norm = (s: string): string => s.trim().toLowerCase().replace(/\s+/g, " ");
 const YEAR_QUERY = /\b20\d{2}\s*$/;
 const YEAR_NOTE = "Year searches reset every January; this edit is worth redoing each year.";
 
+/** THE ISSUE CLASS AS A LABEL, off the id's own family slug: "Missing description" tells the operator what
+ *  kind of problem this is before a sentence is read, the way every serious tool names its issue classes. */
+const CATEGORY: [RegExp, string][] = [
+  [/::missing_description$/, "Missing description"], [/::duplicate_heading$/, "Duplicate heading"],
+  [/::internal_link$/, "Internal link"], [/::ai_answer_gap$/, "AI answer gap"],
+  [/::engine_followup$/, "Follow-up search"], [/::thin_page$/, "Thin page"], [/::divergence$/, "Diagnosis"],
+  [/::answer_block$/, "Answer block"], [/::consolidation$/, "Page merge"], [/::h1$/, "Heading"],
+  [/::title(-family)?$/, "Title"],
+];
+function categoryOf(p: ChangeProposal, isNew: boolean, parts: number): string {
+  if (isNew) return "New page";
+  const named = CATEGORY.find(([re]) => re.test(p.id))?.[1];
+  if (named) return named;
+  return parts > 1 ? `${parts} edits together` : "One edit";
+}
+
 /** The exact primary action in one line: a bundle's objective, the producer's own headline when it wrote a
  *  real one (a sentence, not a slug), or the field an atomic edit rewrites. */
 function primaryAction(p: ChangeProposal): string {
@@ -182,7 +198,7 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
         <span className="flex-1 space-y-1">
           <span className="flex flex-wrap items-center gap-2">
             <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${isNew || parts > 1 ? "bg-accent-primary/15 text-accent-primary" : "bg-surface-inset text-muted-foreground"}`}>
-              {isNew ? "New page" : parts > 1 ? `${parts} edits together` : "One edit"}
+              {categoryOf(proposal, isNew, parts)}
             </span>
             <span className="text-[14px] font-semibold text-foreground">{pageTitle}</span>
           </span>

@@ -94,6 +94,8 @@ export type OwnedPageContent = {
   canonicalUrl?: string | null;
   hasCanonicalMismatch?: boolean | null;
   robotsMeta?: string | null;
+  /** Where the read of this page actually landed. Absent on captures taken before it was recorded. */
+  finalUrl?: string | null;
 };
 
 export type OwnedPageSearch = {

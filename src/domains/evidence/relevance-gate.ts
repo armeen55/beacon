@@ -133,6 +133,21 @@ export function weakAnchorTokens(phrases: ReadonlyArray<string | null | undefine
   return weak;
 }
 
+/** TEMPLATE CHROME. A heading the site prints on nearly every page is furniture: a menu rail, an FAQ block,
+ *  a shop strip, a footer brand line. Two pages wearing "Explore More" are not two pages wearing one name,
+ *  and a page whose only tie to a search is furniture has not earned that search. A heading carried by >= 30
+ *  percent of the pages read (at least two) is furniture. Compared lowercased and space-collapsed. Pure. */
+export function templateHeadings(pages: ReadonlyArray<ReadonlyArray<string>>): ReadonlySet<string> {
+  const freq = new Map<string, number>();
+  for (const headings of pages) {
+    for (const h of new Set(headings.map((x) => x.trim().toLowerCase().replace(/\s+/g, " ")).filter(Boolean))) {
+      freq.set(h, (freq.get(h) ?? 0) + 1);
+    }
+  }
+  const cut = Math.max(2, Math.ceil(pages.length * 0.3));
+  return new Set([...freq].filter(([, n]) => n >= cut).map(([h]) => h));
+}
+
 /** Anchor-aware topical match: relevant ONLY when the two texts share at least
  *  one token that is NOT a weak anchor (or normalize identically). A shared
  *  weak token alone is the exact failure this slice removes. Pure. */

@@ -34,7 +34,7 @@ import { mapRowToEntity } from "./key-mapper";
 /** THE ONE snapshot projection both read paths use. body_text (up to 100,000 characters per page) and the other
  *  heavy payloads are deliberately absent: a page's own words are read narrowly through evidence/pages/owned-context. */
 const SNAPSHOT_COLUMNS =
-  "id, page_id, observation_run_id, url, canonical_url, fetched_at, http_status, title, meta_description, h1, h2_list, h3_count, faqs, schema_types, location_terms, service_terms, internal_link_count, external_link_count, word_count, robots_meta, has_canonical_mismatch, content_hash, headings_hash, faq_hash, schema_hash, extraction_certainty, faq_schema_block_count, structural_warnings, table_count, h3_list, schema_validation_warnings, tenant_id";
+  "id, page_id, observation_run_id, url, canonical_url, final_url, fetched_at, http_status, title, meta_description, h1, h2_list, h3_count, faqs, schema_types, location_terms, service_terms, internal_link_count, external_link_count, word_count, robots_meta, has_canonical_mismatch, content_hash, headings_hash, faq_hash, schema_hash, extraction_certainty, faq_schema_block_count, structural_warnings, table_count, h3_list, schema_validation_warnings, tenant_id";
 
 /**
  * E2 (operator audit, 2026-05-05) — egress observability.

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { evaluateChange, evaluateWindows, type KernelInput } from "@/domains/measurement/proof-gsc/kernel";
-import type { ShipmentAiOutcome, ShipmentVerification } from "@/domains/measurement";
-import { shipmentStory, type ShipmentPresentation } from "@/app/(shell)/results/results-presentation";
+import type { ShipmentVerification } from "@/domains/measurement";
+import { buildResultsView, type ShipmentPresentation } from "@/app/(shell)/results/results-presentation";
 
-/** RESULTS, WHOLE (V1 Truth Convergence Phase 8). These pin what a customer READS on a shipped change, not how it is computed: did it land on the live page, where the
- *  page started, what has been read so far, what happened in Google and in AI answers, and what I take away. Fixtures only, zero network. The promise that matters most here: a measurement window shared with a later change is never painted as this change's own win. The AI trend and its named breaks moved to Visibility with the
- *  surface that draws them (tests/product/visibility-surface.test.ts). */
+/** RESULTS, WHOLE. These pin what a customer READS on the surface, not how it is computed: the three header
+ *  numbers, which answer a change belongs to, the one line it gets, and what opening it says. Fixtures only,
+ *  zero network. The promise that matters most: a read shared with a later change is never painted as this
+ *  change's own win, and a number nobody has read is blank rather than zero. */
 
 const NOW = new Date("2026-06-01T00:00:00Z");
 const SHIPPED = "2026-05-01";
@@ -16,129 +17,128 @@ const win = (day: 7 | 14 | 28, over: Partial<KernelInput["windows"][number]> = {
   adjustedImpressionsLift: 120, controlsUsed: 3, treatedPostImpressions: 5000, ...over,
 });
 const input = (over: Partial<KernelInput> = {}): KernelInput => ({
-  id: "c1", page: "https://site.com/nowruz", path: "/nowruz", actionType: "edit_title",
-  shippedAt: SHIPPED, implementedAt: SHIPPED, baselineImpressions: 9100, baselineClicks: 412,
+  id: "c1", page: "https://site.com/nowruz", path: "/nowruz", actionType: "section_add",
+  shippedAt: SHIPPED, implementedAt: SHIPPED, baselineImpressions: 9100, baselineClicks: 200,
   windows: [win(7), win(14), win(28)],
   componentKinds: ["title", "section_add"], diagnosisCause: "ctr_snippet", evidenceItemCount: 6, ...over,
 });
 const VERIFICATION: ShipmentVerification = {
   status: "partially_verified", checkedAt: "2026-05-03T09:00:00Z",
-  components: [{ kind: "title", state: "verified", note: null }, { kind: "section_add", state: "not_verified", note: null }, { kind: "schema", state: "unverifiable", note: null }],
-};
-const AI: ShipmentAiOutcome = {
-  direction: "improved",
-  before: { day: "2026-04-30", checked: 20, mentioning: 4, rate: 0.2, from: "on_file" },
-  after: { from: SHIPPED, to: "2026-05-28", checked: 60, mentioning: 18, rate: 0.36, analyzed: 50 },
-  coverage: { daysObserved: 21, daysElapsed: 28 },
-  line: "I read 60 AI answers on 21 of the 28 days since you marked this done, you were named in 18 of the 50 I read closely, up from 4 of 20 before it. I keep reading every day.",
+  components: [{ kind: "title", state: "verified", note: null }],
 };
 const shipment = (over: Partial<ShipmentPresentation> = {}): ShipmentPresentation => ({
   read: evaluateChange(input(), WINDOWS, []), implementedAt: `${SHIPPED}T12:00:00Z`, verification: VERIFICATION,
-  baseline: { clicks: 412, impressions: 9100, windowDays: 28, capturedAt: `${SHIPPED}T12:00:00Z` }, ai: AI, ...over,
+  baseline: { clicks: 200, impressions: 9100, windowDays: 28, capturedAt: `${SHIPPED}T12:00:00Z` },
+  basisMove: { clicks: 61, impressions: 900 }, ...over,
 });
+const only = (over: Partial<ShipmentPresentation> = {}) => buildResultsView([shipment(over)]).rows;
+const first = (over: Partial<ShipmentPresentation> = {}) => {
+  const rows = only(over);
+  return (["worked", "down", "flat", "reading"] as const).map((g) => rows[g][0]).find((r) => r != null)!;
+};
+const measuring = evaluateChange(input({ windows: [] }), evaluateWindows(SHIPPED, new Date("2026-05-03T00:00:00Z"), "2026-05-03"), []);
+const declined = evaluateChange(input({ windows: [win(7, { adjustedClicksLift: -30 }), win(14, { adjustedClicksLift: -30 }), win(28, { adjustedClicksLift: -30 })] }), WINDOWS, []);
 
-describe("one shipped change tells its whole story", () => {
-  it("says component by component what it found on the live page, and never calls an unseeable one missing", () => {
-    const story = shipmentStory(shipment());
-    expect(story.verification.headline).toBe("Your live page was checked: part of this is live and part of it is not.");
-    expect(story.verification.components).toEqual([
-      "The page title is exactly what we agreed.",
-      "A new section is not there yet.",
-      "The structured data cannot be seen from outside the page, so it is not called either way.",
-    ]);
-    expect(story.verification.checkedOn).toBe("May 3");
+describe("the three numbers at the top", () => {
+  it("counts only the changes that finished their 28 day read, and adds up what those won", () => {
+    const view = buildResultsView([shipment(), shipment({ read: declined }), shipment({ read: measuring })]);
+    expect(view.header.worked).toEqual({ value: "1 of 2", sub: "2 finished their 28 day read", isCount: true });
+    expect(view.header.appearances).toEqual({ value: "+120", positive: true });
+    expect(view.header.reading.value).toBe("1");
+    expect(view.header.reading.sub).toMatch(/^next result lands /);
+    expect(view.counts).toEqual({ worked: 1, down: 1, flat: 0, reading: 1 });
+    expect(view.defaultGroup).toBe("worked");
   });
-  it("says plainly when it has not looked yet, instead of implying a pass, and holds the starting point untouched", () => {
-    const unchecked = shipmentStory(shipment({ verification: null }));
-    expect(unchecked.verification.headline).toContain("Your live page has not been read for this one yet");
-    expect(unchecked.verification.components).toEqual([]);
-    expect(shipmentStory(shipment()).baseline)
-      .toBe("When you marked this done on May 1, this page had 412 clicks and 9,100 appearances in Google over the 28 days before it. That starting point is held exactly as it was, and it never moves.");
-  });
-  it("walks the timeline from marked done through the live check to every checkpoint, and adds the 56 day follow up only when one ran", () => {
-    const story = shipmentStory(shipment());
-    expect(story.timeline.map((s) => s.label)).toEqual(["You marked it done", "Your live page was checked", "7 day read", "14 day read", "28 day read"]);
-    expect(story.timeline[0]).toMatchObject({ state: "done", when: "May 1" });
-    expect(story.timeline[1]).toMatchObject({ state: "done", when: "May 3" });
-    const followUp = shipment({ read: evaluateChange(input({ windows: [win(7), win(14), win(28), { ...win(28), day: 56 as 28 }] }), evaluateWindows(SHIPPED, new Date("2026-07-15T00:00:00Z"), "2026-07-15", true), []) });
-    expect(shipmentStory(followUp).timeline.map((s) => s.label)).toContain("56 day read");
-  });
-  it("renders both outcomes: the Google read and the AI read, each with what it was read over", () => {
-    const story = shipmentStory(shipment());
-    expect(story.search.headline).toContain("similar pages");
-    expect(story.search.headline.toLowerCase()).not.toContain("caused");
-    expect(story.ai).not.toBeNull();
-    expect(story.ai!.heading).toBe("AI assistants name you more often than they did before this went live.");
-    expect(story.ai!.coverage).toBe("Readings landed on 21 of the 28 days since then. A missed day stays missed, and one is never filled in.");
-    expect(story.ai!.line).toBe(AI.line);
-  });
-  it("never prints a zero where nothing was read: no AI day read says so in words", () => {
-    const none = shipment({ ai: { ...AI, direction: "unclear", coverage: { daysObserved: 0, daysElapsed: 12 } } });
-    expect(shipmentStory(none).ai!.coverage).toBe("No AI answer has been readable on any of the 12 days since you marked this done.");
-    expect(shipmentStory(shipment({ ai: null })).ai).toBeNull();
-  });
-  it("stops painting a window green once a later change on the page shares it, and names what it shares with", () => {
-    const overlapped = shipment({ read: evaluateChange(input(), WINDOWS, ["c2"], "2026-05-10") });
-    const story = shipmentStory(overlapped);
-    expect(story.chips).toEqual([
-      { day: 7, text: "7 days: read", state: "done" },
-      { day: 14, text: "14 days: shared with a later change", state: "shared" },
-      { day: 28, text: "28 days: shared with a later change", state: "shared" },
-    ]);
-    expect(story.overlap).toBe("This page changed again on May 10. The windows that closed after that day belong to both changes, so they do not count as this one's.");
-    // A clean read paints no shared chip and needs no overlap sentence at all.
-    expect(shipmentStory(shipment()).chips.every((c) => c.state !== "shared")).toBe(true);
-    expect(shipmentStory(shipment()).overlap).toBeNull();
-  });
-  it("says what it learned in the operator's words, with no slug from the diagnosis or the action family", () => {
-    const learned = shipmentStory(shipment()).learning;
-    for (const s of ["this page read as the line searchers saw not matching what they typed", "it was answered with a content change", "the page moved up after it", "6 pieces of evidence", "That carries into what gets recommended next"]) expect(learned, s).toContain(s);
-    // NOTHING IS CARRIED FORWARD FROM A READ THAT HAS NOT LANDED: no direction, no lesson.
-    const early = shipmentStory(shipment({ read: evaluateChange(input({ windows: [] }), evaluateWindows(SHIPPED, new Date("2026-05-03T00:00:00Z"), "2026-05-03"), []) }));
-    expect(early.learning).toContain("it is too early to say which way this went");
-    expect(early.learning).not.toContain("I carry that into");
-    expect(early.learning).toContain("Nothing carries forward from this one until it settles.");
-  });
-  it("says the verdict and how sure I am in the operator's words, never in the kernel's", () => {
-    const confounded = evaluateChange(input({ windows: [win(28)] }), WINDOWS, ["c2"]);
-    expect(confounded.verdict).toBe("confounded"); // the kernel keeps its own vocabulary
-    const overlapped = shipmentStory(shipment({ read: confounded }));
-    expect(overlapped.badge).toBe("Shared with a later change"); // the loudest word on the card is not a lab word
-    expect(overlapped.badge.toLowerCase()).not.toContain("confounded");
-    expect(shipmentStory(shipment()).badge).toBe("A stronger improvement");
-    expect(shipmentStory(shipment()).confidence).toMatch(/^This read is /);
-    expect(shipmentStory(shipment()).confidence.toLowerCase()).not.toContain("confidence");
-  });
-  it("renders a change marked done before I kept exact dates as done, and says the date is what is missing", () => {
-    const legacy = shipmentStory(shipment({ implementedAt: null, baseline: null }));
-    expect(legacy.timeline[0]).toEqual({ label: "You marked it done, before exact dates were kept", state: "done", when: null });
-    expect(legacy.baseline).toBeNull(); // and "Where it started" stays absent rather than inventing a starting point
+  it("never says nothing worked out of nothing: with no read finished it says when the first one lands", () => {
+    const view = buildResultsView([shipment({ read: measuring })]);
+    expect([view.header.worked.value, view.header.worked.isCount, view.header.appearances.value])
+      .toEqual(["First result lands May 8", false, "Not enough read yet"]);
+    expect(view.defaultGroup).toBe("reading");
   });
 });
 
-// ── the sweep ───────────────────────────────────────────────────────────────
+describe("one change gets one line", () => {
+  it("puts a win in Worked with its own number, its bar and its appearances", () => {
+    const row = first();
+    expect([row.group, row.verdictWord, row.dot]).toEqual(["worked", "Worked", "emerald"]);
+    expect([row.liftLabel, row.impressionsLabel, row.readLabel, row.pipCaption, row.work])
+      .toEqual(["+40 clicks ahead", "+120", "28 day read done", "Done May 29", "a new section"]);
+    expect(row.pips).toEqual([{ day: 7, state: "read" }, { day: 14, state: "read" }, { day: 28, state: "read" }]);
+    expect([row.bar! > 0, row.barOpacity]).toEqual([true, 1]);
+  });
+  it("calls a loss a loss and an early win a work in progress, and never grades them on different rules", () => {
+    expect(first({ read: declined }).verdictWord).toBe("Went down");
+    expect([first({ read: declined }).liftLabel, first({ read: declined }).happened]).toEqual(["-30 clicks behind", "Ran 28 days and finished 30 clicks behind similar pages that were not changed."]);
+    const early = evaluateChange(input({ windows: [win(7)] }), evaluateWindows(SHIPPED, new Date("2026-05-09T00:00:00Z"), "2026-05-09"), []);
+    expect(first({ read: early }).verdictWord).toBe("Working so far");
+    expect(first({ read: early }).happened).toBe("7 days in and sitting 40 clicks ahead of similar pages that were not changed.");
+  });
+  it("claims no number on a read shared with a later change, and says so in amber", () => {
+    const row = buildResultsView([shipment({ read: evaluateChange(input({ windows: [win(28)] }), WINDOWS, ["c2"]) })]).rows.flat[0]!;
+    expect(row.verdictWord).toBe("Shared with a later change");
+    expect([row.liftLabel, row.impressionsLabel, row.bar]).toEqual([null, null, null]);
+    expect(row.chip).toEqual({ text: "Shared with a later change", amber: true });
+    expect(row.happened).toContain("landed on this page at the same time");
+  });
+  it("paints a read that a later change shares as shared, never as this change's own", () => {
+    const row = first({ read: evaluateChange(input(), WINDOWS, ["c2"], "2026-05-10") });
+    expect(row.pips.map((p) => p.state)).toEqual(["read", "shared", "shared"]);
+    expect(row.caveats[0]).toBe("This page changed again on May 10. The days after that belong to both changes.");
+  });
+  it("says what has been read instead of a number while a change is still reading", () => {
+    const row = first({ read: measuring });
+    expect([row.group, row.verdictWord, row.dot]).toEqual(["reading", "Reading", "sky"]);
+    expect([row.liftLabel, row.impressionsLabel, row.bar]).toEqual([null, null, null]);
+    expect(row.readLabel).toBe("Nothing read yet");
+    expect(row.pipCaption).toBe("Next May 8");
+    expect(row.happened).toBe("Nothing read yet. The first result lands May 8.");
+    expect(row.nextStep).toBe("Nothing to do until May 8.");
+  });
+});
+
+describe("opening a change says what happened, on what, and what to do next", () => {
+  it("gives one sentence, the before and after, the dates, and one next step", () => {
+    const row = first();
+    expect(row.happened).toBe("Ran 28 days and finished 40 clicks ahead of similar pages that were not changed.");
+    expect(row.numbers).toEqual({ before: ["200", "9,100"], after: ["261", "10,000"] });
+    expect(row.timeline).toEqual([
+      { label: "Marked done May 1", done: true },
+      { label: "Live page checked May 3", done: true },
+      { label: "28 day read May 29", done: true },
+    ]);
+    expect(row.taught).toBe("This page read as the line searchers saw not matching what they typed, it was answered with a content change, the page moved up after it. That carries into what gets recommended next on pages like this one. Backed by 6 checks.");
+    expect(row.nextStep).toBe("Do this again on a similar page.");
+    expect(first({ read: declined }).nextStep).toBe("Put the old wording back, then measure again.");
+  });
+  it("never invents a date or a number it was not given", () => {
+    const bare = first({ implementedAt: null, baseline: null, verification: null, basisMove: null });
+    expect(bare.timeline[0]).toEqual({ label: "Marked done, date not kept", done: true });
+    expect(bare.timeline[1]).toEqual({ label: "Live page not read yet", done: false });
+    expect(bare.chip).toEqual({ text: "Live page not read yet", amber: false });
+    expect(bare.numbers).toBeNull();
+    const noTraffic = first({ baseline: { clicks: 0, impressions: 0, windowDays: 28, capturedAt: SHIPPED } });
+    expect([noTraffic.numbersNote, noTraffic.impressionsLabel]).toEqual(["No Google traffic on file.", null]);
+  });
+});
 
 describe("no Results string reaches the operator carrying jargon", () => {
-  it("prints no slug, no raw date stamp, no lab word and no dash", () => {
-    const stories = [
-      shipmentStory(shipment()),
-      shipmentStory(shipment({ verification: null, baseline: null, ai: null })),
-      shipmentStory(shipment({ read: evaluateChange(input(), WINDOWS, ["c2"], "2026-05-10") })),
-      shipmentStory(shipment({ verification: { ...VERIFICATION, status: "blocked" }, ai: { ...AI, direction: "worsened" } })),
-    ];
-    const strings = stories.flatMap((s) => [
-      s.work, s.badge, s.confidence, s.verification.headline, ...s.verification.components, s.baseline ?? "", s.overlap ?? "",
-      ...s.timeline.map((t) => t.label), ...s.chips.map((c) => c.text),
-      s.search.headline, ...s.search.caveats, s.learning,
-      ...(s.ai ? [s.ai.heading, s.ai.coverage, s.ai.line] : []),
+  it("prints no slug, no raw date stamp, no lab word, no first person and no dash", () => {
+    const view = buildResultsView([
+      shipment(), shipment({ read: declined }), shipment({ read: measuring }),
+      shipment({ read: evaluateChange(input(), WINDOWS, ["c2"], "2026-05-10") }),
+      shipment({ implementedAt: null, baseline: null, verification: null, basisMove: null }),
     ]);
+    const strings = (["worked", "down", "flat", "reading"] as const).flatMap((g) => view.rows[g]).flatMap((r) => [
+      r.work, r.verdictWord, r.liftLabel ?? "", r.readLabel ?? "", r.pipCaption ?? "", r.chip?.text ?? "",
+      r.happened, r.numbersNote ?? "", ...r.caveats, ...r.timeline.map((t) => t.label), r.taught, r.nextStep,
+    ]).concat([view.header.worked.value, view.header.worked.sub, view.header.appearances.value, view.header.reading.sub]);
     for (const s of strings) {
       expect(s, `dash in: ${s}`).not.toMatch(/[–—]/);
       expect(s, `raw date stamp in: ${s}`).not.toMatch(/\d{4}-\d{2}-\d{2}/);
       expect(s, `slug in: ${s}`).not.toMatch(/[a-z]+_[a-z]+/);
+      expect(s, `first person in: ${s}`).not.toMatch(/\b(I|me|my|we|our)\b/);
       expect(s.toLowerCase(), `lab word in: ${s}`)
-        .not.toMatch(/\b(experiment|control group|controls|baseline|treatment|serp|cohort|p value|statistically|confounder)\b/);
-      expect(s.toLowerCase(), `provider jargon in: ${s}`).not.toMatch(/\b(openai|dataforseo|gpt|api|endpoint|token)\b/);
+        .not.toMatch(/\b(experiment|control|controls|baseline|treatment|serp|observational|directional|confounded|evidence|window)\b/);
     }
   });
 });

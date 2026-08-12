@@ -1,21 +1,20 @@
 /**
- * results-presentation (V1 Truth Convergence Phase 8) - EVERY operator-facing string the Results
- * surface says about one shipped change, as pure functions over what the kernels already compute.
+ * results-presentation - EVERY operator-facing string the Results surface says about one measured
+ * change, as pure functions over what the measurement kernel already computed.
  *
- * Nothing here decides anything. The measurement kernel owns the verdict, the AI reader owns the
- * before and after, the Shipment store owns what the live check found; this module only puts those
- * answers into the operator's own words, in ONE place, so a test can read every sentence the screen
- * can print without rendering a page. Two exported functions, because the card and the trend are
- * the only two things Results draws.
+ * Nothing here decides anything. The kernel owns the verdict, the lift and the read dates; the
+ * Shipment store owns what the live check found; this module only puts those answers into the
+ * operator's own words, in ONE place, so a test can read every sentence the screen can print
+ * without rendering a page.
  *
- * Three rules hold on every string below. No raw slug ever reaches the screen (an action, a
- * component kind and a diagnosis all resolve through a closed map, and an unmapped one is left out
- * rather than printed). No raw date stamp reaches it either (a day renders as "Jul 3"). And a
- * missing answer says it is missing: a count nobody has read is never a zero.
+ * Three rules hold on every string below. No raw slug ever reaches the screen (an action and a
+ * diagnosis resolve through a closed map, and an unmapped one is left out rather than printed). No
+ * raw date stamp reaches it either (a day renders as "Jul 3"). And a missing answer says it is
+ * missing: a count nobody has read is blank, never a zero.
  */
 
 import { monthDayLabel } from "@/components/data/receipt-line";
-import type { AiOutcomeReport, KernelRead, ShipmentAiOutcome, ShipmentVerification } from "@/domains/measurement";
+import type { KernelRead, ShipmentVerification } from "@/domains/measurement";
 
 /** What one measured change carries on the Results surface. */
 export type ShipmentPresentation = {
@@ -25,38 +24,82 @@ export type ShipmentPresentation = {
   verification: ShipmentVerification | null;
   /** The immutable numbers this page stood at when it was marked done. */
   baseline: { clicks: number; impressions: number; windowDays: number; capturedAt: string } | null;
-  ai: ShipmentAiOutcome | null;
+  /** THIS PAGE'S OWN change over the read that was used, from the stored reading. Absent on a
+   *  snapshot written before it was kept, and then the before and after stay off the screen. */
+  basisMove?: { clicks: number; impressions: number } | null;
 };
 
-/** "done" already happened, "waiting" has not, "shared" belongs to more than one change. */
-type StepState = "done" | "waiting" | "shared";
+/** The four things a change can be, in the order the strip shows them. */
+type ResultsGroup = "worked" | "down" | "flat" | "reading";
+
+type ResultsRow = {
+  id: string;
+  path: string;
+  url: string;
+  /** What the change was, said the way an operator would say it. */
+  work: string;
+  group: ResultsGroup;
+  verdictWord: string;
+  dot: "emerald" | "rose" | "grey" | "sky";
+  /** Bar fill, -1 to 1, on ONE shared scale. Null when there is nothing to draw. */
+  bar: number | null;
+  barOpacity: number;
+  /** The short number for the row. Null when no number is claimed. */
+  liftLabel: string | null;
+  /** What has been read, for a row that has no number yet. */
+  readLabel: string | null;
+  impressionsLabel: string | null;
+  chip: { text: string; amber: boolean } | null;
+  pips: Array<{ day: number; state: "read" | "pending" | "shared" }>;
+  pipCaption: string | null;
+  happened: string;
+  numbers: { before: [string, string]; after: [string, string] } | null;
+  numbersNote: string | null;
+  caveats: string[];
+  timeline: Array<{ label: string; done: boolean }>;
+  taught: string;
+  nextStep: string;
+  /** Ordering key inside the group, ascending. */
+  sort: number;
+};
+
+export type ResultsView = {
+  rows: Record<ResultsGroup, ResultsRow[]>;
+  counts: Record<ResultsGroup, number>;
+  header: {
+    worked: { value: string; sub: string; isCount: boolean };
+    appearances: { value: string; positive: boolean };
+    reading: { value: string; sub: string };
+  };
+  defaultGroup: ResultsGroup;
+};
 
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const cap = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
+const signed = (n: number): string => `${n > 0 ? "+" : n < 0 ? "-" : ""}${num(Math.abs(n))}`;
 
-// ── the closed label maps (a slug never reaches the screen) ──────────────────
+// -- the closed label maps (a slug never reaches the screen) -------------------
 
 /** What the change actually was, said the way an operator would say it. */
 const WORK_LABEL: Record<string, string> = {
   title: "the page title", meta: "the search description", h1: "the page headline",
-  opening_answer: "the answer at the top of the page", answer_block: "the answer at the top of the page",
-  intro_answer_block: "the answer at the top of the page",
-  section: "a section of the page", section_add: "a new section", section_remove: "a section that was removed",
+  opening_answer: "the answer at the top", answer_block: "the answer at the top",
+  intro_answer_block: "the answer at the top",
+  section: "a section", section_add: "a new section", section_remove: "a removed section",
   section_rewrite: "a rewritten section", restructure: "the order of the page",
-  full_rewrite: "a full rewrite of the page", factual_correction: "a factual correction",
+  full_rewrite: "a full rewrite", factual_correction: "a factual correction",
   paragraph_correction: "a corrected paragraph", source_pack: "the sources on the page",
-  source_update: "the sources on the page", entity_expansion: "more detail on the page",
-  table_or_list_add: "a table on the page", faq: "a visible questions and answers block",
+  source_update: "the sources on the page", entity_expansion: "more detail",
+  table_or_list_add: "a table", faq: "a questions and answers block",
   schema: "the structured data", internal_links: "the internal links", internal_link: "an internal link",
   internal_link_add: "an internal link", internal_link_remove: "a removed internal link",
   anchor_text: "the wording of a link", canonical: "the canonical address",
   redirect: "a redirect", noindex: "hiding the page from search", navigation: "the site navigation",
-  consolidation: "merging two pages into one", new_page: "a brand new page",
-  keep_current: "watching the page without changing it", monitor: "watching the page without changing it",
+  consolidation: "merging two pages", new_page: "a brand new page",
+  keep_current: "watching without changing", monitor: "watching without changing",
 };
 
-/** A ledger row names its own action with a verb on the front; the same closed map answers for it.
- *  Unmapped input reads as "this change", never as its slug. */
+/** Unmapped input reads as "this change", never as its slug. */
 const workLabel = (raw: string): string =>
   WORK_LABEL[(raw || "").toLowerCase()]
   ?? WORK_LABEL[(raw || "").toLowerCase().replace(/^(edit|change|add|fix|update|create)_/, "")]
@@ -86,138 +129,95 @@ const FAMILY_LABEL: Record<string, string> = {
   consolidation: "merging pages", new_page: "a new page",
 };
 
-const ENGINE_LABEL: Record<string, string> = {
-  chatgpt: "ChatGPT", perplexity: "Perplexity", gemini: "Gemini", claude: "Claude",
+// -- the shared shape of a read -----------------------------------------------
+
+/** ONE shared scale for every bar on the screen: a move of a quarter against this page's own
+ *  starting point fills the bar, and everything larger is held at the edge. */
+const CLAMP = 0.25;
+
+const isMature = (d: number | null): boolean => d === 28 || d === 56;
+
+const groupOf = (r: KernelRead): ResultsGroup => {
+  if (r.verdict === "stronger_improvement" || r.verdict === "directional_improvement") return "worked";
+  if (r.verdict === "directional_decline") return "down";
+  if (r.verdict === "no_clear_movement" || r.verdict === "confounded") return "flat";
+  return "reading";
 };
 
-/** THE LOUDEST WORD ON THE CARD, and it was lab jargon: the badge printed the kernel's own short
- *  phrase, so the single most prominent thing on a Results card could read "Confounded by
- *  overlapping changes" to a customer who has never heard the word. Every other window on this
- *  surface already says "shared with a later change", so the badge says it too. The kernel keeps
- *  its vocabulary; the screen speaks the operator's. */
-const VERDICT_BADGE: Record<KernelRead["verdict"], string> = {
-  waiting: "Waiting on the first window",
-  insufficient_evidence: "Not enough evidence yet",
-  directional_decline: "Pointing down so far",
-  no_clear_movement: "No clear movement",
-  directional_improvement: "Pointing up so far",
-  stronger_improvement: "A stronger improvement",
-  confounded: "Shared with a later change",
-};
-
-/** How sure I am, as a sentence rather than a grade. "High confidence" is a label from a lab
- *  notebook; this is what it actually means to the person reading it. */
-const CONFIDENCE_PHRASE: Record<KernelRead["confidence"], string> = {
-  high: "This read is a confident one",
-  medium: "This read is a fairly sure one",
-  low: "This read is not a sure one yet",
-};
-
-// ── 1. did it actually land on the live page ────────────────────────────────
-
-/** The headline sentence for the live check. A null verification is a real state: I have not looked. */
-function verificationHeadline(v: ShipmentVerification | null): string {
-  if (!v) return "Your live page has not been read for this one yet. It gets read on your next visit.";
-  switch (v.status) {
-    case "verified": return "Your live page was checked, and everything agreed on is there.";
-    case "partially_verified": return "Your live page was checked: part of this is live and part of it is not.";
-    case "not_found": return "Your live page was checked, and none of this change is on it yet.";
-    case "differs": return "Your live page was checked, and what is there is not what was agreed.";
-    case "blocked": return "Your site did not answer when it was checked, so this is still your word rather than a live check. It gets one more try on a later day.";
-    // LEGACY, never written again: this row was recorded back when a click could stand in for a reading.
-    case "operator_confirmed": return "This one was recorded as done on your word alone, before live pages were checked here. The page is read on your next visit and this is replaced with what is found.";
+/** The size of a move, never its sign: the sentence around it owns the direction. */
+function liftSize(metric: KernelRead["metric"], lift: number): string {
+  if (metric === "ctr") {
+    const pp = Math.abs(Math.round(lift * 1000) / 10);
+    return `${pp} point${pp === 1 ? "" : "s"} of click rate`;
   }
+  const n = metric === "position" ? Math.round(Math.abs(lift) * 10) / 10 : Math.abs(Math.round(lift));
+  return `${n} ${metric === "position" ? "rank" : "click"}${n === 1 ? "" : "s"}`;
 }
 
-/** One sentence per component, so a partly applied bundle reads as partly applied. */
-function componentLines(v: ShipmentVerification | null): string[] {
-  if (!v) return [];
-  return v.components.map((c) => {
-    const label = workLabel(c.kind);
-    switch (c.state) {
-      case "verified": return `${cap(label)} is exactly what we agreed.`;
-      case "not_verified": return `${cap(label)} is not there yet.`;
-      case "changed_differently": return `${cap(label)} is on the page, but not in the words we agreed.`;
-      case "unverifiable": return `${cap(label)} cannot be seen from outside the page, so it is not called either way.`;
-    }
-  });
+/** The short signed number for one row, compact enough to sit on one line. */
+function liftLabel(metric: KernelRead["metric"], lift: number): string {
+  if (Math.abs(lift) < 1e-9) return "Level";
+  const size = liftSize(metric, lift).replace("points of click rate", "click rate").replace("point of click rate", "click rate");
+  return `${lift > 0 ? "+" : "-"}${size} ${lift > 0 ? "ahead" : "behind"}`;
 }
 
-// ── 2. the starting point that never changes ────────────────────────────────
-
-function baselineLine(p: ShipmentPresentation): string | null {
-  if (!p.baseline) return null;
-  const day = monthDayLabel(p.implementedAt ?? p.baseline.capturedAt);
-  const when = day ? `When you marked this done on ${day}` : "When you marked this done";
-  const { clicks, impressions, windowDays } = p.baseline;
-  if (impressions <= 0) {
-    return `${when}, this page had no Google traffic on file over the ${windowDays} days before it. That starting point is held exactly as it was, and it never moves.`;
+/** Where this row's bar sits on the one shared scale. Null when nothing is claimed. */
+function barOf(p: ShipmentPresentation): number | null {
+  const r = p.read;
+  if (r.basisDay == null || r.verdict === "confounded" || r.verdict === "waiting" || r.verdict === "insufficient_evidence") return null;
+  const b = p.baseline;
+  let rel = 0;
+  if (r.metric === "ctr") {
+    const beforeRate = b && b.impressions > 0 ? b.clicks / b.impressions : 0;
+    rel = beforeRate > 0 ? r.lift / beforeRate : 0;
+  } else if (r.metric === "position") {
+    rel = r.lift / 10;
+  } else {
+    const before = b && b.windowDays > 0 ? (b.clicks * r.basisDay) / b.windowDays : 0;
+    rel = before > 0 ? r.lift / before : 0;
   }
-  return `${when}, this page had ${num(clicks)} ${clicks === 1 ? "click" : "clicks"} and ${num(impressions)} appearances in Google over the ${windowDays} days before it. That starting point is held exactly as it was, and it never moves.`;
+  const scaled = Math.max(-1, Math.min(1, rel / CLAMP));
+  // A page with no starting point on file cannot be scaled against itself, so the bar shows the
+  // direction at its smallest honest size rather than nothing at all.
+  if (Math.abs(r.lift) > 1e-9 && Math.abs(scaled) < 0.18) return r.lift > 0 ? 0.18 : -0.18;
+  return scaled;
 }
 
-// ── 3. the timeline and the window chips ────────────────────────────────────
+/** The next read that has not landed, as a day. */
+const nextReadDay = (r: KernelRead): string | null =>
+  monthDayLabel(r.windows.find((w) => w.state !== "closed")?.closesOn ?? null);
 
-/** The honest chip word for one measurement window. A window shared with a later change is amber. */
-function windowChip(w: KernelRead["windows"][number]): { text: string; state: StepState } {
-  if (w.confounded != null && w.state === "closed") return { text: `${w.day} days: shared with a later change`, state: "shared" };
-  if (w.state === "closed") return { text: `${w.day} days: read`, state: "done" };
-  if (w.state === "pending_data") return { text: `${w.day} days: waiting on Google`, state: "waiting" };
-  return { text: `${w.day} days: still open`, state: "waiting" };
+const lastClosed = (r: KernelRead) => [...r.windows].reverse().find((w) => w.state === "closed") ?? null;
+
+// -- the sentences ------------------------------------------------------------
+
+/** One sentence for what happened, on the read that was actually used. */
+function happenedLine(p: ShipmentPresentation): string {
+  const r = p.read;
+  if (r.verdict === "confounded") {
+    const day = monthDayLabel(r.cleanUntil);
+    if (day) return `This page changed again on ${day}, so the days after that belong to both changes.`;
+    const n = r.overlappingIds.length;
+    return `${n} other ${n === 1 ? "change" : "changes"} landed on this page at the same time, so the credit is shared.`;
+  }
+  if (r.basisDay == null) {
+    const next = nextReadDay(r);
+    return next ? `Nothing read yet. The first result lands ${next}.` : "Nothing read yet. The first result lands once a read closes.";
+  }
+  if (r.verdict === "insufficient_evidence") {
+    return `Ran ${r.basisDay} days, and there is too little Google data on this page to call it.`;
+  }
+  const tail = r.verdict === "no_clear_movement"
+    ? "level with similar pages that were not changed"
+    : `${liftSize(r.metric, r.lift)} ${r.lift > 0 ? "ahead of" : "behind"} similar pages that were not changed`;
+  return isMature(r.basisDay)
+    ? `Ran ${r.basisDay} days and finished ${tail}.`
+    : `${r.basisDay} days in and sitting ${tail}.`;
 }
 
-/** Marked done, checked live, then every checkpoint, including the 56 day follow up when one ran. */
-function timelineSteps(p: ShipmentPresentation): Array<{ label: string; state: StepState; when: string | null }> {
-  return [
-    // THIS ROW EXISTS BECAUSE IT WAS MARKED DONE, so the step is done. A record written before
-    // Beacon kept the stamp used to render it as never having happened, which read as "you have
-    // not done this yet" on the one change the operator knows they did. The date is what is
-    // missing, so the date is what says so.
-    {
-      label: p.implementedAt ? "You marked it done" : "You marked it done, before exact dates were kept",
-      state: "done" as StepState,
-      when: monthDayLabel(p.implementedAt),
-    },
-    {
-      label: p.verification ? "Your live page was checked" : "Your live page gets checked",
-      state: (p.verification ? "done" : "waiting") as StepState,
-      when: monthDayLabel(p.verification?.checkedAt ?? null),
-    },
-    ...p.read.windows.map((w) => ({ label: `${w.day} day read`, state: windowChip(w).state, when: monthDayLabel(w.closesOn) })),
-  ];
-}
-
-/** Why some window chips are not painted as this change's own. Null when every read is clean. */
-function overlapNote(read: KernelRead): string | null {
-  const shared = read.windows.some((w) => w.confounded != null);
-  if (!shared && read.overlappingIds.length === 0) return null;
-  const day = monthDayLabel(read.cleanUntil);
-  if (day) return `This page changed again on ${day}. The windows that closed after that day belong to both changes, so they do not count as this one's.`;
-  const n = read.overlappingIds.length;
-  if (n === 0) return null;
-  return `${n} other ${n === 1 ? "change" : "changes"} landed on this page in the same window, so the movement here belongs to more than one change and is not handed to this one.`;
-}
-
-// ── 4. the two results and what I learned ───────────────────────────────────
-
-/** The AI half: which way it went, how much I actually read, and the kernel's own before and after. */
-function aiResult(ai: ShipmentAiOutcome | null): { heading: string; coverage: string; line: string } | null {
-  if (!ai) return null;
-  const heading =
-    ai.direction === "improved" ? "AI assistants name you more often than they did before this went live."
-      : ai.direction === "worsened" ? "AI assistants name you less often than they did before this went live."
-        : ai.direction === "flat" ? "AI assistants name you about as often as they did before."
-          : "The AI side of this one cannot be called yet.";
-  const { daysObserved, daysElapsed } = ai.coverage;
-  const coverage = daysObserved === 0
-    ? `No AI answer has been readable on any of the ${daysElapsed} days since you marked this done.`
-    : `Readings landed on ${daysObserved} of the ${daysElapsed} days since then. A missed day stays missed, and one is never filled in.`;
-  return { heading, coverage, line: ai.line };
-}
-
-/** What this read carries forward. Every clause is dropped rather than guessed when the row lacks it. */
-function learningLine(read: KernelRead): string {
-  const l = read.learning;
+/** What this read carries forward, plus how much stands behind it. Clauses drop rather than guess. */
+function taughtLine(r: KernelRead): string {
+  const l = r.learning;
   const family = FAMILY_LABEL[l.actionFamily];
   const cause = l.diagnosisCause ? CAUSE_LABEL[l.diagnosisCause] : undefined;
   const moved =
@@ -229,75 +229,176 @@ function learningLine(read: KernelRead): string {
   if (cause) parts.push(`this page read as ${cause}`);
   if (family) parts.push(`it was answered with ${family}`);
   parts.push(moved);
-  const receipts = typeof l.evidenceCompleteness === "number" && l.evidenceCompleteness > 0
-    ? ` ${l.evidenceCompleteness} pieces of evidence stood behind that call.`
-    : "";
-  // NOTHING IS CARRIED FORWARD FROM A READ THAT HAS NOT LANDED. With no direction yet there is no
-  // lesson, so the sentence that promises one is dropped rather than printed over an empty result.
+  // NOTHING IS CARRIED FORWARD FROM A READ THAT HAS NOT LANDED.
   const carried = l.outcomeDirection && l.outcomeDirection !== "unclear"
-    ? " That carries into what gets recommended next on pages like this one."
-    : " Nothing carries forward from this one until it settles.";
-  return `What this taught: ${parts.join(", ")}.${receipts}${carried}`;
+    ? "That carries into what gets recommended next on pages like this one."
+    : "Nothing carries forward from this one until it settles.";
+  const backing = typeof l.evidenceCompleteness === "number" && l.evidenceCompleteness > 0
+    ? `Backed by ${l.evidenceCompleteness} check${l.evidenceCompleteness === 1 ? "" : "s"}.`
+    : "Read once so far.";
+  return `${cap(parts.join(", "))}. ${carried} ${backing}`;
 }
 
-/**
- * THE WHOLE STORY OF ONE SHIPPED CHANGE, in the operator's words. Pure. This is the only thing the
- * card renders, so the screen can never say a sentence this function did not produce.
- */
-export function shipmentStory(p: ShipmentPresentation) {
+/** The one thing to do about this row. */
+function nextStepLine(group: ResultsGroup, r: KernelRead): string {
+  if (group === "worked") return "Do this again on a similar page.";
+  if (group === "down") return "Put the old wording back, then measure again.";
+  if (group === "flat") return "Try a content change on this page instead.";
+  const next = nextReadDay(r);
+  return next ? `Nothing to do until ${next}.` : "Nothing to do until the next read lands.";
+}
+
+/** At most two, and only the ones this row actually carries. */
+function caveatLines(r: KernelRead): string[] {
+  const out: string[] = [];
+  const day = monthDayLabel(r.cleanUntil);
+  if (day) out.push(`This page changed again on ${day}. The days after that belong to both changes.`);
+  else if (r.overlappingIds.length > 0) {
+    const n = r.overlappingIds.length;
+    out.push(`${n} other ${n === 1 ? "change" : "changes"} landed on this page at the same time.`);
+  }
+  if (r.windows.some((w) => w.state === "pending_data")) {
+    out.push("Google has not finalized the latest days yet. It reports a few days behind.");
+  }
+  if (r.confidence === "low" && r.basisDay != null && out.length < 2) {
+    out.push("Too few similar pages stood behind this one to call it a sure read.");
+  }
+  return out.slice(0, 2);
+}
+
+/** Marked done, the live check, the last read that landed and the next one owed. */
+function timelineLines(p: ShipmentPresentation): Array<{ label: string; done: boolean }> {
+  const marked = monthDayLabel(p.implementedAt);
+  const checked = monthDayLabel(p.verification?.checkedAt ?? null);
+  const done = lastClosed(p.read);
+  const next = p.read.windows.find((w) => w.state !== "closed");
+  const out = [
+    { label: marked ? `Marked done ${marked}` : "Marked done, date not kept", done: true },
+    p.verification && checked
+      ? { label: `Live page checked ${checked}`, done: true }
+      : { label: "Live page not read yet", done: false },
+  ];
+  if (done) out.push({ label: `${done.day} day read ${monthDayLabel(done.closesOn) ?? ""}`.trim(), done: true });
+  if (next) out.push({ label: `${next.day} day read ${monthDayLabel(next.closesOn) ?? ""}`.trim(), done: false });
+  return out;
+}
+
+/** The one exception worth a chip, or none. Shared credit always wins the slot. */
+function chipOf(p: ShipmentPresentation): { text: string; amber: boolean } | null {
+  if (p.read.verdict === "confounded") return { text: "Shared with a later change", amber: true };
+  const v = p.verification;
+  if (!v) return { text: "Live page not read yet", amber: false };
+  if (v.status === "verified") return null;
+  if (v.status === "partially_verified") return { text: "Part of it is live", amber: false };
+  return { text: "Not on the live page yet", amber: false };
+}
+
+/** This page's own before and after over the read that was used. */
+function numbersOf(p: ShipmentPresentation): { numbers: ResultsRow["numbers"]; note: string | null } {
+  const r = p.read;
+  const b = p.baseline;
+  if (!b) return { numbers: null, note: "No starting point was kept for this one." };
+  if (b.impressions <= 0) return { numbers: null, note: "No Google traffic on file." };
+  if (r.basisDay == null || !p.basisMove) return { numbers: null, note: "Nothing read yet." };
+  const scale = b.windowDays > 0 ? r.basisDay / b.windowDays : 1;
+  const beforeClicks = b.clicks * scale;
+  const beforeImpr = b.impressions * scale;
   return {
-    work: workLabel(p.read.actionType),
-    /** The one word the card shouts, in the operator's language. */
-    badge: VERDICT_BADGE[p.read.verdict],
-    confidence: CONFIDENCE_PHRASE[p.read.confidence],
-    verification: {
-      headline: verificationHeadline(p.verification),
-      components: componentLines(p.verification),
-      checkedOn: monthDayLabel(p.verification?.checkedAt ?? null),
+    numbers: {
+      before: [num(beforeClicks), num(beforeImpr)],
+      after: [num(beforeClicks + p.basisMove.clicks), num(beforeImpr + p.basisMove.impressions)],
     },
-    baseline: baselineLine(p),
-    timeline: timelineSteps(p),
-    chips: p.read.windows.map((w) => ({ day: w.day, ...windowChip(w) })),
-    overlap: overlapNote(p.read),
-    search: { headline: p.read.headline, caveats: p.read.caveats },
-    ai: aiResult(p.ai),
-    learning: learningLine(p.read),
+    note: null,
   };
 }
 
-// ── 5. the AI trend, cut wherever the instrument changed ────────────────────
+// -- the whole surface --------------------------------------------------------
+
+function rowOf(p: ShipmentPresentation): ResultsRow {
+  const r = p.read;
+  const group = groupOf(r);
+  const shared = r.verdict === "confounded";
+  const done = lastClosed(r);
+  const next = r.windows.find((w) => w.state !== "closed");
+  const { numbers, note } = numbersOf(p);
+  const started = Date.parse(p.implementedAt ?? r.windows[0]?.closesOn ?? "") || 0;
+  const bar = barOf(p);
+  const claimNumber = r.basisDay != null && !shared && r.verdict !== "insufficient_evidence";
+  return {
+    id: r.id,
+    path: r.path,
+    url: r.page,
+    work: workLabel(r.actionType),
+    group,
+    verdictWord: shared ? "Shared with a later change"
+      : group === "worked" ? (isMature(r.basisDay) ? "Worked" : "Working so far")
+        : group === "down" ? "Went down" : group === "flat" ? "No change" : "Reading",
+    dot: group === "worked" ? "emerald" : group === "down" ? "rose" : group === "flat" ? "grey" : "sky",
+    bar,
+    barOpacity: r.confidence === "high" ? 1 : r.confidence === "medium" ? 0.65 : 0.4,
+    liftLabel: claimNumber ? liftLabel(r.metric, r.lift) : null,
+    readLabel: done ? `${done.day} day read done` : "Nothing read yet",
+    // A page with no traffic on file before the change gets no delta at all: there is nothing to
+    // count from. Everything else prints what was read, and "Level" rather than a bare zero.
+    impressionsLabel: claimNumber && !(p.baseline && p.baseline.impressions <= 0)
+      ? (Math.abs(r.impressionsLift) < 0.5 ? "Level" : signed(r.impressionsLift))
+      : null,
+    chip: chipOf(p),
+    pips: r.windows.filter((w) => w.day !== 56).map((w) => ({
+      day: w.day,
+      state: w.confounded != null ? "shared" as const : w.state === "closed" ? "read" as const : "pending" as const,
+    })),
+    pipCaption: next ? `Next ${monthDayLabel(next.closesOn) ?? "soon"}`
+      : done ? `Done ${monthDayLabel(done.closesOn) ?? ""}`.trim() : null,
+    happened: happenedLine(p),
+    numbers,
+    numbersNote: note,
+    caveats: caveatLines(r),
+    timeline: timelineLines(p),
+    taught: taughtLine(r),
+    nextStep: nextStepLine(group, r),
+    sort: group === "worked" ? -(bar ?? 0)
+      : group === "down" ? (bar ?? 0)
+        : group === "flat" ? -started
+          : Date.parse(next?.closesOn ?? "") || Number.MAX_SAFE_INTEGER,
+  };
+}
 
 /**
- * The trend the surface draws: one run of points per stretch read on the same instrument, and a
- * NAMED break wherever an engine changed the model or the mode it answered in. A break is never a
- * joined line, because a step caused by the instrument would otherwise read as a win or a loss.
- * Pure.
+ * THE WHOLE RESULTS SURFACE, in the operator's words. Pure. This is the only thing the screen
+ * renders, so it can never say a sentence this function did not produce.
  */
-export function aiTrend(segments: AiOutcomeReport["segments"]) {
-  const runs = segments.map((s) => {
-    const first = s.boundary?.[0] ?? null;
-    const day = monthDayLabel(first?.day ?? null);
-    const engine = first ? ENGINE_LABEL[(first.engine || "").toLowerCase()] ?? "An AI assistant" : "";
-    const breakLabel = first == null || day == null ? null
-      : first.fromMode !== first.toMode
-        ? `${engine} started answering a different way on ${day}, so a new line starts here rather than joining two different readings.`
-        : `${engine} changed the version behind its answers on ${day}, so a new line starts here rather than joining two different readings.`;
-    return {
-      breakLabel,
-      points: s.days.map((d) => ({
-        day: d.day,
-        label: monthDayLabel(d.day) ?? d.day,
-        rate: d.mentionRate,
-        analyzed: d.analyzed,
-      })),
-    };
-  });
-  const read = runs.flatMap((r) => r.points).filter((p) => p.rate != null);
-  const breaks = runs.filter((r) => r.breakLabel != null).length;
-  const latest = read[read.length - 1];
-  const summary = latest == null ? null
-    : breaks === 0
-      ? `On ${latest.label} you were named in ${Math.round((latest.rate ?? 0) * 100)} out of every 100 answers read closely.`
-      : `On ${latest.label} you were named in ${Math.round((latest.rate ?? 0) * 100)} out of every 100 answers read closely. The line breaks ${breaks === 1 ? "once" : `${breaks} times`} because an assistant changed how it answers, and a line is never drawn across a break.`;
-  return { runs, summary };
+export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>): ResultsView {
+  const rows: Record<ResultsGroup, ResultsRow[]> = { worked: [], down: [], flat: [], reading: [] };
+  for (const p of shipments) rows[groupOf(p.read)].push(rowOf(p));
+  for (const g of Object.keys(rows) as ResultsGroup[]) rows[g].sort((a, b) => a.sort - b.sort);
+  const counts = { worked: rows.worked.length, down: rows.down.length, flat: rows.flat.length, reading: rows.reading.length };
+
+  // The denominator is SETTLED changes only: the ones that finished their 28 day read.
+  const settled = shipments.filter((p) => isMature(p.read.basisDay) && groupOf(p.read) !== "reading");
+  const wins = settled.filter((p) => groupOf(p.read) === "worked");
+  const soonest = shipments
+    .map((p) => p.read.windows.find((w) => w.state !== "closed")?.closesOn ?? null)
+    .filter((d): d is string => d != null)
+    .sort()[0] ?? null;
+  const soonestDay = monthDayLabel(soonest);
+  const appearances = wins.reduce((sum, p) => sum + p.read.impressionsLift, 0);
+
+  return {
+    rows,
+    counts,
+    header: {
+      worked: settled.length === 0
+        ? { value: soonestDay ? `First result lands ${soonestDay}` : "First result lands once a read closes", sub: "Nothing has finished its 28 day read yet", isCount: false }
+        : { value: `${wins.length} of ${settled.length}`, sub: `${settled.length} finished their 28 day read`, isCount: true },
+      appearances: wins.length === 0
+        ? { value: "Not enough read yet", positive: false }
+        : { value: signed(appearances), positive: appearances > 0 },
+      reading: {
+        value: num(counts.reading),
+        sub: soonestDay ? `next result lands ${soonestDay}` : "next result lands once a read closes",
+      },
+    },
+    defaultGroup: counts.worked > 0 ? "worked" : counts.down > 0 ? "down" : counts.reading > 0 ? "reading" : "flat",
+  };
 }

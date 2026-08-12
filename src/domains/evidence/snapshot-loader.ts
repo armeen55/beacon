@@ -169,6 +169,7 @@ export async function loadEvidenceSnapshot(
       internalLinks: (s.internal_links ?? []).map((l) => ({ href: l.href, anchorText: l.anchor_text })),
       fetchedAt: s.fetched_at ?? null,
       canonicalUrl: s.canonical_url ?? null,
+      finalUrl: s.final_url ?? null,
       hasCanonicalMismatch: s.has_canonical_mismatch ?? null,
       robotsMeta: s.robots_meta ?? null,
     }));

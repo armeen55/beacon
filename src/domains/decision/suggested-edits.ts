@@ -12,7 +12,7 @@
  *
  * PURE: no model call, no store, no clock of its own, no I/O. */
 
-import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
+import { canonicalQueryKey, templateHeadings, topicTokens } from "@/domains/evidence/relevance-gate";
 import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { answerIntelOf } from "@/domains/evidence/answer-intel";
@@ -55,6 +55,13 @@ const ENGLISH = new Set(["best", "top", "cheap", "cost", "price", "near", "how",
 const ENGLISH_SK = new Set(["kiosk", "asterisk", "obelisk", "basilisk", "damask", "whisk", "brisk"]);
 /** Words a title loses without losing its meaning, when the merge needs the room. */
 const FILLER = new Set(["complete", "ultimate", "official", "list"]);
+/** A body of this many same-shape sections is a LIST page: it runs through many of a thing. */
+const LIST_SECTIONS = 8;
+/** Past this a heading is a paragraph a page builder wrapped in a heading tag, never a list item. */
+const ITEM_WORDS = 6;
+/** A search shaped like ONE PERSON: a singular role noun at the end of it. A page that runs through many
+ *  people is not that person's page, and renaming it after one is a promise the page cannot keep. */
+const PERSON = /(man|woman|person|ist|eur|ian|er|or)$/i;
 
 const pathOf = (url: string): string => {
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname || "/"; } catch { return url; }
@@ -70,6 +77,19 @@ const cased = (q: string): string => q.trim().split(/\s+/)
 /** The name already at the end of this page's own title, READ off it, never invented. */
 const brandOf = (title: string, parts = title.split(/\s*\|\s*/).map((s) => s.trim()).filter(Boolean)): string | null =>
   parts.length > 1 ? parts[parts.length - 1]! : null;
+/** HOW MANY OF A THING THIS PAGE RUNS THROUGH, counted off its own outline: short headings that are not
+ *  site wide furniture and are not questions. Never a figure from anywhere else. */
+const itemsOn = (outline: readonly string[], furniture: ReadonlySet<string>): number =>
+  outline.filter((h) => { const t = h.trim();
+    return t.length > 0 && !t.endsWith("?") && t.split(/\s+/).length <= ITEM_WORDS
+      && !furniture.has(t.toLowerCase().replace(/\s+/g, " ")); }).length;
+/** A search that asks for one person, and a line that names many of them. */
+const singularPerson = (q: string, ws = words(q)): boolean => {
+  const last = ws[ws.length - 1] ?? "";
+  return ws.length >= 2 && !last.endsWith("s") && PERSON.test(last);
+};
+const namesMany = (line: string | null | undefined, ws = words(line ?? "")): boolean =>
+  (ws[ws.length - 1] ?? "").endsWith("s");
 /** The search's own words this text never says. Empty = the text already names the search. */
 const absent = (query: string, text: string | null, has = new Set(topicTokens(text))): string[] =>
   topicTokens(query).filter((t) => !has.has(t));
@@ -123,7 +143,10 @@ type Suggestion = { field: "title" | "h1"; before: string; after: string; label:
  *  when it still fits. Null whenever the merge would say nothing new, would lose a word this page earns on, or
  *  would not survive being pasted. A merge that cannot be built is NO CARD, never a replacement. */
 function mergeLine(field: "title" | "h1", before: string | null | undefined, query: string,
-  earns: ReadonlySet<string>, modeled: string | null): Suggestion | null {
+  earns: ReadonlySet<string>, modeled: string | null,
+  /** The page's OWN item count, when the winners lead with a number and this page runs a real list.
+   *  Null keeps the plain merge: no count is ever invented to imitate a shape. */
+  lead: number | null = null): Suggestion | null {
   const now = (before ?? "").trim();
   if (!now || absent(query, now).length === 0) return null;
   const brand = field === "title" ? brandOf(now) : null;
@@ -136,7 +159,7 @@ function mergeLine(field: "title" | "h1", before: string | null | undefined, que
   const asked = new Set(topicTokens(query));
   const tailTokens = topicTokens(core);
   if (tailTokens.length > 0 && tailTokens.filter((t) => asked.has(t)).length * 2 >= tailTokens.length) return null;
-  const head = cased(query);
+  const head = lead != null ? `${lead} ${cased(query)}` : cased(query);
   const tail = core.split(/\s+/).filter(Boolean);
   // Room is made ONLY out of filler, and never out of a word this page's own searches earn clicks on.
   while (tail.length > 1 && `${head}: ${tail.join(" ")}`.length > TITLE_SOFT) {
@@ -148,15 +171,17 @@ function mergeLine(field: "title" | "h1", before: string | null | undefined, que
   let after = `${head}: ${tail.join(" ")}`;
   if (brand && `${after} | ${brand}`.length <= TITLE_MAX) after = `${after} | ${brand}`;
   if (after.toLowerCase() === now.toLowerCase() || after.length < TITLE_MIN || after.length > TITLE_MAX || UNSAFE.test(after)) return null;
-  return { field, before: now, after, modeled, label: field === "title"
-    ? `Lead the title with "${query}" and keep the words this page already earns on`
-    : `Open the page heading with "${query}" and keep the words it already earns on` };
+  return { field, before: now, after, modeled, label: lead != null
+    ? `Lead the ${field === "title" ? "title" : "page heading"} with the count and "${query}", the shape the winners use`
+    : field === "title"
+      ? `Lead the title with "${query}" and keep the words this page already earns on`
+      : `Open the page heading with "${query}" and keep the words it already earns on` };
 }
 
 /** WHAT THE PAGES WINNING THIS SEARCH CALL THEMSELVES, off the stored results page and nobody else's page.
  *  Only a shape they AGREE on is imitated, and the only shape this merge can honestly claim is the one it
  *  already writes: the search in front, then a colon. Null means the winners were never read, or they disagree. */
-function modeledOnWinners(snapshot: EvidenceSnapshot, query: string, ownUrl: string): { label: string; note: string | null } | null {
+function modeledOnWinners(snapshot: EvidenceSnapshot, query: string, ownUrl: string): { label: string; note: string | null; counted: number } | null {
   const key = canonicalQueryKey(query);
   const row = (snapshot.research?.serpEvidence ?? []).find((s) => canonicalQueryKey(s.query) === key);
   if (!row) return null;
@@ -171,7 +196,7 @@ function modeledOnWinners(snapshot: EvidenceSnapshot, query: string, ownUrl: str
   const front = first ? titles.filter((t) => topicTokens(t).slice(0, 4).includes(first)).length : 0;
   if (front < 2) return null;
   const counted = titles.filter((t) => /^\D{0,3}\d/.test(t.trim())).length;
-  return { label: "Modeled on the current top 5", note: counted >= 2
+  return { label: "Modeled on the current top 5", counted, note: counted >= 2
     ? `${counted} of the ${titles.length} pages Google ranks for this search open with a count. If this page has a countable list, put its real number at the front.` : null };
 }
 
@@ -221,6 +246,8 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
   // THIS SITE'S OWN ENGLISH, read once off every page it holds: the corpus the language gate judges against.
   const corpus = new Set(snapshot.ownedPages.flatMap((p) => words(`${pathOf(p.url)} ${p.content
     ? `${p.content.title ?? ""} ${p.content.h1 ?? ""} ${p.content.metaDescription ?? ""} ${(p.content.outline ?? []).join(" ")}` : ""}`)));
+  // The headings this site prints on every page. They are furniture, so they are never list items.
+  const furniture = templateHeadings(snapshot.ownedPages.map((p) => p.content?.outline ?? []));
   const out: ChangeProposal[] = [];
   const file = (c: Card, page: OwnedPageEvidence, url: string, path: string, query: string, cand: QualifiedCandidate | null): boolean => {
     if (skip.has(c.id) || skip.has(path.toLowerCase()) || out.some((p) => p.id === c.id)) return false;
@@ -269,15 +296,18 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
       const asked = cased(query), langWord = cased(lang);
       const subjectAsked = topicTokens(query).filter((t) => !topicTokens(lang).includes(t));
       if (subjectAsked.length === 0 || UNSAFE.test(asked)) continue;
+      // THE WORD, AND HOW TO SAY IT. A reader who came for the word wants to use it out loud, and an
+      // assistant lifts a line that reads as a definition. "Hyena in Farsi is called NAME" is neither.
+      const subjectSaid = query.replace(TRANSLATION, "").replace(/\s+/g, " ").trim().toLowerCase();
       if (file({
         id: `${tenantId}::${path.toLowerCase()}::existing_edit::answer_block`,
-        field: "answer_block", before: null, after: `${asked} is called NAME.`,
+        field: "answer_block", before: null, after: `NAME (SOUND) is the ${langWord} word for ${subjectSaid}.`,
         label: `Answer "${query}" with the word itself`,
         why: `People searching "${query}" want the word itself, and this page never says it in a line a reader or an assistant can lift, so the answer goes near the top.${creditLine(snapshot, query)}`,
         steps: [`Open your site editor on ${path}`,
-          `Paste the line above directly under the page heading, with the ${langWord} word in place of NAME`,
+          `Paste the line above directly under the page heading, with the ${langWord} word in place of NAME and how it is said out loud in place of SOUND`,
           "Come back here and mark it done, and measurement starts"],
-        limitations: [`No ${langWord} word for this is on file here, so paste the real word in place of NAME rather than publishing NAME.`,
+        limitations: [`No ${langWord} word for ${subjectSaid} is on file here, so you supply the word and how it sounds rather than publishing NAME and SOUND.`,
           ...(caution ? [caution] : [])],
         confidence: "low", effort: effortForFamily("answer"), impact: c.recoverableClicks, modeled: null,
       }, page, c.pageUrl ?? "", path, query, c)) return out;
@@ -292,7 +322,8 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
     if (subsetShape) {
       const named = cased(subject);
       const article = /^[aeiou]/.test(factWord) ? "an" : "a";
-      const line = `${named} has ${article} ${factWord} of NUMBER as of YEAR.`;
+      // A FIGURE WITH NO DATE AND NO SOURCE IS A CLAIM NOBODY CAN CHECK, and an assistant will not lift it.
+      const line = `${named} has ${article} ${factWord} of NUMBER as of YEAR (SOURCE).`;
       const core = (content.title ?? "").split(/\s*\|\s*/)[0]!.trim();
       const tail = `${core}: ${cased(factWord)}`;
       const id = `${tenantId}::${path.toLowerCase()}::existing_edit::answer_block`;
@@ -301,28 +332,37 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
         label: `Answer "${query}" in one line at the top of the page`,
         why: `${noRepeat(why(c.reason))} "${query}" asks this page for one figure and the page never answers it in a line a reader or an assistant can lift, so the answer goes at the top and the word goes on the title.${creditLine(snapshot, query)}`,
         steps: [`Open your site editor on ${path}`,
-          "Paste the line above directly under the page heading, with the current figure in place of NUMBER and the year it comes from in place of YEAR",
+          "Paste the line above directly under the page heading, with the current figure in place of NUMBER, the year it comes from in place of YEAR, and the source it comes from in place of SOURCE",
           ...(core && tail.length <= TITLE_MAX ? [`Change the title to "${tail}" so the search sees the answer is here`] : []),
           "Come back here and mark it done, and measurement starts"],
-        limitations: [`No ${factWord} figure for ${named} is on file here, so paste the current figure from your source rather than publishing NUMBER and YEAR.`,
+        limitations: [`No ${factWord} figure for ${named} is on file here, so you supply the figure, the year it is from, and the source that publishes it rather than publishing NUMBER, YEAR and SOURCE.`,
           ...(caution ? [caution] : [])],
         confidence: "low", effort: effortForFamily("answer"), impact: c.recoverableClicks, modeled: null,
       }, page, c.pageUrl ?? "", path, query, c)) return out;
       continue;
     }
     // THE MERGE. Title first, heading second: the store files a title and an h1 under one identity for one page.
+    const items = itemsOn(content.outline ?? [], furniture);
+    const listPage = items >= LIST_SECTIONS && (namesMany(content.h1) || namesMany(content.title));
+    // ONE PERSON ASKED FOR, MANY HANDED OVER. A page running through fifteen people cannot be the page for
+    // one of them, so no line on it is renamed after one: that is a promise Google reads and readers do not.
+    if (listPage && singularPerson(query)) continue;
     const winners = modeledOnWinners(snapshot, query, c.pageUrl!);
     const modeled = winners?.label ?? null;
     const earnedWords = earningWords(page);
-    const s = mergeLine("title", content.title, query, earnedWords, modeled)
-      ?? mergeLine("h1", content.h1, query, earnedWords, modeled);
+    // COUNT-LED, ONLY ON A REAL COUNT. The winners open with a number and this page runs a countable list,
+    // so its OWN count leads the line. No count on file keeps the plain merge and the note below.
+    const lead = listPage && (winners?.counted ?? 0) >= 2 ? items : null;
+    const s = mergeLine("title", content.title, query, earnedWords, modeled, lead)
+      ?? mergeLine("h1", content.h1, query, earnedWords, modeled, lead);
     if (!s) continue;
     const limitations = [modeled
       ? "The pages Google currently ranks for this search put its words at the front of the line, and this merge is built to that shape."
       : read
         ? "This merge is built from the exact words people search for on this page and the words already in its own line, so read it before you use it."
         : "Google's results for this search have not been read yet, so this is a merge off this page's own numbers and its own line. It is safe to try and cheap to undo, and it sharpens the moment those results are read."];
-    if (winners?.note) limitations.push(winners.note);
+    if (lead != null) limitations.push(`The ${lead} at the front is the number of sections counted on this page itself, so check it against what the page actually lists before you publish it.`);
+    else if (winners?.note) limitations.push(winners.note);
     if (caution) limitations.push(caution);
     if (AEO.has(c.cause.cause)) limitations.push("An assistant answered this question without naming this page, and a sharper line is the cheapest thing to try first, not the whole answer to that.");
     const id = `${tenantId}::${path.toLowerCase()}::existing_edit::${s.field}`;
