@@ -1,5 +1,4 @@
-/**
- * decision/producers/extra: FOUR MORE WAYS THE QUEUE FILLS ITSELF, all $0, all off evidence this account
+/** decision/producers/extra: FOUR MORE WAYS THE QUEUE FILLS ITSELF, all $0, all off evidence this account
  * already paid for. Nothing here calls a model or a provider: it reads the stored AI answers, the stored page
  * snapshots and the stored link graph, and mints cards whose every number traces back to a row. The strict
  * path and suggested-edits are untouched; these land beside them at `needs_review`.
@@ -36,8 +35,7 @@ const MAX_PER_PRODUCER = 5, NEAR_MISS_MIN = 4, NEAR_MISS_MAX = 15, MIN_IMPRESSIO
 const HEAVY_IMPRESSIONS = 5_000;
 /** Words of the page's own tie to a search, past the site wide ones, before it may be asked to answer it. */
 const MIN_EARNED_OVERLAP = 2;
-/** Past this a heading is a paragraph a page builder wrapped in a heading tag, and it says nothing about
- *  what the page is built to answer. */
+/** Past this a heading is a paragraph a page builder wrapped in a heading tag, and it says nothing about  what the page is built to answer. */
 const MAX_HEADING_WORDS = 12;
 /** THE PAGES AN ESSAY NEVER GOES ON: the home page, and the shop rails. A storefront answers with products,
  *  so "add a section answering this question" there is work nobody would ever publish. */
@@ -55,8 +53,7 @@ const STORE_FIRST = /(^|\.)(amazon|etsy)\./i;
 const pathOf = (url: string): string => {
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; }
 };
-/** Words carried in from an engine, a publisher or a title, made safe to paste: no dash Beacon never writes,
- *  no bracket that reads as a blank somebody forgot to fill in. */
+/** Words carried in from an engine, a publisher or a title, made safe to paste: no dash Beacon never writes,  no bracket that reads as a blank somebody forgot to fill in. */
 const plain = (s: string | null | undefined): string =>
   (s ?? "").replace(/[–—]/g, ", ").replace(/[[\]{}]/g, " ").replace(/\s+/g, " ").trim();
 const labelOf = (p: OwnedPageEvidence): string => plain(p.content?.h1 ?? p.content?.title ?? pathOf(p.url)) || pathOf(p.url);
@@ -86,8 +83,7 @@ const identityOf = (p: OwnedPageEvidence): string =>
 const subjectWords = (text: string, weak: ReadonlySet<string>): string[] =>
   [...new Set(topicTokens(text))].filter((t) => t.length > 2 && !weak.has(t));
 
-/** Matching runs on stems and an operator must never be told to write "persepoli", so every stem is handed
- *  back the word it was cut from, spelled as the search spelled it. */
+/** Matching runs on stems and an operator must never be told to write "persepoli", so every stem is handed  back the word it was cut from, spelled as the search spelled it. */
 const asWritten = (text: string, stems: readonly string[]): string[] => {
   const words = plain(text).split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}'-]/gu, "")).filter(Boolean);
   return stems.map((s) => words.find((w) => topicTokens(w).includes(s)) ?? s);
@@ -235,7 +231,10 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
   const nearMiss = pages.flatMap((p) => {
     // THE SEARCH BECOMES THE WORDS ON THE LINK, so a search that is not words never qualifies: an operator
     // like "site:" or a pasted address is something a person typed at Google, never anchor text.
+    // A dictionary ask ("hyena in farsi") earns a translation line on its own page, never a body link:
+    // routing a reader from one page to another to learn one word helps nobody and reads as spam.
     const q = (p.search?.topQueries ?? []).filter((q) => !/[:/@]|^https?/i.test(q.query)
+      && !/\bin (farsi|persian|english)\b/i.test(q.query)
       && q.position != null && q.position >= NEAR_MISS_MIN
       && q.position <= NEAR_MISS_MAX && q.impressions >= MIN_IMPRESSIONS).sort((a, b) => b.impressions - a.impressions)[0];
     return q ? [{ page: p, query: q }] : [];
@@ -245,8 +244,7 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
     const links = linksByPage.get(canonicalUrlKey(from.url))!;
     const words = pageWords(from);
     // DOWNHILL ONLY. A link passes standing from the page that has it to the page that needs it, so the
-    // source must out-earn the destination. Pointed the other way it asks the weaker page to lift the
-    // stronger one, which is the opposite of the change.
+    // source must out-earn the destination. Pointed the other way it asks the weaker page to lift the stronger one, which is the opposite of the change.
     const target = nearMiss.find((t) => t.page.url !== from.url && clicksOf(from) > clicksOf(t.page)
       && !links.has(pathOf(t.page.url).toLowerCase())
       && subjectWords(t.query.query, weak).some((w) => words.has(w)));
@@ -278,8 +276,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot): D
   const impressions = (p: OwnedPageEvidence): number => p.search?.impressions90d ?? 0;
   const rank = (list: OwnedPageEvidence[]): OwnedPageEvidence[] =>
     [...list].sort((a, b) => impressions(b) - impressions(a) || pathOf(a.url).localeCompare(pathOf(b.url)));
-  // ONE ROW PER PAGE, not per address that reaches it. The address a read landed on decides which is which,
-  // so retired slugs never accuse the page they forward to of duplicating itself.
+  // ONE ROW PER PAGE, not per address that reaches it. The address a read landed on decides which is which, so retired slugs never accuse the page they forward to of duplicating itself.
   const byIdentity = new Map<string, OwnedPageEvidence>();
   for (const p of all) {
     const key = identityOf(p);
@@ -309,6 +306,32 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot): D
     limitation: "Read off the last stored copy of this page, so a description added since that read is not counted here.",
   });
 
+  // A TEMPLATED DESCRIPTION IS A MISSING ONE WEARING WORDS: strip each page's own name out of its meta and
+  // what is left, when five or more pages share it, is one boilerplate line stamped across a template. One
+  // card per top page by impressions, because the busiest page loses the most to a line that says nothing.
+  const boilerplate = new Map<string, OwnedPageEvidence[]>();
+  for (const p of pages) {
+    const meta = (p.content?.metaDescription ?? "").trim().toLowerCase();
+    if (!meta) continue;
+    const own = new Set([...labelOf(p).toLowerCase().split(/[^a-z0-9]+/), ...pathOf(p.url).toLowerCase().split(/[^a-z0-9]+/)].filter((t) => t.length > 2));
+    const skeleton = meta.split(/[^a-z0-9]+/).filter((t) => t.length > 2 && !own.has(t)).join(" ");
+    if (skeleton.length > 40) boilerplate.set(skeleton, [...(boilerplate.get(skeleton) ?? []), p]);
+  }
+  const templated = [...boilerplate.values()].filter((g) => g.length >= 5);
+  for (const p of rank(templated.flat()).slice(0, 2)) {
+    const family = templated.find((g) => g.includes(p))!.length;
+    out.push({
+      page: p, slug: "missing_description", field: "meta", query: labelOf(p), minutes: 3, confidence: "low",
+      headline: `Write a real description on ${pathOf(p.url)}: ${family} pages share one templated line`, before: (p.content?.metaDescription ?? "").trim() || null,
+      after: "Write a description of about 150 characters that says what only this page answers, and ends with a reason to click.",
+      why: `${count(family, "page")} carry the same templated description with only the name swapped, and ${pathOf(p.url)} is the busiest of them at ${count(impressions(p), "impression")} in 90 days. A line every sibling repeats gives nobody a reason to click this one.`,
+      steps: [`Open the site editor on ${pathOf(p.url)}`, "Replace the templated description with one written for this page",
+        "Mark it done here and the click rate gets read again"],
+      hints: [`${count(family, "page")} share one templated description`],
+      limitation: "Read off the last stored copy of each page, so a description rewritten since that read is not counted here.",
+    });
+  }
+
   const byH1 = new Map<string, OwnedPageEvidence[]>();
   for (const p of pages) { const h = (p.content?.h1 ?? "").trim().toLowerCase(); if (h) byH1.set(h, [...(byH1.get(h) ?? []), p]); }
   const dupes = [...byH1.values()].filter((g) => g.length > 1);
@@ -331,8 +354,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot): D
 
   const thin = rank(pages.filter((p) => (p.content?.wordCount ?? 0) > 0 && (p.content?.wordCount ?? 0) < THIN_WORDS && impressions(p) > 0));
   for (const p of thin.slice(0, TOP_PAGES_PER_CLASS)) {
-    // THE TARGET IS THE AUDIENCE. Three hundred words on a page shown thirty thousand times is still a stub;
-    // what a page at that size of search has to become is an article.
+    // THE TARGET IS THE AUDIENCE. Three hundred words on a page shown thirty thousand times is still a stub; what a page at that size of search has to become is an article.
     const target = impressions(p) > HEAVY_IMPRESSIONS ? "800 to 1,200" : "200 to 300";
     const stores = winnersAreStores(p);
     const shopStep = "Add a product block or shop link above the fold; the pages winning this search are stores.";
@@ -355,8 +377,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot): D
   return out;
 }
 
-/**
- * Every extra card this account's stored evidence already supports, at `needs_review`, deduplicated against
+/** Every extra card this account's stored evidence already supports, at `needs_review`, deduplicated against
  * the queue it already holds. Never throws: a source that will not read narrows the answer instead of failing
  * the pass. $0 by construction, and every card is a proposal, never a live edit.
  */
@@ -365,8 +386,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const pages = snapshot.ownedPages.filter((p) => !!p.content);
   if (pages.length === 0) return [];
   const weak = weakAnchorsOf(snapshot.ownedPages, snapshot.research);
-  // WHAT THIS SITE PRINTS ON EVERY PAGE, and what is left once it is taken out: the words each page has
-  // actually earned the right to be asked about.
+  // WHAT THIS SITE PRINTS ON EVERY PAGE, and what is left once it is taken out: the words each page has actually earned the right to be asked about.
   const furniture = templateHeadings(pages.map((p) => p.content?.outline ?? []));
   const earned = new Map(pages.map((p) => [p.url, earnedWords(p, furniture)]));
   // How much of this site hangs UNDER each page: what makes one address a hub and another a leaf.

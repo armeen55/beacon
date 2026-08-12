@@ -1,16 +1,12 @@
-/**
- * results-presentation - EVERY operator-facing string the Results surface says about one measured
+/** results-presentation - EVERY operator-facing string the Results surface says about one measured
  * change, as pure functions over what the measurement kernel already computed.
  *
- * Nothing here decides anything. The kernel owns the verdict, the lift and the read dates; the
- * Shipment store owns what the live check found; this module only puts those answers into the
- * operator's own words, in ONE place, so a test can read every sentence the screen can print
- * without rendering a page.
+ * Nothing here decides anything. The kernel owns the verdict, the lift and the read dates; the Shipment store owns what the live check found; this module only puts those answers into the
+ * operator's own words, in ONE place, so a test can read every sentence the screen can print without rendering a page.
  *
  * Three rules hold on every string below. No raw slug ever reaches the screen (an action and a
  * diagnosis resolve through a closed map, and an unmapped one is left out rather than printed). No
- * raw date stamp reaches it either (a day renders as "Jul 3"). And a missing answer says it is
- * missing: a count nobody has read is blank, never a zero.
+ * raw date stamp reaches it either (a day renders as "Jul 3"). And a missing answer says it is missing: a count nobody has read is blank, never a zero.
  */
 
 import { monthDayLabel } from "@/components/data/receipt-line";
@@ -24,8 +20,7 @@ export type ShipmentPresentation = {
   verification: ShipmentVerification | null;
   /** The immutable numbers this page stood at when it was marked done. */
   baseline: { clicks: number; impressions: number; windowDays: number; capturedAt: string } | null;
-  /** THIS PAGE'S OWN change over the read that was used, from the stored reading. Absent on a
-   *  snapshot written before it was kept, and then the before and after stay off the screen. */
+  /** THIS PAGE'S OWN change over the read that was used, from the stored reading. Absent on a  snapshot written before it was kept, and then the before and after stay off the screen. */
   basisMove?: { clicks: number; impressions: number } | null;
 };
 
@@ -68,6 +63,7 @@ export type ResultsView = {
   counts: Record<ResultsGroup, number>;
   header: {
     worked: { value: string; sub: string; isCount: boolean };
+    clicks: { value: string; positive: boolean; note?: string | null };
     appearances: { value: string; positive: boolean };
     reading: { value: string; sub: string };
   };
@@ -131,8 +127,7 @@ const FAMILY_LABEL: Record<string, string> = {
 
 // -- the shared shape of a read -----------------------------------------------
 
-/** ONE shared scale for every bar on the screen: a move of a quarter against this page's own
- *  starting point fills the bar, and everything larger is held at the edge. */
+/** ONE shared scale for every bar on the screen: a move of a quarter against this page's own  starting point fills the bar, and everything larger is held at the edge. */
 const CLAMP = 0.25;
 
 const isMature = (d: number | null): boolean => d === 28 || d === 56;
@@ -177,8 +172,7 @@ function barOf(p: ShipmentPresentation): number | null {
     rel = before > 0 ? r.lift / before : 0;
   }
   const scaled = Math.max(-1, Math.min(1, rel / CLAMP));
-  // A page with no starting point on file cannot be scaled against itself, so the bar shows the
-  // direction at its smallest honest size rather than nothing at all.
+  // A page with no starting point on file cannot be scaled against itself, so the bar shows the direction at its smallest honest size rather than nothing at all.
   if (Math.abs(r.lift) > 1e-9 && Math.abs(scaled) < 0.18) return r.lift > 0 ? 0.18 : -0.18;
   return scaled;
 }
@@ -338,8 +332,7 @@ function rowOf(p: ShipmentPresentation): ResultsRow {
     barOpacity: r.confidence === "high" ? 1 : r.confidence === "medium" ? 0.65 : 0.4,
     liftLabel: claimNumber ? liftLabel(r.metric, r.lift) : null,
     readLabel: done ? `${done.day} day read done` : "Nothing read yet",
-    // A page with no traffic on file before the change gets no delta at all: there is nothing to
-    // count from. Everything else prints what was read, and "Level" rather than a bare zero.
+    // A page with no traffic on file before the change gets no delta at all: there is nothing to count from. Everything else prints what was read, and "Level" rather than a bare zero.
     impressionsLabel: claimNumber && !(p.baseline && p.baseline.impressions <= 0)
       ? (Math.abs(r.impressionsLift) < 0.5 ? "Level" : signed(r.impressionsLift))
       : null,
@@ -364,8 +357,7 @@ function rowOf(p: ShipmentPresentation): ResultsRow {
   };
 }
 
-/**
- * THE WHOLE RESULTS SURFACE, in the operator's words. Pure. This is the only thing the screen
+/** THE WHOLE RESULTS SURFACE, in the operator's words. Pure. This is the only thing the screen
  * renders, so it can never say a sentence this function did not produce.
  */
 export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>): ResultsView {
@@ -383,6 +375,10 @@ export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>)
     .sort()[0] ?? null;
   const soonestDay = monthDayLabel(soonest);
   const appearances = wins.reduce((sum, p) => sum + p.read.impressionsLift, 0);
+  // Clicks are summed only where the win was measured in clicks; a rate win adds its note instead of a number pretending to be one.
+  const clickWins = wins.filter((p) => p.read.metric === "clicks");
+  const clicks = clickWins.reduce((sum, p) => sum + p.read.lift, 0);
+  const rateWins = wins.length - clickWins.length;
 
   return {
     rows,
@@ -390,7 +386,10 @@ export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>)
     header: {
       worked: settled.length === 0
         ? { value: soonestDay ? `First result lands ${soonestDay}` : "First result lands once a read closes", sub: "Nothing has finished its 28 day read yet", isCount: false }
-        : { value: `${wins.length} of ${settled.length}`, sub: `${settled.length} finished their 28 day read`, isCount: true },
+        : { value: `${num(wins.length)} ${wins.length === 1 ? "win" : "wins"}`, sub: `out of ${settled.length} changes that finished their 28 day read`, isCount: true },
+      clicks: clickWins.length === 0
+        ? { value: rateWins > 0 ? `${rateWins} click rate ${rateWins === 1 ? "win" : "wins"}` : "Nothing read yet", positive: false }
+        : { value: signed(Math.round(clicks)), positive: clicks > 0, note: rateWins > 0 ? `plus ${rateWins} click rate ${rateWins === 1 ? "win" : "wins"}` : null },
       appearances: wins.length === 0
         ? { value: "Not enough read yet", positive: false }
         : { value: signed(appearances), positive: appearances > 0 },

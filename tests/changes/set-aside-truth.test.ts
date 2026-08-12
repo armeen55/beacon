@@ -106,9 +106,9 @@ describe("a direct link renders only what the ranked list would, and always land
     const undated = { ...bundled(NOW), createdAt: cold, bundle: { ...b, receipt: { items: [{ ...item, observedAt: null }], missing: [], freshestObservedAt: null } } } as ChangeProposal;
     expect([failures(mixed, ctx).length > 0, failures(bundled(NOW), ctx).length, failures({ ...atomic, createdAt: cold } as ChangeProposal, ctx).length > 0,
       failures(undated, ctx).length > 0, failures({ ...undated, createdAt: SEEN } as ChangeProposal, ctx).length]).toEqual([true, 0, true, true, 0]); });
-  it("sends live work with nothing to unpack home to the list, and gives a put-aside change the put-aside screen", async () => {
-    const { bundle: _b, ...flat } = bundled(NOW); // live, actionable, but nothing to unpack: its home is the list
-    await expect(link(flat as ChangeProposal)).rejects.toThrow("NEXT_REDIRECT:/changes");
+  it("renders live work with nothing to unpack as its own page, and gives a put-aside change the put-aside screen", async () => {
+    const { bundle: _b, ...flat } = bundled(NOW); // live and actionable with no second layer: it gets the one-layer page
+    expect(await link(flat as ChangeProposal)).toContain("data-simple-detail");
     expect(await link(null, bundled(NOW))).toContain("This idea was set aside"); // history, not a page that never was
   });
   // AND NOTHING LANDS IN THE LEDGER THAT THIS SCREEN WOULD NOT SHOW: the same verdict runs at the moment of the press, and a stale screen or a hand-made request cannot

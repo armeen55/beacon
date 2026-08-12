@@ -13,7 +13,7 @@ import { findProofForChange, proofResultHref } from "@/domains/measurement";
 import { actionableProposalFailures, loadChangeProposal, resolveCurrentBasis, validateProposal } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
-import { BundleDetail } from "./bundle-detail";
+import { BundleDetail, SimpleDetail } from "./bundle-detail";
 
 // Force dynamic render so every request runs the fresh-repo-read pattern below. Matches /changes.
 export const dynamic = "force-dynamic";
@@ -56,10 +56,9 @@ export default async function ChangeDetailPage({
         .flatMap((r) => (r.componentsApplied ?? []).map((c) => c.id).filter((cid): cid is string => Boolean(cid))));
       return <BundleDetail proposal={found} bundle={found.bundle} recorded={recorded} />;
     }
-    // LIVE WORK WITH NOTHING TO UNPACK IS NOT SET ASIDE: no bundle means no second layer, and its home is the
-    // ranked list that renders it whole. A bar I could not READ is likewise not a bar I raised. Only a MISS
-    // costs the extra bounded read, so a change put aside a moment ago reads as history, not as a 404.
-    if (found) redirect("/changes");
+    // LIVE WORK WITH NOTHING TO UNPACK still gets its own page: once the queue became mostly suggestion and
+    // sweep cards, the old redirect-to-the-list here bounced every "See the change" press straight back.
+    if (found) return <SimpleDetail proposal={found} />;
     const stored = proposal ?? (await loadChangeProposal(tenantId, id, { retired: "include" }).catch(() => null));
     // A CHANGE ALREADY RECORDED IS NOT A MISSING PAGE. Pressing Mark done and reopening this address fell all
     // the way through to the changelog lookup and rendered the framework's unstyled 404, which is the worst

@@ -74,6 +74,13 @@ export default async function ProofPage({
               <div className="text-[11px] text-muted-foreground">{view.header.worked.sub}</div>
             </div>
             <div>
+              <div className={`font-semibold tracking-tight tabular-nums ${view.header.clicks.positive ? "text-4xl text-emerald-700" : "text-xl text-muted-foreground"}`}>
+                {view.header.clicks.value}
+              </div>
+              <div className="mt-0.5 text-[13px] text-foreground/80">clicks added</div>
+              <div className="text-[11px] text-muted-foreground">{view.header.clicks.note ?? "from the changes that worked"}</div>
+            </div>
+            <div>
               <div className={`font-semibold tracking-tight tabular-nums ${view.header.appearances.positive ? "text-4xl text-emerald-700" : "text-xl text-muted-foreground"}`}>
                 {view.header.appearances.value}
               </div>

@@ -134,14 +134,13 @@ function weekDigest(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, now
   const made = rows.filter((r) => Date.parse(r.implementedAt ?? r.shippedAt) >= nowMs - WEEK_MS).length;
   if (made === 0) return null;
   const b = splitLedgerLifecycle(rows, new Date(nowMs));
-  // TWO CLAUSES, TWO CLOCKS, NEVER GLUED: what happened this week, then the all-time NET of every finished
-  // change. "This week ... the finished ones added +54" summed July's wins under a this-week banner, and the
-  // wins-only sum hid the losers, both of which the operator caught on one screen.
+  // TWO CLAUSES, TWO CLOCKS, NEVER GLUED, AND ONE SOURCE OF TRUTH: the all-time clause says exactly what the
+  // Results header says (wins out of finished), because a net-clicks sum here mixed click and rate units and
+  // printed +54 then +103 across two visits, which the operator caught both times.
   const settled = [...b.won, ...b.learned];
-  const net = settled.reduce((sum, r) => sum + Math.round(provenLift(r) ?? 0), 0);
   const head = `This week: ${made} ${made === 1 ? "edit" : "edits"} made, ${b.measuring.length + b.promising.length} measuring.`;
   return settled.length > 0
-    ? `${head} All ${settled.length} finished changes so far: ${net >= 0 ? "+" : ""}${net.toLocaleString()} clicks net against unchanged pages.`
+    ? `${head} All time: ${b.won.length} of ${settled.length} finished changes worked. Results has each one.`
     : head;
 }
 

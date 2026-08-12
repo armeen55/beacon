@@ -31,8 +31,7 @@ function seenLabel(observedAt: string | null): string {
 }
 
 /** One shape for asking whether this page has already said this. The reading date a receipt line carries is not
- *  part of the sentence, so "163 clicks lost in 4 weeks" and "163 clicks lost in 4 weeks (checked August 9)"
- *  are one fact, said once. */
+ *  part of the sentence, so "163 clicks lost in 4 weeks" and "163 clicks lost in 4 weeks (checked August 9)"  are one fact, said once. */
 const normFact = (s: string): string =>
   s.trim().toLowerCase().replace(/\s*\(checked [^)]*\)\s*$/, "").replace(/\s+/g, " ").replace(/[.,;:]+$/, "");
 
@@ -63,10 +62,8 @@ function Bullets({ items }: { items: (string | undefined | null)[] }) {
   );
 }
 
-/** Slice 7: the two-layer bundle detail. Layer 1 decides, layer 2 proves.
- *  Slice 8: the same two layers render a new-page bundle. Nothing forks: the
- *  page-does-not-exist truth is stated once and every component is a pure
- *  insertion, so the before/after framing simply drops away. */
+/** Slice 7: the two-layer bundle detail. Layer 1 decides, layer 2 proves.  Slice 8: the same two layers render a new-page bundle. Nothing forks: the
+ *  page-does-not-exist truth is stated once and every component is a pure  insertion, so the before/after framing simply drops away. */
 export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeProposal; bundle: ChangeBundle; recorded: Set<string> }) {
   const facts = new Map(bundle.receipt.items.map((i) => [i.key, i]));
   const chips = [...bundle.scope.queries, ...bundle.scope.prompts];
@@ -183,8 +180,7 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
   );
 }
 
-/** What one ranking factor did to the order, in words rather than a raw score. A factor is
- *  bounded by its own ceiling, so the operator can see that no single input can run away with
+/** What one ranking factor did to the order, in words rather than a raw score. A factor is  bounded by its own ceiling, so the operator can see that no single input can run away with
  *  the queue, and a factor that changed nothing says so instead of printing a zero. */
 function weightWord(contribution: number, max: number): string {
   const n = Math.round(Math.abs(contribution) * 10) / 10;
@@ -193,31 +189,24 @@ function weightWord(contribution: number, max: number): string {
   return contribution > 0 ? `moved it up ${n} of a possible ${ceiling}` : `moved it down ${n} of a possible ${ceiling}`;
 }
 
-/**
- * LAYER 2: THE INVESTIGATION. Everything above this decides; this proves. It is behind one
- * expander because an operator who trusts the recommendation should never have to scroll past
- * the reasoning to reach the copy, and an operator who does not trust it must be able to see
+/** LAYER 2: THE INVESTIGATION. Everything above this decides; this proves. It is behind one
+ * expander because an operator who trusts the recommendation should never have to scroll past the reasoning to reach the copy, and an operator who does not trust it must be able to see
  * every step without asking anyone.
  *
- * All four parts are computed by the cause ladder (decision/diagnosis) and were carried on the
- * proposal with nothing rendering them: the named cause and its explanation, what else was on
- * the table and why each lost, what would prove the whole thing wrong, and every cause that was
- * never weighed at all because its evidence is not on file. That last one is the honest one:
+ * All four parts are computed by the cause ladder (decision/diagnosis) and were carried on the proposal with nothing rendering them: the named cause and its explanation, what else was on
+ * the table and why each lost, what would prove the whole thing wrong, and every cause that was never weighed at all because its evidence is not on file. That last one is the honest one:
  * "not considered" is a finding, never a silence, and it is never dressed up as ruled out.
  *
- * The ranking receipt sits with them, so the operator can see which inputs put this change where
- * it is, and how much each one could ever contribute.
+ * The ranking receipt sits with them, so the operator can see which inputs put this change where it is, and how much each one could ever contribute.
  */
 function Investigation({ proposal, seen }: { proposal: ChangeProposal; seen: Set<string> }) {
   const finding = proposal.causeFinding;
   const receipt = proposal.rankingReceipt;
-  // What was read to get here is the same evidence the sections above already printed more often than not, and
-  // an empty hint printed a bullet with nothing beside it.
+  // What was read to get here is the same evidence the sections above already printed more often than not, and an empty hint printed a bullet with nothing beside it.
   const hints = fresh(seen, proposal.evidence?.hints ?? []);
   const factors = (receipt?.factors ?? []).filter((f) => (f.input ?? "").trim().length > 0);
   // AN EXPANDER PROMISES REASONING. With neither a cause nor a ranking receipt there is none, and
-  // the hints alone are the same evidence line the card above already carries, so opening "Show me
-  // how you worked this out" landed on one repeated sentence. No reasoning, no expander.
+  // the hints alone are the same evidence line the card above already carries, so opening "Show me how you worked this out" landed on one repeated sentence. No reasoning, no expander.
   if (!finding && !receipt) return null;
   return (
     <details className="rounded-2xl border border-border bg-surface-raised p-5" data-investigation="true">
@@ -288,8 +277,7 @@ function ComponentCard({
   isNew: boolean;
 }) {
   // The producer already answered where this lands, what it achieves and why it works, and named the sources
-  // still owed before it goes out. All four were carried on the row and rendered nowhere, so the operator was
-  // handed copy with no place to put it and a source pack they could not see.
+  // still owed before it goes out. All four were carried on the row and rendered nowhere, so the operator was handed copy with no place to put it and a source pack they could not see.
   const plan: [string, string | undefined][] = [["Where it goes", component.where], ["What it does", component.objective], ["Why it works", component.mechanism]];
   const pack = component.sourcePack ?? null;
   // A MERGE, A FORWARD, A CANONICAL OR A DE-INDEX IS THE ONE CHANGE A SENTENCE CANNOT TAKE BACK. Where it
@@ -414,6 +402,64 @@ function ChangeDetailReadError({ error }: { error: unknown }) {
           Back to Changes
         </Link>
       </section>
+    </div>
+  );
+}
+
+/** THE ONE-LAYER DETAIL for a card with no deep bundle: the same edit the list shows, said in full on its own
+ *  page. Before this, a live bundleless row REDIRECTED back to /changes, and once the queue became mostly
+ *  suggestion and sweep cards, every "See the change" press bounced. Steps render as steps, a pasteable line
+ *  keeps its Copy press, and Mark done and Skip work here exactly as they do on the list. */
+const DETAIL_INSTRUCTION = /^(Add|Write|Rewrite|Open|Move|Redirect|Paste|Link|Position held)\b/;
+export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
+  const c = proposal.recommendedChange;
+  const after = (c.kind === "new_page" ? c.proposedTitle : c.after ?? "").trim();
+  const before = c.kind === "new_page" ? null : (c.before ?? "").trim() || null;
+  const steps = (proposal.operatorSteps ?? []).map((s) => s.replace(/^\d+[.)]\s*/, "").trim()).filter(Boolean);
+  const instruction = steps.length > 0 && DETAIL_INSTRUCTION.test(after);
+  const shownSteps = instruction && after && !(steps[0] ?? "").startsWith(after.slice(0, 25)) ? [after, ...steps] : steps;
+  const checks = proposal.evidence?.hints ?? [];
+  return (
+    <div className="space-y-5" data-simple-detail="true">
+      <div className="space-y-1">
+        <p className="text-[12px] text-muted-foreground">{proposal.pagePath ?? proposal.pageLabel}</p>
+        <h1 className="text-[17px] font-semibold leading-relaxed text-foreground">
+          {proposal.opportunityType.includes(" ") && proposal.opportunityType.length > 20 ? proposal.opportunityType : proposal.whyItMatters}
+        </h1>
+      </div>
+      {instruction || (steps.length > 0 && !after) ? (
+        <div className="space-y-1">
+          <Heading>Read this twice, then:</Heading>
+          <ol className="list-none space-y-1 text-[14px] leading-relaxed text-muted-foreground">
+            {shownSteps.map((s, i) => <li key={i}><span className="tabular-nums font-semibold">{i + 1}. </span>{s}</li>)}
+          </ol>
+        </div>
+      ) : after ? (
+        <div className="space-y-1">
+          {before ? <p className="text-[13px] text-muted-foreground">Now: <span className="line-through">{before}</span></p> : null}
+          <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
+            <p className="min-w-0 flex-1 text-[15px] font-semibold leading-relaxed text-foreground">{after}</p>
+            <CopyButton text={after} label="Copy" />
+          </div>
+        </div>
+      ) : null}
+      <p className="text-[14px] leading-relaxed text-foreground">{proposal.whyItMatters}</p>
+      {proposal.limitations.length > 0 ? (
+        <div className="space-y-1">
+          <Heading>Keep in mind</Heading>
+          <Bullets items={[...proposal.limitations]} />
+        </div>
+      ) : null}
+      {checks.length > 0 ? (
+        <div className="space-y-1">
+          <Heading>What was checked</Heading>
+          <Bullets items={[...checks]} />
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-3">
+        <MarkImplemented proposalId={proposal.id} />
+        <SetAsideChange proposalId={proposal.id} />
+      </div>
     </div>
   );
 }

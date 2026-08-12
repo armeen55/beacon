@@ -53,7 +53,7 @@ function shortDateLabel(dateUtc: string): string {
 
 /** One plain first-person sentence per refresh outcome - the same voice the
  *  retired /activity page used. Exported for tests. */
-export function recentUpkeepSentence(row: RefreshRunRow): string | null {
+function recentUpkeepSentence(row: RefreshRunRow): string | null {
   const label = refreshSourceLabel(row.source);
   if (label === null) return null;
   const dataThrough = row.latest_data_date ? shortDateLabel(row.latest_data_date) : null;

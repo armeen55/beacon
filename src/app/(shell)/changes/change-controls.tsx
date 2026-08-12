@@ -106,15 +106,21 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
 
   function onClick() {
     startTransition(async () => {
-      const res = await markProposalImplementedAction({
-        proposalId,
-        ...(newPage ? { liveUrl: liveUrl.trim() } : {}),
-        ...(pickable && applied.size < pickable.length ? { componentIds: [...applied] } : {}),
-        ...(note.trim() ? { operatorNote: note.trim() } : {}),
-        ...(movesPage ? { destructiveConfirmed: confirmed } : {}),
-      });
-      if (res.success) { setState({ done: true, error: null, note: res.note ?? null }); onRecorded?.(); }
-      else setState({ done: false, error: res.error ?? "Something went wrong.", note: null });
+      // A THROWN action is a FAILED action: a signed-out session made this reject silently and the press
+      // looked like it landed while the row never changed. Every ending now reaches the operator's eyes.
+      try {
+        const res = await markProposalImplementedAction({
+          proposalId,
+          ...(newPage ? { liveUrl: liveUrl.trim() } : {}),
+          ...(pickable && applied.size < pickable.length ? { componentIds: [...applied] } : {}),
+          ...(note.trim() ? { operatorNote: note.trim() } : {}),
+          ...(movesPage ? { destructiveConfirmed: confirmed } : {}),
+        });
+        if (res.success) { setState({ done: true, error: null, note: res.note ?? null }); onRecorded?.(); }
+        else setState({ done: false, error: res.error ?? "Something went wrong.", note: null });
+      } catch {
+        setState({ done: false, error: "It did not save. Check you are signed in, then press it again.", note: null });
+      }
     });
   }
 
