@@ -10,11 +10,13 @@
  */
 
 import { monthDayLabel } from "@/components/data/receipt-line";
-import type { KernelRead, ShipmentVerification } from "@/domains/measurement";
+import type { KernelRead, MeasurementState, ShipmentVerification } from "@/domains/measurement";
 
 /** What one measured change carries on the Results surface. */
 export type ShipmentPresentation = {
   read: KernelRead;
+  /** Whether a fair comparison exists for this one. Recording an implementation never waits on it. */
+  measurement?: MeasurementState | null;
   /** The day the operator marked it done. Null on a record written before there was a stamp. */
   implementedAt: string | null;
   verification: ShipmentVerification | null;
@@ -91,8 +93,18 @@ const WORK_LABEL: Record<string, string> = {
   internal_link_add: "an internal link", internal_link_remove: "a removed internal link",
   anchor_text: "the wording of a link", canonical: "the canonical address",
   redirect: "a redirect", noindex: "hiding the page from search", navigation: "the site navigation",
-  consolidation: "merging two pages", new_page: "a brand new page",
+  consolidation: "merging two pages", new_page: "a brand new page", create_page: "a brand new page",
   keep_current: "watching without changing", monitor: "watching without changing",
+  // THE SECOND VOCABULARY. A row's action word is a KIND from the older producers ("title") or the
+  // FAMILY the bundle producer stamps off changeFamily ("title-family"). Only the kinds were mapped,
+  // so every bundle this account shipped rendered as the shrug "this change" while a real label existed.
+  "title-family": "the title and headline", "description-family": "the search description",
+  "section-family": "the content on the page", "links-family": "the internal links",
+  "technical-family": "the technical setup",
+  title_meta: "the title and search description", meta_description: "the search description",
+  description: "the search description", answer: "the answer at the top", snippet: "the answer at the top",
+  link: "an internal link", content: "the content on the page", edit_page: "the content on the page",
+  section_reorder: "the order of the page",
 };
 
 /** Unmapped input reads as "this change", never as its slug. */
@@ -185,9 +197,24 @@ const lastClosed = (r: KernelRead) => [...r.windows].reverse().find((w) => w.sta
 
 // -- the sentences ------------------------------------------------------------
 
+/** WHAT WAS RECORDED WHEN NO FAIR COMPARISON EXISTS. Marking a change done is a fact about the work
+ *  and is kept whatever the data says; whether it can be compared is a separate fact about the data.
+ *  One honest sentence each, naming which one is missing. A measuring shipment adds nothing here. */
+const MEASUREMENT_NOTE: Record<string, string> = {
+  measurement_unavailable: "Recorded. A fair comparison is not available yet: Search Console data for this site could not be read.",
+  insufficient_comparison: "Recorded. A fair comparison is not available yet: too few similar pages on this site can stand behind this one.",
+  verification_needed: "Recorded from what was applied. The live page still has to be read before any result is claimed.",
+};
+
 /** One sentence for what happened, on the read that was actually used. */
 function happenedLine(p: ShipmentPresentation): string {
   const r = p.read;
+  // Recorded, and honestly not judged: nothing about this row names a Search number to grade it on.
+  if (r.metric === "unclassified") return "Recorded, and not judged: what was changed here is not a kind that Search data can fairly compare.";
+  // Recorded, and nothing to compare it against yet. Said before the "first result lands" promise,
+  // which would be a promise nothing is keeping.
+  const state = p.measurement ? MEASUREMENT_NOTE[p.measurement] : undefined;
+  if (state && r.basisDay == null) return state;
   if (r.verdict === "confounded") {
     const day = monthDayLabel(r.cleanUntil);
     if (day) return `This page changed again on ${day}, so the days after that belong to both changes.`;
@@ -235,6 +262,7 @@ function taughtLine(r: KernelRead): string {
 
 /** The one thing to do about this row. */
 function nextStepLine(group: ResultsGroup, r: KernelRead): string {
+  if (r.metric === "unclassified") return "Nothing to wait for on this one.";
   if (group === "worked") return "Do this again on a similar page.";
   if (group === "down") return "Put the old wording back, then measure again.";
   if (group === "flat") return "Try a content change on this page instead.";
@@ -325,7 +353,8 @@ function rowOf(p: ShipmentPresentation): ResultsRow {
     work: workLabel(r.actionType),
     group,
     verdictWord: shared ? "Shared with a later change"
-      : group === "worked" ? (isMature(r.basisDay) ? "Worked" : "Working so far")
+      : r.metric === "unclassified" ? "Not judged"
+        : group === "worked" ? (isMature(r.basisDay) ? "Worked" : "Working so far")
         : group === "down" ? "Went down" : group === "flat" ? "No change" : "Reading",
     dot: group === "worked" ? "emerald" : group === "down" ? "rose" : group === "flat" ? "grey" : "sky",
     bar,

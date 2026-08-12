@@ -106,7 +106,7 @@ export function isCustomerSurfaceStale(computedAt: string, nowMs: number): boole
  *  at init, so the loaders that read the release can import it statically.) */
 export async function refreshCustomerSurface(tenantId: string): Promise<CustomerSurface> {
   return runSingleFlight(`customer-surface:${tenantId}`, async () => runWithTenant(tenantId, async () => {
-    const [{ produceProposalsForTenant }, { buildChangesViewUncached }, { buildTodayCompositeFromChanges }] =
+    const [{ produceProposalsForTenant, reconcileImplementedWithoutShipment }, { buildChangesViewUncached }, { buildTodayCompositeFromChanges }] =
       await Promise.all([
         import("@/domains/decision"),
         import("./changes-data"),
@@ -143,6 +143,21 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
     // ONE RELEASE IDENTITY, minted once and threaded through the ranking stamp, the Changes view and Today.
     // Two ids were minted here and inside the build, so a "show more" could page one ranking while the screen
     // above it named another, and the queue stamp could fail while the publish carried on regardless.
+    // THE TRIPWIRE, RUN BEFORE THE LIST IS CUT. A change reads "done" only because a record was written for it
+    // first, so a row marked done that no record points at is a change nobody is measuring. It is never left
+    // silently done and no record is ever invented for it: it goes back to the queue carrying the one sentence
+    // that says what happened, in the very release being built here, so the operator can close it for real. A
+    // LEDGER THAT WOULD NOT READ REVERTS NOTHING, because a list nobody could read is not proof of absence.
+    // UNCACHED AND TENANT-EXPLICIT: the request-scoped memo was seeded at the START of drafting, so the
+    // snapshot here could be minutes stale and a press landing mid-rebuild read as an orphan. And an EMPTY
+    // ledger is refused outright: a schema-cache blip falls back to an empty mirror without throwing, and
+    // absence of proof is not proof of absence.
+    const { loadShippedChangesForTenant } = await import("@/domains/measurement");
+    const ledger = await loadShippedChangesForTenant(tenantId).catch(() => null);
+    if (ledger && ledger.length > 0) {
+      await reconcileImplementedWithoutShipment(tenantId,
+        new Set(ledger.map((r) => r.proposalId).filter((id): id is string => !!id))).catch(() => []);
+    }
     const computedAt = new Date().toISOString();
     const releaseId = `${tenantId}:${computedAt}`;
     const changes = await buildChangesViewUncached(tenantId, releaseId);

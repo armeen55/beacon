@@ -41,7 +41,9 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client
 /** What the store SAID, so a distinct failure can be pinned as distinct rather than as one more "failed". */
 const said = vi.hoisted(() => ({ errors: [] as string[] }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: (msg: string) => { said.errors.push(msg); } } }));
-import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, saveChangeProposal } from "@/domains/decision/proposal-store";
+import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, saveChangeProposal,
+  transitionProposalToImplemented } from "@/domains/decision/proposal-store";
+import { reconcileImplementedWithoutShipment } from "@/domains/decision/implemented-repair";
 import { deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
 import { supabaseFake } from "../helpers/supabase-fake";
 // The row budget and the sort order are part of what the queue read is asked to prove, so the fake honours order + limit; `clash` is the partial unique index: one
@@ -191,7 +193,8 @@ describe("canonical proposal persistence", () => {
     expect(db.state.rows[0]!.terminal_disposition).toBeNull();               // and the predecessor is still current
     expect([...(await loadChangeProposals(T)).keys()]).toEqual([proposal().id]); });
   it("never retires a change the operator already acted on: a newer draft for that hypothesis is refused and the applied row keeps its place", async () => {
-    expect(await saveChangeProposal(proposal({ status: "implemented_pending_verification" }))).toBe("saved"); // the operator marked it implemented
+    expect(await saveChangeProposal(proposal())).toBe("saved");
+    expect(await transitionProposalToImplemented(T, proposal().id, "shp_seed")).toBe(true); // done is reachable only through the transaction
     expect(await saveChangeProposal(deep())).toBe("blocked"); // the same page, the same family, a fresh idea
     expect(db.state.rows).toHaveLength(1);
     expect([db.state.rows[0]!.status, db.state.rows[0]!.terminal_disposition, db.state.rows[0]!.superseded_by])
@@ -264,3 +267,35 @@ describe("canonical proposal persistence", () => {
     const back = deserializeChangeProposal(serializeChangeProposal(deep({ bundle: b })));
     expect(back?.bundle?.components.map((c) => [c.anchorAfter, c.redirectTo]))
       .toEqual([["Read the Haft-Seen guide", "https://own.com/haft-seen"]]); }); });
+
+/** THE ONE DOOR TO "DONE", AND THE TRIPWIRE UNDER IT. A change reads done only because a Shipment was written for it first, so the flip demands that record's id and a
+ *  row marked done that no record points at is a state this product cannot legitimately produce: it is never left silently done, and no record is ever invented for it. */
+describe("done is only ever reached with a record behind it", () => {
+  const DONE_ID = `${T}::${PAGE}::existing_edit::title`, SENTENCE = "A change marked done on August 12 lost its record; mark it done again when you confirm it is live.";
+  const seed = (over: Partial<ChangeProposal> = {}) => { const p = proposal(over);
+    db.state.rows.push({ tenant_id: T, id: DONE_ID, proposal_version: 1, status: p.status, terminal_disposition: null, superseded_by: null, basis: p.basis ?? null,
+      case_id: "", page_key: PAGE, action_family: "title-family", queue_lane: "rel::ready", queue_rank: 3,
+      payload: JSON.parse(serializeChangeProposal(p)) as unknown, updated_at: "2026-08-12T04:50:00.000Z" });
+    return db.state.rows[0]!; };
+  const done = (over: Partial<ChangeProposal> = {}) => seed({ status: "implemented_pending_verification", ...over });
+  const storedNow = (row: Record<string, unknown>) => deserializeChangeProposal(JSON.stringify(row.payload));
+  it("refuses the flip with no record named, and lands it with one", async () => {
+    const row = seed();
+    expect([await transitionProposalToImplemented(T, DONE_ID, "  "), row.status]).toEqual([false, "ready"]); // nothing moved, so the change is still theirs to do
+    expect([await transitionProposalToImplemented(T, DONE_ID, "rec-1"), db.state.rows[0]!.status]).toEqual([true, "implemented_pending_verification"]); });
+  it("sends a change marked done with no record back to the queue carrying the one sentence that says so", async () => {
+    const row = done();
+    expect(await reconcileImplementedWithoutShipment(T, new Set<string>())).toEqual([SENTENCE]);
+    expect([row.status, row.queue_lane, row.queue_rank]).toEqual(["needs_review", null, null]); // back in the queue, and it earns its position again
+    expect([storedNow(row)?.status, storedNow(row)?.limitations[0]]).toEqual(["needs_review", SENTENCE]); });
+  it("leaves a change the ledger really is measuring untouched, never stacks the sentence, and reverts nothing on a read that failed", async () => {
+    const row = done();
+    expect(await reconcileImplementedWithoutShipment(T, new Set([DONE_ID]))).toEqual([]);
+    expect([row.status, row.queue_rank]).toEqual(["implemented_pending_verification", 3]);
+    db.state.missing = true; // a read that failed is not proof of anything
+    expect([await reconcileImplementedWithoutShipment(T, new Set<string>()), row.status]).toEqual([[], "implemented_pending_verification"]);
+    db.state.missing = false; db.state.rows = [];
+    const stale = done({ limitations: ["A change marked done on August 1 lost its record; mark it done again when you confirm it is live."] });
+    await reconcileImplementedWithoutShipment(T, new Set<string>());
+    expect(storedNow(stale)?.limitations).toHaveLength(1); });
+});

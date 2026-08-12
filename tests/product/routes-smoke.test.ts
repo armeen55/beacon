@@ -49,7 +49,7 @@ describe("Today renders, and tells the truth about its own queue", () => {
     expect(html).not.toContain("No changes are being measured yet");
     // AND THE MISSING-TABLE CASE IS STILL A VALID EMPTY: the file fallback is how a pre-migration deploy reads, not an outage.
     DB.ledgerError = { code: "PGRST205", message: "Could not find the table in the schema cache" };
-    expect(renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }))).toContain("7, 14 and 28 days");
+    expect(renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }))).toContain("compared to similar pages that were not changed");
     DB.ledgerError = null; }, 15_000);
   const readyView = (n: number, measuring: number) => ({
     ready: Array.from({ length: n }, (_, i) => ({ id: `t::/p${i}::existing_edit::title`, pagePath: `/p${i}`, pageUrl: null, pageLabel: `P${i}`, primaryQuery: "q",

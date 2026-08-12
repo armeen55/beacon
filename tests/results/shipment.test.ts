@@ -28,9 +28,11 @@ vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async 
 vi.mock("@/domains/measurement/proof-gsc/gsc-window", () => ({
   readWindowForPages: gsc.window, readLastFinalizedDate: gsc.lastFinal, readCumulativeSince: async () => new Map(),
 }));
+/** The comparison set this account's site can offer, which the recording seam asks for and never depends on. */
+const ctl = vi.hoisted(() => ({ pages: [] as string[] }));
 vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet", () => ({
   loadPageSurgeonContext: async () => ({ gscByUrl: new Map(), snapshotByCanon: new Map() }),
-  assemblePacketForUrl: () => ({ gsc: null }),
+  assemblePacketForUrl: () => ({ gsc: null }), topPagesByDemand: () => ctl.pages,
 }));
 vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => ({
   ...((await orig()) as object), readAiObservationViews: ai.views,
@@ -42,6 +44,7 @@ vi.mock("@/app/(shell)/results/results-ledger-data", () => ({ rebuildResultsSurf
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ harvestWinners: async (t: string) => void settle.harvested.push(t) }));
 import { settleDueMeasurements } from "@/domains/measurement/proof-gsc/auto-measure-on-use";
 import { measureRecord, recordShippedChange } from "@/domains/measurement/proof-gsc/measure-pass";
+import { recordRepairShipment, recordShipment } from "@/domains/measurement/proof-gsc/record-shipment";
 import { isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import {
   loadShippedChangesForTenant, pagesUnderMeasurementFromShipments, recordVerification,
@@ -183,9 +186,11 @@ describe("the canonical Shipment", () => {
  *  untouched. */
 describe("a day-56 reading already taken", () => {
   const LATER = new Date("2026-10-01T00:00:00.000Z"), BEHIND_56 = "2026-09-05";
+  // The record ships as "title-family", which is judged on CLICK RATE, so the reading that has to survive
+  // carries its lift on the metric this change is actually graded on.
   const ranWindow = (day: number, adjustedLift: number) => ({
     day, checkOn: "2026-09-25", ran: true, treatedDelta: 0, controlDelta: 0, adjustedLift,
-    treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0,
+    treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0.02, treatedPosDelta: 0,
     controlPosDelta: 0, adjustedPosLift: 0, controlsUsed: 3, treatedPostImpressions: 5000,
   });
   it("survives a recompute that could not ask for it again, and is never re-bought", async () => {
@@ -303,5 +308,55 @@ describe("the measurement pass settles itself, all the way to the screen", () =>
     await settleDueMeasurements(T); expect(settle.harvested).toEqual([T]); // a won or lost verdict reaches ranking
     settle.pass.mockRejectedValue(new Error("the ledger did not answer"));
     expect(await settleDueMeasurements(T)).toBe(0); // fail-soft: a reading I could not take never pauses the pass that asked for it
+  });
+});
+
+/** RECORDING IS NOT MEASURING. What the operator applied is a fact and is written down whatever the data says; whether it
+ *  can be fairly compared is a SEPARATE fact, recorded beside it and never used to refuse the write. The path used to
+ *  refuse below two comparison pages, so a true implementation left no record at all and the queue offered it back. */
+describe("the recording seam", () => {
+  const facts = (over: Record<string, unknown> = {}) => ({ ...origin(), tenantId: T, page: PAGE, path: "/nowruz-guide",
+    actionType: "title-family", before: "Nowruz", after: "Nowruz Traditions", targetQueries: ["nowruz traditions"], now: NOW, ...over });
+  const LIVE_ON = "2026-07-10T00:00:00.000Z", WORDING = "Nowruz Traditions and the Haft-Seen Table";
+  const repair = (over: Record<string, unknown> = {}) => recordRepairShipment({ tenantId: T, proposalId: origin().proposalId,
+    implementedAt: LIVE_ON, finalWording: WORDING, placement: "the page title", source: "pasted in the CMS", page: PAGE,
+    path: "/nowruz-guide", actionType: "title-family", componentsApplied: [{ kind: "title", label: "Page title" }], now: NOW, ...over } as never);
+  const stored = async () => (await loadShippedChangesForTenant(T))[0]!;
+  beforeEach(() => { ctl.pages = ["https://x.test/a", "https://x.test/b", "https://x.test/c"]; });
+  it("records a change with NO comparison pages at all, and names what is missing instead of refusing", async () => {
+    ctl.pages = [];
+    expect((await recordShipment(facts())).measurement).toBe("insufficient_comparison");
+    expect(db.state.rows).toHaveLength(1); // the implementation landed anyway, stamp and all
+    expect([(await stored()).measurementState, (await stored()).implementedAt]).toEqual(["insufficient_comparison", NOW.toISOString()]);
+  });
+  it("records it when Google has nothing finalized, and when this page has no history to count from", async () => {
+    gsc.lastFinal.mockResolvedValue(null);
+    expect((await recordShipment(facts())).measurement).toBe("measurement_unavailable");
+    db.state.rows = []; gsc.lastFinal.mockResolvedValue("2026-07-30"); gsc.window.mockResolvedValue(new Map());
+    expect([(await recordShipment(facts())).measurement, db.state.rows.length]).toEqual(["measurement_unavailable", 1]);
+    expect((await stored()).shipmentBaseline).toBeNull(); // nothing on file is not zero: no starting point rather than a row of zeros
+  });
+  it("measures when the comparison is really there, and a second press rewrites nothing", async () => {
+    const first = await recordShipment(facts());
+    expect([first.measurement, (await stored()).measurementState]).toEqual(["measuring", "measuring"]);
+    await recordVerification(T, first.shipmentId, verification("verified"));
+    const again = await recordShipment(facts());
+    expect([again.shipmentId, again.measurement, db.state.rows.length]).toEqual([first.shipmentId, "measuring", 1]);
+    expect((await stored()).verification?.status).toBe("verified"); // the check was not erased back to due
+  });
+  // THE REPAIR DOOR: a change that went live before anything wrote it down, from what the operator supplies and nothing else.
+  it("records a change that was already live, claims no before-state, and still owes the live check", async () => {
+    expect((await repair()).measurement).toBe("verification_needed");
+    const row = await stored();
+    expect([row.preChangeHashUnavailable, row.preChangeContentHash, row.before, row.verification]).toEqual([true, null, null, null]);
+    expect([row.implementedAt, row.componentsApplied?.[0]?.after]).toEqual([LIVE_ON, WORDING]); // windows count from the day it went live; the check looks for this
+    expect(row.operatorNote).toMatch(/Placement: the page title\. Source: pasted in the CMS\./);
+    expect(gsc.window.mock.calls.some((c) => (c[0] as { start?: string }).start === "2026-06-12")).toBe(true); // the 28 days BEFORE it went live
+  });
+  it("repairs idempotently on the same account of it, and stays honest when there is nothing to compare", async () => {
+    const first = await repair();
+    expect([(await repair()).shipmentId, db.state.rows.length]).toEqual([first.shipmentId, 1]);
+    db.state.rows = []; ctl.pages = [];
+    expect((await repair()).measurement).toBe("insufficient_comparison");
   });
 });

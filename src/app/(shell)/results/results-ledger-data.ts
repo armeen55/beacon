@@ -55,6 +55,8 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
     const basis = read.basisDay == null ? null : r.windows?.find((w) => w.day === read.basisDay && w.ran);
     return {
       read,
+      // Whether a fair comparison exists for this one, recorded beside the implementation itself.
+      measurement: r.measurementState ?? null,
       implementedAt: r.implementedAt ?? null,
       verification: r.verification ?? null,
       baseline: r.shipmentBaseline

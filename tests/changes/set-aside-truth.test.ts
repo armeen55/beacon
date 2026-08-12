@@ -16,15 +16,16 @@ vi.mock("@/domains/account/lifecycle", () => ({ requireReadyAccount: vi.fn(async
 vi.mock("@/lib/tenant-context", async () => ({ ...(await vi.importActual<typeof import("@/lib/tenant-context")>("@/lib/tenant-context")),
   currentTenantId: vi.fn(async () => "t") }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
-  loadChangeProposal: vi.fn(), resolveCurrentBasis: vi.fn(), markProposalImplemented: vi.fn(async () => true) }));
+  loadChangeProposal: vi.fn(), resolveCurrentBasis: vi.fn(), transitionProposalToImplemented: vi.fn(async () => true) }));
 vi.mock("@/app/(shell)/changes-data", async () => ({ ...(await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data")),
   loadChangesView: vi.fn() }));
 vi.mock("@/lib/auth/can-publish", () => ({ canPublishForCurrentTenant: async () => true }));
 const shipped = vi.hoisted(() => ({ records: [] as unknown[], held: [] as any[] }));
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   loadShippedChanges: async () => shipped.held, captureChangeMeta: async () => null, loadProofLedgerPersisted: async () => shipped.held,
-  selectControlPages: async () => ["https://site.example/a", "https://site.example/b"], // fewer is refused; pinned in proof-actions-gating
-  recordShippedChange: async (r: unknown) => r, upsertShippedChange: async (r: unknown) => { shipped.records.push(r); } }));
+  // THE ONE DOOR that writes a record, standing in for the real one: it always writes and always answers with the id the flip is required to carry, so there is no
+  // press that closes a change no record stands behind. What it can be compared against is pinned in mark-implemented-transaction.
+  recordShipment: async (r: unknown) => { shipped.records.push(r); return { shipmentId: "rec-1", measurement: "measuring" }; } }));
 
 const NOW = "basis_now::d4";
 const EXACT = "Iranian Comedians: the 12 names people actually search for";
@@ -196,3 +197,4 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     expect(withCurrentBasisOnly(current, { tenantId: "t", currentBasis: NOW }).proposals).toHaveLength(1); // my own bar, untouched
     expect(withCurrentBasisOnly(current, { tenantId: "t", currentBasis: null }).proposals).toHaveLength(0); }); // a bar I cannot read shows nothing
 });
+

@@ -53,3 +53,18 @@ export type ProofWindowResult = {
 
 /** The baseline snapshot stored on a record (display + kernel input). */
 export type ProofBaseline = GscWindowMetrics & { windowDays: number };
+
+/**
+ * WHETHER THIS SHIPMENT CAN BE FAIRLY COMPARED, stored on the row beside the implementation
+ * itself. AN IMPLEMENTATION FACT IS A FACT: what the operator applied is recorded whatever the
+ * data situation is, and this says, in one word, why a reading may not follow. Recording never
+ * waits on it and never refuses because of it.
+ *
+ *   measuring               controls, baseline and finalized Search data are all on file.
+ *   measurement_unavailable Search Console has nothing on file to read this page against.
+ *   insufficient_comparison the site was read, but too few untouched pages can stand behind it.
+ *   verification_needed     recorded from operator-supplied facts, so no before-state is held
+ *                           and the live page has not been read: the check compares forward only.
+ */
+export type MeasurementState =
+  | "measuring" | "measurement_unavailable" | "insufficient_comparison" | "verification_needed";

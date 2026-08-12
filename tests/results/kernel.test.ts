@@ -26,13 +26,10 @@ function baseInput(over: Partial<KernelInput> = {}): KernelInput {
 }
 const CLOSED_WINDOWS = evaluateWindows("2026-05-01", NOW, "2026-06-01");
 describe("window evaluation and reporting lag", () => {
-  it("marks a window waiting before its calendar close", () => { // shipped 2 days ago; no window has closed
-    expect(evaluateWindows("2026-05-30", NOW, "2026-05-31").every((w) => w.state === "waiting")).toBe(true);
-  });
-  it("marks a closed calendar window pending_data until Google finalizes it", () => { // 7-day window closed 2026-05-08, finalized data only reaches 2026-05-05
+  it("waits before a calendar close, waits on Google after it, and only then reads", () => {
+    expect(evaluateWindows("2026-05-30", NOW, "2026-05-31").every((w) => w.state === "waiting")).toBe(true); // shipped 2 days ago
+    // The 7-day window closed 2026-05-08; finalized data only reaches 2026-05-05, so it is waiting on Google, not stalled.
     expect(evaluateWindows("2026-05-01", NOW, "2026-05-05").find((w) => w.day === 7)!.state).toBe("pending_data");
-  });
-  it("marks a window closed once finalized data passes its close date", () => {
     const w7 = CLOSED_WINDOWS.find((w) => w.day === 7)!;
     expect([w7.state, w7.closesOn]).toEqual(["closed", addDays("2026-05-01", 7)]);
   });
@@ -74,17 +71,10 @@ describe("individual directional reads", () => {
   });
 });
 describe("overlap and confounding honesty", () => {
-  it("flags same-page overlapping windows", () => {
-    const overlaps = overlapClosures([
-      { id: "a", path: "/x", anchoredAt: "2026-05-01" }, { id: "b", path: "/x", anchoredAt: "2026-05-10" }, { id: "c", path: "/y", anchoredAt: "2026-05-05" },
-    ]);
-    expect(overlaps.get("a")!.ids).toContain("b");
-    expect(overlaps.get("b")!.ids).toContain("a");
-    expect(overlaps.get("c")!.ids).toEqual([]);
-  });
-  it("does NOT flag same-page changes more than 28 days apart", () => {
-    const overlaps = overlapClosures([{ id: "a", path: "/x", anchoredAt: "2026-05-01" }, { id: "b", path: "/x", anchoredAt: "2026-07-01" }]);
-    expect(overlaps.get("a")!.ids).toEqual([]);
+  it("flags same-page overlapping windows, and never two months apart", () => {
+    const overlaps = overlapClosures([{ id: "a", path: "/x", anchoredAt: "2026-05-01" }, { id: "b", path: "/x", anchoredAt: "2026-05-10" }, { id: "c", path: "/y", anchoredAt: "2026-05-05" }]);
+    expect([overlaps.get("a")!.ids, overlaps.get("b")!.ids, overlaps.get("c")!.ids]).toEqual([["b"], ["a"], []]);
+    expect(overlapClosures([{ id: "a", path: "/x", anchoredAt: "2026-05-01" }, { id: "b", path: "/x", anchoredAt: "2026-07-01" }]).get("a")!.ids).toEqual([]);
   });
   it("downgrades a directional read to confounded when changes overlap", () => {
     const read = evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40 })] }), CLOSED_WINDOWS, ["other-change"]);
@@ -133,7 +123,9 @@ describe("historical records are preserved end to end", () => {
   it("tolerates a legacy record with missing optional fields", () => {
     const input = toKernelInput({ id: "x", page: "p", path: "/p", actionType: "keep", shippedAt: "2026-05-01" });
     expect([input.baselineImpressions, input.windows]).toEqual([0, []]);
-    expect(evaluateChange(input, CLOSED_WINDOWS, []).verdict).toBe("waiting");
+    // "keep" names no measurable work, so it FAILS CLOSED rather than borrowing the clicks rule.
+    expect(evaluateChange(input, CLOSED_WINDOWS, []).verdict).toBe("insufficient_evidence");
+    expect(evaluateChange({ ...input, actionType: "content" }, CLOSED_WINDOWS, []).verdict).toBe("waiting");
   });
 });
 describe("ranking outcome signal", () => {
@@ -292,7 +284,7 @@ describe("the conditional day-56 read", () => {
     liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null, proposalId: "p1",
     proposalVersion: "v1", basis: null, caseId: null, bundleHypothesis: null,
     componentsApplied: [{ kind: "title", label: "Page title" }], implementedAt: STAMP,
-    preChangeContentHash: null, shipmentBaseline: null,
+    preChangeContentHash: null, preChangeHashUnavailable: false, measurementState: null, shipmentBaseline: null,
     verification: { status: "verified", checkedAt: "2026-05-02T00:00:00.000Z", components: [] },
     operatorNote: null, pinnedRead: null, createdAt: STAMP, updatedAt: STAMP, ...over,
   });
@@ -415,9 +407,27 @@ describe("overlap closure math", () => {
     expect(closures.get("c")).toEqual({ ids: [], cleanUntil: null });
   });
 });
+/** THE TWO VOCABULARIES. A row's action word is a KIND from the older producers ("title") or the FAMILY the bundle
+ *  producer stamps off changeFamily ("title-family"). Only the kinds were in the table, so every family spelling
+ *  fell through to CLICKS and a title rewrite was graded on the number it moves last. */
 describe("metric selection and vocabulary", () => {
-  it("judges snippet plays on CTR, rank plays on position, else clicks", () => {
-    expect([metricFor("edit_title"), metricFor("internal_link"), metricFor("content")]).toEqual(["ctr", "position", "clicks"]);
+  it("answers for every canonical KIND and FAMILY spelling, and fails closed on one it does not hold", () => {
+    const table: Array<[string, string]> = [["edit_title", "ctr"], ["title-family", "ctr"], ["description-family", "ctr"],
+      ["title_meta", "ctr"], ["answer", "ctr"], ["schema", "ctr"], ["internal_link", "position"], ["links-family", "position"],
+      ["technical-family", "position"], ["redirect", "position"], ["content", "clicks"], ["section-family", "clicks"],
+      ["full_rewrite", "clicks"], ["new_page", "clicks"], ["consolidation", "clicks"],
+      // "other" is a real changeFamily a producer stamps, and "bundle" reached the ledger too. Neither may borrow the clicks rule.
+      ["other", "unclassified"], ["bundle", "unclassified"], ["", "unclassified"], ["keep_current", "unclassified"]];
+    expect(table.map(([a]) => metricFor(a))).toEqual(table.map(([, m]) => m));
+    const unknown = readLedger([ledgerRow({ actionType: "other" })], LATE, "2026-07-01")[0]; // no verdict, no number, nothing taught to ranking
+    expect([unknown.verdict, unknown.basisDay, unknown.lift, unknown.rankingSignal]).toEqual(["insufficient_evidence", null, 0, 0]);
+    expect(unknown.headline).toMatch(/not a kind that Search data can fairly judge/);
+  });
+  it("reads the live stored row spelled 'title-family' on click rate, with no history rewritten", () => {
+    const read = readLedger([ledgerRow({ actionType: "title-family",
+      windows: [{ day: 28, ran: true, adjustedLift: -40, adjustedCtrLift: 0.02, controlsUsed: 3, treatedPostImpressions: 5000 }] })], LATE, "2026-07-01")[0];
+    // Graded on clicks that row was a loss; graded on the metric a title change is aimed at, it is a win.
+    expect([read.metric, read.lift, read.verdict]).toEqual(["ctr", 0.02, "stronger_improvement"]);
   });
   it("exposes a phrase for every verdict with no dashes", () => {
     for (const v of ["waiting", "insufficient_evidence", "directional_decline", "no_clear_movement", "directional_improvement", "stronger_improvement", "confounded"] as const) {
@@ -446,7 +456,7 @@ describe("a settled reading is held still", () => {
     liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null, proposalId: "p1",
     proposalVersion: "v1", basis: null, caseId: null, bundleHypothesis: null,
     componentsApplied: [{ kind: "section", label: "Section" }], implementedAt: STAMP,
-    preChangeContentHash: null, shipmentBaseline: null,
+    preChangeContentHash: null, preChangeHashUnavailable: false, measurementState: null, shipmentBaseline: null,
     verification: { status: "verified", checkedAt: STAMP, components: [] },
     operatorNote: null, pinnedRead: null, createdAt: STAMP, updatedAt: STAMP, ...over,
   });

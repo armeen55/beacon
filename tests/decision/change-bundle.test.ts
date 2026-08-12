@@ -224,12 +224,18 @@ const release = async (produce: () => Promise<unknown>) => { vi.resetModules(); 
   vi.doMock("@/lib/persistence/json-store", () => ({ readStore: async () => [], writeStore: async (_s: string, rows: { computedAt: string }[]) => { published.push(...rows); } }));
   vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => TENANT, runWithTenant: async (_t: string, fn: () => Promise<unknown>) => fn() }));
   vi.doMock("@/lib/single-flight", () => ({ runSingleFlight: async (_k: string, fn: () => Promise<unknown>) => fn() }));
-  vi.doMock("@/domains/decision", () => ({ produceProposalsForTenant: produce }));
+  // THE TRIPWIRE THE BUILD RUNS: what it was told is already measured, and what it reverted.
+  const swept: Array<{ shipped: string[] }> = [];
+  vi.doMock("@/domains/measurement", () => ({ loadShippedChanges: ledger.read, loadShippedChangesForTenant: (_t: string) => ledger.read() }));
+  vi.doMock("@/domains/decision", () => ({ produceProposalsForTenant: produce,
+    reconcileImplementedWithoutShipment: async (_t: string, shipped: ReadonlySet<string>) => { swept.push({ shipped: [...shipped] }); return ["reverted"]; } }));
   vi.doMock("@/app/(shell)/changes-data", () => ({ buildChangesViewUncached: async () => ({ proposals: [] }) }));
   const signals: { declineNotes?: { page: string; note: string }[] }[] = [];
   vi.doMock("@/app/(shell)/today-view-data", () => ({ buildTodayCompositeFromChanges: async (_v: unknown, sig: { declineNotes?: { page: string; note: string }[] }) => { signals.push(sig); return { headline: "" }; } }));
-  return { ...(await import("@/app/(shell)/surface-release")), published, signals };
+  return { ...(await import("@/app/(shell)/surface-release")), published, signals, swept };
 };
+/** What the ledger hands the build: rows, or a read that FAILED. */
+const ledger = { read: async (): Promise<Array<{ proposalId: string | null }>> => [] };
 describe("a release publishes only on a real production result", () => { it("lets a production failure through instead of stamping stale work with a fresh timestamp", async () => {
     const { refreshCustomerSurface, published } = await release(async () => { throw new Error("evidence read failed"); });
     await expect(refreshCustomerSurface(TENANT)).rejects.toThrow("evidence read failed"); expect(published).toEqual([]); }); // the previous release is untouched, and the phase fails where a human can see it
@@ -244,7 +250,20 @@ describe("a release publishes only on a real production result", () => { it("let
       { action: "research_needed", pageUrl: "https://s.example/b", recoverableClicks: 400, reason: "big gap" },
       { action: "act_existing_page", pageUrl: "https://s.example/c", recoverableClicks: 900, reason: "acted" }];
     const { refreshCustomerSurface, signals } = await release(async () => ({ proposals: [], outcome: "proposals_persisted", candidates: judged }));
-    await refreshCustomerSurface(TENANT); expect(signals[0]?.declineNotes).toEqual([{ page: "/b", note: "big gap" }, { page: "/a", note: "small gap" }]); }); }); // an acted page is work, not a verdict
+    await refreshCustomerSurface(TENANT); expect(signals[0]?.declineNotes).toEqual([{ page: "/b", note: "big gap" }, { page: "/a", note: "small gap" }]); }); // an acted page is work, not a verdict
+  // THE TRIPWIRE RUNS ON EVERY BUILD, on the ledger's own list of what is genuinely being measured, and a ledger that would not read reverts nothing: a list nobody
+  // could read is not proof a change has no record.
+  it("hands the tripwire what the ledger really holds, and sweeps nothing at all when that ledger will not read", async () => {
+    const pass = async () => ({ proposals: [], outcome: "proposals_persisted", candidates: [] });
+    ledger.read = async () => [{ proposalId: "fixture-tenant::/a::existing_edit::title" }, { proposalId: null }];
+    const seen = await release(pass); await seen.refreshCustomerSurface(TENANT);
+    expect(seen.swept).toEqual([{ shipped: ["fixture-tenant::/a::existing_edit::title"] }]);
+    ledger.read = async () => { throw new Error("the ledger did not read"); };
+    const blind = await release(pass); await blind.refreshCustomerSurface(TENANT);
+    expect([blind.swept.length, blind.published.length]).toEqual([0, 1]); // the release still publishes; nothing was reverted on a blind read
+    ledger.read = async () => []; // an EMPTY ledger sweeps nothing either: a schema-cache blip reads as empty without throwing
+    const empty = await release(pass); await empty.refreshCustomerSurface(TENANT);
+    expect([empty.swept.length, empty.published.length]).toEqual([0, 1]); }); });
 // ── the coverage verdict: has this account already got the right page? ────────
 const WIN = ["gardenguide.example", "waterwise.example", "downspout.example"].map((domain): TopicInvestigation["winners"][number] => ({ url: `https://${domain}/a`, domain, extractState: "current", wordCount: 1400, headings: 4, fetchedAt: "2026-07-24T00:00:00.000Z", appearances: [{ kind: "serp_organic" as const, query: "rain barrel sizing", promptId: null, promptText: null, engine: null, observationMode: null, rank: 1, observedAt: "2026-07-24T00:00:00.000Z", viaUrl: null }], readOutcome: null }));
 /** The rows ON that results page are what a winner read can ever bank, so they decide whether asking again could work. */

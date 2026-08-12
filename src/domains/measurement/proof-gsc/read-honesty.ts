@@ -3,7 +3,9 @@
  * clean, and HOW it is worded. Leaf module: nothing is imported at runtime, so the
  * kernel leans on it without a cycle.
  *
- * Three pure jobs:
+ * Four pure jobs:
+ *   0. THE METRIC TABLE. Which Search number a change is judged on, for every spelling a
+ *      stored row can carry, and an explicit "not judged" for one it cannot.
  *   1. OVERLAP CLOSURE. A bundle applied together is ONE treatment. A LATER change on
  *      the SAME page is a second one, and it CLOSES the earlier change's clean window on
  *      the day it landed: reads up to that day stand, reads after it are confounded by
@@ -33,6 +35,67 @@ export function monthDay(iso: string): string {
   const [y, m, d] = dayOf(iso).split("-").map((s) => parseInt(s, 10));
   if (!Number.isFinite(y) || !Number.isFinite(d) || !MONTHS[m - 1]) return iso;
   return `${MONTHS[m - 1]} ${d}`;
+}
+
+// ── Job 0: the metric table (both vocabularies, side by side) ────────────────
+
+/**
+ * THE ONE METRIC TABLE. Every spelling a stored row can carry, mapped to the Search number
+ * that actually moves when that change works.
+ *
+ * TWO VOCABULARIES REACH THIS FUNCTION AND ALWAYS HAVE. Older producers stamp a KIND
+ * ("title", "internal_link", "content"); the bundle producer stamps a FAMILY off
+ * `changeFamily` ("title-family", "section-family", "links-family"). The table used to hold
+ * kinds only, so every family spelling fell through to clicks: a title rewrite was graded on
+ * the one number a snippet change moves last, and it read as a loss for weeks. Both
+ * vocabularies are listed here, in one place, and nothing else is inferred.
+ *
+ *   ctr       the change alters what the searcher READS in the result, so the honest question
+ *             is whether the same impressions now earn more clicks.
+ *   position  the change alters how the page is FOUND and which address is eligible to rank
+ *             (links, navigation, canonicals, forwards), so rank is the honest question.
+ *   clicks    the whole page changed. Rank, click rate and query coverage all move together
+ *             and no single rate owns the answer, so their sum is the only number that holds
+ *             all three. A new page and a merge have no before-state on their own address at
+ *             all, so "how many clicks now arrive that did not before" is the only fair ask.
+ *
+ * ONE DELIBERATE SPLIT: `schema` named as a KIND is a rich-result play and reads on click
+ * rate, but `technical-family` also holds forwards, canonicals, hiding and navigation, and
+ * the family word cannot say which one shipped. The family reads on rank, which is the
+ * number every member of it moves, so it can never flatter itself on a rate it never touched.
+ */
+const METRIC_BY_ACTION: Record<string, KernelMetric> = {
+  // What the searcher reads in the result.
+  title: "ctr", edit_title: "ctr", change_title: "ctr", "title-family": "ctr", title_meta: "ctr",
+  meta: "ctr", edit_meta: "ctr", meta_description: "ctr", description: "ctr", "description-family": "ctr",
+  h1: "ctr", change_h1: "ctr", answer: "ctr", answer_block: "ctr", intro_answer_block: "ctr",
+  opening_answer: "ctr", faq: "ctr", snippet: "ctr", schema: "ctr", add_schema: "ctr", fix_schema: "ctr",
+  // How the page is found, and which address ranks.
+  link: "position", internal_link: "position", add_internal_link: "position", internal_links: "position",
+  internal_link_add: "position", internal_link_remove: "position", anchor_text: "position",
+  "links-family": "position", section_reorder: "position", navigation: "position",
+  canonical: "position", redirect: "position", noindex: "position", "technical-family": "position",
+  // The whole page changed, or the page itself is new.
+  content: "clicks", "section-family": "clicks", section: "clicks", section_add: "clicks",
+  section_remove: "clicks", section_rewrite: "clicks", restructure: "clicks", full_rewrite: "clicks",
+  factual_correction: "clicks", paragraph_correction: "clicks", source_pack: "clicks",
+  source_update: "clicks", entity_expansion: "clicks", table_or_list_add: "clicks",
+  edit_page: "clicks", new_page: "clicks", create_page: "clicks", consolidation: "clicks",
+};
+
+/**
+ * Which Search metric a change is judged on. PURE.
+ *
+ * FAILS CLOSED. A spelling this table does not hold reads as `unclassified`, which produces
+ * no verdict, claims no number and teaches ranking nothing. It used to fall through to
+ * clicks, which is not a safe default: a wrong measure reports a real win as a loss, and a
+ * loss the operator acts on is worse than a reading that says it has nothing to say.
+ */
+export function metricFor(actionType: string): KernelMetric {
+  const a = (actionType || "").trim().toLowerCase();
+  return METRIC_BY_ACTION[a]
+    ?? METRIC_BY_ACTION[a.replace(/^(edit|change|add|fix|update|create)_/, "")]
+    ?? "unclassified";
 }
 
 /** One change as the overlap math sees it: which page it landed on, and the stamp its
@@ -172,6 +235,7 @@ type LearningFamily =
   | "consolidation" | "new_page" | "unclassified";
 
 const FAMILY_BY_KIND: Record<string, LearningFamily> = {
+  answer_block: "section-family", intro_answer_block: "section-family",
   title: "title-family", meta: "title-family", h1: "title-family",
   opening_answer: "section-family", section: "section-family", source_pack: "section-family",
   paragraph_correction: "section-family", section_add: "section-family", section_remove: "section-family",
@@ -183,6 +247,11 @@ const FAMILY_BY_KIND: Record<string, LearningFamily> = {
   schema: "technical-family", canonical: "technical-family", redirect: "technical-family",
   noindex: "technical-family", navigation: "technical-family",
   consolidation: "consolidation", new_page: "new_page",
+  // THE SAME TWO VOCABULARIES. A row whose only action word IS the family ("title-family",
+  // written straight off `changeFamily`) had no entry here and learned as "unclassified", so
+  // every bundle this account shipped taught it nothing. A family answers for itself.
+  "title-family": "title-family", "section-family": "section-family",
+  "links-family": "links-family", "technical-family": "technical-family",
 };
 
 /** Biggest thing the change did wins, so one change always names one family. */

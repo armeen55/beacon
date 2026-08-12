@@ -4,8 +4,7 @@
  *  it in ONE database operation (supersede_change_proposal) and an identical re-draft writes NOTHING. STATUS
  *  IS THE STAGE, DISPOSITION IS WHETHER ANYONE IS STILL BEING ASKED: needs_review / ready /
  *  implemented_pending_verification are the stages, and dismissed / withdrawn / superseded retire the row.
- *  THE LIVE RANKING IS STORED HERE TOO (queue_lane + queue_rank), so the queue pages in the database. HISTORY
- *  IS READABLE, NEVER RESURRECTED. FAIL CLOSED, LOUDLY. server-only. */
+ *  THE LIVE RANKING IS STORED HERE TOO (queue_lane + queue_rank), so the queue pages in the database. HISTORY  IS READABLE, NEVER RESURRECTED. FAIL CLOSED, LOUDLY. server-only. */
 
 import "server-only";
 
@@ -17,8 +16,9 @@ import { log } from "@/lib/logger";
 import { serializeChangeProposal, deserializeChangeProposal, type BundleComponentKind, type ChangeProposal } from "./contracts";
 import { actionableProposalFailures } from "./validate-proposal";
 
-/** The canonical table (migrations/2026-07-31_change_proposals.sql). */
-const TABLE = "change_proposals";
+/** The canonical table (migrations/2026-07-31_change_proposals.sql). Exported for the sibling that repairs the impossible state, so the name lives in ONE place. */
+export const PROPOSAL_TABLE = "change_proposals";
+const TABLE = PROPOSAL_TABLE;
 /** The append-only rows this store used to write. READ ONLY, history only. */
 const LEGACY_TABLE = "move_drafts";
 const LEGACY_KIND = "change_proposal";
@@ -30,7 +30,6 @@ type TerminalDisposition = "dismissed" | "withdrawn" | "superseded";
 /** saved = a new version is durable. unchanged = the stored row already says this. refused = retired under
  *  this basis, evidence unmoved. blocked = it is being measured. failed = the write did not land. */
 type SaveResult = "saved" | "unchanged" | "refused" | "blocked" | "failed";
-
 // ── canonical identity ────────────────────────────────────────────────────────
 
 /** THE CLOSED SET OF ACTION FAMILIES. One page holds one current change per family: rewriting the snippet and
@@ -76,8 +75,7 @@ function anchorOf(p: ChangeProposal): string {
   return raw.trim().toLowerCase();
 }
 
-/** The site this change lands on, from its own URL. Informational: the index is keyed on account, case,
- *  page and family. */
+/** The site this change lands on, from its own URL. Informational: the index is keyed on account, case,  page and family. */
 function siteOf(p: ChangeProposal): string {
   const url = (p.pageUrl ?? "").trim();
   if (!url) return "";
@@ -106,8 +104,7 @@ const evidenceMaterial = (p: ChangeProposal): unknown[] => (p.bundle?.receipt.it
  *  one reading taken again, added or dropped moves it. SORTED, so a producer that merely reorders its receipt
  *  cannot quietly lift a refusal the operator meant to stand. AN ATOMIC CHANGE HAS NO RECEIPT, and hashing an
  *  empty list gave every one of them the same constant: they matched each other unconditionally and stayed
- *  shut for ever on an unchanged basis. What one of those stands on is the frozen evidence summary it carries
- *  and the exact edit it argues for, so that is what it is asked about. */
+ *  shut for ever on an unchanged basis. What one of those stands on is the frozen evidence summary it carries  and the exact edit it argues for, so that is what it is asked about. */
 function evidenceFingerprint(p: ChangeProposal): string {
   const material = p.bundle ? evidenceMaterial(p) : [p.evidence, p.recommendedChange];
   return createHash("sha256").update(JSON.stringify(material.map((m) => JSON.stringify(m)).sort())).digest("hex").slice(0, 16);
@@ -137,11 +134,9 @@ const decisionReceipt = (p: ChangeProposal): Record<string, unknown> => ({
   cause: p.diagnosisCause ?? null, why_it_matters: p.whyItMatters, confidence: p.confidence, limitations: p.limitations,
   receipt: p.bundle ? { items: p.bundle.receipt.items, missing: p.bundle.receipt.missing, freshest_observed_at: p.bundle.receipt.freshestObservedAt } : null,
 });
-
 // ── stored rows ───────────────────────────────────────────────────────────────
 
-/** `status` is `unknown` on purpose: a pre-rename row carries an old word and the bridge below is the ONE
- *  place that word is understood. */
+/** `status` is `unknown` on purpose: a pre-rename row carries an old word and the bridge below is the ONE  place that word is understood. */
 type CanonRow = {
   id: string; proposal_version: number; status: unknown; terminal_disposition: TerminalDisposition | null;
   superseded_by: string | null; basis: string | null; payload: unknown;
@@ -150,8 +145,7 @@ type CanonRow = {
 /** The columns every canonical read needs: identity, stage, disposition and pointer, and the payload. */
 const CANON_COLUMNS = "id, proposal_version, status, terminal_disposition, superseded_by, basis, payload";
 
-/** Parse one stored payload through the contract. The database speaks only the three lifecycle words (the
- *  contract migration closed the union), so nothing is normalized on the way in. */
+/** Parse one stored payload through the contract. The database speaks only the three lifecycle words (the  contract migration closed the union), so nothing is normalized on the way in. */
 function decode(payload: unknown): ChangeProposal | null {
   if (payload == null) return null;
   return deserializeChangeProposal(typeof payload === "string" ? payload : JSON.stringify(payload));
@@ -169,8 +163,7 @@ const rowFor = (p: ChangeProposal, ident: Identity, version: number): Record<str
  *  WHY IT WAS RETIRED IS WRITTEN WITH IT. A withdrawal is permanent in practice (the skip set feeds off it
  *  and a save under the same basis is refused), and every one of them looked identical afterwards, so the
  *  night a sweep took the operator's open cards there was nothing on the rows to tell them apart from the
- *  ones a safety gate had genuinely refused. Pre-migration the write retries without the column rather than
- *  failing the retirement itself. */
+ *  ones a safety gate had genuinely refused. Pre-migration the write retries without the column rather than  failing the retirement itself. */
 async function setDisposition(
   tenantId: string, id: string, disposition: TerminalDisposition | null, supersededBy: string | null,
   reason: string | null = null,
@@ -186,13 +179,24 @@ async function setDisposition(
   log.error("[proposal-store] disposition write did not land", { id, disposition, error: error?.message ?? "no row" });
   return false;
 }
-
 // ── writes ────────────────────────────────────────────────────────────────────
+
+/** The one token that lets a save move a row INTO implemented. It is module-private and handed out only by
+ *  transitionProposalToImplemented, so "done" is reachable through the orchestrated transaction alone: a
+ *  direct save carrying the implemented status without it is refused. The incident repair that orphaned  three implementations was exactly such a save. */
+const IMPLEMENTED_TRANSITION = Symbol("implemented-transition");
 
 /** Persist one proposal as the CURRENT answer for its hypothesis, superseding whatever held that identity
  *  before. Writes nothing when the stored row already says exactly this. Never throws. */
-export async function saveChangeProposal(proposal: ChangeProposal): Promise<SaveResult> {
+export async function saveChangeProposal(proposal: ChangeProposal, transition?: symbol): Promise<SaveResult> {
   if (!proposal.tenantId || !proposal.id) return "failed";
+  if (proposal.status === "implemented_pending_verification" && transition !== IMPLEMENTED_TRANSITION) {
+    const held = await loadChangeProposal(proposal.tenantId, proposal.id).catch(() => null);
+    if (held?.status !== "implemented_pending_verification") {
+      log.error("[proposal-store] a save may not move a row into implemented; use the mark-implemented transaction", { tenantId: proposal.tenantId, id: proposal.id });
+      return "failed";
+    }
+  }
   // Every real id is minted `${tenantId}::...` by this kernel. An id wearing another account's prefix is a crafted call an id-keyed upsert would land on that account's row, so it is refused before any read.
   if (!proposal.id.startsWith(`${proposal.tenantId}::`)) {
     log.error("[proposal-store] the id does not belong to this account, so nothing is saved", { tenantId: proposal.tenantId, id: proposal.id });
@@ -267,16 +271,18 @@ export async function saveChangeProposal(proposal: ChangeProposal): Promise<Save
   } catch (e) { log.error("[proposal-store] save threw", { id: proposal.id, error: e instanceof Error ? e.message : String(e) }); return "failed"; }
 }
 
-/** Manually mark one proposal IMPLEMENTED, PENDING VERIFICATION (the operator's own press, never the kernel).
- *  Re-persists it at that stage so the pre-ship queue drops it and the reading lives in the proof ledger.
- *  This records their claim, and the claim is not the fact. A NEW PAGE OWES ITS ADDRESS. */
-export async function markProposalImplemented(tenantId: string, id: string, liveUrl?: string): Promise<boolean> {
+/** THE LAST STEP OF THE MARK-IMPLEMENTED TRANSACTION, and the ONLY way a change reaches IMPLEMENTED, PENDING VERIFICATION. It may only be walked with a Shipment
+ *  ALREADY ON FILE: the id of the record measuring this change is required, so there is no bare status flip left to call from anywhere. A bare flip was exported once,
+ *  was called on its own during an incident repair, and left changes marked done that nothing on earth was measuring. ORDER IS DELIBERATE: the press writes the Shipment
+ *  first and reaches this second, so a crash between the two leaves a record the next press heals, where the reverse leaves the operator waiting forever for a reading
+ *  nobody is taking. This records their claim, and the claim is not the fact. A NEW PAGE OWES ITS ADDRESS. */
+export async function transitionProposalToImplemented(tenantId: string, id: string, shipmentId: string, liveUrl?: string): Promise<boolean> {
+  if (!shipmentId.trim()) { log.error("[proposal-store] nothing is marked done without the record that is measuring it", { tenantId, id }); return false; }
   const proposal = await loadChangeProposal(tenantId, id);
   if (!proposal) return false;
   if (proposal.kind === "new_page" && !liveUrl?.trim()) {
-    log.info("[proposal-store] a new page has no address until you publish it, so I am not recording it", { tenantId, id });
-    return false; }
-  return (await saveChangeProposal({ ...proposal, status: "implemented_pending_verification" })) !== "failed";
+    log.info("[proposal-store] a new page has no address until you publish it, so I am not recording it", { tenantId, id }); return false; }
+  return (await saveChangeProposal({ ...proposal, status: "implemented_pending_verification" }, IMPLEMENTED_TRANSITION)) !== "failed";
 }
 
 /** BEACON'S OWN RETRACTION. A draft a safety gate refused is not queued work and not a rejection the operator
@@ -288,8 +294,7 @@ export async function withdrawChangeProposal(proposal: ChangeProposal, reason?: 
   return setDisposition(proposal.tenantId, proposal.id, "withdrawn", null, reason ?? null);
 }
 
-/** The hypotheses I already took back under THIS basis. Bounded; empty on read trouble, which costs one
- *  redraft and never a wrong skip. */
+/** The hypotheses I already took back under THIS basis. Bounded; empty on read trouble, which costs one  redraft and never a wrong skip. */
 export async function withdrawnProposalIds(tenantId: string, basis: string | null): Promise<Set<string>> {
   if (!tenantId || !basis) return new Set<string>();
   try {
@@ -322,8 +327,7 @@ async function rowById(tenantId: string, id: string): Promise<CanonRow | null> {
   return error || !data || data.length === 0 ? null : (data[0] as CanonRow);
 }
 
-/** HISTORY ONLY: rows written before the canonical table existed. Nothing here is current work unless the
- *  canonical table has never heard of that id. */
+/** HISTORY ONLY: rows written before the canonical table existed. Nothing here is current work unless the  canonical table has never heard of that id. */
 async function readLegacy(tenantId: string, limit: number, id?: string): Promise<Array<{ id: string; content: string }>> {
   try {
     let q = getSupabaseAdmin().from(LEGACY_TABLE).select("rec_id, content, created_at").eq("tenant_id", tenantId).eq("kind", LEGACY_KIND);
@@ -349,8 +353,7 @@ export async function loadChangeProposal(
 
 /** STAMP THE RANKING THAT IS LIVE, in ONE statement per release: the unlimited queue's positions are written
  *  down, not carried in a blob, so page two is cut from the SAME database order page one was. Both lanes and
- *  the clearing of the old ranking commit together (never half an order); a stamp that cannot land leaves the
- *  ranking on file serving, which is why this is fail-soft. */
+ *  the clearing of the old ranking commit together (never half an order); a stamp that cannot land leaves the  ranking on file serving, which is why this is fail-soft. */
 export async function stampQueueRanking(
   tenantId: string, release: string, ready: readonly string[], toDo: readonly string[],
 ): Promise<boolean> {
@@ -416,8 +419,7 @@ const QUEUE_PAGE = 500, QUEUE_CEILING = 20_000;
  *  for ids the canonical table never held. THE CURRENT QUEUE IS NOT CAPPED. It used to stop at the first 500
  *  rows, so an account with more current work than that silently lost the rest on every read that decides
  *  what is current, ranking included; the rows are PAGED here until the account is exhausted. `historyLimit`
- *  bounds HISTORY only, because history is not work. Fail-soft: a missing table shows history rather than
- *  claiming this account has no changes at all. */
+ *  bounds HISTORY only, because history is not work. Fail-soft: a missing table shows history rather than  claiming this account has no changes at all. */
 export async function loadChangeProposals(tenantId: string, historyLimit = 500): Promise<Map<string, ChangeProposal>> {
   const out = new Map<string, ChangeProposal>();
   if (!tenantId) return out;

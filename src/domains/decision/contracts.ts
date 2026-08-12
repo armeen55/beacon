@@ -234,11 +234,18 @@ export type ComponentPlan = {
 /** PURE: does this component change factual content, so a source pack is owed? */
 export function needsSourcePack(c: BundleComponent): boolean { return FACTUAL_KINDS.has(c.kind); }
 
-/** THE STABLE NAME OF ONE PIECE INSIDE ITS BUNDLE: position plus kind, derived from the stored bundle and
- *  nothing else, so no schema moves. Two pieces of one kind are ticked apart instead of sharing one state, and
- *  the server intersects what the operator says they applied against what it holds, never a list of kinds a
- *  hand-made request could invent. */
-export const componentIdOf = (component: { kind: string }, index: number): string => `${index}:${component.kind}`;
+/** A tiny stable fingerprint of one piece's exact copy (FNV-1a, base 36), written out rather than imported so a card in the browser computes byte for byte what the server does and no node module reaches the bundle. */
+const contentFingerprint = (text: string): string => {
+  let h = 0x811c9dc5; for (let i = 0; i < text.length; i += 1) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(36); };
+/** THE STABLE NAME OF ONE PIECE INSIDE ITS BUNDLE: position, kind AND THE EXACT COPY IT CARRIES, derived from the stored bundle and nothing else, so no schema moves.
+ *  Two pieces of one kind are ticked apart instead of sharing one state, and the server intersects what the operator says they applied against what it holds, never a list of kinds a hand-made request could invent.
+ *  THE COPY IS PART OF THE NAME because position and kind alone were not identity: a redraft that rewrote the title in place kept the same name, so brand new wording read as already applied and was never measured, and reordering a bundle handed one piece another piece's history. */
+export const componentIdOf = (component: { kind: string; after?: string | null }, index: number): string => `${index}:${component.kind}:${contentFingerprint(component.after ?? "")}`;
+/** Do two names mean the same recorded piece? A name written before the copy was part of it carries position and kind alone and can only ever be compared at that
+ *  precision, so history keeps matching itself; two of the same era compare whole, so a redraft is never mistaken for work already done and pressing the SAME version
+ *  twice is still one piece, which is what keeps a retry idempotent. */
+export const sameComponentId = (a: string, b: string): boolean => { const [ai, ak, af] = a.split(":"), [bi, bk, bf] = b.split(":");
+  return a === b || (ai === bi && ak === bk && (af === undefined || bf === undefined)); };
 
 /** THE TWO-STEP HOLD. There is no parallel confirmation flag in this product: `needs_review` means Beacon
  *  will not present the change as ready and the operator has to look and then act. */

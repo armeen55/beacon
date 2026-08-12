@@ -21,7 +21,7 @@ import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
 import { getDataDir } from "@/lib/tenant";
 import { getTenant } from "@/domains/account/tenants/store";
-import type { GscProofConfidence, GscProofVerdict, ProofBaseline, ProofWindowResult } from "./types";
+import type { GscProofConfidence, GscProofVerdict, MeasurementState, ProofBaseline, ProofWindowResult } from "./types";
 import type { PinnedRead } from "./pinned-read";
 
 const TABLE = "shipped_change_proof", STORE = "proof-gsc-ledger";
@@ -93,6 +93,10 @@ export type ShippedChangeRecord = {
   implementedAt: string | null;
   /** The owned page's HELD content hash at mark time, from the snapshot on file. */
   preChangeContentHash: string | null;
+  /** NO BEFORE-STATE IS HELD: recorded after the change was already live, so the check compares FORWARD only. */
+  preChangeHashUnavailable: boolean;
+  /** Whether a fair comparison exists. The implementation is recorded either way; this is the fact about the DATA. */
+  measurementState: MeasurementState | null;
   /** Where this page stood at mark time. Write-once. */
   shipmentBaseline: ShipmentBaseline | null;
   /** Null until the live check runs, and null is the due marker. Results renders what the check found,
@@ -134,6 +138,7 @@ type LedgerRow = {
   case_id?: string | null; bundle_hypothesis?: string | null;
   components_applied?: ShippedChangeRecord["componentsApplied"];
   implemented_at?: string | null; pre_change_content_hash?: string | null;
+  pre_change_hash_unavailable?: boolean | null; measurement_state?: string | null;
   shipment_baseline?: ShipmentBaseline | null; verification?: ShipmentVerification | null;
   operator_override_reason?: string | null;
   pinned_read?: PinnedRead | null;
@@ -158,6 +163,9 @@ const isMissingColumnError = (error: unknown): boolean => {
 
 const VALID_VERDICTS: ReadonlySet<string> = new Set(["measuring", "won", "lost", "inconclusive", "insufficient_data"]);
 const VALID_CONFIDENCES: ReadonlySet<string> = new Set(["high", "medium", "low"]);
+const VALID_MEASUREMENT_STATES: ReadonlySet<string> = new Set(["measuring", "measurement_unavailable", "insufficient_comparison", "verification_needed"]);
+/** THE TWO COLUMNS ADDED AFTER THE FACT: a deploy that beats its migration still writes the Shipment. */
+const LATE_COLUMNS = ["pre_change_hash_unavailable", "measurement_state"] as const;
 const ZERO_BASELINE: ProofBaseline = { clicks: 0, impressions: 0, ctr: 0, position: 0, windowDays: 28 };
 
 function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
@@ -171,6 +179,7 @@ function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     proposal_id: r.proposalId, proposal_version: r.proposalVersion, basis: r.basis,
     case_id: r.caseId, bundle_hypothesis: r.bundleHypothesis, components_applied: r.componentsApplied,
     implemented_at: r.implementedAt, pre_change_content_hash: r.preChangeContentHash,
+    pre_change_hash_unavailable: r.preChangeHashUnavailable, measurement_state: r.measurementState,
     shipment_baseline: r.shipmentBaseline, verification: r.verification,
     operator_override_reason: r.operatorNote, pinned_read: r.pinnedRead, created_at: r.createdAt, updated_at: r.updatedAt,
   };
@@ -193,6 +202,8 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     basis: row.basis ?? null, caseId: row.case_id ?? null,
     bundleHypothesis: row.bundle_hypothesis ?? null, componentsApplied: row.components_applied ?? null,
     implementedAt: row.implemented_at ?? null, preChangeContentHash: row.pre_change_content_hash ?? null,
+    preChangeHashUnavailable: row.pre_change_hash_unavailable === true,
+    measurementState: VALID_MEASUREMENT_STATES.has(row.measurement_state ?? "") ? (row.measurement_state as MeasurementState) : null,
     shipmentBaseline: row.shipment_baseline ?? null, verification: row.verification ?? null,
     operatorNote: row.operator_override_reason ?? null, pinnedRead: row.pinned_read ?? null,
     createdAt: row.created_at, updatedAt: row.updated_at,
@@ -202,8 +213,7 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
 async function readFile(): Promise<ShippedChangeRecord[]> {
   try { return (await readStore<ShippedChangeRecord>(STORE)) ?? []; }
   catch (err) {
-    log.warn("shipped-change-store: file ledger read failed; treating as empty", {
-      store: STORE, error: err instanceof Error ? err.message : String(err) });
+    log.warn("shipped-change-store: file ledger read failed; treating as empty", { store: STORE, error: err instanceof Error ? err.message : String(err) });
     return [];
   }
 }
@@ -226,10 +236,7 @@ async function readShippedChangesFileForTenant(tenantId: string): Promise<Shippe
     const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
     return Array.isArray(parsed) ? (parsed as ShippedChangeRecord[]) : [];
   } catch (err) {
-    log.warn("shipped-change-store: tenant ledger file unreadable/corrupt; treating as empty", {
-      tenant: tenantId, store: STORE, file: filePath,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    log.warn("shipped-change-store: tenant ledger file unreadable/corrupt; treating as empty", { tenant: tenantId, store: STORE, file: filePath, error: err instanceof Error ? err.message : String(err) });
     return [];
   }
 }
@@ -248,9 +255,7 @@ async function loadShippedChangesUncached(): Promise<ShippedChangeRecord[]> {
   try {
     tid = await currentTenantId();
   } catch (err) {
-    log.warn("shipped-change-store: tenant resolve failed; ledger reads as empty", {
-      store: STORE, error: err instanceof Error ? err.message : String(err),
-    });
+    log.warn("shipped-change-store: tenant resolve failed; ledger reads as empty", { store: STORE, error: err instanceof Error ? err.message : String(err) });
     return [];
   }
   return queryTenantLedger(admin, tid);
@@ -302,8 +307,7 @@ function withHeldImmutables(held: WriteOnce | null, row: LedgerRow): LedgerRow {
   const baseline = held.shipment_baseline != null
     && JSON.stringify(row.shipment_baseline ?? null) !== JSON.stringify(held.shipment_baseline);
   if (stamp || baseline) {
-    log.warn("[shipment] the stamp and the starting numbers are written once, so I kept what is on file", {
-      id: row.id, tenant: row.tenant_id, stamp, baseline });
+    log.warn("[shipment] the stamp and the starting numbers are written once, so I kept what is on file", { id: row.id, tenant: row.tenant_id, stamp, baseline });
   }
   return { ...row, implemented_at: held.implemented_at, shipment_baseline: held.shipment_baseline ?? row.shipment_baseline };
 }
@@ -311,8 +315,7 @@ function withHeldImmutables(held: WriteOnce | null, row: LedgerRow): LedgerRow {
 /** The two write-once columns already on file for this Shipment, or null. */
 async function heldImmutables(admin: ReturnType<typeof getSupabaseAdmin>, tid: string, id: string): Promise<WriteOnce | null> {
   try {
-    const { data, error } = await admin
-      .from(TABLE).select("implemented_at, shipment_baseline").eq("tenant_id", tid).eq("id", id).limit(1);
+    const { data, error } = await admin.from(TABLE).select("implemented_at, shipment_baseline").eq("tenant_id", tid).eq("id", id).limit(1);
     if (error || !Array.isArray(data) || data.length === 0) return null;
     return data[0] as WriteOnce;
   } catch {
@@ -320,8 +323,9 @@ async function heldImmutables(admin: ReturnType<typeof getSupabaseAdmin>, tid: s
   }
 }
 
-/** Upsert one record (by id) for the ambient tenant. Durable + file mirror. */
-export async function upsertShippedChange(record: ShippedChangeRecord): Promise<void> {
+/** Upsert one record (by id). Durable + file mirror. The tenant is the ambient one unless a
+ *  background or repair caller, where ambient is wrong or absent, names it explicitly. */
+export async function upsertShippedChange(record: ShippedChangeRecord, tenantId?: string): Promise<void> {
   let admin;
   try {
     admin = getSupabaseAdmin();
@@ -330,11 +334,18 @@ export async function upsertShippedChange(record: ShippedChangeRecord): Promise<
     await invalidateResultsSurfaceSafe();
     return;
   }
-  const tid = await currentTenantId();
+  const tid = tenantId ?? await currentTenantId();
   const row = record.implementedAt != null
     ? withHeldImmutables(await heldImmutables(admin, tid, record.id), recordToRow(tid, record))
     : recordToRow(tid, record);
-  const up = await admin.from(TABLE).upsert(row, { onConflict: "tenant_id,id" });
+  let up = await admin.from(TABLE).upsert(row, { onConflict: "tenant_id,id" });
+  // THE MEASUREMENT STATE NEVER BLOCKS THE IMPLEMENTATION. Those two columns landed after the Shipment
+  // did, so a deploy that beats its migration drops them and writes the row anyway: they DESCRIBE
+  // whether the change can be compared, and losing the description is not losing the change.
+  if (up.error != null && isMissingColumnError(up.error) && LATE_COLUMNS.some((c) => c in row)) {
+    const lean = { ...row }; for (const c of LATE_COLUMNS) delete lean[c];
+    up = await admin.from(TABLE).upsert(lean, { onConflict: "tenant_id,id" });
+  }
   if (up.error != null) {
     if (isUndefinedTableError(up.error)) {
       // A SHIPMENT IS DURABLE OR IT DOES NOT EXIST. The table is here and the Shipment columns are not, so this
@@ -344,8 +355,7 @@ export async function upsertShippedChange(record: ShippedChangeRecord): Promise<
       if (record.implementedAt != null && isMissingColumnError(up.error)) {
         throw new Error(`shipped-change-store: ${TABLE} has no Shipment columns yet, so nothing durable landed (apply the pending migration)`);
       }
-      console.warn(`[shipped-change-store] DURABLE upsert fell back to file (apply the pending migration): ${
-        (up.error as { code?: string }).code ?? "?"} ${(up.error as { message?: string }).message ?? String(up.error)}`);
+      console.warn(`[shipped-change-store] DURABLE upsert fell back to file (apply the pending migration): ${(up.error as { code?: string }).code ?? "?"} ${(up.error as { message?: string }).message ?? String(up.error)}`);
       await upsertFile(record);
       await invalidateResultsSurfaceSafe();
       return;
@@ -394,15 +404,13 @@ export async function recordVerification(
     // The pre-migration window: no `verification` column to write, so the file holds the answer instead.
     if (error != null && isUndefinedTableError(error)) return recordVerificationInFile(shipmentId, verification);
     if (error != null || !Array.isArray(data) || data.length === 0) {
-      log.warn("[shipment] I did not record what the check found: no change of yours matched that id", {
-        tenant: tenantId, id: shipmentId, error: error?.message ?? "no row" });
+      log.warn("[shipment] I did not record what the check found: no change of yours matched that id", { tenant: tenantId, id: shipmentId, error: error?.message ?? "no row" });
       return false;
     }
     await invalidateResultsSurfaceSafe();
     return true;
   } catch (err) {
-    log.error("[shipment] the verification write did not land", {
-      tenant: tenantId, id: shipmentId, error: err instanceof Error ? err.message : String(err) });
+    log.error("[shipment] the verification write did not land", { tenant: tenantId, id: shipmentId, error: err instanceof Error ? err.message : String(err) });
     return false;
   }
 }
@@ -419,14 +427,12 @@ export async function recordPinnedRead(tenantId: string, shipmentId: string, pin
       .update({ pinned_read: pinned, updated_at: new Date().toISOString() })
       .eq("tenant_id", tenantId).eq("id", shipmentId).is("pinned_read", null).select("id");
     if (error != null) {
-      if (!isUndefinedTableError(error)) log.warn("[shipment] the finished reading could not be held still",
-        { tenant: tenantId, id: shipmentId, error: error.message });
+      if (!isUndefinedTableError(error)) log.warn("[shipment] the finished reading could not be held still", { tenant: tenantId, id: shipmentId, error: error.message });
       return false;
     }
     return Array.isArray(data) && data.length > 0;
   } catch (err) {
-    log.warn("[shipment] holding the finished reading still threw",
-      { tenant: tenantId, id: shipmentId, error: err instanceof Error ? err.message : String(err) });
+    log.warn("[shipment] holding the finished reading still threw", { tenant: tenantId, id: shipmentId, error: err instanceof Error ? err.message : String(err) });
     return false;
   }
 }
@@ -443,15 +449,12 @@ async function recordVerificationInFile(shipmentId: string, verification: Shipme
     await invalidateResultsSurfaceSafe();
     return true;
   } catch (err) {
-    log.warn("[shipment] I could not save what the check found to the local ledger", {
-      id: shipmentId, error: err instanceof Error ? err.message : String(err),
-    });
+    log.warn("[shipment] I could not save what the check found to the local ledger", { id: shipmentId, error: err instanceof Error ? err.message : String(err) });
     return false;
   }
 }
 
 /** The measurement window a shipped change owns, read from the stamp. */ const MEASUREMENT_WINDOW_DAYS = 28;
-
 /**
  * The pages this account changed in the last 28 days and is still measuring: a fresh proposal for one of them
  * is work already in flight, not a new idea. Read from `implementedAt`, which is what the stamp exists for.
@@ -473,8 +476,7 @@ export async function pagesUnderMeasurementFromShipments(
       .limit(200);
     if (error != null || !Array.isArray(data)) {
       if (error != null && !isUndefinedTableError(error)) {
-        log.warn("[shipment] I could not read what is under measurement, so nothing reads as in flight", {
-          tenant: tenantId, error: error.message ?? String(error) });
+        log.warn("[shipment] I could not read what is under measurement, so nothing reads as in flight", { tenant: tenantId, error: error.message ?? String(error) });
       }
       return [];
     }
@@ -487,8 +489,7 @@ export async function pagesUnderMeasurementFromShipments(
     }
     return out;
   } catch (err) {
-    log.warn("[shipment] the under-measurement read failed, so nothing reads as in flight", {
-      tenant: tenantId, error: err instanceof Error ? err.message : String(err) });
+    log.warn("[shipment] the under-measurement read failed, so nothing reads as in flight", { tenant: tenantId, error: err instanceof Error ? err.message : String(err) });
     return [];
   }
 }

@@ -30,22 +30,27 @@ export {
   DANGEROUS_COMPONENT_KINDS,
   dangerousComponents,
   componentIdOf,
+  sameComponentId,
 } from "./contracts";
 
 // Ranked queue load (surface data)
 export type { RankedProposalQueue } from "./load-proposals";
 export { loadProposalQueue } from "./load-proposals";
 
-// Proposal persistence
+// Proposal persistence. THERE IS NO BARE STATUS FLIP ON THIS FACADE: `transitionProposalToImplemented` demands
+// the id of the Shipment already measuring the change, so "done" can only ever be reached through the
+// orchestrated mark-implemented transaction, and `reconcileImplementedWithoutShipment` reverts any row that
+// somehow reads done with no record behind it.
 export {
   saveChangeProposal,
   loadChangeProposal,
   loadChangeProposals,
-  markProposalImplemented,
+  transitionProposalToImplemented,
   dismissChangeProposal,
   readQueuePage,
   stampQueueRanking,
 } from "./proposal-store";
+export { reconcileImplementedWithoutShipment } from "./implemented-repair";
 
 // Cold drafting entry point (produce ranked proposals for a tenant)
 export type {

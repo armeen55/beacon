@@ -21,11 +21,12 @@ import {
   BASELINE_WINDOW_DAYS,
   PROOF_WINDOW_DAYS,
   type GscWindowMetrics,
+  type MeasurementState,
   type ProofWindowDay,
   type ProofWindowResult,
 } from "./types";
 import type { ShippedChangeRecord } from "./shipped-change-store";
-import { addDays, evaluateWindows, MIN_CONTROLS, readLedger } from "./kernel";
+import { addDays, evaluateWindows, readLedger } from "./kernel";
 import { day56Followup, FOLLOW_UP_WINDOW_DAY } from "./measure-lifecycle";
 
 const NULL_METRICS: GscWindowMetrics = { clicks: 0, impressions: 0, ctr: 0, position: 0 };
@@ -265,9 +266,12 @@ type ShipmentOrigin = {
   bundleHypothesis: string;
   /** The components the operator says they applied, each with the exact copy it carried and the risk the proposal graded it at. A subset =
    *  a partial bundle, and the copy is what the live check compares the page against. */
-  componentsApplied: Array<{ kind: string; label: string; after?: string | null; risk?: string | null }>;
+  componentsApplied: NonNullable<ShippedChangeRecord["componentsApplied"]>;
   implementedAt: string;
   preChangeContentHash: string | null;
+  /** TRUE = nothing on file describes this page as it stood before the change, so the live check compares FORWARD only
+   *  and no before-state is ever claimed. Set by the repair door, which records a change that was already live. */
+  preChangeHashUnavailable?: boolean;
   /** What they say they actually put on the page, in their own words. A NOTE beside the reading, never a substitute for it: no note has
    *  ever made a change verified and none ever will. */
   operatorNote?: string | null;
@@ -306,17 +310,26 @@ export async function recordShippedChange(args: {
   verifiedLive?: boolean;
   liveSourceUrl?: string | null;
   shipment?: ShipmentOrigin;
+  /** Whether this one can be fairly compared, decided by the recording seam BEFORE the write. A shortage
+   *  is recorded here, never used to refuse the write: an implementation fact is a fact. */
+  measurementState?: MeasurementState | null;
   now?: Date;
 }): Promise<ShippedChangeRecord> {
-  // THE FLOOR LIVES WITH THE WRITE, so a third door added later need not know: a record with nothing to compare it against can only ever
-  // settle "not enough evidence", so it is never written at all.
-  if (args.controlPages.length < MIN_CONTROLS) throw new Error(`a shipment needs ${MIN_CONTROLS} comparison pages and this one has ${args.controlPages.length}`);
+  // NO FLOOR ON THE WRITE. A shipment used to be refused outright below MIN_CONTROLS, so a true
+  // implementation went unrecorded because Beacon could not measure it: two different facts, and the
+  // one about the operator's work is never contingent on the one about the data. The shortage travels
+  // as `measurementState` and Results says it plainly instead.
   const now = args.now ?? new Date();
   const shippedAt = args.shippedAt ?? defaultPacificShipDate(now);
   const shipDate = dateOnly(shippedAt);
   const preStart = addDays(shipDate, -BASELINE_WINDOW_DAYS);
-  const pre = await readWindowForPages({ tenantId: args.tenantId, pages: [args.page], start: preStart, end: shipDate });
-  const base = pre.get(args.page) ?? NULL_METRICS;
+  const pre = await readWindowForPages({ tenantId: args.tenantId, pages: [args.page], start: preStart, end: shipDate })
+    .catch(() => new Map<string, GscWindowMetrics>());
+  // NOTHING ON FILE IS NOT ZERO. A page Search Console holds no row for gets NO frozen starting point
+  // rather than a row of zeros, which would read on screen as "it had no traffic before" and become the
+  // number every later window is compared against.
+  const held = pre.get(args.page) ?? null;
+  const base = held ?? NULL_METRICS;
   const ship = args.shipment ?? null;
   const searchBaseline = { ...base, windowDays: BASELINE_WINDOW_DAYS };
   const draft: ShippedChangeRecord = {
@@ -347,8 +360,10 @@ export async function recordShippedChange(args: {
     componentsApplied: ship?.componentsApplied ?? null,
     implementedAt: ship?.implementedAt ?? null,
     preChangeContentHash: ship?.preChangeContentHash ?? null,
+    preChangeHashUnavailable: ship?.preChangeHashUnavailable === true,
+    measurementState: args.measurementState ?? null,
     // Written once, here, and never touched again: the store refuses a second write.
-    shipmentBaseline: ship
+    shipmentBaseline: ship && held
       ? { search: searchBaseline, ai: await latestAiPresence(args.tenantId), capturedAt: now.toISOString() }
       : null,
     // NULL, ALWAYS, and null IS the due marker the verification runtime reads. Marking a change done starts the check; nothing the operator

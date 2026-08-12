@@ -91,3 +91,8 @@ export {
   recordShippedChange,
   selectControlPages,
 } from "./measure-pass";
+
+// THE RECORDING SEAM: implementation truth is stored always, measurement availability travels beside it
+export type { MeasurementState } from "./types";
+export type { RecordedShipment } from "./record-shipment";
+export { recordShipment, recordRepairShipment } from "./record-shipment";

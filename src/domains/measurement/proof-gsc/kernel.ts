@@ -23,7 +23,8 @@ import "server-only";
 import { reportingDay } from "@/lib/reporting-day";
 import { loadShippedChangesForTenant } from "./shipped-change-store";
 import { readLastFinalizedDate } from "./gsc-window";
-import { buildHeadline, learningShape, monthDay, overlapClosures } from "./read-honesty";
+import { buildHeadline, learningShape, metricFor, monthDay, overlapClosures } from "./read-honesty";
+export { metricFor };
 
 // ── The kernel's own small verdict vocabulary ──────────────────────────────
 
@@ -40,9 +41,10 @@ export type KernelVerdict =
   | "stronger_improvement" // a larger, well-supported improvement
   | "confounded"; // overlapping changes make one change impossible to separate
 
-/** Which Search metric a change is judged on. Snippet plays move CTR, rank plays
- *  move position, everything else moves clicks. */
-export type KernelMetric = "clicks" | "ctr" | "position";
+/** Which Search metric a change is judged on. Snippet plays move CTR, rank plays move
+ *  position, a whole-page change moves clicks, and an action word the metric table
+ *  (read-honesty) does not hold is `unclassified`: judged on nothing, on purpose. */
+export type KernelMetric = "clicks" | "ctr" | "position" | "unclassified";
 
 type KernelConfidence = "low" | "medium" | "high";
 
@@ -179,22 +181,6 @@ const WINDOW_DAYS: Array<7 | 14 | 28> = [7, 14, 28];
 /** The conditional fourth checkpoint. It exists on a read ONLY when the record carries a
  *  day-56 measurement, and measure-lifecycle is the one place that decides it is owed. */
 const FOLLOW_UP_DAY = 56;
-
-const CTR_ACTIONS = new Set([
-  "title", "edit_title", "meta", "edit_meta", "h1", "change_h1",
-  "intro_answer_block", "answer_block", "faq", "schema", "add_schema", "fix_schema",
-]);
-const POSITION_ACTIONS = new Set([
-  "internal_link", "add_internal_link", "internal_links", "section_reorder",
-]);
-
-/** Map an action type to the Search metric that actually measures it. Pure. */
-export function metricFor(actionType: string): KernelMetric {
-  const a = (actionType || "").toLowerCase();
-  if (CTR_ACTIONS.has(a)) return "ctr";
-  if (POSITION_ACTIONS.has(a)) return "position";
-  return "clicks";
-}
 
 // ── Date helpers (pure, UTC) ─────────────────────────────────────────────────
 
@@ -369,6 +355,20 @@ export function evaluateChange(
     evidenceItemCount: input.evidenceItemCount ?? null,
     direction,
   });
+
+  // FAIL CLOSED ON AN ACTION WORD NOTHING CAN JUDGE. An unknown spelling used to borrow the
+  // clicks rule, so a change was graded on a number it was never aimed at and the result was
+  // reported as if it meant something. There is no basis, no number and no ranking signal
+  // here: the row is recorded, and it is honestly not judged.
+  if (metric === "unclassified") {
+    return {
+      id: input.id, page: input.page, path: input.path, actionType: input.actionType, metric,
+      windows: marked, basisDay: null, lift: 0, impressionsLift: 0, verdict: "insufficient_evidence",
+      headline: "No result is claimed for this one. What was changed here is not a kind that Search data can fairly judge, so nothing is scored and nothing is learned from it.",
+      confidence: "low", confidenceReasons: ["The kind of work on this record is not one of the kinds a Search reading is judged on."],
+      caveats, overlappingIds, cleanUntil, learning: shape("unclear"), rankingSignal: 0,
+    };
+  }
 
   // Point 4: honest lag caveat when a calendar window closed but Google has not
   // caught up.

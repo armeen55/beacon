@@ -143,3 +143,25 @@ describe("no Results string reaches the operator carrying jargon", () => {
     }
   });
 });
+
+/** THE SAME TWO VOCABULARIES REACH THE SCREEN. A row's action word is a KIND ("title") or the FAMILY the bundle
+ *  producer stamps ("title-family"). Only the kinds were mapped, so every bundle this account shipped read as the
+ *  shrug "this change" while a real label existed. And a change nothing can grade, or compare, says which. */
+describe("what the screen calls the work, and what it will not promise", () => {
+  it("names a family spelling in the operator's words, never as a shrug and never as its slug", () => {
+    for (const [action, work] of [["title-family", "the title and headline"], ["section-family", "the content on the page"],
+      ["links-family", "the internal links"], ["technical-family", "the technical setup"], ["title", "the page title"]] as const) {
+      expect(first({ read: evaluateChange(input({ actionType: action }), WINDOWS, []) }).work).toBe(work);
+    }
+    const ungradable = first({ read: evaluateChange(input({ actionType: "other" }), WINDOWS, []) }); // nothing can grade it, so nothing is claimed
+    expect([ungradable.verdictWord, ungradable.liftLabel, ungradable.bar, ungradable.nextStep]).toEqual(["Not judged", null, null, "Nothing to wait for on this one."]);
+    expect(ungradable.happened).toMatch(/^Recorded, and not judged/);
+  });
+  it("says what is missing when the change is recorded and no fair comparison exists", () => {
+    const said = (m: string) => first({ read: measuring, measurement: m as never }).happened;
+    expect(said("insufficient_comparison")).toBe("Recorded. A fair comparison is not available yet: too few similar pages on this site can stand behind this one.");
+    // A shipment that CAN be compared keeps the promise it can keep.
+    expect([said("measurement_unavailable").slice(0, 55), said("verification_needed").slice(0, 30), said("measuring").slice(0, 17)])
+      .toEqual(["Recorded. A fair comparison is not available yet: Searc", "Recorded from what was applied", "Nothing read yet."]);
+  });
+});

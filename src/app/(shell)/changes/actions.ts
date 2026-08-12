@@ -8,9 +8,10 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { getRepository } from "@/lib/persistence/repositories";
 import { actionableProposalFailures, componentIdOf, dangerousComponents, dismissChangeProposal, editLifecycleStatus,
-  loadChangeProposal, markProposalImplemented, markRecommendedEditsAsShipped, resolveCurrentBasis, type ChangeProposal } from "@/domains/decision";
+  loadChangeProposal, markRecommendedEditsAsShipped, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented,
+  type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
-import { captureChangeMeta, loadShippedChanges, MIN_CONTROLS, recordShippedChange, selectControlPages, upsertShippedChange } from "@/domains/measurement";
+import { captureChangeMeta, loadShippedChanges, recordShipment, type MeasurementState } from "@/domains/measurement";
 import { invalidateCoreSurfaces } from "../surface-release";
 import { readChangesPage, type ChangesPage } from "../changes-data";
 
@@ -21,9 +22,10 @@ import { readChangesPage, type ChangesPage } from "../changes-data";
  *  says what is still theirs to do after a PARTIAL apply, in their own words. */
 type MarkProposalImplementedResponse = { success: boolean; error?: string; note?: string };
 
-/** What one press landed: whether every piece is now on file, how many this press wrote, and how many are genuinely still theirs to do (the
- *  remainder came off THIS press before, so press two of three said "the other 2" with one left). */
-type Shipped = { ok: true; complete: boolean; recorded: number; remaining: number };
+/** What one press landed: whether every piece is now on file, how many this press wrote, how many are genuinely still theirs to do (the
+ *  remainder came off THIS press before, so press two of three said "the other 2" with one left), AND THE RECORD THAT IS MEASURING IT. The
+ *  flip that follows will not run without that id, so a press can never close a change no record stands behind. */
+type Shipped = { ok: true; complete: boolean; recorded: number; remaining: number; shipmentId: string; measurement: MeasurementState };
 
 /** The exact version applied: its copy, its components, the basis it was drafted under AND THE PIECES THIS PRESS ACTUALLY APPLIED.
  *  Deliberately EXCLUDES status, so the flip that follows cannot change the id and a retry lands on the same record. Applying a different
@@ -60,7 +62,7 @@ function liveUrlFor(raw: string, domain: string): { url: string } | { error: str
  *  and the starting numbers already on file, and the caller flips nothing when it did not land. A SECOND PRESS DOES NOTHING AT ALL:
  *  rebuilding the record erased the live check back to null, moved the ship date to today and recomputed the starting numbers over a window
  *  that now included days AFTER the change, so pressing twice quietly flattered its own result. */
-async function recordShipment(tenantId: string, proposal: ChangeProposal,
+async function recordImplementation(tenantId: string, proposal: ChangeProposal,
   opts: { appliedIds: readonly string[]; operatorNote?: string | null; liveUrl?: string },
 ): Promise<Shipped | { ok: false; error: string }> {
   const bundleIds = (proposal.bundle?.components ?? []).map(componentIdOf);
@@ -71,21 +73,25 @@ async function recordShipment(tenantId: string, proposal: ChangeProposal,
     // WHAT IS ALREADY ON FILE COMES OUT OF THIS PRESS: the picker offers every piece by default, so a partial press followed by the obvious
     // next one wrote a SECOND record measuring the same component twice, and no screen can cause that now whatever it sends. The same id
     // twice in one press is one piece too, so a repeated pick cannot mint a second version of one record.
+    // NAMES ARE COMPARED ACROSS ERAS. A piece recorded before its exact copy was part of its name can only ever be compared at the precision
+    // it was written with; two names of today's era compare whole, so a redrafted piece is genuinely new work and is measured.
     const already = new Set<string>();
-    for (const r of ledger) if (r.proposalId === proposal.id) for (const c of r.componentsApplied ?? []) if (c.id) already.add(c.id);
-    const fresh = [...new Set(opts.appliedIds)].filter((id) => !already.has(id));
-    const state = (recorded: number): Shipped => {
+    const mine = ledger.filter((r) => r.proposalId === proposal.id);
+    for (const r of mine) for (const c of r.componentsApplied ?? []) if (c.id) already.add(c.id);
+    const covers = (set: Iterable<string>, id: string) => [...set].some((a) => sameComponentId(a, id));
+    const fresh = [...new Set(opts.appliedIds)].filter((id) => !covers(already, id));
+    const state = (recorded: number, shipmentId: string | null, measurement: MeasurementState): Shipped | { ok: false; error: string } => {
       const covered = new Set([...already, ...(recorded > 0 ? fresh : [])]);
-      const left = bundleIds.filter((id) => !covered.has(id));
-      return { ok: true, complete: left.length === 0, recorded, remaining: left.length };
+      const left = bundleIds.filter((id) => !covers(covered, id));
+      if (!shipmentId) {
+        log.error("markProposalImplemented: no record could be named for this press, so nothing was flipped", { proposalId: proposal.id });
+        return { ok: false, error: "Measuring this change could not start, so it is not recorded as done. Press it again in a moment." };
+      }
+      return { ok: true, complete: left.length === 0, recorded, remaining: left.length, shipmentId, measurement };
     };
-    if (bundleIds.length > 0 && fresh.length === 0) return state(0); // nothing new to measure, so nothing is written
+    // Nothing new to measure, so nothing is written and the record already on file keeps whatever it can be compared against.
+    if (bundleIds.length > 0 && fresh.length === 0) return state(0, mine[0]?.id ?? null, mine[0]?.measurementState ?? "measuring");
     const version = shippedVersionOf(proposal, fresh);
-    const held = ledger.find((r) => r.proposalId === proposal.id && r.proposalVersion === version);
-    if (held) {
-      log.info("markProposalImplemented: this exact change is already recorded, so its record was left alone", { proposalId: proposal.id, shipment: held.id });
-      return state(fresh.length);
-    }
     // Every component unless the operator named the ones they applied; an atomic change has no bundle, so the change itself is its one
     // component. THE EXACT COPY TRAVELS, because verifying is comparing what was proposed against what is on the page. THE RISK GRADE
     // TRAVELS TOO: measurement saw only the kind, so a dangerous grade on an ordinary kind lost its day-56 follow up.
@@ -97,62 +103,53 @@ async function recordShipment(tenantId: string, proposal: ChangeProposal,
       ...(c.redirectTo ? { redirectTo: c.redirectTo } : {}) }))
       // An atomic change has no component to carry a grade, so it reads null rather than a guess.
       ?? [{ id: null, kind: proposal.changeFamily, label: proposal.opportunityType, after: proposal.recommendedChange?.kind === "existing_edit" ? proposal.recommendedChange.after : null, risk: null }];
-    const wanted = new Set(fresh);
-    const componentsApplied = bundleIds.length > 0 ? all.filter((c) => c.id != null && wanted.has(c.id)) : all;
+    const componentsApplied = bundleIds.length > 0 ? all.filter((c) => c.id != null && covers(fresh, c.id)) : all;
 
     // The page as Beacon already holds it: canonical URL, path and the content hash from the last crawl, nothing fetched. THE OPERATOR'S
     // OWN ADDRESS WINS for a new page: it is the only one that exists.
     const pageRef = (opts.liveUrl ?? proposal.pageUrl ?? proposal.pagePath ?? "").trim();
     const meta = pageRef ? await captureChangeMeta(tenantId, pageRef).catch(() => null) : null;
     const change = proposal.recommendedChange;
-    const now = new Date().toISOString();
 
-    // A SHIPMENT WITH NOTHING TO COMPARE IT AGAINST IS BORN UNMEASURABLE: a reading needs MIN_CONTROLS, so every change written with an
-    // empty set was going to settle "not enough evidence" whatever it did. Chosen and frozen HERE, before anything is written. A READ THAT
-    // FAILED IS NOT A SMALL SITE: telling a connected operator to connect Search Console asks for what they already did.
-    const controlPages = await selectControlPages(tenantId, opts.liveUrl ?? meta?.canonPage ?? proposal.pageUrl ?? "").catch(() => null);
-    if (controlPages == null) return { ok: false, error: "Your other pages could not be read just now, so this is not recorded yet. Press it again in a moment." };
-    if (controlPages.length < MIN_CONTROLS) {
-      return { ok: false, error: `Only ${controlPages.length} page${controlPages.length === 1 ? "" : "s"} on your site can be fairly compared against this one, and ${MIN_CONTROLS} are needed, so it is not recorded yet. Connect Search Console, or wait a few more days of search data, then press it again.` };
-    }
-
-    const record = await recordShippedChange({
-      tenantId,
+    // THE ONE DOOR THAT WRITES A SHIPMENT. It always writes and always answers with the row's id, so an implementation the operator really
+    // made is recorded whatever the search data can support; whether it can be fairly compared comes back beside it and is said out loud
+    // rather than used to refuse the record. Idempotent on (proposal, version): a retry lands on the row already on file.
+    const landed = await recordShipment({
+      tenantId, proposalId: proposal.id, proposalVersion: version,
       page: opts.liveUrl ?? meta?.canonPage ?? proposal.pageUrl ?? proposal.pageLabel,
       path: opts.liveUrl ? new URL(opts.liveUrl).pathname : meta?.path ?? proposal.pagePath ?? proposal.pageLabel,
       actionType: proposal.changeFamily,
       before: change.kind === "existing_edit" ? change.before : null,
       after: change.kind === "existing_edit" ? change.after : change.proposedTitle,
-      // THE AI QUESTIONS RIDE TOO: the shipment's AI outcome joins observations on the tracked question
-      // texts, and dropping scope.prompts here left every future Result's AI half permanently dark.
+      // THE AI QUESTIONS RIDE TOO: the shipment's AI outcome joins observations on the tracked question texts, and dropping scope.prompts
+      // here left every future Result's AI half permanently dark.
       targetQueries: [proposal.primaryQuery, ...(proposal.bundle?.scope.queries ?? []), ...(proposal.bundle?.scope.prompts ?? [])]
         .filter((q, i, xs) => q && xs.indexOf(q) === i).slice(0, 10),
-      controlPages,
-      shippedAt: now,
-      notes: null,
-      shipment: {
-        proposalId: proposal.id,
-        proposalVersion: version,
-        basis: proposal.basis ?? null,
-        // A new page answers a research case; an edit's subject is its own page.
-        caseId: proposal.kind === "new_page" ? (proposal.id.split("::")[1]?.trim().toLowerCase() || null) : null,
-        bundleHypothesis: proposal.bundle?.objective ?? proposal.whyItMatters,
-        componentsApplied,
-        implementedAt: now,
-        preChangeContentHash: meta?.contentHash ?? null,
-        // THE NOTE TRAVELS WITH THE PRESS, and nothing else does: their own words ride along BESIDE the reading, and Beacon still goes and
-        // looks at the page itself before it says anything.
-        operatorNote: opts.operatorNote?.trim() || null,
-      },
+      basis: proposal.basis ?? null,
+      // A new page answers a research case; an edit's subject is its own page.
+      caseId: proposal.kind === "new_page" ? (proposal.id.split("::")[1]?.trim().toLowerCase() || null) : null,
+      bundleHypothesis: proposal.bundle?.objective ?? proposal.whyItMatters,
+      componentsApplied,
+      preChangeContentHash: meta?.contentHash ?? null,
+      // THE NOTE TRAVELS WITH THE PRESS, and nothing else does: their own words ride along BESIDE the reading, and Beacon still goes and
+      // looks at the page itself before it says anything.
+      operatorNote: opts.operatorNote ?? null,
     });
-    await upsertShippedChange(record);
-    return state(fresh.length);
+    return state(fresh.length, landed.shipmentId, landed.measurement);
   } catch (err) {
     log.error("markProposalImplemented: the shipment did not land, so nothing was flipped", {
       proposalId: proposal.id, error: err instanceof Error ? err.message : String(err),
     });
     return { ok: false, error: "Measuring this change could not start, so it is not recorded as done. Press it again in a moment." };
   }
+}
+
+/** What the press says about the reading it just started, and nothing when the reading is simply running. Recorded is recorded in every case. */
+function measurementNote(state: MeasurementState): string | undefined {
+  if (state === "insufficient_comparison") return "Recorded. Too few pages on your site can be fairly compared against this one yet, so the reading starts as soon as enough of them have search data.";
+  if (state === "measurement_unavailable") return "Recorded. Your search data could not be read just now, so the reading starts as soon as it can be.";
+  if (state === "verification_needed") return "Recorded. The page is checked next, and the reading starts from what is found there.";
+  return undefined;
 }
 
 /** Record that the operator applied a change. THE CLAIM STARTS THE CHECK AND NEVER ENDS IT: whatever arrives here, the Shipment is written
@@ -207,7 +204,8 @@ export async function markProposalImplementedAction(args: {
     let applied = components;
     if (args.componentIds !== undefined) {
       const wanted = new Set(args.componentIds);
-      applied = components.filter((_, i) => wanted.has(ids[i]!));
+      // Era-tolerant on purpose: a screen open since before the copy joined the name still ticks the piece it is looking at.
+      applied = components.filter((_, i) => [...wanted].some((w) => sameComponentId(w, ids[i]!)));
       if (applied.length === 0 || applied.length !== wanted.size) {
         return { success: false, error: "The pieces you ticked are not recognized, so nothing was recorded. Open the change again and tick what you applied." };
       }
@@ -230,7 +228,7 @@ export async function markProposalImplementedAction(args: {
     }
     // SHIPMENT FIRST, FLIP SECOND. Never the other way around.
     const appliedIds = args.componentIds !== undefined ? args.componentIds : ids;
-    const shipment = await recordShipment(tenantId, stored, { appliedIds, operatorNote: args.operatorNote, liveUrl });
+    const shipment = await recordImplementation(tenantId, stored, { appliedIds, operatorNote: args.operatorNote, liveUrl });
     if (!shipment.ok) return { success: false, error: shipment.error };
     // A PARTIAL APPLY CLOSES NOTHING: applying one piece of five used to mark the whole change done, so the four they never touched
     // vanished. The change stays open carrying the rest, each subset measured alone, and the count is the TRUE remainder.
@@ -244,7 +242,8 @@ export async function markProposalImplementedAction(args: {
         : "Those pieces were already on file and are being measured.";
       return { success: true, note: `${landed} The other ${left} ${one("is", "are")} still on your list: tick ${one("it", "them")} here when you apply ${one("it", "them")}.` };
     }
-    const ok = await markProposalImplemented(tenantId, args.proposalId, liveUrl);
+    // THE LAST STEP, AND IT CARRIES THE RECORD'S OWN ID. A flip with nothing measuring behind it is refused by the store itself.
+    const ok = await transitionProposalToImplemented(tenantId, args.proposalId, shipment.shipmentId, liveUrl);
     if (!ok) {
       return { success: false, error: "That change could not be found, so it was not marked implemented." };
     }
@@ -253,9 +252,10 @@ export async function markProposalImplementedAction(args: {
     revalidatePath("/", "layout");
     log.info("Action completed", { action, durationMs: Date.now() - t0, params: { proposalId: args.proposalId } });
     // A PRESS WITH NOTHING NEW IN IT IS NOT A SILENT SUCCESS: say plainly that it is already being measured.
-    return n === 0 && ids.length > 0
-      ? { success: true, note: "Every piece of this change is already on file and being measured. There is nothing left for you to record here." }
-      : { success: true };
+    if (n === 0 && ids.length > 0) return { success: true, note: "Every piece of this change is already on file and being measured. There is nothing left for you to record here." };
+    // AND A RECORD THAT CANNOT BE READ FAIRLY YET SAYS SO ON THE PRESS. The work is recorded either way, because what the operator applied is
+    // a fact and whether Search data can compare it is a different fact; being quiet about the second one promises a reading nobody can take.
+    return { success: true, note: measurementNote(shipment.measurement) };
   } catch (err) {
     // THE RAW MESSAGE GOES TO THE LOG AND NOWHERE ELSE: a table name is not an answer to a customer.
     log.error("markProposalImplemented: failed", { proposalId: args.proposalId, error: err instanceof Error ? err.message : String(err) });

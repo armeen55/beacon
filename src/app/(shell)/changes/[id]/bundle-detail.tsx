@@ -3,7 +3,7 @@
  *  press that takes them, why this is the smartest move, what was checked); layer 2 proves, behind one
  *  expander. Nothing here reads the database: the route hands it the row it already resolved. */
 import Link from "next/link";
-import { causeLabel, componentIdOf, dangerousComponents } from "@/domains/decision";
+import { causeLabel, componentIdOf, dangerousComponents, sameComponentId } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { CopyButton, MarkImplemented, SetAsideChange } from "../change-controls";
@@ -169,7 +169,8 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
           label={isNew ? "Mark done" : "Mark done"}
           newPage={isNew}
           components={bundle.components.map((c, i) => ({ id: componentIdOf(c, i), kind: c.kind, label: c.label,
-            moves: dangerousComponents([c]).length > 0, recorded: recorded.has(componentIdOf(c, i)) }))}
+            // Era-tolerant, exactly as the server matches: a piece recorded before its copy joined its name still shows as recorded.
+            moves: dangerousComponents([c]).length > 0, recorded: [...recorded].some((r) => sameComponentId(r, componentIdOf(c, i))) }))}
         />
         <p className="text-[12px] text-muted-foreground">
           After you make it, the page is checked and the measurement starts from what is found.
