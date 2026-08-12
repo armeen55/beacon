@@ -112,28 +112,22 @@ describe("the canonical Shipment", () => {
     expect(stored.shipmentBaseline?.ai).toEqual({ day: "2026-07-30", checked: 2, analyzed: 2, mentioning: 1 });
     expect(stored.verification).toBeNull(); // nobody has checked it, and that null makes it due
   });
-  it("counts the AI starting number over the WHOLE day, never the newest page of it", async () => {
-    // The baseline used to be read off the newest 60 rows and frozen, so a 140 answer day was compared against a sample of itself for the next 28 days: the before side was a fraction and the after side was a day. The day is found off a small probe and then READ BY NAME, which returns all of it.
+  // The baseline used to be read off the newest 60 rows, so a 140 answer day was compared against a sample of itself for 28 days, and it
+  // counted mentions over every answer that came back, so an answer nobody had read yet was an implicit miss while the after side divides
+  // by the answers actually read. The day is found off a small probe, READ BY NAME, and the denominator is written down.
+  it("counts the AI starting number over the WHOLE day, and writes down how many of it were read closely", async () => {
     const DAY = "2026-07-30";
-    const whole = Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY,
-      analysis: { ownedBrandMention: { mentioned: i % 2 === 0 } }, analysisHash: "x", answerHash: "x" }));
-    ai.views.mockImplementation(async (_t: string, o: { day?: string; limit?: number }) =>
-      (o?.day === DAY ? whole : whole.slice(0, o?.limit ?? 60)));
+    const day = (analysed: number) => Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY,
+      analysis: i < analysed ? { ownedBrandMention: { mentioned: i < analysed * 0.6 } } : null,
+      analysisHash: i < analysed ? "x" : null, answerHash: "x" }));
+    const serve = (rows: Record<string, unknown>[]) => ai.views.mockImplementation(
+      async (_t: string, o: { day?: string; limit?: number }) => (o?.day === DAY ? rows : rows.slice(0, o?.limit ?? 60)));
+    serve(day(140));
     await upsertShippedChange(await ship());
-    const [stored] = await loadShippedChangesForTenant(T);
-    expect(stored.shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 140, mentioning: 70 });
-  });
-  it("writes down HOW MANY of that day's answers were read closely, which is the denominator the rate uses", async () => {
-    // The starting number used to count mentions over every answer that came back, so an answer nobody had read yet was an implicit miss, while the after side divides by the answers actually read. The change was then judged by comparing one measure against a different one. 140 answers, 100 of them read closely, 60 naming the
-    // account: the starting rate is 0.6, and it was 0.43.
-    const DAY = "2026-07-30";
-    const whole = Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY,
-      analysis: i < 100 ? { ownedBrandMention: { mentioned: i < 60 } } : null, analysisHash: i < 100 ? "x" : null, answerHash: "x" }));
-    ai.views.mockImplementation(async (_t: string, o: { day?: string; limit?: number }) =>
-      (o?.day === DAY ? whole : whole.slice(0, o?.limit ?? 60)));
+    expect((await loadShippedChangesForTenant(T))[0].shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 140, mentioning: 84 });
+    db.state.rows = []; db.state.file = []; serve(day(100));
     await upsertShippedChange(await ship());
-    const [stored] = await loadShippedChangesForTenant(T);
-    expect(stored.shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 100, mentioning: 60 });
+    expect((await loadShippedChangesForTenant(T))[0].shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 100, mentioning: 60 });
   });
   it("heals a retried press instead of recording the change twice", async () => {
     const first = await ship();
@@ -143,9 +137,13 @@ describe("the canonical Shipment", () => {
     expect(retry.id).toBe(first.id);
     expect(db.state.rows).toHaveLength(1);
   });
-  it("stores a partial bundle as a partial bundle", async () => {
+  it("stores a partial bundle as a partial bundle, and keeps the exact copy each piece carried", async () => {
     await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: [COMPONENTS[0]] }) as never }));
     expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual([COMPONENTS[0]]);
+    const withCopy = [{ kind: "title", label: "Page title", after: "Nowruz Traditions and the Haft-Seen Table" }];
+    db.state.rows = []; db.state.file = [];
+    await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: withCopy }) as never }));
+    expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual(withCopy);
   });
   it("writes the stamp and the starting numbers once: a later writer keeps what is on file", async () => {
     await upsertShippedChange(await ship());
@@ -158,12 +156,6 @@ describe("the canonical Shipment", () => {
     const [after] = await loadShippedChangesForTenant(T);
     expect(after.implementedAt).toBe(NOW.toISOString());
     expect(after.shipmentBaseline?.search.clicks).toBe(9);
-  });
-  it("keeps the exact copy each component carried, which is what the live check compares the page against", async () => {
-    const withCopy = [{ kind: "title", label: "Page title", after: "Nowruz Traditions and the Haft-Seen Table" },
-      { kind: "opening_answer", label: "Opening answer", after: "A nowruz table is set with seven symbolic items." }];
-    await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: withCopy }) as never }));
-    expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual(withCopy);
   });
   // PIN (B): the operator's words are kept as a NOTE, and the reading is still owed.
   it("keeps what the operator says they did as a note, and still owes the live check", async () => {
@@ -195,7 +187,7 @@ describe("a day-56 reading already taken", () => {
   });
   it("survives a recompute that could not ask for it again, and is never re-bought", async () => {
     const held = { ...(await ship()), verdict: "inconclusive" as const, windows: [ranWindow(56, 400)] as never };
-    const measured = await measureRecord(T, held, LATER, BEHIND_56);
+    const measured = await measureRecord(T, held, LATER, BEHIND_56, new Set());
     // The 7/14/28 windows are rebuilt; the reading Beacon already paid for rides through.
     expect(measured.windows.map((w) => w.day)).toEqual([7, 14, 28, 56]);
     expect(measured.windows.find((w) => w.day === 56)?.adjustedLift).toBe(400);
@@ -206,34 +198,26 @@ describe("a day-56 reading already taken", () => {
   });
 });
 describe("recording what the live check found", () => {
-  it("writes the verdict without touching the stamp or the starting numbers", async () => {
-    const record = await ship();
-    await upsertShippedChange(record);
-    expect(await recordVerification(T, record.id, verification("verified"))).toBe(true);
-    const [stored] = await loadShippedChangesForTenant(T);
-    expect(stored.verification?.status).toBe("verified");
-    expect(stored.implementedAt).toBe(NOW.toISOString());
-    expect(stored.shipmentBaseline?.search.clicks).toBe(9);
-  });
-  it("fails closed on another account's shipment, and on an id nobody holds", async () => {
+  it("writes the verdict without touching the stamp, and fails closed on a shipment that is not this account's", async () => {
     const record = await ship();
     await upsertShippedChange(record);
     expect(await recordVerification("acct-b", record.id, verification("verified"))).toBe(false);
     expect(await recordVerification(T, "shp_nothing", verification("not_found"))).toBe(false);
     expect((await loadShippedChangesForTenant(T))[0].verification).toBeNull();
+    expect(await recordVerification(T, record.id, verification("verified"))).toBe(true);
+    const [stored] = await loadShippedChangesForTenant(T);
+    expect([stored.verification?.status, stored.implementedAt, stored.shipmentBaseline?.search.clicks])
+      .toEqual(["verified", NOW.toISOString(), 9]);
   });
 });
 /** THE PRE-MIGRATION WINDOW. The columns are not there yet, the table is, and production reads the table: a write that quietly lands in a file is a write nobody will
  *  ever read back. */
 describe("when the Shipment columns are not there yet", () => {
   const MISSING_COLUMN = { code: "PGRST204", message: "Could not find the 'implemented_at' column of 'shipped_change_proof' in the schema cache" };
-  it("refuses a Shipment it cannot store durably instead of pretending it landed", async () => {
+  it("refuses a Shipment it cannot store durably, but still files a pre-Shipment row nothing reads from the table", async () => {
     db.state.upsertError = MISSING_COLUMN;
     await expect(upsertShippedChange(await ship())).rejects.toThrow(/migration/i);
     expect([db.state.rows.length, db.state.file.length]).toEqual([0, 0]);
-  });
-  it("still records a pre-Shipment row to the file, because nothing downstream reads that one from the table", async () => {
-    db.state.upsertError = MISSING_COLUMN;
     await upsertShippedChange(await ship({ shipment: undefined }));
     expect(db.state.file).toHaveLength(1);
   });

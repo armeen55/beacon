@@ -24,6 +24,7 @@ import { reportingDay } from "@/lib/reporting-day";
 import { loadShippedChangesForTenant } from "./shipped-change-store";
 import { readLastFinalizedDate } from "./gsc-window";
 import { buildHeadline, learningShape, metricFor, monthDay, overlapClosures } from "./read-honesty";
+import { applyPinnedRead } from "./pinned-read";
 export { metricFor };
 
 // ── The kernel's own small verdict vocabulary ──────────────────────────────
@@ -96,7 +97,11 @@ export type KernelInput = {
     adjustedImpressionsLift: number;
     controlsUsed: number;
     treatedPostImpressions: number;
+    /** The page's OWN click movement over the window, with nothing subtracted. Absent on a legacy row. */
+    treatedDelta?: number;
   }>;
+  /** Whether a fair comparison exists for this change, as the recording seam decided it. */
+  measurementState?: string | null;
   /** GA4 net extra sessions since the change, only when GA4 is trustworthy for
    *  this property. Null when GA4 is absent or not trustworthy. Never invents a
    *  number. */
@@ -127,6 +132,13 @@ export type KernelRead = {
   /** The basis window's adjusted impressions (visibility) lift. */
   impressionsLift: number;
   verdict: KernelVerdict;
+  /** Whether enough untouched pages stood behind this change. "insufficient" means no directional
+   *  verdict is claimed and nothing is taught to ranking: the numbers below are the page's own. */
+  comparison: "fair" | "insufficient";
+  /** THE PAGE'S OWN BEFORE AND AFTER over the basis window, with nothing subtracted and nothing
+   *  compared. Surfaced so an unreadable change can still show what happened, labelled unadjusted,
+   *  without a verdict riding on it. Null while no window has closed with data. */
+  unadjusted: { basisDay: CheckpointDay; clicksBefore: number; clicksAfter: number; impressionsBefore: number; impressionsAfter: number } | null;
   /** The operator-facing headline. Beacon voice, concrete, honest. */
   headline: string;
   confidence: KernelConfidence;
@@ -154,13 +166,12 @@ export type KernelRead = {
 
 // ── Thresholds (conservative, observational, named so they are auditable) ────
 
-/** A page needs at least this many baseline impressions before any read. */
+/** Baseline impressions a page needs before any read. */
 const MIN_BASELINE_IMPRESSIONS = 200;
 /** At least this many comparable (control) pages before a directional read. */
 export const MIN_CONTROLS = 2;
-/** Comparable pages for a stronger, higher-confidence read. */
+/** Comparable pages, and baseline impressions, for a stronger higher-confidence read. */
 const CONTROLS_FOR_STRONG = 3;
-/** Baseline impressions for a stronger, higher-confidence read. */
 const IMPRESSIONS_FOR_STRONG = 3000;
 /** Clicks lift floor (absolute) OR this fraction of the window baseline. */
 const MIN_LIFT_CLICKS = 3;
@@ -176,6 +187,11 @@ const BASELINE_WINDOW_DAYS = 28;
 /** Google reports a few days behind; a window is only readable once its close
  *  date is at least this many days behind the finalized data watermark. */
 export const GSC_LAG_DAYS = 3;
+
+/** WHAT AN UNREADABLE CHANGE SAYS, in one sentence and always the same one. Recording the work is a
+ *  fact; separating its effect from the rest of the site is a different fact, and this is the second. */
+const NO_FAIR_COMPARISON =
+  "The change is recorded. Its effect cannot be separated from the rest of the site yet.";
 
 const WINDOW_DAYS: Array<7 | 14 | 28> = [7, 14, 28];
 /** The conditional fourth checkpoint. It exists on a read ONLY when the record carries a
@@ -364,6 +380,7 @@ export function evaluateChange(
     return {
       id: input.id, page: input.page, path: input.path, actionType: input.actionType, metric,
       windows: marked, basisDay: null, lift: 0, impressionsLift: 0, verdict: "insufficient_evidence",
+      comparison: "fair", unadjusted: null,
       headline: "No result is claimed for this one. What was changed here is not a kind that Search data can fairly judge, so nothing is scored and nothing is learned from it.",
       confidence: "low", confidenceReasons: ["The kind of work on this record is not one of the kinds a Search reading is judged on."],
       caveats, overlappingIds, cleanUntil, learning: shape("unclear"), rankingSignal: 0,
@@ -380,59 +397,49 @@ export function evaluateChange(
   // No closed window with data yet => still waiting. Never a dead-end read.
   if (!basisWindow) {
     return {
-      id: input.id,
-      page: input.page,
-      path: input.path,
-      actionType: input.actionType,
-      metric,
-      windows: marked,
-      basisDay: null,
-      lift: 0,
-      impressionsLift: 0,
-      verdict: "waiting",
+      id: input.id, page: input.page, path: input.path, actionType: input.actionType, metric,
+      windows: marked, basisDay: null, lift: 0, impressionsLift: 0, verdict: "waiting",
+      comparison: input.measurementState === "insufficient_comparison" ? "insufficient" : "fair",
+      unadjusted: null,
       headline: "I am still measuring this. The first read lands once a check window closes and Google finalizes those days.",
-      confidence: "low",
-      confidenceReasons: ["No check window has closed with finalized data yet."],
-      caveats,
-      overlappingIds,
-      cleanUntil,
-      learning: shape("unclear"),
-      rankingSignal: 0,
+      confidence: "low", confidenceReasons: ["No check window has closed with finalized data yet."],
+      caveats, overlappingIds, cleanUntil, learning: shape("unclear"), rankingSignal: 0,
     };
   }
 
   const lift = liftOnMetric(basisWindow, metric);
   const impressionsLift = basisWindow.adjustedImpressionsLift;
   const controls = basisWindow.controlsUsed;
+  // THE PAGE'S OWN BEFORE AND AFTER, pro-rated onto the basis window from the 28-day baseline. No
+  // comparison page touches these, which is exactly why they can be shown when the comparison fails.
+  const share = basisDay! / BASELINE_WINDOW_DAYS;
+  const clicksBefore = Math.round(input.baselineClicks * share);
+  const impressionsBefore = Math.round(input.baselineImpressions * share);
+  const unadjusted = {
+    basisDay: basisDay!, clicksBefore, clicksAfter: Math.round(clicksBefore + (basisWindow.treatedDelta ?? 0)),
+    impressionsBefore, impressionsAfter: Math.round(basisWindow.treatedPostImpressions),
+  };
 
   // Point 6: insufficient when the sample can not support a directional read.
   const thinBaseline = input.baselineImpressions < MIN_BASELINE_IMPRESSIONS;
   const thinControls = controls < MIN_CONTROLS;
   const noRateData =
     (metric === "ctr" || metric === "position") && basisWindow.treatedPostImpressions === 0;
-  if (thinBaseline || thinControls || noRateData) {
+  // TOO FEW FAIR COMPARISONS IS ITS OWN STATE, not thin data: the work landed, and what it did cannot
+  // be separated from the rest of the site. No direction is claimed and ranking learns nothing.
+  const unfairComparison = thinControls || input.measurementState === "insufficient_comparison";
+  if (thinBaseline || unfairComparison || noRateData) {
     if (thinBaseline) confidenceReasons.push(`This page had ${Math.round(input.baselineImpressions)} impressions before the change, below the ${MIN_BASELINE_IMPRESSIONS} I want before I read a result.`);
     if (thinControls) confidenceReasons.push(`I could compare against only ${controls} similar page${controls === 1 ? "" : "s"}, below the ${MIN_CONTROLS} I want.`);
     if (noRateData) confidenceReasons.push("This page had no Search impressions in the window, so there is no click rate or rank to compare.");
     return {
-      id: input.id,
-      page: input.page,
-      path: input.path,
-      actionType: input.actionType,
-      metric,
-      windows: marked,
-      basisDay,
-      lift,
-      impressionsLift,
-      verdict: "insufficient_evidence",
-      headline: "I cannot read this one confidently yet. There is not enough Search data or enough similar pages to compare against.",
-      confidence: "low",
-      confidenceReasons,
-      caveats,
-      overlappingIds,
-      cleanUntil,
-      learning: shape("unclear"),
-      rankingSignal: 0,
+      id: input.id, page: input.page, path: input.path, actionType: input.actionType, metric,
+      windows: marked, basisDay, lift, impressionsLift, verdict: "insufficient_evidence",
+      comparison: unfairComparison ? "insufficient" : "fair", unadjusted,
+      headline: unfairComparison ? NO_FAIR_COMPARISON
+        : "I cannot read this one confidently yet. There is not enough Search data or enough similar pages to compare against.",
+      confidence: "low", confidenceReasons,
+      caveats, overlappingIds, cleanUntil, learning: shape("unclear"), rankingSignal: 0,
     };
   }
 
@@ -503,6 +510,8 @@ export function evaluateChange(
     lift,
     impressionsLift,
     verdict,
+    comparison: "fair",
+    unadjusted,
     headline,
     confidence,
     confidenceReasons,
@@ -571,7 +580,10 @@ export type LedgerRecordLike = {
     adjustedImpressionsLift?: number;
     controlsUsed?: number;
     treatedPostImpressions?: number;
+    treatedDelta?: number;
   }> | null;
+  /** Whether a fair comparison exists, as the recording seam decided it. */
+  measurementState?: string | null;
   /** Optional GA4 net extra sessions since the change, supplied by the caller
    *  only when GA4 is trustworthy for the property. Never sourced from a deleted
    *  module; absent => no GA4 line. */
@@ -605,6 +617,7 @@ export function toKernelInput(r: LedgerRecordLike): KernelInput {
       adjustedImpressionsLift: w.adjustedImpressionsLift ?? 0,
       controlsUsed: w.controlsUsed ?? 0,
       treatedPostImpressions: w.treatedPostImpressions ?? 0,
+      treatedDelta: w.treatedDelta ?? 0,
     }));
   return {
     id: r.id,
@@ -621,6 +634,7 @@ export function toKernelInput(r: LedgerRecordLike): KernelInput {
     componentKinds: (r.componentsApplied ?? []).map((c) => c.kind),
     diagnosisCause: r.diagnosisCause ?? null,
     evidenceItemCount: r.evidenceItemCount ?? null,
+    measurementState: r.measurementState ?? null,
   };
 }
 
@@ -673,25 +687,6 @@ export function bandOf(read: Pick<KernelRead, "verdict" | "basisDay">): ResultBa
   return "measuring";
 }
 
-/** Split reads into the four bands, preserving order. Pure. */
-export function splitReads<T extends { read: Pick<KernelRead, "verdict" | "basisDay"> }>(
-  items: ReadonlyArray<T>,
-): { won: T[]; promising: T[]; learned: T[]; measuring: T[] } {
-  const out = { won: [] as T[], promising: [] as T[], learned: [] as T[], measuring: [] as T[] };
-  for (const it of items) out[bandOf(it.read)].push(it);
-  return out;
-}
-
-/** A short, plain window-state line for the operator. Pure. */
-export function windowStateLine(windows: ReadonlyArray<KernelWindowRead>): string {
-  const closed = windows.filter((w) => w.state === "closed").map((w) => w.day);
-  const pending = windows.some((w) => w.state === "pending_data");
-  if (closed.length === windows.length && closed.length > 0) return `All ${closed.length} check windows (${closed.join(", ")} days) have closed.`;
-  if (closed.length > 0) return `${closed.join(" and ")}-day window${closed.length === 1 ? "" : "s"} closed; the rest are still open.`;
-  if (pending) return "A check window has closed on the calendar, but Google has not finalized those days yet.";
-  return "Still waiting on the first check window to close.";
-}
-
 // ── Learning / ranking compat: settled verdict from a stored record ──────────
 
 /**
@@ -728,7 +723,7 @@ export function learningVerdictOf(read: KernelRead): "won" | "lost" | "measuring
  * Returns reads aligned 1:1 with the input records. Pure.
  */
 export function readRecordsForLearning(
-  records: ReadonlyArray<LedgerRecordLike & { operatorVerdictOverride?: string | null }>,
+  records: ReadonlyArray<LedgerRecordLike & { operatorVerdictOverride?: string | null; pinnedRead?: unknown }>,
   _now: Date = new Date(),
 ): KernelRead[] {
   const inputs = records.map(toKernelInput);
@@ -741,7 +736,12 @@ export function readRecordsForLearning(
       return evaluateChange({ ...input, windows: [] }, windowsFromRanFlags(input), []);
     }
     const o = overlaps.get(input.id) ?? { ids: [], cleanUntil: null };
-    return evaluateChange(input, windowsFromRanFlags(input), o.ids, o.cleanUntil);
+    // ONE DURABLE RESULT. Learning used to re-derive its own verdict while the operator was served the
+    // FROZEN one, so ranking could be taught a number no screen ever showed. Same tuple, both sides.
+    return applyPinnedRead(
+      evaluateChange(input, windowsFromRanFlags(input), o.ids, o.cleanUntil),
+      (records[idx].pinnedRead ?? null) as Parameters<typeof applyPinnedRead>[1],
+    );
   });
 }
 

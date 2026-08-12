@@ -9,12 +9,16 @@ import { createHash } from "node:crypto";
 
 import { reportingDay } from "@/lib/reporting-day";
 import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
+import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { isAnalysisSettled, readAiObservationViews } from "@/domains/evidence/ai-visibility/ai-observations";
 import {
   loadPageSurgeonContext,
   topPagesByDemand,
   assemblePacketForUrl,
 } from "@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet";
+import { loadPageJobs } from "@/domains/decision/producers/page-job";
+import { loadChangeProposals } from "@/domains/decision/proposal-store";
+import { contaminatedPaths, contaminationFor, pathOf as contaminationPathOf, selectMatchedControls, type ControlReceipt } from "./contamination";
 import { loadShippedChangesForTenant } from "./shipped-change-store";
 import { readWindowForPages, readLastFinalizedDate } from "./gsc-window";
 import {
@@ -127,13 +131,18 @@ function storedVerdictFor(record: ShippedChangeRecord, now: Date, lastFinal: str
 export async function measureRecord(
   tenantId: string,
   record: ShippedChangeRecord,
-  now: Date = new Date(),
-  lastFinalizedDate?: string | null,
-  excludeControlPaths: Set<string> = new Set(),
+  now: Date,
+  lastFinalizedDate: string | null | undefined,
+  /** REQUIRED, and required on purpose. Three doors used to answer this question three different
+   *  ways, so one change read against three different comparison sets. Build it with
+   *  `contaminationFor` (contamination.ts) and nothing else; the compiler now asks every caller. */
+  excludeControlPaths: ReadonlySet<string>,
 ): Promise<ShippedChangeRecord> {
   const shipDate = dateOnly(record.implementedAt ?? record.shippedAt);
   const lastFinal = lastFinalizedDate !== undefined ? lastFinalizedDate : await readLastFinalizedDate(tenantId);
-  const controlPages = record.controlPages.filter((c) => !excludeControlPaths.has(toPath(c)));
+  // ONE normalizer governs the whole policy: the exclusion set is keyed by contamination's pathOf,
+  // so the consumption side must ask with the same spelling or a query-carrying URL slips the filter.
+  const controlPages = record.controlPages.filter((c) => !excludeControlPaths.has(contaminationPathOf(c)));
   const pages = [record.page, ...controlPages];
 
   const preStart = addDays(shipDate, -BASELINE_WINDOW_DAYS);
@@ -277,19 +286,81 @@ type ShipmentOrigin = {
   operatorNote?: string | null;
 };
 
-/** THE ONE COMPARISON-PAGE CHOOSER, for every door that writes a ledger record. A change is read against pages on the same site nobody
- *  touched: top same-site pages by search demand, canonicalized, never the treated page and never one already under measurement, whose own
- *  change contaminates the difference. Read for THIS account explicitly, never off an ambient tenant, and frozen at selection time. NULL is
- *  a read that FAILED, a different sentence from a site that genuinely has too few pages. */
-export async function selectControlPages(tenantId: string, treatedPage: string): Promise<string[] | null> {
-  const ledger = await loadShippedChangesForTenant(tenantId).catch(() => null);
-  const ctx = await loadPageSurgeonContext(tenantId).catch(() => null);
+/** The pages this account already has an edit queued or freshly landed on. A page about to move is
+ *  not a still page, so it cannot anchor a difference. Never throws: an unreadable queue narrows
+ *  the answer to what the ledger alone knows. */
+export async function openChangePaths(tenantId: string): Promise<string[]> {
+  const store = await loadChangeProposals(tenantId).catch(() => null);
+  if (store == null) return [];
+  return [...store.values()]
+    .filter((p) => p.status === "ready" || p.status === "implemented_pending_verification")
+    .map((p) => p.pagePath ?? "")
+    .filter((p) => p.length > 0);
+}
+
+/** How many demand-ranked pages the matcher considers before picking three. Wider than the three it
+ *  needs, so the matched page is chosen rather than whichever page happened to be biggest. */
+const CONTROL_CANDIDATE_POOL = 40;
+
+/** The jobs ALREADY on file for these pages, and no others. The transport refuses every call, so a
+ *  page whose job was read before answers for free and a page whose job was never read answers null,
+ *  which costs nothing and blocks nothing. */
+async function cachedPageJobs(tenantId: string, ctx: Awaited<ReturnType<typeof loadPageSurgeonContext>>, urls: string[]) {
+  return loadPageJobs(tenantId, urls.map((url) => {
+    const snap = ctx.snapshotByCanon.get(url);
+    return { url, title: snap?.title, h1: snap?.h1, headings: snap?.h2_list ?? [], wordCount: snap?.word_count ?? null };
+  }), { complete: async () => ({ error: "comparison matching reads only the jobs already on file", retryable: false }) })
+    .catch(() => new Map<string, { pageType: string }>());
+}
+
+/**
+ * THE ONE COMPARISON-PAGE CHOOSER, for every door that writes a ledger record, WITH THE RECEIPT.
+ *
+ * Raw traffic order used to decide this: the three biggest pages on the site stood behind a small
+ * one, and the difference they anchored was mostly the difference between a hub and a leaf. The pool
+ * is now every page this account is not currently changing, and the three that stand behind a change
+ * are the ones whose job on file says the same shape, whose traffic sits beside it, and whose
+ * baseline window actually holds Search data. Read for THIS account explicitly and frozen at
+ * selection time. NULL is a read that FAILED, a different sentence from a site with too few pages.
+ */
+export async function matchedControlsFor(
+  tenantId: string, treatedPage: string, shipDate: string, now: Date,
+): Promise<{ controls: string[]; receipts: ControlReceipt[] } | null> {
+  const [ledger, ctx, open] = await Promise.all([
+    loadShippedChangesForTenant(tenantId).catch(() => null),
+    loadPageSurgeonContext(tenantId).catch(() => null),
+    openChangePaths(tenantId),
+  ]);
   if (ledger == null || ctx == null) return null;
-  const path = (u: string): string => u.replace(/\/+$/, "") || "/";
-  const treated = new Set(ledger.map((r) => path(r.path)));
-  const untreated = (u: string): boolean => { try { return !treated.has(path(new URL(u).pathname)); } catch { return true; } };
-  return topPagesByDemand(ctx, 12).map((u) => canonicalizeCitationUrl(u) ?? u)
-    .filter((u) => u && u !== treatedPage && untreated(u)).slice(0, 3);
+  const pool = topPagesByDemand(ctx, CONTROL_CANDIDATE_POOL)
+    .map((u) => canonicalizeCitationUrl(u) ?? u)
+    .filter((u) => u && u !== treatedPage);
+  const excluded = contaminationFor(ledger, open, now, { path: toPath(treatedPage), shippedAt: shipDate });
+  // The SAME pre-change window the diff in diff reads, so "traffic beside it" and "the baseline holds
+  // data" are the numbers the measurement itself will use, not a 90-day average standing in for them.
+  const baseline = await readWindowForPages({
+    tenantId, pages: [treatedPage, ...pool], start: addDays(shipDate, -BASELINE_WINDOW_DAYS), end: shipDate,
+  }).catch(() => new Map<string, GscWindowMetrics>());
+  const jobs = await cachedPageJobs(tenantId, ctx, [treatedPage, ...pool]);
+  const typeOf = (u: string): string | null => jobs.get(canonicalUrlKey(u))?.pageType ?? null;
+  return selectMatchedControls({
+    treated: {
+      path: toPath(treatedPage), pageType: typeOf(treatedPage),
+      baselineImpressions: baseline.get(treatedPage)?.impressions ?? 0,
+    },
+    candidates: pool.map((url) => ({
+      url, path: toPath(url), pageType: typeOf(url),
+      baselineImpressions: baseline.get(url)?.impressions ?? 0,
+      hasBaseline: (baseline.get(url)?.impressions ?? 0) > 0,
+    })),
+    excluded,
+  });
+}
+
+/** The same chooser, for a door that wants only the pages. NULL still means the read failed. */
+export async function selectControlPages(tenantId: string, treatedPage: string): Promise<string[] | null> {
+  const now = new Date();
+  return (await matchedControlsFor(tenantId, treatedPage, defaultPacificShipDate(now), now))?.controls ?? null;
 }
 
 /** Capture a 28-day baseline + create the ledger record for a manually-shipped change, then measure it immediately. Preserves the (path,
@@ -305,6 +376,8 @@ export async function recordShippedChange(args: {
   after: string | null;
   targetQueries: string[];
   controlPages: string[];
+  /** WHY each comparison page qualified, in checkable facts. Absent on a door that chose its own. */
+  controlsReceipt?: ControlReceipt[] | null;
   shippedAt?: string;
   notes?: string | null;
   verifiedLive?: boolean;
@@ -343,6 +416,7 @@ export async function recordShippedChange(args: {
     baseline: searchBaseline,
     targetQueries: args.targetQueries,
     controlPages: args.controlPages,
+    controlsReceipt: args.controlsReceipt ?? null,
     windows: [],
     verdict: "measuring",
     confidence: "low",
@@ -375,5 +449,12 @@ export async function recordShippedChange(args: {
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
-  return measureRecord(args.tenantId, draft, now);
+  // The one policy, asked here exactly as every other door asks it: the pages that cannot stand
+  // behind THIS change over ITS window, and nothing wider.
+  const [ledger, open] = await Promise.all([
+    loadShippedChangesForTenant(args.tenantId).catch(() => [] as ShippedChangeRecord[]),
+    openChangePaths(args.tenantId),
+  ]);
+  return measureRecord(args.tenantId, draft, now, undefined,
+    contaminatedPaths(contaminationFor(ledger, open, now, draft)));
 }

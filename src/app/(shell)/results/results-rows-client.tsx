@@ -16,8 +16,8 @@ type ResultsRow = ResultsView["rows"]["worked"][number];
  */
 
 const TABS: Array<{ key: ResultsGroup; label: string; line: string }> = [
-  { key: "worked", label: "Worked", line: "These beat similar pages that were not changed." },
-  { key: "down", label: "Went down", line: "These fell behind similar pages that were not changed." },
+  { key: "worked", label: "Worked", line: "These beat pages that were not changed." },
+  { key: "down", label: "Went down", line: "These fell behind pages that were not changed." },
   { key: "flat", label: "No change", line: "These landed inside the normal range of similar pages." },
   { key: "reading", label: "Reading", line: "Nothing to decide here until the next read lands." },
 ];
@@ -112,6 +112,15 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
               ) : (
                 <p className="mt-2 text-[12px] text-muted-foreground">{row.numbersNote}</p>
               )}
+              {row.unadjustedNote ? <p className="mt-1.5 text-[12px] text-muted-foreground">{row.unadjustedNote}</p> : null}
+              {row.comparedAgainst.length > 0 ? (
+                <div className="mt-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Compared against</p>
+                  {row.comparedAgainst.map((c) => (
+                    <p key={c} className="text-[11px] text-muted-foreground">{c}</p>
+                  ))}
+                </div>
+              ) : null}
               {row.caveats.map((c) => (
                 <p key={c} className="mt-1.5 text-[11px] text-amber-700">{c}</p>
               ))}
@@ -126,12 +135,13 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
             </ol>
           </div>
           <p className="mt-3 text-[12px] text-foreground/80">{row.taught}</p>
-          {group === "worked" ? null : <p className="mt-1 text-[12px] font-medium text-foreground">{row.nextStep}</p>}
+          {/* ONE next step per row, and it is the row's own: a win used to be sent off with the title
+              advice whatever the change had actually been. Clickable where there is somewhere to go. */}
+          {group === "worked"
+            ? <Link href="/changes" className={`mt-1 block text-[12px] font-medium text-accent-primary underline underline-offset-2 ${FOCUS}`}>{row.nextStep}</Link>
+            : <p className="mt-1 text-[12px] font-medium text-foreground">{row.nextStep}</p>}
           <div className="mt-2 flex justify-end gap-4 text-[12px] font-medium">
             <a href={row.url} target="_blank" rel="noreferrer" className={`text-accent-primary underline underline-offset-2 ${FOCUS}`}>Open page</a>
-            {group === "worked" ? (
-              <Link href="/changes" className={`text-accent-primary underline underline-offset-2 ${FOCUS}`}>Do this again on a similar page</Link>
-            ) : null}
           </div>
         </div>
       ) : null}

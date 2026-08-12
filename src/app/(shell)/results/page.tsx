@@ -77,15 +77,15 @@ export default async function ProofPage({
               <div className={`font-semibold tracking-tight tabular-nums ${view.header.clicks.positive ? "text-4xl text-emerald-700" : "text-xl text-muted-foreground"}`}>
                 {view.header.clicks.value}
               </div>
-              <div className="mt-0.5 text-[13px] text-foreground/80">clicks added</div>
-              <div className="text-[11px] text-muted-foreground">{view.header.clicks.note ?? "from the changes that worked"}</div>
+              <div className="mt-0.5 text-[13px] text-foreground/80">clicks, wins minus losses</div>
+              <div className="text-[11px] text-muted-foreground">{view.header.clicks.note ?? ""}</div>
             </div>
             <div>
               <div className={`font-semibold tracking-tight tabular-nums ${view.header.appearances.positive ? "text-4xl text-emerald-700" : "text-xl text-muted-foreground"}`}>
                 {view.header.appearances.value}
               </div>
-              <div className="mt-0.5 text-[13px] text-foreground/80">extra appearances in Google</div>
-              <div className="text-[11px] text-muted-foreground">from the changes that worked</div>
+              <div className="mt-0.5 text-[13px] text-foreground/80">appearances in Google, wins minus losses</div>
+              <div className="text-[11px] text-muted-foreground">{view.header.appearances.note ?? ""}</div>
             </div>
             <div>
               <div className="text-4xl font-semibold tracking-tight tabular-nums text-foreground/70">{view.header.reading.value}</div>
@@ -94,7 +94,7 @@ export default async function ProofPage({
             </div>
           </div>
           <p className="mb-5 mt-3 text-[12px] text-muted-foreground">
-            Each page is compared to similar pages that were not changed.{surface.checkedAgo ? ` Checked ${surface.checkedAgo}.` : ""}
+            {view.header.window} Every number here is an estimated lift: each page is compared to similar pages that were not changed.{surface.checkedAgo ? ` Checked ${surface.checkedAgo}.` : ""}
           </p>
 
           <ResultsRows view={view} />

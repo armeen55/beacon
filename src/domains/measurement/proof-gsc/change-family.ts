@@ -42,16 +42,7 @@ export function actionFamilyOf(actionType: string): ExperimentFamily {
   return "other";
 }
 
-export const GSC_LAG_DAYS = 3;
-
 function pathOf(urlOrPath: string): string {
   return (urlOrPath.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "");
 }
 
-/** Paths that currently have an ACTIVE (measuring) treatment — the set a control must avoid
- *  to stay a clean comparison. Consumed by the ledger contamination guard. PURE. */
-export function activeTreatmentPaths(records: ShippedChangeRecord[], now: Date = new Date()): Set<string> {
-  const out = new Set<string>();
-  for (const r of records) if (outcomeStateOf(r, now) === "measuring") out.add(pathOf(r.path));
-  return out;
-}

@@ -10,7 +10,7 @@
  */
 
 import { monthDayLabel } from "@/components/data/receipt-line";
-import type { KernelRead, MeasurementState, ShipmentVerification } from "@/domains/measurement";
+import type { ControlReceipt, KernelRead, MeasurementState, ShipmentVerification } from "@/domains/measurement";
 
 /** What one measured change carries on the Results surface. */
 export type ShipmentPresentation = {
@@ -24,6 +24,9 @@ export type ShipmentPresentation = {
   baseline: { clicks: number; impressions: number; windowDays: number; capturedAt: string } | null;
   /** THIS PAGE'S OWN change over the read that was used, from the stored reading. Absent on a  snapshot written before it was kept, and then the before and after stay off the screen. */
   basisMove?: { clicks: number; impressions: number } | null;
+  /** Which pages stood behind this one, and why each qualified. Absent on a row recorded before the
+   *  receipt was kept, and then the screen never calls the comparison pages similar. */
+  controlsReceipt?: ControlReceipt[] | null;
 };
 
 /** The four things a change can be, in the order the strip shows them. */
@@ -52,6 +55,10 @@ type ResultsRow = {
   happened: string;
   numbers: { before: [string, string]; after: [string, string] } | null;
   numbersNote: string | null;
+  /** The pages this one was measured against, one line each, or empty when none is on file. */
+  comparedAgainst: string[];
+  /** The site's own before and after, labeled as unadjusted, where no fair comparison exists. */
+  unadjustedNote: string | null;
   caveats: string[];
   timeline: Array<{ label: string; done: boolean }>;
   taught: string;
@@ -65,9 +72,12 @@ export type ResultsView = {
   counts: Record<ResultsGroup, number>;
   header: {
     worked: { value: string; sub: string; isCount: boolean };
-    clicks: { value: string; positive: boolean; note?: string | null };
-    appearances: { value: string; positive: boolean };
+    /** NET across every settled change, with the gross from the wins carried in the note. */
+    clicks: { value: string; positive: boolean; note: string | null };
+    appearances: { value: string; positive: boolean; note: string | null };
     reading: { value: string; sub: string };
+    /** The period every total above answers for. */
+    window: string;
   };
   defaultGroup: ResultsGroup;
 };
@@ -195,6 +205,15 @@ const nextReadDay = (r: KernelRead): string | null =>
 
 const lastClosed = (r: KernelRead) => [...r.windows].reverse().find((w) => w.state === "closed") ?? null;
 
+/** THE COMPARISON RECEIPT the measurement kernel keeps beside a change: which pages stood behind it and
+ *  why each qualified. "Similar" is a claim, so a row whose receipt cannot back it says the smaller true
+ *  thing instead. And a page with no Google traffic before the change prints no appearances number at
+ *  all, a test the header totals reuse so they add up to exactly the rows on the screen. */
+const receiptOf = (p: ShipmentPresentation): ControlReceipt[] => p.controlsReceipt ?? [];
+const peersWord = (p: ShipmentPresentation): string =>
+  receiptOf(p).length > 0 ? "similar pages that were not changed" : "pages that were not changed";
+const showsImpressions = (p: ShipmentPresentation): boolean => !(p.baseline && p.baseline.impressions <= 0);
+
 // -- the sentences ------------------------------------------------------------
 
 /** WHAT WAS RECORDED WHEN NO FAIR COMPARISON EXISTS. Marking a change done is a fact about the work
@@ -215,25 +234,42 @@ function happenedLine(p: ShipmentPresentation): string {
   // which would be a promise nothing is keeping.
   const state = p.measurement ? MEASUREMENT_NOTE[p.measurement] : undefined;
   if (state && r.basisDay == null) return state;
+  const peers = peersWord(p);
+  // SHARED CREDIT KEEPS ITS NUMBER AND NAMES THE DEMOTION. Hiding the estimate here read as if
+  // nothing had been measured; the honest answer is the estimate plus what it cannot be counted as.
   if (r.verdict === "confounded") {
+    const held = r.basisDay == null ? ""
+      : ` Estimated lift: ${liftSize(r.metric, r.lift)} ${r.lift > 0 ? "ahead of" : "behind"} ${peers}, held as shared credit rather than a win.`;
     const day = monthDayLabel(r.cleanUntil);
-    if (day) return `This page changed again on ${day}, so the days after that belong to both changes.`;
+    if (day) return `This page changed again on ${day}, so the days after that belong to both changes.${held}`;
     const n = r.overlappingIds.length;
-    return `${n} other ${n === 1 ? "change" : "changes"} landed on this page at the same time, so the credit is shared.`;
+    return `${n} other ${n === 1 ? "change" : "changes"} landed on this page at the same time, so the credit is shared.${held}`;
   }
   if (r.basisDay == null) {
     const next = nextReadDay(r);
     return next ? `Nothing read yet. The first result lands ${next}.` : "Nothing read yet. The first result lands once a read closes.";
   }
+  // TOO FEW PAGES TO STAND BEHIND IT IS NOT TOO LITTLE DATA. The days ran and the page moved; what is
+  // missing is anything fair to hold it against, which the unadjusted pair below then shows on its own.
   if (r.verdict === "insufficient_evidence") {
-    return `Ran ${r.basisDay} days, and there is too little Google data on this page to call it.`;
+    return r.comparison === "insufficient"
+      ? `Ran ${r.basisDay} days. A fair comparison is not available: too few pages on this site can stand behind this one.`
+      : `Ran ${r.basisDay} days, and there is too little Google data on this page to call it.`;
   }
-  const tail = r.verdict === "no_clear_movement"
-    ? "level with similar pages that were not changed"
-    : `${liftSize(r.metric, r.lift)} ${r.lift > 0 ? "ahead of" : "behind"} similar pages that were not changed`;
-  return isMature(r.basisDay)
-    ? `Ran ${r.basisDay} days and finished ${tail}.`
-    : `${r.basisDay} days in and sitting ${tail}.`;
+  // ESTIMATED, NEVER CAUSED. The number is a comparison against pages that were left alone, so the
+  // sentence says estimate and never says the change added anything.
+  const estimate = r.verdict === "no_clear_movement"
+    ? `Estimated lift: level with ${peers}`
+    : `Estimated lift: ${liftSize(r.metric, r.lift)} ${r.lift > 0 ? "ahead of" : "behind"} ${peers}`;
+  return isMature(r.basisDay) ? `Ran ${r.basisDay} days. ${estimate}.` : `${r.basisDay} days in. ${estimate}.`;
+}
+
+/** THE SITE'S OWN BEFORE AND AFTER where no fair comparison exists, labeled as exactly that. Printed
+ *  only when the kernel exposes the unadjusted pair; nothing is scaled, guessed or filled in here. */
+function unadjustedLine(p: ShipmentPresentation): string | null {
+  const u = p.read.unadjusted;
+  if (p.read.comparison !== "insufficient" || !u) return null;
+  return `Before ${num(u.clicksBefore)} clicks / After ${num(u.clicksAfter)} clicks, unadjusted: the site moved too.`;
 }
 
 /** What this read carries forward, plus how much stands behind it. Clauses drop rather than guess. */
@@ -260,12 +296,27 @@ function taughtLine(r: KernelRead): string {
   return `${cap(parts.join(", "))}. ${carried} ${backing}`;
 }
 
+/** WHAT TO DO NEXT, PER FAMILY OF WORK. Three sentences told every operator to put the old wording
+ *  back, including the ones whose change was a redirect or an internal link, where there was no
+ *  wording to restore. This is the closed map off the family the kernel already resolved. */
+const NEXT_STEP: Record<string, readonly [up: string, down: string, flat: string]> = {
+  "title-family": ["Do this again on a similar page.", "Put the previous title back, then measure again.", "The words were not the lever here. Try a content change on this page."],
+  "section-family": ["Add the same kind of section to a similar page.", "Review what the new section replaced; restoring the old order is the honest test.", "The added copy did not move readers. A title sharpening is the cheaper next test."],
+  "links-family": ["Link the next weakest page the same way.", "This page slid down the results after the new links. Drop the weakest one, then read the position again.", "The position held where it was. Link to this page from a stronger page next."],
+  "technical-family": ["Apply the same technical fix to a similar page.", "Reverse the redirect only if the page lost real traffic; otherwise leave it and measure the next read.", "The technical fix moved nothing on its own. Leave it in place and try a content change here."],
+  consolidation: ["Merge the next pair of pages competing for the same search.", "The merged page lost ground. Split the two pages apart again, then measure.", "Merging moved nothing. Sharpen the title on the page that survived."],
+  new_page: ["Write the next page on the same kind of question.", "The new page is losing ground. Link to it from the pages that already rank before touching it again.", "The new page has not been found yet. Link to it from the pages that already rank."],
+};
+
+/** An unmapped family gets a step that never talks about wording it cannot see. */
+const GENERIC_NEXT = ["Do this again on a similar page.", "Undo what was applied here, then measure again.", "Nothing moved here. Try a different kind of change on this page."] as const;
+
 /** The one thing to do about this row. */
-function nextStepLine(group: ResultsGroup, r: KernelRead): string {
+function nextStepLine(r: KernelRead): string {
   if (r.metric === "unclassified") return "Nothing to wait for on this one.";
-  if (group === "worked") return "Do this again on a similar page.";
-  if (group === "down") return "Put the old wording back, then measure again.";
-  if (group === "flat") return "Try a content change on this page instead.";
+  if (r.verdict === "confounded") return "Two changes share these days. Make the next change on this page on its own, then measure it.";
+  const d = r.learning.outcomeDirection;
+  if (d !== "unclear") return (NEXT_STEP[r.learning.actionFamily] ?? GENERIC_NEXT)[d === "up" ? 0 : d === "down" ? 1 : 2];
   const next = nextReadDay(r);
   return next ? `Nothing to do until ${next}.` : "Nothing to do until the next read lands.";
 }
@@ -282,9 +333,7 @@ function caveatLines(r: KernelRead): string[] {
   if (r.windows.some((w) => w.state === "pending_data")) {
     out.push("Google has not finalized the latest days yet. It reports a few days behind.");
   }
-  if (r.confidence === "low" && r.basisDay != null && out.length < 2) {
-    out.push("Too few similar pages stood behind this one to call it a sure read.");
-  }
+  if (r.confidence === "low" && r.basisDay != null && out.length < 2) out.push("Too few similar pages stood behind this one to call it a sure read.");
   return out.slice(0, 2);
 }
 
@@ -296,9 +345,7 @@ function timelineLines(p: ShipmentPresentation): Array<{ label: string; done: bo
   const next = p.read.windows.find((w) => w.state !== "closed");
   const out = [
     { label: marked ? `Marked done ${marked}` : "Marked done, date not kept", done: true },
-    p.verification && checked
-      ? { label: `Live page checked ${checked}`, done: true }
-      : { label: "Live page not read yet", done: false },
+    p.verification && checked ? { label: `Live page checked ${checked}`, done: true } : { label: "Live page not read yet", done: false },
   ];
   if (done) out.push({ label: `${done.day} day read ${monthDayLabel(done.closesOn) ?? ""}`.trim(), done: true });
   if (next) out.push({ label: `${next.day} day read ${monthDayLabel(next.closesOn) ?? ""}`.trim(), done: false });
@@ -362,7 +409,7 @@ function rowOf(p: ShipmentPresentation): ResultsRow {
     liftLabel: claimNumber ? liftLabel(r.metric, r.lift) : null,
     readLabel: done ? `${done.day} day read done` : "Nothing read yet",
     // A page with no traffic on file before the change gets no delta at all: there is nothing to count from. Everything else prints what was read, and "Level" rather than a bare zero.
-    impressionsLabel: claimNumber && !(p.baseline && p.baseline.impressions <= 0)
+    impressionsLabel: claimNumber && showsImpressions(p)
       ? (Math.abs(r.impressionsLift) < 0.5 ? "Level" : signed(r.impressionsLift))
       : null,
     chip: chipOf(p),
@@ -375,10 +422,12 @@ function rowOf(p: ShipmentPresentation): ResultsRow {
     happened: happenedLine(p),
     numbers,
     numbersNote: note,
+    comparedAgainst: receiptOf(p).map((c) => (c.reasons.length > 0 ? `${c.path} (${c.reasons.join("; ")})` : c.path)),
+    unadjustedNote: unadjustedLine(p),
     caveats: caveatLines(r),
     timeline: timelineLines(p),
     taught: taughtLine(r),
-    nextStep: nextStepLine(group, r),
+    nextStep: nextStepLine(r),
     sort: group === "worked" ? -(bar ?? 0)
       : group === "down" ? (bar ?? 0)
         : group === "flat" ? -started
@@ -398,16 +447,26 @@ export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>)
   // The denominator is SETTLED changes only: the ones that finished their 28 day read.
   const settled = shipments.filter((p) => isMature(p.read.basisDay) && groupOf(p.read) !== "reading");
   const wins = settled.filter((p) => groupOf(p.read) === "worked");
-  const soonest = shipments
+  const soonestDay = monthDayLabel(shipments
     .map((p) => p.read.windows.find((w) => w.state !== "closed")?.closesOn ?? null)
-    .filter((d): d is string => d != null)
-    .sort()[0] ?? null;
-  const soonestDay = monthDayLabel(soonest);
-  const appearances = wins.reduce((sum, p) => sum + p.read.impressionsLift, 0);
-  // Clicks are summed only where the win was measured in clicks; a rate win adds its note instead of a number pretending to be one.
-  const clickWins = wins.filter((p) => p.read.metric === "clicks");
-  const clicks = clickWins.reduce((sum, p) => sum + p.read.lift, 0);
-  const rateWins = wins.length - clickWins.length;
+    .filter((d): d is string => d != null).sort()[0] ?? null);
+
+  // NET, NOT CHERRY PICKED. The headline totals used to add up the wins alone, so a site that lost
+  // more than it gained still read "+54 clicks added". They now add up EVERY settled row exactly as
+  // the screen prints it (rounded, and nothing from a row that claims no number), and the gross from
+  // the wins drops to the smaller second line beside what the rest gave back.
+  const counted = settled.filter((p) => p.read.verdict !== "confounded" && p.read.verdict !== "insufficient_evidence");
+  const won = (p: ShipmentPresentation) => groupOf(p.read) === "worked";
+  const total = (list: ShipmentPresentation[], of: (p: ShipmentPresentation) => number) => list.reduce((s, p) => s + Math.round(of(p)), 0);
+  // Clicks are summed only where the read was measured in clicks; a rate read adds its count instead of a number pretending to be one.
+  const clicked = counted.filter((p) => p.read.metric === "clicks");
+  const clicks = total(clicked, (p) => p.read.lift);
+  const clicksWon = total(clicked.filter(won), (p) => p.read.lift);
+  const rateReads = counted.length - clicked.length;
+  const seen = counted.filter(showsImpressions);
+  const appearances = total(seen, (p) => p.read.impressionsLift);
+  const appearancesWon = total(seen.filter(won), (p) => p.read.impressionsLift);
+  const fromWins = (gross: number, net: number) => `${signed(gross)} from wins, ${signed(net - gross)} from the rest`;
 
   return {
     rows,
@@ -417,21 +476,19 @@ export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>)
         ? { value: soonestDay ? `First result lands ${soonestDay}` : "First result lands once a read closes", sub: "Nothing has finished its 28 day read yet", isCount: false }
         // BANKED, NEVER CHERRY PICKED: the wins are counted against every change that finished, and the ones that
         // did not win are named as what they taught rather than left out of the sentence.
-        : { value: `${num(wins.length)} ${wins.length === 1 ? "win" : "wins"}`,
-            sub: settled.length > wins.length
-              ? `out of ${settled.length} finished; the rest taught what does not move this site`
-              : `out of ${settled.length} finished`,
-            isCount: true },
-      clicks: clickWins.length === 0
-        ? { value: rateWins > 0 ? `${rateWins} click rate ${rateWins === 1 ? "win" : "wins"}` : "Nothing read yet", positive: false }
-        : { value: signed(Math.round(clicks)), positive: clicks > 0, note: rateWins > 0 ? `plus ${rateWins} click rate ${rateWins === 1 ? "win" : "wins"}` : null },
-      appearances: wins.length === 0
-        ? { value: "Not enough read yet", positive: false }
-        : { value: signed(appearances), positive: appearances > 0 },
-      reading: {
-        value: num(counts.reading),
-        sub: soonestDay ? `next result lands ${soonestDay}` : "next result lands once a read closes",
-      },
+        : { value: `${num(wins.length)} ${wins.length === 1 ? "win" : "wins"}`, isCount: true,
+            sub: `out of ${settled.length} finished${settled.length > wins.length ? "; the rest taught what does not move this site" : ""}` },
+      clicks: clicked.length === 0
+        ? { value: rateReads > 0 ? `${rateReads} read in click rate` : "Nothing read yet", positive: false, note: null }
+        : { value: signed(clicks), positive: clicks > 0,
+            note: `${fromWins(clicksWon, clicks)}${rateReads > 0 ? `, plus ${rateReads} more read in click rate` : ""}` },
+      appearances: seen.length === 0
+        ? { value: "Not enough read yet", positive: false, note: null }
+        : { value: signed(appearances), positive: appearances > 0, note: fromWins(appearancesWon, appearances) },
+      reading: { value: num(counts.reading), sub: soonestDay ? `next result lands ${soonestDay}` : "next result lands once a read closes" },
+      window: settled.length === 0
+        ? "Nothing has finished its 28 day read yet."
+        : `Across the ${num(settled.length)} ${settled.length === 1 ? "change" : "changes"} that finished their 28 day read.`,
     },
     defaultGroup: counts.worked > 0 ? "worked" : counts.down > 0 ? "down" : counts.reading > 0 ? "reading" : "flat",
   };

@@ -60,6 +60,9 @@ export type LedgerLifecycleRow = {
     treatedPostImpressions?: number;
   }>;
   baseline?: { impressions?: number | null; clicks?: number | null } | null;
+  /** The frozen finished reading, passed through UNTOUCHED so these counts serve the same tuple
+   *  /results serves. Unknown-typed on purpose: Decision never reads inside a Measurement record. */
+  pinnedRead?: unknown;
   /** Bug #14 (2026-07-06): a revert executor records "the old version was put back" as
    *  its OWN ledger row with actionType `revert_<original>` (run-revert.ts). That row is
    *  bookkeeping, NOT a distinct operator change - excludeRevertBookkeeping below drops
@@ -100,7 +103,7 @@ export type LedgerLifecycleStage = "won" | "learned" | "measuring";
 
 /** Map a lifecycle row to the kernel's ledger-record shape. Full records already
  *  carry every field; a minimal row falls back to safe defaults. */
-function toLedgerRecordLike(row: LedgerLifecycleRow): LedgerRecordLike & { operatorVerdictOverride?: string | null } {
+function toLedgerRecordLike(row: LedgerLifecycleRow): LedgerRecordLike & { operatorVerdictOverride?: string | null; pinnedRead?: unknown } {
   return {
     id: row.id,
     page: row.page ?? row.path,
@@ -109,6 +112,7 @@ function toLedgerRecordLike(row: LedgerLifecycleRow): LedgerRecordLike & { opera
     shippedAt: row.shippedAt,
     implementedAt: row.implementedAt ?? null,
     baseline: { impressions: row.baseline?.impressions ?? 0, clicks: row.baseline?.clicks ?? 0 },
+    pinnedRead: row.pinnedRead ?? null,
     windows: row.windows.map((w) => ({
       day: w.day,
       ran: w.ran,

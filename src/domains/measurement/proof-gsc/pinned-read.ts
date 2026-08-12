@@ -32,7 +32,38 @@ export type PinnedRead = {
   pinnedAt: string;
   /** The finalized-data watermark at freeze time: what "the days behind it are in" meant that day. */
   finalizedThrough: string;
+  /** EVERY LATER RECOMPUTE THAT DISAGREED, in order, with what it read and why it is not the answer.
+   *  A frozen number is never quietly replaced: the operator was shown it, so a different reading is
+   *  recorded BESIDE it and the frozen one keeps being served. */
+  corrections?: Array<{ at: string; verdict: KernelRead["verdict"]; lift: number; basisDay: number; reason: string }>;
 };
+
+/** How much a recompute must move before it is worth recording as a disagreement. Google backfills a
+ *  click or two into a closed window constantly, and a log of that is noise, not honesty. */
+const CORRECTION_FLOOR = 0.01;
+
+/**
+ * The pin plus any disagreement this recompute just found. PURE. Returns the pin UNCHANGED when the
+ * fresh read agrees, when nothing is frozen, or when the same correction is already on file, so a
+ * pass that runs every fifteen minutes never grows the row.
+ */
+export function withCorrection(
+  pin: PinnedRead | null | undefined, read: KernelRead, now: Date = new Date(),
+): PinnedRead | null {
+  if (!pin) return null;
+  const moved = read.basisDay === pin.basisDay && Math.abs(read.lift - pin.lift) > CORRECTION_FLOOR;
+  const flipped = read.basisDay === pin.basisDay && read.verdict !== pin.verdict && read.verdict !== "confounded";
+  if (!moved && !flipped) return pin;
+  const held = pin.corrections ?? [];
+  if (held.some((c) => c.verdict === read.verdict && Math.abs(c.lift - read.lift) <= CORRECTION_FLOOR)) return pin;
+  return {
+    ...pin,
+    corrections: [...held, {
+      at: now.toISOString(), verdict: read.verdict, lift: read.lift, basisDay: read.basisDay ?? pin.basisDay,
+      reason: "A later read of the same window returned a different number. The reading already shown is the one served.",
+    }].slice(-5),
+  };
+}
 
 /** A reading is finished at the 28-day window, or at the day-56 follow up an unsettled or dangerous
  *  change earns. Anything shorter is still on its way to one of those. */
@@ -94,12 +125,16 @@ export function applyPinnedRead(read: KernelRead, pin: PinnedRead | null | undef
     impressionsLift: pin.impressionsLift,
     verdict,
     confidence,
-    headline: buildHeadline({
-      verdict, metric: pin.metric, lift: pin.lift, impressionsLift: pin.impressionsLift,
-      basisDay: pin.basisDay, overlapCount: read.overlappingIds.length,
-      overlapClosedOn: shared ? read.cleanUntil : null,
-      ga4ExtraSessions: null, ga4Trustworthy: false,
-    }),
+    // A read that cannot be fairly compared keeps its own honest sentence: rebuilding it here served
+    // "inside the range of similar pages" for a change that had no similar pages at all.
+    headline: read.comparison === "insufficient" || pin.verdict === "insufficient_evidence"
+      ? read.headline
+      : buildHeadline({
+        verdict, metric: pin.metric, lift: pin.lift, impressionsLift: pin.impressionsLift,
+        basisDay: pin.basisDay, overlapCount: read.overlappingIds.length,
+        overlapClosedOn: shared ? read.cleanUntil : null,
+        ga4ExtraSessions: null, ga4Trustworthy: false,
+      }),
     confidenceReasons: shared
       ? [controls, "That page was changed again afterwards, so this reading is no longer this change's alone."]
       : [controls],
@@ -107,7 +142,9 @@ export function applyPinnedRead(read: KernelRead, pin: PinnedRead | null | undef
     learning: { ...read.learning, outcomeDirection: shared ? "unclear"
       : verdict === "directional_improvement" || verdict === "stronger_improvement" ? "up"
         : verdict === "directional_decline" ? "down" : verdict === "no_clear_movement" ? "flat" : "unclear" },
-    rankingSignal: shared ? 0
+    // THE LEARNING GATE, applied to the frozen reading too. A change nobody could fairly compare and a
+    // change judged on no metric at all teach exactly nothing, whatever their stored verdict says.
+    rankingSignal: shared || read.comparison === "insufficient" || read.metric === "unclassified" ? 0
       : Math.round((SIGNAL[verdict] ?? 0) * (SCALE[confidence] ?? 0.3) * 100) / 100,
   };
 }

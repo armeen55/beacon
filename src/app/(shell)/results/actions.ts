@@ -13,7 +13,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import {
   recordShippedChange,
   captureChangeMeta,
-  measureRecord,
+  loadProofLedger,
   defaultPacificShipDate,
   selectControlPages,
   MIN_CONTROLS,
@@ -180,13 +180,11 @@ export async function recomputeProofLedgerAction(): Promise<ProofLedgerActionRes
   if (!(await isAccountOwner())) return { success: false, error: "Only this account's owner can change measurement records." };
   try {
     const tenantId = await currentTenantId();
-    const records = await loadShippedChanges();
-    const measuredAll: ShippedChangeRecord[] = [];
-    for (const r of records) {
-      const measured = await measureRecord(tenantId, r);
-      await upsertShippedChange(measured);
-      measuredAll.push(measured);
-    }
+    // THE ONE COMPARISON POLICY. This door used to call the engine with no exclusion argument at all,
+    // so a recheck read every change against pages the other two doors would have refused. The ledger
+    // re-measure applies the same policy they do, and nothing here decides it a third way.
+    const measuredAll: ShippedChangeRecord[] = await loadProofLedger(tenantId);
+    for (const measured of measuredAll) await upsertShippedChange(measured);
     // R4 (2026-07-03): each upsert above invalidated the /results SWR snapshot (shipped-change-store choke point). We JUST measured every
     // record, so persist the fresh snapshot now instead of making the very next render re-measure the whole ledger a second time.
     // Measurement history itself lives in the upserts.

@@ -9,20 +9,24 @@ import { cache } from "react";
  */
 
 import { loadShippedChangesForTenant, type ShippedChangeRecord } from "./shipped-change-store";
-import { measureRecord } from "./measure-pass";
+import { measureRecord, openChangePaths } from "./measure-pass";
 import { readLastFinalizedDate } from "./gsc-window";
-import { activeTreatmentPaths } from "./change-family";
+import { contaminatedPaths, contaminationFor } from "./contamination";
 
 /** Re-measure every record against fresh GSC. The heavy engine; background/actions only. A LEDGER IT COULD NOT READ THROWS rather than
  *  re-measuring nothing: this feeds the snapshot rebuild, so swallowing the failure wrote an EMPTY snapshot over a good one. */
 export async function loadProofLedger(tenantId: string, now: Date = new Date()): Promise<ShippedChangeRecord[]> {
   const records = await loadShippedChangesForTenant(tenantId);
   if (records.length === 0) return [];
-  const lastFinal = await readLastFinalizedDate(tenantId).catch(() => null);
-  // A comparison page that is itself an active treatment can not anchor a diff in
-  // diff (its own change moved it), so exclude the active-treatment set.
-  const activeTreatments = activeTreatmentPaths(records, now);
-  return Promise.all(records.map((r) => measureRecord(tenantId, r, now, lastFinal, activeTreatments).catch(() => r)));
+  const [lastFinal, open] = await Promise.all([
+    readLastFinalizedDate(tenantId).catch(() => null),
+    openChangePaths(tenantId),
+  ]);
+  // THE ONE POLICY, asked once per record and scoped to THAT record's window: a page whose own
+  // change closed before this window opened is comparable again, so the pool recovers.
+  return Promise.all(records.map((r) =>
+    measureRecord(tenantId, r, now, lastFinal, contaminatedPaths(contaminationFor(records, open, now, r)))
+      .catch(() => r)));
 }
 
 /** The render-safe read: serves the last persisted records, no re-measure. It does NOT swallow a failed read. Every caller that would

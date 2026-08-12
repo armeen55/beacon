@@ -27,7 +27,8 @@ import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
 import { MIN_CONTROLS } from "./kernel";
 import { readLastFinalizedDate } from "./gsc-window";
-import { recordShippedChange, selectControlPages } from "./measure-pass";
+import { matchedControlsFor, recordShippedChange } from "./measure-pass";
+import type { ControlReceipt } from "./contamination";
 import { loadShippedChangesForTenant, upsertShippedChange, type ShippedChangeRecord } from "./shipped-change-store";
 import type { MeasurementState } from "./types";
 
@@ -68,18 +69,19 @@ type ShipmentFacts = {
  * only thing this answer may change is what Results says, not whether the work is recorded.
  */
 async function comparisonFor(
-  tenantId: string, treatedPage: string,
-): Promise<{ controlPages: string[]; measurement: MeasurementState }> {
+  tenantId: string, treatedPage: string, stamp: string, now: Date,
+): Promise<{ controlPages: string[]; controlsReceipt: ControlReceipt[] | null; measurement: MeasurementState }> {
   // NULL is a read that FAILED, which is a different sentence from a site that genuinely has too few
   // pages: telling a connected operator to connect Search Console asks for what they already did.
-  const controls = await selectControlPages(tenantId, treatedPage).catch(() => null);
-  if (controls == null) return { controlPages: [], measurement: "measurement_unavailable" };
+  const matched = await matchedControlsFor(tenantId, treatedPage, stamp.slice(0, 10), now).catch(() => null);
+  if (matched == null) return { controlPages: [], controlsReceipt: null, measurement: "measurement_unavailable" };
+  const held = { controlPages: matched.controls, controlsReceipt: matched.receipts };
   // No finalized Search data at all means there is nothing to read this page against, whatever the
   // comparison set looks like, so it is named first.
   const finalized = await readLastFinalizedDate(tenantId).catch(() => null);
-  if (finalized == null) return { controlPages: controls, measurement: "measurement_unavailable" };
-  if (controls.length < MIN_CONTROLS) return { controlPages: controls, measurement: "insufficient_comparison" };
-  return { controlPages: controls, measurement: "measuring" };
+  if (finalized == null) return { ...held, measurement: "measurement_unavailable" };
+  if (matched.controls.length < MIN_CONTROLS) return { ...held, measurement: "insufficient_comparison" };
+  return { ...held, measurement: "measuring" };
 }
 
 /** The row already holding this exact implementation, or null. Fail-closed: a ledger that could not
@@ -93,14 +95,14 @@ async function heldShipment(f: Pick<ShipmentFacts, "tenantId" | "proposalId" | "
 /** The write both doors share: capture the baseline, store the row, hand back what landed. */
 async function write(
   f: ShipmentFacts,
-  extra: { measurement: MeasurementState; controlPages: string[]; preChangeHashUnavailable: boolean },
+  extra: { measurement: MeasurementState; controlPages: string[]; controlsReceipt: ControlReceipt[] | null; preChangeHashUnavailable: boolean },
 ): Promise<RecordedShipment> {
   const now = f.now ?? new Date();
   const stamp = f.implementedAt ?? now.toISOString();
   const record = await recordShippedChange({
     tenantId: f.tenantId, page: f.page, path: f.path, actionType: f.actionType,
     before: f.before, after: f.after, targetQueries: f.targetQueries,
-    controlPages: extra.controlPages,
+    controlPages: extra.controlPages, controlsReceipt: extra.controlsReceipt,
     // THE WINDOW IS READ FROM THE STAMP, and so is the 28 days before it: a change recorded weeks
     // after it went live must compare against the days that really preceded it, not against today.
     shippedAt: stamp, notes: null, measurementState: extra.measurement, now,
@@ -135,8 +137,10 @@ export async function recordShipment(facts: ShipmentFacts): Promise<RecordedShip
       tenant: facts.tenantId, proposalId: facts.proposalId, shipment: held.id });
     return { shipmentId: held.id, measurement: held.measurementState ?? "measuring" };
   }
-  const { controlPages, measurement } = await comparisonFor(facts.tenantId, facts.page);
-  return write(facts, { measurement, controlPages, preChangeHashUnavailable: false });
+  const now = facts.now ?? new Date();
+  const { controlPages, controlsReceipt, measurement } =
+    await comparisonFor(facts.tenantId, facts.page, facts.implementedAt ?? now.toISOString(), now);
+  return write(facts, { measurement, controlPages, controlsReceipt, preChangeHashUnavailable: false });
 }
 
 /** What the operator can tell Beacon about a change that was already live before it was ever recorded. */
@@ -185,7 +189,8 @@ export async function recordRepairShipment(facts: RepairFacts): Promise<Recorded
   // check needs something concrete to look for. A list of several is passed through untouched.
   const components = facts.componentsApplied.length === 1 && !facts.componentsApplied[0]!.after
     ? [{ ...facts.componentsApplied[0]!, after: wording }] : facts.componentsApplied;
-  const { controlPages, measurement } = await comparisonFor(facts.tenantId, facts.page);
+  const { controlPages, controlsReceipt, measurement } =
+    await comparisonFor(facts.tenantId, facts.page, facts.implementedAt, facts.now ?? new Date());
   return write({
     ...base, page: facts.page, path: facts.path, actionType: facts.actionType,
     before: null, after: wording, targetQueries: facts.targetQueries ?? [],
@@ -198,6 +203,6 @@ export async function recordRepairShipment(facts: RepairFacts): Promise<Recorded
     // A repair holds no before-state and its page has not been read, so even a full comparison set
     // does not make it "measuring": the live check is owed first, and the row says which one it is.
     measurement: measurement === "measuring" ? "verification_needed" : measurement,
-    controlPages, preChangeHashUnavailable: true,
+    controlPages, controlsReceipt, preChangeHashUnavailable: true,
   });
 }

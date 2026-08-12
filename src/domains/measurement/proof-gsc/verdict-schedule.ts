@@ -14,7 +14,7 @@
 import { reportingDay } from "@/lib/reporting-day";
 import { addDays } from "./kernel";
 import { PROOF_WINDOW_DAYS, type ProofWindowDay } from "./types";
-import { GSC_LAG_DAYS } from "@/domains/measurement/proof-gsc/change-family";
+import { GSC_LAG_DAYS } from "@/domains/measurement/proof-gsc/kernel";
 
 /** The check-in dates after the stamp, one per window day. Pure (UTC). */
 function proofCheckDates(anchorIso: string): Record<ProofWindowDay, string> {

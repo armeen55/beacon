@@ -13,9 +13,10 @@ import "server-only";
  * ran:false → true since the last measure).
  */
 
-import { measureRecord } from "./measure-pass";
+import { measureRecord, openChangePaths } from "./measure-pass";
+import { contaminatedPaths, contaminationFor } from "./contamination";
 import { readLastFinalizedDate } from "./gsc-window";
-import { loadShippedChanges, upsertShippedChange, type ShippedChangeRecord } from "./shipped-change-store";
+import { loadShippedChanges, loadShippedChangesForTenant, upsertShippedChange, type ShippedChangeRecord } from "./shipped-change-store";
 import { isDueForMeasure, outcomeStateOf, type OutcomeState } from "./measure-lifecycle";
 import { log } from "@/lib/logger";
 
@@ -65,8 +66,10 @@ type AutoMeasurePassResult = {
 type MeasureDueContext = {
   now: Date;
   lastFinal: string | null;
-  /** Passed to measureRecord as its excludeControls arg. undefined = exclude nothing. */
-  excludeControls: Set<string> | undefined;
+  /** THE ONE POLICY. Given the record being measured, the pages that cannot stand behind it over
+   *  ITS window. This pass used to hand measureRecord nothing at all, so a scheduled reading was
+   *  taken against pages the operator was in the middle of changing. */
+  excludeControls: (record: ShippedChangeRecord) => ReadonlySet<string>;
   /** Persist one freshly measured record. Return { ok:false } to count a failure
    *  without throwing. */
   persist: (measured: ShippedChangeRecord) => Promise<{ ok: boolean }>;
@@ -83,7 +86,7 @@ async function measureDueRecords(
   let failed = 0;
   for (const record of due) {
     try {
-      const next = await measureRecord(tenantId, record, ctx.now, ctx.lastFinal, ctx.excludeControls);
+      const next = await measureRecord(tenantId, record, ctx.now, ctx.lastFinal, ctx.excludeControls(record));
       const { ok } = await ctx.persist(next);
       if (!ok) {
         failed += 1;
@@ -122,7 +125,7 @@ export async function autoMeasureDuePass(
   let records: ShippedChangeRecord[] = [];
   let lastFinal: string | null = null;
   try {
-    [records, lastFinal] = await Promise.all([loadShippedChanges(), readLastFinalizedDate(tenantId)]);
+    [records, lastFinal] = await Promise.all([loadShippedChangesForTenant(tenantId), readLastFinalizedDate(tenantId)]);
   } catch (e) {
     log.warn("[auto-measure] load failed (non-blocking)", { tenantId, error: e instanceof Error ? e.message : String(e) });
     return result;
@@ -132,12 +135,13 @@ export async function autoMeasureDuePass(
   const due = records.filter((r) => isDueForMeasure(r, lastFinal, now)).slice(0, max);
   result.due = due.length;
 
-  // This pass excludes no controls (undefined) and persists via upsertShippedChange;
-  // its rich per-record accounting (changed / settled / outcomes) rides onMeasured.
+  // The comparison policy is read ONCE for the whole pass and applied per record; the rich
+  // per-record accounting (changed / settled / outcomes) rides onMeasured.
+  const open = await openChangePaths(tenantId);
   const { measured, failed } = await measureDueRecords(tenantId, due, {
     now,
     lastFinal,
-    excludeControls: undefined,
+    excludeControls: (record) => contaminatedPaths(contaminationFor(records, open, now, record)),
     persist: async (next) => {
       await upsertShippedChange(next);
       return { ok: true };

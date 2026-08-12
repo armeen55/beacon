@@ -9,7 +9,8 @@ import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { runSingleFlight } from "@/lib/single-flight";
 import { readLastFinalizedDate } from "@/domains/measurement";
 import { loadProofLedger, loadProofLedgerPersisted } from "@/domains/measurement";
-import { applyPinnedRead, pinFor, readLedger, recordPinnedRead, type ShippedChangeRecord } from "@/domains/measurement";
+import { applyPinnedRead, pinFor, readLedger, recordPinnedRead, withCorrection,
+  recordPinnedReadCorrection, type ShippedChangeRecord } from "@/domains/measurement";
 import {
   isResultsSurfaceStale,
   readResultsSurface,
@@ -68,6 +69,8 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
         }
         : null,
       basisMove: basis ? { clicks: basis.treatedDelta, impressions: basis.treatedImpressionsDelta ?? 0 } : null,
+      // Which pages stood behind this one, so the screen can name them rather than assert similarity.
+      controlsReceipt: r.controlsReceipt ?? null,
     };
   });
 }
@@ -134,8 +137,22 @@ export async function rebuildResultsSurface(tenantId: string): Promise<void> {
  *  very first pass. Fail-soft per row: a freeze that cannot be stored is retried on the next rebuild. */
 export async function pinFinishedReads(tenantId: string, records: ShippedChangeRecord[]): Promise<number> {
   const open = records.filter((r) => r.pinnedRead == null);
-  if (open.length === 0) return 0;
+  const held = records.filter((r) => r.pinnedRead != null);
   const now = new Date();
+  // A RECOMPUTE THAT DISAGREES WITH A HELD READING IS AN AUDITED CORRECTION, never a silent rewrite:
+  // the frozen tuple keeps serving, and the disagreement is appended to its own record with a reason.
+  if (held.length > 0) {
+    const latest = await readLastFinalizedDate(tenantId).catch(() => null);
+    const fresh = readLedger(held, now, latest);
+    for (let i = 0; i < held.length; i += 1) {
+      const record = held[i]!;
+      const corrected = withCorrection(record.pinnedRead, fresh[i]!, now);
+      if (corrected && corrected !== record.pinnedRead) {
+        if (await recordPinnedReadCorrection(tenantId, record.id, corrected).catch(() => false)) record.pinnedRead = corrected;
+      }
+    }
+  }
+  if (open.length === 0) return 0;
   const latestGscDate = await readLastFinalizedDate(tenantId).catch(() => null);
   const reads = readLedger(open, now, latestGscDate);
   let pinned = 0;

@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   addDays, bandOf, evaluateChange, evaluateWindows, learningVerdictOf, metricFor, rankingPriors,
-  readLedger, toKernelInput, verdictPhrase, type KernelInput, type LedgerRecordLike,
+  readLedger, readRecordsForLearning, toKernelInput, verdictPhrase, type KernelInput, type LedgerRecordLike,
 } from "@/domains/measurement/proof-gsc/kernel";
 import { bundleReads, learningShape, overlapClosures } from "@/domains/measurement/proof-gsc/read-honesty";
 import { day56Followup, isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import { verdictSchedule, type VerdictScheduleRow } from "@/domains/measurement/proof-gsc/verdict-schedule";
-import { applyPinnedRead, pinFor } from "@/domains/measurement/proof-gsc/pinned-read";
+import { applyPinnedRead, pinFor, withCorrection } from "@/domains/measurement/proof-gsc/pinned-read";
+import { contaminationFor, selectMatchedControls } from "@/domains/measurement/proof-gsc/contamination";
 import type { ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
 import type { ProofWindowDay, ProofWindowResult } from "@/domains/measurement/proof-gsc/types";
 /** Outcome-level contract tests for the measurement kernel. These pin CUSTOMER TRUTH, not implementation: every historical shipment maps to exactly one read (nothing
@@ -60,20 +61,19 @@ describe("individual directional reads", () => {
     const read = evaluateChange(baseInput({ windows: [win(7, { ran: false })] }), evaluateWindows("2026-05-30", NOW, "2026-05-31"), []);
     expect([read.verdict, read.rankingSignal]).toEqual(["waiting", 0]);
   });
-  it("reads insufficient evidence on a thin baseline", () => {
-    const read = evaluateChange(baseInput({ baselineImpressions: 50, windows: [win(28, { adjustedClicksLift: 40 })] }), CLOSED_WINDOWS, []);
-    expect([read.verdict, read.rankingSignal]).toEqual(["insufficient_evidence", 0]);
-    expect(read.confidenceReasons.join(" ")).toContain("50 impressions");
-  });
-  it("reads insufficient evidence with too few comparable pages", () => {
-    const read = evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40, controlsUsed: 1 })] }), CLOSED_WINDOWS, []);
-    expect(read.verdict).toBe("insufficient_evidence");
+  it("reads insufficient evidence on a thin baseline, and on too few comparable pages", () => {
+    const thin = evaluateChange(baseInput({ baselineImpressions: 50, windows: [win(28, { adjustedClicksLift: 40 })] }), CLOSED_WINDOWS, []);
+    expect([thin.verdict, thin.rankingSignal]).toEqual(["insufficient_evidence", 0]);
+    expect(thin.confidenceReasons.join(" ")).toContain("50 impressions");
+    expect(evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40, controlsUsed: 1 })] }), CLOSED_WINDOWS, []).verdict).toBe("insufficient_evidence");
   });
 });
 describe("overlap and confounding honesty", () => {
-  it("flags same-page overlapping windows, and never two months apart", () => {
-    const overlaps = overlapClosures([{ id: "a", path: "/x", anchoredAt: "2026-05-01" }, { id: "b", path: "/x", anchoredAt: "2026-05-10" }, { id: "c", path: "/y", anchoredAt: "2026-05-05" }]);
-    expect([overlaps.get("a")!.ids, overlaps.get("b")!.ids, overlaps.get("c")!.ids]).toEqual([["b"], ["a"], []]);
+  it("flags same-page overlapping windows, names the day the clean one closed, and never two months apart", () => {
+    const overlaps = overlapClosures([{ id: "a", path: "/x", anchoredAt: "2026-05-01" }, { id: "b", path: "/x", anchoredAt: "2026-05-12" }, { id: "c", path: "/y", anchoredAt: "2026-05-05" }]);
+    expect(overlaps.get("a")).toEqual({ ids: ["b"], cleanUntil: "2026-05-12" });
+    expect(overlaps.get("b")).toEqual({ ids: ["a"], cleanUntil: null });
+    expect(overlaps.get("c")).toEqual({ ids: [], cleanUntil: null });
     expect(overlapClosures([{ id: "a", path: "/x", anchoredAt: "2026-05-01" }, { id: "b", path: "/x", anchoredAt: "2026-07-01" }]).get("a")!.ids).toEqual([]);
   });
   it("downgrades a directional read to confounded when changes overlap", () => {
@@ -133,11 +133,8 @@ describe("ranking outcome signal", () => {
     const priors = rankingPriors(Array.from({ length: 3 }, () => ({ actionType: "edit_title", read: { rankingSignal: 0.6 } })));
     expect(priors.get("edit_title")).toBeCloseTo(0.6, 5);
   });
-  it("ignores zero-signal (waiting / confounded / insufficient) reads", () => {
-    const priors = rankingPriors([{ actionType: "faq", read: { rankingSignal: 0 } }, { actionType: "faq", read: { rankingSignal: 0 } }, { actionType: "faq", read: { rankingSignal: 0 } }]);
-    expect(priors.has("faq")).toBe(false);
-  });
-  it("stays neutral below the sample floor", () => {
+  it("ignores zero-signal reads, and stays neutral below the sample floor", () => {
+    expect(rankingPriors(Array.from({ length: 3 }, () => ({ actionType: "faq", read: { rankingSignal: 0 } }))).has("faq")).toBe(false);
     expect(rankingPriors([{ actionType: "meta", read: { rankingSignal: 0.6 } }]).has("meta")).toBe(false);
   });
 });
@@ -155,13 +152,10 @@ const ledgerRow = (over: Partial<LedgerRecordLike> = {}): LedgerRecordLike => ({
 });
 const LATE = new Date("2026-07-15T00:00:00Z");
 describe("checkpoints count from the stamp", () => {
-  it("counts every checkpoint from implementedAt when the row carries the stamp", () => {
-    const read = readLedger([ledgerRow({ implementedAt: "2026-05-10T09:30:00.000Z" })], LATE, "2026-07-01")[0];
-    expect(read.windows.map((w) => w.closesOn)).toEqual(["2026-05-17", "2026-05-24", "2026-06-07"]);
-  });
-  it("falls back to the ship date on a row written before there was a stamp", () => {
-    const read = readLedger([ledgerRow()], LATE, "2026-07-01")[0];
-    expect(read.windows.find((w) => w.day === 7)!.closesOn).toBe("2026-05-08");
+  it("counts from implementedAt when the row carries the stamp, and from the ship date when it does not", () => {
+    expect(readLedger([ledgerRow({ implementedAt: "2026-05-10T09:30:00.000Z" })], LATE, "2026-07-01")[0]
+      .windows.map((w) => w.closesOn)).toEqual(["2026-05-17", "2026-05-24", "2026-06-07"]);
+    expect(readLedger([ledgerRow()], LATE, "2026-07-01")[0].windows.find((w) => w.day === 7)!.closesOn).toBe("2026-05-08");
   });
 });
 describe("overlap honesty: a later change closes the earlier one's clean window", () => {
@@ -210,14 +204,11 @@ describe("a settled reading survives the clock moving under it", () => {
     implementedAt: "2026-05-20T00:00:00.000Z",
     windows: [{ day: 28, ran: true, checkOn: "2026-05-29", adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 }],
   });
-  it("keeps a decided row decided, on the dates the reading was actually taken", () => {
+  it("keeps a decided row decided, and still lets the live schedule govern every window that has NOT run", () => {
     const read = readLedger([stamped], SETTLED, WATERMARK)[0];
     expect(read.basisDay).toBe(28);
     expect(read.windows.find((w) => w.day === 28)).toMatchObject({ closesOn: "2026-05-29", state: "closed" });
     expect([read.verdict, bandOf(read)]).toEqual(["directional_improvement", "won"]);
-  });
-  it("still lets the live schedule govern every window that has NOT run", () => {
-    const read = readLedger([stamped], SETTLED, WATERMARK)[0];
     // 7 and 14 carry no stored reading, so they count from the stamp like any open window.
     expect(read.windows.filter((w) => w.day !== 28).map((w) => w.closesOn)).toEqual(["2026-05-27", "2026-06-03"]);
   });
@@ -228,16 +219,13 @@ describe("the dates Beacon promises count from the stamp", () => {
     id: "s1", path: "/x", shippedAt: "2026-05-01T00:00:00.000Z", verdict: "measuring",
     windows: [], baseline: { impressions: 5000, clicks: 400 }, ...over,
   });
-  it("moves the promised dates onto the stamp when the row carries one", () => {
+  it("moves the promised dates onto the stamp, and never moves one because the change was pressed twice", () => {
     expect(verdictSchedule([scheduleRow()], NOW_S)).toMatchObject({ firstReadOn: "2026-05-29", finalVerdictOn: "2026-05-29" });
     expect(verdictSchedule([scheduleRow({ implementedAt: "2026-05-20T00:00:00.000Z" })], NOW_S))
       .toMatchObject({ firstReadOn: "2026-05-27", finalVerdictOn: "2026-06-17" });
-  });
-  it("never moves a promised date because the change was pressed a second time", () => {
     // A re-press moves the ship date and never the stamp, so the operator's dates hold.
-    expect(verdictSchedule([scheduleRow({
-      implementedAt: "2026-05-20T00:00:00.000Z", shippedAt: "2026-05-24T00:00:00.000Z",
-    })], NOW_S)).toMatchObject({ firstReadOn: "2026-05-27", finalVerdictOn: "2026-06-17" });
+    expect(verdictSchedule([scheduleRow({ implementedAt: "2026-05-20T00:00:00.000Z", shippedAt: "2026-05-24T00:00:00.000Z" })], NOW_S))
+      .toMatchObject({ firstReadOn: "2026-05-27", finalVerdictOn: "2026-06-17" });
   });
 });
 describe("the learning shape every read carries", () => {
@@ -279,7 +267,7 @@ describe("the conditional day-56 read", () => {
   const shipped = (over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord => ({
     id: "s1", page: "https://site.com/x", path: "/x", actionType: "title-family", before: null, after: null,
     shippedAt: STAMP, baseline: { clicks: 400, impressions: 5000, ctr: 0.08, position: 8, windowDays: 28 },
-    targetQueries: [], controlPages: [], windows: [pw(7, true), pw(14, true), pw(28, true)],
+    targetQueries: [], controlPages: [], controlsReceipt: null, windows: [pw(7, true), pw(14, true), pw(28, true)],
     verdict: "won", confidence: "medium", measuredAt: null, notes: null, verifiedLive: false,
     liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null, proposalId: "p1",
     proposalVersion: "v1", basis: null, caseId: null, bundleHypothesis: null,
@@ -309,14 +297,13 @@ describe("the conditional day-56 read", () => {
     // The record can prove the 28-day read did not settle; it cannot prove WHY, so it does not say.
     expect(day56Followup(shipped({ verdict: "measuring" }), FINAL, AFTER_56).reason).toBe("measuring_28");
   });
-  it("runs it for a change that moved or hid the page, even on a clean 28-day read", () => {
-    const record = shipped({ componentsApplied: [{ kind: "redirect", label: "Redirect" }] });
-    expect(day56Followup(record, FINAL, AFTER_56)).toMatchObject({ runs: true, due: true, reason: "dangerous_change" });
-    expect(isDueForMeasure(record, FINAL, AFTER_56)).toBe(true);
-  });
-  it("runs it for a component the proposal GRADED dangerous, whatever its kind", () => {
+  it("runs it for a change that moved or hid the page, or one the proposal GRADED dangerous, on a clean 28-day read", () => {
+    const moved = shipped({ componentsApplied: [{ kind: "redirect", label: "Redirect" }] });
     const graded = shipped({ componentsApplied: [{ kind: "title", label: "Page title", risk: "dangerous" }] });
-    expect(day56Followup(graded, FINAL, AFTER_56)).toMatchObject({ runs: true, due: true, reason: "dangerous_change" });
+    for (const record of [moved, graded]) {
+      expect(day56Followup(record, FINAL, AFTER_56)).toMatchObject({ runs: true, due: true, reason: "dangerous_change" });
+      expect(isDueForMeasure(record, FINAL, AFTER_56)).toBe(true);
+    }
     // A component graded safe on an ordinary kind still closes at 28 days.
     expect(day56Followup(shipped({ componentsApplied: [{ kind: "title", label: "Page title", risk: "safe" }] }), FINAL, AFTER_56).runs).toBe(false);
   });
@@ -355,16 +342,11 @@ describe("the conditional day-56 read", () => {
     expect(read.headline).toContain(
       "The 28 day read looked like a win; the full 56 day read shows no clear change, and the longer window wins.",
     );
-  });
-  it("says nothing about a flip when the fourth read agrees with the 28-day read", () => {
-    const read = readLedger([ledgerRow({
-      implementedAt: STAMP,
-      windows: [
-        { day: 28, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 },
-        { day: 56, ran: true, adjustedLift: 200, controlsUsed: 3, treatedPostImpressions: 5000 },
-      ],
-    })], AFTER_56, FINAL)[0];
-    expect(read.headline).not.toContain("The 28 day read looked like");
+    // A fourth read that AGREES says nothing about a flip at all.
+    const agrees = readLedger([ledgerRow({ implementedAt: STAMP, windows: [
+      { day: 28, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 },
+      { day: 56, ran: true, adjustedLift: 200, controlsUsed: 3, treatedPostImpressions: 5000 }] })], AFTER_56, FINAL)[0];
+    expect(agrees.headline).not.toContain("The 28 day read looked like");
   });
 });
 describe("no causal overclaim on any read", () => {
@@ -378,8 +360,7 @@ describe("no causal overclaim on any read", () => {
       expect(read.headline.toLowerCase()).not.toMatch(/caused|thanks to|because of the change|proof that/);
       expect([read.headline, ...read.caveats].join(" ")).not.toMatch(/[—–]/);
     }
-  });
-  it("holds a still-measuring change out of the won band and out of learning", () => {
+    // A still-measuring change is held out of the won band and out of learning.
     const early = readFor([{ day: 7, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 }]);
     expect([bandOf(early), learningVerdictOf(early)]).toEqual(["promising", "measuring"]);
     expect(early.headline).toContain("I will call it when the 28-day window closes");
@@ -393,18 +374,6 @@ describe("no causal overclaim on any read", () => {
     expect(first.headline).toMatch(/changed the same page again on [A-Z][a-z]{2} \d{1,2}\b/);
     expect(first.headline).not.toMatch(/\d{4}-\d{2}-\d{2}/); // never a raw date stamp in operator copy
     expect(learningVerdictOf(first)).toBe("measuring");
-  });
-});
-describe("overlap closure math", () => {
-  it("names the day a later same-page change closed the clean window, and leaves other pages alone", () => {
-    const closures = overlapClosures([
-      { id: "a", path: "/x", anchoredAt: "2026-05-01" },
-      { id: "b", path: "/x", anchoredAt: "2026-05-12" },
-      { id: "c", path: "/y", anchoredAt: "2026-05-05" },
-    ]);
-    expect(closures.get("a")).toEqual({ ids: ["b"], cleanUntil: "2026-05-12" });
-    expect(closures.get("b")).toEqual({ ids: ["a"], cleanUntil: null });
-    expect(closures.get("c")).toEqual({ ids: [], cleanUntil: null });
   });
 });
 /** THE TWO VOCABULARIES. A row's action word is a KIND from the older producers ("title") or the FAMILY the bundle
@@ -451,7 +420,7 @@ describe("a settled reading is held still", () => {
   const record = (over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord => ({
     id: "shp_pin", page: "https://site.com/x", path: "/x", actionType: "content", before: null, after: null,
     shippedAt: STAMP, baseline: { clicks: 900, impressions: 9000, ctr: 0.1, position: 6, windowDays: 28 },
-    targetQueries: [], controlPages: [], windows: [pinWin(7, 300), pinWin(14, 700), pinWin(28, 1040)],
+    targetQueries: [], controlPages: [], controlsReceipt: null, windows: [pinWin(7, 300), pinWin(14, 700), pinWin(28, 1040)],
     verdict: "won", confidence: "high", measuredAt: null, notes: null, verifiedLive: false,
     liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null, proposalId: "p1",
     proposalVersion: "v1", basis: null, caseId: null, bundleHypothesis: null,
@@ -493,5 +462,49 @@ describe("a settled reading is held still", () => {
     const served = applyPinnedRead(live, pin);
     expect([live.verdict, served.verdict, served.lift, served.rankingSignal]).toEqual(["confounded", "confounded", 1040, 0]);
     expect(served.confidenceReasons.join(" ")).toMatch(/changed again afterwards/);
+  });
+});
+/** PHASE 2: ONE COMPARISON POLICY. Exclusion is scoped to the window being read, so a page that was
+ *  changed months ago is comparable again instead of being lost forever; the receipt lists only facts
+ *  anybody can check; too few fair comparisons is a VERDICT rather than a weak number; and the frozen
+ *  reading the operator was shown is the same one ranking learns from. */
+describe("one comparison policy, one durable result", () => {
+  const NOW_C = new Date("2026-06-01T00:00:00Z");
+  const change = (path: string, at: string, verdict: string): ShippedChangeRecord =>
+    ({ path, shippedAt: at, implementedAt: at, verdict, windows: [{ day: 28, ran: true }] } as unknown as ShippedChangeRecord);
+  it("holds a page only for its own window, names why, and lets it back in afterwards", () => {
+    const ledger = [change("/live", "2026-05-28", "measuring"), change("/old", "2026-01-05", "won")];
+    expect([...contaminationFor(ledger, ["/queued"], NOW_C)]).toEqual([["/live", "treated-now"], ["/queued", "open-proposal"]]);
+    // Reading a May change never touches January's days, so the January page is comparable again.
+    expect(contaminationFor(ledger, [], NOW_C, change("/x", "2026-05-20", "measuring")).has("/old")).toBe(false);
+    expect(contaminationFor(ledger, [], NOW_C, change("/x", "2026-01-20", "measuring")).get("/old")).toBe("measuring-window-overlap");
+  });
+  it("stands the matched page behind a change instead of the biggest one, and says why in checkable facts", () => {
+    const cand = (path: string, pageType: string | null, impr: number) =>
+      ({ url: `https://s.test${path}`, path, pageType, baselineImpressions: impr, hasBaseline: impr > 0 });
+    const { controls, receipts } = selectMatchedControls({
+      treated: { path: "/a", pageType: "city", baselineImpressions: 1000 },
+      candidates: [cand("/huge", "guide", 90000), cand("/peer", "city", 1400), cand("/dirty", "city", 1100), cand("/thin", null, 0)],
+      excluded: contaminationFor([change("/dirty", "2026-05-30", "measuring")], [], NOW_C),
+    });
+    expect(controls).toEqual(["https://s.test/peer", "https://s.test/huge", "https://s.test/thin"]);
+    expect(receipts[0]).toEqual({ path: "/peer", reasons: ["same page type: city", "traffic within 2x",
+      "search data across the whole baseline window", "no open or measuring changes"] });
+  });
+  it("calls too few fair comparisons a verdict, shows the page's own numbers unadjusted, and teaches nothing", () => {
+    const read = evaluateChange(baseInput({ actionType: "content",
+      windows: [win(28, { adjustedClicksLift: 40, controlsUsed: 1, treatedDelta: 58 })] }), CLOSED_WINDOWS, []);
+    expect([read.comparison, read.verdict, read.rankingSignal]).toEqual(["insufficient", "insufficient_evidence", 0]);
+    expect(read.headline).toBe("The change is recorded. Its effect cannot be separated from the rest of the site yet.");
+    expect(read.unadjusted).toEqual({ basisDay: 28, clicksBefore: 400, clicksAfter: 458, impressionsBefore: 5000, impressionsAfter: 5000 });
+    expect(learningVerdictOf(read)).toBe("measuring");
+  });
+  it("teaches ranking the frozen reading, and records a recompute that disagrees beside it", () => {
+    const pin = { verdict: "directional_improvement", metric: "clicks", lift: 1040, impressionsLift: 0, basisDay: 28,
+      confidence: "high", controlsUsed: 4, pinnedAt: "2026-06-01T00:00:00.000Z", finalizedThrough: "2026-05-20" } as const;
+    const learned = readRecordsForLearning([{ ...ledgerRow(), pinnedRead: pin }], LATE)[0];
+    expect([learned.lift, learned.confidence, learningVerdictOf(learned)]).toEqual([1040, "high", "won"]);
+    const corrected = withCorrection(pin, { ...learned, lift: 1428 }, LATE)!;
+    expect([corrected.lift, corrected.corrections?.length]).toEqual([1040, 1]);
   });
 });

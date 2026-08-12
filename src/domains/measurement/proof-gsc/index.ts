@@ -29,8 +29,6 @@ export {
   toKernelInput,
   readLedger,
   bandOf,
-  splitReads,
-  windowStateLine,
   learningVerdictOf,
   readRecordsForLearning,
   loadKernelLedger,
@@ -55,16 +53,17 @@ export {
   upsertShippedChange,
   recordVerification,
   recordPinnedRead,
+  recordPinnedReadCorrection,
   pagesUnderMeasurementFromShipments,
 } from "./shipped-change-store";
 
-// The finished reading, held still
+// The finished reading, held still, and the corrections that never overwrite it
 export type { PinnedRead } from "./pinned-read";
-export { pinFor, applyPinnedRead } from "./pinned-read";
+export { pinFor, applyPinnedRead, withCorrection } from "./pinned-read";
 
-// Weekly recap signal
-export type { RecapRow } from "./weekly-recap";
-export { shippedInLastDays } from "./weekly-recap";
+// THE ONE COMPARISON POLICY: who may stand behind a change, and why they qualified
+export type { ControlReceipt } from "./contamination";
+export { contaminationFor, contaminatedPaths, selectMatchedControls } from "./contamination";
 
 // Verdict schedule
 export type { VerdictScheduleRow, VerdictSchedule } from "./verdict-schedule";
@@ -90,6 +89,8 @@ export {
   captureChangeMeta,
   recordShippedChange,
   selectControlPages,
+  matchedControlsFor,
+  openChangePaths,
 } from "./measure-pass";
 
 // THE RECORDING SEAM: implementation truth is stored always, measurement availability travels beside it
