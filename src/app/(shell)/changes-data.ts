@@ -245,10 +245,10 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
       readyZeroHint =
         "None has cleared Ready yet. These ideas still need a human look before exact copy is handed over. Open one to review it.";
     } else if (summary.measuring > 0) {
-      readyZeroHint = `0 ready right now because everything prepared is already live and measuring (${summary.measuring} in progress). New ideas get ranked here as fresh demand data comes in.`;
+      readyZeroHint = `Nothing is ready right now because everything prepared is already live and being read (${summary.measuring} in progress). New ideas get ranked here as fresh demand data comes in.`;
     } else {
       readyZeroHint =
-        "0 ready right now because no prepared idea has earned its place yet. Once your Google and AI demand data syncs, real changes get drafted and ranked here.";
+        "Nothing is ready right now because no prepared idea has earned its place yet. Once your Google and AI demand data syncs, real changes get drafted and ranked here.";
     }
   }
 

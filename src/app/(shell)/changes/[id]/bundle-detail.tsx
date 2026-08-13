@@ -7,6 +7,7 @@ import { causeLabel, componentIdOf, dangerousComponents, sameComponentId } from 
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { CopyButton, MarkImplemented, SetAsideChange } from "../change-controls";
+import { pageLabel } from "../types";
 
 function Heading({ children }: { children: React.ReactNode }) {
   return <h2 className="text-[14px] font-semibold text-foreground">{children}</h2>;
@@ -89,7 +90,7 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
       </Link>
 
       <section className="space-y-2 rounded-2xl border border-accent-primary/40 bg-surface-raised p-5">
-        <h1 className="text-[14px] font-semibold text-foreground">The recommendation</h1>
+        <h2 className="text-[14px] font-semibold text-foreground">The recommendation</h2>
         <p className="text-[15px] font-semibold leading-relaxed text-foreground">{bundle.objective}</p>
         <p className="text-[13px] text-muted-foreground">
           {isNew ? "A new page for" : "On this page"}: {proposal.pageLabel}
@@ -181,13 +182,14 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
   );
 }
 
-/** What one ranking factor did to the order, in words rather than a raw score. A factor is  bounded by its own ceiling, so the operator can see that no single input can run away with
- *  the queue, and a factor that changed nothing says so instead of printing a zero. */
+/** What one ranking factor did to the order, IN WORDS AND NO SCORE. "(moved it up 1.2 of a possible 3)" is the
+ *  ranker's own arithmetic showing through, and a number nobody can act on is not proof. How hard it pushed, out
+ *  of how hard it could ever push, is the whole fact; a factor that changed nothing says so instead of a zero. */
 function weightWord(contribution: number, max: number): string {
-  const n = Math.round(Math.abs(contribution) * 10) / 10;
-  const ceiling = Math.round(max * 10) / 10;
-  if (n === 0) return "did not move this one either way";
-  return contribution > 0 ? `moved it up ${n} of a possible ${ceiling}` : `moved it down ${n} of a possible ${ceiling}`;
+  const share = max > 0 ? Math.abs(contribution) / max : 0;
+  if (Math.round(Math.abs(contribution) * 10) / 10 === 0) return "did not move this one either way";
+  if (contribution < 0) return "held it back";
+  return share >= 0.66 ? "a strong push" : share >= 0.33 ? "a fair push" : "a small push";
 }
 
 /** LAYER 2: THE INVESTIGATION. Everything above this decides; this proves. It is behind one
@@ -212,7 +214,7 @@ function Investigation({ proposal, seen }: { proposal: ChangeProposal; seen: Set
   return (
     <details className="rounded-2xl border border-border bg-surface-raised p-5" data-investigation="true">
       <summary className="cursor-pointer text-[14px] font-semibold text-foreground">
-        Show me how you worked this out
+        How this was worked out
       </summary>
       <div className="mt-4 space-y-4">
         {finding ? (
@@ -388,25 +390,6 @@ function CopyBlock({ component }: { component: BundleComponent }) {
   return <p className={`${box} whitespace-pre-wrap break-words`}>{component.after}</p>;
 }
 
-/** The honest read failure. It deliberately does NOT fall back to anything cached: the whole point of the
- *  fresh-read pattern is that this page never contradicts /changes. */
-function ChangeDetailReadError({ error }: { error: unknown }) {
-  return (
-    <div className="max-w-3xl">
-      <section className="rounded-lg border border-status-warning/40 bg-status-warning/5 px-5 py-5" aria-labelledby="change-read-error">
-        <h2 id="change-read-error" className="text-[13px] font-semibold tracking-tight text-foreground">Couldn&apos;t load this change</h2>
-        <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">{error instanceof Error ? error.message : "Unknown error reading changelog entry"}</p>
-        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-          The database could not be reached just now. Refresh to retry: cached truth is never shown by accident.
-        </p>
-        <Link href="/changes" className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
-          Back to Changes
-        </Link>
-      </section>
-    </div>
-  );
-}
-
 /** THE ONE-LAYER DETAIL for a card with no deep bundle: the same edit the list shows, said in full on its own
  *  page. Before this, a live bundleless row REDIRECTED back to /changes, and once the queue became mostly
  *  suggestion and sweep cards, every "See the change" press bounced. Steps render as steps, a pasteable line
@@ -420,13 +403,16 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
   const instruction = steps.length > 0 && DETAIL_INSTRUCTION.test(after);
   const shownSteps = instruction && after && !(steps[0] ?? "").startsWith(after.slice(0, 25)) ? [after, ...steps] : steps;
   const checks = proposal.evidence?.hints ?? [];
+  const action = (proposal.opportunityType || "").trim().replace(/_/g, " ") || "one edit to make";
   return (
     <div className="space-y-5" data-simple-detail="true">
+      {/* THE HEADLINE IS THE PAGE AND THE WORK, NEVER THE ARGUMENT. This h1 used to be the whole
+          whyItMatters paragraph, printed again word for word as the body two blocks down. */}
       <div className="space-y-1">
+        <h2 className="text-[17px] font-semibold leading-relaxed text-foreground">
+          {proposal.pagePath ? pageLabel(proposal.pagePath) : (proposal.pageLabel || "This page")}: {action}
+        </h2>
         <p className="text-[12px] text-muted-foreground">{proposal.pagePath ?? proposal.pageLabel}</p>
-        <h1 className="text-[17px] font-semibold leading-relaxed text-foreground">
-          {proposal.opportunityType.includes(" ") && proposal.opportunityType.length > 20 ? proposal.opportunityType : proposal.whyItMatters}
-        </h1>
       </div>
       {instruction || (steps.length > 0 && !after) ? (
         <div className="space-y-1">

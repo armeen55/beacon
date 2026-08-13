@@ -22,9 +22,10 @@
  *
  * TO DO: the canonical Changes list's own open count (changes-data.ts summary.todo, computed after fusion + dedupe). It is threaded through here so it comes from one place, never re-derived.
  *
- * No surface may re-derive its own version of any of these numbers. Consumers:
- * Today (src/app/(shell)/page.tsx tiles + standup + measuring strip), the Changes list (changes-data.ts canonical annotations), and the
- * Results page (header strip + the three bands themselves via splitLedgerLifecycle).
+ * No surface may re-derive its own version of any of these numbers. Consumers: Today (src/app/(shell)/page.tsx week strip and last-win line) and the
+ * Changes list (changes-data.ts canonical annotations). Results stopped calling splitLedgerLifecycle at the 2026-08 redesign and groups its own rows
+ * (results-presentation.ts groupOf + isMature) instead, so the invariant that keeps the two honest is MATURITY, not a shared call: bandOf here and
+ * groupOf there settle a row on the same 28 or 56 day rule, including a shared-credit read, so "out of N finished" on Today is the count Results shows.
  */
 import { bandOf, readRecordsForLearning, type LedgerRecordLike } from "@/domains/measurement/proof-gsc/kernel";
 export type LifecycleCounts = {

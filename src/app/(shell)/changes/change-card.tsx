@@ -15,6 +15,7 @@ import { componentIdOf, dangerousComponents } from "@/domains/decision/contracts
 import { receiptComposition } from "@/domains/decision/contracts";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision";
 import { markProposalImplementedAction } from "./actions";
+import { pageLabel } from "./types";
 import { CopyButton, MarkImplemented } from "./change-controls";
 
 /** The producer's own boilerplate. It said the same sentence on all 37 title cards, so it is dropped outright
@@ -155,8 +156,13 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
   // editor"), so a step carrying its own number printed "1. 1. Open the editor" beside the span below, and a
   // step that came through empty printed a bare "1." with nothing after it.
   const steps = (proposal.operatorSteps ?? []).map((s) => (s ?? "").replace(/^\s*\d+[.)]\s*/, "").trim()).filter(Boolean);
-  const pageTitle = proposal.pagePath ?? proposal.pageLabel;
-  const secondary = proposal.pageLabel !== pageTitle ? proposal.pageLabel : null;
+  // THE PAGE, SAID THE WAY A PERSON SAYS IT. The headline was the raw slug ("/famous-iranian-comedians"), which
+  // is a file name; the address itself stays underneath, where an address belongs.
+  const path = proposal.pagePath ?? proposal.pageLabel;
+  // Only a real address goes through the slug reader: a new-page proposal carries a TITLE in pageLabel,
+  // and de-slugging a title truncates it at its first slash and eats its punctuation.
+  const pageTitle = proposal.pagePath ? pageLabel(proposal.pagePath) : (proposal.pageLabel || "This page");
+  const secondary = path === pageTitle ? null : path;
   const tier = evidenceTier(proposal, proven);
   const chip = TIER_CHIP[tier]!;
   // A MERGE IS READ, NEVER PASTED: no copy box, no copy button, and the ordered steps become the whole fix. The

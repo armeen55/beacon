@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { navigationGroups, operatorNavGroup } from "@/lib/navigation";
+import { navigationGroups } from "@/lib/navigation";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sheet,
@@ -33,13 +33,12 @@ const NAV_SHORTCUTS: Record<string, string> = {
   "/settings": "G S",
 };
 
-function SidebarContent({ isOperator = false }: { isOperator?: boolean }) {
+function SidebarContent() {
   const pathname = usePathname();
-  // Operator-OS rebuild: append the operator-only nav group when in operator
-  // mode (threaded from the server layout). Customers never get this branch.
-  const groups = isOperator
-    ? [...navigationGroups, operatorNavGroup]
-    : navigationGroups;
+  // 2026-08-12: the operator-only nav group has been empty since the 2026-06-23 IA consolidation folded
+  // every operator route into the customer nav, and appending it rendered an empty row of navigation
+  // padding for the operator. One nav, one set of groups, for everybody.
+  const groups = navigationGroups;
 
   // Longest-prefix-wins active state: /settings/connectors must highlight
   // "Connections" only, not also "Settings" (both matched under a plain
@@ -146,10 +145,10 @@ function SidebarContent({ isOperator = false }: { isOperator?: boolean }) {
   );
 }
 
-export function AppSidebar({ isOperator = false }: { isOperator?: boolean }) {
+export function AppSidebar() {
   return (
     <aside className="hidden w-[216px] shrink-0 border-r border-sidebar-border bg-sidebar md:block">
-      <SidebarContent isOperator={isOperator} />
+      <SidebarContent />
     </aside>
   );
 }

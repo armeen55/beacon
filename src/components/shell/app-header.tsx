@@ -52,6 +52,18 @@ export function AppHeader({ rightSlot }: { rightSlot?: React.ReactNode }) {
       {/* Night-shift #119 (2026-06-11): server-rendered tenant switcher
           composed in via RSC props (this component stays client). */}
       {rightSlot ? <div className="ml-auto">{rightSlot}</div> : null}
+      {/* FP4 (2026-07-03): one name for one page. This used to say "Tonight's changes" while the sidebar said
+          "Changes" and the URL said /worklist. 2026-08-12: it also rendered ON /changes, offering a customer a
+          trip to the page already open, so the route it points at now decides whether it appears at all. */}
+      {pathname.startsWith("/changes") ? null : (
+        <Link
+          href="/changes"
+          prefetch={false}
+          className={`${rightSlot ? "ml-3" : "ml-auto"} rounded-md bg-foreground px-2.5 py-1 text-[11px] font-semibold text-background transition-colors hover:bg-foreground/85`}
+        >
+          Changes
+        </Link>
+      )}
       {/* The hint strip never shrinks or wraps: at a narrow desktop width the flex gaps collapsed and the two
           hints ran together as one unreadable token. shrink-0 + nowrap keeps the words apart at every width. */}
       <div className={`${rightSlot ? "ml-3" : "ml-auto"} hidden shrink-0 md:flex items-center gap-1.5 whitespace-nowrap text-[10px] text-muted-foreground`}>

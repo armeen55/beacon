@@ -1,18 +1,15 @@
 /**
- * visibility-view - THE ANALYTICAL MODEL behind the one Visibility surface: pure functions over readings the kernels ALREADY took and stored, in and headline numbers, chart geometry and ranked tables out.
- * Nothing here fetches, pays or triggers research. THE RULES THAT DO NOT BEND: every rate names its numerator, its denominator and the days it was counted over; a denominator nobody has checked reports
- * as unchecked and never as a zero; a missing day stays missing; Google and AI never add up into one score; and no rank is ever invented.
+ * visibility-view - THE ANALYTICAL MODEL behind the one Visibility surface: pure functions over readings the kernels ALREADY took and stored, in and headline numbers, chart geometry and ranked tables out. Nothing here fetches, pays or triggers research.
+ * THE RULES THAT DO NOT BEND: every rate names its numerator, its denominator and the days it was counted over; a denominator nobody has checked reports as unchecked and never as a zero; a missing day stays missing; Google and AI never add up into one score; no rank is ever invented; and nothing a machine wrote for itself (a timestamp, a mode key, a cache key, a model id) reaches a customer in that form.
  */
 
 import { monthDayLabel } from "@/components/data/receipt-line";
 import type { AiOutcomeReport } from "@/domains/measurement";
 import type { AnswerIntel, ClassifiedDomain, CompetitorKind, GscDecaySignal, GscPageSignal,
   GscWeeklyDimensionsSnapshot } from "@/domains/evidence";
-
 // ── shared shapes (structural: the table and chart components infer them, so nothing extra is public) ─
 
-/** ONE cell. `sort` is the number the column sorts on when the text is formatted, `tone` colours a change
- *  or marks a page of yours, and `sub` is the second line that keeps a wide table from lying. */
+/** ONE cell. `sort` is the number the column sorts on when the text is formatted, `tone` colours a change or marks a page of yours, `sub` is the second line that keeps a wide table from lying. */
 type Cell = { text: string; sub?: string; tone?: "up" | "down" | "flat" | "own"; sort?: number; href?: string };
 type Table = { columns: Array<{ key: string; label: string; numeric?: boolean; wide?: boolean }>;
   rows: Array<{ id: string; href?: string; cells: Cell[] }>; note: string | null; empty: string };
@@ -21,8 +18,7 @@ type Tile = { label: string; value: string; basis: string; delta: string | null;
 
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const pct = (n: number): string => `${n > 0 && n < 0.1 ? (n * 100).toFixed(1) : Math.round(n * 100)}%`;
-/** A change in a RATE is stated in points, never as a percent of a percent: "down 1%" on a click rate that
- *  fell from 1.4 to 1.3 is a sentence nobody can act on. Null when there is no window before this one. */
+/** A change in a RATE is stated in points, never as a percent of a percent: "down 1%" on a click rate that fell from 1.4 to 1.3 is a sentence nobody can act on. Null with no window before this one. */
 const points = (now: number | null, prior: number | null): Pick<Tile, "delta" | "tone"> =>
   now == null || prior == null ? { delta: null, tone: "flat" }
     : Math.abs(now - prior) * 100 < 0.05 ? { delta: "even", tone: "flat" }
@@ -36,20 +32,25 @@ const delta = (now: number, prior: number): Pick<Tile, "delta" | "tone"> => prio
 const change = (now: number, prior: number): Cell => ({ sort: now - prior, tone: now > prior ? "up" : now < prior ? "down" : "flat",
   text: prior === 0 && now === 0 ? "even" : `${now - prior > 0 ? "+" : ""}${num(now - prior)}` });
 const table = (over: Partial<Table> & Pick<Table, "columns" | "empty">): Table => ({ rows: [], note: null, ...over });
-/** A READ THAT DID NOT LAND IS NOT AN EMPTY ACCOUNT. Falling back to a bare empty list told an account with
- *  seven hundred stored answers that I had never read one, which is the worst lie this surface could tell. */
+/** A READ THAT DID NOT LAND IS NOT AN EMPTY ACCOUNT. A bare empty list told an account with seven hundred stored answers that not one had ever been read, the worst lie this surface could tell. */
 const UNREAD = "That could not be read back in time just now. Nothing is lost: it lands on your next visit, and the daily round keeps collecting either way.";
 
 const ENGINE_LABEL: Record<string, string> = { chatgpt: "ChatGPT", perplexity: "Perplexity", gemini: "Gemini", claude: "Claude" };
 const engineName = (raw: string): string => ENGINE_LABEL[(raw || "").toLowerCase()] ?? "An AI assistant";
+/** HOW an answer was asked for, in words. The mode key is what a provider is called with, never what a customer reads. */
+const MODE_LABEL: Record<string, string> = { api: "asked directly", consumer_search: "asked the way a person searching would be" };
+/** AN INSTANT A STRANGER CAN READ: "Aug 2 at 4:02 PM UTC". A stored timestamp is never printed as it was written. */
+const instant = (iso: string | null): string | null => {
+  const t = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(t) ? `${new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }).replace(", ", " at ")} UTC` : null;
+};
 
 /** Plain English for the eight groups a recurring domain lands in. */
 const KIND_LABEL: Record<CompetitorKind, string> = { commercial_competitor: "A competitor", citation_authority: "A source",
   publisher: "A publisher", marketplace_directory: "A marketplace", social_community: "A social platform",
   government_educational: "A government or school site", owned: "Your own site", irrelevant_unknown: "Not settled yet" };
 
-/** Plain words for the appearance keys and country codes Google reports. An unnamed one is COLLAPSED or
- *  dropped rather than printed raw: no operator should ever meet TPF_FAQ or "irn" on this page. */
+/** Plain words for the appearance keys and country codes Google reports. An unnamed one is COLLAPSED or dropped rather than printed raw: nobody should ever meet TPF_FAQ or "irn" on this page. */
 const APPEARANCE: Record<string, string> = { TPF_FAQ: "question and answer styling", TPF_QA: "question and answer styling", TPF_HOWTO: "step by step styling",
   REVIEW_SNIPPET: "review stars", PRODUCT_SNIPPETS: "product details", RECIPE_FEATURE: "recipe styling", RECIPE_RICH_SNIPPET: "recipe styling",
   VIDEO: "video results", AMP_BLUE_LINK: "fast mobile pages", ORGANIC_SHOPPING: "shopping results", SPECIAL_ANNOUNCEMENT: "announcement styling",
@@ -59,7 +60,6 @@ const COUNTRY: Record<string, string> = { usa: "United States", can: "Canada", g
   pak: "Pakistan", mex: "Mexico", bra: "Brazil", jpn: "Japan", kor: "South Korea", chn: "China", rus: "Russia", isr: "Israel", irq: "Iraq",
   afg: "Afghanistan", ukr: "Ukraine", che: "Switzerland", aut: "Austria", bel: "Belgium", dnk: "Denmark", nor: "Norway", fin: "Finland", pol: "Poland",
   prt: "Portugal", grc: "Greece", zaf: "South Africa", sgp: "Singapore", mys: "Malaysia", idn: "Indonesia", phl: "Philippines" };
-
 // ── Google ───────────────────────────────────────────────────────────────────────────────────────
 
 type GoogleInput = {
@@ -70,12 +70,10 @@ type GoogleInput = {
 
 const METRIC_LABEL: Record<GoogleInput["metric"], string> = { clicks: "Clicks", impressions: "Appearances", ctr: "Click rate" };
 
-/** WHERE GOOGLE HAS YOU, as numbers a stranger can act on. `limitation` is set only when Search Console
- *  has never reported a day for this account: the view then says what it cannot show and where to fix it. */
+/** WHERE GOOGLE HAS YOU, as numbers a stranger can act on. `limitation` is set only when Search Console never reported a day: the view then says what it cannot show and where to fix it. */
 export function googleView(input: GoogleInput) {
   if (input.days.length === 0) {
-    return { limitation: "No Search Console numbers are on file for this account, so clicks, appearances, and rankings cannot be shown here. Connect Google Search Console on Connections and this fills in on the next daily round.", tiles: [] as Tile[],
-      chart: null, pages: null, queries: null, dimensions: [] as Array<{ title: string; table: Table }>, watermark: "", coverage: "" };
+    return { limitation: "No Search Console numbers are on file for this account, so clicks, appearances, and rankings cannot be shown here. Connect Google Search Console on Connections and this fills in on the next daily round.", tiles: [] as Tile[], chart: null, pages: null, queries: null, dimensions: [] as Array<{ title: string; table: Table }>, watermark: "", coverage: "" };
   }
   const span = Math.min(input.rangeDays, input.days.length);
   const now = input.days.slice(-span), prior = input.days.slice(Math.max(0, input.days.length - span * 2), input.days.length - span);
@@ -85,11 +83,9 @@ export function googleView(input: GoogleInput) {
   const noPages = input.decay.length === 0 && c > 0, noQueries = input.pages.size === 0 && c > 0;
   const through = monthDayLabel(input.days[input.days.length - 1]?.date ?? null);
   const before = prior.length === span ? `against ${num(pc)} over the ${num(span)} days before` : "no full window before this one to compare against";
-  // AVERAGE POSITION IS THE ONE NUMBER GOOGLE'S DAILY TOTALS DO NOT CARRY, so it is weighted by appearances off
-  // the per page windows and SAYS SO: quoting it under the range picker would claim a window it was never measured on.
+  // AVERAGE POSITION IS THE ONE NUMBER GOOGLE'S DAILY TOTALS DO NOT CARRY, so it is weighted by appearances off the per page windows and SAYS SO: quoting it under the range picker would claim a window it was never measured on.
   const seen = input.decay.filter((r) => r.impressionsNow > 0), seenPrior = input.decay.filter((r) => r.impressionsPrior > 0);
-  const weigh = (rows: GscDecaySignal[], p: "positionNow" | "positionPrior", im: "impressionsNow" | "impressionsPrior"): number | null =>
-    rows.reduce((a, r) => a + r[im], 0) > 0 ? rows.reduce((a, r) => a + r[p] * r[im], 0) / rows.reduce((a, r) => a + r[im], 0) : null;
+  const weigh = (rows: GscDecaySignal[], p: "positionNow" | "positionPrior", im: "impressionsNow" | "impressionsPrior"): number | null => rows.reduce((a, r) => a + r[im], 0) > 0 ? rows.reduce((a, r) => a + r[p] * r[im], 0) / rows.reduce((a, r) => a + r[im], 0) : null;
   const posNow = weigh(seen, "positionNow", "impressionsNow"), posPrior = weigh(seenPrior, "positionPrior", "impressionsPrior");
   const windowEnd = monthDayLabel(input.decay[0]?.windowNowEnd ?? null);
   const tiles: Tile[] = [
@@ -102,12 +98,10 @@ export function googleView(input: GoogleInput) {
       tone: posNow != null && posPrior != null ? (posNow < posPrior - 0.1 ? "up" : posNow > posPrior + 0.1 ? "down" : "flat") : "flat" },
   ];
   const value = (d: { clicks: number; impressions: number }): number => input.metric === "clicks" ? d.clicks : input.metric === "impressions" ? d.impressions : d.impressions > 0 ? d.clicks / d.impressions : 0;
-  const chart = { label: METRIC_LABEL[input.metric], percent: input.metric === "ctr",
-    points: now.map((d) => ({ day: d.date, label: monthDayLabel(d.date) ?? d.date, value: value(d) })),
+  const chart = { label: METRIC_LABEL[input.metric], percent: input.metric === "ctr", points: now.map((d) => ({ day: d.date, label: monthDayLabel(d.date) ?? d.date, value: value(d) })),
     prior: prior.length === span ? prior.map((d) => value(d)) : null, priorLabel: prior.length === span ? `the ${num(span)} days before` : null };
 
-  // EVERY PAGE THAT MOVED, not a top five. A page losing ground is the whole point of this table, so the
-  // list is complete and scrolls; slicing it is how a decline hides.
+  // EVERY PAGE THAT MOVED, not a top five. A page losing ground is the whole point of this table, so the list is complete and scrolls; slicing it is how a decline hides.
   const moved = input.decay.filter((r) => r.page && (r.clicksNow > 0 || r.clicksPrior > 0 || r.impressionsNow > 0));
   const losing = moved.filter((r) => r.clicksNow < r.clicksPrior).length;
   const pages = table({
@@ -130,8 +124,7 @@ export function googleView(input: GoogleInput) {
     }),
   });
 
-  // THE SEARCHES THEMSELVES, off the same 90 reported days the page rows carry. One row is one search on one
-  // page, because that is the grain Google reports and merging them would invent a position nobody measured.
+  // THE SEARCHES THEMSELVES, off the same 90 reported days the page rows carry. One row is one search on one page: that is the grain Google reports, and merging them would invent a position nobody measured.
   const seenQueries = [...input.pages.entries()].flatMap(([page, sig]) => sig.topQueries.map((q) => ({ page, ...q })));
   const QUERY_CAP = 150;
   const queries = table({
@@ -150,8 +143,7 @@ export function googleView(input: GoogleInput) {
 
   const w = input.weekly;
   const weekLabel = monthDayLabel(w?.now.weekEnd ?? null);
-  const share = (rows: Array<{ clicks: number; impressions: number }>, r: { clicks: number; impressions: number }): Cell => ({ sort: r.impressions,
-    text: rows.reduce((a, x) => a + x.impressions, 0) > 0 ? pct(r.impressions / rows.reduce((a, x) => a + x.impressions, 0)) : "not yet" });
+  const share = (rows: Array<{ clicks: number; impressions: number }>, r: { clicks: number; impressions: number }): Cell => ({ sort: r.impressions, text: rows.reduce((a, x) => a + x.impressions, 0) > 0 ? pct(r.impressions / rows.reduce((a, x) => a + x.impressions, 0)) : "not yet" });
   const dimension = (title: string, label: string, rows: Array<{ key: string; name: string; clicks: number; impressions: number; position?: number }>, empty: string) => ({ title, table: table({
       columns: [{ key: "name", label, wide: true }, { key: "clicks", label: "Clicks", numeric: true }, { key: "impressions", label: "Appearances", numeric: true },
         { key: "share", label: "Share of appearances", numeric: true }, { key: "ctr", label: "Click rate", numeric: true },
@@ -175,8 +167,7 @@ export function googleView(input: GoogleInput) {
 
 // ── AI answers ───────────────────────────────────────────────────────────────────────────────────
 
-/** ONE stored answer flattened by the page. The tri-state survives end to end: a reading nobody has taken
- *  reports null, not false, and an engine that never said which pages it used reports null, not "nobody". */
+/** ONE stored answer flattened by the page. The tri-state survives end to end: a reading nobody has taken reports null, not false, and an engine that never said which pages it used reports null, not "nobody". */
 export type AnswerRow = {
   id: string; day: string; promptId: string; promptText: string; engine: string; slot: number; answered: boolean;
   mentioned: boolean | null; position: number | null; cited: boolean | null; fanOuts: string[] | null;
@@ -185,8 +176,9 @@ export type AnswerRow = {
   answerText: string | null;
   modelRequested: string | null; modelServed: string | null; mode: string | null; askedAt: string | null;
   answeredAt: string | null; receipt: string | null; costUsd: number | null; failureReason: string | null;
-  /** read = every word read closely. part = some of it. checked = only the deterministic look for this
-   *  account's own name settled it, which is a check and not a reading. unread = nobody has looked. */
+  /** Whether the assistant said it searched the web before answering. Null = it never said either way. */
+  webSearched: boolean | null;
+  /** read = every word read closely. part = some of it. checked = only the deterministic look for this account's own name settled it, a check and not a reading. unread = nobody has looked. */
   reading: "read" | "part" | "checked" | "unread";
 };
 
@@ -197,42 +189,37 @@ type AiInput = {
   checks: { done?: number; total?: number; answered?: number; unavailable?: number; unsupported?: number }; // today's planned round
   /** IS THE RESEARCH ALIVE, in the run's own words: what the last pass produced and when, or how long it has been and what to press. Null only when that could not be read, and then nothing is claimed either way. */
   liveness?: string | null;
-  /** The newest day that holds readings and every reading on it: the searches the assistants ran and the
-   *  pages they credited live only on this shape, so both subviews name that one day out loud. */
+  /** The newest day that holds readings and every reading on it: the searches the assistants ran and the pages they credited live only on this shape, so both subviews name that one day out loud. */
   day: string | null; dayRows: AnswerRow[] | null;
-  /** Every canonical reading over the window, lean (no answer text, no journey): what the question table
-   *  counts, and what the window before it is compared against. */
+  /** Every canonical reading over the window, lean (no answer text, no journey): what the question table counts, and what the window before it is compared against. */
   window: AnswerRow[] | null;
   landscape: ClassifiedDomain[] | null; intel: AnswerIntel | null;
   /** The one question opened, with every reading of it I hold. */
   focus: { promptId: string; rows: AnswerRow[] } | null;
 };
 
-/** A FAN-OUT IS WHAT THE ASSISTANT WENT AND SEARCHED FOR, NEVER WHAT I ASKED IT: a tracked question of mine
- *  in that list reads as the assistant's own idea, so every reader of one goes through here. */
+/** A FAN-OUT IS WHAT THE ASSISTANT WENT AND SEARCHED FOR, NEVER WHAT IT WAS ASKED: a tracked question sitting in that list reads as the assistant's own idea, so every reader of one goes through here. */
 const fanOutsExcluding = (fanOuts: readonly string[], asked: readonly string[]): string[] => {
   const same = (q: string) => q.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   const mine = new Set(asked.map(same));
   return [...new Set(fanOuts.map((q) => q.trim()).filter(Boolean))].filter((q) => !mine.has(same(q)));
 };
 
-/** WHERE AI ANSWERS HAVE YOU. `empty` is set when nothing has been read at all, so the view says so rather
- *  than showing a wall of honest looking zeros. */
+/** WHERE AI ANSWERS HAVE YOU. `empty` is set when nothing has been read at all, so the view says so rather than showing a wall of honest looking zeros. */
 export function aiView(input: AiInput) {
   const days = (input.segments ?? []).flatMap((s) => s.days);
   const dayRows = input.dayRows ?? [], windowRows = input.window ?? [];
   if (days.length === 0) return { empty: input.segments == null ? UNREAD : "Not one AI answer has been read for this account yet. The daily round reads them, and this fills in from the first one it stores.",
-    tiles: [] as Tile[], chart: null, coverage: "", watermark: "", prompts: null, citations: null, searches: null, intel: null,
+    tiles: [] as Tile[], chart: null, coverage: "", watermark: "", prompts: null, citations: null, searches: null, intel: null, retrieval: null, byEngine: null,
     detail: null, engines: [] as Array<{ id: string; label: string }>, boundaries: [] as string[] };
   const span = Math.min(input.rangeDays, days.length);
   const now = days.slice(-span), prior = days.slice(Math.max(0, days.length - span * 2), days.length - span);
-  const pool = (rows: typeof now, k: "observed" | "analyzed" | "mentioning" | "citationSample" | "ownedCiting") => rows.reduce((a, d) => a + d[k], 0);
-  const [observed, analyzed, mentioning, citeSample, ownedCiting] = (["observed", "analyzed", "mentioning", "citationSample", "ownedCiting"] as const).map((k) => pool(now, k));
+  const pool = (rows: typeof now, k: "observed" | "analyzed" | "mentioning" | "citationSample" | "ownedCiting" | "ownedRetrieved" | "retrievedNotCited") => rows.reduce((a, d) => a + d[k], 0);
+  const [observed, analyzed, mentioning, citeSample, ownedCiting, opened, passedOver] = (["observed", "analyzed", "mentioning", "citationSample", "ownedCiting", "ownedRetrieved", "retrievedNotCited"] as const).map((k) => pool(now, k));
   const mentionRate = rate(mentioning, analyzed), priorMention = rate(pool(prior, "mentioning"), pool(prior, "analyzed")),
     citeRate = rate(ownedCiting, citeSample), priorCite = rate(pool(prior, "ownedCiting"), pool(prior, "citationSample"));
 
-  // CITATION SHARE, ONE VOTE PER ANSWER: an answer that credits the same domain five times is still one answer
-  // saying that domain's name, so counting links would sell a chatty citation style as authority.
+  // CITATION SHARE, ONE VOTE PER ANSWER: an answer that credits the same domain five times is still one answer saying that domain's name, so counting links would sell a chatty citation style as authority.
   const votes = new Map<string, { answers: number; prompts: Set<string>; engines: Set<string>; owned: boolean; pages: Map<string, number> }>();
   for (const r of dayRows) for (const d of new Set((r.citations ?? []).map((c) => c.domain))) {
     const held = votes.get(d) ?? { answers: 0, prompts: new Set<string>(), engines: new Set<string>(), owned: (r.citations ?? []).some((c) => c.domain === d && c.owned), pages: new Map<string, number>() };
@@ -246,21 +233,23 @@ export function aiView(input: AiInput) {
 
   const tiles: Tile[] = [
     { label: "Answers that name you", value: mentionRate == null ? "not checked yet" : pct(mentionRate),
-      basis: mentionRate == null ? `${num(observed)} answers are on file and none of them are checked yet` : `${num(mentioning)} of the ${num(analyzed)} answers finished checking over ${num(span)} days`,
-      ...points(mentionRate, priorMention) },
+      basis: mentionRate == null ? `${num(observed)} answers are on file and none of them are checked yet` : `${num(mentioning)} of the ${num(analyzed)} answers finished checking over ${num(span)} days`, ...points(mentionRate, priorMention) },
     { label: "Answers crediting a page of yours", value: citeRate == null ? "not reported" : pct(citeRate),
-      basis: citeRate == null ? "not one answer in this window reported which pages it used" : `${num(ownedCiting)} of the ${num(citeSample)} answers that reported what they used`,
-      ...points(citeRate, priorCite) },
-    { label: "Your share of everything credited", value: allVotes > 0 ? pct(myVotes / allVotes) : "not reported",
-      basis: allVotes > 0 ? `${num(myVotes)} of the ${num(allVotes)} times an answer credited any site${dayLabel ? ` on ${dayLabel}` : ""}, counting one vote per answer` : "no answer named the pages it used on the last day read",
-      delta: null, tone: "flat" },
-    { label: "Where you land in the answer", value: placed.length > 0 ? `${(placed.reduce((a, p) => a + p, 0) / placed.length).toFixed(1)}` : "not reported",
-      basis: placed.length > 0 ? `average place across the ${num(placed.length)} answers over ${num(span)} days that reported where you sat, best was ${num(Math.min(...placed))}` : `no answer in the last ${num(span)} days reported where in it you sat`,
-      delta: null, tone: "flat" },
+      basis: citeRate == null ? "not one answer in this window reported which pages it used" : `${num(ownedCiting)} of the ${num(citeSample)} answers that reported what they used`, ...points(citeRate, priorCite) },
+    { label: "Your share of everything credited", value: allVotes > 0 ? pct(myVotes / allVotes) : "not reported", delta: null, tone: "flat",
+      basis: allVotes > 0 ? `${num(myVotes)} of the ${num(allVotes)} times an answer credited any site${dayLabel ? ` on ${dayLabel}` : ""}, counting one vote per answer` : "no answer named the pages it used on the last day read" },
+    { label: "Where you land in the answer", value: placed.length > 0 ? `${(placed.reduce((a, p) => a + p, 0) / placed.length).toFixed(1)}` : "not reported", delta: null, tone: "flat",
+      basis: placed.length > 0 ? `average place across the ${num(placed.length)} answers over ${num(span)} days that reported where you sat, best was ${num(Math.min(...placed))}` : `no answer in the last ${num(span)} days reported where in it you sat` },
     { label: "Answers checked", value: observed > 0 ? pct(analyzed / observed) : "nothing yet",
       basis: observed > 0 ? `${num(analyzed)} of the ${num(observed)} answers collected over ${num(span)} days. Every rate above divides by what was checked, never by what was collected` : "nothing came back in this window",
       delta: null, tone: analyzed >= observed && observed > 0 ? "up" : "flat" },
   ];
+
+  // READ AND PASSED OVER: the assistant opened a page of yours and credited somebody else for the answer. The claim needs BOTH halves reported, so the denominator is the answers that opened your page, never every answer.
+  const missRate = rate(passedOver, opened);
+  const retrieval = opened === 0 || missRate == null ? null : { value: pct(missRate),
+    basis: `${num(passedOver)} of the ${num(opened)} answers that opened a page of yours over the last ${num(span)} days credited somebody else instead`,
+    next: "Those pages were worth reading and not worth quoting. Rewrite one so an answer can lift a line straight out of it." };
 
   // THE TREND, per day, over the assistants asked for. A day nobody checked is a HOLE in the line, never a zero.
   const enginesSeen = [...new Set(days.flatMap((d) => d.byEngine.map((e) => e.engine)))].sort();
@@ -271,6 +260,24 @@ export function aiView(input: AiInput) {
     points: now.map((d) => { const { top, bottom } = forEngine(d); return { day: d.day, label: monthDayLabel(d.day) ?? d.day, value: bottom > 0 ? top / bottom : null }; }),
     prior: prior.length === span ? prior.map((d) => { const { top, bottom } = forEngine(d); return bottom > 0 ? top / bottom : null; }) : null,
     priorLabel: prior.length === span ? `the ${num(span)} days before` : null };
+  // EVERY ASSISTANT SIDE BY SIDE, so four filters do not have to be clicked one at a time and held in your head.
+  const byEngine = table({
+    columns: [{ key: "engine", label: "Assistant", wide: true }, { key: "named", label: "Named you", numeric: true },
+      { key: "credited", label: "Credited a page of yours", numeric: true }, { key: "checked", label: "Answers checked", numeric: true }],
+    empty: "No assistant has answered for this account yet.",
+    note: `Counted over the last ${num(span)} days. Each assistant divides by its own checked answers, so a slower one never drags another one down.`,
+    // An assistant asked nothing in the window renders nothing: a row of zeros is the bare-zero lie.
+    rows: enginesSeen.filter((e) => now.some((d) => d.byEngine.some((x) => x.engine === e && x.asked > 0))).map((e) => {
+      const seen = now.flatMap((d) => d.byEngine.filter((x) => x.engine === e));
+      const add = (k: "asked" | "analyzed" | "mentioning" | "citedOwned") => seen.reduce((a, x) => a + x[k], 0);
+      const [asked, checked, named, credited] = [add("asked"), add("analyzed"), add("mentioning"), add("citedOwned")], r0 = rate(named, checked);
+      return { id: e, cells: [{ text: engineName(e) },
+        { text: r0 == null ? "not checked yet" : pct(r0), sub: r0 == null ? undefined : `${num(named)} of ${num(checked)} checked`, sort: r0 ?? -1, tone: r0 != null && r0 > 0 ? "own" as const : undefined },
+        { text: num(credited), sub: `${credited === 1 ? "answer" : "answers"} crediting a page of yours`, sort: credited },
+        // asked counts distinct prompts PER DAY, so a sum across days is asks, never questions.
+        { text: num(checked), sub: `asked ${num(asked)} times over ${num(span)} days`, sort: checked }] };
+    }),
+  });
   const boundaries = (input.segments ?? []).flatMap((s) => s.boundary ?? []).map((b) =>
     `${engineName(b.engine)} ${b.fromMode !== b.toMode ? "started answering a different way" : "changed the version behind its answers"} on ${monthDayLabel(b.day) ?? b.day}, so the line before and after it was read on different instruments.`);
 
@@ -295,8 +302,7 @@ export function aiView(input: AiInput) {
   const citedOf = (promptId: string): { owned: number; reported: number; top: string | null } => {
     const rows = dayRows.filter((x) => x.promptId === promptId), tally = new Map<string, number>();
     for (const r of rows) for (const d of new Set((r.citations ?? []).map((c) => c.domain))) tally.set(d, (tally.get(d) ?? 0) + 1);
-    return { owned: rows.filter((r) => r.cited === true).length, reported: rows.filter((r) => r.cited != null).length,
-      top: [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null };
+    return { owned: rows.filter((r) => r.cited === true).length, reported: rows.filter((r) => r.cited != null).length, top: [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null };
   };
   const prompts = table({
     columns: [{ key: "question", label: "Question asked for you", wide: true }, { key: "engines", label: "Assistants", numeric: true },
@@ -369,12 +375,11 @@ export function aiView(input: AiInput) {
     ] })),
   });
 
-  const parts = [...(typeof input.checks.answered === "number" ? [`${num(input.checks.answered)} came back with an answer`] : []),
-    ...(input.checks.unavailable ? [`${num(input.checks.unavailable)} came back with nothing`] : []), ...(input.checks.unsupported ? [`${num(input.checks.unsupported)} cannot be asked at all today`] : [])];
+  const parts = [...(typeof input.checks.answered === "number" ? [`${num(input.checks.answered)} came back with an answer`] : []), ...(input.checks.unavailable ? [`${num(input.checks.unavailable)} came back with nothing`] : []), ...(input.checks.unsupported ? [`${num(input.checks.unsupported)} cannot be asked at all today`] : [])];
   const read = days.filter((d) => d.observed > 0);
   const gaps = days.filter((d) => d.observed === 0 && read[0] && d.day >= read[0].day).map((d) => monthDayLabel(d.day) ?? d.day);
   return {
-    empty: null, tiles, chart, boundaries, prompts, citations, searches, detail: detailOf(input),
+    empty: null, tiles, chart, boundaries, prompts, citations, searches, retrieval, byEngine, detail: detailOf(input),
     engines: enginesSeen.map((e) => ({ id: e, label: engineName(e) })),
     intel: input.intel && input.intel.answers > 0 ? {
       answers: input.intel.answers,
@@ -390,8 +395,7 @@ export function aiView(input: AiInput) {
   };
 }
 
-/** ONE QUESTION OPENED: every reading of it I hold, per assistant and per day, with the rivals it named, the
- *  searches it ran and the pages it credited. The whole of any single run is one click further in. */
+/** ONE QUESTION OPENED: every reading on file, per assistant and per day, with the rivals it named, the searches it ran and the pages it credited. The whole of any single run is one click further in. */
 function detailOf(input: AiInput) {
   if (!input.focus) return null;
   const rows = input.focus.rows;
@@ -400,8 +404,7 @@ function detailOf(input: AiInput) {
   const byEngine = new Map<string, AnswerRow[]>();
   for (const r of rows) byEngine.set(r.engine, [...(byEngine.get(r.engine) ?? []), r]);
   const rivals = new Map<string, number>(), sites = new Map<string, number>(), ran = new Map<string, number>();
-  for (const r of rows) {
-    for (const c of new Set(r.competitors)) rivals.set(c, (rivals.get(c) ?? 0) + 1);
+  for (const r of rows) { for (const c of new Set(r.competitors)) rivals.set(c, (rivals.get(c) ?? 0) + 1);
     for (const d of new Set((r.citations ?? []).map((c) => c.url))) sites.set(d, (sites.get(d) ?? 0) + 1);
     for (const q of new Set(fanOutsExcluding(r.fanOuts ?? [], [r.promptText]))) ran.set(q, (ran.get(q) ?? 0) + 1); }
   const top = (m: Map<string, number>, n: number) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([text, count]) => ({ text, count }));
@@ -429,8 +432,7 @@ function detailOf(input: AiInput) {
       ? `${num(rows.filter((r) => r.answered).length)} answers to this question are on file and none of them are checked yet, so no mention rate is reported for it.`
       : `You are named in ${num(named.length)} of the ${num(analyzed.length)} answers finished checking on this question, across ${num(byEngine.size)} ${byEngine.size === 1 ? "assistant" : "assistants"}.`,
     platforms, rivals: top(rivals, 6), sites: top(sites, 8).map((s) => ({ text: shortUrl(s.text), count: s.count })), searches: top(ran, 8),
-    // EVERY RUN, one row each, with the whole of any one of them one click further in. No wall of a hundred
-    // and forty identical sentences: a status you can scan, and the evidence on demand.
+    // EVERY RUN, one row each, with the whole of any one of them one click further in. No wall of a hundred and forty identical sentences: a status to scan, and the evidence on demand.
     executions: table({
       columns: [{ key: "day", label: "Day", numeric: true }, { key: "engine", label: "Assistant", wide: true },
         { key: "status", label: "What happened", wide: true }, { key: "named", label: "Named you" },
@@ -447,7 +449,8 @@ function detailOf(input: AiInput) {
             tone: !r.answered ? "down" : r.reading === "read" ? "up" : "flat" },
           { text: r.mentioned == null ? "not checked" : r.mentioned ? "yes" : "no", sort: r.mentioned == null ? -1 : r.mentioned ? 1 : 0, tone: r.mentioned === true ? "up" : r.mentioned === false ? "down" : "flat" },
           { text: r.cited == null ? "never reported" : r.cited ? "yes" : "no", sort: r.cited == null ? -1 : r.cited ? 1 : 0, tone: r.cited === true ? "up" : r.cited === false ? "down" : "flat" },
-          { text: r.fanOuts == null ? "never reported" : num(searched), sort: searched },
+          { text: r.fanOuts == null ? "never reported" : num(searched), sort: searched,
+            sub: r.webSearched === true ? "searched the web before answering" : r.webSearched === false ? "answered from memory" : undefined },
           { text: r.citations == null ? "never reported" : num(r.citations.length), sort: r.citations?.length ?? -1 },
         ] };
       }),
@@ -455,18 +458,16 @@ function detailOf(input: AiInput) {
   };
 }
 
-/** ONE STORED READING, WHOLE and cut nowhere: the complete answer, every search it ran, every page it credited
- *  with the part it quoted, every page it read without crediting, both model names, the mode, the day, the
- *  instants, the cost and how far I have read it. WHAT THE PROVIDER NEVER TOLD ME SAYS SO, because "it credited
- *  nobody" and "it did not tell me what it used" are different claims. */
+/** ONE STORED READING, WHOLE and cut nowhere: the complete answer, every search it ran, every page it credited with the part it quoted, every page it read without crediting, both model names, how it was asked, the day, the
+ *  instants, the cost and how far it has been read. WHAT THE PROVIDER NEVER REPORTED SAYS SO: "it credited nobody" and "it never said what it used" are different claims. */
 export function answerDetail(
   r: AnswerRow, kindOf: ReadonlyMap<string, CompetitorKind> = new Map(), costUsd: number | null = r.costUsd,
 ): string[] {
   const engine = engineName(r.engine), mine = (r.citations ?? []).filter((c) => c.owned).length;
   const own = fanOutsExcluding(r.fanOuts ?? [], [r.promptText]);
+  const asked = instant(r.askedAt), answered = instant(r.answeredAt);
   const cited = (c: NonNullable<AnswerRow["citations"]>[number]): string =>
-    `${c.url} (${c.owned ? "your page" : `${c.domain}, ${(KIND_LABEL[kindOf.get(c.domain) ?? "irrelevant_unknown"]).toLowerCase()}`})`
-    + (c.passage?.trim() ? ` It quoted this part: "${c.passage.trim()}"` : "");
+    `${c.url} (${c.owned ? "your page" : `${c.domain}, ${(KIND_LABEL[kindOf.get(c.domain) ?? "irrelevant_unknown"]).toLowerCase()}`})` + (c.passage?.trim() ? ` It quoted this part: "${c.passage.trim()}"` : "");
   return [
     `${engine} was asked, word for word: "${r.promptText}"`,
     !r.answered ? `${engine} gave nothing back on this one.${r.failureReason ? ` It said: ${r.failureReason}` : ""}`
@@ -474,7 +475,7 @@ export function answerDetail(
         : `${r.mentioned ? "You were named" : "You were not named"}${r.position != null ? `, in place ${num(r.position)} of the answer` : ""}. ${r.cited === true ? "A page of yours was credited." : r.cited === false ? "No page of yours was credited." : "This answer did not say which pages it used."}`,
     ...(r.competitors.length > 0 ? [`It named these instead of or beside you: ${r.competitors.join(", ")}.`] : []),
     ...(r.answerText?.trim() ? [`What it answered, all of it: ${r.answerText.trim()}`] : ["No answer text is on file for this one, so there is nothing to quote."]),
-    ...(r.fanOuts == null ? [`${engine} does not report the searches it ran on this path, so whether it ran any is unknown.`]
+    ...(r.fanOuts == null ? [r.webSearched === false ? `${engine} answered this one from memory, without searching the web first.` : `${engine} does not report the searches it ran on this path, so whether it ran any is unknown.`]
       : own.length === 0 ? ["It ran no searches of its own before answering."]
         : [`Before answering it searched for: ${own.map((q) => `"${q}"`).join(", ")}.`]),
     ...(r.citations == null ? [`${engine} does not report which pages it used on this path, so there is no claim that it credited nobody.`]
@@ -483,16 +484,16 @@ export function answerDetail(
     ...(r.retrievedNotCited == null ? [`${engine} does not report the pages it read but did not credit on this path.`]
       : r.retrievedNotCited.length === 0 ? ["Every page it read, it credited."]
         : [`It also read these and credited none of them: ${r.retrievedNotCited.join(", ")}.`]),
-    `${engine} answered as ${r.modelServed ?? "a model it did not name"}${r.modelRequested ? `, and ${r.modelRequested} is what was requested` : ""}${r.mode ? `, in ${r.mode} mode` : ""}.`,
-    `This reading counts for ${monthDayLabel(r.day) ?? r.day}.` + (r.askedAt ? ` Asked ${r.askedAt}${r.answeredAt ? `, answered ${r.answeredAt}` : ", and it never came back"}.` : ""),
+    `${engine} answered with ${r.modelServed ? `its ${r.modelServed} model` : "a model it did not name"}${r.modelRequested ? (r.modelRequested === r.modelServed ? ", the one asked for" : `, though ${r.modelRequested} was asked for`) : ""}.${r.mode ? ` It was ${MODE_LABEL[r.mode] ?? "asked in a way it did not name"}.` : ""}`,
+    `This reading counts for ${monthDayLabel(r.day) ?? r.day}.` + (asked ? ` Asked ${asked}${answered ? `, answered ${answered}` : ", and it never came back"}.` : ""),
     r.reading === "read" ? "Every word of this answer has been read closely."
       : r.reading === "part" ? "Part of this answer has been read closely and the rest is still waiting its turn."
         : r.reading === "checked" ? "This answer was checked for your name and your website address, and nobody has read the rest of it closely."
           : "Nobody has read this answer closely yet, so no claim is made here about who it named.",
     // A ROW WHOSE RECEIPT WAS NEVER PRESERVED IS UNKNOWN, NEVER FREE, and a real charge smaller than a cent says its own size.
-    ...(r.receipt ? [`The stored answer this all comes off is filed as ${r.receipt}${costUsd != null && costUsd > 0
-      ? `, and it cost ${costUsd < 0.01 ? "under a cent" : `${costUsd.toFixed(2)} dollars`} to buy once.`
-      : ", and no receipt proves what it cost, so no number is put on it."}`]
-      : ["No identity was kept for the stored answer behind this one."]),
+    ...(r.receipt ? [`Stored answer receipt ${(r.receipt.split(":").pop() ?? r.receipt).slice(0, 8)}. ${costUsd != null && costUsd > 0
+      ? `It cost ${costUsd < 0.01 ? "under a cent" : `$${costUsd.toFixed(2)}`} to buy once.`
+      : "What it cost was never preserved, so no number is put on it."}`]
+      : ["No receipt was kept for the stored answer behind this one."]),
   ];
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateChange, evaluateWindows, type KernelInput } from "@/domains/measurement/proof-gsc/kernel";
+import { bandOf, evaluateChange, evaluateWindows, type KernelInput } from "@/domains/measurement/proof-gsc/kernel";
 import type { ShipmentVerification } from "@/domains/measurement";
 import { buildResultsView, type ShipmentPresentation } from "@/app/(shell)/results/results-presentation";
 
@@ -55,6 +55,11 @@ describe("the numbers at the top", () => {
     expect([mature.reduce((t, r) => t + shown(r.liftLabel), 0), mature.reduce((t, r) => t + shown(r.impressionsLabel), 0)]).toEqual([10, 70]);
     expect([view.header.reading.value, view.counts, view.defaultGroup]).toEqual(["1", { worked: 1, down: 1, flat: 1, reading: 1 }, "worked"]);
   });
+  // ONE MATURITY RULE, BOTH SIDES: a shared-credit read sat in flight in the ledger bands and finished on Results, so Today said "out of 12 finished" over a header saying 14.
+  it("settles a shared-credit read the same way in the ledger bands and on Results", () => {
+    const early = evaluateChange(input({ windows: [win(7)] }), evaluateWindows(SHIPPED, new Date("2026-05-09T00:00:00Z"), "2026-05-09"), ["c2"]);
+    const view = buildResultsView([shipment({ read: sharedCredit }), shipment({ read: early })]);
+    expect([bandOf(sharedCredit), view.counts.flat, bandOf(early), view.counts.reading]).toEqual(["learned", 1, "measuring", 1]); });
   it("never says nothing worked out of nothing: with no read finished it says when the first one lands", () => {
     const view = buildResultsView([shipment({ read: measuring })]);
     expect([view.header.worked.value, view.header.worked.isCount, view.header.appearances.value, view.header.window]).toEqual(["First result lands May 8", false, "Not enough read yet", "Nothing has finished its 28 day read yet."]);
@@ -100,8 +105,8 @@ describe("opening a change says what happened, against what, and what to do next
     expect([row.comparedAgainst, row.unadjustedNote]).toEqual([[], null]); // nothing to show is shown as nothing
   });
   it("names the pages it stood against, and only calls them similar once it can back that", () => {
-    const row = first({ controlsReceipt: [{ path: "/a", reasons: ["same page type: city", "traffic within 2x"] }, { path: "/b", reasons: [] }] });
-    expect(row.comparedAgainst).toEqual(["/a (same page type: city; traffic within 2x)", "/b"]);
+    const row = first({ controlsReceipt: [{ path: "/a", reasons: ["same page type: city", "traffic within 5x", "4,000 impressions against 9,100 on the changed page"] }, { path: "/b", reasons: [] }] });
+    expect(row.comparedAgainst).toEqual(["/a (same kind of page; similar traffic)", "/b"]); // said in words, and a reason with no plain wording is dropped rather than printed raw
     expect(row.happened).toBe("Ran 28 days. Estimated lift: 40 clicks ahead of similar pages that were not changed.");
   });
   it("shows the site's own before and after, labeled unadjusted, where no fair comparison exists", () => {

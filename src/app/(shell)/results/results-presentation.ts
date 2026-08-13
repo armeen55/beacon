@@ -1,13 +1,11 @@
-/** results-presentation - EVERY operator-facing string the Results surface says about one measured
- * change, as pure functions over what the measurement kernel already computed.
- *
- * Nothing here decides anything. The kernel owns the verdict, the lift and the read dates; the Shipment store owns what the live check found; this module only puts those answers into the
- * operator's own words, in ONE place, so a test can read every sentence the screen can print without rendering a page.
- *
- * Three rules hold on every string below. No raw slug ever reaches the screen (an action and a
- * diagnosis resolve through a closed map, and an unmapped one is left out rather than printed). No
- * raw date stamp reaches it either (a day renders as "Jul 3"). And a missing answer says it is missing: a count nobody has read is blank, never a zero.
- */
+/** results-presentation - EVERY operator-facing string the Results surface says about one measured change, as pure
+ * functions over what the measurement kernel already computed. Nothing here decides anything: the kernel owns the
+ * verdict, the lift and the read dates; the Shipment store owns what the live check found; this module only puts
+ * those answers into the operator's own words, in ONE place, so a test can read every sentence the screen can print
+ * without rendering a page. Three rules hold on every string below. No raw slug ever reaches the screen (an action,
+ * a diagnosis and a comparison reason resolve through closed maps, and an unmapped one is left out rather than
+ * printed). No raw date stamp reaches it either (a day renders as "Jul 3"). And a missing answer says it is missing:
+ * a count nobody has read is said in words, never sold as a zero. */
 
 import { monthDayLabel } from "@/components/data/receipt-line";
 import type { ControlReceipt, KernelRead, MeasurementState, ShipmentVerification } from "@/domains/measurement";
@@ -75,7 +73,7 @@ export type ResultsView = {
     /** NET across every settled change, with the gross from the wins carried in the note. */
     clicks: { value: string; positive: boolean; note: string | null };
     appearances: { value: string; positive: boolean; note: string | null };
-    reading: { value: string; sub: string };
+    reading: { value: string; sub: string; isCount: boolean };
     /** The period every total above answers for. */
     window: string;
   };
@@ -154,10 +152,13 @@ const CLAMP = 0.25;
 
 const isMature = (d: number | null): boolean => d === 28 || d === 56;
 
+/** ONE MATURITY RULE, THE SAME ONE THE LEDGER BANDS USE (proof-gsc/kernel.ts bandOf): a shared-credit read whose window
+ *  has not closed is still reading, and only a finished one is a settled answer. The two sides disagreed on exactly
+ *  that row, so Today said "out of 12 finished" over a Results header saying 14. */
 const groupOf = (r: KernelRead): ResultsGroup => {
   if (r.verdict === "stronger_improvement" || r.verdict === "directional_improvement") return "worked";
   if (r.verdict === "directional_decline") return "down";
-  if (r.verdict === "no_clear_movement" || r.verdict === "confounded") return "flat";
+  if (r.verdict === "no_clear_movement" || (r.verdict === "confounded" && isMature(r.basisDay))) return "flat";
   return "reading";
 };
 
@@ -210,15 +211,21 @@ const lastClosed = (r: KernelRead) => [...r.windows].reverse().find((w) => w.sta
  *  thing instead. And a page with no Google traffic before the change prints no appearances number at
  *  all, a test the header totals reuse so they add up to exactly the rows on the screen. */
 const receiptOf = (p: ShipmentPresentation): ControlReceipt[] => p.controlsReceipt ?? [];
+/** WHY THAT PAGE QUALIFIED, in the operator's words. The kernel writes its own shorthand ("no open or measuring
+ *  changes; traffic within 5x") and it reached the screen raw; an unmapped reason is DROPPED, never printed. */
+const REASON_LABEL: [RegExp, string][] = [[/^same page type/, "same kind of page"], [/^traffic within/, "similar traffic"],
+  [/^no open or measuring changes$/, "no other change running on it"],
+  [/^search data across the whole baseline window$/, "search data for the whole period before the change"]];
+const reasonWords = (reasons: readonly string[]): string[] =>
+  reasons.map((r) => REASON_LABEL.find(([re]) => re.test(r.trim().toLowerCase()))?.[1]).filter((s): s is string => s != null);
 const peersWord = (p: ShipmentPresentation): string =>
   receiptOf(p).length > 0 ? "similar pages that were not changed" : "pages that were not changed";
 const showsImpressions = (p: ShipmentPresentation): boolean => !(p.baseline && p.baseline.impressions <= 0);
 
 // -- the sentences ------------------------------------------------------------
 
-/** WHAT WAS RECORDED WHEN NO FAIR COMPARISON EXISTS. Marking a change done is a fact about the work
- *  and is kept whatever the data says; whether it can be compared is a separate fact about the data.
- *  One honest sentence each, naming which one is missing. A measuring shipment adds nothing here. */
+/** WHAT WAS RECORDED WHEN NO FAIR COMPARISON EXISTS. Marking a change done is a fact about the work and is kept whatever
+ *  the data says; whether it can be compared is a separate fact. One sentence each, naming which one is missing. */
 const MEASUREMENT_NOTE: Record<string, string> = {
   measurement_unavailable: "Recorded. A fair comparison is not available yet: Search Console data for this site could not be read.",
   insufficient_comparison: "Recorded. A fair comparison is not available yet: too few similar pages on this site can stand behind this one.",
@@ -230,13 +237,11 @@ function happenedLine(p: ShipmentPresentation): string {
   const r = p.read;
   // Recorded, and honestly not judged: nothing about this row names a Search number to grade it on.
   if (r.metric === "unclassified") return "Recorded, and not judged: what was changed here is not a kind that Search data can fairly compare.";
-  // Recorded, and nothing to compare it against yet. Said before the "first result lands" promise,
-  // which would be a promise nothing is keeping.
+  // Recorded, and nothing to compare it against yet. Said before the "first result lands" promise, which nothing is keeping.
   const state = p.measurement ? MEASUREMENT_NOTE[p.measurement] : undefined;
   if (state && r.basisDay == null) return state;
   const peers = peersWord(p);
-  // SHARED CREDIT KEEPS ITS NUMBER AND NAMES THE DEMOTION. Hiding the estimate here read as if
-  // nothing had been measured; the honest answer is the estimate plus what it cannot be counted as.
+  // SHARED CREDIT KEEPS ITS NUMBER AND NAMES THE DEMOTION: hiding the estimate read as if nothing had been measured.
   if (r.verdict === "confounded") {
     const held = r.basisDay == null ? ""
       : ` Estimated lift: ${liftSize(r.metric, r.lift)} ${r.lift > 0 ? "ahead of" : "behind"} ${peers}, held as shared credit rather than a win.`;
@@ -249,15 +254,13 @@ function happenedLine(p: ShipmentPresentation): string {
     const next = nextReadDay(r);
     return next ? `Nothing read yet. The first result lands ${next}.` : "Nothing read yet. The first result lands once a read closes.";
   }
-  // TOO FEW PAGES TO STAND BEHIND IT IS NOT TOO LITTLE DATA. The days ran and the page moved; what is
-  // missing is anything fair to hold it against, which the unadjusted pair below then shows on its own.
+  // TOO FEW PAGES TO STAND BEHIND IT IS NOT TOO LITTLE DATA: the days ran and the page moved, and the pair below shows it.
   if (r.verdict === "insufficient_evidence") {
     return r.comparison === "insufficient"
       ? `Ran ${r.basisDay} days. A fair comparison is not available: too few pages on this site can stand behind this one.`
       : `Ran ${r.basisDay} days, and there is too little Google data on this page to call it.`;
   }
-  // ESTIMATED, NEVER CAUSED. The number is a comparison against pages that were left alone, so the
-  // sentence says estimate and never says the change added anything.
+  // ESTIMATED, NEVER CAUSED: the number compares against pages left alone, so no sentence says the change added anything.
   const estimate = r.verdict === "no_clear_movement"
     ? `Estimated lift: level with ${peers}`
     : `Estimated lift: ${liftSize(r.metric, r.lift)} ${r.lift > 0 ? "ahead of" : "behind"} ${peers}`;
@@ -341,8 +344,7 @@ function caveatLines(r: KernelRead): string[] {
 function timelineLines(p: ShipmentPresentation): Array<{ label: string; done: boolean }> {
   const marked = monthDayLabel(p.implementedAt);
   const checked = monthDayLabel(p.verification?.checkedAt ?? null);
-  const done = lastClosed(p.read);
-  const next = p.read.windows.find((w) => w.state !== "closed");
+  const done = lastClosed(p.read), next = p.read.windows.find((w) => w.state !== "closed");
   const out = [
     { label: marked ? `Marked done ${marked}` : "Marked done, date not kept", done: true },
     p.verification && checked ? { label: `Live page checked ${checked}`, done: true } : { label: "Live page not read yet", done: false },
@@ -422,7 +424,7 @@ function rowOf(p: ShipmentPresentation): ResultsRow {
     happened: happenedLine(p),
     numbers,
     numbersNote: note,
-    comparedAgainst: receiptOf(p).map((c) => (c.reasons.length > 0 ? `${c.path} (${c.reasons.join("; ")})` : c.path)),
+    comparedAgainst: receiptOf(p).map((c) => ((w) => (w.length > 0 ? `${c.path} (${w.join("; ")})` : c.path))(reasonWords(c.reasons))),
     unadjustedNote: unadjustedLine(p),
     caveats: caveatLines(r),
     timeline: timelineLines(p),
@@ -451,10 +453,9 @@ export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>)
     .map((p) => p.read.windows.find((w) => w.state !== "closed")?.closesOn ?? null)
     .filter((d): d is string => d != null).sort()[0] ?? null);
 
-  // NET, NOT CHERRY PICKED. The headline totals used to add up the wins alone, so a site that lost
-  // more than it gained still read "+54 clicks added". They now add up EVERY settled row exactly as
-  // the screen prints it (rounded, and nothing from a row that claims no number), and the gross from
-  // the wins drops to the smaller second line beside what the rest gave back.
+  // NET, NOT CHERRY PICKED. The headline totals used to add up the wins alone, so a site that lost more than it
+  // gained still read "+54 clicks added". They now add up EVERY settled row exactly as the screen prints it
+  // (rounded, and nothing from a row that claims no number), and the gross from the wins drops to the second line.
   const counted = settled.filter((p) => p.read.verdict !== "confounded" && p.read.verdict !== "insufficient_evidence");
   const won = (p: ShipmentPresentation) => groupOf(p.read) === "worked";
   const total = (list: ShipmentPresentation[], of: (p: ShipmentPresentation) => number) => list.reduce((s, p) => s + Math.round(of(p)), 0);
@@ -474,8 +475,7 @@ export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>)
     header: {
       worked: settled.length === 0
         ? { value: soonestDay ? `First result lands ${soonestDay}` : "First result lands once a read closes", sub: "Nothing has finished its 28 day read yet", isCount: false }
-        // BANKED, NEVER CHERRY PICKED: the wins are counted against every change that finished, and the ones that
-        // did not win are named as what they taught rather than left out of the sentence.
+        // BANKED, NEVER CHERRY PICKED: wins are counted against every change that finished, and the rest are named as what they taught.
         : { value: `${num(wins.length)} ${wins.length === 1 ? "win" : "wins"}`, isCount: true,
             sub: `out of ${settled.length} finished${settled.length > wins.length ? "; the rest taught what does not move this site" : ""}` },
       clicks: clicked.length === 0
@@ -485,7 +485,11 @@ export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>)
       appearances: seen.length === 0
         ? { value: "Not enough read yet", positive: false, note: null }
         : { value: signed(appearances), positive: appearances > 0, note: fromWins(appearancesWon, appearances) },
-      reading: { value: num(counts.reading), sub: soonestDay ? `next result lands ${soonestDay}` : "next result lands once a read closes" },
+      // A BARE 0 SET IN THE BIG NUMBER READS AS A FAILURE. Nothing mid-read is a fine state, so it is said in
+      // words and small, exactly as the three totals beside it say their own missing answers.
+      reading: counts.reading === 0
+        ? { value: "None", sub: "every change recorded has been read", isCount: false }
+        : { value: num(counts.reading), sub: soonestDay ? `next result lands ${soonestDay}` : "next result lands once a read closes", isCount: true },
       window: settled.length === 0
         ? "Nothing has finished its 28 day read yet."
         : `Across the ${num(settled.length)} ${settled.length === 1 ? "change" : "changes"} that finished their 28 day read.`,

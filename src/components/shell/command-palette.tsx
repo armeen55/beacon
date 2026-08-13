@@ -17,7 +17,9 @@ export type PaletteItem = {
 
 type Mode = "palette" | "help" | null;
 
-const GROUP_ORDER = ["Navigate", "Results", "Market"];
+// A GROUP IS NAMED FOR WHERE IT GOES. "Results" listed rows that open a change, and "Market" has had no
+// member since the 2026-05-08 nav consolidation; a group nothing can join renders nothing forever.
+const GROUP_ORDER = ["Navigate", "Changes you shipped"];
 
 /**
  * #347 — subsequence ("fuzzy") match score. Returns null when `query`'s

@@ -43,10 +43,14 @@ export default async function ProofPage({
       <div className="mb-4 flex items-start justify-between gap-4">
         <h1 className="text-2xl font-semibold tracking-tight">Results</h1>
         {shipments.length > 0 ? (
-          <RecomputeLedgerButton
-            disabled={!anyClosed}
-            disabledReason={anyClosed ? undefined : "No read has closed yet. Google reports a few days behind."}
-          />
+          <div className="flex flex-wrap items-center gap-3">
+            {/* The export has always worked and nothing linked it, so every number here stayed inside the screen. */}
+            <a href="/results/export" className="text-[11px] font-medium text-accent-primary underline underline-offset-2">Download spreadsheet</a>
+            <RecomputeLedgerButton
+              disabled={!anyClosed}
+              disabledReason={anyClosed ? undefined : "No read has closed yet. Google reports a few days behind."}
+            />
+          </div>
         ) : null}
       </div>
 
@@ -88,7 +92,7 @@ export default async function ProofPage({
               <div className="text-[11px] text-muted-foreground">{view.header.appearances.note ?? ""}</div>
             </div>
             <div>
-              <div className="text-4xl font-semibold tracking-tight tabular-nums text-foreground/70">{view.header.reading.value}</div>
+              <div className={`font-semibold tracking-tight tabular-nums ${view.header.reading.isCount ? "text-4xl text-foreground/70" : "text-xl text-muted-foreground"}`}>{view.header.reading.value}</div>
               <div className="mt-0.5 text-[13px] text-foreground/80">still reading</div>
               <div className="text-[11px] text-muted-foreground">{view.header.reading.sub}</div>
             </div>
@@ -114,7 +118,7 @@ export default async function ProofPage({
 
       <details className="mb-4">
         <summary className="cursor-pointer text-[12px] font-medium text-muted-foreground hover:text-foreground">
-          See the raw change log
+          Every change, listed
         </summary>
         <Suspense fallback={null}>
           <ResultsTimeline />

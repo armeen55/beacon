@@ -36,10 +36,10 @@ const ROW: AnswerRow = { id: "obs_7", day: DAY, promptId: "p1", promptText: "whe
     { url: "https://standards.example/nowruz", domain: "standards.example", owned: false, passage: "the haft seen table" },
     { url: "https://standards.example/haft-seen", domain: "standards.example", owned: false },
     ...Array.from({ length: 13 }, (_, i) => ({ url: `https://shop${i}.example/a`, domain: `shop${i}.example`, owned: false }))],
-  retrievedNotCited: ["https://other.example/x"], modelRequested: "gpt-x-preview", modelServed: "gpt-x", mode: "api",
-  askedAt: "9:02 AM Pacific", answeredAt: "9:02 AM Pacific", receipt: "answer:9f3c1", costUsd: 0.02, failureReason: null, reading: "read" };
-/** ONE reading from OUTSIDE the chosen stretch: the window read carries twice the stretch so the stretch before it can be
- *  compared, so every windowed number on this surface has something it must exclude. */
+  retrievedNotCited: ["https://other.example/x"], modelRequested: "gpt-x-preview", modelServed: "gpt-x", mode: "api", webSearched: true,
+  // PIN: RAW instants, exactly as production hands them over. A pre-formatted fixture hid a live surface printing "Asked 2026-08-02T16:02:11.482+00:00" at a paying customer.
+  askedAt: "2026-08-02T16:02:11.482+00:00", answeredAt: "2026-08-02T16:02:24.000+00:00", receipt: "answer:9f3c1a2b7d", costUsd: 0.02, failureReason: null, reading: "read" };
+/** ONE reading from OUTSIDE the chosen stretch: the window read carries twice the stretch so the stretch before it can be compared, so every windowed number here has something it must exclude. */
 const OLDER: AnswerRow = { ...ROW, id: "obs_1", day: "2026-07-28", position: 9 };
 const ai = (over: Partial<Parameters<typeof aiView>[0]> = {}) => aiView({ segments: SEGMENTS, rangeDays: 3, engine: null, sub: "prompts", landscape: LANDSCAPE, intel: null,
   checks: { done: 42, total: 48, answered: 40, unavailable: 2 }, day: DAY, dayRows: [ROW], window: [ROW, OLDER], focus: null, ...over });
@@ -106,6 +106,8 @@ describe("Visibility is a workspace, and every number on it names what it was co
     // ONE VOTE PER ANSWER, and this answer credits standards.example on TWO pages: counting links would make it 16 votes and two crediting answers.
     expect([v.tiles[2]!.value, v.tiles[2]!.basis]).toEqual(["6.7%", "1 of the 15 times an answer credited any site on Aug 2, counting one vote per answer"]); expect(v.citations!.rows.find((r) => r.id === "standards.example")!.cells[2]!.text).toBe("1");
     expect(v.tiles[4]!.basis).toContain("Every rate above divides by what was checked, never by what was collected");
+    const busy = ai({ segments: SEGMENTS.map((s) => ({ ...s, days: s.days.map((d) => ({ ...d, ownedRetrieved: 4, retrievedNotCited: 3 })) })) }); // READ AND PASSED OVER, over a denominator that is never every answer
+    expect([busy.retrieval!.value, busy.retrieval!.basis, ai().retrieval, v.byEngine!.rows[0]!.cells.map((c) => c.text)]).toEqual(["75%", "9 of the 12 answers that opened a page of yours over the last 3 days credited somebody else instead", null, ["ChatGPT", "30%", "6", "30"]]);
     expect(v.boundaries[0]).toContain("changed the version behind its answers on Jul 30");
     expect(v.coverage).toContain("42 of the 48 answer checks planned for today are settled");
     expect(v.coverage).toContain("Aug 1 came back with nothing, and a missed day is never filled in.");
@@ -140,9 +142,9 @@ describe("Visibility is a workspace, and every number on it names what it was co
     const all = answerDetail(ROW, new Map(LANDSCAPE.map((l) => [l.domain, l.kind]))).join("\n");
     for (const s of [LONG_ANSWER, '"haft seen set delivery"', "https://own.example/haft-seen (your page)", "It named these instead of or beside you: Rival Bazaar, Persian Goods.",
       "https://standards.example/nowruz (standards.example, a source)", 'It quoted this part: "the haft seen table"', "You were named, in place 2 of the answer.",
-      "It also read these and credited none of them: https://other.example/x.", "ChatGPT answered as gpt-x, and gpt-x-preview is what was requested, in api mode.",
-      "This reading counts for Aug 2. Asked 9:02 AM Pacific, answered 9:02 AM Pacific.", "Every word of this answer has been read closely.",
-      "filed as answer:9f3c1, and it cost 0.02 dollars to buy once."]) expect(all, s).toContain(s);
+      "It also read these and credited none of them: https://other.example/x.", "ChatGPT answered with its gpt-x model, though gpt-x-preview was asked for. It was asked directly.",
+      "This reading counts for Aug 2. Asked Aug 2 at 4:02 PM UTC, answered Aug 2 at 4:02 PM UTC.", "Every word of this answer has been read closely.",
+      "Stored answer receipt 9f3c1a2b. It cost $0.02 to buy once."]) expect(all, s).toContain(s);
     expect(answerDetail(ROW).filter((d) => d.startsWith("https://"))).toHaveLength(16); // every credited page, not a first ten
     expect(all.toLowerCase()).not.toContain('searched for: "where to buy a haft seen set?"');
     const quiet = answerDetail({ ...ROW, fanOuts: null, citations: null, retrievedNotCited: null, reading: "unread" }).join("\n");
@@ -150,8 +152,8 @@ describe("Visibility is a workspace, and every number on it names what it was co
       "ChatGPT does not report the pages it read but did not credit on this path.", "Nobody has read this answer closely yet"]) expect(quiet, s).toContain(s);
     for (const gone of ["It ran no searches of its own", "It credited no pages at all", "Every page it read, it credited"]) expect(quiet).not.toContain(gone);
     // A RECEIPT I CANNOT PROVE IS NOT ZERO DOLLARS, and a real charge under a cent is the same lie in miniature.
-    expect(answerDetail({ ...ROW, costUsd: null }).at(-1)).toContain("no receipt proves what it cost");
-    expect(answerDetail({ ...ROW, costUsd: 0.004 }).at(-1)).toContain("it cost under a cent to buy once.");
+    expect(answerDetail({ ...ROW, costUsd: null }).at(-1)).toContain("What it cost was never preserved");
+    expect(answerDetail({ ...ROW, costUsd: 0.004 }).at(-1)).toContain("It cost under a cent to buy once.");
     expect(answerDetail({ ...ROW, reading: "checked" })).toContain("This answer was checked for your name and your website address, and nobody has read the rest of it closely.");
   });
   /** THE REAL SURFACE: it draws off answers already bought, asks no provider anything, and loads a whole answer only for the ONE run a customer opens. */
@@ -173,7 +175,8 @@ describe("Visibility is a workspace, and every number on it names what it was co
   it("keeps every line it says free of dashes, raw date stamps and lab words", () => {
     const v = ai(), g = google();
     const said = [...v.tiles.flatMap((t) => [t.label, t.value, t.basis]), v.coverage, v.watermark, ...v.boundaries, g.watermark, g.coverage,
-      ...[v.prompts, v.citations, v.searches, g.pages, g.queries].flatMap((t) => [t!.note ?? "", t!.empty, ...t!.columns.map((c) => c.label), ...t!.rows.flatMap((r) => r.cells.map((c) => c.text))]),
+      ...Object.values(v.retrieval ?? {}), ...answerDetail(ROW), // PIN: a stored instant, a mode key, a cache key and a model id all reach a customer through these lines, and every one of them was leaking raw
+      ...[v.prompts, v.citations, v.searches, v.byEngine, g.pages, g.queries].flatMap((t) => [t!.note ?? "", t!.empty, ...t!.columns.map((c) => c.label), ...t!.rows.flatMap((r) => r.cells.flatMap((c) => [c.text, c.sub ?? ""]))]),
       ...g.dimensions.flatMap((d) => [d.title, d.table.empty, ...d.table.columns.map((c) => c.label)])];
     for (const s of said) {
       expect(s, `dash or raw date stamp in: ${s}`).not.toMatch(/[–—]|\d{4}-\d{2}-\d{2}/);

@@ -37,6 +37,9 @@ function monthDay(date: string): string {
   return new Date(date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
+/** The AI line's one ink, named once here rather than spelled out at each shape it draws. */
+const AI_INK = "#db2777";
+
 /** The AI tab's chart: deliberately plainer than the Google one (no rolling average, no shipped
  *  change markers) because it is a supporting picture, not the primary "am I winning?" chart. */
 function AiChart({ points }: { points: SimpleSeriesPoint[] }) {
@@ -45,36 +48,53 @@ function AiChart({ points }: { points: SimpleSeriesPoint[] }) {
   const max = Math.max(1, ...values);
   const body = pointsOf(values, max);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Citations of your pages in AI answers, per day" className="w-full">
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="How often your pages are credited in AI answers, each day" className="w-full">
       {[0.25, 0.5, 0.75].map((f) => (
         <line key={f} x1={PAD_L} x2={W - PAD_R} y1={yAt(max * f, max)} y2={yAt(max * f, max)} stroke="currentColor" strokeOpacity="0.06" />
       ))}
-      <path d={`M${xAt(0, n).toFixed(1)},${yAt(0, max).toFixed(1)} L${body} L${xAt(n - 1, n).toFixed(1)},${yAt(0, max).toFixed(1)} Z`} fill="#db2777" fillOpacity="0.12" />
-      <path d={`M${body}`} fill="none" stroke="#db2777" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={`M${xAt(0, n).toFixed(1)},${yAt(0, max).toFixed(1)} L${body} L${xAt(n - 1, n).toFixed(1)},${yAt(0, max).toFixed(1)} Z`} fill={AI_INK} fillOpacity="0.12" />
+      <path d={`M${body}`} fill="none" stroke={AI_INK} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       {[0, n - 1].map((i) => (
         <text key={i} x={xAt(i, n)} y={H - 6} fontSize="10" fill="currentColor" fillOpacity="0.45" textAnchor={i === 0 ? "start" : "end"}>
           {points[i] ? monthDay(points[i]!.date) : ""}
         </text>
       ))}
-      <text x={PAD_L} y={PAD_T - 3} fontSize="10" fill="currentColor" fillOpacity="0.45">{max.toLocaleString()} citations/day</text>
+      <text x={PAD_L} y={PAD_T - 3} fontSize="10" fill="currentColor" fillOpacity="0.45">{max.toLocaleString()} times credited in a day</text>
     </svg>
   );
 }
 
-export function ScoreboardChartTabs({ googleChart, aiPoints }: { googleChart: React.ReactNode; aiPoints: SimpleSeriesPoint[] }) {
+/**
+ * THE TAB OWNS THE WHOLE HERO, not just the picture. Before this, switching to AI answers swapped the
+ * chart and left Google's clicks headline, its change and its Search Console receipt sitting over it, so
+ * the AI line read as if 731 clicks had produced it. The headline, the verdict and the receipt now travel
+ * with their own tab, and the Google tab is byte for byte what it was.
+ */
+export function ScoreboardChartTabs({ googleChart, aiPoints, head, foot }: {
+  googleChart: React.ReactNode; aiPoints: SimpleSeriesPoint[];
+  head: { google: React.ReactNode; ai: React.ReactNode }; foot: { google: React.ReactNode; ai: React.ReactNode };
+}) {
   const [active, setActive] = useState<"google" | "ai">("google");
-  if (aiPoints.length < 2) return <div className="mt-2 text-gray-800 dark:text-neutral-200">{googleChart}</div>;
+  // Two points is the least that can draw a line, so under that there is no AI tab to offer and the
+  // Google half is all there is. The tab NEVER opens onto an empty chart.
+  const tab = aiPoints.length < 2 ? "google" : active;
   return (
-    <div className="mt-2">
-      <ViewToggle
-        options={[{ value: "google" as const, label: "Google" }, { value: "ai" as const, label: "AI answers" }]}
-        value={active}
-        onChange={setActive}
-        size="sm"
-      />
-      <div className="mt-2 text-gray-800 dark:text-neutral-200">
-        {active === "google" ? googleChart : <AiChart points={aiPoints} />}
+    <div>
+      {head[tab]}
+      {aiPoints.length < 2 ? null : (
+        <div className="mt-2">
+          <ViewToggle
+            options={[{ value: "google" as const, label: "Google" }, { value: "ai" as const, label: "AI answers" }]}
+            value={active}
+            onChange={setActive}
+            size="sm"
+          />
+        </div>
+      )}
+      <div className="mt-2 text-foreground">
+        {tab === "google" ? googleChart : <AiChart points={aiPoints} />}
       </div>
+      {foot[tab]}
     </div>
   );
 }

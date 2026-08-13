@@ -1,13 +1,13 @@
 "use client";
 
 /**
- * ChangesV2Client — the "what changed / is it measuring / did it work" timeline,
+ * ChangesV2Client: the "what changed / is it reading / did it work" timeline,
  * embedded under Results. A three-counter strip, a newest-first card timeline, and
  * a waiting-for-signal rail. Consumes `EnrichedChangeRow[]` (changelog entry + the
  * proof-gsc measurement summary); the proof-pill resolver collapses each row into
  * ONE customer-readable pill. Rendered copy never leaks internal vocabulary
- * (maturity enums, calibration words); timing reads as "I will take the next
- * Google reading on [date]" from the proof ledger's own checkpoint schedule.
+ * (maturity enums, calibration words); timing reads as "The next Google reading
+ * is taken on [date]" from the proof ledger's own checkpoint schedule.
  */
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -22,7 +22,6 @@ import {
 } from "@/domains/decision/changes/proof-timeline/result-pill";
 import {
   computeProofCounters,
-  PROOF_COUNTER_LABEL,
   type ProofCounters,
 } from "@/domains/decision/changes/proof-timeline/counters";
 import {
@@ -172,7 +171,7 @@ function ChangesV2CardWithActions({ row }: { row: ProjectedCardRow }) {
           setFeedback({
             message:
               flipped > 0
-                ? "Got it. We'll let you know if this helped."
+                ? "Recorded. The first reading lands within a week."
                 : "Already live. No change needed.",
             isError: false,
           });
@@ -305,6 +304,12 @@ function formatCheckpointDate(isoDate: string): string | null {
 // Sub-components
 // ─────────────────────────────────────────────────────────────────────
 
+/** ONE VOCABULARY ACROSS THE WHOLE SURFACE. This strip said "Watching for signal" directly under a Results
+ *  header that calls the same rows "Reading", so one screen spoke two languages about one set of changes. */
+const COUNTER_LABEL: Record<keyof ProofCounters, string> = {
+  recentChanges: "Changes recorded", watching: "Reading", needsAttention: "Needs attention",
+};
+
 function ProofCounterStrip({ counters }: { counters: ProofCounters }) {
   const items: Array<{ key: keyof ProofCounters; value: number }> = [
     { key: "recentChanges", value: counters.recentChanges },
@@ -325,7 +330,7 @@ function ProofCounterStrip({ counters }: { counters: ProofCounters }) {
           className="rounded-lg border border-border/60 bg-surface-base px-4 py-3"
         >
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            {PROOF_COUNTER_LABEL[key]}
+            {COUNTER_LABEL[key]}
           </p>
           <p className="mt-1 text-[22px] font-semibold tabular-nums text-foreground">
             {value}
@@ -346,13 +351,15 @@ function ChangesV2EmptyState({ proofLedgerCount }: { proofLedgerCount: number })
     >
       <p className="text-[14px] font-semibold text-foreground">
         {hasTracked
-          ? `${proofLedgerCount} change${proofLedgerCount === 1 ? "" : "s"} tracked above, measuring now.`
+          ? `${proofLedgerCount} change${proofLedgerCount === 1 ? "" : "s"} recorded above, reading now.`
           : "No changes yet."}
       </p>
+      {/* NO PLANNED WORK SOLD AS LIVE: this list said a scan adds rows on its own, which nothing does. A row
+          lands when a change is recorded here or marked done on Changes, and that is all it now promises. */}
       <p className="mt-1.5 text-[12px] text-muted-foreground leading-relaxed max-w-md mx-auto">
         {hasTracked
-          ? `Those are the changes you shipped, each measuring against comparable pages. This timeline adds a row automatically when Beacon's next scan confirms an accepted recommendation went live on your site.`
-          : "Once you make a change on your site and mark it done, it shows up here so you can see if it worked."}
+          ? "Those are the changes you recorded, each read against similar pages. A row lands here when a change is recorded or marked done."
+          : "Make a change on your site and mark it done, and it lands here so you can see whether it worked."}
       </p>
     </div>
   );

@@ -13,6 +13,7 @@ import { findProofForChange, proofResultHref } from "@/domains/measurement";
 import { actionableProposalFailures, loadChangeProposal, resolveCurrentBasis, validateProposal } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
+import { pageLabel } from "../types";
 import { BundleDetail, SimpleDetail } from "./bundle-detail";
 
 // Force dynamic render so every request runs the fresh-repo-read pattern below. Matches /changes.
@@ -99,7 +100,7 @@ function SetAsideDetail({ unreadable }: { unreadable: boolean }) {
   return (
     <div className="max-w-3xl">
       <section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5">
-        <h1 className="text-[14px] font-semibold text-foreground">{unreadable ? "This one cannot be shown right now" : "This idea was set aside"}</h1>
+        <h2 className="text-[14px] font-semibold text-foreground">{unreadable ? "This one cannot be shown right now" : "This idea was set aside"}</h2>
         <p className="text-[13px] leading-relaxed text-muted-foreground">
           {unreadable
             ? "Which of your saved ideas still hold could not be confirmed just now, so no unbacked copy is handed over. Beacon is checking again automatically, and every change that stands is ranked on Changes."
@@ -126,7 +127,8 @@ function DoneDetail({ proposal, markedAt }: { proposal: ChangeProposal; markedAt
         Back to Changes
       </Link>
       <section className="space-y-3 rounded-2xl border border-accent-primary/50 bg-surface-raised p-5" data-change-done="true">
-        <h1 className="text-[14px] font-semibold text-foreground">{proposal.pagePath ?? proposal.pageLabel}</h1>
+        <h2 className="text-[14px] font-semibold text-foreground">{proposal.pagePath ? pageLabel(proposal.pagePath) : (proposal.pageLabel || "This page")}</h2>
+        <p className="text-[12px] text-muted-foreground">{proposal.pagePath ?? proposal.pageLabel}</p>
         <p className="text-[15px] font-semibold leading-relaxed text-foreground">{proposal.bundle?.objective ?? proposal.opportunityType}</p>
         {before ? (
           <p className="text-[12px] leading-relaxed text-muted-foreground">
@@ -150,15 +152,17 @@ function DoneDetail({ proposal, markedAt }: { proposal: ChangeProposal; markedAt
 }
 
 /** The honest read failure. It deliberately does NOT fall back to anything cached: the whole point of the
- *  fresh-read pattern is that this page never contradicts /changes. */
+ *  fresh-read pattern is that this page never contradicts /changes. THE RAW EXCEPTION NEVER REACHES THE SCREEN:
+ *  "TypeError: fetch failed" is not an answer to "did my action work", so the message is logged where an engineer
+ *  can read it and the operator gets the same plain copy every other failure door here gives. */
 function ChangeDetailReadError({ error }: { error: unknown }) {
+  console.error("changes/[id] changelog read failed", error);
   return (
     <div className="max-w-3xl">
       <section className="rounded-lg border border-status-warning/40 bg-status-warning/5 px-5 py-5" aria-labelledby="change-read-error">
-        <h2 id="change-read-error" className="text-[13px] font-semibold tracking-tight text-foreground">Couldn&apos;t load this change</h2>
-        <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">{error instanceof Error ? error.message : "Unknown error reading changelog entry"}</p>
-        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-          The database could not be reached just now. Refresh to retry: cached truth is never shown by accident.
+        <h2 id="change-read-error" className="text-[13px] font-semibold tracking-tight text-foreground">This change could not be loaded just now</h2>
+        <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+          Your data is safe and nothing was lost. Refresh to read it again: cached truth is never shown by accident.
         </p>
         <Link href="/changes" className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
           Back to Changes

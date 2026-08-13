@@ -68,17 +68,6 @@ export const navigationGroups: NavGroup[] = [
 
 export const allNavItems: NavItem[] = navigationGroups.flatMap((g) => g.items);
 
-/**
- * Kept as an EMPTY group for import compatibility (the server layout + sidebar
- * still reference it). The 2026-06-23 IA consolidation folded every former
- * operator-only route into `navigationGroups` above, so there is no longer a
- * separate operator tier to append.
- */
-export const operatorNavGroup: NavGroup = {
-  label: "",
-  items: [],
-};
-
 // ---------------------------------------------------------------------------
 // Route titles (FP4, 2026-07-03). ONE registry that names every reachable
 // shell route in plain language. The header breadcrumb (app-header.tsx), the

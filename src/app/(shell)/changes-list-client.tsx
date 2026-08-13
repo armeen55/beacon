@@ -108,12 +108,14 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       {moved ? <p data-list-moved="true" className="text-[12px] text-amber-800">{moved.note}</p> : null}
 
       <p className="text-[14px] font-semibold tabular-nums text-foreground" data-open-count="true">
-        {openTotal.toLocaleString()} {openTotal === 1 ? "edit" : "edits"} open
+        {openTotal.toLocaleString("en-US")} {openTotal === 1 ? "edit" : "edits"} open
       </p>
       <div className="flex flex-wrap items-center gap-2 text-[12px]">
+        {/* A ZERO IS NOT A COUNT WORTH PRINTING: "Proven 0" beside "All 0" read as a scoreboard of nothing.
+            A chip with no rows behind it is just its name, and the list under it says the rest. */}
         {FILTERS.map(([k, l]) => {
           const n = chipCount(k);
-          return <TabButton key={k} active={filter === k} onClick={() => setFilter(k)}>{n == null ? l : `${l} ${n.toLocaleString()}`}</TabButton>;
+          return <TabButton key={k} active={filter === k} onClick={() => setFilter(k)}>{n == null || n === 0 ? l : `${l} ${n.toLocaleString("en-US")}`}</TabButton>;
         })}
         <span className="text-muted-foreground">Sorted by</span>
         {SORTS.map(([k, l]) => <TabButton key={k} active={sort === k} onClick={() => setSort(k)}>{l}</TabButton>)}

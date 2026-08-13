@@ -61,11 +61,33 @@ function linePath(values: Array<number | null>, max: number, totalN?: number): s
   return d;
 }
 
-const MARKER_FILL: Record<string, string> = { won: "#10b981", measuring: "#94a3b8", flat: "#f59e0b" };
+/** The hero's inks, named once here rather than spelled out at each shape they draw. */
+const INK = { clicks: "#6366f1", trend: "#4f46e5", won: "#10b981", measuring: "#94a3b8", flat: "#f59e0b" };
+const MARKER_FILL: Record<string, string> = { won: INK.won, measuring: INK.measuring, flat: INK.flat };
 
 function monthDay(date: string): string {
   const d = new Date(date + "T00:00:00Z");
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+/**
+ * ONE tab's headline: the number, what it counts, how it moved, and the key to the chart under it. Each
+ * tab brings its own, because a number over the wrong chart is worse than no number at all.
+ */
+function Hero({ value, unit, deltaPct, legend }: { value: string; unit: string; deltaPct: number | null; legend: React.ReactNode }) {
+  const tone = deltaPct == null || Math.abs(deltaPct) <= 2 ? "text-muted-foreground" : deltaPct > 0 ? "text-status-success" : "text-status-warning";
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <div className="flex items-baseline gap-3">
+        <span className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">{value}</span>
+        <span className="text-xs text-muted-foreground">{unit}</span>
+        {deltaPct == null ? null : (
+          <span className={`text-sm font-semibold tabular-nums ${tone}`}>{deltaPct > 0 ? "+" : ""}{deltaPct}%</span>
+        )}
+      </div>
+      <div className="flex items-center gap-3 text-[11px] text-muted-foreground">{legend}</div>
+    </div>
+  );
 }
 
 function Chart({ s, freshTail }: { s: Scoreboard; freshTail?: FreshTailPoint[] | null }) {
@@ -90,8 +112,8 @@ function Chart({ s, freshTail }: { s: Scoreboard; freshTail?: FreshTailPoint[] |
     <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Clicks per day with your shipped changes marked" className="w-full beacon-chart-draw">
       <defs>
         <linearGradient id="sb-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#6366f1" stopOpacity="0.22" />
-          <stop offset="100%" stopColor="#6366f1" stopOpacity="0.02" />
+          <stop offset="0%" stopColor={INK.clicks} stopOpacity="0.22" />
+          <stop offset="100%" stopColor={INK.clicks} stopOpacity="0.02" />
         </linearGradient>
       </defs>
       {/* soft horizontal guides */}
@@ -100,15 +122,15 @@ function Chart({ s, freshTail }: { s: Scoreboard; freshTail?: FreshTailPoint[] |
       ))}
       {/* daily clicks area */}
       <path d={areaPath(clicks, max, n)} fill="url(#sb-fill)" />
-      <path d={linePath(clicks, max, n)} fill="none" stroke="#6366f1" strokeOpacity="0.35" strokeWidth="1.2" />
+      <path d={linePath(clicks, max, n)} fill="none" stroke={INK.clicks} strokeOpacity="0.35" strokeWidth="1.2" />
       {/* 7-day average, the honest trend */}
-      <path d={linePath(s.rolling, max, n)} fill="none" stroke="#4f46e5" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={linePath(s.rolling, max, n)} fill="none" stroke={INK.trend} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
       {/* R17b - the dotted settling tail: Google's early counts, not final */}
       {tail.length > 0 ? (
         <g>
-          <path d={linePath(tailValues, max, n)} fill="none" stroke="#6366f1" strokeOpacity="0.55" strokeWidth="1.6" strokeDasharray="3 4" strokeLinecap="round" />
+          <path d={linePath(tailValues, max, n)} fill="none" stroke={INK.clicks} strokeOpacity="0.55" strokeWidth="1.6" strokeDasharray="3 4" strokeLinecap="round" />
           {tail.map((t, j) => (
-            <circle key={t.date} cx={xAt(nFinal + j, n)} cy={yAt(t.clicks, max)} r={2.5} fill="var(--background)" stroke="#6366f1" strokeOpacity="0.7" strokeWidth="1.2">
+            <circle key={t.date} cx={xAt(nFinal + j, n)} cy={yAt(t.clicks, max)} r={2.5} fill="var(--background)" stroke={INK.clicks} strokeOpacity="0.7" strokeWidth="1.2">
               <title>{`${monthDay(t.date)}: ${t.clicks.toLocaleString()} clicks so far (still settling)`}</title>
             </circle>
           ))}
@@ -200,37 +222,16 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
     // reads. Visitors and Value are gone (Phase 7): sessions and dollars modify a decision, they are
     // not a visibility surface, and the deep read lives on Visibility now.
     const aiPoints = citations.daily.map((d) => ({ date: d.date, value: d.clicks }));
-
-    const deltaTone = s.deltaPct == null ? "text-gray-500 dark:text-neutral-400" : s.deltaPct > 2 ? "text-emerald-600 dark:text-emerald-400" : s.deltaPct < -2 ? "text-amber-600 dark:text-amber-400" : "text-gray-500 dark:text-neutral-400";
+    // The AI tab's OWN headline, off the same series its chart draws. Only days an assistant answered are
+    // stored, so the window is named as what it is: the last 7 days with answers, never the last 7 dates.
+    const aiNow = aiPoints.slice(-7), aiBefore = aiPoints.slice(-14, -7);
+    const sumOf = (rows: typeof aiPoints) => rows.reduce((a, p) => a + p.value, 0);
+    const [aiCredits, aiPriorCredits] = [sumOf(aiNow), sumOf(aiBefore)];
+    const aiDeltaPct = aiBefore.length === aiNow.length && aiPriorCredits > 0 ? Math.round(((aiCredits - aiPriorCredits) / aiPriorCredits) * 100) : null;
+    const aiVerdict = aiDeltaPct == null ? "No full stretch before this one to compare against yet."
+      : aiDeltaPct > 2 ? "Climbing against the 7 days with answers before." : aiDeltaPct < -2 ? "Falling against the 7 days with answers before." : "Level with the 7 days with answers before.";
     return (
-      <section id="scoreboard-section" aria-label="Your traffic and your changes" className="rounded-2xl border border-gray-200 bg-white p-4 beacon-rise-in dark:border-neutral-800 dark:bg-neutral-900">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <div className="flex items-baseline gap-3">
-            <span className="text-2xl font-semibold tabular-nums tracking-tight">{s.last7Clicks.toLocaleString()}</span>
-            {/* R17a - the headline names its lens (every search) whenever the
-                non-brand sub-line below gives the other lens a voice. */}
-            <span className="text-xs text-gray-500 dark:text-neutral-400">
-              {brandLens ? "clicks, last 7 reported days, every search counted" : "clicks, last 7 reported days"}
-            </span>
-            {s.deltaPct != null ? (
-              <span className={`text-sm font-semibold tabular-nums ${deltaTone}`}>
-                {s.deltaPct > 0 ? "+" : ""}{s.deltaPct}%
-              </span>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-3 text-[11px] text-gray-400 dark:text-neutral-500">
-            <span className="inline-flex items-center gap-1"><span className="inline-block h-1.5 w-4 rounded bg-indigo-600" /> 7 day average</span>
-            {/* Fail-closed calibration quarantine (2026-07-11): the green "won" key
-                shows only when a real (calibrated) win marker is on the chart.
-                Uncalibrated wins render as neutral measured markers (scoreboard.ts
-                reads the gated splitLedgerLifecycle), so the legend never promises a
-                green dot the chart cannot honestly show. */}
-            {s.markers.some((m) => m.tone === "won") ? (
-              <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> a change that won more clicks</span>
-            ) : null}
-            <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-400" /> a change not judged yet</span>
-          </div>
-        </div>
+      <section id="scoreboard-section" aria-label="Your traffic and your changes" className="rounded-2xl border border-border bg-surface-raised p-4 beacon-rise-in">
         <ScoreboardChartTabs
           googleChart={
             <>
@@ -242,30 +243,46 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
             </>
           }
           aiPoints={aiPoints}
-        />
-        <p className="mt-1 text-[13px] text-gray-600 dark:text-neutral-300">{s.verdictLine}</p>
-        {/* R17a (brand split) - the growth lens: clicks from searches that do
-            not mention your name, the number an SEO change can actually move.
-            Self-hides without brand config or visible query rows. */}
-        {brandLens ? (
-          <p className="mt-0.5 text-[13px] text-muted-foreground tabular-nums">{brandLens.subLine}</p>
-        ) : null}
-        {/* R14b (receipts everywhere) - where these clicks come from and how far the
-            data runs, from the same series the chart just drew. No new reads. */}
-        <ReceiptLine
-          className="mt-0.5"
-          line={buildReceiptLine({
-            source: "your Search Console data",
-            through: s.days[s.days.length - 1]?.date ?? null,
-            nowMs: Date.now(),
-            note: "Google reports a few days behind.",
-          })}
+          head={{
+            // R17a - the headline names its lens (every search) whenever the non-brand sub-line below gives the other lens a voice.
+            google: <Hero value={s.last7Clicks.toLocaleString()} deltaPct={s.deltaPct}
+              unit={brandLens ? "clicks, last 7 reported days, every search counted" : "clicks, last 7 reported days"}
+              legend={<>
+                <span className="inline-flex items-center gap-1"><span className="inline-block h-1.5 w-4 rounded bg-indigo-600" /> 7 day average</span>
+                {/* Fail-closed calibration quarantine (2026-07-11): the green "won" key shows only when a real
+                    (calibrated) win marker is on the chart. Uncalibrated wins render as neutral measured markers
+                    (scoreboard.ts reads the gated splitLedgerLifecycle), so the legend never promises a green dot
+                    the chart cannot honestly show. */}
+                {s.markers.some((m) => m.tone === "won") ? (
+                  <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> a change that won more clicks</span>
+                ) : null}
+                <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-400" /> a change not judged yet</span>
+              </>} />,
+            ai: <Hero value={aiCredits.toLocaleString()} deltaPct={aiDeltaPct} unit={`times your pages were credited, ${aiNow.length === 1 ? "the last day with answers" : `last ${aiNow.length} days with answers`}`}
+              legend={<span className="inline-flex items-center gap-1"><span className="inline-block h-1.5 w-4 rounded bg-pink-600" /> credited each day</span>} />,
+          }}
+          foot={{
+            google: <>
+              <p className="mt-1 text-[13px] text-foreground">{s.verdictLine}</p>
+              {/* R17a (brand split) - the growth lens: clicks from searches that do not mention your name, the
+                  number an SEO change can actually move. Self-hides without brand config or visible query rows. */}
+              {brandLens ? (
+                <p className="mt-0.5 text-[13px] text-muted-foreground tabular-nums">{brandLens.subLine}</p>
+              ) : null}
+              {/* R14b (receipts everywhere) - where these clicks come from and how far the data runs, from the same series the chart just drew. No new reads. */}
+              <ReceiptLine className="mt-0.5" line={buildReceiptLine({ source: "your Search Console data", through: s.days[s.days.length - 1]?.date ?? null, nowMs: Date.now(), note: "Google reports a few days behind." })} />
+              {moneyLine ? (
+                <p className="mt-1 text-[13px] font-medium text-status-success">{moneyLine}</p>
+              ) : null}
+            </>,
+            ai: <>
+              <p className="mt-1 text-[13px] text-foreground">{aiVerdict}</p>
+              <ReceiptLine className="mt-0.5" line={buildReceiptLine({ source: "answers already collected", through: aiPoints[aiPoints.length - 1]?.date ?? null, nowMs: Date.now(), note: "Only days an assistant answered are counted." })} />
+            </>,
+          }}
         />
         {/* Phase 7: the weekly "how you show up" expander and the AI citation strip moved to Visibility,
             which owns the deep read. Today keeps the compact overview: chart, verdict, lens, receipt. */}
-        {moneyLine ? (
-          <p className="mt-1 text-[13px] font-medium text-emerald-700 dark:text-emerald-300">{moneyLine}</p>
-        ) : null}
         <Link href="/visibility" className="mt-1 inline-block text-[12px] font-medium text-accent-primary underline underline-offset-2">
           See where you stand in Google and AI answers
         </Link>

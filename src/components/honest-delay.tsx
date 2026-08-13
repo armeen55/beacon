@@ -76,7 +76,7 @@ export function HonestDelay({
   return (
     <p
       role="status"
-      className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-3 text-[13px] text-gray-500 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400"
+      className="rounded-2xl border border-dashed border-border bg-surface-raised px-4 py-3 text-[13px] text-muted-foreground"
     >
       {escalated ? HONEST_DELAY_ESCALATED_MESSAGE : message}
     </p>

@@ -165,13 +165,17 @@ export function buildScoreboard(
       return { date, count: rows.length, tone, label };
     });
 
-  const direction =
-    deltaPct == null ? "" : deltaPct > 2 ? `, up ${deltaPct}% vs the week before` : deltaPct < -2 ? `, down ${Math.abs(deltaPct)}% vs the week before` : ", about even with the week before";
   // R17a (brand split, v1 265): this sentence counts EVERY search - brand and
   // not - so it says which lens it uses. The non-brand growth lens renders as
   // its own sub-line on the scoreboard (see brand-split.ts). It says nothing about
   // how many changes are measuring: the proof strip owns that count and its date.
-  const verdictLine = `Last 7 reported days: ${last7Clicks.toLocaleString()} clicks from every search${direction}.`;
+  // 2026-08-12: it no longer REPEATS the headline either. The number and its change sit
+  // directly above this line, and stating both a third time read as three findings.
+  const verdictLine =
+    deltaPct == null ? "No full week before this one to compare against yet, counting every search."
+      : deltaPct > 2 ? "Climbing against the 7 reported days before, counting every search."
+        : deltaPct < -2 ? "Falling against the 7 reported days before, counting every search."
+          : "Level with the 7 reported days before, counting every search.";
 
   return {
     days,

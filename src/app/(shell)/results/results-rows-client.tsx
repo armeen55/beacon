@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 
 import type { ResultsView } from "./results-presentation";
+import { pageLabel } from "../changes/types";
 
 type ResultsGroup = keyof ResultsView["rows"];
 type ResultsRow = ResultsView["rows"]["worked"][number];
@@ -62,7 +63,8 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
       <button type="button" onClick={onToggle} aria-expanded={open} className={`${GRID} h-11 w-full px-3 text-left hover:bg-surface-inset/60 ${FOCUS}`}>
         <span className={`h-2 w-2 rounded-full ${DOT[row.dot]}`} aria-hidden />
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-[13px] font-medium text-foreground">{row.path}</span>
+          {/* The page said the way a person says it; the address itself is one hover away. */}
+          <span title={row.path} className="truncate text-[13px] font-medium text-foreground">{pageLabel(row.path)}</span>
           <span className="shrink-0 text-[12px] text-muted-foreground">&middot;</span>
           <span className="shrink-0 truncate text-[12px] text-muted-foreground">{row.work}</span>
           {row.chip ? (
@@ -167,7 +169,9 @@ export function ResultsRows({ view }: { view: ResultsView }) {
               aria-pressed={group === t.key}
               className={`rounded-md px-2.5 py-1 text-[12px] font-medium ${FOCUS} ${group === t.key ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}
             >
-              {t.label} <span className="tabular-nums">{view.counts[t.key]}</span>
+              {/* A ZERO ON A TAB IS NOT A NUMBER WORTH PRINTING: "Worked 3 · Went down 0 · No change 0" made an
+                  account with three wins read as a scoreboard of failures. An empty tab is just its name. */}
+              {t.label}{view.counts[t.key] > 0 ? <span className="tabular-nums"> {view.counts[t.key]}</span> : null}
             </button>
           ))}
         </div>
@@ -175,11 +179,17 @@ export function ResultsRows({ view }: { view: ResultsView }) {
       </div>
 
       {rows.length === 0 ? (
+        // NEVER A DEAD END, AND NEVER "1 changes". With something still reading the button goes there; with
+        // nothing reading it said so over a button onto an equally empty tab, so it says what fills this instead.
         <div className="rounded-lg border border-border-subtle bg-surface-raised px-4 py-6 text-[13px] text-muted-foreground">
-          Nothing here yet. {view.counts.reading} changes are still reading.{" "}
-          <button type="button" onClick={() => setGroup("reading")} className={`font-medium text-accent-primary underline underline-offset-2 ${FOCUS}`}>
-            See what is reading
-          </button>
+          {view.counts.reading > 0 ? (
+            <>
+              Nothing here yet. {view.counts.reading} {view.counts.reading === 1 ? "change is" : "changes are"} still reading.{" "}
+              <button type="button" onClick={() => setGroup("reading")} className={`font-medium text-accent-primary underline underline-offset-2 ${FOCUS}`}>
+                See what is reading
+              </button>
+            </>
+          ) : "Nothing here yet. New changes appear here after Mark done on a change."}
         </div>
       ) : (
         <div className="divide-y divide-border-subtle overflow-hidden rounded-lg border border-border-subtle">

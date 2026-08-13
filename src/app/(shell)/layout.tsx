@@ -3,7 +3,6 @@ export const maxDuration = 300; // the post-response autonomous research cycle i
 
 import { ShellProvider, ShellDataHydrator, type LatePaletteItem } from "@/components/shell/shell-provider";
 import { AppSidebar, MobileSidebar } from "@/components/shell/app-sidebar";
-import { isOperatorModeServer } from "@/lib/operator-mode";
 import { Suspense } from "react";
 import { CockpitBar } from "@/components/shell/cockpit-bar";
 import { AppHeader } from "@/components/shell/app-header";
@@ -59,8 +58,6 @@ export default async function ShellLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const isOperator = isOperatorModeServer();
-
   // Static palette entries only (nav routes, zero I/O). The changelog "Results"
   // group streams in with the deferred shell data below.
   const paletteItems: PaletteItem[] = allNavItems.map((n) => ({
@@ -80,7 +77,7 @@ export default async function ShellLayout({
         Skip to content
       </a>
       <div className="flex h-screen overflow-hidden">
-        <AppSidebar isOperator={isOperator} />
+        <AppSidebar />
         <MobileSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <AppHeader rightSlot={<Suspense fallback={null}><CockpitBar /></Suspense>} />
@@ -146,16 +143,28 @@ async function loadShellData(): Promise<{ latePaletteItems: LatePaletteItem[] }>
   // ── Late palette items ──
   // T-CustomerNav (2026-05-08) - palette items only surface customer-facing
   // routes; the pre-T-CustomerNav "Market" group over hidden routes stays dead.
+  // 2026-08-12: the rows carry a stored asset name and a stored topic, both of
+  // which arrive as slugs on plenty of entries ("haft-seen_guide"), and the
+  // palette printed them verbatim under a group named for a page they do not
+  // open. What the change DID leads now, the group names where it goes, and
+  // anything still slug-shaped is spelled out in words.
+  // Prose stays prose (a bare % in "Raise CTR 20%" must not throw, and "re-write" must not lose its
+  // hyphen); only a slug-shaped value with no spaces gets spelled out.
+  const readable = (raw: string | null | undefined): string => {
+    const s = (raw ?? "").trim(); if (!s) return "";
+    let out = s; try { out = decodeURIComponent(s); } catch { /* a stray percent is said as written */ }
+    return /\s/.test(out) ? out : out.replace(/\.(html?|php)$/i, "").replace(/[-_/]+/g, " ").trim();
+  };
   const latePaletteItems: LatePaletteItem[] = (
     changelogEntries.length > CHANGELOG_PALETTE_CAP
       ? changelogEntries.slice(-CHANGELOG_PALETTE_CAP)
       : changelogEntries
   ).map((c) => ({
     id: c.id,
-    label: c.asset_name,
-    group: "Results",
+    label: readable(c.change_description?.trim() || c.asset_name),
+    group: "Changes you shipped",
     href: `/changes/${c.id}`,
-    meta: c.topic_targeted || undefined,
+    meta: c.topic_targeted ? readable(c.topic_targeted) : undefined,
   }));
 
   trace.data("changelog_count", changelogEntries.length);

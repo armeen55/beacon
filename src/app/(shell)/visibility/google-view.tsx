@@ -48,7 +48,9 @@ export function GoogleWorkspace({ view, range, metric }: {
         actions={<div className="flex flex-wrap items-center gap-2">
           <Choices options={METRICS.map((m) => ({ href: at({ metric: m.key }), label: m.label, active: metric === m.key }))} />
           <Choices options={RANGES.map((d) => ({ href: at({ range: d }), label: `${d} days`, active: range === d }))} />
-        </div>} />
+        </div>}>
+        <p className="text-[12px] leading-relaxed text-muted-foreground">{view.coverage}</p>
+      </Panel>
       <Panel title="Every page, and which way it is moving">
         {view.pages ? <DataTable columns={view.pages.columns} rows={view.pages.rows} empty={view.pages.empty} note={view.pages.note} tall /> : null}
       </Panel>

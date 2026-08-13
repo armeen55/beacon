@@ -1,10 +1,10 @@
 /**
  * changes-feed - THE EDITS FIRST, and everything that is not yet an edit last. The ranked queue and the changes
- * already being measured are the page; the topics I am buying evidence on and the pages I am watching sit at the
- * bottom in one closed drawer, one line each, because they are background I owe him honestly and never work he
- * has to read. THE RULE THAT SURVIVED: evidence controls an opportunity's STATE, never its existence, so nothing
- * is swallowed. PURE PRESENTATION: every number arrives loaded, nothing here reads a store, and nothing
- * recomputes a count another surface owns. Beacon voice: first person, a number where one exists, a next step.
+ * already being read are the page; the topics under research and the pages being watched sit at the bottom in one
+ * closed drawer, one line each, because they are background owed honestly and never work anybody has to read.
+ * THE RULE THAT SURVIVED: evidence controls an opportunity's STATE, never its existence, so nothing is swallowed.
+ * PURE PRESENTATION: every number arrives loaded, nothing here reads a store, and nothing recomputes a count
+ * another surface owns. Beacon voice (amended 2026-08-11): NO first person, a number where one exists, a next step.
  */
 
 import type { ReactNode } from "react";

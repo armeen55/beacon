@@ -69,6 +69,22 @@ export function AiWorkspace({ view, range, engine, sub, reading }: {
         {view.boundaries.map((b) => <p key={b} className="mt-1 text-[12px] leading-relaxed text-status-warning">{b}</p>)}
       </Panel>
 
+      {/* READ AND PASSED OVER: the one number that says a page of yours was good enough to open and not good enough to quote. It is the whole reason the next change exists, so it gets its own block and a way to act on it. */}
+      {view.retrieval ? (
+        <Panel title="Read but not credited"
+          actions={<Link href="/changes" className="text-[12px] font-semibold text-accent-primary underline underline-offset-2">Take this to Changes</Link>}>
+          <p className="text-[28px] font-semibold tabular-nums leading-none tracking-tight text-foreground">{view.retrieval.value}</p>
+          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{view.retrieval.basis}</p>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-foreground">{view.retrieval.next}</p>
+        </Panel>
+      ) : null}
+
+      {view.byEngine ? (
+        <Panel title="Every assistant, side by side">
+          <DataTable columns={view.byEngine.columns} rows={view.byEngine.rows} empty={view.byEngine.empty} note={view.byEngine.note} />
+        </Panel>
+      ) : null}
+
       {d ? (
         <Panel title="One question, every run behind it" note={d.headline}
           actions={<Link href={at({ prompt: "", reading: "" })} className="text-[12px] font-semibold text-accent-primary underline underline-offset-2">Back to all questions</Link>}>

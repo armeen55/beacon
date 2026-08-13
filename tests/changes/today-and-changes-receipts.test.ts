@@ -114,18 +114,12 @@ describe("Changes shows every opportunity, and evidence decides only which lane 
       open.includes("Your Google search data could not be read just now"), /\(1 topic, 1 page\)/.test(open), open.includes("its results page is read next"),
       fixed.includes("its fix is #1 in the list above"), fixed.includes("its results page is read next")]).toEqual([true, false, false, false, false, true, true, true, false]); }); });
 
-/** Zero measuring is not zero evidence. The proof strip told an account holding twenty five settled readings to ship its first change, printed straight over the top of them. */
-describe("Today's proof strip never calls a finished account a cold start", () => {
-  const strip = async (over: Record<string, unknown>): Promise<string> => renderToStaticMarkup(createElement((await import("@/components/today/today-proof-strip")).TodayProofStrip,
-    { measuringCount: 0, firstReadOn: null, gscThrough: "2026-07-09", nowMs: Date.parse("2026-07-12T00:00:00Z"), ...over } as never));
-  /** TODAY IS WORK, NOT A STATUS REPORT (2026-08-11). The collection chip, the topic counter and the research-pass line are gone from the page; nothing on it may narrate a pass again. */
+/** TODAY IS WORK, NOT A STATUS REPORT (2026-08-11). The collection chip, the topic counter, the research-pass line and the whole
+ *  measuring strip are gone from the page; nothing on it may narrate a pass again, and no first person may come back. */
+describe("Today narrates no research and speaks in no first person", () => {
   it("never narrates its own research on Today, in any form", () => { const page = readFileSync("src/app/(shell)/page.tsx", "utf8");
     for (const banned of ["answersReadClosely", "aiChecksAnswered", "answers collected today", "topics under research", "researchStatusLine", "In research"]) expect(page, banned).not.toContain(banned); });
-  it("says what is on Results when nothing is mid-measurement but readings are settled, and keeps the cold-start instruction for the genuine cold start", async () => {
-    const settled = await strip({ decidedCount: 25 }), cold = await strip({ decidedCount: 0 }), flight = await strip({ measuringCount: 3, decidedCount: 25 });
-    expect([settled.includes("Nothing is mid-measurement right now."), /25<\/span> finished readings are on Results/.test(settled), settled.includes("/results"), settled.includes("Ship a change")]).toEqual([true, true, true, false]);
-    expect([cold.includes("Nothing is measuring yet."), cold.includes("Make a change and tracking for it starts here.")]).toEqual([true, true]); // the one state where that instruction is true
-    expect([/3<\/span> changes are measuring/.test(flight), flight.includes("mid-measurement")]).toEqual([true, false]); }); }); // work in flight still leads with the work in flight
+});
 
 describe("a screen with losses on it never reads as all clear", () => {
   const quiet = { ...base, measuringCount: 6, research: { running: false } };
@@ -223,7 +217,7 @@ describe("a change detail hands over the whole investigation and the controls to
   beforeEach(() => vi.clearAllMocks());
   it("the investigation carries the cause, what it beat, what would kill it, and what could not be tested", async () => {
     const html = await renderDetail(proposal());
-    for (const s of ["Show me how you worked this out", "two of your own pages competing for one search",
+    for (const s of ["How this was worked out", "two of your own pages competing for one search",
       "so Google is choosing between them every time somebody searches it", "What else was considered and why it lost",
       "a sharper line cannot fix two of your own pages", "What would overturn this", "this is not the explanation",
       "What could not be tested, and why", "I do not hold this page&#x27;s indexing or canonical state."]) expect(html, s).toContain(s);
@@ -236,8 +230,9 @@ describe("a change detail hands over the whole investigation and the controls to
   it("the ranking receipt names each input and how far it could ever move the order", async () => {
     const html = await renderDetail(proposal());
     // A factor that changed nothing says so; it never prints a bare zero.
-    for (const s of ["Why this one ranks where it does", "this draft passed every safety check (moved it up 500 of a possible 500)",
-      "this page already has a change under measurement (moved it down 30 of a possible 30)", "did not move this one either way",
+    // NO RANKER ARITHMETIC ON THE SCREEN: how hard a factor pushed is the fact; "1.2 of a possible 3" is not.
+    for (const s of ["Why this one ranks where it does", "this draft passed every safety check (a strong push)",
+      "this page already has a change under measurement (held it back)", "did not move this one either way",
       "I ranked this on about 163 clicks I can show are recoverable"]) expect(html, s).toContain(s); });
   it("the operator can say which pieces they applied, what they actually wrote, or put the change away", async () => {
     const html = await renderDetail(proposal());
@@ -269,6 +264,6 @@ describe("a change detail hands over the whole investigation and the controls to
     expect(html).not.toContain("This page has none today.");
     expect(html).toContain("Confirmed: this moves or hides a page"); });
   it("opens the investigation only when it holds one, never onto a line the card above already said", async () => {
-    expect(await renderDetail(proposal({ causeFinding: undefined, rankingReceipt: undefined }))).not.toContain("Show me how you worked this out");
-    expect(await renderDetail(proposal({ causeFinding: undefined }))).toContain("Show me how you worked this out"); // a ranking receipt is reasoning too
+    expect(await renderDetail(proposal({ causeFinding: undefined, rankingReceipt: undefined }))).not.toContain("How this was worked out");
+    expect(await renderDetail(proposal({ causeFinding: undefined }))).toContain("How this was worked out"); // a ranking receipt is reasoning too
   }); });

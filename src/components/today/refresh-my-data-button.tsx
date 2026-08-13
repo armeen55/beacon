@@ -69,16 +69,20 @@ export function RefreshResultList({ results }: { results: RefreshResult[] }) {
   );
 }
 
+/**
+ * `connectedCount` is TRI-STATE. Null means the count could not be read, which is not the same claim as
+ * zero: the caller defaults a failed read to 0, and the zero copy then told a fully connected account that
+ * there was nothing of theirs to pull. An unknown count says the one thing that is true either way.
+ */
 export function RefreshMyDataButton({
   connectedCount,
 }: {
-  connectedCount: number;
+  connectedCount: number | null;
 }) {
   const router = useRouter();
   const [pulling, setPulling] = useState(false);
   const [researching, setResearching] = useState(false);
   const [results, setResults] = useState<RefreshResult[] | null>(null);
-  const [ranAt, setRanAt] = useState<string | null>(null);
   const busy = pulling || researching;
 
   function onClick() {
@@ -87,7 +91,6 @@ export function RefreshMyDataButton({
     void (async () => {
       const res = await refreshAllConnectedDataNow().catch(() => null);
       setResults(res?.results ?? []);
-      setRanAt(res?.ranAt ?? null);
       setPulling(false);
       // Repaint with the freshly-pulled data BEFORE the continuation: the operator should not
       // wait on the long half to see the short half.
@@ -115,7 +118,9 @@ export function RefreshMyDataButton({
         <span>Update data</span>
       </button>
       <p className="text-[11px] text-muted-foreground">
-        {connectedCount > 0
+        {connectedCount == null
+          ? "Updates your data now, and the daily round runs on its own either way."
+          : connectedCount > 0
           ? "Pulls your latest numbers now, and the daily round runs on its own either way."
           : "Picks up anything unfinished now, and the daily round runs on its own either way."}
       </p>
@@ -132,9 +137,6 @@ export function RefreshMyDataButton({
           <RefreshResultList results={results} />
         ) : null}
       </div>
-      {/* ranAt is captured for downstream freshness copy if needed; kept in
-          state so a future "last refreshed at" line can read it. */}
-      <span hidden data-ran-at={ranAt ?? undefined} />
     </div>
   );
 }

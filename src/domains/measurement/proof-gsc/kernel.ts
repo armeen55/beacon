@@ -673,18 +673,17 @@ function isMature(basisDay: CheckpointDay | null): boolean {
   return basisDay === 28 || basisDay === FOLLOW_UP_DAY;
 }
 
-/** Which Results band a read belongs to. Pure. "won" = a MATURE improvement;
- *  "promising" = an earlier improvement whose window has not closed (never sold
- *  as a win); "learned" = a mature decline or settled no-movement; "measuring" =
- *  everything else still in flight. */
+/** Which Results band a read belongs to. Pure. "won" = a MATURE improvement; "promising" = an earlier
+ *  improvement whose window has not closed (never sold as a win); "learned" = a mature decline, a settled
+ *  no-movement or a MATURE shared-credit read; "measuring" = everything else still in flight. MATURITY IS THE
+ *  ONE RULE BOTH SURFACES USE: a shared-credit read used to land in "measuring" whatever its window said while
+ *  Results grouped the same mature row as finished, so Today said "out of 12 finished" over a header saying 14. */
 export function bandOf(read: Pick<KernelRead, "verdict" | "basisDay">): ResultBand {
   if (read.verdict === "directional_improvement" || read.verdict === "stronger_improvement") {
     return isMature(read.basisDay) ? "won" : "promising";
   }
-  if (isMature(read.basisDay) && (read.verdict === "directional_decline" || read.verdict === "no_clear_movement")) {
-    return "learned";
-  }
-  return "measuring";
+  const settled = read.verdict === "directional_decline" || read.verdict === "no_clear_movement" || read.verdict === "confounded";
+  return isMature(read.basisDay) && settled ? "learned" : "measuring";
 }
 
 // ── Learning / ranking compat: settled verdict from a stored record ──────────

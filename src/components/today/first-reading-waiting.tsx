@@ -1,7 +1,7 @@
 /**
  * first-reading-waiting — Gap F.1 (2026-05-07).
  *
- * The "Beacon is preparing your first reading" surface that /today
+ * The "Your first reading is being prepared" surface that /today
  * renders when a freshly launched tenant has prompts but no
  * observations yet.
  *
@@ -37,7 +37,7 @@ export function FirstReadingWaiting({
       <div className="w-full max-w-xl space-y-6">
         <div className="space-y-2">
           <h1 className="text-2xl font-semibold tracking-tight">
-            Beacon is preparing your first reading.
+            Your first reading is being prepared.
           </h1>
           <p className="text-[14px] text-muted-foreground">
             Your site is being read, and AI assistants are being checked on how
@@ -61,7 +61,7 @@ export function FirstReadingWaiting({
             {context.domain ? (
               <>
                 <dt className="text-muted-foreground">Website</dt>
-                <dd className="font-mono">{context.domain}</dd>
+                <dd>{context.domain}</dd>
               </>
             ) : null}
             <dt className="text-muted-foreground">Questions tracked</dt>

@@ -104,11 +104,11 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
 
   return (
     <div className="rounded-lg border border-border/60 bg-surface-inset/30 p-4">
-      <div className="text-[13px] font-semibold text-foreground">Tell us about an edit you made</div>
+      <div className="text-[13px] font-semibold text-foreground">Record an edit made outside Beacon</div>
       <p className="mt-0.5 text-[12px] text-muted-foreground">
         Changed a page yourself, in whatever tool your site runs on? Paste the page address plus the before and after copy
-        under Add details, and Beacon will record where it stands today, pick similar pages to
-        compare against, and check after 1, 2, and 4 weeks whether more people found you. Nothing publishes.
+        under Add details. The page&apos;s standing is recorded today and checked after 1, 2, and 4 weeks against similar
+        pages. Nothing publishes.
       </p>
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         <input
@@ -217,7 +217,7 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
 
           <div>
             <label className={FIELD_LABEL} htmlFor="proof-queries">
-              Target queries (one per line, or comma-separated)
+              Searches this page should win (one per line, or comma-separated)
             </label>
             <textarea
               id="proof-queries"

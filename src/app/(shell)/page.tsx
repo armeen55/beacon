@@ -120,18 +120,25 @@ const provenLift = (r: LedgerRow): number | null =>
 function lastWinLine(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, nowMs: number): string | null {
   const won = splitLedgerLifecycle(rows, new Date(nowMs)).won;
   const newest = [...won].sort((a, b) => (b.implementedAt ?? b.shippedAt).localeCompare(a.implementedAt ?? a.shippedAt))[0];
-  const lift = newest ? Math.round(provenLift(newest) ?? 0) : null;
-  if (!newest || lift == null || lift <= 0) return null;
+  if (!newest) return null;
+  // A WIN WITH NO CLICK NUMBER IS STILL A WIN. Rounding a missing lift to zero deleted the whole line, so an
+  // account whose newest win was read in click rate or position was told nothing had ever worked.
+  const raw = provenLift(newest);
+  const lift = raw == null ? null : Math.round(raw);
   const page = (newest.page || newest.path).replace(/^https?:\/\/[^/]+/, "") || "/";
-  return `Your last change to ${page} earned ${lift.toLocaleString()} more ${lift === 1 ? "click" : "clicks"} than the pages that were not changed.`;
+  return lift != null && lift > 0
+    ? `Your last change to ${page} earned ${lift.toLocaleString("en-US")} more ${lift === 1 ? "click" : "clicks"} than the pages that were not changed.`
+    : `Your last change to ${page} finished ahead of the pages that were not changed.`;
 }
 
-/** THE WEEK IN THREE BLOCKS, off the SAME ledger rows Today already holds and the SAME split Results counts
- *  from (splitLedgerLifecycle), so a number here can never disagree with the Results header. COUNTS ONLY: no
+/** TWO BLOCKS AND THE WAY TO RESULTS, off the ledger rows Today already holds. The counts come from
+ *  splitLedgerLifecycle, whose bands settle on the SAME maturity rule Results groups its rows on
+ *  (results-presentation.ts isMature), so "out of 12 finished" here is the 12 Results shows. COUNTS ONLY: no
  *  clicks or impressions are summed on Today, because a sum here mixed click and rate units and printed +54
- *  then +103 across two visits, which the operator caught both times. Null when the ledger is empty. */
+ *  then +103 across two visits, which the operator caught both times. Null when the ledger is empty.
+ *  Only the first block is a week; the wins block is all time and says so on its own line. */
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-type WeekBlock = { value: string; sub: string; pages: string | undefined };
+type WeekBlock = { label: string; value: string; sub: string; pages: string | undefined };
 /** The pages behind a block, for the hover. Six paths, then how many more, so the block can be checked without leaving Today. */
 function pagesHover(rows: readonly LedgerRow[]): string | undefined {
   const paths = [...new Set(rows.map((r) => (r.page || r.path).replace(/^https?:\/\/[^/]+/, "") || "/"))];
@@ -146,13 +153,15 @@ function weekStrip(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, nowM
   const settled = b.won.length + b.learned.length;
   return {
     made: {
-      value: made.length > 0 ? `${made.length} ${made.length === 1 ? "edit" : "edits"} this week` : "No edits this week",
+      label: "made", value: made.length > 0 ? `${made.length} ${made.length === 1 ? "edit" : "edits"} this week` : "No edits this week",
       sub: measuring > 0 ? `${measuring} measuring now` : "nothing measuring right now",
       pages: pagesHover(made),
     },
+    // ALL TIME, SAID ON THE TILE. "3 wins all time" sat beside "2 edits this week" under one week framing, so the
+    // period each block answers for now rides its own sub line.
     wins: {
-      value: settled === 0 ? "Nothing finished yet" : b.won.length === 0 ? "No win yet" : `${b.won.length} ${b.won.length === 1 ? "win" : "wins"} all time`,
-      sub: settled === 0 ? "each read closes at 28 days" : `out of ${settled} finished`,
+      label: "wins", value: settled === 0 ? "Nothing finished yet" : b.won.length === 0 ? "No win yet" : `${b.won.length} ${b.won.length === 1 ? "win" : "wins"}`,
+      sub: settled === 0 ? "all time; each read closes at 28 days" : `all time, out of ${settled} finished`,
       pages: pagesHover(b.won),
     },
   };
@@ -197,9 +206,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const { today } = composite;
   const tenantId = await currentTenantId();
   const nowMs = Date.now();
-  // TWO READS, and both are about HIS site: how many sources I can refresh, and the settled wins I can prove.
+  // TWO READS, and both are about HIS site: how many sources can be refreshed, and the settled wins on file.
   const [connectedSourceCount, ledgerRows] = await Promise.all([
-    valueWithDeadline(countConnectedDataSources(tenantId).catch(() => 0), 0),
+    // A failed count is UNKNOWN, never zero: defaulting to 0 showed the zero-connection copy to a fully connected account.
+    valueWithDeadline(countConnectedDataSources(tenantId).catch(() => null), null),
     valueWithDeadline(
       loadProofLedgerCached(tenantId).catch(() => [] as Awaited<ReturnType<typeof loadProofLedgerCached>>),
       [],
@@ -259,7 +269,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
             </Link>
             {openTotal > 1 ? (
               <Link href="/changes" className="text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
-                See the other {(openTotal - 1).toLocaleString()} {openTotal - 1 === 1 ? "edit" : "edits"}
+                See the other {(openTotal - 1).toLocaleString("en-US")} {openTotal - 1 === 1 ? "edit" : "edits"}
               </Link>
             ) : null}
           </div>
@@ -275,12 +285,12 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         <ScoreboardSection tenantId={tenantId} />
       </Suspense>
 
-      {/* THE WEEK IN THREE BLOCKS. Two counts off the ledger already loaded, then the way to every one of them.
+      {/* THREE BLOCKS: the edits made this week, the wins banked all time, then the way to every one of them.
           Hover a count to see the pages behind it. No clicks are summed here: the scoreboard above owns that number. */}
       {week ? (
         <div className="grid grid-cols-3 gap-2" data-week-strip="true">
           {[week.made, week.wins].map((block) => (
-            <div key={block.value} title={block.pages} className="rounded-2xl border border-border bg-surface-raised px-4 py-3">
+            <div key={block.label} title={block.pages} className="rounded-2xl border border-border bg-surface-raised px-4 py-3">
               <p className="text-[15px] font-semibold leading-snug tabular-nums tracking-tight text-foreground">{block.value}</p>
               <p className="mt-0.5 text-[12px] leading-snug tabular-nums text-muted-foreground">{block.sub}</p>
             </div>
@@ -295,7 +305,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         </div>
       ) : null}
 
-      {/* THE PROOF, in one line: the last change of yours I measured and what it beat. */}
+      {/* THE PROOF, in one line: the last change that settled and what it beat. */}
       {winLine ? (
         <p className="text-[13px] leading-relaxed text-foreground" data-last-win="true">
           {winLine}{" "}

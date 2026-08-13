@@ -24,6 +24,22 @@ import type { ProofMeasurementSummary } from "@/domains/decision/changes/proof-t
  *  exactly how many are behind it. Shared by the server slice and the client's "Show more". */
 export const CHANGES_PAGE_SIZE = 25;
 
+/** A PAGE ADDRESS, READ THE WAY A PERSON SAYS IT. Every change surface printed the raw slug as its headline
+ *  ("/famous-iranian-comedians"), which is a file name, not a page. The last segment becomes the name, the
+ *  address stays beside it as the small line. Pure, shared by Changes, the change detail and Results. */
+export function pageLabel(path: string | null | undefined): string {
+  // No address is NOT the home page: claiming a specific page for a missing one is the lie this exists to kill.
+  if (!(path ?? "").trim()) return "This page";
+  const trimmed = (path ?? "").replace(/^https?:\/\/[^/]+/, "").split(/[?#]/)[0]!.replace(/\/+$/, "");
+  const last = trimmed.split("/").filter(Boolean).pop();
+  if (!last) return "Home page";
+  let words = last;
+  try { words = decodeURIComponent(last); } catch { /* a half-encoded path is said as it is written */ }
+  words = words.replace(/\.(html?|php|aspx?)$/i, "").replace(/[-_]+/g, " ").trim();
+  // A de-slug that emptied out falls back to the raw segment rather than inventing a page.
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : last;
+}
+
 export type EnrichedChangeRow = {
   change: ChangelogEntry;
   proof: ChangeRowProof | null;

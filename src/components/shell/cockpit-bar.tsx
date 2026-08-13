@@ -7,7 +7,7 @@ import "server-only";
  * Fail-soft: any load error renders nothing (the header never breaks).
  */
 
-import Link from "next/link";
+import { monthDayLabel } from "@/components/data/receipt-line";
 import { currentTenantId } from "@/lib/tenant-context";
 import { getTenant, websiteOf, loadBusinessProfile } from "@/domains/account";
 import { loadDailyTotalsForTenant } from "@/domains/decision";
@@ -33,7 +33,7 @@ export async function CockpitBar() {
     if (raced.timedOut) return null;
     const [tenant, daily, profile] = raced.data;
     // Canonical business name: the confirmed BusinessProfile, falling back to
-    // the Website domain — never the provisional signup seed.
+    // the Website domain, never the provisional signup seed.
     const displayName =
       profile?.name.value.trim() || (tenant ? websiteOf(tenant).domain : "");
     const rows = [...daily].sort((a, b) => a.date.localeCompare(b.date));
@@ -41,12 +41,15 @@ export async function CockpitBar() {
     const lagDays = lastDate ? Math.round((Date.now() - Date.parse(lastDate + "T00:00:00Z")) / DAY_MS) : null;
     // Honest freshness: Google reports 2-3 days behind by design, so <= 4 days is healthy.
     const dot = lagDays == null ? null : lagDays <= 4 ? "bg-status-success" : lagDays <= 7 ? "bg-status-warning" : "bg-status-danger";
+    // A STORED DATE IS NEVER PRINTED AS IT WAS WRITTEN: this tooltip said "through 2026-08-09" on every
+    // signed-in page, which is a machine's way of naming a day and nobody else's.
+    const through = monthDayLabel(lastDate);
     const dotTitle =
-      lagDays == null || lastDate == null
+      lagDays == null || through == null
         ? null
         : lagDays <= 4
-        ? `Search data current through ${lastDate} (Google reports a few days behind, this is healthy)`
-        : `Search data stops at ${lastDate} (${lagDays} days ago), the connection may need attention`;
+        ? `Search data current through ${through}. Google reports a few days behind, so this is healthy.`
+        : `Search data stops at ${through}, ${lagDays} days ago. The connection may need attention.`;
     // Wave 3B (2026-07-10) - the 7-day clicks number and week-over-week delta were DROPPED from
     // this header bar. That same number lived in two places on Today (here AND the scoreboard
     // section), each computed independently, so a rounding or window difference could show the
@@ -64,15 +67,8 @@ export async function CockpitBar() {
             <span className="text-muted-foreground">Search data</span>
           </span>
         ) : null}
-        {/* FP4 (2026-07-03): one name for one page. This button used to say
-            "Tonight's changes" while the sidebar said "Changes" and the URL
-            said /worklist; the diagnosis counted four names for the same list. */}
-        <Link
-          href="/changes"
-          className="rounded-md bg-foreground px-2.5 py-1 text-[11px] font-semibold text-background transition-colors hover:bg-foreground/85"
-        >
-          Changes
-        </Link>
+        {/* The black "Changes" button moved to AppHeader (2026-08-12): it rendered on /changes too, sending
+            a customer to the page they were already standing on. Only the client header knows the route. */}
       </div>
     );
   } catch {

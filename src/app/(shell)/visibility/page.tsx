@@ -115,6 +115,7 @@ function answerRow(r: AiObservationRecord): AnswerRow {
     citations: cites == null ? null : cites.map((c) => { const h = host(c.domain || c.url); return { url: c.url, domain: h, owned: mine(h), ...(c.passage ? { passage: c.passage } : {}) }; }),
     retrievedNotCited: got == null ? null : got.filter((c) => !creditedUrls.has(c.url)).map((c) => c.url),
     modelRequested: r.model_requested ?? null, modelServed: r.model_served ?? null, mode: r.observation_mode ?? null,
+    webSearched: r.journey?.web_search_reported ?? null,
     askedAt: r.requested_at ?? null, answeredAt: r.completed_at ?? null, receipt: r.cache_key ?? null,
     // A ROW THAT PRESERVED NO COST IS UNKNOWN, NEVER FREE: zero is the absence of a receipt.
     costUsd: Number(r.cost_usd) > 0 ? Number(r.cost_usd) : null, failureReason: r.failure_reason ?? null,
