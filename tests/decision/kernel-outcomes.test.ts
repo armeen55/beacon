@@ -32,7 +32,7 @@ import { reconcileResearchCases } from "@/domains/evidence/topic-investigation";
 const queued = async (tenantId: string, at = 0) => focusReads(await chooseInvestigation(tenantId, null), at, null).queries; const canon = <T extends object>(o: T) => ({ observationId: "obs_fx", promptVersion: 1, reportingDay: "2026-07-01", answerHash: "hx", retrievedResults: null, brandMentions: null, analysis: null, ...o });
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { ownedCandidatesFor } from "@/domains/decision/owned-coverage"; import { askIdentity } from "@/domains/evidence/page-intersection";
 import { buildTopicInvestigations } from "@/domains/evidence/topic-investigation";
-import { readCoverage, rankInvestigations } from "@/domains/decision/coverage-pass"; import { loadProposalQueue, pagesUnderMeasurement } from "@/domains/decision/load-proposals";
+import { earnsOwnPage, readCoverage, rankInvestigations } from "@/domains/decision/coverage-pass"; import { loadProposalQueue, pagesUnderMeasurement } from "@/domains/decision/load-proposals";
 import { emptyResearchEvidence, type FunnelResearchEvidence, type ResearchPageComparison, type WinnerReadOutcome } from "@/domains/evidence/funnel/research-evidence";
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot";
 import { serializeChangeProposal, deserializeChangeProposal, type EvidenceInput, type ChangeProposal } from "@/domains/decision/contracts";
@@ -555,8 +555,21 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     const world = { ...ACTORS_SEEN(), cannibalization: [{ query: "iranian actors", competingUrls: [ACTORS_URL, "iranopedia.example/actors"], note: "" }] };
     reset(world); let called = 0;
     const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; } });
-    expect([res.outcome, res.actionable, res.proposals.every((p) => p.status === "needs_review"), called]).toEqual(["proposals_persisted", 1, true, 0]); // named, counted, and not one paid call
+    expect([res.outcome, res.actionable, res.proposals.every((p) => p.status === "needs_review"), called, res.proposals.filter((p) => p.id.endsWith("::missing_description")).length]).toEqual(["proposals_persisted", 1, true, 1, 1]); // named, counted, and the ONE paid call is the description that card owes, never a draft for the split
     expect(res.candidates.find((c) => c.action === "consolidate")!.cause.cause).toBe("cannibalization"); });
+  it("ranks a 15-view description under a 10,000-view rebuild, and calls views an audience rather than a recovery", () => {
+    const card = (id: string, minutes: number, views: number): ChangeProposal => baseProposal({ id, pagePath: `/${id}`, status: "needs_review",
+      impactScore: null, upsidePerMonth: null, demandImpressions90d: views, estimatedEffortMinutes: minutes });
+    const ranked = rankProposals([card("meta", 1, 15), card("thin", 30, 10_000)]); // the description is a one minute paste; the rebuild is half an hour
+    expect(ranked.map((p) => p.id)).toEqual(["thin", "meta"]); expect(ranked.every((p) => !!p.rankingReceipt)).toBe(true);
+    expect(ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toBe("shown 10,000 times in 90 days, an audience size rather than a proven recovery");
+    expect(ranked[0]!.whyRankedAboveNext).toContain("more is riding on it");
+    expect(rankProposals([card("a", 1, 0), card("b", 30, 0)])[0]!.id).toBe("a"); }); // with no audience at all the quick paste still leads: the fallback adds a fact, it never inverts the rule
+  it("promotes a search no page of this account is for only once it has recurred and a page of theirs was refused", () => {
+    expect(earnsOwnPage({ passes: 1, refusedPages: ["/guide"] }, 0)).toBe(false); // seen once, and no stored answer says it matters either
+    expect(earnsOwnPage({ passes: 2, refusedPages: [] }, 9)).toBe(false); // no page was ever read and refused, so nothing proves none of them fits
+    expect(earnsOwnPage({ passes: 2, refusedPages: ["/guide"] }, 0)).toBe(true); // the same search came back across two passes
+    expect(earnsOwnPage({ passes: 1, refusedPages: ["/guide"] }, 3)).toBe(true); }); // or three stored answers handed it to somebody else
   it("discounts a page only while its applied change is still being measured", async () => { const day = 24 * 60 * 60 * 1000; const applied = (ageDays: number): ChangeProposal =>
       baseProposal({ id: "applied", status: "implemented_pending_verification", basis: "b", createdAt: new Date(Date.now() - ageDays * day).toISOString() });
     expect(pagesUnderMeasurement([applied(10), applied(180)].map((p, i) => ({ ...p, pagePath: `/p${i}` })), new Date())).toEqual(["/p0"]);

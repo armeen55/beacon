@@ -25,11 +25,6 @@ function perfLogEnabled(): boolean {
   return process.env.BEACON_PERF_LOG === "1";
 }
 
-/** A monotonic start mark. Cheap; safe to call unconditionally. */
-export function perfMark(): number {
-  return Date.now();
-}
-
 /** Log the elapsed time of a labelled render stage. No-op unless enabled. `meta` must be
  *  non-PII (counts/flags only) --- never a URL, query, or secret. */
 export function perfStage(stage: string, startMs: number, meta?: Record<string, number | string | boolean>): void {

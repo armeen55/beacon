@@ -70,6 +70,8 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // Per account, never shared: one account must never be served text generated for another.
   "llm-call-cache",
   "llm-budget", // per-account file cap backstop (the durable Supabase ledger is authoritative)
+  // Searches this account shares words with and owns no page FOR, banked until the coverage walk takes them.
+  "coverage-needs",
 ]);
 
 export const SINGLETON_STORES = new Set<string>([

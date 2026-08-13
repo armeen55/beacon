@@ -1,74 +1,76 @@
-/** THE PAGE JOB: one sentence saying what a page is FOR, and the two fit checks that read it. Each pin states what a job may
- *  change about a decision and what a MISSING job may never change: nothing. Fixtures only, zero network. */
+/** THE PAGE JOB: one DURABLE sentence saying what a page is for, why a missing one is missing, how the whole site gets reached
+ *  over passes, and the fit checks that read it. Each pin states what a job may change about a decision and what a MISSING one
+ *  may never change: nothing a caller cannot name a reason for. Fixtures only, zero network, zero database. */
 import { describe, it, expect, vi } from "vitest";
 const budget = vi.hoisted(() => ({ allowed: true }));
-vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
-  checkBudget: async () => (budget.allowed ? { allowed: true, remaining: 10 } : { allowed: false, reason: "cap reached" }),
-  recordSpend: async () => {},
-}));
+vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ recordSpend: async () => {},
+  checkBudget: async () => (budget.allowed ? { allowed: true, remaining: 10 } : { allowed: false, reason: "cap reached" }) }));
 import { linkFit, loadPageJobs, pageJobFor, sectionFit, type OwnedPageJob } from "@/domains/decision/producers/page-job";
+import type { PageUnderstanding } from "@/domains/decision/producers/page-understanding";
+import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 
-const extract = (path: string) => ({ url: `https://mysite.example${path}`, title: "Tabriz, Iran: what to know before you go",
-  h1: "Tabriz, Iran", headings: ["Tabriz population", "Tabriz climate", "Things to see in Tabriz"], wordCount: 737 });
-const READING = { job: "This page tells a traveller what the city of Tabriz is like before they visit.", pageType: "city" as const,
-  audience: "travellers planning a trip to Iran", topics: ["Tabriz", "iran travel", "city guide"], commercial: false };
+const extract = (path: string, h1 = "Tabriz, Iran") => ({ url: `https://mysite.example${path}`, title: "Tabriz, Iran: what to know before you go", h1, headings: ["Tabriz population", "Tabriz climate", "Things to see in Tabriz"], wordCount: 737 });
+const READING = { job: "This page tells a traveller what the city of Tabriz is like before they visit.", pageType: "city" as const, audience: "travellers planning a trip to Iran", topics: ["Tabriz", "iran travel", "city guide"], commercial: false };
 /** A completion seam that answers with one fixed reading and counts how many times it actually ran. */
-const seam = (value: unknown): { complete: CompleteFn; calls: () => number } => {
-  let calls = 0;
-  return { calls: () => calls, complete: async () => { calls += 1; return { value }; } };
-};
+const seam = (value: unknown): { complete: CompleteFn; calls: () => number } => { let calls = 0; return { calls: () => calls, complete: async () => { calls += 1; return { value }; } }; };
+/** The durable store, in memory. `remember: false` is a site whose readings never land, which forces every pass to buy afresh and makes the rotation visible. */
+const store = (remember = true) => { const rows = new Map<string, PageUnderstanding>(); let at: string | null = null;
+  return { rows, at: () => at, read: async (_t: string, urls: readonly string[]) => new Map([...rows].filter(([k]) => urls.some((u) => canonicalUrlKey(u) === k))),
+    save: async (_t: string, r: PageUnderstanding) => { if (remember) rows.set(canonicalUrlKey(r.url), r); return true; },
+    cursor: async (_t: string, next?: string | null) => (next === undefined ? at : (at = next ? canonicalUrlKey(next) : null)) }; };
 const job = (over: Partial<OwnedPageJob> = {}): OwnedPageJob => ({ ...READING, topics: ["tabriz", "iran travel", "city guide"], url: "https://mysite.example/tabriz", ...over });
+/** Six readings of one account, the shape of a site about one country: "persian", "iranian" and "iran" are on most of its pages, which is why sharing one of them with a search proves nothing. */
+const page = (url: string, pageType: OwnedPageJob["pageType"], job: string, audience: string, topics: string[]): OwnedPageJob => ({ url: `https://mysite.example/${url}`, pageType, job, audience, topics, commercial: pageType === "product" });
+const PAINTERS = page("painters", "guide", "Introduces the Persian painters of Iran and their work.", "art lovers", ["persian painter", "iranian art", "painting"]);
+const POETS = page("poets", "list", "Lists the Persian poets of Iran who shaped Iranian writing.", "readers", ["persian poet", "poetry", "literature"]);
+const RUGS = page("rugs", "product", "Sells hand woven Persian rugs made in Iran.", "rug buyers", ["persian rug", "carpet", "weaving"]);
+const SCIENCE = page("science", "guide", "Explains what Iranian scientists have contributed to modern technology.", "students", ["iranian science", "technology", "research"]);
+const POPULATION = page("population", "guide", "Reports how many people live in each city of Iran.", "researchers", ["iran population", "demographics", "city"]);
+const CORPUS: ReadonlyMap<string, OwnedPageJob> = new Map([PAINTERS, POETS, RUGS, SCIENCE, POPULATION,
+  page("music", "guide", "Explains Persian music and the instruments Iranian players use.", "listeners", ["persian music", "instrument", "musician"])].map((j) => [canonicalUrlKey(j.url), j]));
 
-describe("what one page is for", () => {
-  it("reads the job off the page's own extract and hands the subject words back lowercased", async () => {
-    budget.allowed = true;
-    const s = seam(READING);
-    const out = await pageJobFor("t_fixture", extract("/tabriz"), { complete: s.complete });
-    expect([out?.job, out?.pageType, out?.commercial, out?.topics, out?.url, s.calls()])
-      .toEqual([READING.job, "city", false, ["tabriz", "iran travel", "city guide"], "https://mysite.example/tabriz", 1]);
+describe("what one page is for, held durably", () => {
+  it("reads a page once, keeps the reading, and serves it free afterwards even when the cache is gone", async () => {
+    budget.allowed = true; const s = seam(READING), db = store();
+    const first = await pageJobFor("t_fixture", extract("/tabriz"), { complete: s.complete, store: db }); expect([first.reason, first.job?.pageType, first.job?.topics, s.calls(), db.rows.size]).toEqual(["read", "city", ["tabriz", "iran travel", "city guide"], 1, 1]);
+    const again = await pageJobFor("t_fixture", extract("/tabriz"), { complete: s.complete, store: db }); // the row IS the answer: nothing is bought twice
+    expect([again.reason, again.job?.job, s.calls()]).toEqual(["read", READING.job, 1]);
+    // A page that CHANGED under its reading is still answered, labelled stale, until a pass can afford a fresh one.
+    const changed = await pageJobFor("t_fixture", extract("/tabriz", "Tabriz, Iran: 2026 update"), { store: db, buy: false }); expect([changed.reason, changed.job?.job]).toEqual(["stale", READING.job]);
   });
-  it("has no job for a shape that does not validate, for a blocked budget, or for a page with no words captured", async () => {
-    budget.allowed = true;
+  it("says WHY a page has no job instead of answering null five different ways", async () => {
+    budget.allowed = true; const db = store();
+    expect((await pageJobFor("t_fixture", { url: "https://mysite.example/unread" }, { store: db })).reason).toBe("unreadable");
+    expect((await pageJobFor("t_fixture", extract("/a"), { store: db })).reason).toBe("not_asked");
     // Two subject words is below the schema's floor of three, so the whole reading is refused rather than half kept.
-    expect(await pageJobFor("t_fixture", extract("/tabriz"), { complete: seam({ ...READING, topics: ["tabriz", "iran"] }).complete })).toBeNull();
-    const blind = seam(READING);
-    expect(await pageJobFor("t_fixture", { url: "https://mysite.example/unread" }, { complete: blind.complete })).toBeNull();
-    expect(blind.calls()).toBe(0); // a page with nothing captured is never paid to be read
-    budget.allowed = false;
-    expect(await pageJobFor("t_fixture", extract("/tabriz"), { complete: seam(READING).complete })).toBeNull();
-    budget.allowed = true;
+    expect((await pageJobFor("t_fixture", extract("/b"), { complete: seam({ ...READING, topics: ["tabriz", "iran"] }).complete, store: db })).reason).toBe("refused");
+    budget.allowed = false; expect((await pageJobFor("t_fixture", extract("/c"), { complete: seam(READING).complete, store: db })).reason).toBe("unaffordable"); budget.allowed = true;
+    expect([(await pageJobFor("t_fixture", extract("/d"), { store: db, buy: false })).reason, db.rows.size]).toEqual(["unaffordable", 0]);
   });
-  it("buys what one pass is allowed and no more, so a cold start spreads over passes", async () => {
-    budget.allowed = true;
-    const s = seam(READING);
-    const many = Array.from({ length: 12 }, (_, i) => extract(`/page-${i}`));
-    const out = await loadPageJobs("t_fixture", many, { complete: s.complete, maxNewReads: 2 });
-    // The pass stops ISSUING work once its allowance is gone; it never abandons a reading already in flight, so
-    // the four running at that moment still land. The twelve pages are never read in one pass.
-    expect(s.calls()).toBeLessThanOrEqual(2 + 4);
-    expect([out.size < many.length, out.size > 0, out.size === s.calls()]).toEqual([true, true, true]);
+  it("buys what one pass is allowed, then resumes the rotation where it stopped and wraps around the site", async () => {
+    budget.allowed = true; const db = store(false); const six = Array.from({ length: 6 }, (_, i) => extract(`/page-${i}`));
+    const pass = async (): Promise<[number, string | null]> => { const s = seam(READING); await loadPageJobs("t_fixture", six, { complete: s.complete, store: db, maxNewReads: 2, priority: 0 }); return [s.calls(), db.at()]; };
+    const [bought, first] = await pass(), [, second] = await pass(), [, third] = await pass();
+    // Two readings a pass, starting at the page after the last one paid for. Six pages, three passes, back to the beginning.
+    expect([bought, first, second, third]).toEqual([2, "mysite.example/page-2", "mysite.example/page-4", "mysite.example/page-0"]);
   });
 });
 
 describe("what a job changes, and what a missing one may never change", () => {
   it("keeps a section off a page that is not for it and off a rail an essay never goes on", () => {
-    expect(sectionFit(job(), ["tabriz", "climate"])).toBe("fits");
-    expect(sectionFit(job(), ["saffron", "recipe"])).toBe("off_topic");
-    expect(sectionFit(job({ pageType: "product" }), ["tabriz", "climate"])).toBe("wrong_type");
-    expect(sectionFit(job({ pageType: "category" }), ["tabriz"])).toBe("wrong_type");
-    // FAIL OPEN: no job on file is never a verdict about the page, so the producer runs its own word overlap.
-    expect(sectionFit(null, ["tabriz"])).toBe("unknown");
-    expect(sectionFit(undefined, ["tabriz"])).toBe("unknown");
+    expect([sectionFit(POPULATION, ["population", "demographic"], CORPUS), sectionFit(job(), ["tabriz", "travel"])]).toEqual(["fits", "fits"]);
+    // THE FIVE SHAPES, none named in the code: one word this whole site carries is not a tie, and a shop rail is no place for an essay.
+    expect([sectionFit(PAINTERS, ["persian", "musician"], CORPUS), sectionFit(POETS, ["persian", "book"], CORPUS),
+      sectionFit(RUGS, ["iran", "travel", "guide"], CORPUS), sectionFit(SCIENCE, ["iranian", "culture", "tradition"], CORPUS),
+      sectionFit(POPULATION, ["beautiful", "city", "iran"], CORPUS)]).toEqual(["off_topic", "off_topic", "wrong_type", "off_topic", "off_topic"]);
+    // NO VERDICT WITHOUT A READING: what "unknown" licenses is the caller's decision, made on the typed reason.
+    expect([sectionFit(null, ["tabriz"]), sectionFit(undefined, ["tabriz"])]).toEqual(["unknown", "unknown"]);
   });
   it("keeps a body link off a page the words do not belong to, and off a dictionary page from a stranger", () => {
-    const target = job({ url: "https://mysite.example/persian-words", pageType: "translation", topics: ["farsi words", "persian phrases"] });
-    const related = job({ url: "https://mysite.example/farsi", topics: ["farsi words", "learning persian"] });
-    const stranger = job({ url: "https://mysite.example/tabriz" });
-    expect(linkFit(target, related, ["farsi", "words"])).toBe("fits");
-    expect(linkFit(target, stranger, ["farsi", "words"])).toBe("wrong_type");
-    expect(linkFit(job(), stranger, ["saffron"])).toBe("off_topic");
-    expect(linkFit(null, stranger, ["farsi"])).toBe("unknown");
-    expect(linkFit(target, null, ["farsi"])).toBe("unknown");
+    const target = job({ url: "https://mysite.example/persian-words", pageType: "translation", topics: ["farsi words", "persian phrases"], job: "Gives the English meaning of common Farsi words.", audience: "people learning Farsi" });
+    const related = job({ url: "https://mysite.example/farsi", topics: ["farsi words", "learning persian"], job: "Explains how to start learning Farsi.", audience: "beginners" }), stranger = job({ url: "https://mysite.example/tabriz" });
+    expect([linkFit(target, related, ["farsi", "word"]), linkFit(target, stranger, ["farsi", "word"]), linkFit(job(), stranger, ["saffron"])]).toEqual(["fits", "wrong_type", "off_topic"]);
+    expect([linkFit(null, stranger, ["farsi"]), linkFit(target, null, ["farsi"])]).toEqual(["unknown", "unknown"]);
   });
 });

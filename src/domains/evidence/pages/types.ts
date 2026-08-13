@@ -179,14 +179,6 @@ type TopicCitationSummary = {
   top_directory_pages: { url: string; count: number }[];
 };
 
-export type CitationEvidenceIndex = {
-  built_at: string;
-  total_citations_processed: number;
-  by_page_and_topic: CitationPageRollup[];
-  by_topic: TopicCitationSummary[];
-  page_to_topics: Record<string, string[]>;
-};
-
 // ── Prompt-to-page fit (future) ─────────────────────────────────────
 
 // ── Retired frontier/wave/outcome engine row shapes ─────────────────

@@ -4,37 +4,29 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Budget seam: spy on the real adjudicator budget so we can assert the explicit account reaches the cap check + spend record (drafter uses these directly).
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: vi.fn(async () => ({ allowed: true, remaining: 10 })), recordSpend: vi.fn(async () => {}) }));
 // json-store seam: assert storeCacheImpl routes with an EXPLICIT { tenantId }.
-const readStoreMock = vi.fn(async () => [] as unknown[]);
-const writeStoreMock = vi.fn(async () => {});
+const readStoreMock = vi.fn(async () => [] as unknown[]); const writeStoreMock = vi.fn(async () => {});
 vi.mock("@/lib/persistence/json-store", () => ({ readStore: (...a: unknown[]) => readStoreMock(...(a as [])), writeStore: (...a: unknown[]) => writeStoreMock(...(a as [])) }));
 import { checkBudget, recordSpend } from "@/domains/decision/llm/adjudicator-budget";
 import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import { storeCacheImpl, type CacheImpl, type LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
 import { classifyStore } from "@/lib/persistence/store-classification";
-const VALID = {
-  field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen",
+const VALID = { field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen",
   rationale: "The current title is one word and misses the customs searchers ask about.",
   evidenceRefs: [{ source: "gsc", detail: "strong impressions for nowruz traditions with a low click rate" }],
   confidence: "high", risks: ["keep the title concise"], operatorSteps: ["Replace the page title field with the new value"],
   proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },
 };
-const REQ = {
-  kind: "atomic_edit" as const, system: "You improve one on-page field.",
-  user: "Page: Nowruz. Field to edit: title. Current title: Nowruz.",
-  grounded: "nowruz traditions persian new year customs haft-seen",
-};
+const REQ = { kind: "atomic_edit" as const, system: "You improve one on-page field.",
+  user: "Page: Nowruz. Field to edit: title. Current title: Nowruz.", grounded: "nowruz traditions persian new year customs haft-seen" };
 /** A per-account partitioned cache mirroring storeCacheImpl's isolation, plus call captures so we can assert callStructuredLLM threaded the right account through. */
 function partitionedCache() {
   const store = new Map<string, LlmCallCacheEntry[]>();
-  const reads: Array<{ tenantId: string; key: string }> = [];
-  const recents: Array<{ tenantId: string; kind: string }> = [];
+  const reads: Array<{ tenantId: string; key: string }> = [], recents: Array<{ tenantId: string; kind: string }> = [];
   const impl: CacheImpl = {
     read: async (tenantId, key) => { reads.push({ tenantId, key }); return (store.get(tenantId) ?? []).find((e) => e.key === key) ?? null; },
     write: async (tenantId, entry) => { store.set(tenantId, [...(store.get(tenantId) ?? []).filter((e) => e.key !== entry.key), { ...entry, tenantId }]); },
-    recentTexts: async (tenantId, kind) => {
-      recents.push({ tenantId, kind });
-      return (store.get(tenantId) ?? []).filter((e) => e.kind === kind && typeof e.primaryText === "string").map((e) => e.primaryText as string);
-    },
+    recentTexts: async (tenantId, kind) => { recents.push({ tenantId, kind });
+      return (store.get(tenantId) ?? []).filter((e) => e.kind === kind && typeof e.primaryText === "string").map((e) => e.primaryText as string); },
   };
   return { impl, store, reads, recents };
 }
@@ -43,14 +35,11 @@ const RECEIPT = { tenantId: "provider", responseId: "resp_1", requestedModel: "g
 function seam(values: Array<{ value: unknown; provenance?: typeof RECEIPT } | { error: string; retryable: boolean }>) {
   let i = 0, calls = 0;
   const complete: CompleteFn = async () => { calls += 1; return values[Math.min(i++, values.length - 1)]!; };
-  return { complete, calls: () => calls };
-}
+  return { complete, calls: () => calls }; }
 beforeEach(() => {
   (checkBudget as unknown as ReturnType<typeof vi.fn>).mockClear();
   (recordSpend as unknown as ReturnType<typeof vi.fn>).mockClear();
-  readStoreMock.mockClear();
-  readStoreMock.mockResolvedValue([]);
-  writeStoreMock.mockClear(); });
+  readStoreMock.mockClear(); readStoreMock.mockResolvedValue([]); writeStoreMock.mockClear(); });
 // ── store classification + key isolation ─────────────────────────────────────
 describe("the call cache is per-account, keyed by account", () => {
   // The REAL impl: an omitted tenantId falls back to AMBIENT resolution downstream, so a regression is silent.
@@ -99,10 +88,7 @@ describe("callStructuredLLM keeps accounts isolated end to end", () => {
     const cache = partitionedCache();
     const s = seam([{ value: VALID }]);
     const out = await callStructuredLLM({ ...REQ, tenantId: "  ", complete: s.complete, cacheImpl: cache.impl });
-    expect(out.status).toBe("validation_failed");
+    expect(out.status).toBe("validation_failed"); // zero calls on all three seams
     expect(out.status === "validation_failed" && out.reason).toBe("missing_tenant");
-    // Zero calls on all three seams.
-    expect(s.calls()).toBe(0);
-    expect(cache.reads.length).toBe(0);
-    expect(checkBudget).not.toHaveBeenCalled();
-    expect(recordSpend).not.toHaveBeenCalled(); }); });
+    expect([s.calls(), cache.reads.length]).toEqual([0, 0]);
+    expect(checkBudget).not.toHaveBeenCalled(); expect(recordSpend).not.toHaveBeenCalled(); }); });

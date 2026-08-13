@@ -26,7 +26,8 @@ import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
 import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation";
 import { earnedNewPage, type IntersectionEvidence } from "./coverage-adjudication";
 import { extractPageFacts, readWinningPattern } from "./winning-pattern";
-import { readCoverage, type DecidedTopic } from "./coverage-pass";
+import { readCoverage, recordCoverageNeeds, type DecidedTopic } from "./coverage-pass";
+import { applyDraftedCopy } from "./drafted-copy";
 import { readInventory } from "@/domains/evidence/scanning/owned-pages-store";
 import { readTechnicalFindings } from "./technical-findings";
 import { buildNewPageProposal } from "./new-page";
@@ -35,22 +36,13 @@ import { suggestedEdits } from "./suggested-edits";
 export type ProduceProposalsOptions = ProposeOptions & {
   /** A TEST SEAM ONLY: production reads the stored comparison out of the canonical evidence, and passing this skips that read. */
   intersection?: IntersectionEvidence;
-  /** Hard cap on how many opportunities this pass drafts (budget guard). */
-  maxDrafts?: number;
-  /** The pages still being measured, when the caller knows them: preferred over any derivation here. */
-  measuringPagePaths?: readonly string[];
-  /** Persist each landed proposal (default true). Tests pass false to stay pure. */
-  persist?: boolean;
+  /** Hard cap on how many opportunities this pass drafts (budget guard). */ maxDrafts?: number;
+  /** The pages still being measured, when the caller knows them: preferred over any derivation here. */ measuringPagePaths?: readonly string[];
+  /** Persist each landed proposal (default true). Tests pass false to stay pure. */ persist?: boolean;
 };
-
 /** How this pass ended. Only `persistence_failed` is a failure; `investigating` is the honest middle: proven gaps exist and what to change is not known yet, so they are VISIBLE rather than read as a quiet day. */
-export type ProducerOutcome =
-  | "evidence_unreadable"
-  | "no_actionable_candidate"
-  | "investigating"
-  | "actionable_but_no_trusted_draft"
-  | "persistence_failed"
-  | "proposals_persisted";
+export type ProducerOutcome = "evidence_unreadable" | "no_actionable_candidate" | "investigating"
+  | "actionable_but_no_trusted_draft" | "persistence_failed" | "proposals_persisted";
 
 export type ProduceProposalsResult = {
   /** The ranked proposals this pass produced (may be empty and still a success). */ proposals: ChangeProposal[];
@@ -67,26 +59,22 @@ export type ProduceProposalsResult = {
   heldForMeasurement: number;
   /** Proposals carried forward unchanged: no draft, no write, no dollars. */ reused: number;
   /** What has been investigated about each topic, over the SAME evidence this pass judged. Research only. */ investigations: TopicInvestigation[];
-  /** THE topic whose evidence reached a final answer this pass, off the one canonical coverage pass. Null
-   *  while every topic is still an investigation, which is the normal answer. */
+  /** THE topic whose evidence reached a final answer this pass, off the one canonical coverage pass. Null while every topic is still an investigation, which is the normal answer. */
   coverage: DecidedTopic | null;
-  /** The earliest date any page this pass could not read may be tried again. Null when nothing is waiting:
-   *  it is what stops a surface saying "checking". */
+  /** The earliest date any page this pass could not read may be tried again. Null when nothing is waiting: it is what stops a surface saying "checking". */
   waitingUntil: string | null;
+  /** Cards a producer would have minted and HELD instead, each with the typed reason. Refused work is on the receipt, never a silent absence. */
+  held: { pageUrl: string; reason: string }[];
 };
-
 /** Bounded drafting: the strongest few, never a queue. */ export const DEFAULT_MAX_DRAFTS = 5;
 const MAX_INVENTORY = 200; // one bounded page of this account's own inventory, never the whole site
-/** The card families each $0 producer rewrites IN FULL every pass. A family outside its producer's list is somebody else's work and is never swept. */
+/** The card families each $0 producer rewrites IN FULL every pass. A family outside its producer's list is somebody else's work and is never swept. `divergence` is listed with nothing writing it any more, and that
+ *  is the point: it stays under its producer's sweep, so every diagnose-it-yourself card on file is retired the next time that producer finishes. */
 const SUGGESTED_FAMILIES = ["title", "h1", "answer_block", "divergence"] as const;
 const EXTRA_FAMILIES = ["ai_answer_gap", "engine_followup", "internal_link", "missing_description", "duplicate_heading", "thin_page"] as const;
-
-/** WHAT A PRODUCER REWROTE, AND WHETHER IT FINISHED. The sweep used to infer both from the length of one
- *  producer's output. A producer that read nothing and a producer that found nothing hand back the same
- *  empty list and mean opposite things, and on the night the search read timed out that inference retired
- *  cards out from under the operator mid-edit. Completeness is STATED, never read off an output length. */
+/** WHAT A PRODUCER REWROTE, AND WHETHER IT FINISHED. The sweep used to infer both from the length of one producer's output. A producer that read nothing and a producer that found nothing hand back the same empty
+ *  list and mean opposite things, and on the night the search read timed out that inference retired cards out from under the operator mid-edit. Completeness is STATED, never read off an output length. */
 type ProducerRun = { families: readonly string[]; complete: boolean };
-
 /** THE ONE PAGE A VERDICT DECIDED TO IMPROVE, as facts out of words this pass ALREADY holds. Null for `create_new`, and null when its own words are not held. */
 function ownedFactsFor(snapshot: EvidenceSnapshot, decided: DecidedTopic): ReturnType<typeof extractPageFacts>[number] | null {
   if (decided.decision.verdict !== "improve_existing") return null;
@@ -98,7 +86,6 @@ function ownedFactsFor(snapshot: EvidenceSnapshot, decided: DecidedTopic): Retur
   return extractPageFacts([{ url: held.url, extract: { title: held.title, h1: held.h1, wordCount: held.wordCount,
     headings: row?.outline ?? null, faqCount: row?.faqCount ?? null, openingSample: held.openingSample, entityNames: held.entities } }])[0] ?? null;
 }
-
 /** Normalized keys a candidate and a proposal can be matched on. */
 const pageKeys = (pageUrl: string | null | undefined): string[] => {
   const url = (pageUrl ?? "").trim().toLowerCase();
@@ -115,18 +102,14 @@ async function measuringPaths(tenantId: string, existing: Map<string, ChangeProp
 }
 
 /** TWO CONSECUTIVE 28-DAY WINDOWS PER PAGE, Google's and GA4's side by side: the only read that tells "Google moved this page" apart from "something on this page stopped working". $0, fail-soft. */
-async function twoWindows(tenantId: string, now: Date | undefined): Promise<Map<string, { positionNow: number; positionPrior: number; sessionsNow: number; sessionsPrior: number; lostClicks: number }>> {
-  const out = new Map<string, { positionNow: number; positionPrior: number; sessionsNow: number; sessionsPrior: number; lostClicks: number }>();
-  const [decay, visits] = await Promise.all([
-    import("@/domains/evidence/readers/gsc-page-signals").then((m) => m.loadGscDecaySignalsForTenant(tenantId, now ?? new Date())).catch(() => null),
-    import("@/domains/evidence/readers/ga4-page-values").then((m) => m.loadGa4SessionSplitForTenant(tenantId, now ?? new Date())).catch(() => null),
-  ]);
+type Windows = Map<string, { positionNow: number; positionPrior: number; sessionsNow: number; sessionsPrior: number; lostClicks: number }>;
+async function twoWindows(tenantId: string, now: Date | undefined): Promise<Windows> {
+  const out: Windows = new Map();
+  const [decay, visits] = await Promise.all([import("@/domains/evidence/readers/gsc-page-signals").then((m) => m.loadGscDecaySignalsForTenant(tenantId, now ?? new Date())).catch(() => null),
+    import("@/domains/evidence/readers/ga4-page-values").then((m) => m.loadGa4SessionSplitForTenant(tenantId, now ?? new Date())).catch(() => null)]);
   if (!decay) return out;
-  for (const [url, d] of decay) {
-    const v = visits?.get(url);
-    out.set(url, { positionNow: d.positionNow, positionPrior: d.positionPrior,
-      sessionsNow: v?.now ?? 0, sessionsPrior: v?.prior ?? 0, lostClicks: Math.max(0, d.clicksPrior - d.clicksNow) });
-  }
+  for (const [url, d] of decay) out.set(url, { positionNow: d.positionNow, positionPrior: d.positionPrior,
+    sessionsNow: visits?.get(url)?.now ?? 0, sessionsPrior: visits?.get(url)?.prior ?? 0, lostClicks: Math.max(0, d.clicksPrior - d.clicksNow) });
   return out;
 }
 
@@ -137,18 +120,15 @@ async function familyHistoryOf(tenantId: string, now: Date | undefined): Promise
   if (!ledger) return out;
   const { actionFamilyOf } = await import("@/domains/measurement/proof-gsc/change-family");
   for (const r of ledger) {
-    const read = [...r.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null && w.day >= 28)
-      .sort((a, b) => b.day - a.day)[0];
+    const read = [...r.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null && w.day >= 28).sort((a, b) => b.day - a.day)[0];
     if (!read) continue;
-    const key = actionFamilyOf(r.actionType);
-    const cur = out.get(key) ?? { readings: 0, netLift: 0 };
-    out.set(key, { readings: cur.readings + 1, netLift: cur.netLift + Math.round(read.adjustedLift!) });
+    const cur = out.get(actionFamilyOf(r.actionType)) ?? { readings: 0, netLift: 0 };
+    out.set(actionFamilyOf(r.actionType), { readings: cur.readings + 1, netLift: cur.netLift + Math.round(read.adjustedLift!) });
   }
   return out;
 }
 
-/**
- * Produce (and by default persist) ranked ChangeProposals for one tenant from cached evidence only. Never throws on a single-source outage: a failed source simply narrows the snapshot.
+/** Produce (and by default persist) ranked ChangeProposals for one tenant from cached evidence only. Never throws on a single-source outage: a failed source simply narrows the snapshot.
  */
 export async function produceProposalsForTenant(
   tenantId: string,
@@ -161,12 +141,10 @@ export async function produceProposalsForTenant(
   // A SOURCE THAT DID NOT ANSWER IS NOT AN ACCOUNT WITH NOTHING IN IT: a GSC read that threw makes every page read clean, so the pass ENDS HERE rather than retiring the whole queue. Empty is not failed.
   if (snapshot.sources.some((s) => s.source === "gsc" && s.status === "failed")) {
     log.warn("[produce-proposals] the search data did not answer, so this pass changes nothing", { tenantId });
-    return { proposals: [], candidates: [], outcome: "evidence_unreadable", actionable: 0, investigating: 0,
-      noDraft: 0, persisted: 0, reused: 0, heldForMeasurement: 0, investigations: [], coverage: null, waitingUntil: null };
+    return { proposals: [], candidates: [], outcome: "evidence_unreadable", actionable: 0, investigating: 0, noDraft: 0, persisted: 0, reused: 0, heldForMeasurement: 0, investigations: [], coverage: null, waitingUntil: null, held: [] };
   }
   const profile = await loadBusinessProfile(tenantId).catch(() => null);
-  const allowlist =
-    opts.authoritativeSourceDomains ?? profile?.trustedSourceDomains.value ?? [];
+  const allowlist = opts.authoritativeSourceDomains ?? profile?.trustedSourceDomains.value ?? [];
 
   // The basis this pass generates under: the SAME fingerprint Runtime scopes derived work with. Fail-soft.
   const basis = await resolveCurrentBasis(tenantId, profile);
@@ -184,9 +162,8 @@ export async function produceProposalsForTenant(
 
   // THE RESEARCH PACKETS, over the same evidence this pass judges. Non-actionable by construction.
   let investigations: TopicInvestigation[] = [];
-  try { investigations = buildTopicInvestigations(snapshot); } catch (e) {
-    log.warn("[produce-proposals] investigations failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
-  }
+  try { investigations = buildTopicInvestigations(snapshot); }
+  catch (e) { log.warn("[produce-proposals] investigations failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) }); }
   // THE ONE CANONICAL COVERAGE PASS, the same one Runtime buys evidence off. $0, deterministic, fail-soft.
   const technical = readTechnicalFindings({
     inventory: await readInventory(tenantId, { limit: MAX_INVENTORY }).catch(() => []),
@@ -197,6 +174,8 @@ export async function produceProposalsForTenant(
   });
   let coverage: DecidedTopic | null = null;
   let waitingUntil: string | null = null;
+  // Filled once the $0 producers run; the same array rides the result so held work reaches the receipt.
+  const extraHeld: { pageUrl: string; reason: string }[] = [];
   try {
     const read = await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection, technical });
     coverage = read.decided;
@@ -218,10 +197,8 @@ export async function produceProposalsForTenant(
         if (again?.decided) { coverage = again.decided; waitingUntil = again.waitingUntil; }
       }
     }
-  } catch (e) {
-    log.warn("[produce-proposals] coverage verdict failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
-  }
-  const research = { investigations, coverage, waitingUntil };
+  } catch (e) { log.warn("[produce-proposals] coverage verdict failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) }); }
+  const research = { investigations, coverage, waitingUntil, held: extraHeld };
 
   const candidates = compileCandidates(snapshot, { coverage, ...measuring });
   const acted = candidates.filter((c) => c.action === "act_existing_page");
@@ -239,14 +216,11 @@ export async function produceProposalsForTenant(
       if (c.diagnosis && c.query) diagnosisByKey.set(`${k}::${canonicalQueryKey(c.query)}`, c.diagnosis);
     }
   }
-  /** Stamp the basis, the ranking scalar, the cause the ladder named, and confidence by evidence
-   *  completeness, whichever producer built it. Never invents a figure. */
+  /** Stamp the basis, the ranking scalar, the cause the ladder named, and confidence by evidence completeness, whichever producer built it. Never invents a figure. */
   const stamp = (p: ChangeProposal): ChangeProposal => {
-    const key = (p.pageUrl ?? "").trim().toLowerCase();
-    const pathKey = (p.pagePath ?? "").trim().toLowerCase();
+    const key = (p.pageUrl ?? "").trim().toLowerCase(), pathKey = (p.pagePath ?? "").trim().toLowerCase();
     const recoverable = recoverableByKey.get(key) ?? recoverableByKey.get(pathKey);
-    // Only the readiness measured for THIS proposal's own search may set its confidence.
-    const qk = canonicalQueryKey(p.primaryQuery);
+    const qk = canonicalQueryKey(p.primaryQuery); // only the readiness measured for THIS proposal's own search may set its confidence
     const readiness = readinessByKey.get(`${key}::${qk}`) ?? readinessByKey.get(`${pathKey}::${qk}`);
     const finding = causeByKey.get(key) ?? causeByKey.get(pathKey);
     return {
@@ -260,8 +234,7 @@ export async function produceProposalsForTenant(
     };
   };
 
-  /** RECOVERY BEFORE DISCOVERY: a page that lost real clicks while its ranking held is worth what it LOST.
-   *  The lost figure never lowers a proven one. */
+  /** RECOVERY BEFORE DISCOVERY: a page that lost real clicks while its ranking held is worth what it LOST. The lost figure never lowers a proven one. */
   const lostByKey = new Map([...windows].flatMap(([url, w]) => pageKeys(url).map((k) => [k, w.lostClicks] as const)));
   const recovered = (p: ChangeProposal): ChangeProposal => {
     const lost = lostByKey.get((p.pageUrl ?? "").trim().toLowerCase()) ?? lostByKey.get((p.pagePath ?? "").trim().toLowerCase()) ?? 0;
@@ -273,12 +246,27 @@ export async function produceProposalsForTenant(
   const held = [...existing.values()].filter((p) => p.status !== "implemented_pending_verification");
   /** A stored row generated under THIS basis. A null basis proves nothing, so it reuses nothing. */
   const current = (p: ChangeProposal): boolean => basis != null && p.basis === basis;
-  const currentById = (id: string): ChangeProposal | null => {
-    const p = existing.get(id);
-    return p && p.status !== "implemented_pending_verification" && current(p) ? p : null;
-  };
+  const currentById = (id: string): ChangeProposal | null => { const p = existing.get(id);
+    return p && p.status !== "implemented_pending_verification" && current(p) ? p : null; };
   const currentBundleFor = (match: (p: ChangeProposal) => boolean): ChangeProposal | null =>
     live.find((p) => !!p.bundle && current(p) && match(p)) ?? null;
+
+  /** THE AUDIENCE BEHIND A CARD, as a real field off this account's own rows and never read back out of a
+   *  sentence. A defect card carries no recoverable click figure, so without this the order collapsed onto how  long the work takes. Only stamped where the row brought none. */
+  const byPage = new Map<string, number>();
+  for (const o of snapshot.ownedPages) if (o.search) for (const k of pageKeys(o.url)) byPage.set(k, o.search.impressions90d);
+  const sized = (p: ChangeProposal): ChangeProposal => p.demandImpressions90d != null ? p : { ...p,
+    demandImpressions90d: byPage.get((p.pageUrl ?? "").trim().toLowerCase()) ?? byPage.get((p.pagePath ?? "").trim().toLowerCase()) ?? null };
+  /** WHAT THIS PASS LEARNED ABOUT ONE PAGE, keyed by its address: the door a drafted change came through, and
+   *  the reads a signal asked for rather than turned into a card. THE RUN RECEIPT SAYS BOTH. */
+  const enteredBy = new Map<string, string>();
+  const runReceipt = (): QualifiedCandidate[] => enteredBy.size === 0 ? candidates
+    : candidates.map((c) => {
+      // Every spelling the setter could have used: the raw address, its lowercase, and its bare path. One
+      // note (the page-not-Google divergence) was keyed off a canonicalized search key and never found again.
+      const entry = pageKeys(c.pageUrl).map((k) => enteredBy.get(k)).find(Boolean) ?? enteredBy.get(c.pageUrl ?? "");
+      return entry ? { ...c, reason: `${c.reason} ${entry}` } : c;
+    });
 
   const retired = new Set<string>();
   const retire = async (p: ChangeProposal, why: string): Promise<void> => { if (persist) await withdrawChangeProposal(p, why); existing.delete(p.id); retired.add(p.id); };
@@ -290,24 +278,43 @@ export async function produceProposalsForTenant(
   // A HOLD HAPPENS WHERE THE DECISION IS MADE, NOT WHERE THE ROW IS WRITTEN.
   const heldByDiagnosis = candidates.filter((c) => c.cause.cause === "measuring_change").length;
   let persisted = 0, writeFailures = 0, reused = 0, heldForMeasurement = heldByDiagnosis;
-  /** Persist ONE material row, or nothing when the stored row already says exactly this. */
-  const persistIfChanged = async (p: ChangeProposal): Promise<void> => {
+  /** Persist ONE material row, or nothing when the stored row already says exactly this. THE RANKING ON FILE
+   *  SURVIVES A RE-STAMP: a producer mints its card before the pass has ranked anything, so dropping the stored
+   *  receipt here would make every pass rewrite every row twice and count it as new work each time. */
+  const persistIfChanged = async (raw: ChangeProposal): Promise<void> => {
     if (!persist) return;
+    const prior = existing.get(raw.id), carried = sized(raw);
+    const p: ChangeProposal = !carried.rankingReceipt && prior?.rankingReceipt
+      ? { ...carried, rankingReceipt: prior.rankingReceipt, ...(prior.whyRankedAboveNext ? { whyRankedAboveNext: prior.whyRankedAboveNext } : {}) } : carried;
     const result = await saveChangeProposal(p);
     if (result === "failed") writeFailures += 1;
     else if (result === "saved") persisted += 1; // "unchanged" wrote nothing, so it counts as nothing
     else if (result === "blocked") heldForMeasurement += 1;
     existing.set(p.id, p);
   };
+  /** RANK, THEN WRITE THE ORDER BACK. Every card was written before the pass had ranked it, so the stored rows
+   *  carried a null ranking receipt and nothing on file could say why a card sat where it sat. Written back
+   *  ONLY where the order actually moved, so a settled queue still writes nothing, and never at all on a pass
+   *  whose writes were already failing: a store that would not take the row will not take its order either. */
+  const rankAndStamp = async (rows: readonly ChangeProposal[]): Promise<ChangeProposal[]> => {
+    const ranked = rankProposals(rows.map(recovered).map(sized), { ...measuring, familyHistory });
+    if (!persist || writeFailures > 0) return ranked;
+    for (const p of ranked) {
+      const stored = existing.get(p.id);
+      if (stored && stored.rankingReceipt?.score === p.rankingReceipt?.score
+        && (stored.whyRankedAboveNext ?? null) === (p.whyRankedAboveNext ?? null)) continue;
+      if (await saveChangeProposal(p).catch(() => "failed" as const) === "saved") existing.set(p.id, p);
+    }
+    return ranked;
+  };
 
   const proposals: ChangeProposal[] = [];
-  /** suggested-edits reads every page's search evidence, so it may only claim to have rewritten its families
-   *  when that evidence was whole. Empty is not fresh: no rows read is not every page judged. */
+  /** suggested-edits reads every page's search evidence, so it may only claim to have rewritten its families when that evidence was whole. Empty is not fresh: no rows read is not every page judged. */
   const gscComplete = snapshot.sources.some((s) => s.source === "gsc" && s.status === "fresh");
   /** THE GENEROUS HALF OF THE QUEUE: every concrete edit the held evidence supports, at needs_review. */
   const withSuggestions = async (strict: ChangeProposal[]): Promise<ProducerRun> => {
     const skip = new Set([...strict.flatMap((p) => [p.id, (p.pagePath ?? "").trim().toLowerCase()]), ...withdrawn]);
-    for (const s of suggestedEdits(snapshot, candidates, { now: opts.now ?? new Date(), basis, skip, windows })) {
+    for (const s of suggestedEdits(snapshot, candidates, { now: opts.now ?? new Date(), basis, skip, windows, needs: enteredBy })) {
       if (existing.get(s.id)?.status === "implemented_pending_verification") { heldForMeasurement += 1; continue; }
       strict.push(s);
       await persistIfChanged(s);
@@ -322,8 +329,7 @@ export async function produceProposalsForTenant(
     if (!persist) return;
     const families = runs.filter((r) => r.complete).flatMap((r) => [...r.families]);
     if (families.length === 0) return void log.warn("[produce-proposals] no producer finished, so no card is taken back", { tenantId });
-    const pattern = new RegExp(`::existing_edit::(${families.join("|")})$`);
-    const ids = new Set(proposals.map((p) => p.id));
+    const pattern = new RegExp(`::existing_edit::(${families.join("|")})$`), ids = new Set(proposals.map((p) => p.id));
     let taken = 0;
     for (const [id, row] of existing) {
       if (ids.has(id) || row.status !== "needs_review" || row.bundle || !pattern.test(id)) continue;
@@ -348,8 +354,7 @@ export async function produceProposalsForTenant(
 
   const bound = Math.min(DEFAULT_MAX_DRAFTS, maxDrafts);
   const inputs = candidatesToEvidenceInputs(snapshot, acted).slice(0, bound);
-  // WHICH PAGES EARN THE DEEP READ. SELECTION ONLY: nothing here drafts, buys, or invents a figure.
-  const deep = selectDeepCandidates({ snapshot, candidates, coverage, limit: bound });
+  const deep = selectDeepCandidates({ snapshot, candidates, coverage, limit: bound }); // SELECTION ONLY: nothing here drafts, buys, or invents a figure.
 
   const investigating = candidates.filter((c) => c.action === "research_needed").length;
   // A CONSOLIDATION IS WORK, NOT SILENCE: a split nothing can draft yet is counted here, not passed over.
@@ -359,7 +364,7 @@ export async function produceProposalsForTenant(
       watching: candidates.filter((c) => c.action === "watch").length + consolidating, researching: investigating });
     // A proven gap with no explanation yet is NOT a quiet day, and neither is one that cannot be drafted.
     await sweepStale([await withSuggestions(proposals)]);
-    return { proposals: rankProposals(proposals.map(recovered), { ...measuring, familyHistory }), candidates,
+    return { proposals: await rankAndStamp(proposals), candidates: runReceipt(),
       outcome: proposals.length > 0 ? "proposals_persisted"
         : investigating > 0 ? "investigating"
           : consolidating > 0 ? "actionable_but_no_trusted_draft" : "no_actionable_candidate",
@@ -375,8 +380,6 @@ export async function produceProposalsForTenant(
     const has = currentBundleFor((p) => p.kind === "existing_edit" && keys.includes((p.pagePath ?? "").trim().toLowerCase()));
     if (has) heldDeep.set(d.pageUrl, has);
   }
-  const enteredBy = new Map<string, string>(); // which door each page that got a deep change came through
-
   // A CHANGE MAY NOT OUTLIVE ITS OWN EXPLANATION, and only about a page this pass ACTUALLY READ.
   const readNow = new Set(snapshot.ownedPages.flatMap((o) => pageKeys(o.url)));
   const provenNow = new Set([...acted.flatMap((c) => pageKeys(c.pageUrl)), ...selectedKeys]);
@@ -412,11 +415,9 @@ export async function produceProposalsForTenant(
       }
       continue;
     }
-    const outcome = await proposeExistingPageChange(input,
-      { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist }).catch((e) => {
+    const outcome = await proposeExistingPageChange(input, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist }).catch((e) => {
       log.warn("[produce-proposals] propose threw (fail-soft)", { tenantId, id: input.opportunity.query, error: e instanceof Error ? e.message : String(e) });
-      return { status: "no_draft" as const, reason: "threw", drafterStatus: "error" };
-    });
+      return { status: "no_draft" as const, reason: "threw", drafterStatus: "error" }; });
     if (outcome.status !== "ready") {
       noDraft += 1;
       // A REFUSED DRAFT IS FILED, NOT FORGOTTEN: history is what stops the next pass paying to fail twice.
@@ -430,10 +431,8 @@ export async function produceProposalsForTenant(
 
   // ONE bundle per SELECTED page, strongest door first. A bundle REPLACES its own shallow drafts.
   const bundleOpts = { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, technical };
-  const onThrow = (e: unknown) => {
-    log.warn("[produce-proposals] bundle threw (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
-    return { status: "none" as const, reason: "threw" };
-  };
+  const onThrow = (e: unknown) => { log.warn("[produce-proposals] bundle threw (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
+    return { status: "none" as const, reason: "threw" }; };
 
   for (const d of deep) {
     // What reaches here is a stored bundle that still shows its work, carried forward.
@@ -464,10 +463,7 @@ export async function produceProposalsForTenant(
       continue;
     }
     const page = bundled.proposal.pagePath;
-    for (let i = proposals.length - 1; i >= 0; i--) {
-      const p = proposals[i]!;
-      if (p.kind === "existing_edit" && p.pagePath === page) proposals.splice(i, 1);
-    }
+    for (let i = proposals.length - 1; i >= 0; i--) if (proposals[i]!.kind === "existing_edit" && proposals[i]!.pagePath === page) proposals.splice(i, 1);
     const proposal = stamp(bundled.proposal);
     proposals.push(proposal);
     await persistIfChanged(proposal);
@@ -477,10 +473,19 @@ export async function produceProposalsForTenant(
   const suggested = await withSuggestions(proposals);
   // EVERY OTHER WAY THE QUEUE FILLS ITSELF, off stored evidence and no dollars. Guarded on purpose: a producer that is not there, or throws, narrows this pass rather than failing it.
   const extra = await import("./producers/extra").then((m) => m.extraQueueCards({ tenantId, snapshot, now: opts.now ?? new Date() }))
-    .catch(() => ({ cards: [] as ChangeProposal[], complete: false }));
+    .catch(() => ({ cards: [] as ChangeProposal[], complete: false, held: [], needsOwnPage: [] }));
+  // A SEARCH NO PAGE OF THIS ACCOUNT IS FOR IS BANKED, NOT LOGGED: the producers own the verdict, the coverage
+  // walk owns what happens next, and it happens only once the search has earned it. Read defensively, so a
+  // producer not surfacing them yet banks nothing. THEN THE WORDS GO ON THE CARDS, after the $0 producers and
+  // never inside one, so a budget block changes which cards CARRY COPY, never which exist or which are swept.
+  const owed = (extra as { needsOwnPage?: Array<{ query: string; refusedPages?: string[] }> }).needsOwnPage ?? [];
+  if (persist && owed.length > 0) await recordCoverageNeeds(tenantId, owed, opts.now ?? new Date()).catch(() => undefined);
+  const drafted = await applyDraftedCopy(extra.cards, { tenantId, snapshot, now: opts.now ?? new Date(),
+    complete: opts.complete, bypassCache: opts.bypassCache }).catch(() => extra.cards);
   // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.
-  for (const raw of extra.cards) { const p = { ...raw, ...(basis ? { basis } : {}) }; proposals.push(p); await persistIfChanged(p); }
+  for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }; proposals.push(p); await persistIfChanged(p); }
   // EACH PRODUCER SWEEPS ITS OWN FAMILIES, and only the one that finished sweeps at all.
+  extraHeld.push(...(extra.held ?? []));
   await sweepStale([suggested, { families: EXTRA_FAMILIES, complete: extra.complete }]);
   // The honest ending. A write that failed on EVERY attempt is a failure, not a quiet day.
   const outcome: ProducerOutcome =
@@ -488,12 +493,7 @@ export async function produceProposalsForTenant(
       : proposals.length > 0 ? "proposals_persisted"
         : acted.length + consolidating > 0 ? "actionable_but_no_trusted_draft"
           : investigating > 0 ? "investigating" : "no_actionable_candidate";
-  if (outcome !== "proposals_persisted") {
-    log.warn("[produce-proposals] pass produced no durable work", { tenantId, outcome, actionable: acted.length, noDraft, writeFailures });
-  }
-  // THE RUN RECEIPT SAYS WHICH DOOR EACH DRAFTED PAGE CAME THROUGH.
-  const receipt = enteredBy.size === 0 ? candidates
-    : candidates.map((c) => { const entry = enteredBy.get(c.pageUrl ?? ""); return entry ? { ...c, reason: `${c.reason} ${entry}` } : c; });
-  return { proposals: rankProposals(proposals.map(recovered), { ...measuring, familyHistory }), candidates: receipt, outcome,
+  if (outcome !== "proposals_persisted") log.warn("[produce-proposals] pass produced no durable work", { tenantId, outcome, actionable: acted.length, noDraft, writeFailures });
+  return { proposals: await rankAndStamp(proposals), candidates: runReceipt(), outcome,
     actionable: acted.length + consolidating, investigating, noDraft, persisted, reused, heldForMeasurement, ...research };
 }

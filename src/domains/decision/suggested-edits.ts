@@ -235,8 +235,12 @@ type Card = { id: string; field: "title" | "h1" | "answer_block" | "section"; be
  */
 export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly QualifiedCandidate[],
   opts: { now: Date; basis: string | null; skip?: ReadonlySet<string>; limit?: number;
-    /** Two 28-day windows per page, when the caller could read both. Absent means no diagnostic is written. */
+    /** Two 28-day windows per page, when the caller could read both. Absent means no divergence is noticed. */
     windows?: ReadonlyMap<string, { positionNow: number; positionPrior: number; sessionsNow: number; sessionsPrior: number }>;
+    /** WHERE A SIGNAL THAT IS NOT AN EDIT GOES, keyed by the page's address: the caller's run receipt. A fall
+     *  Google's ranking did not cause is a page to INVESTIGATE, and handing the operator a card that asks THEM
+     *  to diagnose it was the queue asking for work rather than doing it. Absent = the note is simply dropped. */
+    needs?: Map<string, string>;
   }): ChangeProposal[] {
   const tenantId = snapshot.scope.tenantId;
   const skip = opts.skip ?? new Set<string>();
@@ -381,27 +385,17 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
   }
 
   // THE PAGE, NOT GOOGLE. One page whose ranking held across both 28 day windows while its visits fell away is
-  // not a search problem at all, and it is the one thing on this screen no rewrite fixes. Silent without both reads.
+  // not a search problem at all, and no rewrite fixes it. IT IS NOT A CARD: a card that hands the operator a
+  // phone and a stopwatch is this product asking THEM to do the diagnosis. It is an investigation the run
+  // receipt carries, and only a concrete fix off what that read finds ever reaches the queue. No both reads, no note.
   const falling = [...(opts.windows ?? new Map())].map(([url, w]) => ({ url, w }))
     .filter(({ url, w }) => byUrl.has(canonicalUrlKey(url)) && w.positionNow > 0 && w.positionPrior > 0
       && Math.abs(w.positionNow - w.positionPrior) <= POSITION_HELD && w.sessionsPrior > 0
       && w.sessionsNow < (1 - VISIT_FALL) * w.sessionsPrior)
     .sort((a, b) => (b.w.sessionsPrior - b.w.sessionsNow) - (a.w.sessionsPrior - a.w.sessionsNow) || a.url.localeCompare(b.url))[0];
   if (falling) {
-    const page = byUrl.get(canonicalUrlKey(falling.url))!;
     const path = pathOf(falling.url);
-    const held = falling.w.positionNow.toFixed(1);
-    const line = `Position held at ${held} but visits fell ${num(falling.w.sessionsPrior)} to ${num(falling.w.sessionsNow)}: the page, not Google.`;
-    file({
-      id: `${tenantId}::${path.toLowerCase()}::existing_edit::divergence`, field: "section", before: null, after: line,
-      label: `${path}: rank held at ${held} but visits fell ${num(falling.w.sessionsPrior)} to ${num(falling.w.sessionsNow)}; the page, not Google`,
-      why: `Google shows this page in the same place it did four weeks ago and ${num(falling.w.sessionsPrior - falling.w.sessionsNow)} fewer visits arrived, so what changed is on the page itself.`,
-      steps: [`Open ${path} on a phone and time how long it takes before it is usable`,
-        "Check what changed on it: loading speed, a popup or consent box over the first screen, a layout change",
-        "Come back here and say what you changed, and the next two windows get read against it"],
-      limitations: ["This is a diagnosis and not an edit: no wording change on this page answers a fall that Google's own ranking did not cause."],
-      confidence: "medium", effort: 15, impact: falling.w.sessionsPrior - falling.w.sessionsNow, modeled: null,
-    }, page, falling.url, path, page.content?.title ?? path, null);
+    for (const k of [falling.url, falling.url.trim().toLowerCase(), path.toLowerCase()]) opts.needs?.set(k, `${path} held position ${falling.w.positionNow.toFixed(1)} while visits fell ${num(falling.w.sessionsPrior)} to ${num(falling.w.sessionsNow)}, so what changed is on the page and this pass owes a read of that page's own head search before anything is offered for it.`);
   }
   return out;
 }

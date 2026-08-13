@@ -26,6 +26,86 @@ import { isCurrent } from "@/domains/evidence/freshness";
 import { answerIntelOf } from "@/domains/evidence/answer-intel";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
+import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { log } from "@/lib/logger";
+
+// ── the searches no page of this account is FOR ───────────────────────────────
+// The $0 producers can already prove it: pages of this account share a search's words and EVERY one of them is
+// for something else, so the section they would carry belongs nowhere. That verdict was logged and consumed by
+// nothing. It is banked here instead, and once it has earned it the search enters the SAME ranked walk every
+// other subject goes through, so the ladder decides whether a page should exist. No second pipeline.
+
+/** ONE banked need: the search, how often it came up, over how many passes, and the pages that were read and
+ *  refused as the wrong kind of page or off the subject. Every field is counted, never inferred. */
+type CoverageNeed = { query: string; occurrences: number; passes: number; refusedPages: string[]; lastSeen: string };
+
+const COVERAGE_NEEDS = "coverage-needs";
+/** How many needs one account banks. The rest fall off oldest first: a queue nobody bounds is a leak. */
+const MAX_NEEDS = 200;
+/** Passes a search has to survive, or answers that have to credit somebody else, before it earns the walk. */
+const MIN_PASSES = 2, MIN_CITING_ANSWERS = 3;
+
+/**
+ * PURE: has this banked search earned a page of its own being CONSIDERED? Never a page: it earns entry to the
+ * ranked walk, where the ordinary ladder decides. Recurrence is the claim (the same search coming back across
+ * passes, or several stored answers handing it to somebody else), and a refusal is the proof that no page of
+ * this account fits: the producers record one only when pages DID share the words and every one was refused.
+ */
+export function earnsOwnPage(need: Pick<CoverageNeed, "passes" | "refusedPages">, citingAnswers: number): boolean {
+  return (need.passes >= MIN_PASSES || citingAnswers >= MIN_CITING_ANSWERS) && need.refusedPages.length > 0;
+}
+
+/** BANK WHAT THIS PASS SAW. One pass counts once per search however many producers raised it, so "passes" is
+ *  genuinely a number of passes. Fail-soft: a store that will not read or write costs one pass of memory. */
+export async function recordCoverageNeeds(
+  tenantId: string, seen: readonly { query: string; refusedPages?: readonly string[] }[], now: Date = new Date(),
+): Promise<void> {
+  const fresh = new Map<string, { query: string; refused: Set<string> }>();
+  for (const s of seen) {
+    const key = canonicalQueryKey(s.query);
+    if (!key) continue;
+    const cur = fresh.get(key) ?? { query: s.query.trim(), refused: new Set<string>() };
+    for (const r of s.refusedPages ?? []) cur.refused.add(r);
+    fresh.set(key, cur);
+  }
+  if (fresh.size === 0) return;
+  try {
+    const held = await readStore<CoverageNeed>(COVERAGE_NEEDS, [], { tenantId });
+    const by = new Map(held.map((n) => [canonicalQueryKey(n.query), n]));
+    for (const [key, s] of fresh) {
+      const prior = by.get(key);
+      by.set(key, { query: prior?.query ?? s.query, occurrences: (prior?.occurrences ?? 0) + 1,
+        passes: (prior?.passes ?? 0) + 1, lastSeen: now.toISOString(),
+        refusedPages: [...new Set([...(prior?.refusedPages ?? []), ...s.refused])].slice(0, 8) });
+    }
+    await writeStore(COVERAGE_NEEDS, [...by.values()].sort((a, b) => b.lastSeen.localeCompare(a.lastSeen)).slice(0, MAX_NEEDS), { tenantId });
+  } catch (e) {
+    log.warn("[coverage-pass] the searches with no page of their own were not banked this pass", { tenantId, error: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+/** The banked searches that have earned the walk, in this account's own words. Fail-soft to nothing. */
+async function promotedNeeds(tenantId: string, snapshot: EvidenceSnapshot): Promise<string[]> {
+  try {
+    const held = await readStore<CoverageNeed>(COVERAGE_NEEDS, [], { tenantId });
+    if (held.length === 0) return [];
+    const site = (snapshot.scope?.site ?? "").replace(/^www\./, "").toLowerCase();
+    // HOW MANY STORED ANSWERS TO THIS QUESTION HANDED IT TO SOMEBODY ELSE. Counted off answers already on file.
+    const citing = new Map<string, number>();
+    for (const o of snapshot.research.aiObservations) {
+      const cites = o.citations ?? [];
+      if (cites.length === 0 || (site && cites.some((c) => c.domain.replace(/^www\./, "").toLowerCase().endsWith(site)))) continue;
+      const key = canonicalQueryKey(o.promptText);
+      if (key) citing.set(key, (citing.get(key) ?? 0) + 1);
+    }
+    // A need nobody has raised in three weeks is not promoted again and again: the site may have grown the
+    // page, and every promotion buys a results-page read. Recency is a window, not a deletion.
+    const RECENT_MS = 21 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - RECENT_MS;
+    return held.filter((n) => Date.parse(n.lastSeen ?? "") >= cutoff
+      && earnsOwnPage(n, citing.get(canonicalQueryKey(n.query)) ?? 0)).map((n) => n.query);
+  } catch { return []; }
+}
 
 /** A subject whose winning pages I have ALREADY READ is not research any more: it is a decision, so it is never
  *  queued behind work that has barely started. Two read pages is the bar the page brief itself is written at. */
@@ -65,6 +145,8 @@ function ownedOpportunity(snapshot: EvidenceSnapshot, inv: TopicInvestigation): 
 
 /** How many pages of the account's own may open a subject of their own in one pass. */
 const MAX_OWNED_TOPICS = 25;
+/** How many promoted searches with no page of their own may open a subject in one pass. */
+const MAX_PROMOTED_TOPICS = 10;
 /** The empty packet a page-anchored subject starts from: everything I do not hold, held honestly at nothing. */
 const BARE = { aliasKeys: [], demandBasis: "search" as const, groupedBy: [], keywords: [], trackedPrompts: [], fanOuts: [],
   answerIntel: answerIntelOf([]),
@@ -78,7 +160,7 @@ const BARE = { aliasKeys: [], demandBasis: "search" as const, groupedBy: [], key
  *  plan at all: that is how 22 declining pages sat in Watching for ever while unowned volume held every slot.
  *  Nothing is invented. The query, the views and the position are the account's own rows, and every piece I do
  *  not hold is named as missing rather than filled in. */
-function topicsFor(snapshot: EvidenceSnapshot): TopicInvestigation[] {
+function topicsFor(snapshot: EvidenceSnapshot, promoted: readonly string[] = []): TopicInvestigation[] {
   const built = buildTopicInvestigations(snapshot);
   const covered = new Set(built.flatMap((i) => i.queries.map((q) => canonicalQueryKey(q))));
   const owned = snapshot.ownedPages
@@ -94,6 +176,17 @@ function topicsFor(snapshot: EvidenceSnapshot): TopicInvestigation[] {
       missingEvidence: ["I have not looked at Google's results for this yet."],
       nextAcquisition: { kind: "buy_serp", subject: q!.query,
         why: "A page of yours already comes up for this and I have never looked at its results, so buying that one results page is what changes the answer." } });
+  }
+  // AND THE SEARCHES NO PAGE OF THIS ACCOUNT IS FOR, banked by the producers and promoted by the rule above.
+  // They enter as ordinary subjects with nothing filled in: the ladder buys the results page and decides.
+  for (const q of promoted) {
+    const key = canonicalQueryKey(q);
+    if (!key || covered.has(key) || extra.length >= MAX_OWNED_TOPICS + MAX_PROMOTED_TOPICS) continue;
+    covered.add(key);
+    extra.push({ ...BARE, key: `needs::${key}`, label: q, queries: [q],
+      missingEvidence: ["I have not looked at Google's results for this yet."],
+      nextAcquisition: { kind: "buy_serp", subject: q,
+        why: "Pages of yours share the words in this search and every one of them is for something else, so buying that one results page is what says whether a page of your own is owed." } });
   }
   return [...built, ...extra];
 }
@@ -186,7 +279,8 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
   let waitingUntil: string | null = null;
   // WHY A PAGE OF MINE IS UNREAD, off the research row Evidence persisted it to. Not a fetch, and not a guess.
   const ownedReads = new Map((snapshot.research.ownedReads ?? []).map((o) => [o.url, o]));
-  for (const inv of rankInvestigations(topicsFor(snapshot), (i) => ownedOpportunity(snapshot, i))) {
+  const promoted = await promotedNeeds(tenantId, snapshot);
+  for (const inv of rankInvestigations(topicsFor(snapshot, promoted), (i) => ownedOpportunity(snapshot, i))) {
     // STOPPING ON A PARK IS HOW THE RULE BELOW BECAME DEAD CODE: production reads this pass with no research budget, so the walk ended the moment ANY verdict landed, and a park ranks first.
     if (decided && ACTS.has(decided.decision.verdict) && queries >= max && (max <= 0 || needs.some((n) => n.comparison))) break;
     let candidates = ownedCandidatesFor(snapshot, inv, bodies);

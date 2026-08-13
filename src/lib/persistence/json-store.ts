@@ -97,6 +97,8 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // Weekly GSC dimension snapshots + the fresh-tail volatile presentation cache.
   "gsc-weekly-dimensions",
   "gsc-fresh-tail",
+  // The banked searches no page of an account is for; read by the coverage walk on every hosted pass.
+  "coverage-needs",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

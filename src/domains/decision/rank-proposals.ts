@@ -3,7 +3,10 @@
  *
  *   actionability  the proposal lifecycle. The band is wider than every other factor put together, so no
  *                  amount of size can lift a refused draft over a safe one.
- *   visibility     the clicks the diagnosis proved are recoverable. Gross traffic never ranks anything.
+ *   visibility     the clicks the diagnosis proved are recoverable, or the page's own 90-day views at a THIRD
+ *                  of the ceiling when those are bigger, named as an audience and never as a recovery: a
+ *                  defect card carries no click figure at all, and without this the order collapsed onto
+ *                  effort alone and a page shown twice outranked a rebuild of one shown thirty thousand times.
  *   evidence       how much receipt there is to show.
  *   causeFit       does the lever address the cause the evidence NAMED. A mismatch is discounted the same
  *                  amount a match earns, so a wrong lever can never win on size alone.
@@ -40,6 +43,9 @@ const TIER: Record<ProposalStatus, number> = { ready: 500, implemented_pending_v
 
 /** Bounded ceilings, one per factor. A factor may never contribute more than its max. */
 const MAX = { actionability: 500, visibility: 40, evidence: 15, causeFit: 25, strategic: 10, effort: 10, risk: 18, overlap: 30, confounding: 10, history: 12 } as const;
+/** Views under the floor are a rounding error and rank nothing; the full third of the ceiling is reached at
+ *  the top. Both are AUDIENCE sizes, and no number of them ever reaches what a proven recovery reaches. */
+const AUDIENCE_FLOOR = 100, AUDIENCE_FULL = 100_000;
 
 /**
  * WHICH LEVERS ADDRESS WHICH CAUSE. Keyed on the cause ladder's OWN union and deliberately TOTAL: adding a cause over there breaks the build here until somebody says what fixes it,
@@ -116,15 +122,24 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
 
   const clicks = Number.isFinite(p.impactScore) && p.impactScore != null ? Math.max(0, p.impactScore) : null;
   const upside = Number.isFinite(p.upsidePerMonth) && p.upsidePerMonth != null ? Math.max(0, p.upsidePerMonth) : null;
-  let directional = true;
-  if (clicks != null && clicks > 0) {
-    directional = false;
-    add("visibility", `about ${num(clicks)} clicks proven recoverable`, Math.min(MAX.visibility, clicks / 25), MAX.visibility);
-  } else if (upside != null && upside > 0) {
-    add("visibility", `about ${num(upside)} a month of opportunity, which is a midpoint and not a measured figure`, Math.min(MAX.visibility / 2, upside / 25), MAX.visibility);
-  } else {
-    add("visibility", "no proven figure for what this wins back", 0, MAX.visibility);
-  }
+  const demand = Number.isFinite(p.demandImpressions90d) && p.demandImpressions90d != null ? Math.max(0, p.demandImpressions90d) : null;
+  const directional = !(clicks != null && clicks > 0);
+  const proven = clicks != null && clicks > 0
+    ? { input: `about ${num(clicks)} clicks proven recoverable`, value: Math.min(MAX.visibility, clicks / 25) }
+    : upside != null && upside > 0
+      ? { input: `about ${num(upside)} a month of opportunity, which is a midpoint and not a measured figure`, value: Math.min(MAX.visibility / 2, upside / 25) }
+      : null;
+  // THE AUDIENCE. A card minted off a defect carries no recoverable click figure at all, so the order
+  // collapsed onto how long the work takes and a page shown twice outranked a rebuild of a page shown thirty
+  // thousand times. Views are not a recovery, so they earn a THIRD of the ceiling, nothing at all under
+  // AUDIENCE_FLOOR, and the whole third only at AUDIENCE_FULL: a proven figure of any size still reaches
+  // three times higher. WHICHEVER IS BIGGER IS WHAT IS RIDING ON THE CHANGE, and the receipt names both.
+  const audience = demand != null && demand > AUDIENCE_FLOOR
+    ? { input: `shown ${num(demand)} times in 90 days, an audience size rather than a proven recovery`,
+      value: (MAX.visibility / 3) * Math.min(1, Math.log10(demand / AUDIENCE_FLOOR) / Math.log10(AUDIENCE_FULL / AUDIENCE_FLOOR)) }
+    : null;
+  const rode = proven && audience && audience.value > proven.value ? { ...audience, input: `${proven.input}, on a page ${audience.input}` } : proven ?? audience;
+  add("visibility", rode?.input ?? "no proven figure for what this wins back", rode?.value ?? 0, MAX.visibility);
 
   const items = shownEvidence(p);
   add("evidence", `${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence on the receipt`, Math.min(MAX.evidence, items * 1.5), MAX.evidence);
@@ -160,9 +175,13 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
 
   // WHAT THIS KIND OF CHANGE HAS ALREADY DONE HERE. Two changes of equal worth are not equal bets when one family is three readings deep and down on every one of them. Only finished readings vote, and never
   // enough of them to cross a lifecycle tier: a family with a bad run is ranked lower, never refused.
-  const seen = history?.get(actionFamilyOf(p.changeFamily));
+  // AND ONLY ON A PAGE THAT COULD SHOW IT. A family 165 clicks up across seven readings says nothing about a
+  // page shown 22 times: that page cannot produce those clicks, so the track record was lifting cards with no
+  // audience at all over rebuilds of pages shown thirty thousand times. No audience, no vote.
+  const seen = rode ? history?.get(actionFamilyOf(p.changeFamily)) : undefined;
   const votes = seen && seen.readings >= MIN_FINISHED_READINGS;
-  add("history", !votes ? "not enough finished readings of this kind of change here to judge it"
+  add("history", !rode ? "too little of an audience on this page for what this kind of change has done elsewhere to mean anything here"
+    : !votes ? "not enough finished readings of this kind of change here to judge it"
     : seen!.netLift > 0 ? `this kind of change is ${num(seen!.netLift)} clicks up across ${num(seen!.readings)} finished readings here`
       : `this kind of change is ${num(Math.abs(seen!.netLift))} clicks down across ${num(seen!.readings)} finished readings here`,
   !votes ? 0 : seen!.netLift > 0 ? MAX.history : -MAX.history, MAX.history);
@@ -209,7 +228,7 @@ function whyAbove(next: ChangeProposal, a: Receipt, b: Receipt): string {
     case "actionability":
       return `${lead} it passed every safety check and that one still needs your eyes first.`;
     case "visibility":
-      return `${lead} it wins back more of what you are losing: ${sep.a.input} against ${sep.b.input}.`;
+      return `${lead} more is riding on it: ${sep.a.input}, against ${sep.b.input}.`;
     case "evidence":
       return `${lead} there is more to show for it: ${sep.a.input} against ${sep.b.input}.`;
     case "causeFit":

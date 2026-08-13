@@ -53,10 +53,8 @@ export interface EvidenceInput {
 /** What the evidence actually justifies for one page or topic, decided BEFORE any draft is written. Doing
  *  nothing is the default: a page is not a problem because it is big. Only the two `act_` outcomes may become
  *  a ChangeProposal; the rest are the honest answer and live in the run receipt, never manufactured work.  Internal to Decision: NOT persisted as its own record and never a public type. */
-type CandidateAction =
-  // No `act_new_page`: a page this account does not own is decided by the coverage ladder over researched TOPICS, never by this per-page diagnosis over pages it already has.
-  | "act_existing_page" | "consolidate"
-  | "watch" | "research_needed" | "do_nothing";
+// No `act_new_page`: a page this account does not own is decided by the coverage ladder over researched TOPICS, never by this per-page diagnosis over pages it already has.
+type CandidateAction = "act_existing_page" | "consolidate" | "watch" | "research_needed" | "do_nothing";
 
 /** The ONE action-specific gap that earns an action. Gross impressions are not here. */
 type CandidateGap = "ctr_deficit" | "recent_decline" | "serp_mismatch" | "ai_gap" | "technical";
@@ -109,9 +107,7 @@ type DiagnosisCause =
   | "google_rewrite_already_matches" | "serp_market_mismatch" | "ambiguous_search_intent" | "unknown";
 
 /** The single edit a diagnosed cause supports. `watch` and null are real answers. */
-export type DiagnosedAction =
-  | "title" | "meta" | "opening_answer" | "section"
-  | "full_page" | "new_page" | "consolidate" | "watch";
+export type DiagnosedAction = "title" | "meta" | "opening_answer" | "section" | "full_page" | "new_page" | "consolidate" | "watch";
 
 /** THE reasoning step between "this page underperforms" and "change this", held inside the existing candidate
  *  and receipt path. `diagnosed` means the evidence NAMES a cause, the action follows from it, a competing
@@ -155,10 +151,8 @@ export type ProposalConfidence = "high" | "medium" | "low";
 
 /** The exact change: `existing_edit` carries a precise before/after field rewrite, `new_page` a build brief. */
 export type RecommendedChange =
-  | { kind: "existing_edit"; field: "title" | "meta" | "h1" | "answer_block" | "section";
-      before: string | null; after: string }
-  | { kind: "new_page"; proposedTitle: string; metaDescription: string; openingAnswer: string;
-      outline: string[]; faqQuestions: string[]; schemaTypes: string[] };
+  | { kind: "existing_edit"; field: "title" | "meta" | "h1" | "answer_block" | "section"; before: string | null; after: string }
+  | { kind: "new_page"; proposedTitle: string; metaDescription: string; openingAnswer: string; outline: string[]; faqQuestions: string[]; schemaTypes: string[] };
 
 /** A compact, frozen copy of what grounded this proposal, never a live handle: enough for the operator to
  *  see why Beacon recommends it and for the validator to re-run on load. `evidenceRefCount` is the draft's. */
@@ -235,8 +229,7 @@ export type ComponentPlan = {
 export function needsSourcePack(c: BundleComponent): boolean { return FACTUAL_KINDS.has(c.kind); }
 
 /** A tiny stable fingerprint of one piece's exact copy (FNV-1a, base 36), written out rather than imported so a card in the browser computes byte for byte what the server does and no node module reaches the bundle. */
-const contentFingerprint = (text: string): string => {
-  let h = 0x811c9dc5; for (let i = 0; i < text.length; i += 1) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(36); };
+const contentFingerprint = (text: string): string => { let h = 0x811c9dc5; for (let i = 0; i < text.length; i += 1) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(36); };
 /** THE STABLE NAME OF ONE PIECE INSIDE ITS BUNDLE: position, kind AND THE EXACT COPY IT CARRIES, derived from the stored bundle and nothing else, so no schema moves.
  *  Two pieces of one kind are ticked apart instead of sharing one state, and the server intersects what the operator says they applied against what it holds, never a list of kinds a hand-made request could invent.
  *  THE COPY IS PART OF THE NAME because position and kind alone were not identity: a redraft that rewrote the title in place kept the same name, so brand new wording read as already applied and was never measured, and reordering a bundle handed one piece another piece's history. */
@@ -320,6 +313,10 @@ export type ChangeProposal = {
   /** Honest value sizing for the ranker (may be null, never fabricated). */
   impactScore: number | null;
   upsidePerMonth: number | null;
+  /** HOW BIG THE AUDIENCE BEHIND THIS CHANGE IS: views its page earned in Google over 90 days, off the
+   *  account's own rows. An audience size and never a proven recovery, so the ranker reads it ONLY where both
+   *  proven figures are empty, at a third of the ceiling, and says so. Absent on a pre-field row. */
+  demandImpressions90d?: number | null;
   /** The deep copy-ready form (Slice 7). Absent on atomic proposals and pre-bundle rows; ONE decoder serves both. */
   bundle?: ChangeBundle;
   /** The onboarding/research basis this proposal was generated under. A proposal whose basis is not the
@@ -429,6 +426,7 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   evidence: z.object({ query: z.string(), hints: z.array(z.string()), evidenceRefCount: z.number() }),
   impactScore: z.number().nullable(),
   upsidePerMonth: z.number().nullable(),
+  demandImpressions90d: z.number().nullable().optional(),
   bundle: ChangeBundleSchema.optional(),
   basis: z.string().optional(),
   diagnosisCause: z.string().min(1).optional(),
@@ -493,7 +491,7 @@ const CLASS_OF: Record<string, string> = {
   diagnosis: "what the results page shows about the cause" };
 export const receiptComposition = (items: readonly { kind: string }[]): string => {
   const by = new Map<string, number>();
-  for (const it of items) { const c = CLASS_OF[it.kind] ?? it.kind; by.set(c, (by.get(c) ?? 0) + 1); }
+  for (const it of items) by.set(CLASS_OF[it.kind] ?? it.kind, (by.get(CLASS_OF[it.kind] ?? it.kind) ?? 0) + 1);
   const parts = [...by.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([c, n]) => (n > 1 ? `${c} (${n})` : c));
   return items.length === 0 ? "nothing to show" : `${items.length} ${items.length === 1 ? "check" : "checks"}: ${parts.join(", ")}`;
 };

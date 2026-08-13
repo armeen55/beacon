@@ -124,6 +124,11 @@ export function proposalFingerprint(p: ChangeProposal): string {
     copy: [p.opportunityType, p.whyItMatters, ...(p.operatorSteps ?? []), p.bundle?.objective ?? "", ...(p.bundle?.confidenceReasons ?? [])],
     receipt: evidenceMaterial(p),
     missing: p.bundle?.receipt.missing ?? [],
+    // WHERE THE RANKING PUT IT IS MATERIAL. Leaving the receipt out meant a row written before its pass had
+    // ranked anything computed "unchanged" against the ranked version of itself, so every card the $0
+    // producers mint sat on file for ever with no receipt and nothing could say why it ranked where it did.
+    // CONDITIONAL, exactly like the answer ids above: an unranked row hashes byte for byte what it always did, so nothing on file is rewritten once just to say the identical thing.
+    ...(p.rankingReceipt ? { rank: [p.rankingReceipt.score, p.whyRankedAboveNext ?? null, p.demandImpressions90d ?? null] } : {}),
   };
   return createHash("sha256").update(JSON.stringify(material)).digest("hex").slice(0, 16);
 }
@@ -164,17 +169,11 @@ const rowFor = (p: ChangeProposal, ident: Identity, version: number): Record<str
  *  and a save under the same basis is refused), and every one of them looked identical afterwards, so the
  *  night a sweep took the operator's open cards there was nothing on the rows to tell them apart from the
  *  ones a safety gate had genuinely refused. Pre-migration the write retries without the column rather than  failing the retirement itself. */
-async function setDisposition(
-  tenantId: string, id: string, disposition: TerminalDisposition | null, supersededBy: string | null,
-  reason: string | null = null,
-): Promise<boolean> {
+async function setDisposition(tenantId: string, id: string, disposition: TerminalDisposition | null, supersededBy: string | null, reason: string | null = null): Promise<boolean> {
   const base = { terminal_disposition: disposition, superseded_by: supersededBy, updated_at: new Date().toISOString() };
-  const write = (row: Record<string, unknown>) => getSupabaseAdmin().from(TABLE)
-    .update(row).eq("tenant_id", tenantId).eq("id", id).select("id");
+  const write = (row: Record<string, unknown>) => getSupabaseAdmin().from(TABLE).update(row).eq("tenant_id", tenantId).eq("id", id).select("id");
   let { data, error } = await write({ ...base, withdrawn_reason: disposition == null ? null : reason });
-  if (error && (error.code === "PGRST204" || /column/i.test(error.message ?? ""))) {
-    ({ data, error } = await write(base));
-  }
+  if (error && (error.code === "PGRST204" || /column/i.test(error.message ?? ""))) ({ data, error } = await write(base));
   if (!error && data && data.length > 0) return true;
   log.error("[proposal-store] disposition write did not land", { id, disposition, error: error?.message ?? "no row" });
   return false;
@@ -340,9 +339,7 @@ async function readLegacy(tenantId: string, limit: number, id?: string): Promise
 
 /** Load one proposal by id. History is NOT served as current unless the caller asks for it: a change put
  *  aside a moment ago must read as history, never as a page that never existed. Fail-soft to null. */
-export async function loadChangeProposal(
-  tenantId: string, id: string, opts: { retired?: "include" } = {},
-): Promise<ChangeProposal | null> {
+export async function loadChangeProposal(tenantId: string, id: string, opts: { retired?: "include" } = {}): Promise<ChangeProposal | null> {
   if (!tenantId || !id) return null;
   try {
     const row = await rowById(tenantId, id);
@@ -354,9 +351,7 @@ export async function loadChangeProposal(
 /** STAMP THE RANKING THAT IS LIVE, in ONE statement per release: the unlimited queue's positions are written
  *  down, not carried in a blob, so page two is cut from the SAME database order page one was. Both lanes and
  *  the clearing of the old ranking commit together (never half an order); a stamp that cannot land leaves the  ranking on file serving, which is why this is fail-soft. */
-export async function stampQueueRanking(
-  tenantId: string, release: string, ready: readonly string[], toDo: readonly string[],
-): Promise<boolean> {
+export async function stampQueueRanking(tenantId: string, release: string, ready: readonly string[], toDo: readonly string[]): Promise<boolean> {
   try {
     const { error } = await getSupabaseAdmin()
       .rpc("stamp_change_queue", { p_tenant_id: tenantId, p_release: release, p_ready: ready, p_todo: toDo });

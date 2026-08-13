@@ -105,17 +105,34 @@ async function readAll(tenantId: string): Promise<LlmCallCacheEntry[]> {
   }
 }
 
+/**
+ * THE WHOLE BLOB IS ONE ROW, so every write is a read-modify-write and two of them at once lose one. Four page
+ * readings and a batch of answer analyses run concurrently in one process: each read the same rows, added its own
+ * and wrote the whole file back, so the last writer erased the other three and they were paid for again next pass.
+ * Every mutation now runs inside a per-account queue, and the rows are re-read INSIDE it, so each one sees what
+ * landed before it. This is one process; the durable per-row stores are what make a write safe across processes.
+ */
+const mutating = new Map<string, Promise<void>>();
+function mutate(tenantId: string, entry: LlmCallCacheEntry): Promise<void> {
+  const run = (mutating.get(tenantId) ?? Promise.resolve()).then(async () => {
+    const rows = await readAll(tenantId);
+    await writeStore<LlmCallCacheEntry>(LLM_CALL_CACHE_STORE, upsertAndPrune(rows, entry), { tenantId });
+  });
+  const settled = run.catch(() => {});
+  mutating.set(tenantId, settled);
+  void settled.then(() => { if (mutating.get(tenantId) === settled) mutating.delete(tenantId); });
+  return run;
+}
+
 /** The store-backed default cache. Fail-soft everywhere: a cache problem only costs the discount. */
 export const storeCacheImpl: CacheImpl = {
   async read(tenantId, key) {
     const t = requireTenant(tenantId);
-    const rows = await readAll(t);
-    const hit = rows.find((r) => r.key === key) ?? null;
+    const hit = (await readAll(t)).find((r) => r.key === key) ?? null;
     if (!hit) return null;
     // Touch lastUsedAt best-effort so the prune keeps hot entries.
     try {
-      const touched: LlmCallCacheEntry = { ...hit, lastUsedAt: new Date().toISOString() };
-      await writeStore<LlmCallCacheEntry>(LLM_CALL_CACHE_STORE, upsertAndPrune(rows, touched), { tenantId: t });
+      await mutate(t, { ...hit, lastUsedAt: new Date().toISOString() });
     } catch (e) {
       log.warn("[llm-call-cache] touch failed (non-fatal)", {
         error: e instanceof Error ? e.message : String(e),
@@ -126,10 +143,7 @@ export const storeCacheImpl: CacheImpl = {
   async write(tenantId, entry) {
     const t = requireTenant(tenantId);
     try {
-      const rows = await readAll(t);
-      await writeStore<LlmCallCacheEntry>(LLM_CALL_CACHE_STORE, upsertAndPrune(rows, { ...entry, tenantId: t }), {
-        tenantId: t,
-      });
+      await mutate(t, { ...entry, tenantId: t });
     } catch (e) {
       log.warn("[llm-call-cache] write failed (non-fatal)", {
         error: e instanceof Error ? e.message : String(e),
