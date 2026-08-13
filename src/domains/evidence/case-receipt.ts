@@ -5,9 +5,9 @@
  * everything below was persisted by the executor that bought it, and this only joins it to the case.
  *
  * CACHE VERSUS PAID IS REPORTED, NOT GUESSED. Exactly one call kind records which it was at the moment it
- * happened (the recurring winning domains bought per case set), and the page by page comparison records the
- * money core's own cache identity. A search look and an AI answer record WHEN they landed and nothing about
- * how they were served, so they read as unknown rather than as assumed warm or assumed paid. The run's own
+ * happened (the recurring winning domains bought per case set); the page by page comparison and the AI answer
+ * both record the money core's own cache identity, and a search look records only WHEN it landed. None of the
+ * three records how it was served, so served reads as unknown rather than assumed warm or assumed paid. The run's own
  * money receipt sits beside the list, so a reader can always see what the whole pass actually spent.
  */
 
@@ -82,7 +82,10 @@ export function caseResearchReceipt(snapshot: EvidenceSnapshot, caseId: string, 
     // A tracked prompt is never its own fan-out: the self-echo cannot vouch for membership.
     const fans = (o.fanOutQueries ?? []).map(canonicalQueryKey).filter((f) => f !== asked);
     if (!owns.has(asked) && !fans.some((f) => owns.has(f))) continue;
-    calls.push({ kind: "ai_answer", subject: `${o.promptText} (${o.engine})`, identity: null, served: "unknown", observedAt: o.observedAt });
+    // THE ANSWER NAMES ITS OWN RECEIPT AND THE MODEL THAT SERVED IT, wherever the stored row records them: an
+    // answer whose envelope identity is on file is a checkable purchase, and only a row that genuinely lacks
+    // one still reads as unrecorded. How it was SERVED is a different fact, which this row still does not hold.
+    calls.push({ kind: "ai_answer", subject: `${o.promptText} (${o.engine}${o.modelServed ? `, ${o.modelServed}` : ""})`, identity: o.cacheKey ?? null, served: "unknown", observedAt: o.observedAt });
   }
   const comparisons = (research.pageComparisons ?? []).filter((c) => mine.has(c.topicKey));
   for (const c of comparisons) calls.push({ kind: "page_comparison", subject: c.pages.join(" vs "), identity: c.receipt, served: "unknown", observedAt: c.observedAt });

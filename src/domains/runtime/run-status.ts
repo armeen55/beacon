@@ -47,6 +47,9 @@ export type ResearchRunStatusView = {
   nextDueAt?: string | null;
   /** The frozen plan's topics as the run last persisted them. */
   cases?: { active: number; parked: number };
+  /** IS THE RESEARCH ALIVE, and what did the last of it actually produce. A surface reading counters alone
+   *  cannot tell a quiet day from an account nothing has run for in a week: both render an empty string. */
+  liveness?: { state: "productive" | "quiet" | "silent"; line: string };
 };
 
 /** How long a `running` row may sit UNTOUCHED before I stop calling it work in progress. Every unit
@@ -59,6 +62,57 @@ const STALE_RUN_MS = 10 * 60 * 1000;
  *  The daily round is what picks it back up, so that is what the copy promises: nothing here waits on
  *  the operator opening the app. Private to this projection; nobody branches on its text. */
 const INTERRUPTED_REASON = "I was interrupted mid research. My next daily round picks this back up.";
+
+/** How long an account may go with NO research at all before a surface stops implying anything is running. A day and a half covers one missed daily round and
+ *  the hours either side of it, so an ordinary quiet night never reads as an outage while a genuine week of silence cannot hide behind a blank line. */
+const SILENT_AFTER_MS = 36 * 60 * 60 * 1000;
+/** The reporting zone, and there is only one of it in V1: src/lib/reporting-day.ts holds the contract. */
+const TZ = { timeZone: "America/Los_Angeles" } as const;
+/** WHAT TO DO when nothing has run. Named once, so the promise on the screen and the control that keeps it cannot drift apart. */
+const RESTART_STEP = "Open Today and press Update data.";
+
+/** PURE. WHEN, in the reporting zone: "today at 9:14 AM" on the current day, "Aug 3 at 9:14 AM" on any other. */
+function whenLabel(atMs: number, nowMs: number): string {
+  const d = new Date(atMs), time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", ...TZ });
+  return d.toLocaleDateString("en-US", TZ) === new Date(nowMs).toLocaleDateString("en-US", TZ)
+    ? `today at ${time}` : `${d.toLocaleDateString("en-US", { month: "short", day: "numeric", ...TZ })} at ${time}`;
+}
+
+/**
+ * PURE. IS RESEARCH ALIVE FOR THIS ACCOUNT, in one sentence, off the persisted row and the clock alone.
+ *
+ * A COUNTER IS NOT A HEARTBEAT. Every surface reading of this run was a count, so an account whose research
+ * had not run in a week and an account whose day was genuinely quiet both rendered the same empty string, and
+ * an operator had no way at all to tell "nothing was owed" from "nothing is running". Three readings, and each
+ * one carries a fact somebody can check: PRODUCTIVE names what the last pass produced and when, QUIET says it
+ * looked and owed nothing and when, SILENT says how long it has been and what to press.
+ */
+function livenessOf(run: ResearchRun | null, nowMs: number, state: ResearchRunStatusView["state"]): NonNullable<ResearchRunStatusView["liveness"]> {
+  const touched = Date.parse(run?.updated_at ?? "");
+  if (run == null || !Number.isFinite(touched)) return { state: "silent", line: `No research has run for this account yet. ${RESTART_STEP}` };
+  if (nowMs - touched >= SILENT_AFTER_MS) {
+    const d = new Date(touched);
+    // Inside a week the weekday is the thing a person actually remembers; past that it is a date.
+    const since = nowMs - touched < 7 * 86_400_000 ? d.toLocaleDateString("en-US", { weekday: "long", ...TZ })
+      : d.toLocaleDateString("en-US", { month: "short", day: "numeric", ...TZ });
+    return { state: "silent", line: `No research has run since ${since}. ${RESTART_STEP}` };
+  }
+  const num = (v: unknown): number => Number(v) || 0;
+  const f = run.progress?.funnel ?? {}, s = run.progress?.state ?? {};
+  const answers = num(f.answersAnalyzed), collected = num(s.checksAnswers), sources = num(run.progress?.sourcesRefreshed), spent = num(f.spendUsd);
+  const at = whenLabel(Date.parse(run.completed_at ?? "") || touched, nowMs);
+  // ONE number, the closest one to the work an account pays for: a reading beats a collection, a collection beats a refresh, and money beats nothing at all.
+  const did = answers > 0 ? `Read ${answers} new ${answers === 1 ? "answer" : "answers"} closely`
+    : collected > 0 ? `Collected ${collected} new AI ${collected === 1 ? "answer" : "answers"}`
+    : sources > 0 ? `Refreshed ${sources} connected ${sources === 1 ? "source" : "sources"}`
+    : spent > 0 ? `Spent $${spent.toFixed(2)} on research` : null;
+  // "NOTHING WAS OWED" IS A CLAIM ABOUT HOW THE RUN ENDED, not just what it counted. A run that paused or
+  // died mid-research with zero output did NOT check everything, and saying so here contradicted the same
+  // view's own pauseReason on the one surface that renders only this line.
+  return did != null ? { state: "productive", line: `${did} ${at}.` }
+    : state === "completed" ? { state: "quiet", line: `Checked ${at}. Nothing new was owed.` }
+    : { state: "quiet", line: `Research stopped partway ${at}. ${RESTART_STEP}` };
+}
 
 /** Human step index for a phase; `done` maps to all 8 steps done. */
 function stepsDoneForPhase(phase: ResearchPhase): number {
@@ -89,7 +143,7 @@ const PHASE_LABEL: Record<ResearchPhase, string> = {
  * forever. A row untouched for STALE_RUN_MS is reported as interrupted, which is true and cannot flicker, because updated_at only moves forward on a real write.
  */
 export function projectStatusView(run: ResearchRun | null, nowMs: number): ResearchRunStatusView {
-  if (run == null) return { state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: RESEARCH_RUN_STEPS_TOTAL, counters: {}, updatedAt: null, completedAt: null, pauseReason: null };
+  if (run == null) return { state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: RESEARCH_RUN_STEPS_TOTAL, counters: {}, updatedAt: null, completedAt: null, pauseReason: null, liveness: livenessOf(null, nowMs, "none") };
 
   const touchedAt = Date.parse(run.updated_at ?? "");
   const interrupted = run.status === "running" && Number.isFinite(touchedAt) && nowMs - touchedAt >= STALE_RUN_MS;
@@ -116,6 +170,7 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
 
   return {
     state,
+    liveness: livenessOf(run, nowMs, state),
     // The phase label is DERIVED from the persisted current_phase column, never stored twice.
     phaseLabel: PHASE_LABEL[run.current_phase],
     nextDueAt: persisted.nextDueAt ?? null,

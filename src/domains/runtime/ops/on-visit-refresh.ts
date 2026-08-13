@@ -31,16 +31,11 @@ import {
 } from "../research-run";
 
 /** on-visit-refresh - the Research Run executor (Slice 4, 2026-07-24). THE canonical cycle and the ONLY orchestrator; the phase BODIES live in research-steps.ts and document themselves there. Two doors drive it:
- *  the global daily scheduler (scheduler.ts, one guarded POST per day for every account whose Pacific day still owes work) and any navigation, which recovers and resumes whatever the scheduler left unfinished.
- *  Daily research never depends on anybody opening the app; a visit is recovery, not the trigger. DURABLE: claim_research_run RESUMES the account's single unfinished run first, whatever date it started, and opens
- *  a fresh daily cycle only when none is open. A day is not a unit of work, so a completed pass no longer ends the day: another pass opens only when due-work reports something genuinely owed. THE DATABASE LEASE
- *  DECIDES WHO ADVANCES A RUN and nothing else does; a dispatch and a visit racing the same account cannot both proceed, because the second claim against a live lease returns null. TRUTH BOUNDARY: a phase
- *  advances ONLY when it truly succeeded or was a healthy no-op, and every failure pauses with a bounded last_error instead of reaching completion. THE BATCH IS NOT THE DAY: prompt_observations asks exactly what
- *  daily-observations planned (one canonical reading per question, per engine, per PACIFIC reporting day), reads the new answers back (derived work, bounded, $0 when nothing changed, never a pause), and then
- *  RE-READS the planner: unreadable pauses fail-closed, anything still owed keeps this same phase under a renewed lease, and only settled == intended advances. IDEMPOTENCY: each phase's attempt identity (phase,
- *  a deterministic attemptKey, the seed) is persisted through renew_research_lease BEFORE the side effect and handed to the executor, so a retry of the same run+phase reuses the PERSISTED key; advancing clears
- *  the cursor, which is why the run's frozen FOCUS rides on PROGRESS. CONFLICT: a unit reporting the structured `state_conflict` code persisted NOTHING, so its counters are DISCARDED (a stale zeroed receipt must
- *  never overwrite proven spend) and the SAME attempt is re-invoked ONCE under the same lease, key and cursor; its cached call identities keep that retry $0 and a second conflict pauses honestly. Nothing else
+ *  the global daily scheduler (scheduler.ts, one guarded POST per day for every account whose Pacific day still owes work) and any navigation, which recovers and resumes whatever the scheduler left unfinished. Daily research never depends on anybody opening the app; a visit is recovery, not the trigger. DURABLE: claim_research_run RESUMES the account's single unfinished run first, whatever date it started, and opens
+ *  a fresh daily cycle only when none is open. A day is not a unit of work, so a completed pass no longer ends the day: another pass opens only when due-work reports something genuinely owed. THE DATABASE LEASE DECIDES WHO ADVANCES A RUN and nothing else does; a dispatch and a visit racing the same account cannot both proceed, because the second claim against a live lease returns null. TRUTH BOUNDARY: a phase
+ *  advances ONLY when it truly succeeded or was a healthy no-op, and every failure pauses with a bounded last_error instead of reaching completion. THE BATCH IS NOT THE DAY: prompt_observations asks exactly what daily-observations planned (one canonical reading per question, per engine, per PACIFIC reporting day), reads the new answers back (derived work, bounded, $0 when nothing changed, never a pause), and then
+ *  RE-READS the planner: unreadable pauses fail-closed, anything still owed keeps this same phase under a renewed lease, and only settled == intended advances. IDEMPOTENCY: each phase's attempt identity (phase, a deterministic attemptKey, the seed) is persisted through renew_research_lease BEFORE the side effect and handed to the executor, so a retry of the same run+phase reuses the PERSISTED key; advancing clears
+ *  the cursor, which is why the run's frozen FOCUS rides on PROGRESS. CONFLICT: a unit reporting the structured `state_conflict` code persisted NOTHING, so its counters are DISCARDED (a stale zeroed receipt must never overwrite proven spend) and the SAME attempt is re-invoked ONCE under the same lease, key and cursor; its cached call identities keep that retry $0 and a second conflict pauses honestly. Nothing else
  *  retries. LEASE: renewed at DATABASE time before every bounded unit of work, never once per phase-worth of it, so a purchase is always the FIRST side effect after a real renewal (winning_pages splits exactly
  *  there, between persisting winners and buying the comparison; the read-back renews for the same reason). A false return from renewLease / advancePhase / finishRun means the lease was lost: abort immediately.
  *  WHAT THE LEASE IS NOT: a funnel unit's own optimistic row_version protects the research DOCUMENT and proves nothing about ownership, and no lease makes a purchase idempotent. That is the evidence cache: a
@@ -149,6 +144,8 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   /** A PAUSE IS ONLY A PAUSE ONCE IT LANDED: finishRun answers false when the lease was gone or no row matched, and a pause nobody recorded is a failure. */
   const pause = async (errorInfo: ResearchRunError | null = null): Promise<DriveReceipt> =>
     (await finishRun(tenantId, run.id, ownerToken, "paused", errorInfo)) ? "paused" : "failed";
+  /** THE CLOSE, AND THE MONEY WITH IT. Every completion goes through here so the row's own spend column is stamped from what this run actually tracked instead of claiming $0.00 forever. A run that bought nothing stamps 0, which is a fact; the number is carried off progress, never recomputed. */
+  const complete = async (p: ResearchRunProgress): Promise<DriveReceipt> => (await finishRun(tenantId, run.id, ownerToken, "completed", null, Number(p.funnel?.spendUsd) || 0)) ? "completed" : "failed";
   // PROGRESS IS PERSISTED, NOT ASSEMBLED PER RENDER. The run writes the numbers every surface then reads back from this row: today's checks, the plan's live
   // and waiting topics, the date a wait ends. They come from the ONE due-work read this pass already made, so no two requests can compute them differently.
   let progress: ResearchRunProgress = { ...(run.progress ?? {}), state: { ...(run.progress?.state ?? {}),
@@ -168,8 +165,13 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     const pass = await steps.analyzeAnswers(tenantId, run.cycle_key.slice(-10)).catch(() => null);
     if (pass == null || pass.attempted === 0) return;
     const f = progress.funnel ?? {};
+    // THE ACCOUNTING RIDES WITH THE COUNTS. The reading pass returns one bucket per answer it took on and the buckets add up to what it attempted, so the row carries the explanation beside the shape that needs one.
+    // Read structurally: the step seam names the three numbers it has always named, and a pass that produces no accounting simply contributes nothing to it.
+    const answersOutcomes = { ...(f.answersOutcomes ?? {}) };
+    for (const [bucket, n] of Object.entries(pass.outcomes ?? {})) answersOutcomes[bucket] = (answersOutcomes[bucket] ?? 0) + n;
     progress = { ...progress, funnel: { ...f, answersAnalyzed: (f.answersAnalyzed ?? 0) + pass.read,
-      answersAttempted: (f.answersAttempted ?? 0) + pass.attempted, answersRefused: (f.answersRefused ?? 0) + pass.refused } };
+      answersAttempted: (f.answersAttempted ?? 0) + pass.attempted, answersRefused: (f.answersRefused ?? 0) + pass.refused,
+      ...(Object.keys(answersOutcomes).length > 0 ? { answersOutcomes } : {}) } };
   };
   /** Does THIS turn owe the reading before the phase it resumed into? Only a turn that arrived already inside a long phase, and only when a reading is due. */
   let readBeforePhase = LONG_PHASES.has(run.current_phase) && work.due.includes("analyze_answers");
@@ -192,7 +194,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       // THE DEAD RUN KEEPS ITS OWN NUMBERS. `progress` above carries the counters this pass's due-work read for the day that has ALREADY begun, so
       // closing with them stamped the new day's denominator onto yesterday's receipt: a day that reached 96 of 140 closed reading 3 of 140.
       await advancePhase(tenantId, run.id, ownerToken, { phase, progress: { ...progress, state: run.progress?.state ?? {} }, cursor: null });
-      return (await finishRun(tenantId, run.id, ownerToken, "completed")) ? "completed" : "failed";
+      return complete(progress);
     }
 
     // A DEBT IS NOT A CYCLE. A phase this pass's plan never named is skipped in ONE advance rather than walked: no lease renewal, no basis read, no unit, no
@@ -383,7 +385,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   }
 
   // Reached only when every phase succeeded or was a healthy no-op, and COMPLETED is what the finish landed, never what this loop believes it did.
-  return (await finishRun(tenantId, run.id, ownerToken, "completed")) ? "completed" : "failed";
+  return complete(progress);
 }
 
 /** DRIVE A RUN THIS CALLER ALREADY HOLDS THE LEASE ON. The one entry both doors go through: the daily scheduler hands it a run claimed by claim_due_research_work, a visit hands it the run claimed
@@ -402,7 +404,7 @@ export async function driveClaimed(run: ResearchRun, ownerToken: string, work: D
       state: { ...(run.progress?.state ?? {}), checksDone: work.checks.done, checksTotal: work.checks.total,
         checksAnswers: work.checks.answers, checksUnavailable: work.checks.unavailable, checksUnsupported: work.checks.unsupported,
         casesActive: work.cases.active, casesParked: work.cases.parked, nextDueAt: work.nextDueAt, blocker: null } } });
-    return (await finishRun(tenantId, run.id, ownerToken, "completed")) ? "completed" : "failed";
+    return (await finishRun(tenantId, run.id, ownerToken, "completed", null, Number(run.progress?.funnel?.spendUsd) || 0)) ? "completed" : "failed"; // and it stamps 0 rather than leaving the spend column silent: zero spend is a fact about this pass, never a missing number
   }
   return driveRun(run, ownerToken, nowFn, deadline, steps,
     work ?? { due: [], readable: false, checks: { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 }, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null });

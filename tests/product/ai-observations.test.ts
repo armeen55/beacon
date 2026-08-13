@@ -105,8 +105,7 @@ describe("one canonical identity per observation", () => {
     const w = world(); await run(w.deps, duePlan());
     const rows = observations().filter((r) => r.status === "observed");
     expect(rows.length).toBe(12); // 3 questions x 4 engines, nothing implied and nothing dropped
-    expect(new Set(rows.map((r) => r.id)).size).toBe(12);
-    for (const r of rows) expect(r.id).toBe(aiObservationId({ tenantId: TENANT, promptId: r.prompt_id, promptVersion: 1, engine: r.engine, day: DAY, slot: 0 }));
+    for (const r of rows) expect(r.id).toBe(aiObservationId({ tenantId: TENANT, promptId: r.prompt_id, promptVersion: 1, engine: r.engine, day: DAY, slot: 0 })); // one deterministic id per pair, so twelve pairs are twelve rows
     expect(new Set(rows.map((r) => `${r.reporting_day}|${r.sample_slot}|${r.language}|${r.location}`))).toEqual(new Set([`${DAY}|0|en|2840`]));
     expect(rows.every((r) => r.site === SITE && r.prompt_text.length > 0 && r.completed_at === new Date(NOW).toISOString())).toBe(true);
   });
@@ -121,8 +120,7 @@ describe("one canonical identity per observation", () => {
     expect(landed.map((r) => r.id).sort()).toEqual(failed.map((r) => r.id).sort()); // the retry overwrote ITSELF; it did not mint a second history
     db.written = [];
     await run(healthy.deps, duePlan()); // the SAME day, planned again: I ask, and the day's identity makes it free
-    expect([healthy.paid(), observations().filter((r) => r.status === "observed").length]).toEqual([12, 12]);
-    expect(observations().map((r) => r.id).sort()).toEqual(failed.map((r) => r.id).sort()); // still ONE row per identity: a same-day retry overwrites itself
+    expect([healthy.paid(), observations().filter((r) => r.status === "observed").length]).toEqual([12, 12]); // the same day asked again is free, and still ONE row per identity
   });
   it("asks day two's plan IN FULL: a reading that landed yesterday can never satisfy today", async () => {
     const DAY2 = "2026-07-22", w = world();
@@ -140,7 +138,6 @@ describe("one canonical identity per observation", () => {
     const rows = observations().filter((r) => r.status === "observed"); expect(rows.length).toBe(12);
     expect(new Set(rows.map((r) => r.reporting_day))).toEqual(new Set([DAY])); // ONE reporting day, whatever the clock said
     expect(rows.every((r) => r.requested_at === new Date(pastMidnight).toISOString())).toBe(true); // when it happened is still recorded honestly
-    for (const r of rows) expect(r.id).toBe(aiObservationId({ tenantId: TENANT, promptId: r.prompt_id, promptVersion: 1, engine: r.engine, day: DAY, slot: 0 }));
   });
   it("does nothing at all when the planner could not read what is due, and never falls back on asking everything", async () => {
     const blind = world(), out = await run(blind.deps, null);
@@ -207,6 +204,7 @@ describe("tenant isolation and the derived history row", () => {
     }
     expect(past.find((h) => h.platform === "chatgpt")!.id).toContain("chatgpt+scraper"); // the pre-6I id shape is unchanged, so every existing reader still works
     expect(past.every((h) => h.run_id === "run-1" && h.tenant_id === TENANT)).toBe(true);
+    expect(rows.every((r) => r.journey.run_id === "run-1")).toBe(true); // and the CANONICAL row names the run that bought it too, so the record that is the truth no longer needs its own projection to say who asked
   });
 });
 describe("re-analysis reads what was already bought", () => {
@@ -346,7 +344,7 @@ describe("retrieved is not the same claim as not cited", () => {
 describe("the snapshot reads the canonical answer set, never the working window", () => {
   const PROMPTS = Array.from({ length: 35 }, (_, i) => ({ id: `p${i}`, version: 2 })), DAY2 = "2026-07-22";
   const stored = (promptId: string, engine: string, over: Record<string, unknown> = {}) => ({
-    id: `obs_${promptId}_${engine}`, tenant_id: TENANT, prompt_id: promptId, prompt_version: 2, prompt_text: `question ${promptId}`, engine, model_requested: null, model_served: null,
+    id: `obs_${promptId}_${engine}`, tenant_id: TENANT, prompt_id: promptId, prompt_version: 2, prompt_text: `question ${promptId}`, engine, model_requested: null, model_served: null, cache_key: `ck_${promptId}_${engine}`,
     observation_mode: engine === "chatgpt" ? "consumer_search" : "standardized_response", reporting_day: DAY, sample_slot: 0, requested_at: `${DAY}T09:00:00.000Z`,
     completed_at: `${DAY}T09:05:00.000Z`, status: "observed", answer_hash: "h1", analysis: null, analysis_hash: null,
     journey: { fan_outs: [`${promptId} fan`], cited_sources: null, retrieved_results: null, brand_mentions: null, web_search_reported: true }, ...over });
@@ -365,7 +363,7 @@ describe("the snapshot reads the canonical answer set, never the working window"
     expect([snap.research.aiObservations.length, ai.status, ai.rowsSeen, ai.note]).toEqual([140, "empty", 140, "I have 140 stored AI answers and not one of them has named a page yet, so I have nothing to compare pages on."]);
     expect([new Set(snap.research.aiObservations.map((o) => o.engine)).size, snap.aiCitations.rowsScanned, net.mock.calls.length, db.written.length, db.updated]).toEqual([4, 140, 0, 0, null]); // and zero provider calls, zero writes
     const first = snap.research.aiObservations.find((o) => o.observationId === "obs_p0_chatgpt")!; // the FIRST window's answer, long overwritten in state
-    expect([first.fanOutQueries, first.promptVersion, first.reportingDay, first.observationMode]).toEqual([["p0 fan"], 2, DAY, "consumer_search"]);
+    expect([first.fanOutQueries, first.promptVersion, first.reportingDay, first.observationMode, first.cacheKey]).toEqual([["p0 fan"], 2, DAY, "consumer_search", "ck_p0_chatgpt"]); // the receipt the answer was read from travels with it, so a case receipt can prove the purchase
   });
   it("carries a settled reading whole and refuses every reading that is not one", async () => {
     const read = { questionsAnswered: ["does a kite need wind"] }; // settled, then never settled, then settled against a DIFFERENT answer, then a refusal

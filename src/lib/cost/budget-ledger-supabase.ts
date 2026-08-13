@@ -1,51 +1,34 @@
 import "server-only";
 
 /**
- * Supabase llm_budget_ledger dual-write — Phase 2 Stage B.2 (2026-05-09).
- *
- * Shadow-mode writer for the per-tenant / per-day / per-platform spend
- * ledger backed by `public.llm_budget_ledger` (Stage A migration).
+ * THE durable spend ledger: `public.llm_budget_ledger`, one row per (tenant_id,
+ * date_utc, platform). ALWAYS ON and the SOURCE OF TRUTH for the caps, never a
+ * shadow and never flag-gated: the daily, monthly and lifetime cap reads below
+ * all come off this same table, so a gated write would make every one of them
+ * fail OPEN. The file ledger under `.data` is the fallback only, because it is
+ * ephemeral or read-only wherever this actually runs.
  *
  * Contract
  * --------
- *   1. Default OFF — `BEACON_BUDGET_LEDGER_DUAL_WRITE === "1"` is the
- *      gate. With the flag unset, every public function in this module
- *      returns immediately without touching Supabase. Production is
- *      unchanged after deploy until an operator flips the flag.
- *   2. Source of truth stays JSON. The existing `recordSpend` in
- *      `src/lib/cost/budget.ts` and `recordSpend`/`writeState` in
- *      `src/domains/recommendations/adjudicator-budget.ts` continue to
- *      run untouched. This module is additive shadow.
- *   3. Never throws to the caller. Validation rejections, Supabase
- *      errors, and unexpected exceptions all log a `console.warn` and
- *      return. Paid API calls must NEVER be blocked by a ledger
- *      glitch.
- *   4. Validates BEFORE the Supabase round-trip. Empty tenantId,
- *      invalid platform, or negative cost are dropped with a warn —
- *      no insert attempt.
- *   5. Read-only snapshot reads are NOT flag-gated. They're safe at
- *      any time; an empty/unavailable table returns `[]` so the
- *      canary can render a calm fallback.
- *
- * Grain
- * -----
- * One row per (tenant_id, date_utc, platform). The poll runner calls
- * this helper ONCE per chunk run with the chunk's totals. The
- * adjudicator path is deferred to a later bundle (per-call writes
- * would be 1 Supabase round-trip per adjudication; the monthly
- * grain of `adjudicator-budget.ts` doesn't map cleanly to the
- * daily/per-platform ledger without first reshaping its accounting).
+ *   1. Validates BEFORE any Supabase round-trip: empty tenantId, unknown
+ *      platform, or a negative cost outside the reserve-rollback path are
+ *      dropped with a warn and no write is attempted.
+ *   2. Never throws to the caller. A rejected write, a Supabase error and an
+ *      unexpected exception all warn and return false, so a ledger glitch can
+ *      never block a paid call; a caller that must fail closed reads the false.
+ *   3. Reads answer null on a failed read. getTenantLifetimeSpendUsd fails
+ *      CLOSED on that null (unknown spend is not allowance); the monthly read
+ *      hands its caller back to the file ledger with the per-run ceiling behind it.
  *
  * UPSERT semantics
  * ----------------
- * Postgres-side `INSERT ... ON CONFLICT DO UPDATE SET col = col + n`
- * is the natural shape for atomic increments, but supabase-js does
- * not expose it directly. We use SELECT-then-INSERT-or-UPDATE
- * instead. Beacon today is single-tenant single-writer, so the
- * race window is empty in practice. When a second tenant or a
- * concurrent writer arrives, swap to a `rpc()` call against a
- * Postgres function that does the increment atomically — that
- * conversion is local to this module.
+ * Postgres-side `INSERT ... ON CONFLICT DO UPDATE SET col = col + n` is the
+ * natural shape for an atomic increment and supabase-js does not expose it, so
+ * this is SELECT-then-INSERT-or-UPDATE. THE RACE IS HANDLED, NOT ASSUMED AWAY:
+ * a duplicate key means a parallel writer created the day row in between, and
+ * the loser folds its spend into that row rather than dropping it, because
+ * dropped spend under-counts a cap that is supposed to fail closed. Moving the
+ * increment into a Postgres function stays local to this module.
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
@@ -99,13 +82,10 @@ function todayUtcDate(now: Date = new Date()): string {
 // ─── Public API ──────────────────────────────────────────────────────────
 
 /**
- * ALWAYS-ON durable spend writer to `public.llm_budget_ledger`. NOT flag-gated —
- * use this for spend that a daily/monthly CAP must actually see (e.g. the page
- * factory): getTenantSpentTodayUsd reads this same table, so gating the write
- * behind the shadow-mode flag made those caps structurally fail-OPEN. Never
- * throws; a Supabase error is logged and swallowed. Returns true when the row
- * durably persisted, false when validation or the DB rejected the write (the
- * reserve-then-reconcile path in adjudicator-budget.ts refuses on false).
+ * THE durable spend write every cap depends on: getTenantSpentTodayUsd reads
+ * this same table. Returns true only when the row durably persisted, and false
+ * when validation or the database rejected it, which is what lets the
+ * reserve-then-reconcile path in adjudicator-budget.ts refuse to spend.
  */
 export async function recordSpendSupabase(
   input: RecordSpendDualWriteInput,
@@ -113,13 +93,13 @@ export async function recordSpendSupabase(
   // ── Validation (fail loud BEFORE any Supabase round-trip) ──
   if (typeof input.tenantId !== "string" || input.tenantId.trim() === "") {
     console.warn(
-      `[budget-ledger] dual-write rejected: empty tenantId platform=${input.platform}`,
+      `[budget-ledger] write rejected: empty tenantId platform=${input.platform}`,
     );
     return false;
   }
   if (!VALID_PLATFORMS.has(input.platform)) {
     console.warn(
-      `[budget-ledger] dual-write rejected: invalid platform "${input.platform}"`,
+      `[budget-ledger] write rejected: invalid platform "${input.platform}"`,
     );
     return false;
   }
@@ -127,7 +107,7 @@ export async function recordSpendSupabase(
   // reconcile refund path); the row is clamped at zero on write below either way.
   if (!Number.isFinite(input.costUsd) || (input.costUsd < 0 && input.allowNegative !== true)) {
     console.warn(
-      `[budget-ledger] dual-write rejected: invalid costUsd=${input.costUsd} tenantId=${input.tenantId}`,
+      `[budget-ledger] write rejected: invalid costUsd=${input.costUsd} tenantId=${input.tenantId}`,
     );
     return false;
   }
@@ -135,13 +115,13 @@ export async function recordSpendSupabase(
   const chunkCount = input.chunkCount ?? 0;
   if (!Number.isInteger(promptCount) || promptCount < 0) {
     console.warn(
-      `[budget-ledger] dual-write rejected: invalid promptCount=${promptCount}`,
+      `[budget-ledger] write rejected: invalid promptCount=${promptCount}`,
     );
     return false;
   }
   if (!Number.isInteger(chunkCount) || chunkCount < 0) {
     console.warn(
-      `[budget-ledger] dual-write rejected: invalid chunkCount=${chunkCount}`,
+      `[budget-ledger] write rejected: invalid chunkCount=${chunkCount}`,
     );
     return false;
   }
@@ -151,7 +131,7 @@ export async function recordSpendSupabase(
     const date = todayUtcDate();
     const nowIso = new Date().toISOString();
 
-    // SELECT — current row (if any).
+    // SELECT the current row, if there is one.
     const { data: existing, error: selErr } = await supabase
       .from("llm_budget_ledger")
       .select("spent_usd, call_count, prompt_count, chunk_count")
@@ -242,20 +222,11 @@ export async function recordSpendSupabase(
     return true;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.warn(`[budget-ledger] dual-write threw (non-fatal): ${msg}`);
+    console.warn(`[budget-ledger] write threw (non-fatal): ${msg}`);
     return false;
   }
 }
 
-/**
- * audit #4 (2026-06-14) — this-MONTH TOTAL spend for a tenant from
- * `llm_budget_ledger` (the durable cross-run ledger). The file-backed
- * monthly cap silently fail-opens wherever `.data` is ephemeral/read-only
- * (Vercel + every GitHub Actions run), so the monthly cap is sourced from
- * Supabase. Same fail-OPEN-on-error contract as getTenantSpentTodayUsd:
- * null on read error → caller falls back to the file ledger, with the
- * per-run cost ceiling as the always-on backstop.
- */
 /**
  * Slice 5 (2026-07-24) - LIFETIME spend for a tenant on ONE platform, summed
  * across ALL dates in `llm_budget_ledger`. Powers the $2 pre-activation
@@ -288,6 +259,12 @@ export async function getTenantLifetimeSpendUsd(
   }
 }
 
+/**
+ * THIS MONTH's total spend for a tenant, optionally on ONE platform (the
+ * adjudicator's own monthly cap must not count the much larger poll spend that
+ * shares this ledger). Null on a read error: the caller falls back to the file
+ * ledger, with the per-run cost ceiling as the always-on backstop.
+ */
 export async function getTenantSpentThisMonthUsd(
   tenantId: string,
   now: Date = new Date(),
@@ -303,10 +280,8 @@ export async function getTenantSpentThisMonthUsd(
       .select("spent_usd")
       .eq("tenant_id", tenantId)
       .gte("date_utc", monthStart);
-    // Platform-scoped read: the adjudicator's MONTHLY cap must count only
-    // adjudicator spend, not the much larger native-poll spend that shares
-    // this ledger — otherwise poll spend would trip the $10 adjudicator cap
-    // almost immediately (fail-CLOSED prematurely).
+    // Platform-scoped read: without it, poll spend sharing this ledger would trip
+    // the $10 adjudicator cap almost at once and fail it CLOSED prematurely.
     if (platform !== undefined) query = query.eq("platform", platform);
     const { data, error } = await query;
     if (error || !Array.isArray(data)) return null;

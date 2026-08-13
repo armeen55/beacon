@@ -97,6 +97,10 @@ export type ResearchRunProgress = {
      *  non-reading. A bare zero cannot tell a quiet day from a pass that took forty answers on and could store none of them, and that is
      *  precisely the shape a run sitting in one phase for ten hours wears, so both numbers go on the row rather than into a log line. */
     answersAttempted?: number; answersRefused?: number;
+    /** WHY THE ATTEMPTED AND THE READ ARE DIFFERENT NUMBERS, summed across this run's reading passes: one bucket per answer taken on, and the buckets add up to
+     *  answersAttempted. A reader of the row can tell a reader that refused from a shape nobody could use, from a write that was lost, from a pass that stopped
+     *  before it asked anything. Without it "505 taken on, 0 read" carried no explanation anywhere, on the row or off it. */
+    answersOutcomes?: Record<string, number>;
     cacheHits?: number; spendUsd?: number;
   };
 };
@@ -199,8 +203,9 @@ export type ResearchRunRepo = {
    *  attempt identity (phase_cursor) WITHOUT changing the phase. False ⇒ abort before the side effect. */
   renew(input: { tenantId: string; id: string; owner: string; leaseSeconds: number; cursor: Record<string, unknown> | null }): Promise<boolean>;
   /** Guarded terminal update at DATABASE time (releases the lease). 'completed' clears last_error; 'paused'
-   *  records it. Returns whether a row matched. */
-  finish(input: { tenantId: string; id: string; owner: string; outcome: Exclude<ResearchRunStatus, "running">; errorInfo?: ResearchRunError | null }): Promise<boolean>;
+   *  records it. `spendUsd` STAMPS THE ROW'S OWN ACCUMULATOR at the close, from what this run actually
+   *  tracked; absent leaves whatever is on the row. Returns whether a row matched. */
+  finish(input: { tenantId: string; id: string; owner: string; outcome: Exclude<ResearchRunStatus, "running">; errorInfo?: ResearchRunError | null; spendUsd?: number | null }): Promise<boolean>;
   /** Latest run for the tenant by started_at desc, or null. */
   latest(tenantId: string): Promise<ResearchRun | null>;
   /** This account's rows for ONE reporting day, newest first, lean (id + progress): how many passes have
@@ -286,7 +291,14 @@ const supabaseRepo: ResearchRunRepo = {
   async renew({ tenantId, id, owner, leaseSeconds, cursor }) {
     return rpcBool("renew_research_lease", { p_tenant_id: tenantId, p_run_id: id, p_owner: owner, p_cursor: cursor ?? null, p_lease_seconds: leaseSeconds });
   },
-  async finish({ tenantId, id, owner, outcome, errorInfo }) {
+  async finish({ tenantId, id, owner, outcome, errorInfo, spendUsd }) {
+    // THE DECLARED ACCUMULATOR, FINALLY WRITTEN. spend_usd has been on this table since the first migration and no code ever set it, so every run row has
+    // claimed $0.00 forever while the real number sat in progress. It is stamped here, under the lease we still hold and BEFORE the finish releases it, and a
+    // write that could not land never costs the account its completion: the money is already ledgered elsewhere, this row is the receipt.
+    if (typeof spendUsd === "number" && Number.isFinite(spendUsd) && spendUsd >= 0) {
+      const { error } = await getSupabaseAdmin().from("research_runs").update({ spend_usd: spendUsd }).eq("tenant_id", tenantId).eq("id", id).eq("lease_owner", owner);
+      if (error != null) log.warn("[research-run] the pass closed but its spend could not be stamped on the row", { tenantId, runId: id, error: error.message ?? String(error) });
+    }
     return rpcBool("finish_research_run", { p_tenant_id: tenantId, p_run_id: id, p_owner: owner, p_outcome: outcome, p_error: errorInfo ?? null });
   },
   async latest(tenantId) {
@@ -442,13 +454,14 @@ export async function renewLease(tenantId: string, runId: string, ownerToken: st
 }
 
 /** Terminal update for the run (owner-guarded), releasing the lease. Returns whether our lease still held.
- *  Never throws to the caller. */
+ *  `spendUsd` stamps the row's own spend accumulator at the close, from the spend this run tracked; a run
+ *  that bought nothing stamps 0, which is a fact and not an absence. Never throws to the caller. */
 export async function finishRun(
   tenantId: string, runId: string, ownerToken: string,
-  outcome: Exclude<ResearchRunStatus, "running">, errorInfo?: ResearchRunError | null,
+  outcome: Exclude<ResearchRunStatus, "running">, errorInfo?: ResearchRunError | null, spendUsd?: number | null,
 ): Promise<boolean> {
   requireTenant(tenantId);
-  try { return await repo.finish({ tenantId, id: runId, owner: ownerToken, outcome, errorInfo: errorInfo ?? null }); }
+  try { return await repo.finish({ tenantId, id: runId, owner: ownerToken, outcome, errorInfo: errorInfo ?? null, spendUsd: spendUsd ?? null }); }
   catch (error) {
     log.warn("[research-run] finishRun failed", { tenantId, error: error instanceof Error ? error.message : String(error) });
     return false;
@@ -480,6 +493,6 @@ export async function researchRunStatus(tenantId: string, now: Date = new Date()
     return view;
   } catch (error) {
     log.warn("[research-run] status read failed; rendering none", { tenantId, error: error instanceof Error ? error.message : String(error) });
-    return projectStatusView(null, now.getTime());
+    const { liveness: _unread, ...blind } = projectStatusView(null, now.getTime()); return blind; // A READ I COULD NOT MAKE IS NOT AN ACCOUNT NOTHING HAS RUN FOR: the liveness reading is withheld rather than claimed, so a database blip never tells an operator their research is dead.
   }
 }

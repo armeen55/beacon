@@ -1,19 +1,9 @@
 import "server-only";
 
 /**
- * answer-readback - READING THE STORED AI ANSWERS BACK. Collection buys the answers, this reads them: ONE strict structured call reads a BATCH of stored answers (what each said, who it named, what it left out),
- * A FEW BATCHES AT A TIME, and Evidence persists one reading per observation. IT COSTS NOTHING WHEN NOTHING CHANGED, a call fires only on a piece nobody has read yet, and A LONG ANSWER IS READ WHOLE, IN PIECES,
- * ACROSS AS MANY PASSES AS IT TAKES: split on its own paragraph breaks, every piece keyed `id#part`, merged into ONE stored reading beside a COVERAGE CHECKPOINT naming which pieces of which answer hash are in it.
- * Until every piece is accounted for that reading carries a deliberately different hash, so the row stays due and the next pass resumes at the first unread piece. EVERY READING IS GROUNDED IN ITS OWN ANSWER: each
- * returned item is re-checked against the exact text it was read from and a failing item is dropped alone with the number named, because one batch grounded as a single body of text let a number only answer A
- * contained validate a fabricated claim about answer B. EVERY PIECE THIS PASS SENDS COMES BACK SETTLED: merged, or dropped with its reason, and a piece never sent is owed.
+ * answer-readback - READING THE STORED AI ANSWERS BACK. Collection buys the answers, this reads them: ONE strict structured call reads a BATCH of stored answers (what each said, who it named, what it left out), A FEW BATCHES AT A TIME, and Evidence persists one reading per observation. IT COSTS NOTHING WHEN NOTHING CHANGED, a call fires only on a piece nobody has read yet, and A LONG ANSWER IS READ WHOLE, IN PIECES, ACROSS AS MANY PASSES AS IT TAKES: split on its own paragraph breaks, every piece keyed `id#part`, merged into ONE stored reading beside a COVERAGE CHECKPOINT naming which pieces of which answer hash are in it. Until every piece is accounted for that reading carries a deliberately different hash, so the row stays due and the next pass resumes at the first unread piece. EVERY READING IS GROUNDED IN ITS OWN ANSWER: each returned item is re-checked against the exact text it was read from and a failing item is dropped alone with the number named, because one batch grounded as a single body of text let a number only answer A contained validate a fabricated claim about answer B. EVERY PIECE THIS PASS SENDS COMES BACK SETTLED: merged, or dropped with its reason, and a piece never sent is owed.
  *
- * WHOSE FAILURE WAS IT DECIDES EVERYTHING, AND ONLY A RECEIPT SETTLES (see ReadFailure below, which names all seven). A call that returned no body leaves nothing stored and the answers due, and the pass STOPS there
- * rather than fanning one throttled batch into fifteen more calls; anything that RETURNED settles every answer it covered, permanently, for that hash, after dropping to ONE CALL PER PIECE first so the readings
- * themselves still land. EVERYTHING PURCHASED IS OWED A READING: a pass reads the OLDEST day that still owes one across a ROTATING lookback of THE LAST 26 WEEKS (182 days), not the run's own day, not a fixed recent
- * week, and not any age at all, because today's fresh debt kept that week busy and permanently abandoned everything behind it. THE DETERMINISTIC VERDICT IS NEVER THE MODEL'S TO REFUSE: every answer this pass settles
- * carries mentioned true OR false, off the answer's own words and the addresses it credited, and `matchedBy` says which found it, so Visibility divides by every answer read rather than by the ones the matcher
- * happened to match. Runtime orchestrates, and Evidence never imports Decision.
+ * WHOSE FAILURE WAS IT DECIDES EVERYTHING, AND ONLY A RECEIPT SETTLES (see ReadFailure below, which names all seven). A call that returned no body leaves nothing stored and the answers due, and the pass STOPS there rather than fanning one throttled batch into fifteen more calls; anything that RETURNED settles every answer it covered, permanently, for that hash, after dropping to ONE CALL PER PIECE first so the readings themselves still land. EVERYTHING PURCHASED IS OWED A READING: a pass reads the OLDEST day that still owes one across a ROTATING lookback of THE LAST 26 WEEKS (182 days), not the run's own day, not a fixed recent week, and not any age at all, because today's fresh debt kept that week busy and permanently abandoned everything behind it. THE DETERMINISTIC VERDICT IS NEVER THE MODEL'S TO REFUSE: every answer this pass settles carries mentioned true OR false, off the answer's own words and the addresses it credited, and `matchedBy` says which found it, so Visibility divides by every answer read rather than by the ones the matcher happened to match. AND EVERY PASS ACCOUNTS FOR ITS OWN DAY: see AnalysisPassReceipt, where every answer taken on lands in exactly one named bucket. Runtime orchestrates, and Evidence never imports Decision.
  */
 
 import { loadBrandIdentity, type BrandIdentity } from "@/domains/account/brand-identity";
@@ -48,10 +38,7 @@ const BATCH_ANALYSIS_SYSTEM = ANSWER_ANALYSIS_SYSTEM
   + "entry for an id you were not given, and never leave one out.";
 
 /** How many pieces ONE structured call reads back, HOW MANY OF THOSE CALLS ARE IN FLIGHT AT ONCE, how many a pass may make, and the pass total. FIVE per call, not fifteen: a fifteen piece batch is about 75,000 input
- *  tokens on its own, which trips the account's per-minute token ceiling by itself, so every pass sent the giant batch, took a throttle twice, and read nothing at all. Five is roughly 7,000 input and 4,000 output
- *  tokens, so THREE together are about 33,000 a minute, well inside the ceiling one batch used to blow. Eight such calls is 40 pieces a pass and 48 scheduled passes a day is 1,920, against an intake of 140 a day:
- *  that is what makes a backlog FALL rather than grow, and 20 a pass never could. The batches are DISJOINT, so sending them together is the same bounded work in a third of the wall clock and never a retry storm.
- *  SINGLES_PER_PASS bounds the one-at-a-time fallback at roughly 15,000 tokens a pass: a CAP, not a sleep, because a bound is exact where a delay is a guess. */
+ *  tokens on its own, which trips the account's per-minute token ceiling by itself, so every pass sent the giant batch, took a throttle twice, and read nothing at all. Five is roughly 7,000 input and 4,000 output tokens, so THREE together are about 33,000 a minute, well inside the ceiling one batch used to blow. Eight such calls is 40 pieces a pass and 48 scheduled passes a day is 1,920, against an intake of 140 a day: that is what makes a backlog FALL rather than grow, and 20 a pass never could. The batches are DISJOINT, so sending them together is the same bounded work in a third of the wall clock and never a retry storm. SINGLES_PER_PASS bounds the one-at-a-time fallback at roughly 15,000 tokens a pass: a CAP, not a sleep, because a bound is exact where a delay is a guess. */
 const ANSWERS_PER_BATCH = 5, BATCH_CONCURRENCY = 3, BATCH_CALLS_PER_PASS = 8, MAX_ANALYSES_PER_PASS = ANSWERS_PER_BATCH * BATCH_CALLS_PER_PASS, SINGLES_PER_PASS = 10;
 /** How much of ONE answer ONE slot reads (a longer answer is not cut off, it is SPLIT into this many characters at a time and every piece is read eventually), the estimated spend for one batch call and for one
  *  single-piece call, and the batch timeout: gpt-5-mini reasons before it writes, so a batch asks for more than the gateway's 90 second reasoning floor rather than have a slow one thrown away half-written. */
@@ -119,14 +106,12 @@ function dueForAnalysis(rows: readonly AnalyzableObservation[]): readonly Analyz
     .filter((r) => !isAnalysisSettled({ analysis: r.analysis, analysisHash: r.analysisHash, answerHash: r.answerHash }));
 }
 
-/** ONE PIECE of one answer as a call sees it: the row, the question it answered, the exact text this piece was read from (the only text it may be
- *  checked against, which is what makes per answer grounding possible), and which piece of how many it is. `key` is what the model echoes back: the
- *  observation id for a one piece answer, `id#2` for the second piece of a split one, so a reading always comes home to the piece it was taken on. */
+/** ONE PIECE of one answer as a call sees it: the row, the question it answered, the exact text this piece was read from (the only text it may be checked against, which is what makes per answer grounding possible),
+ *  and which piece of how many it is. `key` is what the model echoes back: the observation id for a one piece answer, `id#2` for the second piece of a split one, so a reading comes home to the piece it was taken on. */
 type AnalysisTarget = { row: AnalyzableObservation; question: string; key: string; part: number; parts: number; text: string };
 
-/** PURE. One answer as the bounded pieces a call can read, covering ALL of it. A short answer is ONE piece.
- *  A long one is cut at the last paragraph break before the budget (then a sentence end, then a space, then
- *  the budget), so no piece starts mid sentence. NO piece ceiling: that is how a tail went unread. */
+/** PURE. One answer as the bounded pieces a call can read, covering ALL of it. A short answer is ONE piece. A long one is cut at the last paragraph break before
+ *  the budget (then a sentence end, then a space, then the budget), so no piece starts mid sentence. NO piece ceiling: that is how a tail went unread. */
 function splitAnswer(text: string, budget = BATCH_ANSWER_CHARS): string[] {
   if (text.length <= budget) return [text];
   const parts: string[] = [];
@@ -183,13 +168,9 @@ function numberNotInOwnAnswer(analysis: AnswerAnalysis, ownText: string): string
 /** WHY A READING DID NOT LAND, BY NAME, AND THE NAME IS THE TRANSPORT'S OWN TYPE (gateway.ts's LlmFailure, threaded through the drafter), never a name matched out of an error sentence: anchoring on the exact string
  *  `llm_openai_429` meant the same throttle wearing the code OpenAI actually sends fell through to schema_invalid, and 50 answers on 3 August were settled as refused for calls that returned nothing and cost nothing.
  *  Each name decides two things: does the answer settle for good, and does the pass go on. IT RETURNED A BODY AND A USAGE RECEIPT, so it is PERMANENT for this answer at this hash: `provider_refused` (the reader
- *  refused the content), `schema_invalid` (a shape I could not use, or a number its own answer never says; ledgered) and `incomplete` (it returned and left this answer out, or cut it off). NO BODY AND NO RECEIPT,
- *  so nothing is stored and the answer stays owed: `transient` (a throttle, a server fault, a dead connection, a request the provider would not take), `client_timeout` (I abandoned the call at my own deadline, so
- *  nothing proves the reader began or that a cent was charged; the storm it used to justify settling is prevented by the BOUNDED LADDER instead, one batch attempt then bounded singles, and a single that also runs
- *  past the deadline stops the pass at two unbilled calls), `credit_exhausted` (the ACCOUNT'S own provider balance) and `budget` (Beacon's own cap: no call was made). The last three also STOP the pass. */
+ *  refused the content), `schema_invalid` (a shape I could not use, or a number its own answer never says; ledgered) and `incomplete` (it returned and left this answer out, or cut it off). NO BODY AND NO RECEIPT, so nothing is stored and the answer stays owed: `transient` (a throttle, a server fault, a dead connection, a request the provider would not take), `client_timeout` (I abandoned the call at my own deadline, so nothing proves the reader began or that a cent was charged; the storm it used to justify settling is prevented by the BOUNDED LADDER instead, one batch attempt then bounded singles, and a single that also runs past the deadline stops the pass at two unbilled calls), `credit_exhausted` (the ACCOUNT'S own provider balance) and `budget` (Beacon's own cap: no call was made). The last three also STOP the pass. */
 type ReadFailure = LlmFailure;
-/** The names a PERMANENT non-reading is stored under, every one of them a call that RETURNED. `attempts_exhausted` is the bounded ladder itself running out: one batch, then one call for this piece alone, neither
- *  usable and both billed, so a third ask only buys the same nothing. */
+/** The names a PERMANENT non-reading is stored under, every one of them a call that RETURNED. `attempts_exhausted` is the bounded ladder itself running out: one batch, then one call for this piece alone, neither usable and both billed, so a third ask only buys the same nothing. */
 type ReadOutcome = "provider_refused" | "schema_invalid" | "incomplete" | "attempts_exhausted";
 /** What each named non-reading says on the record, in the operator's own words. */
 const WHY_SAID: Record<ReadOutcome, string> = { provider_refused: "the reader refused to read it", schema_invalid: "the reading came back in a shape I could not use",
@@ -197,8 +178,7 @@ const WHY_SAID: Record<ReadOutcome, string> = { provider_refused: "the reader re
 
 type AnalysisDeps = {
   readObservations?: (tenantId: string, opts: { day?: string }) => Promise<readonly AnalyzableObservation[]>;
-  /** Which recent days still owe a reading, oldest first, off the CHEAPEST projection there is (identity, status and the two settlement hashes, never the
-   *  answer text or the journey): a whole-window read of full rows is megabytes an account per pass and is the shape that has timed a statement out here. */
+  /** Which recent days still owe a reading, oldest first, off the CHEAPEST projection there is (identity, status and the two settlement hashes, never the answer text or the journey): a whole-window read of full rows is megabytes an account per pass and is the shape that has timed a statement out here. */
   unreadDays?: (tenantId: string, fromDay: string, toDay: string) => Promise<readonly string[]>;
   persist?: (tenantId: string, observationId: string, analysis: Record<string, unknown>, analysisHash: string) => Promise<void>;
   analyze?: (input: { tenantId: string; question: string; engine: string; answerText: string; brand: string }) => Promise<AnswerAnalysis | ReadFailure | null>;
@@ -214,12 +194,10 @@ type AnalysisDeps = {
   max?: number;
 };
 
-/** Which path found the account in an answer: the model's reading, the answer's own words, an address it credited, or both the model and the words. A
- *  later reader can tell a model miss from a real absence, which a bare true/false never could. */
+/** Which path found the account in an answer: the model's reading, the answer's own words, an address it credited, or both the model and the words. A later reader can tell a model miss from a real absence, which a bare true/false never could. */
 type BrandMatchPath = "model" | "text" | "citation" | "both";
 
-/** A name counts only as a WHOLE word, tolerant of the spacing and punctuation a writer chose ("Ritz Builders", "ritz-builders"), so "Ritz" is never
- *  found inside "Ritzy" and no substring of an unrelated word can invent a mention. */
+/** A name counts only as a WHOLE word, tolerant of the spacing and punctuation a writer chose ("Ritz Builders", "ritz-builders"), so "Ritz" is never found inside "Ritzy" and no substring of an unrelated word can invent a mention. */
 function formPattern(form: string): RegExp | null {
   const parts = form.match(/[\p{L}\p{N}]+/gu);
   if (parts == null || parts.length === 0) return null;
@@ -238,8 +216,7 @@ function findBrand(identity: BrandIdentity, answerText: string, citationUrls: re
   return null;
 }
 
-/** PURE. WHICH named failure a non-drafted result was, read off the TYPE the transport put on it rather than out of its own error text. A status that never
- *  reached the transport at all (no allowance, no key) is my own side saying no: no call was made, so nothing is owed to anybody but the answer itself. */
+/** PURE. WHICH named failure a non-drafted result was, read off the TYPE the transport put on it rather than out of its own error text. A status that never reached the transport at all (no allowance, no key) is my own side saying no: no call was made, so nothing is owed to anybody but the answer itself. */
 function failureOf(out: StructuredDraftResult<unknown>): ReadFailure {
   return out.status === "validation_failed" ? out.failure : "budget";
 }
@@ -251,7 +228,8 @@ async function recordRejection(tenantId: string, row: AnalyzableObservation, rea
     await (await import("@/lib/persistence/supabase")).getSupabaseAdmin().from("llm_rejections").insert({
       id: `rej_${row.id}_${row.answerHash}`.slice(0, 120), tenant_id: tenantId, rec_id: row.id, provider_name: "openai",
       model: "gpt-5-mini", evidence_hash: row.answerHash, validation_error: reason.slice(0, 500) });
-  } catch { /* recorded or not, the reading verdict beside it already landed */ } }
+  } catch (error) { // the verdict beside it already landed, so this never fails the pass, but a ledger that has gone silent is still worth saying out loud
+    log.warn("[daily-observations] I could not add this refused reading to the rejection ledger, so what it cost is missing from that record", { tenantId, observationId: row.id, error: error instanceof Error ? error.message : String(error) }); } }
 
 /** ONE strict structured call per PIECE: the piece's own text is the whole input and the whole grounding, so a fallback reading is grounded exactly like a batch
  *  one. Otherwise, whose failure it was. */
@@ -293,9 +271,13 @@ async function analyzeMany(input: { tenantId: string; brand: string; targets: re
 }
 
 /** WHAT ONE PASS ACTUALLY DID, so a run receipt can say it out loud instead of showing a number nobody can check: how many answers the pass took on, how many
- *  ended with a durable verdict, how many of those verdicts were a non-reading, and how many are real readings now on file. `read` is what this used to return. */
-type AnalysisPassReceipt = { attempted: number; settled: number; refused: number; read: number };
-const READ_NOTHING: AnalysisPassReceipt = { attempted: 0, settled: 0, refused: 0, read: 0 };
+ *  ended with a durable verdict, how many of those verdicts were a non-reading, and how many are real readings now on file. `read` is what this used to return.
+ *  AND THE ACCOUNTING BESIDE THEM, because 505 attempted and 0 read is a true sentence with no explanation in it anywhere. `outcomes` puts every answer the pass took on into EXACTLY ONE bucket, so attempted always
+ *  equals what the buckets add up to: `settled` (a reading is on file), one of the four named non-readings (provider_refused, schema_invalid, incomplete, attempts_exhausted), `persist_failed` (a verdict was produced
+ *  and the write was lost twice), `stalled_before_spend` (the pass stopped before buying anything at all) or `left_owed` (it stopped after it had). `unaccounted` appears only when that arithmetic disagrees with
+ *  itself, which is a bug, is logged as one, and still leaves the receipt adding up. */
+type AnalysisPassReceipt = { attempted: number; settled: number; refused: number; read: number; outcomes: Record<string, number> };
+const READ_NOTHING: AnalysisPassReceipt = { attempted: 0, settled: 0, refused: 0, read: 0, outcomes: {} };
 
 /** Read back the day's new answers, bounded and RESUMABLE. `read` is how many readings were PERSISTED, never how many were attempted. $0 when nothing is
  *  new, and fail-soft by contract: analysis is derived from evidence already safely stored, so a failure here must never pause the run that just did the
@@ -344,6 +326,10 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
   // WHAT THIS PASS HAS ALREADY SPENT AND ALREADY SETTLED. `billed` counts the calls that genuinely returned something, so a pass that paid and stored nothing is a
   // contradiction I say out loud; `asked` makes ONE attempt per answer per pass structural, so no ladder below can send the same answer twice in one pass.
   let billed = 0, settledHere = 0, refusedHere = 0, singlesLeft = SINGLES_PER_PASS; const asked = new Set<string>();
+  // THE ACCOUNTING. One bucket per answer taken on, bumped exactly once where a verdict is reached, so a receipt can never show a bare number nobody can check. `accountedFor` counts the answers that reached a
+  // verdict at all; whatever is left over is owed, and `billed` decides which kind of owed it was.
+  const outcomes: Record<string, number> = {}; let accountedFor = 0;
+  const account = (bucket: string, n = 1): void => { outcomes[bucket] = (outcomes[bucket] ?? 0) + n; };
   const analyze = deps.analyze ?? ((i: Parameters<typeof analyzeOne>[0]) => analyzeOne(i, deps.complete));
   const analyzeBatch = deps.analyzeBatch ?? ((i: Parameters<typeof analyzeMany>[0]) => analyzeMany(i, deps.complete));
   // The SAME budget selection packed against, so the two can never disagree about what this pass owns.
@@ -367,8 +353,9 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
       // A REFUSAL IS WRITTEN WITH THE SAME DISCIPLINE AS A READING: one retry, and a loss said out loud.
       const kept = await persist(tenantId, row.id, rejection, hash).then(() => true)
         .catch(() => persist(tenantId, row.id, rejection, hash).then(() => true).catch(() => false));
-      if (kept) { settledHere += 1; refusedHere += 1; await recordRejection(tenantId, row, reason); }
-      else log.warn("[daily-observations] I could not record that I was refused a reading of this answer, so it will be asked for again", { tenantId, observationId: row.id });
+      accountedFor += 1;
+      if (kept) { settledHere += 1; refusedHere += 1; account(why); await recordRejection(tenantId, row, reason); }
+      else { account("persist_failed"); log.warn("[daily-observations] I could not record that I was refused a reading of this answer, so it will be asked for again", { tenantId, observationId: row.id }); }
       return; }
     const byModel = analysis.ownedBrandMention?.mentioned === true;
     // `extra` carries HOW MUCH OF THIS ANSWER I ACTUALLY READ: a reading of some of a long answer never looks like a reading of all of it.
@@ -377,7 +364,11 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     // ONE retry on a lost write. Still lost leaves the row for the next pass, where the gateway's own call cache serves the identical request at $0.
     const saved = await persist(tenantId, row.id, record, hash).then(() => true)
       .catch(() => persist(tenantId, row.id, record, hash).then(() => true).catch(() => false));
-    if (saved) { written += 1; settledHere += 1; }
+    // A READING I PRODUCED AND COULD NOT STORE IS A CALL BOUGHT FOR NOTHING, and it used to pass in complete silence: no log, no counter, and a receipt that read like a quiet day. Named here, so a run whose
+    // readings are all falling on the floor says so on its first pass rather than its fortieth.
+    accountedFor += 1;
+    if (saved) { written += 1; settledHere += 1; account("settled"); }
+    else { account("persist_failed"); log.error("[daily-observations] I read this answer and could not store the reading, so it is still owed and that call bought nothing", { tenantId, observationId: row.id }); }
   };
 
   /** ONE ANSWER'S PIECES, SETTLED AS ONE ANSWER, ACROSS PASSES. Each piece is checked against its own text, what landed is merged ON TOP of what earlier
@@ -492,8 +483,17 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     if (wave.length >= BATCH_CONCURRENCY) await runWave();
   }
   if (!stop) await runWave();
+  // EVERY ANSWER THIS PASS TOOK ON IS ACCOUNTED FOR EXACTLY ONCE. Whatever reached no verdict is owed, and whether a cent was spent discovering that is the difference between a throttle that stopped a working pass
+  // and a pass that never got to ask anybody anything. Arithmetic that disagrees with itself is a bug: it is named, and the difference is carried so the receipt still adds up.
+  if (targets.length > accountedFor) account(billed === 0 ? "stalled_before_spend" : "left_owed", targets.length - accountedFor);
+  const accounted = Object.values(outcomes).reduce((a, b) => a + b, 0);
+  if (accounted !== targets.length) {
+    log.error("[daily-observations] the reading receipt did not add up, so I carried the difference rather than publish a number nobody can check", { tenantId, day: reading, attempted: targets.length, accounted, delta: targets.length - accounted });
+    account("unaccounted", targets.length - accounted); }
   // A PASS THAT PAID AND STORED NOTHING IS A BUG, NOT A QUIET DAY: it is the exact shape of the leak (calls that returned, nothing written down, the next pass buying the identical work), so it stops here and says so.
-  if (billed > 0 && settledHere === 0) log.error("[daily-observations] I paid for readings of your answers and could not store a single verdict, so I stopped rather than buy the same thing again", { tenantId, day: reading, billed, answers: targets.length });
-  else if (settledHere > 0) log.info("[daily-observations] read back AI answers you had already paid for", { tenantId, day: reading, read: written, refused: refusedHere, owed: targets.length - settledHere });
-  return { attempted: targets.length, settled: settledHere, refused: refusedHere, read: written };
+  if (billed > 0 && settledHere === 0) log.error("[daily-observations] I paid for readings of your answers and could not store a single verdict, so I stopped rather than buy the same thing again", { tenantId, day: reading, billed, answers: targets.length, outcomes });
+  // AND A PASS THAT NEVER GOT AS FAR AS PAYING IS THE SAME DEAD DAY. It used to log nothing at all, so a throttle, my own deadline, a spent cap and an empty balance each left a row reading "505 taken on, 0 read" with no line anywhere saying why.
+  else if (settledHere === 0) log.error("[daily-observations] a whole reading pass ended before a single verdict landed, so every one of those answers is still owed", { tenantId, day: reading, billed, answers: targets.length, outcomes });
+  else log.info("[daily-observations] read back AI answers you had already paid for", { tenantId, day: reading, read: written, refused: refusedHere, owed: targets.length - settledHere });
+  return { attempted: targets.length, settled: settledHere, refused: refusedHere, read: written, outcomes };
 }

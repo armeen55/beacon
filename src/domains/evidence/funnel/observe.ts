@@ -72,7 +72,10 @@ function draftOf(p: FunnelPair, ids: ObsIds, text: string, at: string, status: A
     // in-flight one because only a dated row is carried), so the clock here is unreachable defense.
     day: p.day ?? at.slice(0, 10),
     requestedAt: p.requestedAt ?? at, capability: `${capabilityFor(p)}@v3`,
-    cacheKey: p.cacheKey, modelRequested: p.modelRequested ?? null, status, ...over,
+    // THE RUN THIS READING WAS TAKEN ON rides the canonical row too. It reached the derived history row from
+    // the first day and stopped there, so the record that IS the truth could not name its own run and no
+    // reader could ask "which pass bought this answer" without going through the projection to find out.
+    cacheKey: p.cacheKey, modelRequested: p.modelRequested ?? null, runId: ids.runId, status, ...over,
   };
 }
 
@@ -140,7 +143,7 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
     // The planner already excludes an engine it cannot ask, so this is DEFENSE against plan-versus-execution drift (a newly added engine, an older plan): the
     // row is written unsupported without a provider call, so the gap is named rather than disappearing.
     for (const x of due.filter((y) => !OBSERVABLE.has(y.engine))) {
-      await d.recordObservation(buildAiObservation({ tenantId, site: obs.site, promptId: x.promptId, promptVersion: x.version, promptText: x.text,
+      await d.recordObservation(buildAiObservation({ tenantId, site: obs.site, runId, promptId: x.promptId, promptVersion: x.version, promptText: x.text,
         engine: x.engine, mode: canonicalMode(x.engine), slot: x.slot, day: x.day, requestedAt: nowIso(), capability: "unavailable", status: "unsupported",
         failureReason: `I cannot ask ${x.engine} for you yet, so I spent nothing on it.` }), tenantId);
     }
@@ -256,7 +259,29 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
 // ── B4: SERP analysis ───────────────────────────────────────────────────────
 const refs = (parsed: ParsedSerp | null) => (parsed?.aiOverview?.references ?? []).map((r) => ({ url: r.url, domain: r.domain, title: r.title }));
 
-function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string): void {
+/** THE SEARCH THE PROVIDER SAYS IT RAN, off the envelope it sent back: the SERP result block echoes the ask
+ *  (tasks[0].result[0].keyword) and the task carries the same string on its stored data. The typed ParsedSerp
+ *  keeps only the results, so the echo is read here from the envelope itself. null = this payload echoed
+ *  nothing, which is never proof of a match and is never treated as one. */
+function echoedKeyword(payload: unknown): string | null {
+  const task = (payload as { tasks?: { data?: { keyword?: unknown }; result?: { keyword?: unknown }[] }[] } | null)?.tasks?.[0];
+  const echo = (Array.isArray(task?.result) ? task.result[0]?.keyword : undefined) ?? task?.data?.keyword;
+  return typeof echo === "string" && echo.trim() ? echo : null;
+}
+
+/** A LANDING IS ACCEPTED ONLY WHERE THE PROVIDER ANSWERED THE SEARCH THAT WAS ASKED. The keyword it echoes is
+ *  compared under the SAME normalization the ask was sent in; a mismatch is named on the row, held as
+ *  unavailable coverage and kept out of evidence rather than stored as this search's own results page. An
+ *  envelope that echoes NOTHING is not a mismatch: it is a match nobody can prove, so the results stand and
+ *  what is verified is only what the response itself carries (its rows and its status). */
+function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string, payload: unknown, tenantId: string): void {
+  const echo = echoedKeyword(payload), served = echo ? normalizeKeyword(echo) : null;
+  if (served && served !== normalizeKeyword(s.query)) {
+    log.warn("[research-funnel] serp identity mismatch", { tenantId, asked: s.query, served });
+    s.status = "failed"; s.observedAt = nowIso; s.reposts = undefined; s.identityMismatch = { asked: s.query, served };
+    return;
+  }
+  s.identityMismatch = undefined; // a clean landing closes an earlier mismatch on this row
   s.status = "done"; s.observedAt = nowIso; s.aiOverview = refs(parsed); s.related = parsed.relatedSearches.slice(0, 20);
   s.reposts = undefined; s.organic = parsed.organic.slice(0, 10).map((o) => ({ rank: o.rank, url: o.url, domain: o.domain, title: o.title })); // a landed look closes the incident
   s.paa = parsed.paaQuestions.map((q) => ({ question: q.question, answeringDomain: q.answeringDomain }));
@@ -286,7 +311,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     const themes = profile ? [...profile.offerings.value, ...profile.topicsToOwn.value, ...profile.customerProblems.value] : [];
     const byPrompt = new Map<string, { text: string; fanOutQueries: string[] }>(); // ONE row per tracked question: approved text + every fan-out observed for it
     for (const p of state.prompts.pairs) { const row = byPrompt.get(p.promptId) ?? { text: "", fanOutQueries: [] }; if (!row.text && p.promptText) row.text = p.promptText; row.fanOutQueries.push(...(p.fanOutQueries ?? [])); byPrompt.set(p.promptId, row); }
-    const prompts = [...byPrompt.values()].filter((p) => p.text || p.fanOutQueries.length > 0);
+    // THE QUESTION'S OWN ID TRAVELS WITH IT, so a search the agenda takes from this question is stamped with the question that produced it.
+    const prompts = [...byPrompt.entries()].map(([promptId, p]) => ({ ...p, promptId })).filter((p) => p.text || p.fanOutQueries.length > 0);
     const pageQueries = await d.loadPageQueries(tenantId).catch(() => null);
     // FAIL BEFORE SPEND: no readable business basics, no readable page queries and no tracked questions means I have
     // NO trusted starting point, so I buy nothing this pass and leave the research already saved exactly as it is.
@@ -297,7 +323,10 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     // Internal progress truth only: what I could not defend and what the provider would refuse. Never customer copy.
     if (agenda.uncoveredThemes.length > 0 || agenda.skipped.length > 0) log.info("[research-funnel] serp agenda gaps", { tenantId, uncoveredThemes: agenda.uncoveredThemes, skipped: agenda.skipped });
     const byQ = new Map(state.serps.queries.map((s) => [s.query, s])), top5 = new Set(chosen.slice(0, 5));
-    const serps: FunnelSerp[] = chosen.map((q) => byQ.get(q) ?? { query: q, cacheKey: null, status: "pending" });
+    // WHO ASKED FOR THIS SEARCH rides the row from the moment it enters the agenda: a results page can then name
+    // the question behind it instead of being matched back to one by its words, which no longer says WHICH question.
+    const serps: FunnelSerp[] = chosen.map((q) => { const row = byQ.get(q) ?? { query: q, cacheKey: null, status: "pending" as const };
+      const parent = agenda.parents[q]; return { ...row, ...(agenda.sources[q] ? { source: agenda.sources[q] } : {}), ...(parent ? { parentPromptId: parent } : {}) }; });
     const nowIso = () => new Date(d.now()).toISOString(), parseSerp = (payload: unknown) => d.parse("serp_organic", payload as never) as ParsedSerp | null;
     // A DAILY-LIMIT REFUSAL STOPS THE BATCH, exactly as it does on the AI-answer loops above: the provider answers 40203 the same way to every call it will take today, so carrying on asked it up to a hundred and four more times for a hundred and four identical refusals. A stopped row is still `pending`, which IS the owed state, so nothing is lost and nothing is re-bought: tomorrow's pass takes the same searches with a fresh limit.
     let failedDetail: string | null = null, blockedDetail: string | null = null, limitDetail: string | null = null;
@@ -308,7 +337,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     for (const s of serps) {
       if ((s.status !== "done" && s.status !== "failed") || !s.observedAt) continue;
       if (isCurrent(hot.has(canonicalQueryKey(s.query)) ? "serp_hot" : "serp_cold", s.observedAt, d.now())) continue;
-      s.status = "pending"; s.cacheKey = null; s.reposts = undefined;
+      s.status = "pending"; s.cacheKey = null; s.reposts = undefined; s.identityMismatch = undefined;
       s.aiMode = undefined; s.aiModeCacheKey = null; s.aiModeReposted = undefined; s.aiModeFailed = undefined;
     }
 
@@ -318,7 +347,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
         if (blockedDetail || limitDetail || d.now() > deadline) break;
         if (s.status === "posted" && s.cacheKey) {
           const r = interp(await d.collectTask(s.cacheKey)); track(state, r);
-          if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso()); }
+          if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso(), r.payload, tenantId); }
           else if (r.kind === "failed") {
             // daily_limit and blocked both STOP the batch (the row stays posted, so its collect is still free tomorrow); everything else stays posted, free.
             if (r.disposition === "daily_limit") limitDetail = r.detail ?? null;
@@ -351,7 +380,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
         if (s.status === "pending") {
           const r = interp(await d.callProvider("serp_organic", { keyword: s.query }, ids)); track(state, r);
           if (r.kind === "waiting") { s.status = "posted"; s.cacheKey = r.cacheKey; }
-          else if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso()); }
+          else if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso(), r.payload, tenantId); }
           else if (r.kind === "failed") {
             // daily_limit and blocked are the stops; quarantined = explicit unavailable coverage; the rest continue.
             if (r.disposition === "daily_limit") limitDetail = r.detail ?? null;
@@ -384,11 +413,15 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
       const topRows = serps.filter((s) => top5.has(s.query)), aiModeMissing = topRows.filter((s) => s.aiModeFailed).length;
       const aiModeInFlight = topRows.some((s) => s.aiModeCacheKey && !s.aiMode && !s.aiModeFailed), unavailable = serps.filter((s) => s.status === "failed").length;
       const anyPending = serps.some((s) => s.status === "pending" || s.status === "posted") || aiModeInFlight;
+      // A RESULTS PAGE FOR ANOTHER PHRASE IS NAMED WHICHEVER WAY THE ARITHMETIC LANDS, so it is never reported as an ordinary provider outage.
+      const mismatched = serps.filter((s) => s.identityMismatch).length;
+      if (mismatched > 0) failedDetail = `${mismatched} ${mismatched === 1 ? "search" : "searches"} came back for a different phrase than the one asked, so ${mismatched === 1 ? "it was" : "they were"} left out and will be checked again.`;
       // done = every CURRENT query freshly analyzed or explicitly unavailable, one real look minimum, no AI Mode live; unavailable is surfaced.
       let status: FunnelUnitOutcome["status"];
       if (state.serps.analyzed > 0 && state.serps.analyzed + unavailable >= chosen.length && !aiModeInFlight) { status = "done";
-        if (unavailable > 0) failedDetail = `${unavailable} searches were unavailable from the provider; the rest are in.`;
-        else if (aiModeMissing > 0) failedDetail = `${aiModeMissing} AI Mode looks were unavailable from the provider; the search results themselves are in.`; }
+        // A NAMED MISMATCH OUTRANKS BOTH counts below: it already says what happened, and reporting it as a provider outage would be the wrong claim.
+        if (mismatched === 0 && unavailable > 0) failedDetail = `${unavailable} searches were unavailable from the provider; the rest are in.`;
+        else if (mismatched === 0 && aiModeMissing > 0) failedDetail = `${aiModeMissing} AI Mode looks were unavailable from the provider; the search results themselves are in.`; }
       else if (anyPending) status = "waiting";
       else status = "failed";
       const detail = status === "failed" ? (failedDetail ?? "Some searches did not finish. I will retry them on the next pass.") : failedDetail;
@@ -415,8 +448,10 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
   const stale = donePairs.filter((p) => isStale(p.observedAt)).length
     + state.serps.queries.filter((s) => s.status === "done" && isStale(s.observedAt)).length;
   const missing = Math.max(0, state.prompts.pairs.length - donePairs.length)
-    + state.serps.queries.filter((s) => s.status !== "done").length + state.serps.queries.filter((s) => s.aiModeFailed).length;
-  const doneSerps = state.serps.queries.filter((s) => s.status === "done");
+    + state.serps.queries.filter((s) => s.status !== "done" || !!s.identityMismatch).length + state.serps.queries.filter((s) => s.aiModeFailed).length;
+  // FAIL CLOSED ON IDENTITY: a look the provider answered for a DIFFERENT phrase is missing coverage, never
+  // this search's evidence, so it is counted above and dropped here however its row happens to be marked.
+  const doneSerps = state.serps.queries.filter((s) => s.status === "done" && !s.identityMismatch);
   return {
     // LINEAGE rides along: how each keyword was found, the confirmed theme it was found from, the case it joined, the page of my own that already ranks for it, and what acting on it would mean. Every one is a recorded fact, so nothing downstream has to guess them. THE WHOLE JOURNEY rides along too (`origins`), so a fan-out can be traced back to the question, the engine, the day and the stored answer that produced it; a row stored before it was kept projects without it rather than with an invented one.
     retainedKeywords: state.discovery.retained.map((k) => ({ query: k.keyword, searchVolume: k.searchVolume, competition: k.competition, competitionLevel: k.competitionLevel ?? competitionLevel(k.competition), difficulty: k.difficulty ?? null, intent: k.intent, discoveredVia: k.discoveredVia, seed: k.seed ?? null, ownedRankingUrl: k.ownedRankingUrl ?? null, ownedPosition: k.ownedPosition ?? null, parentCaseId: k.caseId ?? null, supports: k.supports ?? null, ...(k.origins ? { origins: k.origins } : {}), ...(k.moreOrigins ? { moreOrigins: k.moreOrigins } : {}) })),

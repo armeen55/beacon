@@ -200,16 +200,17 @@ export function retainDiverse(retained: FunnelKeyword[], cap: number): FunnelKey
 /** `page` is the address of MY OWN whose Search Console row carried this query, kept so a keyword harvested here can name the page that earned it.
  *  Optional: a caller with no page says so by leaving it out rather than by naming a page it did not read. */
 export type SerpAgendaPageQuery = { query: string; impressions?: number | null; declining?: boolean; page?: string | null };
-/** ONE tracked question: its approved text plus the fan-out queries actually observed for it. */
-type SerpAgendaPrompt = { text: string; fanOutQueries?: string[] | null };
+/** ONE tracked question: its approved text, the fan-out queries actually observed for it, and its own id, so
+ *  a query harvested from it can NAME the question that produced it instead of being matched back by words. */
+type SerpAgendaPrompt = { text: string; fanOutQueries?: string[] | null; promptId?: string };
 /** WHERE ONE AGENDA QUERY CAME FROM. `fan_out` is a search an ENGINE ran itself to answer a question; `prompt` is the approved text of a question I track;
  *  `keyword` is a search phrase, from my own pages, an open investigation, or the researched set. fan_out and prompt both enter the agenda and must never
  *  be confused: reporting my own question as the engine's own search invents an observation nobody made. */
 type AgendaSource = "fan_out" | "prompt" | "keyword";
-/** queries is the ONLY thing anyone buys, and `sources` says where each one came from so no reader
- *  downstream has to guess. uncoveredThemes and skipped are internal progress truth for the run log,
- *  never customer copy. */
-type SerpAgenda = { queries: string[]; sources: Record<string, AgendaSource>; uncoveredThemes: string[]; skipped: { query: string; reason: string }[] };
+/** queries is the ONLY thing anyone buys, `sources` says where each one came from and `parents` names the
+ *  tracked question behind the ones that have one, so no reader downstream has to guess either.
+ *  uncoveredThemes and skipped are internal progress truth for the run log, never customer copy. */
+type SerpAgenda = { queries: string[]; sources: Record<string, AgendaSource>; parents: Record<string, string>; uncoveredThemes: string[]; skipped: { query: string; reason: string }[] };
 
 /** Volume desc with a lexicographic tiebreak: a TOTAL order, never input order. */
 const byVolume = (a: FunnelKeyword, b: FunnelKeyword) =>
@@ -253,6 +254,7 @@ export function selectSerpAgenda(
   const weak = weakAnchorTokens(input.themes ?? []);
   const queries: string[] = [];
   const sources: Record<string, AgendaSource> = {};
+  const parents: Record<string, string> = {};
   const skipped: { query: string; reason: string }[] = [];
   const usedKeys = new Set<string>();
   const has = (raw: string): boolean => {
@@ -260,8 +262,9 @@ export function selectSerpAgenda(
     return !!q && usedKeys.has(canonicalQueryKey(q));
   };
   /** THE one gate every portfolio passes through: the exact normalized string, bounds checked, deduped by canonical identity, and STAMPED with where it
-   *  came from. Returns whether a slot was spent, and the first portfolio to claim a query owns its provenance, as the dedupe already does. */
-  const take = (raw: string, stop: number, source: AgendaSource): boolean => {
+   *  came from AND, where there is one, the tracked question it came out of. Returns whether a slot was spent, and the first portfolio to claim a query
+   *  owns its provenance, as the dedupe already does. */
+  const take = (raw: string, stop: number, source: AgendaSource, parentPromptId?: string): boolean => {
     const q = normalizeKeyword(raw);
     if (!q || queries.length >= stop) return false;
     if (q.length > MAX_SERP_KEYWORD_CHARS) {
@@ -273,10 +276,11 @@ export function selectSerpAgenda(
     usedKeys.add(key);
     queries.push(q);
     sources[q] = source;
+    if (parentPromptId) parents[q] = parentPromptId;
     return true;
   };
-  /** Every group's best candidate before any group's second, in stable group order. */
-  const roundRobin = (groups: string[][], stop: number, source: AgendaSource): void => {
+  /** Every group's best candidate before any group's second, in stable group order. `owners` names the tracked question behind each group, where there is one. */
+  const roundRobin = (groups: string[][], stop: number, source: AgendaSource, owners: (string | undefined)[] = []): void => {
     const at = groups.map(() => 0);
     while (queries.length < stop) {
       let moved = false;
@@ -286,7 +290,7 @@ export function selectSerpAgenda(
         while (i < list.length && has(list[i]!)) i += 1;
         at[g] = i + 1;
         if (i >= list.length) continue;
-        take(list[i]!, stop, source);
+        take(list[i]!, stop, source, owners[g]);
         moved = true;
       }
       if (!moved) break;
@@ -310,19 +314,20 @@ export function selectSerpAgenda(
   // P2: the questions I track. A search the engine ran itself is already search-shaped, so it goes first; a question no usable one covers is checked as
   // its own approved text. Never a researched substitute for either.
   const stop2 = stopAt(cap, 22, 0.55);
-  const byText = new Map<string, string[]>();
+  const byText = new Map<string, { fans: string[]; promptId?: string }>();
   for (const p of input.prompts ?? []) {
     const text = normalizeKeyword(p?.text ?? "");
     const fans = (p?.fanOutQueries ?? []).map(normalizeKeyword).filter(Boolean);
     if (!text && fans.length === 0) continue;
-    byText.set(text, [...(byText.get(text) ?? []), ...fans]);
+    const held = byText.get(text); // one wording, one row: the first question that carried it stays its parent
+    byText.set(text, { fans: [...(held?.fans ?? []), ...fans], promptId: held?.promptId ?? p?.promptId });
   }
   const prompts = [...byText.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([text, fans]) => ({ text, fans: [...new Set(fans)].sort() }));
+    .map(([text, row]) => ({ text, promptId: row.promptId, fans: [...new Set(row.fans)].sort() }));
   // BOTH ENTER, NEITHER DISGUISED AS THE OTHER: the engine's own searches are stamped fan_out and my approved question text prompt, so no reader
   // downstream can report my question as a search some engine ran.
-  roundRobin(prompts.map((p) => p.fans), stop2, "fan_out");
-  for (const p of prompts) if (p.text && !p.fans.some(has)) take(p.text, stop2, "prompt");
+  roundRobin(prompts.map((p) => p.fans), stop2, "fan_out", prompts.map((p) => p.promptId));
+  for (const p of prompts) if (p.text && !p.fans.some(has)) take(p.text, stop2, "prompt", p.promptId);
 
   // P3: a RESEARCHED keyword may stand in for a theme only on a genuinely strong anchored match: at least two strong shared tokens, or the theme's whole
   // strong-token set covered. One shared token was enough to call "female names" a match for "boy names". An undefendable theme buys nothing and is named.
@@ -351,7 +356,7 @@ export function selectSerpAgenda(
   // P4: bounded exploration, so real demand I have no theme for is still seen once.
   const stop4 = Math.min(cap, queries.length + 8);
   for (const r of rows) take(r.keyword, stop4, "keyword");
-  return { queries, sources, uncoveredThemes, skipped };
+  return { queries, sources, parents, uncoveredThemes, skipped };
 }
 
 // ── winning-page ranking (pure, TRUE provenance) ────────────────────────────

@@ -52,6 +52,10 @@ export type AiObservationRecord = {
     /** What the PROVIDER said this ask cost it. It rides the journey jsonb rather than a column of its own, so nothing here needs a migration and every
      *  row written before it existed still reads clean. Kept strictly apart from cost_usd above, which is the money that moved through the ledger. */
     usage?: AnswerUsage | null;
+    /** THE RESEARCH RUN THAT BOUGHT THIS READING, on the same jsonb and for the same reason: no migration, and
+     *  a row written before it reads clean. The derived history row has always carried the run id, so without
+     *  it here the canonical record could not name its own buyer. Absent = written before it was stamped. */
+    run_id?: string | null;
   };
   /** Null until a later strict-schema pass analyzes the stored text. No provider call. */
   analysis: Record<string, unknown> | null;
@@ -72,6 +76,8 @@ export type AiObservationDraft = {
   /** Full ISO instant the request was made. It records WHEN, never WHICH DAY THIS COUNTS FOR. */
   requestedAt: string;
   completedAt?: string | null; capability: string; cacheKey?: string | null; costUsd?: number;
+  /** The research run this reading was taken on; it lands on the row's own journey. Absent = not supplied. */
+  runId?: string | null;
   modelRequested?: string | null; status: AiObservationStatus; failureReason?: string | null;
   parsed?: ParsedAiAnswer | null;
 };
@@ -101,7 +107,7 @@ export function buildAiObservation(d: AiObservationDraft): AiObservationRecord {
     journey: {
       fan_outs: p?.fanOutQueries ?? null, retrieved_results: p?.retrievedResults ?? null,
       cited_sources: p?.citations ?? null, brand_mentions: p?.brandMentions ?? null,
-      web_search_reported: p?.webSearchReported ?? null, usage: p?.usage ?? null,
+      web_search_reported: p?.webSearchReported ?? null, usage: p?.usage ?? null, run_id: d.runId ?? null,
     },
     analysis: null, analysis_hash: null,
   };
@@ -320,6 +326,9 @@ export function canonicalPairOf(r: AiObservationRecord): CanonicalPairObservatio
   const cited = r.journey?.cited_sources ?? null;
   return {
     observationId: r.id, promptId: r.prompt_id, promptVersion: r.prompt_version, promptText: r.prompt_text,
+    // THE RECEIPT TRAVELS WITH THE ANSWER: the cache identity of the envelope this reading was read from is
+    // what makes a claim about what was bought checkable, and every reader downstream had to say "unknown".
+    cacheKey: r.cache_key ?? null,
     engine: r.engine, modelRequested: r.model_requested, modelServed: r.model_served,
     observationMode: r.observation_mode, reportingDay: r.reporting_day, observedAt: r.completed_at,
     answerHash: r.answer_hash ?? "", webSearchReported: r.journey?.web_search_reported ?? null,

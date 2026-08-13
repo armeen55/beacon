@@ -97,8 +97,8 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } { const
       Object.assign(r, { current_phase: patch.phase, progress: patch.progress ?? r.progress, phase_cursor: patch.cursor ?? null, lease_expires_at: iso(NOW + leaseSeconds * 1000) });  // Like the SQL: phase_cursor is ALWAYS set to the patch value (null clears).
       return true; }, async renew({ tenantId, id, owner, leaseSeconds, cursor }) {
       const r = find(id, tenantId); if (!r || !live(r, owner) || r.status !== "running") return false; Object.assign(r, { phase_cursor: cursor ?? null, lease_expires_at: iso(NOW + leaseSeconds * 1000) }); return true; },
-    async finish({ tenantId, id, owner, outcome, errorInfo }) { const r = find(id, tenantId), done = outcome === "completed"; if (!r || !live(r, owner) || !(r.status === "running" || r.status === "paused")) return false;
-      Object.assign(r, { status: outcome, lease_owner: null, lease_expires_at: null, last_error: done ? null : errorInfo ?? null, ...(done ? { current_phase: "done", completed_at: iso() } : {}) }); return true; },
+    async finish({ tenantId, id, owner, outcome, errorInfo, spendUsd }) { const r = find(id, tenantId), done = outcome === "completed"; if (!r || !live(r, owner) || !(r.status === "running" || r.status === "paused")) return false;  // The spend stamp rides the same guarded close the SQL does: it lands under the lease we still hold, right before it is released.
+      Object.assign(r, { status: outcome, lease_owner: null, lease_expires_at: null, last_error: done ? null : errorInfo ?? null, ...(typeof spendUsd === "number" ? { spend_usd: spendUsd } : {}), ...(done ? { current_phase: "done", completed_at: iso() } : {}) }); return true; },
     async latest(t) { const m = newestFirst(t)[0]; return m ? { ...m } : null; },
     async sameDay({ tenantId, day, limit }) {  // The reporting day rides on the tail of BOTH cycle-key shapes, which is how the day's rows are found.
       return newestFirst(tenantId).filter((x) => x.cycle_key.endsWith(day)).slice(0, limit).map((x) => ({ id: x.id, progress: x.progress ?? {} })); },
@@ -112,7 +112,7 @@ function withRun(o: Partial<RR.ResearchRun> = {}): RR.ResearchRun[] { const rows
 /** Work is owed unless a test says otherwise, so every pre-Phase-5 pin drives the same phases it always did. */
 const NO_CHECKS = { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 };
 const SOMETHING_DUE: DueWork = { due: ["daily_observations"], readable: true, checks: NO_CHECKS, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null };
-const NOTHING_DUE: DueWork = { ...SOMETHING_DUE, due: [] }, NO_READING = { attempted: 0, settled: 0, refused: 0, read: 0 };
+const NOTHING_DUE: DueWork = { ...SOMETHING_DUE, due: [] }, NO_READING = { attempted: 0, settled: 0, refused: 0, read: 0, outcomes: {} };
 /** Benign no-op steps; a phase-truth test overrides the ONE step under test. */
 const BENIGN: ResearchCycleSteps = {
   dueWork: async () => SOMETHING_DUE, evidenceVersion: async () => null, reconcileCases: async () => {},
@@ -210,7 +210,7 @@ describe("research-run: a recovery pass runs what it was opened for", () => {
   const settled = () => { const rows = freshRepo(); rows.push(mk({ id: "done1", status: "completed", completed_at: iso(), current_phase: "done", started_at: iso() })); return rows; };
   it("settles a reading debt by READING, and buys no keyword, results page, winner, crawl or publication to do it", async () => {
     const rows = settled(); const touched: string[] = []; let analysed = 0;
-    await run({ ...spy(touched), dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers"] }), analyzeAnswers: async () => (analysed += 1, { attempted: 7, settled: 7, refused: 0, read: 7 }) }); expect([touched, analysed]).toEqual([[], 1]); // not one phase outside the debt ran, so not one cent of research was spent
+    await run({ ...spy(touched), dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers"] }), analyzeAnswers: async () => (analysed += 1, { attempted: 7, settled: 7, refused: 0, read: 7, outcomes: { settled: 7 } }) }); expect([touched, analysed]).toEqual([[], 1]); // not one phase outside the debt ran, so not one cent of research was spent
     expect([rows[1]!.status, rows[1]!.progress.plan?.units, rows[1]!.progress.funnel?.answersAnalyzed]).toEqual(["completed", ["analyze_answers"], 7]); });
   it("spends a settled reading by harvesting it and deciding again, and buys no results page, winner, crawl or answer to do it", async () => {
     settled(); const touched: string[] = []; await run({ ...spy(touched), dueWork: async () => ({ ...SOMETHING_DUE, due: ["consume_analyses"] }) }); expect(touched).toEqual(["keyword_discovery", "publish"]); }); // the harvest and the re-decide, and not one phase or cent beside them
@@ -374,7 +374,10 @@ describe("research-run Today copy", () => {
     const dead = RR.projectStatusView(mk({ ...fresh, updated_at: iso(NOW - 11 * 60_000) }), NOW);  // The SAME row, untouched past the stale bound: the owner died, and saying so is the honest read.
     expect([dead.state, dead.pauseReason]).toEqual(["paused", "I was interrupted mid research. My next daily round picks this back up."]);
     expect(RR.researchStatusLine(dead)).toBe("Research paused after 5 of 8 steps. I was interrupted mid research. My next daily round picks this back up.");
-    expect(RR.projectStatusView(mk({ ...fresh, lease_owner: "o", lease_expires_at: iso(NOW - LEASE) }), NOW)) .toEqual(RR.projectStatusView(fresh, NOW)); });  // It reads off updated_at alone, so a lease that lived or died still moves nothing: no flicker.
+    expect(RR.projectStatusView(mk({ ...fresh, lease_owner: "o", lease_expires_at: iso(NOW - LEASE) }), NOW)).toEqual(RR.projectStatusView(fresh, NOW)); });  // It reads off updated_at alone, so a lease that lived or died still moves nothing: no flicker.
+  it("says whether research is alive at all: what the last pass produced, a day that owed nothing, and a silence with the press that ends it", () => {
+    const at = new Date(NOON_PT).toISOString(), seen = (o: Partial<RR.ResearchRun>, ms = NOON_PT + 3_600_000) => RR.projectStatusView(mk({ status: "completed", updated_at: at, completed_at: at, ...o }), ms).liveness;
+    expect([seen({ progress: { funnel: { answersAnalyzed: 34 } } }), seen({}), seen({}, NOON_PT + 3 * DAY), RR.projectStatusView(null, NOON_PT).liveness]).toEqual([{ state: "productive", line: "Read 34 new answers closely today at 12:00 PM." }, { state: "quiet", line: "Checked today at 12:00 PM. Nothing new was owed." }, { state: "silent", line: "No research has run since Thursday. Open Today and press Update data." }, { state: "silent", line: "No research has run for this account yet. Open Today and press Update data." }]); }); // a count of checks can never say this: a quiet day and a week of silence both rendered as nothing at all
 });
 describe("research-run conflict-free research closure", () => {
   /** THE production incident, hermetic: ONE research_state row, a discovery phase landing this run's REAL receipt, and a prompt phase served the snapshot from BEFORE that write. The writers interleave, so the prompt unit resets its receipt and its optimistic save conflicts. The executor is the REAL one. */
@@ -415,16 +418,16 @@ describe("research-run conflict-free research closure", () => {
   it("reads the answers already paid for BEFORE it walks back into a long step, so a step that runs for hours can never starve them", async () => {
     // The dispatch RESUMES this account's one unfinished run every half hour, so a run parked at the results-page step was handed the whole turn again and again: on 7 August one held the day for ten and a half hours while 687 bought answers sat unread, because the only door that opens a reading pass is the one the claim never reaches while a run is open.
     const order: string[] = [], rows = withRun({ current_phase: "serp_analysis", progress: { plan: { units: ["analyze_answers", "plan_cases"] } } });
-    await run({ dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers", "plan_cases"] }), analyzeAnswers: async () => (order.push("read"), { attempted: 40, settled: 38, refused: 2, read: 36 }),
+    await run({ dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers", "plan_cases"] }), analyzeAnswers: async () => (order.push("read"), { attempted: 40, settled: 38, refused: 2, read: 36, outcomes: { settled: 38, provider_refused: 2 } }),
       funnelUnit: async (phase) => (order.push(phase), { status: "done", cursor: null, progress: {} }) });
     expect(order).toEqual(["read", "serp_analysis"]); // the reading first, then the long step carries on with whatever is left of the turn
     expect(rows[0]!.progress.funnel).toMatchObject({ answersAnalyzed: 36, answersAttempted: 40, answersRefused: 2 }); // and the row says what this turn actually did, so ten hours of silence is impossible
     const fresh = withRun({ current_phase: "refresh_sources" }), walked: string[] = []; // A FRESH RUN IS NOT A RESUMED ONE: it reads once, at the observation step, exactly as it always did
-    await run({ dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers"] }), analyzeAnswers: async () => (walked.push("read"), { attempted: 1, settled: 1, refused: 0, read: 1 }) });
+    await run({ dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers"] }), analyzeAnswers: async () => (walked.push("read"), { attempted: 1, settled: 1, refused: 0, read: 1, outcomes: { settled: 1 } }) });
     expect([walked.length, fresh[0]!.status]).toEqual([1, "completed"]); });
   it("reads that slice ONCE a turn, however many times the turn passes back through a long step, and starts none at all with no time to store one", async () => {
     // ONE PER TURN, because the slice buys real readings: a phase that iterates, and a turn that walks from the results-page step into the winners step, would otherwise spend the whole allowance over and over.
-    const order: string[] = [], rows = withRun({ current_phase: "serp_analysis", progress: { plan: { units: ["analyze_answers", "acquire_case_evidence"] } } }); let unit = 0; const reading = (into: string[]) => async () => (into.push("read"), { attempted: 5, settled: 5, refused: 0, read: 5 });
+    const order: string[] = [], rows = withRun({ current_phase: "serp_analysis", progress: { plan: { units: ["analyze_answers", "acquire_case_evidence"] } } }); let unit = 0; const reading = (into: string[]) => async () => (into.push("read"), { attempted: 5, settled: 5, refused: 0, read: 5, outcomes: { settled: 5 } });
     await run({ dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers", "acquire_case_evidence"] }), analyzeAnswers: reading(order),
       funnelUnit: async (phase) => (order.push(phase), (unit += 1) === 1 ? { status: "advanced", cursor: { n: 1 }, progress: {} } : { status: "done", cursor: null, progress: {} }) });
     expect(order).toEqual(["read", "serp_analysis", "serp_analysis", "winning_pages"]); // three passes through a long step, exactly one reading slice
@@ -434,10 +437,13 @@ describe("research-run conflict-free research closure", () => {
     await run({ dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers", "plan_cases"] }), analyzeAnswers: reading(late), funnelUnit: async (phase) => (late.push(phase), { status: "done", cursor: null, progress: {} }) }, 60_000);
     expect(late).toEqual(["serp_analysis"]); });
   it("reads the new answers back on the observation phase only, records what persisted, and never turns a read-back failure into a pause", async () => {
-    const seen: Array<[string, string]> = []; const rows = withRun(); await run({ analyzeAnswers: async (t, day) => (seen.push([t, day]), { attempted: 3, settled: 3, refused: 1, read: 2 }) });
+    const seen: Array<[string, string]> = []; const rows = withRun(); await run({ analyzeAnswers: async (t, day) => (seen.push([t, day]), { attempted: 3, settled: 3, refused: 1, read: 2, outcomes: { settled: 2, provider_refused: 1 } }) });
     expect(seen).toEqual([[T, ckey(T).slice(-10)]]); // once, on prompt_observations, for the run's own UTC day
-    expect([rows[0]!.status, rows[0]!.progress.funnel]).toMatchObject(["completed", { answersAnalyzed: 2, answersAttempted: 3, answersRefused: 1 }]); const failed = withRun(); // the answers are already safely stored, so a read-back that throws must not pause the run
+    expect([rows[0]!.status, rows[0]!.progress.funnel]).toMatchObject(["completed", { answersAnalyzed: 2, answersAttempted: 3, answersRefused: 1, answersOutcomes: { settled: 2, provider_refused: 1 } }]); const failed = withRun(); // the row carries WHY the two numbers differ, so 3 taken on and 2 read is never a shape without an explanation
     await run({ analyzeAnswers: async () => { throw new Error("openai down"); } }); expect([failed[0]!.status, failed[0]!.progress.funnel?.answersAnalyzed]).toEqual(["completed", undefined]); });
+  it("stamps what the pass actually spent onto the run's own spend column at the close, and zero when it bought nothing", async () => {
+    const paid = withRun({ progress: { funnel: { spendUsd: 0.42 } } }); await run({}); const quiet = withRun(); await run({});
+    expect([paid[0]!.status, paid[0]!.spend_usd, quiet[0]!.spend_usd]).toEqual(["completed", 0.42, 0]); }); // the column research_runs declared and nothing ever wrote, so every closed row claimed $0.00 forever; a pass that bought nothing stamps zero, which is a fact and not an absence
 });
 /** THE DAY IS THE PROMISE, THE BATCH IS AN IMPLEMENTATION DETAIL. The planner hands out twenty checks a pass; the operator was promised 35 questions on 4 engines. The run used to call the phase finished the moment its window settled, walk on, and land `completed` on 107 of 140, after which the fleet claim refused the account for the rest of the day and 33 checks were simply never asked. */
 describe("a day of AI checks ends when the day ends, never when a batch does", () => {

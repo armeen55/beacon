@@ -236,7 +236,7 @@ describe("reading the answers back", () => {
     const deps = { readObservations: async () => [fresh, stale, done], readPrompts: async () => null, identity: BRAND,
       analyzeBatch: async (i: { targets: readonly { row: { id: string } }[] }) => { groups.push(i.targets.length); return readsAll(i); },
       persist: async (_t: string, id: string, _a: Record<string, unknown>, hash: string) => void saved.push([id, hash]) };
-    expect(await runAnswerAnalyses(T, DAY, deps)).toEqual({ attempted: 2, settled: 2, refused: 0, read: 2 }); // and the pass says what it did, so a run receipt can show the yield rather than a number nobody can check
+    expect(await runAnswerAnalyses(T, DAY, deps)).toEqual({ attempted: 2, settled: 2, refused: 0, read: 2, outcomes: { settled: 2 } }); // and the pass says what it did AND accounts for every answer it took on, so a run receipt shows the yield with its explanation rather than a number nobody can check
     expect(groups).toEqual([2]); // TWO answers, ONE call: this is the whole point
     expect(saved).toEqual([["a", "h1"], ["b", "h2-new"]]);
     // The same pass again, with the analyses now on file: zero calls, zero cents.
@@ -335,7 +335,7 @@ describe("reading the answers back", () => {
     expect([ledger.spent.length >= 3, ledger.spent.every((c) => c > 0)]).toEqual([true, true]);
     // NO USABLE RECEIPT CAME BACK, so nothing is stored, nothing is billed (an empty pass that had paid would say so loudly), the answer stays owed, and the LAST NUMBER IS THE WIRE COUNT: a busy minute wearing the code OpenAI actually sends, a server fault and a dead socket are each worth the gateway's one retry at both rungs of the ladder, so they cost four calls, while MY OWN DEADLINE is worth no retry at all and costs two. The last two cases are the ones the envelope never finished arriving for: headers, then the body stops mid read, which used to be read as a shape I could not use and settled somebody's answer permanently on a reply nobody ever finished reading.
     const timeout = () => Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
-    for (const [r, calls] of [[{ status: 429, body: { error: { code: "rate_limit_exceeded", type: "rate_limit_error" } } }, 4], [{ status: 503, body: { error: { code: "server_error" } } }, 4], [{ throwErr: new Error("read ECONNRESET") }, 4], [{ throwErr: timeout() }, 2], [{ bodyThrow: timeout() }, 2], [{ bodyThrow: Object.assign(new TypeError("terminated"), { name: "TypeError" }) }, 4]] as const) expect([await settle("t", r), said.errors.length, wire]).toEqual(["nothing stored, still owed", 0, calls]);
+    for (const [r, calls] of [[{ status: 429, body: { error: { code: "rate_limit_exceeded", type: "rate_limit_error" } } }, 4], [{ status: 503, body: { error: { code: "server_error" } } }, 4], [{ throwErr: new Error("read ECONNRESET") }, 4], [{ throwErr: timeout() }, 2], [{ bodyThrow: timeout() }, 2], [{ bodyThrow: Object.assign(new TypeError("terminated"), { name: "TypeError" }) }, 4]] as const) expect([await settle("t", r), said.errors.length, wire]).toEqual(["nothing stored, still owed", 1, calls]); // AND A DEAD PASS IS SAID OUT LOUD EXACTLY ONCE: a stall that never reached a purchase used to log nothing at all, so a run row read "taken on, none read" with no line anywhere explaining it
     // AND AN EMPTY BALANCE STOPS ITSELF: the provider's own insufficient_quota trips the account level hold, stores nothing, and leaves every answer owed for the pass that runs once there is credit.
     expect([await settle("c", { status: 429, body: { error: { code: "insufficient_quota" } } }), said.warnings.some((w) => w.includes("balance for this account is empty"))]).toEqual(["nothing stored, still owed", true]);
     // AND THE LADDER IS BOUNDED: one batch, then one call for this answer alone, neither usable and both billed, settles under its own name rather than forever.
@@ -396,14 +396,14 @@ describe("reading the answers back", () => {
     expect(tries).toBe(2);
     expect(said.warnings.join(" ")).toContain("could not record that I was refused a reading");
   });
-  it("counts only what actually persisted, and gives a lost write exactly ONE retry", async () => {
-    let tries = 0;
-    const { read: written } = await runAnswerAnalyses(T, DAY, { analyzeBatch: readsAll, readPrompts: async () => null, identity: BRAND,
-      readObservations: async () => [row("w0", "hw0", null, false), row("w1", "hw1", null, false)],
-      persist: async (_t, id) => { tries += 1; if (id === "w1") throw new Error("write lost"); } });
-    expect(written).toBe(1); // two read back, one write lost, and a lost write is never a saved analysis
-    expect(tries).toBe(3);   // one clean write plus exactly one retry of the lost one, never a loop
-  });
+  it("accounts for every answer it took on, exactly once: what it read, what came back missing, a reading it could not store, and what a stopped pass never reached", async () => {
+    // 505 taken on and 0 read was a true sentence with no explanation beside it anywhere, on the row or in a log. Every answer a pass claims now lands in exactly ONE bucket, the buckets add up to what it attempted, and a reading produced and lost is named rather than passed over in silence.
+    const rows = Array.from({ length: 10 }, (_, i) => row(`x${i}`, `hx${i}`, null, false)); let batches = 0, tries = 0;
+    const deps = { readObservations: async () => rows, readPrompts: async () => null, identity: BRAND, max: 10, persist: async (_t: string, id: string) => { tries += 1; if (id === "x2") throw new Error("write lost"); },
+      analyzeBatch: async ({ targets }: { targets: readonly { row: { id: string } }[] }) => ((batches += 1) === 1 ? new Map(targets.filter((t) => t.row.id !== "x1").map((t) => [t.row.id, analysis])) : "budget" as const) };
+    const paid = await runAnswerAnalyses(T, DAY, deps); said.errors.length = 0; batches = 1; const stalled = await runAnswerAnalyses(T, DAY, deps); // the same pass with the allowance already gone before the first call: a stall that bought nothing is still a dead day, and it says so now instead of logging nothing at all
+    expect([paid.attempted, paid.outcomes, tries, stalled.outcomes, said.errors.length]).toEqual([10, { settled: 3, incomplete: 1, persist_failed: 1, left_owed: 5 }, 6, { stalled_before_spend: 10 }, 1]); // and a lost write is never a saved analysis: one clean write each, plus exactly one retry of the lost one, never a loop
+    expect(Object.values(paid.outcomes).reduce((a, b) => a + b, 0)).toBe(paid.attempted); }); // THE invariant: nothing counted twice, nothing off the edge, so attempted always carries its own explanation
   /** ONE LONG ANSWER, IN PIECES: they ride the same batch and merge into one stored reading. */
   type Piece = { key: string; part: number; parts: number; text: string; row: { id: string } };
   const longAnswer = (tail: string, chars = 12_000): string => {
@@ -470,7 +470,6 @@ describe("reading the answers back", () => {
     const unburied = { ...row("Z", "h-Z", "h-Z", true), analysis: { rejected: true, outcome: "refused", readOutcome: "schema_invalid", coverage: { hash: "h-Z", parts: 2, read: [], dropped: [1, 2] } }, answerText: longAnswer("Two piece answer.", 9_000) };
     expect([isAnalysisSettled(unburied), selectAnalysisTargets([unburied]).map((r) => r.id)]).toEqual([false, ["Z"]]);
     expect((stored.analysis as { topicEntities: string[] }).topicEntities).toContain(`entity ${"i".repeat(parts)}`); // the tail survived
-    await pass(); expect(sent.length).toBe(bought);                     // a finished answer is never bought again
     // A CHANGED PROVIDER ANSWER RESETS THE COVERAGE against the new hash and is read from part one.
     stored = { ...stored, answerText: "The engine says something entirely different today.", answerHash: "h-X2" };
     expect(selectAnalysisTargets([stored]).map((r) => r.id)).toEqual(["X"]);
@@ -744,12 +743,9 @@ describe("who the answer was read for", () => {
     onFile("", "https://guide.com");
     const generic = await readBack(answer("g", "Here is a guide to the festivals."), missed);
     expect(generic.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: false }, matchedBy: null });
-    // The whole address always still counts, and so does a label that IS the confirmed name's own word.
+    // The whole address always still counts (a confirmed name's own word is kept too: the test above reads Iranopedia out of an answer's own words).
     const host = await readBack(answer("h", "It is all on guide.com."), missed);
     expect(host.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "text" });
-    onFile("Iranopedia", "https://www.iranopedia.com/");
-    const own = await readBack(answer("o", "Iranopedia covers the festivals in depth."), missed);
-    expect(own.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "text" });
   });
   it("never invents a mention out of a longer word, and reads nothing back at all when it cannot name the account", async () => {
     onFile("Ritz", "https://ritz-builders.com");

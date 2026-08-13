@@ -77,7 +77,7 @@ export type ResearchCycleSteps = {
   /** Read back the day's NEW answers (bounded, $0 when nothing changed). Returns THE PASS'S OWN RECEIPT, not a bare number: how many answers it took on, how many
    *  ended with a durable verdict, how many of those were a non-reading, and how many real readings landed, so a run row can say what a pass actually did instead
    *  of showing a count nobody can check against the debt. Derived work: it never pauses the run. */
-  analyzeAnswers: (tenantId: string, reportingDay: string) => Promise<{ attempted: number; settled: number; refused: number; read: number }>;
+  analyzeAnswers: (tenantId: string, reportingDay: string) => Promise<{ attempted: number; settled: number; refused: number; read: number; outcomes: Record<string, number> }>;
   /** WHAT THE OPERATOR SAID THEY SHIPPED, checked on the live page (verify_and_measure). Bounded to three pages per pass and free: every one is a read of a page the account owns, on the same polite-fetch
    *  path as every other owned read, never a provider. Returns how many verifications landed. Derived work: a check I could not make never pauses the run. */
   verifyShipments: (tenantId: string, now: Date) => Promise<number>;

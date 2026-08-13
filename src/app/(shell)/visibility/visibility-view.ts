@@ -1,10 +1,7 @@
 /**
- * visibility-view - THE ANALYTICAL MODEL behind the one Visibility surface: pure functions over readings
- * the kernels ALREADY took and stored, in and headline numbers, chart geometry and ranked tables out.
- * Nothing here fetches, pays or triggers research. THE RULES THAT DO NOT BEND: every rate names its
- * numerator, its denominator and the days it was counted over; a denominator nobody has checked reports
- * as unchecked and never as a zero; a missing day stays missing; Google and AI never add up into one
- * score; and no rank is ever invented.
+ * visibility-view - THE ANALYTICAL MODEL behind the one Visibility surface: pure functions over readings the kernels ALREADY took and stored, in and headline numbers, chart geometry and ranked tables out.
+ * Nothing here fetches, pays or triggers research. THE RULES THAT DO NOT BEND: every rate names its numerator, its denominator and the days it was counted over; a denominator nobody has checked reports
+ * as unchecked and never as a zero; a missing day stays missing; Google and AI never add up into one score; and no rank is ever invented.
  */
 
 import { monthDayLabel } from "@/components/data/receipt-line";
@@ -198,6 +195,8 @@ type AiInput = {
   segments: AiOutcomeReport["segments"] | null;
   rangeDays: number; engine: string | null; sub: "prompts" | "citations" | "searches";
   checks: { done?: number; total?: number; answered?: number; unavailable?: number; unsupported?: number }; // today's planned round
+  /** IS THE RESEARCH ALIVE, in the run's own words: what the last pass produced and when, or how long it has been and what to press. Null only when that could not be read, and then nothing is claimed either way. */
+  liveness?: string | null;
   /** The newest day that holds readings and every reading on it: the searches the assistants ran and the
    *  pages they credited live only on this shape, so both subviews name that one day out loud. */
   day: string | null; dayRows: AnswerRow[] | null;
@@ -385,7 +384,8 @@ export function aiView(input: AiInput) {
     } : null,
     coverage: `${typeof input.checks.done === "number" && typeof input.checks.total === "number" && input.checks.total > 0
       ? `${num(input.checks.done)} of the ${num(input.checks.total)} answer checks planned for today are settled${parts.length > 0 ? `: ${parts.join(", ")}. ` : ". "}` : ""}`
-      + `Answers were read on ${num(read.length)} of the last ${num(days.length)} days.${gaps.length > 0 ? ` ${gaps.slice(0, 3).join(", ")}${gaps.length > 3 ? ` and ${num(gaps.length - 3)} more` : ""} came back with nothing, and a missed day is never filled in.` : ""}`,
+      + `Answers were read on ${num(read.length)} of the last ${num(days.length)} days.${gaps.length > 0 ? ` ${gaps.slice(0, 3).join(", ")}${gaps.length > 3 ? ` and ${num(gaps.length - 3)} more` : ""} came back with nothing, and a missed day is never filled in.` : ""}`
+      + `${input.liveness ? ` ${input.liveness}` : ""}`, // A COUNT OF DAYS IS NOT A PULSE: it says what was collected, never whether anything is still running, so the run's own reading of that stands beside it.
     watermark: `Stored AI answers, through ${dayLabel ?? "a day not yet read"}. Nothing on this page asks an assistant anything: every number is read back off answers already bought.`,
   };
 }

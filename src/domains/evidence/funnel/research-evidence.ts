@@ -104,6 +104,10 @@ export type CanonicalPairObservation = {
   /** The REAL prompt text observed (never a prompt id surfaced as evidence). */
   promptText: string;
   engine: string;
+  /** The money core's cache identity for the envelope this answer was read from, carried so a receipt can
+   *  PROVE the call rather than merely state it. Optional: absent on a row a test built by hand and on one
+   *  stored before the identity was kept, which reads as "not recorded", never as "not bought". */
+  cacheKey?: string | null;
   modelRequested: string | null;
   modelServed: string | null;
   /** Frozen provenance: which retrieval experience produced this observation. */

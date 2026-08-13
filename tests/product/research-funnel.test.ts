@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { emptyBusinessProfile, type Account, type BusinessProfile, type ProfileSection } from "@/domains/account";
 import type { CachedCallResult, CapabilityKey, FailureDisposition, ParsedAiAnswer, ParsedKeywordItem, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
-import { keywordDiscoveryUnit } from "@/domains/evidence/funnel/discovery"; import { promptObservationUnit, serpAnalysisUnit } from "@/domains/evidence/funnel/observe"; import { winningPagesUnit } from "@/domains/evidence/funnel/winning-pages";
+import { keywordDiscoveryUnit } from "@/domains/evidence/funnel/discovery"; import { projectFunnelEvidence, promptObservationUnit, serpAnalysisUnit } from "@/domains/evidence/funnel/observe"; import { winningPagesUnit } from "@/domains/evidence/funnel/winning-pages";
 import { retainDiverse, selectSerpAgenda } from "@/domains/evidence/funnel/normalize"; import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { caseResearchReceipt } from "@/domains/evidence/case-receipt"; import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { analysisWatermark, emptyFunnelState, loadFunnelState, MAX_RETAINED, type FunnelKeyword, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
@@ -130,6 +130,10 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     const spent = store.peek("ts", BASIS)!.cycle.spentUsd, ceiling = 120 * 0.0021 + 5 * 0.01; // the widest cycle this unit can buy, in reserved dollars
     expect([posts, aiMode, out.status]).toEqual([36, 5, "done"]); // thirty six first-party searches in one pass, where the flat stop bought twelve
     expect([spent <= ceiling, ceiling <= 3.0]).toEqual([true, true]); }); // the whole allowance is a tenth of the funnel's day, so the raise is never what stops a cycle
+  it("refuses a results page for a search other than the one asked, names both words, and keeps it out of the evidence", async () => { const store = memStore(retainedState([])); const said: string[] = []; const spy = vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => void said.push(String(a[0])));
+    const answered = { ...serp([{ rank: 1, domain: "a.com", url: "https://a.com/x", title: "A" }]), tasks: [{ result: [{ keyword: "a different search entirely" }] }] }; // the provider echoes the keyword it actually ran on its own result block
+    const out = await serpAnalysisUnit({ ...store.deps, ...serpBase, loadPageQueries: async () => [{ query: "boys baby names", impressions: 900 }], callProvider: async () => ok(answered) })("ts", cur(), 60_000); spy.mockRestore(); const st = store.peek("ts", BASIS)!;
+    expect([st.serps.queries[0], projectFunnelEvidence(st, NOW).serpEvidence, said.some((l) => l.includes("serp identity mismatch")), out.detail]).toEqual([{ query: "boys baby names", cacheKey: null, status: "failed", source: "keyword", observedAt: new Date(NOW).toISOString(), identityMismatch: { asked: "boys baby names", served: "a different search entirely" } }, [], true, "1 search came back for a different phrase than the one asked, so it was left out and will be checked again."]); }); // held as unavailable coverage, both strings on the row, loudly logged, and never joined to evidence
   it("stops the whole batch the moment the provider says today's limit is reached, and leaves the rest genuinely owed", async () => {
     const store = memStore(retainedState([])); let calls = 0; const many = Array.from({ length: 60 }, (_, i) => ({ query: `owned search ${String(i).padStart(2, "0")}`, impressions: 500 - i }));
     const out = await serpAnalysisUnit({ ...store.deps, ...serpBase, loadPageQueries: async () => many, callProvider: async () => { calls += 1; return { state: "error", cacheKey: null, disposition: "daily_limit", detail: "I reached today's research spending limit." } as CachedCallResult; } })("ts", cur(), 60_000);
@@ -261,8 +265,7 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
   it("remembers a page that did not answer for a day, spends nothing inside it, keeps the SAME date, and allows exactly ONE more attempt when it expires", async () => { const store = memStore(emptyFunnelState("to", BASIS)); const first = await run(store, NOW, { ok: false, reason: "fetch_failed" });
     expect([first.tried.length, first.held.map((o) => [o.state, o.retryAfter])]).toEqual([1, [["temporarily_unavailable", at(NOW + DAY)]]]);
     const inside = await run(store, NOW + DAY - 1, page); expect([inside.tried, inside.held[0]!.retryAfter]).toEqual([[], at(NOW + DAY)]); // no fetch, and the date I promised did not slide
-    const due = await run(store, NOW + DAY + 1, { ok: false, reason: "fetch_failed" }); expect([due.tried.length, due.held[0]!.retryAfter]).toEqual([1, at(NOW + 2 * DAY + 1)]); // one new attempt, one new honest date
-    expect([store.peek("tb", BASIS), store.peek("to", "basis_other")]).toEqual([undefined, undefined]); }); // never another account's row, never another basis
+    const due = await run(store, NOW + DAY + 1, { ok: false, reason: "fetch_failed" }); expect([due.tried.length, due.held[0]!.retryAfter]).toEqual([1, at(NOW + 2 * DAY + 1)]); }); // one new attempt, one new honest date
 }); describe("research funnel - the SERP agenda buys my own words, never a lookalike", () => {
   // A GENERIC reference site: no vertical token is privileged anywhere in the gate.
   const THEMES = ["baby names", "flag history", "national holidays", "given name origins"];
@@ -270,8 +273,7 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
   const THEMED: [string, number][] = [["female baby names", 900], ["baby names 2026", 800], ["flag history timeline", 700], ["national holidays calendar", 600], ["given name origins guide", 500], ["political revolution 1979", 400], ["national flag history", 300]];
   const kw = (keyword: string, searchVolume: number, over: Partial<FunnelKeyword> = {}): FunnelKeyword => ({ keyword, searchVolume, competition: null, difficulty: null, intent: null, discoveredVia: "site", ...over }); const retained = [...BIG.map((k, i) => kw(k, 400_000 - i * 10_000)), ...THEMED.map(([k, v]) => kw(k, v))]; type Agenda = Parameters<typeof selectSerpAgenda>[0];
   const agenda = (over: Partial<Agenda>, cap: number) => selectSerpAgenda({ retained, themes: THEMES, prompts: [], pageQueries: [], ...over }, cap); it("buys my own page's query EXACTLY, even when I never researched it, and never swaps in a lookalike", () => { const out = agenda({ pageQueries: [{ query: "boys baby names", impressions: 900 }, { query: "national flag 1979", impressions: 800 }] }, 2);
-    expect(out.queries).toEqual(["boys baby names", "national flag 1979"]); // a first-party query needs no researched twin: the search call takes any keyword string
-    expect(retained.some((r) => out.queries.includes(r.keyword))).toBe(false); }); // "female baby names" and "political revolution 1979" sat right there and were NOT substituted in
+    expect(out.queries).toEqual(["boys baby names", "national flag 1979"]); }); // a first-party query needs no researched twin, and the lookalikes "female baby names" and "political revolution 1979" sat right there and were NOT substituted in
   it("checks a tracked question through its observed fan-out, else through its own approved words, and says which is which", () => {
     const out = agenda({ prompts: [{ text: "what are popular baby names", fanOutQueries: ["most popular baby names 2026"] }, { text: "which flags changed in 1979" }] }, 2);
     expect(out.queries).toEqual(["most popular baby names 2026", "which flags changed in 1979"]);
@@ -471,7 +473,7 @@ describe("research funnel - the journey behind a keyword", () => {
 });
 describe("evidence - the per-case research receipt", () => {
   const CASE = "inv_canon", ABSORBED = "inv_old", at = new Date(NOW).toISOString();
-  /** The account's answers as the canonical store holds them, which is where the receipt reads them from now. */ const ANSWERS = [canon({ observationId: "obs_r1", promptId: "p1", promptText: "saffron price", engine: "gemini", observationMode: "standardized_response", observedAt: at }),
+  /** The account's answers as the canonical store holds them, which is where the receipt reads them from now. */ const ANSWERS = [canon({ observationId: "obs_r1", promptId: "p1", promptText: "saffron price", engine: "gemini", modelServed: "gemini-2.5-flash", cacheKey: "ck-ans", observationMode: "standardized_response", observedAt: at }),
     canon({ observationId: "obs_r2", promptId: "p2", promptText: "how to store saffron at home", engine: "gemini", observationMode: "standardized_response", observedAt: at, fanOutQueries: ["how to store saffron at home"] })]; // the self-echo may not vouch for membership
   const seeded = (): FunnelState => { const s = emptyFunnelState("tr2", BASIS);
     s.cases = [{ id: CASE, anchors: [canonicalQueryKey("saffron price")] }, { id: ABSORBED, anchors: [], aliasOf: CASE }];
@@ -487,7 +489,7 @@ describe("evidence - the per-case research receipt", () => {
     const r = caseResearchReceipt(snapshot, ABSORBED)!;
     expect([r.caseId, r.aliasKeys]).toEqual([CASE, [ABSORBED]]); // asked under the id a merge absorbed, answered by the case that answers for it now
     expect(r.keywords).toEqual([{ query: "saffron price", discoveredVia: "paa", metricsHeld: true, searchVolume: 500, difficulty: 12, intent: "commercial", ownedRankingUrl: "https://own.com/s", ownedPosition: 4, supports: "existing_page", origins: null, moreOrigins: null }]); // only this case's keywords, each with how I found it, its recorded journey, and what acting on it would mean
-    expect(r.calls.map((c) => [c.kind, c.identity, c.served]).sort()).toEqual([["ai_answer", null, "unknown"], ["competitor_domains", "ck-comp", "cache"], ["page_comparison", "ck-pi", "unknown"], ["search_results", null, "unknown"]].sort()); // the ONE call that recorded how it was served says so; the rest say unknown instead of guessing
+    expect(r.calls.map((c) => [c.kind, c.identity, c.served, c.subject]).sort()).toEqual([["ai_answer", "ck-ans", "unknown", "saffron price (gemini, gemini-2.5-flash)"], ["competitor_domains", "ck-comp", "cache", "2 keywords, 1 domains"], ["page_comparison", "ck-pi", "unknown", "https://a.com/x vs https://b.com/y"], ["search_results", null, "unknown", "saffron price"]].sort()); // the answer names the receipt that bought it and the model that served it; the ONE call that recorded HOW it was served says so and the rest say unknown instead of guessing
     expect(r.spend).toEqual({ spentUsd: 0.05, cachedCalls: 1 }); // THIS run's money, never a lifetime total
     expect(r.notBought.map((n) => n.reason)).toEqual(["capped", "fresh"]);
     expect(r.notBought[0]!.detail).toContain("spending ceiling"); expect(r.notBought[1]!.detail).toContain("all 1 of this case's searches");

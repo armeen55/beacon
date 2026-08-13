@@ -121,8 +121,20 @@ export type FunnelPair = {
 export type FunnelSerp = {
   query: string;
   cacheKey: string | null;
-  /** failed = the one clean repost was already spent (explicit unavailable coverage). */
+  /** failed = the one clean repost was already spent, OR the provider answered a different search
+   *  (`identityMismatch` below); both are explicit unavailable coverage. */
   status: "pending" | "posted" | "done" | "failed";
+  /** WHERE THIS SEARCH CAME FROM, stamped by the agenda that chose it: fan_out = a search an engine ran
+   *  itself to answer a tracked question, prompt = that question's own approved words, keyword = a phrase
+   *  from my own pages, an open case or the researched set. Absent on rows stored before the stamp. */
+  source?: "fan_out" | "prompt" | "keyword";
+  /** THE TRACKED QUESTION THIS SEARCH CAME OUT OF (fan_out and prompt only), so a join back to the question
+   *  is the parent that was RECORDED rather than a lossy match on the words. Absent = none was recorded. */
+  parentPromptId?: string;
+  /** THE PROVIDER ANSWERED A DIFFERENT SEARCH than the one asked, in its own echo of the keyword. Both
+   *  strings are kept so the gap is inspectable, the row is held as unavailable coverage, and it never
+   *  joins evidence: a results page for another phrase cannot back a claim about this one. */
+  identityMismatch?: { asked: string; served: string };
   /** When this look actually landed; a look older than FRESH_MS is due again. */
   observedAt?: string;
   /** Terminal-collect recoveries: ONE clean repost, then unavailable coverage. */
