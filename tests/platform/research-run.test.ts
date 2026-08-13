@@ -40,7 +40,7 @@ vi.mock("@/domains/evidence/scanning/crawl-frontier", async (actual) => ({ ...(a
 const ROUTE = vi.hoisted(() => ({ receipt: {} as Record<string, unknown>, fail: null as Error | null }));
 vi.mock("@/domains/runtime", async (actual) => ({ ...(await actual<Record<string, unknown>>()), runDueAccounts: async () => { if (ROUTE.fail) throw ROUTE.fail; return ROUTE.receipt; } }));
 import * as RR from "@/domains/runtime/research-run";
-import { runResearchCycle, continueResearch, ensureResearchRunOnVisit, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
+import { runResearchCycle, continueResearch, ensureResearchRunOnVisit, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
 import { dueWork, isResearchPaused, setResearchPaused, type DueWork } from "@/domains/runtime/ops/due-work";
 import { runDueAccounts, type SchedulerReceipt } from "@/domains/runtime/ops/scheduler"; import { defaultSteps } from "@/domains/runtime/ops/research-steps";
 import { POST } from "@/app/api/cron/scheduler/route"; import { NextRequest } from "next/server";
@@ -441,6 +441,30 @@ describe("research-run conflict-free research closure", () => {
     expect(seen).toEqual([[T, ckey(T).slice(-10)]]); // once, on prompt_observations, for the run's own UTC day
     expect([rows[0]!.status, rows[0]!.progress.funnel]).toMatchObject(["completed", { answersAnalyzed: 2, answersAttempted: 3, answersRefused: 1, answersOutcomes: { settled: 2, provider_refused: 1 } }]); const failed = withRun(); // the row carries WHY the two numbers differ, so 3 taken on and 2 read is never a shape without an explanation
     await run({ analyzeAnswers: async () => { throw new Error("openai down"); } }); expect([failed[0]!.status, failed[0]!.progress.funnel?.answersAnalyzed]).toEqual(["completed", undefined]); });
+  /** On 13 August ten cron dispatches in a row died at exactly 300 seconds. The reading sat between the settled observation unit and the phase advance, so one run held prompt_observations for five and a half hours with all 140 answers stored and settled, and every surface still read 0 of 140: each write that would have said otherwise was queued behind an analysis bounded by item counts alone. */
+  describe("collection is banked before analysis, and the lease decides who analyses", () => {
+    const FULL_DAY = { done: 140, total: 140, answers: 140, unavailable: 0, unsupported: 0 };
+    it("advances the phase and records the day BEFORE it reads one answer, so a reading that outruns the turn leaves the analyses OWED and the next pass resumes them without re-buying an observation", async () => {
+      const rows = withRun({ current_phase: "prompt_observations" }); const budgets: number[] = [];
+      const steps: Partial<ResearchCycleSteps> = { dayStanding: async () => FULL_DAY,
+        analyzeAnswers: async (_t, _d, budgetMs) => (budgets.push(budgetMs), NOW += 220_000, NO_READING) }; // the hosting ceiling hits INSIDE the reading
+      await run(steps);
+      expect([rows[0]!.current_phase, rows[0]!.status, rows[0]!.progress.state?.checksDone, rows[0]!.progress.funnel?.answersAnalyzed]).toEqual(["serp_analysis", "paused", 140, undefined]); // the phase MOVED and the day's collection is on the row; not one analysis is claimed by it
+      expect(budgets).toEqual([RESEARCH_CYCLE_DEADLINE_MS]); // the reading was handed what was left of the turn, never a count of answers standing in for a clock
+      expect(RR.researchStatusLine(await RR.researchRunStatus(T, new Date(NOW)), new Date(NOW))) .toBe("Research in progress: reading the results pages for your strongest topics. 140 of 140 AI checks collected."); // collected, never analysed, and never finished
+      const later: string[] = []; // the pass due-work opens on the debt those answers left behind
+      await run({ ...steps, dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers"] }), funnelUnit: async (phase) => (later.push(phase), { status: "done", cursor: null, progress: {} }),
+        analyzeAnswers: async () => ({ attempted: 40, settled: 40, refused: 0, read: 40, outcomes: { settled: 40 } }) });
+      expect([later.includes("prompt_observations"), rows[0]!.progress.funnel?.answersAnalyzed]).toEqual([false, 40]); }); // it reads what was owed and re-buys not one observation to do it
+    // WHAT THIS PINS IS THE LIVE-LEASE GUARD, not a lease that expired under a reading: the second invocation meets a lease that is still good. Nothing settling twice AFTER a lease genuinely lapses rests on two
+    // other things, each pinned where it lives: the readback's own budget keeps a call from outliving the lease (daily-observations, the deadline test), and settleOne is keyed on the answer hash, so a reclaimed run
+    // re-reading a settled row makes no call and spends nothing (daily-observations, "analyses only what is new"). This one proves only that a live lease refuses the second door.
+    it("refuses a second invocation while the lease is live: it claims nothing, opens no pass and reads nothing, so one pass does the reading", async () => {
+      const rows = withRun({ current_phase: "prompt_observations" }); let reads = 0;
+      await Promise.all([1, 2].map(() => run({ dayStanding: async () => FULL_DAY,
+        analyzeAnswers: async () => (reads += 1, { attempted: 40, settled: 40, refused: 0, read: 40, outcomes: { settled: 40 } }) })));
+      expect([reads, rows.length, rows[0]!.progress.funnel?.answersAnalyzed]).toEqual([1, 1, 40]); }); // one reading pass, one run: the second claim met a live lease and opened nothing
+  });
   it("stamps what the pass actually spent onto the run's own spend column at the close, and zero when it bought nothing", async () => {
     const paid = withRun({ progress: { funnel: { spendUsd: 0.42 } } }); await run({}); const quiet = withRun(); await run({});
     expect([paid[0]!.status, paid[0]!.spend_usd, quiet[0]!.spend_usd]).toEqual(["completed", 0.42, 0]); }); // the column research_runs declared and nothing ever wrote, so every closed row claimed $0.00 forever; a pass that bought nothing stamps zero, which is a fact and not an absence

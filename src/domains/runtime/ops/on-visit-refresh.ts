@@ -33,8 +33,9 @@ import {
 /** on-visit-refresh - the Research Run executor (Slice 4, 2026-07-24). THE canonical cycle and the ONLY orchestrator; the phase BODIES live in research-steps.ts and document themselves there. Two doors drive it:
  *  the global daily scheduler (scheduler.ts, one guarded POST per day for every account whose Pacific day still owes work) and any navigation, which recovers and resumes whatever the scheduler left unfinished. Daily research never depends on anybody opening the app; a visit is recovery, not the trigger. DURABLE: claim_research_run RESUMES the account's single unfinished run first, whatever date it started, and opens
  *  a fresh daily cycle only when none is open. A day is not a unit of work, so a completed pass no longer ends the day: another pass opens only when due-work reports something genuinely owed. THE DATABASE LEASE DECIDES WHO ADVANCES A RUN and nothing else does; a dispatch and a visit racing the same account cannot both proceed, because the second claim against a live lease returns null. TRUTH BOUNDARY: a phase
- *  advances ONLY when it truly succeeded or was a healthy no-op, and every failure pauses with a bounded last_error instead of reaching completion. THE BATCH IS NOT THE DAY: prompt_observations asks exactly what daily-observations planned (one canonical reading per question, per engine, per PACIFIC reporting day), reads the new answers back (derived work, bounded, $0 when nothing changed, never a pause), and then
- *  RE-READS the planner: unreadable pauses fail-closed, anything still owed keeps this same phase under a renewed lease, and only settled == intended advances. IDEMPOTENCY: each phase's attempt identity (phase, a deterministic attemptKey, the seed) is persisted through renew_research_lease BEFORE the side effect and handed to the executor, so a retry of the same run+phase reuses the PERSISTED key; advancing clears
+ *  advances ONLY when it truly succeeded or was a healthy no-op, and every failure pauses with a bounded last_error instead of reaching completion. THE BATCH IS NOT THE DAY: prompt_observations asks exactly what daily-observations planned (one canonical reading per question, per engine, per PACIFIC reporting day) and then
+ *  RE-READS the planner: unreadable pauses fail-closed, anything still owed keeps this same phase under a renewed lease, and only settled == intended advances. COLLECTION IS NEVER HELD BY ANALYSIS: the phase move
+ *  and the day's counts are BANKED first and the bounded reading of those answers runs behind them, so a reading that runs out of the turn leaves the run advanced and the analyses owed rather than both stranded. IDEMPOTENCY: each phase's attempt identity (phase, a deterministic attemptKey, the seed) is persisted through renew_research_lease BEFORE the side effect and handed to the executor, so a retry of the same run+phase reuses the PERSISTED key; advancing clears
  *  the cursor, which is why the run's frozen FOCUS rides on PROGRESS. CONFLICT: a unit reporting the structured `state_conflict` code persisted NOTHING, so its counters are DISCARDED (a stale zeroed receipt must never overwrite proven spend) and the SAME attempt is re-invoked ONCE under the same lease, key and cursor; its cached call identities keep that retry $0 and a second conflict pauses honestly. Nothing else
  *  retries. LEASE: renewed at DATABASE time before every bounded unit of work, never once per phase-worth of it, so a purchase is always the FIRST side effect after a real renewal (winning_pages splits exactly
  *  there, between persisting winners and buying the comparison; the read-back renews for the same reason). A false return from renewLease / advancePhase / finishRun means the lease was lost: abort immediately.
@@ -162,7 +163,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   /** ONE bounded reading of answers already bought, folded into the run's OWN receipt. Fail-soft by contract: the expensive part is already persisted, so a reading I could not produce is absent and never a pause.
    *  The three numbers go down together, because a bare "0 analyzed" cannot tell a quiet pass from one that took forty answers on and could store none of them. */
   const readAnswersBack = async (): Promise<void> => {
-    const pass = await steps.analyzeAnswers(tenantId, run.cycle_key.slice(-10)).catch(() => null);
+    const pass = await steps.analyzeAnswers(tenantId, run.cycle_key.slice(-10), Math.max(0, deadline - nowFn().getTime())).catch(() => null);
     if (pass == null || pass.attempted === 0) return;
     const f = progress.funnel ?? {};
     // THE ACCOUNTING RIDES WITH THE COUNTS. The reading pass returns one bucket per answer it took on and the buckets add up to what it attempted, so the row carries the explanation beside the shape that needs one.
@@ -175,6 +176,8 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   };
   /** Does THIS turn owe the reading before the phase it resumed into? Only a turn that arrived already inside a long phase, and only when a reading is due. */
   let readBeforePhase = LONG_PHASES.has(run.current_phase) && work.due.includes("analyze_answers");
+  /** ONE bounded reading slice per drive, wherever this turn owes it: in front of a long phase it resumed into, on a pass opened to read alone, or straight after a day's collection is BANKED. Worth starting only with room left to store what it buys, so under the floor the debt keeps its place and the next pass reads it. */
+  let slices = 1; const roomToRead = (): boolean => slices > 0 && deadline - nowFn().getTime() >= ANALYSIS_SLICE_MIN_MS;
   /** The phase whose attempt already spent its ONE state-conflict retry (never global). */
   let conflictRetried: ResearchPhase | null = null;
 
@@ -216,8 +219,8 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
 
     // FAIRNESS FIRST: a long phase never starves the reading of answers already paid for (see LONG_PHASES above). It runs HERE, in front of the phase, because a reading spends money and this is the first moment
     // after a real lease renewal, and its counters are persisted at once so the row says what this turn did even if the phase behind it runs out of time. What it could not reach is still owed, as on any pass.
-    if (readBeforePhase && LONG_PHASES.has(phase) && deadline - nowFn().getTime() >= ANALYSIS_SLICE_MIN_MS) {
-      readBeforePhase = false;
+    if (readBeforePhase && LONG_PHASES.has(phase) && roomToRead()) {
+      readBeforePhase = false; slices -= 1;
       await readAnswersBack();
       log.info("[research-run] I read your stored answers before carrying on with the slower step, so a long step cannot hold them up", { tenantId, phase, read: progress.funnel?.answersAnalyzed ?? 0 });
       if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease";
@@ -227,7 +230,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     // anything: no plan, no observation unit, no re-read of the day's standing, and no basis to resolve first. It runs here under the lease just renewed,
     // because a reading spends money, and it is fail-soft like every other derived step.
     if (phase === "prompt_observations" && allowed != null && readingOnly) {
-      await readAnswersBack();
+      if (roomToRead()) { slices -= 1; await readAnswersBack(); } // no room is never a reason to buy a reading and strand it: the debt keeps its place and the pass advances on what it already knows
       const next = nextPlanned(nextPhase(phase), allowed);
       if (!await advancePhase(tenantId, run.id, ownerToken, { phase: next, progress, cursor: null })) return "lost_lease";
       phase = next; cursor = null; continue;
@@ -273,12 +276,6 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       else if (conflictRetried !== phase) { conflictRetried = phase;
         log.warn("[research-run] research notes moved underneath the writer; retrying this phase once", { tenantId, phase });
         continue; } // loop top renews the SAME lease with the SAME attempt cursor
-      // READ BACK what the engines just said, on the SAME phase, right after the answers are safely stored, under a FRESHLY renewed lease because it spends
-      // money. Bounded per pass, $0 when no answer changed, and fail-soft: the expensive part is already persisted, so an analysis I could not produce is absent.
-      if (phase === "prompt_observations" && !conflicted) {
-        if (!await renewLease(tenantId, run.id, ownerToken, attemptCursor)) return "lost_lease";
-        await readAnswersBack();
-      }
       const unitCursor = unit.cursor ? { ...attemptCursor, unit: unit.cursor } : { phase, attemptKey, seed: run.cycle_key };
       if (unit.status !== "done") {
         // THE CASE THE SPENDING CEILING STOPPED, recorded per case so a case receipt can say "I did not buy this one because the ceiling was reached", and
@@ -310,9 +307,16 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
           if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: unitCursor })) return "lost_lease";
           cursor = unitCursor; continue; }
       }
-      const nextAfterFunnel = nextPhase(phase); // done, and the day agrees: on to the next phase
+      const collected = phase === "prompt_observations", nextAfterFunnel = nextPhase(phase); // done, and the day agrees: on to the next phase
       if (!await advancePhase(tenantId, run.id, ownerToken, { phase: nextAfterFunnel, progress, cursor: null })) return "lost_lease";
       phase = nextAfterFunnel; cursor = null;
+      // WHAT WAS COLLECTED IS BANKED BEFORE ONE ANSWER IS READ. The reading used to sit between the settled observation unit and this advance, so the hosting ceiling killing it half way lost the phase move and the
+      // day's own counters with it: on 13 August ten dispatches in a row died at exactly 300 seconds, one run held this phase for five and a half hours with all 140 answers stored and settled, and every surface still
+      // read 0 of 140 because each write that would have said otherwise sat behind the reading. The advance above LANDED first, so a reading that cannot finish now leaves the phase moved, the day's counts recorded
+      // and the analyses OWED, which is exactly what due-work's analyze_answers reopens a pass for; the answers are already bought, so nothing is ever re-bought to read them. It spends money, so it runs on the lease
+      // that advance just extended, it is bounded by what is left of this turn, and its counters go down at once so the row says what this turn did even if the turn ends here.
+      if (collected && roomToRead()) { slices -= 1; await readAnswersBack();
+        if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: null })) return "lost_lease"; }
       continue;
     }
 
@@ -354,18 +358,11 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       return pause({ phase, message, at: nowFn().toISOString() });
     }
     if (outcome.pause) {
-      log.warn("[research-run] phase reported failures; pausing (recoverable)", {
-        tenantId,
-        phase,
-        failures: outcome.pause.failures?.length ?? 0,
-      });
+      log.warn("[research-run] phase reported failures; pausing (recoverable)", { tenantId, phase, failures: outcome.pause.failures?.length ?? 0 });
       // Persist the partial success (the providers that DID sync) durably BEFORE pausing, at the SAME phase with the SAME attempt cursor, so a mixed attempt
       // never strands its succeeded sources. If our lease was lost, abort with no finish call.
-      const saved = await advancePhase(tenantId, run.id, ownerToken, {
-        phase,
-        progress: { ...outcome.progress, state: { ...outcome.progress.state, blocker: outcome.pause.message } },
-        cursor: attemptCursor,
-      });
+      const saved = await advancePhase(tenantId, run.id, ownerToken,
+        { phase, progress: { ...outcome.progress, state: { ...outcome.progress.state, blocker: outcome.pause.message } }, cursor: attemptCursor });
       if (!saved) return "lost_lease";
       return pause(outcome.pause);
     }

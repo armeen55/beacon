@@ -3,7 +3,7 @@ import "server-only";
 /**
  * answer-readback - READING THE STORED AI ANSWERS BACK. Collection buys the answers, this reads them: ONE strict structured call reads a BATCH of stored answers (what each said, who it named, what it left out), A FEW BATCHES AT A TIME, and Evidence persists one reading per observation. IT COSTS NOTHING WHEN NOTHING CHANGED, a call fires only on a piece nobody has read yet, and A LONG ANSWER IS READ WHOLE, IN PIECES, ACROSS AS MANY PASSES AS IT TAKES: split on its own paragraph breaks, every piece keyed `id#part`, merged into ONE stored reading beside a COVERAGE CHECKPOINT naming which pieces of which answer hash are in it. Until every piece is accounted for that reading carries a deliberately different hash, so the row stays due and the next pass resumes at the first unread piece. EVERY READING IS GROUNDED IN ITS OWN ANSWER: each returned item is re-checked against the exact text it was read from and a failing item is dropped alone with the number named, because one batch grounded as a single body of text let a number only answer A contained validate a fabricated claim about answer B. EVERY PIECE THIS PASS SENDS COMES BACK SETTLED: merged, or dropped with its reason, and a piece never sent is owed.
  *
- * WHOSE FAILURE WAS IT DECIDES EVERYTHING, AND ONLY A RECEIPT SETTLES (see ReadFailure below, which names all seven). A call that returned no body leaves nothing stored and the answers due, and the pass STOPS there rather than fanning one throttled batch into fifteen more calls; anything that RETURNED settles every answer it covered, permanently, for that hash, after dropping to ONE CALL PER PIECE first so the readings themselves still land. EVERYTHING PURCHASED IS OWED A READING: a pass reads the OLDEST day that still owes one across a ROTATING lookback of THE LAST 26 WEEKS (182 days), not the run's own day, not a fixed recent week, and not any age at all, because today's fresh debt kept that week busy and permanently abandoned everything behind it. THE DETERMINISTIC VERDICT IS NEVER THE MODEL'S TO REFUSE: every answer this pass settles carries mentioned true OR false, off the answer's own words and the addresses it credited, and `matchedBy` says which found it, so Visibility divides by every answer read rather than by the ones the matcher happened to match. AND EVERY PASS ACCOUNTS FOR ITS OWN DAY: see AnalysisPassReceipt, where every answer taken on lands in exactly one named bucket. Runtime orchestrates, and Evidence never imports Decision.
+ * WHOSE FAILURE WAS IT DECIDES EVERYTHING, AND ONLY A RECEIPT SETTLES (see ReadFailure below, which names all seven). A call that returned no body leaves nothing stored and the answers due, and the pass STOPS there rather than fanning one throttled batch into fifteen more calls; anything that RETURNED settles every answer it covered, permanently, for that hash, after dropping to ONE CALL PER PIECE first so the readings themselves still land. EVERYTHING PURCHASED IS OWED A READING: a pass ALTERNATES, on a clock of its own, between the OLDEST day that still owes one across a ROTATING lookback of THE LAST 26 WEEKS (182 days) and the newest the recent week owes, never the run's own day and never a fixed recent week, because today's fresh debt kept that week busy and permanently abandoned everything behind it. THE DETERMINISTIC VERDICT IS NEVER THE MODEL'S TO REFUSE: every answer this pass settles carries mentioned true OR false, off the answer's own words and the addresses it credited, and `matchedBy` says which found it, so Visibility divides by every answer read rather than by the ones the matcher happened to match. AND EVERY PASS ACCOUNTS FOR ITS OWN DAY: see AnalysisPassReceipt, where every answer taken on lands in exactly one named bucket. Runtime orchestrates, and Evidence never imports Decision.
  */
 
 import { loadBrandIdentity, type BrandIdentity } from "@/domains/account/brand-identity";
@@ -41,11 +41,17 @@ const BATCH_ANALYSIS_SYSTEM = ANSWER_ANALYSIS_SYSTEM
  *  tokens on its own, which trips the account's per-minute token ceiling by itself, so every pass sent the giant batch, took a throttle twice, and read nothing at all. Five is roughly 7,000 input and 4,000 output tokens, so THREE together are about 33,000 a minute, well inside the ceiling one batch used to blow. Eight such calls is 40 pieces a pass and 48 scheduled passes a day is 1,920, against an intake of 140 a day: that is what makes a backlog FALL rather than grow, and 20 a pass never could. The batches are DISJOINT, so sending them together is the same bounded work in a third of the wall clock and never a retry storm. SINGLES_PER_PASS bounds the one-at-a-time fallback at roughly 15,000 tokens a pass: a CAP, not a sleep, because a bound is exact where a delay is a guess. */
 const ANSWERS_PER_BATCH = 5, BATCH_CONCURRENCY = 3, BATCH_CALLS_PER_PASS = 8, MAX_ANALYSES_PER_PASS = ANSWERS_PER_BATCH * BATCH_CALLS_PER_PASS, SINGLES_PER_PASS = 10;
 /** How much of ONE answer ONE slot reads (a longer answer is not cut off, it is SPLIT into this many characters at a time and every piece is read eventually), the estimated spend for one batch call and for one
- *  single-piece call, and the batch timeout: gpt-5-mini reasons before it writes, so a batch asks for more than the gateway's 90 second reasoning floor rather than have a slow one thrown away half-written. */
-const BATCH_ANSWER_CHARS = 5_000, BATCH_ANALYSIS_COST_USD = 0.05, ANSWER_ANALYSIS_COST_USD = 0.01, BATCH_TIMEOUT_MS = 180_000;
+ *  single-piece call, and the two call timeouts: gpt-5-mini reasons before it writes, so a batch asks for more than the gateway's 90 second reasoning floor rather than have a slow one thrown away half-written, and a
+ *  single inherits that floor as its own ceiling. And THE WALL CLOCK ONE PASS MAY SPEND, which an item count never was: eight batches at three minutes each is far past the 300 second lifetime of the request carrying
+ *  them. The caller hands down what is left of its own deadline, and this is only the floor for a caller that names none. IT IS THE CALL THAT LANDS INSIDE THE DEADLINE, NOT MERELY ITS START: a batch begun on a
+ *  millisecond of remainder used to run three more minutes past it and past the run LEASE behind it, which is how the other door reclaims a run whose reading is still in flight and buys the same wave a second time.
+ *  So no call opens without a whole reasoning call's worth of budget left, and a batch is handed the SMALLER of its own timeout and what remains, which the transport enforces: what it abandons is owed, not billed. */
+const BATCH_ANSWER_CHARS = 5_000, BATCH_ANALYSIS_COST_USD = 0.05, ANSWER_ANALYSIS_COST_USD = 0.01, BATCH_TIMEOUT_MS = 180_000, SINGLE_TIMEOUT_MS = 90_000, ANALYSIS_PASS_BUDGET_MS = 150_000;
 /** WHICH DAY A PASS READS, and the honest bound on how far back it can see. Seven days ending today was a PERMANENT ABANDONMENT: today keeps producing fresh debt, so that window was never quiet and an answer bought
- *  eight days ago could never be reached again however many passes ran. A pass now reads at most TWO lean windows, the seven days the clock has ROTATED to and the recent seven, and takes the OLDEST day either still
- *  owes. The rotation moves every hour and wraps at LOOKBACK_WINDOWS, so every one of THE LAST 26 WEEKS (182 days) is reached within about a day of passes and the per-pass cost stays two lean projections and one day of rows. An answer older than 182 days is never read back: that is the bound I state rather than hide. `dayMinus` is `day` less n days as a label, taken at noon so no daylight-saving edge can move it. */ const READBACK_WINDOW_DAYS = 7, LOOKBACK_WINDOWS = 26, WINDOW_ROTATION_MS = 3_600_000;
+ *  eight days ago could never be reached again however many passes ran. A pass now reads at most TWO lean windows, the seven days the clock has ROTATED to and the recent seven, and ALTERNATES between the oldest day
+ *  either still owes and the newest the recent seven owes. The rotation moves every hour and wraps at LOOKBACK_WINDOWS, so EVERY ONE OF THE 26 WINDOWS COMES ROUND ONCE EVERY 26 HOURS and takes an oldest turn while
+ *  it is open: no age band inside 182 days is unselectable, and each visit reads the oldest day that window still owes rather than all seven at once, so a deep band drains over as many rotations as it has owing days.
+ *  The per-pass cost stays two lean projections and one day of rows. An answer older than 182 days is never read back: that is the bound I state rather than hide. `dayMinus` is `day` less n days as a label, taken at noon so no daylight-saving edge can move it. */ const READBACK_WINDOW_DAYS = 7, LOOKBACK_WINDOWS = 26, WINDOW_ROTATION_MS = 3_600_000;
 const dayMinus = (day: string, n: number): string => new Date(Date.parse(`${day}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
 
 /** THE RESUME CHECKPOINT, stored beside the reading. `read` are the pieces merged into it, `dropped` those
@@ -56,8 +62,7 @@ type Coverage = { hash: string; parts: number; read: number[]; dropped: number[]
 /** PURE. The checkpoint on this row, but ONLY if it was taken against the answer that is on file now. */
 function coverageOf(row: AnalyzableObservation): Coverage | null {
   const c = (row.analysis as { coverage?: Coverage } | null)?.coverage;
-  return c != null && c.hash === row.answerHash && Array.isArray(c.read) && Array.isArray(c.dropped) ? c : null;
-}
+  return c != null && c.hash === row.answerHash && Array.isArray(c.read) && Array.isArray(c.dropped) ? c : null; }
 
 /** PURE. The pieces nobody has settled yet, in answer order. A DROPPED piece stays settled only while the ROW is settled: an un-buried answer's drops were part of the reopened verdict and are owed again, or all-dropped rows pin the oldest-owed day and every funded pass selects nothing. */
 function missingParts(row: AnalyzableObservation): number[] {
@@ -69,10 +74,8 @@ function missingParts(row: AnalyzableObservation): number[] {
 /** PURE. The merged reading without bookkeeping, so a later pass merges new pieces on top, never starting over. */
 function priorReading(row: AnalyzableObservation): AnswerAnalysis | null {
   if (coverageOf(row) == null || row.analysis == null) return null;
-  const { coverage: _c, readParts: _p, answerReadInPart: _a, reason: _r, matchedBy: _m, rejected: _j, outcome: _o, ...rest } =
-    row.analysis as Record<string, unknown>;
-  return rest as unknown as AnswerAnalysis;
-}
+  const { coverage: _c, readParts: _p, answerReadInPart: _a, reason: _r, matchedBy: _m, rejected: _j, outcome: _o, ...rest } = row.analysis as Record<string, unknown>;
+  return rest as unknown as AnswerAnalysis; }
 
 /** PURE. The PART READ stamp: derived from the answer hash and deliberately NOT equal to it, so settled says "not yet". */
 const partialHash = (c: Coverage): string => `${c.hash}~${c.read.length + c.dropped.length}of${c.parts}`;
@@ -82,27 +85,20 @@ const partialHash = (c: Coverage): string => `${c.hash}~${c.read.length + c.drop
 export function selectAnalysisTargets(rows: readonly AnalyzableObservation[], max = MAX_ANALYSES_PER_PASS): readonly AnalyzableObservation[] {
   // A PASS TAKES ON ONLY WHAT IT CAN FINISH, COUNTED IN PIECES. Selection packs the same batches the reader packs, so the call budget can never run out mid-list. An answer with more unread pieces than one batch
   // holds claims a batch and finishes over later passes; it never stalls and is never abandoned.
-  const batches = Math.max(1, Math.ceil(Math.max(0, max) / ANSWERS_PER_BATCH));
-  const out: AnalyzableObservation[] = [];
+  const batches = Math.max(1, Math.ceil(Math.max(0, max) / ANSWERS_PER_BATCH)), out: AnalyzableObservation[] = [];
   let opened = 0, filled = 0;
   for (const r of dueForAnalysis(rows)) {
     const pieces = Math.min(missingParts(r).length, ANSWERS_PER_BATCH);
     if (pieces === 0) continue;
-    if (opened === 0 || filled + pieces > ANSWERS_PER_BATCH) {
-      if (opened >= batches) break;
-      opened += 1; filled = 0;
-    }
-    filled += pieces;
-    out.push(r);
-  }
+    if (opened === 0 || filled + pieces > ANSWERS_PER_BATCH) { if (opened >= batches) break; opened += 1; filled = 0; }
+    filled += pieces; out.push(r); }
   return out;
 }
 
 /** PURE. Every stored answer that owes a reading, before any budget is applied, on the SAME rule Evidence's own `isAnalysisSettled` applies, so the
  *  planner, the due-work probe and this pass can never disagree about what is finished. */
 function dueForAnalysis(rows: readonly AnalyzableObservation[]): readonly AnalyzableObservation[] {
-  return rows
-    .filter((r) => Boolean(r.id) && Boolean(r.answerText) && Boolean(r.answerHash))
+  return rows.filter((r) => Boolean(r.id) && Boolean(r.answerText) && Boolean(r.answerHash))
     .filter((r) => !isAnalysisSettled({ analysis: r.analysis, analysisHash: r.analysisHash, answerHash: r.answerHash }));
 }
 
@@ -114,16 +110,12 @@ type AnalysisTarget = { row: AnalyzableObservation; question: string; key: strin
  *  the budget (then a sentence end, then a space, then the budget), so no piece starts mid sentence. NO piece ceiling: that is how a tail went unread. */
 function splitAnswer(text: string, budget = BATCH_ANSWER_CHARS): string[] {
   if (text.length <= budget) return [text];
-  const parts: string[] = [];
-  let rest = text;
+  const parts: string[] = []; let rest = text;
   while (rest.length > budget) {
     const window = rest.slice(0, budget), floor = Math.floor(budget / 2);
-    const para = Math.max(window.lastIndexOf("\n\n"), window.lastIndexOf("\n"));
-    const dot = window.lastIndexOf(". "), space = window.lastIndexOf(" ");
+    const para = Math.max(window.lastIndexOf("\n\n"), window.lastIndexOf("\n")), dot = window.lastIndexOf(". "), space = window.lastIndexOf(" ");
     const cut = para >= floor ? para : dot >= floor ? dot + 1 : space >= floor ? space : budget;
-    parts.push(rest.slice(0, cut).trim());
-    rest = rest.slice(cut).trim();
-  }
+    parts.push(rest.slice(0, cut).trim()); rest = rest.slice(cut).trim(); }
   if (rest.length > 0) parts.push(rest);
   return parts;
 }
@@ -138,12 +130,9 @@ function mergeAnswerReadings(readings: readonly AnswerAnalysis[]): AnswerAnalysi
     for (const r of readings) for (const x of pick(r) ?? []) {
       const k = key(x);
       if (seen.has(k)) continue;
-      seen.add(k);
-      out.push(x);
-      if (out.length >= max) return out;
-    }
-    return out;
-  };
+      seen.add(k); out.push(x);
+      if (out.length >= max) return out; }
+    return out; };
   const named = readings.find((r) => r.ownedBrandMention?.mentioned === true);
   return {
     sections: union((r) => r.sections, (s) => `${s.heading}|${s.covers}`, 12),
@@ -184,10 +173,10 @@ type AnalysisDeps = {
   analyze?: (input: { tenantId: string; question: string; engine: string; answerText: string; brand: string }) => Promise<AnswerAnalysis | ReadFailure | null>;
   /** ONE call over many pieces. Returns a reading per piece key, or WHY the whole call produced none. Null is
    *  read as `refused`, so a caller that only knows "unusable" still degrades exactly as it always did. */
-  analyzeBatch?: (input: { tenantId: string; brand: string; targets: readonly AnalysisTarget[] }) => Promise<Map<string, AnswerAnalysis> | ReadFailure | null>;
+  analyzeBatch?: (input: { tenantId: string; brand: string; targets: readonly AnalysisTarget[]; timeoutMs: number }) => Promise<Map<string, AnswerAnalysis> | ReadFailure | null>;
   readPrompts?: (tenantId: string) => Promise<TrackedQuestion[] | null>;
-  /** The clock the lookback ROTATES on. Tests move it to prove an old day is reached; production passes nothing. */
-  now?: number;
+  /** The clock the lookback ROTATES on (tests move it to prove an old day is reached; production passes nothing), and WHAT IS LEFT OF THE CALLER'S OWN DEADLINE: nothing opens a wave or a single once that is gone, so a pass that runs out of it stops with every unsent answer owed and unbilled. */
+  now?: number; budgetMs?: number;
   /** WHO THIS ACCOUNT IS. Tests inject it; production always loads the real one and never falls back to an empty brand (see runAnswerAnalyses). */
   identity?: BrandIdentity;
   complete?: CompleteFn; // the LLM transport, so a test can exercise this exact prompt without a key
@@ -205,8 +194,7 @@ function formPattern(form: string): RegExp | null {
   return new RegExp(`(?<![\\p{L}\\p{N}])${body}(?![\\p{L}\\p{N}])`, "iu");
 }
 
-const hostOfUrl = (raw: string): string =>
-  raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? "";
+const hostOfUrl = (raw: string): string => raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? "";
 
 /** PURE. Does this answer name the account, in its own text or in what it credited? null = neither, a real absence and not a shrug. */
 function findBrand(identity: BrandIdentity, answerText: string, citationUrls: readonly string[] | null): Exclude<BrandMatchPath, "model" | "both"> | null {
@@ -243,7 +231,7 @@ async function analyzeOne(input: { tenantId: string; question: string; engine: s
 
 /** ONE strict structured call over MANY pieces, same gateway, same reader rules. Returns a reading per piece key, or WHOSE failure produced none, which the caller
  * degrades from rather than treating as fifteen refusals. An entry naming a key this batch did not ask about is DROPPED and a repeated key keeps the first. */
-async function analyzeMany(input: { tenantId: string; brand: string; targets: readonly AnalysisTarget[] }, complete?: CompleteFn): Promise<Map<string, AnswerAnalysis> | ReadFailure> {
+async function analyzeMany(input: { tenantId: string; brand: string; targets: readonly AnalysisTarget[]; timeoutMs: number }, complete?: CompleteFn): Promise<Map<string, AnswerAnalysis> | ReadFailure> {
   const bodies = input.targets.map((t) => t.text);
   const user = [`BRAND TO LOOK FOR: ${input.brand || "(none supplied)"}`, `Read all ${input.targets.length} answers below. Return one entry per OBSERVATION.`]
     .concat(input.targets.map((t, i) => [
@@ -258,7 +246,7 @@ async function analyzeMany(input: { tenantId: string; brand: string; targets: re
   // `grounded` IS A COARSE FIRST NET ONLY. The gateway reads every piece here as one body of text, so it catches a number no piece in the batch contains and
   // cannot catch one carried from answer to answer. The real firewall is numberNotInOwnAnswer, which re-checks each returned item against its own piece's text.
   const out = await callStructuredLLM({ kind: "answer_analysis_batch", tenantId: input.tenantId, system: BATCH_ANALYSIS_SYSTEM, user, grounded: bodies.join("\n"),
-    projectedCostUsd: BATCH_ANALYSIS_COST_USD, maxTokens: 7_000, timeoutMs: BATCH_TIMEOUT_MS, ...(complete ? { complete } : {}) });
+    projectedCostUsd: BATCH_ANALYSIS_COST_USD, maxTokens: 7_000, timeoutMs: input.timeoutMs, ...(complete ? { complete } : {}) });
   if (out.status !== "drafted") {
     const why = failureOf(out);
     log.warn("[daily-observations] a batch reading of stored answers did not land", { tenantId: input.tenantId, pieces: input.targets.length, status: out.status, why });
@@ -292,17 +280,21 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     const ev = await evidenceObservations(), seen = await ev.readAiObservations(t, { fromDay: from, toDay: to, projection: "outcome" });
     return [...new Set(seen.filter((r) => r.status === "observed" && r.answer_hash != null
       && !ev.isAnalysisSettled({ analysis: r.analysis, analysisHash: r.analysis_hash ?? null, answerHash: r.answer_hash ?? null })).map((r) => r.reporting_day))].sort(); });
-  // OLDEST UNSETTLED FIRST, ACROSS THE STORE AND NOT ACROSS ONE WEEK. Two lean window reads at most (the seven days the rotation points at, then the recent
-  // seven) and the oldest day either owes is what this pass reads. BOTH reads failing falls back to the run's own day, which is what it always did when blind.
-  const back = (READBACK_WINDOW_DAYS * (Math.floor((deps.now ?? Date.now()) / WINDOW_ROTATION_MS) % LOOKBACK_WINDOWS));
+  // ACROSS THE STORE, NOT ACROSS ONE WEEK. Two lean window reads at most (the seven days the rotation points at, then the recent seven); which of the days they
+  // name this pass actually reads is decided just below. BOTH reads failing falls back to the run's own day, which is what it always did when blind.
+  const nowMs = deps.now ?? Date.now(), back = READBACK_WINDOW_DAYS * (Math.floor(nowMs / WINDOW_ROTATION_MS) % LOOKBACK_WINDOWS);
+  // WHICH KIND OF TURN THIS IS, ON A CLOCK OF ITS OWN: half-hour parity, never the window index's. LOOKBACK_WINDOWS is 26 and therefore EVEN, so `tick % 26` carries tick's own parity and reading the turn off it meant
+  // only ODD multiples of seven ever opened on a turn that could take the older day: ages 14-20, 28-34 and every even band to 168-174, 84 of the 182 days, were unreachable forever. Passes run about half an hour apart, so an independent half-hour parity gives every hourly window one oldest turn and one newest turn while it is open.
+  const oldestTurn = Math.floor(nowMs / (WINDOW_ROTATION_MS / 2)) % 2 === 1;
   const owed: string[] = []; let looked = false;
   let recent: string[] = [];
   for (const n of back === 0 ? [0] : [back, 0]) {
     const to = dayMinus(day, n);
     const seen = await unreadDays(tenantId, dayMinus(to, READBACK_WINDOW_DAYS - 1), to).catch(() => null);
     if (seen != null) { looked = true; owed.push(...seen); if (n === 0) recent = [...seen]; } }
-  // TODAY OUTRANKS HISTORY: the newest owed day in the recent week reads first (current answers are what Visibility and decisions stand on; capacity runs far past intake, so history drains in spare passes and the rotating window still reaches every old day).
-  const reading = (looked ? recent.sort().at(-1) ?? owed.sort()[0] : null) ?? day, // the day this pass actually reads, which every line below names rather than the run's own
+  // BOUNDED FAIRNESS, NOT NEWEST-WINS. Taking the newest owed day in the recent week meant a day still taking answers in outranked every older debt forever: 140 arrive daily, one pass reads at most 40, so today was never
+  // quiet and 12 August's 140 answers sat unread with no pass able to reach them. THE POLICY: an oldest turn reads the OLDEST owed day either window holds and a newest turn the newest in the recent week, so current answers stay current and old debt drains on a guaranteed share of the passes rather than on whatever today leaves over. Either turn falls back to the other's day when its own has nothing owing.
+  const older = [...owed].sort()[0], newer = [...recent].sort().at(-1), reading = (looked ? (oldestTurn ? older ?? newer : newer ?? older) : null) ?? day, // the day this pass actually reads, named by every line below rather than the run's own
     rows = await readObservations(tenantId, { day: reading }).catch(() => null);
   if (rows == null || rows.length === 0) return READ_NOTHING;
   const budget = deps.max ?? MAX_ANALYSES_PER_PASS, targets = selectAnalysisTargets(rows, budget);
@@ -326,6 +318,10 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
   // WHAT THIS PASS HAS ALREADY SPENT AND ALREADY SETTLED. `billed` counts the calls that genuinely returned something, so a pass that paid and stored nothing is a
   // contradiction I say out loud; `asked` makes ONE attempt per answer per pass structural, so no ladder below can send the same answer twice in one pass.
   let billed = 0, settledHere = 0, refusedHere = 0, singlesLeft = SINGLES_PER_PASS; const asked = new Set<string>();
+  // THE HOSTING CEILING IS A REAL BOUND AND AN ITEM COUNT IS NOT IT: eight batches then ten singles outran the 300 second request carrying them, which is how ten dispatches in a row died at exactly 300 seconds on 13
+  // August with the run still parked on the phase that called this. A CALL IS OPENED ONLY ON A WHOLE CALL'S WORTH OF THE BUDGET, so it is the CALL that lands inside the deadline and not merely its start: a batch
+  // begun on a millisecond of remainder runs three more minutes past it, past the run lease behind it, and the door that reclaims the run then buys the same wave a second time. What is never sent is never billed.
+  const until = Date.now() + Math.max(0, deps.budgetMs ?? ANALYSIS_PASS_BUDGET_MS), roomFor = (callMs: number): boolean => until - Date.now() >= callMs;
   // THE ACCOUNTING. One bucket per answer taken on, bumped exactly once where a verdict is reached, so a receipt can never show a bare number nobody can check. `accountedFor` counts the answers that reached a
   // verdict at all; whatever is left over is owed, and `billed` decides which kind of owed it was.
   const outcomes: Record<string, number> = {}; let accountedFor = 0;
@@ -413,7 +409,7 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
       const readings = new Map<string, AnswerAnalysis>(), classOf = new Map<string, ReadOutcome>(), sent: AnalysisTarget[] = [];
       let stalled = false;
       for (const p of pieces) {
-        if (singlesLeft <= 0) { stalled = true; break; } // the pass's token allowance for single reads is spent; the rest is owed, unbought
+        if (singlesLeft <= 0 || !roomFor(SINGLE_TIMEOUT_MS)) { stalled = true; break; } // the pass's token allowance for single reads is spent, or there is no longer a whole single's worth of time to run one inside: the rest is owed, unbought and unbilled
         singlesLeft -= 1;
         // A reader that names no reason at all has now failed this piece TWICE, both billed: the ladder is spent, and that is the name it is settled under.
         const one = await analyze({ tenantId, question: p.question, engine: p.row.engine, answerText: p.text, brand: identity.name }).catch(() => "transient" as const) ?? ("attempts_exhausted" as const);
@@ -448,7 +444,11 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
   const runWave = async (): Promise<void> => {
     const sent = wave.splice(0, wave.length);
     if (sent.length === 0) return;
-    const results = await Promise.all(sent.map((group) => analyzeBatch({ tenantId, brand: identity.name, targets: group })
+    // A WAVE IS NEVER OPENED WITHOUT A WHOLE REASONING CALL'S WORTH OF BUDGET LEFT, and stopping in FRONT of a call rather than abandoning one in flight is the whole point: nothing was asked for, nothing charged,
+    // nothing settled. What it IS given is the smaller of a batch's own timeout and every millisecond that remains, so the call the transport aborts is one that could never have outlived the lease behind it.
+    if (!roomFor(SINGLE_TIMEOUT_MS)) { stop = true; log.warn("[daily-observations] there was not enough of this pass left to finish another read of your answers, so I asked for nothing more and left them owed", { tenantId, day: reading, owed: sent.reduce((n, g) => n + g.length, 0) }); return; }
+    const timeoutMs = Math.min(BATCH_TIMEOUT_MS, until - Date.now());
+    const results = await Promise.all(sent.map((group) => analyzeBatch({ tenantId, brand: identity.name, targets: group, timeoutMs })
       .catch(() => "transient" as const).then((r) => r ?? ("schema_invalid" as const))));
     for (const [i, group] of sent.entries()) {
       const readings = results[i]!;

@@ -76,8 +76,9 @@ export type ResearchCycleSteps = {
   surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
   /** Read back the day's NEW answers (bounded, $0 when nothing changed). Returns THE PASS'S OWN RECEIPT, not a bare number: how many answers it took on, how many
    *  ended with a durable verdict, how many of those were a non-reading, and how many real readings landed, so a run row can say what a pass actually did instead
-   *  of showing a count nobody can check against the debt. Derived work: it never pauses the run. */
-  analyzeAnswers: (tenantId: string, reportingDay: string) => Promise<{ attempted: number; settled: number; refused: number; read: number; outcomes: Record<string, number> }>;
+   *  of showing a count nobody can check against the debt. Derived work: it never pauses the run. `budgetMs` is what is LEFT of the drive's own deadline, and the reading obeys it before every wave and every single:
+   *  a bound counted in answers is not a bound on the wall clock the hosting platform actually enforces. */
+  analyzeAnswers: (tenantId: string, reportingDay: string, budgetMs: number) => Promise<{ attempted: number; settled: number; refused: number; read: number; outcomes: Record<string, number> }>;
   /** WHAT THE OPERATOR SAID THEY SHIPPED, checked on the live page (verify_and_measure). Bounded to three pages per pass and free: every one is a read of a page the account owns, on the same polite-fetch
    *  path as every other owned read, never a provider. Returns how many verifications landed. Derived work: a check I could not make never pauses the run. */
   verifyShipments: (tenantId: string, now: Date) => Promise<number>;
@@ -255,7 +256,7 @@ export const defaultSteps: ResearchCycleSteps = {
     // The plan's own cases ride into discovery, so every keyword is filed under the case it belongs to and the recurring winning domains are bought once per case set.
     return keywordDiscoveryUnit({}, cases)(tenantId, cursor, budgetMs); // the facade export is a deps factory returning the executor
   },
-  async analyzeAnswers(tenantId, reportingDay) { return runAnswerAnalyses(tenantId, reportingDay); },
+  async analyzeAnswers(tenantId, reportingDay, budgetMs) { return runAnswerAnalyses(tenantId, reportingDay, { budgetMs }); },
   async verifyShipments(tenantId) { return verifyDueShipments(tenantId); },
   async measureShipments(tenantId, now) { return settleDueMeasurements(tenantId, { now }); },
   // warmFreeSurfaces PROPAGATES failure (no internal swallow): a throw pauses publish_surface and the previously saved surface stays visible.
