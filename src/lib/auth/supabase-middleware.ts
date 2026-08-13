@@ -41,15 +41,25 @@ function withMwTimeout<T>(p: PromiseLike<T>, onTimeout: T, ms: number = MW_SUPAB
  *  exists for this and none is wanted: the middleware answers in place, the browser reloads itself once, and
  *  the warm second attempt almost always lands. A second failure inside the retry cookie's life redirects to
  *  /login with `next` intact instead of looping. */
-function retryOnceResponse(): NextResponse {
+function retryOnceResponse(reason = "1"): NextResponse {
   const res = new NextResponse(
     `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="1"><title>Reconnecting</title>` +
       `<body style="font:14px/1.6 system-ui;padding:2rem;color:#444">` +
       `<p>Reconnecting to your account. This page reloads by itself.</p></body>`,
     { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
   );
-  res.cookies.set(ACCOUNT_RETRY_COOKIE, "1", { path: "/", httpOnly: true, sameSite: "lax", maxAge: 30 });
+  // The mark carries WHICH check failed: the session check and the account check each get their own one
+  // reload, so an auth blip can never spend the account check's retry and force a premature sign-out bounce.
+  res.cookies.set(ACCOUNT_RETRY_COOKIE, reason, { path: "/", httpOnly: true, sameSite: "lax", maxAge: 30 });
   return res;
+}
+
+/** DOES THIS BROWSER ALREADY HOLD A SESSION? Supabase names its session cookie `sb-<project ref>-auth-token` and splits a large one
+ *  into `.0`, `.1` chunks, so the name is matched by SHAPE and never against a configured ref: a project move can never silently turn
+ *  every customer into a signed-out visitor. Presence is not proof of a VALID session. It is proof that "signed out" is the wrong
+ *  answer to give when the auth read itself never came back. */
+function hasAuthCookie(request: NextRequest): boolean {
+  return request.cookies.getAll().some((c) => /^sb-.+-auth-token(\.\d+)?$/.test(c.name) && c.value !== "");
 }
 
 /** The retired account-selection cookie. Never read; actively expired so
@@ -62,6 +72,11 @@ function expireRetiredCookie(res: NextResponse): NextResponse {
 
 /**
  * Auth gate + account injection (one user, one account, one website).
+ *
+ * BOTH reads here answer in three states, never two. The session read: a user signs in; no session cookie at
+ * all on a protected route is a genuine signed-out login redirect; a session cookie in hand with a read that
+ * timed out, errored or threw is NOT a verdict and takes the transient posture below (reload once, 503 for
+ * anything that is not a document, /login?error=auth_check_failed only on a second failure).
  *
  * For an AUTHENTICATED request, membership resolution is exactly-one, and a
  * DATABASE ANSWER is a verdict while a database SILENCE is not:
@@ -88,7 +103,7 @@ function expireRetiredCookie(res: NextResponse): NextResponse {
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
   if (process.env.BEACON_AUTH_DISABLED === "1") {
     // audit #7 (2026-06-14): even on the auth bypass, NEVER trust an inbound
-    // x-beacon-tenant header — currentTenantId() reads it before the env
+    // x-beacon-tenant header: currentTenantId() reads it before the env
     // fallback, so an un-stripped header is trivial tenant impersonation.
     const bypassHeaders = new Headers(request.headers);
     bypassHeaders.delete("x-beacon-tenant");
@@ -142,17 +157,6 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     },
   );
 
-  // Refreshes the session cookie if near-expiry. Timeout-guarded: a slow
-  // Supabase Auth resolves to "no user" → the login redirect for protected
-  // routes (fast + safe, self-heals) instead of a middleware 504.
-  type GetUserResult = Awaited<ReturnType<typeof supabase.auth.getUser>>;
-  const {
-    data: { user },
-  } = await withMwTimeout<GetUserResult>(
-    trace.time("auth.getUser", () => supabase.auth.getUser()),
-    { data: { user: null }, error: null } as unknown as GetUserResult,
-  );
-
   const path = request.nextUrl.pathname;
   const isPublic =
     path.startsWith("/login") ||
@@ -165,15 +169,6 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     path === "/api/version" ||
     path.startsWith("/_next") ||
     path === "/favicon.ico";
-
-  if (!user && !isPublic) {
-    trace.data("decision", "redirect_login");
-    trace.flush();
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/login";
-    redirectUrl.searchParams.set("next", path);
-    return expireRetiredCookie(NextResponse.redirect(redirectUrl));
-  }
 
   /** A REDIRECT THAT LOSES THE DESTINATION costs the operator the page twice: once now, once after signing
    *  in again. Where they were going travels with every account refusal. */
@@ -190,6 +185,66 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     res.cookies.set(ACCOUNT_RETRY_COOKIE, "", { path: "/", maxAge: 0 });
     return res;
   };
+
+  /** THE ONE TRANSIENT POSTURE, now shared by both reads this middleware makes. A check that did not ANSWER is not a verdict: a
+   *  document request reloads itself once, anything else (a server action POST, an RSC fetch) gets an honest 503 the caller can
+   *  retry, and only a second failure inside the retry cookie's life redirects, carrying `next`. */
+  const busyOrRetry = (reason: string, busyCopy: string, error: string): NextResponse => {
+    const wantsDocument =
+      request.method === "GET" &&
+      !request.headers.get("rsc") &&
+      (request.headers.get("accept") ?? "").includes("text/html");
+    if (!wantsDocument) {
+      trace.data("tenant_decision", `${reason}_busy`);
+      trace.flush();
+      return new NextResponse(busyCopy, { status: 503, headers: { "cache-control": "no-store" } });
+    }
+    // The mark is the CHECK's identity (auth vs account), not the fine-grained reason: the same check
+    // failing twice for two different reasons still escalates, while an auth blip can never spend the
+    // account check's one reload. "1" is the pre-scoping legacy value, honored so a mid-deploy cookie
+    // still escalates rather than looping.
+    const mark = request.cookies.get(ACCOUNT_RETRY_COOKIE)?.value;
+    if (mark === error || mark === "1") return failClosed(error, `${reason}_after_retry`);
+    trace.data("tenant_decision", `${reason}_retry_once`);
+    trace.flush();
+    return retryOnceResponse(error);
+  };
+
+  // Refreshes the session cookie if near-expiry. THREE ANSWERS, NOT TWO: a user, a genuine signed-out, or NO ANSWER AT ALL. A read
+  // that timed out at the ceiling above, came back with an error, or threw used to be byte-identical to signed out, so one slow
+  // moment at the auth provider signed a perfectly valid session out and asked for a fresh magic link. A session cookie in hand
+  // means "signed out" is the wrong answer, so an unanswered read takes the same transient posture the account read has had all
+  // along. The fast ceiling stays: the middleware still never spends more than five seconds here.
+  type AuthRead = { user: { id: string } | null; answered: boolean };
+  const auth = await withMwTimeout<AuthRead>(
+    trace.time("auth.getUser", () =>
+      supabase.auth.getUser().then(
+        // A 4xx from the auth provider IS a verdict (session missing, refresh token revoked): the person is
+        // signed out and the clean login redirect is the honest answer. Only silence, a throw, or a 5xx is
+        // "did not answer". Without this, every ordinarily expired session took the retry ladder and landed
+        // on a wrong error instead of the sign-in form.
+        (r) => ({ user: r.data.user, answered: r.error == null || (typeof r.error.status === "number" && r.error.status >= 400 && r.error.status < 500) }),
+        (e: unknown) => {
+          console.error("[mw-auth] getUser threw:", e);
+          return { user: null, answered: false };
+        },
+      ),
+    ),
+    { user: null, answered: false },
+  );
+  const user = auth.user;
+
+  if (!auth.answered && !isPublic && hasAuthCookie(request)) {
+    return busyOrRetry("auth_check", "Signing you in is taking longer than it should. Try that again.", "auth_check_failed");
+  }
+  if (!user && !isPublic) {
+    trace.data("decision", "redirect_login");
+    trace.flush();
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = "/login";
+    redirectUrl.searchParams.set("next", path);
+    return expireRetiredCookie(NextResponse.redirect(redirectUrl));
+  }
 
   // Public paths never need account injection, and gating on isPublic is what
   // keeps /login and /auth/signout REACHABLE for a session with zero
@@ -223,29 +278,12 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
       return expireRetiredCookie(response);
     };
 
-    /** ONE FAILED READ IS NOT AN ACCOUNT VERDICT. In order: the last signed account answers it; a document
-     *  request reloads itself once; anything else (a server action POST, an RSC fetch) gets an honest 503 the
-     *  caller can retry, because bouncing a Mark done POST to /login eats the press and the destination. */
-    const transientAccountFailure = (reason: string): NextResponse | Promise<NextResponse> => {
-      if (cached) return inject(cached.tenantId, false, `${reason}_served_cached_account`);
-      const wantsDocument =
-        request.method === "GET" &&
-        !request.headers.get("rsc") &&
-        (request.headers.get("accept") ?? "").includes("text/html");
-      if (!wantsDocument) {
-        trace.data("tenant_decision", `${reason}_busy`);
-        trace.flush();
-        return new NextResponse("Your account could not be checked just now. Try that again.", {
-          status: 503, headers: { "cache-control": "no-store" },
-        });
-      }
-      if (request.cookies.get(ACCOUNT_RETRY_COOKIE)?.value === "1") {
-        return failClosed("account_check_failed", `${reason}_after_retry`);
-      }
-      trace.data("tenant_decision", `${reason}_retry_once`);
-      trace.flush();
-      return retryOnceResponse();
-    };
+    /** ONE FAILED READ IS NOT AN ACCOUNT VERDICT. The last signed account answers it first; with none, the shared transient
+     *  posture takes over, because bouncing a Mark done POST to /login eats the press and the destination. */
+    const transientAccountFailure = (reason: string): NextResponse | Promise<NextResponse> =>
+      cached
+        ? inject(cached.tenantId, false, `${reason}_served_cached_account`)
+        : busyOrRetry(reason, "Your account could not be checked just now. Try that again.", "account_check_failed");
 
     // THE HOT PATH IS A SIGNATURE, NOT A QUERY. A fresh signed cookie names the account this session already
     // resolved, so the per-request `tenant_members` read that was starving the pool never runs.

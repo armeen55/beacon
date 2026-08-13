@@ -26,22 +26,21 @@ const DATA_SOURCES: readonly ConnectorProvider[] = CONNECTOR_REGISTRY.map((c) =>
 
 /**
  * UX4 item 6 - the header's "Update data" button reads this shared connected-source
- * count so it never disagrees with any other derive. Fail-soft per provider: a read
- * error counts a source as not connected.
+ * count so it never disagrees with any other derive. The rule for what COUNTS is
+ * decided once, on the health verdict itself (`countsAsConnected` in
+ * connector-store): a stale-but-serving source counts, a source whose check
+ * failed does not. Fail-soft per provider: a read error counts as not connected.
  */
 export async function countConnectedDataSources(tenantId?: string): Promise<number> {
   const now = Date.now();
-  const healths = await Promise.all(
+  const counted = await Promise.all(
     DATA_SOURCES.map(async (provider) => {
       try {
-        const info = await getConnectorHealth(provider, tenantId, now);
-        return { provider, health: info?.health ?? "not_connected" as const };
+        return (await getConnectorHealth(provider, tenantId, now)).countsAsConnected;
       } catch {
-        return { provider, health: "not_connected" as const };
+        return false;
       }
     }),
   );
-  return healths.filter(
-    (s) => s.health === "connected" || s.health === "needs_attention",
-  ).length;
+  return counted.filter(Boolean).length;
 }

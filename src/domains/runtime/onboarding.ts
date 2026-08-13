@@ -7,7 +7,7 @@ import "server-only";
  *  proceeds); the model can never touch identity, the domain, provenance, status or cost (not representable in the schemas, and re-checked
  *  against a field whitelist here). */
 
-import type { BusinessProfile, BusinessType, ProfileSection } from "@/domains/account";
+import type { Account, BusinessProfile, BusinessType, ProfileSection } from "@/domains/account";
 import { normalizeSiteUrl, invalidateBusinessProfileCache } from "@/domains/account";
 import type { CrawlPageFact } from "@/domains/evidence/scanning/crawl-frontier";
 import { callStructuredLLM } from "@/domains/decision/llm/structured-drafter";
@@ -47,13 +47,15 @@ export async function loadOnboardingState(tenantId: string, deps?: OnboardingDep
   const prompts = projectPrompts(rows, basis);
   const connections = await Promise.all(
     (["google_gsc", "google_ga4", "clarity"] as const).map(async (kind) => {
+      // A READ THAT FAILED IS NOT A DISCONNECTED SOURCE. Rendering "Connect" over a transient failure tells a customer who
+      // connected Search Console weeks ago that their data is gone and invites them to reconnect it for nothing.
       const info = await d.connectorInfo(kind, tenantId).catch(() => null);
-      return { kind, connected: info?.status === "connected", lastSyncedAt: info?.last_synced_at ?? null };
+      return { kind, connected: info ? info.status === "connected" : ("unknown" as const), lastSyncedAt: info?.last_synced_at ?? null };
     }),
   );
   return {
     status: account?.status ?? "pending_onboarding",
-    currentStep: firstIncompleteStep(domain, hasInference, confirmed, goal, prompts.approvedCount),
+    currentStep: await wizardStep(canonicalId, account, domain, goal, profile, rows, d),
     website: { domain, crawl: { pagesRead: crawl?.pages_crawled ?? 0, status: (crawl?.status ?? "none") as OnboardingState["website"]["crawl"]["status"] } },
     profile: {
       name: profile.name.value, businessType: profile.businessType.value, siteArchetype: profile.siteArchetype.value,
@@ -67,13 +69,20 @@ export async function loadOnboardingState(tenantId: string, deps?: OnboardingDep
   };
 }
 
-function firstIncompleteStep(domain: string, hasInference: boolean, confirmed: boolean, goal: OnboardingGoal | null, approvedCount: number): OnboardingState["currentStep"] {
-  if (!domain) return 1;
-  if (!hasInference) return 2;
-  if (!confirmed) return 3;
-  if (!goal) return 4;
-  if (approvedCount < 1) return 5;
-  return 6; // connections are skippable; step 7 is reached by explicit navigation
+/** THE ONE LADDER. What step this wizard shows and what step the product guard says is owed are the SAME question, and they used to be
+ *  two rules that disagreed: the guard counts a running account's questions the way the research funnel counts them (basis-agnostically,
+ *  operator-approved), while this screen counted only current-basis rows, so an account whose basis moved had no gap at all and a wizard
+ *  sitting on step 5 with nothing approved. Both now come out of setupGap, over the profile and rows ALREADY read here, so there is one
+ *  rule and no second query. A profile too empty to judge (exactly what a failed read hands back) is the "read your site" step, and the
+ *  gap's step 7 is the terms, which this wizard reaches from the skippable connections step, so 6 is where a finished set lands. */
+async function wizardStep(tenantId: string, account: Account | null, domain: string, goal: OnboardingGoal | null,
+  profile: BusinessProfile, rows: TrackedPromptRow[], d: ReturnType<typeof resolve>): Promise<OnboardingState["currentStep"]> {
+  const gap = await setupGap(
+    tenantId,
+    { status: account?.status ?? "pending_onboarding", domain, growth_goal: goal, tos_accepted_at: account?.tos_accepted_at ?? null },
+    { ...d, loadProfile: async () => profile, store: { ...d.store, readPrompts: async () => rows } },
+  ).catch(() => ({ step: 2 as const }));
+  return gap === null || gap.step === 7 ? 6 : gap.step;
 }
 
 function projectPrompts(rows: TrackedPromptRow[], basis: string): OnboardingState["prompts"] {

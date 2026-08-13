@@ -274,10 +274,14 @@ function ConnectionsStep({ state }: { state: OnboardingState }) {
           return (
             <div key={c.kind} className="flex items-start justify-between gap-4 rounded-lg border border-border/60 bg-surface px-4 py-3">
               <div>
-                <p className="text-[13px] font-semibold">{meta.label}{c.connected ? <span className="ml-2 text-[11px] font-normal text-emerald-600">Connected</span> : null}</p>
+                <p className="text-[13px] font-semibold">{meta.label}{c.connected === true ? <span className="ml-2 text-[11px] font-normal text-emerald-600">Connected</span> : null}</p>
                 <p className="mt-0.5 text-[12px] text-muted-foreground leading-relaxed">{meta.blurb}</p>
               </div>
-              {!c.connected ? <a href="/settings/connectors" className={GHOST + " whitespace-nowrap"}>Connect</a> : null}
+              {/* A SOURCE THAT COULD NOT BE CHECKED IS NOT A DISCONNECTED SOURCE: offering Connect there tells a customer their own
+                  connection is gone and asks them to redo it for nothing. */}
+              {c.connected === "unknown"
+                ? <span className="text-[12px] text-muted-foreground whitespace-nowrap">Could not check just now. Reload to check again.</span>
+                : c.connected === false ? <a href="/settings/connectors" className={GHOST + " whitespace-nowrap"}>Connect</a> : null}
             </div>
           );
         })}

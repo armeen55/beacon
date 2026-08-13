@@ -1,5 +1,5 @@
 /**
- * onboarding/access — Gap C.1 (2026-05-07).
+ * onboarding/access, Gap C.1 (2026-05-07).
  *
  * Server-side access guard for /onboard/* routes.
  *
@@ -9,12 +9,16 @@
  *
  *   - No user (no session)         → /login
  *   - User has no tenant_members   → /signup?error=no_tenant
- *   - Tenant lookup error          → /login?error=onboarding_lookup_failed
+ *   - Membership lookup error      → /login?error=onboarding_lookup_failed
  *   - Tenant row missing           → /login?error=tenant_missing
- *   - Tenant.status === 'active'   → /  (already launched)
- *   - Tenant.status === 'paused'   → /?error=tenant_paused
- *   - Tenant.status === 'cancelled'→ /?error=tenant_cancelled
+ *   - Tenant row UNREADABLE        → AccountUnavailableError (bounded retry boundary, NEVER /login)
+ *   - Tenant.status === 'active'   → /  when the one lifecycle gate says setup is finished
+ *   - Tenant.status paused/cancelled → /  , where the same gate renders the honest notice
  *   - Tenant.status === 'pending_onboarding' → ALLOW
+ *
+ * A ROW THAT COULD NOT BE READ IS NOT A ROW THAT IS NOT THERE. Bouncing a transient read failure to /login
+ * threw a perfectly valid session out and invited a fresh magic link, which is exactly how sign-in loops are
+ * born; the shell error boundary offers Try again instead and the session survives.
  *
  * Atomicity note: this helper performs READ-ONLY checks. It does not
  * mutate the tenant. The /onboard step server actions perform writes
@@ -27,6 +31,7 @@ import { redirect } from "next/navigation";
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { lookupExistingMembership } from "./provision-tenant";
+import { AccountUnavailableError, resolveAccountAccess } from "../lifecycle";
 import { mapRowToAccount } from "@/domains/account/tenants/store";
 import type { Account } from "@/domains/account/tenants/types";
 
@@ -98,24 +103,27 @@ export async function requireOnboardingTenant(opts?: {
 
   if (tErr) {
     console.error("[onboard] tenant fetch failed:", tErr.message);
-    redirect("/login?error=tenant_fetch_failed");
+    throw new AccountUnavailableError(tenantId);
   }
   if (!tenant) {
     redirect("/login?error=tenant_missing");
   }
 
-  if (tenant.status === "active" && !opts?.allowActive) {
-    // Already launched — onboarding is over for this customer. Send a notice
-    // so the dashboard can explain the redirect instead of bouncing silently
-    // (#143). Target stays "/" — only the explanatory param is added.
-    redirect("/?notice=already_launched");
+  if (tenant.status === "active") {
+    // THE ONE GATE, shared with every product surface (account/lifecycle): an active account may stay in setup
+    // only while something is genuinely missing, because the product guard sends it back here for the exact
+    // step it owes and a door that refused every active account left the operator bouncing between two
+    // redirects. A gap that could not be READ is not proof there is none, so it stays and each command below
+    // gets its say. Already launched sends the notice so the dashboard can explain the redirect (#143).
+    if (!opts?.allowActive || (await resolveAccountAccess(tenantId)).kind === "ready") {
+      redirect("/?notice=already_launched");
+    }
   }
-  if (tenant.status === "paused") {
-    redirect("/?error=tenant_paused");
+  // Paused and cancelled are rendered by that same gate on Today, in its own words. A parallel error param here
+  // said nothing: nothing on the dashboard ever read it.
+  if (tenant.status === "paused" || tenant.status === "cancelled") {
+    redirect("/");
   }
-  if (tenant.status === "cancelled") {
-    redirect("/?error=tenant_cancelled");
-  }
-  // status === "pending_onboarding" — allow.
+  // status === "pending_onboarding": allow.
   return { user, tenantId, tenant };
 }

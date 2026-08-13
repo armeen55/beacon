@@ -163,20 +163,18 @@ export async function GET(request: Request): Promise<NextResponse> {
     tokens = await exchangeGoogleCode(code);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    // Google's own error code (invalid_client, redirect_uri_mismatch, ...) is
+    // an operator diagnostic, and it belongs HERE, in the log, with the full
+    // message. It used to ride the redirect as ?detail= and land on the
+    // customer's screen as a paragraph of server-setup instructions.
     log.error("Google OAuth token exchange failed", {
       provider,
+      code: msg.match(
+        /(invalid_client|redirect_uri_mismatch|invalid_grant|unauthorized_client|invalid_request)/,
+      )?.[1] ?? "unclassified",
       error: msg.slice(0, 500),
     });
-    // Surface Google's actual error code so the operator fixes the RIGHT thing
-    // (e.g. invalid_client = wrong CLIENT_SECRET; redirect_uri_mismatch = the
-    // domain's callback URL isn't registered in Google Cloud Console).
-    const m = msg.match(
-      /(invalid_client|redirect_uri_mismatch|invalid_grant|unauthorized_client|invalid_request)/,
-    );
-    return settingsRedirect(
-      request,
-      m ? { error: "exchange_failed", detail: m[1]! } : { error: "exchange_failed" },
-    );
+    return settingsRedirect(request, { error: "exchange_failed" });
   }
 
   // Account identity from the id_token (present because the auth URL requests

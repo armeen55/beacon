@@ -4,20 +4,33 @@ import { useState, useTransition } from "react";
 import { requestMagicLink } from "./actions";
 
 /**
- * Every error code the sign-in chain can produce, mapped to words a customer
- * can act on. Raw codes ("no_account") must never render: they read as a bug
- * report, not a next step. Unknown codes fall through to the generic retry.
+ * EVERY error code the sign-in chain can produce, mapped to words a customer can act on, and nothing else:
+ * a code with no emitter is dead copy, and an emitter with no code here tells the customer to burn a fresh
+ * magic link when a reload was the fix. Raw codes ("no_account") must never render, and neither may a raw
+ * provider message: they read as a bug report, not a next step. Unknown codes fall through to the generic
+ * retry.
  */
 const LOGIN_ERROR_MESSAGES: Record<string, string> = {
   no_account:
     "No workspace matches this sign in. Create one from the signup page to get started.",
   multiple_accounts_unsupported:
     "This email is attached to more than one workspace, which Beacon cannot open yet. Reply to your welcome email to get it sorted.",
-  account_unavailable: "Your account could not be opened just now. Try again in a minute.",
   // Twice in a row the account check did not answer. The session is still good, so reloading is the fix and
   // burning a fresh sign-in link is not.
   account_check_failed:
     "Checking your account timed out twice. You are still signed in, so reload the page in a minute. A new link is not needed.",
+  // Twice in a row the SESSION check did not answer. The session is intact; the link is spent, so
+  // pointing at it would send the customer through two dead ends before the request form.
+  auth_check_failed:
+    "Your connection could not be checked twice in a row. You are still signed in, so reload the page in a minute. A new link is not needed.",
+  onboarding_lookup_failed:
+    "Your account could not be looked up just now. You are still signed in, so reload the page in a minute.",
+  tenant_missing:
+    "This sign in is not attached to a workspace yet. Create one from the signup page to get started.",
+  link_invalid: "That sign-in link is expired or already used. Request a fresh one below.",
+  missing_code: "That sign-in link is incomplete. Request a fresh one below.",
+  session_missing_after_exchange:
+    "Signing in did not finish. Request a fresh link below and open it in this browser.",
 };
 const LOGIN_ERROR_FALLBACK =
   "Signing you in could not finish just now. Request a fresh link below and try again.";

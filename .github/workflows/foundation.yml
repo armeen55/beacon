@@ -1,14 +1,12 @@
 name: foundation
 
-# The bloat firewall in CI. Fails a PR/push that grows the repo past its
-# budgets (LOC, routes, domains, giant files, public API, deps) or breaks the
-# retained behavioral tests, typecheck, or build. Keeps Beacon from regrowing
-# to 500k. See foundation-budget.json + scripts/check-foundation-budget.mjs.
+# The bloat firewall, on demand only. The full gate (guard + typecheck + tests +
+# build) runs locally before every push, so running it again on every push spent
+# Actions minutes re-proving the same SHA. Trigger manually from the Actions tab
+# when an independent check is wanted. See foundation-budget.json.
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   foundation:

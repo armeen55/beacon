@@ -3,9 +3,8 @@
  *  show an EARLIER completed step (or step 7 once connections are reached); every mutation re-checks its own
  *  prerequisites server-side, so a URL cannot skip ahead. An active account with nothing missing goes home. */
 
-import { redirect } from "next/navigation";
-import { getTenant, requireOnboardingTenant } from "@/domains/account";
-import { loadOnboardingState, setupGap } from "@/domains/runtime";
+import { requireOnboardingTenant } from "@/domains/account";
+import { loadOnboardingState } from "@/domains/runtime";
 import { OnboardWizard, type FirstFindings } from "./onboard-wizard";
 
 export const dynamic = "force-dynamic";
@@ -22,16 +21,10 @@ export default async function OnboardPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   // AN ACTIVE ACCOUNT MAY LAND HERE, and it has to: the product guard sends one back when its setup truth is genuinely missing
-  // (see account/lifecycle requireReadyAccount), and a gate that bounced every active account home would put those two redirects
-  // in a loop. One that has nothing missing is still sent home, exactly as before.
+  // (see account/lifecycle), and a gate that bounced every active account home would put those two redirects in a loop. The door
+  // itself owns that decision now, off the one lifecycle verdict, so this page never re-derives it.
   const { tenantId } = await requireOnboardingTenant({ allowActive: true });
   const state = await loadOnboardingState(tenantId);
-  // An active account goes home only when NOTHING is actually missing. Sending it home on step 6 alone bounced
-  // the one case this page exists for: terms nobody accepted are owed at step 7, and the guard sends it back.
-  if (state.status === "active") {
-    const account = await getTenant(tenantId).catch(() => null);
-    if (account && (await setupGap(tenantId, account).catch(() => ({ step: 1 as const }))) == null) redirect("/?notice=already_launched");
-  }
 
   const requested = clampStep((await searchParams).step);
   const current = state.currentStep;

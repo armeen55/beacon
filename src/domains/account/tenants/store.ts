@@ -1,13 +1,14 @@
 /**
- * Account store — reads for the canonical Account record.
+ * Account store: reads for the canonical Account record.
  *
  * Production reads go through Supabase (`tenants` table) only, and every
  * resolution is an account-scoped query (`eq`), never a load-every-account
  * scan. No account enumeration exists: one login resolves one account, and
- * visit-driven work runs only for the authenticated current account. A
- * missing or unreadable registry resolves to "no account", never to a
- * default or another business. Tests inject an in-memory repository via
- * setAccountRepositoryForTests.
+ * visit-driven work runs only for the authenticated current account. A missing
+ * row resolves to "no account", never to a default or another business, and a
+ * read that FAILED resolves there too unless the caller asked strictly, in
+ * which case it throws and stays distinguishable. Tests inject an in-memory
+ * repository via setAccountRepositoryForTests.
  */
 
 import "server-only";
@@ -15,7 +16,8 @@ import "server-only";
 import type { Account, AccountStatus } from "./types";
 
 export type AccountRepository = {
-  getAccountById(id: string): Promise<Account | null>;
+  /** `strict` asks for the THIRD answer: a read that did not come back throws instead of resolving to "no account". */
+  getAccountById(id: string, strict?: boolean): Promise<Account | null>;
   getAccountBySlug(slug: string): Promise<Account | null>;
 };
 
@@ -50,33 +52,26 @@ export function mapRowToAccount(r: Record<string, unknown>): Account {
   };
 }
 
-async function scopedRow(
-  column: "id" | "slug",
-  value: string,
-): Promise<Account | null> {
+/** THREE ANSWERS, NOT TWO: a row, `null` for a row that IS NOT THERE, and, for a caller that asked to hear it, a THROW for a read that
+ *  did not come back. Collapsing a failed read into "no account" is how a five second outage got reported as a customer who does not
+ *  exist, and how /onboard sent a perfectly valid session to /login. The soft answer stays the default because most readers genuinely
+ *  cannot act on the difference; account/lifecycle asks strictly and reports which one it got. */
+async function scopedRow(column: "id" | "slug", value: string, strict: boolean): Promise<Account | null> {
   try {
     const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
-    const { data, error } = await getSupabaseAdmin()
-      .from("tenants")
-      .select("*")
-      .eq(column, value)
-      .maybeSingle();
-    if (error) {
-      console.error(`[account/store] scoped tenants read FAILED (${column}): ${error.message}`);
-      return null;
-    }
+    const { data, error } = await getSupabaseAdmin().from("tenants").select("*").eq(column, value).maybeSingle();
+    if (error) throw new Error(error.message);
     return data ? mapRowToAccount(data as Record<string, unknown>) : null;
   } catch (e) {
-    console.error(
-      `[account/store] scoped tenants read THREW (${column}): ${e instanceof Error ? e.message : String(e)}`,
-    );
+    console.error(`[account/store] scoped tenants read FAILED (${column}): ${e instanceof Error ? e.message : String(e)}`);
+    if (strict) throw e;
     return null;
   }
 }
 
 const supabaseRepository: AccountRepository = {
-  getAccountById: (id) => scopedRow("id", id),
-  getAccountBySlug: (slug) => scopedRow("slug", slug),
+  getAccountById: (id, strict) => scopedRow("id", id, strict === true),
+  getAccountBySlug: (slug) => scopedRow("slug", slug, false),
 };
 
 let repository: AccountRepository = supabaseRepository;
@@ -86,9 +81,11 @@ export function setAccountRepositoryForTests(repo: AccountRepository | null): vo
   repository = repo ?? supabaseRepository;
 }
 
-export async function getTenant(id: string): Promise<Account | null> {
+/** `strict` is for the caller that must tell a missing account from an unreadable one (account/lifecycle). Everyone else keeps the soft
+ *  answer: null for both, exactly as before. */
+export async function getTenant(id: string, opts?: { strict?: boolean }): Promise<Account | null> {
   if (!id) return null;
-  return repository.getAccountById(id);
+  return repository.getAccountById(id, opts?.strict === true);
 }
 
 export async function getTenantBySlug(slug: string): Promise<Account | null> {

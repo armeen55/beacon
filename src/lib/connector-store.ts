@@ -55,6 +55,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { CONNECTION_LIVENESS_STALE_DAYS } from "@/domains/runtime/ops/source-freshness";
 import {
   CONNECTOR_REGISTRY,
+  COULD_NOT_CHECK,
   connectorById,
   type LiveConnectorId,
 } from "@/lib/connectors/registry";
@@ -208,7 +209,12 @@ type ConnectorToken =
   | CallRailConnectorToken
   | ClarityConnectorToken;
 
-type ConnectorStatus = "connected" | "disconnected";
+/** "unknown" (2026-08-12) is the state the read path was missing: a store read
+ *  that FAILED is not a disconnection. Nothing about the grant moved, so calling
+ *  it "disconnected" told connected customers to connect, out of a Supabase
+ *  blip. Consumers asking `status === "connected"` still get the same fail-soft
+ *  answer; the surfaces can now say the honest thing instead of the false one. */
+type ConnectorStatus = "connected" | "disconnected" | "unknown";
 
 export type ConnectorInfo = {
   status: ConnectorStatus;
@@ -304,9 +310,8 @@ export async function readConnectorToken(
   try {
     admin = getSupabaseAdmin();
   } catch {
-    // Supabase env vars are not configured in this environment. The truth is
-    // unknowable here, so report the read as failed; render-path callers
-    // (getConnectorToken) degrade this to "disconnected" as before.
+    // No Supabase env here, so the stored truth is unknowable: report the read
+    // as failed and let each caller decide what that honestly means.
     return { ok: false, reason: "store_unavailable" };
   }
   const { data, error } = await admin
@@ -318,24 +323,18 @@ export async function readConnectorToken(
 
   if (error != null) {
     if (isUndefinedTableError(error)) return { ok: true, token: null };
-    // Resilience (2026-06-17): a connector STATUS/token READ must never crash
-    // the app. getConnectorInfo runs in the shell layout on EVERY render, so a
-    // transient Supabase error (egress restriction / outage / timeout)
-    // previously threw → 500'd the WHOLE app (white screen) instead of
-    // degrading to "connect your tools". Log loudly and report the failure;
-    // getConnectorToken degrades it to null (disconnected), while write-path
-    // callers (the OAuth callback, saveConnectorToken's blank-refresh guard)
-    // treat it as "unknown" and refuse to write.
+    // Resilience (2026-06-17): a connector READ must never crash the app, and
+    // (2026-08-12) must never be reported as a disconnection either. Log loudly
+    // and hand back the failure: status renders show "could not check", write
+    // paths (OAuth callback, blank-refresh guard) refuse to write on it.
     console.warn(
-      `[connector-store] read failed for provider=${provider}, treating as disconnected (app stays up): ${(error.message ?? String(error)).slice(0, 200)}`,
+      `[connector-store] read failed for provider=${provider}, reporting could-not-check (app stays up): ${(error.message ?? String(error)).slice(0, 200)}`,
     );
     return { ok: false, reason: "read_error" };
   }
   if (data == null) return { ok: true, token: null };
   const payload = (data as { payload: unknown }).payload;
-  if (payload == null || typeof payload !== "object") {
-    return { ok: true, token: null };
-  }
+  if (payload == null || typeof payload !== "object") return { ok: true, token: null };
   return { ok: true, token: payload as ConnectorToken };
 }
 
@@ -343,10 +342,11 @@ export async function getConnectorToken(
   provider: ConnectorProvider,
   tenantId?: string,
 ): Promise<ConnectorToken | null> {
-  const r = await readConnectorToken(provider, tenantId);
-  // Read-side soft-fail preserved: render callers treat an unreadable store
-  // as "no token connected" so the app stays up. Write paths must use
+  // Soft-fail for consumers that only want a usable token. Anything that
+  // SPEAKS to a customer reads getConnectorInfo/getConnectorHealth instead, so
+  // an unreadable store is never rendered as a disconnection; write paths use
   // readConnectorToken directly and abort on ok:false.
+  const r = await readConnectorToken(provider, tenantId);
   return r.ok ? r.token : null;
 }
 
@@ -380,15 +380,13 @@ export async function getConnectorInfo(
   provider: ConnectorProvider,
   tenantId?: string,
 ): Promise<ConnectorInfo> {
-  const token = await getConnectorToken(provider, tenantId);
-  if (token == null) {
-    return {
-      status: "disconnected",
-      connected_at: null,
-      expires_at: null,
-      last_synced_at: null,
-    };
-  }
+  // The tri-state read is the substrate: "provably no row" and "the read itself
+  // failed" are DIFFERENT answers, and only the first one is a disconnection.
+  const read = await readConnectorToken(provider, tenantId);
+  const empty = { connected_at: null, expires_at: null, last_synced_at: null } as const;
+  if (!read.ok) return { status: "unknown", ...empty };
+  const token = read.token;
+  if (token == null) return { status: "disconnected", ...empty };
   if (
     token.provider === "google_gsc" ||
     token.provider === "google_gbp" ||
@@ -468,46 +466,46 @@ export async function getConnectorInfo(
  *   • "needs_attention" — connected but provably not yet delivering data,
  *                         with an actionable plain-English reason.
  *   • "not_connected"   — no token / soft-disconnected.
+ *   • "unknown"         : the check itself failed; nothing is claimed.
  *
  * RELIABILITY NOTE (deliberately conservative — honesty over coverage):
- *
- *   We only flag `needs_attention` from signals that are PROVABLE at render
- *   time by reading the persisted token row (no live HTTP):
- *     0. `auth_failed_at` set → the last sync proved the grant is dead →
- *        Reconnect (HIGHEST priority — see below).
- *     1. GA4 connected but `ga4_property_id` is null/empty → 0 rows ever.
- *     2. Connected but `last_synced_at` is null → never pulled a reading.
- *     3. Connected + `last_synced_at` older than STALE_DAYS → soft hint.
- *
- *   We still do NOT derive reconnect state from `expires_at`. OAuth *access*
- *   tokens expire hourly but the *refresh* token is what matters — so
- *   `expires_at < now` alone is NOT "needs reconnect" (the next refresh
- *   silently heals it). The only authoritative reconnect signal is a FAILED
- *   refresh. The GSC/GA4 syncs classify that failure transiently
- *   (`gsc_token_expired` / `gsc_auth_failed_*` / GA4 `token_expired`) AND now
- *   PERSIST it onto the token row as `auth_failed_at` (set on the sync's
- *   auth-failure terminal branch, cleared on a successful sync). That
- *   persisted marker is what we read here — no live HTTP, no `expires_at`
- *   guessing.
+ * `needs_attention` is flagged ONLY from signals provable at render time off
+ * the persisted token row (no live HTTP): `auth_failed_at` (a dead grant, the
+ * highest priority), GA4 with no property picked, and a genuinely old
+ * `last_synced_at`. `expires_at` is never one of them: access tokens expire
+ * hourly and the next refresh silently heals it, so only a FAILED refresh (which
+ * the syncs persist as `auth_failed_at`) is authoritative.
  */
-type ConnectorHealth = "connected" | "needs_attention" | "not_connected";
+type ConnectorHealth =
+  | "connected"
+  | "needs_attention"
+  | "not_connected"
+  // The read failed. NOT a disconnection: see the ConnectorStatus doc.
+  | "unknown";
 
 type ConnectorHealthInfo = ConnectorInfo & {
   health: ConnectorHealth;
   /** Plain-English, customer-facing, actionable. null when health is a
    *  plain "connected" or "not_connected" with nothing to say. */
   healthReason: string | null;
+  /** THE ONE CONNECTED-COUNT RULE, decided here so every counter imports the
+   *  same answer instead of re-deciding it: a source counts while its data
+   *  still flows. "needs_attention" COUNTS (a stale or failing grant still
+   *  serves its cached readings until the token dies, and the card says so on
+   *  its own); "not_connected" and "unknown" do not (one has no grant, the
+   *  other has no answer). */
+  countsAsConnected: boolean;
 };
 
-/**
- * Connected-but-no-data is more than this many days stale → soft hint. Wave 3A
- * reconciliation: this is a SYNC-age connection-liveness threshold ("is this connection
- * still alive"), DISTINCT from the per-source DATA-age SLA (gsc 3d, clarity 7d)
- * that decides whether a source's numbers are current. Both now live in ONE module
- * (src/domains/runtime/ops/source-freshness.ts): the data-age SLA is SOURCE_SLA, this liveness
- * threshold is CONNECTION_LIVENESS_STALE_DAYS, so the three old scattered constants
- * (this 14, the strip's 24h, golden-path's 2d) can never drift apart again.
- */
+/** The verdict before that rule is applied (applied in exactly one place,
+ *  `getConnectorHealth`, so no caller can restate it). */
+type ConnectorHealthVerdict = Omit<ConnectorHealthInfo, "countsAsConnected">;
+
+/** Connected-but-no-data is more than this many days stale → soft hint. A
+ *  SYNC-age liveness threshold ("is this connection still alive"), DISTINCT from
+ *  the per-source DATA-age SLA (SOURCE_SLA) that decides whether a source's
+ *  numbers are current. Both live in src/domains/runtime/ops/source-freshness.ts
+ *  so the old scattered constants can never drift apart again. */
 const STALE_DAYS = CONNECTION_LIVENESS_STALE_DAYS;
 
 /** Providers that require a per-source selection before any data can flow.
@@ -531,29 +529,43 @@ function formatSinceDate(iso: string | null | undefined): string | null {
   });
 }
 
-/**
- * Derive honest health for a single provider from its persisted token row.
- * Fail-soft: a token-store read error degrades to `not_connected` (never
- * throws, never blocks a render). Tenant-scoping is preserved end-to-end via
- * `getConnectorInfo` → `getConnectorToken`.
- */
+/** Derive honest health for one provider from its persisted token row. Never
+ *  throws, never blocks a render: a read failure reports `unknown`, not a
+ *  disconnection. Tenant-scoping is preserved through `getConnectorInfo`. */
 export async function getConnectorHealth(
   provider: ConnectorProvider,
   tenantId?: string,
   now: number = Date.now(),
 ): Promise<ConnectorHealthInfo> {
+  const verdict = await deriveConnectorHealth(provider, tenantId, now);
+  return {
+    ...verdict,
+    countsAsConnected:
+      verdict.health === "connected" || verdict.health === "needs_attention",
+  };
+}
+
+async function deriveConnectorHealth(
+  provider: ConnectorProvider,
+  tenantId?: string,
+  now: number = Date.now(),
+): Promise<ConnectorHealthVerdict> {
+  const unreadable = {
+    connected_at: null,
+    expires_at: null,
+    last_synced_at: null,
+    healthReason: COULD_NOT_CHECK,
+  } as const;
   let info: ConnectorInfo;
   try {
     info = await getConnectorInfo(provider, tenantId);
   } catch {
-    return {
-      status: "disconnected",
-      connected_at: null,
-      expires_at: null,
-      last_synced_at: null,
-      health: "not_connected",
-      healthReason: null,
-    };
+    // The check threw. Say that, never "not connected": the stored grant is
+    // exactly as it was, and the operator's next step is to look again.
+    return { status: "unknown", health: "unknown", ...unreadable };
+  }
+  if (info.status === "unknown") {
+    return { status: "unknown", health: "unknown", ...unreadable };
   }
 
   if (info.status !== "connected") {
@@ -705,9 +717,13 @@ const REAL_DATA_SOURCE_PROVIDERS: LiveConnectorId[] = CONNECTOR_REGISTRY.map(
  * True when the tenant has at least one real data source connected.
  * The single source of truth for "is this a real (non-demo) tenant" used
  * by the shell + the Today gate so a GSC-connected (but never-CSV-imported)
- * tenant sees its real command center, not the connect-prompt. Fail-soft:
- * a token-read error counts as not-connected for that provider (never
- * blocks the render). Parallel reads (cached tokens).
+ * tenant sees its real command center, not the connect-prompt.
+ *
+ * Counts by the ONE rule (`countsAsConnected` on ConnectorHealthInfo), the same
+ * one the Today header's source count reads, so the two can never disagree:
+ * a stale-but-serving source counts, an unreadable one does not. Fail-soft:
+ * a read error counts as not-connected for that provider (never blocks a
+ * render). Parallel reads (cached tokens).
  */
 export async function hasAnyConnectedDataSource(
   tenantId?: string,
@@ -715,8 +731,7 @@ export async function hasAnyConnectedDataSource(
   const checks = await Promise.all(
     REAL_DATA_SOURCE_PROVIDERS.map(async (provider) => {
       try {
-        const info = await getConnectorInfo(provider, tenantId);
-        return info.status === "connected";
+        return (await getConnectorHealth(provider, tenantId)).countsAsConnected;
       } catch {
         return false;
       }

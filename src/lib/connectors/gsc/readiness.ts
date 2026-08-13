@@ -41,6 +41,9 @@ export type GscReadinessVerdict =
   | "ready"
   | "connected_no_data"
   | "not_connected"
+  // The connection could not be READ (store outage). Not a disconnection, and
+  // never answered with a Connect prompt: see COULD_NOT_CHECK in the registry.
+  | "unknown"
   | "needs_reconnect";
 
 type GscReadiness = {
@@ -240,13 +243,16 @@ export async function loadGscReadiness(
   };
 
   // 1/2 — connection + reconnect state (no HTTP). A token-store read failure
-  // degrades to not_connected (can't prove a connection → don't claim one).
+  // can prove NEITHER a connection nor a disconnection, so it reports unknown:
+  // claiming "not connected" told connected customers to reconnect during a
+  // store blip, which is the one thing this surface must never do.
   let info;
   try {
     info = await getConnectorInfo("google_gsc", tenantId);
   } catch {
-    return { verdict: "not_connected", ...empty };
+    return { verdict: "unknown", ...empty };
   }
+  if (info.status === "unknown") return { verdict: "unknown", ...empty };
 
   // Read coverage regardless of status so a soft-disconnected tenant still
   // surfaces its cached property + window (honest "here's what we last saw").
@@ -393,6 +399,14 @@ export function describeGscReadiness(
         detail:
           "Google access stopped working, reconnect to keep your search data fresh.",
         tone: "attention",
+      };
+    }
+    case "unknown": {
+      // The two lines read as the one COULD_NOT_CHECK sentence (registry.ts).
+      return {
+        headline: "Could not check just now",
+        detail: "The connection is unchanged. Reload to check again.",
+        tone: "idle",
       };
     }
     case "not_connected":

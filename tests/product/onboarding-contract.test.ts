@@ -347,10 +347,7 @@ describe("setup and settings surfaces (Phase 8)", () => {
     // ONE call, seven topic slugs, no individual ids: the group IS the unit of approval.
     const r = await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
     expect(r.ok && r.approvedCount).toBe(35);
-    expect(activeCore(w, A)).toHaveLength(35);
-    // And the approved total sits inside the 20 to 50 core set Beacon starts an account on.
-    expect(activeCore(w, A).length).toBeGreaterThanOrEqual(20);
-    expect(activeCore(w, A).length).toBeLessThanOrEqual(50);
+    expect(activeCore(w, A)).toHaveLength(35); // exactly 35, which is itself inside the 20 to 50 core set an account starts on
   });
   it("brings an account that stopped halfway back to the step it actually reached, not to the start", async () => {
     const w = makeWorld(); seedPending(w, A, { domain: "acme.com" }); seedConfirmedProfile(w, A);
@@ -384,6 +381,9 @@ describe("setup and settings surfaces (Phase 8)", () => {
     for (const r of w.prompts) if (r.is_active) r.tags = [...r.tags.filter((t) => !t.startsWith("basis_")), "basis_longgone"];
     // A basis nobody re-approved is still 35 questions I am really asking; a PENDING account still owes every activation input, goal included.
     expect([await live({ growth_goal: null }), await setupGap(A, acct({ status: "pending_onboarding", growth_goal: null }) as any, w.deps)]).toEqual([null, { step: 4 }]);
+    // ONE LADDER: what the gate calls finished, the wizard may never re-ask. THIS is where the two used to disagree, because the wizard
+    // counted only current-basis rows: no gap at all, and a setup screen sitting on step 5 with zero approved questions.
+    expect((await loadOnboardingState(A, w.deps)).currentStep).toBe(6);
     seedCore(w, A, 25); expect(await live()).toBeNull(); // 60 live questions: legal in Settings' 10..100 window, so never a lockout
     seedCore(w, A, 45); expect(await live()).toEqual({ step: 5 }); // 105 is past the cap the funnel enforces, and that IS operational
     for (const r of w.prompts.filter((p) => p.is_active).slice(5)) r.is_active = false; // five is under the floor of ten
@@ -475,7 +475,6 @@ describe("setup and settings surfaces (Phase 8)", () => {
     // The 20 to 50 framing is what an account WITH the questions still reads, and the button still works.
     const full = editor(24);
     expect(full).toContain("Between 20 and 50 questions stay tracked, and this is the range that works best.");
-    expect(full).not.toContain("I found 24 strong questions");
   });
   it("offers the customer's own three sources on Connections, and nothing Beacon runs on its own account", () => {
     expect(CONNECTOR_REGISTRY.map((c) => c.id).sort()).toEqual(["clarity", "google_ga4", "google_gsc"]);

@@ -10,6 +10,7 @@ const supabaseState = vi.hoisted(() => ({
   tenantMembersError: null as { message: string } | null,
   tenantQueryThrows: false,
   authHangs: false,
+  authError: null as { status: number } | null,
   tenantHangs: false,
 }));
 const NEVER = new Promise<never>(() => {});
@@ -19,7 +20,7 @@ vi.mock("@supabase/ssr", () => ({
       getUser: () =>
         supabaseState.authHangs
           ? NEVER
-          : Promise.resolve({ data: { user: supabaseState.user }, error: null }),
+          : Promise.resolve({ data: { user: supabaseState.user }, error: supabaseState.authError }),
     },
     from: (_table: string) => ({
       select: (_cols: string) => {
@@ -75,12 +76,7 @@ const REQUIRED_ENV = {
 };
 describe("middleware account injection — one login, one account, fail-closed", () => {
   beforeEach(() => {
-    supabaseState.user = null;
-    supabaseState.tenantMembersRows = [];
-    supabaseState.tenantMembersError = null;
-    supabaseState.tenantQueryThrows = false;
-    supabaseState.authHangs = false;
-    supabaseState.tenantHangs = false;
+    Object.assign(supabaseState, { user: null, tenantMembersRows: [], tenantMembersError: null, tenantQueryThrows: false, authHangs: false, authError: null, tenantHangs: false });
     process.env.NEXT_PUBLIC_SUPABASE_URL = REQUIRED_ENV.NEXT_PUBLIC_SUPABASE_URL;
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = REQUIRED_ENV.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     delete process.env.BEACON_AUTH_DISABLED;
@@ -106,7 +102,10 @@ describe("middleware account injection — one login, one account, fail-closed",
     { name: "a membership query that THREW says busy rather than verdicting the account", state: { tenantQueryThrows: true }, cookie: "tenant-forged", status: 503, noLocation: true, not: "tenant-forged" },
     { name: "a membership query that HUNG says busy with no 504, no login bounce and no cookie honoured", state: { tenantHangs: true }, cookie: "tenant-forged", status: 503, noLocation: true, not: "tenant-forged" },
     { name: "a valid single membership ignores a cookie naming another account, so A can never reach B", rows: ["tenant-a"], cookie: "tenant-b", status: 200, injected: "tenant-a", expired: true },
-    { name: "an auth lookup that HUNG degrades to the login redirect, never a 504", state: { authHangs: true }, noUser: true, location: "/login" },
+    // AN AUTH READ THAT DID NOT ANSWER IS NOT A SIGNED-OUT USER: with no session cookie it is a plain signed-out visitor, and with one in hand signing them out over a slow provider IS the bug, so it reconnects like the account check.
+    { name: "an auth read that HUNG with no session cookie is a plain signed-out login redirect, never a 504", state: { authHangs: true }, noUser: true, location: "/login" },
+    { name: "an auth read that HUNG with a session cookie present says busy, never signing a valid session out", state: { authHangs: true }, noUser: true, headers: { cookie: "sb-projectref-auth-token.0=session-value" }, status: 503, noLocation: true },
+    { name: "a 4xx from the auth provider IS a verdict: an expired session with its stale cookie still present gets the clean login redirect, never the retry ladder", state: { authError: { status: 400 } }, noUser: true, headers: { cookie: "sb-projectref-auth-token.0=stale-value" }, location: "/login" },
     { name: "an unauthenticated private path redirects to login carrying where it was going", path: "/changes", noUser: true, location: "/login?next=%2Fchanges" },
     { name: "local auth-disabled mode takes the env account only: no spoofed header, no cookie choice", env: true, headers: { "x-beacon-tenant": "tenant-attacker", cookie: "beacon_tenant=tenant-cookie-choice" }, status: 200, not: "tenant-attacker", expired: true },
   ] as Array<{ name: string; rows?: string[]; state?: Partial<typeof supabaseState>; noUser?: boolean; env?: boolean; path?: string;
@@ -162,9 +161,9 @@ describe("middleware account injection — one login, one account, fail-closed",
     expect(first.status).toBe(200);
     expect(first.headers.get("location"), "the first failure must not verdict the account").toBeNull();
     expect(await first.text()).toContain("reloads by itself");
-    expect(cookieValue(first, "beacon_acct_retry")).toBe("1");
+    expect(cookieValue(first, "beacon_acct_retry")).toBe("account_check_failed");
 
-    const second = await updateSession(makeRequest("/changes", { headers: { accept: "text/html", cookie: "beacon_acct_retry=1" } }));
+    const second = await updateSession(makeRequest("/changes", { headers: { accept: "text/html", cookie: "beacon_acct_retry=account_check_failed" } }));
     expect(second.status).toBeGreaterThanOrEqual(300);
     const location = second.headers.get("location") ?? "";
     expect(location).toContain("error=account_check_failed");

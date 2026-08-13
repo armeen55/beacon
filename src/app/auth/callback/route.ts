@@ -35,9 +35,11 @@ export async function GET(request: NextRequest) {
   const supabase = await getSupabaseServerClient();
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
-    return NextResponse.redirect(
-      `${origin}/login?error=${encodeURIComponent(error.message)}`,
-    );
+    // THE PROVIDER'S OWN WORDS NEVER TRAVEL IN THE URL. "AuthApiError: invalid flow state, no valid flow state
+    // found" rendered on the sign-in screen reads as a bug report and tells the customer nothing to do. The
+    // detail is logged where support can read it; the customer gets one known code with one next step.
+    console.error("[auth/callback] code exchange failed:", error.message);
+    return NextResponse.redirect(`${origin}/login?error=link_invalid`);
   }
 
   // Resolve the just-authenticated user so we can decide whether to
@@ -46,7 +48,7 @@ export async function GET(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    // Auth exchange said OK but session is empty — extremely unusual.
+    // Auth exchange said OK but session is empty, which is extremely unusual.
     // Fail closed to /login so the user can retry.
     return NextResponse.redirect(
       `${origin}/login?error=session_missing_after_exchange`,
@@ -88,7 +90,7 @@ export async function GET(request: NextRequest) {
   try {
     const access = await resolveAccountAccess(provision.tenantId);
     if (access.kind === "incomplete") {
-      return NextResponse.redirect(`${origin}/onboard`);
+      return NextResponse.redirect(`${origin}/onboard${access.step ? `?step=${access.step}` : ""}`);
     }
   } catch (e) {
     console.error("[auth/callback] lifecycle read failed:", e);

@@ -184,6 +184,16 @@ export const CONNECTOR_REGISTRY: readonly ConnectorRegistryEntry[] = [
   },
 ] as const;
 
+/**
+ * THE ONE could-not-check sentence, shared by every surface that can fail to
+ * READ a connection (the health rollup, the connector card, the GSC readiness
+ * line). A check that failed is NOT a disconnection: nothing about the grant
+ * moved, so the screen must never answer it with "Not connected" or a Connect
+ * button. Isomorphic, so the server composes it and the client renders it.
+ */
+export const COULD_NOT_CHECK =
+  "Could not check just now. The connection is unchanged. Reload to check again.";
+
 /** Registry entry by connector-store provider id (undefined for a legacy/
  *  non-live provider such as yelp/callrail/google_gbp). */
 export function connectorById(id: string): ConnectorRegistryEntry | undefined {
@@ -205,6 +215,10 @@ export type ConnectorRollupFact = {
   /** Connected BUT provably not delivering: GA4 ingest failures, never-synced,
    *  long-stale, a dead grant. Only meaningful when `connected` is true. */
   needsAttention: boolean;
+  /** The CHECK itself failed (the token store could not be read), so this
+   *  source's state is unknown. It is neither connected nor disconnected here:
+   *  a smaller count would be a claim nothing can back. */
+  unknown?: boolean;
 };
 
 export type ConnectorRollup = {
@@ -214,6 +228,9 @@ export type ConnectorRollup = {
   connectedCount: number;
   /** How many of the connected ones are impaired (see ConnectorRollupFact). */
   needsAttentionCount: number;
+  /** How many could not be checked at all. Counted separately so a failed read
+   *  never shrinks the connected number and never reads as a disconnection. */
+  unknownCount: number;
   /** The headline: e.g. "3 of 3 connected, 2 need attention" (or just
    *  "3 of 3 connected" when none are impaired). */
   headline: string;
@@ -234,26 +251,31 @@ export function rollupConnectors(
   const needsAttentionCount = facts.filter(
     (f) => f.connected && f.needsAttention,
   ).length;
+  const unknownCount = facts.filter((f) => f.unknown === true).length;
 
   // Noun plural ("source" -> "sources") gets an "s" for >1; the VERB "need"
   // inverts ("2 need", but "1 needs"), so it gets an "s" only when singular.
   const nounS = (n: number) => (n === 1 ? "" : "s");
   const verbS = (n: number) => (n === 1 ? "s" : "");
-  const headline =
-    needsAttentionCount > 0
-      ? `${connectedCount} of ${total} connected, ${needsAttentionCount} need${verbS(needsAttentionCount)} attention`
-      : `${connectedCount} of ${total} connected`;
+  const bits = [`${connectedCount} of ${total} connected`];
+  if (needsAttentionCount > 0)
+    bits.push(`${needsAttentionCount} need${verbS(needsAttentionCount)} attention`);
+  // A source that could not be read is stated, never subtracted in silence.
+  if (unknownCount > 0) bits.push(`${unknownCount} could not be checked`);
+  const headline = bits.join(", ");
 
   let subline: string;
-  if (needsAttentionCount > 0) {
-    subline = `${needsAttentionCount} connected source${nounS(needsAttentionCount)} ${needsAttentionCount === 1 ? "is" : "are"} not delivering data yet. Open the flagged cards below to fix ${needsAttentionCount === 1 ? "it" : "them"}.`;
+  if (unknownCount > 0 && needsAttentionCount === 0) {
+    subline = `${unknownCount} source${nounS(unknownCount)} could not be checked just now. Nothing about ${unknownCount === 1 ? "it" : "them"} changed. Reload to check again.`;
+  } else if (needsAttentionCount > 0) {
+    subline = `${needsAttentionCount} connected source${nounS(needsAttentionCount)} ${needsAttentionCount === 1 ? "is" : "are"} not delivering data yet. Open the flagged cards below to fix ${needsAttentionCount === 1 ? "it" : "them"}.${unknownCount > 0 ? ` ${unknownCount} other source${nounS(unknownCount)} could not be checked just now, and nothing about ${unknownCount === 1 ? "it" : "them"} changed.` : ""}`;
   } else if (connectedCount === 0) {
-    subline = "Connect a source below and I can start telling you what to do next.";
+    subline = "Connect a source below to see what to do next.";
   } else if (connectedCount < total) {
     subline = "Everything you have connected is delivering data. Connect the rest to unlock more.";
   } else {
     subline = "Everything is connected and delivering data.";
   }
 
-  return { total, connectedCount, needsAttentionCount, headline, subline };
+  return { total, connectedCount, needsAttentionCount, unknownCount, headline, subline };
 }

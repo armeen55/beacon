@@ -113,7 +113,8 @@ export type OnboardingState = {
       prompts: Array<{ id: string; text: string; recommended: boolean; approved: boolean }>;
     }>;
   };
-  connections: Array<{ kind: ConnectorProvider; connected: boolean; lastSyncedAt: string | null }>;
+  /** `connected` is TRI-STATE: "unknown" means the source could not be checked just now, which is not the same fact as disconnected. */
+  connections: Array<{ kind: ConnectorProvider; connected: boolean | "unknown"; lastSyncedAt: string | null }>;
   /** Step 7 first-look preview, composed from crawl facts behind the facade so the page never imports the scanner. */
   findings: { firstWin: { action: string; plainWhy: string; exactFix: string; url: string } | null };
 };

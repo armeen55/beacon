@@ -35,36 +35,37 @@ describe("what a stale source is allowed to open on its own", () => {
 describe("syncSucceeded (audit-3 #5)", () => {
   it("treats { synced: true } as success and { synced: false } as failure with reason", () => {
     expect(syncSucceeded({ synced: true, rows_upserted: 12 })).toEqual({ ok: true }); const v = syncSucceeded({ synced: false, reason: "no_token" });
-    expect([v.ok, v.ok ? null : v.reason]).toEqual([false, "no_token"]);
-  });
+    expect([v.ok, v.ok ? null : v.reason]).toEqual([false, "no_token"]); });
   it("regression: the old { ok: false } shape and unrecognized shapes are NOT success", () => {
-    expect([syncSucceeded({ ok: false }).ok, syncSucceeded({}).ok, syncSucceeded(null).ok, syncSucceeded("synced").ok]).toEqual([false, false, false, false]);
-  });
+    expect([syncSucceeded({ ok: false }).ok, syncSucceeded({}).ok, syncSucceeded(null).ok, syncSucceeded("synced").ok]).toEqual([false, false, false, false]); });
 });
 // ───────── Clarity Data Export parser ─────────
 const CLARITY_SAMPLE = [
   { metricName: "Traffic", information: [{ totalSessionCount: "120", Url: "https://x.com/a" }, { totalSessionCount: "40", Url: "https://x.com/b" }] },
-  { metricName: "RageClickCount", information: [{ subTotal: 7, Url: "https://x.com/a" }] },
-  { metricName: "DeadClickCount", information: [{ subTotal: 3, Url: "https://x.com/b" }] },
-];
-function mockClarityFetch(body: unknown, ok = true) {
-  vi.stubGlobal("fetch", vi.fn(async () => ({ ok, status: ok ? 200 : 403, json: async () => body })));
-}
+  { metricName: "RageClickCount", information: [{ subTotal: 7, Url: "https://x.com/a" }] }, { metricName: "DeadClickCount", information: [{ subTotal: 3, Url: "https://x.com/b" }] }];
+const mockClarityFetch = (body: unknown, ok = true) => vi.stubGlobal("fetch", vi.fn(async () => ({ ok, status: ok ? 200 : 403, json: async () => body })));
 describe("fetchClarityUrlMetrics", () => {
   it("groups metrics by URL across the metric array (happy path)", async () => {
     mockClarityFetch(CLARITY_SAMPLE); const out = await fetchClarityUrlMetrics({ tenantId: "t" }); const a = out!.find((m) => m.url === "https://x.com/a")!;
-    expect([a.sessions, a.rageClicks, out!.find((m) => m.url === "https://x.com/b")!.deadClicks]).toEqual([120, 7, 3]);
-  });
+    expect([a.sessions, a.rageClicks, out!.find((m) => m.url === "https://x.com/b")!.deadClicks]).toEqual([120, 7, 3]); });
   it("fail-softs to null on non-2xx and on missing token (fail-closed, no fabricated metrics)", async () => {
     mockClarityFetch(CLARITY_SAMPLE, false); expect(await fetchClarityUrlMetrics({ tenantId: "t" })).toBeNull();
-    state.clarityToken = null; mockClarityFetch(CLARITY_SAMPLE, true);
-    expect(await fetchClarityUrlMetrics({ tenantId: "t" })).toBeNull();
-  });
+    state.clarityToken = null; mockClarityFetch(CLARITY_SAMPLE, true); expect(await fetchClarityUrlMetrics({ tenantId: "t" })).toBeNull(); });
 });
 // A CONNECTIONS FAILURE IS THE OPERATOR'S OWN SENTENCE, never the exception's: raw store and network messages used to reach the screen as if they were advice.
 describe("what Connections says when something goes wrong", () => {
   it("hands back plain language instead of the raw error", async () => {
     const { getGoogleAuthUrl } = await import("@/app/(shell)/settings/connectors/actions");
-    expect(await getGoogleAuthUrl("gsc")).toEqual({ url: null, error: "The Google sign in could not start just now. Try again in a moment." });
-  });
+    expect(await getGoogleAuthUrl("gsc")).toEqual({ url: null, error: "The Google sign in could not start just now. Try again in a moment." }); });
+  // A CHECK THAT FAILED IS NOT A DISCONNECTION: an unreadable store used to render "Not connected" plus a Connect button at a customer whose grant never moved.
+  it("an unreadable token store is the could-not-check state, never not_connected", async () => {
+    vi.resetModules(); vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { throw new Error("supabase unreachable"); } }));
+    const store = await vi.importActual<typeof import("@/lib/connector-store")>("@/lib/connector-store");
+    const h = await store.getConnectorHealth("google_gsc", "t1"); vi.doUnmock("@/lib/persistence/supabase");
+    expect([h.status, h.health, h.healthReason, h.countsAsConnected]).toEqual(["unknown", "unknown", "Could not check just now. The connection is unchanged. Reload to check again.", false]); });
+  // Beacon's insides are never advice: no line a customer can read names a server setting or where Beacon runs.
+  it("no customer-facing line names an environment variable or the host", async () => {
+    const { readFileSync } = await import("node:fs");
+    for (const f of ["src/app/(shell)/settings/connectors/connectors-client.tsx", "src/app/(shell)/settings/connectors/actions.ts"])
+      expect(readFileSync(f, "utf8").split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n")).not.toMatch(/GOOGLE_|NEXT_PUBLIC_|Vercel/); });
 });

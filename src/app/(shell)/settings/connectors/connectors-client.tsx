@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ConnectorInfo } from "@/lib/connector-store";
-import { CONNECTOR_REGISTRY, type ConnectorRollup } from "@/lib/connectors/registry";
+import { CONNECTOR_REGISTRY, COULD_NOT_CHECK, type ConnectorRollup } from "@/lib/connectors/registry";
 import type { Ga4Property } from "@/lib/connectors/ga4/types";
 import { Pill } from "@/components/ui/pill";
 import {
@@ -24,71 +24,56 @@ import type { ConnectorSyncNowResult } from "./actions";
 
 type Props = {
   google: ConnectorInfo;
-  /** Slice 9.A1β (2026-05-18), GA4 connector status. Mirrors the
-   *  GSC props shape (status, expires_at, ga4_property_id, etc.). */
+  /** Slice 9.A1β (2026-05-18), GA4 connector status. Mirrors the GSC shape. */
   ga4: ConnectorInfo;
   clarity: ConnectorInfo;
-  /** J5 (2026-05-18), pre-rendered "GSC data last refreshed X days
-   *  ago. Reconnect to refresh." copy. Computed server-side in
-   *  page.tsx so the formatting helper stays `server-only`. Present
-   *  only when the GSC connector has a non-null `expires_at` (i.e.,
-   *  the operator previously authorized the connector at some
-   *  point) AND status is "disconnected". `null` otherwise. */
+  /** J5 (2026-05-18), pre-rendered "GSC data last refreshed X days ago.
+   *  Reconnect to refresh." copy, composed server-side in page.tsx (the
+   *  formatter is server-only). Null unless GSC is disconnected after having
+   *  been authorized at some point. */
   gscStaleCopy?: string | null;
-  /** MAX_SEO_AEO Phase 4 (2026-06-16), pre-composed GSC readiness for the
-   *  card: the resolved property (the one synced data landed under, derived
-   *  from the tenant's own rows, never hardcoded), a plain-English
-   *  headline/detail, a hard not-ready verdict, and a tone for styling. All
-   *  computed server-side in page.tsx (the loader is server-only + does no live
-   *  Google call). Always present (the page soft-fails to a not_connected
-   *  shape) so the card can always render an honest readiness line. */
+  /** MAX_SEO_AEO Phase 4 (2026-06-16), pre-composed GSC readiness for the card:
+   *  the resolved property (derived from the tenant's own synced rows, never
+   *  hardcoded), a plain-English headline/detail, the verdict, and a tone.
+   *  Composed server-side (no live Google call), always present, so the card
+   *  always has an honest readiness line to render. */
   gscReadiness?: {
     verdict:
       | "ready"
       | "connected_no_data"
       | "not_connected"
+      | "unknown"
       | "needs_reconnect";
     headline: string;
     detail: string;
     tone: "ready" | "attention" | "idle";
     property: string | null;
   };
-  /** R17a (v1 266), pre-composed missing-days line for the GSC card, e.g.
-   *  "I am missing 2 days of Google data between Jun 14 and Jun 15. I will
-   *  re-pull them automatically while you use Beacon." Computed server-side
-   *  in page.tsx from the same daily totals the sync writes. Null when
-   *  nothing is missing inside the covered range (the card renders exactly
-   *  as before). */
+  /** R17a (v1 266), pre-composed missing-days line for the GSC card (days
+   *  missing INSIDE the covered range, and that they get re-pulled). Composed
+   *  server-side from the same daily totals the sync writes; null when the
+   *  range is complete. */
   gscGapLine?: string | null;
-  /** Slice 9.A1β (2026-05-18), pre-rendered "Google Analytics data
-   *  last refreshed X days ago" copy. Computed server-side in
-   *  page.tsx. Present only when the GA4 connector has a non-null
-   *  `expires_at` AND status is "disconnected". `null` otherwise. */
+  /** Slice 9.A1β (2026-05-18), pre-rendered "Google Analytics data last
+   *  refreshed X days ago" copy. Null unless GA4 is disconnected after having
+   *  been authorized. */
   ga4StaleCopy?: string | null;
-  /** FP10a (2026-07-02), summary strip counts: how many of the self-serve
-   *  sources (GSC, GA4, Clarity) are connected right now,
-   *  out of how many exist. Computed server-side in page.tsx. Defaults keep
-   *  older render-test callers (pre-FP10a) working without every prop. */
-  connectedCount?: number;
-  totalCount?: number;
   /** Honest connector health rollup (2026-07-20). Computed server-side in
    *  page.tsx from the SAME per-connector health the cards render, so the
    *  headline + subline count impaired sources truthfully (a connected-but-failing
    *  GA4 ingest) and can never read "3 of 3 connected" while a source is broken.
-   *  Optional so pre-existing
-   *  render-test callers keep working; when absent the strip falls back to the
-   *  bare connected count. */
-  rollup?: ConnectorRollup;
+   *  Required (2026-08-12): the old optional "bare connected count" fallback was
+   *  a second, quieter count that could disagree with this one. */
+  rollup: ConnectorRollup;
   /** BUG 3 (2026-07-11), per-source refresh-ledger facts for the "last pulled /
-   *  data through / result" strip. Keyed by ledger source name (gsc/ga4/
-   *  clarity). Computed server-side in page.tsx from latestRefreshBySource.
-   *  Optional + self-hiding so pre-BUG3 render-test callers are unaffected. */
+   *  data through / result" strip, keyed by ledger source name. Composed
+   *  server-side from latestRefreshBySource; self-hiding when absent. */
   refreshLedger?: RefreshLedgerFacts;
 };
 
-/** BUG 3 (2026-07-11) per-source refresh-ledger fact for one source, as the
- *  page hands it to the client (plain, serializable). */
-export type RefreshLedgerFact = {
+/** BUG 3 (2026-07-11) one source's refresh-ledger fact, as the page hands it to
+ *  the client (plain, serializable). */
+type RefreshLedgerFact = {
   /** ISO 8601 timestamp of the most recent refresh of this source. */
   lastPulled: string;
   /** Newest source data date after that run (YYYY-MM-DD), or null when unknown. */
@@ -114,17 +99,23 @@ const ERROR_MESSAGES: Record<string, string> = {
   no_code: "No authorization code received from Google. Please try again.",
   invalid_state:
     "Authorization could not be verified. The connect link may have expired, please try Connect again.",
+  // WHAT BROKE IS NOT THE CUSTOMER'S BUSINESS TO FIX. This used to name two
+  // server settings by their variable names, which reads as an instruction the
+  // operator cannot follow. The exact Google error code stays where it is
+  // useful: the server log at the callback route.
   exchange_failed:
-    "Failed to complete authorization with Google. Check that GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set correctly.",
+    "Google could not finish connecting. This one is on Beacon's side, and nothing about your connection changed. Try Connect again in a few minutes.",
   persistence_failed:
     "Authorization succeeded but Beacon could not save the connection. Please try again, or contact support if it persists.",
   env_missing:
     "The Google connection cannot start right now. This one is on Beacon's side. Try again in a few minutes.",
-  // #213, the callback emits ?error=not_authorized when Google grants
-  // but the signed-in user isn't a member of the connecting account.
-  // Pre-fix this fell through to the raw "Connection error: not_authorized".
+  // #213, the callback emits ?error=not_authorized when Google grants but the
+  // signed-in user is NOT a member of the account being connected. The old copy
+  // said "you declined the permission", which is a different error entirely
+  // (that one is access_denied) and sent people to re-approve a screen they had
+  // already approved.
   not_authorized:
-    "You declined the Google permission. Try connecting again and approve access.",
+    "This Google connection belongs to a different Beacon account. Sign in with the account that owns this site, then retry.",
   // Per-tenant OAuth never-erase guard (2026-07-09): Google gave no ongoing
   // access and I could not safely keep the previous connection, so I changed
   // nothing. The fix that always works: revoke Beacon's access on the Google
@@ -143,25 +134,19 @@ const ERROR_MESSAGES: Record<string, string> = {
 const DEFAULT_ERROR_MESSAGE =
   "Couldn't connect to Google, please try again.";
 
-// 2026-06-22, when the token exchange fails, the callback forwards Google's
-// actual `error` code as ?detail=…. Turn it into the precise fix so an opaque
-// "check your creds" becomes "here's exactly what's wrong".
-const EXCHANGE_DETAIL_HINTS: Record<string, string> = {
-  invalid_client:
-    " Google rejected the app credentials, GOOGLE_CLIENT_SECRET in Vercel is wrong/missing or doesn't match GOOGLE_CLIENT_ID. Re-copy both from Google Cloud Console → Credentials into Vercel (Production scope), then redeploy.",
-  redirect_uri_mismatch:
-    " This domain's callback URL isn't registered. In Google Cloud Console → Credentials → your OAuth client, add the Authorized redirect URI https://<this-domain>/api/connectors/google/callback (and make sure NEXT_PUBLIC_APP_URL matches this domain).",
-  invalid_grant:
-    " The authorization code expired or was already used, just click Connect again.",
-  unauthorized_client:
-    " This OAuth client can't use this grant, confirm it's a 'Web application' client in Google Cloud Console.",
-  invalid_request:
-    " Google rejected the request, usually a redirect-URI or client-config mismatch.",
-};
+// (EXCHANGE_DETAIL_HINTS deleted 2026-08-12: five paragraphs of server-setup
+// instructions, naming environment variables, hosting scopes and Google Cloud
+// Console paths, appended verbatim to a customer's screen. The operator
+// diagnoses an exchange failure from the callback route's server log, which
+// carries Google's full error; the screen gets one honest sentence.)
 
-// (The old #90 ?warning=missing_refresh_token degraded-success path was
-// removed 2026-07-09: the callback now never stores a grant without a usable
-// refresh token, so it redirects with ?error=refresh_token_missing instead.)
+/** A raw exception is a fact about Beacon's insides, never advice a customer can
+ *  act on. Keep it in the browser console for whoever can use it, and hand the
+ *  screen the sentence written for it. */
+function trouble(e: unknown, copy: string): string {
+  console.warn("[connectors]", e instanceof Error ? e.message : String(e));
+  return copy;
+}
 
 function formatDate(iso: string | null): string {
   if (!iso) return "Never";
@@ -229,6 +214,25 @@ function RefreshLedgerLine({ fact }: { fact?: RefreshLedgerFact }) {
   );
 }
 
+/**
+ * A source whose CHECK failed (2026-08-12). Deliberately NOT a Connect card:
+ * nothing about the stored connection moved, so there is no button to press
+ * here and no state to undo. The only next step that is true is to look again.
+ */
+function UncheckedCard({ anchor, title }: { anchor: string; title: string }) {
+  return (
+    <div
+      id={`connector-${anchor}`}
+      data-connector-card={anchor}
+      data-connector-unchecked="true"
+      className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24 px-5 py-4"
+    >
+      <h3 className="text-[13px] font-semibold text-foreground">{title}</h3>
+      <p className="mt-1 text-[12px] text-muted-foreground">{COULD_NOT_CHECK}</p>
+    </div>
+  );
+}
+
 export function ConnectorsClient({
   google: initialGoogle,
   ga4: initialGa4,
@@ -237,8 +241,6 @@ export function ConnectorsClient({
   gscReadiness,
   gscGapLine = null,
   ga4StaleCopy = null,
-  connectedCount = 0,
-  totalCount = CONNECTOR_REGISTRY.length,
   rollup,
   refreshLedger = {},
 }: Props) {
@@ -279,9 +281,7 @@ export function ConnectorsClient({
     const err = searchParams.get("error");
     const connected = searchParams.get("connected");
     if (err) {
-      const detail = searchParams.get("detail");
-      const hint = detail ? (EXCHANGE_DETAIL_HINTS[detail] ?? "") : "";
-      setError((ERROR_MESSAGES[err] ?? DEFAULT_ERROR_MESSAGE) + hint);
+      setError(ERROR_MESSAGES[err] ?? DEFAULT_ERROR_MESSAGE);
       window.history.replaceState(null, "", "/settings/connectors");
     }
     if (connected === "google_gsc") {
@@ -311,11 +311,10 @@ export function ConnectorsClient({
       const result = await getGoogleAuthUrl();
       if (result.url) {
         window.location.href = result.url;
-      } else {
-        setError(
-          ERROR_MESSAGES.env_missing,
-        );
-      }
+        // The server action already answers in customer language (its TROUBLE
+        // copy). Throwing that away for a generic line lost the one sentence
+        // written for what actually happened.
+      } else setError(result.error ?? ERROR_MESSAGES.env_missing);
     });
   }
 
@@ -332,9 +331,7 @@ export function ConnectorsClient({
       const result = await getGoogleAuthUrl(kind, "replace");
       if (result.url) {
         window.location.href = result.url;
-      } else {
-        setError(ERROR_MESSAGES.env_missing);
-      }
+      } else setError(result.error ?? ERROR_MESSAGES.env_missing);
     });
   }
 
@@ -350,9 +347,7 @@ export function ConnectorsClient({
       const result = await getGoogleAuthUrl("ga4");
       if (result.url) {
         window.location.href = result.url;
-      } else {
-        setError(ERROR_MESSAGES.env_missing);
-      }
+      } else setError(result.error ?? ERROR_MESSAGES.env_missing);
     });
   }
 
@@ -383,7 +378,7 @@ export function ConnectorsClient({
       }
     } catch (e) {
       setGa4PropertyError(
-        e instanceof Error ? e.message : "Could not load properties.",
+        trouble(e, "Your Analytics properties could not be read just now. Try again in a moment."),
       );
     } finally {
       setGa4PropertiesLoading(false);
@@ -535,28 +530,25 @@ export function ConnectorsClient({
     });
   }
 
-  // The honest rollup (2026-07-20) is the single source of the summary counts +
-  // copy. Fall back to the bare connected count only when a legacy caller omits
-  // it (render tests), so the strip always renders something coherent.
-  const connected = rollup?.connectedCount ?? connectedCount;
-  const total = rollup?.total ?? totalCount;
-  const needsAttention = rollup?.needsAttentionCount ?? 0;
-  const rollupHeadline =
-    rollup?.headline ?? `${connected} of ${total} connected`;
+  // The honest rollup (2026-07-20) is the ONE source of the summary counts +
+  // copy: there is no second, quieter count to disagree with it.
+  const { connectedCount: connected, total, needsAttentionCount: needsAttention, unknownCount } = rollup;
 
   // FP10a (2026-07-02) - one health color for the summary strip. A connected
   // source that is NOT delivering data (needs attention) is an "attention"
   // state, never "live" - the certified leak was a green "4 of 4" hiding a
-  // broken GA4 ingest. All connected AND all delivering is "live"; still-missing
-  // sources are "waiting"; nothing connected yet is "neutral".
+  // broken GA4 ingest. A source that could not be CHECKED is not an alarm
+  // either: it is simply not a claim, so it holds the strip at neutral.
   const summaryIntent =
     needsAttention > 0
       ? "attention"
-      : connected >= total && connected > 0
-        ? "live"
-        : connected > 0
-          ? "waiting"
-          : "neutral";
+      : unknownCount > 0
+        ? "neutral"
+        : connected >= total && connected > 0
+          ? "live"
+          : connected > 0
+            ? "waiting"
+            : "neutral";
 
   return (
     <div className="space-y-6">
@@ -570,20 +562,18 @@ export function ConnectorsClient({
         className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-border/60 bg-surface-inset/20 px-4 py-3"
         data-connectors-summary-strip="true"
       >
-        <Pill intent={summaryIntent}>{rollupHeadline}</Pill>
+        <Pill intent={summaryIntent}>{rollup.headline}</Pill>
       </div>
       {/* Honest subline (2026-07-20) - never undercounts the impaired sources;
           same rollup as the headline Pill, so the two can never disagree. */}
-      {rollup ? (
-        <p className="text-[12px] text-muted-foreground leading-relaxed">
-          {rollup.subline}
-        </p>
-      ) : null}
+      <p className="text-[12px] text-muted-foreground leading-relaxed">
+        {rollup.subline}
+      </p>
       <p className="text-[12px] text-muted-foreground leading-relaxed">
         Once a source is connected it is read in the background and turned
         into exact changes to make. Your live site is never touched. You
         apply each change in your CMS and mark it implemented, then the page
-        the lift.
+        is measured.
       </p>
 
       {error && (
@@ -605,7 +595,9 @@ export function ConnectorsClient({
       )}
 
       {/* ── Google Search Console (GSC) ── */}
-      {google.status === "connected" ? (
+      {google.status === "unknown" ? (
+        <UncheckedCard anchor="google-gsc" title="Google Search Console" />
+      ) : google.status === "connected" ? (
         <details
           id="connector-google-gsc"
           data-connector-card="google-gsc"
@@ -634,7 +626,9 @@ export function ConnectorsClient({
                     ? "Reconnect needed"
                     : gscReadiness.verdict === "connected_no_data"
                       ? "No data yet"
-                      : "Not ready"}
+                      : gscReadiness.verdict === "unknown"
+                        ? "Could not check"
+                        : "Not ready"}
                 </span>
               ) : null}
               <span className="text-[11px] font-medium text-muted-foreground group-open:hidden">
@@ -784,7 +778,9 @@ export function ConnectorsClient({
       )}
 
       {/* ── Google Analytics (GA4), Slice 9.A1β (2026-05-18) ── */}
-      {ga4.status === "connected" ? (
+      {ga4.status === "unknown" ? (
+        <UncheckedCard anchor="google-ga4" title="Google Analytics" />
+      ) : ga4.status === "connected" ? (
         <details
           id="connector-google-ga4"
           className="group rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
@@ -998,7 +994,9 @@ export function ConnectorsClient({
       )}
 
       {/* ── Microsoft Clarity, Connect-cards slice (2026-06-12) ── */}
-      {clarity.status === "connected" ? (
+      {clarity.status === "unknown" ? (
+        <UncheckedCard anchor="clarity" title="Microsoft Clarity" />
+      ) : clarity.status === "connected" ? (
         <details
           id="connector-clarity"
           className="group rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"

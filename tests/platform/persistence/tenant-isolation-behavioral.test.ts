@@ -352,10 +352,10 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       getAccountById: async () => { if (acct instanceof Error) throw acct; return acct as never; }, getAccountBySlug: async () => null });
     try {
       repo(new Error("supabase down"));
-      expect((await resolveAccountAccess("tenant-lc")).kind).toBe("unavailable");
+      expect(await resolveAccountAccess("tenant-lc")).toMatchObject({ kind: "unavailable", reason: "unreadable" }); // a read that never came back
       await expect(requireReadyAccount("tenant-lc")).rejects.toBeInstanceOf(AccountUnavailableError);
       repo(null);
-      expect((await resolveAccountAccess("tenant-lc")).kind).toBe("unavailable");
+      expect(await resolveAccountAccess("tenant-lc")).toMatchObject({ kind: "unavailable", reason: "missing" }); // NOT the same fact
       repo(withStatus({ status: "trialing" }));
       expect((await resolveAccountAccess("tenant-lc")).kind).toBe("unavailable");
       repo(withStatus({ status: "pending_onboarding" }));
@@ -363,16 +363,13 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       await expect(requireReadyAccount("tenant-lc")).rejects.toMatchObject({ digest: expect.stringContaining("/onboard") }); // every product path resumes setup
       repo(withStatus({ status: "paused" }));
       expect(await resolveAccountAccess("tenant-lc")).toMatchObject({ kind: "suspended", reason: "paused" });
+      // ACTIVE IS A STATUS, NOT PROOF OF SETUP, and AN OUTAGE IS NOT INCOMPLETENESS: with no database here the setup truth
+      // cannot be read at all, so the one verdict is the bounded retry surface and never a bounce back into setup for a
+      // customer who finished it months ago, while an account with no website at all resumes at the step that asks for one.
       repo(withStatus({ status: "active" }));
-      expect((await resolveAccountAccess("tenant-lc")).kind).toBe("ready");
-      // ACTIVE IS A STATUS, NOT PROOF OF SETUP. An account with no website at all resumes at the step that asks for one,
-      // instead of rendering every product surface off nothing.
+      expect(await resolveAccountAccess("tenant-lc")).toMatchObject({ kind: "unavailable", reason: "unreadable" });
       repo(withStatus({ status: "active", domain: "" }));
       await expect(requireReadyAccount("tenant-lc")).rejects.toMatchObject({ digest: expect.stringContaining("/onboard?step=1") });
-      // AND AN OUTAGE IS NOT INCOMPLETENESS: with no database here the setup truth cannot be read at all, so this is the
-      // bounded retry surface and never a bounce back into setup for a customer who finished it months ago.
-      repo(withStatus({ status: "active" }));
-      await expect(requireReadyAccount("tenant-lc")).rejects.toBeInstanceOf(AccountUnavailableError);
     } finally {
       store.setAccountRepositoryForTests(null);
     }

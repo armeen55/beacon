@@ -1,5 +1,5 @@
 import { getConnectorInfo, getConnectorHealth } from "@/lib/connector-store";
-import { rollupConnectors, type ConnectorRollupFact } from "@/lib/connectors/registry";
+import { CONNECTOR_REGISTRY, rollupConnectors, type ConnectorRollupFact } from "@/lib/connectors/registry";
 import { formatLastRefreshedCopy } from "@/lib/connectors/gsc/expiry-handler";
 import {
   loadGscReadiness,
@@ -92,11 +92,13 @@ async function loadConnectorsPageData() {
       gscGapLine = gapReport ? ingestionGapLine(gapReport) : null;
     }
   } catch {
+    // A loader that threw proves nothing about the connection. Say exactly that
+    // (the same words describeGscReadiness uses for its own unknown verdict);
+    // "Not connected" here was a Connect prompt fired by a Supabase blip.
     gscReadiness = {
-      verdict: "not_connected",
-      headline: "Not connected",
-      detail:
-        "Connect Google Search Console so Beacon can see what people search to find you.",
+      verdict: "unknown",
+      headline: "Could not check just now",
+      detail: "The connection is unchanged. Reload to check again.",
       tone: "idle",
       property: null,
     };
@@ -116,14 +118,6 @@ async function loadConnectorsPageData() {
           now: Date.now(),
         })
       : null;
-
-  // FP10a (2026-07-02) - one summary strip fact instead of the same three
-  // facts stated five-plus times across the page. "N of M connected" counts
-  // the three sources that render a card on this page: GSC, GA4 and Clarity.
-  const connectedCount = [googleGsc, googleGa4, clarity].filter(
-    (c) => c.status === "connected",
-  ).length;
-  const totalCount = 3;
 
   // BUG 3 (2026-07-11): per-source refresh-ledger facts for the "last pulled /
   // data through / result" strip. Read-only, fail-soft: any error self-hides the
@@ -153,41 +147,26 @@ async function loadConnectorsPageData() {
   // Honest connector health rollup (2026-07-20). The certified leak: "N of M
   // connected" counted only token presence, so it read "4 of 4 connected" while
   // GA4 ingestion was failing. The rollup counts connected-but-failing as "needs
-  // attention" too, from the SAME per-connector health the cards render, and
-  // rollupConnectors builds the ONE headline + subline both use. A source is
-  // impaired when getConnectorHealth flags it OR its last refresh-ledger run failed.
-  let rollup;
-  try {
-    const [gscHealth, ga4Health, clarityHealth] = await Promise.all([
-      getConnectorHealth("google_gsc").catch(() => null),
-      getConnectorHealth("google_ga4").catch(() => null),
-      getConnectorHealth("clarity").catch(() => null),
-    ]);
-    const facts: ConnectorRollupFact[] = [
-      {
-        id: "google_gsc",
-        connected: googleGsc.status === "connected",
-        needsAttention:
-          gscHealth?.health === "needs_attention" || refreshLedger.gsc?.result === "failed",
-      },
-      {
-        id: "google_ga4",
-        connected: googleGa4.status === "connected",
-        needsAttention:
-          ga4Health?.health === "needs_attention" || refreshLedger.ga4?.result === "failed",
-      },
-      {
-        id: "clarity",
-        connected: clarity.status === "connected",
-        needsAttention:
-          clarityHealth?.health === "needs_attention" || refreshLedger.clarity?.result === "failed",
-      },
-    ];
-    rollup = rollupConnectors(facts);
-  } catch {
-    // Fail-soft: without the rollup the client falls back to the bare connected count.
-    rollup = undefined;
-  }
+  // attention" too, from the SAME per-connector health the cards render.
+  // A health read that FAILS no longer drops out of the count in silence
+  // (2026-08-12): it is reported as a source that could not be checked, so the
+  // headline never shrinks without saying why.
+  const infos = [googleGsc, googleGa4, clarity];
+  const healths = await Promise.all(
+    CONNECTOR_REGISTRY.map((c) => getConnectorHealth(c.id).catch(() => null)),
+  );
+  const facts: ConnectorRollupFact[] = CONNECTOR_REGISTRY.map((c, i) => ({
+    id: c.id,
+    connected: infos[i]!.status === "connected",
+    needsAttention:
+      healths[i]?.health === "needs_attention" ||
+      refreshLedger[c.sourceKey]?.result === "failed",
+    unknown:
+      infos[i]!.status === "unknown" ||
+      healths[i] == null ||
+      healths[i]!.health === "unknown",
+  }));
+  const rollup = rollupConnectors(facts);
 
   // Activity fold (Phase 4B Lane 1, 2026-07-21) - /activity retired; the "recent
   // refresh history" value it delivered now renders here, sourced from the SAME
@@ -221,8 +200,6 @@ async function loadConnectorsPageData() {
     gscReadiness,
     gscGapLine,
     ga4StaleCopy,
-    connectedCount,
-    totalCount,
     rollup,
     refreshLedger,
     recentUpkeep,
@@ -255,8 +232,6 @@ export default async function ConnectorsPage() {
     gscReadiness,
     gscGapLine,
     ga4StaleCopy,
-    connectedCount,
-    totalCount,
     rollup,
     refreshLedger,
     recentUpkeep,
@@ -279,8 +254,6 @@ export default async function ConnectorsPage() {
         gscReadiness={gscReadiness}
         gscGapLine={gscGapLine}
         ga4StaleCopy={ga4StaleCopy}
-        connectedCount={connectedCount}
-        totalCount={totalCount}
         rollup={rollup}
         refreshLedger={refreshLedger}
       />
