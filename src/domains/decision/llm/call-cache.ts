@@ -130,7 +130,11 @@ export const storeCacheImpl: CacheImpl = {
     const t = requireTenant(tenantId);
     const hit = (await readAll(t)).find((r) => r.key === key) ?? null;
     if (!hit) return null;
-    // Touch lastUsedAt best-effort so the prune keeps hot entries.
+    // Touch lastUsedAt AT MOST ONCE A DAY per entry. The prune only needs day-grain recency, but this
+    // touch rewrote the whole multi-megabyte store blob on EVERY cache hit: one operator walking four
+    // pages produced seventy 2 MB writes in ten minutes and drained the database's Disk IO budget.
+    const touchedAt = Date.parse(hit.lastUsedAt ?? "");
+    if (Number.isFinite(touchedAt) && Date.now() - touchedAt < 24 * 60 * 60 * 1000) return hit;
     try {
       await mutate(t, { ...hit, lastUsedAt: new Date().toISOString() });
     } catch (e) {
